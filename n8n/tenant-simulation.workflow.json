@@ -1,0 +1,81 @@
+{
+  "name": "tenant-simulation",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-920, 0]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            { "name": "tenant_id", "value": "acme-sim" },
+            { "name": "tenant_type", "value": "single_user" },
+            { "name": "signup_event_id", "value": "sim-signup-001" }
+          ]
+        }
+      },
+      "id": "2",
+      "name": "Create Simulated Signup Payload",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [-700, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{($env.N8N_BASE_URL || 'http://localhost:5678') + '/webhook/tenant-provisioning'}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { tenant_id: $json.tenant_id, tenant_type: $json.tenant_type, signup_event_id: $json.signup_event_id } }}",
+        "options": {}
+      },
+      "id": "3",
+      "name": "Provision First Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [-480, 0],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{($env.N8N_BASE_URL || 'http://localhost:5678') + '/webhook/tenant-provisioning'}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { tenant_id: $node['Create Simulated Signup Payload'].json.tenant_id, tenant_type: $node['Create Simulated Signup Payload'].json.tenant_type, signup_event_id: $node['Create Simulated Signup Payload'].json.signup_event_id } }}",
+        "options": {}
+      },
+      "id": "4",
+      "name": "Provision Second Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [-260, 0],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nOUT=\"$ROOT/generated/draft/simulation-result.json\"\nFIRST='{{JSON.stringify($node[\"Provision First Run\"].json)}}'\nSECOND='{{JSON.stringify($node[\"Provision Second Run\"].json)}}'\nCOUNT=$(find \"$ROOT/generated/validated\" -maxdepth 1 -type d -name 'acme-sim' 2>/dev/null | wc -l | tr -d ' ')\nif [ \"$COUNT\" = \"1\" ]; then DUP=true; else DUP=false; fi\nprintf '{\"tenant_id\":\"acme-sim\",\"tenant_type\":\"single_user\",\"signup_event_id\":\"sim-signup-001\",\"first_run\":%s,\"second_run\":%s,\"workspace_count\":%s,\"duplicate_prevented\":%s}\\n' \"$FIRST\" \"$SECOND\" \"$COUNT\" \"$DUP\" > \"$OUT\"\ncat \"$OUT\""
+      },
+      "id": "5",
+      "name": "Save Simulation Results",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [-20, 0]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": { "main": [[{ "node": "Create Simulated Signup Payload", "type": "main", "index": 0 }]] },
+    "Create Simulated Signup Payload": { "main": [[{ "node": "Provision First Run", "type": "main", "index": 0 }]] },
+    "Provision First Run": { "main": [[{ "node": "Provision Second Run", "type": "main", "index": 0 }]] },
+    "Provision Second Run": { "main": [[{ "node": "Save Simulation Results", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": {},
+  "pinData": {}
+}

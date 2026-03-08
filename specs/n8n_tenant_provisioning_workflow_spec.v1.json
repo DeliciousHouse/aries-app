@@ -1,0 +1,37 @@
+{
+  "artifact_name": "n8n_tenant_provisioning_workflow",
+  "artifact_type": "workflow_spec",
+  "schema_version": "1.0.0",
+  "target": "self-hosted-n8n",
+  "workflow_file": "./n8n/tenant-provisioning.workflow.json",
+  "trigger": {
+    "type": "webhook",
+    "path": "tenant-provisioning",
+    "method": "POST"
+  },
+  "inputs": ["tenant_id", "tenant_type", "signup_event_id"],
+  "idempotency": {
+    "key_field": "signup_event_id",
+    "required": true,
+    "behavior": "reject_duplicates"
+  },
+  "steps": [
+    "validate_input",
+    "idempotency_gate",
+    "run_generator",
+    "run_validator",
+    "promote_on_pass",
+    "route_to_repair_on_fail",
+    "respond_structured_json"
+  ],
+  "generator": {
+    "command": "node --experimental-strip-types ./templates/generate_tenant_workspace.ts"
+  },
+  "validator": {
+    "command": "node --experimental-strip-types ./validators/tenant_provisioning_workspace_validator.ts"
+  },
+  "outputs": {
+    "success_fields": ["status", "tenant_id", "tenant_type", "signup_event_id", "validation_status", "promoted_path"],
+    "failure_fields": ["status", "tenant_id", "signup_event_id", "repair_routed", "repair_response"]
+  }
+}

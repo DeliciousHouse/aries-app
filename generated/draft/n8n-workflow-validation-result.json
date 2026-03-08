@@ -1,0 +1,30 @@
+{
+  "status": "pass",
+  "checked_at": "2026-03-08T04:24:31.480Z",
+  "workflows": [
+    {
+      "file": "./n8n/tenant-provisioning.workflow.json",
+      "parse_valid": true,
+      "importable_shape": true,
+      "defects": []
+    },
+    {
+      "file": "./n8n/tenant-repair.workflow.json",
+      "parse_valid": true,
+      "importable_shape": true,
+      "defects": []
+    },
+    {
+      "file": "./n8n/tenant-simulation.workflow.json",
+      "parse_valid": true,
+      "importable_shape": true,
+      "defects": []
+    }
+  ],
+  "summary": {
+    "total": 3,
+    "passed": 3,
+    "failed": 0,
+    "defects": 0
+  }
+}

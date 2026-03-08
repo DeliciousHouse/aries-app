@@ -1,0 +1,215 @@
+{
+  "name": "tenant-provisioning",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tenant-provisioning",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "1",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-1180, 0],
+      "webhookId": "tenant-provisioning"
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            { "name": "tenant_id", "value": "={{$json.body?.tenant_id || $json.tenant_id}}" },
+            { "name": "tenant_type", "value": "={{$json.body?.tenant_type || $json.tenant_type}}" },
+            { "name": "signup_event_id", "value": "={{$json.body?.signup_event_id || $json.signup_event_id}}" }
+          ]
+        }
+      },
+      "id": "2",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [-960, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            { "value1": "={{$json.tenant_id}}", "operation": "notEmpty" },
+            { "value1": "={{$json.tenant_type}}", "operation": "notEmpty" },
+            { "value1": "={{$json.signup_event_id}}", "operation": "notEmpty" }
+          ]
+        }
+      },
+      "id": "3",
+      "name": "Validate Required Input",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [-760, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'error', reason: 'invalid_input', required: ['tenant_id','tenant_type','signup_event_id'] } }}",
+        "options": { "responseCode": 400 }
+      },
+      "id": "4",
+      "name": "Respond Invalid Input",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [-540, 220]
+    },
+    {
+      "parameters": {
+        "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nKEY=\"{{$json.signup_event_id}}\"\nTENANT=\"{{$json.tenant_id}}\"\nEVENT_DIR=\"$ROOT/generated/draft/idempotency\"\nmkdir -p \"$EVENT_DIR\"\nMARKER=\"$EVENT_DIR/${KEY}.json\"\nif [ -f \"$MARKER\" ]; then\n  echo \"{\\\"duplicate\\\":true,\\\"idempotency_key\\\":\\\"$KEY\\\",\\\"tenant_id\\\":\\\"$TENANT\\\",\\\"marker_path\\\":\\\"$MARKER\\\"}\"\nelse\n  echo \"{\\\"duplicate\\\":false,\\\"idempotency_key\\\":\\\"$KEY\\\",\\\"tenant_id\\\":\\\"$TENANT\\\",\\\"marker_path\\\":\\\"$MARKER\\\"}\"\nfi"
+      },
+      "id": "5",
+      "name": "Idempotency Gate",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [-520, -20]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            { "value1": "={{$json.stdout}}", "operation": "contains", "value2": "\\\"duplicate\\\":true" }
+          ]
+        }
+      },
+      "id": "6",
+      "name": "Is Duplicate Event",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [-300, -20]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'duplicate', idempotency_key: $node['Normalize Input'].json.signup_event_id, tenant_id: $node['Normalize Input'].json.tenant_id, message: 'Duplicate signup_event_id ignored' } }}",
+        "options": { "responseCode": 200 }
+      },
+      "id": "7",
+      "name": "Respond Duplicate",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [-80, 140]
+    },
+    {
+      "parameters": {
+        "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT=\"{{$node['Normalize Input'].json.tenant_id}}\"\nTYPE=\"{{$node['Normalize Input'].json.tenant_type}}\"\nINPUT=\"$ROOT/generated/draft/${TENANT}-input.json\"\nOUT=\"$ROOT/generated/draft/$TENANT\"\nmkdir -p \"$ROOT/generated/draft\"\nprintf '{\\\"tenant_id\\\":\\\"%s\\\",\\\"tenant_type\\\":\\\"%s\\\"}\\n' \"$TENANT\" \"$TYPE\" > \"$INPUT\"\nnode --experimental-strip-types \"$ROOT/templates/generate_tenant_workspace.ts\" --input \"$INPUT\" --out \"$OUT\" > \"$ROOT/generated/draft/${TENANT}-generator-result.json\"\necho \"{\\\"status\\\":\\\"generated\\\",\\\"tenant_id\\\":\\\"$TENANT\\\",\\\"artifact_path\\\":\\\"$OUT\\\"}\""
+      },
+      "id": "8",
+      "name": "Run Generator",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [-80, -80]
+    },
+    {
+      "parameters": {
+        "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT=\"{{$node['Normalize Input'].json.tenant_id}}\"\nTARGET=\"$ROOT/generated/draft/$TENANT\"\nREPORT=\"$ROOT/generated/draft/${TENANT}-validation-result.json\"\nnode --experimental-strip-types \"$ROOT/validators/tenant_provisioning_workspace_validator.ts\" --target-root \"$TARGET\" --report \"$REPORT\" > /tmp/${TENANT}-validator-output.json || true\nnode -e \"const fs=require('fs');const r=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));process.stdout.write(JSON.stringify({status:r.status,failed_checks:r.failed_checks,defect_count:(r.defects||[]).length,report_path:process.argv[1]}));\" \"$REPORT\""
+      },
+      "id": "9",
+      "name": "Run Validator",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [140, -80],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            { "value1": "={{$json.stdout}}", "operation": "contains", "value2": "\"status\":\"pass\"" }
+          ]
+        }
+      },
+      "id": "10",
+      "name": "Validation Passed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [360, -80]
+    },
+    {
+      "parameters": {
+        "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT=\"{{$node['Normalize Input'].json.tenant_id}}\"\nKEY=\"{{$node['Normalize Input'].json.signup_event_id}}\"\nDRAFT=\"$ROOT/generated/draft/$TENANT\"\nVALID=\"$ROOT/generated/validated/$TENANT\"\nMARKER_DIR=\"$ROOT/generated/draft/idempotency\"\nmkdir -p \"$ROOT/generated/validated\" \"$MARKER_DIR\"\nrm -rf \"$VALID\"\ncp -R \"$DRAFT\" \"$VALID\"\nprintf '{\\\"duplicate\\\":true,\\\"idempotency_key\\\":\\\"%s\\\",\\\"tenant_id\\\":\\\"%s\\\",\\\"promoted_path\\\":\\\"%s\\\"}\\n' \"$KEY\" \"$TENANT\" \"$VALID\" > \"$MARKER_DIR/${KEY}.json\"\necho \"{\\\"status\\\":\\\"promoted\\\",\\\"promoted_path\\\":\\\"$VALID\\\"}\""
+      },
+      "id": "11",
+      "name": "Promote Workspace",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [580, -180]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'success', tenant_id: $node['Normalize Input'].json.tenant_id, tenant_type: $node['Normalize Input'].json.tenant_type, signup_event_id: $node['Normalize Input'].json.signup_event_id, validation_status: 'pass', promoted_path: JSON.parse($node['Promote Workspace'].json.stdout).promoted_path } }}",
+        "options": { "responseCode": 200 }
+      },
+      "id": "12",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [800, -180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{($env.N8N_BASE_URL || 'http://localhost:5678') + '/webhook/tenant-repair'}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { artifact_path: ($env.PROJECT_ROOT || '/data/aries-platform-bootstrap') + '/generated/draft/' + $node['Normalize Input'].json.tenant_id, defect_report: ($env.PROJECT_ROOT || '/data/aries-platform-bootstrap') + '/generated/draft/' + $node['Normalize Input'].json.tenant_id + '-validation-result.json', attempt: 1 } }}",
+        "options": {}
+      },
+      "id": "13",
+      "name": "Route To Repair Workflow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [580, 20],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'validation_failed', tenant_id: $node['Normalize Input'].json.tenant_id, signup_event_id: $node['Normalize Input'].json.signup_event_id, repair_routed: true, repair_response: $json } }}",
+        "options": { "responseCode": 202 }
+      },
+      "id": "14",
+      "name": "Respond Repair Routed",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [800, 20]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": { "main": [[{ "node": "Normalize Input", "type": "main", "index": 0 }]] },
+    "Normalize Input": { "main": [[{ "node": "Validate Required Input", "type": "main", "index": 0 }]] },
+    "Validate Required Input": {
+      "main": [
+        [{ "node": "Idempotency Gate", "type": "main", "index": 0 }],
+        [{ "node": "Respond Invalid Input", "type": "main", "index": 0 }]
+      ]
+    },
+    "Idempotency Gate": { "main": [[{ "node": "Is Duplicate Event", "type": "main", "index": 0 }]] },
+    "Is Duplicate Event": {
+      "main": [
+        [{ "node": "Respond Duplicate", "type": "main", "index": 0 }],
+        [{ "node": "Run Generator", "type": "main", "index": 0 }]
+      ]
+    },
+    "Run Generator": { "main": [[{ "node": "Run Validator", "type": "main", "index": 0 }]] },
+    "Run Validator": { "main": [[{ "node": "Validation Passed", "type": "main", "index": 0 }]] },
+    "Validation Passed": {
+      "main": [
+        [{ "node": "Promote Workspace", "type": "main", "index": 0 }],
+        [{ "node": "Route To Repair Workflow", "type": "main", "index": 0 }]
+      ]
+    },
+    "Promote Workspace": { "main": [[{ "node": "Respond Success", "type": "main", "index": 0 }]] },
+    "Route To Repair Workflow": { "main": [[{ "node": "Respond Repair Routed", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": {},
+  "pinData": {}
+}
