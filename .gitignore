@@ -1,0 +1,41 @@
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# Build outputs
+dist/
+build/
+generated/
+publish/*.js
+publish/*.js.map
+!publish/preflight-auth.ts
+!publish/activate-workflow.ts
+!publish/diagnose-env.ts
+
+# IDE / Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+*.log
+
+# Misc
+.cache/
+.eslintcache
+.stylelintcache
+.npm
