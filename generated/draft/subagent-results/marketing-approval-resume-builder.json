@@ -1,0 +1,40 @@
+{
+  "subagent": "marketing-approval-resume-builder",
+  "status": "completed",
+  "hard_failure": false,
+  "inputs": {
+    "shared_schema": "./specs/job_runtime_state_schema.v1.json",
+    "allowed_node_types_reference": "./skills/n8n-local-runtime/contract.json",
+    "stage_order": [
+      "research",
+      "strategy",
+      "production",
+      "publish"
+    ]
+  },
+  "outputs": {
+    "workflow_spec": "./specs/marketing_approval_resume_workflow_spec.v1.json",
+    "workflow_json": "./n8n/marketing-approval-resume.workflow.json",
+    "result": "./generated/draft/subagent-results/marketing-approval-resume-builder.json",
+    "log": "./generated/draft/subagent-logs/marketing-approval-resume-builder.md"
+  },
+  "validation": {
+    "json_parse": [
+      "./specs/marketing_approval_resume_workflow_spec.v1.json",
+      "./n8n/marketing-approval-resume.workflow.json",
+      "./generated/draft/subagent-results/marketing-approval-resume-builder.json"
+    ],
+    "node_types_used": [
+      "n8n-nodes-base.webhook",
+      "n8n-nodes-base.set",
+      "n8n-nodes-base.if",
+      "n8n-nodes-base.executeCommand",
+      "n8n-nodes-base.respondToWebhook"
+    ]
+  },
+  "notes": [
+    "Workflow resumes paused stage statuses after approval across research, strategy, production, and publish.",
+    "Workflow writes explicit stage_transitions and structured approval_resume output into job runtime JSON.",
+    "Bounded repair is limited to stage_status normalization/coercion and records repair items for auditability."
+  ]
+}

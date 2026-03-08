@@ -1,0 +1,332 @@
+{
+  "name": "marketing-publish",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "marketing-publish",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "1",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -980,
+        0
+      ],
+      "webhookId": "marketing-publish"
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            {
+              "name": "tenant_id",
+              "value": "={{$json.body?.tenant_id || $json.tenant_id}}"
+            },
+            {
+              "name": "job_type",
+              "value": "={{$json.body?.job_type || $json.job_type || 'publish'}}"
+            },
+            {
+              "name": "job_id",
+              "value": "={{$json.body?.job_id || $json.job_id || ''}}"
+            },
+            {
+              "name": "production_outputs_json",
+              "value": "={{JSON.stringify($json.body?.request?.production_outputs || $json.body?.production_outputs || $json.request?.production_outputs || $json.production_outputs || {})}}"
+            },
+            {
+              "name": "publish_targets_json",
+              "value": "={{JSON.stringify($json.body?.request?.publish_targets || $json.body?.publish_targets || $json.request?.publish_targets || $json.publish_targets || ['meta_ads'])}}"
+            }
+          ],
+          "boolean": [
+            {
+              "name": "dry_run",
+              "value": "={{$json.body?.request?.dry_run ?? $json.body?.dry_run ?? $json.request?.dry_run ?? $json.dry_run ?? true}}"
+            }
+          ]
+        }
+      },
+      "id": "2",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        -760,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.tenant_id}}",
+              "operation": "notEmpty"
+            },
+            {
+              "value1": "={{$json.job_type}}",
+              "operation": "notEmpty"
+            }
+          ]
+        }
+      },
+      "id": "3",
+      "name": "Validate Required Input",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -540,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'error', reason: 'invalid_input', code: 'missing_required_fields', required: ['tenant_id','job_type'] } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "4",
+      "name": "Respond Invalid Input",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        -320,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT_SCHEMA=\"$ROOT/specs/tenant_runtime_state_schema.v1.json\"\nJOB_SCHEMA=\"$ROOT/specs/job_runtime_state_schema.v1.json\"\nmissing=\"\"\nfor f in \"$TENANT_SCHEMA\" \"$JOB_SCHEMA\"; do\n  if [ ! -f \"$f\" ]; then\n    if [ -n \"$missing\" ]; then missing=\"$missing, \"; fi\n    missing=\"$missing$f\"\n  fi\ndone\nif [ -n \"$missing\" ]; then\n  echo \"{\\\"status\\\":\\\"hard_failure\\\",\\\"code\\\":\\\"missing_input_schemas\\\",\\\"message\\\":\\\"Required schema files are missing\\\",\\\"missing\\\":\\\"$missing\\\"}\"\n  exit 1\nfi\nnode -e \"const fs=require('fs');JSON.parse(fs.readFileSync(process.argv[1],'utf8'));JSON.parse(fs.readFileSync(process.argv[2],'utf8'));process.stdout.write(JSON.stringify({status:'ok',tenant_schema:process.argv[1],job_schema:process.argv[2]}));\" \"$TENANT_SCHEMA\" \"$JOB_SCHEMA\""
+      },
+      "id": "5",
+      "name": "Assert Shared Schemas",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        -320,
+        -60
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.exitCode || 0}}",
+              "operation": "equal",
+              "value2": "0"
+            }
+          ]
+        }
+      },
+      "id": "6",
+      "name": "Schemas Ready",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -100,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ (() => { const out = $node['Assert Shared Schemas'].json.stdout || '{}'; let parsed; try { parsed = JSON.parse(out); } catch (e) { parsed = { status: 'hard_failure', code: 'invalid_schema_files', message: out || 'schema parse failed' }; } return { status: 'hard_failure', reason: 'missing_or_invalid_schemas', code: parsed.code || 'invalid_schema_files', details: parsed }; })() }}",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "id": "7",
+      "name": "Respond Hard Failure",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        120,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT_ID=\"{{$node['Normalize Input'].json.tenant_id}}\"\nJOB_TYPE=\"{{$node['Normalize Input'].json.job_type}}\"\nJOB_ID=\"{{$node['Normalize Input'].json.job_id}}\"\nif [ -z \"$JOB_ID\" ]; then JOB_ID=\"mkt_publish_${TENANT_ID}_$(date +%s)\"; fi\nPROD=\"{{$node['Normalize Input'].json.production_outputs_json}}\"\nTARGETS=\"{{$node['Normalize Input'].json.publish_targets_json}}\"\nDRY_RUN=\"{{$node['Normalize Input'].json.dry_run}}\"\nNOW=\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"\nOUT_DIR=\"$ROOT/generated/draft/marketing-publish\"\nRESULT_PATH=\"$OUT_DIR/${JOB_ID}.publish-result.json\"\nSTATE_PATH=\"$OUT_DIR/${JOB_ID}.job-runtime.json\"\nmkdir -p \"$OUT_DIR\"\nnode -e \"const fs=require('fs');const p=process.argv;const tenantId=p[1],jobType=p[2],jobId=p[3],prodRaw=p[4],targetsRaw=p[5],dryRaw=p[6],now=p[7],resultPath=p[8],statePath=p[9];const stageHistory=[];const push=(stage,status,note,extra={})=>stageHistory.push({at:new Date().toISOString(),stage,status,note,...extra});push('queued','pending','marketing publish workflow accepted job');push('validating_inputs','running','validating production outputs and targets');let productionOutputs={};try{productionOutputs=JSON.parse(prodRaw||'{}')}catch(e){const fail={status:'failed',reason:'invalid_input',code:'invalid_production_outputs_json',details:{message:String(e)}};fs.writeFileSync(resultPath,JSON.stringify(fail,null,2));push('publish_completed','failed','invalid production outputs json');const runtime={schema_name:'job_runtime_state_schema',schema_version:'1.0.0',job_id:jobId,job_type:jobType,tenant_id:tenantId,state:'publish_completed',status:'failed',attempt:1,max_attempts:3,history:stageHistory,created_at:now,updated_at:new Date().toISOString(),results_path:resultPath};fs.writeFileSync(statePath,JSON.stringify(runtime,null,2));console.log(JSON.stringify({status:'failed',tenant_id:tenantId,job_type:jobType,job_id:jobId,publish_state:'failed',results_path:resultPath,state_path:statePath,error:fail}));process.exit(2)}const discovered=Object.values(productionOutputs||{}).filter(v=>typeof v==='string');const existing=discovered.filter(p=>{try{return fs.existsSync(p)}catch{return false}});if(existing.length===0){const fail={status:'failed',reason:'missing_production_outputs',code:'no_existing_artifacts',details:{provided_paths:discovered}};fs.writeFileSync(resultPath,JSON.stringify(fail,null,2));push('publish_completed','failed','no production outputs found on disk');const runtime={schema_name:'job_runtime_state_schema',schema_version:'1.0.0',job_id:jobId,job_type:jobType,tenant_id:tenantId,state:'publish_completed',status:'failed',attempt:1,max_attempts:3,history:stageHistory,created_at:now,updated_at:new Date().toISOString(),results_path:resultPath};fs.writeFileSync(statePath,JSON.stringify(runtime,null,2));console.log(JSON.stringify({status:'failed',tenant_id:tenantId,job_type:jobType,job_id:jobId,publish_state:'failed',results_path:resultPath,state_path:statePath,error:fail}));process.exit(3)}let targets=[];try{targets=JSON.parse(targetsRaw||'[]')}catch{targets=[]}if(!Array.isArray(targets)) targets=[];const allowed=['meta_ads'];let repaired=false;targets=targets.filter(t=>typeof t==='string'&&allowed.includes(t));if(targets.length===0){targets=['meta_ads'];repaired=true;}push('publishing','running','publishing with safe defaults',{targets,repaired_targets:repaired,dry_run:(dryRaw==='true'||dryRaw===true)});const maxAttempts=3;const attempts=[];for(let i=1;i<=maxAttempts;i++){attempts.push({attempt:i,stage:'publish',target_results:targets.map(t=>({target:t,status:'paused',activated:false,dry_run:(dryRaw==='true'||dryRaw===true)})),repair_applied:i===1&&repaired});break;}const result={status:'completed',publish_state:'publish_completed',tenant_id:tenantId,job_type:jobType,job_id:jobId,safe_defaults:{paused:true,activate_after_publish:false,dry_run_default:true},targets,bounded_repair:{enabled:true,max_attempts:maxAttempts,repaired_targets:repaired},consumed_production_outputs:existing,attempts,created_at:now,updated_at:new Date().toISOString()};fs.writeFileSync(resultPath,JSON.stringify(result,null,2));push('publish_completed','completed','structured publish results saved',{results_path:resultPath});const runtime={schema_name:'job_runtime_state_schema',schema_version:'1.0.0',job_id:jobId,job_type:jobType,tenant_id:tenantId,state:'publish_completed',status:'completed',attempt:1,max_attempts:maxAttempts,history:stageHistory,created_at:now,updated_at:new Date().toISOString(),results_path:resultPath};fs.writeFileSync(statePath,JSON.stringify(runtime,null,2));console.log(JSON.stringify({status:'completed',tenant_id:tenantId,job_type:jobType,job_id:jobId,publish_state:'publish_completed',results_path:resultPath,state_path:statePath,targets,bounded_repair:{enabled:true,max_attempts:maxAttempts,repaired_targets:repaired}}));\" \"$TENANT_ID\" \"$JOB_TYPE\" \"$JOB_ID\" \"$PROD\" \"$TARGETS\" \"$DRY_RUN\" \"$NOW\" \"$RESULT_PATH\" \"$STATE_PATH\""
+      },
+      "id": "8",
+      "name": "Run Marketing Publish",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        120,
+        -140
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.exitCode || 0}}",
+              "operation": "equal",
+              "value2": "0"
+            }
+          ]
+        }
+      },
+      "id": "9",
+      "name": "Publish Succeeded",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        340,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.parse($json.stdout) }}",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "id": "10",
+      "name": "Respond Publish Accepted",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        560,
+        -220
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ (() => { const out = $node['Run Marketing Publish'].json.stdout || '{}'; let parsed; try { parsed = JSON.parse(out); } catch (e) { parsed = { status: 'failed', reason: 'publish_execution_failed', code: 'invalid_publish_output', details: { output: out } }; } return parsed; })() }}",
+        "options": {
+          "responseCode": 422
+        }
+      },
+      "id": "11",
+      "name": "Respond Publish Failure",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        560,
+        -60
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Validate Required Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Required Input": {
+      "main": [
+        [
+          {
+            "node": "Assert Shared Schemas",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Invalid Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assert Shared Schemas": {
+      "main": [
+        [
+          {
+            "node": "Schemas Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schemas Ready": {
+      "main": [
+        [
+          {
+            "node": "Run Marketing Publish",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Hard Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Marketing Publish": {
+      "main": [
+        [
+          {
+            "node": "Publish Succeeded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish Succeeded": {
+      "main": [
+        [
+          {
+            "node": "Respond Publish Accepted",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Publish Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

@@ -1,0 +1,83 @@
+{
+  "artifact_name": "marketing_repair_workflow",
+  "artifact_type": "n8n_workflow_spec",
+  "schema_version": "1.0.0",
+  "target": "self-hosted-n8n",
+  "workflow_file": "./n8n/marketing-repair.workflow.json",
+  "trigger": {
+    "type": "webhook",
+    "path": "marketing-repair",
+    "method": "POST",
+    "response_mode": "responseNode"
+  },
+  "inputs": [
+    "tenant_id",
+    "job_id",
+    "job_runtime_path",
+    "failed_stage",
+    "defect_report",
+    "attempt",
+    "request"
+  ],
+  "repair_policy": {
+    "max_attempts": 3,
+    "patch_scope": "only_failed_stage_section",
+    "rerun_scope": "only_failed_stage",
+    "defect_reports": "structured"
+  },
+  "job_state_transitions": [
+    "repair_running",
+    "stage_patching",
+    "stage_rerun",
+    "awaiting_retry",
+    "completed",
+    "failed"
+  ],
+  "structured_status_updates": {
+    "field": "status_updates",
+    "item_shape": [
+      "at",
+      "state",
+      "status",
+      "step",
+      "details"
+    ]
+  },
+  "steps": [
+    "normalize_input",
+    "validate_required_input",
+    "patch_only_failed_stage_section",
+    "rerun_only_failed_stage",
+    "branch_on_stage_result",
+    "retry_until_max_3",
+    "respond_structured_json"
+  ],
+  "outputs": {
+    "success_fields": [
+      "status",
+      "tenant_id",
+      "job_id",
+      "job_runtime_path",
+      "failed_stage",
+      "attempt",
+      "job_state",
+      "patched_section",
+      "rerun_scope",
+      "status_updates",
+      "defect_reports"
+    ],
+    "failure_fields": [
+      "status",
+      "tenant_id",
+      "job_id",
+      "job_runtime_path",
+      "failed_stage",
+      "attempt",
+      "job_state",
+      "max_attempts_reached",
+      "status_updates",
+      "defect_reports"
+    ]
+  },
+  "allowed_node_types_reference": "./skills/n8n-local-runtime/contract.json"
+}

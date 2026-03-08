@@ -1,0 +1,45 @@
+{
+  "subagent": "marketing-repair-workflow-builder",
+  "status": "completed",
+  "hard_failure": false,
+  "inputs": {
+    "workflow_contract": "./specs/marketing_job_contract_spec.v1.json",
+    "shared_schemas": [
+      "./specs/tenant_runtime_state_schema.v1.json",
+      "./specs/job_runtime_state_schema.v1.json"
+    ],
+    "allowed_node_types_reference": "./skills/n8n-local-runtime/contract.json"
+  },
+  "outputs": {
+    "workflow_spec": "./specs/marketing_repair_workflow_spec.v1.json",
+    "workflow_json": "./n8n/marketing-repair.workflow.json",
+    "result": "./generated/draft/subagent-results/marketing-repair-workflow-builder.json",
+    "log": "./generated/draft/subagent-logs/marketing-repair-workflow-builder.md"
+  },
+  "repair_behavior": {
+    "patch_scope": "only_failed_stage_section",
+    "rerun_scope": "only_failed_stage",
+    "max_attempts": 3,
+    "defect_reports": "structured"
+  },
+  "validation": {
+    "json_parse": [
+      "./specs/marketing_repair_workflow_spec.v1.json",
+      "./n8n/marketing-repair.workflow.json",
+      "./generated/draft/subagent-results/marketing-repair-workflow-builder.json"
+    ],
+    "node_types_used": [
+      "n8n-nodes-base.webhook",
+      "n8n-nodes-base.set",
+      "n8n-nodes-base.if",
+      "n8n-nodes-base.executeCommand",
+      "n8n-nodes-base.httpRequest",
+      "n8n-nodes-base.respondToWebhook"
+    ]
+  },
+  "notes": [
+    "Repair node mutates only production.parallel_branches.{failed_stage} and leaves sibling stages untouched.",
+    "Rerun simulation is restricted to failed_stage and emits structured defect report entries on failure.",
+    "Workflow includes explicit repair state transitions and structured status_updates in persisted runtime state and response payloads."
+  ]
+}

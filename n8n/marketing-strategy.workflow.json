@@ -1,0 +1,431 @@
+{
+  "name": "marketing-strategy",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "marketing-strategy",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "1",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1160,
+        0
+      ],
+      "webhookId": "marketing-strategy"
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            {
+              "name": "tenant_id",
+              "value": "={{$json.body?.tenant_id || $json.tenant_id}}"
+            },
+            {
+              "name": "job_type",
+              "value": "={{$json.body?.job_type || $json.job_type || 'marketing_strategy'}}"
+            }
+          ],
+          "json": [
+            {
+              "name": "request",
+              "value": "={{$json.body?.request || $json.request || {}}}"
+            }
+          ]
+        }
+      },
+      "id": "2",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        -940,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.tenant_id}}",
+              "operation": "notEmpty"
+            },
+            {
+              "value1": "={{$json.job_type}}",
+              "operation": "notEmpty"
+            }
+          ]
+        }
+      },
+      "id": "3",
+      "name": "Validate Required Input",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'error', reason: 'invalid_input', code: 'missing_required_fields', required: ['tenant_id','job_type'] } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "4",
+      "name": "Respond Invalid Input",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        -500,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT_SCHEMA=\"$ROOT/specs/tenant_runtime_state_schema.v1.json\"\nJOB_SCHEMA=\"$ROOT/specs/job_runtime_state_schema.v1.json\"\nmissing=\"\"\nfor f in \"$TENANT_SCHEMA\" \"$JOB_SCHEMA\"; do\n  if [ ! -f \"$f\" ]; then\n    if [ -n \"$missing\" ]; then missing=\"$missing, \"; fi\n    missing=\"$missing$f\"\n  fi\ndone\nif [ -n \"$missing\" ]; then\n  echo \"{\\\"status\\\":\\\"hard_failure\\\",\\\"code\\\":\\\"missing_input_schemas\\\",\\\"message\\\":\\\"Required schema files are missing\\\",\\\"missing\\\":\\\"$missing\\\"}\"\n  exit 1\nfi\nnode -e \"const fs=require('fs');JSON.parse(fs.readFileSync(process.argv[1],'utf8'));JSON.parse(fs.readFileSync(process.argv[2],'utf8'));process.stdout.write(JSON.stringify({status:'ok',tenant_schema:process.argv[1],job_schema:process.argv[2]}));\" \"$TENANT_SCHEMA\" \"$JOB_SCHEMA\""
+      },
+      "id": "5",
+      "name": "Assert Shared Schemas",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        -500,
+        -80
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.exitCode || 0}}",
+              "operation": "equal",
+              "value2": "0"
+            }
+          ]
+        }
+      },
+      "id": "6",
+      "name": "Schemas Ready",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -280,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ (() => { const out = $node['Assert Shared Schemas'].json.stdout || '{}'; let parsed; try { parsed = JSON.parse(out); } catch (e) { parsed = { status: 'hard_failure', code: 'invalid_schema_files', message: out || 'schema parse failed' }; } return { status: 'hard_failure', reason: 'missing_or_invalid_schemas', code: parsed.code || 'invalid_schema_files', details: parsed }; })() }}",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "id": "7",
+      "name": "Respond Hard Failure",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT_ID=\"{{$node['Normalize Input'].json.tenant_id}}\"\nJOB_TYPE=\"{{$node['Normalize Input'].json.job_type}}\"\nREQ='{{JSON.stringify($node[\"Normalize Input\"].json.request)}}'\nNOW=\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"\nJOB_ID=\"mkt_strategy_${TENANT_ID}_$(date +%s)\"\nOUT_DIR=\"$ROOT/generated/draft/marketing-jobs\"\nOUT_PATH=\"$OUT_DIR/${JOB_ID}.json\"\nmkdir -p \"$OUT_DIR\"\nnode -e \"const fs=require('fs');const p=process.argv;const tenantId=p[1],jobType=p[2],reqRaw=p[3],now=p[4],jobId=p[5],outPath=p[6],root=p[7];const req=JSON.parse(reqRaw||'{}');const approval=(req.approval&&typeof req.approval==='object')?req.approval:{};const approved=approval.approved===true;const approvedBy=approval.approved_by||null;const approvalNote=approval.note||null;const repairAttempt=Number.isInteger(req.repair_attempt)?req.repair_attempt:1;const maxRepair=Number.isInteger(req.max_repair_attempts)?req.max_repair_attempts:3;const researchPath=(req.research_artifact_path&&String(req.research_artifact_path).trim())?String(req.research_artifact_path):`${root}/generated/draft/${tenantId}/workspaces/research/README.md`;const transitions=[];const updates=[];const push=(from,to,status,message)=>{transitions.push({from_stage:from,to_stage:to,at:now,status,message});updates.push({stage:to,status,message,at:now});};push('received','research_validated','running','Input normalized and strategy workflow started');const researchExists=fs.existsSync(researchPath);const researchContent=researchExists?fs.readFileSync(researchPath,'utf8').trim():'';const researchReady=researchExists&&researchContent.length>0;let routeStatus='awaiting_approval';let state='running';let status='running';let currentStage='awaiting_approval';let reason=null;const approvalCheckpoint={required:true,gate_before_stage:'production_ready',approved,approved_by:approvedBy,note:approvalNote};let boundedRepair={required:false,attempt:repairAttempt,max_attempts:maxRepair,remaining_attempts:Math.max(0,maxRepair-repairAttempt),trigger:null};if(!researchReady){boundedRepair.required=true;boundedRepair.trigger=researchExists?'research_artifact_empty':'research_artifact_missing';if(repairAttempt<maxRepair){routeStatus='needs_repair';state='waiting_repair';status='fail';currentStage='repair_required';reason='research_artifact_not_ready';push('research_validated','repair_required','fail','Research artifact unavailable or empty; bounded repair requested');}else{routeStatus='failed';state='failed';status='error';currentStage='repair_exhausted';reason='repair_limit_reached';push('research_validated','repair_exhausted','error','Bounded repair limit reached; strategy workflow failed');}}else{push('research_validated','strategy_drafted','running','Research artifact located and strategy draft stage completed');if(approved){routeStatus='ready_for_production';state='completed';status='pass';currentStage='production_ready';push('strategy_drafted','approval_granted','pass','Explicit approval received');push('approval_granted','production_ready','pass','Advanced to production-ready stage');}else{routeStatus='awaiting_approval';state='running';status='pending';currentStage='awaiting_approval';push('strategy_drafted','awaiting_approval','pending','Approval checkpoint open; holding before production');}}const doc={schema_name:'job_runtime_state_schema',schema_version:'1.0.0',job_id:jobId,job_type:jobType,tenant_id:tenantId,state,status,attempt:repairAttempt,max_attempts:maxRepair,inputs:{request:req,research_artifact_path:researchPath},outputs:{current_stage:currentStage,route_status:routeStatus,approval_checkpoint:approvalCheckpoint,structured_status_updates:updates,stage_transitions:transitions,bounded_repair:boundedRepair,approval_required_before_production:true,production_blocked:!approved},history:[{at:now,state:'queued',status:'pending',note:'marketing strategy workflow accepted job'},{at:now,state,status,note:`route_status=${routeStatus}; stage=${currentStage}`}],created_at:now,updated_at:now};if(reason){doc.last_error={code:routeStatus==='failed'?'repair_limit_reached':'research_artifact_not_ready',message:reason,stage:currentStage,retryable:routeStatus!=='failed'};}fs.writeFileSync(outPath,JSON.stringify(doc,null,2));const response={status:routeStatus,tenant_id:tenantId,job_type:jobType,job_id:jobId,job_state:state,current_stage:currentStage,approval_checkpoint:approvalCheckpoint,structured_status_updates:updates,stage_transitions:transitions,bounded_repair:boundedRepair,job_runtime_path:outPath};if(reason)response.reason=reason;process.stdout.write(JSON.stringify(response));\" \"$TENANT_ID\" \"$JOB_TYPE\" \"$REQ\" \"$NOW\" \"$JOB_ID\" \"$OUT_PATH\" \"$ROOT\""
+      },
+      "id": "8",
+      "name": "Build Strategy Job",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        -160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ JSON.parse($json.stdout).status }}",
+              "operation": "equal",
+              "value2": "ready_for_production"
+            }
+          ]
+        }
+      },
+      "id": "9",
+      "name": "Status Ready For Production",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        160,
+        -160
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.parse($json.stdout) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "10",
+      "name": "Respond Ready For Production",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        380,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ JSON.parse($node['Build Strategy Job'].json.stdout).status }}",
+              "operation": "equal",
+              "value2": "awaiting_approval"
+            }
+          ]
+        }
+      },
+      "id": "11",
+      "name": "Status Awaiting Approval",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        380,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.parse($node['Build Strategy Job'].json.stdout) }}",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "id": "12",
+      "name": "Respond Awaiting Approval",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        600,
+        -160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ JSON.parse($node['Build Strategy Job'].json.stdout).status }}",
+              "operation": "equal",
+              "value2": "needs_repair"
+            }
+          ]
+        }
+      },
+      "id": "13",
+      "name": "Status Needs Repair",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        600,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.parse($node['Build Strategy Job'].json.stdout) }}",
+        "options": {
+          "responseCode": 409
+        }
+      },
+      "id": "14",
+      "name": "Respond Needs Repair",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        820,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.parse($node['Build Strategy Job'].json.stdout) }}",
+        "options": {
+          "responseCode": 422
+        }
+      },
+      "id": "15",
+      "name": "Respond Failed",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        120
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Validate Required Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Required Input": {
+      "main": [
+        [
+          {
+            "node": "Assert Shared Schemas",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Invalid Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assert Shared Schemas": {
+      "main": [
+        [
+          {
+            "node": "Schemas Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schemas Ready": {
+      "main": [
+        [
+          {
+            "node": "Build Strategy Job",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Hard Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Strategy Job": {
+      "main": [
+        [
+          {
+            "node": "Status Ready For Production",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status Ready For Production": {
+      "main": [
+        [
+          {
+            "node": "Respond Ready For Production",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Status Awaiting Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status Awaiting Approval": {
+      "main": [
+        [
+          {
+            "node": "Respond Awaiting Approval",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Status Needs Repair",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status Needs Repair": {
+      "main": [
+        [
+          {
+            "node": "Respond Needs Repair",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

@@ -1,0 +1,54 @@
+{
+  "subagent": "marketing-strategy-workflow-builder",
+  "status": "completed",
+  "hard_failure": false,
+  "inputs": {
+    "workflow_contract": "./specs/marketing_job_contract_spec.v1.json",
+    "shared_schemas": [
+      "./specs/tenant_runtime_state_schema.v1.json",
+      "./specs/job_runtime_state_schema.v1.json"
+    ],
+    "marketing_research_outputs_consumed": [
+      "./generated/draft/subagent-results/marketing-research-workflow-builder.json",
+      "./generated/draft/subagent-logs/marketing-research-workflow-builder.md",
+      "./generated/draft/{tenant_id}/workspaces/research/README.md (runtime input default)"
+    ],
+    "allowed_node_types_reference": "./skills/n8n-local-runtime/contract.json"
+  },
+  "outputs": {
+    "workflow_spec": "./specs/marketing_strategy_workflow_spec.v1.json",
+    "workflow_json": "./n8n/marketing-strategy.workflow.json",
+    "result": "./generated/draft/subagent-results/marketing-strategy-workflow-builder.json",
+    "log": "./generated/draft/subagent-logs/marketing-strategy-workflow-builder.md"
+  },
+  "validation": {
+    "json_parse": [
+      "./specs/marketing_strategy_workflow_spec.v1.json",
+      "./n8n/marketing-strategy.workflow.json",
+      "./generated/draft/subagent-results/marketing-strategy-workflow-builder.json"
+    ],
+    "node_types_used": [
+      "n8n-nodes-base.webhook",
+      "n8n-nodes-base.set",
+      "n8n-nodes-base.if",
+      "n8n-nodes-base.executeCommand",
+      "n8n-nodes-base.respondToWebhook"
+    ]
+  },
+  "behavioral_guarantees": {
+    "explicit_approval_checkpoint_before_production": true,
+    "explicit_stage_transitions_in_job_state": true,
+    "structured_status_updates": true,
+    "bounded_repair_support": {
+      "enabled": true,
+      "max_attempts_default": 3,
+      "terminal_behavior": "fail_when_repair_limit_reached"
+    }
+  },
+  "notes": [
+    "Workflow blocks production progression until request.approval.approved is true.",
+    "When approval is missing, response status is awaiting_approval with HTTP 202 and job remains running.",
+    "When research artifact is missing/empty, workflow returns needs_repair (HTTP 409) until bounded repair limit is exhausted.",
+    "When bounded repair limit is reached, workflow returns failed (HTTP 422) with explicit repair_exhausted stage."
+  ]
+}
