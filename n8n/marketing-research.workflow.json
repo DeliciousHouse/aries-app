@@ -30,12 +30,10 @@
             {
               "name": "job_type",
               "value": "={{$json.body?.job_type || $json.job_type || 'marketing_research'}}"
-            }
-          ],
-          "json": [
+            },
             {
-              "name": "request",
-              "value": "={{$json.body?.request || $json.request || {}}}"
+              "name": "request_json",
+              "value": "={{JSON.stringify($json.body?.request || $json.request || {})}}"
             }
           ]
         }
@@ -138,7 +136,7 @@
     },
     {
       "parameters": {
-        "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT_ID=\"{{$node['Normalize Input'].json.tenant_id}}\"\nJOB_TYPE=\"{{$node['Normalize Input'].json.job_type}}\"\nREQ='{{JSON.stringify($node[\"Normalize Input\"].json.request)}}'\nNOW=\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"\nJOB_ID=\"mkt_${TENANT_ID}_$(date +%s)\"\nOUT_DIR=\"$ROOT/generated/draft/marketing-jobs\"\nOUT_PATH=\"$OUT_DIR/${JOB_ID}.json\"\nmkdir -p \"$OUT_DIR\"\nnode -e \"const fs=require('fs');const p=process.argv;const doc={schema_name:'job_runtime_state_schema',schema_version:'1.0.0',job_id:p[1],job_type:p[2],tenant_id:p[3],state:'queued',status:'pending',attempt:1,max_attempts:3,inputs:{request:JSON.parse(p[4])},history:[{at:p[5],state:'queued',status:'pending',note:'marketing research workflow accepted job'}],created_at:p[5],updated_at:p[5]};fs.writeFileSync(p[6],JSON.stringify(doc,null,2));process.stdout.write(JSON.stringify({status:'accepted',tenant_id:p[3],job_type:p[2],job_id:p[1],job_state:'queued',job_runtime_path:p[6]}));\" \"$JOB_ID\" \"$JOB_TYPE\" \"$TENANT_ID\" \"$REQ\" \"$NOW\" \"$OUT_PATH\""
+        "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT_ID=\"{{$node['Normalize Input'].json.tenant_id}}\"\nJOB_TYPE=\"{{$node['Normalize Input'].json.job_type}}\"\nREQ='{{$node[\"Normalize Input\"].json.request_json}}'\nNOW=\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"\nJOB_ID=\"mkt_${TENANT_ID}_$(date +%s)\"\nOUT_DIR=\"$ROOT/generated/draft/marketing-jobs\"\nOUT_PATH=\"$OUT_DIR/${JOB_ID}.json\"\nmkdir -p \"$OUT_DIR\"\nnode -e \"const fs=require('fs');const p=process.argv;const doc={schema_name:'job_runtime_state_schema',schema_version:'1.0.0',job_id:p[1],job_type:p[2],tenant_id:p[3],state:'queued',status:'pending',attempt:1,max_attempts:3,inputs:{request:JSON.parse(p[4])},history:[{at:p[5],state:'queued',status:'pending',note:'marketing research workflow accepted job'}],created_at:p[5],updated_at:p[5]};fs.writeFileSync(p[6],JSON.stringify(doc,null,2));process.stdout.write(JSON.stringify({status:'accepted',tenant_id:p[3],job_type:p[2],job_id:p[1],job_state:'queued',job_runtime_path:p[6]}));\" \"$JOB_ID\" \"$JOB_TYPE\" \"$TENANT_ID\" \"$REQ\" \"$NOW\" \"$OUT_PATH\""
       },
       "id": "8",
       "name": "Create Marketing Job",

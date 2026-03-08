@@ -1,0 +1,560 @@
+{
+  "timestamp": "2026-03-08T20:27:13.788351Z",
+  "error": "400 Could not find property option",
+  "failing_workflows": [
+    {
+      "name": "marketing-research",
+      "id": "VUAQdH3w8JjHLcMC",
+      "node_summary": [
+        {
+          "name": "Webhook Trigger",
+          "type": "n8n-nodes-base.webhook",
+          "typeVersion": 2,
+          "has_options": true,
+          "has_json_values": false
+        },
+        {
+          "name": "Normalize Input",
+          "type": "n8n-nodes-base.set",
+          "typeVersion": 2,
+          "has_options": false,
+          "has_json_values": true
+        },
+        {
+          "name": "Validate Required Input",
+          "type": "n8n-nodes-base.if",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Respond Invalid Input",
+          "type": "n8n-nodes-base.respondToWebhook",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Assert Shared Schemas",
+          "type": "n8n-nodes-base.executeCommand",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Schemas Ready",
+          "type": "n8n-nodes-base.if",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Respond Hard Failure",
+          "type": "n8n-nodes-base.respondToWebhook",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Create Marketing Job",
+          "type": "n8n-nodes-base.executeCommand",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Respond Accepted",
+          "type": "n8n-nodes-base.respondToWebhook",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        }
+      ]
+    },
+    {
+      "name": "marketing-strategy",
+      "id": "SNEVd8B8SVDQO2tj",
+      "node_summary": [
+        {
+          "name": "Webhook Trigger",
+          "type": "n8n-nodes-base.webhook",
+          "typeVersion": 2,
+          "has_options": true,
+          "has_json_values": false
+        },
+        {
+          "name": "Normalize Input",
+          "type": "n8n-nodes-base.set",
+          "typeVersion": 2,
+          "has_options": false,
+          "has_json_values": true
+        },
+        {
+          "name": "Validate Required Input",
+          "type": "n8n-nodes-base.if",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Respond Invalid Input",
+          "type": "n8n-nodes-base.respondToWebhook",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Assert Shared Schemas",
+          "type": "n8n-nodes-base.executeCommand",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Schemas Ready",
+          "type": "n8n-nodes-base.if",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Respond Hard Failure",
+          "type": "n8n-nodes-base.respondToWebhook",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Build Strategy Job",
+          "type": "n8n-nodes-base.executeCommand",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Status Ready For Production",
+          "type": "n8n-nodes-base.if",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Respond Ready For Production",
+          "type": "n8n-nodes-base.respondToWebhook",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Status Awaiting Approval",
+          "type": "n8n-nodes-base.if",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Respond Awaiting Approval",
+          "type": "n8n-nodes-base.respondToWebhook",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Status Needs Repair",
+          "type": "n8n-nodes-base.if",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Respond Needs Repair",
+          "type": "n8n-nodes-base.respondToWebhook",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Respond Failed",
+          "type": "n8n-nodes-base.respondToWebhook",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        }
+      ]
+    },
+    {
+      "name": "marketing-approval-resume",
+      "id": "9MvYtNk4oZj9KlR6",
+      "node_summary": [
+        {
+          "name": "Webhook Trigger",
+          "type": "n8n-nodes-base.webhook",
+          "typeVersion": 2,
+          "has_options": true,
+          "has_json_values": false
+        },
+        {
+          "name": "Normalize Input",
+          "type": "n8n-nodes-base.set",
+          "typeVersion": 2,
+          "has_options": false,
+          "has_json_values": true
+        },
+        {
+          "name": "Validate Approval Input",
+          "type": "n8n-nodes-base.if",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Respond Invalid Input",
+          "type": "n8n-nodes-base.respondToWebhook",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Resume Approved Stages",
+          "type": "n8n-nodes-base.executeCommand",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Parse Resume Result",
+          "type": "n8n-nodes-base.set",
+          "typeVersion": 2,
+          "has_options": false,
+          "has_json_values": true
+        },
+        {
+          "name": "Resume Succeeded",
+          "type": "n8n-nodes-base.if",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Respond Resumed",
+          "type": "n8n-nodes-base.respondToWebhook",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Respond Non-Resumed",
+          "type": "n8n-nodes-base.respondToWebhook",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        }
+      ]
+    }
+  ],
+  "active_reference_workflows": [
+    {
+      "name": "marketing-production",
+      "id": "ZDriB0BoHs2O5aV6",
+      "node_summary": [
+        {
+          "name": "Webhook Trigger",
+          "type": "n8n-nodes-base.webhook",
+          "typeVersion": 2,
+          "has_options": true,
+          "has_json_values": false
+        },
+        {
+          "name": "Normalize Input",
+          "type": "n8n-nodes-base.set",
+          "typeVersion": 2,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Validate Required Input",
+          "type": "n8n-nodes-base.if",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Respond Invalid Input",
+          "type": "n8n-nodes-base.respondToWebhook",
+          "typeVersion": 1,
+          "has_options": true,
+          "has_json_values": false
+        },
+        {
+          "name": "Assert Shared Schemas",
+          "type": "n8n-nodes-base.executeCommand",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Schemas Ready",
+          "type": "n8n-nodes-base.if",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Respond Hard Failure",
+          "type": "n8n-nodes-base.respondToWebhook",
+          "typeVersion": 1,
+          "has_options": true,
+          "has_json_values": false
+        },
+        {
+          "name": "Create Production Job",
+          "type": "n8n-nodes-base.executeCommand",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Approval Required?",
+          "type": "n8n-nodes-base.if",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Respond Awaiting Approval",
+          "type": "n8n-nodes-base.respondToWebhook",
+          "typeVersion": 1,
+          "has_options": true,
+          "has_json_values": false
+        },
+        {
+          "name": "Publish With Bounded Repair",
+          "type": "n8n-nodes-base.executeCommand",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Respond Final Status",
+          "type": "n8n-nodes-base.respondToWebhook",
+          "typeVersion": 1,
+          "has_options": true,
+          "has_json_values": false
+        }
+      ]
+    },
+    {
+      "name": "marketing-publish",
+      "id": "VqPrLtNmK12IUcHO",
+      "node_summary": [
+        {
+          "name": "Webhook Trigger",
+          "type": "n8n-nodes-base.webhook",
+          "typeVersion": 2,
+          "has_options": true,
+          "has_json_values": false
+        },
+        {
+          "name": "Normalize Input",
+          "type": "n8n-nodes-base.set",
+          "typeVersion": 2,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Validate Required Input",
+          "type": "n8n-nodes-base.if",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Respond Invalid Input",
+          "type": "n8n-nodes-base.respondToWebhook",
+          "typeVersion": 1,
+          "has_options": true,
+          "has_json_values": false
+        },
+        {
+          "name": "Assert Shared Schemas",
+          "type": "n8n-nodes-base.executeCommand",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Schemas Ready",
+          "type": "n8n-nodes-base.if",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Respond Hard Failure",
+          "type": "n8n-nodes-base.respondToWebhook",
+          "typeVersion": 1,
+          "has_options": true,
+          "has_json_values": false
+        },
+        {
+          "name": "Run Marketing Publish",
+          "type": "n8n-nodes-base.executeCommand",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Publish Succeeded",
+          "type": "n8n-nodes-base.if",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Respond Publish Accepted",
+          "type": "n8n-nodes-base.respondToWebhook",
+          "typeVersion": 1,
+          "has_options": true,
+          "has_json_values": false
+        },
+        {
+          "name": "Respond Publish Failure",
+          "type": "n8n-nodes-base.respondToWebhook",
+          "typeVersion": 1,
+          "has_options": true,
+          "has_json_values": false
+        }
+      ]
+    },
+    {
+      "name": "marketing-repair",
+      "id": "PQqVJoG5IX1lmHBH",
+      "node_summary": [
+        {
+          "name": "Webhook Trigger",
+          "type": "n8n-nodes-base.webhook",
+          "typeVersion": 2,
+          "has_options": true,
+          "has_json_values": false
+        },
+        {
+          "name": "Normalize Repair Input",
+          "type": "n8n-nodes-base.set",
+          "typeVersion": 2,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Validate Required Input",
+          "type": "n8n-nodes-base.if",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Respond Invalid Input",
+          "type": "n8n-nodes-base.respondToWebhook",
+          "typeVersion": 1,
+          "has_options": true,
+          "has_json_values": false
+        },
+        {
+          "name": "Patch + Rerun Failed Stage",
+          "type": "n8n-nodes-base.executeCommand",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Stage Repair Passed?",
+          "type": "n8n-nodes-base.if",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Respond Repair Success",
+          "type": "n8n-nodes-base.respondToWebhook",
+          "typeVersion": 1,
+          "has_options": true,
+          "has_json_values": false
+        },
+        {
+          "name": "Retry Remaining?",
+          "type": "n8n-nodes-base.if",
+          "typeVersion": 1,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Increment Attempt",
+          "type": "n8n-nodes-base.set",
+          "typeVersion": 2,
+          "has_options": false,
+          "has_json_values": false
+        },
+        {
+          "name": "Retry Failed Stage Repair",
+          "type": "n8n-nodes-base.httpRequest",
+          "typeVersion": 4,
+          "has_options": true,
+          "has_json_values": false
+        },
+        {
+          "name": "Respond Retry Result",
+          "type": "n8n-nodes-base.respondToWebhook",
+          "typeVersion": 1,
+          "has_options": true,
+          "has_json_values": false
+        },
+        {
+          "name": "Respond Repair Failed",
+          "type": "n8n-nodes-base.respondToWebhook",
+          "typeVersion": 1,
+          "has_options": true,
+          "has_json_values": false
+        }
+      ]
+    }
+  ],
+  "diagnosis": {
+    "likely_root_cause": "unsupported parameter option shape in failing workflows; set nodes use values.json entries with typeVersion 2, unlike active references",
+    "findings": [
+      {
+        "workflow": "marketing-research",
+        "id": "VUAQdH3w8JjHLcMC",
+        "suspected_nodes": [
+          {
+            "name": "Normalize Input",
+            "reason": "set.typeVersion=2 with parameters.values.json present"
+          }
+        ]
+      },
+      {
+        "workflow": "marketing-strategy",
+        "id": "SNEVd8B8SVDQO2tj",
+        "suspected_nodes": [
+          {
+            "name": "Normalize Input",
+            "reason": "set.typeVersion=2 with parameters.values.json present"
+          }
+        ]
+      },
+      {
+        "workflow": "marketing-approval-resume",
+        "id": "9MvYtNk4oZj9KlR6",
+        "suspected_nodes": [
+          {
+            "name": "Normalize Input",
+            "reason": "set.typeVersion=2 with parameters.values.json present"
+          },
+          {
+            "name": "Parse Resume Result",
+            "reason": "set.typeVersion=2 with parameters.values.json present"
+          }
+        ]
+      }
+    ],
+    "patch_plan": "replace set.values.json fields with stringified JSON fields and update downstream references only in failing workflows"
+  }
+}

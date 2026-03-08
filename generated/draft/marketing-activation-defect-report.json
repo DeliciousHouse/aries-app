@@ -1,5 +1,5 @@
 {
   "overall_status": "pass",
   "hard_failures": [],
-  "failed_workflows": []
+  "suspected_node_property_if_failed": null
 }

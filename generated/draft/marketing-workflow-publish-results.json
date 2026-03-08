@@ -1,28 +1,16 @@
 {
-  "overall_status": "fail",
+  "overall_status": "pass",
   "published_workflows": [
     {
       "workflow_file": "./n8n/marketing-research.workflow.json",
       "workflow_name": "marketing-research",
       "workflow_id": "VUAQdH3w8JjHLcMC",
       "create_or_update_succeeded": true,
-      "activate_succeeded": false,
-      "active": false,
+      "activate_succeeded": true,
+      "active": true,
       "repair_loop_succeeded": false,
-      "hard_failure": true,
-      "failure": {
-        "timestamp": "2026-03-08T20:14:19.036Z",
-        "stage": "activate",
-        "httpStatus": 400,
-        "message": "Could not find property option",
-        "sectionPath": "workflow",
-        "retryable": true,
-        "raw": {
-          "responseBody": {
-            "message": "Could not find property option"
-          }
-        }
-      },
+      "hard_failure": false,
+      "failure": null,
       "raw_api_responses": [
         {
           "attempt": 1,
@@ -32,12 +20,12 @@
             "stage": "update",
             "status": 200,
             "body": {
-              "updatedAt": "2026-03-08T20:14:18.887Z",
+              "updatedAt": "2026-03-08T20:28:37.018Z",
               "createdAt": "2026-03-08T20:13:12.713Z",
               "id": "VUAQdH3w8JjHLcMC",
               "name": "marketing-research",
               "description": null,
-              "active": false,
+              "active": true,
               "isArchived": false,
               "nodes": [
                 {
@@ -69,12 +57,10 @@
                         {
                           "name": "job_type",
                           "value": "={{$json.body?.job_type || $json.job_type || 'marketing_research'}}"
-                        }
-                      ],
-                      "json": [
+                        },
                         {
-                          "name": "request",
-                          "value": "={{$json.body?.request || $json.request || {}}}"
+                          "name": "request_json",
+                          "value": "={{JSON.stringify($json.body?.request || $json.request || {})}}"
                         }
                       ]
                     }
@@ -177,7 +163,7 @@
                 },
                 {
                   "parameters": {
-                    "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT_ID=\"{{$node['Normalize Input'].json.tenant_id}}\"\nJOB_TYPE=\"{{$node['Normalize Input'].json.job_type}}\"\nREQ='{{JSON.stringify($node[\"Normalize Input\"].json.request)}}'\nNOW=\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"\nJOB_ID=\"mkt_${TENANT_ID}_$(date +%s)\"\nOUT_DIR=\"$ROOT/generated/draft/marketing-jobs\"\nOUT_PATH=\"$OUT_DIR/${JOB_ID}.json\"\nmkdir -p \"$OUT_DIR\"\nnode -e \"const fs=require('fs');const p=process.argv;const doc={schema_name:'job_runtime_state_schema',schema_version:'1.0.0',job_id:p[1],job_type:p[2],tenant_id:p[3],state:'queued',status:'pending',attempt:1,max_attempts:3,inputs:{request:JSON.parse(p[4])},history:[{at:p[5],state:'queued',status:'pending',note:'marketing research workflow accepted job'}],created_at:p[5],updated_at:p[5]};fs.writeFileSync(p[6],JSON.stringify(doc,null,2));process.stdout.write(JSON.stringify({status:'accepted',tenant_id:p[3],job_type:p[2],job_id:p[1],job_state:'queued',job_runtime_path:p[6]}));\" \"$JOB_ID\" \"$JOB_TYPE\" \"$TENANT_ID\" \"$REQ\" \"$NOW\" \"$OUT_PATH\""
+                    "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT_ID=\"{{$node['Normalize Input'].json.tenant_id}}\"\nJOB_TYPE=\"{{$node['Normalize Input'].json.job_type}}\"\nREQ='{{$node[\"Normalize Input\"].json.request_json}}'\nNOW=\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"\nJOB_ID=\"mkt_${TENANT_ID}_$(date +%s)\"\nOUT_DIR=\"$ROOT/generated/draft/marketing-jobs\"\nOUT_PATH=\"$OUT_DIR/${JOB_ID}.json\"\nmkdir -p \"$OUT_DIR\"\nnode -e \"const fs=require('fs');const p=process.argv;const doc={schema_name:'job_runtime_state_schema',schema_version:'1.0.0',job_id:p[1],job_type:p[2],tenant_id:p[3],state:'queued',status:'pending',attempt:1,max_attempts:3,inputs:{request:JSON.parse(p[4])},history:[{at:p[5],state:'queued',status:'pending',note:'marketing research workflow accepted job'}],created_at:p[5],updated_at:p[5]};fs.writeFileSync(p[6],JSON.stringify(doc,null,2));process.stdout.write(JSON.stringify({status:'accepted',tenant_id:p[3],job_type:p[2],job_id:p[1],job_state:'queued',job_runtime_path:p[6]}));\" \"$JOB_ID\" \"$JOB_TYPE\" \"$TENANT_ID\" \"$REQ\" \"$NOW\" \"$OUT_PATH\""
                   },
                   "id": "8",
                   "name": "Create Marketing Job",
@@ -293,12 +279,265 @@
               "staticData": null,
               "meta": null,
               "pinData": null,
-              "versionId": "682af7c6-b502-4752-8315-9707316e226d",
-              "activeVersionId": null,
-              "versionCounter": 2,
-              "triggerCount": 0,
+              "versionId": "30282628-49b7-4691-8798-0e83f58fc2d3",
+              "activeVersionId": "30282628-49b7-4691-8798-0e83f58fc2d3",
+              "versionCounter": 6,
+              "triggerCount": 1,
               "tags": [],
-              "activeVersion": null
+              "activeVersion": {
+                "updatedAt": "2026-03-08T20:27:40.763Z",
+                "createdAt": "2026-03-08T20:27:40.763Z",
+                "versionId": "30282628-49b7-4691-8798-0e83f58fc2d3",
+                "workflowId": "VUAQdH3w8JjHLcMC",
+                "nodes": [
+                  {
+                    "parameters": {
+                      "httpMethod": "POST",
+                      "path": "marketing-research",
+                      "responseMode": "responseNode",
+                      "options": {}
+                    },
+                    "id": "1",
+                    "name": "Webhook Trigger",
+                    "type": "n8n-nodes-base.webhook",
+                    "typeVersion": 2,
+                    "position": [
+                      -980,
+                      0
+                    ],
+                    "webhookId": "marketing-research"
+                  },
+                  {
+                    "parameters": {
+                      "keepOnlySet": true,
+                      "values": {
+                        "string": [
+                          {
+                            "name": "tenant_id",
+                            "value": "={{$json.body?.tenant_id || $json.tenant_id}}"
+                          },
+                          {
+                            "name": "job_type",
+                            "value": "={{$json.body?.job_type || $json.job_type || 'marketing_research'}}"
+                          },
+                          {
+                            "name": "request_json",
+                            "value": "={{JSON.stringify($json.body?.request || $json.request || {})}}"
+                          }
+                        ]
+                      }
+                    },
+                    "id": "2",
+                    "name": "Normalize Input",
+                    "type": "n8n-nodes-base.set",
+                    "typeVersion": 2,
+                    "position": [
+                      -760,
+                      0
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "conditions": {
+                        "string": [
+                          {
+                            "value1": "={{$json.tenant_id}}",
+                            "operation": "notEmpty"
+                          },
+                          {
+                            "value1": "={{$json.job_type}}",
+                            "operation": "notEmpty"
+                          }
+                        ]
+                      }
+                    },
+                    "id": "3",
+                    "name": "Validate Required Input",
+                    "type": "n8n-nodes-base.if",
+                    "typeVersion": 1,
+                    "position": [
+                      -540,
+                      0
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "respondWith": "json",
+                      "responseBody": "={{ { status: 'error', reason: 'invalid_input', code: 'missing_required_fields', required: ['tenant_id','job_type'] } }}"
+                    },
+                    "id": "4",
+                    "name": "Respond Invalid Input",
+                    "type": "n8n-nodes-base.respondToWebhook",
+                    "typeVersion": 1,
+                    "position": [
+                      -320,
+                      160
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT_SCHEMA=\"$ROOT/specs/tenant_runtime_state_schema.v1.json\"\nJOB_SCHEMA=\"$ROOT/specs/job_runtime_state_schema.v1.json\"\nmissing=\"\"\nfor f in \"$TENANT_SCHEMA\" \"$JOB_SCHEMA\"; do\n  if [ ! -f \"$f\" ]; then\n    if [ -n \"$missing\" ]; then missing=\"$missing, \"; fi\n    missing=\"$missing$f\"\n  fi\ndone\nif [ -n \"$missing\" ]; then\n  echo \"{\\\"status\\\":\\\"hard_failure\\\",\\\"code\\\":\\\"missing_input_schemas\\\",\\\"message\\\":\\\"Required schema files are missing\\\",\\\"missing\\\":\\\"$missing\\\"}\"\n  exit 1\nfi\nnode -e \"const fs=require('fs');JSON.parse(fs.readFileSync(process.argv[1],'utf8'));JSON.parse(fs.readFileSync(process.argv[2],'utf8'));process.stdout.write(JSON.stringify({status:'ok',tenant_schema:process.argv[1],job_schema:process.argv[2]}));\" \"$TENANT_SCHEMA\" \"$JOB_SCHEMA\""
+                    },
+                    "id": "5",
+                    "name": "Assert Shared Schemas",
+                    "type": "n8n-nodes-base.executeCommand",
+                    "typeVersion": 1,
+                    "position": [
+                      -320,
+                      -60
+                    ],
+                    "continueOnFail": true
+                  },
+                  {
+                    "parameters": {
+                      "conditions": {
+                        "string": [
+                          {
+                            "value1": "={{$json.exitCode || 0}}",
+                            "operation": "equal",
+                            "value2": "0"
+                          }
+                        ]
+                      }
+                    },
+                    "id": "6",
+                    "name": "Schemas Ready",
+                    "type": "n8n-nodes-base.if",
+                    "typeVersion": 1,
+                    "position": [
+                      -100,
+                      -60
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "respondWith": "json",
+                      "responseBody": "={{ (() => { const out = $node['Assert Shared Schemas'].json.stdout || '{}'; let parsed; try { parsed = JSON.parse(out); } catch (e) { parsed = { status: 'hard_failure', code: 'invalid_schema_files', message: out || 'schema parse failed' }; } return { status: 'hard_failure', reason: 'missing_or_invalid_schemas', code: parsed.code || 'invalid_schema_files', details: parsed }; })() }}"
+                    },
+                    "id": "7",
+                    "name": "Respond Hard Failure",
+                    "type": "n8n-nodes-base.respondToWebhook",
+                    "typeVersion": 1,
+                    "position": [
+                      120,
+                      120
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT_ID=\"{{$node['Normalize Input'].json.tenant_id}}\"\nJOB_TYPE=\"{{$node['Normalize Input'].json.job_type}}\"\nREQ='{{$node[\"Normalize Input\"].json.request_json}}'\nNOW=\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"\nJOB_ID=\"mkt_${TENANT_ID}_$(date +%s)\"\nOUT_DIR=\"$ROOT/generated/draft/marketing-jobs\"\nOUT_PATH=\"$OUT_DIR/${JOB_ID}.json\"\nmkdir -p \"$OUT_DIR\"\nnode -e \"const fs=require('fs');const p=process.argv;const doc={schema_name:'job_runtime_state_schema',schema_version:'1.0.0',job_id:p[1],job_type:p[2],tenant_id:p[3],state:'queued',status:'pending',attempt:1,max_attempts:3,inputs:{request:JSON.parse(p[4])},history:[{at:p[5],state:'queued',status:'pending',note:'marketing research workflow accepted job'}],created_at:p[5],updated_at:p[5]};fs.writeFileSync(p[6],JSON.stringify(doc,null,2));process.stdout.write(JSON.stringify({status:'accepted',tenant_id:p[3],job_type:p[2],job_id:p[1],job_state:'queued',job_runtime_path:p[6]}));\" \"$JOB_ID\" \"$JOB_TYPE\" \"$TENANT_ID\" \"$REQ\" \"$NOW\" \"$OUT_PATH\""
+                    },
+                    "id": "8",
+                    "name": "Create Marketing Job",
+                    "type": "n8n-nodes-base.executeCommand",
+                    "typeVersion": 1,
+                    "position": [
+                      120,
+                      -140
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "respondWith": "json",
+                      "responseBody": "={{ JSON.parse($json.stdout) }}"
+                    },
+                    "id": "9",
+                    "name": "Respond Accepted",
+                    "type": "n8n-nodes-base.respondToWebhook",
+                    "typeVersion": 1,
+                    "position": [
+                      340,
+                      -140
+                    ]
+                  }
+                ],
+                "connections": {
+                  "Webhook Trigger": {
+                    "main": [
+                      [
+                        {
+                          "node": "Normalize Input",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Normalize Input": {
+                    "main": [
+                      [
+                        {
+                          "node": "Validate Required Input",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Validate Required Input": {
+                    "main": [
+                      [
+                        {
+                          "node": "Assert Shared Schemas",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ],
+                      [
+                        {
+                          "node": "Respond Invalid Input",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Assert Shared Schemas": {
+                    "main": [
+                      [
+                        {
+                          "node": "Schemas Ready",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Schemas Ready": {
+                    "main": [
+                      [
+                        {
+                          "node": "Create Marketing Job",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ],
+                      [
+                        {
+                          "node": "Respond Hard Failure",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Create Marketing Job": {
+                    "main": [
+                      [
+                        {
+                          "node": "Respond Accepted",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  }
+                },
+                "authors": "Brendan Kam",
+                "name": null,
+                "description": null,
+                "autosaved": false
+              }
             },
             "rawPath": "/Users/bkam/.openclaw/workspace/aries-platform-bootstrap/generated/draft/n8n-update-raw-response.json"
           }
@@ -307,41 +546,17 @@
           "attempt": 1,
           "stage": "activate",
           "response": {
-            "ok": false,
+            "ok": true,
             "stage": "activate",
-            "status": 400,
+            "status": 200,
             "body": {
-              "message": "Could not find property option"
-            },
-            "rawPath": "/Users/bkam/.openclaw/workspace/aries-platform-bootstrap/generated/draft/n8n-activate-raw-response.json"
-          }
-        },
-        {
-          "attempt": 1,
-          "stage": "capture-failure",
-          "failure": {
-            "timestamp": "2026-03-08T20:14:19.036Z",
-            "stage": "activate",
-            "httpStatus": 400,
-            "message": "Could not find property option",
-            "sectionPath": "workflow",
-            "retryable": true,
-            "raw": {
-              "responseBody": {
-                "message": "Could not find property option"
-              }
-            }
-          }
-        },
-        {
-          "attempt": 1,
-          "stage": "repair",
-          "repair": {
-            "repaired": false,
-            "patchedSection": null,
-            "reason": "no safe section-only patch identified",
-            "workflow": {
+              "updatedAt": "2026-03-08T20:28:37.018Z",
+              "createdAt": "2026-03-08T20:13:12.713Z",
+              "id": "VUAQdH3w8JjHLcMC",
               "name": "marketing-research",
+              "description": null,
+              "active": true,
+              "isArchived": false,
               "nodes": [
                 {
                   "parameters": {
@@ -372,12 +587,10 @@
                         {
                           "name": "job_type",
                           "value": "={{$json.body?.job_type || $json.job_type || 'marketing_research'}}"
-                        }
-                      ],
-                      "json": [
+                        },
                         {
-                          "name": "request",
-                          "value": "={{$json.body?.request || $json.request || {}}}"
+                          "name": "request_json",
+                          "value": "={{JSON.stringify($json.body?.request || $json.request || {})}}"
                         }
                       ]
                     }
@@ -480,7 +693,7 @@
                 },
                 {
                   "parameters": {
-                    "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT_ID=\"{{$node['Normalize Input'].json.tenant_id}}\"\nJOB_TYPE=\"{{$node['Normalize Input'].json.job_type}}\"\nREQ='{{JSON.stringify($node[\"Normalize Input\"].json.request)}}'\nNOW=\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"\nJOB_ID=\"mkt_${TENANT_ID}_$(date +%s)\"\nOUT_DIR=\"$ROOT/generated/draft/marketing-jobs\"\nOUT_PATH=\"$OUT_DIR/${JOB_ID}.json\"\nmkdir -p \"$OUT_DIR\"\nnode -e \"const fs=require('fs');const p=process.argv;const doc={schema_name:'job_runtime_state_schema',schema_version:'1.0.0',job_id:p[1],job_type:p[2],tenant_id:p[3],state:'queued',status:'pending',attempt:1,max_attempts:3,inputs:{request:JSON.parse(p[4])},history:[{at:p[5],state:'queued',status:'pending',note:'marketing research workflow accepted job'}],created_at:p[5],updated_at:p[5]};fs.writeFileSync(p[6],JSON.stringify(doc,null,2));process.stdout.write(JSON.stringify({status:'accepted',tenant_id:p[3],job_type:p[2],job_id:p[1],job_state:'queued',job_runtime_path:p[6]}));\" \"$JOB_ID\" \"$JOB_TYPE\" \"$TENANT_ID\" \"$REQ\" \"$NOW\" \"$OUT_PATH\""
+                    "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT_ID=\"{{$node['Normalize Input'].json.tenant_id}}\"\nJOB_TYPE=\"{{$node['Normalize Input'].json.job_type}}\"\nREQ='{{$node[\"Normalize Input\"].json.request_json}}'\nNOW=\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"\nJOB_ID=\"mkt_${TENANT_ID}_$(date +%s)\"\nOUT_DIR=\"$ROOT/generated/draft/marketing-jobs\"\nOUT_PATH=\"$OUT_DIR/${JOB_ID}.json\"\nmkdir -p \"$OUT_DIR\"\nnode -e \"const fs=require('fs');const p=process.argv;const doc={schema_name:'job_runtime_state_schema',schema_version:'1.0.0',job_id:p[1],job_type:p[2],tenant_id:p[3],state:'queued',status:'pending',attempt:1,max_attempts:3,inputs:{request:JSON.parse(p[4])},history:[{at:p[5],state:'queued',status:'pending',note:'marketing research workflow accepted job'}],created_at:p[5],updated_at:p[5]};fs.writeFileSync(p[6],JSON.stringify(doc,null,2));process.stdout.write(JSON.stringify({status:'accepted',tenant_id:p[3],job_type:p[2],job_id:p[1],job_state:'queued',job_runtime_path:p[6]}));\" \"$JOB_ID\" \"$JOB_TYPE\" \"$TENANT_ID\" \"$REQ\" \"$NOW\" \"$OUT_PATH\""
                   },
                   "id": "8",
                   "name": "Create Marketing Job",
@@ -588,12 +801,316 @@
                   ]
                 }
               },
-              "active": false,
               "settings": {
-                "executionOrder": "v1"
+                "executionOrder": "v1",
+                "callerPolicy": "workflowsFromSameOwner",
+                "availableInMCP": false
               },
-              "pinData": {}
-            }
+              "staticData": null,
+              "meta": null,
+              "pinData": null,
+              "versionId": "30282628-49b7-4691-8798-0e83f58fc2d3",
+              "activeVersionId": "30282628-49b7-4691-8798-0e83f58fc2d3",
+              "versionCounter": 10,
+              "triggerCount": 1,
+              "activeVersion": {
+                "updatedAt": "2026-03-08T20:27:40.763Z",
+                "createdAt": "2026-03-08T20:27:40.763Z",
+                "versionId": "30282628-49b7-4691-8798-0e83f58fc2d3",
+                "workflowId": "VUAQdH3w8JjHLcMC",
+                "nodes": [
+                  {
+                    "parameters": {
+                      "httpMethod": "POST",
+                      "path": "marketing-research",
+                      "responseMode": "responseNode",
+                      "options": {}
+                    },
+                    "id": "1",
+                    "name": "Webhook Trigger",
+                    "type": "n8n-nodes-base.webhook",
+                    "typeVersion": 2,
+                    "position": [
+                      -980,
+                      0
+                    ],
+                    "webhookId": "marketing-research"
+                  },
+                  {
+                    "parameters": {
+                      "keepOnlySet": true,
+                      "values": {
+                        "string": [
+                          {
+                            "name": "tenant_id",
+                            "value": "={{$json.body?.tenant_id || $json.tenant_id}}"
+                          },
+                          {
+                            "name": "job_type",
+                            "value": "={{$json.body?.job_type || $json.job_type || 'marketing_research'}}"
+                          },
+                          {
+                            "name": "request_json",
+                            "value": "={{JSON.stringify($json.body?.request || $json.request || {})}}"
+                          }
+                        ]
+                      }
+                    },
+                    "id": "2",
+                    "name": "Normalize Input",
+                    "type": "n8n-nodes-base.set",
+                    "typeVersion": 2,
+                    "position": [
+                      -760,
+                      0
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "conditions": {
+                        "string": [
+                          {
+                            "value1": "={{$json.tenant_id}}",
+                            "operation": "notEmpty"
+                          },
+                          {
+                            "value1": "={{$json.job_type}}",
+                            "operation": "notEmpty"
+                          }
+                        ]
+                      }
+                    },
+                    "id": "3",
+                    "name": "Validate Required Input",
+                    "type": "n8n-nodes-base.if",
+                    "typeVersion": 1,
+                    "position": [
+                      -540,
+                      0
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "respondWith": "json",
+                      "responseBody": "={{ { status: 'error', reason: 'invalid_input', code: 'missing_required_fields', required: ['tenant_id','job_type'] } }}"
+                    },
+                    "id": "4",
+                    "name": "Respond Invalid Input",
+                    "type": "n8n-nodes-base.respondToWebhook",
+                    "typeVersion": 1,
+                    "position": [
+                      -320,
+                      160
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT_SCHEMA=\"$ROOT/specs/tenant_runtime_state_schema.v1.json\"\nJOB_SCHEMA=\"$ROOT/specs/job_runtime_state_schema.v1.json\"\nmissing=\"\"\nfor f in \"$TENANT_SCHEMA\" \"$JOB_SCHEMA\"; do\n  if [ ! -f \"$f\" ]; then\n    if [ -n \"$missing\" ]; then missing=\"$missing, \"; fi\n    missing=\"$missing$f\"\n  fi\ndone\nif [ -n \"$missing\" ]; then\n  echo \"{\\\"status\\\":\\\"hard_failure\\\",\\\"code\\\":\\\"missing_input_schemas\\\",\\\"message\\\":\\\"Required schema files are missing\\\",\\\"missing\\\":\\\"$missing\\\"}\"\n  exit 1\nfi\nnode -e \"const fs=require('fs');JSON.parse(fs.readFileSync(process.argv[1],'utf8'));JSON.parse(fs.readFileSync(process.argv[2],'utf8'));process.stdout.write(JSON.stringify({status:'ok',tenant_schema:process.argv[1],job_schema:process.argv[2]}));\" \"$TENANT_SCHEMA\" \"$JOB_SCHEMA\""
+                    },
+                    "id": "5",
+                    "name": "Assert Shared Schemas",
+                    "type": "n8n-nodes-base.executeCommand",
+                    "typeVersion": 1,
+                    "position": [
+                      -320,
+                      -60
+                    ],
+                    "continueOnFail": true
+                  },
+                  {
+                    "parameters": {
+                      "conditions": {
+                        "string": [
+                          {
+                            "value1": "={{$json.exitCode || 0}}",
+                            "operation": "equal",
+                            "value2": "0"
+                          }
+                        ]
+                      }
+                    },
+                    "id": "6",
+                    "name": "Schemas Ready",
+                    "type": "n8n-nodes-base.if",
+                    "typeVersion": 1,
+                    "position": [
+                      -100,
+                      -60
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "respondWith": "json",
+                      "responseBody": "={{ (() => { const out = $node['Assert Shared Schemas'].json.stdout || '{}'; let parsed; try { parsed = JSON.parse(out); } catch (e) { parsed = { status: 'hard_failure', code: 'invalid_schema_files', message: out || 'schema parse failed' }; } return { status: 'hard_failure', reason: 'missing_or_invalid_schemas', code: parsed.code || 'invalid_schema_files', details: parsed }; })() }}"
+                    },
+                    "id": "7",
+                    "name": "Respond Hard Failure",
+                    "type": "n8n-nodes-base.respondToWebhook",
+                    "typeVersion": 1,
+                    "position": [
+                      120,
+                      120
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT_ID=\"{{$node['Normalize Input'].json.tenant_id}}\"\nJOB_TYPE=\"{{$node['Normalize Input'].json.job_type}}\"\nREQ='{{$node[\"Normalize Input\"].json.request_json}}'\nNOW=\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"\nJOB_ID=\"mkt_${TENANT_ID}_$(date +%s)\"\nOUT_DIR=\"$ROOT/generated/draft/marketing-jobs\"\nOUT_PATH=\"$OUT_DIR/${JOB_ID}.json\"\nmkdir -p \"$OUT_DIR\"\nnode -e \"const fs=require('fs');const p=process.argv;const doc={schema_name:'job_runtime_state_schema',schema_version:'1.0.0',job_id:p[1],job_type:p[2],tenant_id:p[3],state:'queued',status:'pending',attempt:1,max_attempts:3,inputs:{request:JSON.parse(p[4])},history:[{at:p[5],state:'queued',status:'pending',note:'marketing research workflow accepted job'}],created_at:p[5],updated_at:p[5]};fs.writeFileSync(p[6],JSON.stringify(doc,null,2));process.stdout.write(JSON.stringify({status:'accepted',tenant_id:p[3],job_type:p[2],job_id:p[1],job_state:'queued',job_runtime_path:p[6]}));\" \"$JOB_ID\" \"$JOB_TYPE\" \"$TENANT_ID\" \"$REQ\" \"$NOW\" \"$OUT_PATH\""
+                    },
+                    "id": "8",
+                    "name": "Create Marketing Job",
+                    "type": "n8n-nodes-base.executeCommand",
+                    "typeVersion": 1,
+                    "position": [
+                      120,
+                      -140
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "respondWith": "json",
+                      "responseBody": "={{ JSON.parse($json.stdout) }}"
+                    },
+                    "id": "9",
+                    "name": "Respond Accepted",
+                    "type": "n8n-nodes-base.respondToWebhook",
+                    "typeVersion": 1,
+                    "position": [
+                      340,
+                      -140
+                    ]
+                  }
+                ],
+                "connections": {
+                  "Webhook Trigger": {
+                    "main": [
+                      [
+                        {
+                          "node": "Normalize Input",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Normalize Input": {
+                    "main": [
+                      [
+                        {
+                          "node": "Validate Required Input",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Validate Required Input": {
+                    "main": [
+                      [
+                        {
+                          "node": "Assert Shared Schemas",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ],
+                      [
+                        {
+                          "node": "Respond Invalid Input",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Assert Shared Schemas": {
+                    "main": [
+                      [
+                        {
+                          "node": "Schemas Ready",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Schemas Ready": {
+                    "main": [
+                      [
+                        {
+                          "node": "Create Marketing Job",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ],
+                      [
+                        {
+                          "node": "Respond Hard Failure",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Create Marketing Job": {
+                    "main": [
+                      [
+                        {
+                          "node": "Respond Accepted",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  }
+                },
+                "authors": "Brendan Kam",
+                "name": null,
+                "description": null,
+                "autosaved": false,
+                "workflowPublishHistory": [
+                  {
+                    "createdAt": "2026-03-08T20:27:40.889Z",
+                    "id": 34,
+                    "workflowId": "VUAQdH3w8JjHLcMC",
+                    "versionId": "30282628-49b7-4691-8798-0e83f58fc2d3",
+                    "event": "activated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:28:37.060Z",
+                    "id": 49,
+                    "workflowId": "VUAQdH3w8JjHLcMC",
+                    "versionId": "30282628-49b7-4691-8798-0e83f58fc2d3",
+                    "event": "deactivated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:28:37.083Z",
+                    "id": 50,
+                    "workflowId": "VUAQdH3w8JjHLcMC",
+                    "versionId": "30282628-49b7-4691-8798-0e83f58fc2d3",
+                    "event": "activated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:28:37.237Z",
+                    "id": 51,
+                    "workflowId": "VUAQdH3w8JjHLcMC",
+                    "versionId": "30282628-49b7-4691-8798-0e83f58fc2d3",
+                    "event": "deactivated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:28:37.272Z",
+                    "id": 52,
+                    "workflowId": "VUAQdH3w8JjHLcMC",
+                    "versionId": "30282628-49b7-4691-8798-0e83f58fc2d3",
+                    "event": "activated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  }
+                ]
+              }
+            },
+            "rawPath": "/Users/bkam/.openclaw/workspace/aries-platform-bootstrap/generated/draft/n8n-activate-raw-response.json"
           }
         }
       ]
@@ -603,23 +1120,11 @@
       "workflow_name": "marketing-strategy",
       "workflow_id": "SNEVd8B8SVDQO2tj",
       "create_or_update_succeeded": true,
-      "activate_succeeded": false,
-      "active": false,
+      "activate_succeeded": true,
+      "active": true,
       "repair_loop_succeeded": false,
-      "hard_failure": true,
-      "failure": {
-        "timestamp": "2026-03-08T20:14:19.271Z",
-        "stage": "activate",
-        "httpStatus": 400,
-        "message": "Could not find property option",
-        "sectionPath": "workflow",
-        "retryable": true,
-        "raw": {
-          "responseBody": {
-            "message": "Could not find property option"
-          }
-        }
-      },
+      "hard_failure": false,
+      "failure": null,
       "raw_api_responses": [
         {
           "attempt": 1,
@@ -629,12 +1134,12 @@
             "stage": "update",
             "status": 200,
             "body": {
-              "updatedAt": "2026-03-08T20:14:19.183Z",
+              "updatedAt": "2026-03-08T20:28:37.785Z",
               "createdAt": "2026-03-08T20:13:12.983Z",
               "id": "SNEVd8B8SVDQO2tj",
               "name": "marketing-strategy",
               "description": null,
-              "active": false,
+              "active": true,
               "isArchived": false,
               "nodes": [
                 {
@@ -666,12 +1171,10 @@
                         {
                           "name": "job_type",
                           "value": "={{$json.body?.job_type || $json.job_type || 'marketing_strategy'}}"
-                        }
-                      ],
-                      "json": [
+                        },
                         {
-                          "name": "request",
-                          "value": "={{$json.body?.request || $json.request || {}}}"
+                          "name": "request_json",
+                          "value": "={{JSON.stringify($json.body?.request || $json.request || {})}}"
                         }
                       ]
                     }
@@ -774,7 +1277,7 @@
                 },
                 {
                   "parameters": {
-                    "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT_ID=\"{{$node['Normalize Input'].json.tenant_id}}\"\nJOB_TYPE=\"{{$node['Normalize Input'].json.job_type}}\"\nREQ='{{JSON.stringify($node[\"Normalize Input\"].json.request)}}'\nNOW=\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"\nJOB_ID=\"mkt_strategy_${TENANT_ID}_$(date +%s)\"\nOUT_DIR=\"$ROOT/generated/draft/marketing-jobs\"\nOUT_PATH=\"$OUT_DIR/${JOB_ID}.json\"\nmkdir -p \"$OUT_DIR\"\nnode -e \"const fs=require('fs');const p=process.argv;const tenantId=p[1],jobType=p[2],reqRaw=p[3],now=p[4],jobId=p[5],outPath=p[6],root=p[7];const req=JSON.parse(reqRaw||'{}');const approval=(req.approval&&typeof req.approval==='object')?req.approval:{};const approved=approval.approved===true;const approvedBy=approval.approved_by||null;const approvalNote=approval.note||null;const repairAttempt=Number.isInteger(req.repair_attempt)?req.repair_attempt:1;const maxRepair=Number.isInteger(req.max_repair_attempts)?req.max_repair_attempts:3;const researchPath=(req.research_artifact_path&&String(req.research_artifact_path).trim())?String(req.research_artifact_path):`${root}/generated/draft/${tenantId}/workspaces/research/README.md`;const transitions=[];const updates=[];const push=(from,to,status,message)=>{transitions.push({from_stage:from,to_stage:to,at:now,status,message});updates.push({stage:to,status,message,at:now});};push('received','research_validated','running','Input normalized and strategy workflow started');const researchExists=fs.existsSync(researchPath);const researchContent=researchExists?fs.readFileSync(researchPath,'utf8').trim():'';const researchReady=researchExists&&researchContent.length>0;let routeStatus='awaiting_approval';let state='running';let status='running';let currentStage='awaiting_approval';let reason=null;const approvalCheckpoint={required:true,gate_before_stage:'production_ready',approved,approved_by:approvedBy,note:approvalNote};let boundedRepair={required:false,attempt:repairAttempt,max_attempts:maxRepair,remaining_attempts:Math.max(0,maxRepair-repairAttempt),trigger:null};if(!researchReady){boundedRepair.required=true;boundedRepair.trigger=researchExists?'research_artifact_empty':'research_artifact_missing';if(repairAttempt<maxRepair){routeStatus='needs_repair';state='waiting_repair';status='fail';currentStage='repair_required';reason='research_artifact_not_ready';push('research_validated','repair_required','fail','Research artifact unavailable or empty; bounded repair requested');}else{routeStatus='failed';state='failed';status='error';currentStage='repair_exhausted';reason='repair_limit_reached';push('research_validated','repair_exhausted','error','Bounded repair limit reached; strategy workflow failed');}}else{push('research_validated','strategy_drafted','running','Research artifact located and strategy draft stage completed');if(approved){routeStatus='ready_for_production';state='completed';status='pass';currentStage='production_ready';push('strategy_drafted','approval_granted','pass','Explicit approval received');push('approval_granted','production_ready','pass','Advanced to production-ready stage');}else{routeStatus='awaiting_approval';state='running';status='pending';currentStage='awaiting_approval';push('strategy_drafted','awaiting_approval','pending','Approval checkpoint open; holding before production');}}const doc={schema_name:'job_runtime_state_schema',schema_version:'1.0.0',job_id:jobId,job_type:jobType,tenant_id:tenantId,state,status,attempt:repairAttempt,max_attempts:maxRepair,inputs:{request:req,research_artifact_path:researchPath},outputs:{current_stage:currentStage,route_status:routeStatus,approval_checkpoint:approvalCheckpoint,structured_status_updates:updates,stage_transitions:transitions,bounded_repair:boundedRepair,approval_required_before_production:true,production_blocked:!approved},history:[{at:now,state:'queued',status:'pending',note:'marketing strategy workflow accepted job'},{at:now,state,status,note:`route_status=${routeStatus}; stage=${currentStage}`}],created_at:now,updated_at:now};if(reason){doc.last_error={code:routeStatus==='failed'?'repair_limit_reached':'research_artifact_not_ready',message:reason,stage:currentStage,retryable:routeStatus!=='failed'};}fs.writeFileSync(outPath,JSON.stringify(doc,null,2));const response={status:routeStatus,tenant_id:tenantId,job_type:jobType,job_id:jobId,job_state:state,current_stage:currentStage,approval_checkpoint:approvalCheckpoint,structured_status_updates:updates,stage_transitions:transitions,bounded_repair:boundedRepair,job_runtime_path:outPath};if(reason)response.reason=reason;process.stdout.write(JSON.stringify(response));\" \"$TENANT_ID\" \"$JOB_TYPE\" \"$REQ\" \"$NOW\" \"$JOB_ID\" \"$OUT_PATH\" \"$ROOT\""
+                    "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT_ID=\"{{$node['Normalize Input'].json.tenant_id}}\"\nJOB_TYPE=\"{{$node['Normalize Input'].json.job_type}}\"\nREQ='{{$node[\"Normalize Input\"].json.request_json}}'\nNOW=\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"\nJOB_ID=\"mkt_strategy_${TENANT_ID}_$(date +%s)\"\nOUT_DIR=\"$ROOT/generated/draft/marketing-jobs\"\nOUT_PATH=\"$OUT_DIR/${JOB_ID}.json\"\nmkdir -p \"$OUT_DIR\"\nnode -e \"const fs=require('fs');const p=process.argv;const tenantId=p[1],jobType=p[2],reqRaw=p[3],now=p[4],jobId=p[5],outPath=p[6],root=p[7];const req=JSON.parse(reqRaw||'{}');const approval=(req.approval&&typeof req.approval==='object')?req.approval:{};const approved=approval.approved===true;const approvedBy=approval.approved_by||null;const approvalNote=approval.note||null;const repairAttempt=Number.isInteger(req.repair_attempt)?req.repair_attempt:1;const maxRepair=Number.isInteger(req.max_repair_attempts)?req.max_repair_attempts:3;const researchPath=(req.research_artifact_path&&String(req.research_artifact_path).trim())?String(req.research_artifact_path):`${root}/generated/draft/${tenantId}/workspaces/research/README.md`;const transitions=[];const updates=[];const push=(from,to,status,message)=>{transitions.push({from_stage:from,to_stage:to,at:now,status,message});updates.push({stage:to,status,message,at:now});};push('received','research_validated','running','Input normalized and strategy workflow started');const researchExists=fs.existsSync(researchPath);const researchContent=researchExists?fs.readFileSync(researchPath,'utf8').trim():'';const researchReady=researchExists&&researchContent.length>0;let routeStatus='awaiting_approval';let state='running';let status='running';let currentStage='awaiting_approval';let reason=null;const approvalCheckpoint={required:true,gate_before_stage:'production_ready',approved,approved_by:approvedBy,note:approvalNote};let boundedRepair={required:false,attempt:repairAttempt,max_attempts:maxRepair,remaining_attempts:Math.max(0,maxRepair-repairAttempt),trigger:null};if(!researchReady){boundedRepair.required=true;boundedRepair.trigger=researchExists?'research_artifact_empty':'research_artifact_missing';if(repairAttempt<maxRepair){routeStatus='needs_repair';state='waiting_repair';status='fail';currentStage='repair_required';reason='research_artifact_not_ready';push('research_validated','repair_required','fail','Research artifact unavailable or empty; bounded repair requested');}else{routeStatus='failed';state='failed';status='error';currentStage='repair_exhausted';reason='repair_limit_reached';push('research_validated','repair_exhausted','error','Bounded repair limit reached; strategy workflow failed');}}else{push('research_validated','strategy_drafted','running','Research artifact located and strategy draft stage completed');if(approved){routeStatus='ready_for_production';state='completed';status='pass';currentStage='production_ready';push('strategy_drafted','approval_granted','pass','Explicit approval received');push('approval_granted','production_ready','pass','Advanced to production-ready stage');}else{routeStatus='awaiting_approval';state='running';status='pending';currentStage='awaiting_approval';push('strategy_drafted','awaiting_approval','pending','Approval checkpoint open; holding before production');}}const doc={schema_name:'job_runtime_state_schema',schema_version:'1.0.0',job_id:jobId,job_type:jobType,tenant_id:tenantId,state,status,attempt:repairAttempt,max_attempts:maxRepair,inputs:{request:req,research_artifact_path:researchPath},outputs:{current_stage:currentStage,route_status:routeStatus,approval_checkpoint:approvalCheckpoint,structured_status_updates:updates,stage_transitions:transitions,bounded_repair:boundedRepair,approval_required_before_production:true,production_blocked:!approved},history:[{at:now,state:'queued',status:'pending',note:'marketing strategy workflow accepted job'},{at:now,state,status,note:`route_status=${routeStatus}; stage=${currentStage}`}],created_at:now,updated_at:now};if(reason){doc.last_error={code:routeStatus==='failed'?'repair_limit_reached':'research_artifact_not_ready',message:reason,stage:currentStage,retryable:routeStatus!=='failed'};}fs.writeFileSync(outPath,JSON.stringify(doc,null,2));const response={status:routeStatus,tenant_id:tenantId,job_type:jobType,job_id:jobId,job_state:state,current_stage:currentStage,approval_checkpoint:approvalCheckpoint,structured_status_updates:updates,stage_transitions:transitions,bounded_repair:boundedRepair,job_runtime_path:outPath};if(reason)response.reason=reason;process.stdout.write(JSON.stringify(response));\" \"$TENANT_ID\" \"$JOB_TYPE\" \"$REQ\" \"$NOW\" \"$JOB_ID\" \"$OUT_PATH\" \"$ROOT\""
                   },
                   "id": "8",
                   "name": "Build Strategy Job",
@@ -1049,12 +1552,424 @@
               "staticData": null,
               "meta": null,
               "pinData": null,
-              "versionId": "60f90eaa-ba7c-4a7d-8ce3-ed7a37c697ff",
-              "activeVersionId": null,
-              "versionCounter": 2,
-              "triggerCount": 0,
+              "versionId": "47d7d87d-0fac-4c2c-bddf-99e149954823",
+              "activeVersionId": "47d7d87d-0fac-4c2c-bddf-99e149954823",
+              "versionCounter": 6,
+              "triggerCount": 1,
               "tags": [],
-              "activeVersion": null
+              "activeVersion": {
+                "updatedAt": "2026-03-08T20:27:41.076Z",
+                "createdAt": "2026-03-08T20:27:41.076Z",
+                "versionId": "47d7d87d-0fac-4c2c-bddf-99e149954823",
+                "workflowId": "SNEVd8B8SVDQO2tj",
+                "nodes": [
+                  {
+                    "parameters": {
+                      "httpMethod": "POST",
+                      "path": "marketing-strategy",
+                      "responseMode": "responseNode",
+                      "options": {}
+                    },
+                    "id": "1",
+                    "name": "Webhook Trigger",
+                    "type": "n8n-nodes-base.webhook",
+                    "typeVersion": 2,
+                    "position": [
+                      -1160,
+                      0
+                    ],
+                    "webhookId": "marketing-strategy"
+                  },
+                  {
+                    "parameters": {
+                      "keepOnlySet": true,
+                      "values": {
+                        "string": [
+                          {
+                            "name": "tenant_id",
+                            "value": "={{$json.body?.tenant_id || $json.tenant_id}}"
+                          },
+                          {
+                            "name": "job_type",
+                            "value": "={{$json.body?.job_type || $json.job_type || 'marketing_strategy'}}"
+                          },
+                          {
+                            "name": "request_json",
+                            "value": "={{JSON.stringify($json.body?.request || $json.request || {})}}"
+                          }
+                        ]
+                      }
+                    },
+                    "id": "2",
+                    "name": "Normalize Input",
+                    "type": "n8n-nodes-base.set",
+                    "typeVersion": 2,
+                    "position": [
+                      -940,
+                      0
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "conditions": {
+                        "string": [
+                          {
+                            "value1": "={{$json.tenant_id}}",
+                            "operation": "notEmpty"
+                          },
+                          {
+                            "value1": "={{$json.job_type}}",
+                            "operation": "notEmpty"
+                          }
+                        ]
+                      }
+                    },
+                    "id": "3",
+                    "name": "Validate Required Input",
+                    "type": "n8n-nodes-base.if",
+                    "typeVersion": 1,
+                    "position": [
+                      -720,
+                      0
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "respondWith": "json",
+                      "responseBody": "={{ { status: 'error', reason: 'invalid_input', code: 'missing_required_fields', required: ['tenant_id','job_type'] } }}"
+                    },
+                    "id": "4",
+                    "name": "Respond Invalid Input",
+                    "type": "n8n-nodes-base.respondToWebhook",
+                    "typeVersion": 1,
+                    "position": [
+                      -500,
+                      180
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT_SCHEMA=\"$ROOT/specs/tenant_runtime_state_schema.v1.json\"\nJOB_SCHEMA=\"$ROOT/specs/job_runtime_state_schema.v1.json\"\nmissing=\"\"\nfor f in \"$TENANT_SCHEMA\" \"$JOB_SCHEMA\"; do\n  if [ ! -f \"$f\" ]; then\n    if [ -n \"$missing\" ]; then missing=\"$missing, \"; fi\n    missing=\"$missing$f\"\n  fi\ndone\nif [ -n \"$missing\" ]; then\n  echo \"{\\\"status\\\":\\\"hard_failure\\\",\\\"code\\\":\\\"missing_input_schemas\\\",\\\"message\\\":\\\"Required schema files are missing\\\",\\\"missing\\\":\\\"$missing\\\"}\"\n  exit 1\nfi\nnode -e \"const fs=require('fs');JSON.parse(fs.readFileSync(process.argv[1],'utf8'));JSON.parse(fs.readFileSync(process.argv[2],'utf8'));process.stdout.write(JSON.stringify({status:'ok',tenant_schema:process.argv[1],job_schema:process.argv[2]}));\" \"$TENANT_SCHEMA\" \"$JOB_SCHEMA\""
+                    },
+                    "id": "5",
+                    "name": "Assert Shared Schemas",
+                    "type": "n8n-nodes-base.executeCommand",
+                    "typeVersion": 1,
+                    "position": [
+                      -500,
+                      -80
+                    ],
+                    "continueOnFail": true
+                  },
+                  {
+                    "parameters": {
+                      "conditions": {
+                        "string": [
+                          {
+                            "value1": "={{$json.exitCode || 0}}",
+                            "operation": "equal",
+                            "value2": "0"
+                          }
+                        ]
+                      }
+                    },
+                    "id": "6",
+                    "name": "Schemas Ready",
+                    "type": "n8n-nodes-base.if",
+                    "typeVersion": 1,
+                    "position": [
+                      -280,
+                      -80
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "respondWith": "json",
+                      "responseBody": "={{ (() => { const out = $node['Assert Shared Schemas'].json.stdout || '{}'; let parsed; try { parsed = JSON.parse(out); } catch (e) { parsed = { status: 'hard_failure', code: 'invalid_schema_files', message: out || 'schema parse failed' }; } return { status: 'hard_failure', reason: 'missing_or_invalid_schemas', code: parsed.code || 'invalid_schema_files', details: parsed }; })() }}"
+                    },
+                    "id": "7",
+                    "name": "Respond Hard Failure",
+                    "type": "n8n-nodes-base.respondToWebhook",
+                    "typeVersion": 1,
+                    "position": [
+                      -60,
+                      120
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT_ID=\"{{$node['Normalize Input'].json.tenant_id}}\"\nJOB_TYPE=\"{{$node['Normalize Input'].json.job_type}}\"\nREQ='{{$node[\"Normalize Input\"].json.request_json}}'\nNOW=\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"\nJOB_ID=\"mkt_strategy_${TENANT_ID}_$(date +%s)\"\nOUT_DIR=\"$ROOT/generated/draft/marketing-jobs\"\nOUT_PATH=\"$OUT_DIR/${JOB_ID}.json\"\nmkdir -p \"$OUT_DIR\"\nnode -e \"const fs=require('fs');const p=process.argv;const tenantId=p[1],jobType=p[2],reqRaw=p[3],now=p[4],jobId=p[5],outPath=p[6],root=p[7];const req=JSON.parse(reqRaw||'{}');const approval=(req.approval&&typeof req.approval==='object')?req.approval:{};const approved=approval.approved===true;const approvedBy=approval.approved_by||null;const approvalNote=approval.note||null;const repairAttempt=Number.isInteger(req.repair_attempt)?req.repair_attempt:1;const maxRepair=Number.isInteger(req.max_repair_attempts)?req.max_repair_attempts:3;const researchPath=(req.research_artifact_path&&String(req.research_artifact_path).trim())?String(req.research_artifact_path):`${root}/generated/draft/${tenantId}/workspaces/research/README.md`;const transitions=[];const updates=[];const push=(from,to,status,message)=>{transitions.push({from_stage:from,to_stage:to,at:now,status,message});updates.push({stage:to,status,message,at:now});};push('received','research_validated','running','Input normalized and strategy workflow started');const researchExists=fs.existsSync(researchPath);const researchContent=researchExists?fs.readFileSync(researchPath,'utf8').trim():'';const researchReady=researchExists&&researchContent.length>0;let routeStatus='awaiting_approval';let state='running';let status='running';let currentStage='awaiting_approval';let reason=null;const approvalCheckpoint={required:true,gate_before_stage:'production_ready',approved,approved_by:approvedBy,note:approvalNote};let boundedRepair={required:false,attempt:repairAttempt,max_attempts:maxRepair,remaining_attempts:Math.max(0,maxRepair-repairAttempt),trigger:null};if(!researchReady){boundedRepair.required=true;boundedRepair.trigger=researchExists?'research_artifact_empty':'research_artifact_missing';if(repairAttempt<maxRepair){routeStatus='needs_repair';state='waiting_repair';status='fail';currentStage='repair_required';reason='research_artifact_not_ready';push('research_validated','repair_required','fail','Research artifact unavailable or empty; bounded repair requested');}else{routeStatus='failed';state='failed';status='error';currentStage='repair_exhausted';reason='repair_limit_reached';push('research_validated','repair_exhausted','error','Bounded repair limit reached; strategy workflow failed');}}else{push('research_validated','strategy_drafted','running','Research artifact located and strategy draft stage completed');if(approved){routeStatus='ready_for_production';state='completed';status='pass';currentStage='production_ready';push('strategy_drafted','approval_granted','pass','Explicit approval received');push('approval_granted','production_ready','pass','Advanced to production-ready stage');}else{routeStatus='awaiting_approval';state='running';status='pending';currentStage='awaiting_approval';push('strategy_drafted','awaiting_approval','pending','Approval checkpoint open; holding before production');}}const doc={schema_name:'job_runtime_state_schema',schema_version:'1.0.0',job_id:jobId,job_type:jobType,tenant_id:tenantId,state,status,attempt:repairAttempt,max_attempts:maxRepair,inputs:{request:req,research_artifact_path:researchPath},outputs:{current_stage:currentStage,route_status:routeStatus,approval_checkpoint:approvalCheckpoint,structured_status_updates:updates,stage_transitions:transitions,bounded_repair:boundedRepair,approval_required_before_production:true,production_blocked:!approved},history:[{at:now,state:'queued',status:'pending',note:'marketing strategy workflow accepted job'},{at:now,state,status,note:`route_status=${routeStatus}; stage=${currentStage}`}],created_at:now,updated_at:now};if(reason){doc.last_error={code:routeStatus==='failed'?'repair_limit_reached':'research_artifact_not_ready',message:reason,stage:currentStage,retryable:routeStatus!=='failed'};}fs.writeFileSync(outPath,JSON.stringify(doc,null,2));const response={status:routeStatus,tenant_id:tenantId,job_type:jobType,job_id:jobId,job_state:state,current_stage:currentStage,approval_checkpoint:approvalCheckpoint,structured_status_updates:updates,stage_transitions:transitions,bounded_repair:boundedRepair,job_runtime_path:outPath};if(reason)response.reason=reason;process.stdout.write(JSON.stringify(response));\" \"$TENANT_ID\" \"$JOB_TYPE\" \"$REQ\" \"$NOW\" \"$JOB_ID\" \"$OUT_PATH\" \"$ROOT\""
+                    },
+                    "id": "8",
+                    "name": "Build Strategy Job",
+                    "type": "n8n-nodes-base.executeCommand",
+                    "typeVersion": 1,
+                    "position": [
+                      -60,
+                      -160
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "conditions": {
+                        "string": [
+                          {
+                            "value1": "={{ JSON.parse($json.stdout).status }}",
+                            "operation": "equal",
+                            "value2": "ready_for_production"
+                          }
+                        ]
+                      }
+                    },
+                    "id": "9",
+                    "name": "Status Ready For Production",
+                    "type": "n8n-nodes-base.if",
+                    "typeVersion": 1,
+                    "position": [
+                      160,
+                      -160
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "respondWith": "json",
+                      "responseBody": "={{ JSON.parse($json.stdout) }}"
+                    },
+                    "id": "10",
+                    "name": "Respond Ready For Production",
+                    "type": "n8n-nodes-base.respondToWebhook",
+                    "typeVersion": 1,
+                    "position": [
+                      380,
+                      -300
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "conditions": {
+                        "string": [
+                          {
+                            "value1": "={{ JSON.parse($node['Build Strategy Job'].json.stdout).status }}",
+                            "operation": "equal",
+                            "value2": "awaiting_approval"
+                          }
+                        ]
+                      }
+                    },
+                    "id": "11",
+                    "name": "Status Awaiting Approval",
+                    "type": "n8n-nodes-base.if",
+                    "typeVersion": 1,
+                    "position": [
+                      380,
+                      -80
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "respondWith": "json",
+                      "responseBody": "={{ JSON.parse($node['Build Strategy Job'].json.stdout) }}"
+                    },
+                    "id": "12",
+                    "name": "Respond Awaiting Approval",
+                    "type": "n8n-nodes-base.respondToWebhook",
+                    "typeVersion": 1,
+                    "position": [
+                      600,
+                      -160
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "conditions": {
+                        "string": [
+                          {
+                            "value1": "={{ JSON.parse($node['Build Strategy Job'].json.stdout).status }}",
+                            "operation": "equal",
+                            "value2": "needs_repair"
+                          }
+                        ]
+                      }
+                    },
+                    "id": "13",
+                    "name": "Status Needs Repair",
+                    "type": "n8n-nodes-base.if",
+                    "typeVersion": 1,
+                    "position": [
+                      600,
+                      40
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "respondWith": "json",
+                      "responseBody": "={{ JSON.parse($node['Build Strategy Job'].json.stdout) }}"
+                    },
+                    "id": "14",
+                    "name": "Respond Needs Repair",
+                    "type": "n8n-nodes-base.respondToWebhook",
+                    "typeVersion": 1,
+                    "position": [
+                      820,
+                      -20
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "respondWith": "json",
+                      "responseBody": "={{ JSON.parse($node['Build Strategy Job'].json.stdout) }}"
+                    },
+                    "id": "15",
+                    "name": "Respond Failed",
+                    "type": "n8n-nodes-base.respondToWebhook",
+                    "typeVersion": 1,
+                    "position": [
+                      1040,
+                      120
+                    ]
+                  }
+                ],
+                "connections": {
+                  "Webhook Trigger": {
+                    "main": [
+                      [
+                        {
+                          "node": "Normalize Input",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Normalize Input": {
+                    "main": [
+                      [
+                        {
+                          "node": "Validate Required Input",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Validate Required Input": {
+                    "main": [
+                      [
+                        {
+                          "node": "Assert Shared Schemas",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ],
+                      [
+                        {
+                          "node": "Respond Invalid Input",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Assert Shared Schemas": {
+                    "main": [
+                      [
+                        {
+                          "node": "Schemas Ready",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Schemas Ready": {
+                    "main": [
+                      [
+                        {
+                          "node": "Build Strategy Job",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ],
+                      [
+                        {
+                          "node": "Respond Hard Failure",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Build Strategy Job": {
+                    "main": [
+                      [
+                        {
+                          "node": "Status Ready For Production",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Status Ready For Production": {
+                    "main": [
+                      [
+                        {
+                          "node": "Respond Ready For Production",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ],
+                      [
+                        {
+                          "node": "Status Awaiting Approval",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Status Awaiting Approval": {
+                    "main": [
+                      [
+                        {
+                          "node": "Respond Awaiting Approval",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ],
+                      [
+                        {
+                          "node": "Status Needs Repair",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Status Needs Repair": {
+                    "main": [
+                      [
+                        {
+                          "node": "Respond Needs Repair",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ],
+                      [
+                        {
+                          "node": "Respond Failed",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  }
+                },
+                "authors": "Brendan Kam",
+                "name": null,
+                "description": null,
+                "autosaved": false
+              }
             },
             "rawPath": "/Users/bkam/.openclaw/workspace/aries-platform-bootstrap/generated/draft/n8n-update-raw-response.json"
           }
@@ -1063,41 +1978,17 @@
           "attempt": 1,
           "stage": "activate",
           "response": {
-            "ok": false,
+            "ok": true,
             "stage": "activate",
-            "status": 400,
+            "status": 200,
             "body": {
-              "message": "Could not find property option"
-            },
-            "rawPath": "/Users/bkam/.openclaw/workspace/aries-platform-bootstrap/generated/draft/n8n-activate-raw-response.json"
-          }
-        },
-        {
-          "attempt": 1,
-          "stage": "capture-failure",
-          "failure": {
-            "timestamp": "2026-03-08T20:14:19.271Z",
-            "stage": "activate",
-            "httpStatus": 400,
-            "message": "Could not find property option",
-            "sectionPath": "workflow",
-            "retryable": true,
-            "raw": {
-              "responseBody": {
-                "message": "Could not find property option"
-              }
-            }
-          }
-        },
-        {
-          "attempt": 1,
-          "stage": "repair",
-          "repair": {
-            "repaired": false,
-            "patchedSection": null,
-            "reason": "no safe section-only patch identified",
-            "workflow": {
+              "updatedAt": "2026-03-08T20:28:37.785Z",
+              "createdAt": "2026-03-08T20:13:12.983Z",
+              "id": "SNEVd8B8SVDQO2tj",
               "name": "marketing-strategy",
+              "description": null,
+              "active": true,
+              "isArchived": false,
               "nodes": [
                 {
                   "parameters": {
@@ -1128,12 +2019,10 @@
                         {
                           "name": "job_type",
                           "value": "={{$json.body?.job_type || $json.job_type || 'marketing_strategy'}}"
-                        }
-                      ],
-                      "json": [
+                        },
                         {
-                          "name": "request",
-                          "value": "={{$json.body?.request || $json.request || {}}}"
+                          "name": "request_json",
+                          "value": "={{JSON.stringify($json.body?.request || $json.request || {})}}"
                         }
                       ]
                     }
@@ -1236,7 +2125,7 @@
                 },
                 {
                   "parameters": {
-                    "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT_ID=\"{{$node['Normalize Input'].json.tenant_id}}\"\nJOB_TYPE=\"{{$node['Normalize Input'].json.job_type}}\"\nREQ='{{JSON.stringify($node[\"Normalize Input\"].json.request)}}'\nNOW=\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"\nJOB_ID=\"mkt_strategy_${TENANT_ID}_$(date +%s)\"\nOUT_DIR=\"$ROOT/generated/draft/marketing-jobs\"\nOUT_PATH=\"$OUT_DIR/${JOB_ID}.json\"\nmkdir -p \"$OUT_DIR\"\nnode -e \"const fs=require('fs');const p=process.argv;const tenantId=p[1],jobType=p[2],reqRaw=p[3],now=p[4],jobId=p[5],outPath=p[6],root=p[7];const req=JSON.parse(reqRaw||'{}');const approval=(req.approval&&typeof req.approval==='object')?req.approval:{};const approved=approval.approved===true;const approvedBy=approval.approved_by||null;const approvalNote=approval.note||null;const repairAttempt=Number.isInteger(req.repair_attempt)?req.repair_attempt:1;const maxRepair=Number.isInteger(req.max_repair_attempts)?req.max_repair_attempts:3;const researchPath=(req.research_artifact_path&&String(req.research_artifact_path).trim())?String(req.research_artifact_path):`${root}/generated/draft/${tenantId}/workspaces/research/README.md`;const transitions=[];const updates=[];const push=(from,to,status,message)=>{transitions.push({from_stage:from,to_stage:to,at:now,status,message});updates.push({stage:to,status,message,at:now});};push('received','research_validated','running','Input normalized and strategy workflow started');const researchExists=fs.existsSync(researchPath);const researchContent=researchExists?fs.readFileSync(researchPath,'utf8').trim():'';const researchReady=researchExists&&researchContent.length>0;let routeStatus='awaiting_approval';let state='running';let status='running';let currentStage='awaiting_approval';let reason=null;const approvalCheckpoint={required:true,gate_before_stage:'production_ready',approved,approved_by:approvedBy,note:approvalNote};let boundedRepair={required:false,attempt:repairAttempt,max_attempts:maxRepair,remaining_attempts:Math.max(0,maxRepair-repairAttempt),trigger:null};if(!researchReady){boundedRepair.required=true;boundedRepair.trigger=researchExists?'research_artifact_empty':'research_artifact_missing';if(repairAttempt<maxRepair){routeStatus='needs_repair';state='waiting_repair';status='fail';currentStage='repair_required';reason='research_artifact_not_ready';push('research_validated','repair_required','fail','Research artifact unavailable or empty; bounded repair requested');}else{routeStatus='failed';state='failed';status='error';currentStage='repair_exhausted';reason='repair_limit_reached';push('research_validated','repair_exhausted','error','Bounded repair limit reached; strategy workflow failed');}}else{push('research_validated','strategy_drafted','running','Research artifact located and strategy draft stage completed');if(approved){routeStatus='ready_for_production';state='completed';status='pass';currentStage='production_ready';push('strategy_drafted','approval_granted','pass','Explicit approval received');push('approval_granted','production_ready','pass','Advanced to production-ready stage');}else{routeStatus='awaiting_approval';state='running';status='pending';currentStage='awaiting_approval';push('strategy_drafted','awaiting_approval','pending','Approval checkpoint open; holding before production');}}const doc={schema_name:'job_runtime_state_schema',schema_version:'1.0.0',job_id:jobId,job_type:jobType,tenant_id:tenantId,state,status,attempt:repairAttempt,max_attempts:maxRepair,inputs:{request:req,research_artifact_path:researchPath},outputs:{current_stage:currentStage,route_status:routeStatus,approval_checkpoint:approvalCheckpoint,structured_status_updates:updates,stage_transitions:transitions,bounded_repair:boundedRepair,approval_required_before_production:true,production_blocked:!approved},history:[{at:now,state:'queued',status:'pending',note:'marketing strategy workflow accepted job'},{at:now,state,status,note:`route_status=${routeStatus}; stage=${currentStage}`}],created_at:now,updated_at:now};if(reason){doc.last_error={code:routeStatus==='failed'?'repair_limit_reached':'research_artifact_not_ready',message:reason,stage:currentStage,retryable:routeStatus!=='failed'};}fs.writeFileSync(outPath,JSON.stringify(doc,null,2));const response={status:routeStatus,tenant_id:tenantId,job_type:jobType,job_id:jobId,job_state:state,current_stage:currentStage,approval_checkpoint:approvalCheckpoint,structured_status_updates:updates,stage_transitions:transitions,bounded_repair:boundedRepair,job_runtime_path:outPath};if(reason)response.reason=reason;process.stdout.write(JSON.stringify(response));\" \"$TENANT_ID\" \"$JOB_TYPE\" \"$REQ\" \"$NOW\" \"$JOB_ID\" \"$OUT_PATH\" \"$ROOT\""
+                    "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT_ID=\"{{$node['Normalize Input'].json.tenant_id}}\"\nJOB_TYPE=\"{{$node['Normalize Input'].json.job_type}}\"\nREQ='{{$node[\"Normalize Input\"].json.request_json}}'\nNOW=\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"\nJOB_ID=\"mkt_strategy_${TENANT_ID}_$(date +%s)\"\nOUT_DIR=\"$ROOT/generated/draft/marketing-jobs\"\nOUT_PATH=\"$OUT_DIR/${JOB_ID}.json\"\nmkdir -p \"$OUT_DIR\"\nnode -e \"const fs=require('fs');const p=process.argv;const tenantId=p[1],jobType=p[2],reqRaw=p[3],now=p[4],jobId=p[5],outPath=p[6],root=p[7];const req=JSON.parse(reqRaw||'{}');const approval=(req.approval&&typeof req.approval==='object')?req.approval:{};const approved=approval.approved===true;const approvedBy=approval.approved_by||null;const approvalNote=approval.note||null;const repairAttempt=Number.isInteger(req.repair_attempt)?req.repair_attempt:1;const maxRepair=Number.isInteger(req.max_repair_attempts)?req.max_repair_attempts:3;const researchPath=(req.research_artifact_path&&String(req.research_artifact_path).trim())?String(req.research_artifact_path):`${root}/generated/draft/${tenantId}/workspaces/research/README.md`;const transitions=[];const updates=[];const push=(from,to,status,message)=>{transitions.push({from_stage:from,to_stage:to,at:now,status,message});updates.push({stage:to,status,message,at:now});};push('received','research_validated','running','Input normalized and strategy workflow started');const researchExists=fs.existsSync(researchPath);const researchContent=researchExists?fs.readFileSync(researchPath,'utf8').trim():'';const researchReady=researchExists&&researchContent.length>0;let routeStatus='awaiting_approval';let state='running';let status='running';let currentStage='awaiting_approval';let reason=null;const approvalCheckpoint={required:true,gate_before_stage:'production_ready',approved,approved_by:approvedBy,note:approvalNote};let boundedRepair={required:false,attempt:repairAttempt,max_attempts:maxRepair,remaining_attempts:Math.max(0,maxRepair-repairAttempt),trigger:null};if(!researchReady){boundedRepair.required=true;boundedRepair.trigger=researchExists?'research_artifact_empty':'research_artifact_missing';if(repairAttempt<maxRepair){routeStatus='needs_repair';state='waiting_repair';status='fail';currentStage='repair_required';reason='research_artifact_not_ready';push('research_validated','repair_required','fail','Research artifact unavailable or empty; bounded repair requested');}else{routeStatus='failed';state='failed';status='error';currentStage='repair_exhausted';reason='repair_limit_reached';push('research_validated','repair_exhausted','error','Bounded repair limit reached; strategy workflow failed');}}else{push('research_validated','strategy_drafted','running','Research artifact located and strategy draft stage completed');if(approved){routeStatus='ready_for_production';state='completed';status='pass';currentStage='production_ready';push('strategy_drafted','approval_granted','pass','Explicit approval received');push('approval_granted','production_ready','pass','Advanced to production-ready stage');}else{routeStatus='awaiting_approval';state='running';status='pending';currentStage='awaiting_approval';push('strategy_drafted','awaiting_approval','pending','Approval checkpoint open; holding before production');}}const doc={schema_name:'job_runtime_state_schema',schema_version:'1.0.0',job_id:jobId,job_type:jobType,tenant_id:tenantId,state,status,attempt:repairAttempt,max_attempts:maxRepair,inputs:{request:req,research_artifact_path:researchPath},outputs:{current_stage:currentStage,route_status:routeStatus,approval_checkpoint:approvalCheckpoint,structured_status_updates:updates,stage_transitions:transitions,bounded_repair:boundedRepair,approval_required_before_production:true,production_blocked:!approved},history:[{at:now,state:'queued',status:'pending',note:'marketing strategy workflow accepted job'},{at:now,state,status,note:`route_status=${routeStatus}; stage=${currentStage}`}],created_at:now,updated_at:now};if(reason){doc.last_error={code:routeStatus==='failed'?'repair_limit_reached':'research_artifact_not_ready',message:reason,stage:currentStage,retryable:routeStatus!=='failed'};}fs.writeFileSync(outPath,JSON.stringify(doc,null,2));const response={status:routeStatus,tenant_id:tenantId,job_type:jobType,job_id:jobId,job_state:state,current_stage:currentStage,approval_checkpoint:approvalCheckpoint,structured_status_updates:updates,stage_transitions:transitions,bounded_repair:boundedRepair,job_runtime_path:outPath};if(reason)response.reason=reason;process.stdout.write(JSON.stringify(response));\" \"$TENANT_ID\" \"$JOB_TYPE\" \"$REQ\" \"$NOW\" \"$JOB_ID\" \"$OUT_PATH\" \"$ROOT\""
                   },
                   "id": "8",
                   "name": "Build Strategy Job",
@@ -1503,12 +2392,475 @@
                   ]
                 }
               },
-              "active": false,
               "settings": {
-                "executionOrder": "v1"
+                "executionOrder": "v1",
+                "callerPolicy": "workflowsFromSameOwner",
+                "availableInMCP": false
               },
-              "pinData": {}
-            }
+              "staticData": null,
+              "meta": null,
+              "pinData": null,
+              "versionId": "47d7d87d-0fac-4c2c-bddf-99e149954823",
+              "activeVersionId": "47d7d87d-0fac-4c2c-bddf-99e149954823",
+              "versionCounter": 10,
+              "triggerCount": 1,
+              "activeVersion": {
+                "updatedAt": "2026-03-08T20:27:41.076Z",
+                "createdAt": "2026-03-08T20:27:41.076Z",
+                "versionId": "47d7d87d-0fac-4c2c-bddf-99e149954823",
+                "workflowId": "SNEVd8B8SVDQO2tj",
+                "nodes": [
+                  {
+                    "parameters": {
+                      "httpMethod": "POST",
+                      "path": "marketing-strategy",
+                      "responseMode": "responseNode",
+                      "options": {}
+                    },
+                    "id": "1",
+                    "name": "Webhook Trigger",
+                    "type": "n8n-nodes-base.webhook",
+                    "typeVersion": 2,
+                    "position": [
+                      -1160,
+                      0
+                    ],
+                    "webhookId": "marketing-strategy"
+                  },
+                  {
+                    "parameters": {
+                      "keepOnlySet": true,
+                      "values": {
+                        "string": [
+                          {
+                            "name": "tenant_id",
+                            "value": "={{$json.body?.tenant_id || $json.tenant_id}}"
+                          },
+                          {
+                            "name": "job_type",
+                            "value": "={{$json.body?.job_type || $json.job_type || 'marketing_strategy'}}"
+                          },
+                          {
+                            "name": "request_json",
+                            "value": "={{JSON.stringify($json.body?.request || $json.request || {})}}"
+                          }
+                        ]
+                      }
+                    },
+                    "id": "2",
+                    "name": "Normalize Input",
+                    "type": "n8n-nodes-base.set",
+                    "typeVersion": 2,
+                    "position": [
+                      -940,
+                      0
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "conditions": {
+                        "string": [
+                          {
+                            "value1": "={{$json.tenant_id}}",
+                            "operation": "notEmpty"
+                          },
+                          {
+                            "value1": "={{$json.job_type}}",
+                            "operation": "notEmpty"
+                          }
+                        ]
+                      }
+                    },
+                    "id": "3",
+                    "name": "Validate Required Input",
+                    "type": "n8n-nodes-base.if",
+                    "typeVersion": 1,
+                    "position": [
+                      -720,
+                      0
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "respondWith": "json",
+                      "responseBody": "={{ { status: 'error', reason: 'invalid_input', code: 'missing_required_fields', required: ['tenant_id','job_type'] } }}"
+                    },
+                    "id": "4",
+                    "name": "Respond Invalid Input",
+                    "type": "n8n-nodes-base.respondToWebhook",
+                    "typeVersion": 1,
+                    "position": [
+                      -500,
+                      180
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT_SCHEMA=\"$ROOT/specs/tenant_runtime_state_schema.v1.json\"\nJOB_SCHEMA=\"$ROOT/specs/job_runtime_state_schema.v1.json\"\nmissing=\"\"\nfor f in \"$TENANT_SCHEMA\" \"$JOB_SCHEMA\"; do\n  if [ ! -f \"$f\" ]; then\n    if [ -n \"$missing\" ]; then missing=\"$missing, \"; fi\n    missing=\"$missing$f\"\n  fi\ndone\nif [ -n \"$missing\" ]; then\n  echo \"{\\\"status\\\":\\\"hard_failure\\\",\\\"code\\\":\\\"missing_input_schemas\\\",\\\"message\\\":\\\"Required schema files are missing\\\",\\\"missing\\\":\\\"$missing\\\"}\"\n  exit 1\nfi\nnode -e \"const fs=require('fs');JSON.parse(fs.readFileSync(process.argv[1],'utf8'));JSON.parse(fs.readFileSync(process.argv[2],'utf8'));process.stdout.write(JSON.stringify({status:'ok',tenant_schema:process.argv[1],job_schema:process.argv[2]}));\" \"$TENANT_SCHEMA\" \"$JOB_SCHEMA\""
+                    },
+                    "id": "5",
+                    "name": "Assert Shared Schemas",
+                    "type": "n8n-nodes-base.executeCommand",
+                    "typeVersion": 1,
+                    "position": [
+                      -500,
+                      -80
+                    ],
+                    "continueOnFail": true
+                  },
+                  {
+                    "parameters": {
+                      "conditions": {
+                        "string": [
+                          {
+                            "value1": "={{$json.exitCode || 0}}",
+                            "operation": "equal",
+                            "value2": "0"
+                          }
+                        ]
+                      }
+                    },
+                    "id": "6",
+                    "name": "Schemas Ready",
+                    "type": "n8n-nodes-base.if",
+                    "typeVersion": 1,
+                    "position": [
+                      -280,
+                      -80
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "respondWith": "json",
+                      "responseBody": "={{ (() => { const out = $node['Assert Shared Schemas'].json.stdout || '{}'; let parsed; try { parsed = JSON.parse(out); } catch (e) { parsed = { status: 'hard_failure', code: 'invalid_schema_files', message: out || 'schema parse failed' }; } return { status: 'hard_failure', reason: 'missing_or_invalid_schemas', code: parsed.code || 'invalid_schema_files', details: parsed }; })() }}"
+                    },
+                    "id": "7",
+                    "name": "Respond Hard Failure",
+                    "type": "n8n-nodes-base.respondToWebhook",
+                    "typeVersion": 1,
+                    "position": [
+                      -60,
+                      120
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT_ID=\"{{$node['Normalize Input'].json.tenant_id}}\"\nJOB_TYPE=\"{{$node['Normalize Input'].json.job_type}}\"\nREQ='{{$node[\"Normalize Input\"].json.request_json}}'\nNOW=\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"\nJOB_ID=\"mkt_strategy_${TENANT_ID}_$(date +%s)\"\nOUT_DIR=\"$ROOT/generated/draft/marketing-jobs\"\nOUT_PATH=\"$OUT_DIR/${JOB_ID}.json\"\nmkdir -p \"$OUT_DIR\"\nnode -e \"const fs=require('fs');const p=process.argv;const tenantId=p[1],jobType=p[2],reqRaw=p[3],now=p[4],jobId=p[5],outPath=p[6],root=p[7];const req=JSON.parse(reqRaw||'{}');const approval=(req.approval&&typeof req.approval==='object')?req.approval:{};const approved=approval.approved===true;const approvedBy=approval.approved_by||null;const approvalNote=approval.note||null;const repairAttempt=Number.isInteger(req.repair_attempt)?req.repair_attempt:1;const maxRepair=Number.isInteger(req.max_repair_attempts)?req.max_repair_attempts:3;const researchPath=(req.research_artifact_path&&String(req.research_artifact_path).trim())?String(req.research_artifact_path):`${root}/generated/draft/${tenantId}/workspaces/research/README.md`;const transitions=[];const updates=[];const push=(from,to,status,message)=>{transitions.push({from_stage:from,to_stage:to,at:now,status,message});updates.push({stage:to,status,message,at:now});};push('received','research_validated','running','Input normalized and strategy workflow started');const researchExists=fs.existsSync(researchPath);const researchContent=researchExists?fs.readFileSync(researchPath,'utf8').trim():'';const researchReady=researchExists&&researchContent.length>0;let routeStatus='awaiting_approval';let state='running';let status='running';let currentStage='awaiting_approval';let reason=null;const approvalCheckpoint={required:true,gate_before_stage:'production_ready',approved,approved_by:approvedBy,note:approvalNote};let boundedRepair={required:false,attempt:repairAttempt,max_attempts:maxRepair,remaining_attempts:Math.max(0,maxRepair-repairAttempt),trigger:null};if(!researchReady){boundedRepair.required=true;boundedRepair.trigger=researchExists?'research_artifact_empty':'research_artifact_missing';if(repairAttempt<maxRepair){routeStatus='needs_repair';state='waiting_repair';status='fail';currentStage='repair_required';reason='research_artifact_not_ready';push('research_validated','repair_required','fail','Research artifact unavailable or empty; bounded repair requested');}else{routeStatus='failed';state='failed';status='error';currentStage='repair_exhausted';reason='repair_limit_reached';push('research_validated','repair_exhausted','error','Bounded repair limit reached; strategy workflow failed');}}else{push('research_validated','strategy_drafted','running','Research artifact located and strategy draft stage completed');if(approved){routeStatus='ready_for_production';state='completed';status='pass';currentStage='production_ready';push('strategy_drafted','approval_granted','pass','Explicit approval received');push('approval_granted','production_ready','pass','Advanced to production-ready stage');}else{routeStatus='awaiting_approval';state='running';status='pending';currentStage='awaiting_approval';push('strategy_drafted','awaiting_approval','pending','Approval checkpoint open; holding before production');}}const doc={schema_name:'job_runtime_state_schema',schema_version:'1.0.0',job_id:jobId,job_type:jobType,tenant_id:tenantId,state,status,attempt:repairAttempt,max_attempts:maxRepair,inputs:{request:req,research_artifact_path:researchPath},outputs:{current_stage:currentStage,route_status:routeStatus,approval_checkpoint:approvalCheckpoint,structured_status_updates:updates,stage_transitions:transitions,bounded_repair:boundedRepair,approval_required_before_production:true,production_blocked:!approved},history:[{at:now,state:'queued',status:'pending',note:'marketing strategy workflow accepted job'},{at:now,state,status,note:`route_status=${routeStatus}; stage=${currentStage}`}],created_at:now,updated_at:now};if(reason){doc.last_error={code:routeStatus==='failed'?'repair_limit_reached':'research_artifact_not_ready',message:reason,stage:currentStage,retryable:routeStatus!=='failed'};}fs.writeFileSync(outPath,JSON.stringify(doc,null,2));const response={status:routeStatus,tenant_id:tenantId,job_type:jobType,job_id:jobId,job_state:state,current_stage:currentStage,approval_checkpoint:approvalCheckpoint,structured_status_updates:updates,stage_transitions:transitions,bounded_repair:boundedRepair,job_runtime_path:outPath};if(reason)response.reason=reason;process.stdout.write(JSON.stringify(response));\" \"$TENANT_ID\" \"$JOB_TYPE\" \"$REQ\" \"$NOW\" \"$JOB_ID\" \"$OUT_PATH\" \"$ROOT\""
+                    },
+                    "id": "8",
+                    "name": "Build Strategy Job",
+                    "type": "n8n-nodes-base.executeCommand",
+                    "typeVersion": 1,
+                    "position": [
+                      -60,
+                      -160
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "conditions": {
+                        "string": [
+                          {
+                            "value1": "={{ JSON.parse($json.stdout).status }}",
+                            "operation": "equal",
+                            "value2": "ready_for_production"
+                          }
+                        ]
+                      }
+                    },
+                    "id": "9",
+                    "name": "Status Ready For Production",
+                    "type": "n8n-nodes-base.if",
+                    "typeVersion": 1,
+                    "position": [
+                      160,
+                      -160
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "respondWith": "json",
+                      "responseBody": "={{ JSON.parse($json.stdout) }}"
+                    },
+                    "id": "10",
+                    "name": "Respond Ready For Production",
+                    "type": "n8n-nodes-base.respondToWebhook",
+                    "typeVersion": 1,
+                    "position": [
+                      380,
+                      -300
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "conditions": {
+                        "string": [
+                          {
+                            "value1": "={{ JSON.parse($node['Build Strategy Job'].json.stdout).status }}",
+                            "operation": "equal",
+                            "value2": "awaiting_approval"
+                          }
+                        ]
+                      }
+                    },
+                    "id": "11",
+                    "name": "Status Awaiting Approval",
+                    "type": "n8n-nodes-base.if",
+                    "typeVersion": 1,
+                    "position": [
+                      380,
+                      -80
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "respondWith": "json",
+                      "responseBody": "={{ JSON.parse($node['Build Strategy Job'].json.stdout) }}"
+                    },
+                    "id": "12",
+                    "name": "Respond Awaiting Approval",
+                    "type": "n8n-nodes-base.respondToWebhook",
+                    "typeVersion": 1,
+                    "position": [
+                      600,
+                      -160
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "conditions": {
+                        "string": [
+                          {
+                            "value1": "={{ JSON.parse($node['Build Strategy Job'].json.stdout).status }}",
+                            "operation": "equal",
+                            "value2": "needs_repair"
+                          }
+                        ]
+                      }
+                    },
+                    "id": "13",
+                    "name": "Status Needs Repair",
+                    "type": "n8n-nodes-base.if",
+                    "typeVersion": 1,
+                    "position": [
+                      600,
+                      40
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "respondWith": "json",
+                      "responseBody": "={{ JSON.parse($node['Build Strategy Job'].json.stdout) }}"
+                    },
+                    "id": "14",
+                    "name": "Respond Needs Repair",
+                    "type": "n8n-nodes-base.respondToWebhook",
+                    "typeVersion": 1,
+                    "position": [
+                      820,
+                      -20
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "respondWith": "json",
+                      "responseBody": "={{ JSON.parse($node['Build Strategy Job'].json.stdout) }}"
+                    },
+                    "id": "15",
+                    "name": "Respond Failed",
+                    "type": "n8n-nodes-base.respondToWebhook",
+                    "typeVersion": 1,
+                    "position": [
+                      1040,
+                      120
+                    ]
+                  }
+                ],
+                "connections": {
+                  "Webhook Trigger": {
+                    "main": [
+                      [
+                        {
+                          "node": "Normalize Input",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Normalize Input": {
+                    "main": [
+                      [
+                        {
+                          "node": "Validate Required Input",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Validate Required Input": {
+                    "main": [
+                      [
+                        {
+                          "node": "Assert Shared Schemas",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ],
+                      [
+                        {
+                          "node": "Respond Invalid Input",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Assert Shared Schemas": {
+                    "main": [
+                      [
+                        {
+                          "node": "Schemas Ready",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Schemas Ready": {
+                    "main": [
+                      [
+                        {
+                          "node": "Build Strategy Job",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ],
+                      [
+                        {
+                          "node": "Respond Hard Failure",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Build Strategy Job": {
+                    "main": [
+                      [
+                        {
+                          "node": "Status Ready For Production",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Status Ready For Production": {
+                    "main": [
+                      [
+                        {
+                          "node": "Respond Ready For Production",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ],
+                      [
+                        {
+                          "node": "Status Awaiting Approval",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Status Awaiting Approval": {
+                    "main": [
+                      [
+                        {
+                          "node": "Respond Awaiting Approval",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ],
+                      [
+                        {
+                          "node": "Status Needs Repair",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Status Needs Repair": {
+                    "main": [
+                      [
+                        {
+                          "node": "Respond Needs Repair",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ],
+                      [
+                        {
+                          "node": "Respond Failed",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  }
+                },
+                "authors": "Brendan Kam",
+                "name": null,
+                "description": null,
+                "autosaved": false,
+                "workflowPublishHistory": [
+                  {
+                    "createdAt": "2026-03-08T20:27:41.188Z",
+                    "id": 35,
+                    "workflowId": "SNEVd8B8SVDQO2tj",
+                    "versionId": "47d7d87d-0fac-4c2c-bddf-99e149954823",
+                    "event": "activated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:28:37.835Z",
+                    "id": 53,
+                    "workflowId": "SNEVd8B8SVDQO2tj",
+                    "versionId": "47d7d87d-0fac-4c2c-bddf-99e149954823",
+                    "event": "deactivated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:28:37.851Z",
+                    "id": 54,
+                    "workflowId": "SNEVd8B8SVDQO2tj",
+                    "versionId": "47d7d87d-0fac-4c2c-bddf-99e149954823",
+                    "event": "activated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:28:37.968Z",
+                    "id": 55,
+                    "workflowId": "SNEVd8B8SVDQO2tj",
+                    "versionId": "47d7d87d-0fac-4c2c-bddf-99e149954823",
+                    "event": "deactivated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:28:37.983Z",
+                    "id": 56,
+                    "workflowId": "SNEVd8B8SVDQO2tj",
+                    "versionId": "47d7d87d-0fac-4c2c-bddf-99e149954823",
+                    "event": "activated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  }
+                ]
+              }
+            },
+            "rawPath": "/Users/bkam/.openclaw/workspace/aries-platform-bootstrap/generated/draft/n8n-activate-raw-response.json"
           }
         }
       ]
@@ -1532,7 +2884,7 @@
             "stage": "update",
             "status": 200,
             "body": {
-              "updatedAt": "2026-03-08T20:14:19.433Z",
+              "updatedAt": "2026-03-08T20:28:38.257Z",
               "createdAt": "2026-03-08T20:13:13.191Z",
               "id": "ZDriB0BoHs2O5aV6",
               "name": "marketing-production",
@@ -1881,7 +3233,7 @@
               "pinData": null,
               "versionId": "c9c76fc2-b9c0-458a-8fec-80a7cd7ecaa3",
               "activeVersionId": "c9c76fc2-b9c0-458a-8fec-80a7cd7ecaa3",
-              "versionCounter": 4,
+              "versionCounter": 14,
               "triggerCount": 1,
               "tags": [],
               "activeVersion": {
@@ -2238,7 +3590,7 @@
             "stage": "activate",
             "status": 200,
             "body": {
-              "updatedAt": "2026-03-08T20:14:19.433Z",
+              "updatedAt": "2026-03-08T20:28:38.257Z",
               "createdAt": "2026-03-08T20:13:13.191Z",
               "id": "ZDriB0BoHs2O5aV6",
               "name": "marketing-production",
@@ -2587,7 +3939,7 @@
               "pinData": null,
               "versionId": "c9c76fc2-b9c0-458a-8fec-80a7cd7ecaa3",
               "activeVersionId": "c9c76fc2-b9c0-458a-8fec-80a7cd7ecaa3",
-              "versionCounter": 8,
+              "versionCounter": 18,
               "triggerCount": 1,
               "activeVersion": {
                 "updatedAt": "2026-03-08T20:13:13.195Z",
@@ -2970,6 +4322,70 @@
                     "versionId": "c9c76fc2-b9c0-458a-8fec-80a7cd7ecaa3",
                     "event": "activated",
                     "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:27:41.453Z",
+                    "id": 36,
+                    "workflowId": "ZDriB0BoHs2O5aV6",
+                    "versionId": "c9c76fc2-b9c0-458a-8fec-80a7cd7ecaa3",
+                    "event": "deactivated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:27:41.472Z",
+                    "id": 37,
+                    "workflowId": "ZDriB0BoHs2O5aV6",
+                    "versionId": "c9c76fc2-b9c0-458a-8fec-80a7cd7ecaa3",
+                    "event": "activated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:27:41.588Z",
+                    "id": 38,
+                    "workflowId": "ZDriB0BoHs2O5aV6",
+                    "versionId": "c9c76fc2-b9c0-458a-8fec-80a7cd7ecaa3",
+                    "event": "deactivated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:27:41.607Z",
+                    "id": 39,
+                    "workflowId": "ZDriB0BoHs2O5aV6",
+                    "versionId": "c9c76fc2-b9c0-458a-8fec-80a7cd7ecaa3",
+                    "event": "activated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:28:38.289Z",
+                    "id": 57,
+                    "workflowId": "ZDriB0BoHs2O5aV6",
+                    "versionId": "c9c76fc2-b9c0-458a-8fec-80a7cd7ecaa3",
+                    "event": "deactivated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:28:38.308Z",
+                    "id": 58,
+                    "workflowId": "ZDriB0BoHs2O5aV6",
+                    "versionId": "c9c76fc2-b9c0-458a-8fec-80a7cd7ecaa3",
+                    "event": "activated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:28:38.441Z",
+                    "id": 59,
+                    "workflowId": "ZDriB0BoHs2O5aV6",
+                    "versionId": "c9c76fc2-b9c0-458a-8fec-80a7cd7ecaa3",
+                    "event": "deactivated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:28:38.467Z",
+                    "id": 60,
+                    "workflowId": "ZDriB0BoHs2O5aV6",
+                    "versionId": "c9c76fc2-b9c0-458a-8fec-80a7cd7ecaa3",
+                    "event": "activated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
                   }
                 ]
               }
@@ -2998,7 +4414,7 @@
             "stage": "update",
             "status": 200,
             "body": {
-              "updatedAt": "2026-03-08T20:14:19.706Z",
+              "updatedAt": "2026-03-08T20:28:38.724Z",
               "createdAt": "2026-03-08T20:13:13.396Z",
               "id": "VqPrLtNmK12IUcHO",
               "name": "marketing-publish",
@@ -3339,7 +4755,7 @@
               "pinData": null,
               "versionId": "c4315da7-271a-4df6-a599-22c4ca1a785e",
               "activeVersionId": "c4315da7-271a-4df6-a599-22c4ca1a785e",
-              "versionCounter": 4,
+              "versionCounter": 14,
               "triggerCount": 1,
               "tags": [],
               "activeVersion": {
@@ -3688,7 +5104,7 @@
             "stage": "activate",
             "status": 200,
             "body": {
-              "updatedAt": "2026-03-08T20:14:19.706Z",
+              "updatedAt": "2026-03-08T20:28:38.724Z",
               "createdAt": "2026-03-08T20:13:13.396Z",
               "id": "VqPrLtNmK12IUcHO",
               "name": "marketing-publish",
@@ -4029,7 +5445,7 @@
               "pinData": null,
               "versionId": "c4315da7-271a-4df6-a599-22c4ca1a785e",
               "activeVersionId": "c4315da7-271a-4df6-a599-22c4ca1a785e",
-              "versionCounter": 8,
+              "versionCounter": 18,
               "triggerCount": 1,
               "activeVersion": {
                 "updatedAt": "2026-03-08T20:13:13.400Z",
@@ -4404,6 +5820,70 @@
                     "versionId": "c4315da7-271a-4df6-a599-22c4ca1a785e",
                     "event": "activated",
                     "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:27:41.862Z",
+                    "id": 40,
+                    "workflowId": "VqPrLtNmK12IUcHO",
+                    "versionId": "c4315da7-271a-4df6-a599-22c4ca1a785e",
+                    "event": "deactivated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:27:41.877Z",
+                    "id": 41,
+                    "workflowId": "VqPrLtNmK12IUcHO",
+                    "versionId": "c4315da7-271a-4df6-a599-22c4ca1a785e",
+                    "event": "activated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:27:42.006Z",
+                    "id": 42,
+                    "workflowId": "VqPrLtNmK12IUcHO",
+                    "versionId": "c4315da7-271a-4df6-a599-22c4ca1a785e",
+                    "event": "deactivated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:27:42.021Z",
+                    "id": 43,
+                    "workflowId": "VqPrLtNmK12IUcHO",
+                    "versionId": "c4315da7-271a-4df6-a599-22c4ca1a785e",
+                    "event": "activated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:28:38.762Z",
+                    "id": 61,
+                    "workflowId": "VqPrLtNmK12IUcHO",
+                    "versionId": "c4315da7-271a-4df6-a599-22c4ca1a785e",
+                    "event": "deactivated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:28:38.774Z",
+                    "id": 62,
+                    "workflowId": "VqPrLtNmK12IUcHO",
+                    "versionId": "c4315da7-271a-4df6-a599-22c4ca1a785e",
+                    "event": "activated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:28:38.888Z",
+                    "id": 63,
+                    "workflowId": "VqPrLtNmK12IUcHO",
+                    "versionId": "c4315da7-271a-4df6-a599-22c4ca1a785e",
+                    "event": "deactivated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:28:38.900Z",
+                    "id": 64,
+                    "workflowId": "VqPrLtNmK12IUcHO",
+                    "versionId": "c4315da7-271a-4df6-a599-22c4ca1a785e",
+                    "event": "activated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
                   }
                 ]
               }
@@ -4432,7 +5912,7 @@
             "stage": "update",
             "status": 200,
             "body": {
-              "updatedAt": "2026-03-08T20:14:19.984Z",
+              "updatedAt": "2026-03-08T20:28:39.106Z",
               "createdAt": "2026-03-08T20:13:13.650Z",
               "id": "PQqVJoG5IX1lmHBH",
               "name": "marketing-repair",
@@ -4848,7 +6328,7 @@
               "pinData": null,
               "versionId": "c33c14c1-afcd-4085-b038-e504172607fe",
               "activeVersionId": "c33c14c1-afcd-4085-b038-e504172607fe",
-              "versionCounter": 4,
+              "versionCounter": 14,
               "triggerCount": 1,
               "tags": [],
               "activeVersion": {
@@ -5272,7 +6752,7 @@
             "stage": "activate",
             "status": 200,
             "body": {
-              "updatedAt": "2026-03-08T20:14:19.984Z",
+              "updatedAt": "2026-03-08T20:28:39.106Z",
               "createdAt": "2026-03-08T20:13:13.650Z",
               "id": "PQqVJoG5IX1lmHBH",
               "name": "marketing-repair",
@@ -5688,7 +7168,7 @@
               "pinData": null,
               "versionId": "c33c14c1-afcd-4085-b038-e504172607fe",
               "activeVersionId": "c33c14c1-afcd-4085-b038-e504172607fe",
-              "versionCounter": 8,
+              "versionCounter": 18,
               "triggerCount": 1,
               "activeVersion": {
                 "updatedAt": "2026-03-08T20:13:13.656Z",
@@ -6138,6 +7618,70 @@
                     "versionId": "c33c14c1-afcd-4085-b038-e504172607fe",
                     "event": "activated",
                     "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:27:42.253Z",
+                    "id": 44,
+                    "workflowId": "PQqVJoG5IX1lmHBH",
+                    "versionId": "c33c14c1-afcd-4085-b038-e504172607fe",
+                    "event": "deactivated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:27:42.266Z",
+                    "id": 45,
+                    "workflowId": "PQqVJoG5IX1lmHBH",
+                    "versionId": "c33c14c1-afcd-4085-b038-e504172607fe",
+                    "event": "activated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:27:42.392Z",
+                    "id": 46,
+                    "workflowId": "PQqVJoG5IX1lmHBH",
+                    "versionId": "c33c14c1-afcd-4085-b038-e504172607fe",
+                    "event": "deactivated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:27:42.410Z",
+                    "id": 47,
+                    "workflowId": "PQqVJoG5IX1lmHBH",
+                    "versionId": "c33c14c1-afcd-4085-b038-e504172607fe",
+                    "event": "activated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:28:39.137Z",
+                    "id": 65,
+                    "workflowId": "PQqVJoG5IX1lmHBH",
+                    "versionId": "c33c14c1-afcd-4085-b038-e504172607fe",
+                    "event": "deactivated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:28:39.155Z",
+                    "id": 66,
+                    "workflowId": "PQqVJoG5IX1lmHBH",
+                    "versionId": "c33c14c1-afcd-4085-b038-e504172607fe",
+                    "event": "activated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:28:39.264Z",
+                    "id": 67,
+                    "workflowId": "PQqVJoG5IX1lmHBH",
+                    "versionId": "c33c14c1-afcd-4085-b038-e504172607fe",
+                    "event": "deactivated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:28:39.277Z",
+                    "id": 68,
+                    "workflowId": "PQqVJoG5IX1lmHBH",
+                    "versionId": "c33c14c1-afcd-4085-b038-e504172607fe",
+                    "event": "activated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
                   }
                 ]
               }
@@ -6152,23 +7696,11 @@
       "workflow_name": "marketing-approval-resume",
       "workflow_id": "9MvYtNk4oZj9KlR6",
       "create_or_update_succeeded": true,
-      "activate_succeeded": false,
-      "active": false,
+      "activate_succeeded": true,
+      "active": true,
       "repair_loop_succeeded": false,
-      "hard_failure": true,
-      "failure": {
-        "timestamp": "2026-03-08T20:14:20.322Z",
-        "stage": "activate",
-        "httpStatus": 400,
-        "message": "Could not find property option",
-        "sectionPath": "workflow",
-        "retryable": true,
-        "raw": {
-          "responseBody": {
-            "message": "Could not find property option"
-          }
-        }
-      },
+      "hard_failure": false,
+      "failure": null,
       "raw_api_responses": [
         {
           "attempt": 1,
@@ -6178,12 +7710,12 @@
             "stage": "update",
             "status": 200,
             "body": {
-              "updatedAt": "2026-03-08T20:14:20.246Z",
+              "updatedAt": "2026-03-08T20:28:39.472Z",
               "createdAt": "2026-03-08T20:13:13.982Z",
               "id": "9MvYtNk4oZj9KlR6",
               "name": "marketing-approval-resume",
               "description": null,
-              "active": false,
+              "active": true,
               "isArchived": false,
               "nodes": [
                 {
@@ -6215,18 +7747,16 @@
                         {
                           "name": "tenant_id",
                           "value": "={{$json.body?.tenant_id || $json.tenant_id || ''}}"
+                        },
+                        {
+                          "name": "approval_json",
+                          "value": "={{JSON.stringify($json.body?.approval || $json.approval || {})}}"
                         }
                       ],
                       "boolean": [
                         {
                           "name": "resume_publish_if_needed",
                           "value": "={{$json.body?.resume_publish_if_needed ?? $json.resume_publish_if_needed ?? true}}"
-                        }
-                      ],
-                      "json": [
-                        {
-                          "name": "approval",
-                          "value": "={{$json.body?.approval || $json.approval || {}}}"
                         }
                       ]
                     }
@@ -6249,11 +7779,11 @@
                           "operation": "notEmpty"
                         },
                         {
-                          "value1": "={{$json.approval?.decision || ''}}",
+                          "value1": "={{(JSON.parse($json.approval_json || '{}').decision || '')}}",
                           "operation": "notEmpty"
                         },
                         {
-                          "value1": "={{String($json.approval?.decision || '').toLowerCase()}}",
+                          "value1": "={{String(JSON.parse($json.approval_json || '{}').decision || '').toLowerCase()}}",
                           "operation": "equal",
                           "value2": "approved"
                         }
@@ -6285,7 +7815,7 @@
                 },
                 {
                   "parameters": {
-                    "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nJOB_ID=\"{{$node['Normalize Input'].json.job_id}}\"\nTENANT_ID=\"{{$node['Normalize Input'].json.tenant_id}}\"\nAPPROVAL='{{JSON.stringify($node[\"Normalize Input\"].json.approval)}}'\nRESUME_PUBLISH='{{$node[\"Normalize Input\"].json.resume_publish_if_needed}}'\nJOB_PATH=\"$ROOT/generated/draft/marketing-jobs/${JOB_ID}.json\"\nnode -e \"const fs=require('fs');const p=process.argv;const now=new Date().toISOString();const jobPath=p[1];const tenantInput=p[2]||'';const approval=JSON.parse(p[3]||'{}');const resumePublish=String(p[4]).toLowerCase()==='true';const stageOrder=['research','strategy','production','publish'];const validStageStates=new Set(['pending','queued','running','paused','waiting_approval','blocked','completed','failed','skipped']);if(!fs.existsSync(jobPath)){process.stdout.write(JSON.stringify({status:'error',reason:'job_not_found',code:'missing_job_runtime',http_code:404,details:{job_runtime_path:jobPath}}));process.exit(0);}const raw=fs.readFileSync(jobPath,'utf8');let job;try{job=JSON.parse(raw);}catch(e){process.stdout.write(JSON.stringify({status:'hard_failure',reason:'invalid_job_runtime_json',code:'job_runtime_parse_failed',http_code:500,details:{job_runtime_path:jobPath,message:e.message}}));process.exit(0);}const decision=String(approval.decision||'').toLowerCase();if(decision!=='approved'){process.stdout.write(JSON.stringify({status:'rejected',reason:'approval_not_granted',code:'decision_not_approved',http_code:409,job_id:job.job_id||null,tenant_id:job.tenant_id||tenantInput||null,details:{decision}}));process.exit(0);}if(typeof job.outputs!=='object'||job.outputs===null)job.outputs={};if(typeof job.outputs.stage_status!=='object'||job.outputs.stage_status===null)job.outputs.stage_status={};const stageStatus=job.outputs.stage_status;const transitions=[];const resumed=[];const skipped=[];const repairs=[];const approvedStages=Array.isArray(approval.approved_stages)?approval.approved_stages.map(s=>String(s).toLowerCase()):[];const approvedAll=approvedStages.length===0;const isApproved=(s)=>approvedAll||approvedStages.includes(s);for(const stage of stageOrder){const current=stageStatus[stage];if(typeof current==='undefined'){stageStatus[stage]='paused';repairs.push({stage,repair:'initialize_missing_stage_status',from:null,to:'paused'});}else if(typeof current!=='string'||!validStageStates.has(current)){const prev=typeof current==='string'?current:JSON.stringify(current);stageStatus[stage]='paused';repairs.push({stage,repair:'coerce_invalid_stage_status',from:prev,to:'paused'});} }for(const stage of stageOrder){const from=stageStatus[stage];if((from==='paused'||from==='waiting_approval'||from==='blocked')&&isApproved(stage)){stageStatus[stage]='queued';transitions.push({stage,from,to:'queued',reason:'approval_granted'});resumed.push(stage);}else{skipped.push({stage,status:from,reason:isApproved(stage)?'not_paused':'not_in_approved_stages'});} }const priorDone=stageOrder.slice(0,3).every(s=>stageStatus[s]==='completed'||stageStatus[s]==='queued'||stageStatus[s]==='running');if(resumePublish&&priorDone&&stageStatus.publish==='pending'){stageStatus.publish='queued';transitions.push({stage:'publish',from:'pending',to:'queued',reason:'resume_publish_if_needed'});if(!resumed.includes('publish'))resumed.push('publish');}if(!Array.isArray(job.history))job.history=[];job.state='running';job.status='running';job.updated_at=now;job.outputs.approval_resume={decision:'approved',approved_by:approval.approved_by||'unknown',approved_at:approval.approved_at||now,resume_publish_if_needed:resumePublish,resumed_stages:resumed,skipped_stages:skipped,stage_transitions:transitions,repairs};job.history.push({at:now,state:'running',status:'running',note:`approval resume applied; resumed=${resumed.join(',')||'none'}`});if(tenantInput&&job.tenant_id&&tenantInput!==job.tenant_id){repairs.push({scope:'tenant_id',repair:'input_tenant_mismatch_ignored',input_tenant_id:tenantInput,job_tenant_id:job.tenant_id});}fs.writeFileSync(jobPath,JSON.stringify(job,null,2));process.stdout.write(JSON.stringify({status:'resumed',job_id:job.job_id||null,tenant_id:job.tenant_id||tenantInput||null,decision:'approved',resumed_stages:resumed,stage_transitions:transitions,repairs,job_runtime_path:jobPath,http_code:200}));\" \"$JOB_PATH\" \"$TENANT_ID\" \"$APPROVAL\" \"$RESUME_PUBLISH\""
+                    "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nJOB_ID=\"{{$node['Normalize Input'].json.job_id}}\"\nTENANT_ID=\"{{$node['Normalize Input'].json.tenant_id}}\"\nAPPROVAL='{{$node[\"Normalize Input\"].json.approval_json}}'\nRESUME_PUBLISH='{{$node[\"Normalize Input\"].json.resume_publish_if_needed}}'\nJOB_PATH=\"$ROOT/generated/draft/marketing-jobs/${JOB_ID}.json\"\nnode -e \"const fs=require('fs');const p=process.argv;const now=new Date().toISOString();const jobPath=p[1];const tenantInput=p[2]||'';const approval=JSON.parse(p[3]||'{}');const resumePublish=String(p[4]).toLowerCase()==='true';const stageOrder=['research','strategy','production','publish'];const validStageStates=new Set(['pending','queued','running','paused','waiting_approval','blocked','completed','failed','skipped']);if(!fs.existsSync(jobPath)){process.stdout.write(JSON.stringify({status:'error',reason:'job_not_found',code:'missing_job_runtime',http_code:404,details:{job_runtime_path:jobPath}}));process.exit(0);}const raw=fs.readFileSync(jobPath,'utf8');let job;try{job=JSON.parse(raw);}catch(e){process.stdout.write(JSON.stringify({status:'hard_failure',reason:'invalid_job_runtime_json',code:'job_runtime_parse_failed',http_code:500,details:{job_runtime_path:jobPath,message:e.message}}));process.exit(0);}const decision=String(approval.decision||'').toLowerCase();if(decision!=='approved'){process.stdout.write(JSON.stringify({status:'rejected',reason:'approval_not_granted',code:'decision_not_approved',http_code:409,job_id:job.job_id||null,tenant_id:job.tenant_id||tenantInput||null,details:{decision}}));process.exit(0);}if(typeof job.outputs!=='object'||job.outputs===null)job.outputs={};if(typeof job.outputs.stage_status!=='object'||job.outputs.stage_status===null)job.outputs.stage_status={};const stageStatus=job.outputs.stage_status;const transitions=[];const resumed=[];const skipped=[];const repairs=[];const approvedStages=Array.isArray(approval.approved_stages)?approval.approved_stages.map(s=>String(s).toLowerCase()):[];const approvedAll=approvedStages.length===0;const isApproved=(s)=>approvedAll||approvedStages.includes(s);for(const stage of stageOrder){const current=stageStatus[stage];if(typeof current==='undefined'){stageStatus[stage]='paused';repairs.push({stage,repair:'initialize_missing_stage_status',from:null,to:'paused'});}else if(typeof current!=='string'||!validStageStates.has(current)){const prev=typeof current==='string'?current:JSON.stringify(current);stageStatus[stage]='paused';repairs.push({stage,repair:'coerce_invalid_stage_status',from:prev,to:'paused'});} }for(const stage of stageOrder){const from=stageStatus[stage];if((from==='paused'||from==='waiting_approval'||from==='blocked')&&isApproved(stage)){stageStatus[stage]='queued';transitions.push({stage,from,to:'queued',reason:'approval_granted'});resumed.push(stage);}else{skipped.push({stage,status:from,reason:isApproved(stage)?'not_paused':'not_in_approved_stages'});} }const priorDone=stageOrder.slice(0,3).every(s=>stageStatus[s]==='completed'||stageStatus[s]==='queued'||stageStatus[s]==='running');if(resumePublish&&priorDone&&stageStatus.publish==='pending'){stageStatus.publish='queued';transitions.push({stage:'publish',from:'pending',to:'queued',reason:'resume_publish_if_needed'});if(!resumed.includes('publish'))resumed.push('publish');}if(!Array.isArray(job.history))job.history=[];job.state='running';job.status='running';job.updated_at=now;job.outputs.approval_resume={decision:'approved',approved_by:approval.approved_by||'unknown',approved_at:approval.approved_at||now,resume_publish_if_needed:resumePublish,resumed_stages:resumed,skipped_stages:skipped,stage_transitions:transitions,repairs};job.history.push({at:now,state:'running',status:'running',note:`approval resume applied; resumed=${resumed.join(',')||'none'}`});if(tenantInput&&job.tenant_id&&tenantInput!==job.tenant_id){repairs.push({scope:'tenant_id',repair:'input_tenant_mismatch_ignored',input_tenant_id:tenantInput,job_tenant_id:job.tenant_id});}fs.writeFileSync(jobPath,JSON.stringify(job,null,2));process.stdout.write(JSON.stringify({status:'resumed',job_id:job.job_id||null,tenant_id:job.tenant_id||tenantInput||null,decision:'approved',resumed_stages:resumed,stage_transitions:transitions,repairs,job_runtime_path:jobPath,http_code:200}));\" \"$JOB_PATH\" \"$TENANT_ID\" \"$APPROVAL\" \"$RESUME_PUBLISH\""
                   },
                   "id": "5",
                   "name": "Resume Approved Stages",
@@ -6300,10 +7830,10 @@
                   "parameters": {
                     "keepOnlySet": true,
                     "values": {
-                      "json": [
+                      "string": [
                         {
-                          "name": "result",
-                          "value": "={{ JSON.parse($json.stdout || '{}') }}"
+                          "name": "result_json",
+                          "value": "={{$json.stdout || '{}'}}"
                         }
                       ]
                     }
@@ -6322,7 +7852,7 @@
                     "conditions": {
                       "string": [
                         {
-                          "value1": "={{$json.result.status}}",
+                          "value1": "={{ (JSON.parse($json.result_json || '{}').status || '') }}",
                           "operation": "equal",
                           "value2": "resumed"
                         }
@@ -6341,7 +7871,7 @@
                 {
                   "parameters": {
                     "respondWith": "json",
-                    "responseBody": "={{$json.result}}"
+                    "responseBody": "={{ JSON.parse($json.result_json || '{}') }}"
                   },
                   "id": "8",
                   "name": "Respond Resumed",
@@ -6355,7 +7885,7 @@
                 {
                   "parameters": {
                     "respondWith": "json",
-                    "responseBody": "={{$json.result}}"
+                    "responseBody": "={{ JSON.parse($json.result_json || '{}') }}"
                   },
                   "id": "9",
                   "name": "Respond Non-Resumed",
@@ -6457,12 +7987,283 @@
               "staticData": null,
               "meta": null,
               "pinData": null,
-              "versionId": "8ee78544-8d4f-4af2-b59e-d67848bbc70f",
-              "activeVersionId": null,
-              "versionCounter": 2,
-              "triggerCount": 0,
+              "versionId": "dc279822-6da8-4c39-b38a-432e54c9cb69",
+              "activeVersionId": "dc279822-6da8-4c39-b38a-432e54c9cb69",
+              "versionCounter": 7,
+              "triggerCount": 1,
               "tags": [],
-              "activeVersion": null
+              "activeVersion": {
+                "updatedAt": "2026-03-08T20:28:24.710Z",
+                "createdAt": "2026-03-08T20:28:24.710Z",
+                "versionId": "dc279822-6da8-4c39-b38a-432e54c9cb69",
+                "workflowId": "9MvYtNk4oZj9KlR6",
+                "nodes": [
+                  {
+                    "parameters": {
+                      "httpMethod": "POST",
+                      "path": "marketing-approval-resume",
+                      "responseMode": "responseNode",
+                      "options": {}
+                    },
+                    "id": "1",
+                    "name": "Webhook Trigger",
+                    "type": "n8n-nodes-base.webhook",
+                    "typeVersion": 2,
+                    "position": [
+                      -980,
+                      0
+                    ],
+                    "webhookId": "marketing-approval-resume"
+                  },
+                  {
+                    "parameters": {
+                      "keepOnlySet": true,
+                      "values": {
+                        "string": [
+                          {
+                            "name": "job_id",
+                            "value": "={{$json.body?.job_id || $json.job_id || ''}}"
+                          },
+                          {
+                            "name": "tenant_id",
+                            "value": "={{$json.body?.tenant_id || $json.tenant_id || ''}}"
+                          },
+                          {
+                            "name": "approval_json",
+                            "value": "={{JSON.stringify($json.body?.approval || $json.approval || {})}}"
+                          }
+                        ],
+                        "boolean": [
+                          {
+                            "name": "resume_publish_if_needed",
+                            "value": "={{$json.body?.resume_publish_if_needed ?? $json.resume_publish_if_needed ?? true}}"
+                          }
+                        ]
+                      }
+                    },
+                    "id": "2",
+                    "name": "Normalize Input",
+                    "type": "n8n-nodes-base.set",
+                    "typeVersion": 2,
+                    "position": [
+                      -760,
+                      0
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "conditions": {
+                        "string": [
+                          {
+                            "value1": "={{$json.job_id}}",
+                            "operation": "notEmpty"
+                          },
+                          {
+                            "value1": "={{(JSON.parse($json.approval_json || '{}').decision || '')}}",
+                            "operation": "notEmpty"
+                          },
+                          {
+                            "value1": "={{String(JSON.parse($json.approval_json || '{}').decision || '').toLowerCase()}}",
+                            "operation": "equal",
+                            "value2": "approved"
+                          }
+                        ]
+                      }
+                    },
+                    "id": "3",
+                    "name": "Validate Approval Input",
+                    "type": "n8n-nodes-base.if",
+                    "typeVersion": 1,
+                    "position": [
+                      -540,
+                      0
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "respondWith": "json",
+                      "responseBody": "={{ { status: 'error', reason: 'invalid_input_or_decision', code: 'job_id_and_approval_decision_required', details: { required: ['job_id','approval.decision=approved'] } } }}"
+                    },
+                    "id": "4",
+                    "name": "Respond Invalid Input",
+                    "type": "n8n-nodes-base.respondToWebhook",
+                    "typeVersion": 1,
+                    "position": [
+                      -320,
+                      160
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nJOB_ID=\"{{$node['Normalize Input'].json.job_id}}\"\nTENANT_ID=\"{{$node['Normalize Input'].json.tenant_id}}\"\nAPPROVAL='{{$node[\"Normalize Input\"].json.approval_json}}'\nRESUME_PUBLISH='{{$node[\"Normalize Input\"].json.resume_publish_if_needed}}'\nJOB_PATH=\"$ROOT/generated/draft/marketing-jobs/${JOB_ID}.json\"\nnode -e \"const fs=require('fs');const p=process.argv;const now=new Date().toISOString();const jobPath=p[1];const tenantInput=p[2]||'';const approval=JSON.parse(p[3]||'{}');const resumePublish=String(p[4]).toLowerCase()==='true';const stageOrder=['research','strategy','production','publish'];const validStageStates=new Set(['pending','queued','running','paused','waiting_approval','blocked','completed','failed','skipped']);if(!fs.existsSync(jobPath)){process.stdout.write(JSON.stringify({status:'error',reason:'job_not_found',code:'missing_job_runtime',http_code:404,details:{job_runtime_path:jobPath}}));process.exit(0);}const raw=fs.readFileSync(jobPath,'utf8');let job;try{job=JSON.parse(raw);}catch(e){process.stdout.write(JSON.stringify({status:'hard_failure',reason:'invalid_job_runtime_json',code:'job_runtime_parse_failed',http_code:500,details:{job_runtime_path:jobPath,message:e.message}}));process.exit(0);}const decision=String(approval.decision||'').toLowerCase();if(decision!=='approved'){process.stdout.write(JSON.stringify({status:'rejected',reason:'approval_not_granted',code:'decision_not_approved',http_code:409,job_id:job.job_id||null,tenant_id:job.tenant_id||tenantInput||null,details:{decision}}));process.exit(0);}if(typeof job.outputs!=='object'||job.outputs===null)job.outputs={};if(typeof job.outputs.stage_status!=='object'||job.outputs.stage_status===null)job.outputs.stage_status={};const stageStatus=job.outputs.stage_status;const transitions=[];const resumed=[];const skipped=[];const repairs=[];const approvedStages=Array.isArray(approval.approved_stages)?approval.approved_stages.map(s=>String(s).toLowerCase()):[];const approvedAll=approvedStages.length===0;const isApproved=(s)=>approvedAll||approvedStages.includes(s);for(const stage of stageOrder){const current=stageStatus[stage];if(typeof current==='undefined'){stageStatus[stage]='paused';repairs.push({stage,repair:'initialize_missing_stage_status',from:null,to:'paused'});}else if(typeof current!=='string'||!validStageStates.has(current)){const prev=typeof current==='string'?current:JSON.stringify(current);stageStatus[stage]='paused';repairs.push({stage,repair:'coerce_invalid_stage_status',from:prev,to:'paused'});} }for(const stage of stageOrder){const from=stageStatus[stage];if((from==='paused'||from==='waiting_approval'||from==='blocked')&&isApproved(stage)){stageStatus[stage]='queued';transitions.push({stage,from,to:'queued',reason:'approval_granted'});resumed.push(stage);}else{skipped.push({stage,status:from,reason:isApproved(stage)?'not_paused':'not_in_approved_stages'});} }const priorDone=stageOrder.slice(0,3).every(s=>stageStatus[s]==='completed'||stageStatus[s]==='queued'||stageStatus[s]==='running');if(resumePublish&&priorDone&&stageStatus.publish==='pending'){stageStatus.publish='queued';transitions.push({stage:'publish',from:'pending',to:'queued',reason:'resume_publish_if_needed'});if(!resumed.includes('publish'))resumed.push('publish');}if(!Array.isArray(job.history))job.history=[];job.state='running';job.status='running';job.updated_at=now;job.outputs.approval_resume={decision:'approved',approved_by:approval.approved_by||'unknown',approved_at:approval.approved_at||now,resume_publish_if_needed:resumePublish,resumed_stages:resumed,skipped_stages:skipped,stage_transitions:transitions,repairs};job.history.push({at:now,state:'running',status:'running',note:`approval resume applied; resumed=${resumed.join(',')||'none'}`});if(tenantInput&&job.tenant_id&&tenantInput!==job.tenant_id){repairs.push({scope:'tenant_id',repair:'input_tenant_mismatch_ignored',input_tenant_id:tenantInput,job_tenant_id:job.tenant_id});}fs.writeFileSync(jobPath,JSON.stringify(job,null,2));process.stdout.write(JSON.stringify({status:'resumed',job_id:job.job_id||null,tenant_id:job.tenant_id||tenantInput||null,decision:'approved',resumed_stages:resumed,stage_transitions:transitions,repairs,job_runtime_path:jobPath,http_code:200}));\" \"$JOB_PATH\" \"$TENANT_ID\" \"$APPROVAL\" \"$RESUME_PUBLISH\""
+                    },
+                    "id": "5",
+                    "name": "Resume Approved Stages",
+                    "type": "n8n-nodes-base.executeCommand",
+                    "typeVersion": 1,
+                    "position": [
+                      -320,
+                      -60
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "keepOnlySet": true,
+                      "values": {
+                        "string": [
+                          {
+                            "name": "result_json",
+                            "value": "={{$json.stdout || '{}'}}"
+                          }
+                        ]
+                      }
+                    },
+                    "id": "6",
+                    "name": "Parse Resume Result",
+                    "type": "n8n-nodes-base.set",
+                    "typeVersion": 2,
+                    "position": [
+                      -100,
+                      -60
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "conditions": {
+                        "string": [
+                          {
+                            "value1": "={{ (JSON.parse($json.result_json || '{}').status || '') }}",
+                            "operation": "equal",
+                            "value2": "resumed"
+                          }
+                        ]
+                      }
+                    },
+                    "id": "7",
+                    "name": "Resume Succeeded",
+                    "type": "n8n-nodes-base.if",
+                    "typeVersion": 1,
+                    "position": [
+                      120,
+                      -60
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "respondWith": "json",
+                      "responseBody": "={{ JSON.parse($json.result_json || '{}') }}"
+                    },
+                    "id": "8",
+                    "name": "Respond Resumed",
+                    "type": "n8n-nodes-base.respondToWebhook",
+                    "typeVersion": 1,
+                    "position": [
+                      340,
+                      -140
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "respondWith": "json",
+                      "responseBody": "={{ JSON.parse($json.result_json || '{}') }}"
+                    },
+                    "id": "9",
+                    "name": "Respond Non-Resumed",
+                    "type": "n8n-nodes-base.respondToWebhook",
+                    "typeVersion": 1,
+                    "position": [
+                      340,
+                      40
+                    ]
+                  }
+                ],
+                "connections": {
+                  "Webhook Trigger": {
+                    "main": [
+                      [
+                        {
+                          "node": "Normalize Input",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Normalize Input": {
+                    "main": [
+                      [
+                        {
+                          "node": "Validate Approval Input",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Validate Approval Input": {
+                    "main": [
+                      [
+                        {
+                          "node": "Resume Approved Stages",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ],
+                      [
+                        {
+                          "node": "Respond Invalid Input",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Resume Approved Stages": {
+                    "main": [
+                      [
+                        {
+                          "node": "Parse Resume Result",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Parse Resume Result": {
+                    "main": [
+                      [
+                        {
+                          "node": "Resume Succeeded",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Resume Succeeded": {
+                    "main": [
+                      [
+                        {
+                          "node": "Respond Resumed",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ],
+                      [
+                        {
+                          "node": "Respond Non-Resumed",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  }
+                },
+                "authors": "Brendan Kam",
+                "name": null,
+                "description": null,
+                "autosaved": false
+              }
             },
             "rawPath": "/Users/bkam/.openclaw/workspace/aries-platform-bootstrap/generated/draft/n8n-update-raw-response.json"
           }
@@ -6471,41 +8272,17 @@
           "attempt": 1,
           "stage": "activate",
           "response": {
-            "ok": false,
+            "ok": true,
             "stage": "activate",
-            "status": 400,
+            "status": 200,
             "body": {
-              "message": "Could not find property option"
-            },
-            "rawPath": "/Users/bkam/.openclaw/workspace/aries-platform-bootstrap/generated/draft/n8n-activate-raw-response.json"
-          }
-        },
-        {
-          "attempt": 1,
-          "stage": "capture-failure",
-          "failure": {
-            "timestamp": "2026-03-08T20:14:20.322Z",
-            "stage": "activate",
-            "httpStatus": 400,
-            "message": "Could not find property option",
-            "sectionPath": "workflow",
-            "retryable": true,
-            "raw": {
-              "responseBody": {
-                "message": "Could not find property option"
-              }
-            }
-          }
-        },
-        {
-          "attempt": 1,
-          "stage": "repair",
-          "repair": {
-            "repaired": false,
-            "patchedSection": null,
-            "reason": "no safe section-only patch identified",
-            "workflow": {
+              "updatedAt": "2026-03-08T20:28:39.472Z",
+              "createdAt": "2026-03-08T20:13:13.982Z",
+              "id": "9MvYtNk4oZj9KlR6",
               "name": "marketing-approval-resume",
+              "description": null,
+              "active": true,
+              "isArchived": false,
               "nodes": [
                 {
                   "parameters": {
@@ -6536,18 +8313,16 @@
                         {
                           "name": "tenant_id",
                           "value": "={{$json.body?.tenant_id || $json.tenant_id || ''}}"
+                        },
+                        {
+                          "name": "approval_json",
+                          "value": "={{JSON.stringify($json.body?.approval || $json.approval || {})}}"
                         }
                       ],
                       "boolean": [
                         {
                           "name": "resume_publish_if_needed",
                           "value": "={{$json.body?.resume_publish_if_needed ?? $json.resume_publish_if_needed ?? true}}"
-                        }
-                      ],
-                      "json": [
-                        {
-                          "name": "approval",
-                          "value": "={{$json.body?.approval || $json.approval || {}}}"
                         }
                       ]
                     }
@@ -6570,11 +8345,11 @@
                           "operation": "notEmpty"
                         },
                         {
-                          "value1": "={{$json.approval?.decision || ''}}",
+                          "value1": "={{(JSON.parse($json.approval_json || '{}').decision || '')}}",
                           "operation": "notEmpty"
                         },
                         {
-                          "value1": "={{String($json.approval?.decision || '').toLowerCase()}}",
+                          "value1": "={{String(JSON.parse($json.approval_json || '{}').decision || '').toLowerCase()}}",
                           "operation": "equal",
                           "value2": "approved"
                         }
@@ -6606,7 +8381,7 @@
                 },
                 {
                   "parameters": {
-                    "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nJOB_ID=\"{{$node['Normalize Input'].json.job_id}}\"\nTENANT_ID=\"{{$node['Normalize Input'].json.tenant_id}}\"\nAPPROVAL='{{JSON.stringify($node[\"Normalize Input\"].json.approval)}}'\nRESUME_PUBLISH='{{$node[\"Normalize Input\"].json.resume_publish_if_needed}}'\nJOB_PATH=\"$ROOT/generated/draft/marketing-jobs/${JOB_ID}.json\"\nnode -e \"const fs=require('fs');const p=process.argv;const now=new Date().toISOString();const jobPath=p[1];const tenantInput=p[2]||'';const approval=JSON.parse(p[3]||'{}');const resumePublish=String(p[4]).toLowerCase()==='true';const stageOrder=['research','strategy','production','publish'];const validStageStates=new Set(['pending','queued','running','paused','waiting_approval','blocked','completed','failed','skipped']);if(!fs.existsSync(jobPath)){process.stdout.write(JSON.stringify({status:'error',reason:'job_not_found',code:'missing_job_runtime',http_code:404,details:{job_runtime_path:jobPath}}));process.exit(0);}const raw=fs.readFileSync(jobPath,'utf8');let job;try{job=JSON.parse(raw);}catch(e){process.stdout.write(JSON.stringify({status:'hard_failure',reason:'invalid_job_runtime_json',code:'job_runtime_parse_failed',http_code:500,details:{job_runtime_path:jobPath,message:e.message}}));process.exit(0);}const decision=String(approval.decision||'').toLowerCase();if(decision!=='approved'){process.stdout.write(JSON.stringify({status:'rejected',reason:'approval_not_granted',code:'decision_not_approved',http_code:409,job_id:job.job_id||null,tenant_id:job.tenant_id||tenantInput||null,details:{decision}}));process.exit(0);}if(typeof job.outputs!=='object'||job.outputs===null)job.outputs={};if(typeof job.outputs.stage_status!=='object'||job.outputs.stage_status===null)job.outputs.stage_status={};const stageStatus=job.outputs.stage_status;const transitions=[];const resumed=[];const skipped=[];const repairs=[];const approvedStages=Array.isArray(approval.approved_stages)?approval.approved_stages.map(s=>String(s).toLowerCase()):[];const approvedAll=approvedStages.length===0;const isApproved=(s)=>approvedAll||approvedStages.includes(s);for(const stage of stageOrder){const current=stageStatus[stage];if(typeof current==='undefined'){stageStatus[stage]='paused';repairs.push({stage,repair:'initialize_missing_stage_status',from:null,to:'paused'});}else if(typeof current!=='string'||!validStageStates.has(current)){const prev=typeof current==='string'?current:JSON.stringify(current);stageStatus[stage]='paused';repairs.push({stage,repair:'coerce_invalid_stage_status',from:prev,to:'paused'});} }for(const stage of stageOrder){const from=stageStatus[stage];if((from==='paused'||from==='waiting_approval'||from==='blocked')&&isApproved(stage)){stageStatus[stage]='queued';transitions.push({stage,from,to:'queued',reason:'approval_granted'});resumed.push(stage);}else{skipped.push({stage,status:from,reason:isApproved(stage)?'not_paused':'not_in_approved_stages'});} }const priorDone=stageOrder.slice(0,3).every(s=>stageStatus[s]==='completed'||stageStatus[s]==='queued'||stageStatus[s]==='running');if(resumePublish&&priorDone&&stageStatus.publish==='pending'){stageStatus.publish='queued';transitions.push({stage:'publish',from:'pending',to:'queued',reason:'resume_publish_if_needed'});if(!resumed.includes('publish'))resumed.push('publish');}if(!Array.isArray(job.history))job.history=[];job.state='running';job.status='running';job.updated_at=now;job.outputs.approval_resume={decision:'approved',approved_by:approval.approved_by||'unknown',approved_at:approval.approved_at||now,resume_publish_if_needed:resumePublish,resumed_stages:resumed,skipped_stages:skipped,stage_transitions:transitions,repairs};job.history.push({at:now,state:'running',status:'running',note:`approval resume applied; resumed=${resumed.join(',')||'none'}`});if(tenantInput&&job.tenant_id&&tenantInput!==job.tenant_id){repairs.push({scope:'tenant_id',repair:'input_tenant_mismatch_ignored',input_tenant_id:tenantInput,job_tenant_id:job.tenant_id});}fs.writeFileSync(jobPath,JSON.stringify(job,null,2));process.stdout.write(JSON.stringify({status:'resumed',job_id:job.job_id||null,tenant_id:job.tenant_id||tenantInput||null,decision:'approved',resumed_stages:resumed,stage_transitions:transitions,repairs,job_runtime_path:jobPath,http_code:200}));\" \"$JOB_PATH\" \"$TENANT_ID\" \"$APPROVAL\" \"$RESUME_PUBLISH\""
+                    "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nJOB_ID=\"{{$node['Normalize Input'].json.job_id}}\"\nTENANT_ID=\"{{$node['Normalize Input'].json.tenant_id}}\"\nAPPROVAL='{{$node[\"Normalize Input\"].json.approval_json}}'\nRESUME_PUBLISH='{{$node[\"Normalize Input\"].json.resume_publish_if_needed}}'\nJOB_PATH=\"$ROOT/generated/draft/marketing-jobs/${JOB_ID}.json\"\nnode -e \"const fs=require('fs');const p=process.argv;const now=new Date().toISOString();const jobPath=p[1];const tenantInput=p[2]||'';const approval=JSON.parse(p[3]||'{}');const resumePublish=String(p[4]).toLowerCase()==='true';const stageOrder=['research','strategy','production','publish'];const validStageStates=new Set(['pending','queued','running','paused','waiting_approval','blocked','completed','failed','skipped']);if(!fs.existsSync(jobPath)){process.stdout.write(JSON.stringify({status:'error',reason:'job_not_found',code:'missing_job_runtime',http_code:404,details:{job_runtime_path:jobPath}}));process.exit(0);}const raw=fs.readFileSync(jobPath,'utf8');let job;try{job=JSON.parse(raw);}catch(e){process.stdout.write(JSON.stringify({status:'hard_failure',reason:'invalid_job_runtime_json',code:'job_runtime_parse_failed',http_code:500,details:{job_runtime_path:jobPath,message:e.message}}));process.exit(0);}const decision=String(approval.decision||'').toLowerCase();if(decision!=='approved'){process.stdout.write(JSON.stringify({status:'rejected',reason:'approval_not_granted',code:'decision_not_approved',http_code:409,job_id:job.job_id||null,tenant_id:job.tenant_id||tenantInput||null,details:{decision}}));process.exit(0);}if(typeof job.outputs!=='object'||job.outputs===null)job.outputs={};if(typeof job.outputs.stage_status!=='object'||job.outputs.stage_status===null)job.outputs.stage_status={};const stageStatus=job.outputs.stage_status;const transitions=[];const resumed=[];const skipped=[];const repairs=[];const approvedStages=Array.isArray(approval.approved_stages)?approval.approved_stages.map(s=>String(s).toLowerCase()):[];const approvedAll=approvedStages.length===0;const isApproved=(s)=>approvedAll||approvedStages.includes(s);for(const stage of stageOrder){const current=stageStatus[stage];if(typeof current==='undefined'){stageStatus[stage]='paused';repairs.push({stage,repair:'initialize_missing_stage_status',from:null,to:'paused'});}else if(typeof current!=='string'||!validStageStates.has(current)){const prev=typeof current==='string'?current:JSON.stringify(current);stageStatus[stage]='paused';repairs.push({stage,repair:'coerce_invalid_stage_status',from:prev,to:'paused'});} }for(const stage of stageOrder){const from=stageStatus[stage];if((from==='paused'||from==='waiting_approval'||from==='blocked')&&isApproved(stage)){stageStatus[stage]='queued';transitions.push({stage,from,to:'queued',reason:'approval_granted'});resumed.push(stage);}else{skipped.push({stage,status:from,reason:isApproved(stage)?'not_paused':'not_in_approved_stages'});} }const priorDone=stageOrder.slice(0,3).every(s=>stageStatus[s]==='completed'||stageStatus[s]==='queued'||stageStatus[s]==='running');if(resumePublish&&priorDone&&stageStatus.publish==='pending'){stageStatus.publish='queued';transitions.push({stage:'publish',from:'pending',to:'queued',reason:'resume_publish_if_needed'});if(!resumed.includes('publish'))resumed.push('publish');}if(!Array.isArray(job.history))job.history=[];job.state='running';job.status='running';job.updated_at=now;job.outputs.approval_resume={decision:'approved',approved_by:approval.approved_by||'unknown',approved_at:approval.approved_at||now,resume_publish_if_needed:resumePublish,resumed_stages:resumed,skipped_stages:skipped,stage_transitions:transitions,repairs};job.history.push({at:now,state:'running',status:'running',note:`approval resume applied; resumed=${resumed.join(',')||'none'}`});if(tenantInput&&job.tenant_id&&tenantInput!==job.tenant_id){repairs.push({scope:'tenant_id',repair:'input_tenant_mismatch_ignored',input_tenant_id:tenantInput,job_tenant_id:job.tenant_id});}fs.writeFileSync(jobPath,JSON.stringify(job,null,2));process.stdout.write(JSON.stringify({status:'resumed',job_id:job.job_id||null,tenant_id:job.tenant_id||tenantInput||null,decision:'approved',resumed_stages:resumed,stage_transitions:transitions,repairs,job_runtime_path:jobPath,http_code:200}));\" \"$JOB_PATH\" \"$TENANT_ID\" \"$APPROVAL\" \"$RESUME_PUBLISH\""
                   },
                   "id": "5",
                   "name": "Resume Approved Stages",
@@ -6621,10 +8396,10 @@
                   "parameters": {
                     "keepOnlySet": true,
                     "values": {
-                      "json": [
+                      "string": [
                         {
-                          "name": "result",
-                          "value": "={{ JSON.parse($json.stdout || '{}') }}"
+                          "name": "result_json",
+                          "value": "={{$json.stdout || '{}'}}"
                         }
                       ]
                     }
@@ -6643,7 +8418,7 @@
                     "conditions": {
                       "string": [
                         {
-                          "value1": "={{$json.result.status}}",
+                          "value1": "={{ (JSON.parse($json.result_json || '{}').status || '') }}",
                           "operation": "equal",
                           "value2": "resumed"
                         }
@@ -6662,7 +8437,7 @@
                 {
                   "parameters": {
                     "respondWith": "json",
-                    "responseBody": "={{$json.result}}"
+                    "responseBody": "={{ JSON.parse($json.result_json || '{}') }}"
                   },
                   "id": "8",
                   "name": "Respond Resumed",
@@ -6676,7 +8451,7 @@
                 {
                   "parameters": {
                     "respondWith": "json",
-                    "responseBody": "={{$json.result}}"
+                    "responseBody": "={{ JSON.parse($json.result_json || '{}') }}"
                   },
                   "id": "9",
                   "name": "Respond Non-Resumed",
@@ -6770,12 +8545,334 @@
                   ]
                 }
               },
-              "active": false,
               "settings": {
-                "executionOrder": "v1"
+                "executionOrder": "v1",
+                "callerPolicy": "workflowsFromSameOwner",
+                "availableInMCP": false
               },
-              "pinData": {}
-            }
+              "staticData": null,
+              "meta": null,
+              "pinData": null,
+              "versionId": "dc279822-6da8-4c39-b38a-432e54c9cb69",
+              "activeVersionId": "dc279822-6da8-4c39-b38a-432e54c9cb69",
+              "versionCounter": 11,
+              "triggerCount": 1,
+              "activeVersion": {
+                "updatedAt": "2026-03-08T20:28:24.710Z",
+                "createdAt": "2026-03-08T20:28:24.710Z",
+                "versionId": "dc279822-6da8-4c39-b38a-432e54c9cb69",
+                "workflowId": "9MvYtNk4oZj9KlR6",
+                "nodes": [
+                  {
+                    "parameters": {
+                      "httpMethod": "POST",
+                      "path": "marketing-approval-resume",
+                      "responseMode": "responseNode",
+                      "options": {}
+                    },
+                    "id": "1",
+                    "name": "Webhook Trigger",
+                    "type": "n8n-nodes-base.webhook",
+                    "typeVersion": 2,
+                    "position": [
+                      -980,
+                      0
+                    ],
+                    "webhookId": "marketing-approval-resume"
+                  },
+                  {
+                    "parameters": {
+                      "keepOnlySet": true,
+                      "values": {
+                        "string": [
+                          {
+                            "name": "job_id",
+                            "value": "={{$json.body?.job_id || $json.job_id || ''}}"
+                          },
+                          {
+                            "name": "tenant_id",
+                            "value": "={{$json.body?.tenant_id || $json.tenant_id || ''}}"
+                          },
+                          {
+                            "name": "approval_json",
+                            "value": "={{JSON.stringify($json.body?.approval || $json.approval || {})}}"
+                          }
+                        ],
+                        "boolean": [
+                          {
+                            "name": "resume_publish_if_needed",
+                            "value": "={{$json.body?.resume_publish_if_needed ?? $json.resume_publish_if_needed ?? true}}"
+                          }
+                        ]
+                      }
+                    },
+                    "id": "2",
+                    "name": "Normalize Input",
+                    "type": "n8n-nodes-base.set",
+                    "typeVersion": 2,
+                    "position": [
+                      -760,
+                      0
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "conditions": {
+                        "string": [
+                          {
+                            "value1": "={{$json.job_id}}",
+                            "operation": "notEmpty"
+                          },
+                          {
+                            "value1": "={{(JSON.parse($json.approval_json || '{}').decision || '')}}",
+                            "operation": "notEmpty"
+                          },
+                          {
+                            "value1": "={{String(JSON.parse($json.approval_json || '{}').decision || '').toLowerCase()}}",
+                            "operation": "equal",
+                            "value2": "approved"
+                          }
+                        ]
+                      }
+                    },
+                    "id": "3",
+                    "name": "Validate Approval Input",
+                    "type": "n8n-nodes-base.if",
+                    "typeVersion": 1,
+                    "position": [
+                      -540,
+                      0
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "respondWith": "json",
+                      "responseBody": "={{ { status: 'error', reason: 'invalid_input_or_decision', code: 'job_id_and_approval_decision_required', details: { required: ['job_id','approval.decision=approved'] } } }}"
+                    },
+                    "id": "4",
+                    "name": "Respond Invalid Input",
+                    "type": "n8n-nodes-base.respondToWebhook",
+                    "typeVersion": 1,
+                    "position": [
+                      -320,
+                      160
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nJOB_ID=\"{{$node['Normalize Input'].json.job_id}}\"\nTENANT_ID=\"{{$node['Normalize Input'].json.tenant_id}}\"\nAPPROVAL='{{$node[\"Normalize Input\"].json.approval_json}}'\nRESUME_PUBLISH='{{$node[\"Normalize Input\"].json.resume_publish_if_needed}}'\nJOB_PATH=\"$ROOT/generated/draft/marketing-jobs/${JOB_ID}.json\"\nnode -e \"const fs=require('fs');const p=process.argv;const now=new Date().toISOString();const jobPath=p[1];const tenantInput=p[2]||'';const approval=JSON.parse(p[3]||'{}');const resumePublish=String(p[4]).toLowerCase()==='true';const stageOrder=['research','strategy','production','publish'];const validStageStates=new Set(['pending','queued','running','paused','waiting_approval','blocked','completed','failed','skipped']);if(!fs.existsSync(jobPath)){process.stdout.write(JSON.stringify({status:'error',reason:'job_not_found',code:'missing_job_runtime',http_code:404,details:{job_runtime_path:jobPath}}));process.exit(0);}const raw=fs.readFileSync(jobPath,'utf8');let job;try{job=JSON.parse(raw);}catch(e){process.stdout.write(JSON.stringify({status:'hard_failure',reason:'invalid_job_runtime_json',code:'job_runtime_parse_failed',http_code:500,details:{job_runtime_path:jobPath,message:e.message}}));process.exit(0);}const decision=String(approval.decision||'').toLowerCase();if(decision!=='approved'){process.stdout.write(JSON.stringify({status:'rejected',reason:'approval_not_granted',code:'decision_not_approved',http_code:409,job_id:job.job_id||null,tenant_id:job.tenant_id||tenantInput||null,details:{decision}}));process.exit(0);}if(typeof job.outputs!=='object'||job.outputs===null)job.outputs={};if(typeof job.outputs.stage_status!=='object'||job.outputs.stage_status===null)job.outputs.stage_status={};const stageStatus=job.outputs.stage_status;const transitions=[];const resumed=[];const skipped=[];const repairs=[];const approvedStages=Array.isArray(approval.approved_stages)?approval.approved_stages.map(s=>String(s).toLowerCase()):[];const approvedAll=approvedStages.length===0;const isApproved=(s)=>approvedAll||approvedStages.includes(s);for(const stage of stageOrder){const current=stageStatus[stage];if(typeof current==='undefined'){stageStatus[stage]='paused';repairs.push({stage,repair:'initialize_missing_stage_status',from:null,to:'paused'});}else if(typeof current!=='string'||!validStageStates.has(current)){const prev=typeof current==='string'?current:JSON.stringify(current);stageStatus[stage]='paused';repairs.push({stage,repair:'coerce_invalid_stage_status',from:prev,to:'paused'});} }for(const stage of stageOrder){const from=stageStatus[stage];if((from==='paused'||from==='waiting_approval'||from==='blocked')&&isApproved(stage)){stageStatus[stage]='queued';transitions.push({stage,from,to:'queued',reason:'approval_granted'});resumed.push(stage);}else{skipped.push({stage,status:from,reason:isApproved(stage)?'not_paused':'not_in_approved_stages'});} }const priorDone=stageOrder.slice(0,3).every(s=>stageStatus[s]==='completed'||stageStatus[s]==='queued'||stageStatus[s]==='running');if(resumePublish&&priorDone&&stageStatus.publish==='pending'){stageStatus.publish='queued';transitions.push({stage:'publish',from:'pending',to:'queued',reason:'resume_publish_if_needed'});if(!resumed.includes('publish'))resumed.push('publish');}if(!Array.isArray(job.history))job.history=[];job.state='running';job.status='running';job.updated_at=now;job.outputs.approval_resume={decision:'approved',approved_by:approval.approved_by||'unknown',approved_at:approval.approved_at||now,resume_publish_if_needed:resumePublish,resumed_stages:resumed,skipped_stages:skipped,stage_transitions:transitions,repairs};job.history.push({at:now,state:'running',status:'running',note:`approval resume applied; resumed=${resumed.join(',')||'none'}`});if(tenantInput&&job.tenant_id&&tenantInput!==job.tenant_id){repairs.push({scope:'tenant_id',repair:'input_tenant_mismatch_ignored',input_tenant_id:tenantInput,job_tenant_id:job.tenant_id});}fs.writeFileSync(jobPath,JSON.stringify(job,null,2));process.stdout.write(JSON.stringify({status:'resumed',job_id:job.job_id||null,tenant_id:job.tenant_id||tenantInput||null,decision:'approved',resumed_stages:resumed,stage_transitions:transitions,repairs,job_runtime_path:jobPath,http_code:200}));\" \"$JOB_PATH\" \"$TENANT_ID\" \"$APPROVAL\" \"$RESUME_PUBLISH\""
+                    },
+                    "id": "5",
+                    "name": "Resume Approved Stages",
+                    "type": "n8n-nodes-base.executeCommand",
+                    "typeVersion": 1,
+                    "position": [
+                      -320,
+                      -60
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "keepOnlySet": true,
+                      "values": {
+                        "string": [
+                          {
+                            "name": "result_json",
+                            "value": "={{$json.stdout || '{}'}}"
+                          }
+                        ]
+                      }
+                    },
+                    "id": "6",
+                    "name": "Parse Resume Result",
+                    "type": "n8n-nodes-base.set",
+                    "typeVersion": 2,
+                    "position": [
+                      -100,
+                      -60
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "conditions": {
+                        "string": [
+                          {
+                            "value1": "={{ (JSON.parse($json.result_json || '{}').status || '') }}",
+                            "operation": "equal",
+                            "value2": "resumed"
+                          }
+                        ]
+                      }
+                    },
+                    "id": "7",
+                    "name": "Resume Succeeded",
+                    "type": "n8n-nodes-base.if",
+                    "typeVersion": 1,
+                    "position": [
+                      120,
+                      -60
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "respondWith": "json",
+                      "responseBody": "={{ JSON.parse($json.result_json || '{}') }}"
+                    },
+                    "id": "8",
+                    "name": "Respond Resumed",
+                    "type": "n8n-nodes-base.respondToWebhook",
+                    "typeVersion": 1,
+                    "position": [
+                      340,
+                      -140
+                    ]
+                  },
+                  {
+                    "parameters": {
+                      "respondWith": "json",
+                      "responseBody": "={{ JSON.parse($json.result_json || '{}') }}"
+                    },
+                    "id": "9",
+                    "name": "Respond Non-Resumed",
+                    "type": "n8n-nodes-base.respondToWebhook",
+                    "typeVersion": 1,
+                    "position": [
+                      340,
+                      40
+                    ]
+                  }
+                ],
+                "connections": {
+                  "Webhook Trigger": {
+                    "main": [
+                      [
+                        {
+                          "node": "Normalize Input",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Normalize Input": {
+                    "main": [
+                      [
+                        {
+                          "node": "Validate Approval Input",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Validate Approval Input": {
+                    "main": [
+                      [
+                        {
+                          "node": "Resume Approved Stages",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ],
+                      [
+                        {
+                          "node": "Respond Invalid Input",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Resume Approved Stages": {
+                    "main": [
+                      [
+                        {
+                          "node": "Parse Resume Result",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Parse Resume Result": {
+                    "main": [
+                      [
+                        {
+                          "node": "Resume Succeeded",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  },
+                  "Resume Succeeded": {
+                    "main": [
+                      [
+                        {
+                          "node": "Respond Resumed",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ],
+                      [
+                        {
+                          "node": "Respond Non-Resumed",
+                          "type": "main",
+                          "index": 0
+                        }
+                      ]
+                    ]
+                  }
+                },
+                "authors": "Brendan Kam",
+                "name": null,
+                "description": null,
+                "autosaved": false,
+                "workflowPublishHistory": [
+                  {
+                    "createdAt": "2026-03-08T20:28:24.844Z",
+                    "id": 48,
+                    "workflowId": "9MvYtNk4oZj9KlR6",
+                    "versionId": "dc279822-6da8-4c39-b38a-432e54c9cb69",
+                    "event": "activated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:28:39.501Z",
+                    "id": 69,
+                    "workflowId": "9MvYtNk4oZj9KlR6",
+                    "versionId": "dc279822-6da8-4c39-b38a-432e54c9cb69",
+                    "event": "deactivated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:28:39.515Z",
+                    "id": 70,
+                    "workflowId": "9MvYtNk4oZj9KlR6",
+                    "versionId": "dc279822-6da8-4c39-b38a-432e54c9cb69",
+                    "event": "activated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:28:39.661Z",
+                    "id": 71,
+                    "workflowId": "9MvYtNk4oZj9KlR6",
+                    "versionId": "dc279822-6da8-4c39-b38a-432e54c9cb69",
+                    "event": "deactivated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  },
+                  {
+                    "createdAt": "2026-03-08T20:28:39.672Z",
+                    "id": 72,
+                    "workflowId": "9MvYtNk4oZj9KlR6",
+                    "versionId": "dc279822-6da8-4c39-b38a-432e54c9cb69",
+                    "event": "activated",
+                    "userId": "e5537363-0a31-45d5-8b86-8f67705124d4"
+                  }
+                ]
+              }
+            },
+            "rawPath": "/Users/bkam/.openclaw/workspace/aries-platform-bootstrap/generated/draft/n8n-activate-raw-response.json"
           }
         }
       ]
@@ -6787,14 +8884,14 @@
       "workflow_name": "marketing-research",
       "exists_in_api": true,
       "api_workflow_id": "VUAQdH3w8JjHLcMC",
-      "api_active": false
+      "api_active": true
     },
     {
       "workflow_file": "./n8n/marketing-strategy.workflow.json",
       "workflow_name": "marketing-strategy",
       "exists_in_api": true,
       "api_workflow_id": "SNEVd8B8SVDQO2tj",
-      "api_active": false
+      "api_active": true
     },
     {
       "workflow_file": "./n8n/marketing-production.workflow.json",
@@ -6822,57 +8919,8 @@
       "workflow_name": "marketing-approval-resume",
       "exists_in_api": true,
       "api_workflow_id": "9MvYtNk4oZj9KlR6",
-      "api_active": false
+      "api_active": true
     }
   ],
-  "hard_failures": [
-    {
-      "workflow_file": "./n8n/marketing-research.workflow.json",
-      "failure": {
-        "timestamp": "2026-03-08T20:14:19.036Z",
-        "stage": "activate",
-        "httpStatus": 400,
-        "message": "Could not find property option",
-        "sectionPath": "workflow",
-        "retryable": true,
-        "raw": {
-          "responseBody": {
-            "message": "Could not find property option"
-          }
-        }
-      }
-    },
-    {
-      "workflow_file": "./n8n/marketing-strategy.workflow.json",
-      "failure": {
-        "timestamp": "2026-03-08T20:14:19.271Z",
-        "stage": "activate",
-        "httpStatus": 400,
-        "message": "Could not find property option",
-        "sectionPath": "workflow",
-        "retryable": true,
-        "raw": {
-          "responseBody": {
-            "message": "Could not find property option"
-          }
-        }
-      }
-    },
-    {
-      "workflow_file": "./n8n/marketing-approval-resume.workflow.json",
-      "failure": {
-        "timestamp": "2026-03-08T20:14:20.322Z",
-        "stage": "activate",
-        "httpStatus": 400,
-        "message": "Could not find property option",
-        "sectionPath": "workflow",
-        "retryable": true,
-        "raw": {
-          "responseBody": {
-            "message": "Could not find property option"
-          }
-        }
-      }
-    }
-  ]
+  "hard_failures": []
 }
