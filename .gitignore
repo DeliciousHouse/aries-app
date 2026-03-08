@@ -8,9 +8,6 @@ build/
 generated/
 publish/*.js
 publish/*.js.map
-!publish/preflight-auth.ts
-!publish/activate-workflow.ts
-!publish/diagnose-env.ts
 
 # IDE / Editor files
 .vscode/
