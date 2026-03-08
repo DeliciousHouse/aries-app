@@ -1,0 +1,15 @@
+{
+  "status": "pass",
+  "target_root": "/Users/bkam/.openclaw/workspace/aries-platform-bootstrap/generated/draft/test-manual",
+  "passed_checks": [
+    "AT-001",
+    "AT-002",
+    "AT-003",
+    "AT-004",
+    "AT-005",
+    "AT-006",
+    "AT-007"
+  ],
+  "failed_checks": [],
+  "defects": []
+}

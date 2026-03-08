@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "specs/marketing_api_contract.v1.json",
+  "artifact_name": "marketing_api_contract",
+  "artifact_type": "backend_contract_spec",
+  "schema_version": "1.0.0",
+  "frozen_from": {
+    "start_handler": "./backend/marketing/jobs-start.ts#startMarketingJob",
+    "status_handler": "./backend/marketing/jobs-status.ts#getMarketingJobStatus",
+    "approve_handler": "./backend/marketing/jobs-approve.ts#approveMarketingJob"
+  },
+  "response_shape_file": "./specs/marketing_response_shapes.v1.json",
+  "status_vocabularies": {
+    "job_stage_values": ["research", "strategy", "production", "publish"],
+    "approve_response_status_values": ["resumed", "error"],
+    "start_response_status_values": ["accepted"],
+    "known_status_lookup_value": "error",
+    "known_state_lookup_value": "not_found",
+    "runtime_state_note": "state/status for existing runtime files are pass-through strings from generated draft job JSON"
+  },
+  "routes": [
+    {
+      "operationId": "postMarketingJobs",
+      "method": "POST",
+      "path": "/api/marketing/jobs",
+      "requestSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tenantId", "jobType"],
+        "properties": {
+          "tenantId": { "type": "string", "minLength": 1 },
+          "jobType": {
+            "type": "string",
+            "enum": [
+              "marketing_research",
+              "marketing_strategy",
+              "marketing_production",
+              "marketing_publish",
+              "unknown"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "default": {},
+            "additionalProperties": true
+          }
+        }
+      },
+      "responses": {
+        "200": { "$ref": "./marketing_response_shapes.v1.json#/$defs/StartJobAccepted" },
+        "202": { "$ref": "./marketing_response_shapes.v1.json#/$defs/StartJobAccepted" },
+        "500": {
+          "oneOf": [
+            { "$ref": "./marketing_response_shapes.v1.json#/$defs/HardFailureError" },
+            { "$ref": "./marketing_response_shapes.v1.json#/$defs/UnhandledError" }
+          ]
+        }
+      },
+      "errorShapeRefs": [
+        "./marketing_response_shapes.v1.json#/$defs/HardFailureError",
+        "./marketing_response_shapes.v1.json#/$defs/UnhandledError"
+      ]
+    },
+    {
+      "operationId": "getMarketingJobById",
+      "method": "GET",
+      "path": "/api/marketing/jobs/:jobId",
+      "pathParamsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["jobId"],
+        "properties": {
+          "jobId": { "type": "string", "minLength": 1 }
+        }
+      },
+      "responses": {
+        "200": { "$ref": "./marketing_response_shapes.v1.json#/$defs/GetJobStatusResult" },
+        "500": {
+          "oneOf": [
+            { "$ref": "./marketing_response_shapes.v1.json#/$defs/HardFailureError" },
+            { "$ref": "./marketing_response_shapes.v1.json#/$defs/UnhandledError" }
+          ]
+        }
+      },
+      "errorShapeRefs": [
+        "./marketing_response_shapes.v1.json#/$defs/HardFailureError",
+        "./marketing_response_shapes.v1.json#/$defs/UnhandledError"
+      ],
+      "notFoundBehavior": "Returns 200 with body state=not_found and status=error when runtime file does not exist"
+    },
+    {
+      "operationId": "postMarketingJobApprove",
+      "method": "POST",
+      "path": "/api/marketing/jobs/:jobId/approve",
+      "pathParamsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["jobId"],
+        "properties": {
+          "jobId": { "type": "string", "minLength": 1 }
+        }
+      },
+      "requestSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tenantId", "approvedBy"],
+        "properties": {
+          "tenantId": { "type": "string", "minLength": 1 },
+          "approvedBy": { "type": "string", "minLength": 1 },
+          "approvedStages": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["research", "strategy", "production", "publish"]
+            },
+            "default": []
+          },
+          "resumePublishIfNeeded": { "type": "boolean", "default": true }
+        }
+      },
+      "responses": {
+        "200": { "$ref": "./marketing_response_shapes.v1.json#/$defs/ApproveJobResult" },
+        "500": {
+          "oneOf": [
+            { "$ref": "./marketing_response_shapes.v1.json#/$defs/HardFailureError" },
+            { "$ref": "./marketing_response_shapes.v1.json#/$defs/UnhandledError" }
+          ]
+        }
+      },
+      "errorShapeRefs": [
+        "./marketing_response_shapes.v1.json#/$defs/HardFailureError",
+        "./marketing_response_shapes.v1.json#/$defs/UnhandledError"
+      ],
+      "notes": [
+        "If runtime file for jobId is missing and n8n resume path did not return resumed, response status becomes error with wiring=backend_fallback",
+        "When n8n path returns status=resumed, completed is derived from resumed_stages containing publish"
+      ]
+    }
+  ]
+}

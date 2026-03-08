@@ -1,0 +1,39 @@
+{
+  "subagent": "onboarding-contract-freezer",
+  "status": "completed",
+  "updated_files": [
+    "./specs/onboarding_api_contract.v1.json",
+    "./specs/onboarding_response_shapes.v1.json",
+    "./generated/draft/subagent-results/onboarding-contract-freezer.json",
+    "./generated/draft/subagent-logs/onboarding-contract-freezer.md"
+  ],
+  "frozen_from_sources": [
+    "./backend/onboarding/start.ts",
+    "./backend/onboarding/status.ts"
+  ],
+  "endpoint_contracts": [
+    {
+      "method": "POST",
+      "path": "/api/onboarding/start",
+      "request_shape_ref": "./specs/onboarding_response_shapes.v1.json#/$defs/onboardingStartRequest",
+      "success_shape_ref": "./specs/onboarding_response_shapes.v1.json#/$defs/onboardingStartSuccess",
+      "error_shape_ref": "./specs/onboarding_response_shapes.v1.json#/$defs/onboardingStartError",
+      "http_codes": [200, 400, 502],
+      "state_values": ["accepted", "duplicate", "validated", "needs_repair"]
+    },
+    {
+      "method": "GET",
+      "path": "/api/onboarding/status/:tenantId",
+      "path_params_ref": "./specs/onboarding_response_shapes.v1.json#/$defs/onboardingStatusPathParams",
+      "query_ref": "./specs/onboarding_response_shapes.v1.json#/$defs/onboardingStatusQuery",
+      "success_shape_ref": "./specs/onboarding_response_shapes.v1.json#/$defs/onboardingStatusSuccess",
+      "error_shape_ref": "./specs/onboarding_response_shapes.v1.json#/$defs/onboardingStatusError",
+      "http_codes": [200, 400],
+      "state_values": ["validated", "needs_repair", "in_progress", "duplicate", "not_found"]
+    }
+  ],
+  "notes": [
+    "Status endpoint implementation currently expects query param tenant_id; contract path param :tenantId includes explicit mapping note in onboarding_api_contract.v1.json.",
+    "Error reason patterns are preserved exactly from backend behavior for machine-checkable matching."
+  ]
+}

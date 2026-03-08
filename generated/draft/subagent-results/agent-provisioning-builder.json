@@ -1,0 +1,29 @@
+{
+  "subagent": "agent-provisioning-builder",
+  "status": "success",
+  "hard_failure": false,
+  "inputs": {
+    "tenant_runtime_schema": "./specs/tenant_runtime_state_schema.v1.json",
+    "validated_artifacts_root": "./generated/validated"
+  },
+  "outputs": {
+    "spec": "./specs/agent_provisioning_spec.v1.json",
+    "builders": [
+      "./backend/agents/create-core-agent.ts",
+      "./backend/agents/create-marketing-agent.ts",
+      "./backend/agents/create-research-agent.ts"
+    ],
+    "log": "./generated/draft/subagent-logs/agent-provisioning-builder.md"
+  },
+  "validation": {
+    "json_parse": [
+      "specs/agent_provisioning_spec.v1.json"
+    ],
+    "ts_typecheck": "bunx tsc --noEmit backend/agents/create-core-agent.ts backend/agents/create-marketing-agent.ts backend/agents/create-research-agent.ts"
+  },
+  "notes": [
+    "All agent builders enforce explicit HARD_FAILURE when ./specs/tenant_runtime_state_schema.v1.json is missing.",
+    "Builders also hard-fail if validated workspace config is missing or invalid for required workspace mapping."
+  ],
+  "updated_at": "2026-03-08T13:14:00-05:00"
+}

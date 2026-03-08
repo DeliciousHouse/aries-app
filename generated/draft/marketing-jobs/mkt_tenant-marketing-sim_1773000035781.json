@@ -1,0 +1,111 @@
+{
+  "schema_name": "job_runtime_state_schema",
+  "schema_version": "1.0.0",
+  "job_id": "mkt_tenant-marketing-sim_1773000035781",
+  "job_type": "unknown",
+  "tenant_id": "tenant-marketing-sim",
+  "state": "completed",
+  "status": "pass",
+  "attempt": 1,
+  "max_attempts": 3,
+  "inputs": {
+    "request": {
+      "campaign_brief": "Q2 launch",
+      "channels": [
+        "meta",
+        "web"
+      ]
+    },
+    "requested_job_type": "marketing_research"
+  },
+  "outputs": {
+    "current_stage": "done",
+    "stage_status": {
+      "research": "completed",
+      "strategy": "completed",
+      "production": "completed",
+      "publish": "completed"
+    },
+    "structured_status_updates": [
+      {
+        "at": "2026-03-08T20:00:35.968Z",
+        "state": "queued",
+        "status": "pending",
+        "step": "research",
+        "details": {
+          "source": "backend_fallback"
+        }
+      },
+      {
+        "at": "2026-03-08T20:00:35.979Z",
+        "state": "running",
+        "status": "running",
+        "step": "research",
+        "details": {
+          "transition": "research->strategy"
+        }
+      },
+      {
+        "at": "2026-03-08T20:00:36.001Z",
+        "state": "running",
+        "status": "running",
+        "step": "strategy",
+        "details": {
+          "transition": "strategy->production"
+        }
+      },
+      {
+        "at": "2026-03-08T20:00:36.008Z",
+        "state": "running",
+        "status": "running",
+        "step": "production",
+        "details": {
+          "transition": "production->publish"
+        }
+      },
+      {
+        "at": "2026-03-08T20:00:36.024Z",
+        "state": "running",
+        "status": "running",
+        "step": "publish",
+        "details": {
+          "transition": "publish->complete"
+        }
+      }
+    ]
+  },
+  "history": [
+    {
+      "at": "2026-03-08T20:00:35.968Z",
+      "state": "queued",
+      "status": "pending",
+      "note": "marketing job accepted via backend fallback"
+    },
+    {
+      "at": "2026-03-08T20:00:35.979Z",
+      "state": "queued",
+      "status": "pending",
+      "note": "approval_resume research"
+    },
+    {
+      "at": "2026-03-08T20:00:36.001Z",
+      "state": "queued",
+      "status": "pending",
+      "note": "approval_resume strategy"
+    },
+    {
+      "at": "2026-03-08T20:00:36.008Z",
+      "state": "queued",
+      "status": "pending",
+      "note": "approval_resume production"
+    },
+    {
+      "at": "2026-03-08T20:00:36.024Z",
+      "state": "completed",
+      "status": "pass",
+      "note": "approval_resume publish"
+    }
+  ],
+  "created_at": "2026-03-08T20:00:35.968Z",
+  "updated_at": "2026-03-08T20:00:36.024Z"
+}

@@ -1,0 +1,38 @@
+{
+  "subagent": "marketing-research-workflow-builder",
+  "status": "completed",
+  "hard_failure": false,
+  "inputs": {
+    "workflow_contract": "./specs/marketing_job_contract_spec.v1.json",
+    "shared_schemas": [
+      "./specs/tenant_runtime_state_schema.v1.json",
+      "./specs/job_runtime_state_schema.v1.json"
+    ],
+    "allowed_node_types_reference": "./skills/n8n-local-runtime/contract.json"
+  },
+  "outputs": {
+    "workflow_spec": "./specs/marketing_research_workflow_spec.v1.json",
+    "workflow_json": "./n8n/marketing-research.workflow.json",
+    "result": "./generated/draft/subagent-results/marketing-research-workflow-builder.json",
+    "log": "./generated/draft/subagent-logs/marketing-research-workflow-builder.md"
+  },
+  "validation": {
+    "json_parse": [
+      "./specs/marketing_research_workflow_spec.v1.json",
+      "./n8n/marketing-research.workflow.json",
+      "./generated/draft/subagent-results/marketing-research-workflow-builder.json"
+    ],
+    "node_types_used": [
+      "n8n-nodes-base.webhook",
+      "n8n-nodes-base.set",
+      "n8n-nodes-base.if",
+      "n8n-nodes-base.executeCommand",
+      "n8n-nodes-base.respondToWebhook"
+    ]
+  },
+  "notes": [
+    "Converted prior hard-failure placeholder into a runnable webhook workflow now that canonical schemas exist.",
+    "Workflow still hard-fails at runtime if either shared schema file is missing or invalid JSON.",
+    "Job record is written to ./generated/draft/marketing-jobs/{job_id}.json using job_runtime_state_schema naming/version fields."
+  ]
+}

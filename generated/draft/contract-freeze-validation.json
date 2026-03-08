@@ -1,0 +1,22 @@
+{
+  "overall_status": "conflicts_found",
+  "merge_ready": false,
+  "hard_failure": false,
+  "checked_files": 19,
+  "field_type_conflicts": 7,
+  "enum_conflicts": 2,
+  "conflicts": {
+    "field_type": [
+      "shared field names represented as concrete scalar/object in some specs and unresolved/ref-style in others",
+      "trigger field semantic/type mismatch across runtime and API shapes"
+    ],
+    "enum": [
+      "state enum collision: tenant lifecycle vs job lifecycle",
+      "status enum collision: validation/test status vs runtime lifecycle status"
+    ]
+  },
+  "hygiene_risks": [
+    "tenant_provisioning_workspace_spec.v1.json required loose parse fallback"
+  ],
+  "recommended_next_step": "namespace enums by domain (tenant_state, job_state, validation_status) and align shared field typing references"
+}

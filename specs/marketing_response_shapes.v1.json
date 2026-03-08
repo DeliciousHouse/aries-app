@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "specs/marketing_response_shapes.v1.json",
+  "artifact_name": "marketing_response_shapes",
+  "artifact_type": "json_schema_bundle",
+  "schema_version": "1.0.0",
+  "title": "Marketing API Response and Error Shapes (frozen from backend behavior)",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "JobType": {
+      "type": "string",
+      "enum": [
+        "marketing_research",
+        "marketing_strategy",
+        "marketing_production",
+        "marketing_publish",
+        "unknown"
+      ]
+    },
+    "Stage": {
+      "type": "string",
+      "enum": [
+        "research",
+        "strategy",
+        "production",
+        "publish"
+      ]
+    },
+    "StartJobAccepted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "jobId",
+        "tenantId",
+        "jobType",
+        "wiring",
+        "runtimePath"
+      ],
+      "properties": {
+        "status": { "const": "accepted" },
+        "jobId": { "type": "string", "minLength": 1 },
+        "tenantId": { "type": "string", "minLength": 1 },
+        "jobType": { "$ref": "#/$defs/JobType" },
+        "wiring": {
+          "type": "string",
+          "enum": ["n8n_research_webhook", "backend_fallback"]
+        },
+        "runtimePath": { "type": "string", "minLength": 1 }
+      }
+    },
+    "GetJobStatusResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jobId",
+        "tenantId",
+        "state",
+        "status",
+        "currentStage",
+        "stageStatus",
+        "updatedAt",
+        "runtimePath"
+      ],
+      "properties": {
+        "jobId": { "type": "string", "minLength": 1 },
+        "tenantId": { "type": ["string", "null"] },
+        "state": { "type": "string" },
+        "status": { "type": "string" },
+        "currentStage": { "type": ["string", "null"] },
+        "stageStatus": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "updatedAt": { "type": ["string", "null"] },
+        "runtimePath": { "type": "string", "minLength": 1 }
+      }
+    },
+    "ApproveJobResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "jobId",
+        "tenantId",
+        "resumedStage",
+        "completed",
+        "wiring"
+      ],
+      "properties": {
+        "status": { "type": "string", "enum": ["resumed", "error"] },
+        "jobId": { "type": "string", "minLength": 1 },
+        "tenantId": { "type": "string", "minLength": 1 },
+        "resumedStage": { "type": ["string", "null"] },
+        "completed": { "type": "boolean" },
+        "wiring": {
+          "type": "string",
+          "enum": ["n8n_approval_resume_webhook", "backend_fallback"]
+        }
+      }
+    },
+    "HardFailureError": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["error"],
+      "properties": {
+        "error": {
+          "type": "string",
+          "pattern": "^HARD_FAILURE:"
+        }
+      },
+      "description": "Thrown when required schemas are missing/invalid: ./specs/tenant_runtime_state_schema.v1.json or ./specs/job_runtime_state_schema.v1.json"
+    },
+    "UnhandledError": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["error"],
+      "properties": {
+        "error": { "type": "string", "minLength": 1 }
+      },
+      "description": "Catch-all for JSON parse failures, IO failures, and unexpected runtime exceptions"
+    }
+  }
+}

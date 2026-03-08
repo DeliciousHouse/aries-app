@@ -1,0 +1,92 @@
+{
+  "artifact_name": "agent_provisioning",
+  "artifact_type": "backend_contract_spec",
+  "schema_version": "1.0.0",
+  "purpose": "Deterministic provisioning contract for creating tenant-scoped core, marketing, and research agent payloads from validated workspace artifacts.",
+  "dependencies": {
+    "tenant_runtime_schema": "./specs/tenant_runtime_state_schema.v1.json",
+    "validated_artifact_roots": [
+      "./generated/validated"
+    ],
+    "workspace_config_file": "config/workspaces.json"
+  },
+  "agent_types": [
+    "core",
+    "marketing",
+    "research"
+  ],
+  "required_inputs": {
+    "tenant_id": {
+      "source": "runtime_state",
+      "json_pointer": "/tenant_id",
+      "validation": "must satisfy tenant_runtime_state_schema.$defs.tenant_id"
+    },
+    "tenant_type": {
+      "source": "runtime_state",
+      "json_pointer": "/tenant_type",
+      "validation": "must satisfy tenant_runtime_state_schema.$defs.tenant_type"
+    },
+    "runtime_state": {
+      "source": "runtime_state",
+      "json_pointer": "/state",
+      "allowed_values": [
+        "validated",
+        "promoted"
+      ]
+    },
+    "workspace_config": {
+      "source": "validated_artifact",
+      "path_pattern": "generated/validated/{tenant_id}/config/workspaces.json",
+      "required_fields": [
+        "required_workspaces",
+        "workspace_paths"
+      ]
+    }
+  },
+  "output_shape": {
+    "required_fields": [
+      "schema_name",
+      "schema_version",
+      "tenant_id",
+      "tenant_type",
+      "agent_type",
+      "agent_id",
+      "workspace",
+      "workspace_path",
+      "capabilities",
+      "policy",
+      "source"
+    ],
+    "schema_name": "agent_provisioning_record",
+    "schema_version": "1.0.0"
+  },
+  "deterministic_rules": [
+    "Agent creation MUST hard-fail when ./specs/tenant_runtime_state_schema.v1.json is missing.",
+    "Agent creation MUST hard-fail when validated workspace config for tenant is missing or unreadable.",
+    "workspace_path MUST resolve to generated/validated/{tenant_id}/workspaces/{agent_type}.",
+    "agent_id MUST be deterministic and equal to {tenant_id}-{agent_type}-agent.",
+    "No network calls are required or allowed for payload construction."
+  ],
+  "acceptance_tests": [
+    {
+      "id": "AP-001",
+      "name": "Schema dependency exists",
+      "expected_result": "tenant_runtime_state_schema.v1.json exists before any builder returns output"
+    },
+    {
+      "id": "AP-002",
+      "name": "Validated artifact dependency exists",
+      "expected_result": "generated/validated/{tenant_id}/config/workspaces.json exists and parses"
+    },
+    {
+      "id": "AP-003",
+      "name": "Agent payload determinism",
+      "expected_result": "same tenant input yields byte-identical output for each agent type"
+    },
+    {
+      "id": "AP-004",
+      "name": "Workspace alignment",
+      "expected_result": "output.workspace and output.workspace_path match validated workspace mapping"
+    }
+  ]
+}

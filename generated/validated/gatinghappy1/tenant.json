@@ -1,0 +1,10 @@
+{
+  "tenant_id": "gatinghappy1",
+  "tenant_type": "single_user",
+  "phase_name": "tenant_provisioning_workspace",
+  "workspaces": [
+    "core",
+    "research",
+    "marketing"
+  ]
+}

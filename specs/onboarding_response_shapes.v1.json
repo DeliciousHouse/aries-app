@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "onboarding_response_shapes.v1",
+  "title": "Onboarding Response Shapes v1",
+  "type": "object",
+  "$defs": {
+    "jsonValue": {
+      "description": "Arbitrary JSON value mirrored from backend `Json` union.",
+      "anyOf": [
+        { "type": "null" },
+        { "type": "boolean" },
+        { "type": "number" },
+        { "type": "string" },
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/jsonValue" }
+        },
+        {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+        }
+      ]
+    },
+    "startState": {
+      "type": "string",
+      "enum": ["accepted", "duplicate", "validated", "needs_repair"]
+    },
+    "statusState": {
+      "type": "string",
+      "enum": ["validated", "needs_repair", "in_progress", "duplicate", "not_found"]
+    },
+    "validationStatus": {
+      "type": "string",
+      "enum": ["pass", "fail", "unknown"]
+    },
+    "errorReason": {
+      "type": "string",
+      "anyOf": [
+        { "const": "workflow_request_failed" },
+        { "const": "missing_required_query:tenant_id" },
+        { "pattern": "^missing_required_fields:[a-z_,]+$" },
+        { "pattern": "^workflow_unreachable:.+$" }
+      ]
+    },
+    "onboardingStartRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tenant_id": { "type": "string", "minLength": 1 },
+        "tenant_type": { "type": "string", "minLength": 1 },
+        "signup_event_id": { "type": "string", "minLength": 1 },
+        "metadata": { "$ref": "#/$defs/jsonValue" }
+      },
+      "required": ["tenant_id", "tenant_type", "signup_event_id"]
+    },
+    "onboardingStartSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": { "const": "ok" },
+        "tenant_id": { "type": "string" },
+        "tenant_type": { "type": "string" },
+        "signup_event_id": { "type": "string" },
+        "state": { "$ref": "#/$defs/startState" },
+        "workflow_status": { "type": "integer", "minimum": 100, "maximum": 599 },
+        "raw": { "$ref": "#/$defs/jsonValue" }
+      },
+      "required": [
+        "status",
+        "tenant_id",
+        "tenant_type",
+        "signup_event_id",
+        "state",
+        "workflow_status",
+        "raw"
+      ]
+    },
+    "onboardingStartError": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": { "const": "error" },
+        "tenant_id": { "type": "string" },
+        "tenant_type": { "type": "string" },
+        "signup_event_id": { "type": "string" },
+        "workflow_status": { "type": "integer", "minimum": 100, "maximum": 599 },
+        "raw": { "$ref": "#/$defs/jsonValue" },
+        "reason": { "$ref": "#/$defs/errorReason" }
+      },
+      "required": ["status", "reason"]
+    },
+    "onboardingStatusPathParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tenantId": { "type": "string", "minLength": 1 }
+      },
+      "required": ["tenantId"]
+    },
+    "onboardingStatusQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "signup_event_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "onboardingStatusSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": { "const": "ok" },
+        "tenant_id": { "type": "string" },
+        "signup_event_id": { "type": "string" },
+        "state": { "$ref": "#/$defs/statusState" },
+        "validation_status": { "$ref": "#/$defs/validationStatus" },
+        "paths": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "draft": { "type": "string" },
+            "validated": { "type": "string" },
+            "validation_report": { "type": "string" },
+            "idempotency_marker": { "type": "string" }
+          }
+        }
+      },
+      "required": ["status", "tenant_id", "state", "validation_status", "paths"]
+    },
+    "onboardingStatusError": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": { "const": "error" },
+        "reason": { "$ref": "#/$defs/errorReason" }
+      },
+      "required": ["status", "reason"]
+    }
+  }
+}

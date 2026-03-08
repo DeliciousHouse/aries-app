@@ -1,0 +1,269 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aries-platform-bootstrap/specs/tenant_runtime_state_schema.v1.json",
+  "title": "tenant_runtime_state_schema.v1",
+  "description": "Runtime state for a tenant as it moves through provisioning, validation, repair, and promotion.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_name",
+    "schema_version",
+    "tenant_id",
+    "tenant_type",
+    "state",
+    "status",
+    "attempt",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_name": {
+      "const": "tenant_runtime_state_schema"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "tenant_id": {
+      "$ref": "#/$defs/tenant_id"
+    },
+    "tenant_type": {
+      "$ref": "#/$defs/tenant_type"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "received",
+        "idempotency_checked",
+        "generated",
+        "validated",
+        "repairing",
+        "promoted",
+        "duplicate",
+        "failed"
+      ]
+    },
+    "status": {
+      "$ref": "#/$defs/status"
+    },
+    "attempt": {
+      "$ref": "#/$defs/attempt"
+    },
+    "max_attempts": {
+      "$ref": "#/$defs/attempt"
+    },
+    "signup_event_id": {
+      "$ref": "#/$defs/idempotency_key"
+    },
+    "idempotency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checked",
+        "duplicate"
+      ],
+      "properties": {
+        "checked": {
+          "type": "boolean"
+        },
+        "duplicate": {
+          "type": "boolean"
+        },
+        "marker_path": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "artifact_paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "draft_root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "validated_root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "defect_report": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "current_job": {
+      "$ref": "#/$defs/job_ref"
+    },
+    "last_completed_job": {
+      "$ref": "#/$defs/job_ref"
+    },
+    "repair": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required": {
+          "type": "boolean"
+        },
+        "attempts_used": {
+          "$ref": "#/$defs/attempt"
+        },
+        "last_repair_reason": {
+          "type": "string"
+        },
+        "hard_failure": {
+          "type": "boolean"
+        }
+      }
+    },
+    "last_error": {
+      "$ref": "#/$defs/error_info"
+    },
+    "history": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/state_event"
+      },
+      "default": []
+    },
+    "metadata": {
+      "$ref": "#/$defs/metadata"
+    },
+    "created_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "updated_at": {
+      "$ref": "#/$defs/timestamp"
+    }
+  },
+  "$defs": {
+    "tenant_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,61}$"
+    },
+    "tenant_type": {
+      "type": "string",
+      "enum": [
+        "single_user",
+        "team"
+      ]
+    },
+    "job_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:-]{1,127}$"
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "running",
+        "pass",
+        "fail",
+        "error",
+        "skipped"
+      ]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "job_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "job_id",
+        "job_type",
+        "status"
+      ],
+      "properties": {
+        "job_id": {
+          "$ref": "#/$defs/job_id"
+        },
+        "job_type": {
+          "type": "string",
+          "enum": [
+            "tenant_provisioning",
+            "tenant_repair",
+            "validator",
+            "publish",
+            "unknown"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        }
+      }
+    },
+    "error_info": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stage": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      }
+    },
+    "state_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "at",
+        "state",
+        "status"
+      ],
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "state": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "note": {
+          "type": "string"
+        },
+        "job_id": {
+          "$ref": "#/$defs/job_id"
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "string",
+          "number",
+          "integer",
+          "boolean",
+          "null"
+        ]
+      },
+      "default": {}
+    }
+  }
+}

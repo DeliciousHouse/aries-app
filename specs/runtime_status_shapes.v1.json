@@ -1,0 +1,287 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aries-platform-bootstrap/specs/runtime_status_shapes.v1.json",
+  "title": "runtime_status_shapes.v1",
+  "schema_version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_name",
+    "schema_version",
+    "definitions"
+  ],
+  "properties": {
+    "schema_name": {
+      "const": "runtime_status_shapes"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "definitions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime_status_envelope",
+        "runtime_status_update",
+        "runtime_stage_transition",
+        "runtime_repair_summary"
+      ],
+      "properties": {
+        "runtime_status_envelope": {
+          "$ref": "#/$defs/runtime_status_envelope"
+        },
+        "runtime_status_update": {
+          "$ref": "#/$defs/runtime_status_update"
+        },
+        "runtime_stage_transition": {
+          "$ref": "#/$defs/runtime_stage_transition"
+        },
+        "runtime_repair_summary": {
+          "$ref": "#/$defs/runtime_repair_summary"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "next_step": {
+      "type": "string",
+      "enum": [
+        "none",
+        "wait_for_completion",
+        "check_onboarding_status",
+        "submit_approval",
+        "resume_approved_stages",
+        "invoke_marketing_repair",
+        "retry_with_next_attempt",
+        "provide_production_outputs",
+        "fix_publish_targets"
+      ]
+    },
+    "runtime_status_value": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "running",
+        "pass",
+        "fail",
+        "error",
+        "skipped",
+        "accepted",
+        "completed",
+        "success",
+        "failed",
+        "in_progress",
+        "blocked",
+        "ready",
+        "awaiting_approval",
+        "needs_repair",
+        "ready_for_production",
+        "resumed",
+        "rejected",
+        "duplicate",
+        "retry_scheduled",
+        "retry_complete",
+        "hard_failure"
+      ]
+    },
+    "runtime_state_value": {
+      "type": "string",
+      "enum": [
+        "received",
+        "idempotency_checked",
+        "generated",
+        "validated",
+        "repairing",
+        "promoted",
+        "duplicate",
+        "failed",
+        "queued",
+        "running",
+        "waiting_repair",
+        "retrying",
+        "completed",
+        "canceled",
+        "awaiting_approval",
+        "production_parallelized",
+        "publishing",
+        "publish_completed",
+        "repair_running",
+        "awaiting_retry"
+      ]
+    },
+    "runtime_stage": {
+      "type": "string",
+      "enum": [
+        "research",
+        "strategy",
+        "production",
+        "publish",
+        "done",
+        "received",
+        "research_validated",
+        "strategy_drafted",
+        "approval_granted",
+        "production_ready",
+        "awaiting_approval",
+        "repair_required",
+        "repair_exhausted",
+        "validating_inputs",
+        "publishing",
+        "publish_completed",
+        "repair_running",
+        "stage_patching",
+        "stage_rerun",
+        "awaiting_retry",
+        "completed",
+        "failed"
+      ]
+    },
+    "runtime_status_envelope": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/runtime_status_value"
+        },
+        "state": {
+          "$ref": "#/$defs/runtime_state_value"
+        },
+        "current_stage": {
+          "$ref": "#/$defs/runtime_stage"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "next_step": {
+          "$ref": "#/$defs/next_step"
+        },
+        "next_action": {
+          "type": "string"
+        }
+      }
+    },
+    "runtime_status_update": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "at",
+        "state",
+        "status"
+      ],
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "state": {
+          "$ref": "#/$defs/runtime_state_value"
+        },
+        "status": {
+          "$ref": "#/$defs/runtime_status_value"
+        },
+        "step": {
+          "type": "string"
+        },
+        "stage": {
+          "$ref": "#/$defs/runtime_stage"
+        },
+        "note": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "runtime_stage_transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to"
+      ],
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/runtime_stage"
+        },
+        "to": {
+          "$ref": "#/$defs/runtime_stage"
+        },
+        "status": {
+          "$ref": "#/$defs/runtime_status_value"
+        },
+        "at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "runtime_repair_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required",
+        "max_attempts"
+      ],
+      "properties": {
+        "required": {
+          "type": "boolean"
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        },
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "not_required",
+            "required",
+            "in_progress",
+            "patched",
+            "rerun_passed",
+            "rerun_failed",
+            "retry_scheduled",
+            "exhausted"
+          ]
+        },
+        "trigger": {
+          "type": "string",
+          "enum": [
+            "research_artifact_missing",
+            "research_artifact_empty",
+            "simulated_publish_failure",
+            "stage_rerun_failed",
+            "invalid_publish_targets"
+          ]
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "only_failed_stage_section",
+            "only_failed_stage",
+            "stage_status_fields_only",
+            "publish_targets_only"
+          ]
+        }
+      }
+    }
+  }
+}

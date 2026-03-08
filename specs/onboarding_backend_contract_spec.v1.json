@@ -1,0 +1,74 @@
+{
+  "artifact_name": "onboarding_backend_contract",
+  "artifact_type": "backend_contract_spec",
+  "schema_version": "1.0.0",
+  "purpose": "Minimal backend contract and wiring for onboarding start/status around tenant provisioning workflow.",
+  "dependencies": {
+    "workflow": "./n8n/tenant-provisioning.workflow.json",
+    "workflow_spec": "./specs/n8n_tenant_provisioning_workflow_spec.v1.json"
+  },
+  "endpoints": [
+    {
+      "name": "onboarding_start",
+      "method": "POST",
+      "path": "/onboarding/start",
+      "request": {
+        "required_fields": ["tenant_id", "tenant_type", "signup_event_id"],
+        "optional_fields": ["metadata"],
+        "idempotency_key": "signup_event_id"
+      },
+      "behavior": [
+        "Validate required fields",
+        "Forward payload to n8n webhook /webhook/tenant-provisioning",
+        "Return structured JSON with normalized state"
+      ],
+      "response": {
+        "success_status_codes": [200, 202],
+        "error_status_codes": [400, 502],
+        "fields": [
+          "status",
+          "tenant_id",
+          "tenant_type",
+          "signup_event_id",
+          "state",
+          "workflow_status",
+          "raw"
+        ]
+      }
+    },
+    {
+      "name": "onboarding_status",
+      "method": "GET",
+      "path": "/onboarding/status",
+      "request": {
+        "required_query": ["tenant_id"],
+        "optional_query": ["signup_event_id"]
+      },
+      "behavior": [
+        "Read generated draft/validated artifacts",
+        "Read validation report and idempotency marker when available",
+        "Map artifact presence to normalized onboarding state"
+      ],
+      "response": {
+        "success_status_codes": [200],
+        "error_status_codes": [400],
+        "fields": [
+          "status",
+          "tenant_id",
+          "signup_event_id",
+          "state",
+          "validation_status",
+          "paths"
+        ]
+      }
+    }
+  ],
+  "state_model": {
+    "accepted": "Start request accepted and workflow call succeeded",
+    "duplicate": "Idempotency gate reported duplicate signup_event_id",
+    "validated": "Workspace promoted under generated/validated",
+    "needs_repair": "Validation failed and repair was routed",
+    "in_progress": "Draft artifacts exist but no terminal state yet",
+    "not_found": "No onboarding artifacts found for tenant"
+  }
+}

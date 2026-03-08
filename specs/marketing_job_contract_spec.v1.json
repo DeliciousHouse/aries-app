@@ -1,0 +1,128 @@
+{
+  "artifact_name": "marketing_job_contract",
+  "schema_version": "1.0.0",
+  "status": "ready",
+  "canonical_inputs": {
+    "tenant_runtime_state_schema": "./specs/tenant_runtime_state_schema.v1.json",
+    "job_runtime_state_schema": "./specs/job_runtime_state_schema.v1.json"
+  },
+  "contract": {
+    "start_endpoint": {
+      "function": "startMarketingJob",
+      "request": {
+        "type": "object",
+        "required": [
+          "tenantId",
+          "jobType"
+        ],
+        "properties": {
+          "tenantId": {
+            "description": "Maps to tenant_runtime_state_schema.$defs.tenant_id",
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{1,61}$"
+          },
+          "jobType": {
+            "description": "Maps to job_runtime_state_schema.properties.job_type enum",
+            "type": "string",
+            "enum": [
+              "tenant_provisioning",
+              "tenant_repair",
+              "validator",
+              "publish",
+              "unknown"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "response": {
+        "type": "object",
+        "required": [
+          "status",
+          "jobId",
+          "tenantId",
+          "jobType"
+        ],
+        "properties": {
+          "status": {
+            "const": "accepted"
+          },
+          "jobId": {
+            "description": "Must satisfy job_runtime_state_schema.$defs.job_id",
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:-]{1,127}$"
+          },
+          "tenantId": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{1,61}$"
+          },
+          "jobType": {
+            "type": "string",
+            "enum": [
+              "tenant_provisioning",
+              "tenant_repair",
+              "validator",
+              "publish",
+              "unknown"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "status_endpoint": {
+      "function": "getMarketingJobStatus",
+      "request": {
+        "type": "object",
+        "required": [
+          "jobId"
+        ],
+        "properties": {
+          "jobId": {
+            "description": "Must satisfy job_runtime_state_schema.$defs.job_id",
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:-]{1,127}$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "response": {
+        "type": "object",
+        "required": [
+          "jobId",
+          "status"
+        ],
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:-]{1,127}$"
+          },
+          "status": {
+            "description": "Uses job runtime state vocabulary",
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "completed",
+              "failed"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "hard_failure_policy": {
+    "when": [
+      "./specs/tenant_runtime_state_schema.v1.json missing",
+      "./specs/job_runtime_state_schema.v1.json missing",
+      "./specs/tenant_runtime_state_schema.v1.json invalid JSON",
+      "./specs/job_runtime_state_schema.v1.json invalid JSON"
+    ],
+    "behavior": "throw Error with prefix HARD_FAILURE"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "subagent": "runtime-enums-freezer",
+  "status": "completed",
+  "schema_version": "1.0.0",
+  "created_or_updated": [
+    "./specs/runtime_enums.v1.json",
+    "./specs/runtime_status_shapes.v1.json",
+    "./generated/draft/subagent-results/runtime-enums-freezer.json",
+    "./generated/draft/subagent-logs/runtime-enums-freezer.md"
+  ],
+  "summary": {
+    "frozen_enum_groups": [
+      "tenant_state",
+      "job_state_core",
+      "job_state_extended",
+      "status_core",
+      "status_extended",
+      "stage_name",
+      "stage_status",
+      "repair_state",
+      "repair_trigger",
+      "repair_scope",
+      "next_step",
+      "workflow_route_status"
+    ],
+    "status_shapes_defined": [
+      "runtime_status_envelope",
+      "runtime_status_update",
+      "runtime_stage_transition",
+      "runtime_repair_summary"
+    ],
+    "alignment_sources": [
+      "./specs/tenant_runtime_state_schema.v1.json",
+      "./specs/job_runtime_state_schema.v1.json",
+      "./specs/marketing_strategy_workflow_spec.v1.json",
+      "./specs/marketing_production_workflow_spec.v1.json",
+      "./specs/marketing_publish_workflow_spec.v1.json",
+      "./specs/marketing_repair_workflow_spec.v1.json",
+      "./specs/marketing_approval_resume_workflow_spec.v1.json",
+      "./specs/onboarding_backend_contract_spec.v1.json"
+    ]
+  }
+}

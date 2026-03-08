@@ -1,0 +1,61 @@
+{
+  "contract_name": "onboarding_api_contract",
+  "schema_version": "1.0.0",
+  "frozen_from": [
+    "./backend/onboarding/start.ts",
+    "./backend/onboarding/status.ts"
+  ],
+  "response_shapes_ref": "./specs/onboarding_response_shapes.v1.json",
+  "endpoints": [
+    {
+      "operation_id": "onboardingStart",
+      "method": "POST",
+      "path": "/api/onboarding/start",
+      "request_body_ref": "./specs/onboarding_response_shapes.v1.json#/$defs/onboardingStartRequest",
+      "responses": {
+        "200": {
+          "description": "Workflow call succeeded and onboarding start accepted/normalized.",
+          "body_ref": "./specs/onboarding_response_shapes.v1.json#/$defs/onboardingStartSuccess"
+        },
+        "400": {
+          "description": "Missing required request fields.",
+          "body_ref": "./specs/onboarding_response_shapes.v1.json#/$defs/onboardingStartError",
+          "error_reason_patterns": ["missing_required_fields:*"]
+        },
+        "502": {
+          "description": "Workflow call failed or workflow endpoint unreachable.",
+          "body_ref": "./specs/onboarding_response_shapes.v1.json#/$defs/onboardingStartError",
+          "error_reason_values_or_patterns": ["workflow_request_failed", "workflow_unreachable:*"]
+        }
+      },
+      "status_values": {
+        "response.status": ["ok", "error"],
+        "response.state_when_ok": ["accepted", "duplicate", "validated", "needs_repair"]
+      }
+    },
+    {
+      "operation_id": "onboardingStatusByTenant",
+      "method": "GET",
+      "path": "/api/onboarding/status/:tenantId",
+      "path_params_ref": "./specs/onboarding_response_shapes.v1.json#/$defs/onboardingStatusPathParams",
+      "query_ref": "./specs/onboarding_response_shapes.v1.json#/$defs/onboardingStatusQuery",
+      "backend_mapping_note": "Current backend implementation reads tenant_id from query; API gateway/router must map :tenantId -> query tenant_id before calling handler.",
+      "responses": {
+        "200": {
+          "description": "Status resolved from generated artifact/report/marker presence.",
+          "body_ref": "./specs/onboarding_response_shapes.v1.json#/$defs/onboardingStatusSuccess"
+        },
+        "400": {
+          "description": "Missing tenant identifier after routing/mapping.",
+          "body_ref": "./specs/onboarding_response_shapes.v1.json#/$defs/onboardingStatusError",
+          "error_reason_values": ["missing_required_query:tenant_id"]
+        }
+      },
+      "status_values": {
+        "response.status": ["ok", "error"],
+        "response.state_when_ok": ["validated", "needs_repair", "in_progress", "duplicate", "not_found"],
+        "response.validation_status_when_ok": ["pass", "fail", "unknown"]
+      }
+    }
+  ]
+}
