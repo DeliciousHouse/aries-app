@@ -39,6 +39,21 @@ function patchInvalidNodeType(workflow: any, originalWorkflow: any): RepairOutpu
     return { repaired: true, patchedSection: `nodes[${idx}].type`, reason: 'restored original allowed node type', workflow };
   }
 
+  const nodeName = String(workflow.nodes?.[idx]?.name || '').toLowerCase();
+  const inferredType =
+    nodeName.includes('webhook') ? 'n8n-nodes-base.webhook' :
+    nodeName.includes('respond') ? 'n8n-nodes-base.respondToWebhook' :
+    nodeName.includes('validate') || nodeName.includes('if') ? 'n8n-nodes-base.if' :
+    nodeName.includes('normalize') || nodeName.includes('set') ? 'n8n-nodes-base.set' :
+    nodeName.includes('http') ? 'n8n-nodes-base.httpRequest' :
+    nodeName.includes('command') || nodeName.includes('run ') ? 'n8n-nodes-base.executeCommand' :
+    null;
+
+  if (inferredType && ALLOWED_NODE_TYPES.has(inferredType)) {
+    workflow.nodes[idx].type = inferredType;
+    return { repaired: true, patchedSection: `nodes[${idx}].type`, reason: 'inferred allowed node type from node name', workflow };
+  }
+
   workflow.nodes.splice(idx, 1);
   return { repaired: true, patchedSection: `nodes[${idx}]`, reason: 'removed disallowed node', workflow };
 }
@@ -82,6 +97,16 @@ function patchActivationFlag(workflow: any): RepairOutput {
   };
 }
 
+function patchInvalidSettingsSection(workflow: any): RepairOutput {
+  workflow.settings = {};
+  return {
+    repaired: true,
+    patchedSection: 'settings',
+    reason: 'reset settings to empty object for API compatibility',
+    workflow
+  };
+}
+
 export function boundedRepair(input: RepairInput): RepairOutput {
   const workflow = deepClone(input.workflow);
   const originalWorkflow = input.originalWorkflow ? deepClone(input.originalWorkflow) : undefined;
@@ -108,6 +133,10 @@ export function boundedRepair(input: RepairInput): RepairOutput {
 
   if (msg.includes('activate') || msg.includes('active')) {
     return patchActivationFlag(workflow);
+  }
+
+  if (msg.includes('additional properties') || msg.includes('/settings')) {
+    return patchInvalidSettingsSection(workflow);
   }
 
   return {

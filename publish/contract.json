@@ -25,8 +25,8 @@
     "n8n-nodes-base.respondToWebhook"
   ],
   "endpoints": {
-    "createWorkflow": "POST /rest/workflows",
-    "updateWorkflow": "PATCH /rest/workflows/:id",
-    "activateWorkflow": "PATCH /rest/workflows/:id"
+    "createWorkflow": "POST /api/v1/workflows",
+    "updateWorkflow": "PUT /api/v1/workflows/:id",
+    "activateWorkflow": "POST /api/v1/workflows/:id/activate"
   }
 }

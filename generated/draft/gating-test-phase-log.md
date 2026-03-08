@@ -20,3 +20,46 @@
 - bounded_repair_applied: false
 - final_publish_pass: false
 - hard_failure: true
+
+## TEST 4 FORCED N8N PUBLISH FAILURE RERUN @ 2026-03-08T12:44:07.912Z
+- failure_payload_captured: true
+- bounded_repair_applied: true
+- final_publish_pass: false
+- hard_failure: true
+
+## TEST 4 FORCED N8N PUBLISH FAILURE RERUN @ 2026-03-08T12:44:59.503Z
+- failure_payload_captured: true
+- bounded_repair_applied: true
+- final_publish_pass: false
+- hard_failure: true
+
+## TEST 4 FORCED N8N PUBLISH FAILURE RERUN @ 2026-03-08T12:45:37.280Z
+- failure_payload_captured: true
+- bounded_repair_applied: true
+- final_publish_pass: false
+- hard_failure: true
+
+## TEST 4 FORCED N8N PUBLISH FAILURE RERUN @ 2026-03-08T12:46:27.852Z
+- failure_payload_captured: false
+- bounded_repair_applied: false
+- final_publish_pass: true
+- hard_failure: false
+
+## TEST 4 FORCED N8N PUBLISH FAILURE RERUN @ 2026-03-08T12:47:16.407Z
+- failure_payload_captured: false
+- bounded_repair_applied: false
+- final_publish_pass: true
+- hard_failure: false
+
+## TEST 4 FORCED N8N PUBLISH FAILURE RERUN @ 2026-03-08T12:48:12.457Z
+- failure_payload_captured: false
+- bounded_repair_applied: false
+- final_publish_pass: true
+- hard_failure: false
+
+## TEST 4 FORCED N8N PUBLISH FAILURE RERUN @ 2026-03-08T12:49:13.509Z
+- failure_payload_captured: true
+- bounded_repair_applied: true
+- final_publish_pass: true
+- hard_failure: false
+

@@ -2,6 +2,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { preflightAuthCheck } from './preflight-auth';
+import { resolveN8nApiContext } from './n8n-api';
 
 export interface ApiResult {
   ok: boolean;
@@ -11,22 +12,18 @@ export interface ApiResult {
   rawPath: string;
 }
 
-function requiredEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`Missing required env var: ${name}`);
-  return v;
-}
-
-function buildHeaders(apiKey: string) {
+function sanitizeWorkflowForCreate(workflow: any) {
   return {
-    'Content-Type': 'application/json',
-    'X-N8N-API-KEY': apiKey
+    name: workflow?.name,
+    nodes: workflow?.nodes,
+    connections: workflow?.connections,
+    settings: workflow?.settings || {}
   };
 }
 
 export async function createWorkflow(workflowFile: string): Promise<ApiResult> {
-  const baseUrl = requiredEnv('N8N_BASE_URL');
-  const apiKey = requiredEnv('N8N_API_KEY');
+  const ctx = await resolveN8nApiContext();
+  const baseUrl = ctx.baseUrl;
   const projectRoot = process.env.PROJECT_ROOT || process.cwd();
 
   const preflight = await preflightAuthCheck('create');
@@ -47,10 +44,12 @@ export async function createWorkflow(workflowFile: string): Promise<ApiResult> {
   const rawWorkflow = await readFile(workflowPath, 'utf8');
   const workflow = JSON.parse(rawWorkflow);
 
-  const res = await fetch(`${baseUrl}/rest/workflows`, {
+  const createPayload = sanitizeWorkflowForCreate(workflow);
+
+  const res = await fetch(`${baseUrl}${ctx.apiBasePath}/workflows`, {
     method: 'POST',
-    headers: buildHeaders(apiKey),
-    body: JSON.stringify(workflow)
+    headers: ctx.headers,
+    body: JSON.stringify(createPayload)
   });
 
   const text = await res.text();

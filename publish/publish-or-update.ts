@@ -4,27 +4,14 @@ import path from 'node:path';
 import { createWorkflow } from './create-workflow';
 import { updateWorkflow } from './update-workflow';
 import { preflightAuthCheck } from './preflight-auth';
-
-function requiredEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`Missing required env var: ${name}`);
-  return v;
-}
-
-function buildHeaders(apiKey: string) {
-  return {
-    'Content-Type': 'application/json',
-    'X-N8N-API-KEY': apiKey
-  };
-}
+import { resolveN8nApiContext } from './n8n-api';
 
 async function resolveWorkflowIdByName(workflowName: string): Promise<string | null> {
-  const baseUrl = requiredEnv('N8N_BASE_URL');
-  const apiKey = requiredEnv('N8N_API_KEY');
+  const ctx = await resolveN8nApiContext();
 
-  const res = await fetch(`${baseUrl}/rest/workflows?limit=250`, {
+  const res = await fetch(`${ctx.baseUrl}${ctx.apiBasePath}/workflows?limit=250`, {
     method: 'GET',
-    headers: buildHeaders(apiKey)
+    headers: ctx.headers
   });
 
   if (!res.ok) return null;

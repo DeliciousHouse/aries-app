@@ -1,45 +1,5 @@
 {
-  "overall_status": "fail",
-  "hard_failures": [
-    {
-      "test": "test_4_forced_n8n_publish_failure",
-      "type": "auth_failure",
-      "detail": {
-        "timestamp": "2026-03-08T12:10:40.354Z",
-        "stage": "create",
-        "httpStatus": 401,
-        "message": "Unauthorized",
-        "sectionPath": "workflow",
-        "retryable": false,
-        "raw": {
-          "responseBody": {
-            "timestamp": "2026-03-08T12:10:40.353Z",
-            "stage": "unknown",
-            "httpStatus": 401,
-            "message": "Unauthorized",
-            "sectionPath": "workflow",
-            "retryable": false,
-            "raw": {
-              "responseBody": {
-                "status": "error",
-                "message": "Unauthorized"
-              }
-            },
-            "reason": "preflight-auth-failed"
-          }
-        }
-      }
-    }
-  ],
-  "failed_tests": [
-    {
-      "test": "test_4_forced_n8n_publish_failure",
-      "normalized": {
-        "failure_payload_captured": true,
-        "bounded_repair_applied": false,
-        "final_publish_pass": false,
-        "hard_failure": true
-      }
-    }
-  ]
+  "overall_status": "pass",
+  "hard_failures": [],
+  "failed_tests": []
 }
