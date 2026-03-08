@@ -1,0 +1,39 @@
+{
+  "overall_status": "pass",
+  "frontend_types_align_with_backend_contracts": true,
+  "api_client_contracts_built": true,
+  "inputs_used": [
+    "./specs/onboarding_api_contract.v1.json",
+    "./specs/onboarding_response_shapes.v1.json",
+    "./specs/marketing_api_contract.v1.json",
+    "./specs/marketing_response_shapes.v1.json",
+    "./specs/runtime_enums.v1.json",
+    "./specs/runtime_status_shapes.v1.json",
+    "./specs/backend_error_shapes.v1.json"
+  ],
+  "outputs_created": [
+    "./frontend/api/contracts/onboarding.ts",
+    "./frontend/api/contracts/marketing.ts",
+    "./frontend/types/runtime.ts",
+    "./frontend/types/errors.ts",
+    "./frontend/api/client/onboarding.ts",
+    "./frontend/api/client/marketing.ts",
+    "./generated/draft/frontend-contract-alignment-results.json",
+    "./generated/draft/frontend-contract-alignment-phase-log.md"
+  ],
+  "endpoint_coverage": [
+    "POST /api/onboarding/start",
+    "GET /api/onboarding/status/:tenantId",
+    "POST /api/marketing/jobs",
+    "GET /api/marketing/jobs/:jobId",
+    "POST /api/marketing/jobs/:jobId/approve"
+  ],
+  "canonical_enums_exposed": [
+    "onboarding_status",
+    "provisioning_status",
+    "marketing_stage",
+    "repair_status",
+    "next_step"
+  ],
+  "hard_failures": []
+}
