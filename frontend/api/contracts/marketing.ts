@@ -14,7 +14,7 @@ export interface PostMarketingJobsRequest {
 }
 
 export interface StartJobAccepted {
-  status: 'accepted';
+  marketing_job_status: 'accepted';
   jobId: string;
   tenantId: string;
   jobType: MarketingJobType;
@@ -25,10 +25,10 @@ export interface StartJobAccepted {
 export interface GetMarketingJobStatusResponse {
   jobId: string;
   tenantId: string | null;
-  state: string;
-  status: string;
-  currentStage: string | null;
-  stageStatus: Record<string, string>;
+  marketing_job_state: string;
+  marketing_job_status: string;
+  marketing_stage: string | null;
+  marketing_stage_status: Record<string, string>;
   updatedAt: string | null;
   runtimePath: string;
 }
@@ -41,7 +41,7 @@ export interface PostMarketingJobApproveRequest {
 }
 
 export interface ApproveJobResult {
-  status: 'resumed' | 'error';
+  approval_status: 'resumed' | 'error';
   jobId: string;
   tenantId: string;
   resumedStage: string | null;

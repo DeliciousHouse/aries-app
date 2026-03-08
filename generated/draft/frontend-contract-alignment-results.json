@@ -9,7 +9,8 @@
     "./specs/marketing_response_shapes.v1.json",
     "./specs/runtime_enums.v1.json",
     "./specs/runtime_status_shapes.v1.json",
-    "./specs/backend_error_shapes.v1.json"
+    "./specs/backend_error_shapes.v1.json",
+    "./generated/validated/backend-contract-freeze-summary.json"
   ],
   "outputs_created": [
     "./frontend/api/contracts/onboarding.ts",
@@ -21,7 +22,7 @@
     "./generated/draft/frontend-contract-alignment-results.json",
     "./generated/draft/frontend-contract-alignment-phase-log.md"
   ],
-  "endpoint_coverage": [
+  "endpoint_type_coverage": [
     "POST /api/onboarding/start",
     "GET /api/onboarding/status/:tenantId",
     "POST /api/marketing/jobs",
@@ -31,6 +32,7 @@
   "canonical_enums_exposed": [
     "onboarding_status",
     "provisioning_status",
+    "marketing_job_status",
     "marketing_stage",
     "repair_status",
     "next_step"

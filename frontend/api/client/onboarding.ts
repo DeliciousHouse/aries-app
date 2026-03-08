@@ -3,7 +3,9 @@ import type {
   OnboardingStartSuccess,
   OnboardingStartError,
   OnboardingStatusSuccess,
-  OnboardingStatusError
+  OnboardingStatusError,
+  OnboardingStatusPathParams,
+  OnboardingStatusQuery
 } from '../contracts/onboarding';
 
 export interface OnboardingClientOptions {
@@ -29,13 +31,18 @@ export function createOnboardingClient(options: OnboardingClientOptions = {}) {
       return res.json();
     },
 
-    async status(tenantId: string, query?: { signup_event_id?: string }): Promise<OnboardingStatusSuccess | OnboardingStatusError> {
+    async status(
+      params: OnboardingStatusPathParams | string,
+      query?: OnboardingStatusQuery
+    ): Promise<OnboardingStatusSuccess | OnboardingStatusError> {
+      const tenantId = typeof params === 'string' ? params : params.tenantId;
       const qs = new URLSearchParams();
       if (query?.signup_event_id) qs.set('signup_event_id', query.signup_event_id);
       const suffix = qs.toString() ? `?${qs.toString()}` : '';
-      const res = await fetchImpl(mkUrl(baseUrl, `/api/onboarding/status/${encodeURIComponent(tenantId)}${suffix}`), {
-        method: 'GET'
-      });
+      const res = await fetchImpl(
+        mkUrl(baseUrl, `/api/onboarding/status/${encodeURIComponent(tenantId)}${suffix}`),
+        { method: 'GET' }
+      );
       return res.json();
     }
   };

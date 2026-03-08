@@ -6,9 +6,10 @@ export type JsonValue =
   | JsonValue[]
   | { [k: string]: JsonValue };
 
-export type OnboardingStartState = 'accepted' | 'duplicate' | 'validated' | 'needs_repair';
-export type OnboardingStatusState = 'validated' | 'needs_repair' | 'in_progress' | 'duplicate' | 'not_found';
-export type OnboardingValidationStatus = 'pass' | 'fail' | 'unknown';
+export type OnboardingTransportStatus = 'ok' | 'error';
+export type OnboardingLifecycleStatus = 'accepted' | 'duplicate' | 'validated' | 'needs_repair';
+export type ProvisioningStatus = 'validated' | 'needs_repair' | 'in_progress' | 'duplicate' | 'not_found';
+export type ValidationStatus = 'pass' | 'fail' | 'unknown';
 
 export type OnboardingErrorReason =
   | 'workflow_request_failed'
@@ -28,19 +29,19 @@ export interface OnboardingStartSuccess {
   tenant_id: string;
   tenant_type: string;
   signup_event_id: string;
-  state: OnboardingStartState;
+  onboarding_status: OnboardingLifecycleStatus;
   workflow_status: number;
   raw: JsonValue;
 }
 
 export interface OnboardingStartError {
-  status: 'error';
+  onboarding_status: 'error';
+  reason: OnboardingErrorReason;
   tenant_id?: string;
   tenant_type?: string;
   signup_event_id?: string;
   workflow_status?: number;
   raw?: JsonValue;
-  reason: OnboardingErrorReason;
 }
 
 export interface OnboardingStatusPathParams {
@@ -52,11 +53,11 @@ export interface OnboardingStatusQuery {
 }
 
 export interface OnboardingStatusSuccess {
-  status: 'ok';
+  onboarding_status: 'ok';
   tenant_id: string;
+  provisioning_status: ProvisioningStatus;
+  validation_status: ValidationStatus;
   signup_event_id?: string;
-  state: OnboardingStatusState;
-  validation_status: OnboardingValidationStatus;
   paths: {
     draft?: string;
     validated?: string;
@@ -66,6 +67,6 @@ export interface OnboardingStatusSuccess {
 }
 
 export interface OnboardingStatusError {
-  status: 'error';
+  onboarding_status: 'error';
   reason: OnboardingErrorReason;
 }
