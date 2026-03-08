@@ -2,12 +2,23 @@
 node_modules/
 jspm_packages/
 
+# Project directories (ensured tracked)
+!specs/
+!skills/
+!backend/
+!frontend/
+!templates/
+!validators/
+!tests/
+!n8n/*.workflow.json
+
 # Build outputs
 dist/
 build/
 generated/
 publish/*.js
 publish/*.js.map
+!publish/*.ts
 
 # IDE / Editor files
 .vscode/
