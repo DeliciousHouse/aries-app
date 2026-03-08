@@ -1,0 +1,5 @@
+{
+  "N8N_BASE_URL": "http://localhost:5678",
+  "hasN8NApiKey": true,
+  "n8nApiKeyLength": 267
+}

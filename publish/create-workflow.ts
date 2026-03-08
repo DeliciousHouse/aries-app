@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import { preflightAuthCheck } from './preflight-auth';
 
 export interface ApiResult {
   ok: boolean;
@@ -19,8 +20,7 @@ function requiredEnv(name: string): string {
 function buildHeaders(apiKey: string) {
   return {
     'Content-Type': 'application/json',
-    'X-N8N-API-KEY': apiKey,
-    Authorization: `Bearer ${apiKey}`
+    'X-N8N-API-KEY': apiKey
   };
 }
 
@@ -28,6 +28,20 @@ export async function createWorkflow(workflowFile: string): Promise<ApiResult> {
   const baseUrl = requiredEnv('N8N_BASE_URL');
   const apiKey = requiredEnv('N8N_API_KEY');
   const projectRoot = process.env.PROJECT_ROOT || process.cwd();
+
+  const preflight = await preflightAuthCheck('create');
+  if (!preflight.ok) {
+    const rawPath = path.join(projectRoot, 'generated', 'draft', 'n8n-create-raw-response.json');
+    await mkdir(path.dirname(rawPath), { recursive: true });
+    await writeFile(rawPath, JSON.stringify({ status: preflight.status, body: preflight.failure || { message: 'Preflight auth failed' } }, null, 2), 'utf8');
+    return {
+      ok: false,
+      stage: 'create',
+      status: preflight.status,
+      body: preflight.failure || { message: 'Preflight auth failed' },
+      rawPath
+    };
+  }
 
   const workflowPath = path.join(projectRoot, 'n8n', workflowFile);
   const rawWorkflow = await readFile(workflowPath, 'utf8');

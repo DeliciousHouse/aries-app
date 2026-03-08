@@ -1,7 +1,7 @@
 {
   "hardFailure": true,
   "lastFailure": {
-    "timestamp": "2026-03-08T11:22:48.556Z",
+    "timestamp": "2026-03-08T11:43:23.917Z",
     "stage": "create",
     "httpStatus": 401,
     "message": "Unauthorized",
@@ -9,8 +9,19 @@
     "retryable": false,
     "raw": {
       "responseBody": {
-        "status": "error",
-        "message": "Unauthorized"
+        "timestamp": "2026-03-08T11:43:23.916Z",
+        "stage": "unknown",
+        "httpStatus": 401,
+        "message": "Unauthorized",
+        "sectionPath": "workflow",
+        "retryable": false,
+        "raw": {
+          "responseBody": {
+            "status": "error",
+            "message": "Unauthorized"
+          }
+        },
+        "reason": "preflight-auth-failed"
       }
     }
   },

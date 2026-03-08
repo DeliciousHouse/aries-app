@@ -1,49 +1,46 @@
 {
-  "simulatedFailureInjected": true,
-  "failureCaptureWorked": true,
-  "boundedRepairSucceeded": false,
-  "summary": {
-    "workflowFile": "tenant-provisioning.workflow.json",
-    "createOrUpdateSucceeded": false,
-    "activateSucceeded": false,
-    "repairLoopSucceeded": false,
-    "attemptsUsed": 2,
-    "hardFailure": true,
-    "failure": {
-      "timestamp": "2026-03-08T11:22:48.556Z",
-      "stage": "create",
-      "httpStatus": 401,
-      "message": "Unauthorized",
-      "sectionPath": "workflow",
-      "retryable": false,
-      "raw": {
-        "responseBody": {
-          "status": "error",
-          "message": "Unauthorized"
-        }
-      }
-    },
-    "rawResponses": [
-      {
-        "attempt": 1,
-        "stage": "create",
-        "response": {
-          "ok": false,
-          "stage": "create",
-          "status": 401,
-          "body": {
+  "workflowFile": "tenant-provisioning.workflow.json",
+  "createOrUpdateSucceeded": false,
+  "activateSucceeded": false,
+  "repairLoopSucceeded": false,
+  "attemptsUsed": 2,
+  "hardFailure": true,
+  "failure": {
+    "timestamp": "2026-03-08T11:43:23.917Z",
+    "stage": "create",
+    "httpStatus": 401,
+    "message": "Unauthorized",
+    "sectionPath": "workflow",
+    "retryable": false,
+    "raw": {
+      "responseBody": {
+        "timestamp": "2026-03-08T11:43:23.916Z",
+        "stage": "unknown",
+        "httpStatus": 401,
+        "message": "Unauthorized",
+        "sectionPath": "workflow",
+        "retryable": false,
+        "raw": {
+          "responseBody": {
             "status": "error",
             "message": "Unauthorized"
-          },
-          "rawPath": "/Users/bkam/.openclaw/workspace/aries-platform-bootstrap/generated/draft/n8n-create-raw-response.json"
-        }
-      },
-      {
-        "attempt": 1,
-        "stage": "capture-failure",
-        "failure": {
-          "timestamp": "2026-03-08T11:22:48.556Z",
-          "stage": "create",
+          }
+        },
+        "reason": "preflight-auth-failed"
+      }
+    }
+  },
+  "rawResponses": [
+    {
+      "attempt": 1,
+      "stage": "create",
+      "response": {
+        "ok": false,
+        "stage": "create",
+        "status": 401,
+        "body": {
+          "timestamp": "2026-03-08T11:43:23.916Z",
+          "stage": "unknown",
           "httpStatus": 401,
           "message": "Unauthorized",
           "sectionPath": "workflow",
@@ -53,9 +50,40 @@
               "status": "error",
               "message": "Unauthorized"
             }
+          },
+          "reason": "preflight-auth-failed"
+        },
+        "rawPath": "/Users/bkam/.openclaw/workspace/aries-platform-bootstrap/generated/draft/n8n-auth-diagnosis.json"
+      }
+    },
+    {
+      "attempt": 1,
+      "stage": "capture-failure",
+      "failure": {
+        "timestamp": "2026-03-08T11:43:23.917Z",
+        "stage": "create",
+        "httpStatus": 401,
+        "message": "Unauthorized",
+        "sectionPath": "workflow",
+        "retryable": false,
+        "raw": {
+          "responseBody": {
+            "timestamp": "2026-03-08T11:43:23.916Z",
+            "stage": "unknown",
+            "httpStatus": 401,
+            "message": "Unauthorized",
+            "sectionPath": "workflow",
+            "retryable": false,
+            "raw": {
+              "responseBody": {
+                "status": "error",
+                "message": "Unauthorized"
+              }
+            },
+            "reason": "preflight-auth-failed"
           }
         }
       }
-    ]
-  }
+    }
+  ]
 }

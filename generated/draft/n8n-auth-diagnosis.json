@@ -1,0 +1,31 @@
+{
+  "timestamp": "2026-03-08T11:43:23.915Z",
+  "stage": "unknown",
+  "baseUrl": "http://localhost:5678",
+  "hasApiKey": true,
+  "status": 401,
+  "ok": false,
+  "authHeader": "X-N8N-API-KEY",
+  "failure": {
+    "timestamp": "2026-03-08T11:43:23.916Z",
+    "stage": "unknown",
+    "httpStatus": 401,
+    "message": "Unauthorized",
+    "sectionPath": "workflow",
+    "retryable": false,
+    "raw": {
+      "responseBody": {
+        "status": "error",
+        "message": "Unauthorized"
+      }
+    },
+    "reason": "preflight-auth-failed"
+  },
+  "rawResponse": {
+    "status": 401,
+    "body": {
+      "status": "error",
+      "message": "Unauthorized"
+    }
+  }
+}

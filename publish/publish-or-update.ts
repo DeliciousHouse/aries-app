@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createWorkflow } from './create-workflow';
 import { updateWorkflow } from './update-workflow';
+import { preflightAuthCheck } from './preflight-auth';
 
 function requiredEnv(name: string): string {
   const v = process.env[name];
@@ -13,8 +14,7 @@ function requiredEnv(name: string): string {
 function buildHeaders(apiKey: string) {
   return {
     'Content-Type': 'application/json',
-    'X-N8N-API-KEY': apiKey,
-    Authorization: `Bearer ${apiKey}`
+    'X-N8N-API-KEY': apiKey
   };
 }
 
@@ -39,6 +39,20 @@ export async function publishOrUpdate(workflowFile: string): Promise<{
   workflowId?: string;
   result: any;
 }> {
+  const preflight = await preflightAuthCheck('unknown');
+  if (!preflight.ok) {
+    return {
+      mode: 'create',
+      result: {
+        ok: false,
+        stage: 'create',
+        status: preflight.status,
+        body: preflight.failure || { message: 'Preflight auth failed' },
+        rawPath: `${process.env.PROJECT_ROOT || process.cwd()}/generated/draft/n8n-auth-diagnosis.json`
+      }
+    };
+  }
+
   const projectRoot = process.env.PROJECT_ROOT || process.cwd();
   const workflowPath = path.join(projectRoot, 'n8n', workflowFile);
   const workflowRaw = await readFile(workflowPath, 'utf8');
