@@ -1,0 +1,75 @@
+{
+  "phase": "contract-merge-conflict-resolution",
+  "overall_status": "resolved",
+  "exact_conflicts_found": {
+    "field_type_conflicts": [
+      {
+        "field": "status",
+        "location_a": "onboarding_response_shapes.$defs.onboardingStartSuccess.properties.status (const 'ok')",
+        "location_b": "marketing_response_shapes.$defs.GetJobStatusResult.properties.status (string)",
+        "resolution": "renamed to explicit domain fields onboarding_status / marketing_job_status"
+      },
+      {
+        "field": "status",
+        "location_a": "runtime_status_shapes.$defs.runtime_status_envelope.properties.status (runtime enum)",
+        "location_b": "marketing_response_shapes.$defs.ApproveJobResult.properties.status ('resumed'|'error')",
+        "resolution": "renamed to runtime_status / approval_status"
+      },
+      {
+        "field": "state",
+        "location_a": "onboarding_response_shapes.$defs.onboardingStatusSuccess.properties.state (statusState enum)",
+        "location_b": "marketing_response_shapes.$defs.GetJobStatusResult.properties.state (string)",
+        "resolution": "renamed to provisioning_status / marketing_job_state"
+      },
+      {
+        "field": "state",
+        "location_a": "runtime_status_shapes.$defs.runtime_status_update.properties.state (runtime enum)",
+        "location_b": "onboarding_response_shapes.$defs.onboardingStatusSuccess.properties.state",
+        "resolution": "renamed to runtime_state and removed shared generic state usage"
+      },
+      {
+        "field": "currentStage",
+        "location_a": "marketing_response_shapes.$defs.GetJobStatusResult.properties.currentStage (string|null)",
+        "location_b": "runtime_status_shapes.$defs.runtime_status_envelope.properties.current_stage (runtime_stage enum)",
+        "resolution": "renamed to marketing_stage in marketing contract"
+      },
+      {
+        "field": "stageStatus",
+        "location_a": "marketing_response_shapes.$defs.GetJobStatusResult.properties.stageStatus (record<string,string>)",
+        "location_b": "runtime_status_shapes.$defs.runtime_repair_summary.properties.state (repair enum used as shared status)",
+        "resolution": "renamed to marketing_stage_status and repair_status"
+      },
+      {
+        "field": "status_values mapping keys",
+        "location_a": "onboarding_api_contract.status_values.response.status",
+        "location_b": "marketing_api_contract.status_vocabularies.*status*",
+        "resolution": "normalized keys to explicit domain names (response.onboarding_status, marketing_job_status_values_at_start, approval_status_values)"
+      }
+    ],
+    "enum_conflicts": [
+      {
+        "domain": "state",
+        "conflict": "tenant/job/runtime domains collapsed into generic state namespace",
+        "resolution": "split into onboarding/provisioning/marketing_job_state/runtime_state explicit domains"
+      },
+      {
+        "domain": "status",
+        "conflict": "transport, lifecycle, validation, and approval statuses mixed in generic status namespace",
+        "resolution": "split into onboarding_status, provisioning_status, marketing_job_status, runtime_status, approval_status, repair_status"
+      }
+    ]
+  },
+  "files_patched": [
+    "./specs/onboarding_api_contract.v1.json",
+    "./specs/onboarding_response_shapes.v1.json",
+    "./specs/marketing_api_contract.v1.json",
+    "./specs/marketing_response_shapes.v1.json",
+    "./specs/runtime_enums.v1.json",
+    "./specs/runtime_status_shapes.v1.json",
+    "./generated/draft/contract-freeze-validation.json",
+    "./generated/draft/contract-conflict-resolution-phase-log.md"
+  ],
+  "field_type_conflicts_resolved": true,
+  "enum_conflicts_resolved": true,
+  "hard_failures": []
+}

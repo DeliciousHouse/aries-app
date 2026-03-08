@@ -1,50 +1,31 @@
 {
   "phase": "backend-contract-freeze",
-  "subagents_completed": [
-    "onboarding-contract-freezer",
-    "marketing-contract-freezer",
-    "runtime-enums-freezer",
-    "error-shape-freezer",
-    "contract-merge-validator"
+  "status": "validated_clean",
+  "merge_ready": true,
+  "blocking_conflicts": {
+    "field_type_conflicts": 0,
+    "enum_conflicts": 0
+  },
+  "canonical_shared_domains": [
+    "onboarding_status",
+    "provisioning_status",
+    "marketing_job_state",
+    "marketing_job_status",
+    "marketing_stage",
+    "repair_status",
+    "next_step",
+    "runtime_state",
+    "runtime_status"
   ],
-  "files_by_subagent": {
-    "onboarding-contract-freezer": [
-      "./specs/onboarding_api_contract.v1.json",
-      "./specs/onboarding_response_shapes.v1.json",
-      "./generated/draft/subagent-results/onboarding-contract-freezer.json",
-      "./generated/draft/subagent-logs/onboarding-contract-freezer.md"
-    ],
-    "marketing-contract-freezer": [
-      "./specs/marketing_api_contract.v1.json",
-      "./specs/marketing_response_shapes.v1.json",
-      "./generated/draft/subagent-results/marketing-contract-freezer.json",
-      "./generated/draft/subagent-logs/marketing-contract-freezer.md"
-    ],
-    "runtime-enums-freezer": [
-      "./specs/runtime_enums.v1.json",
-      "./specs/runtime_status_shapes.v1.json",
-      "./generated/draft/subagent-results/runtime-enums-freezer.json",
-      "./generated/draft/subagent-logs/runtime-enums-freezer.md"
-    ],
-    "error-shape-freezer": [
-      "./specs/backend_error_shapes.v1.json",
-      "./generated/draft/subagent-results/error-shape-freezer.json",
-      "./generated/draft/subagent-logs/error-shape-freezer.md"
-    ],
-    "contract-merge-validator": [
-      "./generated/draft/contract-freeze-validation.json",
-      "./generated/draft/contract-freeze-phase-log.md",
-      "./generated/draft/subagent-results/contract-merge-validator.json",
-      "./generated/draft/subagent-logs/contract-merge-validator.md"
-    ]
-  },
-  "contract_freezing_succeeded": true,
-  "merge_validation": {
-    "merge_ready": false,
-    "blocking_conflicts": [
-      "7 field-type conflicts",
-      "2 enum conflicts (state/status domain collision)"
-    ]
-  },
+  "inputs_validated": [
+    "./specs/onboarding_api_contract.v1.json",
+    "./specs/onboarding_response_shapes.v1.json",
+    "./specs/marketing_api_contract.v1.json",
+    "./specs/marketing_response_shapes.v1.json",
+    "./specs/runtime_enums.v1.json",
+    "./specs/runtime_status_shapes.v1.json",
+    "./specs/backend_error_shapes.v1.json",
+    "./generated/draft/contract-freeze-validation.json"
+  ],
   "hard_failures": []
 }

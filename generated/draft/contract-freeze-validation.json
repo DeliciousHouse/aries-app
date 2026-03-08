@@ -1,22 +1,26 @@
 {
-  "overall_status": "conflicts_found",
-  "merge_ready": false,
+  "overall_status": "clean",
+  "merge_ready": true,
   "hard_failure": false,
-  "checked_files": 19,
-  "field_type_conflicts": 7,
-  "enum_conflicts": 2,
-  "conflicts": {
-    "field_type": [
-      "shared field names represented as concrete scalar/object in some specs and unresolved/ref-style in others",
-      "trigger field semantic/type mismatch across runtime and API shapes"
-    ],
-    "enum": [
-      "state enum collision: tenant lifecycle vs job lifecycle",
-      "status enum collision: validation/test status vs runtime lifecycle status"
-    ]
+  "blocking_conflicts": {
+    "field_type_conflicts": 0,
+    "enum_conflicts": 0
   },
-  "hygiene_risks": [
-    "tenant_provisioning_workspace_spec.v1.json required loose parse fallback"
+  "shared_canonical_fields": [
+    "onboarding_status",
+    "provisioning_status",
+    "marketing_job_state",
+    "marketing_job_status",
+    "marketing_stage",
+    "marketing_stage_status",
+    "runtime_state",
+    "runtime_status",
+    "repair_status",
+    "next_step"
   ],
-  "recommended_next_step": "namespace enums by domain (tenant_state, job_state, validation_status) and align shared field typing references"
+  "notes": [
+    "Generic shared state/status collisions removed from cross-contract shared domains",
+    "Contracts remain machine-checkable JSON",
+    "Patch scope limited to conflicting contract sections"
+  ]
 }

@@ -11,12 +11,22 @@
   },
   "response_shape_file": "./specs/marketing_response_shapes.v1.json",
   "status_vocabularies": {
-    "job_stage_values": ["research", "strategy", "production", "publish"],
-    "approve_response_status_values": ["resumed", "error"],
-    "start_response_status_values": ["accepted"],
-    "known_status_lookup_value": "error",
-    "known_state_lookup_value": "not_found",
-    "runtime_state_note": "state/status for existing runtime files are pass-through strings from generated draft job JSON"
+    "job_stage_values": [
+      "research",
+      "strategy",
+      "production",
+      "publish"
+    ],
+    "runtime_state_note": "state/status for existing runtime files are pass-through strings from generated draft job JSON",
+    "approval_status_values": [
+      "resumed",
+      "error"
+    ],
+    "marketing_job_status_values_at_start": [
+      "accepted"
+    ],
+    "known_marketing_job_status_lookup_value": "error",
+    "known_marketing_job_state_lookup_value": "not_found"
   },
   "routes": [
     {
@@ -26,9 +36,15 @@
       "requestSchema": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["tenantId", "jobType"],
+        "required": [
+          "tenantId",
+          "jobType"
+        ],
         "properties": {
-          "tenantId": { "type": "string", "minLength": 1 },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
           "jobType": {
             "type": "string",
             "enum": [
@@ -47,12 +63,20 @@
         }
       },
       "responses": {
-        "200": { "$ref": "./marketing_response_shapes.v1.json#/$defs/StartJobAccepted" },
-        "202": { "$ref": "./marketing_response_shapes.v1.json#/$defs/StartJobAccepted" },
+        "200": {
+          "$ref": "./marketing_response_shapes.v1.json#/$defs/StartJobAccepted"
+        },
+        "202": {
+          "$ref": "./marketing_response_shapes.v1.json#/$defs/StartJobAccepted"
+        },
         "500": {
           "oneOf": [
-            { "$ref": "./marketing_response_shapes.v1.json#/$defs/HardFailureError" },
-            { "$ref": "./marketing_response_shapes.v1.json#/$defs/UnhandledError" }
+            {
+              "$ref": "./marketing_response_shapes.v1.json#/$defs/HardFailureError"
+            },
+            {
+              "$ref": "./marketing_response_shapes.v1.json#/$defs/UnhandledError"
+            }
           ]
         }
       },
@@ -68,17 +92,28 @@
       "pathParamsSchema": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["jobId"],
+        "required": [
+          "jobId"
+        ],
         "properties": {
-          "jobId": { "type": "string", "minLength": 1 }
+          "jobId": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       },
       "responses": {
-        "200": { "$ref": "./marketing_response_shapes.v1.json#/$defs/GetJobStatusResult" },
+        "200": {
+          "$ref": "./marketing_response_shapes.v1.json#/$defs/GetJobStatusResult"
+        },
         "500": {
           "oneOf": [
-            { "$ref": "./marketing_response_shapes.v1.json#/$defs/HardFailureError" },
-            { "$ref": "./marketing_response_shapes.v1.json#/$defs/UnhandledError" }
+            {
+              "$ref": "./marketing_response_shapes.v1.json#/$defs/HardFailureError"
+            },
+            {
+              "$ref": "./marketing_response_shapes.v1.json#/$defs/UnhandledError"
+            }
           ]
         }
       },
@@ -95,35 +130,63 @@
       "pathParamsSchema": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["jobId"],
+        "required": [
+          "jobId"
+        ],
         "properties": {
-          "jobId": { "type": "string", "minLength": 1 }
+          "jobId": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       },
       "requestSchema": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["tenantId", "approvedBy"],
+        "required": [
+          "tenantId",
+          "approvedBy"
+        ],
         "properties": {
-          "tenantId": { "type": "string", "minLength": 1 },
-          "approvedBy": { "type": "string", "minLength": 1 },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "approvedBy": {
+            "type": "string",
+            "minLength": 1
+          },
           "approvedStages": {
             "type": "array",
             "items": {
               "type": "string",
-              "enum": ["research", "strategy", "production", "publish"]
+              "enum": [
+                "research",
+                "strategy",
+                "production",
+                "publish"
+              ]
             },
             "default": []
           },
-          "resumePublishIfNeeded": { "type": "boolean", "default": true }
+          "resumePublishIfNeeded": {
+            "type": "boolean",
+            "default": true
+          }
         }
       },
       "responses": {
-        "200": { "$ref": "./marketing_response_shapes.v1.json#/$defs/ApproveJobResult" },
+        "200": {
+          "$ref": "./marketing_response_shapes.v1.json#/$defs/ApproveJobResult"
+        },
         "500": {
           "oneOf": [
-            { "$ref": "./marketing_response_shapes.v1.json#/$defs/HardFailureError" },
-            { "$ref": "./marketing_response_shapes.v1.json#/$defs/UnhandledError" }
+            {
+              "$ref": "./marketing_response_shapes.v1.json#/$defs/HardFailureError"
+            },
+            {
+              "$ref": "./marketing_response_shapes.v1.json#/$defs/UnhandledError"
+            }
           ]
         }
       },

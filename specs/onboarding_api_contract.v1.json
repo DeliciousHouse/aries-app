@@ -20,17 +20,30 @@
         "400": {
           "description": "Missing required request fields.",
           "body_ref": "./specs/onboarding_response_shapes.v1.json#/$defs/onboardingStartError",
-          "error_reason_patterns": ["missing_required_fields:*"]
+          "error_reason_patterns": [
+            "missing_required_fields:*"
+          ]
         },
         "502": {
           "description": "Workflow call failed or workflow endpoint unreachable.",
           "body_ref": "./specs/onboarding_response_shapes.v1.json#/$defs/onboardingStartError",
-          "error_reason_values_or_patterns": ["workflow_request_failed", "workflow_unreachable:*"]
+          "error_reason_values_or_patterns": [
+            "workflow_request_failed",
+            "workflow_unreachable:*"
+          ]
         }
       },
       "status_values": {
-        "response.status": ["ok", "error"],
-        "response.state_when_ok": ["accepted", "duplicate", "validated", "needs_repair"]
+        "response.onboarding_status": [
+          "ok",
+          "error"
+        ],
+        "response.onboarding_status_when_ok": [
+          "accepted",
+          "duplicate",
+          "validated",
+          "needs_repair"
+        ]
       }
     },
     {
@@ -48,13 +61,28 @@
         "400": {
           "description": "Missing tenant identifier after routing/mapping.",
           "body_ref": "./specs/onboarding_response_shapes.v1.json#/$defs/onboardingStatusError",
-          "error_reason_values": ["missing_required_query:tenant_id"]
+          "error_reason_values": [
+            "missing_required_query:tenant_id"
+          ]
         }
       },
       "status_values": {
-        "response.status": ["ok", "error"],
-        "response.state_when_ok": ["validated", "needs_repair", "in_progress", "duplicate", "not_found"],
-        "response.validation_status_when_ok": ["pass", "fail", "unknown"]
+        "response.validation_status_when_ok": [
+          "pass",
+          "fail",
+          "unknown"
+        ],
+        "response.onboarding_status": [
+          "ok",
+          "error"
+        ],
+        "response.provisioning_status_when_ok": [
+          "validated",
+          "needs_repair",
+          "in_progress",
+          "duplicate",
+          "not_found"
+        ]
       }
     }
   ]

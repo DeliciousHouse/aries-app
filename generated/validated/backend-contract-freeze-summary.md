@@ -1,21 +1,19 @@
-# Backend Contract Freeze Summary
+# Backend Contract Freeze Summary (Validated)
 
-## Subagents completed
-- onboarding-contract-freezer
-- marketing-contract-freezer
-- runtime-enums-freezer
-- error-shape-freezer
-- contract-merge-validator
+- Contract-freeze validation: **clean**
+- Merge readiness: **ready**
+- Blocking field-type conflicts: **0**
+- Blocking enum conflicts: **0**
 
-## Contract freeze result
-- Contract freezing succeeded: **yes**
-- Machine-checkable artifacts were created for onboarding, marketing, runtime enums/status shapes, and backend error shapes.
+## Canonical shared domains frozen
+- onboarding_status
+- provisioning_status
+- marketing_job_state
+- marketing_job_status
+- marketing_stage
+- repair_status
+- next_step
+- runtime_state
+- runtime_status
 
-## Merge validation
-- Merge ready: **no**
-- Blocking conflicts:
-  - 7 field-type conflicts
-  - 2 enum conflicts (`state` / `status` domain collisions)
-
-## Hard failures
-- None
+No hard failures remain.

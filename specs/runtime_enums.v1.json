@@ -5,26 +5,32 @@
   "schema_version": "1.0.0",
   "description": "Canonical enum freezer for runtime state/status/stage/repair/next-step values observed in tenant onboarding and marketing workflows.",
   "enums": {
-    "tenant_state": [
-      "received",
-      "idempotency_checked",
-      "generated",
-      "validated",
-      "repairing",
-      "promoted",
+    "onboarding_status": [
+      "accepted",
       "duplicate",
-      "failed"
+      "validated",
+      "needs_repair",
+      "ok",
+      "error"
     ],
-    "job_state_core": [
+    "provisioning_status": [
+      "validated",
+      "needs_repair",
+      "in_progress",
+      "duplicate",
+      "not_found",
+      "pass",
+      "fail",
+      "unknown"
+    ],
+    "marketing_job_state": [
       "queued",
       "running",
       "waiting_repair",
       "retrying",
       "completed",
       "failed",
-      "canceled"
-    ],
-    "job_state_extended": [
+      "canceled",
       "awaiting_approval",
       "production_parallelized",
       "publishing",
@@ -32,16 +38,10 @@
       "repair_running",
       "awaiting_retry"
     ],
-    "status_core": [
-      "pending",
-      "running",
-      "pass",
-      "fail",
-      "error",
-      "skipped"
-    ],
-    "status_extended": [
+    "marketing_job_status": [
       "accepted",
+      "running",
+      "error",
       "completed",
       "success",
       "failed",
@@ -58,31 +58,13 @@
       "retry_complete",
       "hard_failure"
     ],
-    "stage_name": [
+    "marketing_stage": [
       "research",
       "strategy",
       "production",
-      "publish",
-      "done",
-      "received",
-      "research_validated",
-      "strategy_drafted",
-      "approval_granted",
-      "production_ready",
-      "awaiting_approval",
-      "repair_required",
-      "repair_exhausted",
-      "validating_inputs",
-      "publishing",
-      "publish_completed",
-      "repair_running",
-      "stage_patching",
-      "stage_rerun",
-      "awaiting_retry",
-      "completed",
-      "failed"
+      "publish"
     ],
-    "stage_status": [
+    "marketing_stage_status": [
       "pending",
       "queued",
       "running",
@@ -93,7 +75,7 @@
       "failed",
       "skipped"
     ],
-    "repair_state": [
+    "repair_status": [
       "not_required",
       "required",
       "in_progress",
@@ -102,19 +84,6 @@
       "rerun_failed",
       "retry_scheduled",
       "exhausted"
-    ],
-    "repair_trigger": [
-      "research_artifact_missing",
-      "research_artifact_empty",
-      "simulated_publish_failure",
-      "stage_rerun_failed",
-      "invalid_publish_targets"
-    ],
-    "repair_scope": [
-      "only_failed_stage_section",
-      "only_failed_stage",
-      "stage_status_fields_only",
-      "publish_targets_only"
     ],
     "next_step": [
       "none",
@@ -137,17 +106,6 @@
     "tenant_type": [
       "single_user",
       "team"
-    ],
-    "workflow_route_status": [
-      "accepted",
-      "duplicate",
-      "validated",
-      "needs_repair",
-      "in_progress",
-      "not_found",
-      "awaiting_approval",
-      "ready_for_production",
-      "failed"
     ]
   }
 }

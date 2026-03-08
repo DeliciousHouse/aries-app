@@ -144,18 +144,9 @@
       "type": "object",
       "additionalProperties": true,
       "required": [
-        "status"
+        "runtime_status"
       ],
       "properties": {
-        "status": {
-          "$ref": "#/$defs/runtime_status_value"
-        },
-        "state": {
-          "$ref": "#/$defs/runtime_state_value"
-        },
-        "current_stage": {
-          "$ref": "#/$defs/runtime_stage"
-        },
         "reason": {
           "type": "string"
         },
@@ -167,6 +158,15 @@
         },
         "next_action": {
           "type": "string"
+        },
+        "runtime_status": {
+          "$ref": "#/$defs/runtime_status_value"
+        },
+        "runtime_state": {
+          "$ref": "#/$defs/runtime_state_value"
+        },
+        "marketing_stage": {
+          "$ref": "#/$defs/runtime_stage"
         }
       }
     },
@@ -175,24 +175,15 @@
       "additionalProperties": true,
       "required": [
         "at",
-        "state",
-        "status"
+        "runtime_state",
+        "runtime_status"
       ],
       "properties": {
         "at": {
           "$ref": "#/$defs/timestamp"
         },
-        "state": {
-          "$ref": "#/$defs/runtime_state_value"
-        },
-        "status": {
-          "$ref": "#/$defs/runtime_status_value"
-        },
         "step": {
           "type": "string"
-        },
-        "stage": {
-          "$ref": "#/$defs/runtime_stage"
         },
         "note": {
           "type": "string"
@@ -200,6 +191,15 @@
         "details": {
           "type": "object",
           "additionalProperties": true
+        },
+        "runtime_state": {
+          "$ref": "#/$defs/runtime_state_value"
+        },
+        "runtime_status": {
+          "$ref": "#/$defs/runtime_status_value"
+        },
+        "marketing_stage": {
+          "$ref": "#/$defs/runtime_stage"
         }
       }
     },
@@ -207,24 +207,24 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "from",
-        "to"
+        "from_stage",
+        "to_stage"
       ],
       "properties": {
-        "from": {
-          "$ref": "#/$defs/runtime_stage"
-        },
-        "to": {
-          "$ref": "#/$defs/runtime_stage"
-        },
-        "status": {
-          "$ref": "#/$defs/runtime_status_value"
-        },
         "at": {
           "$ref": "#/$defs/timestamp"
         },
         "reason": {
           "type": "string"
+        },
+        "from_stage": {
+          "$ref": "#/$defs/runtime_stage"
+        },
+        "to_stage": {
+          "$ref": "#/$defs/runtime_stage"
+        },
+        "transition_status": {
+          "$ref": "#/$defs/runtime_status_value"
         }
       }
     },
@@ -249,19 +249,6 @@
           "minimum": 1,
           "maximum": 50
         },
-        "state": {
-          "type": "string",
-          "enum": [
-            "not_required",
-            "required",
-            "in_progress",
-            "patched",
-            "rerun_passed",
-            "rerun_failed",
-            "retry_scheduled",
-            "exhausted"
-          ]
-        },
         "trigger": {
           "type": "string",
           "enum": [
@@ -279,6 +266,19 @@
             "only_failed_stage",
             "stage_status_fields_only",
             "publish_targets_only"
+          ]
+        },
+        "repair_status": {
+          "type": "string",
+          "enum": [
+            "not_required",
+            "required",
+            "in_progress",
+            "patched",
+            "rerun_passed",
+            "rerun_failed",
+            "retry_scheduled",
+            "exhausted"
           ]
         }
       }
