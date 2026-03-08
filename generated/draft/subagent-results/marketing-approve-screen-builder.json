@@ -1,0 +1,15 @@
+{
+  "task": "marketing-approve-screen-builder",
+  "status": "completed",
+  "files_updated": [
+    "frontend/marketing/job-approve.tsx",
+    "generated/draft/subagent-results/marketing-approve-screen-builder.json",
+    "generated/draft/subagent-logs/marketing-approve-screen-builder.md"
+  ],
+  "notes": [
+    "Implemented a thin React approval screen that calls POST /api/marketing/jobs/:jobId/approve via createMarketingClient.approveJob(jobId, body).",
+    "Approval request body is strictly PostMarketingJobApproveRequest contract fields: tenantId, approvedBy, approvedStages, resumePublishIfNeeded.",
+    "Approval stages are constrained to contract-defined MarketingStage values only: research, strategy, production, publish.",
+    "UI now clearly shows approval success/failure message and still renders raw status/approval JSON for visibility."
+  ]
+}

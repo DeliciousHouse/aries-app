@@ -1,0 +1,164 @@
+{
+  "validator": "frontend-wireup-validator",
+  "timestamp": "2026-03-08T16:36:00-05:00",
+  "scope": {
+    "screens": [
+      "frontend/onboarding/start.tsx",
+      "frontend/onboarding/status.tsx",
+      "frontend/marketing/new-job.tsx",
+      "frontend/marketing/job-status.tsx",
+      "frontend/marketing/job-approve.tsx"
+    ],
+    "sharedComponents": [
+      "frontend/components/next-step-card.tsx",
+      "frontend/components/status-badge.tsx",
+      "frontend/components/error-panel.tsx"
+    ],
+    "contracts": [
+      "frontend/api/contracts/onboarding.ts",
+      "frontend/api/contracts/marketing.ts"
+    ],
+    "clients": [
+      "frontend/api/client/onboarding.ts",
+      "frontend/api/client/marketing.ts"
+    ]
+  },
+  "summary": {
+    "screensChecked": 5,
+    "sharedComponentsChecked": 3,
+    "passed": 5,
+    "failed": 3,
+    "warningCount": 0,
+    "status": "fail"
+  },
+  "checks": [
+    {
+      "file": "frontend/onboarding/start.tsx",
+      "kind": "screen",
+      "importsSharedTypes": true,
+      "usesSharedClient": true,
+      "sharedClientCalls": [
+        "createOnboardingClient().start -> POST /api/onboarding/start"
+      ],
+      "adHocRequestShape": false,
+      "undefinedContractFieldReferences": [
+        {
+          "field": "onboarding_status",
+          "context": "result?.onboarding_status === 'ok'",
+          "contract": "OnboardingStartSuccess uses `status: 'ok'`, not onboarding_status"
+        }
+      ],
+      "status": "fail"
+    },
+    {
+      "file": "frontend/onboarding/status.tsx",
+      "kind": "screen",
+      "importsSharedTypes": true,
+      "usesSharedClient": true,
+      "sharedClientCalls": [
+        "createOnboardingClient().status -> GET /api/onboarding/status/:tenantId"
+      ],
+      "adHocRequestShape": false,
+      "undefinedContractFieldReferences": [
+        {
+          "field": "repair_status",
+          "context": "OnboardingStatusSuccessWithOptionalFields + UI rendering",
+          "contract": "not defined on OnboardingStatusSuccess"
+        },
+        {
+          "field": "next_step",
+          "context": "OnboardingStatusSuccessWithOptionalFields + UI rendering",
+          "contract": "not defined on OnboardingStatusSuccess"
+        },
+        {
+          "field": "latest_message",
+          "context": "OnboardingStatusSuccessWithOptionalFields + UI rendering",
+          "contract": "not defined on OnboardingStatusSuccess"
+        }
+      ],
+      "status": "fail"
+    },
+    {
+      "file": "frontend/marketing/new-job.tsx",
+      "kind": "screen",
+      "importsSharedTypes": true,
+      "usesSharedClient": true,
+      "sharedClientCalls": [
+        "createMarketingClient().createJob -> POST /api/marketing/jobs"
+      ],
+      "adHocRequestShape": false,
+      "undefinedContractFieldReferences": [],
+      "status": "pass"
+    },
+    {
+      "file": "frontend/marketing/job-status.tsx",
+      "kind": "screen",
+      "importsSharedTypes": true,
+      "usesSharedClient": true,
+      "sharedClientCalls": [
+        "createMarketingClient().getJob -> GET /api/marketing/jobs/:jobId"
+      ],
+      "adHocRequestShape": false,
+      "undefinedContractFieldReferences": [
+        {
+          "field": "repair_status",
+          "context": "OptionalContractExtras + UI rendering",
+          "contract": "not defined on GetMarketingJobStatusResponse"
+        },
+        {
+          "field": "next_step",
+          "context": "OptionalContractExtras + UI rendering",
+          "contract": "not defined on GetMarketingJobStatusResponse"
+        },
+        {
+          "field": "latest_artifacts",
+          "context": "OptionalContractExtras + UI rendering",
+          "contract": "not defined on GetMarketingJobStatusResponse"
+        },
+        {
+          "field": "latest_messages",
+          "context": "OptionalContractExtras + UI rendering",
+          "contract": "not defined on GetMarketingJobStatusResponse"
+        }
+      ],
+      "status": "fail"
+    },
+    {
+      "file": "frontend/marketing/job-approve.tsx",
+      "kind": "screen",
+      "importsSharedTypes": true,
+      "usesSharedClient": true,
+      "sharedClientCalls": [
+        "createMarketingClient().getJob -> GET /api/marketing/jobs/:jobId",
+        "createMarketingClient().approveJob -> POST /api/marketing/jobs/:jobId/approve"
+      ],
+      "adHocRequestShape": false,
+      "undefinedContractFieldReferences": [],
+      "status": "pass"
+    },
+    {
+      "file": "frontend/components/next-step-card.tsx",
+      "kind": "shared-component",
+      "importsSharedTypes": true,
+      "usesSharedClient": false,
+      "undefinedContractFieldReferences": [],
+      "status": "pass"
+    },
+    {
+      "file": "frontend/components/status-badge.tsx",
+      "kind": "shared-component",
+      "importsSharedTypes": true,
+      "usesSharedClient": false,
+      "undefinedContractFieldReferences": [],
+      "status": "pass"
+    },
+    {
+      "file": "frontend/components/error-panel.tsx",
+      "kind": "shared-component",
+      "importsSharedTypes": true,
+      "usesSharedClient": false,
+      "undefinedContractFieldReferences": [],
+      "status": "pass"
+    }
+  ]
+}

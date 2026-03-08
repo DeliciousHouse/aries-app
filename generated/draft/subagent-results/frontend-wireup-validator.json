@@ -1,0 +1,35 @@
+{
+  "subagent": "frontend-wireup-validator",
+  "result": "fail",
+  "scope": "five screens + shared components wireup validation",
+  "totals": {
+    "checked": 8,
+    "passed": 5,
+    "failed": 3
+  },
+  "failedFiles": [
+    {
+      "file": "frontend/onboarding/start.tsx",
+      "reason": "Uses non-contract success discriminator field `onboarding_status` instead of `status` on OnboardingStartSuccess."
+    },
+    {
+      "file": "frontend/onboarding/status.tsx",
+      "reason": "References non-contract fields (`repair_status`, `next_step`, `latest_message`) by extending response type locally."
+    },
+    {
+      "file": "frontend/marketing/job-status.tsx",
+      "reason": "References non-contract fields (`repair_status`, `next_step`, `latest_artifacts`, `latest_messages`) by extending response type locally."
+    }
+  ],
+  "compliance": {
+    "sharedClientUsage": "pass",
+    "adHocRequestShapes": "pass",
+    "frozenContractFieldUsage": "fail"
+  },
+  "artifacts": [
+    "generated/draft/frontend-screen-build-results.json",
+    "generated/draft/frontend-screen-build-phase-log.md",
+    "generated/draft/subagent-results/frontend-wireup-validator.json",
+    "generated/draft/subagent-logs/frontend-wireup-validator.md"
+  ]
+}
