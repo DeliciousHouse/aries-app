@@ -1,0 +1,14 @@
+{
+  "status": "generated",
+  "output_root": "/Users/bkam/.openclaw/workspace/aries-platform-bootstrap/generated/draft/acme",
+  "tenant_id": "acme",
+  "tenant_type": "single_user",
+  "files": [
+    "tenant.json",
+    "config/workspaces.json",
+    "docs/README.md",
+    "workspaces/core/README.md",
+    "workspaces/research/README.md",
+    "workspaces/marketing/README.md"
+  ]
+}

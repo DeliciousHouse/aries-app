@@ -1,0 +1,56 @@
+{
+  "artifact_name": "tenant_provisioning_workspace_validator",
+  "artifact_type": "validator_spec",
+  "schema_version": "1.0.0",
+  "source_spec_path": "./specs/tenant_provisioning_workspace_spec.v1.json",
+  "deterministic": true,
+  "top_level_keys_exact": [
+    "artifact_name",
+    "artifact_type",
+    "schema_version",
+    "inputs",
+    "required_directories",
+    "required_files",
+    "placeholders",
+    "invariants",
+    "forbidden_patterns",
+    "acceptance_tests"
+  ],
+  "checks": {
+    "required_directories": true,
+    "required_files": true,
+    "json_required_fields": true,
+    "markdown_required_sections_exactly_once": true,
+    "tenant_semantics": true,
+    "placeholder_policy": true,
+    "forbidden_patterns": true,
+    "path_locality": true
+  },
+  "regex": {
+    "placeholder_token": "\\{\\{[A-Z0-9_]+\\}\\}",
+    "workspace_path": "^workspaces\\/(core|research|marketing)(\\/.*)?$",
+    "absolute_path": "^/|^[A-Za-z]:\\\\",
+    "parent_traversal": "(^|/)\\.\\.(/|$)",
+    "external_ref": "^https?://|^ssh://",
+    "secret_pattern": "(api[-]?key|secret|token|password|private[_-]?key)",
+    "code_file_ext": "\\.(js|ts|py|sh|go|rb|java)$"
+  },
+  "report": {
+    "format": "json",
+    "fields": [
+      "status",
+      "target_root",
+      "passed_checks",
+      "failed_checks",
+      "defects"
+    ],
+    "defect_fields": [
+      "id",
+      "severity",
+      "check",
+      "message",
+      "path",
+      "details"
+    ]
+  }
+}
