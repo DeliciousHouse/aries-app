@@ -76,10 +76,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ { status: 'error', reason: 'invalid_input', code: 'missing_required_fields', required: ['tenant_id','job_type'] } }}",
-        "options": {
-          "responseCode": 400
-        }
+        "responseBody": "={{ { status: 'error', reason: 'invalid_input', code: 'missing_required_fields', required: ['tenant_id','job_type'] } }}"
       },
       "id": "4",
       "name": "Respond Invalid Input",
@@ -128,10 +125,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ (() => { const out = $node['Assert Shared Schemas'].json.stdout || '{}'; let parsed; try { parsed = JSON.parse(out); } catch (e) { parsed = { status: 'hard_failure', code: 'invalid_schema_files', message: out || 'schema parse failed' }; } return { status: 'hard_failure', reason: 'missing_or_invalid_schemas', code: parsed.code || 'invalid_schema_files', details: parsed }; })() }}",
-        "options": {
-          "responseCode": 500
-        }
+        "responseBody": "={{ (() => { const out = $node['Assert Shared Schemas'].json.stdout || '{}'; let parsed; try { parsed = JSON.parse(out); } catch (e) { parsed = { status: 'hard_failure', code: 'invalid_schema_files', message: out || 'schema parse failed' }; } return { status: 'hard_failure', reason: 'missing_or_invalid_schemas', code: parsed.code || 'invalid_schema_files', details: parsed }; })() }}"
       },
       "id": "7",
       "name": "Respond Hard Failure",
@@ -179,10 +173,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.parse($json.stdout) }}",
-        "options": {
-          "responseCode": 200
-        }
+        "responseBody": "={{ JSON.parse($json.stdout) }}"
       },
       "id": "10",
       "name": "Respond Ready For Production",
@@ -217,10 +208,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.parse($node['Build Strategy Job'].json.stdout) }}",
-        "options": {
-          "responseCode": 202
-        }
+        "responseBody": "={{ JSON.parse($node['Build Strategy Job'].json.stdout) }}"
       },
       "id": "12",
       "name": "Respond Awaiting Approval",
@@ -255,10 +243,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.parse($node['Build Strategy Job'].json.stdout) }}",
-        "options": {
-          "responseCode": 409
-        }
+        "responseBody": "={{ JSON.parse($node['Build Strategy Job'].json.stdout) }}"
       },
       "id": "14",
       "name": "Respond Needs Repair",
@@ -272,10 +257,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.parse($node['Build Strategy Job'].json.stdout) }}",
-        "options": {
-          "responseCode": 422
-        }
+        "responseBody": "={{ JSON.parse($node['Build Strategy Job'].json.stdout) }}"
       },
       "id": "15",
       "name": "Respond Failed",

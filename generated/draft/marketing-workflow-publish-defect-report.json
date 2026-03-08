@@ -1,0 +1,106 @@
+{
+  "overall_status": "fail",
+  "hard_failures": [
+    {
+      "workflow_file": "./n8n/marketing-research.workflow.json",
+      "failure": {
+        "timestamp": "2026-03-08T20:14:19.036Z",
+        "stage": "activate",
+        "httpStatus": 400,
+        "message": "Could not find property option",
+        "sectionPath": "workflow",
+        "retryable": true,
+        "raw": {
+          "responseBody": {
+            "message": "Could not find property option"
+          }
+        }
+      }
+    },
+    {
+      "workflow_file": "./n8n/marketing-strategy.workflow.json",
+      "failure": {
+        "timestamp": "2026-03-08T20:14:19.271Z",
+        "stage": "activate",
+        "httpStatus": 400,
+        "message": "Could not find property option",
+        "sectionPath": "workflow",
+        "retryable": true,
+        "raw": {
+          "responseBody": {
+            "message": "Could not find property option"
+          }
+        }
+      }
+    },
+    {
+      "workflow_file": "./n8n/marketing-approval-resume.workflow.json",
+      "failure": {
+        "timestamp": "2026-03-08T20:14:20.322Z",
+        "stage": "activate",
+        "httpStatus": 400,
+        "message": "Could not find property option",
+        "sectionPath": "workflow",
+        "retryable": true,
+        "raw": {
+          "responseBody": {
+            "message": "Could not find property option"
+          }
+        }
+      }
+    }
+  ],
+  "failed_workflows": [
+    {
+      "workflow_file": "./n8n/marketing-research.workflow.json",
+      "workflow_id": "VUAQdH3w8JjHLcMC",
+      "failure": {
+        "timestamp": "2026-03-08T20:14:19.036Z",
+        "stage": "activate",
+        "httpStatus": 400,
+        "message": "Could not find property option",
+        "sectionPath": "workflow",
+        "retryable": true,
+        "raw": {
+          "responseBody": {
+            "message": "Could not find property option"
+          }
+        }
+      }
+    },
+    {
+      "workflow_file": "./n8n/marketing-strategy.workflow.json",
+      "workflow_id": "SNEVd8B8SVDQO2tj",
+      "failure": {
+        "timestamp": "2026-03-08T20:14:19.271Z",
+        "stage": "activate",
+        "httpStatus": 400,
+        "message": "Could not find property option",
+        "sectionPath": "workflow",
+        "retryable": true,
+        "raw": {
+          "responseBody": {
+            "message": "Could not find property option"
+          }
+        }
+      }
+    },
+    {
+      "workflow_file": "./n8n/marketing-approval-resume.workflow.json",
+      "workflow_id": "9MvYtNk4oZj9KlR6",
+      "failure": {
+        "timestamp": "2026-03-08T20:14:20.322Z",
+        "stage": "activate",
+        "httpStatus": 400,
+        "message": "Could not find property option",
+        "sectionPath": "workflow",
+        "retryable": true,
+        "raw": {
+          "responseBody": {
+            "message": "Could not find property option"
+          }
+        }
+      }
+    }
+  ]
+}

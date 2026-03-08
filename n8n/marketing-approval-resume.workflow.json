@@ -87,10 +87,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ { status: 'error', reason: 'invalid_input_or_decision', code: 'job_id_and_approval_decision_required', details: { required: ['job_id','approval.decision=approved'] } } }}",
-        "options": {
-          "responseCode": 400
-        }
+        "responseBody": "={{ { status: 'error', reason: 'invalid_input_or_decision', code: 'job_id_and_approval_decision_required', details: { required: ['job_id','approval.decision=approved'] } } }}"
       },
       "id": "4",
       "name": "Respond Invalid Input",
@@ -159,10 +156,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{$json.result}}",
-        "options": {
-          "responseCode": 200
-        }
+        "responseBody": "={{$json.result}}"
       },
       "id": "8",
       "name": "Respond Resumed",
@@ -176,10 +170,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{$json.result}}",
-        "options": {
-          "responseCode": "={{$json.result.http_code || ($json.result.status === 'hard_failure' ? 500 : ($json.result.status === 'error' ? 400 : 409))}}"
-        }
+        "responseBody": "={{$json.result}}"
       },
       "id": "9",
       "name": "Respond Non-Resumed",
