@@ -1,0 +1,24 @@
+{
+  "artifact_name": "gating_test_suite",
+  "schema_version": "1.0.0",
+  "project": "aries-platform-bootstrap",
+  "max_repair_attempts": 3,
+  "tests_in_order": [
+    "test_1_happy_path",
+    "test_2_idempotency",
+    "test_3_forced_validator_failure",
+    "test_4_forced_n8n_publish_failure"
+  ],
+  "hard_failure_types": [
+    "env_missing",
+    "auth_failure",
+    "io_failure",
+    "unhandled_exception"
+  ],
+  "outputs": {
+    "results": "./generated/draft/gating-test-results.json",
+    "defect_report": "./generated/draft/gating-test-defect-report.json",
+    "phase_log": "./generated/draft/gating-test-phase-log.md",
+    "validated_results_copy": "./generated/validated/gating-test-results.json"
+  }
+}

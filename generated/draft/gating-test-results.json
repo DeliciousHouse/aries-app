@@ -1,0 +1,278 @@
+{
+  "overall_status": "fail",
+  "test_1_happy_path": {
+    "status": "pass",
+    "raw": {
+      "generator": {
+        "stdout": "{\n  \"status\": \"generated\",\n  \"output_root\": \"/Users/bkam/.openclaw/workspace/aries-platform-bootstrap/generated/draft/gatinghappy1\",\n  \"tenant_id\": \"gatinghappy1\",\n  \"tenant_type\": \"single_user\",\n  \"files\": [\n    \"tenant.json\",\n    \"config/workspaces.json\",\n    \"docs/README.md\",\n    \"workspaces/core/README.md\",\n    \"workspaces/research/README.md\",\n    \"workspaces/marketing/README.md\"\n  ]\n}\n",
+        "stderr": ""
+      },
+      "validator": {
+        "exit": 0,
+        "stdout": "{\n  \"status\": \"pass\",\n  \"target_root\": \"/Users/bkam/.openclaw/workspace/aries-platform-bootstrap/generated/draft/gatinghappy1\",\n  \"passed_checks\": [\n    \"AT-001\",\n    \"AT-002\",\n    \"AT-003\",\n    \"AT-004\",\n    \"AT-005\",\n    \"AT-006\",\n    \"AT-007\"\n  ],\n  \"failed_checks\": [],\n  \"defects\": []\n}\n",
+        "stderr": "",
+        "report": {
+          "status": "pass",
+          "target_root": "/Users/bkam/.openclaw/workspace/aries-platform-bootstrap/generated/draft/gatinghappy1",
+          "passed_checks": [
+            "AT-001",
+            "AT-002",
+            "AT-003",
+            "AT-004",
+            "AT-005",
+            "AT-006",
+            "AT-007"
+          ],
+          "failed_checks": [],
+          "defects": []
+        }
+      }
+    },
+    "normalized": {
+      "workspace_created": true,
+      "validator_pass": true,
+      "promoted": true
+    }
+  },
+  "test_2_idempotency": {
+    "status": "pass",
+    "raw": {
+      "generator_second_run": {
+        "stdout": "{\n  \"status\": \"generated\",\n  \"output_root\": \"/Users/bkam/.openclaw/workspace/aries-platform-bootstrap/generated/draft/gatinghappy1\",\n  \"tenant_id\": \"gatinghappy1\",\n  \"tenant_type\": \"single_user\",\n  \"files\": [\n    \"tenant.json\",\n    \"config/workspaces.json\",\n    \"docs/README.md\",\n    \"workspaces/core/README.md\",\n    \"workspaces/research/README.md\",\n    \"workspaces/marketing/README.md\"\n  ]\n}\n",
+        "stderr": ""
+      },
+      "before_dirs": 3,
+      "after_dirs": 3,
+      "validator": {
+        "exit": 0,
+        "stdout": "{\n  \"status\": \"pass\",\n  \"target_root\": \"/Users/bkam/.openclaw/workspace/aries-platform-bootstrap/generated/draft/gatinghappy1\",\n  \"passed_checks\": [\n    \"AT-001\",\n    \"AT-002\",\n    \"AT-003\",\n    \"AT-004\",\n    \"AT-005\",\n    \"AT-006\",\n    \"AT-007\"\n  ],\n  \"failed_checks\": [],\n  \"defects\": []\n}\n",
+        "stderr": "",
+        "report": {
+          "status": "pass",
+          "target_root": "/Users/bkam/.openclaw/workspace/aries-platform-bootstrap/generated/draft/gatinghappy1",
+          "passed_checks": [
+            "AT-001",
+            "AT-002",
+            "AT-003",
+            "AT-004",
+            "AT-005",
+            "AT-006",
+            "AT-007"
+          ],
+          "failed_checks": [],
+          "defects": []
+        }
+      }
+    },
+    "normalized": {
+      "duplicate_workspace_created": false,
+      "duplicate_tenant_created": false,
+      "duplicate_agent_created": false,
+      "validator_pass": true
+    }
+  },
+  "test_3_forced_validator_failure": {
+    "status": "pass",
+    "raw": {
+      "fail_stdout": "{\n  \"status\": \"fail\",\n  \"target_root\": \"/Users/bkam/.openclaw/workspace/aries-platform-bootstrap/generated/draft/gatinghappy1\",\n  \"passed_checks\": [\n    \"AT-001\",\n    \"AT-002\",\n    \"AT-005\",\n    \"AT-006\",\n    \"AT-007\"\n  ],\n  \"failed_checks\": [\n    \"AT-003\",\n    \"AT-004\"\n  ],\n  \"defects\": [\n    {\n      \"id\": \"DEF-0001\",\n      \"severity\": \"error\",\n      \"check\": \"AT-003\",\n      \"message\": \"Missing required JSON field\",\n      \"path\": \"tenant.json\",\n      \"details\": {\n        \"field\": \"phase_name\"\n      }\n    },\n    {\n      \"id\": \"DEF-0002\",\n      \"severity\": \"error\",\n      \"check\": \"AT-004\",\n      \"message\": \"phase_name mismatch\",\n      \"path\": \"tenant.json\",\n      \"details\": {\n        \"expected\": \"tenant_provisioning_workspace\",\n        \"actual\": null\n      }\n    }\n  ]\n}\n",
+      "fail_report": {
+        "status": "fail",
+        "target_root": "/Users/bkam/.openclaw/workspace/aries-platform-bootstrap/generated/draft/gatinghappy1",
+        "passed_checks": [
+          "AT-001",
+          "AT-002",
+          "AT-005",
+          "AT-006",
+          "AT-007"
+        ],
+        "failed_checks": [
+          "AT-003",
+          "AT-004"
+        ],
+        "defects": [
+          {
+            "id": "DEF-0001",
+            "severity": "error",
+            "check": "AT-003",
+            "message": "Missing required JSON field",
+            "path": "tenant.json",
+            "details": {
+              "field": "phase_name"
+            }
+          },
+          {
+            "id": "DEF-0002",
+            "severity": "error",
+            "check": "AT-004",
+            "message": "phase_name mismatch",
+            "path": "tenant.json",
+            "details": {
+              "expected": "tenant_provisioning_workspace",
+              "actual": null
+            }
+          }
+        ]
+      },
+      "pass_stdout": "{\n  \"status\": \"pass\",\n  \"target_root\": \"/Users/bkam/.openclaw/workspace/aries-platform-bootstrap/generated/draft/gatinghappy1\",\n  \"passed_checks\": [\n    \"AT-001\",\n    \"AT-002\",\n    \"AT-003\",\n    \"AT-004\",\n    \"AT-005\",\n    \"AT-006\",\n    \"AT-007\"\n  ],\n  \"failed_checks\": [],\n  \"defects\": []\n}\n",
+      "pass_report": {
+        "status": "pass",
+        "target_root": "/Users/bkam/.openclaw/workspace/aries-platform-bootstrap/generated/draft/gatinghappy1",
+        "passed_checks": [
+          "AT-001",
+          "AT-002",
+          "AT-003",
+          "AT-004",
+          "AT-005",
+          "AT-006",
+          "AT-007"
+        ],
+        "failed_checks": [],
+        "defects": []
+      }
+    },
+    "normalized": {
+      "validator_failed_deterministically": true,
+      "repair_triggered": true,
+      "repaired_section_only": true,
+      "final_validation_pass": true
+    }
+  },
+  "test_4_forced_n8n_publish_failure": {
+    "status": "fail",
+    "raw": {
+      "retry_publish_summary": {
+        "workflowFile": "tenant-provisioning.gating-temp.workflow.json",
+        "createOrUpdateSucceeded": false,
+        "activateSucceeded": false,
+        "repairLoopSucceeded": false,
+        "attemptsUsed": 2,
+        "hardFailure": true,
+        "failure": {
+          "timestamp": "2026-03-08T12:10:40.354Z",
+          "stage": "create",
+          "httpStatus": 401,
+          "message": "Unauthorized",
+          "sectionPath": "workflow",
+          "retryable": false,
+          "raw": {
+            "responseBody": {
+              "timestamp": "2026-03-08T12:10:40.353Z",
+              "stage": "unknown",
+              "httpStatus": 401,
+              "message": "Unauthorized",
+              "sectionPath": "workflow",
+              "retryable": false,
+              "raw": {
+                "responseBody": {
+                  "status": "error",
+                  "message": "Unauthorized"
+                }
+              },
+              "reason": "preflight-auth-failed"
+            }
+          }
+        },
+        "rawResponses": [
+          {
+            "attempt": 1,
+            "stage": "create",
+            "response": {
+              "ok": false,
+              "stage": "create",
+              "status": 401,
+              "body": {
+                "timestamp": "2026-03-08T12:10:40.353Z",
+                "stage": "unknown",
+                "httpStatus": 401,
+                "message": "Unauthorized",
+                "sectionPath": "workflow",
+                "retryable": false,
+                "raw": {
+                  "responseBody": {
+                    "status": "error",
+                    "message": "Unauthorized"
+                  }
+                },
+                "reason": "preflight-auth-failed"
+              },
+              "rawPath": "/Users/bkam/.openclaw/workspace/aries-platform-bootstrap/generated/draft/n8n-auth-diagnosis.json"
+            }
+          },
+          {
+            "attempt": 1,
+            "stage": "capture-failure",
+            "failure": {
+              "timestamp": "2026-03-08T12:10:40.354Z",
+              "stage": "create",
+              "httpStatus": 401,
+              "message": "Unauthorized",
+              "sectionPath": "workflow",
+              "retryable": false,
+              "raw": {
+                "responseBody": {
+                  "timestamp": "2026-03-08T12:10:40.353Z",
+                  "stage": "unknown",
+                  "httpStatus": 401,
+                  "message": "Unauthorized",
+                  "sectionPath": "workflow",
+                  "retryable": false,
+                  "raw": {
+                    "responseBody": {
+                      "status": "error",
+                      "message": "Unauthorized"
+                    }
+                  },
+                  "reason": "preflight-auth-failed"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "normalized": {
+      "failure_payload_captured": true,
+      "bounded_repair_applied": false,
+      "final_publish_pass": false,
+      "hard_failure": true
+    }
+  },
+  "hard_failures": [
+    {
+      "test": "test_4_forced_n8n_publish_failure",
+      "type": "auth_failure",
+      "detail": {
+        "timestamp": "2026-03-08T12:10:40.354Z",
+        "stage": "create",
+        "httpStatus": 401,
+        "message": "Unauthorized",
+        "sectionPath": "workflow",
+        "retryable": false,
+        "raw": {
+          "responseBody": {
+            "timestamp": "2026-03-08T12:10:40.353Z",
+            "stage": "unknown",
+            "httpStatus": 401,
+            "message": "Unauthorized",
+            "sectionPath": "workflow",
+            "retryable": false,
+            "raw": {
+              "responseBody": {
+                "status": "error",
+                "message": "Unauthorized"
+              }
+            },
+            "reason": "preflight-auth-failed"
+          }
+        }
+      }
+    }
+  ],
+  "repair_attempts": [
+    {
+      "test": "test_3_forced_validator_failure",
+      "section": "tenant.json.phase_name",
+      "attempts": 1
+    }
+  ]
+}
