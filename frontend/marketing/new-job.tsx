@@ -1,3 +1,5 @@
+"use client";
+
 import React, { useMemo, useState, type FormEvent } from 'react';
 
 import { createMarketingClient, type MarketingClientOptions } from '../api/client/marketing';

@@ -4,14 +4,9 @@ import { FormEvent, useMemo, useState } from 'react';
 
 import { createOnboardingClient } from '../api/client/onboarding';
 import type { OnboardingStatusError, OnboardingStatusSuccess } from '../api/contracts/onboarding';
+import StatusBadge from '../components/status-badge';
 
 type OnboardingStatusResponse = OnboardingStatusSuccess | OnboardingStatusError;
-
-type OnboardingStatusSuccessWithOptionalFields = OnboardingStatusSuccess & {
-  repair_status?: string;
-  next_step?: string;
-  latest_message?: string;
-};
 
 export interface OnboardingStatusScreenProps {
   baseUrl?: string;
@@ -54,11 +49,12 @@ export default function OnboardingStatusScreen({
   }
 
   const isStatusError = response?.onboarding_status === 'error';
-  const success = !isStatusError && response ? (response as OnboardingStatusSuccessWithOptionalFields) : null;
+  const success = !isStatusError && response ? (response as OnboardingStatusSuccess) : null;
 
   return (
     <section>
       <h1>Onboarding Status</h1>
+      <p>Enter a tenant ID to check current onboarding, provisioning, and validation states.</p>
 
       <form onSubmit={onSubmit}>
         <label>
@@ -72,7 +68,7 @@ export default function OnboardingStatusScreen({
           />
         </label>
 
-        <button type="submit" disabled={loading}>
+        <button type="submit" disabled={loading || !tenantId.trim()}>
           {loading ? 'Checking…' : 'Check status'}
         </button>
       </form>
@@ -98,25 +94,21 @@ export default function OnboardingStatusScreen({
           </p>
           <p>
             <strong>onboarding_status:</strong> {success.onboarding_status}
+            {' '}
+            <StatusBadge status={success.onboarding_status} />
           </p>
           <p>
             <strong>provisioning_status:</strong> {success.provisioning_status}
+            {' '}
+            <StatusBadge status={success.provisioning_status} />
           </p>
-          {success.repair_status && (
-            <p>
-              <strong>repair_status:</strong> {success.repair_status}
-            </p>
-          )}
-          {success.next_step && (
-            <p>
-              <strong>next_step:</strong> {success.next_step}
-            </p>
-          )}
-          {success.latest_message && (
-            <p>
-              <strong>latest_message:</strong> {success.latest_message}
-            </p>
-          )}
+          <p>
+            <strong>validation_status:</strong> {success.validation_status}
+            {' '}
+            <StatusBadge status={success.validation_status} />
+          </p>
+          <h3>paths</h3>
+          <pre>{JSON.stringify(success.paths, null, 2)}</pre>
         </div>
       )}
     </section>

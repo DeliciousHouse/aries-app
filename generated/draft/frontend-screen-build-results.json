@@ -1,6 +1,6 @@
 {
   "validator": "frontend-wireup-validator",
-  "timestamp": "2026-03-08T16:36:00-05:00",
+  "timestamp": "2026-03-08T22:35:30.655Z",
   "scope": {
     "screens": [
       "frontend/onboarding/start.tsx",
@@ -26,10 +26,10 @@
   "summary": {
     "screensChecked": 5,
     "sharedComponentsChecked": 3,
-    "passed": 5,
-    "failed": 3,
+    "passed": 8,
+    "failed": 0,
     "warningCount": 0,
-    "status": "fail"
+    "status": "pass"
   },
   "checks": [
     {
@@ -37,55 +37,24 @@
       "kind": "screen",
       "importsSharedTypes": true,
       "usesSharedClient": true,
-      "sharedClientCalls": [
-        "createOnboardingClient().start -> POST /api/onboarding/start"
-      ],
       "adHocRequestShape": false,
-      "undefinedContractFieldReferences": [
-        {
-          "field": "onboarding_status",
-          "context": "result?.onboarding_status === 'ok'",
-          "contract": "OnboardingStartSuccess uses `status: 'ok'`, not onboarding_status"
-        }
-      ],
-      "status": "fail"
+      "undefinedContractFieldReferences": [],
+      "status": "pass"
     },
     {
       "file": "frontend/onboarding/status.tsx",
       "kind": "screen",
       "importsSharedTypes": true,
       "usesSharedClient": true,
-      "sharedClientCalls": [
-        "createOnboardingClient().status -> GET /api/onboarding/status/:tenantId"
-      ],
       "adHocRequestShape": false,
-      "undefinedContractFieldReferences": [
-        {
-          "field": "repair_status",
-          "context": "OnboardingStatusSuccessWithOptionalFields + UI rendering",
-          "contract": "not defined on OnboardingStatusSuccess"
-        },
-        {
-          "field": "next_step",
-          "context": "OnboardingStatusSuccessWithOptionalFields + UI rendering",
-          "contract": "not defined on OnboardingStatusSuccess"
-        },
-        {
-          "field": "latest_message",
-          "context": "OnboardingStatusSuccessWithOptionalFields + UI rendering",
-          "contract": "not defined on OnboardingStatusSuccess"
-        }
-      ],
-      "status": "fail"
+      "undefinedContractFieldReferences": [],
+      "status": "pass"
     },
     {
       "file": "frontend/marketing/new-job.tsx",
       "kind": "screen",
       "importsSharedTypes": true,
       "usesSharedClient": true,
-      "sharedClientCalls": [
-        "createMarketingClient().createJob -> POST /api/marketing/jobs"
-      ],
       "adHocRequestShape": false,
       "undefinedContractFieldReferences": [],
       "status": "pass"
@@ -95,43 +64,15 @@
       "kind": "screen",
       "importsSharedTypes": true,
       "usesSharedClient": true,
-      "sharedClientCalls": [
-        "createMarketingClient().getJob -> GET /api/marketing/jobs/:jobId"
-      ],
       "adHocRequestShape": false,
-      "undefinedContractFieldReferences": [
-        {
-          "field": "repair_status",
-          "context": "OptionalContractExtras + UI rendering",
-          "contract": "not defined on GetMarketingJobStatusResponse"
-        },
-        {
-          "field": "next_step",
-          "context": "OptionalContractExtras + UI rendering",
-          "contract": "not defined on GetMarketingJobStatusResponse"
-        },
-        {
-          "field": "latest_artifacts",
-          "context": "OptionalContractExtras + UI rendering",
-          "contract": "not defined on GetMarketingJobStatusResponse"
-        },
-        {
-          "field": "latest_messages",
-          "context": "OptionalContractExtras + UI rendering",
-          "contract": "not defined on GetMarketingJobStatusResponse"
-        }
-      ],
-      "status": "fail"
+      "undefinedContractFieldReferences": [],
+      "status": "pass"
     },
     {
       "file": "frontend/marketing/job-approve.tsx",
       "kind": "screen",
       "importsSharedTypes": true,
       "usesSharedClient": true,
-      "sharedClientCalls": [
-        "createMarketingClient().getJob -> GET /api/marketing/jobs/:jobId",
-        "createMarketingClient().approveJob -> POST /api/marketing/jobs/:jobId/approve"
-      ],
       "adHocRequestShape": false,
       "undefinedContractFieldReferences": [],
       "status": "pass"

@@ -1,3 +1,5 @@
+"use client";
+
 import { useMemo, useState, type FormEvent } from 'react';
 import { createOnboardingClient } from '../api/client/onboarding';
 import type {
@@ -201,7 +203,7 @@ export default function OnboardingStartScreen(): JSX.Element {
 
       {clientError ? <p role="alert">Client error: {clientError}</p> : null}
 
-      {result?.onboarding_status === 'ok' ? (
+      {result && 'status' in result && result.status === 'ok' ? (
         <div>
           <p>Onboarding start accepted.</p>
           <p>

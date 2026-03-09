@@ -1,3 +1,5 @@
+"use client";
+
 import { useMemo, useState } from 'react';
 
 import { createMarketingClient } from '../api/client/marketing';
@@ -6,15 +8,10 @@ import type {
   HardFailureError,
   UnhandledError
 } from '../api/contracts/marketing';
+import StatusBadge from '../components/status-badge';
+import { marketing_job_status_values } from '../types/runtime';
 
 type JobStatusResult = GetMarketingJobStatusResponse | HardFailureError | UnhandledError;
-
-type OptionalContractExtras = {
-  repair_status?: unknown;
-  next_step?: unknown;
-  latest_artifacts?: unknown;
-  latest_messages?: unknown;
-};
 
 export interface MarketingJobStatusScreenProps {
   baseUrl?: string;
@@ -23,10 +20,6 @@ export interface MarketingJobStatusScreenProps {
 
 function isErrorResult(value: JobStatusResult | null): value is HardFailureError | UnhandledError {
   return !!value && typeof value === 'object' && 'error' in value;
-}
-
-function asOptionalExtras(value: GetMarketingJobStatusResponse): OptionalContractExtras {
-  return value as GetMarketingJobStatusResponse & OptionalContractExtras;
 }
 
 export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
@@ -58,7 +51,6 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
   }
 
   const successResult = result && !isErrorResult(result) ? result : null;
-  const contractExtras = successResult ? asOptionalExtras(successResult) : null;
 
   const stageStatus =
     successResult && successResult.marketing_stage
@@ -69,9 +61,13 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
     !!successResult &&
     (successResult.marketing_job_status === 'awaiting_approval' || stageStatus === 'awaiting_approval');
 
+  const hasKnownJobStatus =
+    !!successResult && marketing_job_status_values.includes(successResult.marketing_job_status as any);
+
   return (
     <section>
       <h2>Marketing Job Status</h2>
+      <p>Load a job to view current stage progress and whether approval is pending.</p>
 
       <div>
         <label>
@@ -107,39 +103,16 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
             <dd>{successResult.marketing_stage ?? 'null'}</dd>
 
             <dt>marketing_job_status</dt>
-            <dd>{successResult.marketing_job_status}</dd>
+            <dd>
+              {successResult.marketing_job_status}{' '}
+              {hasKnownJobStatus ? (
+                <StatusBadge status={successResult.marketing_job_status as (typeof marketing_job_status_values)[number]} />
+              ) : null}
+            </dd>
 
             <dt>approval_pending</dt>
             <dd>{approvalPending ? 'true' : 'false'}</dd>
-
-            {typeof contractExtras?.repair_status === 'string' ? (
-              <>
-                <dt>repair_status</dt>
-                <dd>{contractExtras.repair_status}</dd>
-              </>
-            ) : null}
-
-            {typeof contractExtras?.next_step === 'string' ? (
-              <>
-                <dt>next_step</dt>
-                <dd>{contractExtras.next_step}</dd>
-              </>
-            ) : null}
           </dl>
-
-          {contractExtras && contractExtras.latest_artifacts !== undefined ? (
-            <>
-              <h4>latest_artifacts</h4>
-              <pre>{JSON.stringify(contractExtras.latest_artifacts, null, 2)}</pre>
-            </>
-          ) : null}
-
-          {contractExtras && contractExtras.latest_messages !== undefined ? (
-            <>
-              <h4>latest_messages</h4>
-              <pre>{JSON.stringify(contractExtras.latest_messages, null, 2)}</pre>
-            </>
-          ) : null}
 
           <h4>Raw response</h4>
           <pre>{JSON.stringify(successResult, null, 2)}</pre>
