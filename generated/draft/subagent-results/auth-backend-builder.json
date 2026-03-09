@@ -1,0 +1,39 @@
+{
+  "subagent": "auth-backend-builder",
+  "objective": "V2-1 backend auth/session scaffolding",
+  "status": "completed",
+  "inputs_used": [
+    "./specs/auth_api_contract.v1.json",
+    "./specs/auth_response_shapes.v1.json",
+    "./specs/rbac_matrix.v1.json",
+    "./specs/role_permission_contract.v1.json",
+    "./specs/tenant_boundary_contract.v1.json",
+    "./specs/cross_tenant_access_rules.v1.json",
+    "./specs/session_security_policy.v1.json",
+    "./specs/auth_session_contract.v1.json",
+    "./specs/auth_ui_contract.v1.json",
+    "./specs/tenant_admin_ui_contract.v1.json",
+    "./specs/v2_auth_validation_gate_spec.v1.json",
+    "./generated/draft/v2-wave1-merge-validation.json"
+  ],
+  "outputs_written": [
+    "./backend/auth/login.ts",
+    "./backend/auth/logout.ts",
+    "./backend/auth/session.ts",
+    "./backend/auth/me.ts",
+    "./generated/draft/subagent-results/auth-backend-builder.json",
+    "./generated/draft/subagent-logs/auth-backend-builder.md"
+  ],
+  "contract_alignment": {
+    "status_vocab_respected": true,
+    "response_fields_constrained_to_contract": true,
+    "no_new_roles_permissions_statuses": true,
+    "session_cookie_names_aligned": true,
+    "access_ttl_seconds": 900
+  },
+  "notes": [
+    "Implemented scaffold handlers and helpers for login/start-session, session lookup, refresh, revoke/logout, and me lookup.",
+    "Auth success/error payloads were kept to contract-defined auth/session shapes.",
+    "Used in-memory shared store on globalThis for scaffold-only behavior without redesigning existing artifacts."
+  ]
+}

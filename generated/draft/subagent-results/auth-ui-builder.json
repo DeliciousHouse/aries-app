@@ -1,0 +1,69 @@
+{
+  "subagent": "auth-ui-builder",
+  "status": "completed",
+  "objective": "Implement auth UI scaffolding using frozen Wave 1 contracts only.",
+  "inputs_used": [
+    "./specs/auth_api_contract.v1.json",
+    "./specs/auth_response_shapes.v1.json",
+    "./specs/rbac_matrix.v1.json",
+    "./specs/role_permission_contract.v1.json",
+    "./specs/tenant_boundary_contract.v1.json",
+    "./specs/cross_tenant_access_rules.v1.json",
+    "./specs/session_security_policy.v1.json",
+    "./specs/auth_session_contract.v1.json",
+    "./specs/auth_ui_contract.v1.json",
+    "./specs/tenant_admin_ui_contract.v1.json",
+    "./specs/v2_auth_validation_gate_spec.v1.json",
+    "./generated/draft/v2-wave1-merge-validation.json"
+  ],
+  "outputs_written": [
+    "./frontend/auth/login.tsx",
+    "./frontend/auth/session-status.tsx",
+    "./frontend/auth/access-denied.tsx",
+    "./generated/draft/subagent-results/auth-ui-builder.json",
+    "./generated/draft/subagent-logs/auth-ui-builder.md"
+  ],
+  "contract_alignment": {
+    "auth_ui_flow_states": [
+      "idle",
+      "submitting",
+      "challenge_required",
+      "authenticated",
+      "error"
+    ],
+    "auth_ui_error_codes_used": [
+      "invalid_credentials",
+      "mfa_required",
+      "mfa_invalid",
+      "session_expired",
+      "rate_limited",
+      "auth_service_unavailable",
+      "unknown"
+    ],
+    "session_status_values_used": [
+      "active",
+      "expired",
+      "revoked",
+      "pending"
+    ],
+    "role_catalog_used": [
+      "platform_owner",
+      "platform_operator",
+      "tenant_admin",
+      "tenant_analyst",
+      "tenant_viewer",
+      "automation_service",
+      "security_auditor"
+    ],
+    "deny_reason_sets_referenced": [
+      "role_permission_contract.deny_reason",
+      "tenant_boundary_contract.deny_reason_codes",
+      "cross_tenant_access_rules.deny_reason_codes"
+    ]
+  },
+  "notes": [
+    "No new roles, permission ids, status values, or response fields were introduced.",
+    "UI scaffolding is contract-driven and intentionally minimal, without redesigning validated bootstrap artifacts.",
+    "All outputs were written within the target repository."
+  ]
+}

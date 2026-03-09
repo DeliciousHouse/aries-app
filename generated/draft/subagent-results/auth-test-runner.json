@@ -1,0 +1,40 @@
+{
+  "subagent": "auth-test-runner",
+  "status": "success",
+  "hard_failure": false,
+  "objective": "V2-1 Auth Foundation implementation validation harness",
+  "inputs": [
+    "./specs/auth_api_contract.v1.json",
+    "./specs/auth_response_shapes.v1.json",
+    "./specs/rbac_matrix.v1.json",
+    "./specs/role_permission_contract.v1.json",
+    "./specs/tenant_boundary_contract.v1.json",
+    "./specs/cross_tenant_access_rules.v1.json",
+    "./specs/session_security_policy.v1.json",
+    "./specs/auth_session_contract.v1.json",
+    "./specs/auth_ui_contract.v1.json",
+    "./specs/tenant_admin_ui_contract.v1.json",
+    "./specs/v2_auth_validation_gate_spec.v1.json",
+    "./generated/draft/v2-wave1-merge-validation.json"
+  ],
+  "outputs": {
+    "harness": "./tests/run-v2-auth-suite.ts",
+    "results": "./generated/draft/v2-auth-implementation-results.json",
+    "phase_log": "./generated/draft/v2-auth-implementation-phase-log.md",
+    "subagent_log": "./generated/draft/subagent-logs/auth-test-runner.md"
+  },
+  "execution": {
+    "command": "npx -p tsx tsx tests/run-v2-auth-suite.ts",
+    "exit_code": 0
+  },
+  "validation_summary": {
+    "status": "fail",
+    "passed_gates": 3,
+    "failed_gates": 2,
+    "failed_gate_ids": [
+      "V2-1-G02",
+      "V2-1-G04"
+    ]
+  },
+  "updated_at": "2026-03-09T13:43:35-05:00"
+}
