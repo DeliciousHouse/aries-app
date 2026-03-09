@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "specs/meta_integration_contract.v1.json",
+  "artifact_name": "meta_integration_contract",
+  "artifact_type": "integration_contract_spec",
+  "schema_version": "1.0.0",
+  "contract_scope": "meta_only_facebook_instagram",
+  "compatibility": {
+    "v2_1_artifacts_redesigned": false,
+    "bootstrap_artifacts_redesigned": false,
+    "notes": [
+      "Meta lane is additive and scoped to Facebook + Instagram only.",
+      "One Meta app is used for both Facebook and Instagram.",
+      "Tokens are server-side only and never returned to frontend responses."
+    ]
+  },
+  "providers": ["facebook", "instagram"],
+  "callback_urls": {
+    "local": "http://localhost:3000/api/integrations/meta/callback",
+    "production": "https://aries.sugarandleather.com/api/integrations/meta/callback"
+  },
+  "routes": [
+    {
+      "operationId": "postMetaConnect",
+      "method": "POST",
+      "path": "/api/integrations/meta/connect"
+    },
+    {
+      "operationId": "getMetaCallback",
+      "method": "GET",
+      "path": "/api/integrations/meta/callback"
+    },
+    {
+      "operationId": "getMetaStatus",
+      "method": "GET",
+      "path": "/api/integrations/meta/status"
+    },
+    {
+      "operationId": "postMetaDisconnect",
+      "method": "POST",
+      "path": "/api/integrations/meta/disconnect"
+    }
+  ],
+  "required_request_fields": {
+    "connect": ["tenant_id", "provider", "redirect_uri"],
+    "callback": ["tenant_id", "provider", "state"],
+    "status": ["tenant_id"],
+    "disconnect": ["tenant_id", "provider"]
+  },
+  "response_security_constraints": {
+    "forbidden_fields": [
+      "access_token",
+      "refresh_token",
+      "id_token",
+      "client_secret",
+      "raw_secret",
+      "provider_secret"
+    ]
+  }
+}
