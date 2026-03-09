@@ -1,0 +1,87 @@
+{
+  "skill": "veo-video-runtime",
+  "version": "1.0.0",
+  "runtime": {
+    "provider": "vertex-ai",
+    "apiHostTemplate": "https://{location}-aiplatform.googleapis.com",
+    "resourceTemplate": "projects/{project}/locations/{location}/publishers/google/models/{model}:generateVideos",
+    "operationsTemplate": "https://{location}-aiplatform.googleapis.com/v1/{operationName}",
+    "auth": {
+      "type": "oauth2-bearer",
+      "tokenSource": [
+        "gcloud auth print-access-token",
+        "application-default-credentials"
+      ]
+    }
+  },
+  "mode": {
+    "primary": "text-to-video",
+    "allowImageToVideo": true,
+    "requireTextPrompt": true
+  },
+  "polling": {
+    "longRunningOperation": true,
+    "initialIntervalSeconds": 5,
+    "maxIntervalSeconds": 30,
+    "maxTotalWaitSeconds": 1800,
+    "terminal": {
+      "success": "done=true and error absent",
+      "failure": "done=true and error present"
+    },
+    "capture": [
+      "operationName",
+      "attempt",
+      "httpStatus",
+      "done",
+      "error"
+    ]
+  },
+  "outputNormalization": {
+    "requiredTopLevel": [
+      "provider",
+      "model",
+      "operationName",
+      "prompt",
+      "artifacts",
+      "createdAt",
+      "rawOperation"
+    ],
+    "artifactFields": [
+      "id",
+      "mimeType",
+      "uri",
+      "durationSeconds",
+      "width",
+      "height",
+      "sha256",
+      "sourceIndex",
+      "providerMetadata"
+    ],
+    "defaults": {
+      "mimeType": "video/mp4",
+      "durationSeconds": null,
+      "width": null,
+      "height": null,
+      "sha256": null,
+      "providerMetadata": {}
+    }
+  },
+  "repairPolicy": {
+    "mode": "section-only",
+    "maxRepairAttempts": 3,
+    "allow": [
+      "auth/header section",
+      "endpoint/model section",
+      "request body parameter section",
+      "polling interval/timeout section",
+      "normalization mapping section"
+    ],
+    "deny": [
+      "full runtime redesign",
+      "rewriting validated onboarding artifacts",
+      "rewriting validated marketing artifacts",
+      "provider switch away from vertex-ai",
+      "replacing text-to-video as primary strategy"
+    ]
+  }
+}

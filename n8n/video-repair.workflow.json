@@ -1,0 +1,123 @@
+{
+  "name": "video-repair",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manualTrigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [180, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $json;\nconst maxAttempts = Number(j.repair?.maxAttempts ?? 2);\nconst currentAttempt = Number(j.repairAttempt ?? 0);\n\nif (currentAttempt >= maxAttempts) {\n  return [{ json: { ...j, repairStatus: 'limit_reached', route: 'stop' } }];\n}\n\nlet prompt = String(j.prompt || j.sourcePrompt || '');\nlet durationSec = Number(j.durationSec || 6);\n\nif (j.repair?.allowPromptTrim && prompt.length > 600) {\n  prompt = prompt.slice(0, 600);\n}\nif (j.repair?.allowDurationClamp) {\n  const minD = Number(j.repair?.minDurationSec ?? 4);\n  const maxD = Number(j.repair?.maxDurationSec ?? 8);\n  durationSec = Math.max(minD, Math.min(maxD, durationSec));\n}\n\nreturn [{\n  json: {\n    ...j,\n    prompt,\n    durationSec,\n    repairAttempt: currentAttempt + 1,\n    repairStatus: 'retry_ready',\n    route: 'regenerate'\n  }\n}];"
+      },
+      "id": "boundedRepairPolicy",
+      "name": "Apply Bounded Repair Policy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 320]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{$json.route}}",
+              "rightValue": "regenerate",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "ifRegenerate",
+      "name": "If Regenerate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [760, 320]
+    },
+    {
+      "parameters": {
+        "workflowId": "video-generate",
+        "options": {}
+      },
+      "id": "executeGenerate",
+      "name": "Execute Generate",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [1030, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { ...$json, finalStatus: 'failed_after_bounded_repair' } }];"
+      },
+      "id": "markFailed",
+      "name": "Mark Failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1030, 420]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Apply Bounded Repair Policy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Bounded Repair Policy": {
+      "main": [
+        [
+          {
+            "node": "If Regenerate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Regenerate": {
+      "main": [
+        [
+          {
+            "node": "Execute Generate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "purpose": "Bounded repair with hard retry ceiling and safe prompt/duration adjustments"
+  }
+}

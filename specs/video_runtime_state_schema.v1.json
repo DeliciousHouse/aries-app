@@ -1,0 +1,333 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "video_runtime_state_schema.v1.json",
+  "title": "Video Runtime State Schema v1 (Parallel Veo Lane)",
+  "description": "Canonical persisted runtime-state record for Veo parallel lane jobs.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "record_type",
+    "job_id",
+    "tenant_id",
+    "lane",
+    "lane_status",
+    "current_phase",
+    "attempt",
+    "created_at",
+    "updated_at",
+    "history"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "v1"
+    },
+    "record_type": {
+      "type": "string",
+      "const": "video_runtime_state"
+    },
+    "job_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "tenant_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{1,63}$"
+    },
+    "lane": {
+      "type": "string",
+      "const": "veo_parallel"
+    },
+    "lane_status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "terminal"
+      ]
+    },
+    "current_phase": {
+      "$ref": "#/$defs/runtimePhase"
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10
+    },
+    "max_attempts": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10,
+      "default": 3
+    },
+    "provider_job_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "created_at": {
+      "$ref": "#/$defs/isoDateTime"
+    },
+    "updated_at": {
+      "$ref": "#/$defs/isoDateTime"
+    },
+    "last_heartbeat_at": {
+      "$ref": "#/$defs/isoDateTime"
+    },
+    "progress_pct": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "history": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "items": {
+        "$ref": "#/$defs/stateTransition"
+      }
+    },
+    "result": {
+      "$ref": "#/$defs/resultEnvelope"
+    },
+    "error": {
+      "$ref": "#/$defs/errorEnvelope"
+    },
+    "locks": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "acquired_at"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "acquired_at": {
+            "$ref": "#/$defs/isoDateTime"
+          },
+          "expires_at": {
+            "$ref": "#/$defs/isoDateTime"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+    },
+    "isoDateTime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "runtimePhase": {
+      "type": "string",
+      "enum": [
+        "submitted",
+        "queued",
+        "provisioning",
+        "rendering",
+        "postprocessing",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "stateTransition": {
+      "type": "object",
+      "required": [
+        "from_phase",
+        "to_phase",
+        "changed_at",
+        "actor"
+      ],
+      "properties": {
+        "from_phase": {
+          "$ref": "#/$defs/runtimePhase"
+        },
+        "to_phase": {
+          "$ref": "#/$defs/runtimePhase"
+        },
+        "changed_at": {
+          "$ref": "#/$defs/isoDateTime"
+        },
+        "actor": {
+          "type": "string",
+          "enum": [
+            "backend",
+            "worker",
+            "watchdog",
+            "operator"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 1024
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "not": {
+            "properties": {
+              "from_phase": {
+                "const": "succeeded"
+              },
+              "to_phase": {
+                "not": {
+                  "const": "succeeded"
+                }
+              }
+            },
+            "required": [
+              "from_phase",
+              "to_phase"
+            ]
+          }
+        },
+        {
+          "not": {
+            "properties": {
+              "from_phase": {
+                "const": "failed"
+              },
+              "to_phase": {
+                "not": {
+                  "const": "failed"
+                }
+              }
+            },
+            "required": [
+              "from_phase",
+              "to_phase"
+            ]
+          }
+        }
+      ]
+    },
+    "resultEnvelope": {
+      "type": "object",
+      "required": [
+        "uri",
+        "mime_type",
+        "created_at"
+      ],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "mime_type": {
+          "type": "string",
+          "const": "video/mp4"
+        },
+        "created_at": {
+          "$ref": "#/$defs/isoDateTime"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-fA-F0-9]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "errorEnvelope": {
+      "type": "object",
+      "required": [
+        "code",
+        "message",
+        "captured_at"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{2,63}$"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "captured_at": {
+          "$ref": "#/$defs/isoDateTime"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "current_phase": {
+            "enum": [
+              "succeeded"
+            ]
+          }
+        },
+        "required": [
+          "current_phase"
+        ]
+      },
+      "then": {
+        "properties": {
+          "lane_status": {
+            "const": "terminal"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "not": {
+          "required": [
+            "error"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "current_phase": {
+            "enum": [
+              "failed",
+              "cancelled"
+            ]
+          }
+        },
+        "required": [
+          "current_phase"
+        ]
+      },
+      "then": {
+        "properties": {
+          "lane_status": {
+            "const": "terminal"
+          }
+        },
+        "required": [
+          "error"
+        ]
+      }
+    }
+  ]
+}

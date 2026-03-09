@@ -1,0 +1,361 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "video_job_contract_spec.v1.json",
+  "title": "Video Job Contract Spec v1 (Parallel Veo Lane)",
+  "description": "Machine-checkable contract for creating and exchanging parallel Veo video generation jobs.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "contract",
+    "request",
+    "accept_response",
+    "terminal_event"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "v1"
+    },
+    "contract": {
+      "type": "string",
+      "const": "video_job_contract"
+    },
+    "request": {
+      "$ref": "#/$defs/jobCreateRequest"
+    },
+    "accept_response": {
+      "$ref": "#/$defs/jobAcceptedResponse"
+    },
+    "terminal_event": {
+      "$ref": "#/$defs/terminalEvent"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+    },
+    "isoDateTime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "httpUrl": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "assetRef": {
+      "type": "object",
+      "required": [
+        "kind",
+        "uri"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "image",
+            "video",
+            "mask",
+            "audio"
+          ]
+        },
+        "uri": {
+          "$ref": "#/$defs/httpUrl"
+        },
+        "mime_type": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128
+        }
+      },
+      "additionalProperties": false
+    },
+    "videoParams": {
+      "type": "object",
+      "required": [
+        "duration_seconds",
+        "fps",
+        "aspect_ratio",
+        "resolution"
+      ],
+      "properties": {
+        "duration_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "fps": {
+          "type": "integer",
+          "enum": [
+            24,
+            25,
+            30,
+            60
+          ]
+        },
+        "aspect_ratio": {
+          "type": "string",
+          "enum": [
+            "16:9",
+            "9:16",
+            "1:1",
+            "4:3"
+          ]
+        },
+        "resolution": {
+          "type": "string",
+          "enum": [
+            "720p",
+            "1080p",
+            "1440p"
+          ]
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        }
+      },
+      "additionalProperties": false
+    },
+    "jobCreateRequest": {
+      "type": "object",
+      "required": [
+        "job_id",
+        "correlation_id",
+        "tenant_id",
+        "lane",
+        "created_at",
+        "priority",
+        "idempotency_key",
+        "prompt",
+        "video",
+        "callback"
+      ],
+      "properties": {
+        "job_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "correlation_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "tenant_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{1,63}$"
+        },
+        "lane": {
+          "type": "string",
+          "const": "veo_parallel"
+        },
+        "created_at": {
+          "$ref": "#/$defs/isoDateTime"
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "low",
+            "normal",
+            "high",
+            "urgent"
+          ]
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 5000
+        },
+        "negative_prompt": {
+          "type": "string",
+          "maxLength": 5000
+        },
+        "assets": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "$ref": "#/$defs/assetRef"
+          }
+        },
+        "video": {
+          "$ref": "#/$defs/videoParams"
+        },
+        "callback": {
+          "type": "object",
+          "required": [
+            "url",
+            "auth_mode"
+          ],
+          "properties": {
+            "url": {
+              "$ref": "#/$defs/httpUrl"
+            },
+            "auth_mode": {
+              "type": "string",
+              "enum": [
+                "hmac_sha256",
+                "bearer",
+                "none"
+              ]
+            },
+            "timeout_ms": {
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 120000,
+              "default": 15000
+            }
+          },
+          "additionalProperties": false
+        },
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 3
+        }
+      },
+      "additionalProperties": false
+    },
+    "jobAcceptedResponse": {
+      "type": "object",
+      "required": [
+        "accepted",
+        "job_id",
+        "queue_name",
+        "runtime_state_ref",
+        "accepted_at"
+      ],
+      "properties": {
+        "accepted": {
+          "type": "boolean",
+          "const": true
+        },
+        "job_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "queue_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "runtime_state_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "accepted_at": {
+          "$ref": "#/$defs/isoDateTime"
+        }
+      },
+      "additionalProperties": false
+    },
+    "terminalEvent": {
+      "type": "object",
+      "required": [
+        "event_type",
+        "job_id",
+        "emitted_at",
+        "runtime_phase"
+      ],
+      "properties": {
+        "event_type": {
+          "type": "string",
+          "enum": [
+            "video_job.completed",
+            "video_job.failed",
+            "video_job.cancelled"
+          ]
+        },
+        "job_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "emitted_at": {
+          "$ref": "#/$defs/isoDateTime"
+        },
+        "runtime_phase": {
+          "type": "string",
+          "enum": [
+            "succeeded",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "output": {
+          "type": "object",
+          "required": [
+            "uri",
+            "mime_type"
+          ],
+          "properties": {
+            "uri": {
+              "$ref": "#/$defs/httpUrl"
+            },
+            "mime_type": {
+              "type": "string",
+              "const": "video/mp4"
+            },
+            "duration_seconds": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          "additionalProperties": false
+        },
+        "error": {
+          "type": "object",
+          "required": [
+            "code",
+            "message"
+          ],
+          "properties": {
+            "code": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]{2,63}$"
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "retryable": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "event_type": {
+                "const": "video_job.completed"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "output"
+            ],
+            "not": {
+              "required": [
+                "error"
+              ]
+            }
+          },
+          "else": {
+            "required": [
+              "error"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

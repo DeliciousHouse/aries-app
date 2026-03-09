@@ -1,0 +1,126 @@
+{
+  "name": "video-poll",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manualTrigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [180, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$json.veoSkillBaseUrl || 'https://veo-skill.local/run/poll'}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { operationId: $json.operationId, jobId: $json.jobId } }}"
+      },
+      "id": "veoPoll",
+      "name": "Veo Skill: Poll Operation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{$json.status}}",
+              "rightValue": "succeeded",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "ifDone",
+      "name": "If Succeeded",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { ...$json, stage: 'generated', approvalStatus: 'pending', approvalRequired: true } }];"
+      },
+      "id": "markGenerated",
+      "name": "Mark Generated",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [940, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { ...$json, stage: 'still_running', retryAfterSec: Number($json.retryAfterSec ?? 15) } }];"
+      },
+      "id": "markPending",
+      "name": "Mark Pending",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [940, 380]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Veo Skill: Poll Operation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Veo Skill: Poll Operation": {
+      "main": [
+        [
+          {
+            "node": "If Succeeded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Succeeded": {
+      "main": [
+        [
+          {
+            "node": "Mark Generated",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Pending",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "purpose": "Poll Veo operation state and route succeeded vs pending"
+  }
+}
