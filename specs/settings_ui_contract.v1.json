@@ -1,0 +1,355 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aries-platform-bootstrap/specs/settings_ui_contract.v1.json",
+  "artifact_name": "settings_ui_contract",
+  "artifact_type": "ui_contract_spec",
+  "schema_version": "1.0.0",
+  "contract_version": "1.0.0",
+  "scope": "Machine-checkable contract for the Settings page surface without implementation details.",
+  "compatibility": {
+    "mode": "extend_without_redesign",
+    "validated_artifacts": [
+      "./specs/tenant_admin_ui_contract.v1.json",
+      "./specs/role_permission_contract.v1.json",
+      "./specs/session_security_policy.v1.json",
+      "./generated/validated/v2-1-auth-rbac-summary.json",
+      "./generated/validated/backend-contract-freeze-summary.json"
+    ],
+    "must_not_change": [
+      "operation_id:tenantAdminUpdateSettings",
+      "path:/api/tenant-admin/settings",
+      "tenant_role enum set in tenant_admin_ui_contract.v1",
+      "session security invariants SSI-001..SSI-005"
+    ]
+  },
+  "shared_enums": {
+    "settings_page_state": [
+      "idle",
+      "loading",
+      "ready",
+      "saving",
+      "error"
+    ],
+    "settings_section": [
+      "tenant_profile",
+      "session_security"
+    ],
+    "settings_error_code": [
+      "forbidden",
+      "validation_failed",
+      "conflict",
+      "service_unavailable",
+      "unknown"
+    ],
+    "tenant_role": [
+      "tenant_admin",
+      "tenant_analyst",
+      "tenant_viewer"
+    ]
+  },
+  "screens": [
+    {
+      "screen_id": "settings.page",
+      "route": "/tenant-admin/settings",
+      "purpose": "View and edit tenant profile settings, and view session-security policy facts.",
+      "load_contract": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "page_state",
+          "active_section",
+          "tenant",
+          "security_summary",
+          "capabilities"
+        ],
+        "properties": {
+          "status": {
+            "const": "ok"
+          },
+          "page_state": {
+            "const": "ready"
+          },
+          "active_section": {
+            "enum": [
+              "tenant_profile",
+              "session_security"
+            ]
+          },
+          "tenant": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "tenant_id",
+              "display_name",
+              "support_email",
+              "time_zone"
+            ],
+            "properties": {
+              "tenant_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "display_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "support_email": {
+                "type": "string",
+                "format": "email"
+              },
+              "time_zone": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "security_summary": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "idle_timeout_seconds",
+              "absolute_timeout_seconds",
+              "access_token_max_ttl_seconds",
+              "csrf_required",
+              "cookie_secure",
+              "cookie_http_only",
+              "refresh_rotation_single_use"
+            ],
+            "properties": {
+              "idle_timeout_seconds": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "absolute_timeout_seconds": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "access_token_max_ttl_seconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 900
+              },
+              "csrf_required": {
+                "type": "boolean",
+                "const": true
+              },
+              "cookie_secure": {
+                "type": "boolean",
+                "const": true
+              },
+              "cookie_http_only": {
+                "type": "boolean",
+                "const": true
+              },
+              "refresh_rotation_single_use": {
+                "type": "boolean",
+                "const": true
+              }
+            }
+          },
+          "capabilities": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "can_edit_tenant_profile",
+              "can_view_security_policy",
+              "actor_role"
+            ],
+            "properties": {
+              "can_edit_tenant_profile": {
+                "type": "boolean"
+              },
+              "can_view_security_policy": {
+                "type": "boolean"
+              },
+              "actor_role": {
+                "enum": [
+                  "tenant_admin",
+                  "tenant_analyst",
+                  "tenant_viewer"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "mutations": [
+        {
+          "action_id": "settings.page.update_tenant_profile",
+          "request_contract": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "display_name",
+              "support_email",
+              "time_zone"
+            ],
+            "properties": {
+              "display_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "support_email": {
+                "type": "string",
+                "format": "email"
+              },
+              "time_zone": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "success_response_contract": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status",
+              "tenant"
+            ],
+            "properties": {
+              "status": {
+                "const": "ok"
+              },
+              "tenant": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "tenant_id",
+                  "display_name",
+                  "support_email",
+                  "time_zone"
+                ],
+                "properties": {
+                  "tenant_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "display_name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "support_email": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "time_zone": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          },
+          "api_binding": {
+            "operation_id": "tenantAdminUpdateSettings",
+            "method": "PATCH",
+            "path": "/api/tenant-admin/settings"
+          }
+        }
+      ]
+    }
+  ],
+  "error_contract": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "status",
+      "page_state",
+      "error"
+    ],
+    "properties": {
+      "status": {
+        "const": "error"
+      },
+      "page_state": {
+        "const": "error"
+      },
+      "error": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "enum": [
+              "forbidden",
+              "validation_failed",
+              "conflict",
+              "service_unavailable",
+              "unknown"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1
+          },
+          "field_errors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "field",
+                "reason"
+              ],
+              "properties": {
+                "field": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "authorization_contract": {
+    "read_access": {
+      "allowed_roles": [
+        "tenant_admin",
+        "tenant_analyst",
+        "tenant_viewer"
+      ]
+    },
+    "write_access": {
+      "operation_id": "tenantAdminUpdateSettings",
+      "required_permission": "rbac.policy.manage",
+      "allowed_roles": [
+        "tenant_admin"
+      ]
+    }
+  },
+  "policy_assertions": [
+    {
+      "id": "settings-ui-001",
+      "rule": "Settings update operation binding MUST stay aligned with role_permission_contract.",
+      "testable_expression": "screens[0].mutations[0].api_binding.operation_id == 'tenantAdminUpdateSettings' && screens[0].mutations[0].api_binding.path == '/api/tenant-admin/settings'"
+    },
+    {
+      "id": "settings-ui-002",
+      "rule": "Security summary must enforce secure cookie attributes in UI-visible contract.",
+      "testable_expression": "screens[0].load_contract.properties.security_summary.properties.cookie_secure.const == true && screens[0].load_contract.properties.security_summary.properties.cookie_http_only.const == true"
+    },
+    {
+      "id": "settings-ui-003",
+      "rule": "Access token upper TTL bound exposed in settings UI must not exceed session policy.",
+      "testable_expression": "screens[0].load_contract.properties.security_summary.properties.access_token_max_ttl_seconds.maximum <= 900"
+    }
+  ],
+  "non_goals": [
+    "No component implementation, rendering logic, or styling definitions.",
+    "No backend API redesign or additional endpoint introduction.",
+    "No changes to validated V2-1/bootstrap authorization and security artifacts."
+  ]
+}

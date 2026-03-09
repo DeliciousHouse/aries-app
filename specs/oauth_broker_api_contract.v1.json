@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "specs/oauth_broker_api_contract.v1.json",
+  "artifact_name": "oauth_broker_api_contract",
+  "artifact_type": "backend_contract_spec",
+  "schema_version": "1.0.0",
+  "contract_scope": "oauth_broker_foundation",
+  "compatibility": {
+    "bootstrap_contracts_compatibility": "non_breaking_addition",
+    "validated_workflow_impact": "none",
+    "notes": [
+      "OAuth broker routes are additive under /api/auth/oauth/* and do not change validated V2-1/bootstrap contracts.",
+      "No existing onboarding, marketing, video, session security, or RBAC artifacts are redesigned.",
+      "This artifact defines only machine-checkable API boundaries for connect/disconnect/reconnect/callback flows."
+    ]
+  },
+  "response_shape_file": "./specs/oauth_response_shapes.v1.json",
+  "status_vocabularies": {
+    "broker_status_values": [
+      "ok",
+      "error"
+    ],
+    "oauth_connection_status_values": [
+      "connected",
+      "disconnected",
+      "pending",
+      "reauthorization_required"
+    ]
+  },
+  "routes": [
+    {
+      "operationId": "postOauthConnect",
+      "method": "POST",
+      "path": "/api/auth/oauth/:provider/connect",
+      "pathParamsSchemaRef": "./oauth_response_shapes.v1.json#/$defs/ProviderPathParams",
+      "requestSchemaRef": "./oauth_response_shapes.v1.json#/$defs/OAuthConnectRequest",
+      "responses": {
+        "200": {
+          "$ref": "./oauth_response_shapes.v1.json#/$defs/OAuthConnectSuccess"
+        },
+        "400": {
+          "$ref": "./oauth_response_shapes.v1.json#/$defs/OAuthBrokerError"
+        },
+        "401": {
+          "$ref": "./oauth_response_shapes.v1.json#/$defs/OAuthBrokerError"
+        },
+        "409": {
+          "$ref": "./oauth_response_shapes.v1.json#/$defs/OAuthBrokerError"
+        },
+        "500": {
+          "$ref": "./oauth_response_shapes.v1.json#/$defs/OAuthBrokerError"
+        }
+      }
+    },
+    {
+      "operationId": "postOauthDisconnect",
+      "method": "POST",
+      "path": "/api/auth/oauth/:provider/disconnect",
+      "pathParamsSchemaRef": "./oauth_response_shapes.v1.json#/$defs/ProviderPathParams",
+      "requestSchemaRef": "./oauth_response_shapes.v1.json#/$defs/OAuthDisconnectRequest",
+      "responses": {
+        "200": {
+          "$ref": "./oauth_response_shapes.v1.json#/$defs/OAuthDisconnectSuccess"
+        },
+        "400": {
+          "$ref": "./oauth_response_shapes.v1.json#/$defs/OAuthBrokerError"
+        },
+        "401": {
+          "$ref": "./oauth_response_shapes.v1.json#/$defs/OAuthBrokerError"
+        },
+        "404": {
+          "$ref": "./oauth_response_shapes.v1.json#/$defs/OAuthBrokerError"
+        },
+        "500": {
+          "$ref": "./oauth_response_shapes.v1.json#/$defs/OAuthBrokerError"
+        }
+      }
+    },
+    {
+      "operationId": "postOauthReconnect",
+      "method": "POST",
+      "path": "/api/auth/oauth/:provider/reconnect",
+      "pathParamsSchemaRef": "./oauth_response_shapes.v1.json#/$defs/ProviderPathParams",
+      "requestSchemaRef": "./oauth_response_shapes.v1.json#/$defs/OAuthReconnectRequest",
+      "responses": {
+        "200": {
+          "$ref": "./oauth_response_shapes.v1.json#/$defs/OAuthReconnectSuccess"
+        },
+        "400": {
+          "$ref": "./oauth_response_shapes.v1.json#/$defs/OAuthBrokerError"
+        },
+        "401": {
+          "$ref": "./oauth_response_shapes.v1.json#/$defs/OAuthBrokerError"
+        },
+        "404": {
+          "$ref": "./oauth_response_shapes.v1.json#/$defs/OAuthBrokerError"
+        },
+        "500": {
+          "$ref": "./oauth_response_shapes.v1.json#/$defs/OAuthBrokerError"
+        }
+      }
+    },
+    {
+      "operationId": "getOauthCallback",
+      "method": "GET",
+      "path": "/api/auth/oauth/:provider/callback",
+      "pathParamsSchemaRef": "./oauth_response_shapes.v1.json#/$defs/ProviderPathParams",
+      "queryParamsSchemaRef": "./oauth_response_shapes.v1.json#/$defs/OAuthCallbackQueryParams",
+      "responses": {
+        "200": {
+          "$ref": "./oauth_response_shapes.v1.json#/$defs/OAuthCallbackSuccess"
+        },
+        "400": {
+          "$ref": "./oauth_response_shapes.v1.json#/$defs/OAuthBrokerError"
+        },
+        "401": {
+          "$ref": "./oauth_response_shapes.v1.json#/$defs/OAuthBrokerError"
+        },
+        "409": {
+          "$ref": "./oauth_response_shapes.v1.json#/$defs/OAuthBrokerError"
+        },
+        "500": {
+          "$ref": "./oauth_response_shapes.v1.json#/$defs/OAuthBrokerError"
+        }
+      }
+    }
+  ]
+}

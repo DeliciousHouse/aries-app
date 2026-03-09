@@ -1,0 +1,263 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "integrations_ui_contract.v1",
+  "contract_name": "integrations_ui_contract",
+  "schema_version": "1.0.0",
+  "scope": "Machine-checkable UI contract for the integrations page that lists and manages supported social platform integrations.",
+  "non_goals": [
+    "No card implementation code",
+    "No backend workflow definitions",
+    "No platform catalog expansion beyond approved seven platforms"
+  ],
+  "dependencies": {
+    "platform_card_contract": "./specs/platform_integration_card_contract.v1.json"
+  },
+  "shared_enums": {
+    "integrations_page_state": [
+      "idle",
+      "loading",
+      "ready",
+      "refreshing",
+      "error"
+    ],
+    "platform_key": [
+      "facebook",
+      "instagram",
+      "linkedin",
+      "x",
+      "youtube",
+      "reddit",
+      "tiktok"
+    ],
+    "platform_filter": [
+      "all",
+      "connected",
+      "not_connected",
+      "attention_required"
+    ],
+    "integrations_sort": [
+      "display_name_asc",
+      "display_name_desc",
+      "connection_state",
+      "health"
+    ]
+  },
+  "screens": [
+    {
+      "screen_id": "integrations.index",
+      "route": "/integrations",
+      "purpose": "Render all supported platform integration cards with deterministic filtering/sorting controls and card actions.",
+      "load_response_contract": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "page_state",
+          "supported_platforms",
+          "cards",
+          "summary"
+        ],
+        "properties": {
+          "status": {
+            "const": "ok"
+          },
+          "page_state": {
+            "enum": [
+              "ready",
+              "refreshing"
+            ]
+          },
+          "supported_platforms": {
+            "type": "array",
+            "minItems": 7,
+            "maxItems": 7,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "facebook",
+                "instagram",
+                "linkedin",
+                "x",
+                "youtube",
+                "reddit",
+                "tiktok"
+              ]
+            },
+            "allOf": [
+              {
+                "contains": {
+                  "const": "facebook"
+                }
+              },
+              {
+                "contains": {
+                  "const": "instagram"
+                }
+              },
+              {
+                "contains": {
+                  "const": "linkedin"
+                }
+              },
+              {
+                "contains": {
+                  "const": "x"
+                }
+              },
+              {
+                "contains": {
+                  "const": "youtube"
+                }
+              },
+              {
+                "contains": {
+                  "const": "reddit"
+                }
+              },
+              {
+                "contains": {
+                  "const": "tiktok"
+                }
+              }
+            ]
+          },
+          "cards": {
+            "type": "array",
+            "minItems": 7,
+            "maxItems": 7,
+            "items": {
+              "$ref": "./platform_integration_card_contract.v1.json#/card_contract"
+            }
+          },
+          "summary": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "total",
+              "connected",
+              "not_connected",
+              "attention_required"
+            ],
+            "properties": {
+              "total": {
+                "const": 7
+              },
+              "connected": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 7
+              },
+              "not_connected": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 7
+              },
+              "attention_required": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 7
+              }
+            }
+          }
+        }
+      },
+      "query_contract": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "filter",
+          "sort"
+        ],
+        "properties": {
+          "filter": {
+            "enum": [
+              "all",
+              "connected",
+              "not_connected",
+              "attention_required"
+            ],
+            "default": "all"
+          },
+          "sort": {
+            "enum": [
+              "display_name_asc",
+              "display_name_desc",
+              "connection_state",
+              "health"
+            ],
+            "default": "display_name_asc"
+          },
+          "search": {
+            "type": "string",
+            "maxLength": 80
+          }
+        }
+      },
+      "api_binding": {
+        "operation_id": "getIntegrationsPage",
+        "method": "GET",
+        "path": "/api/integrations"
+      }
+    }
+  ],
+  "navigation_contract": {
+    "initial_route": "/integrations",
+    "allowed_transitions": [
+      {
+        "from": "integrations.index",
+        "on": "open_platform_connect",
+        "to": "integrations.index"
+      },
+      {
+        "from": "integrations.index",
+        "on": "disconnect_platform",
+        "to": "integrations.index"
+      },
+      {
+        "from": "integrations.index",
+        "on": "refresh_cards",
+        "to": "integrations.index"
+      }
+    ]
+  },
+  "error_contract": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "status",
+      "page_state",
+      "error"
+    ],
+    "properties": {
+      "status": {
+        "const": "error"
+      },
+      "page_state": {
+        "const": "error"
+      },
+      "error": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "enum": [
+              "provider_unavailable",
+              "rate_limited",
+              "validation_failed",
+              "unknown"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        }
+      }
+    }
+  }
+}

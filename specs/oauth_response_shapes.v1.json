@@ -1,0 +1,377 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "specs/oauth_response_shapes.v1.json",
+  "artifact_name": "oauth_response_shapes",
+  "artifact_type": "json_schema_bundle",
+  "schema_version": "1.0.0",
+  "title": "OAuth Broker API Request/Response Shapes v1",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "BrokerStatus": {
+      "type": "string",
+      "enum": [
+        "ok",
+        "error"
+      ]
+    },
+    "OAuthConnectionStatus": {
+      "type": "string",
+      "enum": [
+        "connected",
+        "disconnected",
+        "pending",
+        "reauthorization_required"
+      ]
+    },
+    "ErrorReason": {
+      "type": "string",
+      "anyOf": [
+        {
+          "const": "missing_required_fields"
+        },
+        {
+          "const": "invalid_provider"
+        },
+        {
+          "const": "invalid_state"
+        },
+        {
+          "const": "authorization_denied"
+        },
+        {
+          "const": "provider_callback_error"
+        },
+        {
+          "const": "connection_not_found"
+        },
+        {
+          "const": "already_connected"
+        },
+        {
+          "const": "disconnect_failed"
+        },
+        {
+          "const": "reconnect_failed"
+        },
+        {
+          "const": "validation_error"
+        },
+        {
+          "const": "internal_error"
+        }
+      ]
+    },
+    "ProviderSlug": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{1,62}$"
+    },
+    "ProviderPathParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider"
+      ],
+      "properties": {
+        "provider": {
+          "$ref": "#/$defs/ProviderSlug"
+        }
+      }
+    },
+    "OAuthConnectRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tenant_id",
+        "redirect_uri"
+      ],
+      "properties": {
+        "tenant_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "redirect_uri": {
+          "type": "string",
+          "format": "uri"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "state_hint": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "OAuthConnectSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "broker_status",
+        "provider",
+        "connection_status",
+        "authorization_url",
+        "state"
+      ],
+      "properties": {
+        "broker_status": {
+          "const": "ok"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderSlug"
+        },
+        "connection_status": {
+          "const": "pending"
+        },
+        "authorization_url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "state": {
+          "type": "string",
+          "minLength": 8
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "OAuthDisconnectRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "connection_id"
+      ],
+      "properties": {
+        "connection_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revoke_provider_token": {
+          "type": "boolean",
+          "default": true
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "OAuthDisconnectSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "broker_status",
+        "provider",
+        "connection_id",
+        "connection_status",
+        "disconnected"
+      ],
+      "properties": {
+        "broker_status": {
+          "const": "ok"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderSlug"
+        },
+        "connection_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "connection_status": {
+          "const": "disconnected"
+        },
+        "disconnected": {
+          "type": "boolean",
+          "const": true
+        },
+        "disconnected_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "OAuthReconnectRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "connection_id",
+        "redirect_uri"
+      ],
+      "properties": {
+        "connection_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "redirect_uri": {
+          "type": "string",
+          "format": "uri"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    },
+    "OAuthReconnectSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "broker_status",
+        "provider",
+        "connection_id",
+        "connection_status",
+        "authorization_url",
+        "state"
+      ],
+      "properties": {
+        "broker_status": {
+          "const": "ok"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderSlug"
+        },
+        "connection_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "connection_status": {
+          "const": "reauthorization_required"
+        },
+        "authorization_url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "state": {
+          "type": "string",
+          "minLength": 8
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "OAuthCallbackQueryParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "type": "string",
+          "minLength": 8
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1
+        },
+        "error_description": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "allOf": [
+        {
+          "anyOf": [
+            {
+              "required": [
+                "code"
+              ]
+            },
+            {
+              "required": [
+                "error"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "OAuthCallbackSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "broker_status",
+        "provider",
+        "connection_id",
+        "connection_status"
+      ],
+      "properties": {
+        "broker_status": {
+          "const": "ok"
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderSlug"
+        },
+        "connection_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "connection_status": {
+          "const": "connected"
+        },
+        "connected_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "granted_scopes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "OAuthBrokerError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "broker_status",
+        "reason"
+      ],
+      "properties": {
+        "broker_status": {
+          "const": "error"
+        },
+        "reason": {
+          "$ref": "#/$defs/ErrorReason"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provider": {
+          "$ref": "#/$defs/ProviderSlug"
+        },
+        "connection_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "retry_after_seconds": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

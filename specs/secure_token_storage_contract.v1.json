@@ -1,0 +1,217 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aries-platform-bootstrap/specs/secure_token_storage_contract.v1.json",
+  "artifact_name": "secure_token_storage_contract",
+  "artifact_type": "security_storage_contract",
+  "schema_version": "1.0.0",
+  "contract_scope": "token_persistence_and_runtime_handling",
+  "compatibility_statement": {
+    "validated_v2_1_bootstrap_artifacts_unchanged": true,
+    "non_breaking_addition_only": true,
+    "disallowed_changes": [
+      "auth_api_contract_route_shapes",
+      "onboarding_api_contract_shapes",
+      "marketing_api_contract_shapes",
+      "video_runtime_state_schema"
+    ]
+  },
+  "references": {
+    "session_policy_ref": "./specs/session_security_policy.v1.json",
+    "auth_session_contract_ref": "./specs/auth_session_contract.v1.json",
+    "tenant_boundary_contract_ref": "./specs/tenant_boundary_contract.v1.json"
+  },
+  "token_classes": [
+    "access_token",
+    "refresh_token",
+    "csrf_token",
+    "session_id"
+  ],
+  "storage_profiles": {
+    "access_token": {
+      "allowed_locations": [
+        "process_memory"
+      ],
+      "forbidden_locations": [
+        "localStorage",
+        "sessionStorage",
+        "persistent_file_plaintext",
+        "url_query",
+        "url_fragment"
+      ],
+      "max_persisted_ttl_seconds": 0,
+      "encryption_at_rest_required": false,
+      "justification": "ephemeral_runtime_only"
+    },
+    "refresh_token": {
+      "allowed_locations": [
+        "server_secure_store",
+        "http_only_secure_cookie"
+      ],
+      "forbidden_locations": [
+        "browser_script_accessible_storage",
+        "application_logs",
+        "analytics_payload"
+      ],
+      "max_persisted_ttl_seconds": 2592000,
+      "encryption_at_rest_required": true,
+      "key_reference_required": true
+    },
+    "csrf_token": {
+      "allowed_locations": [
+        "http_response_cookie",
+        "request_header"
+      ],
+      "forbidden_locations": [
+        "application_logs",
+        "url_query",
+        "url_fragment"
+      ],
+      "max_persisted_ttl_seconds": 28800,
+      "encryption_at_rest_required": false
+    },
+    "session_id": {
+      "allowed_locations": [
+        "server_secure_store",
+        "http_only_secure_cookie"
+      ],
+      "forbidden_locations": [
+        "browser_script_accessible_storage",
+        "application_logs"
+      ],
+      "max_persisted_ttl_seconds": 43200,
+      "encryption_at_rest_required": true,
+      "key_reference_required": true
+    }
+  },
+  "token_record_contract": {
+    "record_format": "token_record.v1",
+    "required_fields": [
+      "token_class",
+      "token_handle",
+      "subject_id",
+      "tenant_id",
+      "issued_at",
+      "expires_at",
+      "status",
+      "storage_profile",
+      "credential_reference"
+    ],
+    "field_constraints": {
+      "token_class": {
+        "enum": [
+          "access_token",
+          "refresh_token",
+          "csrf_token",
+          "session_id"
+        ]
+      },
+      "token_handle": {
+        "format": "opaque_identifier",
+        "min_entropy_bits": 128,
+        "must_not_embed": [
+          "tenant_id",
+          "subject_id",
+          "email",
+          "plaintext_timestamp"
+        ]
+      },
+      "status": {
+        "enum": [
+          "active",
+          "expired",
+          "revoked",
+          "compromised"
+        ]
+      },
+      "storage_profile": {
+        "enum": [
+          "process_memory",
+          "server_secure_store",
+          "http_only_secure_cookie",
+          "http_response_cookie",
+          "request_header"
+        ]
+      }
+    }
+  },
+  "credential_binding_contract": {
+    "credential_reference_schema": "./specs/credential_reference_contract.v1.json",
+    "reference_required_for": [
+      "refresh_token",
+      "session_id"
+    ],
+    "allowed_reference_types": [
+      "key_encryption_key",
+      "hmac_secret",
+      "signing_key"
+    ],
+    "forbidden_reference_materialization": [
+      "raw_key_bytes_in_token_record",
+      "plaintext_secrets_in_logs",
+      "credential_value_in_api_response"
+    ]
+  },
+  "rotation_and_revocation_contract": {
+    "refresh_token": {
+      "single_use_rotation": true,
+      "family_tracking_required": true,
+      "reuse_detection_required": true
+    },
+    "revocation_sla_seconds": 60,
+    "revocation_targets": [
+      "token_handle",
+      "refresh_token_family",
+      "subject_sessions",
+      "tenant_sessions"
+    ]
+  },
+  "observability_and_redaction": {
+    "security_events_required": [
+      "token.stored",
+      "token.accessed",
+      "token.rotated",
+      "token.revoked",
+      "token.reuse_detected"
+    ],
+    "log_redaction_fields": [
+      "authorization",
+      "cookie",
+      "set-cookie",
+      "token",
+      "credential_reference.resolution_hint"
+    ],
+    "minimum_retention_days": 30
+  },
+  "compliance_invariants": [
+    {
+      "id": "STS-001",
+      "rule": "Access tokens are not persisted outside process memory.",
+      "testable_expression": "storage_profiles.access_token.max_persisted_ttl_seconds == 0"
+    },
+    {
+      "id": "STS-002",
+      "rule": "Refresh and session artifacts require encryption at rest.",
+      "testable_expression": "storage_profiles.refresh_token.encryption_at_rest_required == true && storage_profiles.session_id.encryption_at_rest_required == true"
+    },
+    {
+      "id": "STS-003",
+      "rule": "Refresh token rotation and reuse detection are mandatory.",
+      "testable_expression": "rotation_and_revocation_contract.refresh_token.single_use_rotation == true && rotation_and_revocation_contract.refresh_token.reuse_detection_required == true"
+    },
+    {
+      "id": "STS-004",
+      "rule": "Token records must never include raw key bytes.",
+      "testable_expression": "contains(credential_binding_contract.forbidden_reference_materialization, 'raw_key_bytes_in_token_record')"
+    },
+    {
+      "id": "STS-005",
+      "rule": "Revocation propagation SLA is bounded to 60 seconds.",
+      "testable_expression": "rotation_and_revocation_contract.revocation_sla_seconds <= 60"
+    }
+  ],
+  "non_goals": [
+    "No database engine, table, cache, or queue implementation details.",
+    "No cryptographic algorithm migration plan or KMS vendor-specific setup.",
+    "No endpoint redesign or request/response payload changes to validated V2-1/bootstrap artifacts."
+  ]
+}

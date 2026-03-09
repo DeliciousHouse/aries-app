@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aries-platform-bootstrap/specs/rbac_matrix.v1.json",
+  "artifact_name": "rbac_matrix",
+  "artifact_type": "security_contract_spec",
+  "schema_version": "1.0.0",
+  "status": "proposed_production",
+  "description": "Production RBAC role-to-permission matrix for onboarding, marketing, and video job domains.",
+  "scope": {
+    "applies_to": [
+      "backend_api",
+      "workflow_control_plane",
+      "runtime_artifact_access"
+    ],
+    "non_goals": [
+      "authentication_mechanism_definition",
+      "backend_implementation_logic",
+      "frontend_visibility_logic"
+    ]
+  },
+  "roles": [
+    {
+      "role_id": "platform_owner",
+      "description": "Global owner with emergency and administrative authority.",
+      "risk_tier": "critical"
+    },
+    {
+      "role_id": "platform_operator",
+      "description": "Production operations role for workflow/runtime support.",
+      "risk_tier": "high"
+    },
+    {
+      "role_id": "tenant_admin",
+      "description": "Tenant-scoped admin who can start and approve tenant work.",
+      "risk_tier": "high"
+    },
+    {
+      "role_id": "tenant_analyst",
+      "description": "Tenant-scoped read and initiate role without approval authority.",
+      "risk_tier": "medium"
+    },
+    {
+      "role_id": "tenant_viewer",
+      "description": "Tenant-scoped read-only runtime visibility role.",
+      "risk_tier": "low"
+    },
+    {
+      "role_id": "automation_service",
+      "description": "Service principal used by trusted orchestrators and schedulers.",
+      "risk_tier": "critical"
+    },
+    {
+      "role_id": "security_auditor",
+      "description": "Read-only cross-tenant audit and compliance role.",
+      "risk_tier": "medium"
+    }
+  ],
+  "permissions": [
+    { "permission_id": "onboarding.start", "resource": "onboarding_job", "action": "start" },
+    { "permission_id": "onboarding.status.read", "resource": "onboarding_job", "action": "read_status" },
+    { "permission_id": "marketing.job.start", "resource": "marketing_job", "action": "start" },
+    { "permission_id": "marketing.job.status.read", "resource": "marketing_job", "action": "read_status" },
+    { "permission_id": "marketing.job.approve", "resource": "marketing_job", "action": "approve" },
+    { "permission_id": "video.job.start", "resource": "video_job", "action": "start" },
+    { "permission_id": "video.job.status.read", "resource": "video_job", "action": "read_status" },
+    { "permission_id": "video.job.approve", "resource": "video_job", "action": "approve" },
+    { "permission_id": "runtime.artifact.read", "resource": "runtime_artifact", "action": "read" },
+    { "permission_id": "runtime.artifact.write", "resource": "runtime_artifact", "action": "write" },
+    { "permission_id": "workflow.invoke", "resource": "workflow", "action": "invoke" },
+    { "permission_id": "workflow.resume", "resource": "workflow", "action": "resume" },
+    { "permission_id": "audit.log.read", "resource": "audit_log", "action": "read" },
+    { "permission_id": "rbac.policy.manage", "resource": "rbac_policy", "action": "manage" }
+  ],
+  "role_grants": {
+    "platform_owner": [
+      "onboarding.start",
+      "onboarding.status.read",
+      "marketing.job.start",
+      "marketing.job.status.read",
+      "marketing.job.approve",
+      "video.job.start",
+      "video.job.status.read",
+      "video.job.approve",
+      "runtime.artifact.read",
+      "runtime.artifact.write",
+      "workflow.invoke",
+      "workflow.resume",
+      "audit.log.read",
+      "rbac.policy.manage"
+    ],
+    "platform_operator": [
+      "onboarding.status.read",
+      "marketing.job.start",
+      "marketing.job.status.read",
+      "marketing.job.approve",
+      "video.job.start",
+      "video.job.status.read",
+      "video.job.approve",
+      "runtime.artifact.read",
+      "runtime.artifact.write",
+      "workflow.invoke",
+      "workflow.resume",
+      "audit.log.read"
+    ],
+    "tenant_admin": [
+      "onboarding.start",
+      "onboarding.status.read",
+      "marketing.job.start",
+      "marketing.job.status.read",
+      "marketing.job.approve",
+      "video.job.start",
+      "video.job.status.read",
+      "video.job.approve",
+      "runtime.artifact.read"
+    ],
+    "tenant_analyst": [
+      "onboarding.start",
+      "onboarding.status.read",
+      "marketing.job.start",
+      "marketing.job.status.read",
+      "video.job.start",
+      "video.job.status.read",
+      "runtime.artifact.read"
+    ],
+    "tenant_viewer": [
+      "onboarding.status.read",
+      "marketing.job.status.read",
+      "video.job.status.read",
+      "runtime.artifact.read"
+    ],
+    "automation_service": [
+      "onboarding.start",
+      "onboarding.status.read",
+      "marketing.job.start",
+      "marketing.job.status.read",
+      "marketing.job.approve",
+      "video.job.start",
+      "video.job.status.read",
+      "video.job.approve",
+      "runtime.artifact.read",
+      "runtime.artifact.write",
+      "workflow.invoke",
+      "workflow.resume",
+      "audit.log.read"
+    ],
+    "security_auditor": [
+      "onboarding.status.read",
+      "marketing.job.status.read",
+      "video.job.status.read",
+      "runtime.artifact.read",
+      "audit.log.read"
+    ]
+  },
+  "constraints": {
+    "tenant_boundary_required_for_roles": [
+      "tenant_admin",
+      "tenant_analyst",
+      "tenant_viewer"
+    ],
+    "cross_tenant_allowed_for_roles": [
+      "platform_owner",
+      "platform_operator",
+      "automation_service",
+      "security_auditor"
+    ],
+    "separation_of_duties": [
+      {
+        "rule_id": "sod-tenant-approval",
+        "description": "tenant_analyst and tenant_viewer cannot approve marketing/video jobs.",
+        "forbidden_permissions_for_roles": {
+          "tenant_analyst": [
+            "marketing.job.approve",
+            "video.job.approve"
+          ],
+          "tenant_viewer": [
+            "marketing.job.approve",
+            "video.job.approve"
+          ]
+        }
+      }
+    ]
+  },
+  "contracts_ref": [
+    "./specs/onboarding_api_contract.v1.json",
+    "./specs/marketing_api_contract.v1.json",
+    "./specs/video_job_contract_spec.v1.json"
+  ]
+}

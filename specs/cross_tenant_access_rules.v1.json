@@ -1,0 +1,226 @@
+{
+  "artifact_name": "cross_tenant_access_rules",
+  "artifact_type": "access_policy",
+  "schema_version": "1.0.0",
+  "purpose": "Define explicit, least-privilege, fail-closed rules for the rare cases where cross-tenant operations are permitted.",
+  "default_decision": "deny",
+  "evaluation_order": [
+    "validate_context",
+    "validate_tenant_ids",
+    "match_explicit_allow_rule",
+    "enforce_constraints",
+    "emit_decision"
+  ],
+  "required_context": [
+    "request_id",
+    "actor.actor_id",
+    "actor.actor_type",
+    "actor.tenant_id",
+    "target.tenant_id",
+    "operation.name",
+    "operation.resource_scope",
+    "justification.ticket_id",
+    "time_window.start_at",
+    "time_window.end_at"
+  ],
+  "actor_types": [
+    "tenant_user",
+    "tenant_service",
+    "platform_operator",
+    "platform_automation"
+  ],
+  "operation_names": [
+    "read_metadata",
+    "read_aggregated_metrics",
+    "transfer_artifact",
+    "delegate_job_execution"
+  ],
+  "resource_scopes": [
+    "tenant_metadata",
+    "tenant_metrics_aggregate",
+    "tenant_artifact_manifest",
+    "tenant_job_control"
+  ],
+  "global_constraints": [
+    {
+      "id": "XTA-GC-001",
+      "rule": "Cross-tenant request MUST be denied unless actor.tenant_id != target.tenant_id and an explicit allow rule matches.",
+      "on_fail_reason": "POLICY_NOT_SATISFIED"
+    },
+    {
+      "id": "XTA-GC-002",
+      "rule": "Every allow decision MUST include non-empty justification.ticket_id.",
+      "on_fail_reason": "MISSING_JUSTIFICATION"
+    },
+    {
+      "id": "XTA-GC-003",
+      "rule": "Every allow decision MUST be time-bounded and end_at > start_at.",
+      "on_fail_reason": "INVALID_TIME_WINDOW"
+    },
+    {
+      "id": "XTA-GC-004",
+      "rule": "Payload fields classified as tenant_data_content are never eligible for cross-tenant access.",
+      "on_fail_reason": "SCOPE_NOT_ELIGIBLE"
+    },
+    {
+      "id": "XTA-GC-005",
+      "rule": "Unknown actor_type, operation.name, or operation.resource_scope MUST be denied.",
+      "on_fail_reason": "UNKNOWN_CONTEXT"
+    }
+  ],
+  "explicit_allow_rules": [
+    {
+      "rule_id": "XTA-ALLOW-001",
+      "description": "Platform operator may read tenant metadata across tenants for incident triage.",
+      "when": {
+        "actor_type": "platform_operator",
+        "operation_name": "read_metadata",
+        "resource_scope": "tenant_metadata"
+      },
+      "constraints": {
+        "max_duration_minutes": 120,
+        "requires_ticket": true,
+        "requires_audit": true,
+        "prohibited_fields": [
+          "secrets",
+          "credentials",
+          "private_content"
+        ]
+      }
+    },
+    {
+      "rule_id": "XTA-ALLOW-002",
+      "description": "Platform automation may read aggregated tenant metrics for fleet-level health checks.",
+      "when": {
+        "actor_type": "platform_automation",
+        "operation_name": "read_aggregated_metrics",
+        "resource_scope": "tenant_metrics_aggregate"
+      },
+      "constraints": {
+        "max_duration_minutes": 30,
+        "requires_ticket": true,
+        "requires_audit": true,
+        "aggregation_minimum_k": 5,
+        "prohibited_fields": [
+          "row_level_records",
+          "identifiers"
+        ]
+      }
+    },
+    {
+      "rule_id": "XTA-ALLOW-003",
+      "description": "Tenant service may transfer artifact manifests to another tenant only during approved migration.",
+      "when": {
+        "actor_type": "tenant_service",
+        "operation_name": "transfer_artifact",
+        "resource_scope": "tenant_artifact_manifest"
+      },
+      "constraints": {
+        "max_duration_minutes": 240,
+        "requires_ticket": true,
+        "requires_audit": true,
+        "requires_target_consent": true,
+        "allowed_payload_classes": [
+          "manifest",
+          "checksum",
+          "lineage"
+        ],
+        "prohibited_fields": [
+          "artifact_body",
+          "embedded_secrets"
+        ]
+      }
+    },
+    {
+      "rule_id": "XTA-ALLOW-004",
+      "description": "Platform operator may delegate job execution controls across tenants for emergency remediation only.",
+      "when": {
+        "actor_type": "platform_operator",
+        "operation_name": "delegate_job_execution",
+        "resource_scope": "tenant_job_control"
+      },
+      "constraints": {
+        "max_duration_minutes": 60,
+        "requires_ticket": true,
+        "requires_audit": true,
+        "allowed_actions": [
+          "pause",
+          "resume",
+          "cancel"
+        ],
+        "prohibited_actions": [
+          "modify_payload",
+          "read_payload_content"
+        ]
+      }
+    }
+  ],
+  "deny_reason_codes": [
+    "DEFAULT_DENY",
+    "MISSING_CONTEXT",
+    "UNKNOWN_CONTEXT",
+    "MISSING_JUSTIFICATION",
+    "INVALID_TIME_WINDOW",
+    "SCOPE_NOT_ELIGIBLE",
+    "POLICY_NOT_SATISFIED",
+    "RULE_CONSTRAINT_FAILED"
+  ],
+  "minimum_audit_record": {
+    "required": true,
+    "required_fields": [
+      "request_id",
+      "timestamp",
+      "actor_id",
+      "actor_type",
+      "actor_tenant_id",
+      "target_tenant_id",
+      "operation_name",
+      "resource_scope",
+      "decision",
+      "matched_rule_id",
+      "reason_code",
+      "ticket_id",
+      "start_at",
+      "end_at"
+    ],
+    "additionalProperties": false
+  },
+  "acceptance_tests": [
+    {
+      "id": "XTA-AT-001",
+      "name": "No explicit rule -> deny",
+      "procedure": "Use valid context that does not match any explicit_allow_rules.when tuple.",
+      "expected_result": "decision=deny, reason_code=DEFAULT_DENY"
+    },
+    {
+      "id": "XTA-AT-002",
+      "name": "Missing ticket -> deny",
+      "procedure": "Match an allow rule but omit justification.ticket_id.",
+      "expected_result": "decision=deny, reason_code=MISSING_JUSTIFICATION"
+    },
+    {
+      "id": "XTA-AT-003",
+      "name": "Invalid time window -> deny",
+      "procedure": "Match allow rule with end_at <= start_at.",
+      "expected_result": "decision=deny, reason_code=INVALID_TIME_WINDOW"
+    },
+    {
+      "id": "XTA-AT-004",
+      "name": "Disallowed payload class -> deny",
+      "procedure": "Attempt transfer_artifact including prohibited field artifact_body.",
+      "expected_result": "decision=deny, reason_code=RULE_CONSTRAINT_FAILED"
+    },
+    {
+      "id": "XTA-AT-005",
+      "name": "Eligible operator metadata read -> allow",
+      "procedure": "Use platform_operator + read_metadata + tenant_metadata with valid ticket and bounded window.",
+      "expected_result": "decision=allow, matched_rule_id=XTA-ALLOW-001"
+    },
+    {
+      "id": "XTA-AT-006",
+      "name": "Allow decision audit completeness",
+      "procedure": "For any allow decision, validate minimum_audit_record required fields.",
+      "expected_result": "Audit record present and complete"
+    }
+  ]
+}

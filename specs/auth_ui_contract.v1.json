@@ -1,0 +1,333 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "auth_ui_contract.v1",
+  "contract_name": "auth_ui_contract",
+  "schema_version": "1.0.0",
+  "scope": "Authentication-only UI surface contract for Aries runtime shell.",
+  "non_goals": [
+    "No visual design, styling, or component implementation details",
+    "No tenant administration behavior",
+    "No product scope beyond authentication screens"
+  ],
+  "shared_enums": {
+    "auth_flow_state": [
+      "idle",
+      "submitting",
+      "challenge_required",
+      "authenticated",
+      "error"
+    ],
+    "auth_error_code": [
+      "invalid_credentials",
+      "mfa_required",
+      "mfa_invalid",
+      "session_expired",
+      "rate_limited",
+      "auth_service_unavailable",
+      "unknown"
+    ],
+    "mfa_method": [
+      "totp",
+      "sms",
+      "email"
+    ]
+  },
+  "screens": [
+    {
+      "screen_id": "auth.sign_in",
+      "route": "/auth/sign-in",
+      "purpose": "Authenticate user identity with primary credential factors.",
+      "request_contract": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "email",
+          "password"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "minLength": 3
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8
+          },
+          "remember_me": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "success_response_contract": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "auth_flow_state"
+        ],
+        "properties": {
+          "status": {
+            "const": "ok"
+          },
+          "auth_flow_state": {
+            "enum": [
+              "authenticated",
+              "challenge_required"
+            ]
+          },
+          "session": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "session_id",
+              "expires_at"
+            ],
+            "properties": {
+              "session_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "challenge": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "challenge_id",
+              "mfa_method"
+            ],
+            "properties": {
+              "challenge_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "mfa_method": {
+                "enum": [
+                  "totp",
+                  "sms",
+                  "email"
+                ]
+              },
+              "masked_destination": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "auth_flow_state": {
+                  "const": "authenticated"
+                }
+              },
+              "required": [
+                "auth_flow_state"
+              ]
+            },
+            "then": {
+              "required": [
+                "session"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "auth_flow_state": {
+                  "const": "challenge_required"
+                }
+              },
+              "required": [
+                "auth_flow_state"
+              ]
+            },
+            "then": {
+              "required": [
+                "challenge"
+              ]
+            }
+          }
+        ]
+      },
+      "error_response_contract": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "auth_flow_state",
+          "error"
+        ],
+        "properties": {
+          "status": {
+            "const": "error"
+          },
+          "auth_flow_state": {
+            "const": "error"
+          },
+          "error": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "enum": [
+                  "invalid_credentials",
+                  "rate_limited",
+                  "auth_service_unavailable",
+                  "unknown"
+                ]
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1
+              },
+              "retry_after_seconds": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      },
+      "api_binding": {
+        "operation_id": "authSignIn",
+        "method": "POST",
+        "path": "/api/auth/sign-in"
+      }
+    },
+    {
+      "screen_id": "auth.mfa_challenge",
+      "route": "/auth/mfa",
+      "purpose": "Complete second-factor challenge when required.",
+      "request_contract": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "challenge_id",
+          "verification_code"
+        ],
+        "properties": {
+          "challenge_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "verification_code": {
+            "type": "string",
+            "pattern": "^[0-9]{4,10}$"
+          }
+        }
+      },
+      "success_response_contract": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "auth_flow_state",
+          "session"
+        ],
+        "properties": {
+          "status": {
+            "const": "ok"
+          },
+          "auth_flow_state": {
+            "const": "authenticated"
+          },
+          "session": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "session_id",
+              "expires_at"
+            ],
+            "properties": {
+              "session_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        }
+      },
+      "error_response_contract": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "auth_flow_state",
+          "error"
+        ],
+        "properties": {
+          "status": {
+            "const": "error"
+          },
+          "auth_flow_state": {
+            "const": "error"
+          },
+          "error": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "enum": [
+                  "mfa_invalid",
+                  "session_expired",
+                  "rate_limited",
+                  "auth_service_unavailable",
+                  "unknown"
+                ]
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      },
+      "api_binding": {
+        "operation_id": "authVerifyMfa",
+        "method": "POST",
+        "path": "/api/auth/mfa/verify"
+      }
+    }
+  ],
+  "navigation_contract": {
+    "initial_route": "/auth/sign-in",
+    "allowed_transitions": [
+      {
+        "from": "auth.sign_in",
+        "on": "sign_in_success_authenticated",
+        "to": "app.home"
+      },
+      {
+        "from": "auth.sign_in",
+        "on": "sign_in_success_challenge_required",
+        "to": "auth.mfa_challenge"
+      },
+      {
+        "from": "auth.mfa_challenge",
+        "on": "mfa_success_authenticated",
+        "to": "app.home"
+      }
+    ]
+  }
+}

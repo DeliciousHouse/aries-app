@@ -1,0 +1,259 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aries-platform-bootstrap/specs/auth_session_contract.v1.json",
+  "contract_name": "auth_session_contract",
+  "contract_type": "policy_contract",
+  "schema_version": "1.0.0",
+  "policy_ref": "./specs/session_security_policy.v1.json",
+  "compatibility_statement": {
+    "validated_bootstrap_contracts_unchanged": true,
+    "allowed_change_surface": [
+      "session_policy",
+      "token_policy",
+      "cookie_policy",
+      "timeout_policy",
+      "revocation_policy",
+      "security_event_contract"
+    ],
+    "disallowed_change_surface": [
+      "existing_onboarding_endpoint_shapes",
+      "existing_marketing_endpoint_shapes",
+      "existing_backend_error_shape_contracts"
+    ]
+  },
+  "actors": {
+    "subject_types": [
+      "user",
+      "service_account"
+    ],
+    "session_authority": "auth_service",
+    "relying_parties": [
+      "onboarding_api",
+      "marketing_api",
+      "video_api"
+    ]
+  },
+  "session_artifacts": {
+    "artifacts": [
+      {
+        "name": "session_id",
+        "required": true,
+        "format": "opaque",
+        "transport": [
+          "cookie"
+        ],
+        "max_lifetime_seconds": 43200
+      },
+      {
+        "name": "access_token",
+        "required": true,
+        "format": "jwt_or_opaque",
+        "transport": [
+          "authorization_header"
+        ],
+        "max_lifetime_seconds": 900
+      },
+      {
+        "name": "refresh_token",
+        "required": true,
+        "format": "opaque",
+        "transport": [
+          "secure_http_only_cookie"
+        ],
+        "max_lifetime_seconds": 2592000
+      },
+      {
+        "name": "csrf_token",
+        "required": true,
+        "format": "opaque",
+        "transport": [
+          "cookie",
+          "header"
+        ],
+        "max_lifetime_seconds": 28800
+      }
+    ]
+  },
+  "cookie_contract": {
+    "required_cookies": [
+      {
+        "name": "__Host-aries_session",
+        "purpose": "primary_session",
+        "attributes": {
+          "secure": true,
+          "httpOnly": true,
+          "sameSite": "Lax",
+          "path": "/",
+          "domain": "host_only"
+        }
+      },
+      {
+        "name": "__Host-aries_refresh",
+        "purpose": "refresh_session",
+        "attributes": {
+          "secure": true,
+          "httpOnly": true,
+          "sameSite": "Strict",
+          "path": "/",
+          "domain": "host_only"
+        }
+      },
+      {
+        "name": "aries_csrf",
+        "purpose": "csrf_binding",
+        "attributes": {
+          "secure": true,
+          "httpOnly": false,
+          "sameSite": "Lax",
+          "path": "/",
+          "domain": "host_only"
+        }
+      }
+    ],
+    "forbidden_cookie_configurations": [
+      "auth_cookie_without_secure",
+      "auth_cookie_without_httpOnly",
+      "sameSite_none_without_secure",
+      "domain_wildcard_for_auth_cookie"
+    ]
+  },
+  "token_contract": {
+    "access_token": {
+      "required_claims": [
+        "iss",
+        "aud",
+        "sub",
+        "sid",
+        "tenant_id",
+        "scope",
+        "iat",
+        "exp",
+        "jti"
+      ],
+      "forbidden_claims": [
+        "password",
+        "secret",
+        "api_key"
+      ],
+      "max_ttl_seconds": 900,
+      "audience_values": [
+        "onboarding_api",
+        "marketing_api",
+        "video_api"
+      ],
+      "issuer_values": [
+        "aries.auth"
+      ]
+    },
+    "refresh_token": {
+      "token_family_required": true,
+      "single_use_rotation": true,
+      "reuse_detection_required": true,
+      "max_ttl_seconds": 2592000
+    },
+    "csrf_token": {
+      "header_name": "x-csrf-token",
+      "double_submit_cookie_name": "aries_csrf",
+      "required_methods": [
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE"
+      ]
+    }
+  },
+  "timeout_contract": {
+    "idle_timeout_seconds": 1800,
+    "absolute_timeout_seconds": 43200,
+    "refresh_grace_seconds": 120,
+    "clock_skew_tolerance_seconds": 60,
+    "reauth_required_after_seconds": 14400
+  },
+  "authorization_session_rules": {
+    "scope_binding_required": true,
+    "tenant_binding_required": true,
+    "approval_actions_require_recent_auth": true,
+    "recent_auth_window_seconds": 600,
+    "session_elevation": {
+      "allowed": true,
+      "requires_step_up": true,
+      "elevation_max_seconds": 900
+    }
+  },
+  "revocation_contract": {
+    "revocation_targets": [
+      "session_id",
+      "refresh_token_family",
+      "all_sessions_for_subject",
+      "all_sessions_for_tenant"
+    ],
+    "revocation_propagation_sla_seconds": 60,
+    "post_revocation_requirements": [
+      "deny_subsequent_access_token_use",
+      "invalidate_active_refresh_tokens",
+      "emit_security_event"
+    ]
+  },
+  "security_event_contract": {
+    "event_types": [
+      "auth.login.success",
+      "auth.login.failure",
+      "auth.session.created",
+      "auth.session.revoked",
+      "auth.token.refreshed",
+      "auth.token.refresh_reuse_detected",
+      "auth.csrf.failed",
+      "auth.session.timeout",
+      "auth.step_up.required",
+      "auth.step_up.success",
+      "auth.step_up.failure"
+    ],
+    "required_event_fields": [
+      "event_type",
+      "occurred_at",
+      "subject_id",
+      "tenant_id",
+      "session_id",
+      "risk_level",
+      "correlation_id"
+    ],
+    "risk_levels": [
+      "low",
+      "medium",
+      "high",
+      "critical"
+    ]
+  },
+  "acceptance_criteria": [
+    {
+      "id": "ASC-001",
+      "rule": "All required auth cookies include secure=true and path='/'",
+      "testable_expression": "every(cookie_contract.required_cookies[*].attributes.secure == true) && every(cookie_contract.required_cookies[*].attributes.path == '/')"
+    },
+    {
+      "id": "ASC-002",
+      "rule": "Access token max TTL is <= 900 seconds",
+      "testable_expression": "token_contract.access_token.max_ttl_seconds <= 900"
+    },
+    {
+      "id": "ASC-003",
+      "rule": "Refresh token rotation and reuse detection are mandatory",
+      "testable_expression": "token_contract.refresh_token.single_use_rotation == true && token_contract.refresh_token.reuse_detection_required == true"
+    },
+    {
+      "id": "ASC-004",
+      "rule": "Absolute timeout exceeds idle timeout and remains bounded",
+      "testable_expression": "timeout_contract.absolute_timeout_seconds > timeout_contract.idle_timeout_seconds && timeout_contract.absolute_timeout_seconds <= 86400"
+    },
+    {
+      "id": "ASC-005",
+      "rule": "Revocation propagation SLA does not exceed 60 seconds",
+      "testable_expression": "revocation_contract.revocation_propagation_sla_seconds <= 60"
+    }
+  ],
+  "non_goals": [
+    "No runtime/session store implementation detail.",
+    "No cryptographic key management implementation detail.",
+    "No modifications to existing validated API payload contracts."
+  ]
+}

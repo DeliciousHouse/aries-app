@@ -1,0 +1,285 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "v2_integrations_validation_gate_spec.v1",
+  "title": "V2 Integrations Foundation Validation Gate Spec v1",
+  "description": "Machine-checkable gate contract for V2-2 objective only: secure credential and integrations control-plane foundation readiness, explicitly preserving previously validated V2-1/bootstrap artifacts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "objective",
+    "scope_constraints",
+    "dependency_contract",
+    "status_domain",
+    "evidence_policy",
+    "gates",
+    "exit_criteria"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "v1"
+    },
+    "objective": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "success_statement"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "const": "V2-2"
+        },
+        "name": {
+          "type": "string",
+          "const": "Secure Credential & Integrations Control Plane Foundation"
+        },
+        "success_statement": {
+          "type": "string",
+          "minLength": 20
+        }
+      }
+    },
+    "scope_constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "in_scope",
+        "out_of_scope"
+      ],
+      "properties": {
+        "in_scope": {
+          "type": "array",
+          "minItems": 4,
+          "items": {
+            "type": "string"
+          }
+        },
+        "out_of_scope": {
+          "type": "array",
+          "minItems": 4,
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "dependency_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "baseline_phase",
+        "must_not_redesign_or_mutate",
+        "baseline_evidence"
+      ],
+      "properties": {
+        "baseline_phase": {
+          "type": "string",
+          "const": "v2_1_production_identity_auth_tenant_rbac_foundation"
+        },
+        "must_not_redesign_or_mutate": {
+          "type": "boolean",
+          "const": true
+        },
+        "baseline_evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^\\./"
+          }
+        }
+      }
+    },
+    "status_domain": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "pass",
+          "fail",
+          "blocked"
+        ]
+      },
+      "allOf": [
+        {
+          "contains": {
+            "const": "pass"
+          }
+        },
+        {
+          "contains": {
+            "const": "fail"
+          }
+        }
+      ]
+    },
+    "evidence_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "require_machine_readable_evidence",
+        "allow_manual_assertions",
+        "artifact_root"
+      ],
+      "properties": {
+        "require_machine_readable_evidence": {
+          "type": "boolean",
+          "const": true
+        },
+        "allow_manual_assertions": {
+          "type": "boolean",
+          "const": false
+        },
+        "artifact_root": {
+          "type": "string",
+          "const": "./generated/draft"
+        }
+      }
+    },
+    "gates": {
+      "type": "array",
+      "minItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "gate_id",
+          "name",
+          "intent",
+          "required_checks",
+          "evidence",
+          "failure_severity",
+          "status"
+        ],
+        "properties": {
+          "gate_id": {
+            "type": "string",
+            "pattern": "^V2-2-G[0-9]{2}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 3
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 8
+          },
+          "required_checks": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 5
+            }
+          },
+          "evidence": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "path"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "json_report",
+                    "contract_snapshot",
+                    "test_result",
+                    "config_manifest",
+                    "baseline_snapshot"
+                  ]
+                },
+                "path": {
+                  "type": "string",
+                  "pattern": "^\\./"
+                }
+              }
+            }
+          },
+          "failure_severity": {
+            "type": "string",
+            "enum": [
+              "hard_fail",
+              "soft_fail"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "pass",
+              "fail",
+              "blocked"
+            ]
+          }
+        }
+      },
+      "allOf": [
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "gate_id": {
+                "const": "V2-2-G01"
+              }
+            },
+            "required": [
+              "gate_id"
+            ]
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "properties": {
+              "gate_id": {
+                "const": "V2-2-G06"
+              }
+            },
+            "required": [
+              "gate_id"
+            ]
+          }
+        }
+      ]
+    },
+    "exit_criteria": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "all_hard_fail_gates_must_pass",
+        "max_soft_fail_allowed",
+        "result_status"
+      ],
+      "properties": {
+        "all_hard_fail_gates_must_pass": {
+          "type": "boolean",
+          "const": true
+        },
+        "max_soft_fail_allowed": {
+          "type": "integer",
+          "minimum": 0,
+          "const": 0
+        },
+        "result_status": {
+          "type": "string",
+          "enum": [
+            "not_started",
+            "in_progress",
+            "passed",
+            "failed"
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,418 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "platform_integration_card_contract.v1",
+  "contract_name": "platform_integration_card_contract",
+  "schema_version": "1.0.0",
+  "scope": "Machine-checkable contract for a single platform integration card used by the integrations UI. Covers card data shape, action contracts, and card-local state transitions only.",
+  "non_goals": [
+    "No backend implementation logic",
+    "No visual design system or styling details",
+    "No unsupported platforms beyond the approved catalog"
+  ],
+  "shared_enums": {
+    "platform_key": [
+      "facebook",
+      "instagram",
+      "linkedin",
+      "x",
+      "youtube",
+      "reddit",
+      "tiktok"
+    ],
+    "integration_connection_state": [
+      "not_connected",
+      "connection_pending",
+      "connected",
+      "connection_error",
+      "reauth_required",
+      "disabled"
+    ],
+    "integration_health": [
+      "unknown",
+      "healthy",
+      "degraded",
+      "error"
+    ],
+    "integration_card_action": [
+      "connect",
+      "reconnect",
+      "disconnect",
+      "sync_now",
+      "view_permissions"
+    ],
+    "integration_error_code": [
+      "invalid_platform",
+      "provider_unavailable",
+      "auth_denied",
+      "token_expired",
+      "rate_limited",
+      "validation_failed",
+      "unknown"
+    ]
+  },
+  "card_contract": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "platform",
+      "display_name",
+      "description",
+      "connection_state",
+      "health",
+      "available_actions",
+      "last_synced_at",
+      "permissions"
+    ],
+    "properties": {
+      "platform": {
+        "enum": [
+          "facebook",
+          "instagram",
+          "linkedin",
+          "x",
+          "youtube",
+          "reddit",
+          "tiktok"
+        ]
+      },
+      "display_name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "description": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "connection_state": {
+        "enum": [
+          "not_connected",
+          "connection_pending",
+          "connected",
+          "connection_error",
+          "reauth_required",
+          "disabled"
+        ]
+      },
+      "health": {
+        "enum": [
+          "unknown",
+          "healthy",
+          "degraded",
+          "error"
+        ]
+      },
+      "connected_account": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "account_id",
+          "account_label"
+        ],
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "account_label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "avatar_url": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      },
+      "available_actions": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": {
+          "enum": [
+            "connect",
+            "reconnect",
+            "disconnect",
+            "sync_now",
+            "view_permissions"
+          ]
+        }
+      },
+      "last_synced_at": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "format": "date-time"
+      },
+      "permissions": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "permission",
+            "granted"
+          ],
+          "properties": {
+            "permission": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            },
+            "granted": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "error": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "enum": [
+              "invalid_platform",
+              "provider_unavailable",
+              "auth_denied",
+              "token_expired",
+              "rate_limited",
+              "validation_failed",
+              "unknown"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "retry_after_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 86400
+          }
+        }
+      }
+    },
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "connection_state": {
+              "const": "connected"
+            }
+          },
+          "required": [
+            "connection_state"
+          ]
+        },
+        "then": {
+          "required": [
+            "connected_account"
+          ]
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "connection_state": {
+              "enum": [
+                "connection_error",
+                "reauth_required"
+              ]
+            }
+          },
+          "required": [
+            "connection_state"
+          ]
+        },
+        "then": {
+          "required": [
+            "error"
+          ]
+        }
+      }
+    ]
+  },
+  "actions": [
+    {
+      "action_id": "integration_card.connect",
+      "request_contract": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "platform",
+          "return_to"
+        ],
+        "properties": {
+          "platform": {
+            "enum": [
+              "facebook",
+              "instagram",
+              "linkedin",
+              "x",
+              "youtube",
+              "reddit",
+              "tiktok"
+            ]
+          },
+          "return_to": {
+            "type": "string",
+            "const": "/integrations"
+          }
+        }
+      },
+      "success_response_contract": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "connection_state",
+          "auth_url"
+        ],
+        "properties": {
+          "status": {
+            "const": "ok"
+          },
+          "connection_state": {
+            "const": "connection_pending"
+          },
+          "auth_url": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      }
+    },
+    {
+      "action_id": "integration_card.disconnect",
+      "request_contract": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "platform",
+          "confirm"
+        ],
+        "properties": {
+          "platform": {
+            "enum": [
+              "facebook",
+              "instagram",
+              "linkedin",
+              "x",
+              "youtube",
+              "reddit",
+              "tiktok"
+            ]
+          },
+          "confirm": {
+            "type": "boolean",
+            "const": true
+          }
+        }
+      },
+      "success_response_contract": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "connection_state"
+        ],
+        "properties": {
+          "status": {
+            "const": "ok"
+          },
+          "connection_state": {
+            "const": "not_connected"
+          }
+        }
+      }
+    },
+    {
+      "action_id": "integration_card.sync_now",
+      "request_contract": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "platform"
+        ],
+        "properties": {
+          "platform": {
+            "enum": [
+              "facebook",
+              "instagram",
+              "linkedin",
+              "x",
+              "youtube",
+              "reddit",
+              "tiktok"
+            ]
+          }
+        }
+      },
+      "success_response_contract": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "sync_job_id"
+        ],
+        "properties": {
+          "status": {
+            "const": "ok"
+          },
+          "sync_job_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      }
+    }
+  ],
+  "error_response_contract": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "status",
+      "error"
+    ],
+    "properties": {
+      "status": {
+        "const": "error"
+      },
+      "error": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "enum": [
+              "invalid_platform",
+              "provider_unavailable",
+              "auth_denied",
+              "token_expired",
+              "rate_limited",
+              "validation_failed",
+              "unknown"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aries-platform-bootstrap/specs/integration_state_schema.v1.json",
+  "title": "integration_state_schema.v1",
+  "description": "Tenant-scoped runtime state contract for integration onboarding, connectivity, and sync operations.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_name",
+    "schema_version",
+    "tenant_id",
+    "integration_id",
+    "platform",
+    "state",
+    "status",
+    "connection",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_name": {
+      "const": "integration_state_schema"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "tenant_id": {
+      "$ref": "#/$defs/tenant_id"
+    },
+    "tenant_type": {
+      "$ref": "#/$defs/tenant_type"
+    },
+    "integration_id": {
+      "$ref": "#/$defs/integration_id"
+    },
+    "platform": {
+      "$ref": "#/$defs/platform"
+    },
+    "state": {
+      "$ref": "#/$defs/integration_state"
+    },
+    "status": {
+      "$ref": "#/$defs/status"
+    },
+    "attempt": {
+      "$ref": "#/$defs/attempt"
+    },
+    "max_attempts": {
+      "$ref": "#/$defs/attempt"
+    },
+    "connection": {
+      "$ref": "./platform_connection_status_schema.v1.json"
+    },
+    "sync": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sync_state": {
+          "$ref": "#/$defs/sync_state"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "last_synced_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "next_sync_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "last_error": {
+      "$ref": "#/$defs/error_info"
+    },
+    "history": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/state_event"
+      },
+      "default": []
+    },
+    "metadata": {
+      "$ref": "#/$defs/metadata"
+    },
+    "created_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "updated_at": {
+      "$ref": "#/$defs/timestamp"
+    }
+  },
+  "$defs": {
+    "tenant_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,61}$"
+    },
+    "tenant_type": {
+      "type": "string",
+      "enum": [
+        "single_user",
+        "team"
+      ]
+    },
+    "integration_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:-]{1,127}$"
+    },
+    "platform": {
+      "type": "string",
+      "enum": [
+        "facebook",
+        "instagram",
+        "linkedin",
+        "x",
+        "youtube",
+        "reddit",
+        "tiktok"
+      ]
+    },
+    "integration_state": {
+      "type": "string",
+      "enum": [
+        "received",
+        "credentials_pending",
+        "credentials_validating",
+        "connected",
+        "syncing",
+        "ready",
+        "paused",
+        "repairing",
+        "failed",
+        "disconnected"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "running",
+        "pass",
+        "fail",
+        "error",
+        "skipped"
+      ]
+    },
+    "sync_state": {
+      "type": "string",
+      "enum": [
+        "never_synced",
+        "scheduled",
+        "running",
+        "healthy",
+        "stale",
+        "paused",
+        "failed"
+      ]
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "error_info": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stage": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      }
+    },
+    "state_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "at",
+        "state",
+        "status"
+      ],
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "state": {
+          "$ref": "#/$defs/integration_state"
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "string",
+          "number",
+          "integer",
+          "boolean",
+          "null"
+        ]
+      },
+      "default": {}
+    }
+  }
+}
