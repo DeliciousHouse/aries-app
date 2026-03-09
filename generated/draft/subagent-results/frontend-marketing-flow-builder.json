@@ -1,0 +1,28 @@
+{
+  "task": "frontend-marketing-flow-builder",
+  "status": "completed",
+  "updatedFiles": [
+    "./frontend/marketing/new-job.tsx",
+    "./frontend/marketing/job-status.tsx",
+    "./frontend/marketing/job-approve.tsx",
+    "./frontend/marketing/state-view.ts"
+  ],
+  "outputs": {
+    "required": [
+      "./frontend/marketing/new-job.tsx",
+      "./frontend/marketing/job-status.tsx",
+      "./frontend/marketing/job-approve.tsx"
+    ],
+    "resultFile": "./generated/draft/subagent-results/frontend-marketing-flow-builder.json",
+    "logFile": "./generated/draft/subagent-logs/frontend-marketing-flow-builder.md"
+  },
+  "highlights": [
+    "Improved loading/success/error handling across new-job, status, and approval screens.",
+    "Added stage/repair/next-step extraction and rendering using frontend shared runtime values.",
+    "Added next-step guidance text and clearer action links between flow screens.",
+    "Kept all changes within frontend/marketing and existing shared contracts/client/types."
+  ],
+  "validation": {
+    "typescript": "npx tsc --noEmit (pass)"
+  }
+}

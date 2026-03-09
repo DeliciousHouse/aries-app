@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, type FormEvent } from 'react';
+import { useRouter } from 'next/navigation';
 import { createOnboardingClient } from '../api/client/onboarding';
 import type {
   OnboardingStartError,
@@ -23,6 +24,7 @@ type MetadataDraft = {
 
 export default function OnboardingStartScreen(): JSX.Element {
   const client = useMemo(() => createOnboardingClient(), []);
+  const router = useRouter();
 
   const [tenantId, setTenantId] = useState('');
   const [proposedSlug, setProposedSlug] = useState('');
@@ -49,18 +51,23 @@ export default function OnboardingStartScreen(): JSX.Element {
     return Object.keys(metadata).length > 0 ? metadata : undefined;
   }
 
+  const resolvedTenantId = tenantId.trim() || proposedSlug.trim();
+  const resolvedSignupEventId = signupEventId.trim();
+  const statusHref = `/onboarding/status?tenant_id=${encodeURIComponent(resolvedTenantId)}&signup_event_id=${encodeURIComponent(
+    resolvedSignupEventId
+  )}`;
+
   async function onSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     setClientError(null);
+    setResult(null);
     setLoading(true);
-
-    const resolvedTenantId = tenantId.trim() || proposedSlug.trim();
 
     try {
       const body: OnboardingStartRequest = {
         tenant_id: resolvedTenantId,
         tenant_type: tenantType.trim(),
-        signup_event_id: signupEventId.trim(),
+        signup_event_id: resolvedSignupEventId,
         metadata: compactMetadata({
           business_name: businessName,
           contact_name: contactName,
@@ -79,6 +86,10 @@ export default function OnboardingStartScreen(): JSX.Element {
 
       const startResult = await client.start(body);
       setResult(startResult);
+
+      if ('status' in startResult && startResult.status === 'ok') {
+        router.push(statusHref);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown client error';
       setClientError(message);
@@ -87,11 +98,6 @@ export default function OnboardingStartScreen(): JSX.Element {
       setLoading(false);
     }
   }
-
-  const statusTenantId = tenantId.trim() || proposedSlug.trim();
-  const statusHref = `/onboarding/status?tenant_id=${encodeURIComponent(statusTenantId)}&signup_event_id=${encodeURIComponent(
-    signupEventId.trim()
-  )}`;
 
   return (
     <section>
@@ -196,18 +202,20 @@ export default function OnboardingStartScreen(): JSX.Element {
           />
         </label>
 
-        <button type="submit" disabled={loading || !statusTenantId || !signupEventId.trim()}>
-          {loading ? 'Starting…' : 'Start Onboarding'}
+        <button type="submit" disabled={loading || !resolvedTenantId || !resolvedSignupEventId}>
+          {loading ? 'Starting onboarding…' : 'Start Onboarding'}
         </button>
       </form>
+
+      {loading ? <p>Submitting onboarding start request…</p> : null}
 
       {clientError ? <p role="alert">Client error: {clientError}</p> : null}
 
       {result && 'status' in result && result.status === 'ok' ? (
         <div>
-          <p>Onboarding start accepted.</p>
+          <p>Onboarding start accepted. Redirecting to status…</p>
           <p>
-            Next: check status at <a href={statusHref}>/onboarding/status</a>
+            If you are not redirected, continue to <a href={statusHref}>/onboarding/status</a>.
           </p>
           <pre>{JSON.stringify(result, null, 2)}</pre>
         </div>

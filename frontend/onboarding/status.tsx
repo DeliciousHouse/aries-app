@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 
 import { createOnboardingClient } from '../api/client/onboarding';
 import type { OnboardingStatusError, OnboardingStatusSuccess } from '../api/contracts/onboarding';
@@ -24,10 +24,8 @@ export default function OnboardingStatusScreen({
   const [response, setResponse] = useState<OnboardingStatusResponse | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
 
-  async function onSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-
-    const normalizedTenantId = tenantId.trim();
+  async function checkStatus(rawTenantId: string): Promise<void> {
+    const normalizedTenantId = rawTenantId.trim();
     if (!normalizedTenantId) {
       setRequestError('tenant_id is required');
       setResponse(null);
@@ -36,17 +34,30 @@ export default function OnboardingStatusScreen({
 
     setLoading(true);
     setRequestError(null);
-    setResponse(null);
 
     try {
       const result = await client.status(normalizedTenantId);
       setResponse(result);
     } catch {
+      setResponse(null);
       setRequestError('Unable to load onboarding status.');
     } finally {
       setLoading(false);
     }
   }
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    await checkStatus(tenantId);
+  }
+
+  useEffect(() => {
+    if (!initialTenantId.trim()) {
+      return;
+    }
+
+    void checkStatus(initialTenantId);
+  }, [initialTenantId]);
 
   const isStatusError = response?.onboarding_status === 'error';
   const success = !isStatusError && response ? (response as OnboardingStatusSuccess) : null;
@@ -69,7 +80,7 @@ export default function OnboardingStatusScreen({
         </label>
 
         <button type="submit" disabled={loading || !tenantId.trim()}>
-          {loading ? 'Checking…' : 'Check status'}
+          {loading ? 'Checking status…' : 'Check status'}
         </button>
       </form>
 
@@ -93,18 +104,15 @@ export default function OnboardingStatusScreen({
             <strong>tenant_id:</strong> {success.tenant_id}
           </p>
           <p>
-            <strong>onboarding_status:</strong> {success.onboarding_status}
-            {' '}
+            <strong>onboarding_status:</strong> {success.onboarding_status}{' '}
             <StatusBadge status={success.onboarding_status} />
           </p>
           <p>
-            <strong>provisioning_status:</strong> {success.provisioning_status}
-            {' '}
+            <strong>provisioning_status:</strong> {success.provisioning_status}{' '}
             <StatusBadge status={success.provisioning_status} />
           </p>
           <p>
-            <strong>validation_status:</strong> {success.validation_status}
-            {' '}
+            <strong>validation_status:</strong> {success.validation_status}{' '}
             <StatusBadge status={success.validation_status} />
           </p>
           <h3>paths</h3>

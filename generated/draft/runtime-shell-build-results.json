@@ -1,0 +1,16 @@
+{
+  "overall_status": "pass",
+  "validation": {
+    "precheck": "pass",
+    "build": "pass",
+    "localhost_3000": "runnable"
+  },
+  "runtime_checks": [
+    "GET / -> 200",
+    "POST /api/onboarding/start -> 200",
+    "POST /api/marketing/jobs -> 202",
+    "GET /api/marketing/jobs/:jobId -> 200",
+    "POST /api/marketing/jobs/:jobId/approve -> 200"
+  ],
+  "hard_failures": []
+}

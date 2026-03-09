@@ -10,6 +10,13 @@ import type {
   PostMarketingJobApproveRequest,
   UnhandledError
 } from '../api/contracts/marketing';
+import StatusBadge from '../components/status-badge';
+import {
+  marketing_job_status_values,
+  next_step_values,
+  repair_status_values
+} from '../types/runtime';
+import { getMarketingStateHints, nextStepGuidance } from './state-view';
 
 type ApproveResult = ApproveJobResult | HardFailureError | UnhandledError;
 type JobStatusResult = GetMarketingJobStatusResponse | HardFailureError | UnhandledError;
@@ -56,6 +63,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
 
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [requestError, setRequestError] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<JobStatusResult | null>(null);
   const [approveResult, setApproveResult] = useState<ApproveResult | null>(null);
 
@@ -68,10 +76,14 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
   async function handleLoadStatus() {
     if (!jobId.trim()) return;
     setLoadingStatus(true);
+    setRequestError(null);
     setApproveResult(null);
     try {
       const result = await client.getJob(jobId.trim());
       setJobStatus(result);
+    } catch (error) {
+      setJobStatus(null);
+      setRequestError(error instanceof Error ? error.message : 'Failed to load current job status');
     } finally {
       setLoadingStatus(false);
     }
@@ -94,6 +106,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
     };
 
     setSubmitting(true);
+    setRequestError(null);
     setApproveResult(null);
     try {
       const result = await client.approveJob(jobId.trim(), body);
@@ -102,6 +115,8 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
         const refreshed = await client.getJob(jobId.trim());
         setJobStatus(refreshed);
       }
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : 'Approval request failed');
     } finally {
       setSubmitting(false);
     }
@@ -116,6 +131,20 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
       ? { tone: 'success', text: 'Approval succeeded and resume was accepted.' }
       : { tone: 'danger', text: `Approval failed: ${approveResult.approval_status}` };
   })();
+
+  const statusSuccess = jobStatus && !isErrorResult(jobStatus) ? jobStatus : null;
+  const statusHints =
+    statusSuccess && getMarketingStateHints(statusSuccess.marketing_job_state, statusSuccess.marketing_stage_status);
+
+  const hasKnownJobStatus =
+    !!statusSuccess && marketing_job_status_values.includes(statusSuccess.marketing_job_status as any);
+
+  const knownRepairStatus =
+    statusHints?.repairStatus &&
+    repair_status_values.includes(statusHints.repairStatus as (typeof repair_status_values)[number]);
+
+  const knownNextStep =
+    statusHints?.nextStep && next_step_values.includes(statusHints.nextStep as (typeof next_step_values)[number]);
 
   return (
     <section
@@ -255,6 +284,12 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
                 {submitting ? 'Approving…' : 'Approve and Resume'}
               </button>
             </div>
+
+            {requestError ? (
+              <div style={{ border: '1px solid #dc2626', borderRadius: 10, padding: '8px 10px', color: '#991b1b' }}>
+                {requestError}
+              </div>
+            ) : null}
           </article>
 
           <article
@@ -287,6 +322,52 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
                 {approvalMessage.text}
               </div>
             )}
+
+            {statusSuccess ? (
+              <div>
+                <p style={{ margin: '6px 0' }}>
+                  <strong>Job status:</strong> {statusSuccess.marketing_job_status}{' '}
+                  {hasKnownJobStatus ? (
+                    <StatusBadge
+                      status={statusSuccess.marketing_job_status as (typeof marketing_job_status_values)[number]}
+                    />
+                  ) : null}
+                </p>
+                <p style={{ margin: '6px 0' }}>
+                  <strong>Current stage:</strong> {statusSuccess.marketing_stage ?? 'null'}
+                </p>
+                <p style={{ margin: '6px 0' }}>
+                  <strong>Repair status:</strong> {statusHints?.repairStatus ?? 'n/a'}{' '}
+                  {knownRepairStatus ? (
+                    <StatusBadge status={statusHints.repairStatus as (typeof repair_status_values)[number]} />
+                  ) : null}
+                </p>
+                <p style={{ margin: '6px 0' }}>
+                  <strong>Next step:</strong> {statusHints?.nextStep ?? 'none'}
+                </p>
+                {knownNextStep ? (
+                  <p style={{ margin: '6px 0', color: '#475467' }}>{nextStepGuidance(statusHints?.nextStep)}</p>
+                ) : null}
+
+                {statusHints && statusHints.stageStatuses.length > 0 ? (
+                  <div>
+                    <h4 style={{ margin: '12px 0 6px' }}>Stage status</h4>
+                    <ul style={{ margin: 0, paddingLeft: 18 }}>
+                      {statusHints.stageStatuses.map((row) => (
+                        <li key={row.stage}>
+                          {row.stage}: {row.status}{' '}
+                          {marketing_job_status_values.includes(
+                            row.status as (typeof marketing_job_status_values)[number]
+                          ) ? (
+                            <StatusBadge status={row.status as (typeof marketing_job_status_values)[number]} />
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             {approveResult ? (
               <details open style={{ marginTop: 4 }}>

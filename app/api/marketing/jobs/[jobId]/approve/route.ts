@@ -30,7 +30,7 @@ export async function POST(
         completed: result.completed,
         wiring: result.wiring
       },
-      { status: 200 }
+      { status: result.status === 'resumed' ? 200 : 400 }
     );
   } catch (error) {
     return NextResponse.json(

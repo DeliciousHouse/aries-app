@@ -10,6 +10,7 @@ import type {
   HardFailureError,
   UnhandledError
 } from '../api/contracts/marketing';
+import StatusBadge from '../components/status-badge';
 
 type CreateJobResult = StartJobAccepted | HardFailureError | UnhandledError;
 
@@ -101,6 +102,7 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
   return (
     <section>
       <h1>New Marketing Job</h1>
+      <p>Create a job and jump directly to live status and approval flow.</p>
 
       <form onSubmit={onSubmit}>
         <div>
@@ -151,10 +153,21 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
       {errorText ? <p role="alert">{errorText}</p> : null}
 
       {success ? (
-        <p>
-          Job accepted: <strong>{success.jobId}</strong>.{' '}
-          <a href={`./job-status?jobId=${encodeURIComponent(success.jobId)}`}>Open job status</a>
-        </p>
+        <div>
+          <p>
+            Job accepted: <strong>{success.jobId}</strong> <StatusBadge status="accepted" />
+          </p>
+          <ul>
+            <li>
+              <a href={`./job-status?jobId=${encodeURIComponent(success.jobId)}`}>Open job status</a>
+            </li>
+            <li>
+              <a href={`./job-approve?jobId=${encodeURIComponent(success.jobId)}&tenantId=${encodeURIComponent(success.tenantId)}`}>
+                Open approval screen
+              </a>
+            </li>
+          </ul>
+        </div>
       ) : null}
 
       {result ? (
