@@ -1,0 +1,24 @@
+{
+  "phase": "v2-1_wave1_conflict_resolution",
+  "status": "resolved",
+  "patched_files": [
+    "./specs/auth_api_contract.v1.json",
+    "./specs/tenant_admin_ui_contract.v1.json",
+    "./specs/role_permission_contract.v1.json"
+  ],
+  "resolved_conflicts": {
+    "1_mfa_enum_values": true,
+    "2_tenant_role_enum_values": true,
+    "3_auth_sign_in_operation_id_defined": true,
+    "4_auth_sign_in_path_defined": true,
+    "5_auth_mfa_operation_id_defined": true,
+    "6_auth_mfa_path_defined": true,
+    "7_tenant_members_invite_path_defined": true,
+    "8_tenant_members_update_role_path_defined": true,
+    "9_tenant_settings_update_path_defined": true
+  },
+  "remaining_blocking_conflicts": [],
+  "wave1_merge_validation_status": "pass",
+  "wave2_unblocked": true,
+  "hard_failures": []
+}
