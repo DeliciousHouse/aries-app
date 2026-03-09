@@ -1,9 +1,9 @@
 {
   "phase": "v2_auth_implementation_validation_harness",
   "objective_id": "V2-1",
-  "status": "fail",
-  "result_status": "failed",
-  "generated_at": "2026-03-09T18:43:35.004Z",
+  "status": "pass",
+  "result_status": "passed",
+  "generated_at": "2026-03-09T19:54:09.807Z",
   "prerequisites": {
     "wave1_merge_validation_status": "pass",
     "wave1_merge_ready": true
@@ -71,7 +71,7 @@
       "gate_id": "V2-1-G02",
       "name": "Credential Handling Guardrails",
       "failure_severity": "hard_fail",
-      "status": "fail",
+      "status": "pass",
       "checks": [
         {
           "id": "G02-C01",
@@ -90,9 +90,9 @@
         {
           "id": "G02-C02",
           "description": "Config manifest uses non-placeholder secret source values",
-          "status": "fail",
+          "status": "pass",
           "evidence": {
-            "placeholder_detected": true
+            "placeholder_detected": false
           }
         },
         {
@@ -144,7 +144,9 @@
               "session_revoked",
               "refresh_denied",
               "rate_limited",
-              "internal_error"
+              "internal_error",
+              "validation_error",
+              "upstream_error"
             ],
             "revoke_status_const": "revoked"
           }
@@ -170,7 +172,7 @@
       "gate_id": "V2-1-G04",
       "name": "Canonical Auth Failure Shapes",
       "failure_severity": "hard_fail",
-      "status": "fail",
+      "status": "pass",
       "checks": [
         {
           "id": "G04-C01",
@@ -183,9 +185,9 @@
         {
           "id": "G04-C02",
           "description": "Error code domain is finite and documented",
-          "status": "fail",
+          "status": "pass",
           "evidence": {
-            "has_pattern_based_reason_codes": true
+            "has_pattern_based_reason_codes": false
           }
         },
         {
@@ -261,9 +263,9 @@
   ],
   "summary": {
     "total_gates": 5,
-    "passed_gates": 3,
-    "failed_gates": 2,
+    "passed_gates": 5,
+    "failed_gates": 0,
     "blocked_gates": 0,
-    "hard_fail_gates_passed": false
+    "hard_fail_gates_passed": true
   }
 }

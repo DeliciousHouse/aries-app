@@ -1,0 +1,22 @@
+{
+  "phase": "v2-1_wave3_security_checks",
+  "status": "pass",
+  "checks": [
+    {
+      "id": "SEC-01",
+      "name": "session policy finite + strict cookie attributes",
+      "status": "pass"
+    },
+    {
+      "id": "SEC-02",
+      "name": "auth failure domain finite",
+      "status": "pass"
+    },
+    {
+      "id": "SEC-03",
+      "name": "token/session ttl policy bounds",
+      "status": "pass"
+    }
+  ],
+  "hard_failures": []
+}

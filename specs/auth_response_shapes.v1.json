@@ -1,0 +1,341 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "specs/auth_response_shapes.v1.json",
+  "artifact_name": "auth_response_shapes",
+  "artifact_type": "json_schema_bundle",
+  "schema_version": "1.0.0",
+  "title": "Auth Foundation API Request/Response Shapes v1",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "AuthStatus": {
+      "type": "string",
+      "enum": [
+        "ok",
+        "error"
+      ]
+    },
+    "SessionStatus": {
+      "type": "string",
+      "enum": [
+        "active",
+        "expired",
+        "revoked",
+        "pending"
+      ]
+    },
+    "TokenType": {
+      "type": "string",
+      "enum": [
+        "Bearer"
+      ]
+    },
+    "ChallengeType": {
+      "type": "string",
+      "enum": [
+        "password",
+        "otp",
+        "magic_link",
+        "unknown"
+      ]
+    },
+    "ErrorReason": {
+      "type": "string",
+      "anyOf": [
+        {
+          "const": "missing_required_fields"
+        },
+        {
+          "const": "invalid_credentials"
+        },
+        {
+          "const": "invalid_session"
+        },
+        {
+          "const": "session_not_found"
+        },
+        {
+          "const": "session_expired"
+        },
+        {
+          "const": "session_revoked"
+        },
+        {
+          "const": "refresh_denied"
+        },
+        {
+          "const": "rate_limited"
+        },
+        {
+          "const": "internal_error"
+        },
+        {
+          "const": "validation_error"
+        },
+        {
+          "const": "upstream_error"
+        }
+      ]
+    },
+    "SessionPathParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sessionId"
+      ],
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "StartSessionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subject",
+        "challenge_type",
+        "challenge_value"
+      ],
+      "properties": {
+        "subject": {
+          "type": "string",
+          "minLength": 1
+        },
+        "challenge_type": {
+          "$ref": "#/$defs/ChallengeType"
+        },
+        "challenge_value": {
+          "type": "string",
+          "minLength": 1
+        },
+        "device_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tenant_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "StartSessionSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "auth_status",
+        "session_id",
+        "session_status",
+        "access_token",
+        "refresh_token",
+        "token_type",
+        "expires_in_seconds"
+      ],
+      "properties": {
+        "auth_status": {
+          "const": "ok"
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "session_status": {
+          "$ref": "#/$defs/SessionStatus"
+        },
+        "access_token": {
+          "type": "string",
+          "minLength": 1
+        },
+        "refresh_token": {
+          "type": "string",
+          "minLength": 1
+        },
+        "token_type": {
+          "$ref": "#/$defs/TokenType"
+        },
+        "expires_in_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "issued_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "GetSessionSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "auth_status",
+        "session_id",
+        "session_status"
+      ],
+      "properties": {
+        "auth_status": {
+          "const": "ok"
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "session_status": {
+          "$ref": "#/$defs/SessionStatus"
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tenant_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "issued_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "last_seen_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "RefreshSessionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "refresh_token"
+      ],
+      "properties": {
+        "refresh_token": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "RefreshSessionSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "auth_status",
+        "session_id",
+        "session_status",
+        "access_token",
+        "refresh_token",
+        "token_type",
+        "expires_in_seconds"
+      ],
+      "properties": {
+        "auth_status": {
+          "const": "ok"
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "session_status": {
+          "$ref": "#/$defs/SessionStatus"
+        },
+        "access_token": {
+          "type": "string",
+          "minLength": 1
+        },
+        "refresh_token": {
+          "type": "string",
+          "minLength": 1
+        },
+        "token_type": {
+          "$ref": "#/$defs/TokenType"
+        },
+        "expires_in_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "issued_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "RevokeSessionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason"
+      ],
+      "properties": {
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revoke_refresh_token": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "RevokeSessionSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "auth_status",
+        "session_id",
+        "session_status",
+        "revoked"
+      ],
+      "properties": {
+        "auth_status": {
+          "const": "ok"
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "session_status": {
+          "const": "revoked"
+        },
+        "revoked": {
+          "type": "boolean",
+          "const": true
+        },
+        "revoked_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "AuthError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "auth_status",
+        "reason"
+      ],
+      "properties": {
+        "auth_status": {
+          "const": "error"
+        },
+        "reason": {
+          "$ref": "#/$defs/ErrorReason"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "retry_after_seconds": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

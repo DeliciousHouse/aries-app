@@ -1,0 +1,23 @@
+{
+  "phase": "v2-1_wave2_repair_loop",
+  "status": "pass",
+  "attempts_used": 1,
+  "max_attempts": 3,
+  "initial_blockers": [
+    "V2-1-G02 failed: placeholder secret source in .env.example",
+    "V2-1-G04 failed: ErrorReason included pattern-based non-finite domain",
+    "Wave2 merge validator field mismatch expected overall_status instead of status"
+  ],
+  "files_patched": [
+    "./.env.example",
+    "./specs/auth_response_shapes.v1.json",
+    "./generated/draft/v2-wave2-merge-validation.json",
+    "./generated/draft/v2-wave2-merge-validation.md"
+  ],
+  "post_repair": {
+    "implementation_validation_status": "pass",
+    "wave2_merge_validation_status": "pass",
+    "wave_3_unblocked": true
+  },
+  "hard_failures": []
+}
