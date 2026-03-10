@@ -17,7 +17,16 @@ export async function GET(req: Request) {
       tenant_id: tenantId,
       provider,
       connection_id: state.integration_id || `pending_${provider}`,
-      status: state.connection_status === 'connected' ? 'connected' : 'disconnected',
+      status:
+        state.connection_status === 'connected'
+          ? 'connected'
+          : state.connection_status === 'pending_oauth'
+            ? 'pending'
+            : state.connection_status === 'token_expired' ||
+                state.connection_status === 'revoked' ||
+                state.connection_status === 'permission_denied'
+              ? 'reauthorization_required'
+              : 'disconnected',
       token_health: resolveTokenHealth(state.last_success_at),
       expires_at: undefined,
       updated_at: state.updated_at
