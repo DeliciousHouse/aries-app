@@ -1,0 +1,9 @@
+{
+  "name": "aries-publish-dispatch",
+  "active": false,
+  "nodes": [
+    { "name": "Webhook", "type": "n8n-nodes-base.webhook", "parameters": { "path": "aries/publish" } },
+    { "name": "RouteByProvider", "type": "n8n-nodes-base.switch", "parameters": {} },
+    { "name": "ProviderHTTP", "type": "n8n-nodes-base.httpRequest", "parameters": { "method": "POST" } }
+  ]
+}

@@ -112,7 +112,7 @@ export async function logout(sessionId: string, payload: RevokeSessionRequest): 
 export async function handleLogoutHttp(req: Request, sessionId?: string): Promise<Response> {
   const payload = (await parseJson<RevokeSessionRequest>(req)) || {};
   const cookies = parseCookies(req);
-  const sid = sessionId || cookies.__Host-aries_session || '';
+  const sid = sessionId || cookies['__Host-aries_session'] || '';
   const result = await logout(sid, payload);
 
   const status = result.auth_status === 'ok' ? 200 : (result.reason === 'session_not_found' ? 404 : 400);

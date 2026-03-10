@@ -1,53 +1,53 @@
 export type AppRouteId =
-  | 'onboarding.start'
-  | 'onboarding.status'
-  | 'marketing.new-job'
-  | 'marketing.job-status'
-  | 'marketing.job-approve';
+  | 'dashboard'
+  | 'posts'
+  | 'calendar'
+  | 'platforms'
+  | 'settings';
 
 export interface AppRoute {
   id: AppRouteId;
   title: string;
   href: string;
-  section: 'onboarding' | 'marketing';
+  section: 'operator';
   description: string;
 }
 
 export const APP_ROUTES: readonly AppRoute[] = [
   {
-    id: 'onboarding.start',
-    title: 'Start',
-    href: '/onboarding/start',
-    section: 'onboarding',
-    description: 'Submit onboarding start payload.'
+    id: 'dashboard',
+    title: 'Dashboard',
+    href: '/dashboard',
+    section: 'operator',
+    description: 'Operator overview for queue health, publish velocity, and platform status.'
   },
   {
-    id: 'onboarding.status',
-    title: 'Status',
-    href: '/onboarding/status',
-    section: 'onboarding',
-    description: 'Check onboarding/provisioning validation states.'
+    id: 'posts',
+    title: 'Posts',
+    href: '/posts',
+    section: 'operator',
+    description: 'Draft, dispatch, and monitor cross-platform publishing jobs.'
   },
   {
-    id: 'marketing.new-job',
-    title: 'New Job',
-    href: '/marketing/new-job',
-    section: 'marketing',
-    description: 'Create and start a marketing workflow job.'
+    id: 'calendar',
+    title: 'Calendar',
+    href: '/calendar',
+    section: 'operator',
+    description: 'Schedule visibility and sync control across connected channels.'
   },
   {
-    id: 'marketing.job-status',
-    title: 'Job Status',
-    href: '/marketing/job-status',
-    section: 'marketing',
-    description: 'Inspect stage and approval state for a job.'
+    id: 'platforms',
+    title: 'Platforms',
+    href: '/platforms',
+    section: 'operator',
+    description: 'Shared OAuth broker status and provider connection controls.'
   },
   {
-    id: 'marketing.job-approve',
-    title: 'Job Approve',
-    href: '/marketing/job-approve',
-    section: 'marketing',
-    description: 'Approve stages and resume paused workflows.'
+    id: 'settings',
+    title: 'Settings',
+    href: '/settings',
+    section: 'operator',
+    description: 'Tenant, delivery, and platform defaults used by orchestration flows.'
   }
 ] as const;
 
