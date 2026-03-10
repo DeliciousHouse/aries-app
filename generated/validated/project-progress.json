@@ -20,7 +20,8 @@
   "last_successful_validation": {
     "name": "v3_token_health_derivation_fix",
     "status": "pass",
-    "evidence": "./generated/validated/token-health-validation.json"
+    "evidence": "./generated/validated/token-health-validation.json",
+    "executed_at": "2026-03-10T20:22:16.938Z"
   },
   "last_hard_failure": null,
   "retry_counts": {
@@ -66,6 +67,6 @@
       "reddit": "complete"
     },
     "n8n_orchestration": "complete",
-    "updated_at": "2026-03-10T09:23:30Z"
+    "updated_at": "2026-03-10T20:22:16.938Z"
   }
 }
