@@ -23,9 +23,14 @@ export async function POST(req: Request) {
       { status: 202 }
     );
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.startsWith('missing_required_fields:')) {
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
+
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : String(error)
+        error: message
       },
       { status: 500 }
     );
