@@ -1,7 +1,7 @@
 {
   "project": "aries-app",
   "ready_for_production": true,
-  "commit": "65cee21eeafefc1c26f6d32cb7962ce7eec264b3",
+  "commit": "d51f78c9c8ea1f31a4f211fe155df34dd8d25ca6",
   "branch": "openclaw/overnight",
   "completed_phase": "v3_operator_surface_parity_and_shared_oauth_broker",
   "validation_artifacts": [
