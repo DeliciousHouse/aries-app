@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+.gitignore
+generated
+n8n
+publish
+skills
+*.log
+.env
+.DS_Store
