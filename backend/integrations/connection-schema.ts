@@ -10,6 +10,7 @@ export interface PlatformConnectionSchema {
   connection_id: string;
   status: 'connected' | 'disconnected' | 'reauthorization_required' | 'pending';
   token_health: TokenHealth;
+  token_expires_at?: string;
   expires_at?: string;
   refresh_expires_at?: string;
   updated_at: string;
