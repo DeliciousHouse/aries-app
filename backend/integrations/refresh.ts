@@ -14,7 +14,7 @@ export async function oauthRefresh(provider: string, tenantId?: string, input: O
   if (!tenantId) return brokerError('missing_required_fields', { provider, message: 'missing_required_fields:tenant_id' });
 
   const store = oauthStore();
-  const key = `${tenantId}::${provider}`;
+  const key = `${tenantId.trim()}::${provider}`;
   const connectionId = store.connectedByTenantProvider.get(key);
   if (!connectionId) return brokerError('connection_not_found', { provider });
   const connection = store.connectionsById.get(connectionId);

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -10,7 +9,7 @@ async function readJson(file: string) {
   return JSON.parse(await readFile(file, 'utf8'));
 }
 
-async function writeJson(file: string, value: any) {
+async function writeJson(file: string, value: Record<string, unknown>) {
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, JSON.stringify(value, null, 2) + '\n', 'utf8');
 }

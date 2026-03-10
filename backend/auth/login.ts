@@ -130,7 +130,7 @@ export async function login(payload: StartSessionRequest): Promise<StartSessionS
   const session: StoredSession = {
     session_id,
     subject: payload.subject || 'unknown_subject',
-    tenant_id: payload.tenant_id || 'tenant_default',
+    tenant_id: payload.tenant_id,
     session_status: 'active',
     access_token,
     refresh_token,

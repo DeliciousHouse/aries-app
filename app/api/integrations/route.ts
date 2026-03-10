@@ -40,7 +40,7 @@ export async function GET(req: Request) {
   });
 
   const summary = {
-    total: 7,
+    total: platforms.length,
     connected: cards.filter((c) => c.connection_state === 'connected').length,
     not_connected: cards.filter((c) => c.connection_state === 'not_connected').length,
     attention_required: cards.filter((c) => c.connection_state === 'connection_error').length
