@@ -1,34 +1,29 @@
 {
   "phase": "v3_operator_surface_parity_and_shared_oauth_broker",
-  "objective": "runtime_precheck_heartbeat",
+  "objective": "terminal_completion_heartbeat",
   "status": "pass",
-  "generated_at": "2026-03-10T21:22:40Z",
+  "generated_at": "2026-03-10T21:34:33Z",
   "checks": [
     {
-      "id": "precheck-command-executes",
+      "id": "roadmap-phases-1-7-complete",
       "status": "pass",
       "evidence": {
-        "command": "npm run precheck",
-        "ok": true
+        "missing": []
       }
     },
     {
-      "id": "precheck-reports-required-scripts",
+      "id": "no-active-blockers",
       "status": "pass",
       "evidence": {
-        "scripts": [
-          "dev",
-          "build",
-          "start"
-        ]
+        "active_blockers": []
       }
     },
     {
-      "id": "precheck-reports-surface-counts",
+      "id": "terminal-state-consistency",
       "status": "pass",
       "evidence": {
-        "endpoints": 5,
-        "screens": 5
+        "current_status": "complete",
+        "phase_conductor_state": "terminal_complete"
       }
     }
   ],
