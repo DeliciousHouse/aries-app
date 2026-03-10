@@ -2,7 +2,7 @@
   "phase": "v3_operator_surface_parity_and_shared_oauth_broker",
   "objective": "adapter_hardening_and_workflow_wiring_validation",
   "status": "pass",
-  "generated_at": "2026-03-10T23:02:00.477Z",
+  "generated_at": "2026-03-10T23:22:23.143Z",
   "checks": [
     {
       "id": "V3-C01-workflow-files-present",
@@ -17,25 +17,27 @@
       }
     },
     {
-      "id": "V3-C02-publish-normalization",
+      "id": "V3-C02-publish-routing-shape",
       "status": "pass",
       "evidence": {
-        "hasNormalizePublish": true,
-        "hasProviderMap": true
+        "hasRouteByProvider": true,
+        "hasProviderHTTP": true
       }
     },
     {
-      "id": "V3-C03-calendar-sync-event",
+      "id": "V3-C03-calendar-sync-shape",
       "status": "pass",
       "evidence": {
-        "hasCalendarSync": true
+        "hasFetchCalendar": true,
+        "hasWriteScheduleState": true
       }
     },
     {
-      "id": "V3-C04-retry-event-clamped",
+      "id": "V3-C04-retry-workflow-shape",
       "status": "pass",
       "evidence": {
-        "hasRetryClamp": true
+        "hasLoadFailed": true,
+        "hasRetryDispatch": true
       }
     },
     {
