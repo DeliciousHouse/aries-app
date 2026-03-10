@@ -6,7 +6,9 @@ type Result = { id: string; status: 'pass' | 'fail'; evidence: Record<string, un
 
 function resolveTokenHealth(expiresAt?: string): 'healthy' | 'expiring_soon' | 'expired' | 'unknown' {
   if (!expiresAt) return 'unknown';
-  const ms = new Date(expiresAt).getTime() - Date.now();
+  const expiresAtMs = new Date(expiresAt).getTime();
+  if (!Number.isFinite(expiresAtMs)) return 'unknown';
+  const ms = expiresAtMs - Date.now();
   if (ms <= 0) return 'expired';
   if (ms < 24 * 60 * 60 * 1000) return 'expiring_soon';
   return 'healthy';
@@ -46,6 +48,11 @@ async function main() {
       id: 'missing-expiry-unknown',
       status: resolveTokenHealth(undefined) === 'unknown' ? 'pass' : 'fail',
       evidence: { input: null, derived: resolveTokenHealth(undefined) }
+    },
+    {
+      id: 'invalid-expiry-unknown',
+      status: resolveTokenHealth('not-an-iso-date') === 'unknown' ? 'pass' : 'fail',
+      evidence: { input: 'not-an-iso-date', derived: resolveTokenHealth('not-an-iso-date') }
     },
     {
       id: 'no-last-success-at-expiry-derivation',

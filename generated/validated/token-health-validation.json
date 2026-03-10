@@ -2,13 +2,13 @@
   "phase": "v3_operator_surface_parity_and_shared_oauth_broker",
   "objective": "token_health_derivation_fix",
   "status": "pass",
-  "generated_at": "2026-03-10T20:41:50.553Z",
+  "generated_at": "2026-03-10T21:02:27.638Z",
   "checks": [
     {
       "id": "healthy-token-with-future-expiry",
       "status": "pass",
       "evidence": {
-        "input": "2026-03-13T20:41:50.552Z",
+        "input": "2026-03-13T21:02:27.636Z",
         "derived": "healthy"
       }
     },
@@ -16,7 +16,7 @@
       "id": "expiring-soon-token",
       "status": "pass",
       "evidence": {
-        "input": "2026-03-10T22:41:50.552Z",
+        "input": "2026-03-10T23:02:27.636Z",
         "derived": "expiring_soon"
       }
     },
@@ -24,7 +24,7 @@
       "id": "expired-token",
       "status": "pass",
       "evidence": {
-        "input": "2026-03-10T20:36:50.552Z",
+        "input": "2026-03-10T20:57:27.636Z",
         "derived": "expired"
       }
     },
@@ -33,6 +33,14 @@
       "status": "pass",
       "evidence": {
         "input": null,
+        "derived": "unknown"
+      }
+    },
+    {
+      "id": "invalid-expiry-unknown",
+      "status": "pass",
+      "evidence": {
+        "input": "not-an-iso-date",
         "derived": "unknown"
       }
     },

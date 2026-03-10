@@ -25,3 +25,18 @@
 - Updated artifacts:
   - `generated/validated/token-health-validation.json`
   - `generated/validated/project-progress.json`
+
+## 2026-03-10 — Bounded unit of work (v3 token-health invalid-expiry hardening)
+- Read current task context from `generated/validated/project-progress.json`.
+- Implemented one bounded current-phase reliability hardening:
+  - `backend/integrations/connection-schema.ts`
+    - Updated `resolveTokenHealth` to treat invalid expiry timestamps (`NaN` parse) as `unknown` instead of incorrectly returning `healthy`.
+  - `tests/run-token-health-validation.ts`
+    - Added `invalid-expiry-unknown` validation check.
+    - Kept local validator logic in sync with production helper.
+- Ran smallest relevant validation:
+  - `npx tsx tests/run-token-health-validation.ts`
+  - Result: `pass` (all checks green)
+- Updated artifacts:
+  - `generated/validated/token-health-validation.json`
+  - `generated/validated/project-progress.json`

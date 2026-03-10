@@ -18,8 +18,9 @@ export interface PlatformConnectionSchema {
 
 export function resolveTokenHealth(expiresAt?: string): TokenHealth {
   if (!expiresAt) return 'unknown';
-  const ms = new Date(expiresAt).getTime() - Date.now();
-  if (!Number.isFinite(ms)) return 'unknown';
+  const expiresAtMs = new Date(expiresAt).getTime();
+  if (!Number.isFinite(expiresAtMs)) return 'unknown';
+  const ms = expiresAtMs - Date.now();
   if (ms <= 0) return 'expired';
   if (ms < 24 * 60 * 60 * 1000) return 'expiring_soon';
   return 'healthy';
