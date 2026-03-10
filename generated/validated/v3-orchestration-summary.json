@@ -2,7 +2,7 @@
   "phase": "v3_operator_surface_parity_and_shared_oauth_broker",
   "objective": "adapter_hardening_and_workflow_wiring_validation",
   "status": "pass",
-  "generated_at": "2026-03-10T21:42:18.565Z",
+  "generated_at": "2026-03-10T22:03:11.931Z",
   "checks": [
     {
       "id": "V3-C01-workflow-files-present",
