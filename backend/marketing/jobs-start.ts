@@ -123,16 +123,25 @@ export async function startMarketingJob(
 ): Promise<StartMarketingJobResponse> {
   assertRequiredSchemas();
 
-  const jobId = `mkt_${input.tenantId}_${Date.now()}`;
+  if (!input?.tenantId || typeof input.tenantId !== 'string' || input.tenantId.trim().length === 0) {
+    throw new Error('missing_required_fields:tenantId');
+  }
+
+  if (!input?.jobType || typeof input.jobType !== 'string') {
+    throw new Error('missing_required_fields:jobType');
+  }
+
+  const tenantId = input.tenantId.trim();
+  const jobId = `mkt_${tenantId}_${Date.now()}`;
   const baseUrl = process.env.N8N_BASE_URL || "http://localhost:5678";
   const webhookUrl = `${baseUrl}/webhook/marketing-research`;
 
   const reqBody = {
-    tenant_id: input.tenantId,
+    tenant_id: tenantId,
     job_type: "marketing_research",
     request: {
       job_id: jobId,
-      tenant_id: input.tenantId,
+      tenant_id: tenantId,
       source_job_type: input.jobType,
       ...(input.payload || {})
     }
@@ -161,7 +170,7 @@ export async function startMarketingJob(
       return {
         status: "accepted",
         jobId: String(body.job_id),
-        tenantId: input.tenantId,
+        tenantId,
         jobType: input.jobType,
         wiring: "n8n_research_webhook",
         runtimePath: outPath
@@ -175,7 +184,7 @@ export async function startMarketingJob(
   return {
     status: "accepted",
     jobId,
-    tenantId: input.tenantId,
+    tenantId,
     jobType: input.jobType,
     wiring: "backend_fallback",
     runtimePath: outPath

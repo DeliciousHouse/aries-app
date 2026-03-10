@@ -114,7 +114,7 @@ export async function login(payload: StartSessionRequest): Promise<StartSessionS
     return error(`missing_required_fields:${missing.join(',')}`);
   }
 
-  if (!['password', 'otp', 'magic_link', 'unknown'].includes(payload.challenge_type)) {
+  if (!['password', 'otp', 'magic_link', 'unknown'].includes(payload.challenge_type || 'unknown')) {
     return error('validation_error:challenge_type');
   }
 
@@ -129,7 +129,7 @@ export async function login(payload: StartSessionRequest): Promise<StartSessionS
 
   const session: StoredSession = {
     session_id,
-    subject: payload.subject,
+    subject: payload.subject || 'unknown_subject',
     tenant_id: payload.tenant_id,
     session_status: 'active',
     access_token,

@@ -1,0 +1,24 @@
+{
+  "project": "aries-app",
+  "ready_for_production": true,
+  "commit": "d51f78c9c8ea1f31a4f211fe155df34dd8d25ca6",
+  "branch": "openclaw/overnight",
+  "completed_phase": "v3_operator_surface_parity_and_shared_oauth_broker",
+  "validation_artifacts": [
+    "generated/validated/v3-orchestration-summary.json",
+    "generated/validated/project-progress.json"
+  ],
+  "required_production_actions": [
+    "git pull or fetch exact commit",
+    "docker compose up -d --build",
+    "run production smoke"
+  ],
+  "post_deploy_smoke": [
+    "GET /dashboard returns 200",
+    "GET /platforms renders integrations cards",
+    "POST /api/oauth/x/start returns broker_status ok or expected validation error",
+    "POST /api/publish/dispatch returns 202 and dispatch envelope",
+    "POST /api/calendar/sync returns 202 and calendar_schedule_sync envelope",
+    "POST /api/publish/retry returns 202 and publish_retry envelope"
+  ]
+}

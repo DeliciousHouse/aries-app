@@ -1,5 +1,5 @@
 {
-  "current_phase": "v2_2_integrations_control_plane_foundation",
+  "current_phase": "v3_operator_surface_parity_and_shared_oauth_broker",
   "current_status": "complete",
   "completed_phases": [
     "contract_freeze_and_validation",
@@ -16,11 +16,11 @@
     "v2_2_integrations_control_plane_foundation"
   ],
   "active_blockers": [],
-  "next_action": "V2-2 is frozen after Wave1/Wave2/Wave3 pass evidence. Hold position; do not start V2-3 until explicitly authorized.",
+  "next_action": "Roadmap complete and validated; token_health now derives from token_expires_at. Heartbeat should return HEARTBEAT_OK unless new authorized phase is introduced.",
   "last_successful_validation": {
-    "name": "v2_2_integrations_control_plane_foundation",
+    "name": "v3_token_health_derivation_fix",
     "status": "pass",
-    "evidence": "./generated/validated/v2-2-integrations-summary.json"
+    "evidence": "./generated/validated/token-health-validation.json"
   },
   "last_hard_failure": null,
   "retry_counts": {
@@ -39,7 +39,7 @@
     "gate_integrity": "all_passed_in_sequence",
     "parallel_lanes_active": [],
     "blocked_phase": null,
-    "updated_at": "2026-03-09T22:48:00Z"
+    "updated_at": "2026-03-10T19:25:00Z"
   },
   "last_ui_smoke_revalidation": {
     "phase": "phase_3_end_to_end_ui_smoke",
@@ -51,6 +51,21 @@
     "v2_1": "complete",
     "v2_2": "complete",
     "v2_3": "not_started",
-    "updated_at": "2026-03-09T22:48:00Z"
+    "updated_at": "2026-03-10T08:59:00Z"
+  },
+  "v3_status": {
+    "phase": "operator_surface_and_shared_oauth",
+    "product_shell_parity": "complete",
+    "shared_oauth_broker": "complete",
+    "platform_matrix": {
+      "meta": "complete",
+      "linkedin": "complete",
+      "x": "complete",
+      "youtube": "complete",
+      "tiktok": "complete",
+      "reddit": "complete"
+    },
+    "n8n_orchestration": "complete",
+    "updated_at": "2026-03-10T09:23:30Z"
   }
 }

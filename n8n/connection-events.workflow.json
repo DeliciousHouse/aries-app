@@ -1,0 +1,9 @@
+{
+  "name": "aries-connection-events",
+  "active": false,
+  "nodes": [
+    { "name": "Webhook", "type": "n8n-nodes-base.webhook", "parameters": { "path": "aries/connection-events" } },
+    { "name": "Normalize", "type": "n8n-nodes-base.set", "parameters": { "keepOnlySet": false } },
+    { "name": "Dispatch", "type": "n8n-nodes-base.httpRequest", "parameters": { "url": "{{$json.n8n_dispatch_url}}", "method": "POST" } }
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "phase": "v3_operator_surface_parity_and_shared_oauth_broker",
+  "objective": "token_health_derivation_fix",
+  "status": "pass",
+  "generated_at": "2026-03-10T20:12:07.442Z",
+  "checks": [
+    {
+      "id": "healthy-token-with-future-expiry",
+      "status": "pass",
+      "evidence": {
+        "input": "2026-03-13T20:12:07.418Z",
+        "derived": "healthy"
+      }
+    },
+    {
+      "id": "expiring-soon-token",
+      "status": "pass",
+      "evidence": {
+        "input": "2026-03-10T22:12:07.418Z",
+        "derived": "expiring_soon"
+      }
+    },
+    {
+      "id": "expired-token",
+      "status": "pass",
+      "evidence": {
+        "input": "2026-03-10T20:07:07.418Z",
+        "derived": "expired"
+      }
+    },
+    {
+      "id": "missing-expiry-unknown",
+      "status": "pass",
+      "evidence": {
+        "input": null,
+        "derived": "unknown"
+      }
+    },
+    {
+      "id": "no-last-success-at-expiry-derivation",
+      "status": "pass",
+      "evidence": {
+        "derivesFromTokenExpiry": true,
+        "incorrectlyDerivesFromLastSuccess": false
+      }
+    },
+    {
+      "id": "status-layer-exposes-token-expires-at",
+      "status": "pass",
+      "evidence": {
+        "statusHasTokenExpiresAt": true,
+        "statusKeepsLastSuccessAt": true
+      }
+    },
+    {
+      "id": "oauth-callback-persists-expiry-metadata",
+      "status": "pass",
+      "evidence": {
+        "accessExpiryPersisted": true,
+        "refreshExpiryPersisted": true
+      }
+    },
+    {
+      "id": "oauth-refresh-persists-expiry-metadata",
+      "status": "pass",
+      "evidence": {
+        "refreshUpdatesAccessExpiry": true,
+        "refreshUpdatesRefreshExpiry": true
+      }
+    }
+  ]
+}

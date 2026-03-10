@@ -1,0 +1,9 @@
+{
+  "name": "aries-publish-retry",
+  "active": false,
+  "nodes": [
+    { "name": "Cron", "type": "n8n-nodes-base.cron", "parameters": { "mode": "everyMinute" } },
+    { "name": "LoadFailed", "type": "n8n-nodes-base.httpRequest", "parameters": { "method": "GET" } },
+    { "name": "RetryDispatch", "type": "n8n-nodes-base.httpRequest", "parameters": { "method": "POST" } }
+  ]
+}

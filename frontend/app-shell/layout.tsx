@@ -61,32 +61,18 @@ export default function AppShellLayout({
         }}
       >
         <div>
-          <p style={{ margin: 0, fontSize: 12, color: '#475467' }}>ARIES App Shell</p>
+          <p style={{ margin: 0, fontSize: 12, color: '#475467' }}>ARIES Operator Surface</p>
           <h1 style={{ margin: '6px 0 0', fontSize: 24 }}>{title ?? currentRoute?.title ?? 'Workflow Console'}</h1>
           <p style={{ margin: '8px 0 0', color: '#667085' }}>
-            {subtitle ?? currentRoute?.description ?? 'Shared navigation for onboarding and marketing flows.'}
+            {subtitle ?? currentRoute?.description ?? 'n8n-first control plane for multi-platform publishing.'}
           </p>
         </div>
 
         <nav aria-label="workflow navigation" style={{ display: 'grid', gap: 10 }}>
           <div style={{ display: 'grid', gap: 6 }}>
-            <strong style={{ fontSize: 12, color: '#475467' }}>Onboarding</strong>
+            <strong style={{ fontSize: 12, color: '#475467' }}>Operator</strong>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {getSectionRoutes('onboarding').map((route) => (
-                <RouteLink
-                  key={route.id}
-                  href={route.href}
-                  label={route.title}
-                  isActive={currentRouteId === route.id}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gap: 6 }}>
-            <strong style={{ fontSize: 12, color: '#475467' }}>Marketing</strong>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {getSectionRoutes('marketing').map((route) => (
+              {getSectionRoutes('operator').map((route) => (
                 <RouteLink
                   key={route.id}
                   href={route.href}
