@@ -18,8 +18,9 @@ export async function GET(req: Request) {
       provider,
       connection_id: state.integration_id || `pending_${provider}`,
       status: state.connection_status === 'connected' ? 'connected' : 'disconnected',
-      token_health: resolveTokenHealth(state.last_success_at),
-      expires_at: undefined,
+      token_health: resolveTokenHealth(state.token_expires_at),
+      token_expires_at: state.token_expires_at,
+      expires_at: state.token_expires_at,
       updated_at: state.updated_at
     };
   }).filter(Boolean);

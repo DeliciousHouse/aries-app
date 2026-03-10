@@ -16,11 +16,11 @@
     "v2_2_integrations_control_plane_foundation"
   ],
   "active_blockers": [],
-  "next_action": "Phase complete. Hold for next authorized phase (runbook and hardening).",
+  "next_action": "Roadmap complete and validated; token_health now derives from token_expires_at. Heartbeat should return HEARTBEAT_OK unless new authorized phase is introduced.",
   "last_successful_validation": {
-    "name": "v3_operator_surface_parity_and_shared_oauth_broker",
+    "name": "v3_token_health_derivation_fix",
     "status": "pass",
-    "evidence": "./generated/validated/v3-orchestration-summary.json"
+    "evidence": "./generated/validated/token-health-validation.json"
   },
   "last_hard_failure": null,
   "retry_counts": {
@@ -39,7 +39,7 @@
     "gate_integrity": "all_passed_in_sequence",
     "parallel_lanes_active": [],
     "blocked_phase": null,
-    "updated_at": "2026-03-10T08:59:00Z"
+    "updated_at": "2026-03-10T19:25:00Z"
   },
   "last_ui_smoke_revalidation": {
     "phase": "phase_3_end_to_end_ui_smoke",

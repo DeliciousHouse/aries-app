@@ -12,6 +12,8 @@ type OAuthCallbackQuery = {
   state?: string;
   error?: string;
   error_description?: string;
+  expires_in?: string;
+  refresh_expires_in?: string;
 };
 
 type OAuthCallbackSuccess = {
@@ -25,6 +27,16 @@ type OAuthCallbackSuccess = {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function addSeconds(iso: string, seconds: number): string {
+  return new Date(new Date(iso).getTime() + seconds * 1000).toISOString();
+}
+
+function parsePositiveInt(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function randomConnectionId(provider: Provider): string {
@@ -77,6 +89,8 @@ export async function oauthCallback(provider: string, query: OAuthCallbackQuery)
 
   const connectedAt = nowIso();
   const connectionId = pending.connection_id || randomConnectionId(provider);
+  const accessTtlSeconds = parsePositiveInt(query.expires_in);
+  const refreshTtlSeconds = parsePositiveInt(query.refresh_expires_in);
 
   store.connectionsById.set(connectionId, {
     connection_id: connectionId,
@@ -85,7 +99,9 @@ export async function oauthCallback(provider: string, query: OAuthCallbackQuery)
     connection_status: 'connected',
     granted_scopes: pending.scopes,
     created_at: connectedAt,
-    updated_at: connectedAt
+    updated_at: connectedAt,
+    token_expires_at: typeof accessTtlSeconds === 'number' ? addSeconds(connectedAt, accessTtlSeconds) : undefined,
+    refresh_token_expires_at: typeof refreshTtlSeconds === 'number' ? addSeconds(connectedAt, refreshTtlSeconds) : undefined
   });
   store.connectedByTenantProvider.set(providerTenantKey(pending.tenant_id, provider), connectionId);
   store.pendingByState.delete(state);
@@ -107,7 +123,9 @@ export async function handleOauthCallbackHttp(req: Request, providerFromPath?: s
     code: url.searchParams.get('code') || undefined,
     state: url.searchParams.get('state') || undefined,
     error: url.searchParams.get('error') || undefined,
-    error_description: url.searchParams.get('error_description') || undefined
+    error_description: url.searchParams.get('error_description') || undefined,
+    expires_in: url.searchParams.get('expires_in') || undefined,
+    refresh_expires_in: url.searchParams.get('refresh_expires_in') || undefined
   };
 
   const result = await oauthCallback(provider, query);

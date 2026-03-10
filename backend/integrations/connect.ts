@@ -49,6 +49,8 @@ type ConnectionRecord = {
   granted_scopes: string[];
   created_at: string;
   updated_at: string;
+  token_expires_at?: string;
+  refresh_token_expires_at?: string;
   disconnected_at?: string;
 };
 

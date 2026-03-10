@@ -25,6 +25,8 @@ type PlatformConnectionStatusShape = {
   connection_status: PlatformConnectionStatus;
   status_reason?: string;
   health?: PlatformHealth;
+  token_expires_at?: string;
+  refresh_token_expires_at?: string;
   last_success_at?: string;
   last_error?: {
     code?: string;
@@ -77,6 +79,8 @@ export function oauthStatus(provider: string, tenantId?: string): PlatformConnec
     connection_status: statusFromInternal(connection?.connection_status),
     status_reason: connection ? undefined : 'connection_not_found',
     health: connection?.connection_status === 'connected' ? 'healthy' : 'unknown',
+    token_expires_at: connection?.token_expires_at,
+    refresh_token_expires_at: connection?.refresh_token_expires_at,
     last_success_at: connection?.connection_status === 'connected' ? connection.updated_at : undefined,
     capabilities: [],
     metadata: {},
