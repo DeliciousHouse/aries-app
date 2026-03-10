@@ -1,0 +1,50 @@
+{
+  "phase": "v3_operator_surface_parity_and_shared_oauth_broker",
+  "objective": "adapter_hardening_and_workflow_wiring_validation",
+  "status": "pass",
+  "generated_at": "2026-03-10T09:23:18.874Z",
+  "checks": [
+    {
+      "id": "V3-C01-workflow-files-present",
+      "status": "pass",
+      "evidence": {
+        "workflowPresence": {
+          "n8n/connection-events.workflow.json": true,
+          "n8n/publish-dispatch.workflow.json": true,
+          "n8n/publish-retry.workflow.json": true,
+          "n8n/calendar-schedule-sync.workflow.json": true
+        }
+      }
+    },
+    {
+      "id": "V3-C02-publish-normalization",
+      "status": "pass",
+      "evidence": {
+        "hasNormalizePublish": true,
+        "hasProviderMap": true
+      }
+    },
+    {
+      "id": "V3-C03-calendar-sync-event",
+      "status": "pass",
+      "evidence": {
+        "hasCalendarSync": true
+      }
+    },
+    {
+      "id": "V3-C04-retry-event-clamped",
+      "status": "pass",
+      "evidence": {
+        "hasRetryClamp": true
+      }
+    },
+    {
+      "id": "V3-C05-phase-authority",
+      "status": "pass",
+      "evidence": {
+        "current_phase": "v3_operator_surface_parity_and_shared_oauth_broker",
+        "next_action": "Complete adapter hardening + workflow wiring validation for calendar sync and publish retry orchestration."
+      }
+    }
+  ]
+}
