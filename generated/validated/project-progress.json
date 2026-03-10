@@ -16,12 +16,12 @@
     "v2_2_integrations_control_plane_foundation"
   ],
   "active_blockers": [],
-  "next_action": "Roadmap complete and validated; token_health now derives from token_expires_at. Heartbeat should return HEARTBEAT_OK unless new authorized phase is introduced.",
+  "next_action": "Roadmap complete and validated; token health derivation and status-layer expiry metadata checks pass. Heartbeat should return HEARTBEAT_OK unless new authorized phase is introduced.",
   "last_successful_validation": {
     "name": "v3_token_health_derivation_fix",
     "status": "pass",
     "evidence": "./generated/validated/token-health-validation.json",
-    "executed_at": "2026-03-10T20:22:16.938Z"
+    "executed_at": "2026-03-10T20:41:50.553Z"
   },
   "last_hard_failure": null,
   "retry_counts": {
@@ -67,6 +67,6 @@
       "reddit": "complete"
     },
     "n8n_orchestration": "complete",
-    "updated_at": "2026-03-10T20:22:16.938Z"
+    "updated_at": "2026-03-10T20:41:50.553Z"
   }
 }

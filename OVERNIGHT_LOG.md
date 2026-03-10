@@ -13,3 +13,15 @@
   - Result: `PASS_MISSING_VALIDATION`
 - Committed on branch `openclaw/overnight`:
   - `Fix marketing jobs route validation for missing tenantId/jobType`
+
+## 2026-03-10 — Bounded unit of work (v3 shared OAuth validation coverage)
+- Read current task context from `generated/validated/project-progress.json`.
+- Implemented one bounded current-phase validation improvement:
+  - `tests/run-token-health-validation.ts`
+    - Added explicit check `status-layer-exposes-refresh-token-expiry` to validate that `refresh_token_expires_at` is surfaced by the integrations status layer.
+- Ran smallest relevant validation:
+  - `npx tsx tests/run-token-health-validation.ts`
+  - Result: `pass` (all checks green)
+- Updated artifacts:
+  - `generated/validated/token-health-validation.json`
+  - `generated/validated/project-progress.json`

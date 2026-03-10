@@ -68,6 +68,13 @@ async function main() {
       }
     },
     {
+      id: 'status-layer-exposes-refresh-token-expiry',
+      status: statusSrc.includes('refresh_token_expires_at: connection?.refresh_token_expires_at') ? 'pass' : 'fail',
+      evidence: {
+        statusHasRefreshTokenExpiresAt: statusSrc.includes('refresh_token_expires_at: connection?.refresh_token_expires_at')
+      }
+    },
+    {
       id: 'oauth-callback-persists-expiry-metadata',
       status:
         callbackSrc.includes('token_expires_at: typeof accessTtlSeconds === \'number\' ? addSeconds(connectedAt, accessTtlSeconds) : undefined') &&
