@@ -1,4 +1,4 @@
-// File: /home/bkam/docker-stack/aries-app/app/api/marketing/jobs/route.ts
+// File: /home/runner/work/aries-app/aries-app/app/api/marketing/jobs/route.ts
 import * as entry from '../../../../../../app/api/marketing/jobs/route.js'
 import type { NextRequest } from 'next/server.js'
 
