@@ -78,7 +78,7 @@ function resolveSessionId(req: Request): string {
     const sid = authStore().accessIndex.get(token);
     if (sid) return sid;
   }
-  return parseCookies(req).__Host-aries_session || '';
+  return parseCookies(req)['__Host-aries_session'] || '';
 }
 
 export async function me(req: Request): Promise<GetSessionSuccess | AuthError> {

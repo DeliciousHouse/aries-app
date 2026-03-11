@@ -3,8 +3,9 @@ import { approveMarketingJob } from '../../../../../../backend/marketing/jobs-ap
 
 export async function POST(
   req: Request,
-  { params }: { params: { jobId: string } }
+  { params }: { params: Promise<{ jobId: string }> }
 ) {
+  const { jobId } = await params;
   let payload: any = {};
   try {
     payload = await req.json();
@@ -14,7 +15,7 @@ export async function POST(
 
   try {
     const result = await approveMarketingJob({
-      jobId: params.jobId,
+      jobId,
       tenantId: payload.tenantId,
       approvedBy: payload.approvedBy,
       approvedStages: payload.approvedStages,

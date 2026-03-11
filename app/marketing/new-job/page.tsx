@@ -1,7 +1,7 @@
 'use client';
 
-import MarketingNewJobScreen from '../../../frontend/marketing/new-job';
+import { BrandCampaignScreen } from '../../../frontend/marketing/brand-campaign';
 
 export default function MarketingNewJobPage() {
-  return <MarketingNewJobScreen />;
+  return <BrandCampaignScreen />;
 }

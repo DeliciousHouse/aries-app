@@ -1,4 +1,4 @@
-import { buildRetryEvent } from '../../../../../backend/integrations/workflow-orchestrator';
+import { buildRetryEvent } from '../../../../backend/integrations/workflow-orchestrator';
 
 export async function POST(req: Request) {
   let body: { tenant_id?: string; max_attempts?: number } = {};

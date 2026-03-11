@@ -1,10 +1,11 @@
 import OnboardingStatusScreen from '../../../frontend/onboarding/status';
 
-export default function OnboardingStatusPage({
+export default async function OnboardingStatusPage({
   searchParams
 }: {
-  searchParams?: { tenant_id?: string };
+  searchParams?: Promise<{ tenant_id?: string }>;
 }) {
-  const tenantId = searchParams?.tenant_id || '';
+  const resolved = await searchParams;
+  const tenantId = resolved?.tenant_id || '';
   return <OnboardingStatusScreen initialTenantId={tenantId} />;
 }

@@ -271,8 +271,8 @@ export default function LoginScreen(): JSX.Element {
               />
             </label>
 
-            <button type="submit" disabled={authFlowState === 'submitting'}>
-              {authFlowState === 'submitting' ? 'Verifying…' : 'Verify code'}
+            <button type="submit">
+              Verify code
             </button>
           </form>
         </section>

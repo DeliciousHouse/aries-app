@@ -1,9 +1,10 @@
 import { oauthRefresh } from '../../../../../backend/integrations/refresh';
 
-export async function POST(req: Request, { params }: { params: { provider: string } }) {
+export async function POST(req: Request, { params }: { params: Promise<{ provider: string }> }) {
+  const { provider } = await params;
   let body: { tenant_id?: string; token_expires_in_seconds?: number; refresh_expires_in_seconds?: number } = {};
   try { body = await req.json(); } catch {}
-  const result = await oauthRefresh(params.provider, body.tenant_id, {
+  const result = await oauthRefresh(provider, body.tenant_id, {
     token_expires_in_seconds: body.token_expires_in_seconds,
     refresh_expires_in_seconds: body.refresh_expires_in_seconds
   });

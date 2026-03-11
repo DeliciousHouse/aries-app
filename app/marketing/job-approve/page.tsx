@@ -1,11 +1,12 @@
 import MarketingJobApproveScreen from '../../../frontend/marketing/job-approve';
 
-export default function MarketingJobApprovePage({
+export default async function MarketingJobApprovePage({
   searchParams
 }: {
-  searchParams?: { jobId?: string; tenantId?: string };
+  searchParams?: Promise<{ jobId?: string; tenantId?: string }>;
 }) {
-  const jobId = searchParams?.jobId || '';
-  const tenantId = searchParams?.tenantId || '';
+  const resolved = await searchParams;
+  const jobId = resolved?.jobId || '';
+  const tenantId = resolved?.tenantId || '';
   return <MarketingJobApproveScreen defaultJobId={jobId} defaultTenantId={tenantId} />;
 }

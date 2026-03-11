@@ -1,10 +1,11 @@
 import MarketingJobStatusScreen from '../../../frontend/marketing/job-status';
 
-export default function MarketingJobStatusPage({
+export default async function MarketingJobStatusPage({
   searchParams
 }: {
-  searchParams?: { jobId?: string };
+  searchParams?: Promise<{ jobId?: string }>;
 }) {
-  const jobId = searchParams?.jobId || '';
+  const resolved = await searchParams;
+  const jobId = resolved?.jobId || '';
   return <MarketingJobStatusScreen defaultJobId={jobId} />;
 }

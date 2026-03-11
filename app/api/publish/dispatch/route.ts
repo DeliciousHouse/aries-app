@@ -1,4 +1,4 @@
-import { normalizePublishDispatch } from '../../../../../backend/integrations/workflow-orchestrator';
+import { normalizePublishDispatch } from '../../../../backend/integrations/workflow-orchestrator';
 
 export async function POST(req: Request) {
   let body: { tenant_id?: string; provider?: string; content?: string; media_urls?: string[]; scheduled_for?: string } = {};

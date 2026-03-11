@@ -3,6 +3,7 @@ export type MarketingJobType =
   | 'marketing_strategy'
   | 'marketing_production'
   | 'marketing_publish'
+  | 'brand_campaign'
   | 'unknown';
 
 export type MarketingStage = 'research' | 'strategy' | 'production' | 'publish';

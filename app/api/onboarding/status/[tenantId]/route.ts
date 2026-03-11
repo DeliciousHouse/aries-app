@@ -3,13 +3,14 @@ import { getOnboardingStatus } from '../../../../../backend/onboarding/status';
 
 export async function GET(
   req: Request,
-  { params }: { params: { tenantId: string } }
+  { params }: { params: Promise<{ tenantId: string }> }
 ) {
+  const { tenantId } = await params;
   const url = new URL(req.url);
   const signup_event_id = url.searchParams.get('signup_event_id') || undefined;
 
   const result = getOnboardingStatus({
-    tenant_id: params.tenantId,
+    tenant_id: tenantId,
     signup_event_id
   });
 

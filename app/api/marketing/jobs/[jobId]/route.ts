@@ -3,10 +3,11 @@ import { getMarketingJobStatus } from '../../../../../backend/marketing/jobs-sta
 
 export async function GET(
   _req: Request,
-  { params }: { params: { jobId: string } }
+  { params }: { params: Promise<{ jobId: string }> }
 ) {
+  const { jobId } = await params;
   try {
-    const result = getMarketingJobStatus(params.jobId);
+    const result = getMarketingJobStatus(jobId);
     return NextResponse.json(
       {
         jobId: result.jobId,

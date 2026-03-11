@@ -1,4 +1,4 @@
-import { buildCalendarSyncEvent } from '../../../../../backend/integrations/workflow-orchestrator';
+import { buildCalendarSyncEvent } from '../../../../backend/integrations/workflow-orchestrator';
 
 export async function POST(req: Request) {
   let body: { tenant_id?: string; window_start?: string; window_end?: string } = {};

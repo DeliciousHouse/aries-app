@@ -105,7 +105,7 @@ function createFallbackJobRuntime(input: StartMarketingJobRequest, jobId: string
 
 export type StartMarketingJobRequest = {
   tenantId: string;
-  jobType: "marketing_research" | "marketing_strategy" | "marketing_production" | "marketing_publish" | "unknown";
+  jobType: "marketing_research" | "marketing_strategy" | "marketing_production" | "marketing_publish" | "brand_campaign" | "unknown";
   payload?: Record<string, unknown>;
 };
 
@@ -124,19 +124,20 @@ export async function startMarketingJob(
   assertRequiredSchemas();
 
   if (!input?.tenantId || typeof input.tenantId !== 'string' || input.tenantId.trim().length === 0) {
+    console.error('startMarketingJob failed: missing tenantId', input);
     throw new Error('missing_required_fields:tenantId');
   }
 
   if (!input?.jobType || typeof input.jobType !== 'string') {
+    console.error('startMarketingJob failed: missing jobType', input);
     throw new Error('missing_required_fields:jobType');
   }
 
   const tenantId = input.tenantId.trim();
   const jobId = `mkt_${tenantId}_${Date.now()}`;
   const baseUrl = process.env.N8N_BASE_URL || "http://localhost:5678";
-  const webhookUrl = `${baseUrl}/webhook/marketing-research`;
-
-  const reqBody = {
+  let webhookUrl = `${baseUrl}/webhook/marketing-research`;
+  let reqBody: Record<string, unknown> = {
     tenant_id: tenantId,
     job_type: "marketing_research",
     request: {
@@ -147,11 +148,27 @@ export async function startMarketingJob(
     }
   };
 
+  if (input.jobType === "brand_campaign") {
+    webhookUrl = `${baseUrl}/webhook/brand-campaign`;
+    reqBody = {
+      tenant_id: tenantId,
+      job_type: "brand_campaign",
+      request: {
+        job_id: jobId,
+        tenant_id: tenantId,
+        brand_url: input.payload?.brandUrl,
+        competitor_url: input.payload?.competitorUrl,
+        ...(input.payload || {})
+      }
+    };
+  }
+
   try {
-    const res = await fetch(webhookUrl, {
+    const res = await fetch(webhookUrl.replace('http://', 'https://'), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(reqBody)
+      body: JSON.stringify(reqBody),
+      signal: AbortSignal.timeout(5000)
     });
 
     const text = await res.text();
@@ -176,7 +193,8 @@ export async function startMarketingJob(
         runtimePath: outPath
       };
     }
-  } catch {
+  } catch (err) {
+    console.error('startMarketingJob failed: n8n request threw an exception', err);
     // fallback below
   }
 

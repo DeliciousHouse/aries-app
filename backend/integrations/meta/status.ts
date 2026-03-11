@@ -1,6 +1,6 @@
-import { getProviderConnection, type Provider } from '../provider-state';
+import { getProviderConnection, type Platform } from '../provider-state';
 
-type MetaProvider = Extract<Provider, 'facebook' | 'instagram'>;
+type MetaProvider = Extract<Platform, 'facebook' | 'instagram'>;
 
 type StatusRecord = {
   provider: MetaProvider;
@@ -28,13 +28,13 @@ export function metaStatus(tenant_id?: string): StatusSuccess | StatusError {
 
   const records: StatusRecord[] = providers.map((provider) => {
     const c = getProviderConnection(tenant_id, provider);
-    if (!c || c.connection_status === 'disconnected') return { provider, connection_state: 'not_connected' };
-    if (c.connection_status === 'connected') {
+    if (!c || c.connection.connection_status === 'disconnected') return { provider, connection_state: 'not_connected' };
+    if (c.connection.connection_status === 'connected') {
       return {
         provider,
         connection_state: 'connected',
-        connected_at: c.connected_at,
-        account_label: c.account_label
+        connected_at: c.history?.find(h => h.note === 'provider_connected')?.at || c.created_at,
+        account_label: c.connection.metadata?.account_label as string | undefined
       };
     }
     return { provider, connection_state: 'error' };

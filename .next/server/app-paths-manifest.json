@@ -1,10 +1,3 @@
 {
-  "/onboarding/start/page": "app/onboarding/start/page.js",
-  "/marketing/new-job/page": "app/marketing/new-job/page.js",
-  "/api/marketing/jobs/[jobId]/route": "app/api/marketing/jobs/[jobId]/route.js",
-  "/onboarding/status/page": "app/onboarding/status/page.js",
-  "/api/marketing/jobs/route": "app/api/marketing/jobs/route.js",
-  "/marketing/job-status/page": "app/marketing/job-status/page.js",
-  "/marketing/job-approve/page": "app/marketing/job-approve/page.js",
-  "/api/marketing/jobs/[jobId]/approve/route": "app/api/marketing/jobs/[jobId]/approve/route.js"
+  "/api/marketing/jobs/route": "app/api/marketing/jobs/route.js"
 }
