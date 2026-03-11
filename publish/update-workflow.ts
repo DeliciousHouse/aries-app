@@ -13,9 +13,22 @@ export interface ApiResult {
 }
 
 function sanitizeWorkflowForUpdate(workflow: any) {
+  const nodes = Array.isArray(workflow?.nodes)
+    ? workflow.nodes.map((node: any) => {
+        if (node?.type !== 'n8n-nodes-base.webhook') return node;
+        const params = node.parameters || {};
+        const pathValue = typeof params.path === 'string' ? params.path.trim() : '';
+        if (!pathValue) return node;
+        return {
+          ...node,
+          webhookId: node.webhookId || pathValue
+        };
+      })
+    : workflow?.nodes;
+
   return {
     name: workflow?.name,
-    nodes: workflow?.nodes,
+    nodes,
     connections: workflow?.connections,
     settings: workflow?.settings || {}
   };
