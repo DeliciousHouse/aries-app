@@ -1,5 +1,15 @@
 # Overnight Log
 
+## 2026-03-10 — Bounded unit of work (v3 orchestration suite revalidation)
+- Read current task context from `generated/validated/project-progress.json`.
+- Continued exactly one bounded current-phase task:
+  - Re-ran `tests/run-v3-orchestration-suite.ts` to refresh v3 orchestration validation evidence.
+- Ran smallest relevant validation:
+  - `node --experimental-strip-types tests/run-v3-orchestration-suite.ts`
+  - Result: `pass` (all checks green)
+- Updated artifacts:
+  - `generated/validated/v3-orchestration-summary.json`
+
 ## 2026-03-10 — Bounded unit of work (v3 orchestration heartbeat revalidation)
 - Read current task context from `generated/validated/project-progress.json`.
 - Continued exactly one bounded current-phase task:
