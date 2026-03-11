@@ -18,10 +18,10 @@
   "active_blockers": [],
   "next_action": "Roadmap remains complete and validated; terminal completion heartbeat is HEARTBEAT_OK. Continue monitoring only if a new authorized phase is introduced.",
   "last_successful_validation": {
-    "name": "v3_continuation_runtime_precheck",
+    "name": "terminal_completion_heartbeat",
     "status": "pass",
-    "evidence": "./generated/validated/v3-continuation-precheck.json",
-    "executed_at": "2026-03-11T00:03:19Z"
+    "evidence": "./generated/validated/heartbeat-check.json",
+    "executed_at": "2026-03-11T00:22:48Z"
   },
   "last_hard_failure": null,
   "retry_counts": {
@@ -40,7 +40,7 @@
     "gate_integrity": "all_passed_in_sequence",
     "parallel_lanes_active": [],
     "blocked_phase": null,
-    "updated_at": "2026-03-11T00:03:19Z"
+    "updated_at": "2026-03-11T00:22:48Z"
   },
   "last_ui_smoke_revalidation": {
     "phase": "phase_3_end_to_end_ui_smoke",
