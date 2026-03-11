@@ -1,5 +1,16 @@
 # Overnight Log
 
+## 2026-03-10 — Bounded unit of work (terminal heartbeat refresh)
+- Read current task context from `generated/validated/project-progress.json`.
+- Continued exactly one bounded current-phase task:
+  - Refreshed terminal completion heartbeat evidence for v3 status continuity.
+- Ran smallest relevant validation:
+  - `node -e "...heartbeat validation..."`
+  - Result: `pass` (`HEARTBEAT_OK`)
+- Updated artifacts:
+  - `generated/validated/heartbeat-check.json`
+  - `generated/validated/project-progress.json`
+
 ## 2026-03-10 — Bounded unit of work (v3 orchestration suite revalidation)
 - Read current task context from `generated/validated/project-progress.json`.
 - Continued exactly one bounded current-phase task:
