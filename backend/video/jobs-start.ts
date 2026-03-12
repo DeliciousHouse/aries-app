@@ -3,6 +3,7 @@ declare const require: (name: string) => any;
 import { generatedDataPath, requiredSchemaPath } from '../runtime-paths';
 
 const fs = require("fs");
+const path = require("path");
 
 type Dict = Record<string, unknown>;
 
@@ -51,7 +52,6 @@ function runtimePath(videoJobId: string): string {
 }
 
 function ensureParent(filePath: string): void {
-  const path = require("path");
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 }
 
