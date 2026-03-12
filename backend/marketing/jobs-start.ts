@@ -1,12 +1,14 @@
 declare const require: (name: string) => any;
 
+import { generatedDataPath, requiredSchemaPath } from '../runtime-paths';
+
 type Dict = Record<string, unknown>;
 const fs = require("fs");
 const path = require("path");
 
 const REQUIRED_SCHEMA_PATHS = [
-  "./specs/tenant_runtime_state_schema.v1.json",
-  "./specs/job_runtime_state_schema.v1.json"
+  requiredSchemaPath("tenant_runtime_state_schema.v1.json"),
+  requiredSchemaPath("job_runtime_state_schema.v1.json")
 ] as const;
 
 function nowIso(): string {
@@ -32,12 +34,8 @@ function assertRequiredSchemas(): void {
   }
 }
 
-function projectRoot(): string {
-  return process.env.PROJECT_ROOT || process.cwd();
-}
-
 function runtimePath(jobId: string): string {
-  return path.join(projectRoot(), "generated", "draft", "marketing-jobs", `${jobId}.json`);
+  return generatedDataPath("draft", "marketing-jobs", `${jobId}.json`);
 }
 
 function ensureParent(filePath: string): void {

@@ -20,9 +20,9 @@ This is the thinnest runnable app shell for Aries on `http://localhost:3000`.
 1. Copy env template:
    - `cp .env.example .env.local`
 2. Set at minimum:
-   - `PROJECT_ROOT`
    - `N8N_BASE_URL`
    - `N8N_API_KEY`
+   - `ARIES_DATA_ROOT` only if you want runtime data outside the default `./generated`
 3. Install dependencies:
    - `npm install`
 
@@ -34,4 +34,6 @@ This is the thinnest runnable app shell for Aries on `http://localhost:3000`.
 
 ## Notes
 - API routes are thin wrappers around existing backend logic under `./backend`.
+- Runtime reads app code, specs, templates, validators, and n8n workflow definitions from the image/repo tree and writes tenant/job state under `ARIES_DATA_ROOT` (defaults to `./generated` when running from source).
+- For containerized local development and production, prefer mounting only the runtime data directory and avoid bind-mounting the repository into the running container.
 - No workflow/contract redesign is introduced by this shell.

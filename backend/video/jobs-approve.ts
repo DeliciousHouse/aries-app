@@ -1,7 +1,8 @@
 declare const require: (name: string) => any;
 
+import { generatedDataPath, requiredSchemaPath } from '../runtime-paths';
+
 const fs = require("fs");
-const path = require("path");
 
 type VideoStage = "ingest" | "render" | "review" | "publish";
 type StageState = "queued" | "running" | "paused" | "completed" | "failed";
@@ -33,8 +34,8 @@ type ApproveVideoJobResponse =
     };
 
 const REQUIRED_SCHEMA_PATHS = [
-  "./specs/tenant_runtime_state_schema.v1.json",
-  "./specs/job_runtime_state_schema.v1.json"
+  requiredSchemaPath("tenant_runtime_state_schema.v1.json"),
+  requiredSchemaPath("job_runtime_state_schema.v1.json")
 ] as const;
 
 function nowIso(): string {
@@ -55,8 +56,7 @@ function assertRequiredSchemas(): void {
 }
 
 function runtimePath(videoJobId: string): string {
-  const root = process.env.PROJECT_ROOT || process.cwd();
-  return path.join(root, "generated", "draft", "video-jobs", `${videoJobId}.json`);
+  return generatedDataPath("draft", "video-jobs", `${videoJobId}.json`);
 }
 
 function nextStage(stage: VideoStage): VideoStage | null {

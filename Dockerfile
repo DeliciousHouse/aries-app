@@ -15,21 +15,26 @@ FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV ARIES_DATA_ROOT=/data/generated
 
 # install only production deps for next start runtime
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
+RUN mkdir -p /data/generated/draft /data/generated/validated
 
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/app ./app
 COPY --from=builder /app/frontend ./frontend
 COPY --from=builder /app/backend ./backend
+COPY --from=builder /app/n8n ./n8n
 COPY --from=builder /app/specs ./specs
 COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/templates ./templates
 COPY --from=builder /app/next-env.d.ts ./next-env.d.ts
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 COPY --from=builder /app/README-runtime.md ./README-runtime.md
 COPY --from=builder /app/.env.example ./.env.example
+COPY --from=builder /app/validators ./validators
 
 EXPOSE 3000
 CMD ["npm", "run", "start"]

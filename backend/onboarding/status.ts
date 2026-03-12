@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { generatedDataPath } from '../runtime-paths';
 
 type StatusState = 'validated' | 'needs_repair' | 'in_progress' | 'duplicate' | 'not_found';
 
@@ -17,10 +18,6 @@ type StatusResult = {
   };
   reason?: string;
 };
-
-function projectRoot(): string {
-  return process.env.PROJECT_ROOT || path.resolve(__dirname, '../..');
-}
 
 function fileExists(p: string): boolean {
   return fs.existsSync(p);
@@ -55,13 +52,12 @@ export function getOnboardingStatus(input: { tenant_id?: string; signup_event_id
     return { status: 'error', reason: 'missing_required_query:tenant_id' };
   }
 
-  const root = projectRoot();
-  const draftPath = path.join(root, 'generated/draft', tenantId);
-  const validatedPath = path.join(root, 'generated/validated', tenantId);
-  const reportPath = path.join(root, 'generated/draft', `${tenantId}-validation-result.json`);
+  const draftPath = generatedDataPath('draft', tenantId);
+  const validatedPath = generatedDataPath('validated', tenantId);
+  const reportPath = generatedDataPath('draft', `${tenantId}-validation-result.json`);
 
   const markerPath = input.signup_event_id
-    ? path.join(root, 'generated/draft/idempotency', `${input.signup_event_id}.json`)
+    ? generatedDataPath('draft', 'idempotency', `${input.signup_event_id}.json`)
     : undefined;
 
   const report = readJsonSafe(reportPath) as { status?: string } | null;

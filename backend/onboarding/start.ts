@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { generatedDataPath } from '../runtime-paths';
 
 type Json = null | boolean | number | string | Json[] | { [k: string]: Json };
 
@@ -20,10 +21,6 @@ type StartResult = {
   raw?: Json;
   reason?: string;
 };
-
-function projectRoot(): string {
-  return process.env.PROJECT_ROOT || path.resolve(__dirname, '../..');
-}
 
 function webhookUrl(): string {
   const base = process.env.N8N_BASE_URL || 'http://localhost:5678';
@@ -138,11 +135,10 @@ export async function handleStartHttp(req: Request): Promise<Response> {
 }
 
 export function onboardingStartLocalPaths() {
-  const root = projectRoot();
   return {
-    draftRoot: path.join(root, 'generated/draft'),
-    validatedRoot: path.join(root, 'generated/validated'),
-    idempotencyRoot: path.join(root, 'generated/draft/idempotency')
+    draftRoot: generatedDataPath('draft'),
+    validatedRoot: generatedDataPath('validated'),
+    idempotencyRoot: generatedDataPath('draft', 'idempotency')
   };
 }
 

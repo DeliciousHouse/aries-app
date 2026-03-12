@@ -1,6 +1,8 @@
 declare const require: (name: string) => any;
 declare const process: { cwd: () => string };
 
+import { appSourceRoot, generatedDataPathFromRoot, requiredSchemaPath } from '../runtime-paths';
+
 const fs = require('fs');
 const path = require('path');
 
@@ -34,10 +36,10 @@ export type ProvisionedAgent = {
   };
 };
 
-const REQUIRED_TENANT_RUNTIME_SCHEMA = './specs/tenant_runtime_state_schema.v1.json';
+const REQUIRED_TENANT_RUNTIME_SCHEMA = 'tenant_runtime_state_schema.v1.json';
 
 function hardFailIfMissingSchema(projectRoot: string): string {
-  const schemaPath = path.resolve(projectRoot, REQUIRED_TENANT_RUNTIME_SCHEMA);
+  const schemaPath = requiredSchemaPath(REQUIRED_TENANT_RUNTIME_SCHEMA, projectRoot);
   if (!fs.existsSync(schemaPath)) {
     throw new Error(
       `HARD_FAILURE: missing required schema input(s): ${REQUIRED_TENANT_RUNTIME_SCHEMA}`
@@ -47,7 +49,7 @@ function hardFailIfMissingSchema(projectRoot: string): string {
 }
 
 function loadWorkspaceConfig(projectRoot: string, tenantId: string): { path: string; parsed: Record<string, unknown> } {
-  const cfgPath = path.resolve(projectRoot, 'generated/validated', tenantId, 'config', 'workspaces.json');
+  const cfgPath = generatedDataPathFromRoot(projectRoot, 'validated', tenantId, 'config', 'workspaces.json');
   if (!fs.existsSync(cfgPath)) {
     throw new Error(`HARD_FAILURE: missing validated provisioning artifact: ${cfgPath}`);
   }
@@ -68,11 +70,11 @@ function workspacePathFromConfig(
       `HARD_FAILURE: invalid validated provisioning artifact mapping for workspace '${workspace}'`
     );
   }
-  return path.resolve(projectRoot, 'generated/validated', tenantId, relativePath);
+  return generatedDataPathFromRoot(projectRoot, 'validated', tenantId, relativePath);
 }
 
 export function createCoreAgent(input: CreateAgentInput): ProvisionedAgent {
-  const projectRoot = input.projectRoot || process.cwd();
+  const projectRoot = appSourceRoot(input.projectRoot);
   const schemaPath = hardFailIfMissingSchema(projectRoot);
   const workspaceConfig = loadWorkspaceConfig(projectRoot, input.tenantId);
 

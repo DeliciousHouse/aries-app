@@ -11,7 +11,9 @@ services:
       PORT: 3000
       N8N_BASE_URL: ${N8N_BASE_URL:-http://host.docker.internal:5678}
       N8N_API_KEY: ${N8N_API_KEY:-local_n8n_api_key_from_secret_store}
-      PROJECT_ROOT: /app
+      ARIES_DATA_ROOT: /data/generated
+    volumes:
+      - aries-generated:/data/generated
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
@@ -19,3 +21,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+
+volumes:
+  aries-generated:
