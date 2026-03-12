@@ -17,8 +17,12 @@ function optionalEnv(key: string, fallback: string): string {
 
 export const config = {
   n8n: {
-    baseUrl: requiredEnv('N8N_BASE_URL').replace(/\/$/, ''),
-    apiKey: requiredEnv('N8N_API_KEY'),
+    get baseUrl(): string {
+      return requiredEnv('N8N_BASE_URL').replace(/\/$/, '');
+    },
+    get apiKey(): string {
+      return requiredEnv('N8N_API_KEY');
+    },
   },
   app: {
     baseUrl: optionalEnv('APP_BASE_URL', 'http://localhost:3000'),
