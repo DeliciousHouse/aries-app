@@ -164,7 +164,8 @@ export async function startMarketingJob(
   }
 
   try {
-    const res = await fetch(webhookUrl.replace('http://', 'https://'), {
+    // Internal Docker traffic to n8n stays HTTP; TLS terminates at Caddy/public edge.
+    const res = await fetch(webhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(reqBody),
