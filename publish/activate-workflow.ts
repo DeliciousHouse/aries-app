@@ -3,6 +3,7 @@ import { writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { preflightAuthCheck } from './preflight-auth';
 import { resolveN8nApiContext } from './n8n-api';
+import { resolveDataPath } from '../lib/runtime-paths';
 
 export interface ApiResult {
   ok: boolean;
@@ -15,11 +16,10 @@ export interface ApiResult {
 export async function activateWorkflow(workflowId: string): Promise<ApiResult> {
   const ctx = await resolveN8nApiContext();
   const baseUrl = ctx.baseUrl;
-  const projectRoot = process.env.PROJECT_ROOT || process.cwd();
 
   const preflight = await preflightAuthCheck('activate');
   if (!preflight.ok) {
-    const rawPath = path.join(projectRoot, 'generated', 'draft', 'n8n-activate-raw-response.json');
+    const rawPath = resolveDataPath('generated', 'draft', 'n8n-activate-raw-response.json');
     await mkdir(path.dirname(rawPath), { recursive: true });
     await writeFile(rawPath, JSON.stringify({ status: preflight.status, body: preflight.failure || { message: 'Preflight auth failed' }, workflowId }, null, 2), 'utf8');
     return {
@@ -40,7 +40,7 @@ export async function activateWorkflow(workflowId: string): Promise<ApiResult> {
   let body: any = text;
   try { body = JSON.parse(text); } catch {}
 
-  const outDir = path.join(projectRoot, 'generated', 'draft');
+  const outDir = resolveDataPath('generated', 'draft');
   await mkdir(outDir, { recursive: true });
   const rawPath = path.join(outDir, 'n8n-activate-raw-response.json');
   await writeFile(rawPath, JSON.stringify({ status: res.status, body, workflowId }, null, 2), 'utf8');

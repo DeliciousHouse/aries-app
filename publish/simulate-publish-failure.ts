@@ -2,17 +2,20 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { retryPublish } from './retry-publish';
+import { resolveCodePath, resolveDataPath } from '../lib/runtime-paths';
 
 async function main() {
-  const projectRoot = process.env.PROJECT_ROOT || process.cwd();
   const workflowFile = process.env.N8N_WORKFLOW_FILE || 'tenant-provisioning.workflow.json';
-  const workflowPath = path.join(projectRoot, 'n8n', workflowFile);
-  const outDir = path.join(projectRoot, 'generated', 'draft');
+  const workflowPath = resolveCodePath('n8n', workflowFile);
+  const outDir = resolveDataPath('generated', 'draft');
+  const workflowDraftDir = path.join(outDir, 'workflow-drafts');
 
   await mkdir(outDir, { recursive: true });
+  await mkdir(workflowDraftDir, { recursive: true });
 
   const original = JSON.parse(await readFile(workflowPath, 'utf8'));
   const broken = JSON.parse(JSON.stringify(original));
+  const brokenWorkflowPath = path.join(workflowDraftDir, workflowFile.replace(/[\\/]/g, '__'));
 
   // Intentionally break a single section: first outgoing connection target.
   const connEntries = Object.entries(broken.connections || {});
@@ -24,15 +27,9 @@ async function main() {
     }
   }
 
-  await writeFile(workflowPath, JSON.stringify(broken, null, 2), 'utf8');
+  await writeFile(brokenWorkflowPath, JSON.stringify(broken, null, 2), 'utf8');
 
-  let summary: any;
-  try {
-    summary = await retryPublish(workflowFile);
-  } finally {
-    // restore source artifact after simulation run
-    await writeFile(workflowPath, JSON.stringify(original, null, 2), 'utf8');
-  }
+  const summary = await retryPublish(workflowFile);
 
   const proof = {
     simulatedFailureInjected: true,
@@ -48,8 +45,7 @@ async function main() {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch(async (error) => {
-    const projectRoot = process.env.PROJECT_ROOT || process.cwd();
-    const outDir = path.join(projectRoot, 'generated', 'draft');
+    const outDir = resolveDataPath('generated', 'draft');
     await mkdir(outDir, { recursive: true });
     await writeFile(path.join(outDir, 'n8n-publish-results.json'), JSON.stringify({
       simulatedFailureInjected: true,

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { retryPublish } from '../publish/retry-publish';
+import { resolveCodeRoot, resolveDataPath } from '../lib/runtime-paths';
 
 const pexecFile = promisify(execFile);
 
@@ -36,9 +37,9 @@ async function writeJson(file: string, value: any) {
 }
 
 async function main() {
-  const projectRoot = process.env.PROJECT_ROOT || path.resolve(process.cwd());
-  const outDraft = path.join(projectRoot, 'generated', 'draft');
-  const outValidated = path.join(projectRoot, 'generated', 'validated');
+  const projectRoot = resolveCodeRoot();
+  const outDraft = resolveDataPath('generated', 'draft');
+  const outValidated = resolveDataPath('generated', 'validated');
   await mkdir(outDraft, { recursive: true });
   await mkdir(outValidated, { recursive: true });
 
@@ -311,8 +312,7 @@ async function main() {
 }
 
 main().catch(async (error) => {
-  const projectRoot = process.env.PROJECT_ROOT || path.resolve(process.cwd());
-  const outDraft = path.join(projectRoot, 'generated', 'draft');
+  const outDraft = resolveDataPath('generated', 'draft');
   await mkdir(outDraft, { recursive: true });
   const hard = {
     overall_status: 'fail',

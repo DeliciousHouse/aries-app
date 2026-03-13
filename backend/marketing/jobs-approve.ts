@@ -1,11 +1,12 @@
 declare const require: (name: string) => any;
+import { resolveDataPath, resolveSpecPath } from "../../lib/runtime-paths";
 
 const fs = require("fs");
 const path = require("path");
 
 const REQUIRED_SCHEMA_PATHS = [
-  "./specs/tenant_runtime_state_schema.v1.json",
-  "./specs/job_runtime_state_schema.v1.json"
+  resolveSpecPath("tenant_runtime_state_schema.v1.json"),
+  resolveSpecPath("job_runtime_state_schema.v1.json")
 ] as const;
 
 function nowIso(): string { return new Date().toISOString(); }
@@ -23,8 +24,7 @@ function assertRequiredSchemas(): void {
 }
 
 function runtimePath(jobId: string): string {
-  const root = process.env.PROJECT_ROOT || process.cwd();
-  return path.join(root, "generated", "draft", "marketing-jobs", `${jobId}.json`);
+  return resolveDataPath("generated", "draft", "marketing-jobs", `${jobId}.json`);
 }
 
 function localApproveProgress(job: any): { resumedStage: string | null; completed: boolean } {

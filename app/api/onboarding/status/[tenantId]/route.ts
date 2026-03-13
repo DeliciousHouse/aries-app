@@ -22,7 +22,8 @@ export async function GET(
         signup_event_id: result.signup_event_id,
         provisioning_status: result.state,
         validation_status: result.validation_status,
-        paths: result.paths
+        paths: result.paths,
+        pathsAreRelative: true
       },
       { status: 200 }
     );

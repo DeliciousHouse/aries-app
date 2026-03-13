@@ -1,5 +1,6 @@
 declare const require: (name: string) => any;
 declare const process: { cwd: () => string };
+import { resolveCodeRoot, resolveDataPath, resolveSpecPath } from '../../lib/runtime-paths';
 
 const fs = require('fs');
 const path = require('path');
@@ -34,20 +35,18 @@ export type ProvisionedAgent = {
   };
 };
 
-const REQUIRED_TENANT_RUNTIME_SCHEMA = './specs/tenant_runtime_state_schema.v1.json';
-
 function hardFailIfMissingSchema(projectRoot: string): string {
-  const schemaPath = path.resolve(projectRoot, REQUIRED_TENANT_RUNTIME_SCHEMA);
+  const schemaPath = resolveSpecPath('tenant_runtime_state_schema.v1.json');
   if (!fs.existsSync(schemaPath)) {
     throw new Error(
-      `HARD_FAILURE: missing required schema input(s): ${REQUIRED_TENANT_RUNTIME_SCHEMA}`
+      'HARD_FAILURE: missing required schema input(s): ./specs/tenant_runtime_state_schema.v1.json'
     );
   }
   return schemaPath;
 }
 
 function loadWorkspaceConfig(projectRoot: string, tenantId: string): { path: string; parsed: Record<string, unknown> } {
-  const cfgPath = path.resolve(projectRoot, 'generated/validated', tenantId, 'config', 'workspaces.json');
+  const cfgPath = resolveDataPath('generated', 'validated', tenantId, 'config', 'workspaces.json');
   if (!fs.existsSync(cfgPath)) {
     throw new Error(`HARD_FAILURE: missing validated provisioning artifact: ${cfgPath}`);
   }
@@ -68,11 +67,11 @@ function workspacePathFromConfig(
       `HARD_FAILURE: invalid validated provisioning artifact mapping for workspace '${workspace}'`
     );
   }
-  return path.resolve(projectRoot, 'generated/validated', tenantId, relativePath);
+  return resolveDataPath('generated', 'validated', tenantId, relativePath);
 }
 
 export function createCoreAgent(input: CreateAgentInput): ProvisionedAgent {
-  const projectRoot = input.projectRoot || process.cwd();
+  const projectRoot = input.projectRoot || resolveCodeRoot();
   const schemaPath = hardFailIfMissingSchema(projectRoot);
   const workspaceConfig = loadWorkspaceConfig(projectRoot, input.tenantId);
 

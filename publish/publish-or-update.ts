@@ -5,6 +5,7 @@ import { createWorkflow } from './create-workflow';
 import { updateWorkflow } from './update-workflow';
 import { preflightAuthCheck } from './preflight-auth';
 import { resolveN8nApiContext } from './n8n-api';
+import { resolveCodePath, resolveDataPath } from '../lib/runtime-paths';
 
 async function resolveWorkflowIdByName(workflowName: string): Promise<string | null> {
   const ctx = await resolveN8nApiContext();
@@ -35,13 +36,12 @@ export async function publishOrUpdate(workflowFile: string): Promise<{
         stage: 'create',
         status: preflight.status,
         body: preflight.failure || { message: 'Preflight auth failed' },
-        rawPath: `${process.env.PROJECT_ROOT || process.cwd()}/generated/draft/n8n-auth-diagnosis.json`
+        rawPath: resolveDataPath('generated', 'draft', 'n8n-auth-diagnosis.json')
       }
     };
   }
 
-  const projectRoot = process.env.PROJECT_ROOT || process.cwd();
-  const workflowPath = path.join(projectRoot, 'n8n', workflowFile);
+  const workflowPath = resolveCodePath('n8n', workflowFile);
   const workflowRaw = await readFile(workflowPath, 'utf8');
   const workflow = JSON.parse(workflowRaw);
   const workflowName = workflow?.name;

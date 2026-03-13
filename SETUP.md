@@ -6,21 +6,30 @@
 - **n8n instance** with API access enabled
 - Environment variables configured (see `.env.example`)
 
-## Quick Start
+## Recommended container parity flow
 
 ```bash
-# Install dependencies
-npm install
-
 # Configure environment
 cp .env.example .env
 # Edit .env — at minimum set:
 #   N8N_BASE_URL=https://your-n8n-instance.com
 #   N8N_API_KEY=your-api-key
+#   CODE_ROOT=/app
+#   DATA_ROOT=/data
 
-# Start development server
+# Build and run with parity compose stack
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+```
+
+Parity guarantees apply to this container-based flow.
+
+## Optional host-node flow
+
+```bash
+npm install
+cp .env.example .env
+# For host execution, set CODE_ROOT/DATA_ROOT to host-valid paths (or leave unset).
 npm run dev
-# App runs at http://localhost:3000
 ```
 
 ## Required Environment Variables
@@ -29,6 +38,8 @@ npm run dev
 |---|---|---|
 | `N8N_BASE_URL` | ✅ | Base URL of your n8n instance (e.g. `https://n8n.example.com`) |
 | `N8N_API_KEY` | ✅ | n8n API key for server-side workflow management |
+| `CODE_ROOT` | Optional | Immutable code root inside container (default: `/app`) |
+| `DATA_ROOT` | Optional | Writable runtime data root (default: `/data`) |
 | `APP_BASE_URL` | Optional | Public URL of the Aries app (default: `http://localhost:3000`) |
 | `NODE_ENV` | Optional | `development` or `production` |
 | `PORT` | Optional | Server port (default: 3000) |
@@ -78,3 +89,13 @@ Browser → /api/* (Next.js route handlers)
 - **Design**: Dark-luxury tech aesthetic with Aries brand palette
 
 See `ROUTE_MANIFEST.md` and `WEBHOOK_MANIFEST.md` for complete reference.
+
+## Container parity workflow
+
+Use base + local override so local and deployment run the same image contract:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+```
+
+Production-oriented deployments should provide image + env/secrets + a persistent mount for `/data`, without bind mounting the repo into `/app`.

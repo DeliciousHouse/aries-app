@@ -4,6 +4,7 @@ import path from "node:path";
 import { startMarketingJob } from "../backend/marketing/jobs-start";
 import { getMarketingJobStatus } from "../backend/marketing/jobs-status";
 import { approveMarketingJob } from "../backend/marketing/jobs-approve";
+import { resolveDataPath } from "../lib/runtime-paths";
 
 type AnyObj = Record<string, any>;
 
@@ -18,8 +19,8 @@ async function writeJson(filePath: string, value: any): Promise<void> {
   await writeFile(filePath, JSON.stringify(value, null, 2) + "\n", "utf8");
 }
 
-function runtimePath(projectRoot: string, jobId: string): string {
-  return path.join(projectRoot, "generated", "draft", "marketing-jobs", `${jobId}.json`);
+function runtimePath(jobId: string): string {
+  return resolveDataPath("generated", "draft", "marketing-jobs", `${jobId}.json`);
 }
 
 function stageSnapshot(job: AnyObj): AnyObj {
@@ -32,8 +33,8 @@ function stageSnapshot(job: AnyObj): AnyObj {
   };
 }
 
-async function boundedRepairFailedStage(projectRoot: string, jobId: string, failedStage: string): Promise<AnyObj> {
-  const file = runtimePath(projectRoot, jobId);
+async function boundedRepairFailedStage(jobId: string, failedStage: string): Promise<AnyObj> {
+  const file = runtimePath(jobId);
   const doc = await readJson(file);
   if (!doc.outputs) doc.outputs = {};
   if (!doc.outputs.stage_status) doc.outputs.stage_status = {};
@@ -93,8 +94,7 @@ async function boundedRepairFailedStage(projectRoot: string, jobId: string, fail
 }
 
 async function main(): Promise<void> {
-  const projectRoot = process.env.PROJECT_ROOT || process.cwd();
-  const outDir = path.join(projectRoot, "generated", "draft");
+  const outDir = resolveDataPath("generated", "draft");
   await mkdir(outDir, { recursive: true });
 
   const phaseLog: string[] = ["# marketing pipeline simulation phase log", ""];
@@ -142,7 +142,7 @@ async function main(): Promise<void> {
   }
 
   // 6) verify final job state is complete
-  const mainRuntime = await readJson(runtimePath(projectRoot, start.jobId));
+  const mainRuntime = await readJson(runtimePath(start.jobId));
   const finalComplete = mainRuntime?.outputs?.stage_status?.publish === "completed";
   stageResults.final = { complete: finalComplete, snapshot: stageSnapshot(mainRuntime) };
   phaseLog.push(`- final complete: ${finalComplete}`);
@@ -153,7 +153,7 @@ async function main(): Promise<void> {
 
   // 7) bounded failure case + repair path
   const failStart = await startMarketingJob({ tenantId: `${tenantId}-repair`, jobType: "marketing_research", payload: { campaign_brief: "repair case" } });
-  const failFile = runtimePath(projectRoot, failStart.jobId);
+  const failFile = runtimePath(failStart.jobId);
   const failDoc = await readJson(failFile);
   if (!failDoc.outputs) failDoc.outputs = {};
   if (!failDoc.outputs.stage_status) failDoc.outputs.stage_status = {};
@@ -163,7 +163,7 @@ async function main(): Promise<void> {
   failDoc.updated_at = nowIso();
   await writeJson(failFile, failDoc);
 
-  const repair = await boundedRepairFailedStage(projectRoot, failStart.jobId, "strategy");
+  const repair = await boundedRepairFailedStage(failStart.jobId, "strategy");
   const failAfter = await readJson(failFile);
   const repairPassed = repair.repaired === true && failAfter.outputs.stage_status.strategy === "completed";
   stageResults.repair_path = {
@@ -200,8 +200,7 @@ async function main(): Promise<void> {
 }
 
 main().catch(async (error) => {
-  const projectRoot = process.env.PROJECT_ROOT || process.cwd();
-  const outDir = path.join(projectRoot, "generated", "draft");
+  const outDir = resolveDataPath("generated", "draft");
   await mkdir(outDir, { recursive: true });
   const fail = {
     overall_status: "fail",

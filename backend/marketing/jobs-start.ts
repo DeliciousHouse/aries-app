@@ -1,12 +1,13 @@
 declare const require: (name: string) => any;
+import { resolveDataPath, resolveSpecPath } from "../../lib/runtime-paths";
 
 type Dict = Record<string, unknown>;
 const fs = require("fs");
 const path = require("path");
 
 const REQUIRED_SCHEMA_PATHS = [
-  "./specs/tenant_runtime_state_schema.v1.json",
-  "./specs/job_runtime_state_schema.v1.json"
+  resolveSpecPath("tenant_runtime_state_schema.v1.json"),
+  resolveSpecPath("job_runtime_state_schema.v1.json")
 ] as const;
 
 function nowIso(): string {
@@ -32,12 +33,8 @@ function assertRequiredSchemas(): void {
   }
 }
 
-function projectRoot(): string {
-  return process.env.PROJECT_ROOT || process.cwd();
-}
-
 function runtimePath(jobId: string): string {
-  return path.join(projectRoot(), "generated", "draft", "marketing-jobs", `${jobId}.json`);
+  return resolveDataPath("generated", "draft", "marketing-jobs", `${jobId}.json`);
 }
 
 function ensureParent(filePath: string): void {
@@ -115,8 +112,12 @@ export type StartMarketingJobResponse = {
   tenantId: string;
   jobType: StartMarketingJobRequest["jobType"];
   wiring: "n8n_research_webhook" | "backend_fallback";
-  runtimePath: string;
+  runtimeArtifactPath: string;
 };
+
+function runtimeArtifactPath(jobId: string): string {
+  return `generated/draft/marketing-jobs/${jobId}.json`;
+}
 
 export async function startMarketingJob(
   input: StartMarketingJobRequest
@@ -191,7 +192,7 @@ export async function startMarketingJob(
         tenantId,
         jobType: input.jobType,
         wiring: "n8n_research_webhook",
-        runtimePath: outPath
+        runtimeArtifactPath: runtimeArtifactPath(String(body.job_id))
       };
     }
   } catch (err) {
@@ -206,6 +207,6 @@ export async function startMarketingJob(
     tenantId,
     jobType: input.jobType,
     wiring: "backend_fallback",
-    runtimePath: outPath
+    runtimeArtifactPath: runtimeArtifactPath(jobId)
   };
 }

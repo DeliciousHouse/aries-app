@@ -5,6 +5,7 @@ import { publishOrUpdate } from './publish-or-update';
 import { activateWorkflow } from './activate-workflow';
 import { captureFailurePayload } from './capture-failure-payload';
 import { boundedRepair } from './bounded-repair';
+import { resolveCodePath, resolveDataPath } from '../lib/runtime-paths';
 
 export interface RetryPublishSummary {
   workflowFile: string;
@@ -18,10 +19,12 @@ export interface RetryPublishSummary {
 }
 
 export async function retryPublish(workflowFile: string): Promise<RetryPublishSummary> {
-  const projectRoot = process.env.PROJECT_ROOT || process.cwd();
-  const workflowPath = path.join(projectRoot, 'n8n', workflowFile);
-  const outDir = path.join(projectRoot, 'generated', 'draft');
+  const workflowPath = resolveCodePath('n8n', workflowFile);
+  const outDir = resolveDataPath('generated', 'draft');
   await mkdir(outDir, { recursive: true });
+  const workflowDraftDir = path.join(outDir, 'workflow-drafts');
+  await mkdir(workflowDraftDir, { recursive: true });
+  const workflowDraftPath = path.join(workflowDraftDir, workflowFile.replace(/[\\/]/g, '__'));
 
   const originalWorkflow = JSON.parse(await readFile(workflowPath, 'utf8'));
   let currentWorkflow = JSON.parse(JSON.stringify(originalWorkflow));
@@ -35,7 +38,7 @@ export async function retryPublish(workflowFile: string): Promise<RetryPublishSu
   let lastFailure: any = null;
 
   for (let attempt = 1; attempt <= 4; attempt++) {
-    await writeFile(workflowPath, JSON.stringify(currentWorkflow, null, 2), 'utf8');
+    await writeFile(workflowDraftPath, JSON.stringify(currentWorkflow, null, 2), 'utf8');
     phaseLog.push(`- Attempt ${attempt}: publishOrUpdate start`);
 
     let publishResult: any;

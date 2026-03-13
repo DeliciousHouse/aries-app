@@ -1,15 +1,15 @@
 // @ts-nocheck
 import { readdir, readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import { resolveCodePath, resolveDataPath } from '../lib/runtime-paths';
 
 async function main() {
-  const projectRoot = process.env.PROJECT_ROOT || process.cwd();
   const baseUrl = process.env.N8N_BASE_URL || null;
   const apiKey = process.env.N8N_API_KEY || '';
-  const outDir = path.join(projectRoot, 'generated', 'draft');
+  const outDir = resolveDataPath('generated', 'draft');
   await mkdir(outDir, { recursive: true });
 
-  const publishDir = path.join(projectRoot, 'publish');
+  const publishDir = resolveCodePath('publish');
   const files = (await readdir(publishDir)).filter((f) => f.endsWith('.ts') || f.endsWith('.json'));
 
   let headerExact = true;
@@ -97,8 +97,7 @@ async function main() {
 }
 
 main().catch(async (error) => {
-  const projectRoot = process.env.PROJECT_ROOT || process.cwd();
-  const outDir = path.join(projectRoot, 'generated', 'draft');
+  const outDir = resolveDataPath('generated', 'draft');
   await mkdir(outDir, { recursive: true });
   const fail = {
     timestamp: new Date().toISOString(),

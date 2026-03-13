@@ -94,7 +94,7 @@
     },
     {
       "parameters": {
-        "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nKEY=\"{{$json.signup_event_id}}\"\nTENANT=\"{{$json.tenant_id}}\"\nEVENT_DIR=\"$ROOT/generated/draft/idempotency\"\nmkdir -p \"$EVENT_DIR\"\nMARKER=\"$EVENT_DIR/${KEY}.json\"\nif [ -f \"$MARKER\" ]; then\n  echo \"{\\\"duplicate\\\":true,\\\"idempotency_key\\\":\\\"$KEY\\\",\\\"tenant_id\\\":\\\"$TENANT\\\",\\\"marker_path\\\":\\\"$MARKER\\\"}\"\nelse\n  echo \"{\\\"duplicate\\\":false,\\\"idempotency_key\\\":\\\"$KEY\\\",\\\"tenant_id\\\":\\\"$TENANT\\\",\\\"marker_path\\\":\\\"$MARKER\\\"}\"\nfi"
+        "command": "set -euo pipefail\nCODE_ROOT=\"{{$env.CODE_ROOT || '/app'}}\"\nDATA_ROOT=\"{{$env.DATA_ROOT || '/data'}}\"\nKEY=\"{{$json.signup_event_id}}\"\nTENANT=\"{{$json.tenant_id}}\"\nEVENT_DIR=\"$DATA_ROOT/generated/draft/idempotency\"\nmkdir -p \"$EVENT_DIR\"\nMARKER=\"$EVENT_DIR/${KEY}.json\"\nif [ -f \"$MARKER\" ]; then\n  echo \"{\\\"duplicate\\\":true,\\\"idempotency_key\\\":\\\"$KEY\\\",\\\"tenant_id\\\":\\\"$TENANT\\\",\\\"marker_path\\\":\\\"$MARKER\\\"}\"\nelse\n  echo \"{\\\"duplicate\\\":false,\\\"idempotency_key\\\":\\\"$KEY\\\",\\\"tenant_id\\\":\\\"$TENANT\\\",\\\"marker_path\\\":\\\"$MARKER\\\"}\"\nfi"
       },
       "id": "5",
       "name": "Idempotency Gate",
@@ -145,7 +145,7 @@
     },
     {
       "parameters": {
-        "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT=\"{{$node['Normalize Input'].json.tenant_id}}\"\nTYPE=\"{{$node['Normalize Input'].json.tenant_type}}\"\nINPUT=\"$ROOT/generated/draft/${TENANT}-input.json\"\nOUT=\"$ROOT/generated/draft/$TENANT\"\nmkdir -p \"$ROOT/generated/draft\"\nprintf '{\\\"tenant_id\\\":\\\"%s\\\",\\\"tenant_type\\\":\\\"%s\\\"}\\n' \"$TENANT\" \"$TYPE\" > \"$INPUT\"\nnode --experimental-strip-types \"$ROOT/templates/generate_tenant_workspace.ts\" --input \"$INPUT\" --out \"$OUT\" > \"$ROOT/generated/draft/${TENANT}-generator-result.json\"\necho \"{\\\"status\\\":\\\"generated\\\",\\\"tenant_id\\\":\\\"$TENANT\\\",\\\"artifact_path\\\":\\\"$OUT\\\"}\""
+        "command": "set -euo pipefail\nCODE_ROOT=\"{{$env.CODE_ROOT || '/app'}}\"\nDATA_ROOT=\"{{$env.DATA_ROOT || '/data'}}\"\nTENANT=\"{{$node['Normalize Input'].json.tenant_id}}\"\nTYPE=\"{{$node['Normalize Input'].json.tenant_type}}\"\nINPUT=\"$DATA_ROOT/generated/draft/${TENANT}-input.json\"\nOUT=\"$DATA_ROOT/generated/draft/$TENANT\"\nmkdir -p \"$DATA_ROOT/generated/draft\"\nprintf '{\\\"tenant_id\\\":\\\"%s\\\",\\\"tenant_type\\\":\\\"%s\\\"}\\n' \"$TENANT\" \"$TYPE\" > \"$INPUT\"\nnode --experimental-strip-types \"$CODE_ROOT/templates/generate_tenant_workspace.ts\" --input \"$INPUT\" --out \"$OUT\" > \"$DATA_ROOT/generated/draft/${TENANT}-generator-result.json\"\necho \"{\\\"status\\\":\\\"generated\\\",\\\"tenant_id\\\":\\\"$TENANT\\\",\\\"artifact_path\\\":\\\"$OUT\\\"}\""
       },
       "id": "8",
       "name": "Run Generator",
@@ -158,7 +158,7 @@
     },
     {
       "parameters": {
-        "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT=\"{{$node['Normalize Input'].json.tenant_id}}\"\nTARGET=\"$ROOT/generated/draft/$TENANT\"\nREPORT=\"$ROOT/generated/draft/${TENANT}-validation-result.json\"\nnode --experimental-strip-types \"$ROOT/validators/tenant_provisioning_workspace_validator.ts\" --target-root \"$TARGET\" --report \"$REPORT\" > /tmp/${TENANT}-validator-output.json || true\nnode -e \"const fs=require('fs');const r=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));process.stdout.write(JSON.stringify({status:r.status,failed_checks:r.failed_checks,defect_count:(r.defects||[]).length,report_path:process.argv[1]}));\" \"$REPORT\""
+        "command": "set -euo pipefail\nCODE_ROOT=\"{{$env.CODE_ROOT || '/app'}}\"\nDATA_ROOT=\"{{$env.DATA_ROOT || '/data'}}\"\nTENANT=\"{{$node['Normalize Input'].json.tenant_id}}\"\nTARGET=\"$DATA_ROOT/generated/draft/$TENANT\"\nREPORT=\"$DATA_ROOT/generated/draft/${TENANT}-validation-result.json\"\nnode --experimental-strip-types \"$CODE_ROOT/validators/tenant_provisioning_workspace_validator.ts\" --target-root \"$TARGET\" --report \"$REPORT\" > /tmp/${TENANT}-validator-output.json || true\nnode -e \"const fs=require('fs');const r=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));process.stdout.write(JSON.stringify({status:r.status,failed_checks:r.failed_checks,defect_count:(r.defects||[]).length,report_path:process.argv[1]}));\" \"$REPORT\""
       },
       "id": "9",
       "name": "Run Validator",
@@ -193,7 +193,7 @@
     },
     {
       "parameters": {
-        "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nTENANT=\"{{$node['Normalize Input'].json.tenant_id}}\"\nKEY=\"{{$node['Normalize Input'].json.signup_event_id}}\"\nDRAFT=\"$ROOT/generated/draft/$TENANT\"\nVALID=\"$ROOT/generated/validated/$TENANT\"\nMARKER_DIR=\"$ROOT/generated/draft/idempotency\"\nmkdir -p \"$ROOT/generated/validated\" \"$MARKER_DIR\"\nrm -rf \"$VALID\"\ncp -R \"$DRAFT\" \"$VALID\"\nprintf '{\\\"duplicate\\\":true,\\\"idempotency_key\\\":\\\"%s\\\",\\\"tenant_id\\\":\\\"%s\\\",\\\"promoted_path\\\":\\\"%s\\\"}\\n' \"$KEY\" \"$TENANT\" \"$VALID\" > \"$MARKER_DIR/${KEY}.json\"\necho \"{\\\"status\\\":\\\"promoted\\\",\\\"promoted_path\\\":\\\"$VALID\\\"}\""
+        "command": "set -euo pipefail\nCODE_ROOT=\"{{$env.CODE_ROOT || '/app'}}\"\nDATA_ROOT=\"{{$env.DATA_ROOT || '/data'}}\"\nTENANT=\"{{$node['Normalize Input'].json.tenant_id}}\"\nKEY=\"{{$node['Normalize Input'].json.signup_event_id}}\"\nDRAFT=\"$DATA_ROOT/generated/draft/$TENANT\"\nVALID=\"$DATA_ROOT/generated/validated/$TENANT\"\nMARKER_DIR=\"$DATA_ROOT/generated/draft/idempotency\"\nmkdir -p \"$DATA_ROOT/generated/validated\" \"$MARKER_DIR\"\nrm -rf \"$VALID\"\ncp -R \"$DRAFT\" \"$VALID\"\nprintf '{\\\"duplicate\\\":true,\\\"idempotency_key\\\":\\\"%s\\\",\\\"tenant_id\\\":\\\"%s\\\",\\\"promoted_path\\\":\\\"%s\\\"}\\n' \"$KEY\" \"$TENANT\" \"$VALID\" > \"$MARKER_DIR/${KEY}.json\"\necho \"{\\\"status\\\":\\\"promoted\\\",\\\"promoted_path\\\":\\\"$VALID\\\"}\""
       },
       "id": "11",
       "name": "Promote Workspace",
@@ -227,7 +227,7 @@
         "url": "={{($env.N8N_BASE_URL || 'http://localhost:5678') + '/webhook/tenant-repair'}}",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { artifact_path: ($env.PROJECT_ROOT || '/data/aries-platform-bootstrap') + '/generated/draft/' + $node['Normalize Input'].json.tenant_id, defect_report: ($env.PROJECT_ROOT || '/data/aries-platform-bootstrap') + '/generated/draft/' + $node['Normalize Input'].json.tenant_id + '-validation-result.json', attempt: 1 } }}",
+        "jsonBody": "={{ { artifact_path: ($env.DATA_ROOT || '/data') + '/generated/draft/' + $node['Normalize Input'].json.tenant_id, defect_report: ($env.DATA_ROOT || '/data') + '/generated/draft/' + $node['Normalize Input'].json.tenant_id + '-validation-result.json', attempt: 1 } }}",
         "options": {}
       },
       "id": "13",

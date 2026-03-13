@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const root = process.cwd();
+const explicitCodeRoot = process.env.CODE_ROOT?.trim();
+const root = explicitCodeRoot ? path.resolve(explicitCodeRoot) : '/app';
 
 const required = [
   'package.json',

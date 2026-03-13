@@ -3,15 +3,16 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: aries-app
-    ports:
-      - "3000:3000"
+    image: aries-app:local
     environment:
       NODE_ENV: production
-      PORT: 3000
-      N8N_BASE_URL: ${N8N_BASE_URL:-http://host.docker.internal:5678}
-      N8N_API_KEY: ${N8N_API_KEY:-local_n8n_api_key_from_secret_store}
-      PROJECT_ROOT: /app
+      PORT: ${PORT:-3000}
+      CODE_ROOT: /app
+      DATA_ROOT: /data
+      N8N_BASE_URL: ${N8N_BASE_URL}
+      N8N_API_KEY: ${N8N_API_KEY}
+    volumes:
+      - aries_runtime_data:/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
@@ -19,3 +20,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+
+volumes:
+  aries_runtime_data:

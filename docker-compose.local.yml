@@ -1,0 +1,30 @@
+services:
+  aries-app:
+    ports:
+      - "3000:3000"
+    environment:
+      N8N_BASE_URL: ${N8N_BASE_URL:-http://host.docker.internal:5678}
+      N8N_API_KEY: ${N8N_API_KEY:-local_n8n_api_key_from_secret_store}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  aries-app-dev:
+    profiles: ["dev"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: npm run dev
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      CODE_ROOT: /app
+      DATA_ROOT: /data
+      N8N_BASE_URL: ${N8N_BASE_URL:-http://host.docker.internal:5678}
+      N8N_API_KEY: ${N8N_API_KEY:-local_n8n_api_key_from_secret_store}
+    volumes:
+      - ./:/app
+      - aries_runtime_data:/data
+    ports:
+      - "3000:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

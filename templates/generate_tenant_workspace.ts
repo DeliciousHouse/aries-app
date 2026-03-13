@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolveCodePath, resolveDataPath } from '../lib/runtime-paths';
 
 type Json = null | boolean | number | string | Json[] | { [k: string]: Json };
 
@@ -108,17 +108,20 @@ function validateInput(spec: Spec, input: Input): void {
 
 function main(): number {
   const args = parseArgs(process.argv);
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
-  const projectRoot = path.resolve(__dirname, '..');
-  const specPath = path.resolve(projectRoot, args['spec'] ?? './specs/tenant_provisioning_workspace_spec.v1.json');
-  const inputPath = path.resolve(projectRoot, args['input'] ?? './generated/draft/test-tenant-input.json');
+  const specPath = args['spec']
+    ? path.resolve(args['spec'])
+    : resolveCodePath('specs', 'tenant_provisioning_workspace_spec.v1.json');
+  const inputPath = args['input']
+    ? path.resolve(args['input'])
+    : resolveDataPath('generated', 'draft', 'test-tenant-input.json');
 
   const spec = readJsonFile<Spec>(specPath);
   const input = readJsonFile<Input>(inputPath);
   validateInput(spec, input);
 
-  const outputRoot = path.resolve(projectRoot, args['out'] ?? `./generated/draft/${input.tenant_id}`);
+  const outputRoot = args['out']
+    ? path.resolve(args['out'])
+    : resolveDataPath('generated', 'draft', input.tenant_id);
 
   // Deterministic output: clear and recreate.
   fs.rmSync(outputRoot, { recursive: true, force: true });

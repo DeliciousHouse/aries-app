@@ -3,12 +3,12 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { captureFailurePayload } from './capture-failure-payload';
 import { resolveN8nApiContext } from './n8n-api';
+import { resolveDataPath } from '../lib/runtime-paths';
 
 export async function preflightAuthCheck(stage: 'create' | 'update' | 'activate' | 'unknown' = 'unknown') {
   const ctx = await resolveN8nApiContext();
   const baseUrl = ctx.baseUrl;
-  const projectRoot = process.env.PROJECT_ROOT || process.cwd();
-  const outDir = path.join(projectRoot, 'generated', 'draft');
+  const outDir = resolveDataPath('generated', 'draft');
   await mkdir(outDir, { recursive: true });
 
   const preflightUrl = `${baseUrl}${ctx.apiBasePath}/workflows?limit=1`;

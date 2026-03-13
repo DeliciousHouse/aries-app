@@ -60,7 +60,7 @@
     },
     {
       "parameters": {
-        "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nOUT=\"$ROOT/generated/draft/simulation-result.json\"\nFIRST='{{JSON.stringify($node[\"Provision First Run\"].json)}}'\nSECOND='{{JSON.stringify($node[\"Provision Second Run\"].json)}}'\nCOUNT=$(find \"$ROOT/generated/validated\" -maxdepth 1 -type d -name 'acme-sim' 2>/dev/null | wc -l | tr -d ' ')\nif [ \"$COUNT\" = \"1\" ]; then DUP=true; else DUP=false; fi\nprintf '{\"tenant_id\":\"acme-sim\",\"tenant_type\":\"single_user\",\"signup_event_id\":\"sim-signup-001\",\"first_run\":%s,\"second_run\":%s,\"workspace_count\":%s,\"duplicate_prevented\":%s}\\n' \"$FIRST\" \"$SECOND\" \"$COUNT\" \"$DUP\" > \"$OUT\"\ncat \"$OUT\""
+        "command": "set -euo pipefail\nCODE_ROOT=\"{{$env.CODE_ROOT || '/app'}}\"\nDATA_ROOT=\"{{$env.DATA_ROOT || '/data'}}\"\nOUT=\"$DATA_ROOT/generated/draft/simulation-result.json\"\nFIRST='{{JSON.stringify($node[\"Provision First Run\"].json)}}'\nSECOND='{{JSON.stringify($node[\"Provision Second Run\"].json)}}'\nCOUNT=$(find \"$DATA_ROOT/generated/validated\" -maxdepth 1 -type d -name 'acme-sim' 2>/dev/null | wc -l | tr -d ' ')\nif [ \"$COUNT\" = \"1\" ]; then DUP=true; else DUP=false; fi\nprintf '{\"tenant_id\":\"acme-sim\",\"tenant_type\":\"single_user\",\"signup_event_id\":\"sim-signup-001\",\"first_run\":%s,\"second_run\":%s,\"workspace_count\":%s,\"duplicate_prevented\":%s}\\n' \"$FIRST\" \"$SECOND\" \"$COUNT\" \"$DUP\" > \"$OUT\"\ncat \"$OUT\""
       },
       "id": "5",
       "name": "Save Simulation Results",

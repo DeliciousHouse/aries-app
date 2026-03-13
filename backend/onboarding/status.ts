@@ -1,5 +1,5 @@
 import * as fs from 'node:fs';
-import * as path from 'node:path';
+import { resolveDataPath } from '../../lib/runtime-paths';
 
 type StatusState = 'validated' | 'needs_repair' | 'in_progress' | 'duplicate' | 'not_found';
 
@@ -17,10 +17,6 @@ type StatusResult = {
   };
   reason?: string;
 };
-
-function projectRoot(): string {
-  return process.env.PROJECT_ROOT || path.resolve(__dirname, '../..');
-}
 
 function fileExists(p: string): boolean {
   return fs.existsSync(p);
@@ -55,13 +51,12 @@ export function getOnboardingStatus(input: { tenant_id?: string; signup_event_id
     return { status: 'error', reason: 'missing_required_query:tenant_id' };
   }
 
-  const root = projectRoot();
-  const draftPath = path.join(root, 'generated/draft', tenantId);
-  const validatedPath = path.join(root, 'generated/validated', tenantId);
-  const reportPath = path.join(root, 'generated/draft', `${tenantId}-validation-result.json`);
+  const draftPath = resolveDataPath('generated', 'draft', tenantId);
+  const validatedPath = resolveDataPath('generated', 'validated', tenantId);
+  const reportPath = resolveDataPath('generated', 'draft', `${tenantId}-validation-result.json`);
 
   const markerPath = input.signup_event_id
-    ? path.join(root, 'generated/draft/idempotency', `${input.signup_event_id}.json`)
+    ? resolveDataPath('generated', 'draft', 'idempotency', `${input.signup_event_id}.json`)
     : undefined;
 
   const report = readJsonSafe(reportPath) as { status?: string } | null;
@@ -74,6 +69,12 @@ export function getOnboardingStatus(input: { tenant_id?: string; signup_event_id
   const duplicateMarker = Boolean(marker?.duplicate);
 
   const state = inferState({ hasDraft, hasValidated, validationPass, validationFail, duplicateMarker });
+  const draftRel = `generated/draft/${tenantId}`;
+  const validatedRel = `generated/validated/${tenantId}`;
+  const reportRel = `generated/draft/${tenantId}-validation-result.json`;
+  const markerRel = input.signup_event_id
+    ? `generated/draft/idempotency/${input.signup_event_id}.json`
+    : undefined;
 
   return {
     status: 'ok',
@@ -82,10 +83,10 @@ export function getOnboardingStatus(input: { tenant_id?: string; signup_event_id
     state,
     validation_status: validationPass ? 'pass' : (validationFail ? 'fail' : 'unknown'),
     paths: {
-      draft: hasDraft ? draftPath : undefined,
-      validated: hasValidated ? validatedPath : undefined,
-      validation_report: fileExists(reportPath) ? reportPath : undefined,
-      idempotency_marker: markerPath && fileExists(markerPath) ? markerPath : undefined
+      draft: hasDraft ? draftRel : undefined,
+      validated: hasValidated ? validatedRel : undefined,
+      validation_report: fileExists(reportPath) ? reportRel : undefined,
+      idempotency_marker: markerPath && fileExists(markerPath) ? markerRel : undefined
     }
   };
 }

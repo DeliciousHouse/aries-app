@@ -17,7 +17,9 @@ export async function GET(
         marketing_stage: result.currentStage,
         marketing_stage_status: result.stageStatus,
         updatedAt: result.updatedAt,
-        runtimePath: result.runtimePath
+        runtimeArtifactPath: result.runtimeArtifactPath,
+        runtimePath: result.runtimeArtifactPath,
+        runtimePathDeprecated: true
       },
       { status: 200 }
     );

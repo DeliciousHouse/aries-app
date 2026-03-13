@@ -1,11 +1,12 @@
 declare const require: (name: string) => any;
+import { resolveDataPath, resolveSpecPath } from "../../lib/runtime-paths";
 
 const fs = require("fs");
 const path = require("path");
 
 const REQUIRED_SCHEMA_PATHS = [
-  "./specs/tenant_runtime_state_schema.v1.json",
-  "./specs/job_runtime_state_schema.v1.json"
+  resolveSpecPath("tenant_runtime_state_schema.v1.json"),
+  resolveSpecPath("job_runtime_state_schema.v1.json")
 ] as const;
 
 function assertRequiredSchemas(): void {
@@ -28,8 +29,7 @@ function assertRequiredSchemas(): void {
 }
 
 function runtimePath(jobId: string): string {
-  const root = process.env.PROJECT_ROOT || process.cwd();
-  return path.join(root, "generated", "draft", "marketing-jobs", `${jobId}.json`);
+  return resolveDataPath("generated", "draft", "marketing-jobs", `${jobId}.json`);
 }
 
 export type MarketingJobStatusResponse = {
@@ -40,8 +40,12 @@ export type MarketingJobStatusResponse = {
   currentStage: string | null;
   stageStatus: Record<string, string>;
   updatedAt: string | null;
-  runtimePath: string;
+  runtimeArtifactPath: string;
 };
+
+function runtimeArtifactPath(jobId: string): string {
+  return `generated/draft/marketing-jobs/${jobId}.json`;
+}
 
 export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse {
   assertRequiredSchemas();
@@ -56,7 +60,7 @@ export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse
       currentStage: null,
       stageStatus: {},
       updatedAt: null,
-      runtimePath: filePath
+      runtimeArtifactPath: runtimeArtifactPath(jobId)
     };
   }
 
@@ -70,6 +74,6 @@ export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse
     currentStage: typeof job?.outputs?.current_stage === "string" ? job.outputs.current_stage : null,
     stageStatus: (job?.outputs?.stage_status && typeof job.outputs.stage_status === "object") ? job.outputs.stage_status : {},
     updatedAt: typeof job.updated_at === "string" ? job.updated_at : null,
-    runtimePath: filePath
+    runtimeArtifactPath: runtimeArtifactPath(jobId)
   };
 }

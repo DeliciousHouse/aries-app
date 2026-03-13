@@ -36,7 +36,7 @@
     },
     {
       "parameters": {
-        "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nART=\"{{$json.artifact_path}}\"\nDEFECT=\"{{$json.defect_report}}\"\nATTEMPT=\"{{$json.attempt}}\"\nLOG=\"$ROOT/generated/draft/repair-attempts.log\"\nmkdir -p \"$ROOT/generated/draft\"\nprintf '%s openclaw_repair attempt=%s artifact=%s defect=%s\\n' \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\" \"$ATTEMPT\" \"$ART\" \"$DEFECT\" >> \"$LOG\"\nopenclaw status >/dev/null 2>&1 || true\necho \"{\\\"openclaw_repair_invoked\\\":true,\\\"attempt\\\":$ATTEMPT,\\\"artifact_path\\\":\\\"$ART\\\",\\\"defect_report\\\":\\\"$DEFECT\\\"}\""
+        "command": "set -euo pipefail\nCODE_ROOT=\"{{$env.CODE_ROOT || '/app'}}\"\nDATA_ROOT=\"{{$env.DATA_ROOT || '/data'}}\"\nART=\"{{$json.artifact_path}}\"\nDEFECT=\"{{$json.defect_report}}\"\nATTEMPT=\"{{$json.attempt}}\"\nLOG=\"$DATA_ROOT/generated/draft/repair-attempts.log\"\nmkdir -p \"$DATA_ROOT/generated/draft\"\nprintf '%s openclaw_repair attempt=%s artifact=%s defect=%s\\n' \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\" \"$ATTEMPT\" \"$ART\" \"$DEFECT\" >> \"$LOG\"\nopenclaw status >/dev/null 2>&1 || true\necho \"{\\\"openclaw_repair_invoked\\\":true,\\\"attempt\\\":$ATTEMPT,\\\"artifact_path\\\":\\\"$ART\\\",\\\"defect_report\\\":\\\"$DEFECT\\\"}\""
       },
       "id": "3",
       "name": "Invoke OpenClaw Repair Step",
@@ -46,7 +46,7 @@
     },
     {
       "parameters": {
-        "command": "set -euo pipefail\nROOT=\"{{$env.PROJECT_ROOT || '/data/aries-platform-bootstrap'}}\"\nART=\"{{$node['Normalize Repair Input'].json.artifact_path}}\"\nATTEMPT=\"{{$node['Normalize Repair Input'].json.attempt}}\"\nREPORT=\"$ROOT/generated/draft/repair-validation-attempt-${ATTEMPT}.json\"\nnode --experimental-strip-types \"$ROOT/validators/tenant_provisioning_workspace_validator.ts\" --target-root \"$ART\" --report \"$REPORT\" > /tmp/repair-validator-${ATTEMPT}.json || true\nnode -e \"const fs=require('fs');const r=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));process.stdout.write(JSON.stringify({status:r.status,failed_checks:r.failed_checks,defect_count:(r.defects||[]).length,report_path:process.argv[1]}));\" \"$REPORT\""
+        "command": "set -euo pipefail\nCODE_ROOT=\"{{$env.CODE_ROOT || '/app'}}\"\nDATA_ROOT=\"{{$env.DATA_ROOT || '/data'}}\"\nART=\"{{$node['Normalize Repair Input'].json.artifact_path}}\"\nATTEMPT=\"{{$node['Normalize Repair Input'].json.attempt}}\"\nREPORT=\"$DATA_ROOT/generated/draft/repair-validation-attempt-${ATTEMPT}.json\"\nnode --experimental-strip-types \"$CODE_ROOT/validators/tenant_provisioning_workspace_validator.ts\" --target-root \"$ART\" --report \"$REPORT\" > /tmp/repair-validator-${ATTEMPT}.json || true\nnode -e \"const fs=require('fs');const r=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));process.stdout.write(JSON.stringify({status:r.status,failed_checks:r.failed_checks,defect_count:(r.defects||[]).length,report_path:process.argv[1]}));\" \"$REPORT\""
       },
       "id": "4",
       "name": "Re-run Validator",

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolveCodePath, resolveDataPath } from '../lib/runtime-paths';
 
 type Json = null | boolean | number | string | Json[] | { [k: string]: Json };
 
@@ -152,18 +152,21 @@ function normalizePathString(s: string): string {
 
 function main(): number {
   const args = parseArgs(process.argv);
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
-  const projectRoot = path.resolve(__dirname, '..');
   const targetRoot = path.resolve(args['target-root'] ?? '');
   if (!targetRoot || !fs.existsSync(targetRoot)) {
     console.error('Missing or invalid --target-root');
     return 2;
   }
 
-  const specPath = path.resolve(projectRoot, args['spec'] ?? './specs/tenant_provisioning_workspace_spec.v1.json');
-  const validatorSpecPath = path.resolve(projectRoot, args['validator-spec'] ?? './specs/tenant_provisioning_workspace_validator_spec.v1.json');
-  const reportPath = args['report'] ? path.resolve(projectRoot, args['report']) : undefined;
+  const specPath = args['spec']
+    ? path.resolve(args['spec'])
+    : resolveCodePath('specs', 'tenant_provisioning_workspace_spec.v1.json');
+  const validatorSpecPath = args['validator-spec']
+    ? path.resolve(args['validator-spec'])
+    : resolveCodePath('specs', 'tenant_provisioning_workspace_validator_spec.v1.json');
+  const reportPath = args['report']
+    ? path.resolve(args['report'])
+    : resolveDataPath('generated', 'draft', 'validation-result.json');
 
   const spec = readJsonFile<Spec>(specPath);
   const validatorSpec = readJsonFile<ValidatorSpec>(validatorSpecPath);
