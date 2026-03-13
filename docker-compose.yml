@@ -11,6 +11,11 @@ services:
       DATA_ROOT: /data
       N8N_BASE_URL: ${N8N_BASE_URL}
       N8N_API_KEY: ${N8N_API_KEY}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
     volumes:
       - aries_runtime_data:/data
     restart: unless-stopped
@@ -20,6 +25,13 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    networks:
+      - docker_stack
+
+networks:
+  docker_stack:
+    external: true
+    name: docker-stack
 
 volumes:
   aries_runtime_data:

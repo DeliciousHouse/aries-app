@@ -19,7 +19,7 @@ export default function MarketingLayout({ children, currentPath = '/' }: Marketi
       <nav className="nav-public" role="navigation" aria-label="Main navigation">
         <div className="container">
           <a href="/" className="nav-logo" aria-label="Aries AI Home">
-            <img src="/aries-logo.png" alt="" width={36} height={36} />
+            <img src="/aries.webp" alt="" width={36} height={36} />
             <span>Aries AI</span>
           </a>
           <ul className="nav-links">
@@ -35,7 +35,7 @@ export default function MarketingLayout({ children, currentPath = '/' }: Marketi
               </li>
             ))}
             <li>
-              <a href="/dashboard" className="btn btn-primary btn-sm">Get Started</a>
+              <a href="/login" className="btn btn-primary btn-sm">Get Started</a>
             </li>
           </ul>
         </div>
