@@ -1,32 +1,54 @@
+export const AUTH_FLOW_UNAVAILABLE_MESSAGE =
+  'Email/password auth is temporarily unavailable. Use Google OAuth.';
+
+function unavailableAuthFlow(): never {
+  throw new Error(AUTH_FLOW_UNAVAILABLE_MESSAGE);
+}
+
 export async function verifyLogin(email: string, password: string): Promise<boolean> {
-  console.log('Verifying login for:', email);
-  return true;
+  void email;
+  void password;
+  unavailableAuthFlow();
 }
 
 export async function recordLogin(email: string): Promise<void> {
-  console.log('Recording login for:', email);
+  void email;
+  unavailableAuthFlow();
 }
 
 export async function checkEmailExists(email: string): Promise<boolean> {
-  console.log('Checking if email exists:', email);
-  return false; 
+  void email;
+  unavailableAuthFlow();
 }
 
 export async function registerIndividualLogin(email: string, password: string): Promise<void> {
-  console.log('Registering individual login:', email);
+  void email;
+  void password;
+  unavailableAuthFlow();
 }
 
-export async function createProfile(email: string, fullName: string, role: string, orgId: string | null): Promise<void> {
-  console.log('Creating profile:', { email, fullName, role, orgId });
+export async function createProfile(
+  email: string,
+  fullName: string,
+  role: string,
+  orgId: string | null
+): Promise<void> {
+  void email;
+  void fullName;
+  void role;
+  void orgId;
+  unavailableAuthFlow();
 }
 
 export async function createOrganization(name: string, domain: string): Promise<{ id: string }> {
-  console.log('Creating organization:', { name, domain });
-  return { id: 'org_123' };
+  void name;
+  void domain;
+  unavailableAuthFlow();
 }
 
 export async function getOrganizationByDomain(domain: string): Promise<any> {
-  return null;
+  void domain;
+  unavailableAuthFlow();
 }
 
 export function isIndividualEmail(email: string): boolean {
@@ -36,23 +58,36 @@ export function isIndividualEmail(email: string): boolean {
 }
 
 export async function getInvitationByToken(token: string): Promise<any> {
-  return null;
+  void token;
+  unavailableAuthFlow();
 }
 
-export async function markInvitationUsed(id: string): Promise<void> {}
+export async function markInvitationUsed(id: string): Promise<void> {
+  void id;
+  unavailableAuthFlow();
+}
 
 export async function storeEmailVerificationCode(email: string, code: string, isInvite: boolean): Promise<void> {
-  console.log('Storing verification code:', { email, code });
+  void email;
+  void code;
+  void isInvite;
+  unavailableAuthFlow();
 }
 
 export async function recordPasswordResetRequest(email: string, code: string): Promise<void> {
-  console.log('Recording password reset request:', { email, code });
+  void email;
+  void code;
+  unavailableAuthFlow();
 }
 
 export async function updateLoginPassword(email: string, password: string): Promise<void> {
-  console.log('Updating login password:', { email, passwordLength: password.length });
+  void email;
+  void password;
+  unavailableAuthFlow();
 }
 
 export async function markResetCodeUsed(email: string, code: string): Promise<void> {
-  console.log('Marking reset code used:', { email, code });
+  void email;
+  void code;
+  unavailableAuthFlow();
 }

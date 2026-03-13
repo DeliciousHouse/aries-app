@@ -39,6 +39,16 @@ interface IntegrationsPageFailure {
   error: IntegrationsPageError;
 }
 
+type OAuthConnectResult =
+  | {
+      broker_status: 'ok';
+      authorization_url: string;
+    }
+  | {
+      broker_status: 'error';
+      message?: string;
+    };
+
 const supportedPlatforms: PlatformKey[] = [
   'facebook',
   'instagram',
@@ -185,6 +195,17 @@ export interface IntegrationsScreenProps {
   baseUrl?: string;
 }
 
+function buildPageError(message: string, code: IntegrationsErrorCode = 'validation_failed'): IntegrationsPageFailure {
+  return {
+    status: 'error',
+    page_state: 'error',
+    error: {
+      code,
+      message,
+    },
+  };
+}
+
 export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenProps): JSX.Element {
   const [pageState, setPageState] = useState<IntegrationsPageState>('ready');
   const [cards, setCards] = useState<PlatformIntegrationCardData[]>(platformCardsSeed);
@@ -256,31 +277,49 @@ export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenP
   async function handleAction(action: IntegrationCardAction, platform: PlatformKey): Promise<void> {
     const actionKey = `${platform}:${action}`;
     setBusyKey(actionKey);
+    setLastError(null);
 
     try {
       if (action === 'connect' || action === 'reconnect') {
-        await fetch(`${baseUrl}/api/integrations/connect`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ platform, return_to: '/integrations' })
-        });
-      }
-
-      if (action === 'disconnect') {
-        await fetch(`${baseUrl}/api/integrations/disconnect`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ platform, confirm: true })
-        });
-      }
-
-      if (action === 'sync_now') {
-        await fetch(`${baseUrl}/api/integrations/sync`, {
+        const response = await fetch(`${baseUrl}/api/integrations/connect`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ platform })
         });
+
+        const body = (await response.json()) as OAuthConnectResult;
+        if (!response.ok || body.broker_status !== 'ok') {
+          throw new Error(body.broker_status === 'error' ? body.message || 'Unable to start OAuth connection.' : 'Unable to start OAuth connection.');
+        }
+
+        window.location.assign(body.authorization_url);
+        return;
       }
+
+      if (action === 'disconnect') {
+        const response = await fetch(`${baseUrl}/api/integrations/disconnect`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ platform, confirm: true })
+        });
+        if (!response.ok) {
+          throw new Error(`Unable to disconnect ${platform}.`);
+        }
+      }
+
+      if (action === 'sync_now') {
+        const response = await fetch(`${baseUrl}/api/integrations/sync`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ platform })
+        });
+        if (!response.ok) {
+          throw new Error(`Unable to sync ${platform}.`);
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to complete platform action.';
+      setLastError(buildPageError(message, 'provider_unavailable'));
     } finally {
       setBusyKey(null);
     }

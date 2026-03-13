@@ -4,7 +4,14 @@ import './globals.css';
 export const metadata = {
   title: 'Aries AI — Next-Generation LLM-Powered Agent',
   description: 'Sophisticated reasoning and seamless integrations for your most demanding tasks. Multi-platform publishing, AI-driven marketing, and intelligent automation.',
-  icons: { icon: '/aries-logo.png' },
+  icons: {
+    icon: [
+      { url: '/favicon.svg', type: 'image/svg+xml' },
+      { url: '/aries.webp', type: 'image/webp' },
+    ],
+    shortcut: '/favicon.svg',
+    apple: '/favicon.svg',
+  },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

@@ -1,4 +1,6 @@
 import type { ReactNode } from 'react';
+import { redirect } from 'next/navigation';
+import { auth } from '@/auth';
 import { APP_ROUTES, type AppRouteId, getRouteById, getSectionRoutes } from './routes';
 
 export interface AppShellLayoutProps {
@@ -16,12 +18,17 @@ const ICONS: Record<AppRouteId, string> = {
   settings: '⚙️',
 };
 
-export default function AppShellLayout({
+export default async function AppShellLayout({
   children,
   currentRouteId,
   title,
   subtitle,
-}: AppShellLayoutProps): JSX.Element {
+}: AppShellLayoutProps): Promise<JSX.Element> {
+  const session = await auth();
+  if (!session?.user) {
+    redirect('/login');
+  }
+
   const currentRoute = currentRouteId ? getRouteById(currentRouteId) : null;
 
   return (
@@ -29,7 +36,7 @@ export default function AppShellLayout({
       <div className="app-shell">
         <aside className="app-sidebar" role="navigation" aria-label="App navigation">
           <div className="sidebar-brand">
-            <img src="/aries-logo.png" alt="" width={28} height={28} />
+            <img src="/aries.webp" alt="" width={28} height={28} />
             <span>Aries AI</span>
           </div>
 
