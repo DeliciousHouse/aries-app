@@ -13,7 +13,7 @@ export default function HomePage() {
       {/* Hero */}
       <section className="hero">
         <img
-          src="/aries-logo.png"
+          src="/aries.webp"
           alt="Aries AI"
           className="hero-logo"
           width={180}
@@ -25,7 +25,7 @@ export default function HomePage() {
           Sophisticated reasoning and seamless integrations for your most demanding tasks.
         </p>
         <div className="hero-actions">
-          <a href="/dashboard" className="btn btn-primary btn-lg" id="cta-get-started">
+          <a href="/login" className="btn btn-primary btn-lg" id="cta-get-started">
             Get Started
           </a>
           <a href="/features" className="btn btn-secondary btn-lg" id="cta-learn-more">

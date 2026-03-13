@@ -1,27 +1,31 @@
+@import "tailwindcss";
+
 /* ===== Aries AI Design System ===== */
+
 
 /* --- Custom Properties --- */
 :root {
   /* Brand palette */
-  --aries-crimson: #C23550;
-  --aries-deep: #A0122D;
-  --aries-darkest: #7A001E;
+  --aries-crimson: #7A001E; /* Deep Crimson */
+  --aries-deep: #4D000D;    /* Dark Wine */
+  --aries-darkest: #140005; /* Near-Black */
+  --aries-fallback: #1A000A;
   --aries-black: #0D0A0B;
-  --aries-white: #F8F5F2;
+  --aries-white: #FFFFFF;
   --aries-ghost: rgba(255, 255, 255, 0.06);
   --aries-glass: rgba(255, 255, 255, 0.08);
   --aries-glass-border: rgba(255, 255, 255, 0.12);
-  --aries-text-primary: #F8F5F2;
-  --aries-text-secondary: rgba(248, 245, 242, 0.65);
-  --aries-text-muted: rgba(248, 245, 242, 0.4);
-  --aries-accent: #E8455A;
+  --aries-text-primary: #FFFFFF;
+  --aries-text-secondary: rgba(255, 255, 255, 0.8);
+  --aries-text-muted: rgba(255, 255, 255, 0.4);
+  --aries-accent: #7A001E;
   --aries-success: #34D399;
   --aries-warning: #FBBF24;
   --aries-error: #F87171;
 
   /* Gradients */
-  --bg-radial: radial-gradient(circle at center, #C23550 0%, #A0122D 40%, #7A001E 100%);
-  --bg-dark: linear-gradient(180deg, #0D0A0B 0%, #1A0F12 100%);
+  --bg-radial: radial-gradient(circle at center, #7A001E 0%, #4D000D 50%, #140005 100%);
+  --bg-dark: linear-gradient(180deg, #1A000A 0%, #0D0A0B 100%);
   --glass-gradient: linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%);
 
   /* Typography */
@@ -319,25 +323,56 @@ button, input, textarea, select {
   justify-content: center;
   text-align: center;
   position: relative;
-  z-index: 1;
+  overflow: hidden;
+  background: var(--bg-radial);
   padding: var(--space-24) var(--space-6) var(--space-16);
+}
+
+.network-sphere {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 130vh;
+  height: 130vh;
+  max-width: 1200px;
+  max-height: 1200px;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.15;
+  filter: drop-shadow(0 0 50px rgba(255, 255, 255, 0.1));
+  animation: sphereRotate 60s linear infinite;
+}
+
+@keyframes sphereRotate {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+.hero-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .hero-logo {
   width: 180px;
   height: 180px;
   margin-bottom: var(--space-8);
-  animation: heroFadeIn 1s var(--ease-out) both;
-  filter: drop-shadow(0 0 40px rgba(194, 53, 80, 0.3));
+  animation: heroFadeIn 1.2s var(--ease-out) both;
+  filter: drop-shadow(0 0 40px rgba(255, 255, 255, 0.2));
 }
 
 .hero-title {
-  font-size: var(--text-5xl);
+  font-size: var(--text-6xl);
   font-weight: 800;
   letter-spacing: -0.02em;
   line-height: 1.1;
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-6);
   animation: heroFadeIn 1s var(--ease-out) 0.15s both;
+  color: #FFFFFF;
 }
 
 .hero-brand {
@@ -353,10 +388,11 @@ button, input, textarea, select {
 
 .hero-subtitle {
   font-size: var(--text-xl);
-  color: var(--aries-text-secondary);
-  max-width: 560px;
-  margin: 0 auto var(--space-10);
+  color: rgba(255, 255, 255, 0.9);
+  max-width: 700px;
+  margin: 0 auto var(--space-12);
   line-height: 1.6;
+  font-weight: 400;
   animation: heroFadeIn 1s var(--ease-out) 0.3s both;
 }
 
