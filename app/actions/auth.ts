@@ -3,11 +3,16 @@
 import pool from '@/lib/db';
 import bcrypt from 'bcryptjs';
 
-export async function checkEmailExistsAction(email: string) {
+export async function userExists(email: string): Promise<boolean> {
   const client = await pool.connect();
+
   try {
-    const result = await client.query('SELECT 1 FROM users WHERE email = $1', [email]);
-    return result.rowCount > 0;
+    const result = await client.query(
+      'SELECT 1 FROM users WHERE email = $1 LIMIT 1',
+      [email]
+    );
+
+    return (result.rowCount ?? 0) > 0;
   } finally {
     client.release();
   }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AuthView } from '../types';
-import { checkEmailExistsAction, registerUserAction } from '@/app/actions/auth';
+import { registerUserAction } from '@/app/actions/auth';
 import { getInvitationByToken } from '../services/supabase';
 
 

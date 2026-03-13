@@ -48,3 +48,11 @@ export async function storeEmailVerificationCode(email: string, code: string, is
 export async function recordPasswordResetRequest(email: string, code: string): Promise<void> {
   console.log('Recording password reset request:', { email, code });
 }
+
+export async function updateLoginPassword(email: string, password: string): Promise<void> {
+  console.log('Updating login password:', { email, passwordLength: password.length });
+}
+
+export async function markResetCodeUsed(email: string, code: string): Promise<void> {
+  console.log('Marking reset code used:', { email, code });
+}

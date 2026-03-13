@@ -1,4 +1,4 @@
-// File: /Users/rohan/Aries-app/aries-app/app/api/auth/[...nextauth]/route.ts
+// File: /home/bkam/docker-stack/aries-app/app/api/auth/[...nextauth]/route.ts
 import * as entry from '../../../../../../app/api/auth/[...nextauth]/route.js'
 import type { NextRequest } from 'next/server.js'
 
