@@ -12,6 +12,13 @@ services:
       N8N_BASE_URL: ${N8N_BASE_URL:-http://host.docker.internal:5678}
       N8N_API_KEY: ${N8N_API_KEY:-local_n8n_api_key_from_secret_store}
       PROJECT_ROOT: /app
+      DB_HOST: n8n-postgres
+      DB_PORT: 5432
+      DB_USER: n8n
+      DB_PASSWORD: eef98df0c12581827b34cce8d470cf73df10ab106a27c8d3
+      DB_NAME: aries_auth
+    depends_on:
+      - n8n-postgres
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
@@ -19,3 +26,19 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+
+  n8n-postgres:
+    image: postgres:16-alpine
+    container_name: n8n-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: n8n
+      POSTGRES_PASSWORD: eef98df0c12581827b34cce8d470cf73df10ab106a27c8d3
+      POSTGRES_DB: aries_auth
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

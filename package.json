@@ -9,14 +9,25 @@
     "precheck": "node scripts/runtime-precheck.mjs"
   },
   "dependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/pg": "^8.18.0",
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^17.3.1",
     "next": "15.5.10",
+    "next-auth": "^5.0.0-beta.25",
+    "pg": "^8.20.0",
     "react": "18.3.1",
-    "react-dom": "18.3.1"
+    "react-dom": "18.3.1",
+    "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.2.1",
     "@types/node": "22.13.10",
     "@types/react": "18.3.12",
     "@types/react-dom": "18.3.1",
+    "autoprefixer": "^10.4.27",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^4.2.1",
     "typescript": "5.7.3"
   }
 }

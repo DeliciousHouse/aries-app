@@ -1,4 +1,4 @@
-// File: /home/bkam/docker-stack/aries-app/app/page.tsx
+// File: /Users/rohan/Aries-app/aries-app/app/page.tsx
 import * as entry from '../../../app/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 
