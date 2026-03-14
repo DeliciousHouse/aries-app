@@ -57,11 +57,11 @@ The following n8n webhooks are actively used by the API layer:
 | `/api/demo` | `/webhook/tenant-provisioning` | Demo tenant creation |
 | `/api/sandbox/launch` | `/webhook/tenant-provisioning` | Sandbox provisioning |
 | `/api/onboarding/start` | `/webhook/tenant-provisioning` | Tenant onboarding |
-| `/api/marketing/jobs` | `/webhook/marketing-research` | Start marketing pipeline |
+| `/api/marketing/jobs` | `/webhook/brand-campaign` | Start the canonical brand campaign flow |
 | `/api/marketing/jobs/:id/approve` | `/webhook/marketing-approval-resume` | Resume after approval |
 | `/api/publish/dispatch` | `/webhook/aries/publish` | Cross-platform publishing |
 
-**Not yet wired** (log-only stubs):
+**Not yet wired** (explicit `501` placeholders that still log payloads):
 - `/api/contact` — no `contact-form` workflow in n8n
 - `/api/waitlist` — no `waitlist-signup` workflow in n8n
 - `/api/events` — no `event-tracking` workflow in n8n
@@ -71,13 +71,13 @@ The following n8n webhooks are actively used by the API layer:
 ```
 Browser → /api/* (Next.js route handlers)
                ↓
-         lib/api-service.ts (postToN8n)
+      n8n proxy OR local runtime reader
                ↓
-         N8N_BASE_URL/webhook/* (n8n workflows)
+  `lib/api-service.ts` or `backend/*` local status/fallback logic
 ```
 
 - **Frontend** calls internal `/api/*` routes only — never raw n8n webhooks
-- **API layer** (`app/api/*/route.ts`) validates input, builds payloads, proxies to n8n
+- **API layer** (`app/api/*/route.ts`) validates input, then either proxies to n8n, reads local runtime artifacts, or returns an explicit placeholder error
 - **Service layer** (`lib/api-service.ts`) handles timeouts, error normalization, structured logging
 - **Config** (`lib/config.ts`) reads env vars server-side — credentials never reach the browser
 

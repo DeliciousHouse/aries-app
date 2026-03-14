@@ -9,12 +9,20 @@ This is the thinnest runnable app shell for Aries on `http://localhost:3000`.
   - `/marketing/new-job`
   - `/marketing/job-status`
   - `/marketing/job-approve`
+  - `/platforms`
+  - `/settings`
 - API endpoints:
   - `POST /api/onboarding/start`
   - `GET /api/onboarding/status/:tenantId`
   - `POST /api/marketing/jobs`
   - `GET /api/marketing/jobs/:jobId`
   - `POST /api/marketing/jobs/:jobId/approve`
+  - `POST /api/publish/dispatch`
+  - `GET /api/integrations`
+  - `GET /api/platform-connections`
+  - `POST /api/contact` (`501` placeholder)
+  - `POST /api/waitlist` (`501` placeholder)
+  - `POST /api/events` (`501` placeholder)
 
 ## Setup
 1. Copy env template:
@@ -48,5 +56,8 @@ If running directly on host Node, set `CODE_ROOT` and `DATA_ROOT` to host-valid 
 
 ## Notes
 - API routes are thin wrappers around existing backend logic under `./backend`.
+- `/settings` is a read-only placeholder because `/api/tenant-admin/settings` is not implemented in this runtime.
+- `/platforms` loads live OAuth broker state on mount and only shows token expiry when the backend has a real expiry timestamp.
+- `/api/onboarding/status/:tenantId`, `GET /api/marketing/jobs/:jobId`, and some marketing approval fallback behavior are local runtime readers/fallbacks, not direct workflow status queries.
 - No workflow/contract redesign is introduced by this shell.
 - `PROJECT_ROOT` is treated as legacy compatibility fallback only.
