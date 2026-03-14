@@ -1,8 +1,17 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import pool from "./lib/db";
+import { resolveAuthRuntimeConfig } from "./lib/auth-runtime-config";
+
+const authRuntime = resolveAuthRuntimeConfig(process.env);
+
+if (authRuntime.authUrl) {
+  process.env.NEXTAUTH_URL = process.env.NEXTAUTH_URL ?? authRuntime.authUrl;
+  process.env.AUTH_URL = process.env.AUTH_URL ?? authRuntime.authUrl;
+}
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  trustHost: authRuntime.trustHost,
   providers: [
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID,

@@ -41,6 +41,9 @@ npm run dev
 | `CODE_ROOT` | Optional | Immutable code root inside container (default: `/app`) |
 | `DATA_ROOT` | Optional | Writable runtime data root (default: `/data`) |
 | `APP_BASE_URL` | Optional | Public URL of the Aries app (default: `http://localhost:3000`) |
+| `NEXTAUTH_URL` | Recommended | Canonical public URL for Auth.js callbacks (example: `https://aries.sugarandleather.com`) |
+| `AUTH_URL` | Optional | Auth.js alias for canonical URL; set same value as `NEXTAUTH_URL` |
+| `AUTH_TRUST_HOST` | Recommended in production | Set `true` behind a trusted reverse proxy/load balancer so Auth.js accepts forwarded host headers |
 | `NODE_ENV` | Optional | `development` or `production` |
 | `PORT` | Optional | Server port (default: 3000) |
 | `LOG_LEVEL` | Optional | Logging level (default: `info`) |

@@ -19,6 +19,7 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml build
 
 ## Required environment
 - `APP_BASE_URL`
+- `ARIES_APP_IMAGE` (optional image/tag override, default: `aries-app:local`)
 - `DB_HOST`
 - `DB_PORT`
 - `DB_USER`
@@ -27,12 +28,20 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml build
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `NEXTAUTH_URL`
+- `AUTH_URL` (same value as `NEXTAUTH_URL`)
+- `AUTH_TRUST_HOST` (`true` for trusted proxy deployments)
 - `NEXTAUTH_SECRET`
 - `N8N_BASE_URL`
 - `N8N_API_KEY`
 
 ## Run (parity runtime)
 ```bash
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
+```
+
+To pin a specific private GHCR tag without editing compose files:
+```bash
+ARIES_APP_IMAGE=ghcr.io/<owner-or-org>/aries-app:<tag> \
 docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
 ```
 
