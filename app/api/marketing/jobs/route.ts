@@ -26,7 +26,7 @@ export async function POST(req: Request) {
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (message.startsWith('missing_required_fields:')) {
+    if (message.startsWith('missing_required_fields:') || message.startsWith('unsupported_job_type:')) {
       return NextResponse.json({ error: message }, { status: 400 });
     }
 

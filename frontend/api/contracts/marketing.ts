@@ -1,17 +1,16 @@
-export type MarketingJobType =
-  | 'marketing_research'
-  | 'marketing_strategy'
-  | 'marketing_production'
-  | 'marketing_publish'
-  | 'brand_campaign'
-  | 'unknown';
+export type MarketingJobType = 'brand_campaign';
 
 export type MarketingStage = 'research' | 'strategy' | 'production' | 'publish';
+
+export interface BrandCampaignPayload {
+  brandUrl: string;
+  competitorUrl: string;
+}
 
 export interface PostMarketingJobsRequest {
   tenantId: string;
   jobType: MarketingJobType;
-  payload?: Record<string, unknown>;
+  payload: BrandCampaignPayload;
 }
 
 export interface StartJobAccepted {
@@ -19,7 +18,7 @@ export interface StartJobAccepted {
   jobId: string;
   tenantId: string;
   jobType: MarketingJobType;
-  wiring: 'n8n_research_webhook' | 'backend_fallback';
+  wiring: 'n8n_brand_campaign_webhook' | 'backend_fallback';
   runtimePath: string;
 }
 
