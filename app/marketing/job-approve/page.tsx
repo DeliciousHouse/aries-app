@@ -1,3 +1,4 @@
+import React from 'react';
 import MarketingJobApproveScreen from '../../../frontend/marketing/job-approve';
 
 export default async function MarketingJobApprovePage({
