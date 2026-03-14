@@ -1,3 +1,4 @@
+import React from 'react';
 import MarketingJobStatusScreen from '../../../frontend/marketing/job-status';
 
 export default async function MarketingJobStatusPage({

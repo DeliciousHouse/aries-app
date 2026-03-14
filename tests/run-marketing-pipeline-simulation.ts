@@ -106,8 +106,11 @@ async function main(): Promise<void> {
   // 1) create valid marketing job
   const start = await startMarketingJob({
     tenantId,
-    jobType: "marketing_research",
-    payload: { campaign_brief: "Q2 launch", channels: ["meta", "web"] }
+    jobType: "brand_campaign",
+    payload: {
+      brandUrl: "https://brand.example",
+      competitorUrl: "https://facebook.com/competitor"
+    }
   });
   phaseLog.push(`- created job: ${start.jobId} (${start.wiring})`);
   stageResults.create_job = start;
@@ -152,7 +155,14 @@ async function main(): Promise<void> {
   }
 
   // 7) bounded failure case + repair path
-  const failStart = await startMarketingJob({ tenantId: `${tenantId}-repair`, jobType: "marketing_research", payload: { campaign_brief: "repair case" } });
+  const failStart = await startMarketingJob({
+    tenantId: `${tenantId}-repair`,
+    jobType: "brand_campaign",
+    payload: {
+      brandUrl: "https://repair.example",
+      competitorUrl: "https://facebook.com/repair-competitor"
+    }
+  });
   const failFile = runtimePath(failStart.jobId);
   const failDoc = await readJson(failFile);
   if (!failDoc.outputs) failDoc.outputs = {};

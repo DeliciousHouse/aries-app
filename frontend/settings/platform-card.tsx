@@ -61,6 +61,7 @@ export interface PlatformIntegrationCardData {
   connected_account?: ConnectedAccount;
   available_actions: IntegrationCardAction[];
   last_synced_at: string | null;
+  expires_at?: string | null;
   permissions: IntegrationPermission[];
   error?: IntegrationCardError;
 }
@@ -156,6 +157,22 @@ export function PlatformCard({ card, onAction, busyAction = null }: PlatformCard
             <span style={{ fontSize: 'var(--text-xs)', color: 'var(--aries-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Last Sync</span>
             <span style={{ fontSize: 'var(--text-xs)' }}>
               {new Date(card.last_synced_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+            </span>
+          </div>
+        )}
+
+        {(card.connection_state === 'connected' || card.connection_state === 'reauth_required') && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--aries-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Token Expiry</span>
+            <span style={{ fontSize: 'var(--text-xs)' }}>
+              {card.expires_at
+                ? new Date(card.expires_at).toLocaleDateString(undefined, {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit'
+                  })
+                : 'Unknown'}
             </span>
           </div>
         )}

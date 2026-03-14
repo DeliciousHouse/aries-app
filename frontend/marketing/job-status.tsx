@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { createMarketingClient } from '../api/client/marketing';
 import type {
@@ -23,6 +23,10 @@ export interface MarketingJobStatusScreenProps {
   defaultJobId?: string;
 }
 
+export function normalizeMarketingJobId(jobId?: string): string {
+  return jobId?.trim() || '';
+}
+
 function isErrorResult(value: JobStatusResult | null): value is HardFailureError | UnhandledError {
   return !!value && typeof value === 'object' && 'error' in value;
 }
@@ -30,13 +34,13 @@ function isErrorResult(value: JobStatusResult | null): value is HardFailureError
 export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
   const client = useMemo(() => createMarketingClient({ baseUrl: props.baseUrl }), [props.baseUrl]);
 
-  const [jobId, setJobId] = useState(props.defaultJobId ?? '');
+  const [jobId, setJobId] = useState(normalizeMarketingJobId(props.defaultJobId));
   const [loading, setLoading] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [result, setResult] = useState<JobStatusResult | null>(null);
 
-  async function handleLoadStatus() {
-    const trimmedJobId = jobId.trim();
+  async function loadStatus(rawJobId: string) {
+    const trimmedJobId = normalizeMarketingJobId(rawJobId);
     if (!trimmedJobId) {
       setRequestError('jobId is required');
       return;
@@ -54,6 +58,21 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
       setLoading(false);
     }
   }
+
+  async function handleLoadStatus() {
+    await loadStatus(jobId);
+  }
+
+  useEffect(() => {
+    const initialJobId = normalizeMarketingJobId(props.defaultJobId);
+    setJobId(initialJobId);
+
+    if (!initialJobId) {
+      return;
+    }
+
+    void loadStatus(initialJobId);
+  }, [props.defaultJobId]);
 
   const successResult = result && !isErrorResult(result) ? result : null;
   const hints =

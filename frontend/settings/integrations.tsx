@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import PlatformCard, {
   type IntegrationCardAction,
   type IntegrationHealth,
@@ -38,6 +38,16 @@ interface IntegrationsPageFailure {
   page_state: 'error';
   error: IntegrationsPageError;
 }
+
+type OAuthConnectResult =
+  | {
+      broker_status: 'ok';
+      authorization_url: string;
+    }
+  | {
+      broker_status: 'error';
+      message?: string;
+    };
 
 const supportedPlatforms: PlatformKey[] = [
   'facebook',
@@ -185,9 +195,20 @@ export interface IntegrationsScreenProps {
   baseUrl?: string;
 }
 
+function buildPageError(message: string, code: IntegrationsErrorCode = 'validation_failed'): IntegrationsPageFailure {
+  return {
+    status: 'error',
+    page_state: 'error',
+    error: {
+      code,
+      message,
+    },
+  };
+}
+
 export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenProps): JSX.Element {
-  const [pageState, setPageState] = useState<IntegrationsPageState>('ready');
-  const [cards, setCards] = useState<PlatformIntegrationCardData[]>(platformCardsSeed);
+  const [pageState, setPageState] = useState<IntegrationsPageState>('loading');
+  const [cards, setCards] = useState<PlatformIntegrationCardData[]>([]);
   const [filter, setFilter] = useState<PlatformFilter>('all');
   const [sort, setSort] = useState<IntegrationsSort>('display_name_asc');
   const [search, setSearch] = useState('');
@@ -222,7 +243,7 @@ export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenP
   };
 
   async function handleRefresh(): Promise<void> {
-    setPageState('refreshing');
+    setPageState((current) => (current === 'loading' ? 'loading' : 'refreshing'));
     setLastError(null);
 
     try {
@@ -253,34 +274,56 @@ export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenP
     }
   }
 
+  useEffect(() => {
+    void handleRefresh();
+  }, [baseUrl]);
+
   async function handleAction(action: IntegrationCardAction, platform: PlatformKey): Promise<void> {
     const actionKey = `${platform}:${action}`;
     setBusyKey(actionKey);
+    setLastError(null);
 
     try {
       if (action === 'connect' || action === 'reconnect') {
-        await fetch(`${baseUrl}/api/integrations/connect`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ platform, return_to: '/integrations' })
-        });
-      }
-
-      if (action === 'disconnect') {
-        await fetch(`${baseUrl}/api/integrations/disconnect`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ platform, confirm: true })
-        });
-      }
-
-      if (action === 'sync_now') {
-        await fetch(`${baseUrl}/api/integrations/sync`, {
+        const response = await fetch(`${baseUrl}/api/integrations/connect`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ platform })
         });
+
+        const body = (await response.json()) as OAuthConnectResult;
+        if (!response.ok || body.broker_status !== 'ok') {
+          throw new Error(body.broker_status === 'error' ? body.message || 'Unable to start OAuth connection.' : 'Unable to start OAuth connection.');
+        }
+
+        window.location.assign(body.authorization_url);
+        return;
       }
+
+      if (action === 'disconnect') {
+        const response = await fetch(`${baseUrl}/api/integrations/disconnect`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ platform, confirm: true })
+        });
+        if (!response.ok) {
+          throw new Error(`Unable to disconnect ${platform}.`);
+        }
+      }
+
+      if (action === 'sync_now') {
+        const response = await fetch(`${baseUrl}/api/integrations/sync`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ platform })
+        });
+        if (!response.ok) {
+          throw new Error(`Unable to sync ${platform}.`);
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to complete platform action.';
+      setLastError(buildPageError(message, 'provider_unavailable'));
     } finally {
       setBusyKey(null);
     }
@@ -382,7 +425,7 @@ export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenP
         </button>
       </div>
 
-      {pageState === 'refreshing' && visibleCards.length === 0 ? (
+      {(pageState === 'loading' || pageState === 'refreshing') && visibleCards.length === 0 ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: 'var(--space-12)' }}>
           <div className="spinner"></div>
         </div>

@@ -17,12 +17,47 @@
 docker compose -f docker-compose.yml -f docker-compose.local.yml build
 ```
 
+## Required environment
+- `APP_BASE_URL`
+- `ARIES_APP_IMAGE` (optional image/tag override, default: `aries-app:local`)
+- `DB_HOST`
+- `DB_PORT`
+- `DB_USER`
+- `DB_PASSWORD`
+- `DB_NAME`
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `NEXTAUTH_URL`
+- `AUTH_URL` (same value as `NEXTAUTH_URL`)
+- `AUTH_TRUST_HOST` (`true` for trusted proxy deployments)
+- `NEXTAUTH_SECRET`
+- `N8N_BASE_URL`
+- `N8N_API_KEY`
+
 ## Run (parity runtime)
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
 ```
 
+To pin a specific private GHCR tag without editing compose files:
+```bash
+ARIES_APP_IMAGE=ghcr.io/<owner-or-org>/aries-app:<tag> \
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
+```
+
 App will be available at `http://localhost:3000`.
+
+## External Postgres schema
+- Production uses an external Postgres instance. Do not add an embedded Postgres service to the production compose file.
+- The current auth code expects these tables to exist before first sign-in:
+  - `organizations`
+  - `users`
+- Auth.js is currently using JWT sessions without a database adapter, so `sessions` and `accounts` tables are not required.
+- Initialize the schema once against the target database before enabling auth flows:
+
+```bash
+npm run db:init
+```
 
 ## Optional hot reload
 ```bash
@@ -40,6 +75,7 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml down
 - Production-oriented runtime mounts only `/data` for persistent artifacts (`/data/generated/...`).
 - Production should not bind mount the repository into `/app`.
 - Keep real secrets out of git; inject via environment at deploy time.
+- The app runtime contract remains `CODE_ROOT=/app` and `DATA_ROOT=/data`.
 
 ## Image distribution (private GHCR)
 ```bash

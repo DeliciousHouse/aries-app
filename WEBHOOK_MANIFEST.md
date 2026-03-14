@@ -8,7 +8,8 @@ Discovered from the live n8n instance at `n8n.sugarandleather.com` and local `n8
 |---|---|---|---|---|
 | `/webhook/tenant-provisioning` | tenant-provisioning | `9RtLUPv8wQLtgQUE` | POST | `/api/onboarding/start`, `/api/demo`, `/api/sandbox/launch` |
 | `/webhook/tenant-repair` | tenant-repair | `vATLKcdEKm9ete08` | POST | Internal repair chain |
-| `/webhook/marketing-research` | marketing-research | `I9lRSG4BkD98yGY7` | POST | `/api/marketing/jobs` |
+| `/webhook/brand-campaign` | brand-campaign | — | POST | `/api/marketing/jobs` |
+| `/webhook/marketing-research` | marketing-research | `I9lRSG4BkD98yGY7` | POST | Legacy/manual stage entry, not the current product create route |
 | `/webhook/marketing-strategy` | marketing-strategy | `fHpqn4kKkfwO4MTv` | POST | Pipeline stage 2 |
 | `/webhook/marketing-production` | marketing-production | `DLawm6bvd2Ixpv7j` | POST | Pipeline stage 3 |
 | `/webhook/marketing-publish` | marketing-publish | `DF33XGltzCSl7uCm` | POST | Pipeline stage 4 |
@@ -43,7 +44,7 @@ Discovered from the live n8n instance at `n8n.sugarandleather.com` and local `n8
 
 ## Missing Workflows
 
-These API routes have no corresponding n8n workflow and operate as log-only stubs:
+These API routes have no corresponding n8n workflow and now return explicit `501` placeholder responses after logging the payload:
 
 | API Route | Expected Workflow | Status |
 |---|---|---|

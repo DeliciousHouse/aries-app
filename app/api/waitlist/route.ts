@@ -1,4 +1,4 @@
-import { buildPayload, successResponse, errorResponse } from '../../../lib/api-service';
+import { buildPayload, errorResponse } from '../../../lib/api-service';
 
 /**
  * POST /api/waitlist
@@ -36,5 +36,9 @@ export async function POST(req: Request) {
     payload,
   }));
 
-  return successResponse({ joined: true, wired: false, note: 'No n8n waitlist workflow is deployed. Signup logged server-side.' });
+  return errorResponse(501, 'Waitlist signups are not implemented in this runtime.', {
+    wired: false,
+    reason: 'no_n8n_waitlist_workflow',
+    logged: true,
+  });
 }

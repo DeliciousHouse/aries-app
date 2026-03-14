@@ -1,4 +1,5 @@
 import { oauthStatus } from '../../../backend/integrations/status';
+import { resolveTokenHealth } from '../../../backend/integrations/connection-schema';
 import { PROVIDER_REGISTRY } from '../../../backend/integrations/provider-registry';
 
 const platforms = Object.keys(PROVIDER_REGISTRY) as Array<keyof typeof PROVIDER_REGISTRY>;
@@ -6,7 +7,25 @@ const platforms = Object.keys(PROVIDER_REGISTRY) as Array<keyof typeof PROVIDER_
 function mapState(connectionStatus: string) {
   if (connectionStatus === 'connected') return 'connected';
   if (connectionStatus === 'pending_oauth') return 'connection_pending';
+  if (connectionStatus === 'token_expired' || connectionStatus === 'revoked' || connectionStatus === 'permission_denied') {
+    return 'reauth_required';
+  }
   return 'not_connected';
+}
+
+function mapHealth(connectionStatus: string, tokenExpiresAt?: string) {
+  if (connectionStatus !== 'connected' && connectionStatus !== 'token_expired') return 'unknown';
+
+  switch (resolveTokenHealth(tokenExpiresAt)) {
+    case 'healthy':
+      return 'healthy';
+    case 'expiring_soon':
+      return 'degraded';
+    case 'expired':
+      return 'error';
+    default:
+      return 'unknown';
+  }
 }
 
 export async function GET(req: Request) {
@@ -32,9 +51,10 @@ export async function GET(req: Request) {
       display_name: PROVIDER_REGISTRY[platform].display_name,
       description: `Connect ${PROVIDER_REGISTRY[platform].display_name}`,
       connection_state: mapState(status.connection_status),
-      health: status.health === 'healthy' ? 'healthy' : 'unknown',
+      health: mapHealth(status.connection_status, status.token_expires_at),
       available_actions: status.connection_status === 'connected' ? ['sync_now', 'disconnect', 'view_permissions'] : ['connect', 'view_permissions'],
-      last_synced_at: status.last_success_at || null,
+      last_synced_at: null,
+      expires_at: status.token_expires_at || null,
       permissions: []
     };
   });

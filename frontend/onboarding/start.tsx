@@ -22,6 +22,20 @@ type MetadataDraft = {
   proposed_slug?: string;
 };
 
+export function buildOnboardingStatusHref(tenantId: string, signupEventId: string): string {
+  return `/onboarding/status?tenant_id=${encodeURIComponent(tenantId)}&signup_event_id=${encodeURIComponent(signupEventId)}`;
+}
+
+export function resolveOnboardingStatusHref(
+  result: Pick<OnboardingStartSuccess, 'tenant_id' | 'signup_event_id'> | null,
+  fallbackTenantId: string,
+  fallbackSignupEventId: string
+): string {
+  const tenantId = result?.tenant_id?.trim() || fallbackTenantId.trim();
+  const signupEventId = result?.signup_event_id?.trim() || fallbackSignupEventId.trim();
+  return buildOnboardingStatusHref(tenantId, signupEventId);
+}
+
 export default function OnboardingStartScreen(): JSX.Element {
   const client = useMemo(() => createOnboardingClient(), []);
   const router = useRouter();
@@ -53,9 +67,7 @@ export default function OnboardingStartScreen(): JSX.Element {
 
   const resolvedTenantId = tenantId.trim() || proposedSlug.trim();
   const resolvedSignupEventId = signupEventId.trim();
-  const statusHref = `/onboarding/status?tenant_id=${encodeURIComponent(resolvedTenantId)}&signup_event_id=${encodeURIComponent(
-    resolvedSignupEventId
-  )}`;
+  const statusHref = resolveOnboardingStatusHref(null, resolvedTenantId, resolvedSignupEventId);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -88,7 +100,7 @@ export default function OnboardingStartScreen(): JSX.Element {
       setResult(startResult);
 
       if ('status' in startResult && startResult.status === 'ok') {
-        router.push(statusHref);
+        router.push(resolveOnboardingStatusHref(startResult, resolvedTenantId, resolvedSignupEventId));
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown client error';
@@ -215,7 +227,8 @@ export default function OnboardingStartScreen(): JSX.Element {
         <div>
           <p>Onboarding start accepted. Redirecting to status…</p>
           <p>
-            If you are not redirected, continue to <a href={statusHref}>/onboarding/status</a>.
+            If you are not redirected, continue to{' '}
+            <a href={resolveOnboardingStatusHref(result, resolvedTenantId, resolvedSignupEventId)}>/onboarding/status</a>.
           </p>
           <pre>{JSON.stringify(result, null, 2)}</pre>
         </div>

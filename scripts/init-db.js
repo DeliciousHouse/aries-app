@@ -18,6 +18,7 @@ async function initDb() {
       CREATE TABLE IF NOT EXISTS organizations (
         id SERIAL PRIMARY KEY,
         name TEXT NOT NULL,
+        slug TEXT UNIQUE,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
 
@@ -27,8 +28,15 @@ async function initDb() {
         password_hash TEXT NOT NULL,
         full_name TEXT,
         organization_id INTEGER REFERENCES organizations(id),
+        role TEXT NOT NULL DEFAULT 'tenant_admin',
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
+
+      ALTER TABLE organizations
+        ADD COLUMN IF NOT EXISTS slug TEXT;
+
+      ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'tenant_admin';
     `);
     
     console.log('Database initialized successfully.');

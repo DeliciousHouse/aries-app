@@ -56,15 +56,17 @@ function createFallbackJobRuntime(input: StartMarketingJobRequest, jobId: string
     schema_name: "job_runtime_state_schema",
     schema_version: "1.0.0",
     job_id: jobId,
-    job_type: "unknown",
+    job_type: input.jobType,
     tenant_id: input.tenantId,
     state: "queued",
     status: "pending",
     attempt: 1,
     max_attempts: 3,
     inputs: {
-      request: input.payload || {},
-      requested_job_type: input.jobType
+      request: input.payload,
+      requested_job_type: input.jobType,
+      brand_url: input.payload.brandUrl,
+      competitor_url: input.payload.competitorUrl
     },
     outputs: {
       current_stage: "research",
@@ -102,8 +104,12 @@ function createFallbackJobRuntime(input: StartMarketingJobRequest, jobId: string
 
 export type StartMarketingJobRequest = {
   tenantId: string;
-  jobType: "marketing_research" | "marketing_strategy" | "marketing_production" | "marketing_publish" | "brand_campaign" | "unknown";
-  payload?: Record<string, unknown>;
+  jobType: "brand_campaign";
+  payload: {
+    brandUrl?: unknown;
+    competitorUrl?: unknown;
+    [key: string]: unknown;
+  };
 };
 
 export type StartMarketingJobResponse = {
@@ -111,7 +117,7 @@ export type StartMarketingJobResponse = {
   jobId: string;
   tenantId: string;
   jobType: StartMarketingJobRequest["jobType"];
-  wiring: "n8n_research_webhook" | "backend_fallback";
+  wiring: "n8n_brand_campaign_webhook" | "backend_fallback";
   runtimeArtifactPath: string;
 };
 
@@ -134,35 +140,36 @@ export async function startMarketingJob(
     throw new Error('missing_required_fields:jobType');
   }
 
+  if (input.jobType !== "brand_campaign") {
+    console.error('startMarketingJob failed: unsupported jobType', input);
+    throw new Error(`unsupported_job_type:${input.jobType}`);
+  }
+
+  const brandUrl = typeof input.payload?.brandUrl === "string" ? input.payload.brandUrl.trim() : "";
+  const competitorUrl = typeof input.payload?.competitorUrl === "string" ? input.payload.competitorUrl.trim() : "";
+  const missingPayloadFields: string[] = [];
+  if (!brandUrl) missingPayloadFields.push("payload.brandUrl");
+  if (!competitorUrl) missingPayloadFields.push("payload.competitorUrl");
+  if (missingPayloadFields.length > 0) {
+    console.error('startMarketingJob failed: missing brand campaign payload fields', input);
+    throw new Error(`missing_required_fields:${missingPayloadFields.join(",")}`);
+  }
+
   const tenantId = input.tenantId.trim();
   const jobId = `mkt_${tenantId}_${Date.now()}`;
   const baseUrl = process.env.N8N_BASE_URL || "http://localhost:5678";
-  let webhookUrl = `${baseUrl}/webhook/marketing-research`;
-  let reqBody: Record<string, unknown> = {
+  const webhookUrl = `${baseUrl}/webhook/brand-campaign`;
+  const reqBody: Record<string, unknown> = {
     tenant_id: tenantId,
-    job_type: "marketing_research",
+    job_type: "brand_campaign",
     request: {
       job_id: jobId,
       tenant_id: tenantId,
-      source_job_type: input.jobType,
-      ...(input.payload || {})
+      brand_url: brandUrl,
+      competitor_url: competitorUrl,
+      ...input.payload
     }
   };
-
-  if (input.jobType === "brand_campaign") {
-    webhookUrl = `${baseUrl}/webhook/brand-campaign`;
-    reqBody = {
-      tenant_id: tenantId,
-      job_type: "brand_campaign",
-      request: {
-        job_id: jobId,
-        tenant_id: tenantId,
-        brand_url: input.payload?.brandUrl,
-        competitor_url: input.payload?.competitorUrl,
-        ...(input.payload || {})
-      }
-    };
-  }
 
   try {
     // Internal Docker traffic to n8n stays HTTP; TLS terminates at Caddy/public edge.
@@ -191,7 +198,7 @@ export async function startMarketingJob(
         jobId: String(body.job_id),
         tenantId,
         jobType: input.jobType,
-        wiring: "n8n_research_webhook",
+        wiring: "n8n_brand_campaign_webhook",
         runtimeArtifactPath: runtimeArtifactPath(String(body.job_id))
       };
     }

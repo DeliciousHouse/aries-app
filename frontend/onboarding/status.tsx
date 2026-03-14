@@ -11,20 +11,23 @@ type OnboardingStatusResponse = OnboardingStatusSuccess | OnboardingStatusError;
 export interface OnboardingStatusScreenProps {
   baseUrl?: string;
   initialTenantId?: string;
+  initialSignupEventId?: string;
 }
 
 export default function OnboardingStatusScreen({
   baseUrl,
-  initialTenantId = ''
+  initialTenantId = '',
+  initialSignupEventId = ''
 }: OnboardingStatusScreenProps): JSX.Element {
   const client = useMemo(() => createOnboardingClient({ baseUrl }), [baseUrl]);
 
   const [tenantId, setTenantId] = useState(initialTenantId);
+  const [signupEventId, setSignupEventId] = useState(initialSignupEventId);
   const [loading, setLoading] = useState(false);
   const [response, setResponse] = useState<OnboardingStatusResponse | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
 
-  async function checkStatus(rawTenantId: string): Promise<void> {
+  async function checkStatus(rawTenantId: string, rawSignupEventId = signupEventId): Promise<void> {
     const normalizedTenantId = rawTenantId.trim();
     if (!normalizedTenantId) {
       setRequestError('tenant_id is required');
@@ -36,7 +39,10 @@ export default function OnboardingStatusScreen({
     setRequestError(null);
 
     try {
-      const result = await client.status(normalizedTenantId);
+      const normalizedSignupEventId = rawSignupEventId.trim();
+      const result = await client.status(normalizedTenantId, normalizedSignupEventId ? {
+        signup_event_id: normalizedSignupEventId
+      } : undefined);
       setResponse(result);
     } catch {
       setResponse(null);
@@ -52,12 +58,15 @@ export default function OnboardingStatusScreen({
   }
 
   useEffect(() => {
+    setTenantId(initialTenantId);
+    setSignupEventId(initialSignupEventId);
+
     if (!initialTenantId.trim()) {
       return;
     }
 
-    void checkStatus(initialTenantId);
-  }, [initialTenantId]);
+    void checkStatus(initialTenantId, initialSignupEventId);
+  }, [initialSignupEventId, initialTenantId]);
 
   const isStatusError = response?.onboarding_status === 'error';
   const success = !isStatusError && response ? (response as OnboardingStatusSuccess) : null;
@@ -76,6 +85,16 @@ export default function OnboardingStatusScreen({
             onChange={(e) => setTenantId(e.currentTarget.value)}
             placeholder="acme"
             required
+          />
+        </label>
+
+        <label>
+          signup_event_id (optional)
+          <input
+            name="signup_event_id"
+            value={signupEventId}
+            onChange={(e) => setSignupEventId(e.currentTarget.value)}
+            placeholder="signup_evt_..."
           />
         </label>
 

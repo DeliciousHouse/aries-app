@@ -37,7 +37,6 @@ COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/next-env.d.ts ./next-env.d.ts
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 COPY --from=builder /app/README-runtime.md ./README-runtime.md
-COPY --from=builder /app/.env.example ./.env.example
 
 RUN mkdir -p /data/generated/draft /data/generated/validated
 
