@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import PlatformCard, {
   type IntegrationCardAction,
   type IntegrationHealth,
@@ -207,8 +207,8 @@ function buildPageError(message: string, code: IntegrationsErrorCode = 'validati
 }
 
 export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenProps): JSX.Element {
-  const [pageState, setPageState] = useState<IntegrationsPageState>('ready');
-  const [cards, setCards] = useState<PlatformIntegrationCardData[]>(platformCardsSeed);
+  const [pageState, setPageState] = useState<IntegrationsPageState>('loading');
+  const [cards, setCards] = useState<PlatformIntegrationCardData[]>([]);
   const [filter, setFilter] = useState<PlatformFilter>('all');
   const [sort, setSort] = useState<IntegrationsSort>('display_name_asc');
   const [search, setSearch] = useState('');
@@ -243,7 +243,7 @@ export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenP
   };
 
   async function handleRefresh(): Promise<void> {
-    setPageState('refreshing');
+    setPageState((current) => (current === 'loading' ? 'loading' : 'refreshing'));
     setLastError(null);
 
     try {
@@ -273,6 +273,10 @@ export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenP
       setPageState('error');
     }
   }
+
+  useEffect(() => {
+    void handleRefresh();
+  }, [baseUrl]);
 
   async function handleAction(action: IntegrationCardAction, platform: PlatformKey): Promise<void> {
     const actionKey = `${platform}:${action}`;
@@ -421,7 +425,7 @@ export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenP
         </button>
       </div>
 
-      {pageState === 'refreshing' && visibleCards.length === 0 ? (
+      {(pageState === 'loading' || pageState === 'refreshing') && visibleCards.length === 0 ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: 'var(--space-12)' }}>
           <div className="spinner"></div>
         </div>

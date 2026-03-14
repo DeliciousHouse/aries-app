@@ -1,4 +1,5 @@
 import { isAllowedProvider, oauthStore } from './connect';
+import { resolveTokenHealth } from './connection-schema';
 
 type PlatformConnectionStatus =
   | 'disconnected'
@@ -50,10 +51,34 @@ function providerTenantKey(tenantId: string, provider: string): string {
   return `${tenantId}::${provider}`;
 }
 
-function statusFromInternal(connectionStatus: string | undefined): PlatformConnectionStatus {
+function statusFromInternal(connection: {
+  connection_status?: string;
+  token_expires_at?: string;
+} | undefined): PlatformConnectionStatus {
+  const connectionStatus = connection?.connection_status;
   if (connectionStatus === 'pending' || connectionStatus === 'reauthorization_required') return 'pending_oauth';
-  if (connectionStatus === 'connected') return 'connected';
+  if (connectionStatus === 'connected') {
+    return resolveTokenHealth(connection?.token_expires_at) === 'expired' ? 'token_expired' : 'connected';
+  }
   return 'disconnected';
+}
+
+function healthFromInternal(connection: {
+  connection_status?: string;
+  token_expires_at?: string;
+} | undefined): PlatformHealth {
+  if (connection?.connection_status !== 'connected') return 'unknown';
+
+  switch (resolveTokenHealth(connection.token_expires_at)) {
+    case 'healthy':
+      return 'healthy';
+    case 'expiring_soon':
+      return 'degraded';
+    case 'expired':
+      return 'unhealthy';
+    default:
+      return 'unknown';
+  }
 }
 
 export function oauthStatus(provider: string, tenantId?: string): PlatformConnectionStatusShape | StatusError {
@@ -76,12 +101,12 @@ export function oauthStatus(provider: string, tenantId?: string): PlatformConnec
     tenant_id: normalizedTenantId,
     integration_id: connection?.connection_id,
     platform: provider,
-    connection_status: statusFromInternal(connection?.connection_status),
+    connection_status: statusFromInternal(connection),
     status_reason: connection ? undefined : 'connection_not_found',
-    health: connection?.connection_status === 'connected' ? 'healthy' : 'unknown',
+    health: healthFromInternal(connection),
     token_expires_at: connection?.token_expires_at,
     refresh_token_expires_at: connection?.refresh_token_expires_at,
-    last_success_at: connection?.connection_status === 'connected' ? connection.updated_at : undefined,
+    last_success_at: undefined,
     capabilities: [],
     metadata: {},
     updated_at: connection?.updated_at || now

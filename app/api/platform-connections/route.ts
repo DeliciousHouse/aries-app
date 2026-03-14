@@ -27,8 +27,8 @@ export async function GET(req: Request) {
                 state.connection_status === 'permission_denied'
               ? 'reauthorization_required'
               : 'disconnected',
-      token_health: resolveTokenHealth(state.last_success_at),
-      expires_at: undefined,
+      token_health: resolveTokenHealth(state.token_expires_at),
+      expires_at: state.token_expires_at,
       updated_at: state.updated_at
     };
   }).filter(Boolean);
