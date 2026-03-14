@@ -1,4 +1,4 @@
-import { successResponse, errorResponse } from '../../../lib/api-service';
+import { errorResponse } from '../../../lib/api-service';
 
 /**
  * POST /api/events
@@ -40,5 +40,9 @@ export async function POST(req: Request) {
     payload: event,
   }));
 
-  return successResponse({ tracked: true, wired: false });
+  return errorResponse(501, 'Event tracking is not implemented in this runtime.', {
+    wired: false,
+    reason: 'no_n8n_event_workflow',
+    logged: true,
+  });
 }

@@ -44,5 +44,9 @@ export async function POST(req: Request) {
     payload,
   }));
 
-  return successResponse({ received: true, wired: false, note: 'No n8n contact workflow is deployed. Submission logged server-side.' });
+  return errorResponse(501, 'Contact submissions are not implemented in this runtime.', {
+    wired: false,
+    reason: 'no_n8n_contact_workflow',
+    logged: true,
+  });
 }
