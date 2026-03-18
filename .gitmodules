@@ -1,0 +1,3 @@
+[submodule "references/AriesAI-Frontend"]
+	path = references/AriesAI-Frontend
+	url = https://github.com/Rohan5993/AriesAI-Frontend.git
