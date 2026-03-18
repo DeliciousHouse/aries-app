@@ -24,7 +24,7 @@ test('/api/contact returns explicit not-implemented semantics', async () => {
     message: 'Contact submissions are not implemented in this runtime.',
     details: {
       wired: false,
-      reason: 'no_n8n_contact_workflow',
+      reason: 'no_contact_workflow',
       logged: true,
     },
   });
@@ -47,7 +47,7 @@ test('/api/waitlist returns explicit not-implemented semantics', async () => {
     message: 'Waitlist signups are not implemented in this runtime.',
     details: {
       wired: false,
-      reason: 'no_n8n_waitlist_workflow',
+      reason: 'no_waitlist_workflow',
       logged: true,
     },
   });
@@ -72,13 +72,13 @@ test('/api/events returns explicit not-implemented semantics', async () => {
     message: 'Event tracking is not implemented in this runtime.',
     details: {
       wired: false,
-      reason: 'no_n8n_event_workflow',
+      reason: 'no_event_workflow',
       logged: true,
     },
   });
 });
 
-test('/api/publish/dispatch requires tenant_id instead of defaulting a fake tenant', async () => {
+test('/api/publish/dispatch requires authenticated tenant context', async () => {
   const response = await postPublishDispatch(
     new Request('http://localhost/api/publish/dispatch', {
       method: 'POST',
@@ -91,62 +91,14 @@ test('/api/publish/dispatch requires tenant_id instead of defaulting a fake tena
     }),
   );
 
-  assert.equal(response.status, 400);
-  assert.deepEqual(await response.json(), {
-    status: 'error',
-    reason: 'validation_error:tenant_id',
-  });
-});
-
-test('/api/publish/dispatch proxies normalized events to the n8n publish webhook', async () => {
-  const previousBaseUrl = process.env.N8N_BASE_URL;
-  const originalFetch = global.fetch;
-
-  process.env.N8N_BASE_URL = 'https://n8n.example.com';
-  const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
-
-  global.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-    fetchCalls.push({ url, init });
-    return new Response(JSON.stringify({ queued: true }), {
-      status: 202,
-      headers: { 'content-type': 'application/json' },
-    });
-  }) as typeof fetch;
-
-  try {
-    const response = await postPublishDispatch(
-      new Request('http://localhost/api/publish/dispatch', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          tenant_id: 'tenant_123',
-          provider: 'facebook',
-          content: 'Ship it',
-          media_urls: ['https://cdn.example.com/image.png'],
-        }),
-      }),
-    );
-
-    const body = await response.json();
-    assert.equal(response.status, 202);
-    assert.equal(fetchCalls.length, 1);
-    assert.equal(fetchCalls[0]?.url, 'https://n8n.example.com/webhook/aries/publish');
-    assert.deepEqual(body, {
-      status: 'accepted',
-      dispatched: true,
-      webhookPath: 'aries/publish',
-      downstreamStatus: 202,
-      event: body.event,
-    });
-    assert.equal(body.event.tenant_id, 'tenant_123');
-    assert.equal(body.event.workflow, 'publish_dispatch');
-  } finally {
-    global.fetch = originalFetch;
-    if (previousBaseUrl === undefined) {
-      delete process.env.N8N_BASE_URL;
-    } else {
-      process.env.N8N_BASE_URL = previousBaseUrl;
-    }
-  }
+  assert.equal(response.status, 403);
+  const body = (await response.json()) as {
+    status: string;
+    reason: string;
+    message: string;
+  };
+  assert.equal(body.status, 'error');
+  assert.equal(body.reason, 'tenant_context_required');
+  assert.equal(typeof body.message, 'string');
+  assert.ok(body.message.length > 0);
 });

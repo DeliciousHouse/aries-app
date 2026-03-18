@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _stage4_common import emit_json, ensure_run_id, read_stdin_json, save_artifact_text, save_step, slugify, utc_now
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--mode", default="preflight")
+    parser.add_argument("--brand-slug", default="client-brand")
+    parser.add_argument("--production-handoff-base64", default="")
+    parser.add_argument("--production-handoff-path", default="")
+    args = parser.parse_args()
+
+    if args.production_handoff_path.strip():
+        try:
+            data = json.loads(Path(args.production_handoff_path).read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise SystemExit(f"invalid production handoff path arg ({type(exc).__name__}: {exc})") from exc
+    elif args.production_handoff_base64.strip():
+        import base64
+        try:
+            raw_production_handoff = base64.b64decode(args.production_handoff_base64).decode("utf-8")
+            data = json.loads(raw_production_handoff)
+        except Exception as exc:
+            raise SystemExit(f"invalid production handoff base64 arg ({type(exc).__name__}: {exc})") from exc
+    else:
+        data = read_stdin_json()
+    brand_slug = slugify(args.brand_slug or data.get("brand_slug", "client-brand"))
+    handoff = data.get("production_handoff", data)
+    run_id = ensure_run_id(handoff.get("run_id", ""), brand_slug, handoff.get("campaign_name", ""))
+
+    if args.mode == "preflight":
+        static_handoff = handoff.get("contract_handoffs", {}).get("static", {})
+        video_handoff = handoff.get("contract_handoffs", {}).get("video", {})
+        payload = {
+            "type": "performance_marketer_preflight",
+            "mode": "compiled",
+            "generated_at": utc_now(),
+            "run_id": run_id,
+            "brand_slug": brand_slug,
+            "campaign_name": handoff.get("campaign_name", ""),
+            "production_handoff": handoff,
+            "publish_plan": {
+                "static_contract_count": len(static_handoff.get("platform_contract_paths", [])),
+                "video_contract_count": len(video_handoff.get("platform_contract_paths", [])),
+                "static_output_root": static_handoff.get("output_root", ""),
+                "video_output_root": video_handoff.get("output_root", ""),
+            },
+        }
+        save_step(run_id, "performance_marketer_preflight", payload)
+        emit_json(payload)
+        return 0
+
+    if args.mode == "summarize":
+        payload = {
+            "type": "performance_marketer_summary",
+            "mode": "compiled",
+            "generated_at": utc_now(),
+            "run_id": run_id,
+            "brand_slug": brand_slug,
+            "summary": {
+                "message": "Stage 4 generated deterministic render/publish handoffs for all configured channels.",
+            },
+        }
+        save_step(run_id, "performance_marketer_summary", payload)
+        emit_json(payload)
+        return 0
+
+    artifact = save_artifact_text(run_id, "performance-marketer/unsupported-mode.txt", args.mode)
+    emit_json({"type": "performance_marketer", "mode": args.mode, "artifact": artifact})
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

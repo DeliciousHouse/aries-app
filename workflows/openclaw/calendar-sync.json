@@ -1,0 +1,9 @@
+{
+  "kind": "repo_managed_workflow_definition",
+  "id": "openclaw_repo_calendar_sync",
+  "type": "openclaw",
+  "repo_ref": "repo://workflows/openclaw/calendar-sync.json",
+  "entrypoint": "calendar_sync_pipeline",
+  "policy_profile": "ops_standard",
+  "approval_mode": "optional"
+}

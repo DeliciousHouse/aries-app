@@ -1,0 +1,9 @@
+{
+  "kind": "repo_managed_workflow_definition",
+  "id": "lobster_repo_publish",
+  "type": "lobster",
+  "repo_ref": "repo://workflows/lobster/publish.json",
+  "entrypoint": "publish_pipeline",
+  "policy_profile": "publish_sensitive",
+  "approval_mode": "required"
+}

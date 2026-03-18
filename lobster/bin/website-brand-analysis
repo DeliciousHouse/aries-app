@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+import argparse
+import re
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _stage2_common import (
+    emit_json,
+    ensure_run_id,
+    fetch_text,
+    normalize_research_model,
+    parse_domain,
+    read_stdin_json,
+    save_step,
+    slugify,
+    summarize_with_gemini,
+    utc_now,
+)
+
+
+def _extract_title_and_h1(html: str) -> tuple[str, str]:
+    title_match = re.search(r"<title[^>]*>(.*?)</title>", html, flags=re.IGNORECASE | re.DOTALL)
+    h1_match = re.search(r"<h1[^>]*>(.*?)</h1>", html, flags=re.IGNORECASE | re.DOTALL)
+    title = re.sub(r"<[^>]+>", "", title_match.group(1)).strip() if title_match else ""
+    h1 = re.sub(r"<[^>]+>", "", h1_match.group(1)).strip() if h1_match else ""
+    return title, h1
+
+
+def _canonical_brand_name(brand_slug: str, website_url: str, stage1_summary: dict) -> str:
+    if stage1_summary.get("brand_name"):
+        return str(stage1_summary["brand_name"]).strip()[:120]
+    if brand_slug and brand_slug != "client-brand":
+        return " ".join(part.capitalize() for part in brand_slug.replace("-", " ").split())[:120]
+    domain = parse_domain(website_url)
+    if domain:
+        return domain.split(".")[0].replace("-", " ").title()[:120]
+    return "Client Brand"
+
+
+def _fallback_analysis(brand_name: str, website_url: str, stage1_summary: dict) -> dict:
+    executive = stage1_summary.get("executive_summary", {})
+    actions = stage1_summary.get("recommended_actions", [])
+    market_positioning = executive.get("market_positioning") or f"{brand_name} appears to sell a proof-oriented, conversion-led offer."
+    creative_takeaway = executive.get("creative_takeaway") or f"{brand_name} should keep messaging concrete and outcomes-first."
+    campaign_takeaway = executive.get("campaign_takeaway") or f"{brand_name} should align paid traffic to one clear primary CTA."
+    return {
+        "brand_promise": market_positioning[:180],
+        "audience_summary": "Mid-funnel buyers looking for a lower-risk, faster path to results.",
+        "positioning_summary": creative_takeaway[:180],
+        "offer_summary": campaign_takeaway[:180],
+        "proof_points": [
+            "Outcome-oriented promise appears consistent across strategy inputs.",
+            "Paid acquisition should reinforce proof, clarity, and reduced friction.",
+            actions[0] if actions else "Use a single, concrete CTA in early channel plans.",
+        ],
+        "brand_voice": ["clear", "proof-led", "practical"],
+        "cta_preferences": ["Book Demo", "Learn More", "Get Started"],
+        "website_url": website_url,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--website-url", default="")
+    parser.add_argument("--brand-slug", default="client-brand")
+    parser.add_argument("--research-model", default="gemini/gemini-3-flash-preview")
+    parser.add_argument("--stage1-summary-json", default="")
+    parser.add_argument("--stage1-summary-base64", default="")
+    args = parser.parse_args()
+
+    if args.stage1_summary_base64.strip():
+        import base64
+        import json
+        try:
+            raw_stage1_summary = base64.b64decode(args.stage1_summary_base64).decode("utf-8")
+            stage1_summary = json.loads(raw_stage1_summary)
+        except Exception as exc:
+            raise SystemExit(f"invalid stage1 summary base64 arg ({type(exc).__name__}: {exc})") from exc
+    elif args.stage1_summary_json.strip():
+        import ast
+        import json
+        raw_stage1_summary = args.stage1_summary_json.strip()
+        if (
+            len(raw_stage1_summary) >= 2
+            and raw_stage1_summary[0] == raw_stage1_summary[-1]
+            and raw_stage1_summary[0] in {'"', "'"}
+        ):
+            raw_stage1_summary = raw_stage1_summary[1:-1]
+        try:
+            stage1_summary = json.loads(raw_stage1_summary)
+        except json.JSONDecodeError:
+            try:
+                stage1_summary = ast.literal_eval(raw_stage1_summary)
+            except Exception as exc:
+                raise SystemExit(f"invalid stage1 summary arg: {raw_stage1_summary!r} ({type(exc).__name__}: {exc})") from exc
+    else:
+        stage1_summary = read_stdin_json()
+    website_url = args.website_url.strip() or stage1_summary.get("website_url", "")
+    brand_slug = slugify(args.brand_slug or stage1_summary.get("brand_slug", "client-brand"))
+    research_model = normalize_research_model(args.research_model or stage1_summary.get("research_model", ""))
+    run_id = ensure_run_id(stage1_summary.get("run_id", ""), brand_slug, website_url)
+    brand_name = _canonical_brand_name(brand_slug, website_url, stage1_summary)
+
+    website_html = ""
+    website_fetch_error = ""
+    if website_url:
+        try:
+            website_html = fetch_text(website_url, timeout=20.0, headers={"User-Agent": "lobster-stage2/1.0"})
+        except Exception as exc:
+            website_fetch_error = f"{type(exc).__name__}: {exc}"
+
+    title, h1 = _extract_title_and_h1(website_html) if website_html else ("", "")
+    fallback = _fallback_analysis(brand_name, website_url, stage1_summary)
+    prompt = (
+        "Produce a concise brand strategy analysis for a website.\n"
+        f"Brand: {brand_name}\n"
+        f"Brand slug: {brand_slug}\n"
+        f"Website URL: {website_url}\n"
+        f"Page title: {title}\n"
+        f"H1: {h1}\n"
+        f"Stage 1 summary: {stage1_summary}\n"
+        "Return 5 bullets covering brand promise, audience, positioning, offer, and proof."
+    )
+    gemini = summarize_with_gemini(prompt=prompt, research_model=research_model)
+    gemini_lines = [line.strip("- ").strip() for line in gemini.get("text", "").splitlines() if line.strip()]
+
+    brand_analysis = {
+        "brand_name": brand_name,
+        "brand_slug": brand_slug,
+        "website_url": website_url,
+        "domain": parse_domain(website_url),
+        "homepage_signals": {
+            "title": title or f"{brand_name} website",
+            "h1": h1 or brand_name,
+        },
+        "brand_promise": gemini_lines[0][:180] if len(gemini_lines) > 0 else fallback["brand_promise"],
+        "audience_summary": gemini_lines[1][:180] if len(gemini_lines) > 1 else fallback["audience_summary"],
+        "positioning_summary": gemini_lines[2][:180] if len(gemini_lines) > 2 else fallback["positioning_summary"],
+        "offer_summary": gemini_lines[3][:180] if len(gemini_lines) > 3 else fallback["offer_summary"],
+        "proof_points": gemini_lines[4:7] if len(gemini_lines) > 4 else fallback["proof_points"],
+        "brand_voice": fallback["brand_voice"],
+        "cta_preferences": fallback["cta_preferences"],
+        "stage1_summary": {
+            "competitor": stage1_summary.get("competitor", ""),
+            "executive_summary": stage1_summary.get("executive_summary", {}),
+            "recommended_actions": stage1_summary.get("recommended_actions", []),
+        },
+    }
+
+    payload = {
+        "type": "website_brand_analysis",
+        "stub": False,
+        "mode": "live" if (bool(website_html) or gemini.get("live")) else "fallback",
+        "generated_at": utc_now(),
+        "run_id": run_id,
+        "research_model": research_model,
+        "brand_slug": brand_slug,
+        "website_url": website_url,
+        "brand_analysis": brand_analysis,
+        "research": {
+            "website_fetch": {
+                "live": bool(website_html),
+                "error": website_fetch_error,
+            },
+            "gemini": gemini,
+        },
+    }
+    save_step(run_id, "website_brand_analysis", payload)
+    emit_json(payload)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

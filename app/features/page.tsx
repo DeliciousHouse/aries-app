@@ -9,7 +9,7 @@ const FEATURES = [
   {
     icon: '📊',
     title: 'AI-Driven Research',
-    desc: 'Automated competitor intelligence, market research, and trend analysis. Synthesized reports delivered on schedule via n8n workflows.',
+    desc: 'Automated competitor intelligence, market research, and trend analysis. Synthesized reports delivered on schedule via repo-managed workflows.',
   },
   {
     icon: '✍️',
@@ -28,7 +28,7 @@ const FEATURES = [
   },
   {
     icon: '🔄',
-    title: 'n8n Orchestration',
+    title: 'Lobster + OpenClaw Orchestration',
     desc: 'Production-grade workflow engine with automatic error repair, retry scheduling, idempotent processing, and approval resumption.',
   },
   {

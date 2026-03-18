@@ -1,5 +1,6 @@
 declare const require: (name: string) => any;
 import { resolveDataPath, resolveSpecPath } from "../../lib/runtime-paths";
+import { runAriesOpenClawWorkflow } from "../openclaw/aries-execution";
 
 type Dict = Record<string, unknown>;
 const fs = require("fs");
@@ -117,12 +118,186 @@ export type StartMarketingJobResponse = {
   jobId: string;
   tenantId: string;
   jobType: StartMarketingJobRequest["jobType"];
-  wiring: "n8n_brand_campaign_webhook" | "backend_fallback";
+  wiring: "openclaw_gateway";
   runtimeArtifactPath: string;
 };
 
 function runtimeArtifactPath(jobId: string): string {
   return `generated/draft/marketing-jobs/${jobId}.json`;
+}
+
+export type CreateMarketingJobRuntimePayload = {
+  tenant_id: string;
+  job_type: string;
+  request: {
+    job_id?: string;
+    brand_url?: string;
+    competitor_url?: string;
+    [key: string]: unknown;
+  };
+};
+
+export function createMarketingJobRuntime(payload: CreateMarketingJobRuntimePayload): {
+  status: string;
+  job_id: string;
+  tenant_id: string;
+  job_type: string;
+  job_state: string;
+  job_runtime_path: string;
+} {
+  assertRequiredSchemas();
+  const tenantId = typeof payload.tenant_id === "string" ? payload.tenant_id.trim() : "";
+  const jobType = typeof payload.job_type === "string" ? payload.job_type.trim() : "brand_campaign";
+  const req = payload.request && typeof payload.request === "object" ? payload.request : {};
+  const brandUrl = typeof req.brand_url === "string" ? req.brand_url.trim() : "";
+  const competitorUrl = typeof req.competitor_url === "string" ? req.competitor_url.trim() : "";
+
+  if (!tenantId || !jobType) {
+    throw new Error("missing_required_fields:tenant_id,job_type");
+  }
+  if (!brandUrl || !competitorUrl) {
+    throw new Error("missing_required_fields:request.brand_url,request.competitor_url");
+  }
+
+  const jobId =
+    typeof req.job_id === "string" && req.job_id.trim()
+      ? req.job_id.trim()
+      : `mkt_${tenantId}_${Date.now()}`;
+  const outPath = runtimePath(jobId);
+  ensureParent(outPath);
+  const ts = nowIso();
+
+  const doc: Dict = {
+    schema_name: "job_runtime_state_schema",
+    schema_version: "1.0.0",
+    job_id: jobId,
+    job_type: jobType,
+    tenant_id: tenantId,
+    state: "queued",
+    status: "pending",
+    attempt: 1,
+    max_attempts: 3,
+    inputs: {
+      request: req,
+      brand_url: brandUrl,
+      competitor_url: competitorUrl
+    },
+    outputs: {
+      current_stage: "research",
+      stage_status: {
+        research: "queued",
+        strategy: "paused",
+        production: "paused",
+        publish: "paused"
+      },
+      structured_status_updates: [
+        {
+          at: ts,
+          state: "queued",
+          status: "pending",
+          step: "research",
+          details: { source: "brand_campaign_webhook" }
+        }
+      ]
+    },
+    history: [
+      {
+        at: ts,
+        state: "queued",
+        status: "pending",
+        note: "cohesive brand campaign workflow accepted job"
+      }
+    ],
+    created_at: ts,
+    updated_at: ts
+  };
+
+  fs.writeFileSync(outPath, JSON.stringify(doc, null, 2));
+  return {
+    status: "accepted",
+    job_id: jobId,
+    tenant_id: tenantId,
+    job_type: jobType,
+    job_state: "queued",
+    job_runtime_path: outPath
+  };
+}
+
+function createOpenClawBackedJobRuntime(
+  input: StartMarketingJobRequest,
+  jobId: string,
+  primaryOutput: Record<string, unknown> | null,
+  envelope: { status: string; requiresApproval?: { resumeToken?: string } | null }
+): string {
+  const outPath = runtimePath(jobId);
+  ensureParent(outPath);
+  const ts = nowIso();
+  const approvalPreview =
+    primaryOutput &&
+    typeof primaryOutput.approval_preview === 'object' &&
+    primaryOutput.approval_preview !== null
+      ? (primaryOutput.approval_preview as Record<string, unknown>)
+      : null;
+  const stageStatus: Record<string, string> = {
+    research: 'submitted',
+    strategy: 'submitted',
+    production: 'submitted',
+    publish:
+      typeof approvalPreview?.status === 'string'
+        ? String(approvalPreview.status)
+        : envelope.requiresApproval?.resumeToken
+          ? 'awaiting_approval'
+          : 'submitted',
+  };
+
+  const doc: Dict = {
+    schema_name: "job_runtime_state_schema",
+    schema_version: "1.0.0",
+    job_id: jobId,
+    job_type: input.jobType,
+    tenant_id: input.tenantId,
+    state: envelope.requiresApproval?.resumeToken ? "waiting_repair" : "running",
+    status: "pending",
+    attempt: 1,
+    max_attempts: 3,
+    inputs: {
+      request: input.payload,
+      requested_job_type: input.jobType,
+      brand_url: input.payload.brandUrl,
+      competitor_url: input.payload.competitorUrl
+    },
+    outputs: {
+      current_stage: "publish",
+      stage_status: stageStatus,
+      structured_status_updates: [
+        {
+          at: ts,
+          state: "running",
+          status: "pending",
+          step: "publish",
+          details: { source: "openclaw_gateway", envelope_status: envelope.status }
+        }
+      ],
+      openclaw: {
+        envelope_status: envelope.status,
+        resume_token: envelope.requiresApproval?.resumeToken || null,
+        primary_output: primaryOutput,
+      },
+    },
+    history: [
+      {
+        at: ts,
+        state: envelope.requiresApproval?.resumeToken ? "waiting_repair" : "running",
+        status: "pending",
+        note: "marketing job accepted via OpenClaw gateway"
+      }
+    ],
+    created_at: ts,
+    updated_at: ts
+  };
+
+  fs.writeFileSync(outPath, JSON.stringify(doc, null, 2));
+  return outPath;
 }
 
 export async function startMarketingJob(
@@ -157,63 +332,28 @@ export async function startMarketingJob(
 
   const tenantId = input.tenantId.trim();
   const jobId = `mkt_${tenantId}_${Date.now()}`;
-  const baseUrl = process.env.N8N_BASE_URL || "http://localhost:5678";
-  const webhookUrl = `${baseUrl}/webhook/brand-campaign`;
-  const reqBody: Record<string, unknown> = {
-    tenant_id: tenantId,
-    job_type: "brand_campaign",
-    request: {
-      job_id: jobId,
-      tenant_id: tenantId,
-      brand_url: brandUrl,
-      competitor_url: competitorUrl,
-      ...input.payload
-    }
-  };
-
-  try {
-    // Internal Docker traffic to n8n stays HTTP; TLS terminates at Caddy/public edge.
-    const res = await fetch(webhookUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(reqBody),
-      signal: AbortSignal.timeout(5000)
-    });
-
-    const text = await res.text();
-    let body: Dict = {};
-    try {
-      body = JSON.parse(text);
-    } catch {
-      body = { raw: text };
-    }
-
-    if (res.ok && typeof body.job_id === "string") {
-      const outPath = runtimePath(String(body.job_id));
-      if (!fs.existsSync(outPath)) {
-        createFallbackJobRuntime(input, String(body.job_id));
-      }
-      return {
-        status: "accepted",
-        jobId: String(body.job_id),
-        tenantId,
-        jobType: input.jobType,
-        wiring: "n8n_brand_campaign_webhook",
-        runtimeArtifactPath: runtimeArtifactPath(String(body.job_id))
-      };
-    }
-  } catch (err) {
-    console.error('startMarketingJob failed: n8n request threw an exception', err);
-    // fallback below
+  const executed = await runAriesOpenClawWorkflow('marketing_start', {
+    competitor: '',
+    competitor_facebook_url: competitorUrl,
+    website_url: brandUrl,
+    brand_slug: tenantId,
+    launch_approved: false,
+    notify_chat: false,
+  });
+  if (executed.kind === 'gateway_error') {
+    throw executed.error;
+  }
+  if (executed.kind === 'not_implemented') {
+    throw new Error(`${executed.payload.code}:${executed.payload.route}`);
   }
 
-  const outPath = createFallbackJobRuntime(input, jobId);
+  createOpenClawBackedJobRuntime(input, jobId, executed.primaryOutput, executed.envelope);
   return {
     status: "accepted",
     jobId,
     tenantId,
     jobType: input.jobType,
-    wiring: "backend_fallback",
+    wiring: "openclaw_gateway",
     runtimeArtifactPath: runtimeArtifactPath(jobId)
   };
 }

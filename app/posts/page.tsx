@@ -7,7 +7,7 @@ export default function PostsPage() {
         <div className="glass-card-static">
           <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '0.75rem' }}>Create New Job</h3>
           <p style={{ fontSize: '0.875rem', color: 'rgba(248,245,242,0.65)', marginBottom: '1rem' }}>
-            Start a new marketing pipeline via the n8n orchestration engine.
+            Start a new marketing pipeline via the repo-managed workflow engine.
           </p>
           <a href="/marketing/new-job" className="btn btn-primary btn-sm">New Marketing Job</a>
         </div>

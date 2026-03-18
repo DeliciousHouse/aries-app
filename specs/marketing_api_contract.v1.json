@@ -195,8 +195,8 @@
         "./marketing_response_shapes.v1.json#/$defs/UnhandledError"
       ],
       "notes": [
-        "If runtime file for jobId is missing and n8n resume path did not return resumed, response status becomes error with wiring=backend_fallback",
-        "When n8n path returns status=resumed, completed is derived from resumed_stages containing publish"
+        "If the runtime file for jobId is missing, approval returns status=error with wiring=openclaw_gateway",
+        "When a local approval progresses the publish stage, completed becomes true"
       ]
     }
   ]

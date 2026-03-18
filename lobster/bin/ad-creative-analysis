@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _stage1_common import emit_json, read_stdin_json, save_step, utc_now
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args()
+
+    data = read_stdin_json()
+    analysed_ads = data.get("analysed_ads", [])
+    creative_findings = []
+    for ad in analysed_ads:
+        creative_findings.append(
+            {
+                "ad_id": ad.get("ad_id"),
+                "winning_pattern": ad.get("angles", ["clear offer"])[0],
+                "recommended_iterations": [
+                    "Open with the strongest proof point in the first sentence.",
+                    "Shorten headline to a single outcome-focused claim.",
+                ],
+                "score": ad.get("creative_strength_score", 70),
+            }
+        )
+
+    payload = {
+        "type": "ad_creative_analysis",
+        "stub": False,
+        "mode": data.get("mode", "derived"),
+        "generated_at": utc_now(),
+        "run_id": data.get("run_id"),
+        "competitor": data.get("competitor", ""),
+        "creative_findings": creative_findings,
+        "creative_summary": {
+            "top_pattern": creative_findings[0]["winning_pattern"] if creative_findings else "clear offer",
+            "priority": "Lead with proof and compress the message.",
+        },
+    }
+    if payload["run_id"]:
+        save_step(payload["run_id"], "ad_creative_analysis", payload)
+    emit_json(payload)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

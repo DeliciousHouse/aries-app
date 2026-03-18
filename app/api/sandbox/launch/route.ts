@@ -1,10 +1,11 @@
-import { buildPayload, postToN8n, successResponse, errorResponse } from '../../../../lib/api-service';
+import { buildPayload, successResponse, errorResponse } from '../../../../lib/api-service';
+import { runAriesOpenClawWorkflow, mapOpenClawGatewayError } from '../../../../backend/openclaw/aries-execution';
 
 /**
  * POST /api/sandbox/launch
  *
- * Sandbox launch handler. Proxies to the real tenant-provisioning
- * n8n webhook with tenant_type=sandbox.
+ * Sandbox launch handler. Delegates to the external OpenClaw workflow
+ * boundary.
  */
 export async function POST(req: Request) {
   let body: Record<string, unknown> = {};
@@ -26,32 +27,32 @@ export async function POST(req: Request) {
     details: (body.details as Record<string, string>) || {},
   } as any);
 
-  const sandboxId = `sandbox_${Date.now()}`;
-
-  const result = await postToN8n('tenant-provisioning', {
-    tenant_id: sandboxId,
-    tenant_type: 'sandbox',
-    signup_event_id: `evt_sandbox_${Date.now()}`,
-    metadata: {
-      source: payload.source,
-      surface: payload.surface,
-      user: payload.user,
-    },
+  const executed = await runAriesOpenClawWorkflow('sandbox_launch', {
+    source: payload.source,
+    surface: payload.surface,
+    user: payload.user,
+    details: payload.details ?? {},
   });
-
-  if (!result.ok) {
-    return errorResponse(result.status, 'Sandbox provisioning failed', {
-      webhookPath: result.webhookPath,
-      durationMs: result.durationMs,
+  if (executed.kind === 'gateway_error') {
+    const mapped = mapOpenClawGatewayError(executed.error);
+    return new Response(JSON.stringify(mapped.body), {
+      status: mapped.status,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+  if (executed.kind === 'not_implemented') {
+    return errorResponse(501, 'Sandbox provisioning is not implemented in this OpenClaw runtime.', {
+      wired: false,
+      reason: executed.payload.code,
+      route: executed.payload.route,
     });
   }
 
   return successResponse({
-    sandbox_id: sandboxId,
+    sandbox_id: `sandbox-${Date.now()}`,
     tenant_type: 'sandbox',
     provisioned: true,
-    webhookPath: result.webhookPath,
-    durationMs: result.durationMs,
-    workflow_response: result.data,
+    workflow_status: executed.envelope.status,
+    workflow_response: executed.primaryOutput,
   });
 }

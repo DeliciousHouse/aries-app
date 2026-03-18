@@ -1,10 +1,11 @@
-import { buildPayload, postToN8n, successResponse, errorResponse } from '../../../lib/api-service';
+import { buildPayload, successResponse, errorResponse } from '../../../lib/api-service';
+import { runAriesOpenClawWorkflow, mapOpenClawGatewayError } from '../../../backend/openclaw/aries-execution';
 
 /**
  * POST /api/demo
  *
- * Demo / Get Started handler. Proxies to the real tenant-provisioning
- * n8n webhook to create a demo tenant.
+ * Demo / Get Started handler. Delegates to the external OpenClaw workflow
+ * boundary.
  */
 export async function POST(req: Request) {
   let body: Record<string, unknown> = {};
@@ -26,29 +27,30 @@ export async function POST(req: Request) {
     details: (body.details as Record<string, string>) || {},
   } as any);
 
-  // Proxy to tenant-provisioning workflow
-  const result = await postToN8n('tenant-provisioning', {
-    tenant_id: `demo_${Date.now()}`,
-    tenant_type: 'demo',
-    signup_event_id: `evt_demo_${Date.now()}`,
-    metadata: {
-      source: payload.source,
-      surface: payload.surface,
-      user: payload.user,
-    },
+  const executed = await runAriesOpenClawWorkflow('demo_start', {
+    source: payload.source,
+    surface: payload.surface,
+    user: payload.user,
+    details: payload.details ?? {},
   });
-
-  if (!result.ok) {
-    return errorResponse(result.status, 'Demo provisioning failed', {
-      webhookPath: result.webhookPath,
-      durationMs: result.durationMs,
+  if (executed.kind === 'gateway_error') {
+    const mapped = mapOpenClawGatewayError(executed.error);
+    return new Response(JSON.stringify(mapped.body), {
+      status: mapped.status,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+  if (executed.kind === 'not_implemented') {
+    return errorResponse(501, 'Demo provisioning is not implemented in this OpenClaw runtime.', {
+      wired: false,
+      reason: executed.payload.code,
+      route: executed.payload.route,
     });
   }
 
   return successResponse({
     provisioned: true,
-    webhookPath: result.webhookPath,
-    durationMs: result.durationMs,
-    workflow_response: result.data,
+    workflow_status: executed.envelope.status,
+    workflow_response: executed.primaryOutput,
   });
 }

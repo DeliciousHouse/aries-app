@@ -6,14 +6,14 @@ const ENDPOINTS = [
     path: '/api/contact',
     desc: 'Log a contact inquiry and return an explicit placeholder error.',
     body: '{ "user": { "name", "email", "company" }, "details": { "message" } }',
-    response: '{ "status": "error", "message": "Contact submissions are not implemented in this runtime.", "details": { "wired": false, "reason": "no_n8n_contact_workflow", "logged": true } }',
+    response: '{ "status": "error", "message": "Contact submissions are not implemented in this runtime.", "details": { "wired": false, "reason": "no_contact_workflow", "logged": true } }',
   },
   {
     method: 'POST',
     path: '/api/waitlist',
     desc: 'Log a waitlist signup and return an explicit placeholder error.',
     body: '{ "user": { "email" } }',
-    response: '{ "status": "error", "message": "Waitlist signups are not implemented in this runtime.", "details": { "wired": false, "reason": "no_n8n_waitlist_workflow", "logged": true } }',
+    response: '{ "status": "error", "message": "Waitlist signups are not implemented in this runtime.", "details": { "wired": false, "reason": "no_waitlist_workflow", "logged": true } }',
   },
   {
     method: 'POST',
@@ -34,7 +34,7 @@ const ENDPOINTS = [
     path: '/api/onboarding/start',
     desc: 'Start tenant onboarding',
     body: '{ "tenant_id", "tenant_type", "signup_event_id" }',
-    response: '{ "status": "ok", "tenant_id": "...", "tenant_type": "...", "signup_event_id": "...", "onboarding_status": "accepted|validated|duplicate|needs_repair", "workflow_status": 200, "raw": {...} }',
+    response: '{ "status": "ok", "tenant_id": "...", "tenant_type": "...", "signup_event_id": "...", "onboarding_status": "accepted|validated|duplicate|needs_repair", "workflow_status": 202, "raw": {...} }',
   },
   {
     method: 'GET',
@@ -48,7 +48,7 @@ const ENDPOINTS = [
     path: '/api/marketing/jobs',
     desc: 'Create the canonical brand campaign marketing job.',
     body: '{ "tenantId", "jobType": "brand_campaign", "payload": { "brandUrl", "competitorUrl" } }',
-    response: '{ "marketing_job_status": "accepted", "jobId": "...", "tenantId": "...", "jobType": "brand_campaign", "wiring": "n8n_brand_campaign_webhook|backend_fallback", "runtimePath": "generated/draft/marketing-jobs/..." }',
+    response: '{ "marketing_job_status": "accepted", "jobId": "...", "tenantId": "...", "jobType": "brand_campaign", "wiring": "openclaw_gateway", "runtimePath": "generated/draft/marketing-jobs/..." }',
   },
   {
     method: 'GET',
@@ -60,16 +60,16 @@ const ENDPOINTS = [
   {
     method: 'POST',
     path: '/api/marketing/jobs/:jobId/approve',
-    desc: 'Resume a marketing job via n8n or the local runtime fallback.',
+    desc: 'Approve a marketing job through the OpenClaw boundary. Currently routes to a parity stub until resumable workflow support exists.',
     body: '{ "tenantId", "approvedBy", "approvedStages"?: ["research"|"strategy"|"production"|"publish"], "resumePublishIfNeeded"?: true }',
-    response: '{ "approval_status": "resumed|error", "jobId": "...", "tenantId": "...", "resumedStage": "...", "completed": false, "wiring": "n8n_approval_resume_webhook|backend_fallback" }',
+    response: '{ "approval_status": "resumed|error", "jobId": "...", "tenantId": "...", "resumedStage": "...", "completed": false, "wiring": "openclaw_gateway", "reason"?: "workflow_missing_for_route" }',
   },
   {
     method: 'POST',
     path: '/api/publish/dispatch',
-    desc: 'Normalize and proxy a publish event to the n8n publish webhook.',
+    desc: 'Normalize and dispatch a publish event into the OpenClaw Gateway boundary.',
     body: '{ "tenant_id", "provider", "content", "media_urls", "scheduled_for"?: "..." }',
-    response: '{ "status": "accepted", "dispatched": true, "webhookPath": "aries/publish", "downstreamStatus": 202, "event": {...} }',
+    response: '{ "status": "error", "reason": "workflow_missing_for_route", "route": "publish.dispatch", "message": "..." }',
   },
   {
     method: 'GET',
@@ -80,10 +80,17 @@ const ENDPOINTS = [
   },
   {
     method: 'POST',
+    path: '/api/integrations/sync',
+    desc: 'Trigger a manual integration sync through the OpenClaw Gateway boundary.',
+    body: '{ "platform": "facebook" }',
+    response: '{ "status": "error", "reason": "workflow_missing_for_route", "route": "integrations.sync", "message": "..." }',
+  },
+  {
+    method: 'POST',
     path: '/api/events',
     desc: 'Log a frontend event and return an explicit placeholder error.',
     body: '{ "intent": "cta_click", "page": "/", "meta": {} }',
-    response: '{ "status": "error", "message": "Event tracking is not implemented in this runtime.", "details": { "wired": false, "reason": "no_n8n_event_workflow", "logged": true } }',
+    response: '{ "status": "error", "message": "Event tracking is not implemented in this runtime.", "details": { "wired": false, "reason": "no_event_workflow", "logged": true } }',
   },
 ];
 
@@ -96,7 +103,7 @@ export default function ApiDocsPage() {
             <span className="section-label">API Reference</span>
             <h1 className="section-title">Aries Platform API</h1>
             <p className="section-desc">
-              Internal API endpoints for frontend integration, webhook proxying, and platform operations.
+              Internal API endpoints for frontend integration, repo-managed workflow dispatch, and platform operations.
             </p>
           </div>
 

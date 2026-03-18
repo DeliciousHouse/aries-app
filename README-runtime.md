@@ -30,8 +30,10 @@ This is the thinnest runnable app shell for Aries on `http://localhost:3000`.
 2. Set at minimum:
    - `CODE_ROOT` (default `/app` in containers)
    - `DATA_ROOT` (default `/data` in containers)
-   - `N8N_BASE_URL`
-   - `N8N_API_KEY`
+   - `OPENCLAW_GATEWAY_URL`
+   - `OPENCLAW_GATEWAY_TOKEN`
+   - database credentials
+   - auth/oauth credentials
 3. Install dependencies:
    - `npm install`
 
@@ -59,5 +61,7 @@ If running directly on host Node, set `CODE_ROOT` and `DATA_ROOT` to host-valid 
 - `/settings` is a read-only placeholder because `/api/tenant-admin/settings` is not implemented in this runtime.
 - `/platforms` loads live OAuth broker state on mount and only shows token expiry when the backend has a real expiry timestamp.
 - `/api/onboarding/status/:tenantId`, `GET /api/marketing/jobs/:jobId`, and some marketing approval fallback behavior are local runtime readers/fallbacks, not direct workflow status queries.
+- The runtime no longer requires `N8N_BASE_URL` or `N8N_API_KEY`; Aries now acts as an OpenClaw Gateway client.
+- Local parity expects an external OpenClaw workspace/executor boundary rather than in-process workflow execution inside the Aries app.
 - No workflow/contract redesign is introduced by this shell.
 - `PROJECT_ROOT` is treated as legacy compatibility fallback only.

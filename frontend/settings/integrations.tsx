@@ -11,7 +11,7 @@ import PlatformCard, {
 type IntegrationsPageState = 'idle' | 'loading' | 'ready' | 'refreshing' | 'error';
 type PlatformFilter = 'all' | 'connected' | 'not_connected' | 'attention_required';
 type IntegrationsSort = 'display_name_asc' | 'display_name_desc' | 'connection_state' | 'health';
-type IntegrationsErrorCode = 'provider_unavailable' | 'rate_limited' | 'validation_failed' | 'unknown';
+type IntegrationsErrorCode = 'provider_unavailable' | 'rate_limited' | 'validation_failed' | 'auth_denied' | 'unknown';
 
 interface IntegrationsPageSummary {
   total: 7;
@@ -47,6 +47,15 @@ type OAuthConnectResult =
   | {
       broker_status: 'error';
       message?: string;
+    };
+
+type TenantScopedApiFailure =
+  | IntegrationsPageFailure
+  | {
+      status?: string;
+      reason?: string;
+      message?: string;
+      broker_status?: 'error';
     };
 
 const supportedPlatforms: PlatformKey[] = [
@@ -206,6 +215,23 @@ function buildPageError(message: string, code: IntegrationsErrorCode = 'validati
   };
 }
 
+async function readFailure(response: Response, fallbackMessage: string): Promise<IntegrationsPageFailure> {
+  try {
+    const body = (await response.json()) as TenantScopedApiFailure;
+    const message =
+      ('error' in body && body.error?.message) ||
+      ('message' in body ? body.message : undefined) ||
+      fallbackMessage;
+    return buildPageError(message, response.status === 403 ? 'auth_denied' : 'provider_unavailable');
+  } catch {
+    return buildPageError(fallbackMessage, response.status === 403 ? 'auth_denied' : 'provider_unavailable');
+  }
+}
+
+function buildActionFailure(message: string, code: IntegrationsErrorCode = 'provider_unavailable'): IntegrationsPageFailure {
+  return buildPageError(message, code);
+}
+
 export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenProps): JSX.Element {
   const [pageState, setPageState] = useState<IntegrationsPageState>('loading');
   const [cards, setCards] = useState<PlatformIntegrationCardData[]>([]);
@@ -249,7 +275,9 @@ export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenP
     try {
       const response = await fetch(`${baseUrl}/api/integrations`, { method: 'GET' });
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        setLastError(await readFailure(response, 'Unable to load integrations page data.'));
+        setPageState('error');
+        return;
       }
 
       const body = (await response.json()) as IntegrationsPageData | IntegrationsPageFailure;
@@ -291,9 +319,15 @@ export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenP
           body: JSON.stringify({ platform })
         });
 
+        if (!response.ok) {
+          setLastError(await readFailure(response, 'Unable to start OAuth connection.'));
+          return;
+        }
+
         const body = (await response.json()) as OAuthConnectResult;
-        if (!response.ok || body.broker_status !== 'ok') {
-          throw new Error(body.broker_status === 'error' ? body.message || 'Unable to start OAuth connection.' : 'Unable to start OAuth connection.');
+        if (body.broker_status !== 'ok') {
+          setLastError(buildActionFailure(body.message || 'Unable to start OAuth connection.'));
+          return;
         }
 
         window.location.assign(body.authorization_url);
@@ -307,7 +341,8 @@ export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenP
           body: JSON.stringify({ platform, confirm: true })
         });
         if (!response.ok) {
-          throw new Error(`Unable to disconnect ${platform}.`);
+          setLastError(await readFailure(response, `Unable to disconnect ${platform}.`));
+          return;
         }
       }
 
@@ -318,12 +353,15 @@ export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenP
           body: JSON.stringify({ platform })
         });
         if (!response.ok) {
-          throw new Error(`Unable to sync ${platform}.`);
+          setLastError(await readFailure(response, `Unable to sync ${platform}.`));
+          return;
         }
       }
+
+      await handleRefresh();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to complete platform action.';
-      setLastError(buildPageError(message, 'provider_unavailable'));
+      setLastError(buildActionFailure(message));
     } finally {
       setBusyKey(null);
     }

@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _stage3_common import emit_json, ensure_run_id, normalize_research_model, read_stdin_json, save_artifact_text, save_step, slugify, utc_now
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--brand-slug", default="client-brand")
+    parser.add_argument("--research-model", default="gemini/gemini-3-flash-preview")
+    args = parser.parse_args()
+
+    data = read_stdin_json()
+    brief = data.get("production_brief", {})
+    brand_slug = slugify(args.brand_slug or data.get("brand_slug", "client-brand"))
+    research_model = normalize_research_model(args.research_model or data.get("research_model", ""))
+    run_id = ensure_run_id(data.get("run_id", ""), brand_slug, brief.get("campaign_name", ""))
+    core_message = brief.get("core_message", "Lead with a concrete result.")
+    offer_summary = brief.get("offer_summary", "Keep the offer concise.")
+    primary_cta = brief.get("primary_cta", "Learn More")
+    proof_points = brief.get("proof_points", [])[:3]
+
+    script_assets = {
+        "meta_ad_script": {
+            "hook": core_message,
+            "body": [
+                f"Problem: {offer_summary}",
+                f"Proof: {proof_points[0] if proof_points else 'Use the strongest proof point available.'}",
+                f"CTA: {primary_cta}",
+            ],
+            "duration_seconds": 30,
+        },
+        "short_video_script": {
+            "opening_line": core_message,
+            "beats": [
+                "State the painful status quo in one sentence.",
+                "Introduce the new path or offer.",
+                f"Deliver proof: {proof_points[0] if proof_points else 'show one specific result.'}",
+                f"Close on CTA: {primary_cta}",
+            ],
+            "duration_seconds": 30,
+        },
+        "voiceover_options": [
+            "Direct response, low-jargon, outcome-first read.",
+            "Slightly more consultative version for warmer audiences.",
+        ],
+        "proof_points": proof_points,
+    }
+
+    preview_text = "\n".join(
+        [
+            f"Hook: {script_assets['meta_ad_script']['hook']}",
+            "Meta body:",
+            *[f"- {line}" for line in script_assets["meta_ad_script"]["body"]],
+            "Video beats:",
+            *[f"- {line}" for line in script_assets["short_video_script"]["beats"]],
+        ]
+    )
+    preview_path = save_artifact_text(run_id, "scriptwriter/scripts-preview.txt", preview_text)
+
+    payload = {
+        "type": "scriptwriter",
+        "stub": False,
+        "mode": "fallback",
+        "generated_at": utc_now(),
+        "run_id": run_id,
+        "research_model": research_model,
+        "brand_slug": brand_slug,
+        "production_brief": brief,
+        "script_assets": script_assets,
+        "artifacts": {
+            "preview_path": preview_path,
+            "honesty_note": "This local wrapper drafts scripts and beat sheets only; no human talent, voice synthesis, or production system is invoked.",
+        },
+    }
+    save_step(run_id, "scriptwriter", payload)
+    emit_json(payload)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

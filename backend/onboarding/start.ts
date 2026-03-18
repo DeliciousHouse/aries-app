@@ -4,6 +4,8 @@ import {
   resolveDraftRoot,
   resolveValidatedRoot
 } from '../../lib/runtime-paths';
+import { runAriesOpenClawWorkflow } from '../openclaw/aries-execution';
+import { OpenClawGatewayError } from '../openclaw/gateway-client';
 
 type Json = null | boolean | number | string | Json[] | { [k: string]: Json };
 
@@ -25,11 +27,6 @@ type StartResult = {
   reason?: string;
 };
 
-function webhookUrl(): string {
-  const base = process.env.N8N_BASE_URL || 'http://localhost:5678';
-  return `${base.replace(/\/$/, '')}/webhook/tenant-provisioning`;
-}
-
 function asObject(value: unknown): Record<string, unknown> {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     return value as Record<string, unknown>;
@@ -37,12 +34,13 @@ function asObject(value: unknown): Record<string, unknown> {
   return {};
 }
 
-function normalizeStateFromWorkflow(body: Record<string, unknown>): StartResult['state'] {
-  const status = typeof body.status === 'string' ? body.status : '';
-  if (status === 'duplicate') return 'duplicate';
-  if (status === 'success') return 'validated';
-  if (status === 'validation_failed') return 'needs_repair';
-  return 'accepted';
+function readJsonSafe(filePath: string): unknown {
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
 }
 
 export function validateStartInput(payload: StartRequest): string[] {
@@ -65,60 +63,39 @@ export async function startOnboarding(payload: StartRequest): Promise<StartResul
     };
   }
 
-  const requestBody: StartRequest = {
-    tenant_id: payload.tenant_id,
-    tenant_type: payload.tenant_type,
-    signup_event_id: payload.signup_event_id,
-    metadata: payload.metadata
-  };
+  const tenantId = payload.tenant_id!;
+  const tenantType = payload.tenant_type!;
+  const signupEventId = payload.signup_event_id!;
 
-  try {
-    const res = await fetch(webhookUrl(), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(requestBody)
-    });
-
-    const text = await res.text();
-    let parsed: unknown = text;
-    try {
-      parsed = text ? JSON.parse(text) : {};
-    } catch {
-      // keep raw text
-    }
-
-    const body = asObject(parsed);
-
-    if (res.ok) {
-      return {
-        status: 'ok',
-        tenant_id: (body.tenant_id as string) || payload.tenant_id,
-        tenant_type: (body.tenant_type as string) || payload.tenant_type,
-        signup_event_id: (body.signup_event_id as string) || payload.signup_event_id,
-        state: normalizeStateFromWorkflow(body),
-        workflow_status: res.status,
-        raw: body as Json
-      };
-    }
-
+  const executed = await runAriesOpenClawWorkflow('onboarding_start', {
+    tenant_id: tenantId,
+    tenant_type: tenantType,
+    signup_event_id: signupEventId,
+    metadata: payload.metadata ?? {},
+  });
+  if (executed.kind === 'gateway_error') {
+    throw executed.error;
+  }
+  if (executed.kind === 'not_implemented') {
     return {
       status: 'error',
-      tenant_id: payload.tenant_id,
-      tenant_type: payload.tenant_type,
-      signup_event_id: payload.signup_event_id,
-      workflow_status: res.status,
-      reason: 'workflow_request_failed',
-      raw: body as Json
-    };
-  } catch (error) {
-    return {
-      status: 'error',
-      tenant_id: payload.tenant_id,
-      tenant_type: payload.tenant_type,
-      signup_event_id: payload.signup_event_id,
-      reason: `workflow_unreachable:${String((error as Error).message || error)}`
+      tenant_id: tenantId,
+      tenant_type: tenantType,
+      signup_event_id: signupEventId,
+      reason: executed.payload.code,
+      raw: executed.payload as Json,
     };
   }
+
+  return {
+    status: 'ok',
+    tenant_id: tenantId,
+    tenant_type: tenantType,
+    signup_event_id: signupEventId,
+    state: 'accepted',
+    workflow_status: 202,
+    raw: (executed.primaryOutput ?? { envelope_status: executed.envelope.status }) as Json,
+  };
 }
 
 export async function handleStartHttp(req: Request): Promise<Response> {
@@ -130,7 +107,14 @@ export async function handleStartHttp(req: Request): Promise<Response> {
   }
 
   const result = await startOnboarding(payload);
-  const code = result.status === 'ok' ? 200 : (result.reason?.startsWith('missing_required_fields') ? 400 : 502);
+  const code =
+    result.status === 'ok'
+      ? 200
+      : result.reason === 'workflow_missing_for_route'
+        ? 501
+        : result.reason?.startsWith('missing_required_fields')
+          ? 400
+          : 502;
   return new Response(JSON.stringify(result), {
     status: code,
     headers: { 'content-type': 'application/json' }

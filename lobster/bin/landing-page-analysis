@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+import argparse
+import re
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _stage1_common import (
+    emit_json,
+    fetch_text,
+    normalize_research_model,
+    parse_domain,
+    read_stdin_json,
+    save_step,
+    summarize_with_gemini,
+    utc_now,
+    web_search,
+)
+
+
+def _extract_title_and_h1(html: str) -> tuple[str, str]:
+    title_match = re.search(r"<title[^>]*>(.*?)</title>", html, flags=re.IGNORECASE | re.DOTALL)
+    h1_match = re.search(r"<h1[^>]*>(.*?)</h1>", html, flags=re.IGNORECASE | re.DOTALL)
+    title = re.sub(r"<[^>]+>", "", title_match.group(1)).strip() if title_match else ""
+    h1 = re.sub(r"<[^>]+>", "", h1_match.group(1)).strip() if h1_match else ""
+    return title, h1
+
+
+def analyze_page(url: str, website_url: str, live_text: str = "", search_result: dict | None = None) -> dict:
+    path_bits = [bit for bit in url.rstrip("/").split("/") if bit]
+    page_slug = path_bits[-1] if path_bits else "page"
+    same_domain = bool(website_url) and website_url.replace("https://", "").replace("http://", "") in url
+    title, h1 = _extract_title_and_h1(live_text) if live_text else ("", "")
+    snippet = (search_result or {}).get("snippet", "")
+    message_match = "high" if "demo" in page_slug or "automation" in page_slug else "medium"
+    if snippet and ("consult" in snippet.lower() or "strategy" in snippet.lower()):
+        message_match = "high"
+    return {
+        "url": url,
+        "page_type": "demo" if "demo" in page_slug else "product",
+        "message_match": message_match,
+        "conversion_friction": "medium",
+        "same_domain_as_client_site": same_domain,
+        "title": title,
+        "h1": h1,
+        "observations": [
+            "Headline likely continues the ad promise rather than changing the narrative completely.",
+            "CTA depth appears consistent with mid-funnel paid acquisition traffic.",
+        ],
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--website-url", default="")
+    parser.add_argument("--research-model", default="gemini/gemini-2.5-flash")
+    args = parser.parse_args()
+
+    data = read_stdin_json()
+    landing_pages = data.get("landing_pages", [])
+    website_url = args.website_url.strip() or data.get("website_url", "")
+    research_model = normalize_research_model(args.research_model or data.get("research_model", ""))
+    website_domain = parse_domain(website_url)
+
+    # Live path: website fetch + search on the exact provided website.
+    website_html = ""
+    website_fetch_error = ""
+    if website_url:
+        try:
+            website_html = fetch_text(website_url, timeout=20.0, headers={"User-Agent": "lobster-stage1/1.0"})
+        except Exception as exc:
+            website_fetch_error = f"{type(exc).__name__}: {exc}"
+
+    search_query = f"{website_url} services case studies pricing" if website_url else ""
+    search = web_search(search_query, max_results=5) if search_query else {"live": False, "provider": "none", "results": [], "error": "no website_url"}
+    search_results = search.get("results", [])
+
+    # Build page list from extractor output first, then web evidence for same domain.
+    known_pages = list(landing_pages)
+    for item in search_results:
+        url = item.get("url", "")
+        if url and website_domain and website_domain in parse_domain(url):
+            if url not in known_pages:
+                known_pages.append(url)
+
+    findings = []
+    for idx, url in enumerate(known_pages):
+        findings.append(
+            analyze_page(
+                url=url,
+                website_url=website_url,
+                live_text=website_html if idx == 0 else "",
+                search_result=search_results[idx] if idx < len(search_results) else None,
+            )
+        )
+
+    prompt = (
+        "Analyze this landing-page set for paid traffic fit.\n"
+        f"Website: {website_url}\n"
+        f"Findings: {findings}\n"
+        "Return: strongest pattern and biggest conversion gap."
+    )
+    gemini = summarize_with_gemini(prompt=prompt, research_model=research_model)
+    strongest_pattern = "Direct response CTA alignment"
+    largest_gap = "More quantified proof above the fold"
+    if gemini.get("text"):
+        lines = [line.strip("- ").strip() for line in gemini["text"].splitlines() if line.strip()]
+        if lines:
+            strongest_pattern = lines[0][:140]
+        if len(lines) > 1:
+            largest_gap = lines[1][:140]
+
+    payload = {
+        "type": "landing_page_analysis",
+        "stub": False,
+        "mode": "live" if (search.get("live") or bool(website_html) or gemini.get("live")) else "fallback",
+        "generated_at": utc_now(),
+        "run_id": data.get("run_id"),
+        "competitor": data.get("competitor", ""),
+        "website_url": website_url,
+        "research_model": research_model,
+        "web_search_required": True,
+        "landing_page_findings": findings,
+        "research": {
+            "website_fetch": {
+                "live": bool(website_html),
+                "error": website_fetch_error,
+            },
+            "web_search": {
+                "live": bool(search.get("live") and search_results),
+                "provider": search.get("provider", "none"),
+                "error": search.get("error", ""),
+                "query": search_query,
+                "results": search_results,
+            },
+            "gemini": gemini,
+        },
+        "page_summary": {
+            "page_count": len(findings),
+            "strongest_pattern": strongest_pattern,
+            "largest_gap": largest_gap,
+        },
+    }
+    if payload["run_id"]:
+        save_step(payload["run_id"], "landing_page_analysis", payload)
+    emit_json(payload)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

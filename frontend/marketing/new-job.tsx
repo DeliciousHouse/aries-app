@@ -77,7 +77,7 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
       <div className="mb-8 border-b border-[var(--aries-core-gray)] pb-6">
         <h1 className="text-3xl font-light mb-2 text-[var(--aries-primary-text)] tracking-tight">Launch Brand Campaign</h1>
         <p className="text-[var(--aries-core-gray)] text-sm">
-          This route starts the canonical <code>brand_campaign</code> workflow. Provide the tenant ID, your brand website,
+          This route starts the canonical <code>brand_campaign</code> workflow through the repo-managed runtime. Provide the tenant ID, your brand website,
           and a competitor Facebook URL to create a marketing job.
         </p>
       </div>

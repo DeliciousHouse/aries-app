@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _stage3_common import emit_json, ensure_run_id, normalize_research_model, read_stdin_json, save_artifact_text, save_step, slugify, utc_now
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--brand-slug", default="client-brand")
+    parser.add_argument("--research-model", default="gemini/gemini-3-flash-preview")
+    args = parser.parse_args()
+
+    data = read_stdin_json()
+    script_assets = data.get("script_assets", {})
+    brief = data.get("production_brief", {})
+    brand_slug = slugify(args.brand_slug or data.get("brand_slug", "client-brand"))
+    research_model = normalize_research_model(args.research_model or data.get("research_model", ""))
+    run_id = ensure_run_id(data.get("run_id", ""), brand_slug, brief.get("campaign_name", ""))
+    hook = script_assets.get("meta_ad_script", {}).get("hook", brief.get("core_message", "Lead with proof."))
+    cta = brief.get("primary_cta", "Learn More")
+
+    ad_assets = {
+        "creative_brief": {
+            "primary_hook": hook,
+            "concepts": [
+                {
+                    "name": "Proof Card",
+                    "format": "static",
+                    "headline": hook,
+                    "body": script_assets.get("meta_ad_script", {}).get("body", []),
+                },
+                {
+                    "name": "Problem / Solution Reel",
+                    "format": "short-video",
+                    "headline": hook,
+                    "body": script_assets.get("short_video_script", {}).get("beats", []),
+                },
+            ],
+            "design_system": {
+                "typography": "Bold headline plus compact proof text.",
+                "color_direction": "High contrast, brand-safe, proof-first layout.",
+                "cta_lockup": cta,
+            },
+        },
+        "asset_specs": [
+            {"placement": "meta_feed", "size": "1080x1350", "format": "png or mp4"},
+            {"placement": "meta_story", "size": "1080x1920", "format": "png or mp4"},
+        ],
+    }
+
+    spec_text = "\n".join(
+        [
+            f"Primary hook: {hook}",
+            f"CTA: {cta}",
+            "Placements:",
+            *[f"- {item['placement']}: {item['size']} ({item['format']})" for item in ad_assets["asset_specs"]],
+        ]
+    )
+    spec_path = save_artifact_text(run_id, "ad-designer/ad-specs.txt", spec_text)
+
+    payload = {
+        "type": "ad_designer",
+        "stub": False,
+        "mode": "fallback",
+        "generated_at": utc_now(),
+        "run_id": run_id,
+        "research_model": research_model,
+        "brand_slug": brand_slug,
+        "production_brief": brief,
+        "script_assets": script_assets,
+        "ad_assets": ad_assets,
+        "artifacts": {
+            "spec_path": spec_path,
+            "honesty_note": "This local wrapper outputs creative specs and placement guidance; it does not render final ads.",
+        },
+    }
+    save_step(run_id, "ad_designer", payload)
+    emit_json(payload)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

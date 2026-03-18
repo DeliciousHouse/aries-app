@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _stage4_common import (
+    contract_platform_map,
+    emit_json,
+    ensure_run_id,
+    load_json_file,
+    maybe_publish_live_draft,
+    maybe_submit_aries_review,
+    output_root,
+    read_stdin_json,
+    render_static_publish_asset,
+    save_step,
+    slugify,
+    tenant_profile_id,
+    utc_now,
+    write_review_package,
+)
+
+
+PLATFORM_SLUG = "reddit"
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--brand-slug", default="client-brand")
+    args = parser.parse_args()
+    data = read_stdin_json()
+    handoff = data.get("production_handoff", data)
+    brand_slug = slugify(args.brand_slug or handoff.get("brand_slug", "client-brand"))
+    run_id = ensure_run_id(handoff.get("run_id", ""), brand_slug, handoff.get("campaign_name", ""))
+    platform_entry = contract_platform_map(handoff, "static").get(PLATFORM_SLUG, {})
+    contract = load_json_file(platform_entry.get("contract_path", ""))
+    campaign_id = contract.get("campaign_id", brand_slug)
+    tenant_id = tenant_profile_id(handoff, brand_slug)
+    destination_root = output_root() / campaign_id / PLATFORM_SLUG
+    render_result = render_static_publish_asset(contract, destination_root, PLATFORM_SLUG)
+    image_path = render_result["image_path"]
+    copy_path = destination_root / f"{PLATFORM_SLUG}.json"
+    copy_path.write_text(json.dumps(contract.get("creative", {}), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    review_payload = {
+        "tenant_profile_id": tenant_id,
+        "campaign_id": campaign_id,
+        "platform": PLATFORM_SLUG,
+        "contract_path": platform_entry.get("contract_path", ""),
+        "asset_paths": {
+            "image_path": str(image_path),
+            "copy_path": str(copy_path),
+        },
+        "review_status": "pending_tenant_review",
+    }
+    review_package_path = write_review_package(tenant_id, campaign_id, PLATFORM_SLUG, review_payload)
+    aries_result = maybe_submit_aries_review(review_payload)
+    live_draft_result = maybe_publish_live_draft(
+        PLATFORM_SLUG,
+        {
+            "tenant_profile_id": tenant_id,
+            "campaign_id": campaign_id,
+            "platform": PLATFORM_SLUG,
+            "publish_mode": "draft",
+            "contract_path": platform_entry.get("contract_path", ""),
+            "asset_paths": review_payload["asset_paths"],
+        },
+    )
+    payload = {
+        "type": "reddit_publisher",
+        "mode": "rendered_static_publish_package",
+        "generated_at": utc_now(),
+        "run_id": run_id,
+        "brand_slug": brand_slug,
+        "platform": PLATFORM_SLUG,
+        "contract_path": platform_entry.get("contract_path", ""),
+        "publish_package": {
+            "image_path": str(image_path),
+            "fallback_svg_path": render_result["fallback_svg_path"],
+            "image_kind": render_result["image_kind"],
+            "copy_path": str(copy_path),
+            "review_package_path": review_package_path,
+        },
+        "image_generation": render_result["nano_banana"],
+        "aries_review_submission": aries_result,
+        "live_draft_publish": live_draft_result,
+    }
+    save_step(run_id, "reddit_publisher", payload)
+    emit_json(payload)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

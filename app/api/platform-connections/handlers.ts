@@ -1,0 +1,47 @@
+import { oauthStatus } from '../../../backend/integrations/status';
+import { PROVIDER_REGISTRY } from '../../../backend/integrations/provider-registry';
+import { resolveTokenHealth } from '../../../backend/integrations/connection-schema';
+import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
+
+const platforms = Object.keys(PROVIDER_REGISTRY) as Array<keyof typeof PROVIDER_REGISTRY>;
+
+export function buildPlatformConnectionsPayload(tenantId: string) {
+  const connections = platforms.map((provider) => {
+    const state = oauthStatus(provider, tenantId);
+    if ('broker_status' in state) return null;
+    return {
+      schema_name: 'aries_platform_connection',
+      schema_version: '1.0.0',
+      tenant_id: tenantId,
+      provider,
+      connection_id: state.integration_id || `pending_${provider}`,
+      status:
+        state.connection_status === 'connected'
+          ? 'connected'
+          : state.connection_status === 'pending_oauth'
+            ? 'pending'
+            : state.connection_status === 'token_expired' ||
+                state.connection_status === 'revoked' ||
+                state.connection_status === 'permission_denied'
+              ? 'reauthorization_required'
+              : 'disconnected',
+      token_health: resolveTokenHealth(state.token_expires_at),
+      expires_at: state.token_expires_at,
+      updated_at: state.updated_at
+    };
+  }).filter(Boolean);
+
+  return { status: 'ok', connections };
+}
+
+export async function handlePlatformConnectionsGet(tenantContextLoader?: TenantContextLoader) {
+  const tenantResult = await loadTenantContextOrResponse(tenantContextLoader);
+  if ('response' in tenantResult) {
+    return tenantResult.response;
+  }
+
+  return new Response(JSON.stringify(buildPlatformConnectionsPayload(tenantResult.tenantContext.tenantId)), {
+    status: 200,
+    headers: { 'content-type': 'application/json' }
+  });
+}

@@ -65,7 +65,7 @@ export default async function AppShellLayout({
           <header className="app-page-header">
             <h1 className="app-page-title">{title ?? currentRoute?.title ?? 'Workflow Console'}</h1>
             <p className="app-page-desc">
-              {subtitle ?? currentRoute?.description ?? 'n8n-first control plane for multi-platform publishing.'}
+              {subtitle ?? currentRoute?.description ?? 'Repo-managed workflow control plane for multi-platform publishing.'}
             </p>
           </header>
           <div>{children}</div>

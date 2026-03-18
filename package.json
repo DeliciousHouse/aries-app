@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "node scripts/start-runtime.mjs",
     "precheck": "node scripts/runtime-precheck.mjs",
+    "workspace:verify": "node scripts/verify-canonical-workspace.mjs",
+    "workspace:inventory": "node scripts/inventory-paperclip-workspaces.mjs",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/**/*.test.ts",
     "db:init": "node scripts/init-db.js"

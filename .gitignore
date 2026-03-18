@@ -10,7 +10,6 @@ jspm_packages/
 !templates/
 !validators/
 !tests/
-!n8n/*.workflow.json
 
 # Build outputs
 dist/
@@ -25,9 +24,13 @@ publish/*.js.map
 # IDE / Editor files
 .vscode/
 .idea/
+.cursor/
 *.swp
 *.swo
 .DS_Store
+
+# Local assistant / workspace notes
+AGENTS.md
 
 # Environment files
 .env
@@ -43,6 +46,11 @@ yarn-debug.log*
 yarn-error.log*
 logs/
 *.log
+
+# Lobster generated output / local temp files
+lobster/output/
+lobster/tmp-debug-args.lobster
+lobster/bin/__pycache__/
 
 # Misc
 .cache/

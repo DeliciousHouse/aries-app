@@ -1,5 +1,6 @@
 import { auth } from '@/auth';
 import pool from '@/lib/db';
+import type { Session } from 'next-auth';
 
 export type TenantRole = 'tenant_admin' | 'tenant_analyst' | 'tenant_viewer';
 
@@ -9,6 +10,8 @@ export type TenantContext = {
   tenantSlug: string;
   role: TenantRole;
 };
+
+const TENANT_ROLES = new Set<TenantRole>(['tenant_admin', 'tenant_analyst', 'tenant_viewer']);
 
 type Queryable = {
   query: (
@@ -62,8 +65,31 @@ export async function loadTenantContextForUser(queryable: Queryable, userId: str
   return normalizeContextRow(result.rows[0]);
 }
 
+export function resolveTenantContextFromSession(session: Session | null): TenantContext | null {
+  const user = session?.user;
+  if (!user?.id || !user.tenantId || !user.tenantSlug || !user.role) {
+    return null;
+  }
+
+  if (!TENANT_ROLES.has(user.role)) {
+    return null;
+  }
+
+  return {
+    userId: String(user.id),
+    tenantId: String(user.tenantId),
+    tenantSlug: String(user.tenantSlug),
+    role: user.role,
+  };
+}
+
 export async function getTenantContext(): Promise<TenantContext> {
   const session = await auth();
+  const claimContext = resolveTenantContextFromSession(session);
+  if (claimContext) {
+    return claimContext;
+  }
+
   const userId = session?.user?.id;
 
   if (!userId) {

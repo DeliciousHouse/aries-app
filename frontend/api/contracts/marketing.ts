@@ -18,7 +18,7 @@ export interface StartJobAccepted {
   jobId: string;
   tenantId: string;
   jobType: MarketingJobType;
-  wiring: 'n8n_brand_campaign_webhook' | 'backend_fallback';
+  wiring: 'openclaw_gateway';
   runtimePath: string;
 }
 
@@ -46,7 +46,7 @@ export interface ApproveJobResult {
   tenantId: string;
   resumedStage: string | null;
   completed: boolean;
-  wiring: 'n8n_approval_resume_webhook' | 'backend_fallback';
+  wiring: 'openclaw_gateway';
 }
 
 export interface HardFailureError {

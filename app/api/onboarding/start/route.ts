@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { startOnboarding } from '../../../../backend/onboarding/start';
+import { OpenClawGatewayError } from '../../../../backend/openclaw/gateway-client';
 
 export async function POST(req: Request) {
   let payload: any = {};
@@ -9,7 +10,28 @@ export async function POST(req: Request) {
     payload = {};
   }
 
-  const result = await startOnboarding(payload);
+  let result;
+  try {
+    result = await startOnboarding(payload);
+  } catch (error) {
+    if (error instanceof OpenClawGatewayError) {
+      const status =
+        error.code === 'openclaw_gateway_unauthorized'
+          ? 401
+          : error.code === 'openclaw_gateway_unreachable' || error.code === 'openclaw_gateway_not_configured'
+            ? 503
+            : error.status || 500;
+      return NextResponse.json(
+        {
+          onboarding_status: 'error',
+          reason: error.code,
+          message: error.message,
+        },
+        { status }
+      );
+    }
+    throw error;
+  }
 
   if (result.status === 'ok') {
     return NextResponse.json(

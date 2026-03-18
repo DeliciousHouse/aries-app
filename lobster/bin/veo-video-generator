@@ -1,0 +1,471 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _stage3_common import (
+    emit_json,
+    ensure_run_id,
+    normalize_research_model,
+    read_stdin_json,
+    save_artifact_json,
+    save_artifact_text,
+    save_step,
+    slugify,
+    utc_now,
+)
+
+
+PLATFORM_DEFAULTS = [
+    {
+        "platform": "YouTube Shorts",
+        "platform_slug": "youtube-shorts",
+        "aspect_ratio": "9:16",
+        "target_duration_seconds": 30,
+        "max_duration_seconds": 60,
+    },
+    {
+        "platform": "TikTok",
+        "platform_slug": "tiktok",
+        "aspect_ratio": "9:16",
+        "target_duration_seconds": 20,
+        "max_duration_seconds": 60,
+    },
+    {
+        "platform": "Instagram Reels",
+        "platform_slug": "instagram-reels",
+        "aspect_ratio": "9:16",
+        "target_duration_seconds": 20,
+        "max_duration_seconds": 60,
+    },
+    {
+        "platform": "Instagram Feed video",
+        "platform_slug": "instagram-feed-video",
+        "aspect_ratio": "4:5",
+        "target_duration_seconds": 30,
+        "max_duration_seconds": 90,
+    },
+    {
+        "platform": "YouTube longform",
+        "platform_slug": "youtube-longform",
+        "aspect_ratio": "16:9",
+        "target_duration_seconds": 300,
+        "max_duration_seconds": 900,
+    },
+    {
+        "platform": "Stories",
+        "platform_slug": "stories",
+        "aspect_ratio": "9:16",
+        "target_duration_seconds": 15,
+        "max_duration_seconds": 15,
+    },
+    {
+        "platform": "LinkedIn video",
+        "platform_slug": "linkedin-video",
+        "aspect_ratio": "1:1",
+        "target_duration_seconds": 45,
+        "max_duration_seconds": 120,
+    },
+    {
+        "platform": "X video",
+        "platform_slug": "x-video",
+        "aspect_ratio": "1:1",
+        "target_duration_seconds": 30,
+        "max_duration_seconds": 140,
+    },
+]
+
+
+def first_nonempty(*values, default="") -> str:
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return default
+
+
+def list_or_empty(value) -> list:
+    return value if isinstance(value, list) else []
+
+
+def derive_campaign_id(brand_slug: str, brief: dict) -> str:
+    return slugify(
+        first_nonempty(
+            brief.get("campaign_id", ""),
+            brief.get("campaign_name", ""),
+            brief.get("objective", ""),
+            brand_slug,
+            default="campaign",
+        )
+    )
+
+
+def derive_concept_id(brief: dict, script_assets: dict) -> str:
+    short_video = script_assets.get("short_video_script", {})
+    return slugify(
+        first_nonempty(
+            short_video.get("concept_id", ""),
+            short_video.get("opening_line", ""),
+            brief.get("core_message", ""),
+            default="video-concept",
+        )
+    )
+
+
+def brand_guidelines_from_brief(brief: dict) -> dict:
+    return {
+        "voice_attributes": list_or_empty(brief.get("brand_voice")) or ["clear", "proof-led", "practical"],
+        "proof_points": list_or_empty(brief.get("proof_points")),
+        "primary_cta": first_nonempty(brief.get("primary_cta", ""), default="Learn More"),
+        "production_constraints": brief.get("constraints", {}),
+    }
+
+
+def build_story_beats(brief: dict, script_assets: dict) -> list[dict]:
+    short_video = script_assets.get("short_video_script", {})
+    raw_beats = list_or_empty(short_video.get("beats"))
+    if not raw_beats:
+        raw_beats = [
+            "State the problem clearly.",
+            "Introduce the offer.",
+            "Prove the claim with one concrete point.",
+            "Close with the CTA.",
+        ]
+    total_beats = max(len(raw_beats), 1)
+    step = max(int(short_video.get("duration_seconds", 30) / total_beats), 1)
+    beats = []
+    for index, beat in enumerate(raw_beats, start=1):
+        beats.append(
+            {
+                "sequence": index,
+                "label": f"Beat {index}",
+                "description": beat,
+                "estimated_seconds": step,
+            }
+        )
+    return beats
+
+
+def build_master_script(brief: dict, script_assets: dict) -> dict:
+    short_video = script_assets.get("short_video_script", {})
+    meta_ad = script_assets.get("meta_ad_script", {})
+    opening_line = first_nonempty(short_video.get("opening_line", ""), brief.get("core_message", ""), default="Lead with proof.")
+    voiceover_lines = [opening_line]
+    voiceover_lines.extend(list_or_empty(meta_ad.get("body")))
+    return {
+        "title": first_nonempty(brief.get("campaign_name", ""), default="Campaign Master Script"),
+        "opening_line": opening_line,
+        "voiceover_lines": [line for line in voiceover_lines if isinstance(line, str) and line.strip()],
+        "story_beats": build_story_beats(brief, script_assets),
+        "duration_seconds": short_video.get("duration_seconds", 30),
+        "source": "scriptwriter",
+    }
+
+
+def build_render_outputs(base_dir: Path, platform_slug: str) -> dict:
+    rendered_dir = base_dir / "rendered" / platform_slug
+    return {
+        "directory": str(rendered_dir),
+        "video_file": str(rendered_dir / f"{platform_slug}.mp4"),
+        "captions_file": str(rendered_dir / f"{platform_slug}.srt"),
+        "poster_file": str(rendered_dir / f"{platform_slug}.jpg"),
+        "project_file": str(rendered_dir / f"{platform_slug}.json"),
+    }
+
+
+def build_platform_contract(
+    platform_config: dict,
+    master_contract: dict,
+    base_dir: Path,
+    args: argparse.Namespace,
+) -> dict:
+    platform_slug = platform_config["platform_slug"]
+    target_duration = platform_config["target_duration_seconds"]
+    story_beats = master_contract["creative"]["story_beats"]
+    return {
+        "schema_version": "2026-03-17.video-contract.v1",
+        "contract_type": "platform_video_contract",
+        "campaign_id": master_contract["campaign_id"],
+        "concept_id": master_contract["concept_id"],
+        "platform": platform_config["platform"],
+        "platform_slug": platform_slug,
+        "status": "contract_generated",
+        "render_requested": False,
+        "render_status": "not_requested",
+        "generator": {
+            "tool": "veo-video-generator",
+            "requested_model": args.video_model,
+            "research_model": args.research_model,
+            "generated_at": master_contract["generated_at"],
+        },
+        "inputs": master_contract["inputs"],
+        "creative": {
+            "summary": master_contract["creative"]["summary"],
+            "opening_line": master_contract["creative"]["opening_line"],
+            "primary_cta": master_contract["creative"]["primary_cta"],
+            "story_beats": story_beats,
+            "voiceover_lines": master_contract["creative"]["voiceover_lines"],
+        },
+        "platform_requirements": {
+            "aspect_ratio": platform_config["aspect_ratio"],
+            "target_duration_seconds": target_duration,
+            "max_duration_seconds": platform_config["max_duration_seconds"],
+        },
+        "execution": {
+            "mode": "contract_generation_only",
+            "render_gate": {
+                "allowed": False,
+                "required_inputs": [
+                    "campaign_id",
+                    "concept_id",
+                    "platform",
+                    "contract_path",
+                    "render_requested: true",
+                ],
+                "downstream_only": True,
+            },
+        },
+        "expected_render_outputs": build_render_outputs(base_dir, platform_slug),
+    }
+
+
+def build_brief_markdown(contract: dict) -> str:
+    beats = "\n".join(
+        f"- {beat['label']}: {beat['description']} ({beat['estimated_seconds']}s est.)"
+        for beat in contract["creative"]["story_beats"]
+    )
+    render_outputs = contract["expected_render_outputs"]
+    return "\n".join(
+        [
+            f"# {contract['platform']} Creative Brief",
+            "",
+            "## Summary",
+            contract["creative"]["summary"],
+            "",
+            "## Core Direction",
+            f"- Opening line: {contract['creative']['opening_line']}",
+            f"- CTA: {contract['creative']['primary_cta']}",
+            f"- Aspect ratio: {contract['platform_requirements']['aspect_ratio']}",
+            f"- Target duration: {contract['platform_requirements']['target_duration_seconds']}s",
+            f"- Max duration: {contract['platform_requirements']['max_duration_seconds']}s",
+            "",
+            "## Story Beats",
+            beats,
+            "",
+            "## Render Status",
+            "- Contract generation only.",
+            "- render_requested: false",
+            "- render_status: not_requested",
+            "",
+            "## Future Render Outputs",
+            f"- Video: {render_outputs['video_file']}",
+            f"- Captions: {render_outputs['captions_file']}",
+            f"- Poster: {render_outputs['poster_file']}",
+            f"- Project: {render_outputs['project_file']}",
+        ]
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--brand-slug", default="client-brand")
+    parser.add_argument("--research-model", default="gemini/gemini-3-flash-preview")
+    parser.add_argument("--video-model", default="veo-3.0-generate-001")
+    parser.add_argument("--campaign-id", default="")
+    parser.add_argument("--concept-id", default="")
+    parser.add_argument("--platform", default="")
+    parser.add_argument("--contract-path", default="")
+    parser.add_argument("--render-requested", action="store_true")
+    args = parser.parse_args()
+
+    data = read_stdin_json()
+    script_assets = data.get("script_assets", {})
+    brief = data.get("production_brief", {})
+    brand_slug = slugify(args.brand_slug or data.get("brand_slug", "client-brand"))
+    research_model = normalize_research_model(args.research_model or data.get("research_model", ""))
+    run_id = ensure_run_id(data.get("run_id", ""), brand_slug, brief.get("campaign_name", ""))
+
+    campaign_id = slugify(args.campaign_id or data.get("campaign_id", "") or derive_campaign_id(brand_slug, brief))
+    concept_id = slugify(args.concept_id or data.get("concept_id", "") or derive_concept_id(brief, script_assets))
+    output_root = Path.cwd() / "output" / "video-contracts" / campaign_id
+    briefs_dir = output_root / "briefs"
+    output_root.mkdir(parents=True, exist_ok=True)
+    briefs_dir.mkdir(parents=True, exist_ok=True)
+
+    render_request = {
+        "campaign_id": args.campaign_id,
+        "concept_id": args.concept_id,
+        "platform": args.platform,
+        "contract_path": args.contract_path,
+        "render_requested": args.render_requested,
+    }
+    render_gate_open = all(
+        [
+            args.render_requested,
+            args.campaign_id.strip(),
+            args.concept_id.strip(),
+            args.platform.strip(),
+            args.contract_path.strip(),
+        ]
+    )
+
+    master_script = build_master_script(brief, script_assets)
+    master_contract = {
+        "schema_version": "2026-03-17.video-contract.v1",
+        "contract_type": "master_video_contract",
+        "campaign_id": campaign_id,
+        "concept_id": concept_id,
+        "brand_slug": brand_slug,
+        "generated_at": utc_now(),
+        "status": "contract_generated",
+        "render_requested": False,
+        "render_status": "not_requested",
+        "inputs": {
+            "approved_campaign_strategy": brief,
+            "approved_offer": {
+                "summary": first_nonempty(brief.get("offer_summary", ""), default="Keep the offer concise."),
+                "primary_cta": first_nonempty(brief.get("primary_cta", ""), default="Learn More"),
+            },
+            "brand_guidelines": brand_guidelines_from_brief(brief),
+            "master_script": master_script,
+        },
+        "creative": {
+            "summary": first_nonempty(brief.get("core_message", ""), default="Lead with proof."),
+            "opening_line": master_script["opening_line"],
+            "primary_cta": first_nonempty(brief.get("primary_cta", ""), default="Learn More"),
+            "voiceover_lines": master_script["voiceover_lines"],
+            "story_beats": master_script["story_beats"],
+        },
+        "execution": {
+            "mode": "contract_generation_only",
+            "render_gate": {
+                "allowed": False,
+                "required_inputs": [
+                    "campaign_id",
+                    "concept_id",
+                    "platform",
+                    "contract_path",
+                    "render_requested: true",
+                ],
+                "downstream_only": True,
+            },
+            "downstream_render_request_received": render_request,
+            "downstream_render_request_valid": render_gate_open,
+        },
+        "expected_render_outputs": {
+            item["platform_slug"]: build_render_outputs(output_root, item["platform_slug"])
+            for item in PLATFORM_DEFAULTS
+        },
+    }
+
+    master_contract_path = output_root / "master-video-contract.json"
+    master_contract_path.write_text(json.dumps(master_contract, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    platform_contracts = []
+    for platform_config in PLATFORM_DEFAULTS:
+        contract = build_platform_contract(platform_config, master_contract, output_root, args)
+        contract_path = output_root / f"{platform_config['platform_slug']}.json"
+        contract_path.write_text(json.dumps(contract, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        brief_path = briefs_dir / f"{platform_config['platform_slug']}.md"
+        brief_path.write_text(build_brief_markdown(contract).rstrip() + "\n", encoding="utf-8")
+        platform_contracts.append(
+            {
+                "platform": platform_config["platform"],
+                "platform_slug": platform_config["platform_slug"],
+                "contract_path": str(contract_path),
+                "brief_path": str(brief_path),
+                "expected_render_outputs": contract["expected_render_outputs"],
+            }
+        )
+
+    platform_index = {
+        "schema_version": "2026-03-17.video-contract.v1",
+        "campaign_id": campaign_id,
+        "concept_id": concept_id,
+        "master_contract_path": str(master_contract_path),
+        "platforms": platform_contracts,
+        "render_gate": {
+            "downstream_only": True,
+            "required_inputs": [
+                "campaign_id",
+                "concept_id",
+                "platform",
+                "contract_path",
+                "render_requested: true",
+            ],
+        },
+    }
+    platform_index_path = output_root / "platform-index.json"
+    platform_index_path.write_text(json.dumps(platform_index, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    summary_text = "\n".join(
+        [
+            f"Campaign ID: {campaign_id}",
+            f"Concept ID: {concept_id}",
+            "Mode: contract_generation_only",
+            "Generated contracts:",
+            *[f"- {item['contract_path']}" for item in platform_contracts],
+        ]
+    )
+    summary_path = save_artifact_text(run_id, "veo-video-generator/video-contract-summary.txt", summary_text)
+    cache_master_path = save_artifact_json(run_id, "veo-video-generator/master-video-contract.json", master_contract)
+    cache_index_path = save_artifact_json(run_id, "veo-video-generator/platform-index.json", platform_index)
+
+    payload = {
+        "type": "veo_video_generator",
+        "stub": False,
+        "mode": "contract_generation_only",
+        "generated_at": master_contract["generated_at"],
+        "run_id": run_id,
+        "research_model": research_model,
+        "brand_slug": brand_slug,
+        "campaign_id": campaign_id,
+        "concept_id": concept_id,
+        "production_brief": brief,
+        "script_assets": script_assets,
+        "video_assets": {
+            "master_video_contract": master_contract,
+            "platform_index": platform_index,
+            "platform_contracts": platform_contracts,
+            "render_requested": False,
+            "render_status": "not_requested",
+        },
+        "handoff": {
+            "type": "video_contract_handoff",
+            "campaign_id": campaign_id,
+            "concept_id": concept_id,
+            "output_root": str(output_root),
+            "master_video_contract_path": str(master_contract_path),
+            "platform_index_path": str(platform_index_path),
+            "platform_contract_paths": [item["contract_path"] for item in platform_contracts],
+            "brief_paths": [item["brief_path"] for item in platform_contracts],
+        },
+        "render_gate": {
+            "contract_generation_only": True,
+            "downstream_render_request_received": render_request,
+            "downstream_render_request_valid": render_gate_open,
+            "required_inputs": [
+                "campaign_id",
+                "concept_id",
+                "platform",
+                "contract_path",
+                "render_requested: true",
+            ],
+        },
+        "artifacts": {
+            "summary_path": summary_path,
+            "cache_master_contract_path": cache_master_path,
+            "cache_platform_index_path": cache_index_path,
+            "output_root": str(output_root),
+        },
+    }
+    save_step(run_id, "veo_video_generator", payload)
+    emit_json(payload)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -14,9 +14,13 @@ function resolveBaseUrl(req: Request): string {
   return new URL(req.url).origin;
 }
 
-export async function buildOauthConnectInput(req: Request, tenantContext: TenantContext) {
+export async function buildOauthConnectInput(
+  req: Request,
+  tenantContext: TenantContext,
+  providerOverride?: string
+) {
   const body = await req.json();
-  const provider = String(body.platform || '').toLowerCase();
+  const provider = String(providerOverride || body.platform || '').toLowerCase();
 
   return {
     provider,

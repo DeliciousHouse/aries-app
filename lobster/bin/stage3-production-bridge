@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+import argparse
+import base64
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+
+def run_json(command: list[str], stdin_payload: dict | None = None) -> dict:
+    proc = subprocess.run(
+        command,
+        input=(json.dumps(stdin_payload) if stdin_payload is not None else None),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        sys.stderr.write(proc.stderr)
+        raise SystemExit(proc.returncode)
+    try:
+        return json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"bridge command returned non-JSON stdout: {' '.join(command)} ({exc})") from exc
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--brand-slug", default="client-brand")
+    parser.add_argument("--research-model", default="gemini/gemini-3-flash-preview")
+    parser.add_argument("--video-model", default="veo-3.0-generate-001")
+    args = parser.parse_args()
+
+    raw = sys.stdin.read().strip()
+    if not raw:
+        raise SystemExit("stage3-production-bridge expected strategy handoff JSON on stdin")
+    try:
+        strategy_handoff = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"invalid JSON on stdin: {exc}") from exc
+
+    bin_dir = Path(__file__).resolve().parent
+    preflight = run_json(
+        [
+            str(bin_dir / "creative-director"),
+            "--json",
+            "--mode",
+            "preflight",
+            "--brand-slug",
+            args.brand_slug,
+            "--research-model",
+            args.research_model,
+            "--strategy-handoff-base64",
+            base64.b64encode(json.dumps(strategy_handoff).encode("utf-8")).decode("ascii"),
+        ]
+    )
+    run_json(
+        [str(bin_dir / "page-designer"), "--json", "--brand-slug", args.brand_slug, "--research-model", args.research_model],
+        preflight,
+    )
+    script = run_json(
+        [str(bin_dir / "scriptwriter"), "--json", "--brand-slug", args.brand_slug, "--research-model", args.research_model],
+        preflight,
+    )
+    run_json(
+        [str(bin_dir / "ad-designer"), "--json", "--brand-slug", args.brand_slug, "--research-model", args.research_model],
+        script,
+    )
+    video = run_json(
+        [
+            str(bin_dir / "veo-video-generator"),
+            "--json",
+            "--brand-slug",
+            args.brand_slug,
+            "--research-model",
+            args.research_model,
+            "--video-model",
+            args.video_model,
+        ],
+        script,
+    )
+    review = run_json(
+        [str(bin_dir / "production-review-preview"), "--json", "--brand-slug", args.brand_slug, "--research-model", args.research_model],
+        video,
+    )
+    final_payload = run_json(
+        [str(bin_dir / "creative-director"), "--json", "--mode", "finalize", "--brand-slug", args.brand_slug, "--research-model", args.research_model],
+        review,
+    )
+    json.dump(final_payload, sys.stdout, indent=2, sort_keys=True)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

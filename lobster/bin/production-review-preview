@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _stage3_common import emit_json, ensure_run_id, load_step, normalize_research_model, read_stdin_json, save_artifact_text, save_step, slugify, utc_now
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--brand-slug", default="client-brand")
+    parser.add_argument("--research-model", default="gemini/gemini-3-flash-preview")
+    args = parser.parse_args()
+
+    data = read_stdin_json()
+    brand_slug = slugify(args.brand_slug or data.get("brand_slug", "client-brand"))
+    research_model = normalize_research_model(args.research_model or data.get("research_model", ""))
+    run_id = ensure_run_id(data.get("run_id", ""), brand_slug)
+
+    preflight = load_step(run_id, "creative_director_preflight") or {}
+    page = load_step(run_id, "page_designer") or {}
+    script = load_step(run_id, "scriptwriter") or {}
+    ad = load_step(run_id, "ad_designer") or {}
+    veo = load_step(run_id, "veo_video_generator") or data
+    brief = preflight.get("production_brief", {})
+
+    review_packet = {
+        "campaign_name": brief.get("campaign_name", ""),
+        "brand_slug": brand_slug,
+        "summary": {
+            "core_message": brief.get("core_message", ""),
+            "primary_cta": brief.get("primary_cta", ""),
+            "deliverables_ready_for_review": [
+                "static_contracts",
+                "landing_page_recommendations",
+                "script_assets",
+                "ad_creative_specs",
+                "video_contracts",
+            ],
+        },
+        "asset_previews": {
+            "landing_page_headline": page.get("page_assets", {}).get("landing_page", {}).get("hero_headline", ""),
+            "meta_ad_hook": script.get("script_assets", {}).get("meta_ad_script", {}).get("hook", ""),
+            "video_opening_line": veo.get("video_assets", {}).get("master_video_contract", {}).get("creative", {}).get("opening_line", ""),
+            "video_contract_root": veo.get("handoff", {}).get("output_root", ""),
+        },
+        "approval_checklist": [
+            "Message match is preserved across page, ad, and video.",
+            "Primary CTA is acceptable for launch.",
+            "Proof claims have human-verified support before publication.",
+            "All video outputs remain contract-generation-only until a downstream render workflow explicitly requests one platform render.",
+        ],
+        "artifacts_available": {
+            "page": bool(page),
+            "script": bool(script),
+            "ad": bool(ad),
+            "video": bool(veo),
+        },
+    }
+
+    preview_text = "\n".join(
+        [
+            f"Campaign: {review_packet['campaign_name']}",
+            f"Core message: {review_packet['summary']['core_message']}",
+            f"CTA: {review_packet['summary']['primary_cta']}",
+            f"Landing page headline: {review_packet['asset_previews']['landing_page_headline']}",
+            f"Meta ad hook: {review_packet['asset_previews']['meta_ad_hook']}",
+            f"Video opening line: {review_packet['asset_previews']['video_opening_line']}",
+            f"Video contract root: {review_packet['asset_previews']['video_contract_root']}",
+            "Approval checklist:",
+            *[f"- {item}" for item in review_packet["approval_checklist"]],
+        ]
+    )
+    preview_path = save_artifact_text(run_id, "production-review-preview/review-packet.txt", preview_text)
+
+    payload = {
+        "type": "production_review_preview",
+        "stub": False,
+        "mode": "compiled",
+        "generated_at": utc_now(),
+        "run_id": run_id,
+        "research_model": research_model,
+        "brand_slug": brand_slug,
+        "review_packet": review_packet,
+        "approval_preview": {
+            "status": "pending_human_review",
+            "reason": "Stage 3 production review remains a human approval step in the Lobster workflow.",
+        },
+        "artifacts": {
+            "preview_path": preview_path,
+        },
+    }
+    save_step(run_id, "production_review_preview", payload)
+    emit_json(payload)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

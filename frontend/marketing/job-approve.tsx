@@ -168,7 +168,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
           <p style={{ margin: 0, fontSize: 12, opacity: 0.8, letterSpacing: 0.4 }}>ARIES • OPERATIONS</p>
           <h1 style={{ margin: '6px 0 4px', fontSize: 28 }}>Marketing Job Approval</h1>
           <p style={{ margin: 0, opacity: 0.9 }}>
-            Resume a paused marketing workflow through the live backend endpoint.
+            Resume a paused marketing workflow through the live repo-managed backend endpoint.
           </p>
         </header>
 

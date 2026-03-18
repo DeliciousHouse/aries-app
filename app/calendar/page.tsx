@@ -59,7 +59,8 @@ export default function CalendarPage() {
       <div className="glass-card-static">
         <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '0.75rem' }}>Sync Configuration</h3>
         <p style={{ fontSize: '0.875rem', color: 'rgba(248,245,242,0.65)' }}>
-          Calendar sync is orchestrated via <code style={{ color: 'rgba(248,245,242,0.8)' }}>n8n/calendar-schedule-sync.workflow.json</code>.
+          Calendar sync currently runs through the repo-managed dispatch layer, with the scheduling contract defined in
+          <code style={{ color: 'rgba(248,245,242,0.8)' }}> workflows/</code> and app runtime handlers.
           Publish windows and retry scheduling are managed through the workflow engine.
         </p>
       </div>

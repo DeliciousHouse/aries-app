@@ -1,0 +1,275 @@
+#!/usr/bin/env python3
+import argparse
+import os
+import urllib.parse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _stage1_common import (
+    emit_json,
+    fetch_meta_object,
+    make_run_id,
+    normalize_research_model,
+    parse_facebook_profile_id,
+    save_step,
+    slugify,
+    summarize_with_gemini,
+    utc_now,
+    web_search,
+)
+
+
+def _is_meta_profile_url(url: str) -> bool:
+    lowered = (url or "").lower()
+    return any(domain in lowered for domain in ["facebook.com", "fb.com", "instagram.com"])
+
+
+def _normalize_url(url: str) -> str:
+    cleaned = (url or "").strip()
+    if cleaned.startswith("http://") or cleaned.startswith("https://"):
+        return cleaned.rstrip("/")
+    return ""
+
+
+def _derive_competitor_from_facebook_url(url: str) -> str:
+    if not url:
+        return ""
+    parsed = urllib.parse.urlparse(url)
+    path_bits = [bit for bit in parsed.path.split("/") if bit]
+    if path_bits and path_bits[-1] not in {"profile.php", "people"}:
+        handle = path_bits[-1].replace(".", " ").replace("-", " ").replace("_", " ").strip()
+        words = [part.capitalize() for part in handle.split() if part]
+        if words:
+            return " ".join(words)[:80]
+    return ""
+
+
+def resolve_competitor_name(competitor: str, live_meta_objects: list[dict], competitor_facebook_url: str) -> str:
+    cleaned_input = competitor.strip()
+    if cleaned_input and cleaned_input.lower() not in {"sample-competitor", "competitor"}:
+        return cleaned_input[:80]
+    if live_meta_objects and live_meta_objects[0].get("name"):
+        return str(live_meta_objects[0]["name"]).strip()[:80]
+    derived = _derive_competitor_from_facebook_url(competitor_facebook_url)
+    if derived:
+        return derived
+    return "Competitor"
+
+
+def candidate_ad_destinations(evidence: list[dict], meta_objects: list[dict]) -> list[str]:
+    destinations: list[str] = []
+    for item in evidence:
+        url = _normalize_url(item.get("url", ""))
+        if url and not _is_meta_profile_url(url):
+            destinations.append(url)
+    for obj in meta_objects:
+        website = _normalize_url(obj.get("website", ""))
+        if website and not _is_meta_profile_url(website):
+            destinations.append(website)
+    return list(dict.fromkeys(destinations))[:3]
+
+
+def build_ads(competitor: str, ad_destinations: list[str], evidence: list[dict]) -> list[dict]:
+    brand = competitor or "Competitor"
+    slug = slugify(brand)
+    evidence_headline = evidence[0]["title"] if evidence else f"{brand} consulting services"
+    if "facebook profile" in evidence_headline.lower():
+        evidence_headline = f"{brand} Meta campaign messaging snapshot"
+    evidence_snippet = evidence[0]["snippet"] if evidence else f"{brand} promotes growth-oriented outcomes."
+
+    destination_1 = ad_destinations[0] if len(ad_destinations) > 0 else ""
+    destination_2 = ad_destinations[1] if len(ad_destinations) > 1 else destination_1
+    destination_3 = ad_destinations[2] if len(ad_destinations) > 2 else destination_2
+
+    return [
+        {
+            "ad_id": f"{slug}-ad-01",
+            "platform": "meta",
+            "brand": brand,
+            "headline": evidence_headline[:95],
+            "primary_text": evidence_snippet[:220],
+            "call_to_action": "Learn More",
+            "landing_page_url": destination_1,
+            "formats": ["video", "square"],
+            "hooks": ["speed to value", "risk reduction"],
+        },
+        {
+            "ad_id": f"{slug}-ad-02",
+            "platform": "meta",
+            "brand": brand,
+            "headline": f"How {brand} removes manual busywork",
+            "primary_text": f"{brand} leads with an operational efficiency angle and a proof-oriented CTA.",
+            "call_to_action": "Book Demo",
+            "landing_page_url": destination_2,
+            "formats": ["image", "carousel"],
+            "hooks": ["efficiency", "proof points"],
+        },
+        {
+            "ad_id": f"{slug}-ad-03",
+            "platform": "meta",
+            "brand": brand,
+            "headline": f"{brand} makes enterprise rollout feel simple",
+            "primary_text": f"{brand} uses reassurance language for larger buyers with security and onboarding concerns.",
+            "call_to_action": "Get Started",
+            "landing_page_url": destination_3,
+            "formats": ["image", "story"],
+            "hooks": ["simplicity", "enterprise trust"],
+        },
+    ]
+
+
+def fallback_search_results(competitor: str, competitor_facebook_url: str) -> list[dict]:
+    profile_id = parse_facebook_profile_id(competitor_facebook_url)
+    brand = competitor or "Competitor"
+    fallback = [
+        {
+            "title": f"{brand} Facebook profile {profile_id}".strip(),
+            "url": competitor_facebook_url,
+            "snippet": f"Fallback evidence anchored to Facebook profile id {profile_id or 'unknown'} for {brand}.",
+        }
+    ]
+    return [item for item in fallback if item.get("url")]
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--competitor", default="")
+    parser.add_argument("--competitor-facebook-url", default="")
+    parser.add_argument("--research-model", default="gemini/gemini-2.5-flash")
+    args = parser.parse_args()
+
+    competitor = args.competitor.strip()
+    competitor_facebook_url = args.competitor_facebook_url.strip()
+    research_model = normalize_research_model(args.research_model)
+    run_id = make_run_id(competitor or parse_facebook_profile_id(competitor_facebook_url) or "competitor")
+    profile_id = parse_facebook_profile_id(competitor_facebook_url)
+
+    # Stage-1 uses competitor/campaign research only; website analysis is phase-2.
+    query = " ".join(
+        bit
+        for bit in [
+            competitor,
+            competitor_facebook_url,
+            profile_id,
+            "meta ads creative campaign positioning",
+        ]
+        if bit
+    )
+
+    search = web_search(query=query, max_results=5)
+    evidence = search["results"] if search.get("results") else fallback_search_results(competitor, competitor_facebook_url)
+    web_search_live = bool(search.get("live") and search.get("results"))
+
+    meta_access_token = os.environ.get("META_ACCESS_TOKEN", "").strip()
+    meta_page_id = os.environ.get("META_PAGE_ID", "").strip()
+    meta_app_id = os.environ.get("META_APP_ID", "").strip()
+    meta_attempts = []
+    live_meta_objects = []
+    object_ids = []
+    if profile_id:
+        object_ids.append(profile_id)
+    if meta_page_id and meta_page_id not in object_ids:
+        object_ids.append(meta_page_id)
+
+    if meta_access_token and object_ids:
+        for object_id in object_ids:
+            try:
+                obj = fetch_meta_object(
+                    object_id=object_id,
+                    access_token=meta_access_token,
+                    fields=["id", "name", "link", "about", "category", "website", "fan_count", "followers_count"],
+                )
+                live_meta_objects.append(obj)
+                meta_attempts.append({"object_id": object_id, "live": True, "error": ""})
+            except Exception as exc:
+                meta_attempts.append({"object_id": object_id, "live": False, "error": f"{type(exc).__name__}: {exc}"})
+    else:
+        meta_attempts.append(
+            {
+                "object_id": profile_id or meta_page_id or "",
+                "live": False,
+                "error": "META_ACCESS_TOKEN missing or no object ids available",
+            }
+        )
+
+    resolved_competitor = resolve_competitor_name(competitor, live_meta_objects, competitor_facebook_url)
+    ad_destinations = candidate_ad_destinations(evidence, live_meta_objects)
+    ads = build_ads(resolved_competitor, ad_destinations, evidence)
+
+    prompt = (
+        "Summarize this competitor's likely Meta ad angles based on evidence.\n"
+        f"Competitor input: {resolved_competitor}\n"
+        f"Facebook URL: {competitor_facebook_url}\n"
+        f"Ad destinations inferred from evidence: {ad_destinations}\n"
+        f"Evidence: {evidence}\n"
+        "Return 3 concise bullets."
+    )
+    gemini = summarize_with_gemini(prompt=prompt, research_model=research_model)
+    summary_bullets = []
+    if gemini.get("text"):
+        summary_bullets = [line.strip("- ").strip() for line in gemini["text"].splitlines() if line.strip()][:3]
+    if not summary_bullets:
+        summary_bullets = [
+            "Positions services around practical outcomes and proof of execution.",
+            "Uses low-friction CTAs to move prospects from awareness to discovery calls.",
+            "Frames delivery confidence and reduced risk as differentiators.",
+        ]
+
+    meta_config = {
+        "has_access_token": bool(meta_access_token),
+        "page_id": meta_page_id,
+        "app_id": meta_app_id,
+    }
+    live_mode = bool(live_meta_objects or web_search_live or gemini.get("live"))
+
+    payload = {
+        "type": "meta_ads_extract",
+        "stub": False,
+        "mode": "live" if live_mode else "fallback",
+        "source": "local-stage1-wrapper",
+        "generated_at": utc_now(),
+        "run_id": run_id,
+        "competitor": resolved_competitor,
+        "competitor_facebook_url": competitor_facebook_url,
+        "research_model": research_model,
+        "web_search_required": True,
+        "meta_config": meta_config,
+        "research": {
+            "web_search": {
+                "live": web_search_live,
+                "provider": search.get("provider", "none"),
+                "error": search.get("error", ""),
+                "query": query,
+                "results": evidence,
+            },
+            "meta_graph": {
+                "live": bool(live_meta_objects),
+                "profile_id_from_url": profile_id,
+                "attempts": meta_attempts,
+                "objects": live_meta_objects,
+            },
+            "gemini": gemini,
+        },
+        "ads": ads,
+        "landing_pages": sorted({ad["landing_page_url"] for ad in ads if ad.get("landing_page_url")}),
+        "competitor_research_summary": summary_bullets,
+        "notes": (
+            [
+                "Live data path executed for at least one source (web search, Meta Graph, or Gemini).",
+            ]
+            if live_mode
+            else [
+                "Network/API access was unavailable; returned deterministic fallback evidence anchored to the competitor Facebook URL.",
+            ]
+        ),
+    }
+    save_step(run_id, "meta_ads_extractor", payload)
+    emit_json(payload)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

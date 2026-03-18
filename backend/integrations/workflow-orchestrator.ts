@@ -78,3 +78,22 @@ export function buildRetryEvent(input: { tenant_id: string; max_attempts?: numbe
     payload: { max_attempts: attempts }
   };
 }
+
+export function buildIntegrationSyncEvent(input: { tenant_id: string; provider?: string }): OrchestrationEnvelope {
+  assertNonEmpty(input.tenant_id, 'tenant_id');
+  assertNonEmpty(input.provider, 'provider');
+
+  return {
+    schema_name: 'aries_orchestration_event',
+    schema_version: '1.0.0',
+    workflow: 'connection_events',
+    tenant_id: input.tenant_id,
+    provider: input.provider,
+    event_id: randomId('evt'),
+    occurred_at: new Date().toISOString(),
+    payload: {
+      sync_mode: 'manual',
+      provider: input.provider,
+    }
+  };
+}

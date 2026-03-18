@@ -1,5 +1,6 @@
 declare const require: (name: string) => any;
 import { resolveDataPath, resolveSpecPath } from "../../lib/runtime-paths";
+import { runAriesOpenClawWorkflow } from "../openclaw/aries-execution";
 
 const fs = require("fs");
 const path = require("path");
@@ -79,49 +80,23 @@ export type ApproveMarketingJobResponse = {
   tenantId: string;
   resumedStage: string | null;
   completed: boolean;
-  wiring: "n8n_approval_resume_webhook" | "backend_fallback";
+  wiring: "openclaw_gateway";
+  reason?: string;
 };
 
 export async function approveMarketingJob(input: ApproveMarketingJobRequest): Promise<ApproveMarketingJobResponse> {
   assertRequiredSchemas();
 
-  const baseUrl = process.env.N8N_BASE_URL || "http://localhost:5678";
-  const webhookUrl = `${baseUrl}/webhook/marketing-approval-resume`;
-
-  const body = {
-    job_id: input.jobId,
-    tenant_id: input.tenantId,
-    resume_publish_if_needed: input.resumePublishIfNeeded ?? true,
-    approval: {
-      decision: "approved",
-      approved_by: input.approvedBy,
-      approved_stages: input.approvedStages || [],
-      approved_at: nowIso()
-    }
-  };
-
-  try {
-    const res = await fetch(webhookUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
-    });
-    const text = await res.text();
-    let payload: any = {};
-    try { payload = JSON.parse(text); } catch { payload = { raw: text }; }
-
-    if (res.ok && payload.status === "resumed") {
-      return {
-        status: "resumed",
-        jobId: input.jobId,
-        tenantId: input.tenantId,
-        resumedStage: Array.isArray(payload.resumed_stages) ? (payload.resumed_stages[0] || null) : null,
-        completed: Array.isArray(payload.resumed_stages) && payload.resumed_stages.includes("publish"),
-        wiring: "n8n_approval_resume_webhook"
-      };
-    }
-  } catch {
-    // fallback below
+  if (!input.approvedBy?.trim()) {
+    return {
+      status: "error",
+      jobId: input.jobId,
+      tenantId: input.tenantId,
+      resumedStage: null,
+      completed: false,
+      wiring: "openclaw_gateway",
+      reason: 'missing_approved_by',
+    };
   }
 
   const filePath = runtimePath(input.jobId);
@@ -132,20 +107,52 @@ export async function approveMarketingJob(input: ApproveMarketingJobRequest): Pr
       tenantId: input.tenantId,
       resumedStage: null,
       completed: false,
-      wiring: "backend_fallback"
+      wiring: "openclaw_gateway",
+      reason: 'job_not_found',
     };
   }
 
   const job = JSON.parse(fs.readFileSync(filePath, "utf8"));
-  const progress = localApproveProgress(job);
-  fs.writeFileSync(filePath, JSON.stringify(job, null, 2));
+  if (typeof job.tenant_id !== 'string' || job.tenant_id !== input.tenantId) {
+    return {
+      status: "error",
+      jobId: input.jobId,
+      tenantId: input.tenantId,
+      resumedStage: null,
+      completed: false,
+      wiring: "openclaw_gateway",
+      reason: 'tenant_mismatch',
+    };
+  }
+
+  const executed = await runAriesOpenClawWorkflow('marketing_approve', {
+    job_id: input.jobId,
+    tenant_id: input.tenantId,
+    approved_by: input.approvedBy.trim(),
+    approved_stages: input.approvedStages || [],
+    resume_publish_if_needed: input.resumePublishIfNeeded ?? true,
+  });
+  if (executed.kind === 'gateway_error') {
+    throw executed.error;
+  }
+  if (executed.kind === 'not_implemented') {
+    return {
+      status: "error",
+      jobId: input.jobId,
+      tenantId: input.tenantId,
+      resumedStage: null,
+      completed: false,
+      wiring: "openclaw_gateway",
+      reason: executed.payload.code,
+    };
+  }
 
   return {
     status: "resumed",
     jobId: input.jobId,
     tenantId: input.tenantId,
-    resumedStage: progress.resumedStage,
-    completed: progress.completed,
-    wiring: "backend_fallback"
+    resumedStage: null,
+    completed: false,
+    wiring: "openclaw_gateway"
   };
 }

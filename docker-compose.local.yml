@@ -3,8 +3,9 @@ services:
     ports:
       - "3000:3000"
     environment:
-      N8N_BASE_URL: ${N8N_BASE_URL:-http://host.docker.internal:5678}
-      N8N_API_KEY: ${N8N_API_KEY:-local_n8n_api_key_from_secret_store}
+      OPENCLAW_GATEWAY_URL: ${OPENCLAW_GATEWAY_URL:-http://host.docker.internal:18789}
+      OPENCLAW_SESSION_KEY: ${OPENCLAW_SESSION_KEY:-main}
+      OPENCLAW_LOBSTER_CWD: ${OPENCLAW_LOBSTER_CWD:-lobster}
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -19,8 +20,9 @@ services:
       PORT: 3000
       CODE_ROOT: /app
       DATA_ROOT: /data
-      N8N_BASE_URL: ${N8N_BASE_URL:-http://host.docker.internal:5678}
-      N8N_API_KEY: ${N8N_API_KEY:-local_n8n_api_key_from_secret_store}
+      OPENCLAW_GATEWAY_URL: ${OPENCLAW_GATEWAY_URL:-http://host.docker.internal:18789}
+      OPENCLAW_SESSION_KEY: ${OPENCLAW_SESSION_KEY:-main}
+      OPENCLAW_LOBSTER_CWD: ${OPENCLAW_LOBSTER_CWD:-lobster}
     volumes:
       - ./:/app
       - aries_runtime_data:/data

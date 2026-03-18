@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { GET as getIntegrations } from '../app/api/integrations/route';
-import { GET as getPlatformConnections } from '../app/api/platform-connections/route';
+import { handleIntegrationsGet } from '../app/api/integrations/handlers';
+import { handlePlatformConnectionsGet } from '../app/api/platform-connections/handlers';
 import { oauthStore } from '../backend/integrations/connect';
 
 function seedConnectedProvider(input: {
@@ -45,9 +45,12 @@ test('/api/platform-connections derives token health from token expiry, not conn
     tokenExpiresAt: futureExpiry,
   });
 
-  const response = await getPlatformConnections(
-    new Request('http://localhost/api/platform-connections?tenant_id=tenant_123'),
-  );
+  const response = await handlePlatformConnectionsGet(async () => ({
+    userId: 'user_123',
+    tenantId: 'tenant_123',
+    tenantSlug: 'acme',
+    role: 'tenant_admin',
+  }));
   const body = (await response.json()) as {
     status: string;
     connections: Array<{
@@ -80,9 +83,12 @@ test('/api/integrations leaves sync timing unknown unless real sync telemetry ex
     updatedAt: '2020-01-01T00:00:00.000Z',
   });
 
-  const response = await getIntegrations(
-    new Request('http://localhost/api/integrations?tenant_id=tenant_123'),
-  );
+  const response = await handleIntegrationsGet(async () => ({
+    userId: 'user_123',
+    tenantId: 'tenant_123',
+    tenantSlug: 'acme',
+    role: 'tenant_admin',
+  }));
   const body = (await response.json()) as {
     status: string;
     cards: Array<{

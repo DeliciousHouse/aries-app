@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _stage2_common import (
+    ensure_run_id,
+    emit_json,
+    normalize_research_model,
+    read_stdin_json,
+    run_dir,
+    save_step,
+    slugify,
+    upsert_mock_brand_profile,
+    utc_now,
+)
+
+
+CHANNELS = [
+    "meta",
+    "instagram",
+    "facebook",
+    "tiktok",
+    "youtube",
+    "linkedin",
+    "email",
+    "landing-page",
+]
+
+
+def _build_channel_contexts(profile: dict) -> dict:
+    promise = profile.get("brand_promise", "")
+    audience = profile.get("audience_summary", "")
+    offer = profile.get("offer_summary", "")
+    proof_points = profile.get("proof_points", [])
+    brand_voice = profile.get("brand_voice", [])
+    contexts = {}
+    for channel in CHANNELS:
+        cta_preferences = profile.get("cta_preferences") or ["Learn More"]
+        contexts[channel] = {
+            "channel": channel,
+            "primary_message": promise,
+            "audience_angle": audience,
+            "offer_angle": offer,
+            "proof_points": proof_points[:3],
+            "brand_voice": brand_voice,
+            "cta": cta_preferences[0],
+        }
+    contexts["instagram"]["creative_bias"] = "visual proof with concise hooks"
+    contexts["facebook"]["creative_bias"] = "mid-funnel reassurance with proof"
+    contexts["meta"]["creative_bias"] = "performance-first paid acquisition testing"
+    contexts["tiktok"]["creative_bias"] = "native short-form hook and quick payoff"
+    contexts["youtube"]["creative_bias"] = "educational problem-solution storytelling"
+    contexts["linkedin"]["creative_bias"] = "category authority and buyer trust"
+    contexts["email"]["creative_bias"] = "offer clarity and proof sequencing"
+    contexts["landing-page"]["creative_bias"] = "message match and friction reduction"
+    return contexts
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--brand-slug", default="client-brand")
+    parser.add_argument("--research-model", default="gemini/gemini-3-flash-preview")
+    args = parser.parse_args()
+
+    data = read_stdin_json()
+    analysis = data.get("brand_analysis", {})
+    run_id = ensure_run_id(data.get("run_id", ""), args.brand_slug, analysis.get("website_url", ""))
+    brand_slug = slugify(args.brand_slug or analysis.get("brand_slug", "client-brand"))
+    research_model = normalize_research_model(args.research_model or data.get("research_model", ""))
+
+    canonical_payload = {
+        "brand_slug": brand_slug,
+        "brand_name": analysis.get("brand_name") or "Client Brand",
+        "website_url": analysis.get("website_url") or data.get("website_url", ""),
+        "domain": analysis.get("domain", ""),
+        "brand_promise": analysis.get("brand_promise", ""),
+        "audience_summary": analysis.get("audience_summary", ""),
+        "positioning_summary": analysis.get("positioning_summary", ""),
+        "offer_summary": analysis.get("offer_summary", ""),
+        "proof_points": analysis.get("proof_points", []),
+        "brand_voice": analysis.get("brand_voice", []),
+        "cta_preferences": analysis.get("cta_preferences", []),
+        "homepage_signals": analysis.get("homepage_signals", {}),
+        "source_run_id": run_id,
+        "source_generated_at": data.get("generated_at", ""),
+    }
+
+    record = upsert_mock_brand_profile(canonical_payload)
+    profile_path = run_dir(run_id) / "brand_profiles_record.json"
+    profile_path.write_text(
+        json.dumps(record, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    payload = {
+        "type": "brand_profile_db_contract",
+        "stub": False,
+        "mode": data.get("mode", "fallback"),
+        "generated_at": utc_now(),
+        "run_id": run_id,
+        "research_model": research_model,
+        "brand_slug": brand_slug,
+        "persistence": {
+            "table": "brand_profiles",
+            "operation": "upsert",
+            "backend": "local-mock",
+            "honesty_note": "No real database is configured; this wrapper upserts into a deterministic local JSON mock store.",
+            "record_path": str(profile_path),
+        },
+        "db_payload": canonical_payload,
+        "brand_profiles_record": record,
+        "downstream_channel_context": _build_channel_contexts(record),
+    }
+    save_step(run_id, "brand_profile_db_contract", payload)
+    emit_json(payload)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

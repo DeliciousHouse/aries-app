@@ -4,7 +4,8 @@ import { buildPayload, errorResponse } from '../../../lib/api-service';
  * POST /api/waitlist
  *
  * Waitlist/newsletter sign-up handler.
- * No n8n waitlist workflow exists — logs server-side and returns success.
+ * No repo-managed waitlist workflow exists yet, so this logs server-side and
+ * returns an explicit placeholder error.
  */
 export async function POST(req: Request) {
   let body: Record<string, unknown> = {};
@@ -32,13 +33,13 @@ export async function POST(req: Request) {
     service: 'aries-api',
     event: 'waitlist_signup',
     wired: false,
-    reason: 'no_n8n_waitlist_workflow',
+    reason: 'no_waitlist_workflow',
     payload,
   }));
 
   return errorResponse(501, 'Waitlist signups are not implemented in this runtime.', {
     wired: false,
-    reason: 'no_n8n_waitlist_workflow',
+    reason: 'no_waitlist_workflow',
     logged: true,
   });
 }

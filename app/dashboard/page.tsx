@@ -2,7 +2,7 @@ import AppShellLayout from '../../frontend/app-shell/layout';
 
 const STATS = [
   { label: 'Active Connections', value: '5', meta: 'of 7 platforms connected' },
-  { label: 'Queue Health', value: '98%', meta: 'n8n dispatch queue operational' },
+  { label: 'Queue Health', value: '98%', meta: 'repo workflow dispatch queue operational' },
   { label: 'Publish Volume', value: '247', meta: 'posts dispatched this month' },
   { label: 'Token Status', value: '2', meta: 'tokens expiring within 7 days' },
 ];

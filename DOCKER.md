@@ -20,6 +20,10 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml build
 ## Required environment
 - `APP_BASE_URL`
 - `ARIES_APP_IMAGE` (optional image/tag override, default: `aries-app:local`)
+- `OPENCLAW_GATEWAY_URL`
+- `OPENCLAW_GATEWAY_TOKEN`
+- `OPENCLAW_SESSION_KEY` (optional; default `main`)
+- `OPENCLAW_LOBSTER_CWD` (optional; default `lobster`)
 - `DB_HOST`
 - `DB_PORT`
 - `DB_USER`
@@ -31,8 +35,6 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml build
 - `AUTH_URL` (same value as `NEXTAUTH_URL`)
 - `AUTH_TRUST_HOST` (`true` for trusted proxy deployments)
 - `NEXTAUTH_SECRET`
-- `N8N_BASE_URL`
-- `N8N_API_KEY`
 
 ## Run (parity runtime)
 ```bash
@@ -76,6 +78,7 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml down
 - Production should not bind mount the repository into `/app`.
 - Keep real secrets out of git; inject via environment at deploy time.
 - The app runtime contract remains `CODE_ROOT=/app` and `DATA_ROOT=/data`.
+- Aries now delegates workflow execution to OpenClaw Gateway; the app image itself should not be the authoritative workflow execution root.
 
 ## Image distribution (private GHCR)
 ```bash
@@ -88,8 +91,8 @@ docker push ghcr.io/<owner-or-org>/aries-app:<tag>
 ```
 
 ## Directory classification
-- Runtime source: `app/`, `backend/`, `frontend/`, `lib/`, `scripts/`, `publish/`, `templates/`, `validators/`.
-- Runtime read-only assets: `public/`, `specs/`, `n8n/`.
+- Runtime source: `app/`, `backend/`, `frontend/`, `lib/`, `scripts/`, `templates/`, `validators/`.
+- Runtime read-only assets: `public/`, `specs/`.
 - Build artifacts: `.next/`, `node_modules/`, `tsconfig.tsbuildinfo`, logs.
 - Persistent runtime data: `/data/generated/draft/**` and `/data/generated/validated/**`.
-- Docs/non-runtime reference: markdown at repo root and `skills/`.
+- Docs/non-runtime reference: markdown at repo root, `skills/`, `workflows/`, and `lobster/` templates.

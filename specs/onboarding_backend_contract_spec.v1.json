@@ -2,10 +2,9 @@
   "artifact_name": "onboarding_backend_contract",
   "artifact_type": "backend_contract_spec",
   "schema_version": "1.0.0",
-  "purpose": "Minimal backend contract and wiring for onboarding start/status around tenant provisioning workflow.",
+  "purpose": "Minimal backend contract and wiring for onboarding start/status around the local repo-managed onboarding runtime.",
   "dependencies": {
-    "workflow": "./n8n/tenant-provisioning.workflow.json",
-    "workflow_spec": "./specs/n8n_tenant_provisioning_workflow_spec.v1.json"
+    "runtime_schema": "./specs/tenant_runtime_state_schema.v1.json"
   },
   "endpoints": [
     {
@@ -19,7 +18,7 @@
       },
       "behavior": [
         "Validate required fields",
-        "Forward payload to n8n webhook /webhook/tenant-provisioning",
+        "Create or reuse local onboarding runtime artifacts under generated/draft and generated/validated",
         "Return structured JSON with normalized state"
       ],
       "response": {
@@ -64,7 +63,7 @@
     }
   ],
   "state_model": {
-    "accepted": "Start request accepted and workflow call succeeded",
+    "accepted": "Start request accepted and local onboarding runtime artifacts were created",
     "duplicate": "Idempotency gate reported duplicate signup_event_id",
     "validated": "Workspace promoted under generated/validated",
     "needs_repair": "Validation failed and repair was routed",

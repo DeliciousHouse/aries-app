@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _stage1_common import emit_json, load_step, read_stdin_json, save_step, utc_now
+
+
+def compile_report(creative_data: dict) -> dict:
+    run_id = creative_data.get("run_id")
+    ad_analysis = load_step(run_id, "meta_ads_analyser") if run_id else None
+    extractor_data = load_step(run_id, "meta_ads_extractor") if run_id else None
+
+    creative_findings = creative_data.get("creative_findings", [])
+    top_creative = creative_findings[0]["winning_pattern"] if creative_findings else "proof-led messaging"
+    top_hook = ((ad_analysis or {}).get("summary", {}).get("top_hooks") or ["outcome-focused proof"])[0]
+
+    payload = {
+        "type": "ads_analyst_compile",
+        "stub": False,
+        "mode": creative_data.get("mode", "derived"),
+        "generated_at": utc_now(),
+        "run_id": run_id,
+        "competitor": creative_data.get("competitor") or (extractor_data or {}).get("competitor", ""),
+        "inputs": {
+            "ads_seen": len((extractor_data or {}).get("ads", [])),
+            "creative_findings": len(creative_findings),
+            "campaign_angles_detected": len((ad_analysis or {}).get("summary", {}).get("top_hooks", [])),
+        },
+        "executive_summary": {
+            "market_positioning": f"Competitor is leaning on {top_creative} to create mid-funnel confidence.",
+            "creative_takeaway": f"Best observed creative pattern: {top_creative}.",
+            "campaign_takeaway": f"Dominant campaign angle observed: {top_hook}.",
+        },
+        "recommended_actions": [
+            "Test one proof-first creative against one speed-to-value creative.",
+            "Mirror the competitor's strongest hook with a differentiated proof claim.",
+            "Keep CTA language aligned with the winning campaign angle per ad variant.",
+        ],
+        "artifacts": {
+            "meta_ads_extract": extractor_data,
+            "meta_ads_analysis": ad_analysis,
+            "ad_creative_analysis": creative_data,
+        },
+    }
+    if run_id:
+        save_step(run_id, "ads_analyst_compile", payload)
+    return payload
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--mode", default="compile")
+    args = parser.parse_args()
+
+    data = read_stdin_json()
+    if args.mode != "compile":
+        emit_json(
+            {
+                "type": "ads_analyst",
+                "stub": True,
+                "generated_at": utc_now(),
+                "mode": args.mode,
+                "message": "Only compile mode is implemented in the local stage-1 wrapper.",
+            }
+        )
+        return 0
+
+    emit_json(compile_report(data))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

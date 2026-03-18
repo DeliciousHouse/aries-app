@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -16,12 +16,10 @@ async function loadStartMarketingJob() {
 async function withMarketingRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise<T> {
   const previousCodeRoot = process.env.CODE_ROOT;
   const previousDataRoot = process.env.DATA_ROOT;
-  const previousN8nBaseUrl = process.env.N8N_BASE_URL;
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-marketing-'));
 
   process.env.CODE_ROOT = process.cwd();
   process.env.DATA_ROOT = dataRoot;
-  process.env.N8N_BASE_URL = 'http://127.0.0.1:9';
 
   try {
     return await run(dataRoot);
@@ -38,14 +36,18 @@ async function withMarketingRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>)
       process.env.DATA_ROOT = previousDataRoot;
     }
 
-    if (previousN8nBaseUrl === undefined) {
-      delete process.env.N8N_BASE_URL;
-    } else {
-      process.env.N8N_BASE_URL = previousN8nBaseUrl;
-    }
-
     await rm(dataRoot, { recursive: true, force: true });
   }
+}
+
+function setOpenClawTestInvoker(
+  impl: (payload: Record<string, unknown>) => unknown | Promise<unknown>
+): void {
+  (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ = impl;
+}
+
+function clearOpenClawTestInvoker(): void {
+  delete (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__;
 }
 
 test('/marketing/new-job uses the canonical MarketingNewJobScreen', () => {
@@ -85,8 +87,14 @@ test('startMarketingJob rejects brand_campaign requests without both required UR
   });
 });
 
-test('startMarketingJob fallback preserves the canonical brand_campaign job type', async () => {
+test('startMarketingJob uses repo-managed runtime without requiring N8N env', async () => {
   await withMarketingRuntimeEnv(async (dataRoot) => {
+    setOpenClawTestInvoker(() => ({
+      ok: true,
+      status: 'ok',
+      output: [{ approval_preview: { status: 'pending_human_review' } }],
+      requiresApproval: null,
+    }));
     const startMarketingJob = await loadStartMarketingJob();
     const result = await startMarketingJob({
       tenantId: 'tenant_123',
@@ -98,7 +106,7 @@ test('startMarketingJob fallback preserves the canonical brand_campaign job type
     });
 
     assert.equal(result.jobType, 'brand_campaign');
-    assert.equal(result.wiring, 'backend_fallback');
+    assert.equal(result.wiring, 'openclaw_gateway');
 
     const runtimeFile = path.join(dataRoot, 'generated', 'draft', 'marketing-jobs', `${result.jobId}.json`);
     const runtimeDoc = JSON.parse(await readFile(runtimeFile, 'utf8')) as {
@@ -112,5 +120,54 @@ test('startMarketingJob fallback preserves the canonical brand_campaign job type
     assert.equal(runtimeDoc.job_type, 'brand_campaign');
     assert.equal(runtimeDoc.inputs?.brand_url, 'https://brand.example');
     assert.equal(runtimeDoc.inputs?.competitor_url, 'https://facebook.com/competitor');
+    clearOpenClawTestInvoker();
+  });
+});
+
+test('approveMarketingJob rejects tenant mismatches for local runtime jobs', async () => {
+  await withMarketingRuntimeEnv(async (dataRoot) => {
+    const { approveMarketingJob } = await import('../backend/marketing/jobs-approve');
+    const runtimeFile = path.join(dataRoot, 'generated', 'draft', 'marketing-jobs', 'mkt_tenant-a_1.json');
+    await mkdir(path.dirname(runtimeFile), { recursive: true });
+
+    await writeFile(
+      runtimeFile,
+      JSON.stringify({
+        schema_name: 'job_runtime_state_schema',
+        schema_version: '1.0.0',
+        job_id: 'mkt_tenant-a_1',
+        job_type: 'brand_campaign',
+        tenant_id: 'tenant-a',
+        state: 'queued',
+        status: 'pending',
+        attempt: 1,
+        max_attempts: 3,
+        outputs: {
+          current_stage: 'research',
+          stage_status: {
+            research: 'queued',
+            strategy: 'paused',
+            production: 'paused',
+            publish: 'paused',
+          },
+          structured_status_updates: [],
+        },
+        history: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, null, 2)
+    );
+
+    const result = await approveMarketingJob({
+      jobId: 'mkt_tenant-a_1',
+      tenantId: 'tenant-b',
+      approvedBy: 'operator',
+      approvedStages: ['research'],
+    });
+
+    assert.equal(result.status, 'error');
+    assert.equal(result.resumedStage, null);
+    assert.equal(result.completed, false);
+    assert.equal(result.wiring, 'openclaw_gateway');
   });
 });

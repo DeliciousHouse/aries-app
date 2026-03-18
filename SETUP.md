@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - **Node.js 18+** and npm
-- **n8n instance** with API access enabled
+- **Repo-managed workflow artifacts** available under `workflows/`
 - Environment variables configured (see `.env.example`)
 
 ## Recommended container parity flow
@@ -12,10 +12,10 @@
 # Configure environment
 cp .env.example .env
 # Edit .env — at minimum set:
-#   N8N_BASE_URL=https://your-n8n-instance.com
-#   N8N_API_KEY=your-api-key
 #   CODE_ROOT=/app
 #   DATA_ROOT=/data
+#   OPENCLAW_GATEWAY_URL=http://host.docker.internal:18789
+#   OPENCLAW_GATEWAY_TOKEN=...
 
 # Build and run with parity compose stack
 docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
@@ -36,8 +36,10 @@ npm run dev
 
 | Variable | Required | Description |
 |---|---|---|
-| `N8N_BASE_URL` | ✅ | Base URL of your n8n instance (e.g. `https://n8n.example.com`) |
-| `N8N_API_KEY` | ✅ | n8n API key for server-side workflow management |
+| `OPENCLAW_GATEWAY_URL` | ✅ | Base URL of the OpenClaw Gateway Aries should call for workflow execution |
+| `OPENCLAW_GATEWAY_TOKEN` | ✅ | Bearer token for the OpenClaw Gateway |
+| `OPENCLAW_SESSION_KEY` | Optional | Gateway session key (default: `main`) |
+| `OPENCLAW_LOBSTER_CWD` | Optional | Workspace-relative directory containing Lobster workflows (default: `lobster`) |
 | `CODE_ROOT` | Optional | Immutable code root inside container (default: `/app`) |
 | `DATA_ROOT` | Optional | Writable runtime data root (default: `/data`) |
 | `APP_BASE_URL` | Optional | Public URL of the Aries app (default: `http://localhost:3000`) |
@@ -46,43 +48,46 @@ npm run dev
 | `AUTH_TRUST_HOST` | Recommended in production | Set `true` behind a trusted reverse proxy/load balancer so Auth.js accepts forwarded host headers |
 | `NODE_ENV` | Optional | `development` or `production` |
 | `PORT` | Optional | Server port (default: 3000) |
+| `INTERNAL_API_SECRET` | Optional | Secret for trusted internal workflow-runner callbacks such as `POST /api/internal/marketing/job-runtime` |
 | `LOG_LEVEL` | Optional | Logging level (default: `info`) |
 | `META_APP_ID` | Optional | Meta/Facebook app ID for OAuth |
 | `META_APP_SECRET` | Optional | Meta/Facebook app secret |
 | `META_REDIRECT_URI` | Optional | Meta OAuth callback URL |
 
-## n8n Workflow Bindings
+## OpenClaw Workflow Bindings
 
-The following n8n webhooks are actively used by the API layer:
+The following OpenClaw-bound workflows are actively used by the API layer:
 
-| API Route | n8n Webhook | Purpose |
+| API Route | Repo Workflow | Purpose |
 |---|---|---|
-| `/api/demo` | `/webhook/tenant-provisioning` | Demo tenant creation |
-| `/api/sandbox/launch` | `/webhook/tenant-provisioning` | Sandbox provisioning |
-| `/api/onboarding/start` | `/webhook/tenant-provisioning` | Tenant onboarding |
-| `/api/marketing/jobs` | `/webhook/brand-campaign` | Start the canonical brand campaign flow |
-| `/api/marketing/jobs/:id/approve` | `/webhook/marketing-approval-resume` | Resume after approval |
-| `/api/publish/dispatch` | `/webhook/aries/publish` | Cross-platform publishing |
+| `/api/demo` | `parity/demo-start/workflow.lobster` | Demo tenant creation parity stub |
+| `/api/sandbox/launch` | `parity/sandbox-launch/workflow.lobster` | Sandbox provisioning parity stub |
+| `/api/onboarding/start` | `parity/onboarding-start/workflow.lobster` | Tenant onboarding parity stub |
+| `/api/marketing/jobs` | `marketing-pipeline.lobster` | Start the canonical brand campaign flow through OpenClaw |
+| `/api/marketing/jobs/:id/approve` | `parity/marketing-approve/workflow.lobster` | Approval parity stub until resumable workflow support exists |
+| `/api/publish/dispatch` | `parity/publish-dispatch/workflow.lobster` | Publish parity stub until a route-shaped stage-4 pipeline exists |
+| `/api/publish/retry` | `parity/publish-retry/workflow.lobster` | Publish repair / retry parity stub |
+| `/api/calendar/sync` | `parity/calendar-sync/workflow.lobster` | Calendar synchronization parity stub |
+| `/api/integrations/sync` | `parity/integrations-sync/workflow.lobster` | Platform sync parity stub |
 
 **Not yet wired** (explicit `501` placeholders that still log payloads):
-- `/api/contact` — no `contact-form` workflow in n8n
-- `/api/waitlist` — no `waitlist-signup` workflow in n8n
-- `/api/events` — no `event-tracking` workflow in n8n
+- `/api/contact` — no contact intake workflow yet
+- `/api/waitlist` — no waitlist signup workflow yet
+- `/api/events` — no event tracking workflow yet
 
 ## Frontend/Backend Wiring
 
 ```
 Browser → /api/* (Next.js route handlers)
                ↓
-      n8n proxy OR local runtime reader
+      OpenClaw Gateway client OR local read-model/status view
                ↓
-  `lib/api-service.ts` or `backend/*` local status/fallback logic
+ `backend/openclaw/*` + backend read-model/status logic
 ```
 
-- **Frontend** calls internal `/api/*` routes only — never raw n8n webhooks
-- **API layer** (`app/api/*/route.ts`) validates input, then either proxies to n8n, reads local runtime artifacts, or returns an explicit placeholder error
-- **Service layer** (`lib/api-service.ts`) handles timeouts, error normalization, structured logging
-- **Config** (`lib/config.ts`) reads env vars server-side — credentials never reach the browser
+- **Frontend** calls internal `/api/*` routes only
+- **API layer** (`app/api/*/route.ts`) validates input, then either calls OpenClaw Gateway, reads local read-model artifacts, or returns an explicit placeholder error
+- **Authoritative workflow definitions** live in the OpenClaw workspace, not the Aries runtime image
 
 ## Architecture
 

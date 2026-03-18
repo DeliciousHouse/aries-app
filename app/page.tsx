@@ -3,7 +3,7 @@ import MarketingLayout from '../frontend/marketing/MarketingLayout';
 const FEATURES_PREVIEW = [
   { icon: '🧠', title: 'LLM-Powered Intelligence', desc: 'Multi-model reasoning chains for research, strategy, and content production.' },
   { icon: '📡', title: 'Multi-Platform Publishing', desc: 'Unified dispatch to Facebook, Instagram, LinkedIn, X, YouTube, Reddit, and TikTok.' },
-  { icon: '🔄', title: 'n8n Workflow Engine', desc: 'Production-grade orchestration with automatic repair, retry, and approval flows.' },
+  { icon: '🔄', title: 'Repo Workflow Engine', desc: 'Production-grade Lobster and OpenClaw orchestration with repair, retry, and approval flows.' },
   { icon: '🛡️', title: 'Enterprise Security', desc: 'Tenant isolation, RBAC, secure token storage, and session hardening.' },
 ];
 

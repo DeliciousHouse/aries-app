@@ -34,8 +34,7 @@
         "wiring": {
           "type": "string",
           "enum": [
-            "n8n_research_webhook",
-            "backend_fallback"
+            "openclaw_gateway"
           ]
         },
         "runtimePath": {
@@ -133,8 +132,7 @@
         "wiring": {
           "type": "string",
           "enum": [
-            "n8n_approval_resume_webhook",
-            "backend_fallback"
+            "openclaw_gateway"
           ]
         },
         "approval_status": {

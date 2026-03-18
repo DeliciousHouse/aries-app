@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _stage3_common import emit_json, ensure_run_id, normalize_research_model, read_stdin_json, save_artifact_text, save_step, slugify, utc_now
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--brand-slug", default="client-brand")
+    parser.add_argument("--research-model", default="gemini/gemini-3-flash-preview")
+    args = parser.parse_args()
+
+    data = read_stdin_json()
+    brief = data.get("production_brief", {})
+    brand_slug = slugify(args.brand_slug or data.get("brand_slug", "client-brand"))
+    research_model = normalize_research_model(args.research_model or data.get("research_model", ""))
+    run_id = ensure_run_id(data.get("run_id", ""), brand_slug, brief.get("campaign_name", ""))
+    proof_points = brief.get("proof_points", [])[:3]
+    primary_cta = brief.get("primary_cta", "Learn More")
+
+    page_assets = {
+        "landing_page": {
+            "slug": f"/{brand_slug}/campaign",
+            "hero_headline": brief.get("core_message", "A clear, proof-backed promise."),
+            "hero_subheadline": brief.get("offer_summary", "Explain the offer in one friction-light sentence."),
+            "primary_cta": primary_cta,
+            "sections": [
+                "Hero with concrete promise and CTA",
+                "Proof block with outcomes, testimonials, or quantified credibility",
+                "Offer explainer with objection handling",
+                "CTA repeat with low-friction next step",
+            ],
+            "message_match_checks": [
+                "Headline mirrors ad hook language.",
+                "CTA wording matches downstream ad and video prompts.",
+                "Proof appears before detailed feature copy.",
+            ],
+        },
+        "page_asset_recommendations": [
+            {
+                "asset_type": "hero_visual",
+                "direction": "Use a simple proof-led product or service visual with room for a strong headline.",
+            },
+            {
+                "asset_type": "testimonial_strip",
+                "direction": "Prioritize quantified social proof over generic logos.",
+            },
+            {
+                "asset_type": "cta_module",
+                "direction": f"Repeat `{primary_cta}` after each major proof section.",
+            },
+        ],
+        "proof_points": proof_points,
+    }
+
+    preview_text = "\n".join(
+        [
+            f"Campaign: {brief.get('campaign_name', '')}",
+            f"Headline: {page_assets['landing_page']['hero_headline']}",
+            f"CTA: {primary_cta}",
+            "Sections:",
+            *[f"- {section}" for section in page_assets["landing_page"]["sections"]],
+        ]
+    )
+    preview_path = save_artifact_text(run_id, "page-designer/landing-page-preview.txt", preview_text)
+
+    payload = {
+        "type": "page_designer",
+        "stub": False,
+        "mode": "fallback",
+        "generated_at": utc_now(),
+        "run_id": run_id,
+        "research_model": research_model,
+        "brand_slug": brand_slug,
+        "production_brief": brief,
+        "page_assets": page_assets,
+        "artifacts": {
+            "preview_path": preview_path,
+            "honesty_note": "This local wrapper generates page recommendations and copy structure only; no page is rendered or deployed.",
+        },
+    }
+    save_step(run_id, "page_designer", payload)
+    emit_json(payload)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

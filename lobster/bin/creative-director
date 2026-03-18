@@ -1,0 +1,392 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _stage3_common import (
+    emit_json,
+    ensure_run_id,
+    first_nonempty,
+    load_step,
+    normalize_research_model,
+    read_stdin_json,
+    save_step,
+    slugify,
+    summarize_with_gemini,
+    utc_now,
+)
+
+
+def _as_list(value) -> list:
+    return value if isinstance(value, list) else []
+
+
+def _normalize_input_payload(value):
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, list):
+        if len(value) == 1 and isinstance(value[0], dict):
+            return value[0]
+        for item in reversed(value):
+            if isinstance(item, dict) and (
+                item.get("strategy_handoff")
+                or item.get("production_handoff")
+                or item.get("campaign_name")
+                or item.get("brand_slug")
+            ):
+                return item
+    raise SystemExit(f"creative-director expected object-like input, got {type(value).__name__}")
+
+
+def _write_json(path: Path, payload: dict) -> str:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return str(path)
+
+
+def _write_text(path: Path, text: str) -> str:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text.rstrip() + "\n", encoding="utf-8")
+    return str(path)
+
+
+def _build_production_brief(strategy_handoff: dict, brand_slug: str) -> dict:
+    channels = _as_list(strategy_handoff.get("channels"))
+    meta_channel = next((item for item in channels if item.get("channel") == "meta"), {})
+    landing_channel = next((item for item in channels if item.get("channel") == "landing-page"), {})
+    youtube_channel = next((item for item in channels if item.get("channel") == "youtube"), {})
+    campaign_name = first_nonempty(strategy_handoff.get("campaign_name"), f"{brand_slug}-production")
+    objective = first_nonempty(strategy_handoff.get("objective"), "Translate the approved strategy into production-ready assets.")
+    core_message = first_nonempty(strategy_handoff.get("core_message"), "Lead with a concrete promise backed by proof.")
+    primary_cta = first_nonempty(strategy_handoff.get("primary_cta"), "Learn More")
+    proof_points = [item for item in [
+        meta_channel.get("message"),
+        landing_channel.get("message"),
+        youtube_channel.get("message"),
+    ] if item][:3]
+    if not proof_points:
+        proof_points = [
+            "Lead with one clear outcome and reinforce it with proof.",
+            "Keep page, ad, and video messaging tightly message-matched.",
+            "Use a single primary CTA across production assets.",
+        ]
+    return {
+        "campaign_name": campaign_name,
+        "brand_slug": brand_slug,
+        "objective": objective,
+        "core_message": core_message,
+        "primary_cta": primary_cta,
+        "production_goal": "Produce coordinated page, ad, and video-ready assets for human approval.",
+        "audience_summary": first_nonempty(meta_channel.get("audience_angle"), landing_channel.get("audience_angle")),
+        "offer_summary": first_nonempty(meta_channel.get("offer_angle"), landing_channel.get("offer_angle")),
+        "proof_points": proof_points,
+        "brand_voice": _as_list(meta_channel.get("brand_voice")) or ["clear", "proof-led", "practical"],
+        "deliverables": [
+            "master_static_contract",
+            "platform_static_contracts",
+            "platform_static_briefs",
+            "landing_page_recommendations",
+            "script_assets",
+            "ad_creative_specs",
+            "master_video_contract",
+            "platform_video_contracts",
+            "platform_video_briefs",
+            "production_review_packet",
+        ],
+        "channel_priorities": [
+            {
+                "channel": item.get("channel", ""),
+                "goal": item.get("goal", ""),
+                "message": item.get("message", ""),
+                "cta": item.get("cta", primary_cta),
+                "creative_bias": item.get("creative_bias", ""),
+            }
+            for item in channels
+        ],
+        "constraints": {
+            "approval_required": True,
+            "stage4_ready_output_required": True,
+            "asset_generation_note": "This local wrapper emits production specs and handoff contracts only; it does not create final published assets or render media during contract generation.",
+        },
+    }
+
+
+def _slug(value: str) -> str:
+    return slugify(value)
+
+
+def _build_static_contract_bundle(brief: dict, page_assets: dict, script_assets: dict, ad_assets: dict, brand_slug: str) -> dict:
+    campaign_id = _slug(first_nonempty(brief.get("campaign_id"), brief.get("campaign_name"), brand_slug))
+    concept_id = _slug(first_nonempty(script_assets.get("meta_ad_script", {}).get("hook"), brief.get("core_message"), "static-concept"))
+    output_root = Path.cwd() / "output" / "static-contracts" / campaign_id
+    briefs_dir = output_root / "briefs"
+    primary_cta = first_nonempty(brief.get("primary_cta"), "Learn More")
+    proof_points = _as_list(brief.get("proof_points"))[:3]
+    body_lines = _as_list(script_assets.get("meta_ad_script", {}).get("body"))
+
+    master_contract = {
+        "schema_version": "2026-03-17.static-contract.v1",
+        "contract_type": "master_static_contract",
+        "campaign_id": campaign_id,
+        "concept_id": concept_id,
+        "brand_slug": brand_slug,
+        "generated_at": utc_now(),
+        "status": "contract_generated",
+        "render_requested": False,
+        "render_status": "not_requested",
+        "inputs": {
+            "approved_campaign_strategy": brief,
+            "approved_offer": {
+                "summary": first_nonempty(brief.get("offer_summary"), "Keep the offer concise."),
+                "primary_cta": primary_cta,
+            },
+            "brand_guidelines": {
+                "voice_attributes": _as_list(brief.get("brand_voice")) or ["clear", "proof-led", "practical"],
+                "proof_points": proof_points,
+                "primary_cta": primary_cta,
+            },
+        },
+        "creative": {
+            "headline": first_nonempty(script_assets.get("meta_ad_script", {}).get("hook"), brief.get("core_message"), "Lead with proof."),
+            "body_lines": body_lines,
+            "primary_cta": primary_cta,
+            "proof_points": proof_points,
+            "landing_page": page_assets.get("landing_page", {}),
+        },
+        "execution": {
+            "mode": "contract_generation_only",
+            "render_stage": "stage-4-publish-optimize",
+        },
+    }
+
+    platform_specs = [
+        {"platform": "Landing Page", "platform_slug": "landing-page", "aspect_ratio": "responsive", "size": "web"},
+        {"platform": "Meta Ads", "platform_slug": "meta-ads", "aspect_ratio": "4:5", "size": "1080x1350"},
+        {"platform": "Instagram", "platform_slug": "instagram", "aspect_ratio": "4:5", "size": "1080x1350"},
+        {"platform": "X", "platform_slug": "x", "aspect_ratio": "1:1", "size": "1080x1080"},
+        {"platform": "LinkedIn", "platform_slug": "linkedin", "aspect_ratio": "1:1", "size": "1080x1080"},
+        {"platform": "Reddit", "platform_slug": "reddit", "aspect_ratio": "1:1", "size": "1080x1080"},
+    ]
+    contract_entries = []
+    output_root.mkdir(parents=True, exist_ok=True)
+    briefs_dir.mkdir(parents=True, exist_ok=True)
+
+    master_path = Path(_write_json(output_root / "master-static-contract.json", master_contract))
+
+    for spec in platform_specs:
+        render_dir = output_root / "rendered" / spec["platform_slug"]
+        contract = {
+            "schema_version": "2026-03-17.static-contract.v1",
+            "contract_type": "platform_static_contract",
+            "campaign_id": campaign_id,
+            "concept_id": concept_id,
+            "platform": spec["platform"],
+            "platform_slug": spec["platform_slug"],
+            "status": "contract_generated",
+            "render_requested": False,
+            "render_status": "not_requested",
+            "creative": {
+                "headline": master_contract["creative"]["headline"],
+                "body_lines": body_lines,
+                "primary_cta": primary_cta,
+                "proof_points": proof_points,
+            },
+            "layout": {
+                "aspect_ratio": spec["aspect_ratio"],
+                "target_size": spec["size"],
+            },
+            "landing_page": page_assets.get("landing_page", {}),
+            "expected_render_outputs": {
+                "directory": str(render_dir),
+                "image_file": str(render_dir / f"{spec['platform_slug']}.svg"),
+                "copy_file": str(render_dir / f"{spec['platform_slug']}.json"),
+            },
+        }
+        contract_path = Path(_write_json(output_root / f"{spec['platform_slug']}.json", contract))
+        brief_text = "\n".join(
+            [
+                f"# {spec['platform']} Static Brief",
+                "",
+                f"- Headline: {contract['creative']['headline']}",
+                f"- CTA: {primary_cta}",
+                f"- Aspect ratio: {spec['aspect_ratio']}",
+                f"- Target size: {spec['size']}",
+                "",
+                "## Body Lines",
+                *[f"- {line}" for line in body_lines],
+                "",
+                "## Proof Points",
+                *[f"- {line}" for line in proof_points],
+                "",
+                "## Future Render Outputs",
+                f"- Image: {contract['expected_render_outputs']['image_file']}",
+                f"- Copy: {contract['expected_render_outputs']['copy_file']}",
+            ]
+        )
+        brief_path = Path(_write_text(briefs_dir / f"{spec['platform_slug']}.md", brief_text))
+        contract_entries.append(
+            {
+                "platform": spec["platform"],
+                "platform_slug": spec["platform_slug"],
+                "contract_path": str(contract_path),
+                "brief_path": str(brief_path),
+                "expected_render_outputs": contract["expected_render_outputs"],
+            }
+        )
+
+    platform_index = {
+        "schema_version": "2026-03-17.static-contract.v1",
+        "campaign_id": campaign_id,
+        "concept_id": concept_id,
+        "master_contract_path": str(master_path),
+        "platforms": contract_entries,
+    }
+    platform_index_path = Path(_write_json(output_root / "platform-index.json", platform_index))
+    return {
+        "type": "static_contract_handoff",
+        "campaign_id": campaign_id,
+        "concept_id": concept_id,
+        "output_root": str(output_root),
+        "master_static_contract_path": str(master_path),
+        "platform_index_path": str(platform_index_path),
+        "platform_contract_paths": [item["contract_path"] for item in contract_entries],
+        "brief_paths": [item["brief_path"] for item in contract_entries],
+        "platforms": contract_entries,
+    }
+
+
+def _build_production_handoff(run_id: str, brand_slug: str, review_packet: dict) -> dict:
+    preflight = load_step(run_id, "creative_director_preflight") or {}
+    page = load_step(run_id, "page_designer") or {}
+    script = load_step(run_id, "scriptwriter") or {}
+    ad = load_step(run_id, "ad_designer") or {}
+    veo = load_step(run_id, "veo_video_generator") or {}
+    brief = preflight.get("production_brief", {})
+
+    page_assets = page.get("page_assets", {})
+    script_assets = script.get("script_assets", {})
+    ad_assets = ad.get("ad_assets", {})
+    video_assets = veo.get("video_assets", {})
+    static_handoff = _build_static_contract_bundle(brief, page_assets, script_assets, ad_assets, brand_slug)
+    video_handoff = {**veo.get("handoff", {})}
+    if "platforms" not in video_handoff:
+        video_handoff["platforms"] = video_assets.get("platform_contracts", [])
+
+    return {
+        "brand_slug": brand_slug,
+        "campaign_name": first_nonempty(brief.get("campaign_name"), review_packet.get("review_packet", {}).get("campaign_name")),
+        "run_id": run_id,
+        "production_brief": brief,
+        "launch_readiness": {
+            "status": "approved_for_stage4_contract" if review_packet.get("approval_preview", {}).get("status") == "pending_human_review" else "draft",
+            "human_approval_required": True,
+            "honesty_note": "Approval remains a human workflow decision. This finalize step compiles the approved-ready contract only.",
+        },
+        "channel_assets": {
+            "landing_page": page_assets,
+            "meta_ads": ad_assets,
+            "video": video_assets,
+        },
+        "script_package": script_assets,
+        "contract_handoffs": {
+            "static": static_handoff,
+            "video": video_handoff,
+        },
+        "review_packet": review_packet.get("review_packet", {}),
+        "artifacts": {
+            "creative_director_preflight": preflight,
+            "page_designer": page,
+            "scriptwriter": script,
+            "ad_designer": ad,
+            "veo_video_generator": veo,
+            "production_review_preview": review_packet,
+        },
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--mode", default="preflight")
+    parser.add_argument("--brand-slug", default="client-brand")
+    parser.add_argument("--research-model", default="gemini/gemini-3-flash-preview")
+    parser.add_argument("--strategy-handoff-base64", default="")
+    args = parser.parse_args()
+
+    if args.strategy_handoff_base64.strip():
+        import base64
+        import json
+        try:
+            raw_strategy_handoff = base64.b64decode(args.strategy_handoff_base64).decode("utf-8")
+            data = json.loads(raw_strategy_handoff)
+        except Exception as exc:
+            raise SystemExit(f"invalid strategy handoff base64 arg ({type(exc).__name__}: {exc})") from exc
+    else:
+        data = read_stdin_json()
+    data = _normalize_input_payload(data)
+    brand_slug = slugify(args.brand_slug or data.get("brand_slug", "client-brand"))
+    research_model = normalize_research_model(args.research_model or data.get("research_model", ""))
+    run_id = ensure_run_id(data.get("run_id", ""), brand_slug, data.get("campaign_name", ""))
+
+    if args.mode == "preflight":
+        strategy_handoff = data.get("strategy_handoff", data)
+        brief = _build_production_brief(strategy_handoff, brand_slug)
+        prompt = (
+            "Convert this strategy handoff into a production brief with emphasis on page, ad, and video coordination.\n"
+            f"Strategy handoff: {strategy_handoff}\n"
+        )
+        gemini = summarize_with_gemini(prompt=prompt, research_model=research_model)
+        payload = {
+            "type": "creative_director_preflight",
+            "stub": False,
+            "mode": "live" if gemini.get("live") else "fallback",
+            "generated_at": utc_now(),
+            "run_id": run_id,
+            "research_model": research_model,
+            "brand_slug": brand_slug,
+            "strategy_handoff": strategy_handoff,
+            "production_brief": brief,
+            "research": {
+                "gemini": gemini,
+            },
+        }
+        save_step(run_id, "creative_director_preflight", payload)
+        emit_json(payload)
+        return 0
+
+    if args.mode == "finalize":
+        review_packet = data
+        production_handoff = _build_production_handoff(run_id, brand_slug, review_packet)
+        payload = {
+            "type": "creative_director_finalize",
+            "stub": False,
+            "mode": "compiled",
+            "generated_at": utc_now(),
+            "run_id": run_id,
+            "research_model": research_model,
+            "brand_slug": brand_slug,
+            "production_handoff": production_handoff,
+        }
+        save_step(run_id, "creative_director_finalize", payload)
+        emit_json(payload)
+        return 0
+
+    emit_json(
+        {
+            "type": "creative_director",
+            "stub": True,
+            "mode": args.mode,
+            "generated_at": utc_now(),
+            "run_id": run_id,
+            "brand_slug": brand_slug,
+            "message": "Supported modes: preflight, finalize.",
+        }
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _stage2_common import emit_json, normalize_research_model, read_stdin_json, save_step, utc_now
+from _stage2_common import ensure_run_id
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--mode", default="finalize")
+    parser.add_argument("--brand-slug", default="client-brand")
+    parser.add_argument("--research-model", default="gemini/gemini-3-flash-preview")
+    args = parser.parse_args()
+
+    data = read_stdin_json()
+    plan = data.get("campaign_plan", {})
+    record = data.get("brand_profiles_record", {})
+    run_id = ensure_run_id(data.get("run_id", ""), record.get("brand_slug", ""), plan.get("campaign_name", ""))
+    research_model = normalize_research_model(args.research_model or data.get("research_model", ""))
+
+    payload = {
+        "type": "head_of_marketing",
+        "stub": False,
+        "mode": args.mode,
+        "generated_at": utc_now(),
+        "run_id": run_id,
+        "research_model": research_model,
+        "brand_slug": record.get("brand_slug", args.brand_slug),
+        "strategy_handoff": {
+            "campaign_name": plan.get("campaign_name", ""),
+            "objective": plan.get("objective", ""),
+            "core_message": plan.get("core_message", ""),
+            "primary_cta": plan.get("primary_cta", ""),
+            "channels": plan.get("channel_plans", []),
+            "brand_profile_id": record.get("brand_slug", args.brand_slug),
+        },
+    }
+    save_step(run_id, "head_of_marketing", payload)
+    emit_json(payload)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

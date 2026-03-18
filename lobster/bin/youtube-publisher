@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _stage4_common import (
+    contract_platform_map,
+    emit_json,
+    ensure_run_id,
+    load_json_file,
+    maybe_publish_live_draft,
+    maybe_submit_aries_review,
+    output_root,
+    read_stdin_json,
+    render_video_poster_asset,
+    save_step,
+    slugify,
+    tenant_profile_id,
+    utc_now,
+    write_review_package,
+)
+
+
+PLATFORMS = ["youtube-shorts", "youtube-longform"]
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--brand-slug", default="client-brand")
+    args = parser.parse_args()
+    data = read_stdin_json()
+    handoff = data.get("production_handoff", data)
+    brand_slug = slugify(args.brand_slug or handoff.get("brand_slug", "client-brand"))
+    run_id = ensure_run_id(handoff.get("run_id", ""), brand_slug, handoff.get("campaign_name", ""))
+    platform_map = contract_platform_map(handoff, "video")
+    tenant_id = tenant_profile_id(handoff, brand_slug)
+    destination_root = output_root() / slugify(handoff.get("campaign_name", brand_slug)) / "youtube"
+    destination_root.mkdir(parents=True, exist_ok=True)
+    manifests = []
+    review_entries = []
+    for platform_slug in PLATFORMS:
+        platform_entry = platform_map.get(platform_slug, {})
+        contract = load_json_file(platform_entry.get("contract_path", ""))
+        poster_result = render_video_poster_asset(contract, destination_root, f"{platform_slug}-poster")
+        manifest_path = destination_root / f"{platform_slug}-render-request.json"
+        manifest = {
+            "campaign_id": contract.get("campaign_id", ""),
+            "concept_id": contract.get("concept_id", ""),
+            "platform": platform_slug,
+            "contract_path": platform_entry.get("contract_path", ""),
+            "render_requested": True,
+        }
+        manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        manifests.append(str(manifest_path))
+        review_entries.append(
+            {
+                "platform": platform_slug,
+                "contract_path": platform_entry.get("contract_path", ""),
+                "render_request_manifest_path": str(manifest_path),
+                "poster_image_path": poster_result["poster_image_path"],
+                "image_generation": poster_result["nano_banana"],
+            }
+        )
+    campaign_id = slugify(handoff.get("campaign_name", brand_slug))
+    review_payload = {
+        "tenant_profile_id": tenant_id,
+        "campaign_id": campaign_id,
+        "platform": "youtube",
+        "entries": review_entries,
+        "review_status": "pending_tenant_review",
+    }
+    review_package_path = write_review_package(tenant_id, campaign_id, "youtube", review_payload)
+    aries_result = maybe_submit_aries_review(review_payload)
+    live_draft_result = maybe_publish_live_draft(
+        "youtube",
+        {
+            "tenant_profile_id": tenant_id,
+            "campaign_id": campaign_id,
+            "platform": "youtube",
+            "publish_mode": "draft",
+            "entries": review_entries,
+        },
+    )
+    payload = {
+        "type": "youtube_publisher",
+        "mode": "video_render_request_manifest",
+        "generated_at": utc_now(),
+        "run_id": run_id,
+        "brand_slug": brand_slug,
+        "publish_package": {
+            "render_request_manifest_paths": manifests,
+            "review_package_path": review_package_path,
+        },
+        "aries_review_submission": aries_result,
+        "live_draft_publish": live_draft_result,
+    }
+    save_step(run_id, "youtube_publisher", payload)
+    emit_json(payload)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

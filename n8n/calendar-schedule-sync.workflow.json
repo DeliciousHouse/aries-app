@@ -1,9 +1,0 @@
-{
-  "name": "aries-calendar-schedule-sync",
-  "active": false,
-  "nodes": [
-    { "name": "Cron", "type": "n8n-nodes-base.cron", "parameters": { "mode": "everyHour" } },
-    { "name": "FetchCalendar", "type": "n8n-nodes-base.httpRequest", "parameters": { "method": "GET" } },
-    { "name": "WriteScheduleState", "type": "n8n-nodes-base.httpRequest", "parameters": { "method": "POST" } }
-  ]
-}
