@@ -15,13 +15,29 @@ Use this skill at the beginning of a fresh Cloud-agent session. It is the shorte
 npm install
 ```
 
-### 2. Run the baseline repo check
+### 2. Fix the Cloud runtime-path defaults for this shell
+
+The Cloud VM inherits container-oriented defaults:
+
+- `CODE_ROOT=/app`
+- `DATA_ROOT=/data`
+
+Those are wrong for direct repo work in `/workspace`. Set them before running repo-aware commands:
+
+```bash
+export CODE_ROOT=/workspace
+export DATA_ROOT=/workspace/data
+```
+
+### 3. Run the baseline repo check
 
 ```bash
 npm run precheck
 ```
 
-### 3. Start the app in Cloud
+If you skip the exports above, `precheck` can incorrectly fail by looking under `/app` instead of `/workspace`.
+
+### 4. Start the app in Cloud
 
 The Cloud VM forces `NODE_ENV=production` globally. If you start Next.js without overriding it, Tailwind/PostCSS processing breaks and pages can 500.
 
@@ -31,7 +47,7 @@ Use this exact command:
 NODE_ENV=development CODE_ROOT=/workspace DATA_ROOT=/workspace/data npx next dev -p 3000
 ```
 
-### 4. Optional parity build check
+### 5. Optional parity build check
 
 ```bash
 NODE_ENV=production CODE_ROOT=/workspace DATA_ROOT=/workspace/data npx next build
