@@ -35,7 +35,7 @@ This is the thinnest runnable app shell for Aries on `http://localhost:3000`.
    - database credentials
    - auth/oauth credentials
 3. Install dependencies:
-   - `npm install`
+   - `NODE_ENV=development npm ci`
 
 ## Recommended container parity flow
 - Immutable runtime code and assets are inside `/app`.
@@ -49,7 +49,7 @@ Use the parity compose baseline plus local override:
 Parity guarantees apply to this container-based flow.
 
 ## Optional host-node flow
-- Dev: `npm run dev`
+- Dev: `npx next dev -p 3000 --turbopack`
 - Build: `npm run build`
 - Start: `npm run start`
 - Precheck: `npm run precheck`
@@ -58,8 +58,11 @@ If running directly on host Node, set `CODE_ROOT` and `DATA_ROOT` to host-valid 
 
 ## Notes
 - API routes are thin wrappers around existing backend logic under `./backend`.
+- Browser-facing API responses are now route-safe and do not expose workflow artifact paths or raw backend envelopes.
 - `/settings` is a read-only placeholder because `/api/tenant-admin/settings` is not implemented in this runtime.
 - `/platforms` loads live OAuth broker state on mount and only shows token expiry when the backend has a real expiry timestamp.
+- `/posts` exposes publish dispatch and retry controls through internal Aries API routes.
+- `/calendar` exposes calendar sync controls through the internal Aries API route.
 - `/api/onboarding/status/:tenantId`, `GET /api/marketing/jobs/:jobId`, and some marketing approval fallback behavior are local runtime readers/fallbacks, not direct workflow status queries.
 - The runtime no longer requires `N8N_BASE_URL` or `N8N_API_KEY`; Aries now acts as an OpenClaw Gateway client.
 - Local parity expects an external OpenClaw workspace/executor boundary rather than in-process workflow execution inside the Aries app.
