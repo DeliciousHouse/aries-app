@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { redirect } from 'next/navigation';
 
 import { auth } from '@/auth';
+import { BrandLogo } from '@/components/redesign/brand/logo';
 import { getRouteById, getSectionRoutes, type AppRouteId } from '@/frontend/app-shell/routes';
 
 export interface RedesignAppShellProps {
@@ -37,9 +38,8 @@ export default async function RedesignAppShell({
   return (
     <div className="rd-app-shell">
       <aside className="rd-app-sidebar">
-        <a href="/" className="rd-brand" aria-label="Back to Aries AI site">
-          <span className="rd-brand__mark" aria-hidden="true">A</span>
-          <span>Aries Operator</span>
+        <a href="/" aria-label="Back to Aries AI site">
+          <BrandLogo size={44} />
         </a>
 
         <p className="rd-app-sidebar__label">Control Plane</p>

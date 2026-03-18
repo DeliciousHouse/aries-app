@@ -1,6 +1,7 @@
 import React from 'react';
 import { AuthView } from '../types';
 import './index.css';
+import AuthVisuals from './auth-visuals';
 
 
 interface AuthLayoutProps {
@@ -11,7 +12,7 @@ interface AuthLayoutProps {
 }
 
 
-const AuthLayout: React.FC<AuthLayoutProps> = ({ children }) => {
+const AuthLayout: React.FC<AuthLayoutProps> = ({ children, hideVisuals = false }) => {
   return (
     <div
       className="min-h-screen w-full relative overflow-hidden flex flex-col items-center justify-center p-4"
@@ -44,8 +45,15 @@ const AuthLayout: React.FC<AuthLayoutProps> = ({ children }) => {
         />
       </div>
 
-      <div className="relative z-20 w-full flex flex-col items-center max-w-7xl">
-        {children}
+      <div className="relative z-20 w-full max-w-7xl auth-shell-grid">
+        <div className="auth-shell-grid__content">
+          {children}
+        </div>
+        {!hideVisuals ? (
+          <div className="auth-shell-grid__visuals" aria-hidden="true">
+            <AuthVisuals />
+          </div>
+        ) : null}
       </div>
     </div>
   );

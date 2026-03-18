@@ -12,6 +12,23 @@
   box-sizing: border-box;
 }
 
+.auth-shell-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 520px) minmax(320px, 1fr);
+  gap: 2rem;
+  align-items: center;
+}
+
+.auth-shell-grid__content {
+  display: flex;
+  justify-content: center;
+}
+
+.auth-shell-grid__visuals {
+  display: block;
+  min-height: 720px;
+}
+
 .auth-card {
   width: 100%;
   max-width: 460px;
@@ -161,5 +178,15 @@
 .auth-social-button:hover svg {
   filter: grayscale(0%) opacity(1);
   transform: scale(1.1);
+}
+
+@media (max-width: 1024px) {
+  .auth-shell-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .auth-shell-grid__visuals {
+    display: none;
+  }
 }
 

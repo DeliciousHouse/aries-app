@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { AuthView } from '../types';
 import { recordPasswordResetRequest } from '../services/supabase';
 import { sendOTPEmail } from '../services/emailService';
+import { BrandLogo } from '@/components/redesign/brand/logo';
 
 
 interface ForgotPasswordFormProps {
@@ -68,8 +69,8 @@ const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({ onNavigate, onS
 
 
         <div className="flex flex-col items-center mb-6 text-center">
-          <div className="w-[100px] h-[100px] mb-6">
-            <img src="/aries.webp" alt="Aries AI Logo" className="w-full h-full object-contain filter drop-shadow-[0_0_20px_rgba(255,255,255,0.2)]" />
+          <div className="mb-6">
+            <BrandLogo size={96} variant="mark" />
           </div>
           <h1 className="text-[26px] font-medium text-white tracking-[0.25em] mb-[20px] uppercase leading-none pl-[0.25em]" style={{ marginBottom: '20px' }}>RECOVERY</h1>
           <p className="text-white italic text-[18px] tracking-wide font-normal mt-[20px] opacity-90">Reset your access to Aries AI</p>

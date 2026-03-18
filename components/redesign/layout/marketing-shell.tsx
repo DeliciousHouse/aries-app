@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 
+import { BrandLogo } from '../brand/logo';
 import { ButtonLink } from '../primitives/button';
 
 export interface MarketingShellProps {
@@ -23,9 +24,8 @@ export function MarketingShell({
     <div className="rd-marketing-shell">
       <nav className="rd-public-nav" aria-label="Primary navigation">
         <div className="rd-container rd-public-nav__inner">
-          <a href="/" className="rd-brand" aria-label="Aries AI home">
-            <span className="rd-brand__mark" aria-hidden="true">A</span>
-            <span>Aries AI</span>
+          <a href="/" aria-label="Aries AI home">
+            <BrandLogo size={42} />
           </a>
 
           <div className="rd-public-nav__links">
