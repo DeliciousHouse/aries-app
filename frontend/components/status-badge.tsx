@@ -121,14 +121,27 @@ function stateGroupFor(status: SharedStatus): 'retry' | 'empty' | 'active' | 'do
 
 export function StatusBadge({ status }: StatusBadgeProps): JSX.Element {
   const label = labelByStatus[status];
+  const tone = toneByStatus[status];
+  const style =
+    tone === 'success'
+      ? { borderColor: 'rgba(52,211,153,0.25)', background: 'rgba(52,211,153,0.12)', color: 'var(--rd-success)' }
+      : tone === 'warning'
+        ? { borderColor: 'rgba(251,191,36,0.25)', background: 'rgba(251,191,36,0.12)', color: 'var(--rd-warning)' }
+        : tone === 'danger'
+          ? { borderColor: 'rgba(248,113,113,0.25)', background: 'rgba(248,113,113,0.12)', color: 'var(--rd-danger)' }
+          : tone === 'info'
+            ? { borderColor: 'rgba(56,189,248,0.25)', background: 'rgba(56,189,248,0.12)', color: 'var(--rd-cyan)' }
+            : {};
 
   return (
     <span
+      className="rd-badge"
       role="status"
       aria-label={`Status: ${label}`}
       data-status={status}
       data-tone={toneByStatus[status]}
       data-state-group={stateGroupFor(status)}
+      style={style}
     >
       {label}
     </span>

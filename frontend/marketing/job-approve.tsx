@@ -1,15 +1,18 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from 'react';
-import { createMarketingClient } from '../api/client/marketing';
+import { useState, type ReactNode } from 'react';
 import type {
   ApproveJobResult,
   GetMarketingJobStatusResponse,
-  HardFailureError,
+  MarketingApiError,
   MarketingStage,
   PostMarketingJobApproveRequest,
-  UnhandledError
-} from '../api/contracts/marketing';
+} from '@/lib/api/marketing';
+import { useMarketingJobApprove } from '@/hooks/use-marketing-job-approve';
+import { useMarketingJobStatus } from '@/hooks/use-marketing-job-status';
+import { Button } from '@/components/redesign/primitives/button';
+import { Card } from '@/components/redesign/primitives/card';
+import { TextInput } from '@/components/redesign/primitives/input';
 import StatusBadge from '../components/status-badge';
 import {
   marketing_job_status_values,
@@ -18,8 +21,8 @@ import {
 } from '../types/runtime';
 import { getMarketingStateHints, nextStepGuidance } from './state-view';
 
-type ApproveResult = ApproveJobResult | HardFailureError | UnhandledError;
-type JobStatusResult = GetMarketingJobStatusResponse | HardFailureError | UnhandledError;
+type ApproveResult = ApproveJobResult | MarketingApiError;
+type JobStatusResult = GetMarketingJobStatusResponse | MarketingApiError;
 
 const APPROVAL_STAGE_VALUES: MarketingStage[] = ['research', 'strategy', 'production', 'publish'];
 
@@ -30,7 +33,7 @@ export interface MarketingJobApproveScreenProps {
   defaultApprovedBy?: string;
 }
 
-function isErrorResult(value: unknown): value is HardFailureError | UnhandledError {
+function isErrorResult(value: unknown): value is MarketingApiError {
   return !!value && typeof value === 'object' && 'error' in value;
 }
 
@@ -44,16 +47,17 @@ function Field({
   children: ReactNode;
 }) {
   return (
-    <label style={{ display: 'grid', gap: 6 }}>
-      <span style={{ fontSize: 12, fontWeight: 700, color: '#344054', letterSpacing: 0.2 }}>{label}</span>
+    <label className="rd-field">
+      <span className="rd-label">{label}</span>
       {children}
-      {hint ? <span style={{ fontSize: 12, color: '#667085' }}>{hint}</span> : null}
+      {hint ? <span style={{ color: 'var(--rd-text-secondary)', fontSize: '0.9rem' }}>{hint}</span> : null}
     </label>
   );
 }
 
 export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps) {
-  const client = useMemo(() => createMarketingClient({ baseUrl: props.baseUrl }), [props.baseUrl]);
+  const marketingApprove = useMarketingJobApprove({ baseUrl: props.baseUrl });
+  const marketingStatus = useMarketingJobStatus({ baseUrl: props.baseUrl, autoLoad: false });
 
   const [jobId, setJobId] = useState(props.defaultJobId ?? '');
   const [tenantId, setTenantId] = useState(props.defaultTenantId ?? '');
@@ -63,7 +67,6 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
 
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [requestError, setRequestError] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<JobStatusResult | null>(null);
   const [approveResult, setApproveResult] = useState<ApproveResult | null>(null);
 
@@ -76,14 +79,11 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
   async function handleLoadStatus() {
     if (!jobId.trim()) return;
     setLoadingStatus(true);
-    setRequestError(null);
     setApproveResult(null);
     try {
-      const result = await client.getJob(jobId.trim());
+      marketingStatus.reset();
+      const result = await marketingStatus.load(jobId.trim());
       setJobStatus(result);
-    } catch (error) {
-      setJobStatus(null);
-      setRequestError(error instanceof Error ? error.message : 'Failed to load current job status');
     } finally {
       setLoadingStatus(false);
     }
@@ -106,17 +106,18 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
     };
 
     setSubmitting(true);
-    setRequestError(null);
     setApproveResult(null);
     try {
-      const result = await client.approveJob(jobId.trim(), body);
+      marketingApprove.reset();
+      const result = await marketingApprove.approveJob(jobId.trim(), body);
+      if (!result) {
+        return;
+      }
       setApproveResult(result);
       if (!isErrorResult(result)) {
-        const refreshed = await client.getJob(jobId.trim());
+        const refreshed = await marketingStatus.load(jobId.trim());
         setJobStatus(refreshed);
       }
-    } catch (error) {
-      setRequestError(error instanceof Error ? error.message : 'Approval request failed');
     } finally {
       setSubmitting(false);
     }
@@ -147,75 +148,46 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
     statusHints?.nextStep && next_step_values.includes(statusHints.nextStep as (typeof next_step_values)[number]);
 
   return (
-    <section
-      style={{
-        minHeight: '100vh',
-        padding: 24,
-        background:
-          'radial-gradient(1200px 400px at 20% -10%, #e0f2fe 0%, transparent 60%), radial-gradient(1200px 500px at 100% 0%, #fce7f3 0%, transparent 55%), #f8fafc'
-      }}
-    >
-      <div style={{ maxWidth: 980, margin: '0 auto', display: 'grid', gap: 16 }}>
-        <header
-          style={{
-            padding: '20px 22px',
-            borderRadius: 14,
-            background: 'linear-gradient(135deg, #0f172a, #1d4ed8)',
-            color: 'white',
-            boxShadow: '0 18px 40px rgba(2,6,23,0.25)'
-          }}
-        >
-          <p style={{ margin: 0, fontSize: 12, opacity: 0.8, letterSpacing: 0.4 }}>ARIES • OPERATIONS</p>
-          <h1 style={{ margin: '6px 0 4px', fontSize: 28 }}>Marketing Job Approval</h1>
-          <p style={{ margin: 0, opacity: 0.9 }}>
-            Resume a paused marketing workflow through the live repo-managed backend endpoint.
-          </p>
-        </header>
-
-        <div style={{ display: 'grid', gap: 16, gridTemplateColumns: '1.3fr 1fr' }}>
-          <article
-            style={{
-              borderRadius: 14,
-              background: 'white',
-              border: '1px solid #e4e7ec',
-              padding: 18,
-              boxShadow: '0 8px 22px rgba(15, 23, 42, 0.06)',
-              display: 'grid',
-              gap: 14
-            }}
-          >
-            <h2 style={{ margin: 0, fontSize: 18, color: '#101828' }}>Approval Request</h2>
+    <div className="rd-workflow-grid rd-workflow-grid--2">
+      <Card>
+        <div style={{ display: 'grid', gap: '1rem' }}>
+          <div>
+            <p className="rd-section-label">Approval control</p>
+            <h1 style={{ margin: '0.8rem 0 0.5rem', fontFamily: 'var(--rd-font-display)', fontSize: '2rem' }}>
+              Resume a paused marketing workflow
+            </h1>
+            <p className="rd-section-description">
+              Submit approval decisions through the internal Aries route and refresh live status without exposing workflow runner details.
+            </p>
+          </div>
 
             <Field label="Job ID" hint="Required route key for /api/marketing/jobs/:jobId/approve">
-              <input
+              <TextInput
                 value={jobId}
                 onChange={(event) => setJobId(event.target.value)}
                 placeholder="mkt_..."
-                style={{ border: '1px solid #d0d5dd', borderRadius: 10, padding: '10px 12px', fontSize: 14 }}
               />
             </Field>
 
             <Field label="Tenant ID">
-              <input
+              <TextInput
                 value={tenantId}
                 onChange={(event) => setTenantId(event.target.value)}
                 placeholder="acme-phase5"
-                style={{ border: '1px solid #d0d5dd', borderRadius: 10, padding: '10px 12px', fontSize: 14 }}
               />
             </Field>
 
             <Field label="Approved By">
-              <input
+              <TextInput
                 value={approvedBy}
                 onChange={(event) => setApprovedBy(event.target.value)}
                 placeholder="operator"
-                style={{ border: '1px solid #d0d5dd', borderRadius: 10, padding: '10px 12px', fontSize: 14 }}
               />
             </Field>
 
             <div style={{ display: 'grid', gap: 8 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: '#344054' }}>Approved stages</span>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              <span className="rd-label">Approved stages</span>
+              <div className="rd-chip-group">
                 {APPROVAL_STAGE_VALUES.map((stage) => {
                   const active = approvedStages.includes(stage);
                   return (
@@ -223,16 +195,8 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
                       key={stage}
                       type="button"
                       onClick={() => toggleStage(stage)}
-                      style={{
-                        border: active ? '1px solid #1d4ed8' : '1px solid #d0d5dd',
-                        background: active ? '#eff6ff' : 'white',
-                        color: active ? '#1e40af' : '#344054',
-                        borderRadius: 999,
-                        padding: '6px 12px',
-                        fontSize: 12,
-                        fontWeight: 700,
-                        cursor: 'pointer'
-                      }}
+                      className="rd-chip"
+                      data-active={active}
                     >
                       {stage}
                     </button>
@@ -241,7 +205,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
               </div>
             </div>
 
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#344054' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--rd-text-secondary)' }}>
               <input
                 type="checkbox"
                 checked={resumePublishIfNeeded}
@@ -250,108 +214,62 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
               Resume publish if needed
             </label>
 
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                onClick={handleLoadStatus}
-                disabled={loadingStatus || !jobId.trim()}
-                style={{
-                  borderRadius: 10,
-                  border: '1px solid #1d4ed8',
-                  background: 'white',
-                  color: '#1d4ed8',
-                  padding: '9px 14px',
-                  fontWeight: 700,
-                  cursor: 'pointer'
-                }}
-              >
+            <div className="rd-inline-actions">
+              <Button type="button" onClick={handleLoadStatus} disabled={loadingStatus || !jobId.trim()} variant="secondary">
                 {loadingStatus ? 'Loading…' : 'Load current status'}
-              </button>
-              <button
-                type="button"
-                onClick={handleApprove}
-                disabled={!canSubmit}
-                style={{
-                  borderRadius: 10,
-                  border: '1px solid #0f172a',
-                  background: canSubmit ? '#0f172a' : '#98a2b3',
-                  color: 'white',
-                  padding: '9px 14px',
-                  fontWeight: 700,
-                  cursor: canSubmit ? 'pointer' : 'not-allowed'
-                }}
-              >
+              </Button>
+              <Button type="button" onClick={handleApprove} disabled={!canSubmit}>
                 {submitting ? 'Approving…' : 'Approve and Resume'}
-              </button>
+              </Button>
             </div>
 
-            {requestError ? (
-              <div style={{ border: '1px solid #dc2626', borderRadius: 10, padding: '8px 10px', color: '#991b1b' }}>
-                {requestError}
+            {marketingStatus.error || marketingApprove.error ? (
+              <div className="rd-alert rd-alert--danger">
+                {marketingApprove.error?.message || marketingStatus.error?.message}
               </div>
             ) : null}
-          </article>
+        </div>
+      </Card>
 
-          <article
-            style={{
-              borderRadius: 14,
-              background: 'white',
-              border: '1px solid #e4e7ec',
-              padding: 18,
-              boxShadow: '0 8px 22px rgba(15, 23, 42, 0.06)',
-              display: 'grid',
-              gap: 12,
-              alignContent: 'start'
-            }}
-          >
-            <h3 style={{ margin: 0, fontSize: 16, color: '#101828' }}>Outcome</h3>
+      <Card>
+        <div style={{ display: 'grid', gap: '1rem' }}>
+          <p className="rd-section-label">Outcome</p>
 
             {!approvalMessage ? (
-              <p style={{ margin: 0, color: '#667085', fontSize: 13 }}>Run an approval action to see result state.</p>
+              <p className="rd-section-description">Run an approval action to see result state.</p>
             ) : (
               <div
-                style={{
-                  borderRadius: 10,
-                  padding: '10px 12px',
-                  border: approvalMessage.tone === 'success' ? '1px solid #16a34a' : '1px solid #dc2626',
-                  background: approvalMessage.tone === 'success' ? '#f0fdf4' : '#fef2f2',
-                  color: approvalMessage.tone === 'success' ? '#166534' : '#991b1b',
-                  fontWeight: 700
-                }}
+                className={approvalMessage.tone === 'success' ? 'rd-alert rd-alert--success' : 'rd-alert rd-alert--danger'}
               >
                 {approvalMessage.text}
               </div>
             )}
 
             {statusSuccess ? (
-              <div>
-                <p style={{ margin: '6px 0' }}>
-                  <strong>Job status:</strong> {statusSuccess.marketing_job_status}{' '}
+              <div className="rd-summary-list">
+                <div className="rd-summary-row">
+                  <strong>Job status</strong>
                   {hasKnownJobStatus ? (
                     <StatusBadge
                       status={statusSuccess.marketing_job_status as (typeof marketing_job_status_values)[number]}
                     />
-                  ) : null}
-                </p>
-                <p style={{ margin: '6px 0' }}>
-                  <strong>Current stage:</strong> {statusSuccess.marketing_stage ?? 'null'}
-                </p>
-                <p style={{ margin: '6px 0' }}>
-                  <strong>Repair status:</strong> {statusHints?.repairStatus ?? 'n/a'}{' '}
+                  ) : <span>{statusSuccess.marketing_job_status}</span>}
+                </div>
+                <div className="rd-summary-row"><strong>Current stage</strong><span>{statusSuccess.marketing_stage ?? 'none'}</span></div>
+                <div className="rd-summary-row">
+                  <strong>Repair status</strong>
                   {knownRepairStatus ? (
                     <StatusBadge status={statusHints.repairStatus as (typeof repair_status_values)[number]} />
-                  ) : null}
-                </p>
-                <p style={{ margin: '6px 0' }}>
-                  <strong>Next step:</strong> {statusHints?.nextStep ?? 'none'}
-                </p>
+                  ) : <span>{statusHints?.repairStatus ?? 'n/a'}</span>}
+                </div>
+                <div className="rd-summary-row"><strong>Next step</strong><span>{statusHints?.nextStep ?? 'none'}</span></div>
                 {knownNextStep ? (
-                  <p style={{ margin: '6px 0', color: '#475467' }}>{nextStepGuidance(statusHints?.nextStep)}</p>
+                  <div className="rd-alert rd-alert--info">{nextStepGuidance(statusHints?.nextStep)}</div>
                 ) : null}
 
                 {statusHints && statusHints.stageStatuses.length > 0 ? (
                   <div>
-                    <h4 style={{ margin: '12px 0 6px' }}>Stage status</h4>
+                    <p className="rd-label" style={{ marginBottom: '0.75rem' }}>Stage status</p>
                     <ul style={{ margin: 0, paddingLeft: 18 }}>
                       {statusHints.stageStatuses.map((row) => (
                         <li key={row.stage}>
@@ -406,10 +324,9 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
                 </pre>
               </details>
             ) : null}
-          </article>
         </div>
-      </div>
-    </section>
+      </Card>
+    </div>
   );
 }
 

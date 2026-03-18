@@ -1,10 +1,13 @@
 import AppShellLayout from '../../frontend/app-shell/layout';
+import { BrandLogo } from '@/components/redesign/brand/logo';
+import { Card } from '@/components/redesign/primitives/card';
+import { ButtonLink } from '@/components/redesign/primitives/button';
 
 const STATS = [
-  { label: 'Active Connections', value: '5', meta: 'of 7 platforms connected' },
-  { label: 'Queue Health', value: '98%', meta: 'repo workflow dispatch queue operational' },
-  { label: 'Publish Volume', value: '247', meta: 'posts dispatched this month' },
-  { label: 'Token Status', value: '2', meta: 'tokens expiring within 7 days' },
+  { label: 'Active Connections', value: '5', meta: 'of 7 supported platforms currently linked' },
+  { label: 'Queue Health', value: '98%', meta: 'typed route surface responding normally' },
+  { label: 'Publish Volume', value: '247', meta: 'dispatches processed this month' },
+  { label: 'Attention Items', value: '2', meta: 'platforms or jobs needing human review' },
 ];
 
 const RECENT_JOBS = [
@@ -16,52 +19,57 @@ const RECENT_JOBS = [
 export default function DashboardPage() {
   return (
     <AppShellLayout currentRouteId="dashboard">
-      <div className="grid-4" style={{ marginBottom: '2rem' }}>
+      <div className="rd-stat-grid" style={{ marginBottom: '1.5rem' }}>
         {STATS.map((s) => (
-          <div className="stat-card" key={s.label}>
-            <div className="stat-label">{s.label}</div>
-            <div className="stat-value">{s.value}</div>
-            <div className="stat-meta">{s.meta}</div>
-          </div>
+          <Card key={s.label}>
+            <div style={{ display: 'grid', gap: '0.55rem' }}>
+              <span className="rd-label">{s.label}</span>
+              <strong style={{ fontFamily: 'var(--rd-font-display)', fontSize: '2rem' }}>{s.value}</strong>
+              <span style={{ color: 'var(--rd-text-secondary)' }}>{s.meta}</span>
+            </div>
+          </Card>
         ))}
       </div>
 
-      <div className="glass-card-static">
-        <h2 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '1rem' }}>Recent Marketing Jobs</h2>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-              <th style={{ textAlign: 'left', padding: '8px 12px', color: 'rgba(248,245,242,0.4)', fontWeight: 600, fontSize: '0.75rem', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Job ID</th>
-              <th style={{ textAlign: 'left', padding: '8px 12px', color: 'rgba(248,245,242,0.4)', fontWeight: 600, fontSize: '0.75rem', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Topic</th>
-              <th style={{ textAlign: 'left', padding: '8px 12px', color: 'rgba(248,245,242,0.4)', fontWeight: 600, fontSize: '0.75rem', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Stage</th>
-              <th style={{ textAlign: 'left', padding: '8px 12px', color: 'rgba(248,245,242,0.4)', fontWeight: 600, fontSize: '0.75rem', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Status</th>
-              <th style={{ textAlign: 'left', padding: '8px 12px', color: 'rgba(248,245,242,0.4)', fontWeight: 600, fontSize: '0.75rem', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Time</th>
-            </tr>
-          </thead>
-          <tbody>
-            {RECENT_JOBS.map((job) => (
-              <tr key={job.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                <td style={{ padding: '10px 12px' }}><code style={{ fontSize: '0.8rem' }}>{job.id}</code></td>
-                <td style={{ padding: '10px 12px', fontWeight: 500 }}>{job.topic}</td>
-                <td style={{ padding: '10px 12px', color: 'rgba(248,245,242,0.65)' }}>{job.stage}</td>
-                <td style={{ padding: '10px 12px' }}>
-                  <span style={{
-                    display: 'inline-block',
-                    padding: '2px 8px',
-                    borderRadius: '4px',
-                    fontSize: '0.75rem',
-                    fontWeight: 600,
-                    background: job.status === 'completed' ? 'rgba(52,211,153,0.15)' : job.status === 'running' ? 'rgba(96,165,250,0.15)' : 'rgba(251,191,36,0.15)',
-                    color: job.status === 'completed' ? '#34D399' : job.status === 'running' ? '#60A5FA' : '#FBBF24',
-                  }}>
-                    {job.status}
-                  </span>
-                </td>
-                <td style={{ padding: '10px 12px', color: 'rgba(248,245,242,0.4)', fontSize: '0.8rem' }}>{job.time}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="rd-workflow-grid rd-workflow-grid--2">
+        <Card>
+          <div style={{ display: 'grid', gap: '1rem' }}>
+            <h2 style={{ margin: 0, fontFamily: 'var(--rd-font-display)', fontSize: '1.45rem' }}>Recent marketing jobs</h2>
+            <div style={{ display: 'grid', gap: '0.85rem' }}>
+              {RECENT_JOBS.map((job) => (
+                <div key={job.id} className="rd-glass" style={{ padding: '1rem', borderRadius: '1rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                    <div>
+                      <code style={{ color: 'var(--rd-text-muted)' }}>{job.id}</code>
+                      <p style={{ margin: '0.35rem 0 0', fontWeight: 700 }}>{job.topic}</p>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <span className="rd-badge">{job.status}</span>
+                      <p style={{ margin: '0.35rem 0 0', color: 'var(--rd-text-secondary)' }}>{job.stage} • {job.time}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+
+        <Card>
+          <div style={{ display: 'grid', gap: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.9rem' }}>
+              <BrandLogo size={40} variant="mark" />
+              <span className="rd-section-label" style={{ margin: 0 }}>Aries demo surface</span>
+            </div>
+            <h2 style={{ margin: 0, fontFamily: 'var(--rd-font-display)', fontSize: '1.45rem' }}>Quick actions</h2>
+            <p className="rd-section-description">
+              Launch new workflow activity from the operator shell and keep high-signal routes within easy reach.
+            </p>
+            <div className="rd-hero__actions">
+              <ButtonLink href="/marketing/new-job">Launch campaign</ButtonLink>
+              <ButtonLink href="/platforms" variant="secondary">Review platforms</ButtonLink>
+            </div>
+          </div>
+        </Card>
       </div>
     </AppShellLayout>
   );

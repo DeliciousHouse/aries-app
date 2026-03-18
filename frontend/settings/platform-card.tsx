@@ -1,70 +1,16 @@
 "use client";
 
-export type PlatformKey =
-  | 'facebook'
-  | 'instagram'
-  | 'linkedin'
-  | 'x'
-  | 'youtube'
-  | 'reddit'
-  | 'tiktok';
+import type {
+  IntegrationCard as PlatformIntegrationCardData,
+  IntegrationCardAction,
+  IntegrationConnectionState,
+  IntegrationHealth,
+  IntegrationPlatform as PlatformKey,
+} from '@/lib/api/integrations';
 
-export type IntegrationConnectionState =
-  | 'not_connected'
-  | 'connection_pending'
-  | 'connected'
-  | 'connection_error'
-  | 'reauth_required'
-  | 'disabled';
-
-export type IntegrationHealth = 'unknown' | 'healthy' | 'degraded' | 'error';
-
-export type IntegrationCardAction =
-  | 'connect'
-  | 'reconnect'
-  | 'disconnect'
-  | 'sync_now'
-  | 'view_permissions';
-
-export type IntegrationErrorCode =
-  | 'invalid_platform'
-  | 'provider_unavailable'
-  | 'auth_denied'
-  | 'token_expired'
-  | 'rate_limited'
-  | 'validation_failed'
-  | 'unknown';
-
-export interface IntegrationPermission {
-  permission: string;
-  granted: boolean;
-}
-
-export interface ConnectedAccount {
-  account_id: string;
-  account_label: string;
-  avatar_url?: string;
-}
-
-export interface IntegrationCardError {
-  code: IntegrationErrorCode;
-  message: string;
-  retry_after_seconds?: number;
-}
-
-export interface PlatformIntegrationCardData {
-  platform: PlatformKey;
-  display_name: string;
-  description: string;
-  connection_state: IntegrationConnectionState;
-  health: IntegrationHealth;
-  connected_account?: ConnectedAccount;
-  available_actions: IntegrationCardAction[];
-  last_synced_at: string | null;
-  expires_at?: string | null;
-  permissions: IntegrationPermission[];
-  error?: IntegrationCardError;
-}
+export type { IntegrationCardAction, IntegrationHealth, PlatformIntegrationCardData, PlatformKey };
+import { BrandLogo } from '@/components/redesign/brand/logo';
+import { Card } from '@/components/redesign/primitives/card';
 
 export interface PlatformCardProps {
   card: PlatformIntegrationCardData;
@@ -116,102 +62,110 @@ function renderHealth(health: IntegrationHealth): string {
 
 export function PlatformCard({ card, onAction, busyAction = null }: PlatformCardProps): JSX.Element {
   return (
-    <article className="glass-card" data-platform={card.platform} style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 'var(--space-4)' }}>
-      <header style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-4)' }}>
-        <div className="feature-icon" style={{ flexShrink: 0, width: 40, height: 40, margin: 0 }}>
-          {/* Simple initial fallback for icon */}
-          <span style={{ fontSize: 'var(--text-lg)', fontWeight: 'bold' }}>
-            {card.display_name.charAt(0)}
-          </span>
-        </div>
-        <div>
-          <h3 style={{ fontSize: 'var(--text-lg)', fontWeight: 700, marginBottom: 'var(--space-1)' }}>{card.display_name}</h3>
-          <p style={{ fontSize: 'var(--text-xs)', color: 'var(--aries-text-secondary)', lineHeight: 1.4, margin: 0 }}>{card.description}</p>
-        </div>
-      </header>
-
-      <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', padding: 'var(--space-4) 0', borderTop: '1px solid var(--aries-glass-border)', borderBottom: '1px solid var(--aries-glass-border)' }}>
-        
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--aries-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Status</span>
-          <span className="section-label" style={{ 
-            margin: 0, 
-            fontSize: '10px',
-            backgroundColor: card.connection_state === 'connected' ? 'rgba(52, 211, 153, 0.1)' : card.connection_state.includes('error') ? 'rgba(248, 113, 113, 0.1)' : 'rgba(255, 255, 255, 0.05)',
-            borderColor: card.connection_state === 'connected' ? 'rgba(52, 211, 153, 0.25)' : card.connection_state.includes('error') ? 'rgba(248, 113, 113, 0.25)' : 'var(--aries-glass-border)',
-            color: card.connection_state === 'connected' ? 'var(--aries-success)' : card.connection_state.includes('error') ? 'var(--aries-error)' : 'var(--aries-text-secondary)'
-          }}>
-            {renderConnectionState(card.connection_state)}
-          </span>
-        </div>
-
-        {card.connected_account && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--aries-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Account</span>
-            <span style={{ fontSize: 'var(--text-sm)', fontWeight: 500 }}>{card.connected_account.account_label}</span>
+    <Card data-platform={card.platform} className="animate-in fade-in zoom-in-95 duration-500">
+      <div style={{ display: 'grid', gap: '1rem', height: '100%' }}>
+        <header style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
+          <div className="rd-feature-icon" style={{ flexShrink: 0 }}>
+            <span style={{ fontWeight: 800 }}>{card.display_name.charAt(0)}</span>
           </div>
-        )}
-
-        {card.last_synced_at && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--aries-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Last Sync</span>
-            <span style={{ fontSize: 'var(--text-xs)' }}>
-              {new Date(card.last_synced_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-            </span>
-          </div>
-        )}
-
-        {(card.connection_state === 'connected' || card.connection_state === 'reauth_required') && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--aries-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Token Expiry</span>
-            <span style={{ fontSize: 'var(--text-xs)' }}>
-              {card.expires_at
-                ? new Date(card.expires_at).toLocaleDateString(undefined, {
-                    month: 'short',
-                    day: 'numeric',
-                    hour: 'numeric',
-                    minute: '2-digit'
-                  })
-                : 'Unknown'}
-            </span>
-          </div>
-        )}
-      </div>
-
-      {card.error && (
-        <div className="alert alert-error" style={{ padding: 'var(--space-2) var(--space-3)', fontSize: 'var(--text-xs)' }}>
-          <svg style={{ flexShrink: 0 }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
           <div>
-            <div style={{ fontWeight: 600 }}>{card.error.message}</div>
-            {card.error.retry_after_seconds && <div>Retry after {card.error.retry_after_seconds}s</div>}
+            <h3 style={{ margin: 0, fontFamily: 'var(--rd-font-display)', fontSize: '1.25rem' }}>{card.display_name}</h3>
+            <p className="rd-section-description" style={{ marginTop: '0.35rem', fontSize: '0.92rem' }}>{card.description}</p>
+          </div>
+        </header>
+
+        <div className="rd-summary-list">
+          <div className="rd-summary-row">
+            <strong>Status</strong>
+            <span className="rd-badge">{renderConnectionState(card.connection_state)}</span>
+          </div>
+
+          {card.connected_account ? (
+            <div className="rd-summary-row">
+              <strong>Account</strong>
+              <span>{card.connected_account.account_label}</span>
+            </div>
+          ) : null}
+
+          <div className="rd-summary-row">
+            <strong>Health</strong>
+            <span>{renderHealth(card.health)}</span>
+          </div>
+
+          {card.last_synced_at ? (
+            <div className="rd-summary-row">
+              <strong>Last sync</strong>
+              <span>
+                {new Date(card.last_synced_at).toLocaleDateString(undefined, {
+                  month: 'short',
+                  day: 'numeric',
+                  hour: 'numeric',
+                  minute: '2-digit',
+                })}
+              </span>
+            </div>
+          ) : null}
+
+          {(card.connection_state === 'connected' || card.connection_state === 'reauth_required') ? (
+            <div className="rd-summary-row">
+              <strong>Token expiry</strong>
+              <span>
+                {card.expires_at
+                  ? new Date(card.expires_at).toLocaleDateString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                    })
+                  : 'Unknown'}
+              </span>
+            </div>
+          ) : null}
+        </div>
+
+        {card.error ? (
+          <div className="rd-alert rd-alert--danger">
+            <div>
+              <div style={{ fontWeight: 700 }}>{card.error.message}</div>
+              {card.error.retry_after_seconds ? <div>Retry after {card.error.retry_after_seconds}s</div> : null}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="rd-glass" style={{ padding: '0.9rem 1rem', borderRadius: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <BrandLogo size={28} variant="mark" />
+          <div>
+            <div style={{ fontSize: '0.82rem', fontWeight: 700 }}>Aries OAuth handoff</div>
+            <div style={{ color: 'var(--rd-text-secondary)', fontSize: '0.78rem' }}>
+              Uses the internal Aries callback namespace for {card.display_name}.
+            </div>
           </div>
         </div>
-      )}
 
-      <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', marginTop: 'auto' }}>
-        {card.available_actions.map((action) => {
-          const isBusy = busyAction === action;
-          
-          // Determine button style based on action type
-          let btnClass = "btn btn-sm btn-secondary";
-          if (action === 'connect' || action === 'reconnect') btnClass = "btn btn-sm btn-primary";
-          
-          return (
-            <button
-              key={`${card.platform}-${action}`}
-              type="button"
-              className={btnClass}
-              style={{ flex: action === 'connect' || action === 'reconnect' ? '1 1 100%' : '1 1 auto', justifyContent: 'center' }}
-              onClick={() => onAction?.(action, card.platform)}
-              disabled={isBusy}
-            >
-              {isBusy && <div className="spinner" style={{ width: 12, height: 12, borderWidth: 2, marginRight: 'var(--space-2)' }}></div>}
-              {actionLabel[action]}
-            </button>
-          );
-        })}
+        <div className="rd-inline-actions" style={{ marginTop: 'auto' }}>
+          {card.available_actions.map((action) => {
+            const isBusy = busyAction === action;
+            const className = action === 'connect' || action === 'reconnect'
+              ? 'rd-button rd-button--primary'
+              : 'rd-button rd-button--secondary';
+
+            return (
+              <button
+                key={`${card.platform}-${action}`}
+                type="button"
+                className={className}
+                style={{ flex: action === 'connect' || action === 'reconnect' ? '1 1 100%' : '1 1 auto' }}
+                onClick={() => onAction?.(action, card.platform)}
+                disabled={isBusy}
+              >
+                {isBusy ? <span className="rd-spinner" style={{ width: 12, height: 12, borderWidth: 2 }} /> : null}
+                {actionLabel[action]}
+              </button>
+            );
+          })}
+        </div>
       </div>
-    </article>
+    </Card>
   );
 }
 

@@ -1,0 +1,66 @@
+.rd-workflow-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.rd-workflow-grid--2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.rd-summary-list {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.rd-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  color: var(--rd-text-secondary);
+}
+
+.rd-summary-row strong {
+  color: var(--rd-text-primary);
+}
+
+.rd-chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.rd-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: var(--rd-radius-pill);
+  border: 1px solid var(--rd-border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--rd-text-secondary);
+  cursor: pointer;
+}
+
+.rd-chip[data-active='true'] {
+  border-color: rgba(56, 189, 248, 0.3);
+  background: rgba(56, 189, 248, 0.12);
+  color: var(--rd-text-primary);
+}
+
+.rd-json-panel {
+  overflow: auto;
+  padding: 1rem;
+  border-radius: var(--rd-radius-md);
+  border: 1px solid var(--rd-border);
+  background: rgba(5, 5, 11, 0.8);
+  color: #d6ddff;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+@media (max-width: 920px) {
+  .rd-workflow-grid--2 {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 
-import { createMarketingClient } from '../api/client/marketing';
 import type {
   GetMarketingJobStatusResponse,
-  HardFailureError,
-  UnhandledError
-} from '../api/contracts/marketing';
+  MarketingApiError,
+} from '@/lib/api/marketing';
+import { useMarketingJobStatus } from '@/hooks/use-marketing-job-status';
+import { Button } from '@/components/redesign/primitives/button';
+import { Card } from '@/components/redesign/primitives/card';
+import { TextInput } from '@/components/redesign/primitives/input';
 import StatusBadge from '../components/status-badge';
 import {
   marketing_job_status_values,
@@ -16,7 +18,7 @@ import {
 } from '../types/runtime';
 import { getMarketingStateHints, nextStepGuidance } from './state-view';
 
-type JobStatusResult = GetMarketingJobStatusResponse | HardFailureError | UnhandledError;
+type JobStatusResult = GetMarketingJobStatusResponse | MarketingApiError;
 
 export interface MarketingJobStatusScreenProps {
   baseUrl?: string;
@@ -27,33 +29,33 @@ export function normalizeMarketingJobId(jobId?: string): string {
   return jobId?.trim() || '';
 }
 
-function isErrorResult(value: JobStatusResult | null): value is HardFailureError | UnhandledError {
+function isErrorResult(value: JobStatusResult | null): value is MarketingApiError {
   return !!value && typeof value === 'object' && 'error' in value;
 }
 
 export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
-  const client = useMemo(() => createMarketingClient({ baseUrl: props.baseUrl }), [props.baseUrl]);
+  const marketingStatus = useMarketingJobStatus({
+    baseUrl: props.baseUrl,
+    jobId: props.defaultJobId,
+    autoLoad: false,
+  });
 
   const [jobId, setJobId] = useState(normalizeMarketingJobId(props.defaultJobId));
   const [loading, setLoading] = useState(false);
-  const [requestError, setRequestError] = useState<string | null>(null);
   const [result, setResult] = useState<JobStatusResult | null>(null);
 
   async function loadStatus(rawJobId: string) {
     const trimmedJobId = normalizeMarketingJobId(rawJobId);
     if (!trimmedJobId) {
-      setRequestError('jobId is required');
+      marketingStatus.setError(new Error('jobId is required'));
       return;
     }
 
     setLoading(true);
-    setRequestError(null);
     try {
-      const response = await client.getJob(trimmedJobId);
+      marketingStatus.reset();
+      const response = await marketingStatus.load(trimmedJobId);
       setResult(response);
-    } catch (error) {
-      setResult(null);
-      setRequestError(error instanceof Error ? error.message : 'Failed to load job status');
     } finally {
       setLoading(false);
     }
@@ -90,90 +92,97 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
     hints?.nextStep && next_step_values.includes(hints.nextStep as (typeof next_step_values)[number]);
 
   return (
-    <section>
-      <h2>Marketing Job Status</h2>
-      <p>Load a job to inspect stage progress, repair state, and next-step guidance.</p>
+    <div className="rd-workflow-grid rd-workflow-grid--2">
+      <Card>
+        <div style={{ display: 'grid', gap: '1rem' }}>
+          <div>
+            <p className="rd-section-label">Job status</p>
+            <h2 style={{ margin: '0.8rem 0 0.5rem', fontFamily: 'var(--rd-font-display)', fontSize: '2rem' }}>
+              Inspect current workflow progress
+            </h2>
+            <p className="rd-section-description">
+              Load a job ID to inspect phase progress, repair state, and the next recommended operator action.
+            </p>
+          </div>
 
-      <div>
-        <label>
-          Job ID
-          <input
-            value={jobId}
-            onChange={(event) => setJobId(event.target.value)}
-            placeholder="mkt_..."
-          />
-        </label>
-      </div>
+          <label className="rd-field">
+            <span className="rd-label">Job ID</span>
+            <TextInput value={jobId} onChange={(event) => setJobId(event.target.value)} placeholder="mkt_..." />
+          </label>
 
-      <div style={{ marginTop: 12 }}>
-        <button type="button" onClick={handleLoadStatus} disabled={loading || !jobId.trim()}>
-          {loading ? 'Loading…' : 'Load job status'}
-        </button>
-      </div>
+          <Button type="button" onClick={handleLoadStatus} disabled={loading || !jobId.trim()}>
+            {loading ? 'Loading…' : 'Load job status'}
+          </Button>
 
-      {requestError ? <pre style={{ marginTop: 16 }}>{requestError}</pre> : null}
-
-      {result && isErrorResult(result) ? (
-        <div style={{ marginTop: 16 }}>
-          <h3>API error</h3>
-          <pre>{JSON.stringify(result, null, 2)}</pre>
+          {marketingStatus.error ? <div className="rd-alert rd-alert--danger">{marketingStatus.error.message}</div> : null}
+          {result && isErrorResult(result) ? <div className="rd-alert rd-alert--danger">{result.error}</div> : null}
         </div>
-      ) : null}
+      </Card>
 
-      {successResult ? (
-        <div style={{ marginTop: 16 }}>
-          <h3>Status</h3>
-          <dl>
-            <dt>marketing_stage</dt>
-            <dd>{successResult.marketing_stage ?? 'null'}</dd>
+      <Card>
+        <div style={{ display: 'grid', gap: '1rem' }}>
+          <p className="rd-section-label">Workflow state</p>
 
-            <dt>marketing_job_status</dt>
-            <dd>
-              {successResult.marketing_job_status}{' '}
-              {hasKnownJobStatus ? (
-                <StatusBadge
-                  status={successResult.marketing_job_status as (typeof marketing_job_status_values)[number]}
-                />
-              ) : null}
-            </dd>
-
-            <dt>repair_status</dt>
-            <dd>
-              {hints?.repairStatus ?? 'n/a'}{' '}
-              {knownRepairStatus ? (
-                <StatusBadge status={hints.repairStatus as (typeof repair_status_values)[number]} />
-              ) : null}
-            </dd>
-
-            <dt>next_step</dt>
-            <dd>{hints?.nextStep ?? 'none'}</dd>
-          </dl>
-
-          {knownNextStep ? <p>{nextStepGuidance(hints?.nextStep) ?? 'No extra guidance.'}</p> : null}
-
-          <h4>Stage status</h4>
-          {!hints || hints.stageStatuses.length === 0 ? (
-            <p>No stage status values returned.</p>
+          {!successResult ? (
+            <div className="rd-empty" style={{ minHeight: '320px' }}>
+              <strong>No job loaded</strong>
+              <p>Enter a job ID to review the current stage, per-stage status, and recommended next step.</p>
+            </div>
           ) : (
-            <ul>
-              {hints.stageStatuses.map((row) => (
-                <li key={row.stage}>
-                  <strong>{row.stage}</strong>: {row.status}{' '}
-                  {marketing_job_status_values.includes(
-                    row.status as (typeof marketing_job_status_values)[number]
-                  ) ? (
-                    <StatusBadge status={row.status as (typeof marketing_job_status_values)[number]} />
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          )}
+            <>
+              <div className="rd-summary-list">
+                <div className="rd-summary-row"><strong>Current stage</strong><span>{successResult.marketing_stage ?? 'none'}</span></div>
+                <div className="rd-summary-row">
+                  <strong>Job status</strong>
+                  {hasKnownJobStatus ? (
+                    <StatusBadge status={successResult.marketing_job_status as (typeof marketing_job_status_values)[number]} />
+                  ) : (
+                    <span>{successResult.marketing_job_status}</span>
+                  )}
+                </div>
+                <div className="rd-summary-row">
+                  <strong>Repair status</strong>
+                  {knownRepairStatus ? (
+                    <StatusBadge status={hints?.repairStatus as (typeof repair_status_values)[number]} />
+                  ) : (
+                    <span>{hints?.repairStatus ?? 'n/a'}</span>
+                  )}
+                </div>
+                <div className="rd-summary-row"><strong>Next step</strong><span>{hints?.nextStep ?? 'none'}</span></div>
+              </div>
 
-          <h4>Raw response</h4>
-          <pre>{JSON.stringify(successResult, null, 2)}</pre>
+              {knownNextStep ? (
+                <div className="rd-alert rd-alert--info">{nextStepGuidance(hints?.nextStep) ?? 'No extra guidance.'}</div>
+              ) : null}
+
+              <div>
+                <p className="rd-label" style={{ marginBottom: '0.75rem' }}>Stage status</p>
+                {!hints || hints.stageStatuses.length === 0 ? (
+                  <p className="rd-section-description">No stage status values returned.</p>
+                ) : (
+                  <div className="rd-chip-group">
+                    {hints.stageStatuses.map((row) => (
+                      <span key={row.stage} className="rd-chip" data-active="true">
+                        <strong>{row.stage}</strong>
+                        {marketing_job_status_values.includes(row.status as (typeof marketing_job_status_values)[number]) ? (
+                          <StatusBadge status={row.status as (typeof marketing_job_status_values)[number]} />
+                        ) : (
+                          <span>{row.status}</span>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {successResult.needs_attention ? (
+                <div className="rd-alert rd-alert--danger">This workflow needs operator attention before it can continue.</div>
+              ) : null}
+            </>
+          )}
         </div>
-      ) : null}
-    </section>
+      </Card>
+    </div>
   );
 }
 

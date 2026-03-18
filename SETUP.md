@@ -26,10 +26,10 @@ Parity guarantees apply to this container-based flow.
 ## Optional host-node flow
 
 ```bash
-npm install
+NODE_ENV=development npm ci
 cp .env.example .env
 # For host execution, set CODE_ROOT/DATA_ROOT to host-valid paths (or leave unset).
-npm run dev
+npx next dev -p 3000 --turbopack
 ```
 
 ## Required Environment Variables
@@ -87,14 +87,16 @@ Browser → /api/* (Next.js route handlers)
 
 - **Frontend** calls internal `/api/*` routes only
 - **API layer** (`app/api/*/route.ts`) validates input, then either calls OpenClaw Gateway, reads local read-model artifacts, or returns an explicit placeholder error
+- **Frontend-safe contracts** avoid exposing workflow artifact paths or raw backend envelopes to browser code
 - **Authoritative workflow definitions** live in the OpenClaw workspace, not the Aries runtime image
 
 ## Architecture
 
 - **Marketing site**: `/`, `/features`, `/documentation`, `/api-docs`, `/contact`
 - **App shell**: `/dashboard`, `/posts`, `/calendar`, `/platforms`, `/settings`
-- **Navigation**: Marketing nav and app-shell nav are separate layouts (`MarketingLayout` vs `AppShellLayout`)
-- **Design**: Dark-luxury tech aesthetic with Aries brand palette
+- **Workflow screens**: `/onboarding/start`, `/onboarding/status`, `/marketing/new-job`, `/marketing/job-status`, `/marketing/job-approve`
+- **Navigation**: Marketing nav and app-shell nav are separate layouts with redesigned shells
+- **Design**: Dark glass + neon-accent operator aesthetic rebuilt in-repo from the visual reference
 
 See `ROUTE_MANIFEST.md` and `WEBHOOK_MANIFEST.md` for complete reference.
 

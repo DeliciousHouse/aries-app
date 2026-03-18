@@ -4,19 +4,19 @@
 
 | Route | Page | Description |
 |---|---|---|
-| `/` | Landing | Hero, capability preview, CTAs |
-| `/features` | Features | Full capability grid (12 cards) |
-| `/documentation` | Documentation | Getting started, architecture, OpenClaw workflow boundary, integrations, security |
-| `/api-docs` | API Reference | Endpoint reference with request/response shapes |
+| `/` | Landing | Redesigned hero, execution-boundary overview, and operator CTAs |
+| `/features` | Features | Redesigned capability grid for workflow, platform, and security features |
+| `/documentation` | Documentation | Runtime overview, local setup, and OpenClaw workflow boundary |
+| `/api-docs` | API Reference | Browser-safe internal API reference with frontend-facing request/response shapes |
 | `/contact` | Contact | Contact placeholder; `/api/contact` is intentionally not implemented in this runtime |
 
 ## App Shell (Authenticated)
 
 | Route | Page | Description |
 |---|---|---|
-| `/dashboard` | Dashboard | Stat cards, recent marketing jobs, queue health |
-| `/posts` | Posts | Create marketing jobs, dispatch publish events |
-| `/calendar` | Calendar | Weekly schedule grid, sync configuration |
+| `/dashboard` | Dashboard | Redesigned operator overview with stat cards, recent jobs, and quick actions |
+| `/posts` | Posts | Publish dispatch + retry controls through internal Aries API routes |
+| `/calendar` | Calendar | Calendar sync controls and scheduling guidance |
 | `/platforms` | Platforms | Live OAuth broker status; token expiry shown only when the backend provides it |
 | `/settings` | Settings | Read-only placeholder; live tenant settings API is not implemented |
 
@@ -24,11 +24,12 @@
 
 | Route | Page | Description |
 |---|---|---|
-| `/marketing/new-job` | New Marketing Job | Canonical `brand_campaign` creation form |
-| `/marketing/job-status` | Job Status | Job monitoring |
-| `/marketing/job-approve` | Job Approval | Human-in-the-loop approval |
-| `/onboarding/start` | Onboarding Start | Tenant onboarding |
-| `/onboarding/status` | Onboarding Status | Local onboarding runtime-status reader |
+| `/marketing/new-job` | New Marketing Job | Redesigned canonical `brand_campaign` creation flow |
+| `/marketing/job-status` | Job Status | Redesigned job monitoring with stage and repair guidance |
+| `/marketing/job-approve` | Job Approval | Redesigned human-in-the-loop approval controls |
+| `/onboarding/start` | Onboarding Start | Redesigned tenant onboarding launch flow |
+| `/onboarding/status` | Onboarding Status | Browser-safe onboarding status reader with artifact summaries |
+| `/oauth/connect/:provider` | OAuth Handoff | Branded Aries OAuth connect/reconnect/result surface |
 
 ## API Routes
 
@@ -40,9 +41,9 @@
 | POST | `/api/waitlist` | `501` placeholder | Logs payload only; no workflow deployed |
 | POST | `/api/events` | `501` placeholder | Logs payload only; no workflow deployed |
 | POST | `/api/onboarding/start` | OpenClaw parity stub | `parity/onboarding-start/workflow.lobster` |
-| GET | `/api/onboarding/status/:tenantId` | Local runtime lookup | `generated/draft|validated/...` artifacts |
+| GET | `/api/onboarding/status/:tenantId` | Local runtime lookup | Frontend-safe provisioning + artifact summary |
 | POST | `/api/marketing/jobs` | ✅ | `marketing-pipeline.lobster` via OpenClaw Gateway |
-| GET | `/api/marketing/jobs/:jobId` | Local runtime lookup | `generated/draft/marketing-jobs/:jobId.json` |
+| GET | `/api/marketing/jobs/:jobId` | Local runtime lookup | Frontend-safe job status read model |
 | POST | `/api/marketing/jobs/:jobId/approve` | OpenClaw parity stub | `parity/marketing-approve/workflow.lobster` |
 | POST | `/api/publish/dispatch` | OpenClaw parity stub | `parity/publish-dispatch/workflow.lobster` |
 | POST | `/api/publish/retry` | OpenClaw parity stub | `parity/publish-retry/workflow.lobster` |

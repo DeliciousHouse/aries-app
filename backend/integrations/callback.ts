@@ -55,6 +55,24 @@ function resolveProviderErrorReason(errorCode: string): OAuthBrokerError['reason
   return 'provider_callback_error';
 }
 
+function resolveBaseUrl(req: Request): string {
+  const configuredBaseUrl = process.env.APP_BASE_URL?.trim();
+  if (configuredBaseUrl) {
+    try {
+      return new URL(configuredBaseUrl).origin;
+    } catch {
+      // ignore invalid configured URL and fall back to request origin
+    }
+  }
+
+  return new URL(req.url).origin;
+}
+
+function shouldRedirectToUi(req: Request): boolean {
+  const accept = req.headers.get('accept') || '';
+  return accept.includes('text/html');
+}
+
 export async function oauthCallback(provider: string, query: OAuthCallbackQuery): Promise<OAuthCallbackSuccess | OAuthBrokerError> {
   if (!isAllowedProvider(provider)) return brokerError('invalid_provider', { provider });
 
@@ -129,6 +147,21 @@ export async function handleOauthCallbackHttp(req: Request, providerFromPath?: s
   };
 
   const result = await oauthCallback(provider, query);
+  if (shouldRedirectToUi(req)) {
+    const redirectUrl = new URL(`/oauth/connect/${encodeURIComponent(provider)}`, resolveBaseUrl(req));
+    if (result.broker_status === 'ok') {
+      redirectUrl.searchParams.set('result', 'connected');
+      redirectUrl.searchParams.set('connection_id', result.connection_id);
+      if (result.connected_at) redirectUrl.searchParams.set('connected_at', result.connected_at);
+    } else {
+      redirectUrl.searchParams.set('result', 'error');
+      redirectUrl.searchParams.set('reason', result.reason);
+      if (result.message) redirectUrl.searchParams.set('message', result.message);
+    }
+
+    return Response.redirect(redirectUrl.toString(), 302);
+  }
+
   const status =
     result.broker_status === 'ok'
       ? 200

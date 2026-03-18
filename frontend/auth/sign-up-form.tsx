@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AuthView } from '../types';
 import { registerUserAction } from '@/app/actions/auth';
 import { getInvitationByToken } from '../services/supabase';
+import { BrandLogo } from '@/components/redesign/brand/logo';
 
 
 
@@ -105,12 +106,8 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
     <div className="auth-container animate-in fade-in duration-1000" style={{ fontFamily: "'Inter', sans-serif" }}>
       {/* Header Section */}
       <div className="flex flex-col items-center mb-6 text-center">
-        <div className="w-[100px] h-[100px] mb-6">
-          <img
-            src="/aries.webp"
-            alt="Aries AI Logo"
-            className="w-full h-full object-contain filter drop-shadow-[0_0_20px_rgba(255,255,255,0.2)]"
-          />
+        <div className="mb-6">
+          <BrandLogo size={96} variant="mark" />
         </div>
         <h1 className="text-[26px] font-medium text-white tracking-[0.25em] mb-[20px] uppercase leading-none pl-[0.25em] text-center" style={{ marginBottom: '20px' }}>JOIN ARIES AI</h1>
         <p className="text-white italic text-[18px] tracking-wide font-normal mt-[20px] opacity-90 text-center">

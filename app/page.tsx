@@ -1,79 +1,138 @@
 import MarketingLayout from '../frontend/marketing/MarketingLayout';
+import { ButtonLink } from '@/components/redesign/primitives/button';
+import { Card } from '@/components/redesign/primitives/card';
+
+const HERO_METRICS = [
+  { value: '7', label: 'supported channels' },
+  { value: '1', label: 'internal API boundary' },
+  { value: '24/7', label: 'workflow visibility' },
+];
 
 const FEATURES_PREVIEW = [
-  { icon: '🧠', title: 'LLM-Powered Intelligence', desc: 'Multi-model reasoning chains for research, strategy, and content production.' },
-  { icon: '📡', title: 'Multi-Platform Publishing', desc: 'Unified dispatch to Facebook, Instagram, LinkedIn, X, YouTube, Reddit, and TikTok.' },
-  { icon: '🔄', title: 'Repo Workflow Engine', desc: 'Production-grade Lobster and OpenClaw orchestration with repair, retry, and approval flows.' },
-  { icon: '🛡️', title: 'Enterprise Security', desc: 'Tenant isolation, RBAC, secure token storage, and session hardening.' },
+  {
+    icon: '◈',
+    title: 'AI-native campaign intelligence',
+    desc: 'Research, strategy, production, approvals, and publish workflows in one control plane.',
+  },
+  {
+    icon: '◎',
+    title: 'Platform-aware delivery',
+    desc: 'Operate Facebook, Instagram, LinkedIn, X, YouTube, Reddit, and TikTok from a shared API surface.',
+  },
+  {
+    icon: '⇄',
+    title: 'OpenClaw + Lobster boundary',
+    desc: 'Keep browsers talking only to Aries while the runtime delegates execution through the gateway safely.',
+  },
+  {
+    icon: '✦',
+    title: 'Operational approvals',
+    desc: 'Human-in-the-loop review, retries, sync controls, and route-safe status views for critical flows.',
+  },
 ];
 
 export default function HomePage() {
   return (
     <MarketingLayout currentPath="/">
-      {/* Hero */}
-      <section className="hero">
-        <img
-          src="/aries.webp"
-          alt="Aries AI"
-          className="hero-logo"
-          width={180}
-          height={180}
-        />
-        <span className="hero-brand">Aries AI</span>
-        <h1 className="hero-title">Next-Generation LLM-Powered Agent</h1>
-        <p className="hero-subtitle">
-          Sophisticated reasoning and seamless integrations for your most demanding tasks.
-        </p>
-        <div className="hero-actions">
-          <a href="/login" className="btn btn-primary btn-lg" id="cta-get-started">
-            Get Started
-          </a>
-          <a href="/features" className="btn btn-secondary btn-lg" id="cta-learn-more">
-            Explore Features
-          </a>
+      <section className="rd-hero">
+        <div className="rd-container rd-hero__grid">
+          <div>
+            <p className="rd-hero__eyebrow">Autonomous marketing operations</p>
+            <h1 className="rd-hero__title">
+              Turn campaign execution into an <span className="rd-gradient-text">observable growth system</span>
+            </h1>
+            <p className="rd-hero__description">
+              Aries gives teams a premium operator surface for running internal API workflows, approvals,
+              platform connections, and publish controls without leaking OpenClaw or Lobster internals into the browser.
+            </p>
+            <div className="rd-hero__actions">
+              <ButtonLink href="/login" id="cta-get-started">
+                Launch operator console
+              </ButtonLink>
+              <ButtonLink href="/features" variant="secondary" id="cta-learn-more">
+                Explore platform capabilities
+              </ButtonLink>
+            </div>
+          </div>
+
+          <Card>
+            <div style={{ display: 'grid', gap: '1rem' }}>
+              <div>
+                <p className="rd-section-label">Execution boundary</p>
+                <h2 style={{ margin: '1rem 0 0.75rem', fontFamily: 'var(--rd-font-display)', fontSize: '1.8rem' }}>
+                  Browser → Aries API → OpenClaw Gateway → Lobster
+                </h2>
+                <p className="rd-section-description">
+                  The browser stays inside Aries. Workflow execution stays server-side.
+                </p>
+              </div>
+
+              <div className="rd-metric-grid">
+                {HERO_METRICS.map((metric) => (
+                  <div key={metric.label} className="rd-glass" style={{ padding: '1rem', borderRadius: '1rem' }}>
+                    <strong style={{ display: 'block', fontSize: '1.8rem', fontFamily: 'var(--rd-font-display)' }}>
+                      {metric.value}
+                    </strong>
+                    <span style={{ color: 'var(--rd-text-secondary)', fontSize: '0.9rem' }}>{metric.label}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="rd-alert rd-alert--info">
+                <div>
+                  <strong style={{ display: 'block', marginBottom: '0.3rem' }}>Current runtime contract</strong>
+                  <span>Stable internal routes, typed frontend clients, and workflow-aware status handling.</span>
+                </div>
+              </div>
+            </div>
+          </Card>
         </div>
       </section>
 
-      {/* Features Preview */}
-      <section className="section">
-        <div className="container">
-          <div className="section-header">
-            <span className="section-label">Capabilities</span>
-            <h2 className="section-title">Built for Serious Work</h2>
-            <p className="section-desc">
-              From research to publishing, Aries orchestrates every stage of your content pipeline with precision.
+      <section className="rd-section">
+        <div className="rd-container" style={{ display: 'grid', gap: '1.5rem' }}>
+          <div style={{ display: 'grid', gap: '1rem', maxWidth: '48rem' }}>
+            <span className="rd-section-label">Capabilities</span>
+            <h2 className="rd-section-title">Built for teams that need control, not magic</h2>
+            <p className="rd-section-description">
+              From onboarding to multi-platform publishing, Aries keeps the UI semantic and operator-friendly while the backend
+              remains responsible for orchestration details.
             </p>
           </div>
-          <div className="grid-4">
+
+          <div className="rd-card-grid rd-card-grid--4">
             {FEATURES_PREVIEW.map((f) => (
-              <div className="glass-card" key={f.title}>
-                <div className="feature-icon">{f.icon}</div>
-                <h3 className="feature-title">{f.title}</h3>
-                <p className="feature-desc">{f.desc}</p>
-              </div>
+              <Card key={f.title}>
+                <div style={{ display: 'grid', gap: '1rem' }}>
+                  <span className="rd-feature-icon">{f.icon}</span>
+                  <h3 style={{ margin: 0, fontFamily: 'var(--rd-font-display)', fontSize: '1.25rem' }}>{f.title}</h3>
+                  <p className="rd-section-description" style={{ fontSize: '0.98rem' }}>{f.desc}</p>
+                </div>
+              </Card>
             ))}
           </div>
         </div>
       </section>
 
-      {/* CTA Section */}
-      <section className="section">
-        <div className="container" style={{ textAlign: 'center' }}>
-          <div className="section-header">
-            <span className="section-label">Get Started</span>
-            <h2 className="section-title">Ready to Transform Your Workflow?</h2>
-            <p className="section-desc">
-              Deploy Aries in minutes. Connect your platforms, configure your pipelines, and let the agent handle the rest.
-            </p>
-          </div>
-          <div className="hero-actions">
-            <a href="/contact" className="btn btn-primary btn-lg" id="cta-contact">
-              Contact Us
-            </a>
-            <a href="/documentation" className="btn btn-secondary btn-lg" id="cta-docs">
-              Read the Docs
-            </a>
-          </div>
+      <section className="rd-section">
+        <div className="rd-container">
+          <Card>
+            <div style={{ display: 'grid', gap: '1.25rem', textAlign: 'center', maxWidth: '52rem', margin: '0 auto' }}>
+              <span className="rd-section-label" style={{ justifySelf: 'center' }}>Get started</span>
+              <h2 className="rd-section-title">Operate campaigns with clearer contracts and a sharper interface</h2>
+              <p className="rd-section-description">
+                Start with the operator console, connect platforms through internal Aries routes, and keep campaign workflows visible end-to-end.
+              </p>
+              <div className="rd-hero__actions" style={{ justifyContent: 'center' }}>
+                <ButtonLink href="/login" id="cta-contact">
+                  Open the console
+                </ButtonLink>
+                <ButtonLink href="/documentation" variant="secondary" id="cta-docs">
+                  Read deployment docs
+                </ButtonLink>
+              </div>
+            </div>
+          </Card>
         </div>
       </section>
     </MarketingLayout>

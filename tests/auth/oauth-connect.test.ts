@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { handleIntegrationsConnect, handleIntegrationsDisconnect, handleOauthReconnect } from '../../app/api/integrations/handlers';
+import { handleOauthCallbackHttp } from '../../backend/integrations/callback';
 import { oauthStore } from '../../backend/integrations/connect';
 import { buildOauthConnectInput } from '../../lib/oauth-connect-input';
 import { verifyLogin } from '../../frontend/services/supabase';
@@ -253,4 +254,41 @@ test('oauth reconnect routes reject requests without tenant context', async () =
   assert.equal(response.status, 403);
   assert.equal(body.status, 'error');
   assert.equal(body.reason, 'tenant_context_required');
+});
+
+test('oauth callback redirects browser requests to the branded OAuth screen', async () => {
+  resetOauthStore();
+  oauthStore().pendingByState.set('state_valid123', {
+    state: 'state_valid123',
+    provider: 'facebook',
+    tenant_id: 'tenant_real',
+    redirect_uri: 'https://aries.example.com/api/auth/oauth/facebook/callback',
+    scopes: ['pages_manage_posts'],
+    expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
+  });
+
+  const previousAppBaseUrl = process.env.APP_BASE_URL;
+  process.env.APP_BASE_URL = 'https://aries.example.com';
+
+  try {
+    const response = await handleOauthCallbackHttp(
+      new Request('https://aries.example.com/api/auth/oauth/facebook/callback?code=oauth_code&state=state_valid123', {
+        headers: {
+          accept: 'text/html,application/xhtml+xml',
+        },
+      }),
+      'facebook'
+    );
+
+    assert.equal(response.status, 302);
+    const location = response.headers.get('location') || '';
+    assert.match(location, /^https:\/\/aries\.example\.com\/oauth\/connect\/facebook\?/);
+    assert.match(location, /result=connected/);
+  } finally {
+    if (previousAppBaseUrl === undefined) {
+      delete process.env.APP_BASE_URL;
+    } else {
+      process.env.APP_BASE_URL = previousAppBaseUrl;
+    }
+  }
 });

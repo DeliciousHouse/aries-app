@@ -1,9 +1,12 @@
 'use client';
 
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 
-import { createOnboardingClient } from '../api/client/onboarding';
-import type { OnboardingStatusError, OnboardingStatusSuccess } from '../api/contracts/onboarding';
+import type { OnboardingStatusError, OnboardingStatusSuccess } from '@/lib/api/onboarding';
+import { useOnboardingStatus } from '@/hooks/use-onboarding-status';
+import { Button } from '@/components/redesign/primitives/button';
+import { Card } from '@/components/redesign/primitives/card';
+import { TextInput } from '@/components/redesign/primitives/input';
 import StatusBadge from '../components/status-badge';
 
 type OnboardingStatusResponse = OnboardingStatusSuccess | OnboardingStatusError;
@@ -19,34 +22,30 @@ export default function OnboardingStatusScreen({
   initialTenantId = '',
   initialSignupEventId = ''
 }: OnboardingStatusScreenProps): JSX.Element {
-  const client = useMemo(() => createOnboardingClient({ baseUrl }), [baseUrl]);
+  const onboardingStatus = useOnboardingStatus({ baseUrl, autoLoad: false });
 
   const [tenantId, setTenantId] = useState(initialTenantId);
   const [signupEventId, setSignupEventId] = useState(initialSignupEventId);
   const [loading, setLoading] = useState(false);
   const [response, setResponse] = useState<OnboardingStatusResponse | null>(null);
-  const [requestError, setRequestError] = useState<string | null>(null);
 
   async function checkStatus(rawTenantId: string, rawSignupEventId = signupEventId): Promise<void> {
     const normalizedTenantId = rawTenantId.trim();
     if (!normalizedTenantId) {
-      setRequestError('tenant_id is required');
       setResponse(null);
+      onboardingStatus.setError(new Error('tenant_id is required'));
       return;
     }
 
     setLoading(true);
-    setRequestError(null);
+    onboardingStatus.reset();
 
     try {
       const normalizedSignupEventId = rawSignupEventId.trim();
-      const result = await client.status(normalizedTenantId, normalizedSignupEventId ? {
+      const result = await onboardingStatus.load(normalizedTenantId, normalizedSignupEventId ? {
         signup_event_id: normalizedSignupEventId
       } : undefined);
       setResponse(result);
-    } catch {
-      setResponse(null);
-      setRequestError('Unable to load onboarding status.');
     } finally {
       setLoading(false);
     }
@@ -72,72 +71,75 @@ export default function OnboardingStatusScreen({
   const success = !isStatusError && response ? (response as OnboardingStatusSuccess) : null;
 
   return (
-    <section>
-      <h1>Onboarding Status</h1>
-      <p>Enter a tenant ID to check current onboarding, provisioning, and validation states.</p>
+    <div className="rd-workflow-grid rd-workflow-grid--2">
+      <Card>
+        <form onSubmit={onSubmit} style={{ display: 'grid', gap: '1rem' }}>
+          <div>
+            <p className="rd-section-label">Onboarding status</p>
+            <h1 style={{ margin: '0.8rem 0 0.5rem', fontFamily: 'var(--rd-font-display)', fontSize: '2rem' }}>
+              Inspect tenant provisioning progress
+            </h1>
+            <p className="rd-section-description">
+              Query the browser-safe status route with a tenant ID and optional signup event ID to inspect current provisioning and validation state.
+            </p>
+          </div>
 
-      <form onSubmit={onSubmit}>
-        <label>
-          tenant_id
-          <input
-            name="tenant_id"
-            value={tenantId}
-            onChange={(e) => setTenantId(e.currentTarget.value)}
-            placeholder="acme"
-            required
-          />
-        </label>
+          <label className="rd-field">
+            <span className="rd-label">Tenant ID</span>
+            <TextInput value={tenantId} onChange={(e) => setTenantId(e.currentTarget.value)} placeholder="tenant_alpha" required />
+          </label>
 
-        <label>
-          signup_event_id (optional)
-          <input
-            name="signup_event_id"
-            value={signupEventId}
-            onChange={(e) => setSignupEventId(e.currentTarget.value)}
-            placeholder="signup_evt_..."
-          />
-        </label>
+          <label className="rd-field">
+            <span className="rd-label">Signup Event ID (optional)</span>
+            <TextInput value={signupEventId} onChange={(e) => setSignupEventId(e.currentTarget.value)} placeholder="signup_evt_123" />
+          </label>
 
-        <button type="submit" disabled={loading || !tenantId.trim()}>
-          {loading ? 'Checking status…' : 'Check status'}
-        </button>
-      </form>
+          <Button type="submit" disabled={loading || !tenantId.trim()}>
+            {loading ? 'Checking status…' : 'Check status'}
+          </Button>
 
-      {loading && <p>Loading onboarding status…</p>}
+          {loading ? <div className="rd-alert rd-alert--info">Loading onboarding status…</div> : null}
+          {onboardingStatus.error ? <div className="rd-alert rd-alert--danger">{onboardingStatus.error.message}</div> : null}
+          {response && isStatusError ? (
+            <div className="rd-alert rd-alert--danger">
+              Request failed: {(response as OnboardingStatusError).reason}
+            </div>
+          ) : null}
+        </form>
+      </Card>
 
-      {requestError && <p role="alert">{requestError}</p>}
+      <Card>
+        <div style={{ display: 'grid', gap: '1rem' }}>
+          <p className="rd-section-label">Current state</p>
 
-      {response && isStatusError && (
-        <div>
-          <h2>Request failed</h2>
-          <p>
-            <strong>reason:</strong> {(response as OnboardingStatusError).reason}
-          </p>
+          {!success ? (
+            <div className="rd-empty" style={{ minHeight: '320px' }}>
+              <strong>No onboarding snapshot yet</strong>
+              <p>Run a status check to see provisioning state, validation state, and artifact availability.</p>
+            </div>
+          ) : (
+            <>
+              <div className="rd-summary-list">
+                <div className="rd-summary-row"><strong>tenant_id</strong><span>{success.tenant_id}</span></div>
+                <div className="rd-summary-row"><strong>onboarding_status</strong><StatusBadge status={success.onboarding_status} /></div>
+                <div className="rd-summary-row"><strong>provisioning_status</strong><StatusBadge status={success.provisioning_status} /></div>
+                <div className="rd-summary-row"><strong>validation_status</strong><StatusBadge status={success.validation_status} /></div>
+                <div className="rd-summary-row"><strong>progress_hint</strong><span>{success.progress_hint}</span></div>
+              </div>
+
+              <div>
+                <p className="rd-label" style={{ marginBottom: '0.75rem' }}>Available artifacts</p>
+                <div className="rd-chip-group">
+                  <span className="rd-chip" data-active={success.artifacts.draft}>draft</span>
+                  <span className="rd-chip" data-active={success.artifacts.validated}>validated</span>
+                  <span className="rd-chip" data-active={success.artifacts.validation_report}>validation report</span>
+                  <span className="rd-chip" data-active={success.artifacts.idempotency_marker}>idempotency marker</span>
+                </div>
+              </div>
+            </>
+          )}
         </div>
-      )}
-
-      {success && (
-        <div>
-          <h2>Current status</h2>
-          <p>
-            <strong>tenant_id:</strong> {success.tenant_id}
-          </p>
-          <p>
-            <strong>onboarding_status:</strong> {success.onboarding_status}{' '}
-            <StatusBadge status={success.onboarding_status} />
-          </p>
-          <p>
-            <strong>provisioning_status:</strong> {success.provisioning_status}{' '}
-            <StatusBadge status={success.provisioning_status} />
-          </p>
-          <p>
-            <strong>validation_status:</strong> {success.validation_status}{' '}
-            <StatusBadge status={success.validation_status} />
-          </p>
-          <h3>paths</h3>
-          <pre>{JSON.stringify(success.paths, null, 2)}</pre>
-        </div>
-      )}
-    </section>
+      </Card>
+    </div>
   );
 }

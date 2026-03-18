@@ -1,6 +1,17 @@
 import { NextResponse } from 'next/server';
 import { getMarketingJobStatus } from '../../../../../backend/marketing/jobs-status';
 
+function needsAttention(status: string) {
+  return [
+    'error',
+    'failed',
+    'blocked',
+    'needs_repair',
+    'hard_failure',
+    'rejected',
+  ].includes(status);
+}
+
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ jobId: string }> }
@@ -17,9 +28,7 @@ export async function GET(
         marketing_stage: result.currentStage,
         marketing_stage_status: result.stageStatus,
         updatedAt: result.updatedAt,
-        runtimeArtifactPath: result.runtimeArtifactPath,
-        runtimePath: result.runtimeArtifactPath,
-        runtimePathDeprecated: true
+        needs_attention: needsAttention(result.status)
       },
       { status: 200 }
     );
