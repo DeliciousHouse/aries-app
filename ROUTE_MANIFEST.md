@@ -29,6 +29,7 @@
 | `/marketing/job-approve` | Job Approval | Redesigned human-in-the-loop approval controls |
 | `/onboarding/start` | Onboarding Start | Redesigned tenant onboarding launch flow |
 | `/onboarding/status` | Onboarding Status | Browser-safe onboarding status reader with artifact summaries |
+| `/oauth/connect/:provider` | OAuth Handoff | Branded Aries OAuth connect/reconnect/result surface |
 
 ## API Routes
 

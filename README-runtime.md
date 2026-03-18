@@ -9,6 +9,7 @@ This is the thinnest runnable app shell for Aries on `http://localhost:3000`.
   - `/marketing/new-job`
   - `/marketing/job-status`
   - `/marketing/job-approve`
+  - `/oauth/connect/:provider`
   - `/platforms`
   - `/settings`
 - API endpoints:
@@ -61,6 +62,7 @@ If running directly on host Node, set `CODE_ROOT` and `DATA_ROOT` to host-valid 
 - Browser-facing API responses are now route-safe and do not expose workflow artifact paths or raw backend envelopes.
 - `/settings` is a read-only placeholder because `/api/tenant-admin/settings` is not implemented in this runtime.
 - `/platforms` loads live OAuth broker state on mount and only shows token expiry when the backend has a real expiry timestamp.
+- `/oauth/connect/:provider` provides the branded OAuth handoff/result surface and reuses the existing Aries auth presentation/motion system.
 - `/posts` exposes publish dispatch and retry controls through internal Aries API routes.
 - `/calendar` exposes calendar sync controls through the internal Aries API route.
 - `/api/onboarding/status/:tenantId`, `GET /api/marketing/jobs/:jobId`, and some marketing approval fallback behavior are local runtime readers/fallbacks, not direct workflow status queries.
