@@ -109,3 +109,40 @@ test('/api/integrations leaves sync timing unknown unless real sync telemetry ex
   assert.equal(instagram?.health, 'unknown');
   assert.equal(instagram?.expires_at ?? null, null);
 });
+
+test('/api/integrations marks expired connections as reauthorization-required attention items', async () => {
+  resetOauthStore();
+
+  seedConnectedProvider({
+    tenantId: 'tenant_123',
+    provider: 'facebook',
+    connectionId: 'conn_facebook',
+    updatedAt: '2020-01-01T00:00:00.000Z',
+    tokenExpiresAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+  });
+
+  const response = await handleIntegrationsGet(async () => ({
+    userId: 'user_123',
+    tenantId: 'tenant_123',
+    tenantSlug: 'acme',
+    role: 'tenant_admin',
+  }));
+  const body = (await response.json()) as {
+    status: string;
+    summary: {
+      attention_required: number;
+    };
+    cards: Array<{
+      platform: string;
+      connection_state: string;
+      available_actions: string[];
+    }>;
+  };
+
+  assert.equal(response.status, 200);
+  assert.equal(body.summary.attention_required, 1);
+
+  const facebook = body.cards.find((card) => card.platform === 'facebook');
+  assert.equal(facebook?.connection_state, 'reauth_required');
+  assert.deepEqual(facebook?.available_actions, ['reconnect', 'view_permissions']);
+});

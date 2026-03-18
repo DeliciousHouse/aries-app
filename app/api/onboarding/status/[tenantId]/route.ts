@@ -1,6 +1,21 @@
 import { NextResponse } from 'next/server';
 import { getOnboardingStatus } from '../../../../../backend/onboarding/status';
 
+function progressHintFor(provisioningStatus: string) {
+  switch (provisioningStatus) {
+    case 'validated':
+      return 'validated';
+    case 'needs_repair':
+      return 'repair_needed';
+    case 'duplicate':
+      return 'duplicate_request';
+    case 'in_progress':
+      return 'waiting_for_validation';
+    default:
+      return 'not_started';
+  }
+}
+
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ tenantId: string }> }
@@ -22,8 +37,13 @@ export async function GET(
         signup_event_id: result.signup_event_id,
         provisioning_status: result.state,
         validation_status: result.validation_status,
-        paths: result.paths,
-        pathsAreRelative: true
+        progress_hint: progressHintFor(result.state ?? 'not_found'),
+        artifacts: {
+          draft: Boolean(result.paths?.draft),
+          validated: Boolean(result.paths?.validated),
+          validation_report: Boolean(result.paths?.validation_report),
+          idempotency_marker: Boolean(result.paths?.idempotency_marker)
+        }
       },
       { status: 200 }
     );

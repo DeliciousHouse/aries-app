@@ -40,9 +40,7 @@ export async function POST(req: Request) {
         tenant_id: result.tenant_id,
         tenant_type: result.tenant_type,
         signup_event_id: result.signup_event_id,
-        onboarding_status: result.state,
-        workflow_status: result.workflow_status,
-        raw: result.raw
+        onboarding_status: result.state
       },
       { status: 200 }
     );
@@ -55,8 +53,9 @@ export async function POST(req: Request) {
       tenant_id: result.tenant_id,
       tenant_type: result.tenant_type,
       signup_event_id: result.signup_event_id,
-      workflow_status: result.workflow_status,
-      raw: result.raw,
+      message: typeof result.raw === 'object' && result.raw && 'message' in result.raw
+        ? String((result.raw as { message?: string }).message)
+        : undefined,
       reason: result.reason
     },
     { status: code }

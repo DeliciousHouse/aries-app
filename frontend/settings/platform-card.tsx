@@ -1,70 +1,14 @@
 "use client";
 
-export type PlatformKey =
-  | 'facebook'
-  | 'instagram'
-  | 'linkedin'
-  | 'x'
-  | 'youtube'
-  | 'reddit'
-  | 'tiktok';
+import type {
+  IntegrationCard as PlatformIntegrationCardData,
+  IntegrationCardAction,
+  IntegrationConnectionState,
+  IntegrationHealth,
+  IntegrationPlatform as PlatformKey,
+} from '@/lib/api/integrations';
 
-export type IntegrationConnectionState =
-  | 'not_connected'
-  | 'connection_pending'
-  | 'connected'
-  | 'connection_error'
-  | 'reauth_required'
-  | 'disabled';
-
-export type IntegrationHealth = 'unknown' | 'healthy' | 'degraded' | 'error';
-
-export type IntegrationCardAction =
-  | 'connect'
-  | 'reconnect'
-  | 'disconnect'
-  | 'sync_now'
-  | 'view_permissions';
-
-export type IntegrationErrorCode =
-  | 'invalid_platform'
-  | 'provider_unavailable'
-  | 'auth_denied'
-  | 'token_expired'
-  | 'rate_limited'
-  | 'validation_failed'
-  | 'unknown';
-
-export interface IntegrationPermission {
-  permission: string;
-  granted: boolean;
-}
-
-export interface ConnectedAccount {
-  account_id: string;
-  account_label: string;
-  avatar_url?: string;
-}
-
-export interface IntegrationCardError {
-  code: IntegrationErrorCode;
-  message: string;
-  retry_after_seconds?: number;
-}
-
-export interface PlatformIntegrationCardData {
-  platform: PlatformKey;
-  display_name: string;
-  description: string;
-  connection_state: IntegrationConnectionState;
-  health: IntegrationHealth;
-  connected_account?: ConnectedAccount;
-  available_actions: IntegrationCardAction[];
-  last_synced_at: string | null;
-  expires_at?: string | null;
-  permissions: IntegrationPermission[];
-  error?: IntegrationCardError;
-}
+export type { IntegrationCardAction, IntegrationHealth, PlatformIntegrationCardData, PlatformKey };
 
 export interface PlatformCardProps {
   card: PlatformIntegrationCardData;

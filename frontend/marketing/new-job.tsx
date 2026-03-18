@@ -1,24 +1,28 @@
 "use client";
 
-import React, { useMemo, useState, type FormEvent } from 'react';
+import React, { useState, type FormEvent } from 'react';
 import Link from 'next/link';
 
-import { createMarketingClient, type MarketingClientOptions } from '../api/client/marketing';
-import type { PostMarketingJobsRequest, StartJobAccepted, HardFailureError, UnhandledError } from '../api/contracts/marketing';
+import type {
+  MarketingApiError,
+  PostMarketingJobsRequest,
+  StartJobAccepted,
+} from '@/lib/api/marketing';
+import { useMarketingJobCreate, type UseMarketingJobCreateOptions } from '@/hooks/use-marketing-job-create';
 import StatusBadge from '../components/status-badge';
 
-type CreateJobResult = StartJobAccepted | HardFailureError | UnhandledError;
+type CreateJobResult = StartJobAccepted | MarketingApiError;
 
-function isErrorResult(value: CreateJobResult): value is HardFailureError | UnhandledError {
-  return typeof (value as HardFailureError | UnhandledError)?.error === 'string';
+function isErrorResult(value: CreateJobResult): value is MarketingApiError {
+  return typeof (value as MarketingApiError)?.error === 'string';
 }
 
 export interface MarketingNewJobScreenProps {
-  clientOptions?: MarketingClientOptions;
+  clientOptions?: UseMarketingJobCreateOptions;
 }
 
 export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
-  const client = useMemo(() => createMarketingClient(props.clientOptions), [props.clientOptions]);
+  const marketingCreate = useMarketingJobCreate(props.clientOptions);
 
   const [tenantId, setTenantId] = useState('');
   const [brandUrl, setBrandUrl] = useState('');
@@ -57,7 +61,11 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
 
     setSubmitting(true);
     try {
-      const response = await client.createJob(request);
+      const response = await marketingCreate.createJob(request);
+      if (!response) {
+        setErrorText('Failed to create marketing job');
+        return;
+      }
 
       if (isErrorResult(response)) {
         setErrorText(response.error);
@@ -65,8 +73,6 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
       }
 
       setSuccess(response);
-    } catch {
-      setErrorText('Failed to create marketing job');
     } finally {
       setSubmitting(false);
     }

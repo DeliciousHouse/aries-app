@@ -56,7 +56,14 @@ export function buildIntegrationsPageData(tenantId: string) {
       description: `Connect ${PROVIDER_REGISTRY[platform].display_name}`,
       connection_state: mapState(status.connection_status),
       health: mapHealth(status.connection_status, status.token_expires_at),
-      available_actions: status.connection_status === 'connected' ? ['sync_now', 'disconnect', 'view_permissions'] : ['connect', 'view_permissions'],
+      available_actions:
+        status.connection_status === 'connected'
+          ? ['sync_now', 'disconnect', 'view_permissions']
+          : status.connection_status === 'token_expired' ||
+              status.connection_status === 'revoked' ||
+              status.connection_status === 'permission_denied'
+            ? ['reconnect', 'view_permissions']
+            : ['connect', 'view_permissions'],
       last_synced_at: null,
       expires_at: status.token_expires_at || null,
       permissions: []
@@ -67,7 +74,9 @@ export function buildIntegrationsPageData(tenantId: string) {
     total: platforms.length,
     connected: cards.filter((c) => c.connection_state === 'connected').length,
     not_connected: cards.filter((c) => c.connection_state === 'not_connected').length,
-    attention_required: cards.filter((c) => c.connection_state === 'connection_error').length
+    attention_required: cards.filter((c) =>
+      c.connection_state === 'connection_error' || c.connection_state === 'reauth_required'
+    ).length
   };
 
   return { status: 'ok', page_state: 'ready', supported_platforms: platforms, cards, summary };

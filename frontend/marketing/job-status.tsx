@@ -1,13 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 
-import { createMarketingClient } from '../api/client/marketing';
 import type {
   GetMarketingJobStatusResponse,
-  HardFailureError,
-  UnhandledError
-} from '../api/contracts/marketing';
+  MarketingApiError,
+} from '@/lib/api/marketing';
+import { useMarketingJobStatus } from '@/hooks/use-marketing-job-status';
 import StatusBadge from '../components/status-badge';
 import {
   marketing_job_status_values,
@@ -16,7 +15,7 @@ import {
 } from '../types/runtime';
 import { getMarketingStateHints, nextStepGuidance } from './state-view';
 
-type JobStatusResult = GetMarketingJobStatusResponse | HardFailureError | UnhandledError;
+type JobStatusResult = GetMarketingJobStatusResponse | MarketingApiError;
 
 export interface MarketingJobStatusScreenProps {
   baseUrl?: string;
@@ -27,33 +26,33 @@ export function normalizeMarketingJobId(jobId?: string): string {
   return jobId?.trim() || '';
 }
 
-function isErrorResult(value: JobStatusResult | null): value is HardFailureError | UnhandledError {
+function isErrorResult(value: JobStatusResult | null): value is MarketingApiError {
   return !!value && typeof value === 'object' && 'error' in value;
 }
 
 export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
-  const client = useMemo(() => createMarketingClient({ baseUrl: props.baseUrl }), [props.baseUrl]);
+  const marketingStatus = useMarketingJobStatus({
+    baseUrl: props.baseUrl,
+    jobId: props.defaultJobId,
+    autoLoad: false,
+  });
 
   const [jobId, setJobId] = useState(normalizeMarketingJobId(props.defaultJobId));
   const [loading, setLoading] = useState(false);
-  const [requestError, setRequestError] = useState<string | null>(null);
   const [result, setResult] = useState<JobStatusResult | null>(null);
 
   async function loadStatus(rawJobId: string) {
     const trimmedJobId = normalizeMarketingJobId(rawJobId);
     if (!trimmedJobId) {
-      setRequestError('jobId is required');
+      marketingStatus.setError(new Error('jobId is required'));
       return;
     }
 
     setLoading(true);
-    setRequestError(null);
     try {
-      const response = await client.getJob(trimmedJobId);
+      marketingStatus.reset();
+      const response = await marketingStatus.load(trimmedJobId);
       setResult(response);
-    } catch (error) {
-      setResult(null);
-      setRequestError(error instanceof Error ? error.message : 'Failed to load job status');
     } finally {
       setLoading(false);
     }
@@ -111,7 +110,7 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
         </button>
       </div>
 
-      {requestError ? <pre style={{ marginTop: 16 }}>{requestError}</pre> : null}
+      {marketingStatus.error ? <pre style={{ marginTop: 16 }}>{marketingStatus.error.message}</pre> : null}
 
       {result && isErrorResult(result) ? (
         <div style={{ marginTop: 16 }}>
@@ -169,8 +168,9 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
             </ul>
           )}
 
-          <h4>Raw response</h4>
-          <pre>{JSON.stringify(successResult, null, 2)}</pre>
+          {successResult.needs_attention ? (
+            <p role="alert">This workflow needs attention before it can continue.</p>
+          ) : null}
         </div>
       ) : null}
     </section>

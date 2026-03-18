@@ -1,13 +1,13 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { createOnboardingClient } from '../api/client/onboarding';
 import type {
   OnboardingStartError,
   OnboardingStartRequest,
   OnboardingStartSuccess
-} from '../api/contracts/onboarding';
+} from '@/lib/api/onboarding';
+import { useOnboardingStart } from '@/hooks/use-onboarding-start';
 
 type StartResult = OnboardingStartSuccess | OnboardingStartError | null;
 
@@ -37,8 +37,8 @@ export function resolveOnboardingStatusHref(
 }
 
 export default function OnboardingStartScreen(): JSX.Element {
-  const client = useMemo(() => createOnboardingClient(), []);
   const router = useRouter();
+  const onboardingStart = useOnboardingStart();
 
   const [tenantId, setTenantId] = useState('');
   const [proposedSlug, setProposedSlug] = useState('');
@@ -55,7 +55,6 @@ export default function OnboardingStartScreen(): JSX.Element {
 
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<StartResult>(null);
-  const [clientError, setClientError] = useState<string | null>(null);
 
   function compactMetadata(values: MetadataDraft): MetadataDraft | undefined {
     const metadata = Object.fromEntries(
@@ -71,7 +70,6 @@ export default function OnboardingStartScreen(): JSX.Element {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    setClientError(null);
     setResult(null);
     setLoading(true);
 
@@ -96,16 +94,16 @@ export default function OnboardingStartScreen(): JSX.Element {
         delete body.metadata;
       }
 
-      const startResult = await client.start(body);
+      const startResult = await onboardingStart.start(body);
+      if (!startResult) {
+        setResult(null);
+        return;
+      }
       setResult(startResult);
 
       if ('status' in startResult && startResult.status === 'ok') {
         router.push(resolveOnboardingStatusHref(startResult, resolvedTenantId, resolvedSignupEventId));
       }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown client error';
-      setClientError(message);
-      setResult(null);
     } finally {
       setLoading(false);
     }
@@ -221,7 +219,7 @@ export default function OnboardingStartScreen(): JSX.Element {
 
       {loading ? <p>Submitting onboarding start request…</p> : null}
 
-      {clientError ? <p role="alert">Client error: {clientError}</p> : null}
+      {onboardingStart.error ? <p role="alert">Client error: {onboardingStart.error.message}</p> : null}
 
       {result && 'status' in result && result.status === 'ok' ? (
         <div>
@@ -230,14 +228,13 @@ export default function OnboardingStartScreen(): JSX.Element {
             If you are not redirected, continue to{' '}
             <a href={resolveOnboardingStatusHref(result, resolvedTenantId, resolvedSignupEventId)}>/onboarding/status</a>.
           </p>
-          <pre>{JSON.stringify(result, null, 2)}</pre>
         </div>
       ) : null}
 
       {result?.onboarding_status === 'error' ? (
         <div>
           <p role="alert">Onboarding start failed: {result.reason}</p>
-          <pre>{JSON.stringify(result, null, 2)}</pre>
+          {result.message ? <p>{result.message}</p> : null}
         </div>
       ) : null}
     </section>

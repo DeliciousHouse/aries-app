@@ -1,9 +1,9 @@
 'use client';
 
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 
-import { createOnboardingClient } from '../api/client/onboarding';
-import type { OnboardingStatusError, OnboardingStatusSuccess } from '../api/contracts/onboarding';
+import type { OnboardingStatusError, OnboardingStatusSuccess } from '@/lib/api/onboarding';
+import { useOnboardingStatus } from '@/hooks/use-onboarding-status';
 import StatusBadge from '../components/status-badge';
 
 type OnboardingStatusResponse = OnboardingStatusSuccess | OnboardingStatusError;
@@ -19,34 +19,30 @@ export default function OnboardingStatusScreen({
   initialTenantId = '',
   initialSignupEventId = ''
 }: OnboardingStatusScreenProps): JSX.Element {
-  const client = useMemo(() => createOnboardingClient({ baseUrl }), [baseUrl]);
+  const onboardingStatus = useOnboardingStatus({ baseUrl, autoLoad: false });
 
   const [tenantId, setTenantId] = useState(initialTenantId);
   const [signupEventId, setSignupEventId] = useState(initialSignupEventId);
   const [loading, setLoading] = useState(false);
   const [response, setResponse] = useState<OnboardingStatusResponse | null>(null);
-  const [requestError, setRequestError] = useState<string | null>(null);
 
   async function checkStatus(rawTenantId: string, rawSignupEventId = signupEventId): Promise<void> {
     const normalizedTenantId = rawTenantId.trim();
     if (!normalizedTenantId) {
-      setRequestError('tenant_id is required');
       setResponse(null);
+      onboardingStatus.setError(new Error('tenant_id is required'));
       return;
     }
 
     setLoading(true);
-    setRequestError(null);
+    onboardingStatus.reset();
 
     try {
       const normalizedSignupEventId = rawSignupEventId.trim();
-      const result = await client.status(normalizedTenantId, normalizedSignupEventId ? {
+      const result = await onboardingStatus.load(normalizedTenantId, normalizedSignupEventId ? {
         signup_event_id: normalizedSignupEventId
       } : undefined);
       setResponse(result);
-    } catch {
-      setResponse(null);
-      setRequestError('Unable to load onboarding status.');
     } finally {
       setLoading(false);
     }
@@ -105,7 +101,7 @@ export default function OnboardingStatusScreen({
 
       {loading && <p>Loading onboarding status…</p>}
 
-      {requestError && <p role="alert">{requestError}</p>}
+      {onboardingStatus.error && <p role="alert">{onboardingStatus.error.message}</p>}
 
       {response && isStatusError && (
         <div>
@@ -134,8 +130,16 @@ export default function OnboardingStatusScreen({
             <strong>validation_status:</strong> {success.validation_status}{' '}
             <StatusBadge status={success.validation_status} />
           </p>
-          <h3>paths</h3>
-          <pre>{JSON.stringify(success.paths, null, 2)}</pre>
+          <p>
+            <strong>progress_hint:</strong> {success.progress_hint}
+          </p>
+          <h3>available artifacts</h3>
+          <ul>
+            <li>draft: {success.artifacts.draft ? 'yes' : 'no'}</li>
+            <li>validated: {success.artifacts.validated ? 'yes' : 'no'}</li>
+            <li>validation report: {success.artifacts.validation_report ? 'yes' : 'no'}</li>
+            <li>idempotency marker: {success.artifacts.idempotency_marker ? 'yes' : 'no'}</li>
+          </ul>
         </div>
       )}
     </section>

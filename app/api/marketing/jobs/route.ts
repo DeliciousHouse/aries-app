@@ -18,10 +18,7 @@ export async function POST(req: Request) {
         jobId: result.jobId,
         tenantId: result.tenantId,
         jobType: result.jobType,
-        wiring: result.wiring,
-        runtimeArtifactPath: result.runtimeArtifactPath,
-        runtimePath: result.runtimeArtifactPath,
-        runtimePathDeprecated: true
+        wiring: result.wiring
       },
       { status: 202 }
     );

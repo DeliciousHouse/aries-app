@@ -1,15 +1,15 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from 'react';
-import { createMarketingClient } from '../api/client/marketing';
+import { useState, type ReactNode } from 'react';
 import type {
   ApproveJobResult,
   GetMarketingJobStatusResponse,
-  HardFailureError,
+  MarketingApiError,
   MarketingStage,
   PostMarketingJobApproveRequest,
-  UnhandledError
-} from '../api/contracts/marketing';
+} from '@/lib/api/marketing';
+import { useMarketingJobApprove } from '@/hooks/use-marketing-job-approve';
+import { useMarketingJobStatus } from '@/hooks/use-marketing-job-status';
 import StatusBadge from '../components/status-badge';
 import {
   marketing_job_status_values,
@@ -18,8 +18,8 @@ import {
 } from '../types/runtime';
 import { getMarketingStateHints, nextStepGuidance } from './state-view';
 
-type ApproveResult = ApproveJobResult | HardFailureError | UnhandledError;
-type JobStatusResult = GetMarketingJobStatusResponse | HardFailureError | UnhandledError;
+type ApproveResult = ApproveJobResult | MarketingApiError;
+type JobStatusResult = GetMarketingJobStatusResponse | MarketingApiError;
 
 const APPROVAL_STAGE_VALUES: MarketingStage[] = ['research', 'strategy', 'production', 'publish'];
 
@@ -30,7 +30,7 @@ export interface MarketingJobApproveScreenProps {
   defaultApprovedBy?: string;
 }
 
-function isErrorResult(value: unknown): value is HardFailureError | UnhandledError {
+function isErrorResult(value: unknown): value is MarketingApiError {
   return !!value && typeof value === 'object' && 'error' in value;
 }
 
@@ -53,7 +53,8 @@ function Field({
 }
 
 export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps) {
-  const client = useMemo(() => createMarketingClient({ baseUrl: props.baseUrl }), [props.baseUrl]);
+  const marketingApprove = useMarketingJobApprove({ baseUrl: props.baseUrl });
+  const marketingStatus = useMarketingJobStatus({ baseUrl: props.baseUrl, autoLoad: false });
 
   const [jobId, setJobId] = useState(props.defaultJobId ?? '');
   const [tenantId, setTenantId] = useState(props.defaultTenantId ?? '');
@@ -63,7 +64,6 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
 
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [requestError, setRequestError] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<JobStatusResult | null>(null);
   const [approveResult, setApproveResult] = useState<ApproveResult | null>(null);
 
@@ -76,14 +76,11 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
   async function handleLoadStatus() {
     if (!jobId.trim()) return;
     setLoadingStatus(true);
-    setRequestError(null);
     setApproveResult(null);
     try {
-      const result = await client.getJob(jobId.trim());
+      marketingStatus.reset();
+      const result = await marketingStatus.load(jobId.trim());
       setJobStatus(result);
-    } catch (error) {
-      setJobStatus(null);
-      setRequestError(error instanceof Error ? error.message : 'Failed to load current job status');
     } finally {
       setLoadingStatus(false);
     }
@@ -106,17 +103,18 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
     };
 
     setSubmitting(true);
-    setRequestError(null);
     setApproveResult(null);
     try {
-      const result = await client.approveJob(jobId.trim(), body);
+      marketingApprove.reset();
+      const result = await marketingApprove.approveJob(jobId.trim(), body);
+      if (!result) {
+        return;
+      }
       setApproveResult(result);
       if (!isErrorResult(result)) {
-        const refreshed = await client.getJob(jobId.trim());
+        const refreshed = await marketingStatus.load(jobId.trim());
         setJobStatus(refreshed);
       }
-    } catch (error) {
-      setRequestError(error instanceof Error ? error.message : 'Approval request failed');
     } finally {
       setSubmitting(false);
     }
@@ -285,9 +283,9 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
               </button>
             </div>
 
-            {requestError ? (
+            {marketingStatus.error || marketingApprove.error ? (
               <div style={{ border: '1px solid #dc2626', borderRadius: 10, padding: '8px 10px', color: '#991b1b' }}>
-                {requestError}
+                {marketingApprove.error?.message || marketingStatus.error?.message}
               </div>
             ) : null}
           </article>
