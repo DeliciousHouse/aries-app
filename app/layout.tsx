@@ -1,17 +1,17 @@
 import type { ReactNode } from 'react';
 import './globals.css';
-import { ARIES_FAVICON_PNG_PATH, ARIES_FAVICON_SVG_PATH, ARIES_LOGO_WEBP_PATH } from '@/lib/brand';
+import { ARIES_FAVICON_ICO_PATH, ARIES_FAVICON_PNG_PATH, ARIES_LOGO_WEBP_PATH } from '@/lib/brand';
 
 export const metadata = {
   title: 'Aries AI — Next-Generation LLM-Powered Agent',
   description: 'Sophisticated reasoning and seamless integrations for your most demanding tasks. Multi-platform publishing, AI-driven marketing, and intelligent automation.',
   icons: {
     icon: [
-      { url: ARIES_FAVICON_SVG_PATH, type: 'image/svg+xml' },
+      { url: ARIES_FAVICON_ICO_PATH, type: 'image/x-icon' },
       { url: ARIES_FAVICON_PNG_PATH, type: 'image/png' },
       { url: ARIES_LOGO_WEBP_PATH, type: 'image/webp' },
     ],
-    shortcut: ARIES_FAVICON_SVG_PATH,
+    shortcut: ARIES_FAVICON_ICO_PATH,
     apple: ARIES_FAVICON_PNG_PATH,
   },
 };

@@ -19,15 +19,15 @@ export function BrandLogo({
 }: BrandLogoProps): JSX.Element {
   const mark = (
     <span
-      className={['rd-brand__mark', className].filter(Boolean).join(' ')}
+      className={className}
       style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
         width: size,
         height: size,
         minWidth: size,
         minHeight: size,
-        borderRadius: Math.max(14, Math.round(size * 0.32)),
-        overflow: 'hidden',
-        padding: Math.max(4, Math.round(size * 0.16)),
       }}
       aria-hidden={variant === 'mark' ? undefined : true}
     >
@@ -37,7 +37,7 @@ export function BrandLogo({
         width={size}
         height={size}
         priority={priority}
-        style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+        style={{ width: '100%', height: '100%', objectFit: 'contain', filter: 'drop-shadow(0 0 18px rgba(255,255,255,0.12))' }}
       />
     </span>
   );
@@ -49,12 +49,7 @@ export function BrandLogo({
   return (
     <span className={['rd-brand', className].filter(Boolean).join(' ')}>
       {mark}
-      <span style={{ display: 'grid', gap: 2 }}>
-        <span>Aries AI</span>
-        <span style={{ fontSize: '0.72rem', color: 'var(--rd-text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-          Operator Runtime
-        </span>
-      </span>
+      <span style={{ display: 'inline-flex', alignItems: 'center' }}>Aries AI</span>
     </span>
   );
 }
