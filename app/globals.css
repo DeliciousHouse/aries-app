@@ -1,4 +1,10 @@
 @import "tailwindcss";
+@import "../styles/redesign/tokens.css";
+@import "../styles/redesign/base.css";
+@import "../styles/redesign/utilities.css";
+@import "../styles/redesign/marketing.css";
+@import "../styles/redesign/app-shell.css";
+@import "../styles/redesign/workflows.css";
 
 /* ===== Aries AI Design System ===== */
 
