@@ -56,6 +56,7 @@ export interface IntegrationCard {
   platform: IntegrationPlatform;
   display_name: string;
   description: string;
+  connection_id?: string;
   connection_state: IntegrationConnectionState;
   health: IntegrationHealth;
   available_actions: IntegrationCardAction[];

@@ -126,6 +126,16 @@ export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenP
       return;
     }
 
+    if (action === 'connect' || action === 'reconnect') {
+      const oauthPage = new URL(`/oauth/connect/${platform}`, window.location.origin);
+      oauthPage.searchParams.set('mode', action === 'reconnect' ? 'reconnect' : 'connect');
+      if (selectedCard.connection_id) {
+        oauthPage.searchParams.set('connection_id', selectedCard.connection_id);
+      }
+      window.location.assign(oauthPage.toString());
+      return;
+    }
+
     await integrations.runAction(action, selectedCard);
   }
 

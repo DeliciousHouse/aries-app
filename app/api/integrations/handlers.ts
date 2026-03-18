@@ -54,6 +54,7 @@ export function buildIntegrationsPageData(tenantId: string) {
       platform,
       display_name: PROVIDER_REGISTRY[platform].display_name,
       description: `Connect ${PROVIDER_REGISTRY[platform].display_name}`,
+      connection_id: status.integration_id,
       connection_state: mapState(status.connection_status),
       health: mapHealth(status.connection_status, status.token_expires_at),
       available_actions:
