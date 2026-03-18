@@ -1,4 +1,5 @@
 import AppShellLayout from '../../frontend/app-shell/layout';
+import { BrandLogo } from '@/components/redesign/brand/logo';
 import { Card } from '@/components/redesign/primitives/card';
 import { ButtonLink } from '@/components/redesign/primitives/button';
 
@@ -55,6 +56,10 @@ export default function DashboardPage() {
 
         <Card>
           <div style={{ display: 'grid', gap: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.9rem' }}>
+              <BrandLogo size={40} variant="mark" />
+              <span className="rd-section-label" style={{ margin: 0 }}>Aries demo surface</span>
+            </div>
             <h2 style={{ margin: 0, fontFamily: 'var(--rd-font-display)', fontSize: '1.45rem' }}>Quick actions</h2>
             <p className="rd-section-description">
               Launch new workflow activity from the operator shell and keep high-signal routes within easy reach.

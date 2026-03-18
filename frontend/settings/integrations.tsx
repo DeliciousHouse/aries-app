@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 
 import { useIntegrations } from '@/hooks/use-integrations';
+import { BrandLogo } from '@/components/redesign/brand/logo';
 import {
   type GetIntegrationsPageError,
   type GetIntegrationsPageResponse,
@@ -141,6 +142,29 @@ export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenP
 
   return (
     <div style={{ display: 'grid', gap: '1.5rem' }}>
+      <Card className="animate-in fade-in zoom-in-95 duration-500">
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ display: 'grid', gap: '0.75rem', maxWidth: '40rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.9rem' }}>
+              <BrandLogo size={46} variant="mark" />
+              <p className="rd-section-label" style={{ margin: 0 }}>OAuth broker</p>
+            </div>
+            <h2 style={{ margin: 0, fontFamily: 'var(--rd-font-display)', fontSize: '1.8rem' }}>
+              Connect providers with the same Aries handoff flow across the product
+            </h2>
+            <p className="rd-section-description">
+              TikTok, Reddit, Meta, and the rest of the platform set all move through the same branded Aries connect experience and callback namespace.
+            </p>
+          </div>
+          <div className="rd-glass" style={{ padding: '1rem', borderRadius: '1rem', minWidth: '260px' }}>
+            <div className="rd-summary-list">
+              <div className="rd-summary-row"><strong>Callback namespace</strong><code>/api/auth/oauth/:provider/callback</code></div>
+              <div className="rd-summary-row"><strong>Connect experience</strong><span>Branded Aries interstitial</span></div>
+            </div>
+          </div>
+        </div>
+      </Card>
+
       <div className="rd-stat-grid">
         {[
           ['Total integrations', String(summary.total)],

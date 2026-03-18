@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from 'react';
 
+import { BrandLogo } from '@/components/redesign/brand/logo';
 import { Button } from '@/components/redesign/primitives/button';
 import { Card } from '@/components/redesign/primitives/card';
 import { TextInput } from '@/components/redesign/primitives/input';
@@ -39,6 +40,10 @@ export default function PostsConsole(): JSX.Element {
       <Card>
         <form onSubmit={handleDispatch} style={{ display: 'grid', gap: '1rem' }}>
           <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.9rem', marginBottom: '0.75rem' }}>
+              <BrandLogo size={40} variant="mark" />
+              <span className="rd-section-label" style={{ margin: 0 }}>Aries publish flow</span>
+            </div>
             <p className="rd-section-label">Publish dispatch</p>
             <h2 style={{ margin: '0.8rem 0 0.5rem', fontFamily: 'var(--rd-font-display)', fontSize: '1.5rem' }}>
               Send a publish request through Aries
@@ -83,6 +88,10 @@ export default function PostsConsole(): JSX.Element {
       <Card>
         <form onSubmit={handleRetry} style={{ display: 'grid', gap: '1rem' }}>
           <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.9rem', marginBottom: '0.75rem' }}>
+              <BrandLogo size={40} variant="mark" />
+              <span className="rd-section-label" style={{ margin: 0 }}>Aries repair loop</span>
+            </div>
             <p className="rd-section-label">Repair controls</p>
             <h2 style={{ margin: '0.8rem 0 0.5rem', fontFamily: 'var(--rd-font-display)', fontSize: '1.5rem' }}>
               Request publish retry handling

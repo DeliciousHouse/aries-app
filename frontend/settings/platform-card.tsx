@@ -9,6 +9,7 @@ import type {
 } from '@/lib/api/integrations';
 
 export type { IntegrationCardAction, IntegrationHealth, PlatformIntegrationCardData, PlatformKey };
+import { BrandLogo } from '@/components/redesign/brand/logo';
 import { Card } from '@/components/redesign/primitives/card';
 
 export interface PlatformCardProps {
@@ -61,7 +62,7 @@ function renderHealth(health: IntegrationHealth): string {
 
 export function PlatformCard({ card, onAction, busyAction = null }: PlatformCardProps): JSX.Element {
   return (
-    <Card data-platform={card.platform}>
+    <Card data-platform={card.platform} className="animate-in fade-in zoom-in-95 duration-500">
       <div style={{ display: 'grid', gap: '1rem', height: '100%' }}>
         <header style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
           <div className="rd-feature-icon" style={{ flexShrink: 0 }}>
@@ -130,6 +131,16 @@ export function PlatformCard({ card, onAction, busyAction = null }: PlatformCard
             </div>
           </div>
         ) : null}
+
+        <div className="rd-glass" style={{ padding: '0.9rem 1rem', borderRadius: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <BrandLogo size={28} variant="mark" />
+          <div>
+            <div style={{ fontSize: '0.82rem', fontWeight: 700 }}>Aries OAuth handoff</div>
+            <div style={{ color: 'var(--rd-text-secondary)', fontSize: '0.78rem' }}>
+              Uses the internal Aries callback namespace for {card.display_name}.
+            </div>
+          </div>
+        </div>
 
         <div className="rd-inline-actions" style={{ marginTop: 'auto' }}>
           {card.available_actions.map((action) => {

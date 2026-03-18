@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from 'react';
 
+import { BrandLogo } from '@/components/redesign/brand/logo';
 import { Button } from '@/components/redesign/primitives/button';
 import { Card } from '@/components/redesign/primitives/card';
 import { TextInput } from '@/components/redesign/primitives/input';
@@ -25,6 +26,10 @@ export default function CalendarConsole(): JSX.Element {
       <Card>
         <form onSubmit={handleSync} style={{ display: 'grid', gap: '1rem' }}>
           <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.9rem', marginBottom: '0.75rem' }}>
+              <BrandLogo size={40} variant="mark" />
+              <span className="rd-section-label" style={{ margin: 0 }}>Aries schedule sync</span>
+            </div>
             <p className="rd-section-label">Calendar sync</p>
             <h2 style={{ margin: '0.8rem 0 0.5rem', fontFamily: 'var(--rd-font-display)', fontSize: '1.5rem' }}>
               Trigger a schedule sync through Aries
@@ -59,6 +64,10 @@ export default function CalendarConsole(): JSX.Element {
 
       <Card>
         <div style={{ display: 'grid', gap: '1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.9rem' }}>
+            <BrandLogo size={40} variant="mark" />
+            <span className="rd-section-label" style={{ margin: 0 }}>Demo guidance</span>
+          </div>
           <p className="rd-section-label">Scheduling model</p>
           <h2 style={{ margin: '0.8rem 0 0.5rem', fontFamily: 'var(--rd-font-display)', fontSize: '1.5rem' }}>
             Publish windows stay workflow-aware
