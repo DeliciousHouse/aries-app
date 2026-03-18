@@ -8,6 +8,9 @@ import type {
   OnboardingStartSuccess
 } from '@/lib/api/onboarding';
 import { useOnboardingStart } from '@/hooks/use-onboarding-start';
+import { Button, ButtonLink } from '@/components/redesign/primitives/button';
+import { Card } from '@/components/redesign/primitives/card';
+import { TextInput } from '@/components/redesign/primitives/input';
 
 type StartResult = OnboardingStartSuccess | OnboardingStartError | null;
 
@@ -67,6 +70,24 @@ export default function OnboardingStartScreen(): JSX.Element {
   const resolvedTenantId = tenantId.trim() || proposedSlug.trim();
   const resolvedSignupEventId = signupEventId.trim();
   const statusHref = resolveOnboardingStatusHref(null, resolvedTenantId, resolvedSignupEventId);
+  const fields: Array<{
+    label: string;
+    value: string;
+    setValue: (next: string) => void;
+    placeholder: string;
+  }> = [
+    { label: 'Tenant ID', value: tenantId, setValue: setTenantId, placeholder: 'tenant_alpha' },
+    { label: 'Proposed Slug', value: proposedSlug, setValue: setProposedSlug, placeholder: 'tenant-alpha' },
+    { label: 'Tenant Type', value: tenantType, setValue: setTenantType, placeholder: 'single_user' },
+    { label: 'Signup Event ID', value: signupEventId, setValue: setSignupEventId, placeholder: 'signup_evt_123' },
+    { label: 'Business Name', value: businessName, setValue: setBusinessName, placeholder: 'Acme Studio' },
+    { label: 'Contact Name', value: contactName, setValue: setContactName, placeholder: 'Avery' },
+    { label: 'Assistant Name Preference', value: assistantNamePreference, setValue: setAssistantNamePreference, placeholder: 'Aries' },
+    { label: 'User Name Preference', value: userNamePreference, setValue: setUserNamePreference, placeholder: 'Avery' },
+    { label: 'Preferred Channel', value: preferredChannel, setValue: setPreferredChannel, placeholder: 'instagram' },
+    { label: 'Backup Channel', value: backupChannel, setValue: setBackupChannel, placeholder: 'linkedin' },
+    { label: 'Owner User ID', value: ownerUserId, setValue: setOwnerUserId, placeholder: 'user_123' },
+  ];
 
   async function onSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -110,133 +131,82 @@ export default function OnboardingStartScreen(): JSX.Element {
   }
 
   return (
-    <section>
-      <h1>Start Onboarding</h1>
-      <p>Collect required onboarding start fields and submit to POST /api/onboarding/start.</p>
+    <div className="rd-workflow-grid rd-workflow-grid--2">
+      <Card>
+        <form onSubmit={onSubmit} style={{ display: 'grid', gap: '1rem' }}>
+          <div>
+            <p className="rd-section-label">Onboarding launch</p>
+            <h1 style={{ margin: '0.8rem 0 0.5rem', fontFamily: 'var(--rd-font-display)', fontSize: '2rem' }}>
+              Start tenant onboarding through the Aries API
+            </h1>
+            <p className="rd-section-description">
+              Collect the tenant identity and onboarding metadata needed to begin the parity onboarding workflow without exposing any workflow internals to the browser.
+            </p>
+          </div>
 
-      <form onSubmit={onSubmit}>
-        <label>
-          Tenant ID (or leave blank and provide proposed slug)
-          <input name="tenant_id" value={tenantId} onChange={(e) => setTenantId(e.currentTarget.value)} />
-        </label>
+          {fields.map((field) => (
+            <label key={field.label} className="rd-field">
+              <span className="rd-label">{field.label}</span>
+              <TextInput
+                value={field.value}
+                placeholder={field.placeholder}
+                onChange={(event) => field.setValue(event.currentTarget.value)}
+              />
+            </label>
+          ))}
 
-        <label>
-          Proposed Slug (used as tenant_id if tenant_id is blank)
-          <input
-            name="proposed_slug"
-            value={proposedSlug}
-            onChange={(e) => setProposedSlug(e.currentTarget.value)}
-          />
-        </label>
+          <Button type="submit" disabled={loading || !resolvedTenantId || !resolvedSignupEventId}>
+            {loading ? 'Starting onboarding…' : 'Start onboarding'}
+          </Button>
+        </form>
+      </Card>
 
-        <label>
-          Tenant Type
-          <input
-            name="tenant_type"
-            value={tenantType}
-            onChange={(e) => setTenantType(e.currentTarget.value)}
-            required
-          />
-        </label>
+      <Card>
+        <div style={{ display: 'grid', gap: '1rem' }}>
+          <p className="rd-section-label">Status handoff</p>
+          <h2 style={{ margin: '0.8rem 0 0.5rem', fontFamily: 'var(--rd-font-display)', fontSize: '1.6rem' }}>
+            What happens after submission
+          </h2>
+          <div className="rd-summary-list">
+            {[
+              'Aries posts the onboarding request to its internal API route.',
+              'The route delegates server-side through OpenClaw.',
+              'You are redirected to the onboarding status screen with stable query parameters.',
+            ].map((item) => (
+              <div key={item} className="rd-glass" style={{ padding: '1rem', borderRadius: '1rem' }}>{item}</div>
+            ))}
+          </div>
 
-        <label>
-          Signup Event ID
-          <input
-            name="signup_event_id"
-            value={signupEventId}
-            onChange={(e) => setSignupEventId(e.currentTarget.value)}
-            required
-          />
-        </label>
+          {loading ? <div className="rd-alert rd-alert--info">Submitting onboarding start request…</div> : null}
+          {onboardingStart.error ? <div className="rd-alert rd-alert--danger">Client error: {onboardingStart.error.message}</div> : null}
 
-        <label>
-          Business Name
-          <input
-            name="business_name"
-            value={businessName}
-            onChange={(e) => setBusinessName(e.currentTarget.value)}
-          />
-        </label>
+          {result && 'status' in result && result.status === 'ok' ? (
+            <div className="rd-alert rd-alert--success">
+              <div>
+                <strong style={{ display: 'block', marginBottom: '0.25rem' }}>Onboarding accepted</strong>
+                <span>Continue to the status route if the automatic redirect does not occur.</span>
+                <div style={{ marginTop: '0.75rem' }}>
+                  <ButtonLink href={resolveOnboardingStatusHref(result, resolvedTenantId, resolvedSignupEventId)} variant="secondary">
+                    Open onboarding status
+                  </ButtonLink>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
-        <label>
-          Contact Name
-          <input
-            name="contact_name"
-            value={contactName}
-            onChange={(e) => setContactName(e.currentTarget.value)}
-          />
-        </label>
+          {result?.onboarding_status === 'error' ? (
+            <div className="rd-alert rd-alert--danger">
+              <div>
+                <strong style={{ display: 'block', marginBottom: '0.25rem' }}>Onboarding failed</strong>
+                <span>{result.reason}</span>
+                {result.message ? <p style={{ margin: '0.5rem 0 0' }}>{result.message}</p> : null}
+              </div>
+            </div>
+          ) : null}
 
-        <label>
-          Assistant Name Preference
-          <input
-            name="assistant_name_preference"
-            value={assistantNamePreference}
-            onChange={(e) => setAssistantNamePreference(e.currentTarget.value)}
-          />
-        </label>
-
-        <label>
-          User Name Preference
-          <input
-            name="user_name_preference"
-            value={userNamePreference}
-            onChange={(e) => setUserNamePreference(e.currentTarget.value)}
-          />
-        </label>
-
-        <label>
-          Preferred Channel
-          <input
-            name="preferred_channel"
-            value={preferredChannel}
-            onChange={(e) => setPreferredChannel(e.currentTarget.value)}
-          />
-        </label>
-
-        <label>
-          Backup Channel
-          <input
-            name="backup_channel"
-            value={backupChannel}
-            onChange={(e) => setBackupChannel(e.currentTarget.value)}
-          />
-        </label>
-
-        <label>
-          Owner User ID
-          <input
-            name="owner_user_id"
-            value={ownerUserId}
-            onChange={(e) => setOwnerUserId(e.currentTarget.value)}
-          />
-        </label>
-
-        <button type="submit" disabled={loading || !resolvedTenantId || !resolvedSignupEventId}>
-          {loading ? 'Starting onboarding…' : 'Start Onboarding'}
-        </button>
-      </form>
-
-      {loading ? <p>Submitting onboarding start request…</p> : null}
-
-      {onboardingStart.error ? <p role="alert">Client error: {onboardingStart.error.message}</p> : null}
-
-      {result && 'status' in result && result.status === 'ok' ? (
-        <div>
-          <p>Onboarding start accepted. Redirecting to status…</p>
-          <p>
-            If you are not redirected, continue to{' '}
-            <a href={resolveOnboardingStatusHref(result, resolvedTenantId, resolvedSignupEventId)}>/onboarding/status</a>.
-          </p>
+          <div className="rd-json-panel"><code>{statusHref}</code></div>
         </div>
-      ) : null}
-
-      {result?.onboarding_status === 'error' ? (
-        <div>
-          <p role="alert">Onboarding start failed: {result.reason}</p>
-          {result.message ? <p>{result.message}</p> : null}
-        </div>
-      ) : null}
-    </section>
+      </Card>
+    </div>
   );
 }
