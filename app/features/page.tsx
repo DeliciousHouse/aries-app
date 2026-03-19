@@ -1,3 +1,5 @@
+import React from 'react';
+
 import MarketingLayout from '../../frontend/marketing/MarketingLayout';
 import Link from 'next/link';
 
@@ -67,44 +69,44 @@ const FEATURES = [
 export default function FeaturesPage() {
   return (
     <MarketingLayout>
-      <section className="pt-36 pb-20 relative">
-        <div className="container mx-auto px-6">
-          <div className="max-w-4xl mb-16">
-            <span className="inline-flex px-4 py-2 rounded-full border border-primary/20 bg-primary/10 text-primary text-xs uppercase tracking-[0.2em] font-semibold mb-6">
+      <section className="public-page-section">
+        <div className="container">
+          <div className="mb-14 max-w-4xl">
+            <span className="eyebrow mb-6">
               Platform capabilities
             </span>
-            <h1 className="text-5xl md:text-6xl font-bold leading-tight mb-6">
+            <h1 className="public-heading-lg mb-6 max-w-4xl">
               Everything needed to run a premium <span className="text-gradient">marketing control plane</span>
             </h1>
-            <p className="text-xl text-white/60">
+            <p className="public-subcopy">
               Aries combines AI reasoning, workflow orchestration, and multi-platform delivery into a single integrated system.
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-8">
+          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             {FEATURES.map((feature) => (
-              <div key={feature.title} className="glass p-8 rounded-[2rem] border border-white/10">
-                <div className="mb-6 p-4 bg-white/5 rounded-2xl w-fit text-2xl">{feature.icon}</div>
-                <h2 className="text-2xl font-bold mb-4">{feature.title}</h2>
-                <p className="text-white/55 leading-relaxed">{feature.desc}</p>
-              </div>
+              <article key={feature.title} className="glass rounded-[1.8rem] border border-white/10 p-6 md:p-8">
+                <div className="mb-5 w-fit rounded-2xl bg-white/6 p-4 text-2xl">{feature.icon}</div>
+                <h2 className="mb-4 font-display text-2xl font-semibold text-white">{feature.title}</h2>
+                <p className="text-sm leading-7 text-white/68 md:text-base">{feature.desc}</p>
+              </article>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="pb-24">
-        <div className="container mx-auto px-6">
-          <div className="glass rounded-[3rem] p-10 md:p-14 text-center max-w-5xl mx-auto">
-            <h2 className="text-4xl md:text-5xl font-bold mb-5">Ready to see the operator experience end-to-end?</h2>
-            <p className="text-white/60 text-lg mb-8 max-w-3xl mx-auto">
+      <section className="pb-[4.5rem] md:pb-24">
+        <div className="container">
+          <div className="glass mx-auto max-w-5xl rounded-[2.3rem] p-7 text-center md:p-12">
+            <h2 className="public-heading-lg mb-5">Ready to see the operator experience end-to-end?</h2>
+            <p className="mx-auto mb-8 max-w-3xl text-base leading-8 text-white/70 md:text-lg">
               Review the runtime docs, connect a platform, and start the canonical brand campaign flow through Aries.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Link href="/documentation" className="px-8 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20">
+              <Link href="/documentation" className="inline-flex min-h-[3.25rem] items-center justify-center rounded-full bg-gradient-to-r from-primary to-secondary px-7 py-3.5 text-base font-semibold text-white shadow-xl shadow-primary/20">
                 Read the docs
               </Link>
-              <Link href="/login" className="px-8 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all">
+              <Link href="/login" className="inline-flex min-h-[3.25rem] items-center justify-center rounded-full border border-white/10 bg-white/5 px-7 py-3.5 text-base font-semibold text-white transition-all hover:bg-white/10">
                 Open the console
               </Link>
             </div>
