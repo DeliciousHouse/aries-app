@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { isValidElement } from 'react';
 
+import HomePage from '../app/page';
+import FeaturesPage from '../app/features/page';
+import DocumentationPage from '../app/documentation/page';
+import ApiDocsPage from '../app/api-docs/page';
 import OnboardingStartPage from '../app/onboarding/start/page';
 import OnboardingStatusPage from '../app/onboarding/status/page';
 import MarketingNewJobPage from '../app/marketing/new-job/page';
@@ -9,6 +13,8 @@ import MarketingJobStatusPage from '../app/marketing/job-status/page';
 import MarketingJobApprovePage from '../app/marketing/job-approve/page';
 import PlatformsPage from '../app/platforms/page';
 import SettingsPage from '../app/settings/page';
+import DonorHomePage from '../frontend/donor/marketing/home-page';
+import MarketingLayout from '../frontend/marketing/MarketingLayout';
 import OnboardingStartScreen from '../frontend/onboarding/start';
 import OnboardingStatusScreen from '../frontend/onboarding/status';
 import MarketingNewJobScreen from '../frontend/marketing/new-job';
@@ -17,6 +23,34 @@ import MarketingJobApproveScreen from '../frontend/marketing/job-approve';
 import AppShellLayout from '../frontend/app-shell/layout';
 import IntegrationsScreen from '../frontend/settings/integrations';
 import SettingsScreen from '../frontend/settings';
+
+test('/ returns the public homepage component', () => {
+  const element = HomePage();
+
+  assert.equal(isValidElement(element), true);
+  assert.equal(element.type, DonorHomePage);
+});
+
+test('/features renders inside the marketing layout', () => {
+  const element = FeaturesPage();
+
+  assert.equal(isValidElement(element), true);
+  assert.equal(element.type, MarketingLayout);
+});
+
+test('/documentation renders inside the marketing layout', () => {
+  const element = DocumentationPage();
+
+  assert.equal(isValidElement(element), true);
+  assert.equal(element.type, MarketingLayout);
+});
+
+test('/api-docs renders inside the marketing layout', () => {
+  const element = ApiDocsPage();
+
+  assert.equal(isValidElement(element), true);
+  assert.equal(element.type, MarketingLayout);
+});
 
 test('/onboarding/start returns the onboarding start screen', () => {
   const element = OnboardingStartPage();
