@@ -1,8 +1,11 @@
 "use client";
 
-import { useState, type ReactNode } from 'react';
+import Link from 'next/link';
+import { useEffect, useState, type ReactNode } from 'react';
 import type {
   ApproveJobResult,
+  MarketingArtifactCard,
+  MarketingStageCard,
   GetMarketingJobStatusResponse,
   MarketingApiError,
   MarketingStage,
@@ -14,12 +17,6 @@ import { Button } from '@/components/redesign/primitives/button';
 import { Card } from '@/components/redesign/primitives/card';
 import { TextInput } from '@/components/redesign/primitives/input';
 import StatusBadge from '../components/status-badge';
-import {
-  marketing_job_status_values,
-  next_step_values,
-  repair_status_values
-} from '../types/runtime';
-import { getMarketingStateHints, nextStepGuidance } from './state-view';
 
 type ApproveResult = ApproveJobResult | MarketingApiError;
 type JobStatusResult = GetMarketingJobStatusResponse | MarketingApiError;
@@ -28,13 +25,44 @@ const APPROVAL_STAGE_VALUES: MarketingStage[] = ['research', 'strategy', 'produc
 
 export interface MarketingJobApproveScreenProps {
   baseUrl?: string;
-  defaultTenantId?: string;
   defaultJobId?: string;
   defaultApprovedBy?: string;
 }
 
 function isErrorResult(value: unknown): value is MarketingApiError {
   return !!value && typeof value === 'object' && 'error' in value;
+}
+
+function StageCard({ stage }: { stage: MarketingStageCard }) {
+  return (
+    <div className="rd-glass" style={{ padding: '1rem', borderRadius: '1rem', display: 'grid', gap: '0.5rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+        <strong>{stage.label}</strong>
+        <StatusBadge status={stage.status as any} />
+      </div>
+      <p className="rd-section-description" style={{ margin: 0 }}>{stage.summary}</p>
+      {stage.highlight ? <span style={{ color: 'var(--rd-text-secondary)' }}>{stage.highlight}</span> : null}
+    </div>
+  );
+}
+
+function ArtifactPreview({ artifact }: { artifact: MarketingArtifactCard }) {
+  return (
+    <div className="rd-glass" style={{ padding: '1rem', borderRadius: '1rem', display: 'grid', gap: '0.5rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+        <strong>{artifact.title}</strong>
+        <StatusBadge status={artifact.status as any} />
+      </div>
+      <p className="rd-section-description" style={{ margin: 0 }}>{artifact.summary}</p>
+      {artifact.details.length > 0 ? (
+        <ul style={{ margin: 0, paddingLeft: '1.1rem', color: 'var(--rd-text-secondary)' }}>
+          {artifact.details.slice(0, 3).map((detail) => (
+            <li key={detail}>{detail}</li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
 }
 
 function Field({
@@ -57,10 +85,13 @@ function Field({
 
 export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps) {
   const marketingApprove = useMarketingJobApprove({ baseUrl: props.baseUrl });
-  const marketingStatus = useMarketingJobStatus({ baseUrl: props.baseUrl, autoLoad: false });
+  const marketingStatus = useMarketingJobStatus({
+    baseUrl: props.baseUrl,
+    jobId: props.defaultJobId,
+    autoLoad: false,
+  });
 
   const [jobId, setJobId] = useState(props.defaultJobId ?? '');
-  const [tenantId, setTenantId] = useState(props.defaultTenantId ?? '');
   const [approvedBy, setApprovedBy] = useState(props.defaultApprovedBy ?? '');
   const [resumePublishIfNeeded, setResumePublishIfNeeded] = useState(true);
   const [approvedStages, setApprovedStages] = useState<MarketingStage[]>([]);
@@ -72,9 +103,17 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
 
   const canSubmit =
     jobId.trim().length > 0 &&
-    tenantId.trim().length > 0 &&
     approvedBy.trim().length > 0 &&
     !submitting;
+
+  useEffect(() => {
+    if (!props.defaultJobId?.trim()) {
+      return;
+    }
+
+    void handleLoadStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.defaultJobId]);
 
   async function handleLoadStatus() {
     if (!jobId.trim()) return;
@@ -99,7 +138,6 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
     if (!canSubmit) return;
 
     const body: PostMarketingJobApproveRequest = {
-      tenantId: tenantId.trim(),
       approvedBy: approvedBy.trim(),
       approvedStages: approvedStages.length > 0 ? approvedStages : undefined,
       resumePublishIfNeeded
@@ -128,24 +166,19 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
     if (isErrorResult(approveResult)) {
       return { tone: 'danger', text: `Approval failed: ${approveResult.error}` };
     }
+    if (approveResult.reason === 'approval_not_available') {
+      return {
+        tone: 'danger',
+        text: 'This campaign is not holding an active launch approval token, so there is nothing real to resume yet.',
+      };
+    }
     return approveResult.approval_status === 'resumed'
       ? { tone: 'success', text: 'Approval succeeded and resume was accepted.' }
       : { tone: 'danger', text: `Approval failed: ${approveResult.approval_status}` };
   })();
 
   const statusSuccess = jobStatus && !isErrorResult(jobStatus) ? jobStatus : null;
-  const statusHints =
-    statusSuccess && getMarketingStateHints(statusSuccess.marketing_job_state, statusSuccess.marketing_stage_status);
-
-  const hasKnownJobStatus =
-    !!statusSuccess && marketing_job_status_values.includes(statusSuccess.marketing_job_status as any);
-
-  const knownRepairStatus =
-    statusHints?.repairStatus &&
-    repair_status_values.includes(statusHints.repairStatus as (typeof repair_status_values)[number]);
-
-  const knownNextStep =
-    statusHints?.nextStep && next_step_values.includes(statusHints.nextStep as (typeof next_step_values)[number]);
+  const approveSuccess = approveResult && !isErrorResult(approveResult) ? approveResult : null;
 
   return (
     <div className="rd-workflow-grid rd-workflow-grid--2">
@@ -166,14 +199,6 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
                 value={jobId}
                 onChange={(event) => setJobId(event.target.value)}
                 placeholder="mkt_..."
-              />
-            </Field>
-
-            <Field label="Tenant ID">
-              <TextInput
-                value={tenantId}
-                onChange={(event) => setTenantId(event.target.value)}
-                placeholder="acme-phase5"
               />
             </Field>
 
@@ -236,93 +261,61 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
           <p className="rd-section-label">Outcome</p>
 
             {!approvalMessage ? (
-              <p className="rd-section-description">Run an approval action to see result state.</p>
+              <p className="rd-section-description">Load a campaign to review its launch state before approving.</p>
             ) : (
               <div
                 className={approvalMessage.tone === 'success' ? 'rd-alert rd-alert--success' : 'rd-alert rd-alert--danger'}
               >
-                {approvalMessage.text}
+                <div style={{ display: 'grid', gap: '0.75rem' }}>
+                  <span>{approvalMessage.text}</span>
+                  {approveSuccess?.jobStatusUrl ? (
+                    <Link href={approveSuccess.jobStatusUrl} className="rd-button rd-button--secondary">
+                      Review updated status
+                    </Link>
+                  ) : null}
+                </div>
               </div>
             )}
 
             {statusSuccess ? (
-              <div className="rd-summary-list">
-                <div className="rd-summary-row">
-                  <strong>Job status</strong>
-                  {hasKnownJobStatus ? (
-                    <StatusBadge
-                      status={statusSuccess.marketing_job_status as (typeof marketing_job_status_values)[number]}
-                    />
-                  ) : <span>{statusSuccess.marketing_job_status}</span>}
+              <div style={{ display: 'grid', gap: '1rem' }}>
+                <div className="rd-summary-list">
+                  <div className="rd-summary-row"><strong>Headline</strong><span>{statusSuccess.summary.headline}</span></div>
+                  <div className="rd-summary-row">
+                    <strong>Status</strong>
+                    <StatusBadge status={statusSuccess.marketing_job_status as any} />
+                  </div>
+                  <div className="rd-summary-row"><strong>Current stage</strong><span>{statusSuccess.marketing_stage ?? 'none'}</span></div>
+                  <div className="rd-summary-row"><strong>Next step</strong><span>{statusSuccess.nextStep}</span></div>
                 </div>
-                <div className="rd-summary-row"><strong>Current stage</strong><span>{statusSuccess.marketing_stage ?? 'none'}</span></div>
-                <div className="rd-summary-row">
-                  <strong>Repair status</strong>
-                  {knownRepairStatus ? (
-                    <StatusBadge status={statusHints.repairStatus as (typeof repair_status_values)[number]} />
-                  ) : <span>{statusHints?.repairStatus ?? 'n/a'}</span>}
-                </div>
-                <div className="rd-summary-row"><strong>Next step</strong><span>{statusHints?.nextStep ?? 'none'}</span></div>
-                {knownNextStep ? (
-                  <div className="rd-alert rd-alert--info">{nextStepGuidance(statusHints?.nextStep)}</div>
+
+                {statusSuccess.approval ? (
+                  <div className="rd-alert rd-alert--info">
+                    <strong style={{ display: 'block', marginBottom: '0.4rem' }}>{statusSuccess.approval.title}</strong>
+                    <span>{statusSuccess.approval.message}</span>
+                  </div>
                 ) : null}
 
-                {statusHints && statusHints.stageStatuses.length > 0 ? (
+                <div>
+                  <p className="rd-label" style={{ marginBottom: '0.75rem' }}>Stage progress</p>
+                  <div className="rd-card-grid rd-card-grid--4">
+                    {statusSuccess.stageCards.map((stage) => (
+                      <StageCard key={stage.stage} stage={stage} />
+                    ))}
+                  </div>
+                </div>
+
+                {statusSuccess.artifacts.length > 0 ? (
                   <div>
-                    <p className="rd-label" style={{ marginBottom: '0.75rem' }}>Stage status</p>
-                    <ul style={{ margin: 0, paddingLeft: 18 }}>
-                      {statusHints.stageStatuses.map((row) => (
-                        <li key={row.stage}>
-                          {row.stage}: {row.status}{' '}
-                          {marketing_job_status_values.includes(
-                            row.status as (typeof marketing_job_status_values)[number]
-                          ) ? (
-                            <StatusBadge status={row.status as (typeof marketing_job_status_values)[number]} />
-                          ) : null}
-                        </li>
+                    <p className="rd-label" style={{ marginBottom: '0.75rem' }}>Key artifacts</p>
+                    <div style={{ display: 'grid', gap: '0.75rem' }}>
+                      {statusSuccess.artifacts.slice(0, 3).map((artifact) => (
+                        <ArtifactPreview key={artifact.id} artifact={artifact} />
                       ))}
-                    </ul>
+                    </div>
                   </div>
                 ) : null}
               </div>
-            ) : null}
-
-            {approveResult ? (
-              <details open style={{ marginTop: 4 }}>
-                <summary style={{ cursor: 'pointer', fontWeight: 700, color: '#344054' }}>Approve response JSON</summary>
-                <pre
-                  style={{
-                    marginTop: 8,
-                    background: '#0b1020',
-                    color: '#d1e9ff',
-                    borderRadius: 10,
-                    padding: 12,
-                    fontSize: 12,
-                    overflow: 'auto'
-                  }}
-                >
-                  {JSON.stringify(approveResult, null, 2)}
-                </pre>
-              </details>
-            ) : null}
-
-            {jobStatus ? (
-              <details style={{ marginTop: 4 }}>
-                <summary style={{ cursor: 'pointer', fontWeight: 700, color: '#344054' }}>Live job status JSON</summary>
-                <pre
-                  style={{
-                    marginTop: 8,
-                    background: '#101828',
-                    color: '#d1fadf',
-                    borderRadius: 10,
-                    padding: 12,
-                    fontSize: 12,
-                    overflow: 'auto'
-                  }}
-                >
-                  {JSON.stringify(jobStatus, null, 2)}
-                </pre>
-              </details>
             ) : null}
         </div>
       </Card>

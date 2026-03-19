@@ -107,6 +107,7 @@ test('startMarketingJob uses repo-managed runtime without requiring N8N env', as
 
     assert.equal(result.jobType, 'brand_campaign');
     assert.equal(result.wiring, 'openclaw_gateway');
+    assert.equal(result.jobId.includes('tenant_123'), false);
 
     const runtimeFile = path.join(dataRoot, 'generated', 'draft', 'marketing-jobs', `${result.jobId}.json`);
     const runtimeDoc = JSON.parse(await readFile(runtimeFile, 'utf8')) as {
@@ -169,5 +170,87 @@ test('approveMarketingJob rejects tenant mismatches for local runtime jobs', asy
     assert.equal(result.resumedStage, null);
     assert.equal(result.completed, false);
     assert.equal(result.wiring, 'openclaw_gateway');
+  });
+});
+
+test('approveMarketingJob resumes the real OpenClaw token and marks publish complete', async () => {
+  await withMarketingRuntimeEnv(async (dataRoot) => {
+    const { approveMarketingJob } = await import('../backend/marketing/jobs-approve');
+    const jobId = 'mkt_resume_real_1';
+    const runtimeFile = path.join(dataRoot, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
+    await mkdir(path.dirname(runtimeFile), { recursive: true });
+    await writeFile(
+      runtimeFile,
+      JSON.stringify({
+        schema_name: 'job_runtime_state_schema',
+        schema_version: '1.0.0',
+        job_id: jobId,
+        job_type: 'brand_campaign',
+        tenant_id: 'tenant-a',
+        state: 'approval_required',
+        status: 'awaiting_approval',
+        attempt: 1,
+        max_attempts: 3,
+        outputs: {
+          current_stage: 'publish',
+          stage_status: {
+            research: 'completed',
+            strategy: 'completed',
+            production: 'completed',
+            publish: 'awaiting_approval',
+          },
+          openclaw: {
+            run_id: 'demo-run-approve',
+            resume_token: 'resume_123',
+            primary_output: {
+              run_id: 'demo-run-approve',
+              approval_preview: {
+                status: 'pending_human_review',
+              },
+            },
+          },
+          structured_status_updates: [],
+        },
+        history: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, null, 2)
+    );
+
+    let captured: Record<string, unknown> | null = null;
+    setOpenClawTestInvoker((payload) => {
+      captured = payload;
+      return {
+        ok: true,
+        status: 'ok',
+        output: [{
+          run_id: 'demo-run-approve',
+          summary: {
+            message: 'Publish packages ready.',
+          },
+        }],
+        requiresApproval: null,
+      };
+    });
+
+    const result = await approveMarketingJob({
+      jobId,
+      tenantId: 'tenant-a',
+      approvedBy: 'operator',
+      approvedStages: ['publish'],
+      resumePublishIfNeeded: true,
+    });
+    const runtimeDoc = JSON.parse(await readFile(runtimeFile, 'utf8')) as Record<string, any>;
+
+    assert.equal(result.status, 'resumed');
+    assert.equal(result.resumedStage, 'publish');
+    assert.equal(result.completed, true);
+    assert.equal((captured as any)?.args?.action, 'resume');
+    assert.equal((captured as any)?.args?.token, 'resume_123');
+    assert.equal(runtimeDoc.state, 'completed');
+    assert.equal(runtimeDoc.status, 'completed');
+    assert.equal(runtimeDoc.outputs?.stage_status?.publish, 'completed');
+    assert.equal(runtimeDoc.outputs?.openclaw?.resume_token, null);
+    clearOpenClawTestInvoker();
   });
 });

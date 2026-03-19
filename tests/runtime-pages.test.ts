@@ -58,18 +58,16 @@ test('/marketing/job-status preserves jobId from the route boundary', async () =
   assert.equal(element.props.defaultJobId, 'mkt_123');
 });
 
-test('/marketing/job-approve preserves job and tenant ids from the route boundary', async () => {
+test('/marketing/job-approve preserves the job id from the route boundary', async () => {
   const element = await MarketingJobApprovePage({
     searchParams: Promise.resolve({
       jobId: 'mkt_123',
-      tenantId: 'tenant_123',
     }),
   });
 
   assert.equal(isValidElement(element), true);
   assert.equal(element.type, MarketingJobApproveScreen);
   assert.equal(element.props.defaultJobId, 'mkt_123');
-  assert.equal(element.props.defaultTenantId, 'tenant_123');
 });
 
 test('/platforms wraps the integrations screen in the app shell', () => {

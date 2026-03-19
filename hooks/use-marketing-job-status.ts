@@ -15,19 +15,25 @@ export interface UseMarketingJobStatusOptions {
   autoLoad?: boolean;
 }
 
+export interface LoadMarketingJobStatusOptions {
+  quiet?: boolean;
+}
+
 export function useMarketingJobStatus(options: UseMarketingJobStatusOptions = {}) {
   const api = useMemo(() => createMarketingApi(options), [options.baseUrl]);
   const state = useRequestState<MarketingResult<GetMarketingJobStatusResponse>>();
 
   const load = useCallback(
-    async (jobId: string) => {
+    async (jobId: string, loadOptions: LoadMarketingJobStatusOptions = {}) => {
       const normalizedJobId = jobId.trim();
       if (!normalizedJobId) {
         state.setError(new Error('jobId is required'));
         return null;
       }
 
-      state.setLoading();
+      if (!loadOptions.quiet) {
+        state.setLoading();
+      }
       try {
         const response = await api.getJob(normalizedJobId);
         state.setSuccess(response);

@@ -39,9 +39,9 @@ const ENDPOINTS = [
     path: '/api/marketing/jobs',
     desc: 'Create the canonical brand campaign marketing job.',
     body:
-      '{ "tenantId", "jobType": "brand_campaign", "payload": { "brandUrl", "competitorUrl" } }',
+      '{ "jobType": "brand_campaign", "payload": { "brandUrl", "competitorUrl" } }',
     response:
-      '{ "marketing_job_status": "accepted", "jobId": "...", "tenantId": "...", "jobType": "brand_campaign", "wiring": "openclaw_gateway" }',
+      '{ "marketing_job_status": "accepted", "jobId": "...", "jobType": "brand_campaign", "approvalRequired": true, "jobStatusUrl": "/marketing/job-status?jobId=..." }',
   },
   {
     method: 'GET',
@@ -49,16 +49,16 @@ const ENDPOINTS = [
     desc: 'Read current marketing job state from the local runtime read model.',
     body: '—',
     response:
-      '{ "jobId": "...", "tenantId": "...", "marketing_job_state": "...", "marketing_job_status": "...", "marketing_stage": "...", "marketing_stage_status": {...}, "updatedAt": "...", "needs_attention": false }',
+      '{ "jobId": "...", "marketing_job_state": "...", "marketing_job_status": "...", "marketing_stage": "...", "marketing_stage_status": {...}, "updatedAt": "...", "needs_attention": false, "approvalRequired": true, "summary": { "headline": "...", "subheadline": "..." }, "stageCards": [...], "artifacts": [...], "timeline": [...], "approval": { "required": true, "title": "...", "message": "..." }, "nextStep": "submit_approval", "repairStatus": "not_required" }',
   },
   {
     method: 'POST',
     path: '/api/marketing/jobs/:jobId/approve',
     desc: 'Approve a marketing job through the OpenClaw boundary.',
     body:
-      '{ "tenantId", "approvedBy", "approvedStages"?: ["research"|"strategy"|"production"|"publish"], "resumePublishIfNeeded"?: true }',
+      '{ "approvedBy", "approvedStages"?: ["research"|"strategy"|"production"|"publish"], "resumePublishIfNeeded"?: true }',
     response:
-      '{ "approval_status": "resumed|error", "jobId": "...", "tenantId": "...", "resumedStage": "...", "completed": false, "wiring": "openclaw_gateway", "reason"?: "workflow_missing_for_route" }',
+      '{ "approval_status": "resumed|error", "jobId": "...", "resumedStage": "publish", "completed": true, "reason"?: "approval_not_available", "jobStatusUrl": "/marketing/job-status?jobId=..." }',
   },
   {
     method: 'POST',

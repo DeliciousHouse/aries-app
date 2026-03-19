@@ -9,7 +9,6 @@ export interface BrandCampaignPayload {
 }
 
 export interface PostMarketingJobsRequest {
-  tenantId: string;
   jobType: MarketingJobType;
   payload: BrandCampaignPayload;
 }
@@ -17,24 +16,71 @@ export interface PostMarketingJobsRequest {
 export interface StartJobAccepted {
   marketing_job_status: 'accepted';
   jobId: string;
-  tenantId: string;
   jobType: MarketingJobType;
-  wiring: 'openclaw_gateway';
+  approvalRequired?: boolean;
+  jobStatusUrl?: string;
+}
+
+export interface MarketingStageCard {
+  stage: MarketingStage;
+  label: string;
+  status: string;
+  summary: string;
+  highlight?: string;
+}
+
+export interface MarketingArtifactCard {
+  id: string;
+  stage: MarketingStage;
+  title: string;
+  category: string;
+  status: string;
+  summary: string;
+  details: string[];
+  preview?: string;
+  actionLabel?: string;
+  actionHref?: string;
+}
+
+export interface MarketingTimelineEntry {
+  id: string;
+  at: string | null;
+  tone: 'info' | 'success' | 'warning' | 'danger';
+  label: string;
+  description: string;
+}
+
+export interface MarketingApprovalSummary {
+  required: boolean;
+  status: string;
+  title: string;
+  message: string;
+  actionLabel?: string;
+  actionHref?: string;
 }
 
 export interface GetMarketingJobStatusResponse {
   jobId: string;
-  tenantId: string | null;
   marketing_job_state: string;
   marketing_job_status: string;
   marketing_stage: string | null;
   marketing_stage_status: Record<string, string>;
   updatedAt: string | null;
   needs_attention: boolean;
+  approvalRequired?: boolean;
+  summary: {
+    headline: string;
+    subheadline: string;
+  };
+  stageCards: MarketingStageCard[];
+  artifacts: MarketingArtifactCard[];
+  timeline: MarketingTimelineEntry[];
+  approval: MarketingApprovalSummary | null;
+  nextStep: string;
+  repairStatus: string;
 }
 
 export interface PostMarketingJobApproveRequest {
-  tenantId: string;
   approvedBy: string;
   approvedStages?: MarketingStage[];
   resumePublishIfNeeded?: boolean;
@@ -43,11 +89,10 @@ export interface PostMarketingJobApproveRequest {
 export interface ApproveJobResult {
   approval_status: 'resumed' | 'error';
   jobId: string;
-  tenantId: string;
   resumedStage: string | null;
   completed: boolean;
-  wiring: 'openclaw_gateway';
   reason?: string;
+  jobStatusUrl?: string;
 }
 
 export interface MarketingApiError {
