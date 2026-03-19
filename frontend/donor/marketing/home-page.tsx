@@ -21,8 +21,8 @@ import {
 } from 'lucide-react';
 
 import { cn } from '../lib/utils';
-import { AriesMark } from '../ui';
 import { DonorMarketingShell } from './chrome';
+import { HeroOrbit } from './hero-orbit';
 
 const PROBLEMS = [
   {
@@ -191,10 +191,10 @@ function Hero() {
       <div className="bg-animate absolute inset-0 opacity-90" />
       <div className="pointer-events-none absolute left-[8%] top-28 h-52 w-52 rounded-full bg-primary/16 blur-[110px]" />
       <div className="pointer-events-none absolute bottom-10 right-[10%] h-60 w-60 rounded-full bg-secondary/14 blur-[120px]" />
+      <HeroOrbit />
 
-      <div className="container mx-auto px-6">
-        <div className="relative z-10 grid gap-10 xl:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)] xl:items-center">
-          <div className="max-w-3xl">
+      <div className="container relative z-10 mx-auto px-6">
+        <div className="max-w-3xl lg:max-w-[42rem]">
             <span className="eyebrow mb-6">
               <Sparkles className="h-4 w-4 text-primary" />
               Next-generation marketing intelligence
@@ -239,70 +239,6 @@ function Hero() {
                 </div>
               ))}
             </div>
-          </div>
-
-          <div className="glass relative overflow-hidden rounded-[2rem] p-5 sm:p-6 lg:p-7">
-            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/40 to-transparent" />
-            <div className="mb-5 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <AriesMark sizeClassName="h-12 w-12" />
-                <div>
-                  <p className="text-sm font-semibold text-white">Aries control plane</p>
-                  <p className="text-sm text-white/58">Premium public shell, server-side execution boundary</p>
-                </div>
-              </div>
-              <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">
-                Live status
-              </span>
-            </div>
-
-            <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-              <div className="rounded-[1.6rem] border border-white/10 bg-black/30 p-5">
-                <div className="mb-4 flex items-center justify-between text-sm text-white/60">
-                  <span>Campaign health</span>
-                  <span>Updated just now</span>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {[
-                    { label: 'Ready to publish', value: '12', color: 'from-primary/25 to-primary/5' },
-                    { label: 'Needs approval', value: '3', color: 'from-amber-400/20 to-amber-400/5' },
-                    { label: 'Sync healthy', value: '97%', color: 'from-emerald-400/20 to-emerald-400/5' },
-                    { label: 'Avg. response', value: '210ms', color: 'from-sky-400/20 to-sky-400/5' },
-                  ].map((metric) => (
-                    <div key={metric.label} className={cn('rounded-[1.25rem] border border-white/10 bg-gradient-to-br p-4', metric.color)}>
-                      <p className="text-sm text-white/58">{metric.label}</p>
-                      <p className="mt-3 text-2xl font-semibold text-white">{metric.value}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-4">
-                <div className="rounded-[1.6rem] border border-white/10 bg-white/6 p-5">
-                  <p className="mb-4 text-sm uppercase tracking-[0.18em] text-white/48">Connected channels</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    {CHANNELS.map(({ label, icon: Icon }) => (
-                      <div key={label} className="flex items-center gap-3 rounded-[1.1rem] border border-white/10 bg-black/28 px-3 py-3">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/7">
-                          <Icon className="h-4.5 w-4.5 text-white" />
-                        </div>
-                        <span className="text-sm font-medium text-white/82">{label}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="glass-reflection rounded-[1.6rem] p-5">
-                  <p className="text-sm uppercase tracking-[0.18em] text-white/52">What changes on the critical path</p>
-                  <ul className="mt-4 space-y-3 text-sm leading-6 text-white/74">
-                    <li className="flex gap-3"><Check className="mt-1 h-4 w-4 shrink-0 text-primary" />Static LCP hero content with lighter paint cost.</li>
-                    <li className="flex gap-3"><Check className="mt-1 h-4 w-4 shrink-0 text-primary" />Accessible mobile nav and stronger contrast in shared chrome.</li>
-                    <li className="flex gap-3"><Check className="mt-1 h-4 w-4 shrink-0 text-primary" />No external Google Fonts stylesheet in the app shell.</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </section>
