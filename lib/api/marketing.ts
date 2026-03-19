@@ -104,7 +104,7 @@ export interface ApproveJobResult {
   resumedStage: string | null;
   completed: boolean;
   reason?: string;
-  jobStatusUrl?: string;
+  jobStatusUrl: string;
 }
 
 export interface MarketingApiError {
