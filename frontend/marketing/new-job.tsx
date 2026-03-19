@@ -1,22 +1,16 @@
 "use client";
 
 import React, { useState, type FormEvent } from 'react';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
-import type {
-  MarketingApiError,
-  PostMarketingJobsRequest,
-  StartJobAccepted,
-} from '@/lib/api/marketing';
+import type { MarketingApiError, PostMarketingJobsRequest } from '@/lib/api/marketing';
 import { useMarketingJobCreate, type UseMarketingJobCreateOptions } from '@/hooks/use-marketing-job-create';
 import { Button } from '@/components/redesign/primitives/button';
 import { Card } from '@/components/redesign/primitives/card';
 import { TextInput } from '@/components/redesign/primitives/input';
 import StatusBadge from '../components/status-badge';
 
-type CreateJobResult = StartJobAccepted | MarketingApiError;
-
-function isErrorResult(value: CreateJobResult): value is MarketingApiError {
+function isErrorResult(value: unknown): value is MarketingApiError {
   return typeof (value as MarketingApiError)?.error === 'string';
 }
 
@@ -25,6 +19,7 @@ export interface MarketingNewJobScreenProps {
 }
 
 export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
+  const router = useRouter();
   const marketingCreate = useMarketingJobCreate(props.clientOptions);
 
   const [brandUrl, setBrandUrl] = useState('');
@@ -32,12 +27,10 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
 
   const [submitting, setSubmitting] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
-  const [success, setSuccess] = useState<StartJobAccepted | null>(null);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setErrorText(null);
-    setSuccess(null);
 
     const trimmedBrandUrl = brandUrl.trim();
     const trimmedCompetitorUrl = competitorUrl.trim();
@@ -63,11 +56,11 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
       }
 
       if (isErrorResult(response)) {
-        setErrorText(response.error);
+        setErrorText(response.message || response.error);
         return;
       }
 
-      setSuccess(response);
+      router.push(response.jobStatusUrl ?? `/marketing/job-status?jobId=${encodeURIComponent(response.jobId)}`);
     } finally {
       setSubmitting(false);
     }
@@ -114,43 +107,22 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
           <div className="rd-summary-list">
             {[
               'The browser submits only to the Aries internal route.',
-              'Aries starts the campaign through the OpenClaw gateway.',
-              'You can follow state changes from the status and approval screens.',
+              'Aries launches the real OpenClaw-backed Lobster pipeline server-side.',
+              'After launch, you land on the campaign status workspace automatically.',
             ].map((item) => (
               <div key={item} className="rd-glass" style={{ padding: '1rem', borderRadius: '1rem' }}>{item}</div>
             ))}
           </div>
 
-          {success ? (
-            <div className="rd-alert rd-alert--success">
-              <div style={{ display: 'grid', gap: '0.75rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-                  <strong>Brand campaign accepted</strong>
-                  <StatusBadge status="accepted" />
-                </div>
-                <code>{success.jobId}</code>
-                <div className="rd-inline-actions">
-                  <Link
-                    href={success.jobStatusUrl ?? `/marketing/job-status?jobId=${encodeURIComponent(success.jobId)}`}
-                    className="rd-button rd-button--secondary"
-                  >
-                    Monitor status
-                  </Link>
-                  <Link
-                    href={`/marketing/job-approve?jobId=${encodeURIComponent(success.jobId)}`}
-                    className="rd-button rd-button--ghost"
-                  >
-                    {success.approvalRequired ? 'Review approval queue' : 'Approval dashboard'}
-                  </Link>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="rd-empty" style={{ minHeight: '280px' }}>
-              <strong>No active campaign yet</strong>
-              <p>Submitting the form will create a new job and surface its job ID here.</p>
-            </div>
-          )}
+          <div className="rd-empty" style={{ minHeight: '280px' }}>
+            <strong>{submitting ? 'Launching your campaign...' : 'Ready to launch'}</strong>
+            <p>
+              {submitting
+                ? 'Aries is starting the campaign and will take you straight to the status workspace.'
+                : 'Submit the brief to start the pipeline and move into the operational status view.'}
+            </p>
+            {submitting ? <StatusBadge status="running" /> : null}
+          </div>
         </div>
       </Card>
     </div>

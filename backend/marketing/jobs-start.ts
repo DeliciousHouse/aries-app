@@ -260,6 +260,7 @@ function createOpenClawBackedJobRuntime(
   const outPath = runtimePath(jobId);
   ensureParent(outPath);
   const ts = nowIso();
+  const approvalRequired = approvalRequiredFromOpenClaw(primaryOutput, envelope);
   const approvalPreview =
     primaryOutput &&
     typeof primaryOutput.approval_preview === 'object' &&
@@ -267,15 +268,15 @@ function createOpenClawBackedJobRuntime(
       ? (primaryOutput.approval_preview as Record<string, unknown>)
       : null;
   const stageStatus: Record<string, string> = {
-    research: 'submitted',
-    strategy: 'submitted',
-    production: 'submitted',
+    research: 'completed',
+    strategy: 'completed',
+    production: 'completed',
     publish:
       typeof approvalPreview?.status === 'string'
         ? String(approvalPreview.status)
         : envelope.requiresApproval?.resumeToken
           ? 'awaiting_approval'
-          : 'submitted',
+          : 'completed',
   };
 
   const doc: Dict = {
@@ -284,8 +285,8 @@ function createOpenClawBackedJobRuntime(
     job_id: jobId,
     job_type: input.jobType,
     tenant_id: input.tenantId,
-    state: envelope.requiresApproval?.resumeToken ? "waiting_repair" : "running",
-    status: "pending",
+    state: approvalRequired ? "approval_required" : "completed",
+    status: approvalRequired ? "awaiting_approval" : "completed",
     attempt: 1,
     max_attempts: 3,
     inputs: {
@@ -300,8 +301,29 @@ function createOpenClawBackedJobRuntime(
       structured_status_updates: [
         {
           at: ts,
-          state: "running",
-          status: "pending",
+          state: "completed",
+          status: "completed",
+          step: "research",
+          details: { source: "openclaw_gateway" }
+        },
+        {
+          at: ts,
+          state: "completed",
+          status: "completed",
+          step: "strategy",
+          details: { source: "openclaw_gateway" }
+        },
+        {
+          at: ts,
+          state: "completed",
+          status: "completed",
+          step: "production",
+          details: { source: "openclaw_gateway" }
+        },
+        {
+          at: ts,
+          state: approvalRequired ? "approval_required" : "completed",
+          status: approvalRequired ? "awaiting_approval" : "completed",
           step: "publish",
           details: { source: "openclaw_gateway", envelope_status: envelope.status }
         }
@@ -309,15 +331,18 @@ function createOpenClawBackedJobRuntime(
       openclaw: {
         envelope_status: envelope.status,
         resume_token: envelope.requiresApproval?.resumeToken || null,
+        run_id: typeof primaryOutput?.run_id === 'string' ? primaryOutput.run_id : null,
         primary_output: primaryOutput,
       },
     },
     history: [
       {
         at: ts,
-        state: envelope.requiresApproval?.resumeToken ? "waiting_repair" : "running",
-        status: "pending",
-        note: "marketing job accepted via OpenClaw gateway"
+        state: approvalRequired ? "approval_required" : "completed",
+        status: approvalRequired ? "awaiting_approval" : "completed",
+        note: approvalRequired
+          ? "marketing job reached launch approval via OpenClaw gateway"
+          : "marketing job completed via OpenClaw gateway"
       }
     ],
     created_at: ts,

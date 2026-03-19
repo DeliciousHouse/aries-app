@@ -62,6 +62,16 @@ export async function handleApproveMarketingJob(
       );
     }
 
+    if (result.reason === 'approval_not_available') {
+      return NextResponse.json(
+        {
+          error: 'This campaign is not waiting on a live launch approval token.',
+          reason: result.reason,
+        },
+        { status: 409 }
+      );
+    }
+
     return NextResponse.json(
       {
         approval_status: result.status,

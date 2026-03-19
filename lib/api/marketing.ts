@@ -21,6 +21,44 @@ export interface StartJobAccepted {
   jobStatusUrl?: string;
 }
 
+export interface MarketingStageCard {
+  stage: MarketingStage;
+  label: string;
+  status: string;
+  summary: string;
+  highlight?: string;
+}
+
+export interface MarketingArtifactCard {
+  id: string;
+  stage: MarketingStage;
+  title: string;
+  category: string;
+  status: string;
+  summary: string;
+  details: string[];
+  preview?: string;
+  actionLabel?: string;
+  actionHref?: string;
+}
+
+export interface MarketingTimelineEntry {
+  id: string;
+  at: string | null;
+  tone: 'info' | 'success' | 'warning' | 'danger';
+  label: string;
+  description: string;
+}
+
+export interface MarketingApprovalSummary {
+  required: boolean;
+  status: string;
+  title: string;
+  message: string;
+  actionLabel?: string;
+  actionHref?: string;
+}
+
 export interface GetMarketingJobStatusResponse {
   jobId: string;
   marketing_job_state: string;
@@ -30,6 +68,16 @@ export interface GetMarketingJobStatusResponse {
   updatedAt: string | null;
   needs_attention: boolean;
   approvalRequired?: boolean;
+  summary: {
+    headline: string;
+    subheadline: string;
+  };
+  stageCards: MarketingStageCard[];
+  artifacts: MarketingArtifactCard[];
+  timeline: MarketingTimelineEntry[];
+  approval: MarketingApprovalSummary | null;
+  nextStep: string;
+  repairStatus: string;
 }
 
 export interface PostMarketingJobApproveRequest {

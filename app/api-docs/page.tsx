@@ -49,7 +49,7 @@ const ENDPOINTS = [
     desc: 'Read current marketing job state from the local runtime read model.',
     body: '—',
     response:
-      '{ "jobId": "...", "marketing_job_state": "...", "marketing_job_status": "...", "marketing_stage": "...", "marketing_stage_status": {...}, "updatedAt": "...", "needs_attention": false, "approvalRequired": true }',
+      '{ "jobId": "...", "marketing_job_state": "...", "marketing_job_status": "...", "marketing_stage": "...", "marketing_stage_status": {...}, "updatedAt": "...", "needs_attention": false, "approvalRequired": true, "summary": { "headline": "...", "subheadline": "..." }, "stageCards": [...], "artifacts": [...], "timeline": [...], "approval": { "required": true, "title": "...", "message": "..." }, "nextStep": "submit_approval", "repairStatus": "not_required" }',
   },
   {
     method: 'POST',
@@ -58,7 +58,7 @@ const ENDPOINTS = [
     body:
       '{ "approvedBy", "approvedStages"?: ["research"|"strategy"|"production"|"publish"], "resumePublishIfNeeded"?: true }',
     response:
-      '{ "approval_status": "resumed|error", "jobId": "...", "resumedStage": "...", "completed": false, "reason"?: "workflow_missing_for_route", "jobStatusUrl": "/marketing/job-status?jobId=..." }',
+      '{ "approval_status": "resumed|error", "jobId": "...", "resumedStage": "publish", "completed": true, "reason"?: "approval_not_available", "jobStatusUrl": "/marketing/job-status?jobId=..." }',
   },
   {
     method: 'POST',

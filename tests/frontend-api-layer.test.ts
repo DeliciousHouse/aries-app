@@ -20,10 +20,18 @@ function clearOpenClawTestInvoker(): void {
 async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise<T> {
   const previousCodeRoot = process.env.CODE_ROOT;
   const previousDataRoot = process.env.DATA_ROOT;
+  const previousStage1CacheDir = process.env.LOBSTER_STAGE1_CACHE_DIR;
+  const previousStage2CacheDir = process.env.LOBSTER_STAGE2_CACHE_DIR;
+  const previousStage3CacheDir = process.env.LOBSTER_STAGE3_CACHE_DIR;
+  const previousStage4CacheDir = process.env.LOBSTER_STAGE4_CACHE_DIR;
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-frontend-api-'));
 
   process.env.CODE_ROOT = process.cwd();
   process.env.DATA_ROOT = dataRoot;
+  process.env.LOBSTER_STAGE1_CACHE_DIR = path.join(dataRoot, 'lobster-stage1-cache');
+  process.env.LOBSTER_STAGE2_CACHE_DIR = path.join(dataRoot, 'lobster-stage2-cache');
+  process.env.LOBSTER_STAGE3_CACHE_DIR = path.join(dataRoot, 'lobster-stage3-cache');
+  process.env.LOBSTER_STAGE4_CACHE_DIR = path.join(dataRoot, 'lobster-stage4-cache');
 
   try {
     return await run(dataRoot);
@@ -40,8 +48,36 @@ async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise
       process.env.DATA_ROOT = previousDataRoot;
     }
 
+    if (previousStage1CacheDir === undefined) {
+      delete process.env.LOBSTER_STAGE1_CACHE_DIR;
+    } else {
+      process.env.LOBSTER_STAGE1_CACHE_DIR = previousStage1CacheDir;
+    }
+
+    if (previousStage2CacheDir === undefined) {
+      delete process.env.LOBSTER_STAGE2_CACHE_DIR;
+    } else {
+      process.env.LOBSTER_STAGE2_CACHE_DIR = previousStage2CacheDir;
+    }
+
+    if (previousStage3CacheDir === undefined) {
+      delete process.env.LOBSTER_STAGE3_CACHE_DIR;
+    } else {
+      process.env.LOBSTER_STAGE3_CACHE_DIR = previousStage3CacheDir;
+    }
+
+    if (previousStage4CacheDir === undefined) {
+      delete process.env.LOBSTER_STAGE4_CACHE_DIR;
+    } else {
+      process.env.LOBSTER_STAGE4_CACHE_DIR = previousStage4CacheDir;
+    }
+
     await rm(dataRoot, { recursive: true, force: true });
   }
+}
+
+function stageStepPath(dataRoot: string, stage: 1 | 2 | 3 | 4, runId: string, stepName: string): string {
+  return path.join(dataRoot, `lobster-stage${stage}-cache`, runId, `${stepName}.json`);
 }
 
 test('/api/onboarding/start returns a frontend-safe payload without workflow internals', async () => {
@@ -173,12 +209,16 @@ test('/api/marketing/jobs returns onboarding_required when tenant context has no
   assert.equal(body.message, 'Complete tenant onboarding before starting a brand campaign.');
 });
 
-test('/api/marketing/jobs/:jobId omits runtime path fields and resolves approval state for the current tenant', async () => {
-  await withRuntimeEnv(async () => {
+test('/api/marketing/jobs/:jobId returns stage progress and safe artifact summaries for the current tenant', async () => {
+  await withRuntimeEnv(async (dataRoot) => {
     const { handleGetMarketingJobStatus } = await import('../app/api/marketing/jobs/[jobId]/handler');
     const jobId = 'mkt_safe_job';
+    const runId = 'demo-run-123';
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
     await mkdir(path.dirname(runtimeFile), { recursive: true });
+    const launchPreviewPath = path.join(dataRoot, 'launch-review-preview.txt');
+    await writeFile(launchPreviewPath, 'Campaign: Demo launch\nApproval state: pending_human_review\n', 'utf8');
+
     await writeFile(
       runtimeFile,
       JSON.stringify({
@@ -194,19 +234,130 @@ test('/api/marketing/jobs/:jobId omits runtime path fields and resolves approval
         outputs: {
           current_stage: 'publish',
           stage_status: {
-            research: 'submitted',
-            strategy: 'submitted',
-            production: 'submitted',
+            research: 'completed',
+            strategy: 'completed',
+            production: 'completed',
             publish: 'awaiting_approval',
           },
           openclaw: {
+            run_id: runId,
             resume_token: 'resume_123',
+            primary_output: {
+              run_id: runId,
+            },
           },
           structured_status_updates: [],
         },
         history: [],
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+      }, null, 2)
+    );
+    await mkdir(path.dirname(stageStepPath(dataRoot, 1, runId, 'ads_analyst_compile')), { recursive: true });
+    await writeFile(
+      stageStepPath(dataRoot, 1, runId, 'ads_analyst_compile'),
+      JSON.stringify({
+        generated_at: '2026-03-19T00:00:01.000Z',
+        executive_summary: {
+          market_positioning: 'Competitor leans on practical outcomes.',
+          campaign_takeaway: 'Proof-led hooks are winning.',
+          creative_takeaway: 'Proof-heavy creative is performing best.',
+        },
+        competitor: 'CompetitorCo',
+        inputs: { ads_seen: 6 },
+      }, null, 2)
+    );
+    await writeFile(
+      stageStepPath(dataRoot, 1, runId, 'meta_ads_extractor'),
+      JSON.stringify({
+        competitor: 'CompetitorCo',
+        competitor_research_summary: ['Outcome-first claims', 'Low-friction CTA'],
+      }, null, 2)
+    );
+    await mkdir(path.dirname(stageStepPath(dataRoot, 2, runId, 'head_of_marketing')), { recursive: true });
+    await writeFile(
+      stageStepPath(dataRoot, 2, runId, 'website_brand_analysis'),
+      JSON.stringify({
+        brand_analysis: {
+          brand_promise: 'Aries helps operators launch faster.',
+          audience_summary: 'In-house marketing teams',
+          offer_summary: 'Operational visibility',
+          proof_points: ['Workflow transparency', 'Human approval controls'],
+        },
+      }, null, 2)
+    );
+    await writeFile(
+      stageStepPath(dataRoot, 2, runId, 'campaign_planner'),
+      JSON.stringify({
+        campaign_plan: {
+          core_message: 'Launch campaigns with operator control.',
+          primary_cta: 'Book a walkthrough',
+          offer: 'Operational visibility',
+        },
+      }, null, 2)
+    );
+    await writeFile(
+      stageStepPath(dataRoot, 2, runId, 'head_of_marketing'),
+      JSON.stringify({
+        generated_at: '2026-03-19T00:00:02.000Z',
+      }, null, 2)
+    );
+    await mkdir(path.dirname(stageStepPath(dataRoot, 3, runId, 'production_review_preview')), { recursive: true });
+    await writeFile(
+      stageStepPath(dataRoot, 3, runId, 'production_review_preview'),
+      JSON.stringify({
+        generated_at: '2026-03-19T00:00:03.000Z',
+        review_packet: {
+          summary: { core_message: 'Proof-led launch package' },
+          asset_previews: {
+            landing_page_headline: 'Ship the campaign with confidence',
+            meta_ad_hook: 'The cleanest path from idea to launch',
+            video_opening_line: 'See every stage before you publish',
+          },
+        },
+        artifacts: {
+          preview_path: launchPreviewPath,
+        },
+      }, null, 2)
+    );
+    await writeFile(
+      stageStepPath(dataRoot, 3, runId, 'creative_director_finalize'),
+      JSON.stringify({
+        generated_at: '2026-03-19T00:00:04.000Z',
+      }, null, 2)
+    );
+    await writeFile(
+      stageStepPath(dataRoot, 3, runId, 'veo_video_generator'),
+      JSON.stringify({
+        video_assets: {
+          platform_contracts: [
+            { platform: 'YouTube Shorts', platform_slug: 'youtube-shorts' },
+            { platform: 'TikTok', platform_slug: 'tiktok' },
+          ],
+        },
+      }, null, 2)
+    );
+    await mkdir(path.dirname(stageStepPath(dataRoot, 4, runId, 'launch_review_preview')), { recursive: true });
+    await writeFile(
+      stageStepPath(dataRoot, 4, runId, 'performance_marketer_preflight'),
+      JSON.stringify({
+        publish_plan: {
+          static_contract_count: 7,
+          video_contract_count: 2,
+        },
+      }, null, 2)
+    );
+    await writeFile(
+      stageStepPath(dataRoot, 4, runId, 'launch_review_preview'),
+      JSON.stringify({
+        generated_at: '2026-03-19T00:00:05.000Z',
+        approval_preview: {
+          status: 'pending_human_review',
+          message: 'Approval needed before publish-ready assets are generated.',
+        },
+        artifacts: {
+          preview_path: launchPreviewPath,
+        },
       }, null, 2)
     );
 
@@ -223,10 +374,19 @@ test('/api/marketing/jobs/:jobId omits runtime path fields and resolves approval
 
     assert.equal(response.status, 200);
     assert.equal(body.jobId, jobId);
-    assert.equal(body.marketing_job_state, 'running');
-    assert.equal(body.marketing_job_status, 'pending');
-    assert.equal(body.needs_attention, false);
+    assert.equal(body.marketing_job_state, 'approval_required');
+    assert.equal(body.marketing_job_status, 'awaiting_approval');
+    assert.equal(body.needs_attention, true);
     assert.equal(body.approvalRequired, true);
+    assert.equal((body.summary as any).headline, 'Campaign is ready for launch approval');
+    assert.equal(Array.isArray(body.stageCards), true);
+    assert.equal((body.stageCards as any[]).length, 4);
+    assert.equal(Array.isArray(body.artifacts), true);
+    assert.equal((body.artifacts as any[]).length > 0, true);
+    assert.equal(Array.isArray(body.timeline), true);
+    assert.equal((body.approval as any).required, true);
+    assert.equal(body.nextStep, 'submit_approval');
+    assert.equal(body.repairStatus, 'not_required');
     assert.equal('tenantId' in body, false);
     assert.equal('runtimeArtifactPath' in body, false);
     assert.equal('runtimePath' in body, false);
@@ -304,6 +464,16 @@ test('/api/marketing/jobs/:jobId/approve resolves tenant context server-side and
             production: 'completed',
             publish: 'awaiting_approval',
           },
+          openclaw: {
+            run_id: 'demo-run-approve',
+            resume_token: 'resume_123',
+            primary_output: {
+              run_id: 'demo-run-approve',
+              approval_preview: {
+                status: 'pending_human_review',
+              },
+            },
+          },
           structured_status_updates: [],
         },
         history: [],
@@ -318,7 +488,12 @@ test('/api/marketing/jobs/:jobId/approve resolves tenant context server-side and
       return {
         ok: true,
         status: 'ok',
-        output: [{ accepted: true }],
+        output: [{
+          run_id: 'demo-run-approve',
+          summary: {
+            message: 'Publish packages ready.',
+          },
+        }],
         requiresApproval: null,
       };
     });
@@ -343,7 +518,6 @@ test('/api/marketing/jobs/:jobId/approve resolves tenant context server-side and
       })
     );
     const body = (await response.json()) as Record<string, unknown>;
-    const workflowArgs = JSON.parse(String((captured as any)?.args?.argsJson)) as Record<string, unknown>;
 
     assert.equal(response.status, 200);
     assert.equal(body.approval_status, 'resumed');
@@ -351,8 +525,9 @@ test('/api/marketing/jobs/:jobId/approve resolves tenant context server-side and
     assert.equal(typeof body.jobStatusUrl, 'string');
     assert.equal('tenantId' in body, false);
     assert.equal('wiring' in body, false);
-    assert.equal(workflowArgs.tenant_id, 'tenant_real');
-    assert.equal(workflowArgs.job_id, jobId);
+    assert.equal((captured as any)?.args?.action, 'resume');
+    assert.equal((captured as any)?.args?.token, 'resume_123');
+    assert.equal((captured as any)?.args?.approve, true);
     clearOpenClawTestInvoker();
   });
 });

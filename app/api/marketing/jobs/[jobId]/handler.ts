@@ -9,17 +9,6 @@ const MARKETING_ONBOARDING_REQUIRED = {
   message: 'Complete tenant onboarding before viewing brand campaign status.',
 } as const;
 
-function needsAttention(status: string) {
-  return [
-    'error',
-    'failed',
-    'blocked',
-    'needs_repair',
-    'hard_failure',
-    'rejected',
-  ].includes(status);
-}
-
 export async function handleGetMarketingJobStatus(
   jobId: string,
   tenantContextLoader?: TenantContextLoader
@@ -51,8 +40,15 @@ export async function handleGetMarketingJobStatus(
         marketing_stage: result.currentStage,
         marketing_stage_status: result.stageStatus,
         updatedAt: result.updatedAt,
-        needs_attention: needsAttention(result.status),
+        needs_attention: result.needsAttention,
         approvalRequired: result.approvalRequired,
+        summary: result.summary,
+        stageCards: result.stageCards,
+        artifacts: result.artifacts,
+        timeline: result.timeline,
+        approval: result.approval,
+        nextStep: result.nextStep,
+        repairStatus: result.repairStatus,
       },
       { status: 200 }
     );
