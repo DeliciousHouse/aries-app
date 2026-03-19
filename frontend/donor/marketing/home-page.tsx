@@ -1092,7 +1092,7 @@ function Pricing() {
                 </div>
 
                 <Link
-                  href={plan.price === 'Custom' ? '/contact' : '/login'}
+                  href={plan.price === 'Custom' ? '/documentation' : '/login'}
                   className={cn(
                     'w-full py-4 rounded-2xl font-bold transition-all text-center',
                     plan.highlight
@@ -1100,7 +1100,7 @@ function Pricing() {
                       : 'bg-white/10 hover:bg-white/20 text-white',
                   )}
                 >
-                  {plan.price === 'Custom' ? 'Contact Sales' : 'Get Started'}
+                  {plan.price === 'Custom' ? 'Review Runtime' : 'Get Started'}
                 </Link>
               </div>
 
