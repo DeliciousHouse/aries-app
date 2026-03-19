@@ -122,26 +122,25 @@ function stateGroupFor(status: SharedStatus): 'retry' | 'empty' | 'active' | 'do
 export function StatusBadge({ status }: StatusBadgeProps): JSX.Element {
   const label = labelByStatus[status];
   const tone = toneByStatus[status];
-  const style =
+  const className =
     tone === 'success'
-      ? { borderColor: 'rgba(52,211,153,0.25)', background: 'rgba(52,211,153,0.12)', color: 'var(--rd-success)' }
+      ? 'border-emerald-500/25 bg-emerald-500/12 text-emerald-300'
       : tone === 'warning'
-        ? { borderColor: 'rgba(251,191,36,0.25)', background: 'rgba(251,191,36,0.12)', color: 'var(--rd-warning)' }
+        ? 'border-amber-400/25 bg-amber-400/12 text-amber-300'
         : tone === 'danger'
-          ? { borderColor: 'rgba(248,113,113,0.25)', background: 'rgba(248,113,113,0.12)', color: 'var(--rd-danger)' }
+          ? 'border-red-400/25 bg-red-400/12 text-red-300'
           : tone === 'info'
-            ? { borderColor: 'rgba(56,189,248,0.25)', background: 'rgba(56,189,248,0.12)', color: 'var(--rd-cyan)' }
-            : {};
+            ? 'border-cyan-400/25 bg-cyan-400/12 text-cyan-300'
+            : 'border-white/10 bg-white/5 text-white/60';
 
   return (
     <span
-      className="rd-badge"
+      className={`inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${className}`}
       role="status"
       aria-label={`Status: ${label}`}
       data-status={status}
       data-tone={toneByStatus[status]}
       data-state-group={stateGroupFor(status)}
-      style={style}
     >
       {label}
     </span>

@@ -2,15 +2,14 @@
 
 import { useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { ArrowRight, Rocket, Sparkles } from 'lucide-react';
 import type {
   OnboardingStartError,
   OnboardingStartRequest,
   OnboardingStartSuccess
 } from '@/lib/api/onboarding';
 import { useOnboardingStart } from '@/hooks/use-onboarding-start';
-import { Button, ButtonLink } from '@/components/redesign/primitives/button';
-import { Card } from '@/components/redesign/primitives/card';
-import { TextInput } from '@/components/redesign/primitives/input';
 
 type StartResult = OnboardingStartSuccess | OnboardingStartError | null;
 
@@ -131,82 +130,111 @@ export default function OnboardingStartScreen(): JSX.Element {
   }
 
   return (
-    <div className="rd-workflow-grid rd-workflow-grid--2">
-      <Card>
-        <form onSubmit={onSubmit} style={{ display: 'grid', gap: '1rem' }}>
+    <div className="min-h-screen bg-background px-6 py-10 md:px-8 lg:px-10">
+      <div className="max-w-7xl mx-auto grid gap-6">
+        <div className="glass rounded-[2.5rem] p-8 md:p-10">
+          <p className="text-xs uppercase tracking-[0.3em] text-primary mb-3">Aries workflow</p>
+          <h1 className="text-4xl font-bold mb-3">Tenant onboarding</h1>
+          <p className="text-white/60">Transplanted donor-style workflow chrome connected to the real Aries onboarding routes.</p>
+        </div>
+
+        <div className="grid xl:grid-cols-2 gap-6">
+      <div className="glass rounded-[2.5rem] p-8">
+        <form onSubmit={onSubmit} className="space-y-5">
           <div>
-            <p className="rd-section-label">Onboarding launch</p>
-            <h1 style={{ margin: '0.8rem 0 0.5rem', fontFamily: 'var(--rd-font-display)', fontSize: '2rem' }}>
-              Start tenant onboarding through the Aries API
-            </h1>
-            <p className="rd-section-description">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+                <Rocket className="w-6 h-6 text-primary" />
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.24em] text-white/35">Onboarding launch</p>
+                <h1 className="text-3xl font-bold">Start tenant onboarding through the Aries API</h1>
+              </div>
+            </div>
+            <p className="text-white/60 leading-relaxed">
               Collect the tenant identity and onboarding metadata needed to begin the parity onboarding workflow without exposing any workflow internals to the browser.
             </p>
           </div>
 
           {fields.map((field) => (
-            <label key={field.label} className="rd-field">
-              <span className="rd-label">{field.label}</span>
-              <TextInput
+            <label key={field.label} className="block space-y-2">
+              <span className="text-xs uppercase tracking-[0.22em] text-white/35">{field.label}</span>
+              <input
                 value={field.value}
                 placeholder={field.placeholder}
                 onChange={(event) => field.setValue(event.currentTarget.value)}
+                className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
               />
             </label>
           ))}
 
-          <Button type="submit" disabled={loading || !resolvedTenantId || !resolvedSignupEventId}>
+          <button
+            type="submit"
+            disabled={loading || !resolvedTenantId || !resolvedSignupEventId}
+            className="w-full px-6 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 disabled:opacity-60"
+          >
             {loading ? 'Starting onboarding…' : 'Start onboarding'}
-          </Button>
+          </button>
         </form>
-      </Card>
+      </div>
 
-      <Card>
-        <div style={{ display: 'grid', gap: '1rem' }}>
-          <p className="rd-section-label">Status handoff</p>
-          <h2 style={{ margin: '0.8rem 0 0.5rem', fontFamily: 'var(--rd-font-display)', fontSize: '1.6rem' }}>
-            What happens after submission
-          </h2>
-          <div className="rd-summary-list">
+      <div className="glass rounded-[2.5rem] p-8 space-y-5">
+        <div>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-12 h-12 rounded-2xl bg-secondary/10 border border-secondary/20 flex items-center justify-center">
+              <Sparkles className="w-6 h-6 text-secondary" />
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-[0.24em] text-white/35">Status handoff</p>
+              <h2 className="text-3xl font-bold">What happens after submission</h2>
+            </div>
+          </div>
+          <div className="space-y-3">
             {[
               'Aries posts the onboarding request to its internal API route.',
               'The route delegates server-side through OpenClaw.',
               'You are redirected to the onboarding status screen with stable query parameters.',
             ].map((item) => (
-              <div key={item} className="rd-glass" style={{ padding: '1rem', borderRadius: '1rem' }}>{item}</div>
+              <div key={item} className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-white/70">
+                {item}
+              </div>
             ))}
           </div>
-
-          {loading ? <div className="rd-alert rd-alert--info">Submitting onboarding start request…</div> : null}
-          {onboardingStart.error ? <div className="rd-alert rd-alert--danger">Client error: {onboardingStart.error.message}</div> : null}
-
-          {result && 'status' in result && result.status === 'ok' ? (
-            <div className="rd-alert rd-alert--success">
-              <div>
-                <strong style={{ display: 'block', marginBottom: '0.25rem' }}>Onboarding accepted</strong>
-                <span>Continue to the status route if the automatic redirect does not occur.</span>
-                <div style={{ marginTop: '0.75rem' }}>
-                  <ButtonLink href={resolveOnboardingStatusHref(result, resolvedTenantId, resolvedSignupEventId)} variant="secondary">
-                    Open onboarding status
-                  </ButtonLink>
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          {result?.onboarding_status === 'error' ? (
-            <div className="rd-alert rd-alert--danger">
-              <div>
-                <strong style={{ display: 'block', marginBottom: '0.25rem' }}>Onboarding failed</strong>
-                <span>{result.reason}</span>
-                {result.message ? <p style={{ margin: '0.5rem 0 0' }}>{result.message}</p> : null}
-              </div>
-            </div>
-          ) : null}
-
-          <div className="rd-json-panel"><code>{statusHref}</code></div>
         </div>
-      </Card>
+
+        {loading ? <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4 text-cyan-100">Submitting onboarding start request…</div> : null}
+        {onboardingStart.error ? <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-red-100">Client error: {onboardingStart.error.message}</div> : null}
+
+        {result && 'status' in result && result.status === 'ok' ? (
+          <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-5 text-emerald-100">
+            <strong className="block mb-2">Onboarding accepted</strong>
+            <span>Continue to the status route if the automatic redirect does not occur.</span>
+            <div className="mt-4">
+              <Link
+                href={resolveOnboardingStatusHref(result, resolvedTenantId, resolvedSignupEventId)}
+                className="inline-flex items-center gap-2 text-white bg-white/10 border border-white/10 px-5 py-3 rounded-full"
+              >
+                Open onboarding status
+                <ArrowRight className="w-4 h-4" />
+              </Link>
+            </div>
+          </div>
+        ) : null}
+
+        {result?.onboarding_status === 'error' ? (
+          <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-5 text-red-100">
+            <strong className="block mb-2">Onboarding failed</strong>
+            <span>{result.reason}</span>
+            {result.message ? <p className="mt-2">{result.message}</p> : null}
+          </div>
+        ) : null}
+
+        <div className="rounded-[1.5rem] border border-white/10 bg-black/30 p-5 font-mono text-sm text-white/75 break-all">
+          {statusHref}
+        </div>
+      </div>
+        </div>
+      </div>
     </div>
   );
 }

@@ -2,12 +2,10 @@
 
 import React, { useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import { ArrowRight, Rocket, Sparkles } from 'lucide-react';
 
 import type { MarketingApiError, PostMarketingJobsRequest } from '@/lib/api/marketing';
 import { useMarketingJobCreate, type UseMarketingJobCreateOptions } from '@/hooks/use-marketing-job-create';
-import { Button } from '@/components/redesign/primitives/button';
-import { Card } from '@/components/redesign/primitives/card';
-import { TextInput } from '@/components/redesign/primitives/input';
 import StatusBadge from '../components/status-badge';
 
 function isErrorResult(value: unknown): value is MarketingApiError {
@@ -67,64 +65,102 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
   }
 
   return (
-    <div className="rd-workflow-grid rd-workflow-grid--2">
-      <Card>
-        <form onSubmit={onSubmit} style={{ display: 'grid', gap: '1rem' }}>
+    <div className="min-h-screen bg-background px-6 py-10 md:px-8 lg:px-10">
+      <div className="max-w-7xl mx-auto grid gap-6">
+        <div className="glass rounded-[2.5rem] p-8 md:p-10">
+          <p className="text-xs uppercase tracking-[0.3em] text-primary mb-3">Aries workflow</p>
+          <h1 className="text-4xl font-bold mb-3">Marketing launch</h1>
+          <p className="text-white/60">Donor-style workflow layout running directly against the canonical Aries marketing job API.</p>
+        </div>
+
+        <div className="grid xl:grid-cols-2 gap-6">
+      <div className="glass rounded-[2.5rem] p-8">
+        <form onSubmit={onSubmit} className="space-y-6">
           <div>
-            <p className="rd-section-label">Brand campaign</p>
-            <h1 style={{ margin: '0.8rem 0 0.5rem', fontFamily: 'var(--rd-font-display)', fontSize: '2rem' }}>
-              Launch the canonical marketing job
-            </h1>
-            <p className="rd-section-description">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+                <Rocket className="w-6 h-6 text-primary" />
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.24em] text-white/35">Brand campaign</p>
+                <h1 className="text-3xl font-bold">Launch the canonical marketing job</h1>
+              </div>
+            </div>
+            <p className="text-white/60 leading-relaxed">
               Start a workflow-backed brand campaign using your current workspace context and the URLs that define the brief.
             </p>
           </div>
 
-          <label className="rd-field">
-            <span className="rd-label">Brand website URL</span>
-            <TextInput value={brandUrl} onChange={(event) => setBrandUrl(event.target.value)} placeholder="https://yourbrand.com" required />
+          <label className="block space-y-2">
+            <span className="text-xs uppercase tracking-[0.22em] text-white/35">Brand website URL</span>
+            <input
+              value={brandUrl}
+              onChange={(event) => setBrandUrl(event.target.value)}
+              placeholder="https://yourbrand.com"
+              required
+              className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+            />
           </label>
 
-          <label className="rd-field">
-            <span className="rd-label">Competitor Facebook URL</span>
-            <TextInput value={competitorUrl} onChange={(event) => setCompetitorUrl(event.target.value)} placeholder="https://facebook.com/competitor" required />
+          <label className="block space-y-2">
+            <span className="text-xs uppercase tracking-[0.22em] text-white/35">Competitor Facebook URL</span>
+            <input
+              value={competitorUrl}
+              onChange={(event) => setCompetitorUrl(event.target.value)}
+              placeholder="https://facebook.com/competitor"
+              required
+              className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+            />
           </label>
 
-          <Button type="submit" disabled={submitting}>
+          <button
+            type="submit"
+            disabled={submitting}
+            className="w-full px-6 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 disabled:opacity-60"
+          >
             {submitting ? 'Starting campaign…' : 'Start brand campaign'}
-          </Button>
+          </button>
 
-          {errorText ? <div className="rd-alert rd-alert--danger">{errorText}</div> : null}
+          {errorText ? <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-red-100">{errorText}</div> : null}
         </form>
-      </Card>
+      </div>
 
-      <Card>
-        <div style={{ display: 'grid', gap: '1rem' }}>
-          <p className="rd-section-label">Next steps</p>
-          <h2 style={{ margin: '0.8rem 0 0.5rem', fontFamily: 'var(--rd-font-display)', fontSize: '1.6rem' }}>
-            Workflow handoff
-          </h2>
-          <div className="rd-summary-list">
+      <div className="glass rounded-[2.5rem] p-8 space-y-6">
+        <div>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-12 h-12 rounded-2xl bg-secondary/10 border border-secondary/20 flex items-center justify-center">
+              <Sparkles className="w-6 h-6 text-secondary" />
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-[0.24em] text-white/35">Next steps</p>
+              <h2 className="text-3xl font-bold">Workflow handoff</h2>
+            </div>
+          </div>
+          <div className="space-y-3">
             {[
               'The browser submits only to the Aries internal route.',
               'Aries launches the real OpenClaw-backed Lobster pipeline server-side.',
               'After launch, you land on the campaign status workspace automatically.',
             ].map((item) => (
-              <div key={item} className="rd-glass" style={{ padding: '1rem', borderRadius: '1rem' }}>{item}</div>
+              <div key={item} className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-white/70">
+                {item}
+              </div>
             ))}
           </div>
-
-          <div className="rd-empty" style={{ minHeight: '280px' }}>
-            <strong>{submitting ? 'Launching your campaign...' : 'Ready to launch'}</strong>
-            <p>
-              {submitting
-                ? 'Aries is starting the campaign and will take you straight to the status workspace.'
-                : 'Submit the brief to start the pipeline and move into the operational status view.'}
-            </p>
-            {submitting ? <StatusBadge status="running" /> : null}
-          </div>
         </div>
-      </Card>
+
+        <div className="rounded-[1.5rem] border border-white/10 bg-black/25 p-8 min-h-[280px] flex flex-col items-center justify-center text-center">
+          <strong className="text-2xl mb-3">{submitting ? 'Launching your campaign...' : 'Ready to launch'}</strong>
+          <p className="text-white/60 max-w-md">
+            {submitting
+              ? 'Aries is starting the campaign and will take you straight to the status workspace.'
+              : 'Submit the brief to start the pipeline and move into the operational status view.'}
+          </p>
+          {submitting ? <div className="mt-5"><StatusBadge status="running" /></div> : null}
+        </div>
+      </div>
+        </div>
+      </div>
     </div>
   );
 }
