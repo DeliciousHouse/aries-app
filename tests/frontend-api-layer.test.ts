@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import { MissingTenantMembershipError } from '../lib/tenant-context';
 import { POST as postOnboardingStart } from '../app/api/onboarding/start/route';
 import { GET as getOnboardingStatus } from '../app/api/onboarding/status/[tenantId]/route';
 
@@ -162,7 +163,7 @@ test('/api/marketing/jobs returns onboarding_required when tenant context has no
       }),
     }),
     async () => {
-      throw new Error('No tenant membership found for authenticated user.');
+      throw new MissingTenantMembershipError();
     }
   );
   const body = (await response.json()) as Record<string, unknown>;

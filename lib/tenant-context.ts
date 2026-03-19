@@ -4,6 +4,13 @@ import type { Session } from 'next-auth';
 
 export type TenantRole = 'tenant_admin' | 'tenant_analyst' | 'tenant_viewer';
 
+export class MissingTenantMembershipError extends Error {
+  constructor() {
+    super('No tenant membership found for authenticated user.');
+    this.name = 'MissingTenantMembershipError';
+  }
+}
+
 export type TenantContext = {
   userId: string;
   tenantId: string;
@@ -59,7 +66,7 @@ export async function loadTenantContextForUser(queryable: Queryable, userId: str
   );
 
   if ((result.rowCount ?? 0) === 0 || result.rows.length === 0) {
-    throw new Error('No tenant membership found for authenticated user.');
+    throw new MissingTenantMembershipError();
   }
 
   return normalizeContextRow(result.rows[0]);

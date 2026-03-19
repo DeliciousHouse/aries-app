@@ -49,7 +49,7 @@ function runtimeArtifactPath(jobId: string): string {
 }
 
 function getJobOutputs(job: Record<string, unknown>): Record<string, unknown> {
-  return job.outputs && typeof job.outputs === "object" ? (job.outputs as Record<string, unknown>) : {};
+  return job.outputs !== null && typeof job.outputs === "object" ? (job.outputs as Record<string, unknown>) : {};
 }
 
 function approvalRequiredFromJob(job: Record<string, unknown>): boolean {
@@ -97,10 +97,13 @@ export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse
   const raw = fs.readFileSync(filePath, "utf8");
   const job = JSON.parse(raw) as Record<string, unknown>;
   const outputs = getJobOutputs(job);
-  const stageStatus =
+  const rawStageStatus =
     typeof outputs.stage_status === "object" && outputs.stage_status !== null
-      ? (outputs.stage_status as Record<string, string>)
+      ? (outputs.stage_status as Record<string, unknown>)
       : {};
+  const stageStatus: Record<string, string> = Object.fromEntries(
+    Object.entries(rawStageStatus).filter((entry): entry is [string, string] => typeof entry[1] === "string")
+  );
   return {
     jobId,
     tenantId: typeof job.tenant_id === "string" ? job.tenant_id : null,
