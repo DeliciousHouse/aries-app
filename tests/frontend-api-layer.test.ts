@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { MissingTenantMembershipError } from '../lib/tenant-context';
 import { POST as postOnboardingStart } from '../app/api/onboarding/start/route';
 import { GET as getOnboardingStatus } from '../app/api/onboarding/status/[tenantId]/route';
 
@@ -150,6 +149,7 @@ test('/api/marketing/jobs resolves tenant context server-side and returns a fron
 
 test('/api/marketing/jobs returns onboarding_required when tenant context has not been established', async () => {
   const { handlePostMarketingJobs } = await import('../app/api/marketing/jobs/handler');
+  const { MissingTenantMembershipError } = await import('../lib/tenant-context');
   const response = await handlePostMarketingJobs(
     new Request('http://localhost/api/marketing/jobs', {
       method: 'POST',
@@ -250,6 +250,49 @@ test('/api/marketing/jobs/:jobId hides jobs owned by a different tenant', async 
         job_type: 'brand_campaign',
         tenant_id: 'tenant_other',
         state: 'running',
+        status: 'pending',
+        outputs: {
+          current_stage: 'publish',
+          stage_status: {},
+          structured_status_updates: [],
+        },
+        history: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, null, 2)
+    );
+
+    const response = await handleGetMarketingJobStatus(
+      jobId,
+      async () => ({
+        userId: 'user_123',
+        tenantId: 'tenant_real',
+        tenantSlug: 'acme',
+        role: 'tenant_admin',
+      })
+    );
+    const body = (await response.json()) as Record<string, unknown>;
+
+    assert.equal(response.status, 404);
+    assert.equal(body.error, 'Marketing job not found.');
+    assert.equal(body.reason, 'marketing_job_not_found');
+  });
+});
+
+test('/api/marketing/jobs/:jobId hides malformed jobs that claim not_found in JSON', async () => {
+  await withRuntimeEnv(async () => {
+    const { handleGetMarketingJobStatus } = await import('../app/api/marketing/jobs/[jobId]/handler');
+    const jobId = 'mkt_malformed_not_found_job';
+    const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
+    await mkdir(path.dirname(runtimeFile), { recursive: true });
+    await writeFile(
+      runtimeFile,
+      JSON.stringify({
+        schema_name: 'job_runtime_state_schema',
+        schema_version: '1.0.0',
+        job_id: jobId,
+        job_type: 'brand_campaign',
+        state: 'not_found',
         status: 'pending',
         outputs: {
           current_stage: 'publish',

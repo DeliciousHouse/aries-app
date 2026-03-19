@@ -34,6 +34,7 @@ function runtimePath(jobId: string): string {
 
 export type MarketingJobStatusResponse = {
   jobId: string;
+  runtimeFileFound: boolean;
   tenantId: string | null;
   state: string;
   status: string;
@@ -83,6 +84,7 @@ export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse
   if (!fs.existsSync(filePath)) {
     return {
       jobId,
+      runtimeFileFound: false,
       tenantId: null,
       state: "not_found",
       status: "error",
@@ -106,6 +108,7 @@ export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse
   );
   return {
     jobId,
+    runtimeFileFound: true,
     tenantId: typeof job.tenant_id === "string" ? job.tenant_id : null,
     state: typeof job.state === "string" ? job.state : "unknown",
     status: typeof job.status === "string" ? job.status : "unknown",

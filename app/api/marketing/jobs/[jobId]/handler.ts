@@ -33,7 +33,7 @@ export async function handleGetMarketingJobStatus(
 
   try {
     const result = getMarketingJobStatus(jobId);
-    if (result.state !== 'not_found' && (result.tenantId === null || result.tenantId !== tenantResult.tenantContext.tenantId)) {
+    if (result.runtimeFileFound && (result.tenantId === null || result.tenantId !== tenantResult.tenantContext.tenantId)) {
       return NextResponse.json(
         {
           error: 'Marketing job not found.',
