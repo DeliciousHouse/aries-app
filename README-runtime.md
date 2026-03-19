@@ -65,7 +65,7 @@ If running directly on host Node, set `CODE_ROOT` and `DATA_ROOT` to host-valid 
 - `/oauth/connect/:provider` provides the branded OAuth handoff/result surface and reuses the existing Aries auth presentation/motion system.
 - `/posts` now points operators back to the canonical marketing job flow for publishing.
 - `/calendar` exposes calendar sync controls through the internal Aries API route.
-- `/api/onboarding/status/:tenantId` and `GET /api/marketing/jobs/:jobId` are read models over Aries-owned runtime state.
-- Marketing jobs now advance through Aries-managed stage checkpoints: research → strategy approval → production approval → publish approval → completion.
+- `/api/onboarding/status/:tenantId` and `GET /api/marketing/jobs/:jobId` are read models over Aries-owned runtime state with local fallback behavior rather than direct workflow status queries.
+- Marketing jobs advance through Aries-managed stage checkpoints (research → strategy approval → production approval → publish approval → completion) using the OpenClaw Gateway execution boundary instead of local workflow-engine credentials.
 - Local parity expects an external OpenClaw workspace/executor boundary rather than in-process workflow execution inside the Aries app.
 - `PROJECT_ROOT` is treated as legacy compatibility fallback only.

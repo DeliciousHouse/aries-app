@@ -45,7 +45,7 @@ export default function DocumentationPage() {
               Getting Aries running locally without losing <span className="text-gradient">runtime truth</span>
             </h1>
             <p className="text-xl text-white/60">
-              The goal of this runtime is clarity: stable page routes, stable internal APIs, and a workflow boundary that never leaks browser concerns into OpenClaw or Lobster.
+              The goal of this runtime is clarity: stable page routes, stable internal APIs, and an execution boundary that never leaks browser concerns into OpenClaw or Lobster.
             </p>
           </div>
 
@@ -78,7 +78,7 @@ npx next dev -p 3000 --turbopack`}</pre>
 
           <div className="glass rounded-[2.5rem] p-8 md:p-10">
             <span className="inline-flex px-4 py-2 rounded-full border border-primary/20 bg-primary/10 text-primary text-xs uppercase tracking-[0.2em] font-semibold mb-5">
-              Workflow catalog
+              Execution catalog
             </span>
             <div className="overflow-x-auto">
               <table className="w-full border-separate border-spacing-y-3">

@@ -106,7 +106,7 @@ export default function ApiDocsPage() {
               Internal routes that keep the browser contract <span className="text-gradient">safe</span>
             </h1>
             <p className="text-xl text-white/60">
-              These are the routes the browser can call. Aries stays responsible for validation, auth context, payload shaping, and workflow orchestration boundaries.
+              These are the routes the browser can call. Aries stays responsible for validation, auth context, payload shaping, and execution-boundary orchestration.
             </p>
           </div>
 
