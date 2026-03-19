@@ -32,6 +32,16 @@ cp .env.example .env
 npx next dev -p 3000 --turbopack
 ```
 
+## Verification
+
+Run the exact same command locally and in CI:
+
+```bash
+npm run verify
+```
+
+The verification suite runs, in order, the public-route smoke tests, banned-pattern assertions, and the targeted marketing-flow smoke checks.
+
 ## Required Environment Variables
 
 | Variable | Required | Description |

@@ -54,6 +54,9 @@ Parity guarantees apply to this container-based flow.
 - Build: `npm run build`
 - Start: `npm run start`
 - Precheck: `npm run precheck`
+- Verify regression suite: `npm run verify`
+
+Use the same `npm run verify` command locally and in CI for the fast runtime regression gate.
 
 If running directly on host Node, set `CODE_ROOT` and `DATA_ROOT` to host-valid paths (or leave unset to use defaults).
 

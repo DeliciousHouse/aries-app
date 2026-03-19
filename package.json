@@ -11,7 +11,8 @@
     "workspace:inventory": "node scripts/inventory-paperclip-workspaces.mjs",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/**/*.test.ts",
-    "db:init": "node scripts/init-db.js"
+    "db:init": "node scripts/init-db.js",
+    "verify": "node scripts/verify-regression-suite.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^9.122.0",
