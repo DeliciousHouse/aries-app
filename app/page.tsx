@@ -1,12 +1,7 @@
 import MarketingLayout from '../frontend/marketing/MarketingLayout';
 import { ButtonLink } from '@/components/redesign/primitives/button';
 import { Card } from '@/components/redesign/primitives/card';
-
-const HERO_METRICS = [
-  { value: '7', label: 'supported channels' },
-  { value: '1', label: 'internal API boundary' },
-  { value: '24/7', label: 'workflow visibility' },
-];
+import LandingHeroOrbitSection from '@/components/redesign/marketing/landing-hero-orbit';
 
 const FEATURES_PREVIEW = [
   {
@@ -34,60 +29,18 @@ const FEATURES_PREVIEW = [
 export default function HomePage() {
   return (
     <MarketingLayout currentPath="/">
-      <section className="rd-hero">
-        <div className="rd-container rd-hero__grid">
-          <div>
-            <p className="rd-hero__eyebrow">Autonomous marketing operations</p>
-            <h1 className="rd-hero__title">
-              Turn campaign execution into an <span className="rd-gradient-text">observable growth system</span>
-            </h1>
-            <p className="rd-hero__description">
-              Aries gives teams a premium operator surface for running internal API workflows, approvals,
-              platform connections, and publish controls without leaking OpenClaw or Lobster internals into the browser.
-            </p>
-            <div className="rd-hero__actions">
-              <ButtonLink href="/login" id="cta-get-started">
-                Launch operator console
-              </ButtonLink>
-              <ButtonLink href="/features" variant="secondary" id="cta-learn-more">
-                Explore platform capabilities
-              </ButtonLink>
-            </div>
-          </div>
-
-          <Card>
-            <div style={{ display: 'grid', gap: '1rem' }}>
-              <div>
-                <p className="rd-section-label">Execution boundary</p>
-                <h2 style={{ margin: '1rem 0 0.75rem', fontFamily: 'var(--rd-font-display)', fontSize: '1.8rem' }}>
-                  Browser → Aries API → OpenClaw Gateway → Lobster
-                </h2>
-                <p className="rd-section-description">
-                  The browser stays inside Aries. Workflow execution stays server-side.
-                </p>
-              </div>
-
-              <div className="rd-metric-grid">
-                {HERO_METRICS.map((metric) => (
-                  <div key={metric.label} className="rd-glass" style={{ padding: '1rem', borderRadius: '1rem' }}>
-                    <strong style={{ display: 'block', fontSize: '1.8rem', fontFamily: 'var(--rd-font-display)' }}>
-                      {metric.value}
-                    </strong>
-                    <span style={{ color: 'var(--rd-text-secondary)', fontSize: '0.9rem' }}>{metric.label}</span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="rd-alert rd-alert--info">
-                <div>
-                  <strong style={{ display: 'block', marginBottom: '0.3rem' }}>Current runtime contract</strong>
-                  <span>Stable internal routes, typed frontend clients, and workflow-aware status handling.</span>
-                </div>
-              </div>
-            </div>
-          </Card>
-        </div>
-      </section>
+      <LandingHeroOrbitSection
+        eyebrow="Marketing intelligence, orchestrated"
+        title={
+          <>
+            Make every channel orbit around a <span className="rd-gradient-text">single Aries AI command layer</span>
+          </>
+        }
+        description="Aries gives growth teams a polished surface for planning, generating, coordinating, and launching campaigns so strategy, creative, and distribution stay in one focused system."
+        primaryAction={{ href: '/login', label: 'Launch operator console', id: 'cta-get-started' }}
+        secondaryAction={{ href: '/features', label: 'Explore platform capabilities', id: 'cta-learn-more' }}
+        badges={['Strategy', 'Creative', 'Distribution', 'Optimization']}
+      />
 
       <section className="rd-section">
         <div className="rd-container" style={{ display: 'grid', gap: '1.5rem' }}>

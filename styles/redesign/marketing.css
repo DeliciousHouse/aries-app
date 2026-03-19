@@ -96,6 +96,365 @@
   line-height: 1.8;
 }
 
+.rd-hero--orbit {
+  min-height: 190svh;
+  padding: 0;
+}
+
+.rd-hero-orbit__track {
+  min-height: inherit;
+}
+
+.rd-hero-orbit__viewport {
+  position: sticky;
+  top: calc(var(--rd-nav-height) + 0.75rem);
+  display: flex;
+  align-items: center;
+  min-height: calc(100svh - var(--rd-nav-height) - 1.5rem);
+  padding: clamp(2.5rem, 4vw, 4rem) 0 clamp(2rem, 3vw, 3rem);
+}
+
+.rd-hero-orbit__grid {
+  display: grid;
+  gap: clamp(2rem, 5vw, 5rem);
+  grid-template-columns: minmax(0, 0.92fr) minmax(320px, 1.08fr);
+  align-items: center;
+}
+
+.rd-hero-orbit__content {
+  position: relative;
+  z-index: 2;
+  max-width: 39rem;
+  will-change: transform, opacity;
+}
+
+.rd-hero-orbit__badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.35rem;
+}
+
+.rd-hero-orbit__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--rd-text-secondary);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  backdrop-filter: blur(16px);
+}
+
+.rd-hero-orbit__badge::before {
+  content: '';
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--rd-accent-soft) 0%, var(--rd-cyan) 100%);
+  box-shadow: 0 0 14px rgba(97, 215, 255, 0.35);
+}
+
+.rd-hero-orbit__scene-shell {
+  position: relative;
+  display: grid;
+  gap: 1rem;
+}
+
+.rd-hero-orbit__scroll-meter {
+  display: grid;
+  gap: 0.6rem;
+  justify-items: end;
+  color: var(--rd-text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.rd-hero-orbit__scroll-bar {
+  width: min(240px, 48%);
+  height: 4px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.rd-hero-orbit__scroll-bar span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-origin: left center;
+  background: linear-gradient(90deg, var(--rd-accent) 0%, var(--rd-accent-soft) 45%, var(--rd-cyan) 100%);
+  box-shadow: 0 0 18px rgba(124, 58, 237, 0.35);
+}
+
+.rd-hero-orbit__scene {
+  position: relative;
+  isolation: isolate;
+  aspect-ratio: 1;
+  min-height: clamp(420px, 52vw, 720px);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: clamp(2rem, 4vw, 2.6rem);
+  background:
+    radial-gradient(circle at 50% 48%, rgba(122, 65, 255, 0.18), transparent 18rem),
+    radial-gradient(circle at 18% 18%, rgba(97, 215, 255, 0.1), transparent 18rem),
+    radial-gradient(circle at 82% 82%, rgba(245, 191, 112, 0.08), transparent 16rem),
+    linear-gradient(180deg, rgba(15, 15, 26, 0.92), rgba(6, 6, 12, 0.98));
+  box-shadow:
+    0 30px 120px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+.rd-hero-orbit__gridlines {
+  position: absolute;
+  inset: 0;
+  opacity: 0.34;
+  background-image:
+    radial-gradient(circle at center, rgba(255, 255, 255, 0.06) 0, transparent 52%),
+    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background-size: auto, 72px 72px, 72px 72px;
+  mask-image: radial-gradient(circle at center, black 28%, transparent 82%);
+}
+
+.rd-hero-orbit__aura {
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(86px);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.rd-hero-orbit__aura--violet {
+  inset: 14% auto auto 14%;
+  width: 34%;
+  height: 34%;
+  background: rgba(132, 76, 255, 0.32);
+}
+
+.rd-hero-orbit__aura--cyan {
+  inset: auto 14% 18% auto;
+  width: 30%;
+  height: 30%;
+  background: rgba(97, 215, 255, 0.22);
+}
+
+.rd-hero-orbit__aura--amber {
+  inset: 24% 20% auto auto;
+  width: 22%;
+  height: 22%;
+  background: rgba(245, 191, 112, 0.2);
+}
+
+.rd-hero-orbit__ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.02),
+    0 0 50px rgba(124, 58, 237, 0.08);
+}
+
+.rd-hero-orbit__ring::after {
+  content: '';
+  position: absolute;
+  inset: 1rem;
+  border: 1px dashed rgba(255, 255, 255, 0.06);
+  border-radius: inherit;
+}
+
+.rd-hero-orbit__lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.rd-hero-orbit__line {
+  fill: none;
+  stroke: url(#rd-hero-orbit-gradient);
+  stroke-width: 2.25;
+  stroke-linecap: round;
+  stroke-dasharray: 10 18;
+  filter: url(#rd-hero-orbit-glow);
+  animation: rd-hero-line-flow 3s linear infinite;
+}
+
+.rd-hero-orbit__core {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 20;
+  display: grid;
+  width: clamp(210px, 30%, 260px);
+  aspect-ratio: 1;
+  place-items: center;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.12), transparent 55%),
+    radial-gradient(circle at center, rgba(124, 58, 237, 0.22), rgba(8, 8, 18, 0.9) 70%);
+  box-shadow:
+    0 0 120px rgba(124, 58, 237, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 0 50px rgba(97, 215, 255, 0.06);
+  backdrop-filter: blur(18px);
+}
+
+.rd-hero-orbit__core::before,
+.rd-hero-orbit__core::after {
+  content: '';
+  position: absolute;
+  inset: 12%;
+  border: 1px solid rgba(191, 146, 255, 0.2);
+  border-radius: inherit;
+  animation: rd-hero-core-pulse 4s ease-out infinite;
+}
+
+.rd-hero-orbit__core::after {
+  inset: 22%;
+  animation-delay: 1.4s;
+}
+
+.rd-hero-orbit__center-mark {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 1rem;
+  justify-items: center;
+  text-align: center;
+}
+
+.rd-hero-orbit__center-logo {
+  display: grid;
+  place-items: center;
+  width: 5.4rem;
+  height: 5.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 1.65rem;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.25),
+    0 0 40px rgba(97, 215, 255, 0.08);
+}
+
+.rd-hero-orbit__center-copy {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.rd-hero-orbit__center-title {
+  font-family: var(--rd-font-display);
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
+.rd-hero-orbit__center-caption {
+  color: var(--rd-text-secondary);
+  font-size: 0.88rem;
+}
+
+.rd-hero-orbit__chip {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8rem;
+  min-width: 9rem;
+  padding: 0.7rem 0.85rem 0.7rem 0.7rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background:
+    linear-gradient(135deg, var(--chip-glow) 0%, rgba(255, 255, 255, 0.02) 52%, rgba(255, 255, 255, 0.03) 100%),
+    rgba(8, 8, 16, 0.8);
+  box-shadow:
+    0 24px 50px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(16px);
+  will-change: transform, opacity;
+}
+
+.rd-hero-orbit__chip-icon {
+  display: grid;
+  flex: none;
+  width: 2.85rem;
+  height: 2.85rem;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.12), var(--chip-accent)),
+    rgba(255, 255, 255, 0.06);
+  color: white;
+  box-shadow:
+    0 0 24px var(--chip-glow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.rd-hero-orbit__chip-icon svg {
+  width: 1.35rem;
+  height: 1.35rem;
+  stroke: currentColor;
+  stroke-width: 1.85;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.rd-hero-orbit__chip-copy {
+  display: grid;
+  gap: 0.18rem;
+  line-height: 1;
+}
+
+.rd-hero-orbit__chip-copy strong {
+  font-size: 0.94rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.rd-hero-orbit__chip-copy small {
+  color: var(--rd-text-muted);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+@keyframes rd-hero-line-flow {
+  to {
+    stroke-dashoffset: -56;
+  }
+}
+
+@keyframes rd-hero-core-pulse {
+  0% {
+    opacity: 0.55;
+    transform: scale(0.96);
+  }
+
+  70% {
+    opacity: 0;
+    transform: scale(1.2);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.24);
+  }
+}
+
 .rd-hero__actions,
 .rd-inline-actions {
   display: flex;
@@ -160,5 +519,67 @@
   .rd-footer__inner {
     flex-direction: column;
     align-items: flex-start;
+  }
+}
+
+@media (max-width: 1100px) {
+  .rd-hero--orbit {
+    min-height: auto;
+    padding: clamp(4rem, 10vw, 5.5rem) 0;
+  }
+
+  .rd-hero-orbit__viewport {
+    position: relative;
+    top: auto;
+    min-height: auto;
+    padding: 0;
+  }
+
+  .rd-hero-orbit__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .rd-hero-orbit__scroll-meter {
+    justify-items: start;
+  }
+}
+
+@media (max-width: 680px) {
+  .rd-hero-orbit__scene {
+    min-height: 360px;
+  }
+
+  .rd-hero-orbit__chip {
+    min-width: 0;
+    padding-right: 0.72rem;
+  }
+
+  .rd-hero-orbit__chip-copy small {
+    display: none;
+  }
+
+  .rd-hero-orbit__chip-copy strong {
+    font-size: 0.84rem;
+  }
+
+  .rd-hero-orbit__center-logo {
+    width: 4.7rem;
+    height: 4.7rem;
+  }
+
+  .rd-hero-orbit__center-title {
+    font-size: 1.12rem;
+  }
+
+  .rd-hero-orbit__center-caption {
+    font-size: 0.8rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rd-hero-orbit__line,
+  .rd-hero-orbit__core::before,
+  .rd-hero-orbit__core::after {
+    animation: none;
   }
 }
