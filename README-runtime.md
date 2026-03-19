@@ -66,7 +66,5 @@ If running directly on host Node, set `CODE_ROOT` and `DATA_ROOT` to host-valid 
 - `/posts` exposes publish dispatch and retry controls through internal Aries API routes.
 - `/calendar` exposes calendar sync controls through the internal Aries API route.
 - `/api/onboarding/status/:tenantId`, `GET /api/marketing/jobs/:jobId`, and some marketing approval fallback behavior are local runtime readers/fallbacks, not direct workflow status queries.
-- The runtime no longer requires `N8N_BASE_URL` or `N8N_API_KEY`; Aries now acts as an OpenClaw Gateway client.
 - Local parity expects an external OpenClaw workspace/executor boundary rather than in-process workflow execution inside the Aries app.
 - No workflow/contract redesign is introduced by this shell.
-- `PROJECT_ROOT` is treated as legacy compatibility fallback only.
