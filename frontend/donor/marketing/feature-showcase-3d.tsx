@@ -3,7 +3,9 @@
 import { useRef } from 'react';
 
 import { Canvas, useFrame } from '@react-three/fiber';
-import { Float, MeshDistortMaterial, Torus, Cone } from '@react-three/drei';
+import { Float } from '@react-three/drei/core/Float';
+import { MeshDistortMaterial } from '@react-three/drei/core/MeshDistortMaterial';
+import { Cone, Torus } from '@react-three/drei/core/shapes';
 import { motion } from 'motion/react';
 import * as THREE from 'three';
 import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
