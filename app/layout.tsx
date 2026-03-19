@@ -22,7 +22,7 @@ export const metadata = {
   icons: {
     icon: [{ url: ARIES_FAVICON_SVG_PATH, type: 'image/svg+xml' }],
     shortcut: ARIES_FAVICON_SVG_PATH,
-    apple: ARIES_FAVICON_SVG_PATH,
+    apple: '/favicon.png',
   },
 };
 
