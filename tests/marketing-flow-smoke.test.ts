@@ -4,10 +4,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { startMarketingJob } from '../backend/marketing/jobs-start';
-import { getMarketingJobStatus } from '../backend/marketing/jobs-status';
-import { approveMarketingJob } from '../backend/marketing/jobs-approve';
-
 function setOpenClawTestInvoker(
   impl: (payload: Record<string, unknown>) => unknown | Promise<unknown>
 ): void {
@@ -49,6 +45,10 @@ async function withMarketingRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>)
 
 test('targeted marketing verification covers create, inspect, approve, and publish-ready completion', async () => {
   await withMarketingRuntimeEnv(async (dataRoot) => {
+    const { startMarketingJob } = await import('../backend/marketing/jobs-start');
+    const { getMarketingJobStatus } = await import('../backend/marketing/jobs-status');
+    const { approveMarketingJob } = await import('../backend/marketing/jobs-approve');
+
     let invocationCount = 0;
     let capturedResumePayload: Record<string, unknown> | null = null;
 
