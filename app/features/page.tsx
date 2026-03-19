@@ -95,7 +95,7 @@ export default function FeaturesPage() {
         </div>
       </section>
 
-      <section className="pb-18 md:pb-24">
+      <section className="pb-[4.5rem] md:pb-24">
         <div className="container">
           <div className="glass mx-auto max-w-5xl rounded-[2.3rem] p-7 text-center md:p-12">
             <h2 className="public-heading-lg mb-5">Ready to see the operator experience end-to-end?</h2>
@@ -103,10 +103,10 @@ export default function FeaturesPage() {
               Review the runtime docs, connect a platform, and start the canonical brand campaign flow through Aries.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Link href="/documentation" className="inline-flex min-h-13 items-center justify-center rounded-full bg-gradient-to-r from-primary to-secondary px-7 py-3.5 text-base font-semibold text-white shadow-xl shadow-primary/20">
+              <Link href="/documentation" className="inline-flex min-h-[3.25rem] items-center justify-center rounded-full bg-gradient-to-r from-primary to-secondary px-7 py-3.5 text-base font-semibold text-white shadow-xl shadow-primary/20">
                 Read the docs
               </Link>
-              <Link href="/login" className="inline-flex min-h-13 items-center justify-center rounded-full border border-white/10 bg-white/5 px-7 py-3.5 text-base font-semibold text-white transition-all hover:bg-white/10">
+              <Link href="/login" className="inline-flex min-h-[3.25rem] items-center justify-center rounded-full border border-white/10 bg-white/5 px-7 py-3.5 text-base font-semibold text-white transition-all hover:bg-white/10">
                 Open the console
               </Link>
             </div>

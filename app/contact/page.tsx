@@ -30,10 +30,10 @@ export default function ContactPage() {
               This page stays live to preserve routing and explain the current contract honestly. If you need implementation details, the runtime and API docs describe the current boundary in full.
             </p>
             <div className="flex flex-col sm:flex-row gap-4">
-              <Link href="/documentation" className="inline-flex min-h-13 items-center justify-center rounded-full bg-gradient-to-r from-primary to-secondary px-7 py-3.5 text-center text-base font-semibold text-white shadow-xl shadow-primary/20">
+              <Link href="/documentation" className="inline-flex min-h-[3.25rem] items-center justify-center rounded-full bg-gradient-to-r from-primary to-secondary px-7 py-3.5 text-center text-base font-semibold text-white shadow-xl shadow-primary/20">
                 Read the docs
               </Link>
-              <Link href="/api-docs" className="inline-flex min-h-13 items-center justify-center rounded-full border border-white/10 bg-white/5 px-7 py-3.5 text-center text-base font-semibold text-white transition-all hover:bg-white/10">
+              <Link href="/api-docs" className="inline-flex min-h-[3.25rem] items-center justify-center rounded-full border border-white/10 bg-white/5 px-7 py-3.5 text-center text-base font-semibold text-white transition-all hover:bg-white/10">
                 Review the API
               </Link>
             </div>

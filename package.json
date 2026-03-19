@@ -10,7 +10,7 @@
     "workspace:verify": "node scripts/verify-canonical-workspace.mjs",
     "workspace:inventory": "node scripts/inventory-paperclip-workspaces.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/**/*.test.ts",
+    "test": "tsx --test 'tests/**/*.test.{ts,tsx}'",
     "db:init": "node scripts/init-db.js"
   },
   "dependencies": {

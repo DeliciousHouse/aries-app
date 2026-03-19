@@ -187,7 +187,7 @@ const PLANS = [
 
 function Hero() {
   return (
-    <section className="relative overflow-hidden pb-18 pt-32 sm:pt-36 lg:pb-24 lg:pt-40">
+    <section className="relative overflow-hidden pb-[4.5rem] pt-32 sm:pt-36 lg:pb-24 lg:pt-40">
       <div className="bg-animate absolute inset-0 opacity-90" />
       <div className="pointer-events-none absolute left-[8%] top-28 h-52 w-52 rounded-full bg-primary/16 blur-[110px]" />
       <div className="pointer-events-none absolute bottom-10 right-[10%] h-60 w-60 rounded-full bg-secondary/14 blur-[120px]" />
@@ -213,13 +213,13 @@ function Hero() {
             <div className="flex flex-col gap-4 sm:flex-row">
               <Link
                 href="/login"
-                className="inline-flex min-h-13 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-primary to-secondary px-7 py-3.5 text-base font-semibold text-white shadow-xl shadow-primary/20 transition-transform duration-200 hover:translate-y-[-1px]"
+                className="inline-flex min-h-[3.25rem] items-center justify-center gap-2 rounded-full bg-gradient-to-r from-primary to-secondary px-7 py-3.5 text-base font-semibold text-white shadow-xl shadow-primary/20 transition-transform duration-200 hover:translate-y-[-1px]"
               >
                 Start automating <ArrowRight className="h-5 w-5" />
               </Link>
               <Link
                 href="/documentation"
-                className="inline-flex min-h-13 items-center justify-center gap-2 rounded-full border border-white/12 bg-white/6 px-7 py-3.5 text-base font-semibold text-white/88 transition-colors hover:bg-white/10"
+                className="inline-flex min-h-[3.25rem] items-center justify-center gap-2 rounded-full border border-white/12 bg-white/6 px-7 py-3.5 text-base font-semibold text-white/88 transition-colors hover:bg-white/10"
               >
                 <Play className="h-5 w-5 fill-current" />
                 See runtime
@@ -252,7 +252,7 @@ function TrustBand() {
         <p className="mb-7 text-center text-sm font-semibold uppercase tracking-[0.24em] text-white/52">
           Trusted by industry leaders
         </p>
-        <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-5 text-xl font-semibold tracking-[0.16em] text-white/58 md:gap-x-18">
+        <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-5 text-xl font-semibold tracking-[0.16em] text-white/58 md:gap-x-[4.5rem]">
           {TRUSTED_LABELS.map((label) => (
             <span key={label}>{label}</span>
           ))}
@@ -370,7 +370,7 @@ function HowItWorks() {
           <div className="absolute left-0 right-0 top-12 hidden h-px bg-gradient-to-r from-primary/20 via-secondary/20 to-primary/20 xl:block" />
           {STEPS.map(({ icon: Icon, title, description }, index) => (
             <article key={title} className="glass relative rounded-[1.9rem] p-6 text-center md:p-7">
-              <div className="mx-auto mb-6 flex h-18 w-18 items-center justify-center rounded-[1.5rem] border border-white/10 bg-white/6">
+              <div className="mx-auto mb-6 flex h-[4.5rem] w-[4.5rem] items-center justify-center rounded-[1.5rem] border border-white/10 bg-white/6">
                 <Icon className="h-6 w-6 text-primary" />
               </div>
               <span className="absolute right-5 top-5 rounded-full border border-white/10 bg-black/40 px-2.5 py-1 text-[0.7rem] font-semibold uppercase tracking-[0.2em] text-white/56">
@@ -585,13 +585,13 @@ function FinalCTA() {
             <div className="flex flex-col justify-center gap-4 sm:flex-row">
               <Link
                 href="/login"
-                className="inline-flex min-h-13 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-primary to-secondary px-7 py-3.5 text-base font-semibold text-white shadow-xl shadow-primary/20"
+                className="inline-flex min-h-[3.25rem] items-center justify-center gap-2 rounded-full bg-gradient-to-r from-primary to-secondary px-7 py-3.5 text-base font-semibold text-white shadow-xl shadow-primary/20"
               >
                 Open the console <ArrowRight className="h-5 w-5" />
               </Link>
               <Link
                 href="/documentation"
-                className="inline-flex min-h-13 items-center justify-center rounded-full border border-white/12 bg-white/6 px-7 py-3.5 text-base font-semibold text-white/86"
+                className="inline-flex min-h-[3.25rem] items-center justify-center rounded-full border border-white/12 bg-white/6 px-7 py-3.5 text-base font-semibold text-white/86"
               >
                 Review runtime docs
               </Link>
