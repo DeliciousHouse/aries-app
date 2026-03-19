@@ -1,29 +1,35 @@
+import React from 'react';
 import MarketingLayout from '../../frontend/marketing/MarketingLayout';
 
 const SUMMARY_SECTIONS = [
   {
-    title: 'Runtime overview',
-    body: 'Aries serves public pages, an operator shell, and internal API routes that normalize browser requests before they cross into workflow execution.',
+    title: 'Direct architecture',
+    body: 'Aries serves public pages, authenticated operator pages, and internal API routes. The browser never calls workflow infrastructure directly.',
   },
   {
     title: 'Execution boundary',
-    body: 'Browsers call Aries only. Aries calls OpenClaw. OpenClaw resolves Lobster workflows. This keeps provider secrets and workflow internals server-side.',
+    body: 'Aries validates the request, resolves auth and tenant context, and then either reads runtime state or calls OpenClaw for execution.',
   },
   {
-    title: 'Operator workflow',
-    body: 'Connect platforms, launch campaign jobs, review status, approve human-in-the-loop stages, and trigger publish or sync actions from typed internal routes.',
+    title: 'Verification',
+    body: 'Route smoke checks, banned-pattern checks, marketing-flow smoke tests, and Lighthouse audits keep the documented contract aligned with the repo.',
   },
 ];
 
-const WORKFLOW_ROWS = [
-  ['marketing_start', 'marketing-pipeline.lobster', 'Canonical brand campaign flow'],
-  ['demo_start', 'parity/demo-start/workflow.lobster', 'Demo provisioning parity stub'],
-  ['sandbox_launch', 'parity/sandbox-launch/workflow.lobster', 'Sandbox provisioning parity stub'],
-  ['onboarding_start', 'parity/onboarding-start/workflow.lobster', 'Tenant onboarding parity stub'],
-  ['publish_dispatch', 'parity/publish-dispatch/workflow.lobster', 'Publish dispatch parity stub'],
-  ['publish_retry', 'parity/publish-retry/workflow.lobster', 'Retry and repair parity stub'],
-  ['calendar_sync', 'parity/calendar-sync/workflow.lobster', 'Calendar synchronization parity stub'],
-  ['integrations_sync', 'parity/integrations-sync/workflow.lobster', 'Platform sync parity stub'],
+const COMMANDS = [
+  'NODE_ENV=development npm ci',
+  'cp .env.example .env',
+  'export DB_HOST=localhost DB_PORT=5432 DB_USER=aries_user DB_PASSWORD=aries_pass DB_NAME=aries_dev',
+  'export CODE_ROOT=/workspace DATA_ROOT=/tmp/aries-data NODE_ENV=development',
+  'export APP_BASE_URL=http://localhost:3000 NEXTAUTH_URL=http://localhost:3000 AUTH_URL=http://localhost:3000 AUTH_TRUST_HOST=true',
+  'npx next dev -p 3000 --turbopack',
+];
+
+const VALIDATION = [
+  './node_modules/.bin/tsx --test tests/runtime-pages.test.ts',
+  'node scripts/check-banned-patterns.mjs',
+  'APP_BASE_URL=https://aries.example.com ./node_modules/.bin/tsx --test tests/marketing-job-flow.test.ts tests/onboarding-marketing-contracts.test.ts',
+  "mkdir -p .artifacts && npx --yes lighthouse http://127.0.0.1:3000 --only-categories=performance --preset=desktop --chrome-flags='--headless=new --no-sandbox --disable-dev-shm-usage' --output=json --output-path=.artifacts/lighthouse-homepage.json",
 ];
 
 export default function DocumentationPage() {
@@ -36,10 +42,10 @@ export default function DocumentationPage() {
               Documentation
             </span>
             <h1 className="text-5xl md:text-6xl font-bold leading-tight mb-6">
-              Getting Aries running locally without losing <span className="text-gradient">runtime truth</span>
+              Run Aries locally with a <span className="text-gradient">single direct architecture</span>
             </h1>
             <p className="text-xl text-white/60">
-              The goal of this runtime is clarity: stable page routes, stable internal APIs, and an execution boundary that never leaks browser concerns into OpenClaw or Lobster.
+              The supported path is simple: public and operator routes in Next.js, browser-safe internal APIs, OpenClaw for execution, and runtime state stored server-side.
             </p>
           </div>
 
@@ -56,43 +62,27 @@ export default function DocumentationPage() {
             <span className="inline-flex px-4 py-2 rounded-full border border-primary/20 bg-primary/10 text-primary text-xs uppercase tracking-[0.2em] font-semibold mb-5">
               Quick start
             </span>
-            <h2 className="text-3xl md:text-4xl font-bold mb-5">Recommended local development flow</h2>
-            <div className="rounded-[1.5rem] border border-white/10 bg-black/30 p-6 overflow-x-auto">
-              <pre className="text-sm md:text-base text-white/75 whitespace-pre-wrap">{`NODE_ENV=development npm ci
-cp .env.example .env
-export DB_HOST=localhost DB_PORT=5432 DB_USER=aries_user DB_PASSWORD=aries_pass DB_NAME=aries_dev
-export CODE_ROOT=/workspace DATA_ROOT=/tmp/aries-data NODE_ENV=development
-export APP_BASE_URL=http://localhost:3000 NEXTAUTH_URL=http://localhost:3000 AUTH_URL=http://localhost:3000 AUTH_TRUST_HOST=true
-npx next dev -p 3000 --turbopack`}</pre>
+            <h2 className="text-3xl md:text-4xl font-bold mb-5">Local development flow</h2>
+            <div className="space-y-3">
+              {COMMANDS.map((command) => (
+                <div key={command} className="rounded-[1.5rem] border border-white/10 bg-black/30 p-5 overflow-x-auto font-mono text-sm md:text-base text-white/75 break-all">
+                  {command}
+                </div>
+              ))}
             </div>
-            <p className="text-white/60 mt-5">
-              Turbopack is required in this repo. The VM also injects environment variables at the OS level, so explicit overrides are part of a reliable local flow.
-            </p>
           </div>
 
           <div className="glass rounded-[2.5rem] p-8 md:p-10">
             <span className="inline-flex px-4 py-2 rounded-full border border-primary/20 bg-primary/10 text-primary text-xs uppercase tracking-[0.2em] font-semibold mb-5">
-              Execution catalog
+              Validation
             </span>
-            <div className="overflow-x-auto">
-              <table className="w-full border-separate border-spacing-y-3">
-                <thead>
-                  <tr className="text-left text-white/40 uppercase tracking-[0.2em] text-xs">
-                    <th className="px-4">Workflow</th>
-                    <th className="px-4">Pipeline</th>
-                    <th className="px-4">Purpose</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {WORKFLOW_ROWS.map(([name, pipeline, purpose]) => (
-                    <tr key={name} className="bg-white/5">
-                      <td className="px-4 py-4 rounded-l-2xl font-semibold">{name}</td>
-                      <td className="px-4 py-4 text-white/65"><code>{pipeline}</code></td>
-                      <td className="px-4 py-4 rounded-r-2xl text-white/65">{purpose}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <h2 className="text-3xl md:text-4xl font-bold mb-5">Commands engineers should run before shipping docs changes</h2>
+            <div className="space-y-3">
+              {VALIDATION.map((command) => (
+                <div key={command} className="rounded-[1.5rem] border border-white/10 bg-black/30 p-5 overflow-x-auto font-mono text-sm md:text-base text-white/75 break-all">
+                  {command}
+                </div>
+              ))}
             </div>
           </div>
         </div>
