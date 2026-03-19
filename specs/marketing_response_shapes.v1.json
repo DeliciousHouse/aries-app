@@ -134,7 +134,8 @@
         "approval_status",
         "jobId",
         "resumedStage",
-        "completed"
+        "completed",
+        "jobStatusUrl"
       ],
       "properties": {
         "jobId": {
@@ -156,6 +157,10 @@
             "resumed",
             "error"
           ]
+        },
+        "jobStatusUrl": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },

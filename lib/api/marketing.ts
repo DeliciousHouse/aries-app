@@ -18,9 +18,9 @@ export interface StartJobAccepted {
   jobId: string;
   jobType: MarketingJobType;
   marketing_stage: MarketingStage;
-  approvalRequired?: boolean;
+  approvalRequired: boolean;
   approval?: MarketingApprovalSummary | null;
-  jobStatusUrl?: string;
+  jobStatusUrl: string;
 }
 
 export interface MarketingStageCard {

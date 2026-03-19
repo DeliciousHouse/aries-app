@@ -5,6 +5,7 @@ import { resolveDataPath, resolveSpecPath } from '@/lib/runtime-paths';
 
 const REQUIRED_SCHEMA_PATHS = [
   resolveSpecPath('marketing_job_state_schema.v1.json'),
+  resolveSpecPath('tenant_runtime_state_schema.v1.json'),
 ] as const;
 
 export type MarketingStage = 'research' | 'strategy' | 'production' | 'publish';
