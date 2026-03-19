@@ -1,5 +1,6 @@
 "use client";
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
 import type {
@@ -153,6 +154,17 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
 
               {knownNextStep ? (
                 <div className="rd-alert rd-alert--info">{nextStepGuidance(hints?.nextStep) ?? 'No extra guidance.'}</div>
+              ) : null}
+
+              {successResult.approvalRequired ? (
+                <div className="rd-inline-actions">
+                  <Link
+                    href={`/marketing/job-approve?jobId=${encodeURIComponent(successResult.jobId)}`}
+                    className="rd-button rd-button--secondary"
+                  >
+                    Open approval dashboard
+                  </Link>
+                </div>
               ) : null}
 
               <div>

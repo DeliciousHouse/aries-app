@@ -41,10 +41,39 @@ export type MarketingJobStatusResponse = {
   stageStatus: Record<string, string>;
   updatedAt: string | null;
   runtimeArtifactPath: string;
+  approvalRequired: boolean;
 };
 
 function runtimeArtifactPath(jobId: string): string {
   return `generated/draft/marketing-jobs/${jobId}.json`;
+}
+
+function getJobOutputs(job: Record<string, unknown>): Record<string, unknown> {
+  return job.outputs && typeof job.outputs === "object" ? (job.outputs as Record<string, unknown>) : {};
+}
+
+function approvalRequiredFromJob(job: Record<string, unknown>): boolean {
+  const outputs = getJobOutputs(job);
+  const resumeToken =
+    typeof outputs.openclaw === "object" && outputs.openclaw !== null
+      ? (outputs.openclaw as Record<string, unknown>)
+      : null;
+  const openClawResumeToken =
+    resumeToken && typeof resumeToken.resume_token === "string"
+      ? resumeToken.resume_token.trim()
+      : "";
+  if (openClawResumeToken) {
+    return true;
+  }
+
+  const stageStatus =
+    typeof outputs.stage_status === "object" && outputs.stage_status !== null
+      ? (outputs.stage_status as Record<string, unknown>)
+      : {};
+
+  return Object.values(stageStatus).some(
+    (value) => typeof value === "string" && /(approval|review)/i.test(value)
+  );
 }
 
 export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse {
@@ -60,20 +89,27 @@ export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse
       currentStage: null,
       stageStatus: {},
       updatedAt: null,
-      runtimeArtifactPath: runtimeArtifactPath(jobId)
+      runtimeArtifactPath: runtimeArtifactPath(jobId),
+      approvalRequired: false,
     };
   }
 
   const raw = fs.readFileSync(filePath, "utf8");
-  const job = JSON.parse(raw);
+  const job = JSON.parse(raw) as Record<string, unknown>;
+  const outputs = getJobOutputs(job);
+  const stageStatus =
+    typeof outputs.stage_status === "object" && outputs.stage_status !== null
+      ? (outputs.stage_status as Record<string, string>)
+      : {};
   return {
     jobId,
     tenantId: typeof job.tenant_id === "string" ? job.tenant_id : null,
     state: typeof job.state === "string" ? job.state : "unknown",
     status: typeof job.status === "string" ? job.status : "unknown",
-    currentStage: typeof job?.outputs?.current_stage === "string" ? job.outputs.current_stage : null,
-    stageStatus: (job?.outputs?.stage_status && typeof job.outputs.stage_status === "object") ? job.outputs.stage_status : {},
+    currentStage: typeof outputs.current_stage === "string" ? outputs.current_stage : null,
+    stageStatus,
     updatedAt: typeof job.updated_at === "string" ? job.updated_at : null,
-    runtimeArtifactPath: runtimeArtifactPath(jobId)
+    runtimeArtifactPath: runtimeArtifactPath(jobId),
+    approvalRequired: approvalRequiredFromJob(job),
   };
 }

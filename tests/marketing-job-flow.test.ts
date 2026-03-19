@@ -107,6 +107,7 @@ test('startMarketingJob uses repo-managed runtime without requiring N8N env', as
 
     assert.equal(result.jobType, 'brand_campaign');
     assert.equal(result.wiring, 'openclaw_gateway');
+    assert.equal(result.jobId.includes('tenant_123'), false);
 
     const runtimeFile = path.join(dataRoot, 'generated', 'draft', 'marketing-jobs', `${result.jobId}.json`);
     const runtimeDoc = JSON.parse(await readFile(runtimeFile, 'utf8')) as {

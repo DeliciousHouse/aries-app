@@ -27,7 +27,6 @@ export interface MarketingNewJobScreenProps {
 export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
   const marketingCreate = useMarketingJobCreate(props.clientOptions);
 
-  const [tenantId, setTenantId] = useState('');
   const [brandUrl, setBrandUrl] = useState('');
   const [competitorUrl, setCompetitorUrl] = useState('');
 
@@ -40,21 +39,14 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
     setErrorText(null);
     setSuccess(null);
 
-    const trimmedTenantId = tenantId.trim();
-    if (!trimmedTenantId) {
-      setErrorText('tenantId is required');
-      return;
-    }
-
     const trimmedBrandUrl = brandUrl.trim();
     const trimmedCompetitorUrl = competitorUrl.trim();
     if (!trimmedBrandUrl || !trimmedCompetitorUrl) {
-      setErrorText('tenantId, brandUrl, and competitorUrl are required');
+      setErrorText('brandUrl and competitorUrl are required');
       return;
     }
 
     const request: PostMarketingJobsRequest = {
-      tenantId: trimmedTenantId,
       jobType: 'brand_campaign',
       payload: {
         brandUrl: trimmedBrandUrl,
@@ -91,14 +83,9 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
               Launch the canonical marketing job
             </h1>
             <p className="rd-section-description">
-              Provide the tenant ID, primary brand URL, and competitor reference URL to create the workflow-backed campaign job.
+              Start a workflow-backed brand campaign using your current workspace context and the URLs that define the brief.
             </p>
           </div>
-
-          <label className="rd-field">
-            <span className="rd-label">Tenant ID</span>
-            <TextInput value={tenantId} onChange={(event) => setTenantId(event.target.value)} placeholder="tenant_123" required />
-          </label>
 
           <label className="rd-field">
             <span className="rd-label">Brand website URL</span>
@@ -143,14 +130,17 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
                 </div>
                 <code>{success.jobId}</code>
                 <div className="rd-inline-actions">
-                  <Link href={`/marketing/job-status?jobId=${encodeURIComponent(success.jobId)}`} className="rd-button rd-button--secondary">
+                  <Link
+                    href={success.jobStatusUrl ?? `/marketing/job-status?jobId=${encodeURIComponent(success.jobId)}`}
+                    className="rd-button rd-button--secondary"
+                  >
                     Monitor status
                   </Link>
                   <Link
-                    href={`/marketing/job-approve?jobId=${encodeURIComponent(success.jobId)}&tenantId=${encodeURIComponent(success.tenantId)}`}
+                    href={`/marketing/job-approve?jobId=${encodeURIComponent(success.jobId)}`}
                     className="rd-button rd-button--ghost"
                   >
-                    Approval dashboard
+                    {success.approvalRequired ? 'Review approval queue' : 'Approval dashboard'}
                   </Link>
                 </div>
               </div>

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from 'next/link';
 import { useState, type ReactNode } from 'react';
 import type {
   ApproveJobResult,
@@ -28,7 +29,6 @@ const APPROVAL_STAGE_VALUES: MarketingStage[] = ['research', 'strategy', 'produc
 
 export interface MarketingJobApproveScreenProps {
   baseUrl?: string;
-  defaultTenantId?: string;
   defaultJobId?: string;
   defaultApprovedBy?: string;
 }
@@ -60,7 +60,6 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
   const marketingStatus = useMarketingJobStatus({ baseUrl: props.baseUrl, autoLoad: false });
 
   const [jobId, setJobId] = useState(props.defaultJobId ?? '');
-  const [tenantId, setTenantId] = useState(props.defaultTenantId ?? '');
   const [approvedBy, setApprovedBy] = useState(props.defaultApprovedBy ?? '');
   const [resumePublishIfNeeded, setResumePublishIfNeeded] = useState(true);
   const [approvedStages, setApprovedStages] = useState<MarketingStage[]>([]);
@@ -72,7 +71,6 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
 
   const canSubmit =
     jobId.trim().length > 0 &&
-    tenantId.trim().length > 0 &&
     approvedBy.trim().length > 0 &&
     !submitting;
 
@@ -99,7 +97,6 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
     if (!canSubmit) return;
 
     const body: PostMarketingJobApproveRequest = {
-      tenantId: tenantId.trim(),
       approvedBy: approvedBy.trim(),
       approvedStages: approvedStages.length > 0 ? approvedStages : undefined,
       resumePublishIfNeeded
@@ -134,6 +131,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
   })();
 
   const statusSuccess = jobStatus && !isErrorResult(jobStatus) ? jobStatus : null;
+  const approveSuccess = approveResult && !isErrorResult(approveResult) ? approveResult : null;
   const statusHints =
     statusSuccess && getMarketingStateHints(statusSuccess.marketing_job_state, statusSuccess.marketing_stage_status);
 
@@ -166,14 +164,6 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
                 value={jobId}
                 onChange={(event) => setJobId(event.target.value)}
                 placeholder="mkt_..."
-              />
-            </Field>
-
-            <Field label="Tenant ID">
-              <TextInput
-                value={tenantId}
-                onChange={(event) => setTenantId(event.target.value)}
-                placeholder="acme-phase5"
               />
             </Field>
 
@@ -241,7 +231,14 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
               <div
                 className={approvalMessage.tone === 'success' ? 'rd-alert rd-alert--success' : 'rd-alert rd-alert--danger'}
               >
-                {approvalMessage.text}
+                <div style={{ display: 'grid', gap: '0.75rem' }}>
+                  <span>{approvalMessage.text}</span>
+                  {approveSuccess?.jobStatusUrl ? (
+                    <Link href={approveSuccess.jobStatusUrl} className="rd-button rd-button--secondary">
+                      Review updated status
+                    </Link>
+                  ) : null}
+                </div>
               </div>
             )}
 
