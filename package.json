@@ -11,7 +11,11 @@
     "workspace:inventory": "node scripts/inventory-paperclip-workspaces.mjs",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/**/*.test.ts",
-    "db:init": "node scripts/init-db.js"
+    "db:init": "node scripts/init-db.js",
+    "validate:public-routes": "tsx --test tests/runtime-pages.test.ts",
+    "validate:banned-patterns": "node scripts/check-banned-patterns.mjs",
+    "validate:marketing-flow": "APP_BASE_URL=https://aries.example.com tsx --test tests/marketing-job-flow.test.ts tests/onboarding-marketing-contracts.test.ts",
+    "validate:homepage-perf": "mkdir -p .artifacts && npx --yes lighthouse http://127.0.0.1:3000 --only-categories=performance --preset=desktop --chrome-flags='--headless=new --no-sandbox --disable-dev-shm-usage' --output=json --output-path=.artifacts/lighthouse-homepage.json"
   },
   "dependencies": {
     "@react-three/drei": "^9.122.0",
