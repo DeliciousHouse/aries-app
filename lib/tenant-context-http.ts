@@ -19,8 +19,9 @@ export async function loadTenantContextOrResponse(
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Authentication required.';
     const missingMembership =
-      message === 'No tenant membership found for authenticated user.' &&
-      options.missingMembershipResponse;
+      message === 'No tenant membership found for authenticated user.'
+        ? options.missingMembershipResponse
+        : undefined;
 
     return {
       response: new Response(
