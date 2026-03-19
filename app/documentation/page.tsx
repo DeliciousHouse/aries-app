@@ -11,12 +11,18 @@ const SUMMARY_SECTIONS = [
   },
   {
     title: 'Operator workflow',
-    body: 'Connect platforms, launch campaign jobs, review status, approve human-in-the-loop stages, and trigger publish or sync actions from typed internal routes.',
+    body: 'Connect platforms, launch campaign jobs, review status, approve strategy/production/publish checkpoints, and generate platform-specific publish packages from typed internal routes.',
   },
 ];
 
 const WORKFLOW_ROWS = [
-  ['marketing_start', 'marketing-pipeline.lobster', 'Canonical brand campaign flow'],
+  ['marketing_stage1_research', 'stage-1-research/workflow.lobster', 'Research stage execution'],
+  ['marketing_stage2_strategy_review', 'stage-2-strategy/review-workflow.lobster', 'Strategy stage execution and approval checkpoint'],
+  ['marketing_stage2_strategy_finalize', 'stage-2-strategy/finalize-workflow.lobster', 'Strategy handoff finalization after approval'],
+  ['marketing_stage3_production_review', 'stage-3-production/review-workflow.lobster', 'Production stage execution and approval checkpoint'],
+  ['marketing_stage3_production_finalize', 'stage-3-production/finalize-workflow.lobster', 'Production handoff finalization after approval'],
+  ['marketing_stage4_publish_review', 'stage-4-publish-optimize/review-workflow.lobster', 'Publish preflight and launch approval checkpoint'],
+  ['marketing_stage4_publish_finalize', 'stage-4-publish-optimize/publish-workflow.lobster', 'Publish/optimize execution with platform-aware controls'],
   ['demo_start', 'parity/demo-start/workflow.lobster', 'Demo provisioning parity stub'],
   ['sandbox_launch', 'parity/sandbox-launch/workflow.lobster', 'Sandbox provisioning parity stub'],
   ['onboarding_start', 'parity/onboarding-start/workflow.lobster', 'Tenant onboarding parity stub'],

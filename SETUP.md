@@ -48,7 +48,7 @@ npx next dev -p 3000 --turbopack
 | `AUTH_TRUST_HOST` | Recommended in production | Set `true` behind a trusted reverse proxy/load balancer so Auth.js accepts forwarded host headers |
 | `NODE_ENV` | Optional | `development` or `production` |
 | `PORT` | Optional | Server port (default: 3000) |
-| `INTERNAL_API_SECRET` | Optional | Secret for trusted internal workflow-runner callbacks such as `POST /api/internal/marketing/job-runtime` |
+| `INTERNAL_API_SECRET` | Optional | Reserved for trusted internal callbacks; the marketing pipeline no longer relies on an internal runtime-artifact creation route |
 | `LOG_LEVEL` | Optional | Logging level (default: `info`) |
 | `META_APP_ID` | Optional | Meta/Facebook app ID for OAuth |
 | `META_APP_SECRET` | Optional | Meta/Facebook app secret |
@@ -63,8 +63,8 @@ The following OpenClaw-bound workflows are actively used by the API layer:
 | `/api/demo` | `parity/demo-start/workflow.lobster` | Demo tenant creation parity stub |
 | `/api/sandbox/launch` | `parity/sandbox-launch/workflow.lobster` | Sandbox provisioning parity stub |
 | `/api/onboarding/start` | `parity/onboarding-start/workflow.lobster` | Tenant onboarding parity stub |
-| `/api/marketing/jobs` | `marketing-pipeline.lobster` | Start the canonical brand campaign flow through OpenClaw |
-| `/api/marketing/jobs/:id/approve` | `parity/marketing-approve/workflow.lobster` | Approval parity stub until resumable workflow support exists |
+| `/api/marketing/jobs` | `stage-1-research/workflow.lobster` + `stage-2-strategy/review-workflow.lobster` | Create a job, execute research, execute strategy, and pause at strategy approval |
+| `/api/marketing/jobs/:id/approve` | Stage-specific finalize/review workflows under `stage-2`, `stage-3`, and `stage-4` | Resume the persisted job through the next real checkpoint |
 | `/api/publish/dispatch` | `parity/publish-dispatch/workflow.lobster` | Publish parity stub until a route-shaped stage-4 pipeline exists |
 | `/api/publish/retry` | `parity/publish-retry/workflow.lobster` | Publish repair / retry parity stub |
 | `/api/calendar/sync` | `parity/calendar-sync/workflow.lobster` | Calendar synchronization parity stub |
@@ -86,7 +86,7 @@ Browser → /api/* (Next.js route handlers)
 ```
 
 - **Frontend** calls internal `/api/*` routes only
-- **API layer** (`app/api/*/route.ts`) validates input, then either calls OpenClaw Gateway, reads local read-model artifacts, or returns an explicit placeholder error
+- **API layer** (`app/api/*/route.ts`) validates input, then either calls OpenClaw Gateway, reads Aries-owned runtime state, or returns an explicit unavailable/error response
 - **Frontend-safe contracts** avoid exposing workflow artifact paths or raw backend envelopes to browser code
 - **Authoritative workflow definitions** live in the OpenClaw workspace, not the Aries runtime image
 

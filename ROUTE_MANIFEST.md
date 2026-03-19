@@ -15,7 +15,7 @@
 | Route | Page | Description |
 |---|---|---|
 | `/dashboard` | Dashboard | Redesigned operator overview with stat cards, recent jobs, and quick actions |
-| `/posts` | Posts | Publish dispatch + retry controls through internal Aries API routes |
+| `/posts` | Posts | Guidance surface that points operators back to the canonical marketing job publish flow |
 | `/calendar` | Calendar | Calendar sync controls and scheduling guidance |
 | `/platforms` | Platforms | Live OAuth broker status; token expiry shown only when the backend provides it |
 | `/settings` | Settings | Read-only placeholder; live tenant settings API is not implemented |
@@ -35,16 +35,16 @@
 
 | Method | Route | Runtime Status | Backing Path |
 |---|---|---|---|
-| POST | `/api/contact` | `501` placeholder | Logs payload only; no workflow deployed |
+| POST | `/api/contact` | `501` explicit unavailable | Logs payload only; no workflow deployed |
 | POST | `/api/demo` | OpenClaw parity stub | `parity/demo-start/workflow.lobster` |
 | POST | `/api/sandbox/launch` | OpenClaw parity stub | `parity/sandbox-launch/workflow.lobster` |
-| POST | `/api/waitlist` | `501` placeholder | Logs payload only; no workflow deployed |
-| POST | `/api/events` | `501` placeholder | Logs payload only; no workflow deployed |
+| POST | `/api/waitlist` | `501` explicit unavailable | Logs payload only; no workflow deployed |
+| POST | `/api/events` | `501` explicit unavailable | Logs payload only; no workflow deployed |
 | POST | `/api/onboarding/start` | OpenClaw parity stub | `parity/onboarding-start/workflow.lobster` |
 | GET | `/api/onboarding/status/:tenantId` | Local runtime lookup | Frontend-safe provisioning + artifact summary |
-| POST | `/api/marketing/jobs` | ✅ | `marketing-pipeline.lobster` via OpenClaw Gateway |
-| GET | `/api/marketing/jobs/:jobId` | Local runtime lookup | Frontend-safe job status read model |
-| POST | `/api/marketing/jobs/:jobId/approve` | OpenClaw parity stub | `parity/marketing-approve/workflow.lobster` |
+| POST | `/api/marketing/jobs` | ✅ | Aries-managed stage orchestration: Stage 1 research + Stage 2 strategy review |
+| GET | `/api/marketing/jobs/:jobId` | Aries runtime read model | Frontend-safe job status, approval, and publish-config view |
+| POST | `/api/marketing/jobs/:jobId/approve` | ✅ | Resume the persisted job into the next real stage workflow checkpoint |
 | POST | `/api/publish/dispatch` | OpenClaw parity stub | `parity/publish-dispatch/workflow.lobster` |
 | POST | `/api/publish/retry` | OpenClaw parity stub | `parity/publish-retry/workflow.lobster` |
 | GET | `/api/integrations` | ✅ | Live OAuth broker read model; no sync telemetry |
