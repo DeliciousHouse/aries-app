@@ -176,7 +176,7 @@ export function DonorFooter() {
             <div className="flex gap-4 text-sm text-white/60">
               <Link href="/documentation" className="hover:text-white transition-colors">Docs</Link>
               <Link href="/api-docs" className="hover:text-white transition-colors">API</Link>
-              <Link href="/contact" className="hover:text-white transition-colors">Contact</Link>
+              <Link href="/features" className="hover:text-white transition-colors">Features</Link>
             </div>
           </div>
 
@@ -216,7 +216,7 @@ export function DonorFooter() {
           <div className="flex gap-8">
             <Link href="/documentation" className="hover:text-white transition-colors">Runtime docs</Link>
             <Link href="/api-docs" className="hover:text-white transition-colors">API surface</Link>
-            <Link href="/contact" className="hover:text-white transition-colors">Contact</Link>
+            <Link href="/features" className="hover:text-white transition-colors">Features</Link>
           </div>
         </div>
       </div>
