@@ -14,16 +14,25 @@
     "db:init": "node scripts/init-db.js"
   },
   "dependencies": {
+    "@react-three/drei": "^9.122.0",
+    "@react-three/fiber": "^8.18.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/pg": "^8.18.0",
+    "@types/three": "^0.183.1",
     "bcryptjs": "^3.0.3",
+    "clsx": "^2.1.1",
     "dotenv": "^17.3.1",
+    "lucide-react": "^0.577.0",
+    "motion": "^12.38.0",
     "next": "15.5.10",
     "next-auth": "^5.0.0-beta.30",
     "pg": "^8.20.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
-    "tailwindcss-animate": "^1.0.7"
+    "recharts": "^3.8.0",
+    "tailwind-merge": "^3.5.0",
+    "tailwindcss-animate": "^1.0.7",
+    "three": "^0.183.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.1",

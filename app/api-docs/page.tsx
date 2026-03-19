@@ -1,5 +1,4 @@
 import MarketingLayout from '../../frontend/marketing/MarketingLayout';
-import { Card } from '@/components/redesign/primitives/card';
 
 const ENDPOINTS = [
   {
@@ -96,52 +95,54 @@ const ENDPOINTS = [
 
 export default function ApiDocsPage() {
   return (
-    <MarketingLayout currentPath="/api-docs">
-      <section className="rd-section">
-        <div className="rd-container" style={{ display: 'grid', gap: '1.5rem' }}>
-          <div style={{ display: 'grid', gap: '1rem', maxWidth: '52rem' }}>
-            <span className="rd-section-label">API reference</span>
-            <h1 className="rd-section-title">Internal routes that keep the browser contract safe</h1>
-            <p className="rd-section-description">
-              These are the routes the browser can call. Aries stays responsible for validation, auth context, payload shaping,
-              and workflow orchestration boundaries.
+    <MarketingLayout>
+      <section className="pt-36 pb-24">
+        <div className="container mx-auto px-6 space-y-10">
+          <div className="max-w-4xl">
+            <span className="inline-flex px-4 py-2 rounded-full border border-primary/20 bg-primary/10 text-primary text-xs uppercase tracking-[0.2em] font-semibold mb-6">
+              API reference
+            </span>
+            <h1 className="text-5xl md:text-6xl font-bold leading-tight mb-6">
+              Internal routes that keep the browser contract <span className="text-gradient">safe</span>
+            </h1>
+            <p className="text-xl text-white/60">
+              These are the routes the browser can call. Aries stays responsible for validation, auth context, payload shaping, and workflow orchestration boundaries.
             </p>
           </div>
 
-          <Card>
-            <div style={{ display: 'grid', gap: '1rem' }}>
-              <h3 style={{ margin: 0, fontFamily: 'var(--rd-font-display)', fontSize: '1.3rem' }}>Base URL</h3>
-              <div className="rd-json-panel">
-                <code>[REDACTED]</code>
-              </div>
-              <p className="rd-section-description">
-                App-shell endpoints use session authentication. Public marketing endpoints exist, but contact, waitlist,
-                and events are still explicit placeholders until corresponding workflows are deployed.
-              </p>
-            </div>
-          </Card>
+          <div className="glass rounded-[2rem] p-8 md:p-10">
+            <h2 className="text-2xl font-bold mb-4">Base URL</h2>
+            <div className="rounded-[1.25rem] border border-white/10 bg-black/30 p-5 font-mono text-white/75">[REDACTED]</div>
+            <p className="text-white/60 mt-4">
+              App-shell endpoints use session authentication. Public marketing endpoints exist, but contact, waitlist, and events are still explicit placeholders until corresponding workflows are deployed.
+            </p>
+          </div>
 
-          <div style={{ display: 'grid', gap: '1.25rem' }}>
+          <div className="space-y-6">
             {ENDPOINTS.map((endpoint) => (
-              <Card key={`${endpoint.method}-${endpoint.path}`}>
-                <div style={{ display: 'grid', gap: '1rem' }}>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.75rem' }}>
-                    <span className="rd-badge">{endpoint.method}</span>
-                    <code style={{ fontWeight: 700 }}>{endpoint.path}</code>
-                  </div>
-                  <p className="rd-section-description">{endpoint.desc}</p>
-                  <div className="rd-workflow-grid rd-workflow-grid--2">
-                    <div>
-                      <p className="rd-label" style={{ marginBottom: '0.5rem' }}>Request body</p>
-                      <div className="rd-json-panel"><code>{endpoint.body}</code></div>
+              <div key={`${endpoint.method}-${endpoint.path}`} className="glass rounded-[2rem] p-8">
+                <div className="flex flex-wrap items-center gap-3 mb-4">
+                  <span className="inline-flex px-3 py-1 rounded-full bg-primary/15 border border-primary/20 text-primary text-xs uppercase tracking-[0.2em] font-semibold">
+                    {endpoint.method}
+                  </span>
+                  <code className="font-semibold text-white">{endpoint.path}</code>
+                </div>
+                <p className="text-white/60 mb-6">{endpoint.desc}</p>
+                <div className="grid lg:grid-cols-2 gap-6">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-white/40 mb-3">Request body</p>
+                    <div className="rounded-[1.25rem] border border-white/10 bg-black/30 p-5 font-mono text-sm text-white/75 break-words">
+                      {endpoint.body}
                     </div>
-                    <div>
-                      <p className="rd-label" style={{ marginBottom: '0.5rem' }}>Response</p>
-                      <div className="rd-json-panel"><code>{endpoint.response}</code></div>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-white/40 mb-3">Response</p>
+                    <div className="rounded-[1.25rem] border border-white/10 bg-black/30 p-5 font-mono text-sm text-white/75 break-words">
+                      {endpoint.response}
                     </div>
                   </div>
                 </div>
-              </Card>
+              </div>
             ))}
           </div>
         </div>
