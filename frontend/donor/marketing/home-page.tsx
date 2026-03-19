@@ -236,6 +236,7 @@ function OrbitPlatform({
 
 function Hero() {
   const containerRef = useRef<HTMLElement>(null);
+  const [isMounted, setIsMounted] = useState(false);
   const { scrollYProgress } = useScroll({
     target: containerRef,
     offset: ['start start', 'end start'],
@@ -248,6 +249,11 @@ function Hero() {
   });
 
   const [windowSize, setWindowSize] = useState({ width: 1280, height: 800 });
+  
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+  
   useEffect(() => {
     const updateSize = () => {
       setWindowSize({
@@ -407,7 +413,7 @@ function Hero() {
                   </feMerge>
                 </filter>
               </defs>
-              {PLATFORM_ORBITS.map((platform, index) => (
+              {isMounted && PLATFORM_ORBITS.map((platform, index) => (
                 <OrbitLine
                   key={`${platform.angle}-${platform.radius}`}
                   angle={platform.angle}
