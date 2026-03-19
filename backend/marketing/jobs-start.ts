@@ -224,7 +224,7 @@ export function createMarketingJobRuntime(payload: CreateMarketingJobRuntimePayl
           state: "queued",
           status: "pending",
           step: "research",
-          details: { source: "brand_campaign_webhook" }
+          details: { source: "brand_campaign_api_request" }
         }
       ]
     },

@@ -1,8 +1,8 @@
-# Aries AI — Workflow Manifest
+# Aries AI — Execution Manifest
 
-Aries now treats OpenClaw Gateway as the execution boundary. The app does not
-own runtime workflow execution locally; it calls OpenClaw and reads back
-results or parity-stub responses.
+Aries treats OpenClaw Gateway as the execution boundary. The app does not own
+local automation execution; it invokes OpenClaw workflows and reads back results
+or parity-stub responses.
 
 ## Active OpenClaw Workflow Targets
 
@@ -22,7 +22,7 @@ results or parity-stub responses.
 
 These routes still return explicit `501` placeholders after logging the payload:
 
-| API Route | Expected Future Workflow |
+| API Route | Expected Future Automation |
 |---|---|
 | `/api/contact` | contact intake workflow |
 | `/api/waitlist` | waitlist signup workflow |

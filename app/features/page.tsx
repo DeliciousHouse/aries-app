@@ -10,7 +10,7 @@ const FEATURES = [
   {
     icon: '◎',
     title: 'AI-Driven Research',
-    desc: 'Automated competitor intelligence, market research, and trend analysis. Synthesized reports delivered on schedule via repo-managed workflows.',
+    desc: 'Automated competitor intelligence, market research, and trend analysis. Synthesized reports delivered on schedule through OpenClaw-backed automation runs.',
   },
   {
     icon: '✦',

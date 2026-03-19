@@ -87,7 +87,7 @@ test('startMarketingJob rejects brand_campaign requests without both required UR
   });
 });
 
-test('startMarketingJob uses repo-managed runtime without requiring N8N env', async () => {
+test('startMarketingJob uses repo-managed runtime without legacy workflow env', async () => {
   await withMarketingRuntimeEnv(async (dataRoot) => {
     setOpenClawTestInvoker(() => ({
       ok: true,
