@@ -1,5 +1,4 @@
 import MarketingLayout from '../../frontend/marketing/MarketingLayout';
-import { Card } from '@/components/redesign/primitives/card';
 
 const SUMMARY_SECTIONS = [
   {
@@ -29,71 +28,73 @@ const WORKFLOW_ROWS = [
 
 export default function DocumentationPage() {
   return (
-    <MarketingLayout currentPath="/documentation">
-      <section className="rd-section">
-        <div className="rd-container" style={{ display: 'grid', gap: '1.5rem' }}>
-          <div style={{ display: 'grid', gap: '1rem', maxWidth: '52rem' }}>
-            <span className="rd-section-label">Documentation</span>
-            <h1 className="rd-section-title">Getting Aries running locally without losing runtime truth</h1>
-            <p className="rd-section-description">
+    <MarketingLayout>
+      <section className="pt-36 pb-24">
+        <div className="container mx-auto px-6 space-y-10">
+          <div className="max-w-4xl">
+            <span className="inline-flex px-4 py-2 rounded-full border border-primary/20 bg-primary/10 text-primary text-xs uppercase tracking-[0.2em] font-semibold mb-6">
+              Documentation
+            </span>
+            <h1 className="text-5xl md:text-6xl font-bold leading-tight mb-6">
+              Getting Aries running locally without losing <span className="text-gradient">runtime truth</span>
+            </h1>
+            <p className="text-xl text-white/60">
               The goal of this runtime is clarity: stable page routes, stable internal APIs, and a workflow boundary that never leaks browser concerns into OpenClaw or Lobster.
             </p>
           </div>
 
-          <div className="rd-card-grid rd-card-grid--3">
+          <div className="grid md:grid-cols-3 gap-8">
             {SUMMARY_SECTIONS.map((section) => (
-              <Card key={section.title}>
-                <div style={{ display: 'grid', gap: '0.9rem' }}>
-                  <h2 style={{ margin: 0, fontFamily: 'var(--rd-font-display)', fontSize: '1.3rem' }}>{section.title}</h2>
-                  <p className="rd-section-description" style={{ fontSize: '0.98rem' }}>{section.body}</p>
-                </div>
-              </Card>
+              <div key={section.title} className="glass rounded-[2rem] p-8">
+                <h2 className="text-2xl font-bold mb-4">{section.title}</h2>
+                <p className="text-white/55 leading-relaxed">{section.body}</p>
+              </div>
             ))}
           </div>
 
-          <Card>
-            <div style={{ display: 'grid', gap: '1rem' }}>
-              <span className="rd-section-label">Quick start</span>
-              <h2 style={{ margin: 0, fontFamily: 'var(--rd-font-display)', fontSize: '2rem' }}>Recommended local development flow</h2>
-              <div className="rd-json-panel">
-                <code>{`NODE_ENV=development npm ci
+          <div className="glass rounded-[2.5rem] p-8 md:p-10">
+            <span className="inline-flex px-4 py-2 rounded-full border border-primary/20 bg-primary/10 text-primary text-xs uppercase tracking-[0.2em] font-semibold mb-5">
+              Quick start
+            </span>
+            <h2 className="text-3xl md:text-4xl font-bold mb-5">Recommended local development flow</h2>
+            <div className="rounded-[1.5rem] border border-white/10 bg-black/30 p-6 overflow-x-auto">
+              <pre className="text-sm md:text-base text-white/75 whitespace-pre-wrap">{`NODE_ENV=development npm ci
 cp .env.example .env
 export DB_HOST=localhost DB_PORT=5432 DB_USER=aries_user DB_PASSWORD=aries_pass DB_NAME=aries_dev
 export CODE_ROOT=/workspace DATA_ROOT=/tmp/aries-data NODE_ENV=development
 export APP_BASE_URL=http://localhost:3000 NEXTAUTH_URL=http://localhost:3000 AUTH_URL=http://localhost:3000 AUTH_TRUST_HOST=true
-npx next dev -p 3000 --turbopack`}</code>
-              </div>
-              <p className="rd-section-description">
-                Turbopack is required in this repo. The VM also injects environment variables at the OS level, so explicit overrides are part of a reliable local flow.
-              </p>
+npx next dev -p 3000 --turbopack`}</pre>
             </div>
-          </Card>
+            <p className="text-white/60 mt-5">
+              Turbopack is required in this repo. The VM also injects environment variables at the OS level, so explicit overrides are part of a reliable local flow.
+            </p>
+          </div>
 
-          <Card>
-            <div style={{ display: 'grid', gap: '1rem' }}>
-              <span className="rd-section-label">Workflow catalog</span>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid var(--rd-border)' }}>
-                      <th style={{ textAlign: 'left', padding: '0.75rem', color: 'var(--rd-text-muted)' }}>Workflow</th>
-                      <th style={{ textAlign: 'left', padding: '0.75rem', color: 'var(--rd-text-muted)' }}>Pipeline</th>
-                      <th style={{ textAlign: 'left', padding: '0.75rem', color: 'var(--rd-text-muted)' }}>Purpose</th>
+          <div className="glass rounded-[2.5rem] p-8 md:p-10">
+            <span className="inline-flex px-4 py-2 rounded-full border border-primary/20 bg-primary/10 text-primary text-xs uppercase tracking-[0.2em] font-semibold mb-5">
+              Workflow catalog
+            </span>
+            <div className="overflow-x-auto">
+              <table className="w-full border-separate border-spacing-y-3">
+                <thead>
+                  <tr className="text-left text-white/40 uppercase tracking-[0.2em] text-xs">
+                    <th className="px-4">Workflow</th>
+                    <th className="px-4">Pipeline</th>
+                    <th className="px-4">Purpose</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {WORKFLOW_ROWS.map(([name, pipeline, purpose]) => (
+                    <tr key={name} className="bg-white/5">
+                      <td className="px-4 py-4 rounded-l-2xl font-semibold">{name}</td>
+                      <td className="px-4 py-4 text-white/65"><code>{pipeline}</code></td>
+                      <td className="px-4 py-4 rounded-r-2xl text-white/65">{purpose}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {WORKFLOW_ROWS.map(([name, pipeline, purpose]) => (
-                      <tr key={name} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                        <td style={{ padding: '0.75rem', fontWeight: 700 }}>{name}</td>
-                        <td style={{ padding: '0.75rem', color: 'var(--rd-text-secondary)' }}><code>{pipeline}</code></td>
-                        <td style={{ padding: '0.75rem', color: 'var(--rd-text-secondary)' }}>{purpose}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          </Card>
+          </div>
         </div>
       </section>
     </MarketingLayout>

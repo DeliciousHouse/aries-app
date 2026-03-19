@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState, type ReactNode } from 'react';
+import { CheckCircle2, Sparkles } from 'lucide-react';
 import type {
   ApproveJobResult,
   MarketingArtifactCard,
@@ -13,9 +14,6 @@ import type {
 } from '@/lib/api/marketing';
 import { useMarketingJobApprove } from '@/hooks/use-marketing-job-approve';
 import { useMarketingJobStatus } from '@/hooks/use-marketing-job-status';
-import { Button } from '@/components/redesign/primitives/button';
-import { Card } from '@/components/redesign/primitives/card';
-import { TextInput } from '@/components/redesign/primitives/input';
 import StatusBadge from '../components/status-badge';
 
 type ApproveResult = ApproveJobResult | MarketingApiError;
@@ -35,27 +33,27 @@ function isErrorResult(value: unknown): value is MarketingApiError {
 
 function StageCard({ stage }: { stage: MarketingStageCard }) {
   return (
-    <div className="rd-glass" style={{ padding: '1rem', borderRadius: '1rem', display: 'grid', gap: '0.5rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+    <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-2">
+      <div className="flex justify-between gap-4 flex-wrap">
         <strong>{stage.label}</strong>
         <StatusBadge status={stage.status as any} />
       </div>
-      <p className="rd-section-description" style={{ margin: 0 }}>{stage.summary}</p>
-      {stage.highlight ? <span style={{ color: 'var(--rd-text-secondary)' }}>{stage.highlight}</span> : null}
+      <p className="text-white/60 m-0">{stage.summary}</p>
+      {stage.highlight ? <span className="text-white/50">{stage.highlight}</span> : null}
     </div>
   );
 }
 
 function ArtifactPreview({ artifact }: { artifact: MarketingArtifactCard }) {
   return (
-    <div className="rd-glass" style={{ padding: '1rem', borderRadius: '1rem', display: 'grid', gap: '0.5rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+    <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-2">
+      <div className="flex justify-between gap-4 flex-wrap">
         <strong>{artifact.title}</strong>
         <StatusBadge status={artifact.status as any} />
       </div>
-      <p className="rd-section-description" style={{ margin: 0 }}>{artifact.summary}</p>
+      <p className="text-white/60 m-0">{artifact.summary}</p>
       {artifact.details.length > 0 ? (
-        <ul style={{ margin: 0, paddingLeft: '1.1rem', color: 'var(--rd-text-secondary)' }}>
+        <ul className="m-0 pl-5 text-white/60">
           {artifact.details.slice(0, 3).map((detail) => (
             <li key={detail}>{detail}</li>
           ))}
@@ -75,10 +73,10 @@ function Field({
   children: ReactNode;
 }) {
   return (
-    <label className="rd-field">
-      <span className="rd-label">{label}</span>
+    <label className="block space-y-2">
+      <span className="text-xs uppercase tracking-[0.22em] text-white/35">{label}</span>
       {children}
-      {hint ? <span style={{ color: 'var(--rd-text-secondary)', fontSize: '0.9rem' }}>{hint}</span> : null}
+      {hint ? <span className="text-sm text-white/50">{hint}</span> : null}
     </label>
   );
 }
@@ -181,38 +179,46 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
   const approveSuccess = approveResult && !isErrorResult(approveResult) ? approveResult : null;
 
   return (
-    <div className="rd-workflow-grid rd-workflow-grid--2">
-      <Card>
-        <div style={{ display: 'grid', gap: '1rem' }}>
+    <div className="min-h-screen bg-background px-6 py-10 md:px-8 lg:px-10">
+      <div className="max-w-7xl mx-auto grid gap-6">
+        <div className="glass rounded-[2.5rem] p-8 md:p-10">
+          <p className="text-xs uppercase tracking-[0.3em] text-primary mb-3">Aries workflow</p>
+          <h1 className="text-4xl font-bold mb-3">Campaign approval</h1>
+          <p className="text-white/60">Approve or resume paused launch stages through the Aries internal approval route.</p>
+        </div>
+
+        <div className="grid xl:grid-cols-2 gap-6">
+      <div className="glass rounded-[2.5rem] p-8">
+        <div className="grid gap-5">
           <div>
-            <p className="rd-section-label">Approval control</p>
-            <h1 style={{ margin: '0.8rem 0 0.5rem', fontFamily: 'var(--rd-font-display)', fontSize: '2rem' }}>
-              Resume a paused marketing workflow
-            </h1>
-            <p className="rd-section-description">
+            <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-3">Approval control</p>
+            <h1 className="text-3xl font-bold mb-3">Resume a paused marketing workflow</h1>
+            <p className="text-white/60">
               Submit approval decisions through the internal Aries route and refresh live status without exposing workflow runner details.
             </p>
           </div>
 
             <Field label="Job ID" hint="Required route key for /api/marketing/jobs/:jobId/approve">
-              <TextInput
+              <input
                 value={jobId}
                 onChange={(event) => setJobId(event.target.value)}
                 placeholder="mkt_..."
+                className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
               />
             </Field>
 
             <Field label="Approved By">
-              <TextInput
+              <input
                 value={approvedBy}
                 onChange={(event) => setApprovedBy(event.target.value)}
                 placeholder="operator"
+                className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
               />
             </Field>
 
-            <div style={{ display: 'grid', gap: 8 }}>
-              <span className="rd-label">Approved stages</span>
-              <div className="rd-chip-group">
+            <div className="grid gap-2">
+              <span className="text-xs uppercase tracking-[0.22em] text-white/35">Approved stages</span>
+              <div className="flex flex-wrap gap-3">
                 {APPROVAL_STAGE_VALUES.map((stage) => {
                   const active = approvedStages.includes(stage);
                   return (
@@ -220,8 +226,9 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
                       key={stage}
                       type="button"
                       onClick={() => toggleStage(stage)}
-                      className="rd-chip"
-                      data-active={active}
+                      className={`px-4 py-2 rounded-full border transition-all ${
+                        active ? 'border-primary/30 bg-primary/15 text-white' : 'border-white/10 bg-white/5 text-white/60'
+                      }`}
                     >
                       {stage}
                     </button>
@@ -230,7 +237,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
               </div>
             </div>
 
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--rd-text-secondary)' }}>
+            <label className="flex items-center gap-2 text-white/60">
               <input
                 type="checkbox"
                 checked={resumePublishIfNeeded}
@@ -239,38 +246,51 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
               Resume publish if needed
             </label>
 
-            <div className="rd-inline-actions">
-              <Button type="button" onClick={handleLoadStatus} disabled={loadingStatus || !jobId.trim()} variant="secondary">
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={handleLoadStatus}
+                disabled={loadingStatus || !jobId.trim()}
+                className="px-6 py-3 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all disabled:opacity-60"
+              >
                 {loadingStatus ? 'Loading…' : 'Load current status'}
-              </Button>
-              <Button type="button" onClick={handleApprove} disabled={!canSubmit}>
+              </button>
+              <button
+                type="button"
+                onClick={handleApprove}
+                disabled={!canSubmit}
+                className="px-6 py-3 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 disabled:opacity-60"
+              >
                 {submitting ? 'Approving…' : 'Approve and Resume'}
-              </Button>
+              </button>
             </div>
 
             {marketingStatus.error || marketingApprove.error ? (
-              <div className="rd-alert rd-alert--danger">
+              <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-red-100">
                 {marketingApprove.error?.message || marketingStatus.error?.message}
               </div>
             ) : null}
         </div>
-      </Card>
+      </div>
 
-      <Card>
-        <div style={{ display: 'grid', gap: '1rem' }}>
-          <p className="rd-section-label">Outcome</p>
+      <div className="glass rounded-[2.5rem] p-8">
+        <div className="grid gap-5">
+          <p className="text-xs uppercase tracking-[0.24em] text-white/35">Outcome</p>
 
             {!approvalMessage ? (
-              <p className="rd-section-description">Load a campaign to review its launch state before approving.</p>
+              <p className="text-white/60">Load a campaign to review its launch state before approving.</p>
             ) : (
               <div
-                className={approvalMessage.tone === 'success' ? 'rd-alert rd-alert--success' : 'rd-alert rd-alert--danger'}
+                className={approvalMessage.tone === 'success'
+                  ? 'rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-5 text-emerald-100'
+                  : 'rounded-2xl border border-red-500/20 bg-red-500/10 p-5 text-red-100'}
               >
-                <div style={{ display: 'grid', gap: '0.75rem' }}>
+                <div className="grid gap-3">
                   <span>{approvalMessage.text}</span>
                   {approveSuccess?.jobStatusUrl ? (
-                    <Link href={approveSuccess.jobStatusUrl} className="rd-button rd-button--secondary">
+                    <Link href={approveSuccess.jobStatusUrl} className="px-5 py-3 rounded-full bg-white/10 border border-white/10 text-white font-semibold inline-flex items-center gap-2 w-fit">
                       Review updated status
+                      <CheckCircle2 className="w-4 h-4" />
                     </Link>
                   ) : null}
                 </div>
@@ -278,27 +298,27 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
             )}
 
             {statusSuccess ? (
-              <div style={{ display: 'grid', gap: '1rem' }}>
-                <div className="rd-summary-list">
-                  <div className="rd-summary-row"><strong>Headline</strong><span>{statusSuccess.summary.headline}</span></div>
-                  <div className="rd-summary-row">
+              <div className="grid gap-5">
+                <div className="space-y-3">
+                  <div className="rounded-[1.5rem] border border-white/10 bg-white/5 px-5 py-4 flex items-center justify-between gap-4"><strong>Headline</strong><span>{statusSuccess.summary.headline}</span></div>
+                  <div className="rounded-[1.5rem] border border-white/10 bg-white/5 px-5 py-4 flex items-center justify-between gap-4">
                     <strong>Status</strong>
                     <StatusBadge status={statusSuccess.marketing_job_status as any} />
                   </div>
-                  <div className="rd-summary-row"><strong>Current stage</strong><span>{statusSuccess.marketing_stage ?? 'none'}</span></div>
-                  <div className="rd-summary-row"><strong>Next step</strong><span>{statusSuccess.nextStep}</span></div>
+                  <div className="rounded-[1.5rem] border border-white/10 bg-white/5 px-5 py-4 flex items-center justify-between gap-4"><strong>Current stage</strong><span>{statusSuccess.marketing_stage ?? 'none'}</span></div>
+                  <div className="rounded-[1.5rem] border border-white/10 bg-white/5 px-5 py-4 flex items-center justify-between gap-4"><strong>Next step</strong><span>{statusSuccess.nextStep}</span></div>
                 </div>
 
                 {statusSuccess.approval ? (
-                  <div className="rd-alert rd-alert--info">
-                    <strong style={{ display: 'block', marginBottom: '0.4rem' }}>{statusSuccess.approval.title}</strong>
+                  <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4 text-cyan-100">
+                    <strong className="block mb-2">{statusSuccess.approval.title}</strong>
                     <span>{statusSuccess.approval.message}</span>
                   </div>
                 ) : null}
 
                 <div>
-                  <p className="rd-label" style={{ marginBottom: '0.75rem' }}>Stage progress</p>
-                  <div className="rd-card-grid rd-card-grid--4">
+                  <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-3">Stage progress</p>
+                  <div className="grid md:grid-cols-2 gap-4">
                     {statusSuccess.stageCards.map((stage) => (
                       <StageCard key={stage.stage} stage={stage} />
                     ))}
@@ -307,8 +327,8 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
 
                 {statusSuccess.artifacts.length > 0 ? (
                   <div>
-                    <p className="rd-label" style={{ marginBottom: '0.75rem' }}>Key artifacts</p>
-                    <div style={{ display: 'grid', gap: '0.75rem' }}>
+                    <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-3">Key artifacts</p>
+                    <div className="grid gap-3">
                       {statusSuccess.artifacts.slice(0, 3).map((artifact) => (
                         <ArtifactPreview key={artifact.id} artifact={artifact} />
                       ))}
@@ -318,7 +338,9 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
               </div>
             ) : null}
         </div>
-      </Card>
+      </div>
+        </div>
+      </div>
     </div>
   );
 }

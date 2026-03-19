@@ -3,14 +3,13 @@
 import type {
   IntegrationCard as PlatformIntegrationCardData,
   IntegrationCardAction,
-  IntegrationConnectionState,
   IntegrationHealth,
   IntegrationPlatform as PlatformKey,
 } from '@/lib/api/integrations';
 
 export type { IntegrationCardAction, IntegrationHealth, PlatformIntegrationCardData, PlatformKey };
-import { BrandLogo } from '@/components/redesign/brand/logo';
-import { Card } from '@/components/redesign/primitives/card';
+import { AriesMark } from '@/frontend/donor/ui';
+import StatusBadge from '@/frontend/components/status-badge';
 
 export interface PlatformCardProps {
   card: PlatformIntegrationCardData;
@@ -25,25 +24,6 @@ const actionLabel: Record<IntegrationCardAction, string> = {
   sync_now: 'Sync now',
   view_permissions: 'View permissions'
 };
-
-function renderConnectionState(state: IntegrationConnectionState): string {
-  switch (state) {
-    case 'not_connected':
-      return 'Not connected';
-    case 'connection_pending':
-      return 'Connection pending';
-    case 'connected':
-      return 'Connected';
-    case 'connection_error':
-      return 'Connection error';
-    case 'reauth_required':
-      return 'Reauthorization required';
-    case 'disabled':
-      return 'Disabled';
-    default:
-      return state;
-  }
-}
 
 function renderHealth(health: IntegrationHealth): string {
   switch (health) {
@@ -62,40 +42,50 @@ function renderHealth(health: IntegrationHealth): string {
 
 export function PlatformCard({ card, onAction, busyAction = null }: PlatformCardProps): JSX.Element {
   return (
-    <Card data-platform={card.platform} className="animate-in fade-in zoom-in-95 duration-500">
-      <div style={{ display: 'grid', gap: '1rem', height: '100%' }}>
-        <header style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
-          <div className="rd-feature-icon" style={{ flexShrink: 0 }}>
-            <span style={{ fontWeight: 800 }}>{card.display_name.charAt(0)}</span>
+    <div data-platform={card.platform} className="glass rounded-[2rem] p-6 h-full">
+      <div className="grid gap-5 h-full">
+        <header className="flex items-start gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
+            <span className="font-bold text-lg">{card.display_name.charAt(0)}</span>
           </div>
           <div>
-            <h3 style={{ margin: 0, fontFamily: 'var(--rd-font-display)', fontSize: '1.25rem' }}>{card.display_name}</h3>
-            <p className="rd-section-description" style={{ marginTop: '0.35rem', fontSize: '0.92rem' }}>{card.description}</p>
+            <h3 className="text-2xl font-bold">{card.display_name}</h3>
+            <p className="text-white/55 mt-2 text-sm leading-relaxed">{card.description}</p>
           </div>
         </header>
 
-        <div className="rd-summary-list">
-          <div className="rd-summary-row">
-            <strong>Status</strong>
-            <span className="rd-badge">{renderConnectionState(card.connection_state)}</span>
+        <div className="space-y-3">
+          <div className="rounded-[1.25rem] border border-white/10 bg-white/5 px-4 py-3 flex items-center justify-between gap-4">
+            <strong className="text-sm">Status</strong>
+            <StatusBadge
+              status={
+                card.connection_state === 'connected'
+                  ? 'completed'
+                  : card.connection_state === 'reauth_required'
+                    ? 'required'
+                    : card.connection_state === 'connection_error'
+                      ? 'error'
+                      : 'accepted'
+              }
+            />
           </div>
 
           {card.connected_account ? (
-            <div className="rd-summary-row">
-              <strong>Account</strong>
-              <span>{card.connected_account.account_label}</span>
+            <div className="rounded-[1.25rem] border border-white/10 bg-white/5 px-4 py-3 flex items-center justify-between gap-4">
+              <strong className="text-sm">Account</strong>
+              <span className="text-sm text-white/70">{card.connected_account.account_label}</span>
             </div>
           ) : null}
 
-          <div className="rd-summary-row">
-            <strong>Health</strong>
-            <span>{renderHealth(card.health)}</span>
+          <div className="rounded-[1.25rem] border border-white/10 bg-white/5 px-4 py-3 flex items-center justify-between gap-4">
+            <strong className="text-sm">Health</strong>
+            <span className="text-sm text-white/70">{renderHealth(card.health)}</span>
           </div>
 
           {card.last_synced_at ? (
-            <div className="rd-summary-row">
-              <strong>Last sync</strong>
-              <span>
+            <div className="rounded-[1.25rem] border border-white/10 bg-white/5 px-4 py-3 flex items-center justify-between gap-4">
+              <strong className="text-sm">Last sync</strong>
+              <span className="text-sm text-white/70">
                 {new Date(card.last_synced_at).toLocaleDateString(undefined, {
                   month: 'short',
                   day: 'numeric',
@@ -107,9 +97,9 @@ export function PlatformCard({ card, onAction, busyAction = null }: PlatformCard
           ) : null}
 
           {(card.connection_state === 'connected' || card.connection_state === 'reauth_required') ? (
-            <div className="rd-summary-row">
-              <strong>Token expiry</strong>
-              <span>
+            <div className="rounded-[1.25rem] border border-white/10 bg-white/5 px-4 py-3 flex items-center justify-between gap-4">
+              <strong className="text-sm">Token expiry</strong>
+              <span className="text-sm text-white/70">
                 {card.expires_at
                   ? new Date(card.expires_at).toLocaleDateString(undefined, {
                       month: 'short',
@@ -124,48 +114,46 @@ export function PlatformCard({ card, onAction, busyAction = null }: PlatformCard
         </div>
 
         {card.error ? (
-          <div className="rd-alert rd-alert--danger">
-            <div>
-              <div style={{ fontWeight: 700 }}>{card.error.message}</div>
-              {card.error.retry_after_seconds ? <div>Retry after {card.error.retry_after_seconds}s</div> : null}
-            </div>
+          <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-red-100">
+            <div className="font-semibold">{card.error.message}</div>
+            {card.error.retry_after_seconds ? <div className="text-sm mt-1">Retry after {card.error.retry_after_seconds}s</div> : null}
           </div>
         ) : null}
 
-        <div className="rd-glass" style={{ padding: '0.9rem 1rem', borderRadius: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <BrandLogo size={28} variant="mark" />
+        <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-4 flex items-center gap-3">
+          <AriesMark sizeClassName="w-8 h-8" />
           <div>
-            <div style={{ fontSize: '0.82rem', fontWeight: 700 }}>Aries OAuth handoff</div>
-            <div style={{ color: 'var(--rd-text-secondary)', fontSize: '0.78rem' }}>
+            <div className="text-sm font-semibold">Aries OAuth handoff</div>
+            <div className="text-xs text-white/55">
               Uses the internal Aries callback namespace for {card.display_name}.
             </div>
           </div>
         </div>
 
-        <div className="rd-inline-actions" style={{ marginTop: 'auto' }}>
+        <div className="flex flex-wrap gap-3 mt-auto">
           {card.available_actions.map((action) => {
             const isBusy = busyAction === action;
-            const className = action === 'connect' || action === 'reconnect'
-              ? 'rd-button rd-button--primary'
-              : 'rd-button rd-button--secondary';
+            const className =
+              action === 'connect' || action === 'reconnect'
+                ? 'bg-gradient-to-r from-primary to-secondary text-white shadow-xl shadow-primary/20'
+                : 'bg-white/5 border border-white/10 text-white hover:bg-white/10';
 
             return (
               <button
                 key={`${card.platform}-${action}`}
                 type="button"
-                className={className}
+                className={`px-5 py-3 rounded-full font-semibold transition-all ${className}`}
                 style={{ flex: action === 'connect' || action === 'reconnect' ? '1 1 100%' : '1 1 auto' }}
                 onClick={() => onAction?.(action, card.platform)}
                 disabled={isBusy}
               >
-                {isBusy ? <span className="rd-spinner" style={{ width: 12, height: 12, borderWidth: 2 }} /> : null}
-                {actionLabel[action]}
+                {isBusy ? 'Working…' : actionLabel[action]}
               </button>
             );
           })}
         </div>
       </div>
-    </Card>
+    </div>
   );
 }
 

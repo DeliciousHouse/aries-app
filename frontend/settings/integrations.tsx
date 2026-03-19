@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState } from 'react';
+import { Search, Sparkles } from 'lucide-react';
 
 import { useIntegrations } from '@/hooks/use-integrations';
-import { BrandLogo } from '@/components/redesign/brand/logo';
 import {
   type GetIntegrationsPageError,
   type GetIntegrationsPageResponse,
@@ -14,10 +14,7 @@ import {
   type PlatformFilter,
 } from '@/lib/api/integrations';
 import PlatformCard from './platform-card';
-import { Button } from '@/components/redesign/primitives/button';
-import { Card } from '@/components/redesign/primitives/card';
-import { TextInput } from '@/components/redesign/primitives/input';
-import { SelectInput } from '@/components/redesign/primitives/select';
+import { AriesMark } from '@/frontend/donor/ui';
 
 function healthRank(health: IntegrationHealth): number {
   switch (health) {
@@ -141,117 +138,129 @@ export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenP
   }
 
   return (
-    <div style={{ display: 'grid', gap: '1.5rem' }}>
-      <Card className="animate-in fade-in zoom-in-95 duration-500">
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <div style={{ display: 'grid', gap: '0.75rem', maxWidth: '40rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.9rem' }}>
-              <BrandLogo size={46} variant="mark" />
-              <p className="rd-section-label" style={{ margin: 0 }}>OAuth broker</p>
+    <div className="space-y-6">
+      <div className="glass rounded-[2.5rem] p-8">
+        <div className="flex justify-between gap-6 items-start flex-wrap">
+          <div className="max-w-3xl">
+            <div className="flex items-center gap-3 mb-4">
+              <AriesMark sizeClassName="w-11 h-11" />
+              <p className="text-xs uppercase tracking-[0.24em] text-white/35">OAuth broker</p>
             </div>
-            <h2 style={{ margin: 0, fontFamily: 'var(--rd-font-display)', fontSize: '1.8rem' }}>
+            <h2 className="text-3xl font-bold mb-3">
               Connect providers with the same Aries handoff flow across the product
             </h2>
-            <p className="rd-section-description">
+            <p className="text-white/60">
               TikTok, Reddit, Meta, and the rest of the platform set all move through the same branded Aries connect experience and callback namespace.
             </p>
           </div>
-          <div className="rd-glass" style={{ padding: '1rem', borderRadius: '1rem', minWidth: '260px' }}>
-            <div className="rd-summary-list">
-              <div className="rd-summary-row"><strong>Callback namespace</strong><code>/api/auth/oauth/:provider/callback</code></div>
-              <div className="rd-summary-row"><strong>Connect experience</strong><span>Branded Aries interstitial</span></div>
+          <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 min-w-[260px]">
+            <div className="space-y-3 text-sm text-white/65">
+              <div className="flex justify-between gap-4">
+                <strong className="text-white">Callback namespace</strong>
+                <code>/api/auth/oauth/:provider/callback</code>
+              </div>
+              <div className="flex justify-between gap-4">
+                <strong className="text-white">Connect experience</strong>
+                <span>Branded Aries interstitial</span>
+              </div>
             </div>
           </div>
         </div>
-      </Card>
+      </div>
 
-      <div className="rd-stat-grid">
+      <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-6">
         {[
           ['Total integrations', String(summary.total)],
           ['Connected', String(summary.connected)],
           ['Not connected', String(summary.not_connected)],
           ['Attention required', String(summary.attention_required)],
         ].map(([label, value]) => (
-          <Card key={label}>
-            <div style={{ display: 'grid', gap: '0.55rem' }}>
-              <span className="rd-label">{label}</span>
-              <strong style={{ fontFamily: 'var(--rd-font-display)', fontSize: '2rem' }}>{value}</strong>
-            </div>
-          </Card>
+          <div key={label} className="glass rounded-[2rem] p-6">
+            <span className="text-xs uppercase tracking-[0.22em] text-white/35">{label}</span>
+            <strong className="block text-4xl font-bold mt-3">{value}</strong>
+          </div>
         ))}
       </div>
 
-      {lastError && (
-        <div className="rd-alert rd-alert--danger">
+      {lastError ? (
+        <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-5 text-red-100">
           {lastError.error.message}
         </div>
-      )}
+      ) : null}
 
-      <Card>
-        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-        <div className="rd-field" style={{ flex: '1 1 200px' }}>
-          <label htmlFor="integrations-search" className="rd-label">Search platform</label>
-          <div style={{ position: 'relative' }}>
-            <svg style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--rd-text-subtle)', width: '16px', height: '16px' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-            <TextInput
-              id="integrations-search"
-              style={{ paddingLeft: '36px' }}
-              value={search}
-              onChange={(event) => setSearch(event.target.value.slice(0, 80))}
-              placeholder="e.g. Instagram"
-            />
+      <div className="glass rounded-[2.5rem] p-8">
+        <div className="flex gap-4 flex-wrap items-end">
+          <div className="flex-1 min-w-[220px]">
+            <label htmlFor="integrations-search" className="block text-xs uppercase tracking-[0.22em] text-white/35 mb-2">
+              Search platform
+            </label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/35" />
+              <input
+                id="integrations-search"
+                className="w-full rounded-2xl border border-white/10 bg-white/5 pl-10 pr-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+                value={search}
+                onChange={(event) => setSearch(event.target.value.slice(0, 80))}
+                placeholder="e.g. Instagram"
+              />
+            </div>
           </div>
-        </div>
 
-        <div className="rd-field" style={{ width: '180px' }}>
-          <label htmlFor="integrations-filter" className="rd-label">Filter status</label>
-          <SelectInput
-            id="integrations-filter"
-            value={filter}
-            onChange={(event) => setFilter(event.target.value as PlatformFilter)}
+          <div className="w-full md:w-[190px]">
+            <label htmlFor="integrations-filter" className="block text-xs uppercase tracking-[0.22em] text-white/35 mb-2">
+              Filter status
+            </label>
+            <select
+              id="integrations-filter"
+              value={filter}
+              onChange={(event) => setFilter(event.target.value as PlatformFilter)}
+              className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50"
+            >
+              <option value="all" className="bg-black">All Statuses</option>
+              <option value="connected" className="bg-black">Connected</option>
+              <option value="not_connected" className="bg-black">Not Connected</option>
+              <option value="attention_required" className="bg-black">Attention Required</option>
+            </select>
+          </div>
+
+          <div className="w-full md:w-[190px]">
+            <label htmlFor="integrations-sort" className="block text-xs uppercase tracking-[0.22em] text-white/35 mb-2">
+              Sort by
+            </label>
+            <select
+              id="integrations-sort"
+              value={sort}
+              onChange={(event) => setSort(event.target.value as IntegrationsSort)}
+              className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50"
+            >
+              <option value="display_name_asc" className="bg-black">Name (A-Z)</option>
+              <option value="display_name_desc" className="bg-black">Name (Z-A)</option>
+              <option value="connection_state" className="bg-black">Status</option>
+              <option value="health" className="bg-black">Health</option>
+            </select>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => integrations.refresh()}
+            disabled={pageState === 'refreshing'}
+            className="px-6 py-3 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all disabled:opacity-60"
           >
-            <option value="all">All Statuses</option>
-            <option value="connected">Connected</option>
-            <option value="not_connected">Not Connected</option>
-            <option value="attention_required">Attention Required</option>
-          </SelectInput>
+            {pageState === 'refreshing' ? 'Refreshing…' : 'Refresh list'}
+          </button>
         </div>
-
-        <div className="rd-field" style={{ width: '180px' }}>
-          <label htmlFor="integrations-sort" className="rd-label">Sort by</label>
-          <SelectInput
-            id="integrations-sort"
-            value={sort}
-            onChange={(event) => setSort(event.target.value as IntegrationsSort)}
-          >
-            <option value="display_name_asc">Name (A-Z)</option>
-            <option value="display_name_desc">Name (Z-A)</option>
-            <option value="connection_state">Status</option>
-            <option value="health">Health</option>
-          </SelectInput>
-        </div>
-
-        <Button type="button" variant="secondary" onClick={() => integrations.refresh()} disabled={pageState === 'refreshing'}>
-          {pageState === 'refreshing' ? (
-            <div className="rd-spinner" style={{ width: 14, height: 14, borderWidth: 2 }}></div>
-          ) : (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
-          )}
-          <span>Refresh List</span>
-        </Button>
       </div>
-      </Card>
 
       {(pageState === 'loading' || pageState === 'refreshing') && visibleCards.length === 0 ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: 'var(--space-12)' }}>
-          <div className="rd-spinner"></div>
+        <div className="rounded-[2rem] border border-white/10 bg-white/5 p-8 text-center text-white/60">
+          Loading platform cards…
         </div>
       ) : visibleCards.length === 0 ? (
-        <Card>
-          <p className="rd-section-description" style={{ marginBottom: 0, textAlign: 'center' }}>No platforms match your current filters.</p>
-        </Card>
+        <div className="rounded-[2rem] border border-white/10 bg-white/5 p-8 text-center text-white/60">
+          No platforms match your current filters.
+        </div>
       ) : (
-        <div className="rd-card-grid rd-card-grid--3">
+        <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
           {visibleCards.map((card) => (
             <PlatformCard
               key={card.platform}
@@ -266,6 +275,11 @@ export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenP
           ))}
         </div>
       )}
+
+      <div className="rounded-[2rem] border border-white/10 bg-white/5 p-5 flex items-center gap-3 text-white/60">
+        <Sparkles className="w-5 h-5 text-primary" />
+        Connect and reconnect actions keep the browser inside Aries by routing through the branded OAuth interstitial.
+      </div>
     </div>
   );
 }

@@ -1,0 +1,243 @@
+'use client';
+
+import type { ReactNode } from 'react';
+import { useEffect, useState } from 'react';
+
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { AnimatePresence, motion } from 'motion/react';
+import { ArrowRight, Menu, X } from 'lucide-react';
+
+import { cn } from '../lib/utils';
+import { AriesMark, AriesWordmark } from '../ui';
+
+export interface DonorMarketingShellProps {
+  children: ReactNode;
+  heroMode?: boolean;
+}
+
+const NAV_ITEMS = [
+  { name: 'Product', href: '/#product' },
+  { name: 'How it Works', href: '/#how-it-works' },
+  { name: 'Features', href: '/#features' },
+  { name: 'Pricing', href: '/#pricing' },
+  { name: 'Docs', href: '/documentation' },
+] as const;
+
+function normalizeForActive(href: string) {
+  return href.replace(/#.*$/, '') || '/';
+}
+
+export function DonorNavbar({ heroMode = false }: { heroMode?: boolean }) {
+  const pathname = usePathname();
+  const [isScrolled, setIsScrolled] = useState(false);
+  const [headerOpacity, setHeaderOpacity] = useState(1);
+  const [showIcon, setShowIcon] = useState(true);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [scrollProgress, setScrollProgress] = useState(0);
+  const isHome = pathname === '/';
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 20);
+
+      const heroHeight = window.innerHeight * 2.5;
+      const progress = heroHeight > 0 ? window.scrollY / heroHeight : 0;
+      setScrollProgress(progress);
+
+      if (heroMode && isHome) {
+        setShowIcon(progress > 0.95);
+
+        if (progress < 0.1) {
+          setHeaderOpacity(1);
+        } else if (progress <= 0.15) {
+          setHeaderOpacity(1 - (progress - 0.1) / 0.05);
+        } else if (progress < 0.5) {
+          setHeaderOpacity(0);
+        } else if (progress <= 0.95) {
+          setHeaderOpacity((progress - 0.5) / 0.45);
+        } else {
+          setHeaderOpacity(1);
+        }
+      } else {
+        setShowIcon(true);
+        setHeaderOpacity(1);
+      }
+    };
+
+    handleScroll();
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [heroMode, isHome]);
+
+  return (
+    <nav
+      className={cn(
+        'fixed top-0 left-0 right-0 z-50 transition-all duration-300 px-6',
+        isScrolled && (!heroMode || !isHome || scrollProgress > 0.95)
+          ? 'bg-black/50 backdrop-blur-md border-b border-white/10 py-3'
+          : 'bg-transparent py-4',
+      )}
+    >
+      <div className="max-w-7xl mx-auto flex items-center justify-between gap-6">
+        <Link href="/" className="flex items-center gap-2">
+            <AriesMark className={cn('transition-opacity duration-300', showIcon ? 'opacity-100' : 'opacity-0')} />
+            <span className="text-xl font-bold tracking-tight text-white" style={{ opacity: headerOpacity }}>
+              Aries AI
+            </span>
+            <span className="sr-only">Aries AI</span>
+        </Link>
+
+        <div
+          className="hidden md:flex items-center gap-8"
+          style={{ opacity: headerOpacity, pointerEvents: headerOpacity < 0.5 ? 'none' : 'auto' }}
+        >
+          {NAV_ITEMS.map((link) => (
+            <Link
+              key={link.name}
+              href={link.href}
+              className={cn(
+                'text-sm font-medium transition-colors',
+                normalizeForActive(link.href) === pathname ? 'text-white' : 'text-white/70 hover:text-white',
+              )}
+            >
+              {link.name}
+            </Link>
+          ))}
+        </div>
+
+        <div
+          className="hidden md:flex items-center gap-4"
+          style={{ opacity: headerOpacity, pointerEvents: headerOpacity < 0.5 ? 'none' : 'auto' }}
+        >
+          <Link
+            href="/login"
+            className="px-5 py-2 rounded-full bg-gradient-to-r from-primary to-secondary hover:opacity-90 text-sm font-medium transition-all shadow-lg shadow-primary/20 flex items-center gap-2 text-white"
+          >
+            Start Automating <ArrowRight className="w-4 h-4" />
+          </Link>
+        </div>
+
+        <button
+          type="button"
+          className="md:hidden text-white"
+          onClick={() => setIsMobileMenuOpen((value) => !value)}
+          style={{ opacity: headerOpacity, pointerEvents: headerOpacity < 0.5 ? 'none' : 'auto' }}
+          aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
+        >
+          {isMobileMenuOpen ? <X /> : <Menu />}
+        </button>
+      </div>
+
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="absolute top-full left-0 right-0 bg-black/95 backdrop-blur-xl border-b border-white/10 p-6 flex flex-col gap-6 md:hidden"
+          >
+            {NAV_ITEMS.map((link) => (
+              <Link
+                key={link.name}
+                href={link.href}
+                className="text-lg font-medium text-white/70 hover:text-white"
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                {link.name}
+              </Link>
+            ))}
+            <div className="flex flex-col gap-4 pt-4 border-t border-white/10">
+              <Link
+                href="/login"
+                className="w-full py-3 flex justify-center rounded-xl bg-gradient-to-r from-primary to-secondary font-medium text-white"
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                Start Automating
+              </Link>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </nav>
+  );
+}
+
+export function DonorFooter() {
+  return (
+    <footer className="pt-24 pb-12 border-t border-white/5 bg-black">
+      <div className="container mx-auto px-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-12 mb-16">
+          <div className="col-span-2">
+            <AriesWordmark className="mb-6" />
+            <p className="text-white/50 max-w-xs mb-8">
+              The browser-safe Aries control surface for autonomous marketing workflows, approvals, and platform orchestration.
+            </p>
+            <div className="flex gap-4 text-sm text-white/60">
+              <Link href="/documentation" className="hover:text-white transition-colors">Docs</Link>
+              <Link href="/api-docs" className="hover:text-white transition-colors">API</Link>
+              <Link href="/contact" className="hover:text-white transition-colors">Contact</Link>
+            </div>
+          </div>
+
+          <div>
+            <h4 className="font-bold mb-6">Product</h4>
+            <ul className="space-y-4 text-white/50 text-sm">
+              <li><Link href="/#features" className="hover:text-white transition-colors">Features</Link></li>
+              <li><Link href="/platforms" className="hover:text-white transition-colors">Platforms</Link></li>
+              <li><Link href="/dashboard" className="hover:text-white transition-colors">Dashboard</Link></li>
+              <li><Link href="/marketing/new-job" className="hover:text-white transition-colors">Campaigns</Link></li>
+            </ul>
+          </div>
+
+          <div>
+            <h4 className="font-bold mb-6">Runtime</h4>
+            <ul className="space-y-4 text-white/50 text-sm">
+              <li><Link href="/documentation" className="hover:text-white transition-colors">Documentation</Link></li>
+              <li><Link href="/api-docs" className="hover:text-white transition-colors">Internal APIs</Link></li>
+              <li><Link href="/onboarding/start" className="hover:text-white transition-colors">Onboarding</Link></li>
+              <li><Link href="/oauth/connect/facebook" className="hover:text-white transition-colors">OAuth Flow</Link></li>
+            </ul>
+          </div>
+
+          <div>
+            <h4 className="font-bold mb-6">Channels</h4>
+            <ul className="space-y-4 text-white/50 text-sm">
+              <li>Meta</li>
+              <li>LinkedIn</li>
+              <li>X</li>
+              <li>TikTok</li>
+            </ul>
+          </div>
+        </div>
+
+        <div className="pt-8 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-4 text-white/30 text-xs">
+          <p>© 2026 Aries AI Inc. All rights reserved.</p>
+          <div className="flex gap-8">
+            <Link href="/documentation" className="hover:text-white transition-colors">Runtime docs</Link>
+            <Link href="/api-docs" className="hover:text-white transition-colors">API surface</Link>
+            <Link href="/contact" className="hover:text-white transition-colors">Contact</Link>
+          </div>
+        </div>
+      </div>
+    </footer>
+  );
+}
+
+export function DonorMarketingShell({ children, heroMode = false }: DonorMarketingShellProps) {
+  return (
+    <div className="relative min-h-screen bg-background selection:bg-primary/30">
+      <div
+        className="fixed inset-0 z-0 pointer-events-none opacity-[0.03]"
+        style={{
+          backgroundImage:
+            'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)',
+          backgroundSize: '40px 40px',
+        }}
+      />
+      <DonorNavbar heroMode={heroMode} />
+      <main className="relative z-10">{children}</main>
+      <DonorFooter />
+    </div>
+  );
+}

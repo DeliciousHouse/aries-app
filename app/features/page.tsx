@@ -1,6 +1,5 @@
 import MarketingLayout from '../../frontend/marketing/MarketingLayout';
-import { ButtonLink } from '@/components/redesign/primitives/button';
-import { Card } from '@/components/redesign/primitives/card';
+import Link from 'next/link';
 
 const FEATURES = [
   {
@@ -67,45 +66,49 @@ const FEATURES = [
 
 export default function FeaturesPage() {
   return (
-    <MarketingLayout currentPath="/features">
-      <section className="rd-section">
-        <div className="rd-container" style={{ display: 'grid', gap: '1.5rem' }}>
-          <div style={{ display: 'grid', gap: '1rem', maxWidth: '50rem' }}>
-            <span className="rd-section-label">Platform capabilities</span>
-            <h1 className="rd-section-title">Everything needed to run a premium marketing control plane</h1>
-            <p className="rd-section-description">
+    <MarketingLayout>
+      <section className="pt-36 pb-20 relative">
+        <div className="container mx-auto px-6">
+          <div className="max-w-4xl mb-16">
+            <span className="inline-flex px-4 py-2 rounded-full border border-primary/20 bg-primary/10 text-primary text-xs uppercase tracking-[0.2em] font-semibold mb-6">
+              Platform capabilities
+            </span>
+            <h1 className="text-5xl md:text-6xl font-bold leading-tight mb-6">
+              Everything needed to run a premium <span className="text-gradient">marketing control plane</span>
+            </h1>
+            <p className="text-xl text-white/60">
               Aries combines AI reasoning, workflow orchestration, and multi-platform delivery into a single integrated system.
             </p>
           </div>
 
-          <div className="rd-card-grid rd-card-grid--3">
-            {FEATURES.map((f) => (
-              <Card key={f.title}>
-                <div style={{ display: 'grid', gap: '1rem' }}>
-                  <span className="rd-feature-icon">{f.icon}</span>
-                  <h3 style={{ margin: 0, fontFamily: 'var(--rd-font-display)', fontSize: '1.25rem' }}>{f.title}</h3>
-                  <p className="rd-section-description" style={{ fontSize: '0.98rem' }}>{f.desc}</p>
-                </div>
-              </Card>
+          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-8">
+            {FEATURES.map((feature) => (
+              <div key={feature.title} className="glass p-8 rounded-[2rem] border border-white/10">
+                <div className="mb-6 p-4 bg-white/5 rounded-2xl w-fit text-2xl">{feature.icon}</div>
+                <h2 className="text-2xl font-bold mb-4">{feature.title}</h2>
+                <p className="text-white/55 leading-relaxed">{feature.desc}</p>
+              </div>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="rd-section">
-        <div className="rd-container">
-          <Card>
-            <div style={{ display: 'grid', gap: '1rem', textAlign: 'center', maxWidth: '48rem', margin: '0 auto' }}>
-              <h2 className="rd-section-title">Ready to see the operator experience end-to-end?</h2>
-              <p className="rd-section-description">
-                Review the runtime docs, connect a platform, and start the canonical brand campaign flow through Aries.
-              </p>
-              <div className="rd-hero__actions" style={{ justifyContent: 'center' }}>
-                <ButtonLink href="/documentation">Read the docs</ButtonLink>
-                <ButtonLink href="/login" variant="secondary">Open the console</ButtonLink>
-              </div>
+      <section className="pb-24">
+        <div className="container mx-auto px-6">
+          <div className="glass rounded-[3rem] p-10 md:p-14 text-center max-w-5xl mx-auto">
+            <h2 className="text-4xl md:text-5xl font-bold mb-5">Ready to see the operator experience end-to-end?</h2>
+            <p className="text-white/60 text-lg mb-8 max-w-3xl mx-auto">
+              Review the runtime docs, connect a platform, and start the canonical brand campaign flow through Aries.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <Link href="/documentation" className="px-8 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20">
+                Read the docs
+              </Link>
+              <Link href="/login" className="px-8 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all">
+                Open the console
+              </Link>
             </div>
-          </Card>
+          </div>
         </div>
       </section>
     </MarketingLayout>

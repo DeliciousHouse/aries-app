@@ -1,6 +1,5 @@
 import React from 'react';
-import { Card } from '@/components/redesign/primitives/card';
-import { ButtonLink } from '@/components/redesign/primitives/button';
+import Link from 'next/link';
 
 export interface SettingsScreenProps {
   baseUrl?: string;
@@ -13,43 +12,43 @@ export const SETTINGS_RUNTIME_STATUS = {
 
 export default function SettingsScreen(_props: SettingsScreenProps): JSX.Element {
   return (
-    <div className="rd-workflow-grid rd-workflow-grid--2">
-      <Card>
-        <div style={{ display: 'grid', gap: '1rem' }}>
-          <p className="rd-section-label">Runtime truth</p>
-          <h2 style={{ margin: 0, fontFamily: 'var(--rd-font-display)', fontSize: '1.5rem' }}>Settings are intentionally read-only</h2>
-          <div className="rd-alert rd-alert--danger">
-            <div>
-              <strong style={{ display: 'block', marginBottom: '0.25rem' }}>No live tenant settings endpoint</strong>
-              <span>The current runtime does not expose <code>{SETTINGS_RUNTIME_STATUS.missingEndpoint}</code>.</span>
-            </div>
-          </div>
-          <p className="rd-section-description">
-            This route stays in the shell to preserve navigation, but avoids presenting editable controls until the backend exposes a real source of truth.
-          </p>
+    <div className="grid xl:grid-cols-2 gap-6">
+      <div className="glass rounded-[2.5rem] p-8">
+        <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-4">Runtime truth</p>
+        <h2 className="text-3xl font-bold mb-4">Settings are intentionally read-only</h2>
+        <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-5 mb-5">
+          <strong className="block mb-2 text-red-100">No live tenant settings endpoint</strong>
+          <span className="text-red-50/90 text-sm">
+            The current runtime does not expose <code>{SETTINGS_RUNTIME_STATUS.missingEndpoint}</code>.
+          </span>
         </div>
-      </Card>
+        <p className="text-white/60 leading-relaxed">
+          This route stays in the shell to preserve navigation, but avoids presenting editable controls until the backend exposes a real source of truth.
+        </p>
+      </div>
 
-      <Card>
-        <div style={{ display: 'grid', gap: '1rem' }}>
-          <p className="rd-section-label">Next best actions</p>
-          <div className="rd-summary-list">
-            <div className="rd-glass" style={{ padding: '1rem', borderRadius: '1rem' }}>
-              Review platform credentials and token health in <strong>Platforms</strong>.
-            </div>
-            <div className="rd-glass" style={{ padding: '1rem', borderRadius: '1rem' }}>
-              Use the <strong>Posts</strong> route for publish dispatch and retry controls.
-            </div>
-            <div className="rd-glass" style={{ padding: '1rem', borderRadius: '1rem' }}>
-              Track workflow status and approvals from the dedicated onboarding and marketing screens.
-            </div>
+      <div className="glass rounded-[2.5rem] p-8">
+        <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-4">Next best actions</p>
+        <div className="space-y-4 mb-6">
+          <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-white/70">
+            Review platform credentials and token health in <strong>Platforms</strong>.
           </div>
-          <div className="rd-inline-actions">
-            <ButtonLink href="/platforms">Go to platforms</ButtonLink>
-            <ButtonLink href="/posts" variant="secondary">Open posts console</ButtonLink>
+          <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-white/70">
+            Use the <strong>Posts</strong> route for publish dispatch and retry controls.
+          </div>
+          <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-white/70">
+            Track workflow status and approvals from the dedicated onboarding and marketing screens.
           </div>
         </div>
-      </Card>
+        <div className="flex flex-col sm:flex-row gap-4">
+          <Link href="/platforms" className="px-6 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 text-center">
+            Go to platforms
+          </Link>
+          <Link href="/posts" className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all text-center">
+            Open posts console
+          </Link>
+        </div>
+      </div>
     </div>
   );
 }
