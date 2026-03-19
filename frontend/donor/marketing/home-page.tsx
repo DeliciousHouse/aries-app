@@ -1226,7 +1226,7 @@ export default function DonorHomePage() {
       </section>
 
       <Features />
-      <FeatureShowcase3D />
+      {/* <FeatureShowcase3D /> */}
       <HowItWorks />
       <ContentCalendar />
       <Pricing />
