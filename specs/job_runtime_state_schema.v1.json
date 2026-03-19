@@ -72,7 +72,7 @@
         "source": {
           "type": "string",
           "enum": [
-            "webhook",
+            "api_request",
             "workflow",
             "manual",
             "scheduled",
