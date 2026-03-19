@@ -5,7 +5,6 @@ import path from 'node:path';
 
 import React, { isValidElement, type ReactNode } from 'react';
 
-(globalThis as typeof globalThis & { React?: typeof React }).React = React;
 import HomePage from '../app/page';
 import FeaturesPage from '../app/features/page';
 import DocumentationPage from '../app/documentation/page';
@@ -43,53 +42,65 @@ function collectText(node: ReactNode): string {
 }
 
 test('public marketing pages return valid elements with expected route shells and stable content markers', () => {
-  const homeElement = HomePage();
-  assert.equal(isValidElement(homeElement), true);
-  assert.equal(homeElement.type, DonorHomePage);
+  const g = globalThis as any;
+  const prevReact = g.React;
+  g.React = React;
+  try {
+    const homeElement = HomePage();
+    assert.equal(isValidElement(homeElement), true);
+    assert.equal(homeElement.type, DonorHomePage);
 
-  const homeSource = readRepoFile('frontend/donor/marketing/home-page.tsx');
-  assert.match(homeSource, /Start Automating/);
-  assert.match(homeSource, /See Runtime/);
-  assert.match(homeSource, /DonorMarketingShell heroMode/);
+    const homeSource = readRepoFile('frontend/donor/marketing/home-page.tsx');
+    assert.match(homeSource, /Start Automating/);
+    assert.match(homeSource, /See Runtime/);
+    assert.match(homeSource, /DonorMarketingShell heroMode/);
 
-  const featuresElement = FeaturesPage();
-  assert.equal(isValidElement(featuresElement), true);
-  assert.equal(featuresElement.type, MarketingLayout);
-  const featuresText = normalizeWhitespace(collectText(featuresElement.props.children));
-  assert.match(featuresText, /Everything needed to run a premium marketing control plane/);
-  assert.match(featuresText, /Ready to see the operator experience end-to-end\?/);
-  assert.match(featuresText, /Read the docs/);
+    const featuresElement = FeaturesPage();
+    assert.equal(isValidElement(featuresElement), true);
+    assert.equal(featuresElement.type, MarketingLayout);
+    const featuresText = normalizeWhitespace(collectText(featuresElement.props.children));
+    assert.match(featuresText, /Everything needed to run a premium marketing control plane/);
+    assert.match(featuresText, /Ready to see the operator experience end-to-end\?/);
+    assert.match(featuresText, /Read the docs/);
 
-  const documentationElement = DocumentationPage();
-  assert.equal(isValidElement(documentationElement), true);
-  assert.equal(documentationElement.type, MarketingLayout);
-  const documentationText = normalizeWhitespace(collectText(documentationElement.props.children));
-  assert.match(documentationText, /Runtime overview/);
-  assert.match(documentationText, /Execution boundary/);
-  assert.match(documentationText, /marketing-pipeline\.lobster/);
-  assert.match(documentationText, /Turbopack is required in this repo\./);
+    const documentationElement = DocumentationPage();
+    assert.equal(isValidElement(documentationElement), true);
+    assert.equal(documentationElement.type, MarketingLayout);
+    const documentationText = normalizeWhitespace(collectText(documentationElement.props.children));
+    assert.match(documentationText, /Runtime overview/);
+    assert.match(documentationText, /Execution boundary/);
+    assert.match(documentationText, /marketing-pipeline\.lobster/);
+    assert.match(documentationText, /Turbopack is required in this repo\./);
 
-  const contactElement = ContactPage();
-  assert.equal(isValidElement(contactElement), true);
-  assert.equal(contactElement.type, MarketingLayout);
-  const contactText = normalizeWhitespace(collectText(contactElement.props.children));
-  assert.match(contactText, /No contact workflow is deployed/);
-  assert.match(contactText, /\/api\/contact/);
-  assert.match(contactText, /Review the API/);
+    const contactElement = ContactPage();
+    assert.equal(isValidElement(contactElement), true);
+    assert.equal(contactElement.type, MarketingLayout);
+    const contactText = normalizeWhitespace(collectText(contactElement.props.children));
+    assert.match(contactText, /No contact workflow is deployed/);
+    assert.match(contactText, /\/api\/contact/);
+    assert.match(contactText, /Review the API/);
 
-  const apiDocsElement = ApiDocsPage();
-  assert.equal(isValidElement(apiDocsElement), true);
-  assert.equal(apiDocsElement.type, MarketingLayout);
-  const apiDocsText = normalizeWhitespace(collectText(apiDocsElement.props.children));
-  assert.match(apiDocsText, /\/api\/contact/);
-  assert.match(apiDocsText, /\/api\/marketing\/jobs/);
-  assert.match(apiDocsText, /Public marketing endpoints exist/);
+    const apiDocsElement = ApiDocsPage();
+    assert.equal(isValidElement(apiDocsElement), true);
+    assert.equal(apiDocsElement.type, MarketingLayout);
+    const apiDocsText = normalizeWhitespace(collectText(apiDocsElement.props.children));
+    assert.match(apiDocsText, /\/api\/contact/);
+    assert.match(apiDocsText, /\/api\/marketing\/jobs/);
+    assert.match(apiDocsText, /Public marketing endpoints exist/);
+  } finally {
+    if (prevReact === undefined) { delete g.React; } else { g.React = prevReact; }
+  }
 });
 
 test('DonorNavbar toggles the mobile menu, renders mobile nav links, and keeps the primary CTA available', async () => {
-  (globalThis as any).React = React;
-  (globalThis as any).self = globalThis;
-  (globalThis as any).window = {
+  const g = globalThis as any;
+  const prevReact = g.React;
+  const prevSelf = g.self;
+  const prevWindow = g.window;
+
+  g.React = React;
+  g.self = globalThis;
+  g.window = {
     scrollY: 0,
     innerHeight: 900,
     addEventListener() {},
@@ -158,5 +169,8 @@ test('DonorNavbar toggles the mobile menu, renders mobile nav links, and keeps t
     assert.equal(menuButton().props['aria-label'], 'Open menu');
   } finally {
     nextLink.default = originalLink;
+    if (prevReact === undefined) { delete g.React; } else { g.React = prevReact; }
+    if (prevSelf === undefined) { delete g.self; } else { g.self = prevSelf; }
+    if (prevWindow === undefined) { delete g.window; } else { g.window = prevWindow; }
   }
 });
