@@ -371,8 +371,8 @@
   display: inline-flex;
   align-items: center;
   gap: 0.8rem;
-  min-width: 9rem;
-  padding: 0.7rem 0.85rem 0.7rem 0.7rem;
+  min-width: 8.3rem;
+  padding: 0.68rem 0.78rem 0.68rem 0.68rem;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 999px;
   background:

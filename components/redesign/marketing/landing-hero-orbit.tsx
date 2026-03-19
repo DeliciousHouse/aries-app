@@ -51,7 +51,7 @@ const ORBIT_ITEMS: OrbitItemDefinition[] = [
     kind: 'signal',
     accent: 'rgba(255, 255, 255, 0.72)',
     glow: 'rgba(255, 255, 255, 0.18)',
-    radius: 144,
+    radius: 132,
     angle: 0.5,
     ellipse: 0.78,
     speed: -0.26,
@@ -65,7 +65,7 @@ const ORBIT_ITEMS: OrbitItemDefinition[] = [
     kind: 'model',
     accent: 'rgba(104, 187, 255, 0.84)',
     glow: 'rgba(104, 187, 255, 0.2)',
-    radius: 236,
+    radius: 214,
     angle: 5.35,
     ellipse: 0.72,
     speed: 0.2,
@@ -79,7 +79,7 @@ const ORBIT_ITEMS: OrbitItemDefinition[] = [
     kind: 'network',
     accent: 'rgba(73, 148, 255, 0.82)',
     glow: 'rgba(73, 148, 255, 0.18)',
-    radius: 236,
+    radius: 214,
     angle: 2.22,
     ellipse: 0.72,
     speed: 0.2,
@@ -93,7 +93,7 @@ const ORBIT_ITEMS: OrbitItemDefinition[] = [
     kind: 'channel',
     accent: 'rgba(118, 177, 255, 0.82)',
     glow: 'rgba(118, 177, 255, 0.2)',
-    radius: 328,
+    radius: 292,
     angle: 0.06,
     ellipse: 0.66,
     speed: -0.15,
@@ -107,7 +107,7 @@ const ORBIT_ITEMS: OrbitItemDefinition[] = [
     kind: 'video',
     accent: 'rgba(255, 78, 106, 0.9)',
     glow: 'rgba(255, 78, 106, 0.22)',
-    radius: 328,
+    radius: 292,
     angle: 2.1,
     ellipse: 0.66,
     speed: -0.15,
@@ -121,7 +121,7 @@ const ORBIT_ITEMS: OrbitItemDefinition[] = [
     kind: 'assistant',
     accent: 'rgba(245, 191, 112, 0.86)',
     glow: 'rgba(245, 191, 112, 0.22)',
-    radius: 328,
+    radius: 292,
     angle: 5.26,
     ellipse: 0.66,
     speed: -0.15,
@@ -132,9 +132,9 @@ const ORBIT_ITEMS: OrbitItemDefinition[] = [
 ];
 
 const ORBIT_RINGS = [
-  { id: 'inner', radius: 144, ellipse: 0.78, opacity: 0.72, rotate: 10 },
-  { id: 'middle', radius: 236, ellipse: 0.72, opacity: 0.52, rotate: -16 },
-  { id: 'outer', radius: 328, ellipse: 0.66, opacity: 0.38, rotate: 20 },
+  { id: 'inner', radius: 132, ellipse: 0.78, opacity: 0.72, rotate: 10 },
+  { id: 'middle', radius: 214, ellipse: 0.72, opacity: 0.52, rotate: -16 },
+  { id: 'outer', radius: 292, ellipse: 0.66, opacity: 0.38, rotate: 20 },
 ];
 
 function clamp(value: number, min: number, max: number): number {
@@ -297,7 +297,7 @@ export default function LandingHeroOrbitSection({
     () =>
       ({
         opacity: clamp(1 - effectiveProgress * 0.28, 0.74, 1),
-        transform: `translateY(${effectiveProgress * -28}px)`,
+        transform: `translateY(${effectiveProgress * -14}px)`,
       }) satisfies CSSProperties,
     [effectiveProgress],
   );
