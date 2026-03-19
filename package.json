@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/**/*.test.ts",
     "db:init": "node scripts/init-db.js",
+    "verify": "node scripts/verify-regression-suite.mjs",
     "validate:public-routes": "tsx --test tests/runtime-pages.test.ts",
     "validate:banned-patterns": "node scripts/check-banned-patterns.mjs",
     "validate:marketing-flow": "APP_BASE_URL=https://aries.example.com tsx --test tests/marketing-job-flow.test.ts tests/onboarding-marketing-contracts.test.ts",

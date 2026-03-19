@@ -105,6 +105,8 @@ Browser
 
 ## Verification
 
+Prefer `npm run verify` for a single fast regression gate; it runs the first three checks with deterministic environment overrides.
+
 ### 1. Public-route smoke checks
 ```bash
 ./node_modules/.bin/tsx --test tests/runtime-pages.test.ts

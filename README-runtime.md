@@ -52,6 +52,15 @@ Browser
 - `POST /api/publish/retry`
 - `POST /api/calendar/sync`
 
+## Optional host-node flow
+- Dev: `npx next dev -p 3000 --turbopack`
+- Build: `npm run build`
+- Start: `npm run start`
+- Precheck: `npm run precheck`
+- Verify regression suite: `npm run verify`
+
+Use the same `npm run verify` command locally and in CI for the fast runtime regression gate.
+
 This document intentionally excludes removed placeholder endpoints and unsupported public intake routes.
 
 ## Local setup
@@ -102,6 +111,8 @@ Optional but commonly used:
 ## Validation
 
 Run these commands from the repo root after `npm ci`.
+
+Prefer `npm run verify` for a single fast regression gate; it executes the first three checks with deterministic environment overrides.
 
 ### Public-route smoke checks
 ```bash
