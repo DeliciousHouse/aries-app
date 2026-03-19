@@ -10,10 +10,10 @@ function clamp(value: number): number {
 export function useSectionScrollProgress<T extends HTMLElement>(
   viewportOffset = 0.16,
 ): {
-  ref: RefObject<T | null>;
+  ref: RefObject<T>;
   progress: number;
 } {
-  const ref = useRef<T | null>(null);
+  const ref = useRef<T>(null);
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
