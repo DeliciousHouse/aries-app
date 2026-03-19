@@ -98,7 +98,7 @@ Browser → /api/* (Next.js route handlers)
 - **Navigation**: Marketing nav and app-shell nav are separate layouts with redesigned shells
 - **Design**: Dark glass + neon-accent operator aesthetic rebuilt in-repo from the visual reference
 
-See `ROUTE_MANIFEST.md` and `WEBHOOK_MANIFEST.md` for complete reference.
+See `ROUTE_MANIFEST.md` and `EXECUTION_MANIFEST.md` for complete reference.
 
 ## Container parity workflow
 

@@ -4,7 +4,7 @@ This roadmap defines a **persistent, multi-run phase machine** for advancing thi
 
 ## Current baseline (already achieved)
 - Backend contracts frozen and validated
-- Marketing workflows active through OpenClaw/Lobster stage orchestration
+- Marketing workflows active through the OpenClaw/Lobster execution boundary with stage orchestration
 - Onboarding + marketing backend wiring exists
 - Shared frontend types/clients exist
 - Thin frontend screens exist
@@ -66,7 +66,7 @@ This roadmap defines a **persistent, multi-run phase machine** for advancing thi
 **Inputs**
 - Frontend screens
 - Live backend endpoints
-- Active OpenClaw/Lobster workflows
+- Active OpenClaw/Lobster execution-boundary workflows
 
 **Outputs**
 - Smoke run evidence in `./generated/draft/heartbeat-phase-log.md`

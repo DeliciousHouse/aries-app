@@ -59,7 +59,7 @@ The following remain escalated decisions and must not be treated as implicit app
 
 1. Finish tenant-context hardening and isolation validation.
 2. Hold the repo-managed workflow control plane behind that boundary.
-3. Then wire actual OpenClaw/Lobster execution and replace any broken legacy workflow paths in repo-managed form.
+3. Then wire actual OpenClaw/Lobster execution and replace broken legacy workflow-runtime paths in repo-managed form.
 
 ## Exit Criteria For This Milestone
 

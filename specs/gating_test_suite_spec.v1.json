@@ -7,7 +7,7 @@
     "test_1_happy_path",
     "test_2_idempotency",
     "test_3_forced_validator_failure",
-    "test_4_forced_publish_failure"
+    "test_4_forced_publish_runtime_failure"
   ],
   "hard_failure_types": [
     "env_missing",
