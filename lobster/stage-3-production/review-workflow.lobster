@@ -1,4 +1,4 @@
-name: stage-3-production
+name: stage-3-production-review
 args:
   brand_slug:
     default: "client-brand"

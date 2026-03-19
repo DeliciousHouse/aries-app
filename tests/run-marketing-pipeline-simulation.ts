@@ -112,7 +112,7 @@ async function main(): Promise<void> {
       competitorUrl: "https://facebook.com/competitor"
     }
   });
-  phaseLog.push(`- created job: ${start.jobId} (${start.wiring})`);
+  phaseLog.push(`- created job: ${start.jobId}`);
   stageResults.create_job = start;
 
   // 2) run research (accepted as initial queued/running state)
@@ -124,7 +124,7 @@ async function main(): Promise<void> {
   const a1 = await approveMarketingJob({ jobId: start.jobId, tenantId, approvedBy: "sim-runner", approvedStages: ["research"] });
   const s2 = getMarketingJobStatus(start.jobId);
   stageResults.approve_to_strategy = { approval: a1, status: s2 };
-  phaseLog.push(`- approve to strategy: ${a1.status} (${a1.wiring})`);
+  phaseLog.push(`- approve to strategy: ${a1.status}`);
 
   // 4) approve and resume to production
   const a2 = await approveMarketingJob({ jobId: start.jobId, tenantId, approvedBy: "sim-runner", approvedStages: ["strategy"] });

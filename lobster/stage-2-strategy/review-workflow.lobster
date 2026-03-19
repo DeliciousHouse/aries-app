@@ -1,4 +1,4 @@
-name: stage-2-strategy
+name: stage-2-strategy-review
 args:
   website_url:
     default: ""
@@ -6,8 +6,6 @@ args:
     default: "client-brand"
   research_model:
     default: "gemini/gemini-3-flash-preview"
-  stage1_summary:
-    default: {}
   stage1_summary_base64:
     default: ""
   strict_mode:

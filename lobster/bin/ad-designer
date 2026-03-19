@@ -76,7 +76,6 @@ def main() -> int:
         "ad_assets": ad_assets,
         "artifacts": {
             "spec_path": spec_path,
-            "honesty_note": "This local wrapper outputs creative specs and placement guidance; it does not render final ads.",
         },
     }
     save_step(run_id, "ad_designer", payload)

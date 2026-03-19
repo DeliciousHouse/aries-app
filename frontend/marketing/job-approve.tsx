@@ -1,7 +1,7 @@
 "use client";
 
 import Link from 'next/link';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import { CheckCircle2, Sparkles } from 'lucide-react';
 import type {
   ApproveJobResult,
@@ -18,8 +18,7 @@ import StatusBadge from '../components/status-badge';
 
 type ApproveResult = ApproveJobResult | MarketingApiError;
 type JobStatusResult = GetMarketingJobStatusResponse | MarketingApiError;
-
-const APPROVAL_STAGE_VALUES: MarketingStage[] = ['research', 'strategy', 'production', 'publish'];
+const PLATFORM_VALUES = ['meta-ads', 'instagram', 'x', 'tiktok', 'youtube', 'linkedin', 'reddit'] as const;
 
 export interface MarketingJobApproveScreenProps {
   baseUrl?: string;
@@ -93,6 +92,9 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
   const [approvedBy, setApprovedBy] = useState(props.defaultApprovedBy ?? '');
   const [resumePublishIfNeeded, setResumePublishIfNeeded] = useState(true);
   const [approvedStages, setApprovedStages] = useState<MarketingStage[]>([]);
+  const [platforms, setPlatforms] = useState<string[]>([]);
+  const [livePublishPlatforms, setLivePublishPlatforms] = useState<string[]>([]);
+  const [videoRenderPlatforms, setVideoRenderPlatforms] = useState<string[]>([]);
 
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -121,14 +123,20 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
       marketingStatus.reset();
       const result = await marketingStatus.load(jobId.trim());
       setJobStatus(result);
+      if (result && !isErrorResult(result) && result.marketing_stage) {
+        setApprovedStages([result.marketing_stage as MarketingStage]);
+        setPlatforms(result.publishConfig.platforms);
+        setLivePublishPlatforms(result.publishConfig.livePublishPlatforms);
+        setVideoRenderPlatforms(result.publishConfig.videoRenderPlatforms);
+      }
     } finally {
       setLoadingStatus(false);
     }
   }
 
-  function toggleStage(stage: MarketingStage) {
-    setApprovedStages((prev) =>
-      prev.includes(stage) ? prev.filter((value) => value !== stage) : [...prev, stage]
+  function toggleValue(value: string, setter: Dispatch<SetStateAction<string[]>>) {
+    setter((prev) =>
+      prev.includes(value) ? prev.filter((entry) => entry !== value) : [...prev, value]
     );
   }
 
@@ -138,7 +146,12 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
     const body: PostMarketingJobApproveRequest = {
       approvedBy: approvedBy.trim(),
       approvedStages: approvedStages.length > 0 ? approvedStages : undefined,
-      resumePublishIfNeeded
+      resumePublishIfNeeded,
+      publishConfig: {
+        platforms,
+        livePublishPlatforms,
+        videoRenderPlatforms,
+      },
     };
 
     setSubmitting(true);
@@ -177,6 +190,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
 
   const statusSuccess = jobStatus && !isErrorResult(jobStatus) ? jobStatus : null;
   const approveSuccess = approveResult && !isErrorResult(approveResult) ? approveResult : null;
+  const pendingStage = statusSuccess?.approval ? statusSuccess.marketing_stage : null;
 
   return (
     <div className="min-h-screen bg-background px-6 py-10 md:px-8 lg:px-10">
@@ -217,25 +231,78 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
             </Field>
 
             <div className="grid gap-2">
-              <span className="text-xs uppercase tracking-[0.22em] text-white/35">Approved stages</span>
-              <div className="flex flex-wrap gap-3">
-                {APPROVAL_STAGE_VALUES.map((stage) => {
-                  const active = approvedStages.includes(stage);
-                  return (
-                    <button
-                      key={stage}
-                      type="button"
-                      onClick={() => toggleStage(stage)}
-                      className={`px-4 py-2 rounded-full border transition-all ${
-                        active ? 'border-primary/30 bg-primary/15 text-white' : 'border-white/10 bg-white/5 text-white/60'
-                      }`}
-                    >
-                      {stage}
-                    </button>
-                  );
-                })}
+              <span className="text-xs uppercase tracking-[0.22em] text-white/35">Current approval checkpoint</span>
+              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white/75">
+                {pendingStage ?? 'Load a job to see the active checkpoint.'}
               </div>
             </div>
+
+            {pendingStage === 'publish' ? (
+              <>
+                <div className="grid gap-2">
+                  <span className="text-xs uppercase tracking-[0.22em] text-white/35">Platforms to package</span>
+                  <div className="flex flex-wrap gap-3">
+                    {PLATFORM_VALUES.map((platform) => {
+                      const active = platforms.includes(platform);
+                      return (
+                        <button
+                          key={platform}
+                          type="button"
+                          onClick={() => toggleValue(platform, setPlatforms)}
+                          className={`px-4 py-2 rounded-full border transition-all ${
+                            active ? 'border-primary/30 bg-primary/15 text-white' : 'border-white/10 bg-white/5 text-white/60'
+                          }`}
+                        >
+                          {platform}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="grid gap-2">
+                  <span className="text-xs uppercase tracking-[0.22em] text-white/35">Live draft publish</span>
+                  <div className="flex flex-wrap gap-3">
+                    {PLATFORM_VALUES.filter((platform) => !['tiktok', 'youtube'].includes(platform)).map((platform) => {
+                      const active = livePublishPlatforms.includes(platform);
+                      return (
+                        <button
+                          key={platform}
+                          type="button"
+                          onClick={() => toggleValue(platform, setLivePublishPlatforms)}
+                          className={`px-4 py-2 rounded-full border transition-all ${
+                            active ? 'border-primary/30 bg-primary/15 text-white' : 'border-white/10 bg-white/5 text-white/60'
+                          }`}
+                        >
+                          {platform}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="grid gap-2">
+                  <span className="text-xs uppercase tracking-[0.22em] text-white/35">Video render execution</span>
+                  <div className="flex flex-wrap gap-3">
+                    {['tiktok', 'youtube'].map((platform) => {
+                      const active = videoRenderPlatforms.includes(platform);
+                      return (
+                        <button
+                          key={platform}
+                          type="button"
+                          onClick={() => toggleValue(platform, setVideoRenderPlatforms)}
+                          className={`px-4 py-2 rounded-full border transition-all ${
+                            active ? 'border-primary/30 bg-primary/15 text-white' : 'border-white/10 bg-white/5 text-white/60'
+                          }`}
+                        >
+                          {platform}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            ) : null}
 
             <label className="flex items-center gap-2 text-white/60">
               <input
@@ -307,6 +374,15 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
                   </div>
                   <div className="rounded-[1.5rem] border border-white/10 bg-white/5 px-5 py-4 flex items-center justify-between gap-4"><strong>Current stage</strong><span>{statusSuccess.marketing_stage ?? 'none'}</span></div>
                   <div className="rounded-[1.5rem] border border-white/10 bg-white/5 px-5 py-4 flex items-center justify-between gap-4"><strong>Next step</strong><span>{statusSuccess.nextStep}</span></div>
+                </div>
+
+                <div className="rounded-[1.5rem] border border-white/10 bg-white/5 px-5 py-4 text-white/70">
+                  <strong className="block text-white mb-2">Publish configuration</strong>
+                  <div className="grid gap-1 text-sm">
+                    <span>Platforms: {statusSuccess.publishConfig.platforms.join(', ') || 'none selected'}</span>
+                    <span>Live draft publish: {statusSuccess.publishConfig.livePublishPlatforms.join(', ') || 'not requested'}</span>
+                    <span>Video render: {statusSuccess.publishConfig.videoRenderPlatforms.join(', ') || 'not requested'}</span>
+                  </div>
                 </div>
 
                 {statusSuccess.approval ? (

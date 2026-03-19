@@ -1,4 +1,4 @@
-name: stage-4-publish-optimize
+name: stage-4-publish-review
 args:
   brand_slug:
     default: "client-brand"

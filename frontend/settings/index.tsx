@@ -34,7 +34,7 @@ export default function SettingsScreen(_props: SettingsScreenProps): JSX.Element
             Review platform credentials and token health in <strong>Platforms</strong>.
           </div>
           <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-white/70">
-            Use the <strong>Posts</strong> route for publish dispatch and retry controls.
+            Use the <strong>marketing job</strong> surfaces for real publish approvals and package generation.
           </div>
           <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-white/70">
             Track workflow status and approvals from the dedicated onboarding and marketing screens.
@@ -44,8 +44,8 @@ export default function SettingsScreen(_props: SettingsScreenProps): JSX.Element
           <Link href="/platforms" className="px-6 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 text-center">
             Go to platforms
           </Link>
-          <Link href="/posts" className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all text-center">
-            Open posts console
+          <Link href="/marketing/new-job" className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all text-center">
+            Open marketing launcher
           </Link>
         </div>
       </div>

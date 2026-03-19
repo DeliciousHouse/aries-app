@@ -75,7 +75,6 @@ def main() -> int:
         "script_assets": script_assets,
         "artifacts": {
             "preview_path": preview_path,
-            "honesty_note": "This local wrapper drafts scripts and beat sheets only; no human talent, voice synthesis, or production system is invoked.",
         },
     }
     save_step(run_id, "scriptwriter", payload)

@@ -17,7 +17,9 @@ export interface StartJobAccepted {
   marketing_job_status: 'accepted';
   jobId: string;
   jobType: MarketingJobType;
+  marketing_stage: MarketingStage;
   approvalRequired?: boolean;
+  approval?: MarketingApprovalSummary | null;
   jobStatusUrl?: string;
 }
 
@@ -76,6 +78,11 @@ export interface GetMarketingJobStatusResponse {
   artifacts: MarketingArtifactCard[];
   timeline: MarketingTimelineEntry[];
   approval: MarketingApprovalSummary | null;
+  publishConfig: {
+    platforms: string[];
+    livePublishPlatforms: string[];
+    videoRenderPlatforms: string[];
+  };
   nextStep: string;
   repairStatus: string;
 }
@@ -84,6 +91,11 @@ export interface PostMarketingJobApproveRequest {
   approvedBy: string;
   approvedStages?: MarketingStage[];
   resumePublishIfNeeded?: boolean;
+  publishConfig?: {
+    platforms?: string[];
+    livePublishPlatforms?: string[];
+    videoRenderPlatforms?: string[];
+  };
 }
 
 export interface ApproveJobResult {

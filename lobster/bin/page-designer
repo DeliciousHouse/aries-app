@@ -81,7 +81,6 @@ def main() -> int:
         "page_assets": page_assets,
         "artifacts": {
             "preview_path": preview_path,
-            "honesty_note": "This local wrapper generates page recommendations and copy structure only; no page is rendered or deployed.",
         },
     }
     save_step(run_id, "page_designer", payload)
