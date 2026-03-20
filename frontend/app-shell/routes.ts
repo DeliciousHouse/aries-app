@@ -26,7 +26,7 @@ export const APP_ROUTES: readonly AppRoute[] = [
     title: 'Posts',
     href: '/posts',
     section: 'operator',
-    description: 'Draft, dispatch, and monitor cross-platform publishing jobs.'
+    description: 'Operator guidance for campaign publishing through the stage-based marketing job flow.'
   },
   {
     id: 'calendar',

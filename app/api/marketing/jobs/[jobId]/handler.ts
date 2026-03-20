@@ -57,6 +57,7 @@ export async function handleGetMarketingJobStatus(
         artifacts: result.artifacts,
         timeline: result.timeline,
         approval: result.approval,
+        publishConfig: result.publishConfig,
         nextStep: result.nextStep,
         repairStatus: result.repairStatus,
       },

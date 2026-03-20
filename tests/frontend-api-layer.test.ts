@@ -87,8 +87,29 @@ async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise
   }
 }
 
-function stageStepPath(dataRoot: string, stage: 1 | 2 | 3 | 4, runId: string, stepName: string): string {
-  return path.join(dataRoot, `lobster-stage${stage}-cache`, runId, `${stepName}.json`);
+function installMarketingPipelineInvoker(capture: { value: Record<string, unknown> | null }): void {
+  setOpenClawTestInvoker((payload) => {
+    capture.value = payload;
+    const pipeline = String((payload as any)?.args?.pipeline || '');
+    switch (pipeline) {
+      case 'stage-1-research/workflow.lobster':
+        return { ok: true, status: 'ok', output: [{ run_id: 'run-research' }], requiresApproval: null };
+      case 'stage-2-strategy/review-workflow.lobster':
+        return { ok: true, status: 'ok', output: [{ run_id: 'run-strategy', approval_preview: { status: 'pending_human_review', message: 'Strategy review is ready for approval.' } }], requiresApproval: null };
+      case 'stage-2-strategy/finalize-workflow.lobster':
+        return { ok: true, status: 'ok', output: [{ run_id: 'run-strategy', strategy_handoff: { run_id: 'run-strategy', core_message: 'Launch campaigns with operator control.', primary_cta: 'Book a walkthrough' } }], requiresApproval: null };
+      case 'stage-3-production/review-workflow.lobster':
+        return { ok: true, status: 'ok', output: [{ run_id: 'run-production', approval_preview: { status: 'pending_human_review', message: 'Production review is ready for approval.' } }], requiresApproval: null };
+      case 'stage-3-production/finalize-workflow.lobster':
+        return { ok: true, status: 'ok', output: [{ run_id: 'run-production', production_handoff: { run_id: 'run-production', production_brief: { core_message: 'Launch campaigns with operator control.' }, contract_handoffs: { static: { platform_contract_paths: ['output/static/meta-ads.json'] }, video: { platform_contract_paths: ['output/video/tiktok.json'] } } } }], requiresApproval: null };
+      case 'stage-4-publish-optimize/review-workflow.lobster':
+        return { ok: true, status: 'ok', output: [{ run_id: 'run-publish', approval_preview: { status: 'pending_human_review', message: 'Launch approval is required before publishing.' } }], requiresApproval: null };
+      case 'stage-4-publish-optimize/publish-workflow.lobster':
+        return { ok: true, status: 'ok', output: [{ run_id: 'run-publish', summary: { message: 'Selected platform packages are ready.' } }], requiresApproval: null };
+      default:
+        throw new Error(`Unexpected marketing pipeline ${pipeline}`);
+    }
+  });
 }
 
 test('/api/onboarding/start returns a frontend-safe payload without workflow internals', async () => {
@@ -142,16 +163,8 @@ test('/api/onboarding/status exposes artifact booleans instead of runtime paths'
 test('/api/marketing/jobs resolves tenant context server-side and returns a frontend-safe payload', async () => {
   await withRuntimeEnv(async () => {
     const { handlePostMarketingJobs } = await import('../app/api/marketing/jobs/handler');
-    let captured: Record<string, unknown> | null = null;
-    setOpenClawTestInvoker((payload) => {
-      captured = payload;
-      return {
-        ok: true,
-        status: 'ok',
-        output: [{ accepted: true, approval_preview: { status: 'pending_human_review' } }],
-        requiresApproval: { resumeToken: 'resume_123' },
-      };
-    });
+    const capture = { value: null as Record<string, unknown> | null };
+    installMarketingPipelineInvoker(capture);
 
     const response = await handlePostMarketingJobs(
       new Request('http://localhost/api/marketing/jobs', {
@@ -174,12 +187,14 @@ test('/api/marketing/jobs resolves tenant context server-side and returns a fron
       })
     );
     const body = (await response.json()) as Record<string, unknown>;
-    const workflowArgs = JSON.parse(String((captured as any)?.args?.argsJson)) as Record<string, unknown>;
+    const workflowArgs = JSON.parse(String((capture.value as any)?.args?.argsJson)) as Record<string, unknown>;
 
     assert.equal(response.status, 202);
     assert.equal(body.marketing_job_status, 'accepted');
     assert.equal(body.jobType, 'brand_campaign');
+    assert.equal(body.marketing_stage, 'strategy');
     assert.equal(body.approvalRequired, true);
+    assert.equal((body.approval as any).stage, 'strategy');
     assert.equal(typeof body.jobStatusUrl, 'string');
     assert.equal('tenantId' in body, false);
     assert.equal('wiring' in body, false);
@@ -225,7 +240,6 @@ test('/api/marketing/jobs/:jobId returns stage progress and safe artifact summar
   await withRuntimeEnv(async (dataRoot) => {
     const { handleGetMarketingJobStatus } = await import('../app/api/marketing/jobs/[jobId]/handler');
     const jobId = 'mkt_safe_job';
-    const runId = 'demo-run-123';
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
     await mkdir(path.dirname(runtimeFile), { recursive: true });
     const launchPreviewPath = path.join(dataRoot, 'launch-review-preview.txt');
@@ -234,142 +248,50 @@ test('/api/marketing/jobs/:jobId returns stage progress and safe artifact summar
     await writeFile(
       runtimeFile,
       JSON.stringify({
-        schema_name: 'job_runtime_state_schema',
+        schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
         job_type: 'brand_campaign',
         tenant_id: 'tenant_real',
-        state: 'running',
-        status: 'pending',
-        attempt: 1,
-        max_attempts: 3,
-        outputs: {
-          current_stage: 'publish',
-          stage_status: {
-            research: 'completed',
-            strategy: 'completed',
-            production: 'completed',
-            publish: 'awaiting_approval',
-          },
-          openclaw: {
-            run_id: runId,
-            resume_token: 'resume_123',
-            primary_output: {
-              run_id: runId,
+        state: 'approval_required',
+        status: 'awaiting_approval',
+        current_stage: 'publish',
+        stage_order: ['research', 'strategy', 'production', 'publish'],
+        stages: {
+          research: { stage: 'research', status: 'completed', started_at: '2026-03-19T00:00:01.000Z', completed_at: '2026-03-19T00:00:01.000Z', failed_at: null, run_id: 'run-research', summary: { summary: 'Competitor leans on practical outcomes.', highlight: 'Proof-led hooks are winning.' }, primary_output: null, outputs: {}, artifacts: [{ id: 'research-summary', stage: 'research', title: 'Competitor research summary', category: 'analysis', status: 'completed', summary: 'Competitor leans on practical outcomes.', details: ['Competitor: CompetitorCo', 'Ads reviewed: 6'] }], errors: [] },
+          strategy: { stage: 'strategy', status: 'completed', started_at: '2026-03-19T00:00:02.000Z', completed_at: '2026-03-19T00:00:02.000Z', failed_at: null, run_id: 'run-strategy', summary: { summary: 'Launch campaigns with operator control.', highlight: 'Book a walkthrough' }, primary_output: null, outputs: {}, artifacts: [{ id: 'strategy-plan', stage: 'strategy', title: 'Campaign strategy', category: 'brief', status: 'completed', summary: 'Launch campaigns with operator control.', details: ['In-house marketing teams', 'Primary CTA: Book a walkthrough'] }], errors: [] },
+          production: { stage: 'production', status: 'completed', started_at: '2026-03-19T00:00:03.000Z', completed_at: '2026-03-19T00:00:03.000Z', failed_at: null, run_id: 'run-production', summary: { summary: 'Proof-led launch package', highlight: 'Ship the campaign with confidence' }, primary_output: null, outputs: {}, artifacts: [{ id: 'production-review', stage: 'production', title: 'Production review packet', category: 'review', status: 'completed', summary: 'Proof-led launch package', details: ['Landing page headline: Ship the campaign with confidence'], preview_path: launchPreviewPath }, { id: 'video-contracts', stage: 'production', title: 'Video contract handoff', category: 'contracts', status: 'completed', summary: '2 video platform contract(s) prepared.', details: ['YouTube Shorts', 'TikTok'] }], errors: [] },
+          publish: { stage: 'publish', status: 'awaiting_approval', started_at: '2026-03-19T00:00:05.000Z', completed_at: null, failed_at: null, run_id: 'run-publish', summary: { summary: 'Approval needed before publish-ready assets are generated.', highlight: 'Static contracts: 7, Video contracts: 2' }, primary_output: null, outputs: {}, artifacts: [{ id: 'launch-review', stage: 'publish', title: 'Launch review package', category: 'approval', status: 'awaiting_approval', summary: 'Approval needed before publish-ready assets are generated.', details: ['Static contracts: 7', 'Video contracts: 2'], preview_path: launchPreviewPath }], errors: [] }
+        },
+        approvals: {
+          current: {
+            stage: 'publish',
+            status: 'awaiting_approval',
+            title: 'Launch approval required',
+            message: 'Approval needed before publish-ready assets are generated.',
+            requested_at: '2026-03-19T00:00:05.000Z',
+            action_label: 'Approve launch',
+            publish_config: {
+              platforms: ['meta-ads', 'tiktok'],
+              live_publish_platforms: [],
+              video_render_platforms: [],
             },
           },
-          structured_status_updates: [],
+          history: [],
         },
+        publish_config: {
+          platforms: ['meta-ads', 'tiktok'],
+          live_publish_platforms: [],
+          video_render_platforms: [],
+        },
+        inputs: {
+          request: {},
+        },
+        errors: [],
+        last_error: null,
         history: [],
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }, null, 2)
-    );
-    await mkdir(path.dirname(stageStepPath(dataRoot, 1, runId, 'ads_analyst_compile')), { recursive: true });
-    await writeFile(
-      stageStepPath(dataRoot, 1, runId, 'ads_analyst_compile'),
-      JSON.stringify({
-        generated_at: '2026-03-19T00:00:01.000Z',
-        executive_summary: {
-          market_positioning: 'Competitor leans on practical outcomes.',
-          campaign_takeaway: 'Proof-led hooks are winning.',
-          creative_takeaway: 'Proof-heavy creative is performing best.',
-        },
-        competitor: 'CompetitorCo',
-        inputs: { ads_seen: 6 },
-      }, null, 2)
-    );
-    await writeFile(
-      stageStepPath(dataRoot, 1, runId, 'meta_ads_extractor'),
-      JSON.stringify({
-        competitor: 'CompetitorCo',
-        competitor_research_summary: ['Outcome-first claims', 'Low-friction CTA'],
-      }, null, 2)
-    );
-    await mkdir(path.dirname(stageStepPath(dataRoot, 2, runId, 'head_of_marketing')), { recursive: true });
-    await writeFile(
-      stageStepPath(dataRoot, 2, runId, 'website_brand_analysis'),
-      JSON.stringify({
-        brand_analysis: {
-          brand_promise: 'Aries helps operators launch faster.',
-          audience_summary: 'In-house marketing teams',
-          offer_summary: 'Operational visibility',
-          proof_points: ['Workflow transparency', 'Human approval controls'],
-        },
-      }, null, 2)
-    );
-    await writeFile(
-      stageStepPath(dataRoot, 2, runId, 'campaign_planner'),
-      JSON.stringify({
-        campaign_plan: {
-          core_message: 'Launch campaigns with operator control.',
-          primary_cta: 'Book a walkthrough',
-          offer: 'Operational visibility',
-        },
-      }, null, 2)
-    );
-    await writeFile(
-      stageStepPath(dataRoot, 2, runId, 'head_of_marketing'),
-      JSON.stringify({
-        generated_at: '2026-03-19T00:00:02.000Z',
-      }, null, 2)
-    );
-    await mkdir(path.dirname(stageStepPath(dataRoot, 3, runId, 'production_review_preview')), { recursive: true });
-    await writeFile(
-      stageStepPath(dataRoot, 3, runId, 'production_review_preview'),
-      JSON.stringify({
-        generated_at: '2026-03-19T00:00:03.000Z',
-        review_packet: {
-          summary: { core_message: 'Proof-led launch package' },
-          asset_previews: {
-            landing_page_headline: 'Ship the campaign with confidence',
-            meta_ad_hook: 'The cleanest path from idea to launch',
-            video_opening_line: 'See every stage before you publish',
-          },
-        },
-        artifacts: {
-          preview_path: launchPreviewPath,
-        },
-      }, null, 2)
-    );
-    await writeFile(
-      stageStepPath(dataRoot, 3, runId, 'creative_director_finalize'),
-      JSON.stringify({
-        generated_at: '2026-03-19T00:00:04.000Z',
-      }, null, 2)
-    );
-    await writeFile(
-      stageStepPath(dataRoot, 3, runId, 'veo_video_generator'),
-      JSON.stringify({
-        video_assets: {
-          platform_contracts: [
-            { platform: 'YouTube Shorts', platform_slug: 'youtube-shorts' },
-            { platform: 'TikTok', platform_slug: 'tiktok' },
-          ],
-        },
-      }, null, 2)
-    );
-    await mkdir(path.dirname(stageStepPath(dataRoot, 4, runId, 'launch_review_preview')), { recursive: true });
-    await writeFile(
-      stageStepPath(dataRoot, 4, runId, 'performance_marketer_preflight'),
-      JSON.stringify({
-        publish_plan: {
-          static_contract_count: 7,
-          video_contract_count: 2,
-        },
-      }, null, 2)
-    );
-    await writeFile(
-      stageStepPath(dataRoot, 4, runId, 'launch_review_preview'),
-      JSON.stringify({
-        generated_at: '2026-03-19T00:00:05.000Z',
-        approval_preview: {
-          status: 'pending_human_review',
-          message: 'Approval needed before publish-ready assets are generated.',
-        },
-        artifacts: {
-          preview_path: launchPreviewPath,
-        },
+        created_at: '2026-03-19T00:00:00.000Z',
+        updated_at: '2026-03-19T00:00:05.000Z',
       }, null, 2)
     );
 
@@ -390,7 +312,7 @@ test('/api/marketing/jobs/:jobId returns stage progress and safe artifact summar
     assert.equal(body.marketing_job_status, 'awaiting_approval');
     assert.equal(body.needs_attention, true);
     assert.equal(body.approvalRequired, true);
-    assert.equal((body.summary as any).headline, 'Campaign is ready for launch approval');
+    assert.equal((body.summary as any).headline, 'Publish stage is ready for approval');
     assert.equal(Array.isArray(body.stageCards), true);
     assert.equal((body.stageCards as any[]).length, 4);
     assert.equal(Array.isArray(body.artifacts), true);
@@ -415,18 +337,26 @@ test('/api/marketing/jobs/:jobId hides jobs owned by a different tenant', async 
     await writeFile(
       runtimeFile,
       JSON.stringify({
-        schema_name: 'job_runtime_state_schema',
+        schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
         job_type: 'brand_campaign',
         tenant_id: 'tenant_other',
         state: 'running',
-        status: 'pending',
-        outputs: {
-          current_stage: 'publish',
-          stage_status: {},
-          structured_status_updates: [],
+        status: 'running',
+        current_stage: 'research',
+        stage_order: ['research', 'strategy', 'production', 'publish'],
+        stages: {
+          research: { stage: 'research', status: 'in_progress', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          strategy: { stage: 'strategy', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          production: { stage: 'production', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          publish: { stage: 'publish', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
         },
+        approvals: { current: null, history: [] },
+        publish_config: { platforms: ['meta-ads'], live_publish_platforms: [], video_render_platforms: [] },
+        inputs: { request: {} },
+        errors: [],
+        last_error: null,
         history: [],
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -452,63 +382,68 @@ test('/api/marketing/jobs/:jobId hides jobs owned by a different tenant', async 
 
 test('/api/marketing/jobs/:jobId/approve resolves tenant context server-side and returns a product-safe payload', async () => {
   await withRuntimeEnv(async () => {
+    const { handlePostMarketingJobs } = await import('../app/api/marketing/jobs/handler');
     const { handleApproveMarketingJob } = await import('../app/api/marketing/jobs/[jobId]/approve/handler');
-    const jobId = 'mkt_approve_job';
-    const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
-    await mkdir(path.dirname(runtimeFile), { recursive: true });
-    await writeFile(
-      runtimeFile,
-      JSON.stringify({
-        schema_name: 'job_runtime_state_schema',
-        schema_version: '1.0.0',
-        job_id: jobId,
-        job_type: 'brand_campaign',
-        tenant_id: 'tenant_real',
-        state: 'waiting_repair',
-        status: 'pending',
-        attempt: 1,
-        max_attempts: 3,
-        outputs: {
-          current_stage: 'publish',
-          stage_status: {
-            research: 'completed',
-            strategy: 'completed',
-            production: 'completed',
-            publish: 'awaiting_approval',
+    const capture = { value: null as Record<string, unknown> | null };
+    installMarketingPipelineInvoker(capture);
+
+    const created = await handlePostMarketingJobs(
+      new Request('http://localhost/api/marketing/jobs', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jobType: 'brand_campaign',
+          payload: {
+            brandUrl: 'https://brand.example',
+            competitorUrl: 'https://facebook.com/competitor',
           },
-          openclaw: {
-            run_id: 'demo-run-approve',
-            resume_token: 'resume_123',
-            primary_output: {
-              run_id: 'demo-run-approve',
-              approval_preview: {
-                status: 'pending_human_review',
-              },
-            },
-          },
-          structured_status_updates: [],
-        },
-        history: [],
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }, null, 2)
+        }),
+      }),
+      async () => ({
+        userId: 'user_123',
+        tenantId: 'tenant_real',
+        tenantSlug: 'acme',
+        role: 'tenant_admin',
+      })
+    );
+    const createdBody = (await created.json()) as Record<string, unknown>;
+    const jobId = String(createdBody.jobId);
+
+    await handleApproveMarketingJob(
+      jobId,
+      new Request(`http://localhost/api/marketing/jobs/${jobId}/approve`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          approvedBy: 'operator',
+          approvedStages: ['strategy'],
+        }),
+      }),
+      async () => ({
+        userId: 'user_123',
+        tenantId: 'tenant_real',
+        tenantSlug: 'acme',
+        role: 'tenant_admin',
+      })
     );
 
-    let captured: Record<string, unknown> | null = null;
-    setOpenClawTestInvoker((payload) => {
-      captured = payload;
-      return {
-        ok: true,
-        status: 'ok',
-        output: [{
-          run_id: 'demo-run-approve',
-          summary: {
-            message: 'Publish packages ready.',
-          },
-        }],
-        requiresApproval: null,
-      };
-    });
+    await handleApproveMarketingJob(
+      jobId,
+      new Request(`http://localhost/api/marketing/jobs/${jobId}/approve`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          approvedBy: 'operator',
+          approvedStages: ['production'],
+        }),
+      }),
+      async () => ({
+        userId: 'user_123',
+        tenantId: 'tenant_real',
+        tenantSlug: 'acme',
+        role: 'tenant_admin',
+      })
+    );
 
     const response = await handleApproveMarketingJob(
       jobId,
@@ -519,7 +454,11 @@ test('/api/marketing/jobs/:jobId/approve resolves tenant context server-side and
           tenantId: 'forged_tenant',
           approvedBy: 'operator',
           approvedStages: ['publish'],
-          resumePublishIfNeeded: true,
+          publishConfig: {
+            platforms: ['meta-ads', 'tiktok'],
+            livePublishPlatforms: ['meta-ads'],
+            videoRenderPlatforms: ['tiktok'],
+          },
         }),
       }),
       async () => ({
@@ -536,10 +475,10 @@ test('/api/marketing/jobs/:jobId/approve resolves tenant context server-side and
     assert.equal(body.jobId, jobId);
     assert.equal(typeof body.jobStatusUrl, 'string');
     assert.equal('tenantId' in body, false);
-    assert.equal('wiring' in body, false);
-    assert.equal((captured as any)?.args?.action, 'resume');
-    assert.equal((captured as any)?.args?.token, 'resume_123');
-    assert.equal((captured as any)?.args?.approve, true);
+    assert.equal((capture.value as any)?.args?.pipeline, 'stage-4-publish-optimize/publish-workflow.lobster');
+    const workflowArgs = JSON.parse(String((capture.value as any)?.args?.argsJson)) as Record<string, unknown>;
+    assert.equal(workflowArgs.meta_ads_live_publish_requested, true);
+    assert.equal(workflowArgs.tiktok_render_requested, true);
     clearOpenClawTestInvoker();
   });
 });

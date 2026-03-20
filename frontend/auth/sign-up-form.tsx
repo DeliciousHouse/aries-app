@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AuthView } from '../types';
 import { registerUserAction } from '@/app/actions/auth';
 import { getInvitationByToken } from '../services/supabase';
-import { BrandLogo } from '@/components/redesign/brand/logo';
+import { AriesMark } from '@/frontend/donor/ui';
 
 
 
@@ -103,69 +103,90 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
 
 
   return (
-    <div className="auth-container animate-in fade-in duration-1000" style={{ fontFamily: "'Inter', sans-serif" }}>
+    <div className="max-w-md mx-auto">
       {/* Header Section */}
-      <div className="flex flex-col items-center mb-6 text-center">
-        <div className="mb-6">
-          <BrandLogo size={96} variant="mark" />
+      <div className="text-center mb-8">
+        <div className="flex flex-col items-center mb-2">
+          <AriesMark sizeClassName="w-28 h-28" />
+          <span className="text-2xl font-bold tracking-tight text-white -mt-4">Aries AI</span>
         </div>
-        <h1 className="text-[26px] font-medium text-white tracking-[0.25em] mb-[20px] uppercase leading-none pl-[0.25em] text-center" style={{ marginBottom: '20px' }}>JOIN ARIES AI</h1>
-        <p className="text-white italic text-[18px] tracking-wide font-normal mt-[20px] opacity-90 text-center">
-          {invitationData ? `Joining ${invitationData.organizations.name}` : "Create your high-performance workspace"}
+        <h1 className="text-3xl font-bold mb-2 text-white">
+          {invitationData ? `Joining ${invitationData.organizations.name}` : "Create Account"}
+        </h1>
+        <p className="text-white/60">
+          Get started with your autonomous marketing workspace
         </p>
       </div>
 
 
       {/* Glassmorphic Form Card */}
-      <div className="auth-card animate-in fade-in zoom-in-95 duration-500">
-          {(authError || errorLocal) && (
-            <div className="rounded-xl border border-red-500/20 bg-gradient-to-r from-red-500/15 via-red-500/5 to-transparent backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] flex items-center gap-3 animate-in fade-in slide-in-from-top-3 duration-500" 
-                 style={{ 
-                   padding: '16px', 
-                   marginBottom: '32px',
-                   borderLeft: '4px solid #EF4444'
-                 }}>
-              <div className="shrink-0 rounded-full bg-red-500/20 flex items-center justify-center border border-red-500/30"
-                   style={{ width: '24px', height: '24px' }}>
-                <svg className="text-red-400" style={{ width: '14px', height: '14px' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-              </div>
-              <span className="text-red-100/90 font-bold tracking-normal leading-snug" 
-                    style={{ 
-                      fontSize: '10px', 
-                      textTransform: 'capitalize',
-                      letterSpacing: '0.02em'
-                    }}>
-                {authError || errorLocal}
-              </span>
+      <div className="glass p-8 md:p-10 rounded-2xl border border-white/10 relative overflow-hidden">
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary via-secondary to-primary" />
+        
+        {(authError || errorLocal) && (
+          <div className="mb-6 rounded-xl border border-red-500/20 bg-gradient-to-r from-red-500/15 via-red-500/5 to-transparent backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] flex items-center gap-3 p-4 border-l-4 border-l-red-500">
+            <div className="shrink-0 rounded-full bg-red-500/20 flex items-center justify-center border border-red-500/30 w-6 h-6">
+              <svg className="text-red-400 w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
             </div>
-          )}
+            <span className="text-red-100/90 text-xs font-bold tracking-normal leading-snug">{authError || errorLocal}</span>
+          </div>
+        )}
 
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <label className="auth-label">Full Name</label>
-            <input type="text" required className="auth-input" placeholder="John Doe" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div>
+            <label className="block text-sm font-medium text-white/80 mb-1.5">Full Name</label>
+            <input 
+              type="text" 
+              required 
+              className="block w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none transition-all" 
+              placeholder="John Doe" 
+              value={fullName} 
+              onChange={(e) => setFullName(e.target.value)} 
+            />
           </div>
 
 
-          <div className="space-y-2">
-            <label className="auth-label">Organization {!invitationData && "(Optional)"}</label>
-            <input type="text" className="auth-input" placeholder="e.g. Acme Corp" value={orgNameInput} onChange={(e) => setOrgNameInput(e.target.value)} disabled={!!invitationData} />
+          <div>
+            <label className="block text-sm font-medium text-white/80 mb-1.5">Organization {!invitationData && "(Optional)"}</label>
+            <input 
+              type="text" 
+              className="block w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none transition-all disabled:opacity-60" 
+              placeholder="e.g. Acme Corp" 
+              value={orgNameInput} 
+              onChange={(e) => setOrgNameInput(e.target.value)} 
+              disabled={!!invitationData} 
+            />
           </div>
 
 
-          <div className="space-y-2">
-            <label className="auth-label">Email Address</label>
-            <input type="email" required className="auth-input" placeholder="name@company.com" value={email} onChange={(e) => setEmail(e.target.value)} disabled={!!invitationData} />
+          <div>
+            <label className="block text-sm font-medium text-white/80 mb-1.5">Email Address</label>
+            <input 
+              type="email" 
+              required 
+              className="block w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none transition-all disabled:opacity-60" 
+              placeholder="name@company.com" 
+              value={email} 
+              onChange={(e) => setEmail(e.target.value)} 
+              disabled={!!invitationData} 
+            />
           </div>
 
 
-          <div className="space-y-2">
-            <label className="auth-label">Password</label>
+          <div>
+            <label className="block text-sm font-medium text-white/80 mb-1.5">Password</label>
             <div className="relative">
-              <input type={showPassword ? 'text' : 'password'} required className="auth-input" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} />
+              <input 
+                type={showPassword ? 'text' : 'password'} 
+                required 
+                className="block w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none transition-all" 
+                placeholder="••••••••" 
+                value={password} 
+                onChange={(e) => setPassword(e.target.value)} 
+              />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
@@ -189,7 +210,7 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
           <button
             type="submit"
             disabled={isLoading || isSubmitting}
-            className="auth-primary-button"
+            className="w-full py-3 px-4 bg-gradient-to-r from-primary to-secondary hover:opacity-90 text-white font-medium rounded-xl transition-all shadow-[0_0_20px_rgba(124,58,237,0.3)] hover:shadow-[0_0_30px_rgba(124,58,237,0.5)] flex items-center justify-center gap-2 disabled:opacity-60"
           >
             {isSubmitting ? 'Registering...' : 'REGISTER'}
           </button>
@@ -197,52 +218,55 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
 
 
         {!invitationData && (
-          <>
-            <div className="auth-separator">
-              <div className="auth-separator-line"></div>
-              <span className="auth-separator-label">
-                SIGN UP USING
-              </span>
+          <div className="mt-8">
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-white/10" />
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-2 bg-[#0B0A14] text-white/40 uppercase tracking-wider">or sign up with</span>
+              </div>
             </div>
 
 
-            <div className="auth-social-grid">
+            <div className="mt-6 grid grid-cols-2 gap-3">
               <button
                 type="button"
                 onClick={onGoogleSuccess}
                 disabled={isLoading}
-                className="auth-social-button"
+                className="group flex items-center justify-center gap-2 py-2.5 px-4 bg-white/5 border border-white/10 rounded-xl text-sm font-medium hover:bg-white/10 transition-all"
               >
-                <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24">
+                <svg className="w-4 h-4 grayscale group-hover:grayscale-0 transition-all duration-300" viewBox="0 0 24 24">
                   <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
                   <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
                   <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
                   <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                 </svg>
-                <span>Google</span>
+                <span className="text-white/80 group-hover:text-white">Google</span>
               </button>
               <button
                 type="button"
                 onClick={onSlackClick}
-                className="auth-social-button"
+                className="group flex items-center justify-center gap-2 py-2.5 px-4 bg-white/5 border border-white/10 rounded-xl text-sm font-medium hover:bg-white/10 transition-all"
               >
-                <svg className="w-[18px] h-[18px]" viewBox="0 0 122.8 122.8">
+                <svg className="w-4 h-4 grayscale group-hover:grayscale-0 transition-all duration-300" viewBox="0 0 122.8 122.8">
                   <path fill="#E01E5A" d="M25.8 77.6c0 7.1-5.8 12.9-12.9 12.9S0 84.7 0 77.6s5.8-12.9 12.9-12.9h12.9v12.9zm6.4 0c0-7.1 5.8-12.9 12.9-12.9s12.9 5.8 12.9 12.9v32.3c0 7.1-5.8 12.9-12.9 12.9s-12.9-5.8-12.9-12.9V77.6z"/>
                   <path fill="#36C5F0" d="M45.1 25.8c-7.1 0-12.9-5.8-12.9-12.9S38 0 45.1 0s12.9 5.8 12.9 12.9v12.9H45.1zm0 6.4c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9H12.9C5.8 58 0 52.2 0 45.1s5.8-12.9 12.9-12.9h32.2z"/>
                   <path fill="#2EB67D" d="M97 45.1c0-7.1 5.8-12.9 12.9-12.9s12.9 5.8 12.9 12.9-5.8 12.9-12.9 12.9H97V45.1zm-6.4 0c0 7.1-5.8 12.9-12.9 12.9s-12.9-5.8-12.9-12.9V12.9C77.7 5.8 83.5 0 90.6 0s12.9 5.8 12.9 12.9v32.2z"/>
                   <path fill="#ECB22E" d="M77.7 97c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9-12.9-5.8-12.9-12.9V97h12.9zm0-6.4c-7.1 0-12.9-5.8-12.9-12.9s5.8-12.9 12.9-12.9h32.3c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9H77.7z"/>
                 </svg>
-                <span>Slack</span>
+                <span className="text-white/80 group-hover:text-white">Slack</span>
               </button>
             </div>
-          </>
+          </div>
         )}
       </div>
 
 
-      <div className="text-center font-medium text-[15px]" style={{ marginTop: '20px', color: '#FFFFFF' }}>
-        <p>
-          Existing user? <button type="button" onClick={() => onNavigate('login')} className="underline underline-offset-4 decoration-white/40 hover:decoration-white hover:text-white transition-all ml-1 font-bold">Sign In</button>
+      <div className="text-center mt-8">
+        <p className="text-sm text-white/60">
+          Already have an account?{' '}
+          <button type="button" onClick={() => onNavigate('login')} className="font-bold text-white hover:text-primary transition-colors">Sign In</button>
         </p>
       </div>
     </div>

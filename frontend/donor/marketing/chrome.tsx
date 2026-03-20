@@ -17,7 +17,6 @@ export interface DonorMarketingShellProps {
 }
 
 const NAV_ITEMS = [
-  { name: 'Product', href: '/#product' },
   { name: 'How it Works', href: '/#how-it-works' },
   { name: 'Features', href: '/#features' },
   { name: 'Pricing', href: '/#pricing' },
@@ -81,11 +80,11 @@ export function DonorNavbar({ heroMode = false }: { heroMode?: boolean }) {
     >
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-6">
         <Link href="/" className="flex items-center gap-2">
-            <AriesMark className={cn('transition-opacity duration-300', showIcon ? 'opacity-100' : 'opacity-0')} />
-            <span className="text-xl font-bold tracking-tight text-white" style={{ opacity: headerOpacity }}>
-              Aries AI
-            </span>
-            <span className="sr-only">Aries AI</span>
+          <AriesMark className={cn('transition-opacity duration-300', showIcon ? 'opacity-100' : 'opacity-0')} />
+          <span className="text-xl font-bold tracking-tight text-white" style={{ opacity: headerOpacity }}>
+            Aries AI
+          </span>
+          <span className="sr-only">Aries AI</span>
         </Link>
 
         <div
@@ -170,7 +169,7 @@ export function DonorFooter() {
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-12 mb-16">
           <div className="col-span-2">
             <AriesWordmark className="mb-6" />
-            <p className="text-white/50 max-w-xs mb-8">
+            <p className="text-white/50 max-w-xs mb-8 leading-relaxed">
               The browser-safe Aries control surface for autonomous marketing workflows, approvals, and platform orchestration.
             </p>
             <div className="flex gap-4 text-sm text-white/60">
@@ -179,6 +178,10 @@ export function DonorFooter() {
               <Link href="/features" className="hover:text-white transition-colors">Features</Link>
             </div>
           </div>
+
+
+          {/* Spacer Column */}
+          <div className="hidden lg:block"></div>
 
           <div>
             <h4 className="font-bold mb-6">Product</h4>
@@ -211,13 +214,8 @@ export function DonorFooter() {
           </div>
         </div>
 
-        <div className="pt-8 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-4 text-white/30 text-xs">
+        <div className="pt-8 border-t border-white/5 flex flex-col md:flex-row justify-center items-center gap-4 text-white/30 text-xs">
           <p>© 2026 Aries AI Inc. All rights reserved.</p>
-          <div className="flex gap-8">
-            <Link href="/documentation" className="hover:text-white transition-colors">Runtime docs</Link>
-            <Link href="/api-docs" className="hover:text-white transition-colors">API surface</Link>
-            <Link href="/features" className="hover:text-white transition-colors">Features</Link>
-          </div>
         </div>
       </div>
     </footer>

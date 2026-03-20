@@ -4,35 +4,14 @@ import path from 'node:path';
 import { resolveCodePath } from '@/lib/runtime-paths';
 
 import {
-  asRecord,
-  asString,
-  asStringArray,
   assertMarketingRuntimeSchemas,
-  ensureRuntimeOpenClaw,
   loadMarketingJobRuntime,
-  marketingRunIdFromRuntime,
+  responseStageStatus,
+  type MarketingJobRuntimeDocument,
+  type MarketingStage,
 } from './runtime-state';
 
-type MarketingStage = 'research' | 'strategy' | 'production' | 'publish';
 type TimelineTone = 'info' | 'success' | 'warning' | 'danger';
-
-type MarketingRuntimeData = {
-  runId: string | null;
-  researchCompile: Record<string, unknown> | null;
-  researchExtract: Record<string, unknown> | null;
-  websiteBrandAnalysis: Record<string, unknown> | null;
-  campaignPlanner: Record<string, unknown> | null;
-  headOfMarketing: Record<string, unknown> | null;
-  productionReview: Record<string, unknown> | null;
-  creativeDirectorFinalize: Record<string, unknown> | null;
-  videoGenerator: Record<string, unknown> | null;
-  performancePreflight: Record<string, unknown> | null;
-  launchReview: Record<string, unknown> | null;
-  performanceSummary: Record<string, unknown> | null;
-  publisherPayloads: Array<Record<string, unknown>>;
-  launchPreviewText: string | null;
-  productionPreviewText: string | null;
-};
 
 export type MarketingStageCard = {
   stage: MarketingStage;
@@ -92,6 +71,11 @@ export type MarketingJobStatusResponse = {
   artifacts: MarketingArtifactCard[];
   timeline: MarketingTimelineEntry[];
   approval: MarketingApprovalSummary | null;
+  publishConfig: {
+    platforms: string[];
+    livePublishPlatforms: string[];
+    videoRenderPlatforms: string[];
+  };
   nextStep: string;
   repairStatus: string;
 };
@@ -187,95 +171,11 @@ function stringValue(value: unknown, fallback = ''): string {
   return fallback;
 }
 
-function generatedAt(payload: Record<string, unknown> | null): string | null {
-  return asString(payload?.generated_at);
-}
-
-function approvalRequiredFromRuntime(
-  runtimeDoc: Record<string, unknown>,
-  launchReview: Record<string, unknown> | null
-): boolean {
-  const openclaw = ensureRuntimeOpenClaw(runtimeDoc);
-  if (asString(openclaw.resume_token)) {
-    return true;
-  }
-
-  const approvalPreview = asRecord(launchReview?.approval_preview) ?? asRecord(asRecord(openclaw.primary_output)?.approval_preview);
-  return /pending|approval|review/i.test(stringValue(approvalPreview?.status));
-}
-
-function normalizeFallbackStageStatus(stage: MarketingStage, value: string | null): string | null {
-  if (!value) return null;
-  if (value === 'submitted' && stage !== 'publish') return 'completed';
-  if (value === 'pending_human_review') return 'awaiting_approval';
-  if (value === 'pass') return 'completed';
-  if (value === 'fail') return 'failed';
-  return value;
-}
-
-function deriveStageStatus(
-  stage: MarketingStage,
-  runtimeDoc: Record<string, unknown>,
-  runtimeData: MarketingRuntimeData
-): string {
-  const outputs = asRecord(runtimeDoc.outputs);
-  const fallback = normalizeFallbackStageStatus(
-    stage,
-    stringValue(asRecord(outputs?.stage_status)?.[stage], '')
-  );
-
-  switch (stage) {
-    case 'research':
-      return runtimeData.researchCompile ? 'completed' : runtimeData.researchExtract ? 'in_progress' : (fallback || 'accepted');
-    case 'strategy':
-      return runtimeData.headOfMarketing
-        ? 'completed'
-        : runtimeData.campaignPlanner || runtimeData.websiteBrandAnalysis
-          ? 'in_progress'
-          : (fallback || 'ready');
-    case 'production':
-      return runtimeData.creativeDirectorFinalize
-        ? 'completed'
-        : runtimeData.productionReview || runtimeData.videoGenerator
-          ? 'in_progress'
-          : (fallback || 'ready');
-    case 'publish':
-      if (runtimeData.performanceSummary || runtimeData.publisherPayloads.length > 0) {
-        return 'completed';
-      }
-      if (approvalRequiredFromRuntime(runtimeDoc, runtimeData.launchReview)) {
-        return 'awaiting_approval';
-      }
-      if (runtimeData.performancePreflight || runtimeData.launchReview) {
-        return 'in_progress';
-      }
-      return fallback || 'ready';
-    default:
-      return fallback || 'accepted';
-  }
-}
-
 function deriveState(
-  runtimeDoc: Record<string, unknown>,
-  stageStatus: Record<string, string>,
-  approvalRequired: boolean
+  runtimeDoc: MarketingJobRuntimeDocument,
+  stageStatus: Record<string, string>
 ): { state: string; status: string; currentStage: string | null; nextStep: string; repairStatus: string; needsAttention: boolean } {
-  const runtimeStatus = stringValue(runtimeDoc.status);
-  const runtimeState = stringValue(runtimeDoc.state);
-  const publishStatus = stageStatus.publish;
-
-  if (runtimeState === 'not_found') {
-    return {
-      state: 'not_found',
-      status: 'error',
-      currentStage: null,
-      nextStep: 'none',
-      repairStatus: 'not_required',
-      needsAttention: false,
-    };
-  }
-
-  if (publishStatus === 'completed' || runtimeStatus === 'completed') {
+  if (runtimeDoc.status === 'completed' || stageStatus.publish === 'completed') {
     return {
       state: 'completed',
       status: 'completed',
@@ -286,25 +186,22 @@ function deriveState(
     };
   }
 
-  if (approvalRequired) {
+  if (runtimeDoc.status === 'awaiting_approval' && runtimeDoc.approvals.current) {
     return {
       state: 'approval_required',
       status: 'awaiting_approval',
-      currentStage: 'publish',
+      currentStage: runtimeDoc.approvals.current.stage,
       nextStep: 'submit_approval',
       repairStatus: 'not_required',
       needsAttention: true,
     };
   }
 
-  if (
-    ['error', 'failed', 'needs_repair', 'blocked', 'hard_failure', 'rejected'].includes(runtimeStatus) ||
-    ['error', 'failed', 'needs_repair', 'blocked'].includes(runtimeState)
-  ) {
+  if (runtimeDoc.status === 'failed' || runtimeDoc.state === 'failed') {
     return {
-      state: runtimeState || 'failed',
-      status: runtimeStatus || 'failed',
-      currentStage: stageStatus.production === 'completed' ? 'publish' : stageStatus.strategy === 'completed' ? 'production' : 'strategy',
+      state: runtimeDoc.state,
+      status: runtimeDoc.status,
+      currentStage: runtimeDoc.current_stage,
       nextStep: 'invoke_marketing_repair',
       repairStatus: 'required',
       needsAttention: true,
@@ -312,9 +209,9 @@ function deriveState(
   }
 
   return {
-    state: runtimeState || 'running',
-    status: runtimeStatus || 'in_progress',
-    currentStage: stageStatus.production === 'completed' ? 'publish' : stageStatus.strategy === 'completed' ? 'production' : stageStatus.research === 'completed' ? 'strategy' : 'research',
+    state: runtimeDoc.state,
+    status: runtimeDoc.status,
+    currentStage: runtimeDoc.current_stage,
     nextStep: 'wait_for_completion',
     repairStatus: 'not_required',
     needsAttention: false,
@@ -332,9 +229,10 @@ function buildSummary(
   }
 
   if (state.status === 'awaiting_approval') {
+    const stageLabel = state.currentStage ? STAGE_LABELS[state.currentStage as MarketingStage] : 'Current';
     return {
-      headline: 'Campaign is ready for launch approval',
-      subheadline: 'Research, strategy, and production completed successfully. Review the launch package to continue.',
+      headline: `${stageLabel} stage is ready for approval`,
+      subheadline: 'Review the latest stage outputs and approve the checkpoint to move the real job forward.',
     };
   }
 
@@ -352,59 +250,43 @@ function buildSummary(
 }
 
 function buildStageCards(
-  runtimeData: MarketingRuntimeData,
+  runtimeDoc: MarketingJobRuntimeDocument,
   stageStatus: Record<string, string>
 ): MarketingStageCard[] {
-  const researchSummary = asRecord(runtimeData.researchCompile?.executive_summary);
-  const strategyPlan = asRecord(runtimeData.campaignPlanner?.campaign_plan);
-  const productionReviewPacket = asRecord(runtimeData.productionReview?.review_packet);
-  const publishPlan = asRecord(runtimeData.performancePreflight?.publish_plan);
-
   return (['research', 'strategy', 'production', 'publish'] as MarketingStage[]).map((stage) => {
+    const stageRecord = runtimeDoc.stages[stage];
     switch (stage) {
       case 'research':
         return {
           stage,
           label: STAGE_LABELS[stage],
           status: stageStatus[stage],
-          summary:
-            stringValue(researchSummary?.creative_takeaway) ||
-            'Competitive research completed and ad-angle insights were compiled.',
-          highlight: stringValue(researchSummary?.campaign_takeaway),
+          summary: stageRecord.summary?.summary || 'Competitive research completed.',
+          highlight: stageRecord.summary?.highlight || undefined,
         };
       case 'strategy':
         return {
           stage,
           label: STAGE_LABELS[stage],
           status: stageStatus[stage],
-          summary:
-            stringValue(strategyPlan?.core_message) ||
-            'Campaign strategy and channel plans were assembled from the brand profile.',
-          highlight: stringValue(strategyPlan?.primary_cta),
+          summary: stageRecord.summary?.summary || 'Campaign strategy is ready.',
+          highlight: stageRecord.summary?.highlight || undefined,
         };
       case 'production':
         return {
           stage,
           label: STAGE_LABELS[stage],
           status: stageStatus[stage],
-          summary:
-            stringValue(asRecord(productionReviewPacket?.summary)?.core_message) ||
-            'Production assets and review packet were prepared for launch.',
-          highlight: stringValue(asRecord(productionReviewPacket?.asset_previews)?.landing_page_headline),
+          summary: stageRecord.summary?.summary || 'Production assets are ready.',
+          highlight: stageRecord.summary?.highlight || undefined,
         };
       case 'publish':
         return {
           stage,
           label: STAGE_LABELS[stage],
           status: stageStatus[stage],
-          summary:
-            stringValue(asRecord(runtimeData.launchReview?.approval_preview)?.message) ||
-            stringValue(asRecord(runtimeData.performanceSummary?.summary)?.message) ||
-            'Launch review and publish package generation are handled in the final stage.',
-          highlight:
-            runtimeData.performanceSummary || runtimeData.publisherPayloads.length > 0
-              ? `${runtimeData.publisherPayloads.length || 1} publish package(s) generated`
-              : `Static contracts: ${stringValue(publishPlan?.static_contract_count, '0')}, Video contracts: ${stringValue(publishPlan?.video_contract_count, '0')}`,
+          summary: stageRecord.summary?.summary || 'Launch review and publishing happen in the final stage.',
+          highlight: stageRecord.summary?.highlight || undefined,
         };
     }
   });
@@ -412,21 +294,17 @@ function buildStageCards(
 
 function buildApproval(
   jobId: string,
-  approvalRequired: boolean,
-  runtimeData: MarketingRuntimeData
+  runtimeDoc: MarketingJobRuntimeDocument
 ): MarketingApprovalSummary | null {
-  if (!approvalRequired) {
+  const approval = runtimeDoc.approvals.current;
+  if (!approval) {
     return null;
   }
-
-  const approvalPreview = asRecord(runtimeData.launchReview?.approval_preview);
   return {
     required: true,
-    status: stringValue(approvalPreview?.status, 'pending_human_review'),
-    title: 'Launch approval required',
-    message:
-      stringValue(approvalPreview?.message) ||
-      'The real Lobster pipeline paused at launch review. Approve to generate publish-ready assets.',
+    status: approval.status,
+    title: approval.title,
+    message: approval.message,
     actionLabel: 'Open approval dashboard',
     actionHref: `/marketing/job-approve?jobId=${encodeURIComponent(jobId)}`,
   };
@@ -437,212 +315,104 @@ function withDetails(...details: Array<string | null | undefined>): string[] {
 }
 
 function buildArtifacts(
-  jobId: string,
-  runtimeData: MarketingRuntimeData,
+  runtimeDoc: MarketingJobRuntimeDocument,
   approval: MarketingApprovalSummary | null
 ): MarketingArtifactCard[] {
-  const cards: MarketingArtifactCard[] = [];
-  const researchSummary = asRecord(runtimeData.researchCompile?.executive_summary);
-  const researchInputs = asRecord(runtimeData.researchCompile?.inputs);
-  const brandAnalysis = asRecord(runtimeData.websiteBrandAnalysis?.brand_analysis);
-  const campaignPlan = asRecord(runtimeData.campaignPlanner?.campaign_plan);
-  const reviewPacket = asRecord(runtimeData.productionReview?.review_packet);
-  const videoAssets = asRecord(runtimeData.videoGenerator?.video_assets);
-  const publishPlan = asRecord(runtimeData.performancePreflight?.publish_plan);
-
-  if (runtimeData.researchCompile || runtimeData.researchExtract) {
-    cards.push({
-      id: 'research-summary',
-      stage: 'research',
-      title: 'Competitor research summary',
-      category: 'analysis',
-      status: 'completed',
-      summary:
-        stringValue(researchSummary?.market_positioning) ||
-        'The pipeline compiled competitor positioning, creative takeaways, and recommended actions.',
-      details: withDetails(
-        `Competitor: ${stringValue(runtimeData.researchCompile?.competitor || runtimeData.researchExtract?.competitor, 'Unknown')}`,
-        `Ads reviewed: ${stringValue(researchInputs?.ads_seen, '0')}`,
-        stringValue(researchSummary?.campaign_takeaway),
-      ),
-      preview: asStringArray(runtimeData.researchExtract?.competitor_research_summary).join('\n') || undefined,
-    });
-  }
-
-  if (runtimeData.websiteBrandAnalysis || runtimeData.campaignPlanner) {
-    cards.push({
-      id: 'strategy-plan',
-      stage: 'strategy',
-      title: 'Campaign strategy',
-      category: 'brief',
-      status: 'completed',
-      summary:
-        stringValue(brandAnalysis?.brand_promise) ||
-        stringValue(campaignPlan?.core_message) ||
-        'Brand analysis and cross-channel campaign planning are ready.',
-      details: withDetails(
-        stringValue(brandAnalysis?.audience_summary),
-        `Offer: ${stringValue(brandAnalysis?.offer_summary || campaignPlan?.offer, 'n/a')}`,
-        `Primary CTA: ${stringValue(campaignPlan?.primary_cta, 'Learn More')}`,
-      ),
-      preview: asStringArray(brandAnalysis?.proof_points).join('\n') || undefined,
-    });
-  }
-
-  if (runtimeData.productionReview || runtimeData.creativeDirectorFinalize) {
-    cards.push({
-      id: 'production-review',
-      stage: 'production',
-      title: 'Production review packet',
-      category: 'review',
-      status: 'completed',
-      summary:
-        stringValue(asRecord(reviewPacket?.summary)?.core_message) ||
-        'Landing page, ad, script, and video deliverables were prepared for launch.',
-      details: withDetails(
-        `Landing page headline: ${stringValue(asRecord(reviewPacket?.asset_previews)?.landing_page_headline, 'n/a')}`,
-        `Ad hook: ${stringValue(asRecord(reviewPacket?.asset_previews)?.meta_ad_hook, 'n/a')}`,
-        `Video opening line: ${stringValue(asRecord(reviewPacket?.asset_previews)?.video_opening_line, 'n/a')}`,
-      ),
-      preview: runtimeData.productionPreviewText || undefined,
-    });
-  }
-
-  if (runtimeData.videoGenerator) {
-    const platformContracts = Array.isArray(videoAssets?.platform_contracts)
-      ? videoAssets.platform_contracts as Array<Record<string, unknown>>
-      : [];
-    cards.push({
-      id: 'video-contracts',
-      stage: 'production',
-      title: 'Video contract handoff',
-      category: 'contracts',
-      status: 'completed',
-      summary: `${platformContracts.length} video platform contract(s) were prepared for downstream rendering.`,
-      details: platformContracts.slice(0, 4).map((contract) => {
-        const platform = stringValue(contract.platform, 'Platform');
-        const platformSlug = stringValue(contract.platform_slug);
-        return platformSlug ? `${platform} (${platformSlug})` : platform;
-      }),
-    });
-  }
-
-  if (runtimeData.launchReview) {
-    cards.push({
-      id: 'launch-review',
-      stage: 'publish',
-      title: 'Launch review package',
-      category: 'approval',
-      status: approval?.required ? 'awaiting_approval' : 'completed',
-      summary:
-        stringValue(asRecord(runtimeData.launchReview.approval_preview)?.message) ||
-        'The final publish step prepared a launch review package for operator approval.',
-      details: withDetails(
-        `Static contracts: ${stringValue(publishPlan?.static_contract_count, '0')}`,
-        `Video contracts: ${stringValue(publishPlan?.video_contract_count, '0')}`,
-      ),
-      preview: runtimeData.launchPreviewText || undefined,
-      actionLabel: approval?.actionLabel,
-      actionHref: approval?.actionHref,
-    });
-  }
-
-  if (runtimeData.performanceSummary || runtimeData.publisherPayloads.length > 0) {
-    cards.push({
-      id: 'publish-summary',
-      stage: 'publish',
-      title: 'Publish packages',
-      category: 'delivery',
-      status: 'completed',
-      summary:
-        stringValue(asRecord(runtimeData.performanceSummary?.summary)?.message) ||
-        'Publish-ready channel packages were generated for the campaign.',
-      details: runtimeData.publisherPayloads.map((payload) => {
-        const platform = stringValue(payload.platform, 'Platform');
-        const liveDraft = stringValue(asRecord(payload.live_draft_publish)?.status, 'not_configured');
-        const reviewSubmission = stringValue(asRecord(payload.aries_review_submission)?.status, 'not_configured');
-        return `${platform}: draft publish ${liveDraft}, Aries review ${reviewSubmission}`;
-      }),
-    });
-  }
-
-  return cards;
+  return Object.values(runtimeDoc.stages)
+    .flatMap((stageRecord) =>
+      stageRecord.artifacts.map((entry) => ({
+        id: entry.id,
+        stage: entry.stage,
+        title: entry.title,
+        category: entry.category,
+        status: entry.status,
+        summary: entry.summary,
+        details: entry.details,
+        preview: readTextPreview(entry.preview_path ?? null) || undefined,
+        actionLabel:
+          entry.id === 'launch-review' && approval?.required
+            ? approval.actionLabel
+            : entry.action_label ?? undefined,
+        actionHref:
+          entry.id === 'launch-review' && approval?.required
+            ? approval.actionHref
+            : entry.action_href ?? undefined,
+      }))
+    );
 }
 
 function buildTimeline(
-  runtimeDoc: Record<string, unknown>,
-  runtimeData: MarketingRuntimeData,
+  runtimeDoc: MarketingJobRuntimeDocument,
   state: ReturnType<typeof deriveState>
 ): MarketingTimelineEntry[] {
   const timeline: MarketingTimelineEntry[] = [];
 
-  if (asString(runtimeDoc.created_at)) {
+  if (runtimeDoc.created_at) {
     timeline.push({
       id: 'accepted',
-      at: asString(runtimeDoc.created_at),
+      at: runtimeDoc.created_at,
       tone: 'info',
       label: 'Campaign accepted',
-      description: 'Aries launched the real Lobster marketing pipeline for this campaign.',
+      description: 'Aries created the marketing job and started the direct Lobster pipeline.',
     });
   }
 
-  if (runtimeData.researchCompile) {
-    timeline.push({
-      id: 'research',
-      at: generatedAt(runtimeData.researchCompile),
-      tone: 'success',
-      label: 'Research completed',
-      description: 'Competitor ads, positioning, and recommended actions were compiled.',
-    });
+  for (const stage of ['research', 'strategy', 'production', 'publish'] as MarketingStage[]) {
+    const record = runtimeDoc.stages[stage];
+    if (record.completed_at) {
+      timeline.push({
+        id: `${stage}-completed`,
+        at: record.completed_at,
+        tone: 'success',
+        label: `${STAGE_LABELS[stage]} completed`,
+        description: record.summary?.summary || `${STAGE_LABELS[stage]} completed successfully.`,
+      });
+    } else if (record.status === 'awaiting_approval') {
+      timeline.push({
+        id: `${stage}-approval`,
+        at: runtimeDoc.approvals.current?.requested_at ?? record.started_at,
+        tone: 'warning',
+        label: `${STAGE_LABELS[stage]} approval requested`,
+        description:
+          runtimeDoc.approvals.current?.message ||
+          `${STAGE_LABELS[stage]} is waiting on explicit approval.`,
+      });
+    } else if (record.failed_at) {
+      timeline.push({
+        id: `${stage}-failed`,
+        at: record.failed_at,
+        tone: 'danger',
+        label: `${STAGE_LABELS[stage]} failed`,
+        description: record.errors[record.errors.length - 1]?.message || `${STAGE_LABELS[stage]} failed.`,
+      });
+    } else if (record.started_at && record.status === 'in_progress') {
+      timeline.push({
+        id: `${stage}-running`,
+        at: record.started_at,
+        tone: 'info',
+        label: `${STAGE_LABELS[stage]} running`,
+        description: `${STAGE_LABELS[stage]} is actively executing.`,
+      });
+    }
   }
 
-  if (runtimeData.headOfMarketing) {
+  if (runtimeDoc.status === 'completed') {
     timeline.push({
-      id: 'strategy',
-      at: generatedAt(runtimeData.headOfMarketing),
-      tone: 'success',
-      label: 'Strategy completed',
-      description: 'Campaign messaging, audience, and CTA strategy were finalized.',
-    });
-  }
-
-  if (runtimeData.creativeDirectorFinalize || runtimeData.productionReview) {
-    timeline.push({
-      id: 'production',
-      at: generatedAt(runtimeData.creativeDirectorFinalize) || generatedAt(runtimeData.productionReview),
-      tone: 'success',
-      label: 'Production package ready',
-      description: 'Landing page, ad, script, and video contract deliverables were assembled.',
-    });
-  }
-
-  if (runtimeData.launchReview && state.status === 'awaiting_approval') {
-    timeline.push({
-      id: 'approval',
-      at: generatedAt(runtimeData.launchReview),
-      tone: 'warning',
-      label: 'Launch approval requested',
-      description: 'The pipeline paused for human launch review before publishing assets.',
-    });
-  }
-
-  if (runtimeData.performanceSummary || runtimeData.publisherPayloads.length > 0) {
-    timeline.push({
-      id: 'publish',
-      at: generatedAt(runtimeData.performanceSummary) || generatedAt(runtimeData.publisherPayloads[0] ?? null),
+      id: 'publish-packages',
+      at: runtimeDoc.updated_at,
       tone: 'success',
       label: 'Publish packages generated',
-      description: 'Channel-ready publish packages and review outputs were generated.',
+      description: 'Selected platform packages and review outputs were generated.',
     });
   }
 
-  if (state.needsAttention && state.status !== 'awaiting_approval' && asString(runtimeDoc.updated_at)) {
+  if (state.needsAttention && state.status !== 'awaiting_approval' && runtimeDoc.updated_at) {
     timeline.push({
       id: 'attention',
-      at: asString(runtimeDoc.updated_at),
+      at: runtimeDoc.updated_at,
       tone: 'danger',
       label: 'Operator attention required',
-      description: 'A failure or blocked state was recorded in the local marketing runtime.',
+      description: 'A failure was recorded in the marketing runtime.',
     });
   }
 
@@ -652,45 +422,6 @@ function buildTimeline(
     if (!right.at) return -1;
     return left.at.localeCompare(right.at);
   });
-}
-
-function loadRuntimeData(runtimeDoc: Record<string, unknown>): MarketingRuntimeData {
-  const runId = marketingRunIdFromRuntime(runtimeDoc);
-
-  const researchCompile = runId ? readJsonIfExists(stepPayloadPath(1, runId, 'ads_analyst_compile')) : null;
-  const researchExtract = runId ? readJsonIfExists(stepPayloadPath(1, runId, 'meta_ads_extractor')) : null;
-  const websiteBrandAnalysis = runId ? readJsonIfExists(stepPayloadPath(2, runId, 'website_brand_analysis')) : null;
-  const campaignPlanner = runId ? readJsonIfExists(stepPayloadPath(2, runId, 'campaign_planner')) : null;
-  const headOfMarketing = runId ? readJsonIfExists(stepPayloadPath(2, runId, 'head_of_marketing')) : null;
-  const productionReview = runId ? readJsonIfExists(stepPayloadPath(3, runId, 'production_review_preview')) : null;
-  const creativeDirectorFinalize = runId ? readJsonIfExists(stepPayloadPath(3, runId, 'creative_director_finalize')) : null;
-  const videoGenerator = runId ? readJsonIfExists(stepPayloadPath(3, runId, 'veo_video_generator')) : null;
-  const performancePreflight = runId ? readJsonIfExists(stepPayloadPath(4, runId, 'performance_marketer_preflight')) : null;
-  const launchReview = runId ? readJsonIfExists(stepPayloadPath(4, runId, 'launch_review_preview')) : null;
-  const performanceSummary = runId ? readJsonIfExists(stepPayloadPath(4, runId, 'performance_marketer_summary')) : null;
-  const publisherPayloads = runId
-    ? PUBLISHER_STEPS
-        .map((stepName) => readJsonIfExists(stepPayloadPath(4, runId, stepName)))
-        .filter((payload): payload is Record<string, unknown> => !!payload)
-    : [];
-
-  return {
-    runId,
-    researchCompile,
-    researchExtract,
-    websiteBrandAnalysis,
-    campaignPlanner,
-    headOfMarketing,
-    productionReview,
-    creativeDirectorFinalize,
-    videoGenerator,
-    performancePreflight,
-    launchReview,
-    performanceSummary,
-    publisherPayloads,
-    launchPreviewText: readTextPreview(asString(asRecord(launchReview?.artifacts)?.preview_path)),
-    productionPreviewText: readTextPreview(asString(asRecord(productionReview?.artifacts)?.preview_path)),
-  };
 }
 
 export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse {
@@ -716,37 +447,45 @@ export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse
       artifacts: [],
       timeline: [],
       approval: null,
+      publishConfig: {
+        platforms: [],
+        livePublishPlatforms: [],
+        videoRenderPlatforms: [],
+      },
       nextStep: 'none',
       repairStatus: 'not_required',
     };
   }
 
-  const runtimeData = loadRuntimeData(runtimeDoc);
-  const approvalRequired = approvalRequiredFromRuntime(runtimeDoc, runtimeData.launchReview);
   const stageStatus: Record<string, string> = {
-    research: deriveStageStatus('research', runtimeDoc, runtimeData),
-    strategy: deriveStageStatus('strategy', runtimeDoc, runtimeData),
-    production: deriveStageStatus('production', runtimeDoc, runtimeData),
-    publish: deriveStageStatus('publish', runtimeDoc, runtimeData),
+    research: responseStageStatus(runtimeDoc.stages.research),
+    strategy: responseStageStatus(runtimeDoc.stages.strategy),
+    production: responseStageStatus(runtimeDoc.stages.production),
+    publish: responseStageStatus(runtimeDoc.stages.publish),
   };
-  const state = deriveState(runtimeDoc, stageStatus, approvalRequired);
-  const approval = buildApproval(jobId, approvalRequired, runtimeData);
+  const state = deriveState(runtimeDoc, stageStatus);
+  const approval = buildApproval(jobId, runtimeDoc);
 
   return {
     jobId,
-    tenantId: asString(runtimeDoc.tenant_id),
+    tenantId: runtimeDoc.tenant_id,
     state: state.state,
     status: state.status,
     currentStage: state.currentStage,
     stageStatus,
-    updatedAt: asString(runtimeDoc.updated_at),
-    approvalRequired,
+    updatedAt: runtimeDoc.updated_at,
+    approvalRequired: !!runtimeDoc.approvals.current,
     needsAttention: state.needsAttention,
     summary: buildSummary(state),
-    stageCards: buildStageCards(runtimeData, stageStatus),
-    artifacts: buildArtifacts(jobId, runtimeData, approval),
-    timeline: buildTimeline(runtimeDoc, runtimeData, state),
+    stageCards: buildStageCards(runtimeDoc, stageStatus),
+    artifacts: buildArtifacts(runtimeDoc, approval),
+    timeline: buildTimeline(runtimeDoc, state),
     approval,
+    publishConfig: {
+      platforms: runtimeDoc.publish_config.platforms,
+      livePublishPlatforms: runtimeDoc.publish_config.live_publish_platforms,
+      videoRenderPlatforms: runtimeDoc.publish_config.video_render_platforms,
+    },
     nextStep: state.nextStep,
     repairStatus: state.repairStatus,
   };

@@ -140,11 +140,13 @@ def main() -> int:
     parser.add_argument("--competitor", default="")
     parser.add_argument("--competitor-facebook-url", default="")
     parser.add_argument("--research-model", default="gemini/gemini-2.5-flash")
+    parser.add_argument("--strict-mode", default="false")
     args = parser.parse_args()
 
     competitor = args.competitor.strip()
     competitor_facebook_url = args.competitor_facebook_url.strip()
     research_model = normalize_research_model(args.research_model)
+    strict_mode = args.strict_mode.strip().lower() in {"1", "true", "yes", "y", "on"}
     run_id = make_run_id(competitor or parse_facebook_profile_id(competitor_facebook_url) or "competitor")
     profile_id = parse_facebook_profile_id(competitor_facebook_url)
 
@@ -225,6 +227,11 @@ def main() -> int:
         "app_id": meta_app_id,
     }
     live_mode = bool(live_meta_objects or web_search_live or gemini.get("live"))
+    if strict_mode and not live_mode:
+        raise SystemExit(
+            "stage1_live_research_required: Stage 1 research could not access any live source "
+            "(web search, Meta Graph, or Gemini summarization)."
+        )
 
     payload = {
         "type": "meta_ads_extract",

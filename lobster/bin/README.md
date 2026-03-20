@@ -9,9 +9,9 @@ Implemented locally for stage 1:
 - `ads-analyst`
 
 Stage-1 behavior:
-- The wrappers are runnable with a **live-first / fallback** model:
+- The wrappers are runnable with a **live research** model for the canonical marketing pipeline:
   - Live paths attempt networked research (Meta Graph, web search, Gemini summarization).
-  - Fallback paths produce deterministic, competitor-anchored outputs when network/API access is unavailable.
+  - When canonical stage execution requests strict mode and no live source is available, the step fails explicitly instead of returning fake evidence.
 - `meta-ads-extractor` accepts `--json --competitor <name>` and may also receive `--competitor-facebook-url` and `--research-model`.
 - `ads-analyst` accepts `--json --mode compile`.
 - Intermediate stage-1 outputs are cached under `/tmp/lobster-stage1-cache/<run_id>/` so the final compile step can reconstruct competitor/campaign research artifacts.
@@ -60,9 +60,11 @@ Implemented locally for stage 4:
 Stage-4 behavior:
 - Static publishers render deterministic final SVG creative files and copy payloads from stage-3 static contracts under `output/publish-ready/<campaign_id>/<platform>/`.
 - Every publisher also writes a tenant-scoped Aries review package under `output/aries-review/<tenant_profile_id>/<campaign_id>/<platform>/review-package.json`.
-- Video publishers emit downstream render-request manifests from stage-3 video contracts; they do not fake MP4 rendering locally.
+- Video publishers can execute real render commands only when explicitly requested; otherwise they surface the stage-3 video contracts without starting a render.
 - Optional live integrations can be attached with env vars:
   - `ARIES_REVIEW_POST_CMD` receives the review package JSON on stdin.
   - `LOBSTER_DRAFT_PUBLISH_CMD` receives a draft-publish payload on stdin for all platforms.
   - `LOBSTER_<PLATFORM>_DRAFT_PUBLISH_CMD` overrides the generic draft hook for one platform, for example `LOBSTER_META_ADS_DRAFT_PUBLISH_CMD`.
+- `LOBSTER_VIDEO_RENDER_CMD` receives a render payload on stdin for video platforms.
+- `LOBSTER_<PLATFORM>_RENDER_CMD` overrides the generic video render hook for a specific platform.
 - Launch review remains a human approval step before the publisher wrappers execute.

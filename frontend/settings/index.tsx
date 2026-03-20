@@ -32,7 +32,7 @@ export default function SettingsScreen(_props: SettingsScreenProps): JSX.Element
             Review platform credentials and token health in <strong>Platforms</strong>.
           </div>
           <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-white/70">
-            Use the <strong>Posts</strong> route for publish dispatch and retry controls.
+            Use the <strong>marketing job</strong> surfaces for real publish approvals and package generation.
           </div>
           <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-white/70">
             Track workflow status and approvals from the dedicated onboarding and marketing screens.

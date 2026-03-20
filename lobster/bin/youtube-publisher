@@ -7,16 +7,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _stage4_common import (
+    bool_arg,
     contract_platform_map,
     emit_json,
     ensure_run_id,
     load_json_file,
-    maybe_publish_live_draft,
     maybe_submit_aries_review,
     output_root,
     read_stdin_json,
+    require_video_render,
     render_video_poster_asset,
     save_step,
+    skipped_publish_payload,
     slugify,
     tenant_profile_id,
     utc_now,
@@ -31,36 +33,54 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--brand-slug", default="client-brand")
+    parser.add_argument("--enabled", default="true")
+    parser.add_argument("--render-requested", default="false")
     args = parser.parse_args()
     data = read_stdin_json()
     handoff = data.get("production_handoff", data)
     brand_slug = slugify(args.brand_slug or handoff.get("brand_slug", "client-brand"))
     run_id = ensure_run_id(handoff.get("run_id", ""), brand_slug, handoff.get("campaign_name", ""))
+    if not bool_arg(args.enabled):
+        payload = skipped_publish_payload("youtube_publisher", "youtube", run_id, brand_slug)
+        save_step(run_id, "youtube_publisher", payload)
+        emit_json(payload)
+        return 0
     platform_map = contract_platform_map(handoff, "video")
     tenant_id = tenant_profile_id(handoff, brand_slug)
     destination_root = output_root() / slugify(handoff.get("campaign_name", brand_slug)) / "youtube"
     destination_root.mkdir(parents=True, exist_ok=True)
     manifests = []
     review_entries = []
+    render_results = []
     for platform_slug in PLATFORMS:
         platform_entry = platform_map.get(platform_slug, {})
         contract = load_json_file(platform_entry.get("contract_path", ""))
         poster_result = render_video_poster_asset(contract, destination_root, f"{platform_slug}-poster")
-        manifest_path = destination_root / f"{platform_slug}-render-request.json"
         manifest = {
             "campaign_id": contract.get("campaign_id", ""),
             "concept_id": contract.get("concept_id", ""),
             "platform": platform_slug,
             "contract_path": platform_entry.get("contract_path", ""),
-            "render_requested": True,
+            "render_requested": bool_arg(args.render_requested),
         }
-        manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        manifests.append(str(manifest_path))
+        manifest_path = destination_root / f"{platform_slug}-render-request.json"
+        render_result = {
+            "executed": False,
+            "status": "not_requested",
+            "stdout": "",
+            "stderr": "",
+            "returncode": None,
+        }
+        if bool_arg(args.render_requested):
+            manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            manifests.append(str(manifest_path))
+            render_result = require_video_render(platform_slug, manifest)
+        render_results.append({"platform": platform_slug, **render_result})
         review_entries.append(
             {
                 "platform": platform_slug,
                 "contract_path": platform_entry.get("contract_path", ""),
-                "render_request_manifest_path": str(manifest_path),
+                "render_request_manifest_path": str(manifest_path) if bool_arg(args.render_requested) else "",
                 "poster_image_path": poster_result["poster_image_path"],
                 "image_generation": poster_result["nano_banana"],
             }
@@ -75,19 +95,9 @@ def main() -> int:
     }
     review_package_path = write_review_package(tenant_id, campaign_id, "youtube", review_payload)
     aries_result = maybe_submit_aries_review(review_payload)
-    live_draft_result = maybe_publish_live_draft(
-        "youtube",
-        {
-            "tenant_profile_id": tenant_id,
-            "campaign_id": campaign_id,
-            "platform": "youtube",
-            "publish_mode": "draft",
-            "entries": review_entries,
-        },
-    )
     payload = {
         "type": "youtube_publisher",
-        "mode": "video_render_request_manifest",
+        "mode": "video_render_execution" if bool_arg(args.render_requested) else "video_contract_ready",
         "generated_at": utc_now(),
         "run_id": run_id,
         "brand_slug": brand_slug,
@@ -95,8 +105,8 @@ def main() -> int:
             "render_request_manifest_paths": manifests,
             "review_package_path": review_package_path,
         },
+        "render_execution": render_results,
         "aries_review_submission": aries_result,
-        "live_draft_publish": live_draft_result,
     }
     save_step(run_id, "youtube_publisher", payload)
     emit_json(payload)

@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { AuthView } from '../types';
 import { recordPasswordResetRequest } from '../services/supabase';
 import { sendOTPEmail } from '../services/emailService';
-import { BrandLogo } from '@/components/redesign/brand/logo';
+import { AriesMark } from '@/frontend/donor/ui';
 
 
 interface ForgotPasswordFormProps {
@@ -50,41 +50,40 @@ const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({ onNavigate, onS
   };
 
 
-  const inputStyle = "w-full px-[16px] py-[10px] rounded-xl border border-white/20 bg-black/10 text-white placeholder-[#851028] placeholder:font-medium placeholder:text-[15px] focus:outline-none focus:border-white/40 transition-all text-[15px]";
-  const labelStyle = "block text-sm font-semibold text-white/90 mb-2";
-
-
   return (
-    <div className="auth-container animate-in fade-in duration-1000" style={{ fontFamily: "'Inter', sans-serif" }}>
-      <div className="w-full max-w-[460px] flex flex-col">
-        <button
-          onClick={() => onNavigate('login')}
-          className="self-start flex items-center gap-2 text-white/40 hover:text-white mb-8 transition-colors group font-bold text-xs uppercase tracking-widest"
-        >
-          <svg className="w-4 h-4 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 19l-7-7 7-7" />
-          </svg>
-          Back to Login
-        </button>
+    <div className="max-w-md mx-auto">
+      <button
+        onClick={() => onNavigate('login')}
+        className="self-start flex items-center gap-2 text-white/40 hover:text-white mb-8 transition-colors group"
+      >
+        <svg className="w-4 h-4 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 19l-7-7 7-7" />
+        </svg>
+        <span>Back to Login</span>
+      </button>
 
 
-        <div className="flex flex-col items-center mb-6 text-center">
-          <div className="mb-6">
-            <BrandLogo size={96} variant="mark" />
-          </div>
-          <h1 className="text-[26px] font-medium text-white tracking-[0.25em] mb-[20px] uppercase leading-none pl-[0.25em]" style={{ marginBottom: '20px' }}>RECOVERY</h1>
-          <p className="text-white italic text-[18px] tracking-wide font-normal mt-[20px] opacity-90">Reset your access to Aries AI</p>
+      <div className="text-center mb-8">
+        <div className="flex flex-col items-center mb-2">
+          <AriesMark sizeClassName="w-28 h-28" />
+          <span className="text-2xl font-bold tracking-tight text-white -mt-4">Aries AI</span>
         </div>
+        <h1 className="text-3xl font-bold mb-2 text-white">Recovery</h1>
+        <p className="text-white/60">Reset your access to Aries AI</p>
+      </div>
 
 
-        <div className="auth-card animate-in fade-in zoom-in-95 duration-500">
+      {/* Glassmorphic Form Card */}
+      <div className="glass p-8 md:p-10 rounded-2xl border border-white/10 relative overflow-hidden">
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary via-secondary to-primary" />
+        
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="space-y-2">
-            <label className="auth-label">Account Email</label>
+          <div>
+            <label className="block text-sm font-medium text-white/80 mb-1.5">Account Email</label>
             <input
               type="email"
               required
-              className="auth-input"
+              className="block w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none transition-all"
               placeholder="name@company.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -102,13 +101,12 @@ const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({ onNavigate, onS
           <button
             type="submit"
             disabled={isLoading || parentLoading || !email}
-            className="auth-primary-button"
+            className="w-full py-3 px-4 bg-gradient-to-r from-primary to-secondary hover:opacity-90 text-white font-medium rounded-xl transition-all shadow-[0_0_20px_rgba(124,58,237,0.3)] hover:shadow-[0_0_30px_rgba(124,58,237,0.5)] flex items-center justify-center gap-2 disabled:opacity-60"
           >
             {isLoading || parentLoading ? 'Locating Account...' : 'Send Recovery Code'}
           </button>
         </form>
       </div>
-    </div>
     </div>
   );
 };

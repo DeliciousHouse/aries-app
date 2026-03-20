@@ -71,29 +71,14 @@ async function runLocalStage4Compat(runId: string, brandSlug: string): Promise<L
 }
 
 export async function approveMarketingJob(input: ApproveMarketingJobRequest): Promise<ApproveMarketingJobResponse> {
-  assertMarketingRuntimeSchemas();
-
-  if (!input.approvedBy?.trim()) {
-    return {
-      status: "error",
-      jobId: input.jobId,
-      tenantId: input.tenantId,
-      resumedStage: null,
-      completed: false,
-      wiring: "openclaw_gateway",
-      reason: 'missing_approved_by',
-    };
-  }
-
   const job = loadMarketingJobRuntime(input.jobId);
   if (!job) {
     return {
-      status: "error",
+      status: 'error',
       jobId: input.jobId,
       tenantId: input.tenantId,
       resumedStage: null,
       completed: false,
-      wiring: "openclaw_gateway",
       reason: 'job_not_found',
     };
   }

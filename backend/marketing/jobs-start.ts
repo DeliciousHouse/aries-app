@@ -142,8 +142,8 @@ function approvalRequiredFromOpenClaw(
 
   const approvalPreview =
     primaryOutput &&
-    typeof primaryOutput.approval_preview === "object" &&
-    primaryOutput.approval_preview !== null
+      typeof primaryOutput.approval_preview === "object" &&
+      primaryOutput.approval_preview !== null
       ? (primaryOutput.approval_preview as Record<string, unknown>)
       : null;
   const approvalStatus =
@@ -263,8 +263,8 @@ function createOpenClawBackedJobRuntime(
   const approvalRequired = approvalRequiredFromOpenClaw(primaryOutput, envelope);
   const approvalPreview =
     primaryOutput &&
-    typeof primaryOutput.approval_preview === 'object' &&
-    primaryOutput.approval_preview !== null
+      typeof primaryOutput.approval_preview === 'object' &&
+      primaryOutput.approval_preview !== null
       ? (primaryOutput.approval_preview as Record<string, unknown>)
       : null;
   const stageStatus: Record<string, string> = {

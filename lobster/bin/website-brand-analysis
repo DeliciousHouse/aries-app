@@ -70,6 +70,7 @@ def main() -> int:
     parser.add_argument("--research-model", default="gemini/gemini-3-flash-preview")
     parser.add_argument("--stage1-summary-json", default="")
     parser.add_argument("--stage1-summary-base64", default="")
+    parser.add_argument("--strict-mode", default="false")
     args = parser.parse_args()
 
     if args.stage1_summary_base64.strip():
@@ -102,6 +103,7 @@ def main() -> int:
     website_url = args.website_url.strip() or stage1_summary.get("website_url", "")
     brand_slug = slugify(args.brand_slug or stage1_summary.get("brand_slug", "client-brand"))
     research_model = normalize_research_model(args.research_model or stage1_summary.get("research_model", ""))
+    strict_mode = args.strict_mode.strip().lower() in {"1", "true", "yes", "y", "on"}
     run_id = ensure_run_id(stage1_summary.get("run_id", ""), brand_slug, website_url)
     brand_name = _canonical_brand_name(brand_slug, website_url, stage1_summary)
 
@@ -127,6 +129,11 @@ def main() -> int:
     )
     gemini = summarize_with_gemini(prompt=prompt, research_model=research_model)
     gemini_lines = [line.strip("- ").strip() for line in gemini.get("text", "").splitlines() if line.strip()]
+    if strict_mode and not website_html and not gemini.get("live"):
+        raise SystemExit(
+            "stage2_live_strategy_input_required: Stage 2 strategy analysis requires either a live website fetch "
+            "or live Gemini summarization."
+        )
 
     brand_analysis = {
         "brand_name": brand_name,

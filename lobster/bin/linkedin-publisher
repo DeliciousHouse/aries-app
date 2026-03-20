@@ -7,16 +7,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _stage4_common import (
+    bool_arg,
     contract_platform_map,
     emit_json,
     ensure_run_id,
     load_json_file,
-    maybe_publish_live_draft,
     maybe_submit_aries_review,
     output_root,
     read_stdin_json,
     render_static_publish_asset,
+    require_live_draft_publish,
     save_step,
+    skipped_publish_payload,
     slugify,
     tenant_profile_id,
     utc_now,
@@ -31,11 +33,18 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--brand-slug", default="client-brand")
+    parser.add_argument("--enabled", default="true")
+    parser.add_argument("--live-publish-requested", default="false")
     args = parser.parse_args()
     data = read_stdin_json()
     handoff = data.get("production_handoff", data)
     brand_slug = slugify(args.brand_slug or handoff.get("brand_slug", "client-brand"))
     run_id = ensure_run_id(handoff.get("run_id", ""), brand_slug, handoff.get("campaign_name", ""))
+    if not bool_arg(args.enabled):
+        payload = skipped_publish_payload("linkedin_publisher", PLATFORM_SLUG, run_id, brand_slug)
+        save_step(run_id, "linkedin_publisher", payload)
+        emit_json(payload)
+        return 0
     platform_entry = contract_platform_map(handoff, "static").get(PLATFORM_SLUG, {})
     contract = load_json_file(platform_entry.get("contract_path", ""))
     campaign_id = contract.get("campaign_id", brand_slug)
@@ -58,17 +67,24 @@ def main() -> int:
     }
     review_package_path = write_review_package(tenant_id, campaign_id, PLATFORM_SLUG, review_payload)
     aries_result = maybe_submit_aries_review(review_payload)
-    live_draft_result = maybe_publish_live_draft(
-        PLATFORM_SLUG,
-        {
-            "tenant_profile_id": tenant_id,
-            "campaign_id": campaign_id,
-            "platform": PLATFORM_SLUG,
-            "publish_mode": "draft",
-            "contract_path": platform_entry.get("contract_path", ""),
-            "asset_paths": review_payload["asset_paths"],
-        },
-    )
+    draft_publish_payload = {
+        "tenant_profile_id": tenant_id,
+        "campaign_id": campaign_id,
+        "platform": PLATFORM_SLUG,
+        "publish_mode": "draft",
+        "contract_path": platform_entry.get("contract_path", ""),
+        "asset_paths": review_payload["asset_paths"],
+    }
+    if bool_arg(args.live_publish_requested):
+        live_draft_result = require_live_draft_publish(PLATFORM_SLUG, draft_publish_payload)
+    else:
+        live_draft_result = {
+            "executed": False,
+            "status": "not_requested",
+            "stdout": "",
+            "stderr": "",
+            "returncode": None,
+        }
     payload = {
         "type": "linkedin_publisher",
         "mode": "rendered_static_publish_package",
