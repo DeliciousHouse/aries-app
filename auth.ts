@@ -34,21 +34,42 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         try {
           const existingUser = await client.query('SELECT id, organization_id FROM users WHERE email = $1', [email]);
 
+          const MAX_SLUG_ATTEMPTS = 5;
           const ensureOrg = async (userId: number) => {
-            const slug = (user.name || email.split('@')[0])
+            const baseSlug = (user.name || email.split('@')[0])
               .toLowerCase()
               .replace(/[^a-z0-9]+/g, '-')
               .replace(/^-|-$/g, '')
               .slice(0, 60);
-            const orgResult = await client.query(
-              'INSERT INTO organizations (name, slug) VALUES ($1, $2) RETURNING id',
-              [user.name || email, slug]
-            );
-            const orgId = orgResult.rows[0].id as number;
-            await client.query(
-              'UPDATE users SET organization_id = $1 WHERE id = $2',
-              [orgId, userId]
-            );
+
+            await client.query('BEGIN');
+            try {
+              let orgId: number | undefined;
+              let slug = baseSlug;
+              for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt++) {
+                const orgResult = await client.query(
+                  'INSERT INTO organizations (name, slug) VALUES ($1, $2) ON CONFLICT (slug) DO NOTHING RETURNING id',
+                  [user.name || email, slug]
+                );
+                if ((orgResult.rowCount ?? 0) > 0) {
+                  orgId = orgResult.rows[0].id as number;
+                  break;
+                }
+                const suffix = Math.random().toString(36).substring(2, 6).padStart(4, '0');
+                slug = `${baseSlug.slice(0, 55)}-${suffix}`;
+              }
+              if (orgId === undefined) {
+                throw new Error('Failed to generate a unique slug for organization after retries');
+              }
+              await client.query(
+                'UPDATE users SET organization_id = $1 WHERE id = $2',
+                [orgId, userId]
+              );
+              await client.query('COMMIT');
+            } catch (err) {
+              await client.query('ROLLBACK');
+              throw err;
+            }
           };
 
           if ((existingUser.rowCount ?? 0) === 0) {
