@@ -1,3 +1,7 @@
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+import { resolveCodePath } from '@/lib/runtime-paths';
 import { resumeOpenClawLobsterWorkflow, type LobsterEnvelope } from '../openclaw/gateway-client';
 import {
   asRecord,
@@ -12,6 +16,8 @@ import {
   nowIso,
   saveMarketingJobRuntime,
 } from './runtime-state';
+
+const execFileAsync = promisify(execFile);
 
 export type ApproveMarketingJobRequest = {
   jobId: string;
@@ -43,6 +49,25 @@ function primaryOutputRecord(envelope: LobsterEnvelope): Record<string, unknown>
 
 function markStageCompleted(stageStatus: Record<string, string>, stage: string): void {
   stageStatus[stage] = 'completed';
+}
+
+async function runLocalStage4Compat(runId: string, brandSlug: string): Promise<LobsterEnvelope> {
+  const compatPath = resolveCodePath('lobster', 'bin', 'stage4-publish-compat');
+  const { stdout } = await execFileAsync(
+    compatPath,
+    ['--json', '--brand-slug', brandSlug, '--run-id', runId],
+    {
+      cwd: resolveCodePath('lobster'),
+      maxBuffer: 1024 * 1024 * 8,
+    },
+  );
+  return {
+    ok: true,
+    status: 'ok',
+    output: [JSON.parse(stdout) as Record<string, unknown>],
+    requiresApproval: null,
+    compatibilityMode: 'stage4-publish-compat',
+  } as LobsterEnvelope;
 }
 
 export async function approveMarketingJob(input: ApproveMarketingJobRequest): Promise<ApproveMarketingJobResponse> {
@@ -86,7 +111,30 @@ export async function approveMarketingJob(input: ApproveMarketingJobRequest): Pr
 
   const openclaw = ensureRuntimeOpenClaw(job);
   const resumeToken = asString(openclaw.resume_token);
-  if (!resumeToken) {
+  const existingPrimaryOutput = asRecord(openclaw.primary_output);
+  const localCompatEligible = !resumeToken && asString(existingPrimaryOutput?.type) === 'launch_review_preview';
+  let envelope: LobsterEnvelope;
+  if (resumeToken) {
+    envelope = await resumeOpenClawLobsterWorkflow({
+      token: resumeToken,
+      approve: input.resumePublishIfNeeded ?? true,
+    });
+  } else if (localCompatEligible) {
+    const runId = asString(openclaw.run_id) ?? asString(existingPrimaryOutput?.run_id);
+    const brandSlug = asString(existingPrimaryOutput?.brand_slug) ?? asString(job.tenant_id) ?? 'client-brand';
+    if (!runId) {
+      return {
+        status: "error",
+        jobId: input.jobId,
+        tenantId: input.tenantId,
+        resumedStage: null,
+        completed: false,
+        wiring: "openclaw_gateway",
+        reason: 'approval_not_available',
+      };
+    }
+    envelope = await runLocalStage4Compat(runId, brandSlug);
+  } else {
     return {
       status: "error",
       jobId: input.jobId,
@@ -97,11 +145,6 @@ export async function approveMarketingJob(input: ApproveMarketingJobRequest): Pr
       reason: 'approval_not_available',
     };
   }
-
-  const envelope = await resumeOpenClawLobsterWorkflow({
-    token: resumeToken,
-    approve: input.resumePublishIfNeeded ?? true,
-  });
   const primaryOutput = primaryOutputRecord(envelope);
   const outputs = ensureRuntimeOutputs(job);
   const stageStatus = ensureRuntimeStageStatus(job);
@@ -139,6 +182,7 @@ export async function approveMarketingJob(input: ApproveMarketingJobRequest): Pr
     step: 'publish',
     details: {
       source: 'openclaw_gateway_resume',
+      compatibility_mode: (envelope as Record<string, unknown>).compatibilityMode ?? null,
       envelope_status: envelope.status,
       approved_by: input.approvedBy.trim(),
       approved_stages: input.approvedStages || [],
