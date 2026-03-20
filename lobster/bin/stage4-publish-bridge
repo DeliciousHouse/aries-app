@@ -74,7 +74,7 @@ def main() -> int:
             sys.stderr.write(preview_proc.stderr)
             return preview_proc.returncode
         proc = subprocess.run(
-            ["lobster", "run", str(workflow), "--args-json", json.dumps(payload)],
+            ["./bin/stage4-publish-compat", "--json", "--brand-slug", args.brand_slug, "--production-handoff-path", handoff_path],
             text=True,
             capture_output=True,
             check=False,
