@@ -142,11 +142,7 @@ function stepPayloadPath(stage: 1 | 2 | 3 | 4, runId: string, stepName: string):
   if (existsSync(primary)) {
     return primary;
   }
-<<<<<<< HEAD
   return path.join(stageLogRoot(stage).replace('{runId}', runId), `${stepName}.json`);
-=======
-  return stageLogRoot(stage).replace('{runId}', runId) + `/${stepName}.json`;
->>>>>>> eac9628 (Persist canonical marketing pipeline artifacts)
 }
 
 function readJsonIfExists(filePath: string): Record<string, unknown> | null {
