@@ -34,8 +34,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         try {
           const existingUser = await client.query('SELECT id, organization_id FROM users WHERE email = $1', [email]);
 
+          const MAX_SLUG_ATTEMPTS = 5;
           const ensureOrg = async (userId: number) => {
-            const slug = (user.name || email.split('@')[0])
+            const baseSlug = (user.name || email.split('@')[0])
               .toLowerCase()
               .replace(/[^a-z0-9]+/g, '-')
               .replace(/^-|-$/g, '')
