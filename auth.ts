@@ -40,9 +40,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
               .replace(/[^a-z0-9]+/g, '-')
               .replace(/^-|-$/g, '')
               .slice(0, 60);
-            const orgResult = await client.query(
-              'INSERT INTO organizations (name, slug) VALUES ($1, $2) RETURNING id',
+            // INSERT ... ON CONFLICT DO NOTHING, then SELECT to get the id whether new or pre-existing
+            await client.query(
+              'INSERT INTO organizations (name, slug) VALUES ($1, $2) ON CONFLICT (slug) DO NOTHING',
               [user.name || email, slug]
+            );
+            const orgResult = await client.query(
+              'SELECT id FROM organizations WHERE slug = $1',
+              [slug]
             );
             const orgId = orgResult.rows[0].id as number;
             await client.query(
