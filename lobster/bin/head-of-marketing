@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _stage2_common import emit_json, normalize_research_model, read_stdin_json, save_step, utc_now
 from _stage2_common import ensure_run_id
+from _canonical_outputs import brand_output_paths, write_text
 
 
 def main() -> int:
@@ -36,9 +37,65 @@ def main() -> int:
             "objective": plan.get("objective", ""),
             "core_message": plan.get("core_message", ""),
             "primary_cta": plan.get("primary_cta", ""),
+            "offer_summary": plan.get("offer", ""),
+            "audience_summary": plan.get("audience", ""),
+            "proof_points": plan.get("proof_points", []),
             "channels": plan.get("channel_plans", []),
             "brand_profile_id": record.get("brand_slug", args.brand_slug),
         },
+    }
+    paths = brand_output_paths(record.get("brand_slug", args.brand_slug))
+    proposal_md = "\n".join(
+        [
+            f"# {record.get('brand_name', payload['brand_slug'])} Campaign Proposal",
+            "",
+            f"- Brand slug: {payload['brand_slug']}",
+            f"- Campaign: {plan.get('campaign_name', '')}",
+            f"- Objective: {plan.get('objective', '')}",
+            f"- Primary CTA: {plan.get('primary_cta', '')}",
+            "",
+            "## Core Message",
+            plan.get("core_message", ""),
+            "",
+            "## Audience",
+            plan.get("audience", ""),
+            "",
+            "## Offer",
+            plan.get("offer", ""),
+            "",
+            "## Proof Points",
+            *[f"- {item}" for item in plan.get("proof_points", [])],
+            "",
+            "## Channel Plans",
+            *[
+                f"- {channel.get('channel', 'channel')}: {channel.get('message', '')} | CTA: {channel.get('cta', '')}"
+                for channel in plan.get("channel_plans", [])
+            ],
+        ]
+    )
+    proposal_html = "".join(
+        [
+            "<html><body>",
+            f"<h1>{record.get('brand_name', payload['brand_slug'])} Campaign Proposal</h1>",
+            f"<p><strong>Campaign:</strong> {plan.get('campaign_name', '')}</p>",
+            f"<p><strong>Objective:</strong> {plan.get('objective', '')}</p>",
+            f"<p><strong>Primary CTA:</strong> {plan.get('primary_cta', '')}</p>",
+            f"<h2>Core Message</h2><p>{plan.get('core_message', '')}</p>",
+            f"<h2>Audience</h2><p>{plan.get('audience', '')}</p>",
+            f"<h2>Offer</h2><p>{plan.get('offer', '')}</p>",
+            "<h2>Proof Points</h2><ul>",
+            *[f"<li>{item}</li>" for item in plan.get("proof_points", [])],
+            "</ul><h2>Channel Plans</h2><ul>",
+            *[
+                f"<li><strong>{channel.get('channel', 'channel')}</strong>: {channel.get('message', '')} (CTA: {channel.get('cta', '')})</li>"
+                for channel in plan.get("channel_plans", [])
+            ],
+            "</ul></body></html>",
+        ]
+    )
+    payload["artifacts"] = {
+        "campaign_proposal_markdown_path": write_text(paths["campaign_proposal_md"], proposal_md),
+        "campaign_proposal_html_path": write_text(paths["campaign_proposal_html"], proposal_html),
     }
     save_step(run_id, "head_of_marketing", payload)
     emit_json(payload)

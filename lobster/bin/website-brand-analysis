@@ -18,6 +18,7 @@ from _stage2_common import (
     summarize_with_gemini,
     utc_now,
 )
+from _canonical_outputs import brand_output_paths, write_text
 
 
 def _extract_title_and_h1(html: str) -> tuple[str, str]:
@@ -149,6 +150,65 @@ def main() -> int:
             "recommended_actions": stage1_summary.get("recommended_actions", []),
         },
     }
+    paths = brand_output_paths(brand_slug)
+    brand_bible_md = "\n".join(
+        [
+            f"# {brand_name} Brand Bible",
+            "",
+            f"- Brand slug: {brand_slug}",
+            f"- Website: {website_url or 'n/a'}",
+            "",
+            "## Brand Promise",
+            brand_analysis["brand_promise"],
+            "",
+            "## Audience",
+            brand_analysis["audience_summary"],
+            "",
+            "## Positioning",
+            brand_analysis["positioning_summary"],
+            "",
+            "## Offer",
+            brand_analysis["offer_summary"],
+            "",
+            "## Proof Points",
+            *[f"- {point}" for point in brand_analysis["proof_points"]],
+            "",
+            "## Brand Voice",
+            *[f"- {trait}" for trait in brand_analysis["brand_voice"]],
+            "",
+            "## CTA Preferences",
+            *[f"- {cta}" for cta in brand_analysis["cta_preferences"]],
+        ]
+    )
+    design_system_css = "\n".join(
+        [
+            ":root {",
+            "  --brand-bg: #0f1720;",
+            "  --brand-surface: #16212c;",
+            "  --brand-text: #f5f2eb;",
+            "  --brand-accent: #d4a94f;",
+            "  --brand-muted: #9fb1c1;",
+            "  --font-display: 'Inter', 'Helvetica Neue', Arial, sans-serif;",
+            "  --font-body: 'Inter', Arial, sans-serif;",
+            "}",
+            "",
+            "body {",
+            "  background: var(--brand-bg);",
+            "  color: var(--brand-text);",
+            "  font-family: var(--font-body);",
+            "}",
+            "",
+            ".button-primary {",
+            "  background: var(--brand-accent);",
+            "  color: #111827;",
+            "  border-radius: 999px;",
+            "  padding: 0.9rem 1.4rem;",
+            "  font-weight: 700;",
+            "}",
+        ]
+    )
+    brand_bible_path = write_text(paths["brand_bible_md"], brand_bible_md)
+    design_system_path = write_text(paths["design_system_css"], design_system_css)
 
     payload = {
         "type": "website_brand_analysis",
@@ -166,6 +226,10 @@ def main() -> int:
                 "error": website_fetch_error,
             },
             "gemini": gemini,
+        },
+        "artifacts": {
+            "brand_bible_markdown_path": brand_bible_path,
+            "design_system_css_path": design_system_path,
         },
     }
     save_step(run_id, "website_brand_analysis", payload)

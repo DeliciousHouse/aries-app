@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from _canonical_outputs import write_stage_log
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -57,6 +59,7 @@ def run_dir(run_id: str) -> Path:
 def save_step(run_id: str, step_name: str, payload: Any) -> None:
     path = run_dir(run_id) / f"{step_name}.json"
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_stage_log(run_id, "stage-1-research", step_name, payload)
 
 
 def load_step(run_id: str, step_name: str) -> Any:
