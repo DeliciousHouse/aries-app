@@ -32,6 +32,7 @@ COPY --from=builder /app/specs ./specs
 COPY --from=builder /app/templates ./templates
 COPY --from=builder /app/validators ./validators
 COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/lobster ./lobster
 COPY --from=builder /app/next-env.d.ts ./next-env.d.ts
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 COPY --from=builder /app/README-runtime.md ./README-runtime.md
