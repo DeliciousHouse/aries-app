@@ -17,7 +17,7 @@
       "production",
       "publish"
     ],
-    "runtime_state_note": "state/status for existing runtime files are pass-through strings from generated draft job JSON",
+    "runtime_state_note": "state/status are emitted from the Aries-managed marketing job runtime document",
     "approval_status_values": [
       "resumed",
       "error"
@@ -37,22 +37,13 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "tenantId",
           "jobType"
         ],
         "properties": {
-          "tenantId": {
-            "type": "string",
-            "minLength": 1
-          },
           "jobType": {
             "type": "string",
             "enum": [
-              "marketing_research",
-              "marketing_strategy",
-              "marketing_production",
-              "marketing_publish",
-              "unknown"
+              "brand_campaign"
             ]
           },
           "payload": {
@@ -144,14 +135,9 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "tenantId",
           "approvedBy"
         ],
         "properties": {
-          "tenantId": {
-            "type": "string",
-            "minLength": 1
-          },
           "approvedBy": {
             "type": "string",
             "minLength": 1
@@ -172,6 +158,30 @@
           "resumePublishIfNeeded": {
             "type": "boolean",
             "default": true
+          },
+          "publishConfig": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "platforms": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "livePublishPlatforms": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "videoRenderPlatforms": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       },
@@ -195,7 +205,7 @@
         "./marketing_response_shapes.v1.json#/$defs/UnhandledError"
       ],
       "notes": [
-        "If the runtime file for jobId is missing, approval returns status=error with wiring=openclaw_gateway",
+        "If the runtime file for jobId is missing, approval returns status=error",
         "When a local approval progresses the publish stage, completed becomes true"
       ]
     }

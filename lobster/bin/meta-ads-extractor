@@ -19,6 +19,7 @@ from _stage1_common import (
     utc_now,
     web_search,
 )
+from _canonical_outputs import competitor_output_paths, write_json, write_text
 
 
 def _is_meta_profile_url(url: str) -> bool:
@@ -139,11 +140,13 @@ def main() -> int:
     parser.add_argument("--competitor", default="")
     parser.add_argument("--competitor-facebook-url", default="")
     parser.add_argument("--research-model", default="gemini/gemini-2.5-flash")
+    parser.add_argument("--strict-mode", default="false")
     args = parser.parse_args()
 
     competitor = args.competitor.strip()
     competitor_facebook_url = args.competitor_facebook_url.strip()
     research_model = normalize_research_model(args.research_model)
+    strict_mode = args.strict_mode.strip().lower() in {"1", "true", "yes", "y", "on"}
     run_id = make_run_id(competitor or parse_facebook_profile_id(competitor_facebook_url) or "competitor")
     profile_id = parse_facebook_profile_id(competitor_facebook_url)
 
@@ -224,6 +227,11 @@ def main() -> int:
         "app_id": meta_app_id,
     }
     live_mode = bool(live_meta_objects or web_search_live or gemini.get("live"))
+    if strict_mode and not live_mode:
+        raise SystemExit(
+            "stage1_live_research_required: Stage 1 research could not access any live source "
+            "(web search, Meta Graph, or Gemini summarization)."
+        )
 
     payload = {
         "type": "meta_ads_extract",
@@ -265,6 +273,28 @@ def main() -> int:
                 "Network/API access was unavailable; returned deterministic fallback evidence anchored to the competitor Facebook URL.",
             ]
         ),
+    }
+    competitor_paths = competitor_output_paths(resolved_competitor)
+    extract_path = write_json(competitor_paths["extract_json"], payload)
+    summary_path = write_text(
+        competitor_paths["summary_md"],
+        "\n".join(
+            [
+                f"# {resolved_competitor} Meta Ads Extract",
+                "",
+                f"- Run ID: {run_id}",
+                f"- Mode: {payload['mode']}",
+                f"- Facebook URL: {competitor_facebook_url or 'n/a'}",
+                f"- Landing pages: {len(payload['landing_pages'])}",
+                "",
+                "## Competitor Research Summary",
+                *[f"- {line}" for line in summary_bullets],
+            ]
+        ),
+    )
+    payload["artifacts"] = {
+        "extract_path": extract_path,
+        "summary_markdown_path": summary_path,
     }
     save_step(run_id, "meta_ads_extractor", payload)
     emit_json(payload)

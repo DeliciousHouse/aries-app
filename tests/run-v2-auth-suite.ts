@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { resolveProjectRoot } from './helpers/project-root';
 
 type GateStatus = 'pending' | 'pass' | 'fail' | 'blocked';
 
@@ -47,7 +48,7 @@ function hasAnyCredentialField(obj: any, sensitiveKeys: string[]): boolean {
 }
 
 async function main() {
-  const projectRoot = path.resolve(process.cwd());
+  const projectRoot = path.resolve(process.env.CODE_ROOT?.trim() || resolveProjectRoot(import.meta.url));
   const outDraft = path.join(projectRoot, 'generated', 'draft');
   await mkdir(outDraft, { recursive: true });
 
@@ -328,7 +329,7 @@ async function main() {
 }
 
 main().catch(async (error) => {
-  const projectRoot = path.resolve(process.cwd());
+  const projectRoot = path.resolve(process.env.CODE_ROOT?.trim() || resolveProjectRoot(import.meta.url));
   const outDraft = path.join(projectRoot, 'generated', 'draft');
   await mkdir(outDraft, { recursive: true });
   const failure = {

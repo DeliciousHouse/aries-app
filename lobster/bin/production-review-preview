@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _stage3_common import emit_json, ensure_run_id, load_step, normalize_research_model, read_stdin_json, save_artifact_text, save_step, slugify, utc_now
+from _canonical_outputs import brand_output_paths, write_text
 
 
 def main() -> int:
@@ -75,6 +76,7 @@ def main() -> int:
         ]
     )
     preview_path = save_artifact_text(run_id, "production-review-preview/review-packet.txt", preview_text)
+    canonical_preview_path = write_text(brand_output_paths(brand_slug)["campaign_root"] / "REVIEW-PACKET.txt", preview_text)
 
     payload = {
         "type": "production_review_preview",
@@ -91,6 +93,7 @@ def main() -> int:
         },
         "artifacts": {
             "preview_path": preview_path,
+            "canonical_preview_path": canonical_preview_path,
         },
     }
     save_step(run_id, "production_review_preview", payload)

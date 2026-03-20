@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { resolveProjectRoot } from './helpers/project-root';
 
 type Result = { id: string; status: 'pass' | 'fail'; evidence: Record<string, unknown> };
 
@@ -13,7 +14,7 @@ function resolveTokenHealth(expiresAt?: string): 'healthy' | 'expiring_soon' | '
 }
 
 async function main() {
-  const root = path.resolve(process.cwd());
+  const root = path.resolve(process.env.CODE_ROOT?.trim() || resolveProjectRoot(import.meta.url));
   const outPath = path.join(root, 'generated', 'validated', 'token-health-validation.json');
 
   const statusSrc = await readFile(path.join(root, 'backend', 'integrations', 'status.ts'), 'utf8');

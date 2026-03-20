@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { Activity, ArrowRight, Cable, Sparkles, Workflow } from 'lucide-react';
 
 import { useIntegrations } from '@/hooks/use-integrations';
@@ -144,12 +143,12 @@ export default function DashboardConsole(): JSX.Element {
               The current backend does not yet expose a browser-safe tenant job list, so the dashboard surfaces live workflow routes and connection health first.
             </p>
             <div className="flex flex-col gap-3">
-              <Link href="/marketing/new-job" className="px-6 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 flex items-center justify-center gap-2">
+              <a href="/marketing/new-job" className="px-6 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 flex items-center justify-center gap-2">
                 Launch campaign <ArrowRight className="w-4 h-4" />
-              </Link>
-              <Link href="/platforms" className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2">
+              </a>
+              <a href="/platforms" className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2">
                 Review platforms <Sparkles className="w-4 h-4" />
-              </Link>
+              </a>
             </div>
           </div>
         </div>

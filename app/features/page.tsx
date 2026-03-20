@@ -10,8 +10,8 @@ const FEATURES = [
   },
   {
     icon: '◎',
-    title: 'OpenClaw Execution Handoff',
-    desc: 'Execution leaves the UI boundary through OpenClaw instead of leaking workflow internals or provider secrets into the browser.',
+    title: 'AI-Driven Research',
+    desc: 'Automated competitor intelligence, market research, and trend analysis. Synthesized reports delivered on schedule through OpenClaw-backed automation runs.',
   },
   {
     icon: '✦',

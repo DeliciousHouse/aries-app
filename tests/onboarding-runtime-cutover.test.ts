@@ -5,14 +5,19 @@ import { tmpdir } from 'node:os';
 import test from 'node:test';
 
 import { startOnboarding } from '../backend/onboarding/start';
+import { resolveProjectRoot } from './helpers/project-root';
+
+const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
 async function withOnboardingRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise<T> {
   const previousCodeRoot = process.env.CODE_ROOT;
   const previousDataRoot = process.env.DATA_ROOT;
+  const previousOpenClawLobsterCwd = process.env.OPENCLAW_LOBSTER_CWD;
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-onboarding-'));
 
-  process.env.CODE_ROOT = process.cwd();
+  process.env.CODE_ROOT = PROJECT_ROOT;
   process.env.DATA_ROOT = dataRoot;
+  process.env.OPENCLAW_LOBSTER_CWD = path.join(PROJECT_ROOT, 'lobster');
 
   try {
     return await run(dataRoot);
@@ -27,6 +32,12 @@ async function withOnboardingRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>
       delete process.env.DATA_ROOT;
     } else {
       process.env.DATA_ROOT = previousDataRoot;
+    }
+
+    if (previousOpenClawLobsterCwd === undefined) {
+      delete process.env.OPENCLAW_LOBSTER_CWD;
+    } else {
+      process.env.OPENCLAW_LOBSTER_CWD = previousOpenClawLobsterCwd;
     }
 
     await rm(dataRoot, { recursive: true, force: true });

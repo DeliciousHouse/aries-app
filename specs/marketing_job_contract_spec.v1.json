@@ -4,7 +4,7 @@
   "status": "ready",
   "canonical_inputs": {
     "tenant_runtime_state_schema": "./specs/tenant_runtime_state_schema.v1.json",
-    "job_runtime_state_schema": "./specs/job_runtime_state_schema.v1.json"
+    "marketing_job_state_schema": "./specs/marketing_job_state_schema.v1.json"
   },
   "contract": {
     "start_endpoint": {
@@ -22,14 +22,10 @@
             "pattern": "^[a-z0-9][a-z0-9-]{1,61}$"
           },
           "jobType": {
-            "description": "Maps to job_runtime_state_schema.properties.job_type enum",
+            "description": "Canonical marketing job type",
             "type": "string",
             "enum": [
-              "tenant_provisioning",
-              "tenant_repair",
-              "validator",
-              "publish",
-              "unknown"
+              "brand_campaign"
             ]
           },
           "payload": {
@@ -52,9 +48,9 @@
             "const": "accepted"
           },
           "jobId": {
-            "description": "Must satisfy job_runtime_state_schema.$defs.job_id",
+            "description": "Must satisfy marketing_job_state_schema.properties.job_id",
             "type": "string",
-            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:-]{1,127}$"
+            "pattern": "^mkt_[a-zA-Z0-9._:-]{3,127}$"
           },
           "tenantId": {
             "type": "string",
@@ -63,11 +59,7 @@
           "jobType": {
             "type": "string",
             "enum": [
-              "tenant_provisioning",
-              "tenant_repair",
-              "validator",
-              "publish",
-              "unknown"
+              "brand_campaign"
             ]
           }
         },
@@ -83,9 +75,9 @@
         ],
         "properties": {
           "jobId": {
-            "description": "Must satisfy job_runtime_state_schema.$defs.job_id",
+            "description": "Must satisfy marketing_job_state_schema.properties.job_id",
             "type": "string",
-            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._:-]{1,127}$"
+            "pattern": "^mkt_[a-zA-Z0-9._:-]{3,127}$"
           }
         },
         "additionalProperties": false
@@ -119,9 +111,9 @@
   "hard_failure_policy": {
     "when": [
       "./specs/tenant_runtime_state_schema.v1.json missing",
-      "./specs/job_runtime_state_schema.v1.json missing",
+      "./specs/marketing_job_state_schema.v1.json missing",
       "./specs/tenant_runtime_state_schema.v1.json invalid JSON",
-      "./specs/job_runtime_state_schema.v1.json invalid JSON"
+      "./specs/marketing_job_state_schema.v1.json invalid JSON"
     ],
     "behavior": "throw Error with prefix HARD_FAILURE"
   }

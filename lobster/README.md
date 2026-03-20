@@ -12,9 +12,8 @@ This package rebuilds the marketing pipeline as actual YAML-based `.lobster` wor
 1. Put this folder under your repo, for example:
    `openclaw/marketing-team/lobster/`
 2. Keep your OpenClaw `SKILL.md` files separate from these Lobster workflows.
-3. Replace the placeholder `./bin/...` commands with your real wrappers or CLIs.
-4. Run either a stage workflow or the top-level `marketing-pipeline.lobster`.
-5. Run from the `lobster/` directory so relative `./bin/...` and `./stage-*/...` paths resolve as written.
+3. Run the stage-specific workflows through Aries or directly via Lobster when debugging one checkpoint at a time.
+4. Run from the `lobster/` directory so relative `./bin/...` and `./stage-*/...` paths resolve as written.
 
 ## Recommended wrapper pattern
 Each leaf skill step should call a small local command that:
@@ -41,4 +40,4 @@ Recommended runtime env vars:
 - `META_APP_ID`
 
 ## Important note
-These files are now in the correct Lobster format. Stage-1 through Stage-4 wrappers are implemented locally under `./bin/`, but platform publishing remains deterministic/local unless you replace the stage-4 publisher wrappers with live runtime integrations.
+These files are now in the correct Lobster format. Aries orchestrates them stage-by-stage and owns the approval checkpoints. Stage-4 publishers always generate real review packages and publish-ready artifacts for the selected platforms. Live draft publishing and video render execution only run when explicitly requested and when the corresponding runtime command is configured; otherwise the stage fails explicitly.

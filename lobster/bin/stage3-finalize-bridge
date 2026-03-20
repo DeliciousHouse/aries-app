@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _stage3_common import load_step  # type: ignore
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--brand-slug", default="client-brand")
+    parser.add_argument("--research-model", default="gemini/gemini-3-flash-preview")
+    parser.add_argument("--run-id", default="")
+    args = parser.parse_args()
+
+    run_id = args.run_id.strip()
+    if not run_id:
+        raw = sys.stdin.read().strip()
+        if raw:
+            try:
+                payload = json.loads(raw)
+                run_id = str(payload.get("run_id", "")).strip()
+            except json.JSONDecodeError as exc:
+                raise SystemExit(f"invalid JSON on stdin: {exc}") from exc
+    if not run_id:
+        raise SystemExit("stage3-finalize-bridge requires --run-id or a JSON stdin payload with run_id")
+
+    review = load_step(run_id, "production_review_preview")
+    if not review:
+        raise SystemExit(f"missing production review output for run_id={run_id}")
+
+    command = [
+        str(Path(__file__).resolve().parent / "creative-director"),
+        "--json",
+        "--mode",
+        "finalize",
+        "--brand-slug",
+        args.brand_slug,
+        "--research-model",
+        args.research_model,
+    ]
+    proc = subprocess.run(
+        command,
+        input=json.dumps(review),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    sys.stdout.write(proc.stdout)
+    sys.stderr.write(proc.stderr)
+    return proc.returncode
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -9,6 +9,58 @@ from _stage2_common import emit_json, normalize_research_model, read_stdin_json,
 from _stage2_common import ensure_run_id
 
 
+def _record_from_brand_analysis(analysis: dict, brand_slug: str) -> dict:
+    return {
+        "brand_slug": analysis.get("brand_slug", brand_slug),
+        "brand_name": analysis.get("brand_name", "Client Brand"),
+        "brand_promise": analysis.get("brand_promise", ""),
+        "audience_summary": analysis.get("audience_summary", ""),
+        "offer_summary": analysis.get("offer_summary", ""),
+        "proof_points": analysis.get("proof_points", []),
+        "brand_voice": analysis.get("brand_voice", []),
+        "cta_preferences": analysis.get("cta_preferences", []),
+    }
+
+
+def _channel_contexts_from_analysis(analysis: dict) -> dict:
+    promise = analysis.get("brand_promise", "")
+    audience = analysis.get("audience_summary", "")
+    offer = analysis.get("offer_summary", "")
+    proof_points = analysis.get("proof_points", [])
+    brand_voice = analysis.get("brand_voice", [])
+    cta_preferences = analysis.get("cta_preferences") or ["Learn More"]
+    contexts = {
+        "meta": {
+            "primary_message": promise,
+            "audience_angle": audience,
+            "offer_angle": offer,
+            "proof_points": proof_points[:3],
+            "brand_voice": brand_voice,
+            "cta": cta_preferences[0],
+            "creative_bias": "performance-first paid acquisition testing",
+        },
+        "landing-page": {
+            "primary_message": promise,
+            "audience_angle": audience,
+            "offer_angle": offer,
+            "proof_points": proof_points[:3],
+            "brand_voice": brand_voice,
+            "cta": cta_preferences[0],
+            "creative_bias": "message match and friction reduction",
+        },
+        "youtube": {
+            "primary_message": promise,
+            "audience_angle": audience,
+            "offer_angle": offer,
+            "proof_points": proof_points[:3],
+            "brand_voice": brand_voice,
+            "cta": cta_preferences[0],
+            "creative_bias": "educational problem-solution storytelling",
+        },
+    }
+    return contexts
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json", action="store_true")
@@ -19,6 +71,10 @@ def main() -> int:
     data = read_stdin_json()
     record = data.get("brand_profiles_record", {})
     channels = data.get("downstream_channel_context", {})
+    if not record:
+        record = _record_from_brand_analysis(data.get("brand_analysis", {}), args.brand_slug)
+    if not channels:
+        channels = _channel_contexts_from_analysis(data.get("brand_analysis", {}))
     run_id = ensure_run_id(data.get("run_id", ""), record.get("brand_slug", ""), args.brand_slug)
     research_model = normalize_research_model(args.research_model or data.get("research_model", ""))
 

@@ -6,6 +6,8 @@ args:
     default: ""
   research_model:
     default: "gemini/gemini-2.5-flash"
+  strict_mode:
+    default: true
 steps:
   - id: meta_ads_extractor
     command: >-
@@ -13,6 +15,7 @@ steps:
       --competitor "${competitor}"
       --competitor-facebook-url "${competitor_facebook_url}"
       --research-model "${research_model}"
+      --strict-mode "${strict_mode}"
   - id: meta_ads_analyser
     command: ./bin/meta-ads-analyser --json
     stdin: $meta_ads_extractor.stdout

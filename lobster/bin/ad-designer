@@ -6,6 +6,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _stage3_common import emit_json, ensure_run_id, normalize_research_model, read_stdin_json, save_artifact_text, save_step, slugify, utc_now
+from _stage4_common import render_static_publish_asset
+from _canonical_outputs import brand_output_paths, write_text
 
 
 def main() -> int:
@@ -62,6 +64,35 @@ def main() -> int:
         ]
     )
     spec_path = save_artifact_text(run_id, "ad-designer/ad-specs.txt", spec_text)
+    paths = brand_output_paths(brand_slug)
+    ad_images_dir = paths["ad_images_dir"]
+    spec_md_path = write_text(ad_images_dir / "ad-specs.md", spec_text)
+    meta_feed_contract = {
+        "platform": "Meta Feed",
+        "creative": {
+            "headline": hook,
+            "body_lines": script_assets.get("meta_ad_script", {}).get("body", []),
+            "proof_points": brief.get("proof_points", []),
+            "primary_cta": cta,
+        },
+        "layout": {
+            "aspect_ratio": "4:5",
+        },
+    }
+    story_contract = {
+        "platform": "Meta Story",
+        "creative": {
+            "headline": hook,
+            "body_lines": script_assets.get("short_video_script", {}).get("beats", []),
+            "proof_points": brief.get("proof_points", []),
+            "primary_cta": cta,
+        },
+        "layout": {
+            "aspect_ratio": "9:16",
+        },
+    }
+    meta_feed_asset = render_static_publish_asset(meta_feed_contract, ad_images_dir, "meta-feed")
+    meta_story_asset = render_static_publish_asset(story_contract, ad_images_dir, "meta-story")
 
     payload = {
         "type": "ad_designer",
@@ -76,7 +107,12 @@ def main() -> int:
         "ad_assets": ad_assets,
         "artifacts": {
             "spec_path": spec_path,
-            "honesty_note": "This local wrapper outputs creative specs and placement guidance; it does not render final ads.",
+            "canonical_spec_path": spec_md_path,
+            "meta_feed_image_path": meta_feed_asset["image_path"],
+            "meta_story_image_path": meta_story_asset["image_path"],
+            "meta_feed_image_generation": meta_feed_asset["nano_banana"],
+            "meta_story_image_generation": meta_story_asset["nano_banana"],
+            "honesty_note": "This local wrapper outputs creative specs and production-ready draft images in canonical artifact paths; final platform publish still belongs to stage 4.",
         },
     }
     save_step(run_id, "ad_designer", payload)

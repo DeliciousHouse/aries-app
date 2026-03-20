@@ -11,8 +11,23 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from _canonical_outputs import write_stage_log
 
-NANO_BANANA_SCRIPT = Path("/home/bkam/.npm-global/lib/node_modules/openclaw/skills/nano-banana-pro/scripts/generate_image.py")
+
+def resolve_nano_banana_script() -> Path:
+    candidates = [
+        os.environ.get("NANO_BANANA_SCRIPT", "").strip(),
+        "/app/skills/nano-banana-pro/scripts/generate_image.py",
+        str(Path.cwd().parents[1] / "skills" / "nano-banana-pro" / "scripts" / "generate_image.py") if len(Path.cwd().parents) >= 2 else "",
+        "/home/bkam/.npm-global/lib/node_modules/openclaw/skills/nano-banana-pro/scripts/generate_image.py",
+    ]
+    for candidate in candidates:
+        if candidate and Path(candidate).exists():
+            return Path(candidate)
+    return Path("/app/skills/nano-banana-pro/scripts/generate_image.py")
+
+
+NANO_BANANA_SCRIPT = resolve_nano_banana_script()
 
 
 def utc_now() -> str:
@@ -68,6 +83,7 @@ def run_dir(run_id: str) -> Path:
 def save_step(run_id: str, step_name: str, payload: Any) -> None:
     path = run_dir(run_id) / f"{step_name}.json"
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_stage_log(run_id, "stage-4-publish-optimize", step_name, payload)
 
 
 def load_step(run_id: str, step_name: str) -> Any:
@@ -375,4 +391,64 @@ def maybe_publish_live_draft(platform_slug: str, publish_payload: dict) -> dict:
     command = os.environ.get(specific_name, "").strip() or os.environ.get("LOBSTER_DRAFT_PUBLISH_CMD", "").strip()
     result = maybe_run_json_command(command, publish_payload)
     result["env_var"] = specific_name if os.environ.get(specific_name, "").strip() else "LOBSTER_DRAFT_PUBLISH_CMD"
+    return result
+
+
+def bool_arg(value: str) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def skipped_publish_payload(step_type: str, platform_slug: str, run_id: str, brand_slug: str) -> dict:
+    return {
+        "type": step_type,
+        "mode": "skipped",
+        "generated_at": utc_now(),
+        "run_id": run_id,
+        "brand_slug": brand_slug,
+        "platform": platform_slug,
+        "status": "skipped",
+    }
+
+
+def draft_publish_command_for(platform_slug: str) -> tuple[str, str]:
+    specific_name = f"LOBSTER_{platform_slug.upper().replace('-', '_')}_DRAFT_PUBLISH_CMD"
+    command = os.environ.get(specific_name, "").strip() or os.environ.get("LOBSTER_DRAFT_PUBLISH_CMD", "").strip()
+    env_name = specific_name if os.environ.get(specific_name, "").strip() else "LOBSTER_DRAFT_PUBLISH_CMD"
+    return command, env_name
+
+
+def require_live_draft_publish(platform_slug: str, publish_payload: dict) -> dict:
+    command, env_name = draft_publish_command_for(platform_slug)
+    if not command:
+        raise SystemExit(
+            f"live_draft_publish_requested_but_not_configured:{platform_slug}:{env_name}"
+        )
+    result = maybe_run_json_command(command, publish_payload)
+    result["env_var"] = env_name
+    if result.get("status") != "ok":
+        raise SystemExit(
+            f"live_draft_publish_failed:{platform_slug}:{result.get('stderr') or result.get('stdout') or result.get('returncode')}"
+        )
+    return result
+
+
+def render_command_for(platform_slug: str) -> tuple[str, str]:
+    specific_name = f"LOBSTER_{platform_slug.upper().replace('-', '_')}_RENDER_CMD"
+    command = os.environ.get(specific_name, "").strip() or os.environ.get("LOBSTER_VIDEO_RENDER_CMD", "").strip()
+    env_name = specific_name if os.environ.get(specific_name, "").strip() else "LOBSTER_VIDEO_RENDER_CMD"
+    return command, env_name
+
+
+def require_video_render(platform_slug: str, render_payload: dict) -> dict:
+    command, env_name = render_command_for(platform_slug)
+    if not command:
+        raise SystemExit(
+            f"video_render_requested_but_not_configured:{platform_slug}:{env_name}"
+        )
+    result = maybe_run_json_command(command, render_payload)
+    result["env_var"] = env_name
+    if result.get("status") != "ok":
+        raise SystemExit(
+            f"video_render_failed:{platform_slug}:{result.get('stderr') or result.get('stdout') or result.get('returncode')}"
+        )
     return result

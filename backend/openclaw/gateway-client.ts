@@ -1,3 +1,5 @@
+import { resolveCodePath } from '../../lib/runtime-paths';
+
 type OpenClawInvokeResponse = {
   ok: boolean;
   result?: {
@@ -97,7 +99,10 @@ function defaultSessionKey(): string {
 }
 
 function defaultLobsterCwd(): string {
-  return optionalEnv('OPENCLAW_LOBSTER_CWD', 'lobster');
+  return optionalEnv(
+    'OPENCLAW_GATEWAY_LOBSTER_CWD',
+    optionalEnv('OPENCLAW_LOBSTER_CWD', resolveCodePath('lobster')),
+  );
 }
 
 function asEnvelope(value: unknown): LobsterEnvelope {

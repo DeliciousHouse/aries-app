@@ -72,7 +72,7 @@ export default async function RedesignAppShell({
                 const Icon = ICONS[route.id];
                 const isActive = currentRouteId === route.id;
                 return (
-                  <Link
+                  <a
                     key={route.id}
                     href={route.href}
                     aria-current={isActive ? 'page' : undefined}
@@ -84,7 +84,7 @@ export default async function RedesignAppShell({
                   >
                     <Icon className="w-4 h-4" />
                     <span className="font-medium">{route.title}</span>
-                  </Link>
+                  </a>
                 );
               })}
             </nav>
