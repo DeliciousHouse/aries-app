@@ -1,6 +1,4 @@
 import React from 'react';
-import Link from 'next/link';
-
 export interface SettingsScreenProps {
   baseUrl?: string;
 }
@@ -41,12 +39,12 @@ export default function SettingsScreen(_props: SettingsScreenProps): JSX.Element
           </div>
         </div>
         <div className="flex flex-col sm:flex-row gap-4">
-          <Link href="/platforms" className="px-6 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 text-center">
+          <a href="/platforms" className="px-6 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 text-center">
             Go to platforms
-          </Link>
-          <Link href="/posts" className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all text-center">
+          </a>
+          <a href="/posts" className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all text-center">
             Open posts console
-          </Link>
+          </a>
         </div>
       </div>
     </div>

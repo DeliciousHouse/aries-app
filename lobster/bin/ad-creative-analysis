@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _stage1_common import emit_json, read_stdin_json, save_step, utc_now
+from _canonical_outputs import competitor_output_paths, write_json
 
 
 def main() -> int:
@@ -43,6 +44,10 @@ def main() -> int:
         },
     }
     if payload["run_id"]:
+        paths = competitor_output_paths(payload["competitor"] or "competitor")
+        payload["artifacts"] = {
+            "creative_analysis_path": write_json(paths["creative_json"], payload),
+        }
         save_step(payload["run_id"], "ad_creative_analysis", payload)
     emit_json(payload)
     return 0

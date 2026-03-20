@@ -919,7 +919,7 @@ function ContentCalendar() {
                     Month
                   </button>
                 </div>
-                <Link href="/calendar" className="px-6 py-2 bg-gradient-to-r from-primary to-secondary rounded-xl text-sm font-bold shadow-lg shadow-primary/20">
+                <Link href="/calendar" prefetch={false} className="px-6 py-2 bg-gradient-to-r from-primary to-secondary rounded-xl text-sm font-bold shadow-lg shadow-primary/20">
                   Open Runtime
                 </Link>
               </div>

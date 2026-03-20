@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 
-const repoRoot = process.cwd();
+const repoRoot = path.resolve(process.env.CODE_ROOT?.trim() || process.cwd());
 const tsxBin = path.join(repoRoot, 'node_modules', '.bin', 'tsx');
 
 const baseEnv = {

@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+
+def load_json(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def load_production_handoff(run_id: str, bin_dir: Path) -> dict:
+    candidates = [
+        Path(f"/tmp/lobster-stage3-cache/{run_id}/creative_director_finalize.json"),
+        bin_dir.parent / "output" / "logs" / run_id / "stage-3-production" / "creative_director_finalize.json",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            payload = load_json(candidate)
+            return payload.get("production_handoff", payload)
+    raise SystemExit(f"stage4-publish-compat could not locate creative_director_finalize payload for run_id={run_id}")
+
+
+def read_input_or_handoff(args: argparse.Namespace, bin_dir: Path) -> dict:
+    raw = sys.stdin.read().strip()
+    if raw:
+        payload = json.loads(raw)
+        return payload.get("production_handoff", payload)
+    if args.production_handoff_path:
+        payload = load_json(Path(args.production_handoff_path))
+        return payload.get("production_handoff", payload)
+    if args.run_id:
+        return load_production_handoff(args.run_id, bin_dir)
+    raise SystemExit("stage4-publish-compat expected stdin JSON, --production-handoff-path, or --run-id")
+
+
+def run_json(command: list[str], payload: dict) -> dict:
+    proc = subprocess.run(
+        command,
+        input=json.dumps(payload),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        sys.stderr.write(proc.stderr)
+        raise SystemExit(proc.returncode)
+    return json.loads(proc.stdout)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--brand-slug", default="client-brand")
+    parser.add_argument("--production-handoff-path", default="")
+    parser.add_argument("--run-id", default="")
+    args = parser.parse_args()
+
+    bin_dir = Path(__file__).resolve().parent
+    production_handoff = read_input_or_handoff(args, bin_dir)
+
+    preflight = run_json([
+        str(bin_dir / "performance-marketer"),
+        "--json",
+        "--mode",
+        "preflight",
+        "--brand-slug",
+        args.brand_slug,
+    ], production_handoff)
+
+    launch_review = run_json([
+        str(bin_dir / "launch-review-preview"),
+        "--json",
+        "--brand-slug",
+        args.brand_slug,
+        "--launch-approved",
+        "true",
+        "--notify-chat",
+        "false",
+    ], preflight)
+
+    publisher_names = [
+        ("meta_ads_publisher", "meta-ads-publisher"),
+        ("instagram_publisher", "instagram-publisher"),
+        ("x_publisher", "x-publisher"),
+        ("tiktok_publisher", "tiktok-publisher"),
+        ("youtube_publisher", "youtube-publisher"),
+        ("linkedin_publisher", "linkedin-publisher"),
+        ("reddit_publisher", "reddit-publisher"),
+    ]
+    publisher_results: dict[str, dict] = {}
+    for step_name, executable in publisher_names:
+        publisher_results[step_name] = run_json([
+            str(bin_dir / executable),
+            "--json",
+            "--brand-slug",
+            args.brand_slug,
+        ], preflight)
+
+    summary = run_json([
+        str(bin_dir / "performance-marketer"),
+        "--json",
+        "--mode",
+        "summarize",
+        "--brand-slug",
+        args.brand_slug,
+    ], publisher_results["reddit_publisher"])
+
+    missing_config = []
+    for step_name, result in publisher_results.items():
+        live = result.get("live_draft_publish", {})
+        review = result.get("aries_review_submission", {})
+        if live.get("status") == "not_configured":
+            missing_config.append({
+                "step": step_name,
+                "kind": "draft_publish",
+                "message": f"No draft publish command configured for {result.get('platform', step_name)}.",
+            })
+        elif live.get("status") not in {None, "ok"}:
+            missing_config.append({
+                "step": step_name,
+                "kind": "draft_publish",
+                "message": f"Draft publish returned status {live.get('status')} for {result.get('platform', step_name)}.",
+            })
+        if review.get("status") == "not_configured":
+            missing_config.append({
+                "step": step_name,
+                "kind": "aries_review_submission",
+                "message": f"No ARIES_REVIEW_POST_CMD configured for {result.get('platform', step_name)}.",
+            })
+        elif review.get("status") not in {None, "ok"}:
+            missing_config.append({
+                "step": step_name,
+                "kind": "aries_review_submission",
+                "message": f"Aries review submission returned status {review.get('status')} for {result.get('platform', step_name)}.",
+            })
+
+    output = {
+        **summary,
+        "launch_review": launch_review,
+        "publisher_results": publisher_results,
+        "missing_config": missing_config,
+        "compatibility_mode": "stage4-publish-compat",
+    }
+    json.dump(output, sys.stdout, indent=2, sort_keys=True)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

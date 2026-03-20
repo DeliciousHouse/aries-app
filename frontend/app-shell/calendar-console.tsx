@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
-import Link from 'next/link';
 import { CalendarDays, Sparkles } from 'lucide-react';
 
 import { useCalendarSync } from '@/hooks/use-calendar-sync';
@@ -107,9 +106,9 @@ export default function CalendarConsole(): JSX.Element {
           ))}
         </div>
 
-        <Link href="/posts" className="inline-flex items-center gap-2 text-primary hover:text-primary/80 transition-colors">
+        <a href="/posts" className="inline-flex items-center gap-2 text-primary hover:text-primary/80 transition-colors">
           Open publish controls <Sparkles className="w-4 h-4" />
-        </Link>
+        </a>
       </div>
     </div>
   );

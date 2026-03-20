@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { resolveCodePath } from '@/lib/runtime-paths';
 
 import {
   asRecord,
@@ -116,6 +117,18 @@ function cacheRoot(envKey: string, fallbackFolder: string): string {
   return process.env[envKey]?.trim() || path.join(tmpdir(), fallbackFolder);
 }
 
+function stageLogRoot(stage: 1 | 2 | 3 | 4): string {
+  const stageFolder =
+    stage === 1
+      ? 'stage-1-research'
+      : stage === 2
+        ? 'stage-2-strategy'
+        : stage === 3
+          ? 'stage-3-production'
+          : 'stage-4-publish-optimize';
+  return resolveCodePath('lobster', 'output', 'logs', '{runId}', stageFolder);
+}
+
 function stepPayloadPath(stage: 1 | 2 | 3 | 4, runId: string, stepName: string): string {
   const root =
     stage === 1
@@ -125,7 +138,11 @@ function stepPayloadPath(stage: 1 | 2 | 3 | 4, runId: string, stepName: string):
         : stage === 3
           ? cacheRoot('LOBSTER_STAGE3_CACHE_DIR', 'lobster-stage3-cache')
           : cacheRoot('LOBSTER_STAGE4_CACHE_DIR', 'lobster-stage4-cache');
-  return path.join(root, runId, `${stepName}.json`);
+  const primary = path.join(root, runId, `${stepName}.json`);
+  if (existsSync(primary)) {
+    return primary;
+  }
+  return stageLogRoot(stage).replace('{runId}', runId) + `/${stepName}.json`;
 }
 
 function readJsonIfExists(filePath: string): Record<string, unknown> | null {

@@ -35,15 +35,49 @@ type MetaConnectStore = {
 };
 
 const ALLOWED_PROVIDERS: MetaProvider[] = ['facebook', 'instagram'];
-const LOCAL_CALLBACK = 'http://localhost:3000/api/integrations/meta/callback';
-const PROD_CALLBACK = 'https://aries.sugarandleather.com/api/integrations/meta/callback';
+
+function normalizeAbsoluteUrl(value: string): string | null {
+  try {
+    return new URL(value).toString();
+  } catch {
+    return null;
+  }
+}
+
+function configuredRedirectUris(): string[] {
+  const uris = new Set<string>();
+  const explicitRedirect = process.env.META_REDIRECT_URI?.trim();
+  const appBaseUrl = process.env.APP_BASE_URL?.trim();
+
+  if (explicitRedirect) {
+    const normalized = normalizeAbsoluteUrl(explicitRedirect);
+    if (normalized) {
+      uris.add(normalized);
+    }
+  }
+
+  if (appBaseUrl) {
+    try {
+      uris.add(new URL('/api/integrations/meta/callback', appBaseUrl).toString());
+    } catch {
+      // Ignore invalid APP_BASE_URL and fall back to the local default below.
+    }
+  }
+
+  if (uris.size === 0) {
+    uris.add('http://localhost:3000/api/integrations/meta/callback');
+  }
+
+  return [...uris];
+}
 
 function isProvider(value: unknown): value is MetaProvider {
   return typeof value === 'string' && ALLOWED_PROVIDERS.includes(value as MetaProvider);
 }
 
 function isAllowedRedirect(uri: string): boolean {
-  return uri === LOCAL_CALLBACK || uri === PROD_CALLBACK;
+  const normalized = normalizeAbsoluteUrl(uri);
+  return normalized !== null && configuredRedirectUris().includes(normalized);
 }
 
 function store(): MetaConnectStore {
@@ -59,7 +93,11 @@ export function connectMeta(payload: ConnectRequest): ConnectSuccess | ConnectEr
   }
   if (!isProvider(payload.provider)) return { status: 'error', reason: 'invalid_provider' };
   if (!isAllowedRedirect(payload.redirect_uri)) {
-    return { status: 'error', reason: 'validation_error', message: 'redirect_uri must exactly match configured callback URL' };
+    return {
+      status: 'error',
+      reason: 'validation_error',
+      message: `redirect_uri must exactly match one of the configured callback URLs: ${configuredRedirectUris().join(', ')}`,
+    };
   }
 
   const state = createTokenHandle('csrf_token');

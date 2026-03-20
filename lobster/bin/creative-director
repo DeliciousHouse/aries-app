@@ -18,6 +18,7 @@ from _stage3_common import (
     summarize_with_gemini,
     utc_now,
 )
+from _canonical_outputs import brand_output_paths, write_text
 
 
 def _as_list(value) -> list:
@@ -360,6 +361,36 @@ def main() -> int:
     if args.mode == "finalize":
         review_packet = data
         production_handoff = _build_production_handoff(run_id, brand_slug, review_packet)
+        output_paths = brand_output_paths(brand_slug)
+        assets_manifest = "\n".join(
+            [
+                f"# {brand_slug} Campaign Assets",
+                "",
+                f"- Run ID: {run_id}",
+                f"- Campaign: {production_handoff.get('campaign_name', '')}",
+                "",
+                "## Landing Pages",
+                f"- {output_paths['landing_pages_dir'] / 'index.html'}",
+                "",
+                "## Ad Images",
+                f"- {output_paths['ad_images_dir'] / 'meta-feed.png'}",
+                f"- {output_paths['ad_images_dir'] / 'meta-story.png'}",
+                f"- {output_paths['ad_images_dir'] / 'meta-feed.svg'}",
+                f"- {output_paths['ad_images_dir'] / 'meta-story.svg'}",
+                "",
+                "## Scripts",
+                f"- {output_paths['scripts_dir'] / 'meta-ad-script.md'}",
+                f"- {output_paths['scripts_dir'] / 'short-video-script.md'}",
+                "",
+                "## Contracts",
+                f"- Static handoff root: {production_handoff['contract_handoffs']['static'].get('output_root', '')}",
+                f"- Video handoff root: {production_handoff['contract_handoffs']['video'].get('output_root', '')}",
+                "",
+                "## Review",
+                "- Human approval gates are preserved and truthfully surfaced.",
+            ]
+        )
+        campaign_assets_path = write_text(output_paths["campaign_assets_md"], assets_manifest)
         payload = {
             "type": "creative_director_finalize",
             "stub": False,
@@ -369,6 +400,9 @@ def main() -> int:
             "research_model": research_model,
             "brand_slug": brand_slug,
             "production_handoff": production_handoff,
+            "artifacts": {
+                "campaign_assets_path": campaign_assets_path,
+            },
         }
         save_step(run_id, "creative_director_finalize", payload)
         emit_json(payload)

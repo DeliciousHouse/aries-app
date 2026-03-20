@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _stage1_common import emit_json, load_step, read_stdin_json, save_step, utc_now
+from _canonical_outputs import competitor_output_paths, write_json, write_text
 
 
 def compile_report(creative_data: dict) -> dict:
@@ -46,6 +47,42 @@ def compile_report(creative_data: dict) -> dict:
         },
     }
     if run_id:
+        competitor = payload["competitor"] or "competitor"
+        paths = competitor_output_paths(competitor)
+        summary_markdown = "\n".join(
+            [
+                f"# {competitor} Competitor Research Summary",
+                "",
+                "## Executive Summary",
+                f"- Market positioning: {payload['executive_summary']['market_positioning']}",
+                f"- Creative takeaway: {payload['executive_summary']['creative_takeaway']}",
+                f"- Campaign takeaway: {payload['executive_summary']['campaign_takeaway']}",
+                "",
+                "## Recommended Actions",
+                *[f"- {item}" for item in payload["recommended_actions"]],
+            ]
+        )
+        summary_html = "".join(
+            [
+                "<html><body>",
+                f"<h1>{competitor} Competitor Research Summary</h1>",
+                "<h2>Executive Summary</h2>",
+                "<ul>",
+                f"<li><strong>Market positioning:</strong> {payload['executive_summary']['market_positioning']}</li>",
+                f"<li><strong>Creative takeaway:</strong> {payload['executive_summary']['creative_takeaway']}</li>",
+                f"<li><strong>Campaign takeaway:</strong> {payload['executive_summary']['campaign_takeaway']}</li>",
+                "</ul>",
+                "<h2>Recommended Actions</h2><ul>",
+                *[f"<li>{item}</li>" for item in payload["recommended_actions"]],
+                "</ul></body></html>",
+            ]
+        )
+        payload["artifacts"] = {
+            **payload.get("artifacts", {}),
+            "summary_json_path": write_json(paths["summary_json"], payload),
+            "summary_markdown_path": write_text(paths["summary_md"], summary_markdown),
+            "summary_html_path": write_text(paths["summary_html"], summary_html),
+        }
         save_step(run_id, "ads_analyst_compile", payload)
     return payload
 

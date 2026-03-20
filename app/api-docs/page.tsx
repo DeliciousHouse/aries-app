@@ -4,6 +4,14 @@ import MarketingLayout from '../../frontend/marketing/MarketingLayout';
 const ENDPOINTS = [
   {
     method: 'POST',
+    path: '/api/contact',
+    desc: 'Accept a browser-safe contact payload and return explicit unavailable semantics until a real contact adapter is configured.',
+    body: '{ "name", "email", "message" }',
+    response:
+      '{ "status": "error", "reason": "contact_not_configured", "message": "Contact intake is not configured in this Aries runtime yet.", "request": { "name": "...", "email": "...", "message_present": true } }',
+  },
+  {
+    method: 'POST',
     path: '/api/onboarding/start',
     desc: 'Start tenant onboarding through the Aries route boundary.',
     body: '{ "tenant_id", "tenant_type", "signup_event_id" }',
@@ -122,7 +130,7 @@ export default function ApiDocsPage() {
             <h2 className="text-2xl font-bold mb-4">Base URL</h2>
             <div className="rounded-[1.25rem] border border-white/10 bg-black/30 p-5 font-mono text-white/75">http://localhost:3000</div>
             <p className="text-white/60 mt-4">
-              Public docs live outside auth, while operator endpoints require session and tenant context. Removed intake and placeholder routes are intentionally omitted from this contract page.
+              Public docs live outside auth, while operator endpoints require session and tenant context. Routes that are not fully configured still return explicit unavailable semantics instead of silent fake success payloads.
             </p>
           </div>
 
