@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker ps:*)",
+      "Bash(docker exec:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(git clone:*)",
+      "Bash(ls:*)",
+      "Bash(mkdir:*)",
+      "Read(//home/node/.config/claude/**)",
+      "Read(//home/node/**)",
+      "Bash(cat:*)",
+      "Bash(docker port:*)",
+      "Bash(curl:*)",
+      "Bash(grep:*)",
+      "Bash(which npx:*)",
+      "Bash(npm list:*)",
+      "Bash(python3:*)",
+      "Bash(timeout:*)"
+    ]
+  }
+}
