@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+
+def run_json(command: list[str], stdin_path: Path | None = None) -> dict:
+    proc = subprocess.run(
+        command,
+        input=(stdin_path.read_text(encoding="utf-8") if stdin_path else None),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        sys.stderr.write(proc.stderr)
+        raise SystemExit(proc.returncode)
+    try:
+        return json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"compat runner received non-JSON stdout from {' '.join(command)}: {exc}") from exc
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--competitor", default="")
+    parser.add_argument("--competitor-facebook-url", default="")
+    parser.add_argument("--website-url", default="")
+    parser.add_argument("--brand-slug", default="client-brand")
+    parser.add_argument("--launch-approved", default="false")
+    parser.add_argument("--notify-chat", default="true")
+    args = parser.parse_args()
+
+    bin_dir = Path(__file__).resolve().parent
+    work_dir = bin_dir.parent
+
+    with tempfile.TemporaryDirectory(prefix="marketing-pipeline-compat-") as tmpdir:
+        tmp = Path(tmpdir)
+
+        stage1 = run_json(
+            [
+                str(bin_dir / "meta-ads-extractor"),
+                "--json",
+                "--competitor",
+                args.competitor,
+                "--competitor-facebook-url",
+                args.competitor_facebook_url,
+            ]
+        )
+        (tmp / "01-stage1-extract.json").write_text(json.dumps(stage1), encoding="utf-8")
+
+        stage1_analysis = run_json([str(bin_dir / "meta-ads-analyser"), "--json"], tmp / "01-stage1-extract.json")
+        (tmp / "02-stage1-analysis.json").write_text(json.dumps(stage1_analysis), encoding="utf-8")
+
+        stage1_creative = run_json([str(bin_dir / "ad-creative-analysis"), "--json"], tmp / "02-stage1-analysis.json")
+        (tmp / "03-stage1-creative.json").write_text(json.dumps(stage1_creative), encoding="utf-8")
+
+        stage1_final = run_json([str(bin_dir / "ads-analyst"), "--json", "--mode", "compile"], tmp / "03-stage1-creative.json")
+        (tmp / "04-stage1-final.json").write_text(json.dumps(stage1_final), encoding="utf-8")
+
+        stage2_brand = run_json(
+            [
+                str(bin_dir / "website-brand-analysis"),
+                "--json",
+                "--website-url",
+                args.website_url,
+                "--brand-slug",
+                args.brand_slug,
+            ],
+            tmp / "04-stage1-final.json",
+        )
+        (tmp / "05-stage2-brand.json").write_text(json.dumps(stage2_brand), encoding="utf-8")
+
+        stage2_profile = run_json(
+            [str(bin_dir / "brand-profile-db-contract"), "--json", "--brand-slug", args.brand_slug],
+            tmp / "05-stage2-brand.json",
+        )
+        (tmp / "06-stage2-profile.json").write_text(json.dumps(stage2_profile), encoding="utf-8")
+
+        stage2_plan = run_json(
+            [str(bin_dir / "campaign-planner"), "--json", "--brand-slug", args.brand_slug],
+            tmp / "06-stage2-profile.json",
+        )
+        (tmp / "07-stage2-plan.json").write_text(json.dumps(stage2_plan), encoding="utf-8")
+
+        stage2_final = run_json(
+            [str(bin_dir / "head-of-marketing"), "--json", "--mode", "finalize", "--brand-slug", args.brand_slug],
+            tmp / "07-stage2-plan.json",
+        )
+        (tmp / "08-stage2-final.json").write_text(json.dumps(stage2_final), encoding="utf-8")
+
+        stage3 = run_json([str(bin_dir / "stage3-production-bridge"), "--json", "--brand-slug", args.brand_slug], tmp / "08-stage2-final.json")
+        (tmp / "09-stage3-final.json").write_text(json.dumps(stage3), encoding="utf-8")
+
+        stage4 = run_json(
+            [
+                str(bin_dir / "stage4-publish-bridge"),
+                "--json",
+                "--brand-slug",
+                args.brand_slug,
+                "--launch-approved",
+                args.launch_approved,
+                "--notify-chat",
+                args.notify_chat,
+            ],
+            tmp / "09-stage3-final.json",
+        )
+
+        json.dump(stage4, sys.stdout, indent=2, sort_keys=True)
+        sys.stdout.write("\n")
+        return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
