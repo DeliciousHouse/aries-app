@@ -49,21 +49,7 @@ function shouldTryMarketingCompat(key: AriesOpenClawWorkflowKey): boolean {
 }
 
 function isWorkflowFileRuntimeMismatch(value: unknown): boolean {
-  let text: string;
-
-  if (value instanceof Error) {
-    text = value.message;
-  } else if (typeof value === 'string') {
-    text = value;
-  } else {
-    try {
-      text = JSON.stringify(value ?? {}) || '';
-    } catch {
-      text = String(value ?? '');
-    }
-  }
-
-  text = text.toLowerCase();
+  const text = JSON.stringify(value || {}).toLowerCase();
   return text.includes('unknown command') || text.includes('unknown workflow');
 }
 
