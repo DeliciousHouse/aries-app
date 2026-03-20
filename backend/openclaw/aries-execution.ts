@@ -101,15 +101,24 @@ export async function runAriesOpenClawWorkflow(
   args: Record<string, unknown>,
 ): Promise<AriesWorkflowExecutionResult> {
   const workflow = getAriesOpenClawWorkflow(key);
-  const configuredCwd = process.env.OPENCLAW_LOBSTER_CWD?.trim() || workflow.cwd || resolveCodePath('lobster');
+  const gatewayCwd =
+    process.env.OPENCLAW_GATEWAY_LOBSTER_CWD?.trim() ||
+    process.env.OPENCLAW_LOBSTER_CWD?.trim() ||
+    workflow.cwd ||
+    resolveCodePath('lobster');
+  const localCompatCwd =
+    process.env.OPENCLAW_LOCAL_LOBSTER_CWD?.trim() ||
+    process.env.OPENCLAW_LOBSTER_CWD?.trim() ||
+    workflow.cwd ||
+    resolveCodePath('lobster');
   try {
     const envelope = await runOpenClawLobsterWorkflow({
       pipeline: workflow.pipeline,
-      cwd: configuredCwd,
+      cwd: gatewayCwd,
       argsJson: JSON.stringify(args),
     });
     if (shouldTryMarketingCompat(key) && !envelope.ok && isWorkflowFileRuntimeMismatch(envelope)) {
-      const compat = await runLocalMarketingCompat(configuredCwd, args);
+      const compat = await runLocalMarketingCompat(localCompatCwd, args);
       return { kind: 'ok', envelope: compat.envelope, primaryOutput: compat.primaryOutput };
     }
     const primaryOutput = primaryOutputRecord(envelope);
@@ -120,11 +129,11 @@ export async function runAriesOpenClawWorkflow(
     return { kind: 'ok', envelope, primaryOutput };
   } catch (error) {
     if (shouldTryMarketingCompat(key) && error instanceof OpenClawGatewayError && shouldFallbackForGatewayError(error)) {
-      const compat = await runLocalMarketingCompat(configuredCwd, args);
+      const compat = await runLocalMarketingCompat(localCompatCwd, args);
       return { kind: 'ok', envelope: compat.envelope, primaryOutput: compat.primaryOutput };
     }
     if (shouldTryMarketingCompat(key) && isWorkflowFileRuntimeMismatch(error)) {
-      const compat = await runLocalMarketingCompat(configuredCwd, args);
+      const compat = await runLocalMarketingCompat(localCompatCwd, args);
       return { kind: 'ok', envelope: compat.envelope, primaryOutput: compat.primaryOutput };
     }
     if (error instanceof OpenClawGatewayError) {
