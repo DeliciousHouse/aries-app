@@ -1,56 +1,61 @@
 # Aries AI — Route Manifest
 
-## Marketing Site (Public)
+This manifest lists the supported direct route contract for the current Aries runtime. Removed placeholder routes are intentionally omitted.
 
-| Route | Page | Description |
+## Public routes
+
+| Route | Surface | Purpose |
 |---|---|---|
-| `/` | Landing | Redesigned hero, execution-boundary overview, and operator CTAs |
-| `/features` | Features | Redesigned capability grid for workflow, platform, and security features |
-| `/documentation` | Documentation | Runtime overview, local setup, and OpenClaw workflow boundary |
-| `/api-docs` | API Reference | Browser-safe internal API reference with frontend-facing request/response shapes |
-| `/contact` | Contact | Contact placeholder; `/api/contact` is intentionally not implemented in this runtime |
+| `/` | Marketing site | Homepage and primary product narrative |
+| `/features` | Marketing site | Capability overview for the current operator surface |
+| `/documentation` | Marketing site | Runtime architecture, setup, and validation steps |
+| `/api-docs` | Marketing site | Browser-safe API reference for the current UI contract |
 
-## App Shell (Authenticated)
+## Authenticated operator routes
 
-| Route | Page | Description |
+| Route | Surface | Purpose |
 |---|---|---|
-| `/dashboard` | Dashboard | Redesigned operator overview with stat cards, recent jobs, and quick actions |
-| `/posts` | Posts | Guidance surface that points operators back to the canonical marketing job publish flow |
-| `/calendar` | Calendar | Calendar sync controls and scheduling guidance |
-| `/platforms` | Platforms | Live OAuth broker status; token expiry shown only when the backend provides it |
-| `/settings` | Settings | Read-only placeholder; live tenant settings API is not implemented |
+| `/dashboard` | App shell | Operator overview |
+| `/platforms` | App shell | Platform connection status and OAuth actions |
+| `/settings` | App shell | Tenant settings surface |
+| `/posts` | App shell | Publish controls |
+| `/calendar` | App shell | Calendar and sync controls |
 
-## Internal App Routes
+## Workflow routes
 
-| Route | Page | Description |
+| Route | Surface | Purpose |
 |---|---|---|
-| `/marketing/new-job` | New Marketing Job | Redesigned canonical `brand_campaign` creation flow |
-| `/marketing/job-status` | Job Status | Redesigned job monitoring with stage and repair guidance |
-| `/marketing/job-approve` | Job Approval | Redesigned human-in-the-loop approval controls |
-| `/onboarding/start` | Onboarding Start | Redesigned tenant onboarding launch flow |
-| `/onboarding/status` | Onboarding Status | Browser-safe onboarding status reader with artifact summaries |
-| `/oauth/connect/:provider` | OAuth Handoff | Branded Aries OAuth connect/reconnect/result surface |
+| `/onboarding/start` | Workflow | Start tenant onboarding |
+| `/onboarding/status` | Workflow | Read onboarding status |
+| `/marketing/new-job` | Workflow | Create a `brand_campaign` marketing job |
+| `/marketing/job-status` | Workflow | Inspect marketing job status |
+| `/marketing/job-approve` | Workflow | Resume approval-gated jobs |
+| `/oauth/connect/:provider` | Workflow | Provider OAuth handoff and result page |
 
-## API Routes
+## UI-facing API routes
 
-| Method | Route | Runtime Status | Backing Path |
-|---|---|---|---|
-| POST | `/api/contact` | `501` explicit unavailable | Logs payload only; no workflow deployed |
-| POST | `/api/demo` | OpenClaw parity stub | `parity/demo-start/workflow.lobster` |
-| POST | `/api/sandbox/launch` | OpenClaw parity stub | `parity/sandbox-launch/workflow.lobster` |
-| POST | `/api/waitlist` | `501` explicit unavailable | Logs payload only; no workflow deployed |
-| POST | `/api/events` | `501` explicit unavailable | Logs payload only; no workflow deployed |
-| POST | `/api/onboarding/start` | OpenClaw parity stub | `parity/onboarding-start/workflow.lobster` |
-| GET | `/api/onboarding/status/:tenantId` | Local runtime lookup | Frontend-safe provisioning + artifact summary |
-| POST | `/api/marketing/jobs` | ✅ | Aries-managed stage orchestration: Stage 1 research + Stage 2 strategy review |
-| GET | `/api/marketing/jobs/:jobId` | Aries runtime read model | Frontend-safe job status, approval, and publish-config view |
-| POST | `/api/marketing/jobs/:jobId/approve` | ✅ | Resume the persisted job into the next real stage workflow checkpoint |
-| POST | `/api/publish/dispatch` | OpenClaw parity stub | `parity/publish-dispatch/workflow.lobster` |
-| POST | `/api/publish/retry` | OpenClaw parity stub | `parity/publish-retry/workflow.lobster` |
-| GET | `/api/integrations` | ✅ | Live OAuth broker read model; no sync telemetry |
-| POST | `/api/integrations/connect` | ✅ | OAuth flow |
-| POST | `/api/integrations/disconnect` | ✅ | Provider disconnect |
-| POST | `/api/integrations/sync` | ✅ | Provider sync |
-| GET/POST | `/api/oauth/:provider/*` | ✅ | OAuth lifecycle |
-| POST | `/api/calendar/sync` | OpenClaw parity stub | `parity/calendar-sync/workflow.lobster` |
-| GET | `/api/platform-connections` | ✅ | Connection status with token health derived from `token_expires_at` |
+| Method | Route | Purpose |
+|---|---|---|
+| `POST` | `/api/onboarding/start` | Start onboarding |
+| `GET` | `/api/onboarding/status/:tenantId` | Read onboarding status |
+| `POST` | `/api/marketing/jobs` | Start the canonical marketing flow |
+| `GET` | `/api/marketing/jobs/:jobId` | Read job status |
+| `POST` | `/api/marketing/jobs/:jobId/approve` | Resume an approval-gated job |
+| `GET` | `/api/integrations` | Read integrations page data |
+| `POST` | `/api/integrations/connect` | Start a platform connection |
+| `POST` | `/api/integrations/disconnect` | Disconnect a platform |
+| `POST` | `/api/integrations/sync` | Trigger a platform sync |
+| `GET` | `/api/platform-connections` | Read connection health summaries |
+| `GET`, `POST` | `/api/oauth/:provider/*` | OAuth lifecycle routes |
+| `POST` | `/api/publish/dispatch` | Dispatch publish work |
+| `POST` | `/api/publish/retry` | Retry publish work |
+| `POST` | `/api/calendar/sync` | Trigger calendar sync |
+
+## Verification commands
+
+```bash
+./node_modules/.bin/tsx --test tests/runtime-pages.test.ts
+node scripts/check-banned-patterns.mjs
+APP_BASE_URL=https://aries.example.com ./node_modules/.bin/tsx --test tests/marketing-job-flow.test.ts tests/onboarding-marketing-contracts.test.ts
+mkdir -p .artifacts && npx --yes lighthouse http://127.0.0.1:3000 --only-categories=performance --preset=desktop --chrome-flags='--headless=new --no-sandbox --disable-dev-shm-usage' --output=json --output-path=.artifacts/lighthouse-homepage.json
+```

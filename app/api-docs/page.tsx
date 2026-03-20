@@ -1,26 +1,19 @@
+import React from 'react';
 import MarketingLayout from '../../frontend/marketing/MarketingLayout';
 
 const ENDPOINTS = [
   {
     method: 'POST',
     path: '/api/contact',
-    desc: 'Log a contact inquiry and return an explicit placeholder error.',
-    body: '{ "user": { "name", "email", "company" }, "details": { "message" } }',
+    desc: 'Accept a browser-safe contact payload and return explicit unavailable semantics until a real contact adapter is configured.',
+    body: '{ "name", "email", "message" }',
     response:
-      '{ "status": "error", "message": "Contact submissions are not implemented in this runtime.", "details": { "wired": false, "reason": "no_contact_workflow", "logged": true } }',
-  },
-  {
-    method: 'POST',
-    path: '/api/waitlist',
-    desc: 'Log a waitlist signup and return an explicit placeholder error.',
-    body: '{ "user": { "email" } }',
-    response:
-      '{ "status": "error", "message": "Waitlist signups are not implemented in this runtime.", "details": { "wired": false, "reason": "no_waitlist_workflow", "logged": true } }',
+      '{ "status": "error", "reason": "contact_not_configured", "message": "Contact intake is not configured in this Aries runtime yet.", "request": { "name": "...", "email": "...", "message_present": true } }',
   },
   {
     method: 'POST',
     path: '/api/onboarding/start',
-    desc: 'Start tenant onboarding via the Aries internal API.',
+    desc: 'Start tenant onboarding through the Aries route boundary.',
     body: '{ "tenant_id", "tenant_type", "signup_event_id" }',
     response:
       '{ "status": "ok", "tenant_id": "...", "tenant_type": "...", "signup_event_id": "...", "onboarding_status": "accepted|validated|duplicate|needs_repair" }',
@@ -28,7 +21,7 @@ const ENDPOINTS = [
   {
     method: 'GET',
     path: '/api/onboarding/status/:tenantId',
-    desc: 'Read onboarding status from local runtime state without exposing artifact paths.',
+    desc: 'Read onboarding status from runtime state without exposing artifact paths.',
     body: '—',
     response:
       '{ "onboarding_status": "ok", "tenant_id": "...", "signup_event_id": "...", "provisioning_status": "validated|needs_repair|in_progress|duplicate|not_found", "validation_status": "pass|fail|unknown", "progress_hint": "...", "artifacts": { "draft": true, "validated": false, "validation_report": false, "idempotency_marker": true } }',
@@ -36,7 +29,7 @@ const ENDPOINTS = [
   {
     method: 'POST',
     path: '/api/marketing/jobs',
-    desc: 'Create the canonical brand campaign marketing job.',
+    desc: 'Create the canonical `brand_campaign` marketing job.',
     body:
       '{ "jobType": "brand_campaign", "payload": { "brandUrl", "competitorUrl" } }',
     response:
@@ -53,19 +46,11 @@ const ENDPOINTS = [
   {
     method: 'POST',
     path: '/api/marketing/jobs/:jobId/approve',
-    desc: 'Approve the current marketing checkpoint and optionally configure publish/render selections.',
+    desc: 'Resume an approval-gated marketing run.',
     body:
       '{ "approvedBy", "approvedStages"?: ["strategy"|"production"|"publish"], "resumePublishIfNeeded"?: true, "publishConfig"?: { "platforms"?: [...], "livePublishPlatforms"?: [...], "videoRenderPlatforms"?: [...] } }',
     response:
       '{ "approval_status": "resumed|error", "jobId": "...", "resumedStage": "publish", "completed": true, "reason"?: "approval_not_available", "jobStatusUrl": "/marketing/job-status?jobId=..." }',
-  },
-  {
-    method: 'POST',
-    path: '/api/publish/dispatch',
-    desc: 'Normalize and dispatch a publish event through Aries internal APIs.',
-    body: '{ "provider", "content", "media_urls", "scheduled_for"?: "..." }',
-    response:
-      '{ "status": "error", "reason": "workflow_missing_for_route", "route": "publish.dispatch", "message": "..." }',
   },
   {
     method: 'GET',
@@ -77,20 +62,51 @@ const ENDPOINTS = [
   },
   {
     method: 'POST',
-    path: '/api/integrations/sync',
-    desc: 'Trigger a manual integration sync through the OpenClaw boundary.',
+    path: '/api/integrations/connect',
+    desc: 'Start a provider connection from the authenticated app shell.',
     body: '{ "platform": "facebook" }',
     response:
-      '{ "status": "error", "reason": "workflow_missing_for_route", "route": "integrations.sync", "message": "..." }',
+      '{ "broker_status": "ok|error", "provider": "facebook", "authorization_url"?: "..." }',
   },
   {
     method: 'POST',
-    path: '/api/events',
-    desc: 'Log a frontend event and return an explicit placeholder error.',
-    body: '{ "intent": "cta_click", "page": "/", "meta": {} }',
+    path: '/api/integrations/disconnect',
+    desc: 'Disconnect an existing provider connection.',
+    body: '{ "platform": "facebook" }',
     response:
-      '{ "status": "error", "message": "Event tracking is not implemented in this runtime.", "details": { "wired": false, "reason": "no_event_workflow", "logged": true } }',
+      '{ "broker_status": "ok|error", "provider": "facebook" }',
   },
+  {
+    method: 'GET',
+    path: '/api/platform-connections',
+    desc: 'Read summarized platform connection state and token health.',
+    body: '—',
+    response:
+      '{ "status": "ok", "connections": [{ "platform": "facebook", "state": "connected|not_connected|reauth_required", "token_health": "healthy|degraded|error|unknown" }] }',
+  },
+  {
+    method: 'POST',
+    path: '/api/publish/dispatch',
+    desc: 'Submit publish work through the Aries route boundary.',
+    body: '{ "provider", "content", "media_urls", "scheduled_for"?: "..." }',
+    response:
+      '{ "status": "accepted|error", "workflow_id"?: "publish_dispatch", "workflow_status"?: "...", "result"?: {...}, "reason"?: "...", "message"?: "..." }',
+  },
+  {
+    method: 'POST',
+    path: '/api/calendar/sync',
+    desc: 'Request a calendar synchronization run.',
+    body: '{ "window_start"?: "...", "window_end"?: "..." }',
+    response:
+      '{ "status": "accepted|error", "workflow_id"?: "calendar_sync", "workflow_status"?: "...", "result"?: {...}, "reason"?: "...", "message"?: "..." }',
+  },
+];
+
+const VALIDATION_COMMANDS = [
+  './node_modules/.bin/tsx --test tests/runtime-pages.test.ts',
+  'node scripts/check-banned-patterns.mjs',
+  'APP_BASE_URL=https://aries.example.com ./node_modules/.bin/tsx --test tests/marketing-job-flow.test.ts tests/onboarding-marketing-contracts.test.ts',
+  "mkdir -p .artifacts && npx --yes lighthouse http://127.0.0.1:3000 --only-categories=performance --preset=desktop --chrome-flags='--headless=new --no-sandbox --disable-dev-shm-usage' --output=json --output-path=.artifacts/lighthouse-homepage.json",
 ];
 
 export default function ApiDocsPage() {
@@ -103,19 +119,30 @@ export default function ApiDocsPage() {
               API reference
             </span>
             <h1 className="text-5xl md:text-6xl font-bold leading-tight mb-6">
-              Internal routes that keep the browser contract <span className="text-gradient">safe</span>
+              Browser-safe routes for the <span className="text-gradient">current Aries contract</span>
             </h1>
             <p className="text-xl text-white/60">
-              These are the routes the browser can call. Aries stays responsible for validation, auth context, payload shaping, and execution-boundary orchestration.
+              These are the internal routes the current UI depends on. Aries owns validation, auth context, payload shaping, and the handoff into runtime state or OpenClaw execution.
             </p>
           </div>
 
           <div className="glass rounded-[2rem] p-8 md:p-10">
             <h2 className="text-2xl font-bold mb-4">Base URL</h2>
-            <div className="rounded-[1.25rem] border border-white/10 bg-black/30 p-5 font-mono text-white/75">[REDACTED]</div>
+            <div className="rounded-[1.25rem] border border-white/10 bg-black/30 p-5 font-mono text-white/75">http://localhost:3000</div>
             <p className="text-white/60 mt-4">
-              App-shell endpoints use session authentication. Public marketing endpoints exist, but contact, waitlist, and events are still explicit placeholders until corresponding workflows are deployed.
+              Public docs live outside auth, while operator endpoints require session and tenant context. Routes that are not fully configured still return explicit unavailable semantics instead of silent fake success payloads.
             </p>
+          </div>
+
+          <div className="glass rounded-[2rem] p-8 md:p-10">
+            <h2 className="text-2xl font-bold mb-4">Validation</h2>
+            <div className="space-y-3">
+              {VALIDATION_COMMANDS.map((command) => (
+                <div key={command} className="rounded-[1.25rem] border border-white/10 bg-black/30 p-5 font-mono text-sm text-white/75 break-all">
+                  {command}
+                </div>
+              ))}
+            </div>
           </div>
 
           <div className="space-y-6">

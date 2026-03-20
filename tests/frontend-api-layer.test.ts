@@ -6,6 +6,9 @@ import test from 'node:test';
 
 import { POST as postOnboardingStart } from '../app/api/onboarding/start/route';
 import { GET as getOnboardingStatus } from '../app/api/onboarding/status/[tenantId]/route';
+import { resolveProjectRoot } from './helpers/project-root';
+
+const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
 function setOpenClawTestInvoker(
   impl: (payload: Record<string, unknown>) => unknown | Promise<unknown>
@@ -20,14 +23,16 @@ function clearOpenClawTestInvoker(): void {
 async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise<T> {
   const previousCodeRoot = process.env.CODE_ROOT;
   const previousDataRoot = process.env.DATA_ROOT;
+  const previousOpenClawLobsterCwd = process.env.OPENCLAW_LOBSTER_CWD;
   const previousStage1CacheDir = process.env.LOBSTER_STAGE1_CACHE_DIR;
   const previousStage2CacheDir = process.env.LOBSTER_STAGE2_CACHE_DIR;
   const previousStage3CacheDir = process.env.LOBSTER_STAGE3_CACHE_DIR;
   const previousStage4CacheDir = process.env.LOBSTER_STAGE4_CACHE_DIR;
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-frontend-api-'));
 
-  process.env.CODE_ROOT = process.cwd();
+  process.env.CODE_ROOT = PROJECT_ROOT;
   process.env.DATA_ROOT = dataRoot;
+  process.env.OPENCLAW_LOBSTER_CWD = path.join(PROJECT_ROOT, 'lobster');
   process.env.LOBSTER_STAGE1_CACHE_DIR = path.join(dataRoot, 'lobster-stage1-cache');
   process.env.LOBSTER_STAGE2_CACHE_DIR = path.join(dataRoot, 'lobster-stage2-cache');
   process.env.LOBSTER_STAGE3_CACHE_DIR = path.join(dataRoot, 'lobster-stage3-cache');
@@ -46,6 +51,12 @@ async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise
       delete process.env.DATA_ROOT;
     } else {
       process.env.DATA_ROOT = previousDataRoot;
+    }
+
+    if (previousOpenClawLobsterCwd === undefined) {
+      delete process.env.OPENCLAW_LOBSTER_CWD;
+    } else {
+      process.env.OPENCLAW_LOBSTER_CWD = previousOpenClawLobsterCwd;
     }
 
     if (previousStage1CacheDir === undefined) {
@@ -193,6 +204,8 @@ test('/api/marketing/jobs resolves tenant context server-side and returns a fron
     assert.equal(String(body.jobId).includes('tenant_real'), false);
     assert.equal(workflowArgs.brand_slug, 'tenant_real');
     assert.equal(workflowArgs.website_url, 'https://brand.example');
+    assert.equal(workflowArgs.competitor_facebook_url, 'https://facebook.com/competitor');
+    assert.equal((captured as any)?.args?.cwd, path.join(PROJECT_ROOT, 'lobster'));
     clearOpenClawTestInvoker();
   });
 });

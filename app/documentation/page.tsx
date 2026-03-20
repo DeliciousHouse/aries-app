@@ -2,15 +2,15 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  BookOpen, 
-  ChevronRight, 
-  Terminal, 
-  Layout, 
-  GitBranch, 
-  Plug, 
-  ShieldCheck, 
-  Copy, 
+import {
+  BookOpen,
+  ChevronRight,
+  Terminal,
+  Layout,
+  GitBranch,
+  Plug,
+  ShieldCheck,
+  Copy,
   Check,
   Search,
   Book,
@@ -73,7 +73,7 @@ const Docs = () => {
   return (
     <div className="min-h-screen bg-[#050505] text-white selection:bg-primary/30">
       {/* <Navbar /> */}
-      
+
       {/* Background Glows */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
         <div className="absolute top-[-10%] left-[20%] w-[500px] h-[500px] bg-primary/10 rounded-full blur-[120px]" />
@@ -92,7 +92,7 @@ const Docs = () => {
               <Book className="w-4 h-4" />
               <span className="text-xs font-bold uppercase tracking-widest font-display">Documentation</span>
             </motion.div>
-            
+
             <motion.h1
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -101,7 +101,7 @@ const Docs = () => {
             >
               Getting Started with <span className="text-gradient">Aries</span>
             </motion.h1>
-            
+
             <motion.p
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -120,9 +120,9 @@ const Docs = () => {
                   {/* Search placeholder for mobile */}
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
-                    <input 
-                      type="text" 
-                      placeholder="Search docs..." 
+                    <input
+                      type="text"
+                      placeholder="Search docs..."
                       className="w-full bg-white/5 border border-white/10 rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-primary/50"
                     />
                   </div>
@@ -137,8 +137,8 @@ const Docs = () => {
                         onClick={() => scrollToSection(section.id)}
                         className={cn(
                           "flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-left whitespace-nowrap lg:whitespace-normal group",
-                          activeSection === section.id 
-                            ? "bg-white/10 border border-white/10 text-white shadow-xl shadow-black/20" 
+                          activeSection === section.id
+                            ? "bg-white/10 border border-white/10 text-white shadow-xl shadow-black/20"
                             : "text-white/50 hover:text-white hover:bg-white/5 border border-transparent"
                         )}
                       >
@@ -152,9 +152,9 @@ const Docs = () => {
                           {section.title}
                         </span>
                         {activeSection === section.id && (
-                          <motion.div 
+                          <motion.div
                             layoutId="active-indicator"
-                            className="hidden lg:block ml-auto w-1 h-4 bg-primary rounded-full" 
+                            className="hidden lg:block ml-auto w-1 h-4 bg-primary rounded-full"
                           />
                         )}
                       </button>
@@ -167,8 +167,8 @@ const Docs = () => {
             {/* Content Area */}
             <div className="flex-grow max-w-4xl space-y-24">
               {/* Overview Section */}
-              <section 
-                id="overview" 
+              <section
+                id="overview"
                 ref={(el) => { sectionRefs.current['overview'] = el; }}
                 className="scroll-mt-24"
               >
@@ -178,7 +178,7 @@ const Docs = () => {
                   </div>
                   <h2 className="text-3xl font-bold tracking-tight">Overview</h2>
                 </div>
-                
+
                 <div className="prose prose-invert prose-p:text-white/70 prose-p:leading-relaxed prose-p:text-lg max-w-none">
                   <p>
                     Aries AI is a multi-tenant platform that orchestrates AI-powered content pipelines across 7 social platforms. Built on Next.js 15 and n8n, it provides end-to-end automation from research and strategy through production, approval, and publishing.
@@ -187,7 +187,7 @@ const Docs = () => {
                     The system uses a workflow-first architecture: every operation — from onboarding a new tenant to publishing a scheduled post — is modeled as an n8n workflow with built-in repair, retry, and observability.
                   </p>
                 </div>
-                
+
                 <div className="mt-12 p-8 rounded-[2rem] glass-reflection border border-white/10 relative overflow-hidden group">
                   <div className="absolute top-0 right-0 w-64 h-64 bg-primary/10 rounded-full blur-[80px] -mr-32 -mt-32 transition-all group-hover:bg-primary/20" />
                   <div className="relative z-10 flex flex-col md:flex-row gap-8 items-start md:items-center">
@@ -203,8 +203,8 @@ const Docs = () => {
               </section>
 
               {/* Quick Start Section */}
-              <section 
-                id="quick-start" 
+              <section
+                id="quick-start"
                 ref={(el) => { sectionRefs.current['quick-start'] = el; }}
                 className="scroll-mt-24 pt-12 border-t border-white/5"
               >
@@ -241,7 +241,7 @@ const Docs = () => {
                       Environment Setup
                     </h3>
                     <div className="relative group">
-                      <button 
+                      <button
                         onClick={() => copyToClipboard('git clone <repo-url> && cd aries-app\nnpm install\ncp .env.example .env')}
                         className="absolute right-4 top-4 p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors opacity-0 group-hover:opacity-100"
                       >
@@ -277,7 +277,7 @@ npm run dev`}
                         { title: 'Monitor Progress', desc: 'Track execution in the Dashboard' },
                       ].map((step, i) => (
                         <div key={i} className="p-6 rounded-2xl bg-white/5 border border-white/10 hover:border-primary/30 transition-all group">
-                          <span className="inline-block px-2 py-1 rounded-md bg-primary/10 text-primary text-[10px] font-bold uppercase mb-4">Step 0{i+1}</span>
+                          <span className="inline-block px-2 py-1 rounded-md bg-primary/10 text-primary text-[10px] font-bold uppercase mb-4">Step 0{i + 1}</span>
                           <h4 className="text-lg font-bold mb-2 group-hover:text-primary transition-colors">{step.title}</h4>
                           <p className="text-sm text-white/50">{step.desc}</p>
                         </div>
@@ -288,8 +288,8 @@ npm run dev`}
               </section>
 
               {/* Architecture Section */}
-              <section 
-                id="architecture" 
+              <section
+                id="architecture"
                 ref={(el) => { sectionRefs.current['architecture'] = el; }}
                 className="scroll-mt-24 pt-12 border-t border-white/5"
               >
@@ -329,8 +329,8 @@ npm run dev`}
               </section>
 
               {/* n8n Workflows Section */}
-              <section 
-                id="n8n-workflows" 
+              <section
+                id="n8n-workflows"
                 ref={(el) => { sectionRefs.current['n8n-workflows'] = el; }}
                 className="scroll-mt-24 pt-12 border-t border-white/5"
               >
@@ -375,8 +375,8 @@ npm run dev`}
               </section>
 
               {/* Integrations Section */}
-              <section 
-                id="integrations" 
+              <section
+                id="integrations"
                 ref={(el) => { sectionRefs.current['integrations'] = el; }}
                 className="scroll-mt-24 pt-12 border-t border-white/5"
               >
@@ -415,8 +415,8 @@ npm run dev`}
               </section>
 
               {/* Security Section */}
-              <section 
-                id="security" 
+              <section
+                id="security"
                 ref={(el) => { sectionRefs.current['security'] = el; }}
                 className="scroll-mt-24 pt-12 border-t border-white/5"
               >
@@ -462,20 +462,20 @@ function cn(...classes: any[]) {
 
 // Sparkles icon for consistency
 const Sparkles = ({ className }: { className?: string }) => (
-  <svg 
-    xmlns="http://www.w3.org/2000/svg" 
-    width="24" 
-    height="24" 
-    viewBox="0 0 24 24" 
-    fill="none" 
-    stroke="currentColor" 
-    strokeWidth="2" 
-    strokeLinecap="round" 
-    strokeLinejoin="round" 
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="24"
+    height="24"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
     className={className}
   >
-    <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/>
-    <path d="M5 3v4"/><path d="M3 5h4"/><path d="M21 17v4"/><path d="M19 19h4"/>
+    <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+    <path d="M5 3v4" /><path d="M3 5h4" /><path d="M21 17v4" /><path d="M19 19h4" />
   </svg>
 );
 

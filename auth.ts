@@ -32,15 +32,35 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         const client = await pool.connect();
         try {
-          // Check if user exists, if not create them
-          const existingUser = await client.query('SELECT id FROM users WHERE email = $1', [email]);
-          
-          if ((existingUser.rowCount ?? 0) === 0) {
+          const existingUser = await client.query('SELECT id, organization_id FROM users WHERE email = $1', [email]);
+
+          const ensureOrg = async (userId: number) => {
+            const slug = (user.name || email.split('@')[0])
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-|-$/g, '')
+              .slice(0, 60);
+            const orgResult = await client.query(
+              'INSERT INTO organizations (name, slug) VALUES ($1, $2) RETURNING id',
+              [user.name || email, slug]
+            );
+            const orgId = orgResult.rows[0].id as number;
             await client.query(
-              'INSERT INTO users (email, full_name, password_hash) VALUES ($1, $2, $3)',
+              'UPDATE users SET organization_id = $1 WHERE id = $2',
+              [orgId, userId]
+            );
+          };
+
+          if ((existingUser.rowCount ?? 0) === 0) {
+            const inserted = await client.query(
+              'INSERT INTO users (email, full_name, password_hash) VALUES ($1, $2, $3) RETURNING id',
               [email, user.name || '', 'oauth_managed']
             );
+            await ensureOrg(inserted.rows[0].id as number);
+          } else if (!existingUser.rows[0].organization_id) {
+            await ensureOrg(existingUser.rows[0].id as number);
           }
+
           return true;
         } catch (err) {
           console.error("Error during Google sign in:", err);

@@ -1,4 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { resolveCodePath } from '@/lib/runtime-paths';
 
 import {
   assertMarketingRuntimeSchemas,
@@ -83,6 +86,64 @@ const STAGE_LABELS: Record<MarketingStage, string> = {
   production: 'Production',
   publish: 'Publish',
 };
+
+const PUBLISHER_STEPS = [
+  'meta_ads_publisher',
+  'instagram_publisher',
+  'x_publisher',
+  'tiktok_publisher',
+  'youtube_publisher',
+  'linkedin_publisher',
+  'reddit_publisher',
+] as const;
+
+function cacheRoot(envKey: string, fallbackFolder: string): string {
+  return process.env[envKey]?.trim() || path.join(tmpdir(), fallbackFolder);
+}
+
+function stageLogRoot(stage: 1 | 2 | 3 | 4): string {
+  const stageFolder =
+    stage === 1
+      ? 'stage-1-research'
+      : stage === 2
+        ? 'stage-2-strategy'
+        : stage === 3
+          ? 'stage-3-production'
+          : 'stage-4-publish-optimize';
+  return resolveCodePath('lobster', 'output', 'logs', '{runId}', stageFolder);
+}
+
+function stepPayloadPath(stage: 1 | 2 | 3 | 4, runId: string, stepName: string): string {
+  const root =
+    stage === 1
+      ? cacheRoot('LOBSTER_STAGE1_CACHE_DIR', 'lobster-stage1-cache')
+      : stage === 2
+        ? cacheRoot('LOBSTER_STAGE2_CACHE_DIR', 'lobster-stage2-cache')
+        : stage === 3
+          ? cacheRoot('LOBSTER_STAGE3_CACHE_DIR', 'lobster-stage3-cache')
+          : cacheRoot('LOBSTER_STAGE4_CACHE_DIR', 'lobster-stage4-cache');
+  const primary = path.join(root, runId, `${stepName}.json`);
+  if (existsSync(primary)) {
+    return primary;
+  }
+  return stageLogRoot(stage).replace('{runId}', runId) + `/${stepName}.json`;
+}
+
+function readJsonIfExists(filePath: string): Record<string, unknown> | null {
+  if (!existsSync(filePath)) {
+    return null;
+  }
+
+  try {
+    const raw = readFileSync(filePath, 'utf8');
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 function readTextPreview(filePath: string | null, maxChars = 420): string | null {
   if (!filePath || !existsSync(filePath)) {

@@ -1,3 +1,5 @@
+import { resolveCodePath } from '../../lib/runtime-paths';
+
 export type AriesOpenClawWorkflowKey =
   | 'demo_start'
   | 'sandbox_launch'
@@ -22,7 +24,7 @@ export type AriesOpenClawWorkflowDef = {
   route: string;
 };
 
-const DEFAULT_CWD = 'lobster';
+const DEFAULT_CWD = resolveCodePath('lobster');
 
 export const ARIES_OPENCLAW_WORKFLOWS: Record<AriesOpenClawWorkflowKey, AriesOpenClawWorkflowDef> = {
   demo_start: {

@@ -19,6 +19,7 @@ from _stage1_common import (
     utc_now,
     web_search,
 )
+from _canonical_outputs import competitor_output_paths, write_json, write_text
 
 
 def _is_meta_profile_url(url: str) -> bool:
@@ -272,6 +273,28 @@ def main() -> int:
                 "Network/API access was unavailable; returned deterministic fallback evidence anchored to the competitor Facebook URL.",
             ]
         ),
+    }
+    competitor_paths = competitor_output_paths(resolved_competitor)
+    extract_path = write_json(competitor_paths["extract_json"], payload)
+    summary_path = write_text(
+        competitor_paths["summary_md"],
+        "\n".join(
+            [
+                f"# {resolved_competitor} Meta Ads Extract",
+                "",
+                f"- Run ID: {run_id}",
+                f"- Mode: {payload['mode']}",
+                f"- Facebook URL: {competitor_facebook_url or 'n/a'}",
+                f"- Landing pages: {len(payload['landing_pages'])}",
+                "",
+                "## Competitor Research Summary",
+                *[f"- {line}" for line in summary_bullets],
+            ]
+        ),
+    )
+    payload["artifacts"] = {
+        "extract_path": extract_path,
+        "summary_markdown_path": summary_path,
     }
     save_step(run_id, "meta_ads_extractor", payload)
     emit_json(payload)

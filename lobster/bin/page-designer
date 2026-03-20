@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _stage3_common import emit_json, ensure_run_id, normalize_research_model, read_stdin_json, save_artifact_text, save_step, slugify, utc_now
+from _canonical_outputs import brand_output_paths, write_text
 
 
 def main() -> int:
@@ -68,6 +69,27 @@ def main() -> int:
         ]
     )
     preview_path = save_artifact_text(run_id, "page-designer/landing-page-preview.txt", preview_text)
+    paths = brand_output_paths(brand_slug)
+    landing_dir = paths["landing_pages_dir"]
+    landing_html = "".join(
+        [
+            "<!doctype html><html><head><meta charset='utf-8' />",
+            f"<title>{brief.get('campaign_name', brand_slug)}</title>",
+            f"<link rel='stylesheet' href='../../{brand_slug}-design-system.css' />",
+            "<style>body{max-width:960px;margin:0 auto;padding:48px;font-family:Inter,Arial,sans-serif;background:#0f1720;color:#f5f2eb;} .cta{display:inline-block;padding:14px 22px;background:#d4a94f;color:#111827;border-radius:999px;font-weight:700;text-decoration:none;} section{margin:28px 0;} .card{padding:24px;border:1px solid rgba(255,255,255,.12);border-radius:20px;background:#16212c;}</style>",
+            "</head><body>",
+            f"<section class='card'><h1>{page_assets['landing_page']['hero_headline']}</h1><p>{page_assets['landing_page']['hero_subheadline']}</p><a class='cta' href='#cta'>{primary_cta}</a></section>",
+            "<section class='card'><h2>Proof</h2><ul>",
+            *[f"<li>{item}</li>" for item in proof_points],
+            "</ul></section>",
+            "<section class='card'><h2>Page Structure</h2><ol>",
+            *[f"<li>{section}</li>" for section in page_assets['landing_page']['sections']],
+            "</ol></section>",
+            f"<section id='cta' class='card'><h2>Next Step</h2><p>{brief.get('offer_summary', '')}</p><a class='cta' href='#'>{primary_cta}</a></section>",
+            "</body></html>",
+        ]
+    )
+    landing_page_path = write_text(landing_dir / "index.html", landing_html)
 
     payload = {
         "type": "page_designer",
@@ -81,6 +103,8 @@ def main() -> int:
         "page_assets": page_assets,
         "artifacts": {
             "preview_path": preview_path,
+            "landing_page_path": landing_page_path,
+            "honesty_note": "This local wrapper generates page recommendations and copy structure only; no page is rendered or deployed.",
         },
     }
     save_step(run_id, "page_designer", payload)

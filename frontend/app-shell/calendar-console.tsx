@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
-import Link from 'next/link';
 import { CalendarDays, Sparkles } from 'lucide-react';
 
 import { useCalendarSync } from '@/hooks/use-calendar-sync';

@@ -1,7 +1,10 @@
 'use client';
 
-import Link from 'next/link';
-import { CheckCircle2, Sparkles } from 'lucide-react';
+import { useState, type FormEvent } from 'react';
+import { Repeat2, Send, Sparkles } from 'lucide-react';
+
+import { usePublishDispatch } from '@/hooks/use-publish-dispatch';
+import { usePublishRetry } from '@/hooks/use-publish-retry';
 
 export default function PostsConsole(): JSX.Element {
   return (
@@ -56,9 +59,9 @@ export default function PostsConsole(): JSX.Element {
           <p className="text-white/60 mb-4">
             Calendar sync remains available from the calendar route, but campaign publishing itself should be driven from the marketing job status and approval surfaces.
           </p>
-          <Link href="/calendar" className="inline-flex items-center gap-2 text-primary hover:text-primary/80 transition-colors">
+          <a href="/calendar" className="inline-flex items-center gap-2 text-primary hover:text-primary/80 transition-colors">
             Open calendar sync <Sparkles className="w-4 h-4" />
-          </Link>
+          </a>
         </div>
       </div>
     </div>

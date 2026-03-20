@@ -10,8 +10,14 @@
     "workspace:verify": "node scripts/verify-canonical-workspace.mjs",
     "workspace:inventory": "node scripts/inventory-paperclip-workspaces.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/**/*.test.ts",
-    "db:init": "node scripts/init-db.js"
+    "test": "tsx --test tests/*.test.ts tests/**/*.test.ts",
+    "test:e2e": "tsx --test tests/frontend-api-layer.test.ts tests/marketing-flow-smoke.test.ts tests/onboarding-runtime-cutover.test.ts tests/public-marketing-pages.test.ts tests/runtime-api-truth.test.ts tests/runtime-pages.test.ts",
+    "db:init": "node scripts/init-db.js",
+    "verify": "node scripts/verify-regression-suite.mjs",
+    "validate:public-routes": "tsx --test tests/runtime-pages.test.ts tests/public-marketing-pages.test.ts",
+    "validate:banned-patterns": "node scripts/check-banned-patterns.mjs",
+    "validate:marketing-flow": "APP_BASE_URL=https://aries.example.com tsx --test tests/marketing-job-flow.test.ts tests/onboarding-marketing-contracts.test.ts",
+    "validate:homepage-perf": "mkdir -p .artifacts && npx --yes lighthouse http://127.0.0.1:3000 --only-categories=performance --preset=desktop --chrome-flags='--headless=new --no-sandbox --disable-dev-shm-usage' --output=json --output-path=.artifacts/lighthouse-homepage.json"
   },
   "dependencies": {
     "@react-three/drei": "^9.122.0",
@@ -24,7 +30,7 @@
     "dotenv": "^17.3.1",
     "lucide-react": "^0.577.0",
     "motion": "^12.38.0",
-    "next": "15.5.10",
+    "next": "16.1.7",
     "next-auth": "^5.0.0-beta.30",
     "pg": "^8.20.0",
     "react": "18.3.1",
@@ -39,8 +45,10 @@
     "@types/node": "22.13.10",
     "@types/react": "18.3.12",
     "@types/react-dom": "18.3.1",
+    "@types/react-test-renderer": "18.3.1",
     "autoprefixer": "^10.4.27",
     "postcss": "^8.5.8",
+    "react-test-renderer": "18.3.1",
     "tailwindcss": "^4.2.1",
     "tsx": "^4.21.0",
     "typescript": "5.7.3"

@@ -1025,9 +1025,11 @@ function ContentCalendar() {
                     Month
                   </button>
                 </div>
-                <Link href="/login" className="px-6 py-2 bg-gradient-to-r from-primary to-secondary rounded-xl text-sm font-bold shadow-lg shadow-primary/20">
-                  New Post
-                </Link>
+                <Link href="/calendar" prefetch={false} className="px-6 py-2 bg-gradient-to-r from-primary to-secondary rounded-xl text-sm font-bold shadow-lg shadow-primary/20">
+                  Open Runtime
+                  <Link href="/login" className="px-6 py-2 bg-gradient-to-r from-primary to-secondary rounded-xl text-sm font-bold shadow-lg shadow-primary/20">
+                    New Post
+                  </Link>
               </div>
             </div>
 
@@ -1198,7 +1200,7 @@ function Pricing() {
                 </div>
 
                 <Link
-                  href={plan.price === 'Custom' ? '/contact' : '/login'}
+                  href={plan.price === 'Custom' ? '/documentation' : '/login'}
                   className={cn(
                     'w-full py-4 rounded-2xl font-bold transition-all text-center',
                     plan.highlight
@@ -1206,7 +1208,7 @@ function Pricing() {
                       : 'bg-white/10 hover:bg-white/20 text-white',
                   )}
                 >
-                  {plan.price === 'Custom' ? 'Contact Sales' : 'Get Started'}
+                  {plan.price === 'Custom' ? 'Review Runtime' : 'Get Started'}
                 </Link>
               </div>
 

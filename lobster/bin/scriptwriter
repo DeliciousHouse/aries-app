@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _stage3_common import emit_json, ensure_run_id, normalize_research_model, read_stdin_json, save_artifact_text, save_step, slugify, utc_now
+from _canonical_outputs import brand_output_paths, write_text
 
 
 def main() -> int:
@@ -62,6 +63,38 @@ def main() -> int:
         ]
     )
     preview_path = save_artifact_text(run_id, "scriptwriter/scripts-preview.txt", preview_text)
+    paths = brand_output_paths(brand_slug)
+    scripts_dir = paths["scripts_dir"]
+    meta_script_path = write_text(
+        scripts_dir / "meta-ad-script.md",
+        "\n".join(
+            [
+                f"# Meta Ad Script — {brand_slug}",
+                "",
+                f"## Hook\n{script_assets['meta_ad_script']['hook']}",
+                "",
+                "## Body",
+                *[f"- {line}" for line in script_assets["meta_ad_script"]["body"]],
+                "",
+                f"## CTA\n{primary_cta}",
+            ]
+        ),
+    )
+    short_video_path = write_text(
+        scripts_dir / "short-video-script.md",
+        "\n".join(
+            [
+                f"# Short Video Script — {brand_slug}",
+                "",
+                f"## Opening Line\n{script_assets['short_video_script']['opening_line']}",
+                "",
+                "## Beats",
+                *[f"- {line}" for line in script_assets["short_video_script"]["beats"]],
+                "",
+                f"## CTA\n{primary_cta}",
+            ]
+        ),
+    )
 
     payload = {
         "type": "scriptwriter",
@@ -75,6 +108,9 @@ def main() -> int:
         "script_assets": script_assets,
         "artifacts": {
             "preview_path": preview_path,
+            "meta_script_path": meta_script_path,
+            "short_video_script_path": short_video_path,
+            "honesty_note": "This local wrapper drafts scripts and beat sheets only; no human talent, voice synthesis, or production system is invoked.",
         },
     }
     save_step(run_id, "scriptwriter", payload)
