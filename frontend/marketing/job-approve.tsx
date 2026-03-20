@@ -6,6 +6,8 @@ import { CheckCircle2, Sparkles } from 'lucide-react';
 import type {
   ApproveJobResult,
   MarketingArtifactCard,
+  MarketingReviewBundle,
+  MarketingReviewPreviewCard,
   MarketingStageCard,
   GetMarketingJobStatusResponse,
   MarketingApiError,
@@ -58,6 +60,124 @@ function ArtifactPreview({ artifact }: { artifact: MarketingArtifactCard }) {
           ))}
         </ul>
       ) : null}
+    </div>
+  );
+}
+
+function ReviewPreviewCard({ preview }: { preview: MarketingReviewPreviewCard }) {
+  return (
+    <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
+      <div>
+        <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-2">{preview.channelType}</p>
+        <strong>{preview.platformName}</strong>
+      </div>
+      <p className="text-white/60 m-0">{preview.summary}</p>
+      {preview.hook ? (
+        <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4 text-cyan-100">
+          <strong className="block mb-1">Hook</strong>
+          <span>{preview.hook}</span>
+        </div>
+      ) : null}
+      <div className="grid gap-2 text-sm text-white/70">
+        {preview.headline ? <span><strong className="text-white">Headline:</strong> {preview.headline}</span> : null}
+        {preview.cta ? <span><strong className="text-white">CTA:</strong> {preview.cta}</span> : null}
+      </div>
+      {preview.caption ? (
+        <div className="rounded-[1.25rem] border border-white/10 bg-black/30 p-4 whitespace-pre-wrap text-sm text-white/75">
+          {preview.caption}
+        </div>
+      ) : null}
+      {preview.details.length > 0 ? (
+        <ul className="m-0 pl-5 text-white/60">
+          {preview.details.map((detail) => (
+            <li key={detail}>{detail}</li>
+          ))}
+        </ul>
+      ) : null}
+      {preview.mediaPaths.length > 0 ? (
+        <div className="text-sm text-white/50 break-all whitespace-pre-wrap">{preview.mediaPaths.join('\n')}</div>
+      ) : null}
+    </div>
+  );
+}
+
+function ReviewBundlePreview({ reviewBundle }: { reviewBundle: MarketingReviewBundle }) {
+  return (
+    <div className="grid gap-5">
+      <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-5 text-cyan-100">
+        <strong className="block mb-2">{reviewBundle.title}</strong>
+        <span>{reviewBundle.approvalMessage}</span>
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-4">
+        {reviewBundle.landingPage ? (
+          <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
+            <strong>Landing page preview</strong>
+            <div className="grid gap-2 text-white/70">
+              <span><strong className="text-white">Headline:</strong> {reviewBundle.landingPage.headline || 'n/a'}</span>
+              <span><strong className="text-white">Subheadline:</strong> {reviewBundle.landingPage.subheadline || 'n/a'}</span>
+              <span><strong className="text-white">CTA:</strong> {reviewBundle.landingPage.cta || 'n/a'}</span>
+              {reviewBundle.landingPage.slug ? <span><strong className="text-white">Slug:</strong> {reviewBundle.landingPage.slug}</span> : null}
+              {reviewBundle.landingPage.path ? <span className="break-all"><strong className="text-white">Path:</strong> {reviewBundle.landingPage.path}</span> : null}
+            </div>
+            {reviewBundle.landingPage.sections.length > 0 ? (
+              <ul className="m-0 pl-5 text-white/60">
+                {reviewBundle.landingPage.sections.map((section) => (
+                  <li key={section}>{section}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
+
+        {reviewBundle.scriptPreview ? (
+          <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
+            <strong>Copy and script preview</strong>
+            {reviewBundle.scriptPreview.metaAdHook ? <span className="text-white/70"><strong className="text-white">Meta hook:</strong> {reviewBundle.scriptPreview.metaAdHook}</span> : null}
+            {reviewBundle.scriptPreview.shortVideoOpeningLine ? (
+              <span className="text-white/70"><strong className="text-white">Video opening line:</strong> {reviewBundle.scriptPreview.shortVideoOpeningLine}</span>
+            ) : null}
+            {reviewBundle.scriptPreview.metaAdBody.length > 0 ? (
+              <ul className="m-0 pl-5 text-white/60">
+                {reviewBundle.scriptPreview.metaAdBody.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            ) : null}
+            {reviewBundle.scriptPreview.shortVideoBeats.length > 0 ? (
+              <ul className="m-0 pl-5 text-white/60">
+                {reviewBundle.scriptPreview.shortVideoBeats.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      {reviewBundle.reviewPacketPaths.length > 0 ? (
+        <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5">
+          <strong className="block mb-3">Review packet and contract indexes</strong>
+          <ul className="m-0 pl-5 text-white/60 break-all">
+            {reviewBundle.reviewPacketPaths.map((pathValue) => (
+              <li key={pathValue}>{pathValue}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <div>
+        <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-3">Platform drafts to review before approval</p>
+        {reviewBundle.platformPreviews.length === 0 ? (
+          <p className="text-white/60">No platform-specific previews are available yet.</p>
+        ) : (
+          <div className="grid xl:grid-cols-2 gap-4">
+            {reviewBundle.platformPreviews.map((preview) => (
+              <ReviewPreviewCard key={preview.id} preview={preview} />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -389,6 +509,13 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
                   <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4 text-cyan-100">
                     <strong className="block mb-2">{statusSuccess.approval.title}</strong>
                     <span>{statusSuccess.approval.message}</span>
+                  </div>
+                ) : null}
+
+                {statusSuccess.reviewBundle ? (
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-3">Pre-approval review bundle</p>
+                    <ReviewBundlePreview reviewBundle={statusSuccess.reviewBundle} />
                   </div>
                 ) : null}
 

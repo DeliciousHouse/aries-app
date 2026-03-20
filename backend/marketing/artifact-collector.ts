@@ -67,6 +67,17 @@ function artifact(input: Omit<MarketingStageArtifact, 'details'> & { details?: s
   };
 }
 
+function asRecordArray(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === 'object' && !Array.isArray(entry))
+    : [];
+}
+
+function detailLines(label: string, values: Array<string | null | undefined>, maxItems = 3): string[] {
+  const cleaned = values.filter((value): value is string => typeof value === 'string' && value.trim().length > 0).slice(0, maxItems);
+  return cleaned.length > 0 ? [`${label}: ${cleaned.join(' • ')}`] : [];
+}
+
 function resolveRunId(primaryOutput: Record<string, unknown> | null): string | null {
   return asString(primaryOutput?.run_id);
 }
@@ -288,14 +299,113 @@ export function collectPublishReviewArtifacts(primaryOutput: Record<string, unkn
   const review = reviewPath ? readJsonIfExists(reviewPath) : null;
   const publishPlan = asRecord(preflight?.publish_plan) ?? {};
   const approvalPreview = asRecord(review?.approval_preview) ?? asRecord(primaryOutput?.approval_preview) ?? {};
+  const reviewBundle = asRecord(review?.review_bundle) ?? asRecord(primaryOutput?.review_bundle) ?? {};
+  const reviewSummary = asRecord(reviewBundle.summary) ?? {};
+  const landingPagePreview = asRecord(reviewBundle.landing_page_preview) ?? {};
+  const scriptPreview = asRecord(reviewBundle.script_preview) ?? {};
+  const platformPreviews = asRecordArray(reviewBundle.platform_previews);
   const message =
     stringValue(approvalPreview.message) ||
     'Launch approval is required before publish-ready assets are generated.';
+  const reviewArtifacts: MarketingStageArtifact[] = [];
+
+  if (Object.keys(landingPagePreview).length > 0) {
+    reviewArtifacts.push(
+      artifact({
+        id: 'launch-review-landing-page',
+        stage: 'publish',
+        title: 'Landing page preview',
+        category: 'review',
+        status: 'awaiting_approval',
+        summary:
+          stringValue(landingPagePreview.headline) ||
+          'Landing page copy and CTA are available for launch review.',
+        details: [
+          `CTA: ${stringValue(landingPagePreview.cta, 'n/a')}`,
+          `Slug: ${stringValue(landingPagePreview.slug, 'n/a')}`,
+          ...detailLines('Sections', Array.isArray(landingPagePreview.sections) ? landingPagePreview.sections.map((entry) => stringValue(entry)) : []),
+          ...detailLines(
+            'Message match checks',
+            Array.isArray(landingPagePreview.message_match_checks) ? landingPagePreview.message_match_checks.map((entry) => stringValue(entry)) : [],
+            2
+          ),
+        ],
+        path: stringValue(landingPagePreview.landing_page_path) || null,
+        preview_path: stringValue(landingPagePreview.preview_path) || null,
+      })
+    );
+  }
+
+  if (Object.keys(scriptPreview).length > 0) {
+    reviewArtifacts.push(
+      artifact({
+        id: 'launch-review-scripts',
+        stage: 'publish',
+        title: 'Draft copy and scripts',
+        category: 'review',
+        status: 'awaiting_approval',
+        summary:
+          stringValue(scriptPreview.meta_ad_hook) ||
+          stringValue(scriptPreview.short_video_opening_line) ||
+          'Platform copy drafts are available for review.',
+        details: [
+          `Meta hook: ${stringValue(scriptPreview.meta_ad_hook, 'n/a')}`,
+          ...detailLines(
+            'Meta body',
+            Array.isArray(scriptPreview.meta_ad_body) ? scriptPreview.meta_ad_body.map((entry) => stringValue(entry)) : []
+          ),
+          `Video opening line: ${stringValue(scriptPreview.short_video_opening_line, 'n/a')}`,
+          ...detailLines(
+            'Video beats',
+            Array.isArray(scriptPreview.short_video_beats) ? scriptPreview.short_video_beats.map((entry) => stringValue(entry)) : [],
+            2
+          ),
+        ],
+        path: stringValue(scriptPreview.meta_script_path) || stringValue(scriptPreview.short_video_script_path) || null,
+        preview_path: stringValue(scriptPreview.preview_path) || null,
+      })
+    );
+  }
+
+  for (const platform of platformPreviews) {
+    const assetPaths = asRecord(platform.asset_paths) ?? {};
+    const mediaPaths = Array.isArray(platform.media_paths) ? platform.media_paths.map((entry) => stringValue(entry)).filter(Boolean) : [];
+    const channelType = stringValue(platform.channel_type, 'draft');
+    reviewArtifacts.push(
+      artifact({
+        id: `launch-review-platform-${stringValue(platform.platform_slug, `platform-${reviewArtifacts.length}`)}`,
+        stage: 'publish',
+        title: stringValue(platform.platform_name, stringValue(platform.platform_slug, 'Platform preview')),
+        category: `${channelType} preview`,
+        status: 'awaiting_approval',
+        summary:
+          stringValue(platform.summary) ||
+          stringValue(platform.headline) ||
+          'A platform-specific launch draft is ready for review.',
+        details: [
+          `Hook: ${stringValue(platform.hook, 'n/a')}`,
+          `Headline: ${stringValue(platform.headline, 'n/a')}`,
+          `CTA: ${stringValue(platform.cta, 'n/a')}`,
+          ...detailLines(
+            channelType === 'video' ? 'Story beats' : 'Draft copy',
+            channelType === 'video'
+              ? (Array.isArray(platform.proof_points) ? platform.proof_points.map((entry) => stringValue(entry)) : [])
+              : [stringValue(platform.caption_text)],
+            3
+          ),
+          ...detailLines('Media paths', mediaPaths, 2),
+        ],
+        path: stringValue(assetPaths.contract_path) || stringValue(assetPaths.brief_path) || null,
+      })
+    );
+  }
   return {
     runId,
     summary: {
       summary: message,
-      highlight: `Static contracts: ${stringValue(publishPlan.static_contract_count, '0')}, Video contracts: ${stringValue(publishPlan.video_contract_count, '0')}`,
+      highlight:
+        stringValue(reviewSummary.core_message) ||
+        `Static contracts: ${stringValue(publishPlan.static_contract_count, '0')}, Video contracts: ${stringValue(publishPlan.video_contract_count, '0')}`,
     },
     outputs: {
       performance_marketer_preflight_path: preflightPath || null,
@@ -314,10 +424,12 @@ export function collectPublishReviewArtifacts(primaryOutput: Record<string, unkn
         details: [
           `Static contracts: ${stringValue(publishPlan.static_contract_count, '0')}`,
           `Video contracts: ${stringValue(publishPlan.video_contract_count, '0')}`,
+          `Platform previews: ${platformPreviews.length}`,
         ],
         path: reviewPath || null,
         preview_path: asString(asRecord(review?.artifacts)?.preview_path),
       }),
+      ...reviewArtifacts,
     ],
   };
 }
