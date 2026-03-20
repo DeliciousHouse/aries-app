@@ -18,6 +18,8 @@ ENV PORT=3000
 ENV CODE_ROOT=/app
 ENV DATA_ROOT=/data
 
+RUN apk add --no-cache python3
+
 # install only production deps for next start runtime
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
