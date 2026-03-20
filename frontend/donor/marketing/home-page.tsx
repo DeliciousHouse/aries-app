@@ -1027,9 +1027,10 @@ function ContentCalendar() {
                 </div>
                 <Link href="/calendar" prefetch={false} className="px-6 py-2 bg-gradient-to-r from-primary to-secondary rounded-xl text-sm font-bold shadow-lg shadow-primary/20">
                   Open Runtime
-                  <Link href="/login" className="px-6 py-2 bg-gradient-to-r from-primary to-secondary rounded-xl text-sm font-bold shadow-lg shadow-primary/20">
-                    New Post
-                  </Link>
+                </Link>
+                <Link href="/login" className="px-6 py-2 bg-gradient-to-r from-primary to-secondary rounded-xl text-sm font-bold shadow-lg shadow-primary/20">
+                  New Post
+                </Link>
               </div>
             </div>
 

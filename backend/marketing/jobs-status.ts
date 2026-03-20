@@ -51,6 +51,48 @@ export type MarketingApprovalSummary = {
   actionHref?: string;
 };
 
+export type MarketingReviewPreviewCard = {
+  id: string;
+  platformSlug: string;
+  platformName: string;
+  channelType: string;
+  summary: string;
+  headline?: string;
+  hook?: string;
+  caption?: string;
+  cta?: string;
+  details: string[];
+  mediaPaths: string[];
+  assetPaths: string[];
+};
+
+export type MarketingReviewBundle = {
+  stage: MarketingStage;
+  title: string;
+  campaignName: string;
+  generatedAt: string | null;
+  approvalMessage: string;
+  summary: string;
+  previewPath?: string;
+  reviewPacketPaths: string[];
+  landingPage?: {
+    headline: string;
+    subheadline: string;
+    cta: string;
+    slug?: string;
+    sections: string[];
+    path?: string;
+  } | null;
+  scriptPreview?: {
+    metaAdHook?: string;
+    metaAdBody: string[];
+    shortVideoOpeningLine?: string;
+    shortVideoBeats: string[];
+    paths: string[];
+  } | null;
+  platformPreviews: MarketingReviewPreviewCard[];
+};
+
 export type MarketingSummary = {
   headline: string;
   subheadline: string;
@@ -71,6 +113,7 @@ export type MarketingJobStatusResponse = {
   artifacts: MarketingArtifactCard[];
   timeline: MarketingTimelineEntry[];
   approval: MarketingApprovalSummary | null;
+  reviewBundle: MarketingReviewBundle | null;
   publishConfig: {
     platforms: string[];
     livePublishPlatforms: string[];
@@ -169,6 +212,26 @@ function stringValue(value: unknown, fallback = ''): string {
     return String(value);
   }
   return fallback;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value
+        .map((entry) => stringValue(entry))
+        .filter((entry) => entry.length > 0)
+    : [];
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function recordArray(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === 'object' && !Array.isArray(entry))
+    : [];
 }
 
 function deriveState(
@@ -424,6 +487,94 @@ function buildTimeline(
   });
 }
 
+function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): MarketingReviewBundle | null {
+  const publishStage = runtimeDoc.stages.publish;
+  const review =
+    recordValue(publishStage.outputs.review) ??
+    recordValue(publishStage.primary_output);
+  const reviewBundle = recordValue(review?.review_bundle);
+  if (!reviewBundle) {
+    return null;
+  }
+
+  const landingPage = recordValue(reviewBundle.landing_page_preview);
+  const scriptPreview = recordValue(reviewBundle.script_preview);
+  const reviewPacket = recordValue(reviewBundle.review_packet);
+  const artifactPaths = recordValue(reviewBundle.artifact_paths);
+
+  return {
+    stage: 'publish',
+    title: 'Pre-approval launch review',
+    campaignName: stringValue(reviewBundle.campaign_name, stringValue(review?.campaign_name)),
+    generatedAt: stringValue(review?.generated_at) || null,
+    approvalMessage:
+      stringValue(reviewBundle.approval_message) ||
+      stringValue(recordValue(review?.approval_preview)?.message) ||
+      'Launch approval is waiting on operator review.',
+    summary:
+      stringValue(recordValue(reviewBundle.summary)?.core_message) ||
+      stringValue(recordValue(reviewBundle.summary)?.offer_summary) ||
+      'Review the draft launch materials before approving the publish stage.',
+    previewPath: stringValue(artifactPaths?.preview_path) || undefined,
+    reviewPacketPaths: [
+      stringValue(reviewPacket?.production_review_preview_path),
+      stringValue(reviewPacket?.canonical_review_packet_path),
+      stringValue(artifactPaths?.static_platform_index_path),
+      stringValue(artifactPaths?.video_platform_index_path),
+    ].filter(Boolean),
+    landingPage: landingPage
+      ? {
+          headline: stringValue(landingPage.headline),
+          subheadline: stringValue(landingPage.subheadline),
+          cta: stringValue(landingPage.cta),
+          slug: stringValue(landingPage.slug) || undefined,
+          sections: stringArray(landingPage.sections),
+          path: stringValue(landingPage.landing_page_path) || undefined,
+        }
+      : null,
+    scriptPreview: scriptPreview
+      ? {
+          metaAdHook: stringValue(scriptPreview.meta_ad_hook) || undefined,
+          metaAdBody: stringArray(scriptPreview.meta_ad_body),
+          shortVideoOpeningLine: stringValue(scriptPreview.short_video_opening_line) || undefined,
+          shortVideoBeats: stringArray(scriptPreview.short_video_beats),
+          paths: [
+            stringValue(scriptPreview.meta_script_path),
+            stringValue(scriptPreview.short_video_script_path),
+            stringValue(scriptPreview.preview_path),
+          ].filter(Boolean),
+        }
+      : null,
+    platformPreviews: recordArray(reviewBundle.platform_previews).map((entry, index) => {
+      const assetPaths = recordValue(entry.asset_paths);
+      return {
+        id: `platform-preview-${stringValue(entry.platform_slug, String(index + 1))}`,
+        platformSlug: stringValue(entry.platform_slug, `platform-${index + 1}`),
+        platformName: stringValue(entry.platform_name, `Platform ${index + 1}`),
+        channelType: stringValue(entry.channel_type, 'draft'),
+        summary:
+          stringValue(entry.summary) ||
+          stringValue(entry.headline) ||
+          'Draft launch preview available.',
+        headline: stringValue(entry.headline) || undefined,
+        hook: stringValue(entry.hook) || undefined,
+        caption: stringValue(entry.caption_text) || undefined,
+        cta: stringValue(entry.cta) || undefined,
+        details: [
+          ...stringArray(entry.proof_points),
+          ...stringArray(recordValue(entry.format) ? Object.values(recordValue(entry.format) as Record<string, unknown>) : []),
+        ],
+        mediaPaths: stringArray(entry.media_paths),
+        assetPaths: [
+          stringValue(assetPaths?.contract_path),
+          stringValue(assetPaths?.brief_path),
+          stringValue(assetPaths?.landing_page_path),
+        ].filter(Boolean),
+      };
+    }),
+  };
+}
+
 export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse {
   assertMarketingRuntimeSchemas();
 
@@ -447,6 +598,7 @@ export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse
       artifacts: [],
       timeline: [],
       approval: null,
+      reviewBundle: null,
       publishConfig: {
         platforms: [],
         livePublishPlatforms: [],
@@ -465,6 +617,7 @@ export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse
   };
   const state = deriveState(runtimeDoc, stageStatus);
   const approval = buildApproval(jobId, runtimeDoc);
+  const reviewBundle = buildReviewBundle(runtimeDoc);
 
   return {
     jobId,
@@ -481,6 +634,7 @@ export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse
     artifacts: buildArtifacts(runtimeDoc, approval),
     timeline: buildTimeline(runtimeDoc, state),
     approval,
+    reviewBundle,
     publishConfig: {
       platforms: runtimeDoc.publish_config.platforms,
       livePublishPlatforms: runtimeDoc.publish_config.live_publish_platforms,

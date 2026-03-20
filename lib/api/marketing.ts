@@ -61,6 +61,48 @@ export interface MarketingApprovalSummary {
   actionHref?: string;
 }
 
+export interface MarketingReviewPreviewCard {
+  id: string;
+  platformSlug: string;
+  platformName: string;
+  channelType: string;
+  summary: string;
+  headline?: string;
+  hook?: string;
+  caption?: string;
+  cta?: string;
+  details: string[];
+  mediaPaths: string[];
+  assetPaths: string[];
+}
+
+export interface MarketingReviewBundle {
+  stage: MarketingStage;
+  title: string;
+  campaignName: string;
+  generatedAt: string | null;
+  approvalMessage: string;
+  summary: string;
+  previewPath?: string;
+  reviewPacketPaths: string[];
+  landingPage?: {
+    headline: string;
+    subheadline: string;
+    cta: string;
+    slug?: string;
+    sections: string[];
+    path?: string;
+  } | null;
+  scriptPreview?: {
+    metaAdHook?: string;
+    metaAdBody: string[];
+    shortVideoOpeningLine?: string;
+    shortVideoBeats: string[];
+    paths: string[];
+  } | null;
+  platformPreviews: MarketingReviewPreviewCard[];
+}
+
 export interface GetMarketingJobStatusResponse {
   jobId: string;
   marketing_job_state: string;
@@ -78,6 +120,7 @@ export interface GetMarketingJobStatusResponse {
   artifacts: MarketingArtifactCard[];
   timeline: MarketingTimelineEntry[];
   approval: MarketingApprovalSummary | null;
+  reviewBundle: MarketingReviewBundle | null;
   publishConfig: {
     platforms: string[];
     livePublishPlatforms: string[];

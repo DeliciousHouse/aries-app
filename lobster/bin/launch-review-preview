@@ -13,6 +13,225 @@ def _as_bool(value: str) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+def _as_dict(value):
+    return value if isinstance(value, dict) else {}
+
+
+def _as_list(value):
+    return value if isinstance(value, list) else []
+
+
+def _as_str(value, default: str = "") -> str:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    return default
+
+
+def _read_json_file(path_value: str) -> dict:
+    if not path_value:
+        return {}
+    candidate = Path(path_value)
+    if not candidate.exists() or not candidate.is_file():
+        return {}
+    try:
+        return json.loads(candidate.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _build_static_platform_previews(production_handoff: dict) -> list[dict]:
+    static_handoff = _as_dict(_as_dict(production_handoff.get("contract_handoffs")).get("static"))
+    previews = []
+    for platform_entry in _as_list(static_handoff.get("platforms")):
+        entry = _as_dict(platform_entry)
+        contract = _read_json_file(_as_str(entry.get("contract_path")))
+        creative = _as_dict(contract.get("creative"))
+        landing_page = _as_dict(contract.get("landing_page"))
+        expected_outputs = _as_dict(contract.get("expected_render_outputs"))
+        body_lines = [line for line in _as_list(creative.get("body_lines")) if isinstance(line, str) and line.strip()]
+        proof_points = [line for line in _as_list(creative.get("proof_points")) if isinstance(line, str) and line.strip()]
+        summary = (
+            f"{_as_str(contract.get('platform'), _as_str(entry.get('platform'), 'Platform'))} static draft is ready "
+            "for launch review."
+        )
+        previews.append(
+            {
+                "platform_slug": _as_str(contract.get("platform_slug"), _as_str(entry.get("platform_slug"), "static-platform")),
+                "platform_name": _as_str(contract.get("platform"), _as_str(entry.get("platform"), "Static platform")),
+                "channel_type": "static",
+                "summary": summary,
+                "headline": _as_str(creative.get("headline")),
+                "caption_text": "\n".join(body_lines),
+                "cta": _as_str(creative.get("primary_cta")),
+                "hook": _as_str(creative.get("headline")),
+                "proof_points": proof_points,
+                "media_paths": [
+                    path
+                    for path in [
+                        _as_str(expected_outputs.get("image_file")),
+                        _as_str(expected_outputs.get("copy_file")),
+                    ]
+                    if path
+                ],
+                "asset_paths": {
+                    "contract_path": _as_str(entry.get("contract_path")),
+                    "brief_path": _as_str(entry.get("brief_path")),
+                    "landing_page_path": _as_str(landing_page.get("slug")),
+                },
+                "preview_text": "\n".join(
+                    [
+                        f"Headline: {_as_str(creative.get('headline'), 'n/a')}",
+                        *(f"- {line}" for line in body_lines[:3]),
+                        f"CTA: {_as_str(creative.get('primary_cta'), 'n/a')}",
+                        *(f"Proof: {point}" for point in proof_points[:3]),
+                    ]
+                ),
+                "format": {
+                    "aspect_ratio": _as_str(_as_dict(contract.get("layout")).get("aspect_ratio")),
+                    "target_size": _as_str(_as_dict(contract.get("layout")).get("target_size")),
+                },
+            }
+        )
+    return previews
+
+
+def _build_video_platform_previews(production_handoff: dict) -> list[dict]:
+    video_handoff = _as_dict(_as_dict(production_handoff.get("contract_handoffs")).get("video"))
+    previews = []
+    for platform_entry in _as_list(video_handoff.get("platforms")):
+        entry = _as_dict(platform_entry)
+        contract = _read_json_file(_as_str(entry.get("contract_path")))
+        creative = _as_dict(contract.get("creative"))
+        requirements = _as_dict(contract.get("platform_requirements"))
+        expected_outputs = _as_dict(contract.get("expected_render_outputs"))
+        story_beats = [
+            _as_str(_as_dict(beat).get("description"))
+            for beat in _as_list(creative.get("story_beats"))
+            if _as_str(_as_dict(beat).get("description"))
+        ]
+        voiceover_lines = [line for line in _as_list(creative.get("voiceover_lines")) if isinstance(line, str) and line.strip()]
+        previews.append(
+            {
+                "platform_slug": _as_str(contract.get("platform_slug"), _as_str(entry.get("platform_slug"), "video-platform")),
+                "platform_name": _as_str(contract.get("platform"), _as_str(entry.get("platform"), "Video platform")),
+                "channel_type": "video",
+                "summary": (
+                    f"{_as_str(contract.get('platform'), _as_str(entry.get('platform'), 'Platform'))} video concept is "
+                    "ready for launch review."
+                ),
+                "headline": _as_str(creative.get("summary")),
+                "caption_text": "\n".join(voiceover_lines),
+                "cta": _as_str(creative.get("primary_cta")),
+                "hook": _as_str(creative.get("opening_line")),
+                "proof_points": story_beats,
+                "media_paths": [
+                    path
+                    for path in [
+                        _as_str(expected_outputs.get("poster_file")),
+                        _as_str(expected_outputs.get("video_file")),
+                        _as_str(expected_outputs.get("captions_file")),
+                        _as_str(expected_outputs.get("project_file")),
+                    ]
+                    if path
+                ],
+                "asset_paths": {
+                    "contract_path": _as_str(entry.get("contract_path")),
+                    "brief_path": _as_str(entry.get("brief_path")),
+                },
+                "preview_text": "\n".join(
+                    [
+                        f"Opening line: {_as_str(creative.get('opening_line'), 'n/a')}",
+                        *(f"- {line}" for line in voiceover_lines[:4]),
+                        f"CTA: {_as_str(creative.get('primary_cta'), 'n/a')}",
+                        *(f"Beat: {beat}" for beat in story_beats[:4]),
+                    ]
+                ),
+                "format": {
+                    "aspect_ratio": _as_str(requirements.get("aspect_ratio")),
+                    "target_duration_seconds": _as_str(requirements.get("target_duration_seconds")),
+                    "max_duration_seconds": _as_str(requirements.get("max_duration_seconds")),
+                },
+            }
+        )
+    return previews
+
+
+def _build_review_bundle(data: dict, preview_path: str, approval_message: str, launch_approved: bool) -> dict:
+    handoff = _as_dict(data.get("production_handoff"))
+    production_brief = _as_dict(handoff.get("production_brief"))
+    artifacts = _as_dict(handoff.get("artifacts"))
+    page_designer = _as_dict(artifacts.get("page_designer"))
+    scriptwriter = _as_dict(artifacts.get("scriptwriter"))
+    production_review = _as_dict(artifacts.get("production_review_preview"))
+    page_assets = _as_dict(page_designer.get("page_assets"))
+    landing_page = _as_dict(page_assets.get("landing_page"))
+    page_artifacts = _as_dict(page_designer.get("artifacts"))
+    script_assets = _as_dict(scriptwriter.get("script_assets"))
+    script_artifacts = _as_dict(scriptwriter.get("artifacts"))
+    static_handoff = _as_dict(_as_dict(handoff.get("contract_handoffs")).get("static"))
+    video_handoff = _as_dict(_as_dict(handoff.get("contract_handoffs")).get("video"))
+    platform_previews = [
+        *_build_static_platform_previews(handoff),
+        *_build_video_platform_previews(handoff),
+    ]
+    return {
+        "schema_version": "2026-03-20.launch-review-bundle.v1",
+        "campaign_name": _as_str(handoff.get("campaign_name"), _as_str(data.get("campaign_name"))),
+        "approval_status": "approved" if launch_approved else "pending_human_review",
+        "approval_message": approval_message,
+        "summary": {
+            "core_message": _as_str(production_brief.get("core_message")),
+            "primary_cta": _as_str(production_brief.get("primary_cta")),
+            "offer_summary": _as_str(production_brief.get("offer_summary")),
+            "static_contract_count": len(_as_list(static_handoff.get("platform_contract_paths"))),
+            "video_contract_count": len(_as_list(video_handoff.get("platform_contract_paths"))),
+            "launch_readiness_status": _as_str(_as_dict(handoff.get("launch_readiness")).get("status")),
+        },
+        "landing_page_preview": {
+            "slug": _as_str(landing_page.get("slug")),
+            "headline": _as_str(landing_page.get("hero_headline")),
+            "subheadline": _as_str(landing_page.get("hero_subheadline")),
+            "cta": _as_str(landing_page.get("primary_cta")),
+            "sections": [item for item in _as_list(landing_page.get("sections")) if isinstance(item, str) and item.strip()],
+            "message_match_checks": [
+                item for item in _as_list(landing_page.get("message_match_checks")) if isinstance(item, str) and item.strip()
+            ],
+            "landing_page_path": _as_str(page_artifacts.get("landing_page_path")),
+            "preview_path": _as_str(page_artifacts.get("preview_path")),
+        },
+        "script_preview": {
+            "meta_ad_hook": _as_str(_as_dict(script_assets.get("meta_ad_script")).get("hook")),
+            "meta_ad_body": [
+                item for item in _as_list(_as_dict(script_assets.get("meta_ad_script")).get("body"))
+                if isinstance(item, str) and item.strip()
+            ],
+            "short_video_opening_line": _as_str(_as_dict(script_assets.get("short_video_script")).get("opening_line")),
+            "short_video_beats": [
+                item for item in _as_list(_as_dict(script_assets.get("short_video_script")).get("beats"))
+                if isinstance(item, str) and item.strip()
+            ],
+            "meta_script_path": _as_str(script_artifacts.get("meta_script_path")),
+            "short_video_script_path": _as_str(script_artifacts.get("short_video_script_path")),
+            "preview_path": _as_str(script_artifacts.get("preview_path")),
+        },
+        "review_packet": {
+            "production_review_preview_path": _as_str(_as_dict(production_review.get("artifacts")).get("preview_path")),
+            "canonical_review_packet_path": _as_str(_as_dict(production_review.get("artifacts")).get("canonical_preview_path")),
+            "review_summary": _as_str(_as_dict(_as_dict(production_review.get("review_packet")).get("summary")).get("core_message")),
+        },
+        "platform_previews": platform_previews,
+        "artifact_paths": {
+            "preview_path": preview_path,
+            "static_output_root": _as_str(static_handoff.get("output_root")),
+            "static_platform_index_path": _as_str(static_handoff.get("platform_index_path")),
+            "video_output_root": _as_str(video_handoff.get("output_root")),
+            "video_platform_index_path": _as_str(video_handoff.get("platform_index_path")),
+        },
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json", action="store_true")
@@ -26,21 +245,47 @@ def main() -> int:
     run_id = ensure_run_id(data.get("run_id", ""), brand_slug, data.get("campaign_name", ""))
     plan = data.get("publish_plan", {})
     launch_approved = _as_bool(args.launch_approved)
-    preview = "\n".join(
-        [
-            f"Campaign: {data.get('campaign_name', '')}",
-            f"Static contracts: {plan.get('static_contract_count', 0)}",
-            f"Video contracts: {plan.get('video_contract_count', 0)}",
-            f"Approval state: {'approved' if launch_approved else 'pending_human_review'}",
-            "Launch review remains a human approval gate.",
-        ]
-    )
-    preview_path = save_artifact_text(run_id, "launch-review-preview/preview.txt", preview)
     approval_message = (
         f"Approval needed: marketing pipeline launch review for {data.get('campaign_name', brand_slug)}. "
         f"Static assets: {plan.get('static_contract_count', 0)}. Video assets: {plan.get('video_contract_count', 0)}. "
         "Reply with approval and rerun with launch_approved=true to generate publish-ready assets."
     )
+    review_bundle = _build_review_bundle(data, "", approval_message, launch_approved)
+    preview_lines = [
+        f"Campaign: {review_bundle.get('campaign_name', '')}",
+        f"Core message: {_as_str(_as_dict(review_bundle.get('summary')).get('core_message'), 'n/a')}",
+        f"Primary CTA: {_as_str(_as_dict(review_bundle.get('summary')).get('primary_cta'), 'n/a')}",
+        f"Static contracts: {plan.get('static_contract_count', 0)}",
+        f"Video contracts: {plan.get('video_contract_count', 0)}",
+        f"Approval state: {'approved' if launch_approved else 'pending_human_review'}",
+        "",
+        "Landing page preview:",
+        f"- Headline: {_as_str(_as_dict(review_bundle.get('landing_page_preview')).get('headline'), 'n/a')}",
+        f"- Subheadline: {_as_str(_as_dict(review_bundle.get('landing_page_preview')).get('subheadline'), 'n/a')}",
+        f"- CTA: {_as_str(_as_dict(review_bundle.get('landing_page_preview')).get('cta'), 'n/a')}",
+        "",
+        "Script preview:",
+        f"- Meta hook: {_as_str(_as_dict(review_bundle.get('script_preview')).get('meta_ad_hook'), 'n/a')}",
+        f"- Video opening line: {_as_str(_as_dict(review_bundle.get('script_preview')).get('short_video_opening_line'), 'n/a')}",
+        "",
+        "Platform previews:",
+    ]
+    for platform in _as_list(review_bundle.get("platform_previews")):
+        platform_dict = _as_dict(platform)
+        preview_text = _as_str(platform_dict.get("preview_text"))
+        preview_lines.extend(
+            [
+                f"- {_as_str(platform_dict.get('platform_name'), _as_str(platform_dict.get('platform_slug'), 'Platform'))} [{_as_str(platform_dict.get('channel_type'), 'draft')}]",
+                f"  Hook: {_as_str(platform_dict.get('hook'), 'n/a')}",
+                f"  CTA: {_as_str(platform_dict.get('cta'), 'n/a')}",
+                *(f"  {line}" for line in preview_text.splitlines()[:4] if line.strip()),
+            ]
+        )
+    preview_lines.append("")
+    preview_lines.append("Launch review remains a human approval gate.")
+    preview = "\n".join(preview_lines)
+    preview_path = save_artifact_text(run_id, "launch-review-preview/preview.txt", preview)
+    review_bundle["artifact_paths"]["preview_path"] = preview_path
     notification = {
         "executed": False,
         "status": "skipped",
@@ -61,6 +306,7 @@ def main() -> int:
             "reason": "Stage 4 launch review remains a human approval step in the Lobster workflow.",
             "message": approval_message,
         },
+        "review_bundle": review_bundle,
         "artifacts": {
             "preview_path": preview_path,
         },
