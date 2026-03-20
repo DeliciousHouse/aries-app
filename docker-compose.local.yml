@@ -5,7 +5,8 @@ services:
     environment:
       OPENCLAW_GATEWAY_URL: ${OPENCLAW_GATEWAY_URL:-http://host.docker.internal:18789}
       OPENCLAW_SESSION_KEY: ${OPENCLAW_SESSION_KEY:-main}
-      OPENCLAW_LOBSTER_CWD: ${OPENCLAW_LOBSTER_CWD:-lobster}
+      OPENCLAW_GATEWAY_LOBSTER_CWD: ${OPENCLAW_GATEWAY_LOBSTER_CWD:-aries-app/lobster}
+      OPENCLAW_LOCAL_LOBSTER_CWD: ${OPENCLAW_LOCAL_LOBSTER_CWD:-/app/lobster}
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -22,7 +23,8 @@ services:
       DATA_ROOT: /data
       OPENCLAW_GATEWAY_URL: ${OPENCLAW_GATEWAY_URL:-http://host.docker.internal:18789}
       OPENCLAW_SESSION_KEY: ${OPENCLAW_SESSION_KEY:-main}
-      OPENCLAW_LOBSTER_CWD: ${OPENCLAW_LOBSTER_CWD:-lobster}
+      OPENCLAW_GATEWAY_LOBSTER_CWD: ${OPENCLAW_GATEWAY_LOBSTER_CWD:-aries-app/lobster}
+      OPENCLAW_LOCAL_LOBSTER_CWD: ${OPENCLAW_LOCAL_LOBSTER_CWD:-/app/lobster}
     volumes:
       - ./:/app
       - aries_runtime_data:/data
