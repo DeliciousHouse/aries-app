@@ -40,7 +40,7 @@ const ENDPOINTS = [
     body:
       '{ "jobType": "brand_campaign", "payload": { "brandUrl", "competitorUrl" } }',
     response:
-      '{ "marketing_job_status": "accepted", "jobId": "...", "jobType": "brand_campaign", "approvalRequired": true, "jobStatusUrl": "/marketing/job-status?jobId=..." }',
+      '{ "marketing_job_status": "accepted", "jobId": "...", "jobType": "brand_campaign", "marketing_stage": "strategy", "approvalRequired": true, "approval": { "stage": "strategy", "title": "Strategy approval required", "message": "..." }, "jobStatusUrl": "/marketing/job-status?jobId=..." }',
   },
   {
     method: 'GET',
@@ -48,14 +48,14 @@ const ENDPOINTS = [
     desc: 'Read current marketing job state from the local runtime read model.',
     body: '—',
     response:
-      '{ "jobId": "...", "marketing_job_state": "...", "marketing_job_status": "...", "marketing_stage": "...", "marketing_stage_status": {...}, "updatedAt": "...", "needs_attention": false, "approvalRequired": true, "summary": { "headline": "...", "subheadline": "..." }, "stageCards": [...], "artifacts": [...], "timeline": [...], "approval": { "required": true, "title": "...", "message": "..." }, "nextStep": "submit_approval", "repairStatus": "not_required" }',
+      '{ "jobId": "...", "marketing_job_state": "...", "marketing_job_status": "...", "marketing_stage": "...", "marketing_stage_status": {...}, "updatedAt": "...", "needs_attention": false, "approvalRequired": true, "summary": { "headline": "...", "subheadline": "..." }, "stageCards": [...], "artifacts": [...], "timeline": [...], "approval": { "required": true, "title": "...", "message": "..." }, "publishConfig": { "platforms": [...], "livePublishPlatforms": [...], "videoRenderPlatforms": [...] }, "nextStep": "submit_approval", "repairStatus": "not_required" }',
   },
   {
     method: 'POST',
     path: '/api/marketing/jobs/:jobId/approve',
-    desc: 'Approve a marketing job through the OpenClaw boundary.',
+    desc: 'Approve the current marketing checkpoint and optionally configure publish/render selections.',
     body:
-      '{ "approvedBy", "approvedStages"?: ["research"|"strategy"|"production"|"publish"], "resumePublishIfNeeded"?: true }',
+      '{ "approvedBy", "approvedStages"?: ["strategy"|"production"|"publish"], "resumePublishIfNeeded"?: true, "publishConfig"?: { "platforms"?: [...], "livePublishPlatforms"?: [...], "videoRenderPlatforms"?: [...] } }',
     response:
       '{ "approval_status": "resumed|error", "jobId": "...", "resumedStage": "publish", "completed": true, "reason"?: "approval_not_available", "jobStatusUrl": "/marketing/job-status?jobId=..." }',
   },
@@ -106,7 +106,7 @@ export default function ApiDocsPage() {
               Internal routes that keep the browser contract <span className="text-gradient">safe</span>
             </h1>
             <p className="text-xl text-white/60">
-              These are the routes the browser can call. Aries stays responsible for validation, auth context, payload shaping, and workflow orchestration boundaries.
+              These are the routes the browser can call. Aries stays responsible for validation, auth context, payload shaping, and execution-boundary orchestration.
             </p>
           </div>
 

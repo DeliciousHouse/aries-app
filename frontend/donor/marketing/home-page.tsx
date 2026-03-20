@@ -236,6 +236,7 @@ function OrbitPlatform({
 
 function Hero() {
   const containerRef = useRef<HTMLElement>(null);
+  const [isMounted, setIsMounted] = useState(false);
   const { scrollYProgress } = useScroll({
     target: containerRef,
     offset: ['start start', 'end start'],
@@ -248,7 +249,9 @@ function Hero() {
   });
 
   const [windowSize, setWindowSize] = useState({ width: 1280, height: 800 });
+
   useEffect(() => {
+    setIsMounted(true);
     const updateSize = () => {
       setWindowSize({
         width: document.documentElement.clientWidth,
@@ -275,14 +278,14 @@ function Hero() {
     [],
   );
 
-  const navbarLogoX = Math.max(24, (windowSize.width - 1280) / 2) + 16;
-  const navbarLogoY = 32;
+  const navbarLogoX = Math.max(24, (windowSize.width - 1280) / 2) + 40;
+  const navbarLogoY = 56;
   const startX = navbarLogoX - windowSize.width / 2;
   const startY = navbarLogoY - windowSize.height / 2;
 
   const logoX = useTransform(smoothProgress, [0, 0.15, 0.3, 0.5, 0.95, 1], [startX, startX, 0, 0, startX, startX]);
   const logoY = useTransform(smoothProgress, [0, 0.15, 0.3, 0.5, 0.95, 1], [startY, startY, 0, 0, startY, startY]);
-  const logoScale = useTransform(smoothProgress, [0, 0.15, 0.3, 0.5, 0.95, 1], [1, 1, 1.5625, 1.5625, 0.5, 0.5]);
+  const logoScale = useTransform(smoothProgress, [0, 0.15, 0.3, 0.5, 0.95, 1], [1, 1, 1.5625, 1.5625, 1, 1]);
   const logoOpacity = useTransform(smoothProgress, [0, 0.95, 1], [1, 1, 0]);
   const centralCircleOpacity = useTransform(smoothProgress, [0, 0.05, 0.15, 0.5, 0.6], [0, 0, 1, 1, 0]);
   const centralCircleScale = useTransform(smoothProgress, [0, 0.05, 0.15, 0.5, 0.6], [0.5, 0.5, 1, 1, 0.5]);
@@ -291,7 +294,7 @@ function Hero() {
 
   return (
     <section ref={containerRef} className="relative h-[250vh]">
-      <div className="sticky top-0 h-screen flex items-center justify-center overflow-hidden bg-animate">
+      <div className="sticky top-0 h-screen w-full flex items-center justify-center overflow-hidden bg-animate">
         <NetworkBackground />
 
         <div className="absolute inset-0 z-0">
@@ -323,7 +326,7 @@ function Hero() {
           </div>
         </div>
 
-        <div className="container mx-auto px-6 relative z-20 text-center">
+        <div className="container mx-auto px-6 relative z-20 text-center pt-48 md:pt-32 lg:pt-0">
           <motion.div style={{ opacity: useTransform(smoothProgress, [0, 0.05], [1, 0]) }} className="mb-8">
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-reflection relative">
               <Sparkles className="w-4 h-4 text-primary" />
@@ -336,7 +339,7 @@ function Hero() {
               opacity: useTransform(smoothProgress, [0, 0.05], [1, 0]),
               y: useTransform(smoothProgress, [0, 0.05], [0, -20]),
             }}
-            className="text-[2.5rem] md:text-[3.5rem] lg:text-[4rem] font-bold tracking-tight mb-8 leading-[1.1]"
+            className="text-3xl md:text-[3rem] lg:text-[4rem] font-bold tracking-tight mb-8 leading-[1.1]"
           >
             Turn Your Marketing Into an <br />
             <span className="text-gradient">Autonomous Growth Engine</span>
@@ -407,7 +410,7 @@ function Hero() {
                   </feMerge>
                 </filter>
               </defs>
-              {PLATFORM_ORBITS.map((platform, index) => (
+              {isMounted && PLATFORM_ORBITS.map((platform, index) => (
                 <OrbitLine
                   key={`${platform.angle}-${platform.radius}`}
                   angle={platform.angle}
@@ -440,15 +443,15 @@ function Hero() {
                 position: 'fixed',
                 top: '50%',
                 left: '50%',
-                marginTop: '-16px',
-                marginLeft: '-16px',
+                marginTop: '-40px',
+                marginLeft: '-40px',
               }}
               className="z-[60]"
             >
               <div className="relative">
-                <AriesMark sizeClassName="w-8 h-8" />
+                <AriesMark sizeClassName="w-20 h-20" />
                 <motion.div
-                  className="absolute inset-0 rounded-lg border-2 border-primary/50"
+                  className="absolute inset-0 rounded-full border-2 border-primary/50"
                   animate={{ scale: [1, 2], opacity: [0.8, 0] }}
                   transition={{ duration: 2, repeat: Infinity, ease: 'easeOut' }}
                 />
@@ -457,36 +460,53 @@ function Hero() {
           </div>
         </div>
 
-        <div className="hidden lg:block absolute inset-0 pointer-events-none max-w-[1400px] mx-auto">
+
+      </div>
+
+
+      {/* Floating Insight Cards (Viewport-Anchored) */}
+      <div className="hidden lg:block sticky top-0 h-screen w-screen pointer-events-none z-30 -mt-[100vh]">
+        {/* Analytics Card (Left Anchor) */}
+        <div className="absolute inset-x-0 top-0 h-full pointer-events-none px-[4vw]">
           <motion.div
-            style={{ opacity: useTransform(smoothProgress, [0, 0.05], [1, 0]) }}
+            style={{
+              left: 0,
+              top: '66%',
+              opacity: useTransform(smoothProgress, [0, 0.15], [1, 0])
+            }}
             animate={{ y: [-15, 15, -15] }}
-            transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
-            className="absolute top-[50%] left-8 xl:left-12 mt-24 glass-reflection p-5 rounded-2xl w-64 text-left pointer-events-auto"
+            transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
+            className="absolute glass p-5 rounded-3xl w-72 text-left border border-white/10 glow-purple pointer-events-auto shadow-2xl"
           >
             <div className="flex items-center gap-3 mb-2">
               <div className="p-2 bg-primary/20 rounded-lg">
                 <BarChart3 className="w-5 h-5 text-primary" />
               </div>
-              <span className="font-semibold text-white">Analytics</span>
+              <span className="font-bold text-white">Analytics</span>
             </div>
-            <p className="text-sm font-medium text-white/80">+24% Growth this week</p>
+            <p className="text-sm font-medium text-white/50 tracking-tight">+24% Growth this week</p>
           </motion.div>
 
-          <motion.div
-            style={{ opacity: useTransform(smoothProgress, [0, 0.05], [1, 0]) }}
-            animate={{ y: [15, -15, 15] }}
-            transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }}
-            className="absolute top-[65%] right-4 xl:right-8 glass-reflection p-5 rounded-2xl w-[250px] flex flex-col justify-center text-left pointer-events-auto"
-          >
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 bg-secondary/20 rounded-lg">
-                <Share2 className="w-5 h-5 text-secondary" />
+
+          {/* Auto-Post Card (Force-Right Anchor via Flex) */}
+          <div className="absolute inset-0 flex justify-end items-start pt-[70vh] px-[4vw]">
+            <motion.div
+              style={{
+                opacity: useTransform(smoothProgress, [0, 0.15], [1, 0])
+              }}
+              animate={{ y: [15, -15, 15] }}
+              transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
+              className="glass p-5 rounded-3xl w-64 text-left border border-white/10 glow-purple pointer-events-auto shadow-2xl relative"
+            >
+              <div className="flex items-center gap-3 mb-2">
+                <div className="p-2 bg-secondary/20 rounded-lg">
+                  <Share2 className="w-5 h-5 text-secondary" />
+                </div>
+                <span className="font-bold text-white">Auto-Post</span>
               </div>
-              <span className="font-semibold text-white">Auto-Post</span>
-            </div>
-            <p className="text-sm font-medium text-white/80">X, LinkedIn, Insta, etc.</p>
-          </motion.div>
+              <p className="text-sm font-medium text-white/50 tracking-tight">X, LinkedIn, Insta, etc.</p>
+            </motion.div>
+          </div>
         </div>
       </div>
     </section>
@@ -611,7 +631,7 @@ function Features() {
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
-            className="text-[48px] leading-tight font-bold mb-6"
+            className="text-4xl md:text-[48px] leading-tight font-bold mb-6"
           >
             Features for <br />
             <span className="text-gradient">Hyper-Growth</span>
@@ -676,7 +696,7 @@ function HowItWorks() {
     <section id="how-it-works" className="py-24 relative">
       <div className="container mx-auto px-6">
         <div className="text-center mb-20">
-          <h2 className="text-[48px] leading-tight font-bold mb-6">How It Works</h2>
+          <h2 className="text-4xl md:text-[48px] leading-tight font-bold mb-6">How It Works</h2>
           <p className="text-white/60">Four steps to autonomous growth.</p>
         </div>
 
@@ -713,6 +733,7 @@ function HowItWorks() {
 
 function ContentCalendar() {
   const [activeDate, setActiveDate] = useState('20');
+  const [currentWeek, setCurrentWeek] = useState<'current' | 'next'>('current');
   const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
 
   const platforms = [
@@ -723,20 +744,38 @@ function ContentCalendar() {
     { name: 'Facebook' },
   ];
 
+  const getPlatformIcon = (platform: string) => {
+    switch (platform) {
+      case 'LinkedIn':
+        return <Linkedin className="w-3.5 h-3.5 text-blue-400" />;
+      case 'YouTube':
+        return <Youtube className="w-3.5 h-3.5 text-red-400" />;
+      case 'X / Twitter':
+        return <Twitter className="w-3.5 h-3.5 text-white/80" />;
+      case 'Instagram':
+        return <Instagram className="w-3.5 h-3.5 text-pink-400" />;
+      case 'Facebook':
+        return <Facebook className="w-3.5 h-3.5 text-blue-600" />;
+      default:
+        return <Sparkles className="w-3.5 h-3.5 text-primary" />;
+    }
+  };
+
+
   const getPlatformBorder = (platform: string) => {
     switch (platform) {
       case 'LinkedIn':
-        return 'border-blue-600/50';
+        return 'border-blue-600/30';
       case 'YouTube':
-        return 'border-red-500/50';
+        return 'border-red-500/30';
       case 'X / Twitter':
-        return 'border-blue-400/50';
+        return 'border-white/20';
       case 'Instagram':
-        return 'border-pink-500/50';
+        return 'border-pink-500/30';
       case 'Facebook':
-        return 'border-blue-700/50';
+        return 'border-blue-700/30';
       default:
-        return 'border-primary/30';
+        return 'border-primary/20';
     }
   };
 
@@ -783,10 +822,64 @@ function ContentCalendar() {
       date: '20',
       posts: [{ title: 'Aries AI v2.0 Launch Event', platform: 'LinkedIn', time: '10:00', status: 'Scheduled' }],
     },
+    {
+      day: 'Sat',
+      date: '21',
+      posts: [],
+    },
+    {
+      day: 'Sun',
+      date: '22',
+      posts: [],
+    },
+    {
+      day: 'Mon',
+      date: '23',
+      posts: [
+        { title: 'Next-Gen Automation Primer', platform: 'X / Twitter', time: '09:30', status: 'Scheduled' },
+        { title: 'Brand Identity Deep-dive', platform: 'Instagram', time: '15:00', status: 'Scheduled' },
+      ],
+    },
+    {
+      day: 'Tue',
+      date: '24',
+      posts: [{ title: 'Future of SaaS Marketing', platform: 'LinkedIn', time: '10:00', status: 'Scheduled' }],
+    },
+    {
+      day: 'Wed',
+      date: '25',
+      posts: [{ title: 'Social Media Strategy Session', platform: 'Facebook', time: '13:00', status: 'Scheduled' }],
+    },
+    {
+      day: 'Thu',
+      date: '26',
+      posts: [{ title: 'Content Performance Review', platform: 'Instagram', time: '11:30', status: 'Scheduled' }],
+    },
+    {
+      day: 'Fri',
+      date: '27',
+      posts: [{ title: 'Quarterly Growth Planning', platform: 'LinkedIn', time: '09:00', status: 'Scheduled' }],
+    },
+    {
+      day: 'Sat',
+      date: '28',
+      posts: [],
+    },
+    {
+      day: 'Sun',
+      date: '29',
+      posts: [],
+    },
   ];
 
   const monthDays = Array.from({ length: 31 }, (_, i) => i + 1);
   const getPostsForDate = (date: string) => schedule.find((entry) => entry.date === date)?.posts || [];
+
+  const displayedSchedule = useMemo(() => {
+    return currentWeek === 'current'
+      ? schedule.filter((item) => ['16', '17', '18', '19', '20', '21', '22'].includes(item.date))
+      : schedule.filter((item) => ['23', '24', '25', '26', '27', '28', '29'].includes(item.date));
+  }, [currentWeek, schedule]);
 
   return (
     <section id="calendar" className="py-24 relative overflow-hidden">
@@ -796,7 +889,7 @@ function ContentCalendar() {
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
-            className="text-[48px] leading-tight font-light mb-6"
+            className="text-4xl md:text-[48px] leading-tight font-light mb-6"
           >
             Autonomous <span className="text-gradient">Content Calendar</span>
           </motion.h2>
@@ -857,11 +950,11 @@ function ContentCalendar() {
                 <h4 className="text-xs font-bold uppercase tracking-widest text-white/30 mb-4">Status</h4>
                 <div className="space-y-3 px-2">
                   <div className="flex items-center gap-3">
-                    <div className="w-2 h-2 rounded-full bg-green-500" />
+                    <div className="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.5)]" />
                     <span className="text-sm text-white/60">Published</span>
                   </div>
                   <div className="flex items-center gap-3">
-                    <div className="w-2 h-2 rounded-full bg-primary" />
+                    <div className="w-2 h-2 rounded-full bg-yellow-400 shadow-[0_0_8px_rgba(250,204,21,0.5)]" />
                     <span className="text-sm text-white/60">Scheduled</span>
                   </div>
                 </div>
@@ -874,17 +967,36 @@ function ContentCalendar() {
               <div className="flex items-center gap-6">
                 <h3 className="text-2xl font-light">March 2026</h3>
                 <div className="flex items-center gap-2">
-                  <button type="button" className="p-2 hover:bg-white/5 rounded-lg border border-white/10 transition-colors">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentWeek('current')}
+                    className={cn(
+                      "p-2 rounded-lg border border-white/10 transition-colors",
+                      currentWeek === 'current' ? "bg-white/5 opacity-50 cursor-not-allowed" : "hover:bg-white/5"
+                    )}
+                    disabled={currentWeek === 'current'}
+                  >
                     <ChevronLeft className="w-4 h-4" />
                   </button>
                   <button
                     type="button"
-                    onClick={() => setActiveDate('20')}
+                    onClick={() => {
+                      setActiveDate('20');
+                      setCurrentWeek('current');
+                    }}
                     className="px-4 py-2 hover:bg-white/5 rounded-lg border border-white/10 text-sm font-medium transition-colors"
                   >
                     Today
                   </button>
-                  <button type="button" className="p-2 hover:bg-white/5 rounded-lg border border-white/10 transition-colors">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentWeek('next')}
+                    className={cn(
+                      "p-2 rounded-lg border border-white/10 transition-colors",
+                      currentWeek === 'next' ? "bg-white/5 opacity-50 cursor-not-allowed" : "hover:bg-white/5"
+                    )}
+                    disabled={currentWeek === 'next'}
+                  >
                     <ChevronRight className="w-4 h-4" />
                   </button>
                 </div>
@@ -913,16 +1025,16 @@ function ContentCalendar() {
                     Month
                   </button>
                 </div>
-                <Link href="/calendar" className="px-6 py-2 bg-gradient-to-r from-primary to-secondary rounded-xl text-sm font-bold shadow-lg shadow-primary/20">
-                  Open Runtime
+                <Link href="/login" className="px-6 py-2 bg-gradient-to-r from-primary to-secondary rounded-xl text-sm font-bold shadow-lg shadow-primary/20">
+                  New Post
                 </Link>
               </div>
             </div>
 
             <div className="flex-1 p-8 overflow-x-auto">
               {viewMode === 'week' ? (
-                <div className="min-w-[800px] grid grid-cols-5 gap-6 h-full">
-                  {schedule.map((day, dayIndex) => (
+                <div className="min-w-[800px] grid grid-cols-7 gap-6 h-full">
+                  {displayedSchedule.map((day, dayIndex) => (
                     <div key={day.day} className="flex flex-col gap-6">
                       <div className="text-center">
                         <span className="block text-xs font-bold uppercase tracking-widest text-white/30 mb-2">{day.day}</span>
@@ -957,14 +1069,14 @@ function ContentCalendar() {
                               <MoreHorizontal className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
                             </div>
                             <h5 className="text-[10px] font-light mb-1.5 leading-tight">{truncateTitle(post.title, 3)}</h5>
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-[8px] font-medium px-1.5 py-0.5 bg-white/5 rounded-full text-white/70">
-                                {post.platform}
-                              </span>
+                            <div className="flex items-center justify-between gap-1.5 pt-0.5">
+                              {getPlatformIcon(post.platform)}
                               <span
                                 className={cn(
-                                  'text-[6px] font-bold uppercase tracking-widest px-1 py-0.5 rounded-full',
-                                  post.status === 'Published' ? 'bg-green-500/20 text-green-500' : 'bg-primary/20 text-primary',
+                                  'text-[5.5px] font-bold uppercase tracking-widest px-1 py-0.5 rounded-sm border',
+                                  post.status === 'Published'
+                                    ? 'border-green-400 text-white'
+                                    : 'border-yellow-400 text-white',
                                 )}
                               >
                                 {post.status}
@@ -1050,7 +1162,7 @@ function Pricing() {
     <section id="pricing" className="py-24 relative overflow-hidden">
       <div className="container mx-auto px-6">
         <div className="text-center mb-16">
-          <h2 className="text-[48px] leading-tight font-bold mb-6">Simple, Transparent Pricing</h2>
+          <h2 className="text-4xl md:text-[48px] leading-tight font-bold mb-6">Simple, Transparent Pricing</h2>
           <p className="text-white/60">Choose the plan that fits your growth stage.</p>
         </div>
 
@@ -1121,36 +1233,46 @@ function FinalCTA() {
           viewport={{ once: true }}
           className="relative bg-white/5 backdrop-blur-xl border border-white/10 rounded-[4rem] overflow-hidden h-[500px] md:h-[700px] w-full"
         >
+          {/* Background Glow */}
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full bg-white/5 blur-[120px] -z-10 pointer-events-none" />
 
-          <div className="w-full h-full relative z-10 overflow-hidden bg-[radial-gradient(circle_at_30%_30%,rgba(124,58,237,0.35),transparent_35%),radial-gradient(circle_at_70%_40%,rgba(168,85,247,0.25),transparent_30%),radial-gradient(circle_at_50%_75%,rgba(255,255,255,0.09),transparent_40%)]">
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-8">
-              <div className="glass-reflection rounded-[2rem] p-8 md:p-12 max-w-3xl">
-                <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 mb-6">
-                  <Sparkles className="w-7 h-7 text-primary" />
-                </div>
-                <h2 className="text-4xl md:text-6xl font-bold mb-6 leading-tight">
-                  Bring the <span className="text-gradient">donor UI</span> to your real runtime
-                </h2>
-                <p className="text-white/60 text-lg md:text-xl max-w-2xl mx-auto mb-8">
-                  Launch the canonical Aries operator experience against the existing OpenClaw-backed backend, without leaking runtime internals to the browser.
-                </p>
-                <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                  <Link
-                    href="/login"
-                    className="px-8 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 hover:scale-105 transition-transform flex items-center justify-center gap-2"
-                  >
-                    Open the Console <ArrowRight className="w-5 h-5" />
-                  </Link>
-                  <Link
-                    href="/documentation"
-                    className="px-8 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all"
-                  >
-                    Review Runtime Docs
-                  </Link>
-                </div>
-              </div>
+          {/* Content Overlay */}
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center md:items-end md:justify-end p-8 md:p-12 md:pr-10 lg:pr-21 lg:pb-24 pointer-events-none">
+            <div className="flex justify-center md:justify-end w-full pointer-events-auto">
+              {/* Action Buttons */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                className="flex flex-wrap items-center gap-4"
+              >
+                <Link
+                  href="/login"
+                  className="px-8 py-4 rounded-full border border-white/20 hover:border-white/40 text-white font-bold transition-all backdrop-blur-md text-sm"
+                >
+                  Start Automating
+                </Link>
+                <Link
+                  href="/documentation"
+                  className="px-8 py-4 rounded-full border border-white/20 hover:border-white/40 text-white font-bold transition-all backdrop-blur-md text-sm"
+                >
+                  Read the Docs
+                </Link>
+              </motion.div>
             </div>
+          </div>
+
+          {/* Spline 3D Integration */}
+          <div className="w-full h-full relative z-10 overflow-hidden">
+            <iframe
+              src="https://my.spline.design/boxeshover-1S9fbn10HLJkYTmxyOt88Ycb/"
+              frameBorder="0"
+              width="100%"
+              height="100%"
+              className="absolute -top-[50px] left-0 w-full md:w-[calc(100%+100px)] lg:w-[calc(100%+200px)] h-[calc(100%+100px)] max-w-none"
+              title="Interactive 3D Boxes"
+              sandbox="allow-scripts allow-same-origin"
+            ></iframe>
           </div>
         </motion.div>
       </div>
@@ -1199,7 +1321,7 @@ export default function DonorHomePage() {
             className="max-w-6xl mx-auto"
           >
             <div className="max-w-4xl mx-auto">
-              <h2 className="text-[48px] leading-tight font-bold mb-8">Meet Aries AI</h2>
+              <h2 className="text-4xl md:text-[48px] leading-tight font-bold mb-8">Meet Aries AI</h2>
               <p className="text-xl text-white/60 mb-12 leading-relaxed">
                 Aries AI is an AI-native marketing intelligence system that continuously learns and executes campaigns automatically. It&apos;s not just a tool; it&apos;s your new autonomous marketing department.
               </p>
@@ -1220,9 +1342,9 @@ export default function DonorHomePage() {
       </section>
 
       <Features />
-      <FeatureShowcase3D />
       <HowItWorks />
       <ContentCalendar />
+      <FeatureShowcase3D />
       <Pricing />
       <FinalCTA />
     </DonorMarketingShell>

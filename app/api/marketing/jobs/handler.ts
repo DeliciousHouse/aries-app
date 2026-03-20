@@ -40,7 +40,9 @@ export async function handlePostMarketingJobs(
         marketing_job_status: result.status,
         jobId: result.jobId,
         jobType: result.jobType,
+        marketing_stage: result.currentStage,
         approvalRequired: result.approvalRequired,
+        approval: result.approval,
         jobStatusUrl: `/marketing/job-status?jobId=${encodeURIComponent(result.jobId)}`,
       },
       { status: 202 }

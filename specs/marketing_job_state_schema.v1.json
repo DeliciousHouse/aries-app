@@ -1,0 +1,585 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aries-platform-bootstrap/specs/marketing_job_state_schema.v1.json",
+  "title": "marketing_job_state_schema.v1",
+  "description": "Canonical persisted runtime state for Aries-managed Lobster marketing jobs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_name",
+    "schema_version",
+    "job_id",
+    "tenant_id",
+    "job_type",
+    "state",
+    "status",
+    "current_stage",
+    "stage_order",
+    "stages",
+    "approvals",
+    "publish_config",
+    "history",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_name": {
+      "const": "marketing_job_state_schema"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "job_id": {
+      "type": "string",
+      "pattern": "^mkt_[a-zA-Z0-9._:-]{3,127}$"
+    },
+    "tenant_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "job_type": {
+      "type": "string",
+      "enum": [
+        "brand_campaign"
+      ]
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "running",
+        "approval_required",
+        "completed",
+        "failed"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "running",
+        "awaiting_approval",
+        "completed",
+        "failed"
+      ]
+    },
+    "current_stage": {
+      "type": "string",
+      "enum": [
+        "research",
+        "strategy",
+        "production",
+        "publish"
+      ]
+    },
+    "stage_order": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "string",
+        "enum": [
+          "research",
+          "strategy",
+          "production",
+          "publish"
+        ]
+      }
+    },
+    "stages": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "research",
+        "strategy",
+        "production",
+        "publish"
+      ],
+      "properties": {
+        "research": {
+          "$ref": "#/$defs/stageRecord"
+        },
+        "strategy": {
+          "$ref": "#/$defs/stageRecord"
+        },
+        "production": {
+          "$ref": "#/$defs/stageRecord"
+        },
+        "publish": {
+          "$ref": "#/$defs/stageRecord"
+        }
+      }
+    },
+    "approvals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "current",
+        "history"
+      ],
+      "properties": {
+        "current": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/approvalCheckpoint"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/approvalHistoryEntry"
+          },
+          "default": []
+        }
+      }
+    },
+    "publish_config": {
+      "$ref": "#/$defs/publishConfig"
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "headline": {
+          "type": "string"
+        },
+        "subheadline": {
+          "type": "string"
+        }
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/errorInfo"
+      },
+      "default": []
+    },
+    "last_error": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/errorInfo"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "history": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/historyEntry"
+      },
+      "default": []
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "$defs": {
+    "stageStatus": {
+      "type": "string",
+      "enum": [
+        "not_started",
+        "in_progress",
+        "awaiting_approval",
+        "completed",
+        "failed",
+        "skipped"
+      ]
+    },
+    "artifactRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "stage",
+        "title",
+        "category",
+        "status",
+        "summary"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "stage": {
+          "type": "string",
+          "enum": [
+            "research",
+            "strategy",
+            "production",
+            "publish"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "preview_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "action_label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "action_href": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "stageSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "highlight": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "errorInfo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message",
+        "stage",
+        "at"
+      ],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "stage": {
+          "type": "string",
+          "enum": [
+            "research",
+            "strategy",
+            "production",
+            "publish"
+          ]
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "stageRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stage",
+        "status",
+        "artifacts"
+      ],
+      "properties": {
+        "stage": {
+          "type": "string",
+          "enum": [
+            "research",
+            "strategy",
+            "production",
+            "publish"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/stageStatus"
+        },
+        "started_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "completed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "failed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "run_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/stageSummary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "primary_output": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true
+        },
+        "outputs": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifactRef"
+          },
+          "default": []
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/errorInfo"
+          },
+          "default": []
+        }
+      }
+    },
+    "publishConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platforms",
+        "live_publish_platforms",
+        "video_render_platforms"
+      ],
+      "properties": {
+        "platforms": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "live_publish_platforms": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "video_render_platforms": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      }
+    },
+    "approvalCheckpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stage",
+        "status",
+        "title",
+        "message",
+        "requested_at"
+      ],
+      "properties": {
+        "stage": {
+          "type": "string",
+          "enum": [
+            "strategy",
+            "production",
+            "publish"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "awaiting_approval"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "requested_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "action_label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "publish_config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/publishConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "approvalHistoryEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stage",
+        "status",
+        "at"
+      ],
+      "properties": {
+        "stage": {
+          "type": "string",
+          "enum": [
+            "strategy",
+            "production",
+            "publish"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "requested",
+            "approved",
+            "cleared"
+          ]
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "approved_by": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "publish_config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/publishConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "historyEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "at",
+        "state",
+        "status",
+        "note"
+      ],
+      "properties": {
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "state": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "stage": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

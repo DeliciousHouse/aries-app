@@ -36,7 +36,7 @@ function isActiveStatus(status: string): boolean {
 function nextStepGuidance(nextStep: string): string | null {
   switch (nextStep) {
     case 'submit_approval':
-      return 'Review the launch package and approve the publish stage when the campaign is ready to continue.';
+      return 'Review the current stage package and approve the checkpoint when the campaign is ready to continue.';
     case 'invoke_marketing_repair':
       return 'A failure or blocked state was recorded. Review the latest artifacts before retrying the run.';
     case 'wait_for_completion':
@@ -306,6 +306,14 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
               {nextStepGuidance(successResult.nextStep) ? (
                 <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4 text-cyan-100">{nextStepGuidance(successResult.nextStep)}</div>
               ) : null}
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-white/70">
+                <strong className="block text-white mb-2">Selected publish configuration</strong>
+                <div className="grid gap-1 text-sm">
+                  <span>Platforms: {successResult.publishConfig.platforms.join(', ') || 'none selected'}</span>
+                  <span>Live draft publish: {successResult.publishConfig.livePublishPlatforms.join(', ') || 'not requested'}</span>
+                  <span>Video render: {successResult.publishConfig.videoRenderPlatforms.join(', ') || 'not requested'}</span>
+                </div>
+              </div>
               {successResult.approval ? <ApprovalBanner approval={successResult.approval} /> : null}
               {successResult.needs_attention && !successResult.approval ? (
                 <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-red-100">

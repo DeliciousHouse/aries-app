@@ -21,9 +21,9 @@ This is the thinnest runnable app shell for Aries on `http://localhost:3000`.
   - `POST /api/publish/dispatch`
   - `GET /api/integrations`
   - `GET /api/platform-connections`
-  - `POST /api/contact` (`501` placeholder)
-  - `POST /api/waitlist` (`501` placeholder)
-  - `POST /api/events` (`501` placeholder)
+  - `POST /api/contact` (`501` explicit unavailable)
+  - `POST /api/waitlist` (`501` explicit unavailable)
+  - `POST /api/events` (`501` explicit unavailable)
 
 ## Setup
 1. Copy env template:
@@ -63,10 +63,9 @@ If running directly on host Node, set `CODE_ROOT` and `DATA_ROOT` to host-valid 
 - `/settings` is a read-only placeholder because `/api/tenant-admin/settings` is not implemented in this runtime.
 - `/platforms` loads live OAuth broker state on mount and only shows token expiry when the backend has a real expiry timestamp.
 - `/oauth/connect/:provider` provides the branded OAuth handoff/result surface and reuses the existing Aries auth presentation/motion system.
-- `/posts` exposes publish dispatch and retry controls through internal Aries API routes.
+- `/posts` now points operators back to the canonical marketing job flow for publishing.
 - `/calendar` exposes calendar sync controls through the internal Aries API route.
-- `/api/onboarding/status/:tenantId`, `GET /api/marketing/jobs/:jobId`, and some marketing approval fallback behavior are local runtime readers/fallbacks, not direct workflow status queries.
-- The runtime no longer requires `N8N_BASE_URL` or `N8N_API_KEY`; Aries now acts as an OpenClaw Gateway client.
+- `/api/onboarding/status/:tenantId` and `GET /api/marketing/jobs/:jobId` are read models over Aries-owned runtime state with local fallback behavior rather than direct workflow status queries.
+- Marketing jobs advance through Aries-managed stage checkpoints (research → strategy approval → production approval → publish approval → completion) using the OpenClaw Gateway execution boundary instead of local workflow-engine credentials.
 - Local parity expects an external OpenClaw workspace/executor boundary rather than in-process workflow execution inside the Aries app.
-- No workflow/contract redesign is introduced by this shell.
 - `PROJECT_ROOT` is treated as legacy compatibility fallback only.

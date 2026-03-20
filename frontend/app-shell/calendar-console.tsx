@@ -98,7 +98,7 @@ export default function CalendarConsole(): JSX.Element {
         <div className="space-y-3">
           {[
             'Use windowed syncs for focused remediation or rechecks.',
-            'Keep publish dispatch and retry controls in the posts route.',
+            'Use the marketing job surfaces for real publish approvals and package generation.',
             'Review platform health before scheduling high-volume releases.',
           ].map((item) => (
             <div key={item} className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-white/75">
@@ -107,8 +107,8 @@ export default function CalendarConsole(): JSX.Element {
           ))}
         </div>
 
-        <Link href="/posts" className="inline-flex items-center gap-2 text-primary hover:text-primary/80 transition-colors">
-          Open publish controls <Sparkles className="w-4 h-4" />
+        <Link href="/marketing/job-status" className="inline-flex items-center gap-2 text-primary hover:text-primary/80 transition-colors">
+          Open campaign status <Sparkles className="w-4 h-4" />
         </Link>
       </div>
     </div>

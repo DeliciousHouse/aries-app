@@ -24,6 +24,3 @@ steps:
   - id: production_review
     command: ./bin/production-review-preview --json --brand-slug "${brand_slug}"
     stdin: $veo_video_generator.stdout
-  - id: finalize_production
-    command: ./bin/creative-director --json --mode finalize --brand-slug "${brand_slug}"
-    stdin: $production_review.stdout

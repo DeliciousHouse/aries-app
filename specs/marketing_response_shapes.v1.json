@@ -14,35 +14,38 @@
       "required": [
         "marketing_job_status",
         "jobId",
-        "tenantId",
         "jobType",
-        "wiring",
-        "runtimePath"
+        "marketing_stage",
+        "approvalRequired",
+        "jobStatusUrl"
       ],
       "properties": {
         "jobId": {
           "type": "string",
           "minLength": 1
         },
-        "tenantId": {
-          "type": "string",
-          "minLength": 1
-        },
         "jobType": {
           "$ref": "#/$defs/MarketingJobType"
         },
-        "wiring": {
-          "type": "string",
-          "enum": [
-            "openclaw_gateway"
-          ]
-        },
-        "runtimePath": {
-          "type": "string",
-          "minLength": 1
+        "marketing_stage": {
+          "$ref": "#/$defs/marketing_stage"
         },
         "marketing_job_status": {
           "const": "accepted"
+        },
+        "approvalRequired": {
+          "type": "boolean"
+        },
+        "approval": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true
+        },
+        "jobStatusUrl": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },
@@ -51,34 +54,22 @@
       "additionalProperties": false,
       "required": [
         "jobId",
-        "tenantId",
         "marketing_job_state",
         "marketing_job_status",
         "marketing_stage",
         "marketing_stage_status",
-        "updatedAt",
-        "runtimePath"
+        "updatedAt"
       ],
       "properties": {
         "jobId": {
           "type": "string",
           "minLength": 1
         },
-        "tenantId": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "updatedAt": {
           "type": [
             "string",
             "null"
           ]
-        },
-        "runtimePath": {
-          "type": "string",
-          "minLength": 1
         },
         "marketing_job_state": {
           "type": "string"
@@ -97,6 +88,42 @@
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "approval": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true
+        },
+        "publishConfig": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "platforms",
+            "livePublishPlatforms",
+            "videoRenderPlatforms"
+          ],
+          "properties": {
+            "platforms": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "livePublishPlatforms": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "videoRenderPlatforms": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
         }
       }
     },
@@ -106,17 +133,11 @@
       "required": [
         "approval_status",
         "jobId",
-        "tenantId",
         "resumedStage",
-        "completed",
-        "wiring"
+        "completed"
       ],
       "properties": {
         "jobId": {
-          "type": "string",
-          "minLength": 1
-        },
-        "tenantId": {
           "type": "string",
           "minLength": 1
         },
@@ -128,12 +149,6 @@
         },
         "completed": {
           "type": "boolean"
-        },
-        "wiring": {
-          "type": "string",
-          "enum": [
-            "openclaw_gateway"
-          ]
         },
         "approval_status": {
           "type": "string",
@@ -156,7 +171,7 @@
           "pattern": "^HARD_FAILURE:"
         }
       },
-      "description": "Thrown when required schemas are missing/invalid: ./specs/tenant_runtime_state_schema.v1.json or ./specs/job_runtime_state_schema.v1.json"
+      "description": "Thrown when required schemas are missing/invalid."
     },
     "UnhandledError": {
       "type": "object",
@@ -175,11 +190,7 @@
     "MarketingJobType": {
       "type": "string",
       "enum": [
-        "marketing_research",
-        "marketing_strategy",
-        "marketing_production",
-        "marketing_publish",
-        "unknown"
+        "brand_campaign"
       ]
     },
     "marketing_stage": {

@@ -6,7 +6,7 @@ Stage 1 research should use:
 - **Web search enabled** for research tasks
 - **`gemini/gemini-2.5-flash`** as the default research model
 - Meta Ads extraction with runtime-provided Meta credentials
-- Explicit **live vs fallback** behavior so local runs still complete honestly in restricted environments
+- Explicit strict-mode behavior so the canonical pipeline fails when live research inputs are unavailable
 
 ## Required runtime inputs
 
@@ -35,12 +35,12 @@ For the current task instance:
 
 Do **not** hardcode `META_ACCESS_TOKEN` into committed workflow files. Pass it via environment at runtime.
 
-## Live/fallback contract (implemented)
+## Strict live research contract (implemented)
 
 - `meta-ads-extractor`:
   - Live path: tries web search, Meta Graph object lookups, and Gemini summarization.
-  - Fallback path: deterministic competitor evidence anchored to provided `competitor_facebook_url`.
-- Downstream wrappers (`meta-ads-analyser`, `ad-creative-analysis`, `ads-analyst`) consume upstream outputs and preserve mode (`live`/`fallback`) for competitor/campaign analysis.
+  - Strict path: fails explicitly if no live source succeeds.
+- Downstream wrappers (`meta-ads-analyser`, `ad-creative-analysis`, `ads-analyst`) consume upstream outputs and preserve whether the upstream run was live.
 
 ## Agent/task mapping
 
