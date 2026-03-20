@@ -3,6 +3,9 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { resolveProjectRoot } from './helpers/project-root';
+
+const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
 function setOpenClawTestInvoker(
   impl: (payload: Record<string, unknown>) => unknown | Promise<unknown>
@@ -17,10 +20,12 @@ function clearOpenClawTestInvoker(): void {
 async function withMarketingRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise<T> {
   const previousCodeRoot = process.env.CODE_ROOT;
   const previousDataRoot = process.env.DATA_ROOT;
+  const previousOpenClawLobsterCwd = process.env.OPENCLAW_LOBSTER_CWD;
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-verify-marketing-'));
 
-  process.env.CODE_ROOT = process.cwd();
+  process.env.CODE_ROOT = PROJECT_ROOT;
   process.env.DATA_ROOT = dataRoot;
+  process.env.OPENCLAW_LOBSTER_CWD = path.join(PROJECT_ROOT, 'lobster');
 
   try {
     return await run(dataRoot);
@@ -37,6 +42,12 @@ async function withMarketingRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>)
       delete process.env.DATA_ROOT;
     } else {
       process.env.DATA_ROOT = previousDataRoot;
+    }
+
+    if (previousOpenClawLobsterCwd === undefined) {
+      delete process.env.OPENCLAW_LOBSTER_CWD;
+    } else {
+      process.env.OPENCLAW_LOBSTER_CWD = previousOpenClawLobsterCwd;
     }
 
     await rm(dataRoot, { recursive: true, force: true });

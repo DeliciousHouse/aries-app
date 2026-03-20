@@ -12,9 +12,12 @@ import ContactPage from '../app/contact/page';
 import ApiDocsPage from '../app/api-docs/page';
 import DonorHomePage from '../frontend/donor/marketing/home-page';
 import MarketingLayout from '../frontend/marketing/MarketingLayout';
+import { resolveProjectRoot } from './helpers/project-root';
+
+const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
 function readRepoFile(relativePath: string) {
-  return readFileSync(path.join(process.cwd(), relativePath), 'utf8');
+  return readFileSync(path.join(PROJECT_ROOT, relativePath), 'utf8');
 }
 
 function normalizeWhitespace(value: string) {
@@ -59,18 +62,18 @@ test('public marketing pages return valid elements with expected route shells an
     assert.equal(isValidElement(featuresElement), true);
     assert.equal(featuresElement.type, MarketingLayout);
     const featuresText = normalizeWhitespace(collectText(featuresElement.props.children));
-    assert.match(featuresText, /Everything needed to run a premium marketing control plane/);
-    assert.match(featuresText, /Ready to see the operator experience end-to-end\?/);
+    assert.match(featuresText, /The current Aries runtime is a direct operator surface/);
+    assert.match(featuresText, /Ready to verify the runtime end to end\?/);
     assert.match(featuresText, /Read the docs/);
 
     const documentationElement = DocumentationPage();
     assert.equal(isValidElement(documentationElement), true);
     assert.equal(documentationElement.type, MarketingLayout);
     const documentationText = normalizeWhitespace(collectText(documentationElement.props.children));
-    assert.match(documentationText, /Runtime overview/);
+    assert.match(documentationText, /Direct architecture/);
     assert.match(documentationText, /Execution boundary/);
-    assert.match(documentationText, /marketing-pipeline\.lobster/);
-    assert.match(documentationText, /Turbopack is required in this repo\./);
+    assert.match(documentationText, /npx next dev -p 3000 --turbopack/);
+    assert.match(documentationText, /Commands engineers should run before shipping docs changes/);
 
     const contactElement = ContactPage();
     assert.equal(isValidElement(contactElement), true);
@@ -86,7 +89,7 @@ test('public marketing pages return valid elements with expected route shells an
     const apiDocsText = normalizeWhitespace(collectText(apiDocsElement.props.children));
     assert.match(apiDocsText, /\/api\/contact/);
     assert.match(apiDocsText, /\/api\/marketing\/jobs/);
-    assert.match(apiDocsText, /Public marketing endpoints exist/);
+    assert.match(apiDocsText, /Browser-safe routes for the current Aries contract/);
   } finally {
     if (prevReact === undefined) { delete g.React; } else { g.React = prevReact; }
   }

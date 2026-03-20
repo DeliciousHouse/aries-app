@@ -10,10 +10,11 @@
     "workspace:verify": "node scripts/verify-canonical-workspace.mjs",
     "workspace:inventory": "node scripts/inventory-paperclip-workspaces.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/**/*.test.ts",
+    "test": "tsx --test tests/*.test.ts tests/**/*.test.ts",
+    "test:e2e": "tsx --test tests/frontend-api-layer.test.ts tests/marketing-flow-smoke.test.ts tests/onboarding-runtime-cutover.test.ts tests/public-marketing-pages.test.ts tests/runtime-api-truth.test.ts tests/runtime-pages.test.ts",
     "db:init": "node scripts/init-db.js",
     "verify": "node scripts/verify-regression-suite.mjs",
-    "validate:public-routes": "tsx --test tests/runtime-pages.test.ts",
+    "validate:public-routes": "tsx --test tests/runtime-pages.test.ts tests/public-marketing-pages.test.ts",
     "validate:banned-patterns": "node scripts/check-banned-patterns.mjs",
     "validate:marketing-flow": "APP_BASE_URL=https://aries.example.com tsx --test tests/marketing-job-flow.test.ts tests/onboarding-marketing-contracts.test.ts",
     "validate:homepage-perf": "mkdir -p .artifacts && npx --yes lighthouse http://127.0.0.1:3000 --only-categories=performance --preset=desktop --chrome-flags='--headless=new --no-sandbox --disable-dev-shm-usage' --output=json --output-path=.artifacts/lighthouse-homepage.json"

@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { handleIntegrationsConnect, handleIntegrationsDisconnect, handleOauthReconnect } from '../../app/api/integrations/handlers';
 import { handleOauthCallbackHttp } from '../../backend/integrations/callback';
+import { connectMeta } from '../../backend/integrations/meta/connect';
 import { oauthStore } from '../../backend/integrations/connect';
 import { buildOauthConnectInput } from '../../lib/oauth-connect-input';
 import { verifyLogin } from '../../frontend/services/supabase';
@@ -83,6 +84,42 @@ test('integrations connect builds callback URLs from APP_BASE_URL using auth nam
       delete process.env.APP_BASE_URL;
     } else {
       process.env.APP_BASE_URL = previousAppBaseUrl;
+    }
+  }
+});
+
+test('meta connect validates redirect_uri against configured Aries callback env', async () => {
+  const previousAppBaseUrl = process.env.APP_BASE_URL;
+  const previousMetaRedirectUri = process.env.META_REDIRECT_URI;
+  process.env.APP_BASE_URL = 'https://aries.example.com';
+  delete process.env.META_REDIRECT_URI;
+
+  try {
+    const ok = connectMeta({
+      tenant_id: 'tenant_real',
+      provider: 'facebook',
+      redirect_uri: 'https://aries.example.com/api/integrations/meta/callback',
+    });
+    assert.equal(ok.status, 'ok');
+
+    const bad = connectMeta({
+      tenant_id: 'tenant_real',
+      provider: 'facebook',
+      redirect_uri: 'https://forged.example.com/api/integrations/meta/callback',
+    });
+    assert.equal(bad.status, 'error');
+    assert.equal(bad.reason, 'validation_error');
+  } finally {
+    if (previousAppBaseUrl === undefined) {
+      delete process.env.APP_BASE_URL;
+    } else {
+      process.env.APP_BASE_URL = previousAppBaseUrl;
+    }
+
+    if (previousMetaRedirectUri === undefined) {
+      delete process.env.META_REDIRECT_URI;
+    } else {
+      process.env.META_REDIRECT_URI = previousMetaRedirectUri;
     }
   }
 });

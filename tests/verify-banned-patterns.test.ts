@@ -3,6 +3,9 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { resolveProjectRoot } from './helpers/project-root';
+
+const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
 function setOpenClawTestInvoker(
   impl: (payload: Record<string, unknown>) => unknown | Promise<unknown>
@@ -17,14 +20,16 @@ function clearOpenClawTestInvoker(): void {
 async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise<T> {
   const previousCodeRoot = process.env.CODE_ROOT;
   const previousDataRoot = process.env.DATA_ROOT;
+  const previousOpenClawLobsterCwd = process.env.OPENCLAW_LOBSTER_CWD;
   const previousStage1CacheDir = process.env.LOBSTER_STAGE1_CACHE_DIR;
   const previousStage2CacheDir = process.env.LOBSTER_STAGE2_CACHE_DIR;
   const previousStage3CacheDir = process.env.LOBSTER_STAGE3_CACHE_DIR;
   const previousStage4CacheDir = process.env.LOBSTER_STAGE4_CACHE_DIR;
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-verify-banned-'));
 
-  process.env.CODE_ROOT = process.cwd();
+  process.env.CODE_ROOT = PROJECT_ROOT;
   process.env.DATA_ROOT = dataRoot;
+  process.env.OPENCLAW_LOBSTER_CWD = path.join(PROJECT_ROOT, 'lobster');
   process.env.LOBSTER_STAGE1_CACHE_DIR = path.join(dataRoot, 'lobster-stage1-cache');
   process.env.LOBSTER_STAGE2_CACHE_DIR = path.join(dataRoot, 'lobster-stage2-cache');
   process.env.LOBSTER_STAGE3_CACHE_DIR = path.join(dataRoot, 'lobster-stage3-cache');
@@ -45,6 +50,12 @@ async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise
       delete process.env.DATA_ROOT;
     } else {
       process.env.DATA_ROOT = previousDataRoot;
+    }
+
+    if (previousOpenClawLobsterCwd === undefined) {
+      delete process.env.OPENCLAW_LOBSTER_CWD;
+    } else {
+      process.env.OPENCLAW_LOBSTER_CWD = previousOpenClawLobsterCwd;
     }
 
     if (previousStage1CacheDir === undefined) {

@@ -1,3 +1,4 @@
+import { resolveCodePath } from '../../lib/runtime-paths';
 import { OpenClawGatewayError, runOpenClawLobsterWorkflow, type LobsterEnvelope } from './gateway-client';
 import { getAriesOpenClawWorkflow, type AriesOpenClawWorkflowKey } from './workflow-catalog';
 
@@ -33,10 +34,11 @@ export async function runAriesOpenClawWorkflow(
   args: Record<string, unknown>,
 ): Promise<AriesWorkflowExecutionResult> {
   const workflow = getAriesOpenClawWorkflow(key);
+  const configuredCwd = process.env.OPENCLAW_LOBSTER_CWD?.trim() || workflow.cwd || resolveCodePath('lobster');
   try {
     const envelope = await runOpenClawLobsterWorkflow({
       pipeline: workflow.pipeline,
-      cwd: workflow.cwd,
+      cwd: configuredCwd,
       argsJson: JSON.stringify(args),
     });
     const primaryOutput = primaryOutputRecord(envelope);
