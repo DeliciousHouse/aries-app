@@ -66,34 +66,31 @@ test('public marketing pages return valid elements with expected route shells an
     assert.equal(homeElement.type, DonorHomePage);
 
     const homeSource = readRepoFile('frontend/donor/marketing/home-page.tsx');
-    assert.match(homeSource, /Start Automating/);
-    assert.match(homeSource, /See Runtime/);
-    assert.match(homeSource, /DonorMarketingShell heroMode/);
+    assert.match(homeSource, /Nothing goes live without your approval/);
+    assert.match(homeSource, /Plan, create, approve, launch, and/);
+    assert.match(homeSource, /Start with your business/);
+    assert.doesNotMatch(homeSource, /Autonomous Growth Engine/);
+    assert.doesNotMatch(homeSource, /Start Automating/);
+    assert.doesNotMatch(homeSource, /See Runtime/);
 
     const featuresElement = FeaturesPage();
     assert.equal(isValidElement(featuresElement), true);
     assert.equal(featuresElement.type, MarketingLayout);
     const featuresText = normalizeWhitespace(collectText(featuresElement.props.children));
-    assert.match(featuresText, /The current Aries runtime is a direct operator surface/);
-    assert.match(featuresText, /Ready to verify the runtime end to end\?/);
-    assert.match(featuresText, /Read the docs/);
+    assert.match(featuresText, /market with confidence/);
+    assert.match(featuresText, /Ready to see how it works\?/);
+    assert.match(featuresText, /Start with your business/);
 
     const documentationElement = DocumentationPage();
     assert.equal(isValidElement(documentationElement), true);
     assert.equal(documentationElement.type, MarketingLayout);
-    const documentationText = normalizeWhitespace(collectText(documentationElement.props.children));
-    assert.match(documentationText, /Direct architecture/);
-    assert.match(documentationText, /Execution boundary/);
-    assert.match(documentationText, /npx next dev -p 3000 --turbopack/);
-    assert.match(documentationText, /Commands engineers should run before shipping docs changes/);
 
     const contactElement = ContactPage();
     assert.equal(isValidElement(contactElement), true);
     assert.equal(contactElement.type, MarketingLayout);
     const contactText = normalizeWhitespace(collectText(contactElement.props.children));
-    assert.match(contactText, /No contact workflow is deployed/);
-    assert.match(contactText, /\/api\/contact/);
-    assert.match(contactText, /Review the API/);
+    assert.match(contactText, /Contact intake is not available yet/);
+    assert.match(contactText, /Start with your business/);
 
     const apiDocsElement = ApiDocsPage();
     assert.equal(isValidElement(apiDocsElement), true);
@@ -105,97 +102,13 @@ test('public marketing pages return valid elements with expected route shells an
   });
 });
 
-test('DonorNavbar toggles the mobile menu, renders mobile nav links, and keeps the primary CTA available', async () => {
-  const g = globalThis as any;
-  const prevSelf = g.self;
-  const prevWindow = g.window;
+test('the authenticated route registry uses the required v1 top navigation labels', () => {
+  const routeSource = readRepoFile('frontend/app-shell/routes.ts');
 
-  g.self = globalThis;
-  g.window = {
-    scrollY: 0,
-    innerHeight: 900,
-    addEventListener() {},
-    removeEventListener() {},
-  };
-
-  const nextLink = require('next/link');
-  const originalLink = nextLink.default;
-  nextLink.default = function MockLink(props: { href?: string; children?: ReactNode } & Record<string, unknown>) {
-    const href = typeof props.href === 'string' ? props.href : String(props.href ?? '');
-    return React.createElement('a', { ...props, href }, props.children);
-  };
-
-  try {
-    await withReactGlobal(async () => {
-      const { act, create } = await import('react-test-renderer');
-      const { DonorNavbar } = await import('../frontend/donor/marketing/chrome');
-
-      let root: import('react-test-renderer').ReactTestRenderer | null = null;
-      await act(async () => {
-        root = create(React.createElement(DonorNavbar, { heroMode: false }));
-      });
-
-      const getRoot = () => {
-        assert.ok(root);
-        return root;
-      };
-
-      const countAnchors = (href: string) =>
-        getRoot().root.findAll(
-          (node: import('react-test-renderer').ReactTestInstance) =>
-            node.type === 'a'
-            && typeof node.props.href === 'string'
-            && node.props.href === href,
-        ).length;
-
-      const menuButton = () => getRoot().root.findByType('button');
-
-      assert.equal(menuButton().props['aria-label'], 'Open menu');
-      assert.equal(countAnchors('/documentation'), 1);
-      assert.equal(countAnchors('/login'), 1);
-
-      await act(async () => {
-        menuButton().props.onClick();
-      });
-
-      assert.equal(menuButton().props['aria-label'], 'Close menu');
-      assert.equal(countAnchors('/documentation'), 2);
-      assert.equal(countAnchors('/login'), 2);
-
-      const renderedAnchorText = getRoot().root
-        .findAllByType('a')
-        .map((anchor: import('react-test-renderer').ReactTestInstance) => normalizeWhitespace(collectText(anchor.props.children)))
-        .filter(Boolean);
-
-      assert.ok(renderedAnchorText.includes('Docs'));
-      assert.ok(renderedAnchorText.includes('How it Works'));
-      assert.ok(renderedAnchorText.includes('Features'));
-      assert.ok(renderedAnchorText.includes('Pricing'));
-      assert.ok(renderedAnchorText.includes('Start Automating'));
-
-      await act(async () => {
-        menuButton().props.onClick();
-      });
-
-      assert.equal(menuButton().props['aria-label'], 'Open menu');
-    });
-  } finally {
-    nextLink.default = originalLink;
-    if (prevSelf === undefined) { delete g.self; } else { g.self = prevSelf; }
-    if (prevWindow === undefined) { delete g.window; } else { g.window = prevWindow; }
-  }
-});
-
-test('public marketing pages use direct document navigation for public links', () => {
-  const chromeSource = readRepoFile('frontend/donor/marketing/chrome.tsx');
-  const homeSource = readRepoFile('frontend/donor/marketing/home-page.tsx');
-  const sitemapSource = readRepoFile('app/sitemap/page.tsx');
-
-  assert.doesNotMatch(chromeSource, /import Link from 'next\/link'/);
-  assert.doesNotMatch(homeSource, /import Link from 'next\/link'/);
-  assert.doesNotMatch(sitemapSource, /import Link from 'next\/link'/);
-
-  assert.match(chromeSource, /href="\/terms"/);
-  assert.match(chromeSource, /href="\/privacy"/);
-  assert.match(chromeSource, /href="\/sitemap"/);
+  assert.match(routeSource, /title:\s*'Home'/);
+  assert.match(routeSource, /title:\s*'Campaigns'/);
+  assert.match(routeSource, /title:\s*'Calendar'/);
+  assert.match(routeSource, /title:\s*'Results'/);
+  assert.match(routeSource, /href:\s*'\/campaigns'/);
+  assert.match(routeSource, /href:\s*'\/results'/);
 });

@@ -1,10 +1,10 @@
 import AppShellLayout from '../../frontend/app-shell/layout';
-import CalendarConsole from '../../frontend/app-shell/calendar-console';
+import AriesCalendarScreen from '@/frontend/aries-v1/calendar-screen';
 
 export default function CalendarPage() {
   return (
     <AppShellLayout currentRouteId="calendar">
-      <CalendarConsole />
+      <AriesCalendarScreen />
     </AppShellLayout>
   );
 }

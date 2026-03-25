@@ -1,10 +1,10 @@
 import AppShellLayout from '../../frontend/app-shell/layout';
-import PostsConsole from '../../frontend/app-shell/posts-console';
+import AriesCampaignListScreen from '@/frontend/aries-v1/campaign-list';
 
 export default function PostsPage() {
   return (
-    <AppShellLayout currentRouteId="posts">
-      <PostsConsole />
+    <AppShellLayout currentRouteId="campaigns">
+      <AriesCampaignListScreen />
     </AppShellLayout>
   );
 }

@@ -272,14 +272,14 @@ export function loadMarketingJobRuntime(jobId: string): MarketingJobRuntimeDocum
   return JSON.parse(raw) as MarketingJobRuntimeDocument;
 }
 
-export function findLatestMarketingJobIdForTenant(tenantId: string): string | null {
+function collectMarketingJobRefsForTenant(tenantId: string): Array<{ jobId: string; updatedAt: number }> {
   const root = marketingRuntimeRoot();
   if (!existsSync(root)) {
-    return null;
+    return [];
   }
 
+  const refs: Array<{ jobId: string; updatedAt: number }> = [];
   const entries = readdirSync(root).filter((entry) => entry.endsWith('.json'));
-  let latest: { jobId: string; updatedAt: number } | null = null;
 
   for (const entry of entries) {
     try {
@@ -292,18 +292,21 @@ export function findLatestMarketingJobIdForTenant(tenantId: string): string | nu
       if (!Number.isFinite(updatedAt)) {
         continue;
       }
-      if (!latest || updatedAt > latest.updatedAt) {
-        latest = {
-          jobId: doc.job_id,
-          updatedAt,
-        };
-      }
+      refs.push({ jobId: doc.job_id, updatedAt });
     } catch {
       continue;
     }
   }
 
-  return latest?.jobId ?? null;
+  return refs.sort((left, right) => right.updatedAt - left.updatedAt);
+}
+
+export function listMarketingJobIdsForTenant(tenantId: string): string[] {
+  return collectMarketingJobRefsForTenant(tenantId).map((entry) => entry.jobId);
+}
+
+export function findLatestMarketingJobIdForTenant(tenantId: string): string | null {
+  return collectMarketingJobRefsForTenant(tenantId)[0]?.jobId ?? null;
 }
 
 export function saveMarketingJobRuntime(jobId: string, doc: MarketingJobRuntimeDocument): string {
