@@ -37,7 +37,7 @@ async function readAssetWithinAllowedRoots(filePath: string): Promise<Buffer | n
     return null;
   }
 
-  const roots = Array.from(new Set([resolveDataRoot(), resolveCodePath('lobster')]));
+  const roots = [resolveDataRoot(), resolveCodePath('lobster')];
   for (const root of roots) {
     const candidate = path.resolve(root, relativePath);
     if (!isWithinRoot(root, candidate)) {

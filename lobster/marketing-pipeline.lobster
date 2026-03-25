@@ -24,8 +24,15 @@ steps:
     command: bash ../bin/bootstrap_marketing_workspace.sh
 
   - id: stage_1_extract
-    command: >
-      bash -lc 'set -euo pipefail; cmd=(./bin/meta-ads-extractor --json --competitor "$1" --research-model "gemini/gemini-2.5-flash"); if [ -n "$2" ]; then cmd+=(--competitor-facebook-url "$2"); fi; "${cmd[@]}"' -- "${competitor}" "${competitor_facebook_url}"
+    command: |
+      bash -lc '
+        set -euo pipefail
+        cmd=(./bin/meta-ads-extractor --json --competitor "$1" --research-model "gemini/gemini-2.5-flash")
+        if [ -n "$2" ]; then
+          cmd+=(--competitor-facebook-url "$2")
+        fi
+        "${cmd[@]}"
+      ' -- "${competitor}" "${competitor_facebook_url}"
 
   - id: stage_1_analyse
     command: ./bin/meta-ads-analyser --json
