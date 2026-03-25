@@ -19,18 +19,19 @@ export function useTenantWorkflows(options: UseTenantWorkflowsOptions = {}) {
   const api = useMemo(() => createOperationsApi(options), [options.baseUrl]);
   const listState = useRequestState<TenantWorkflow[]>();
   const runState = useAsyncAction<TenantWorkflowRunResponse>();
+  const { setError, setLoading, setSuccess } = listState;
 
   const refresh = useCallback(async () => {
-    listState.setLoading();
+    setLoading();
     try {
       const response = await api.tenantWorkflows();
-      listState.setSuccess(response.workflows);
+      setSuccess(response.workflows);
       return response.workflows;
     } catch (error) {
-      listState.setError(error, 'Unable to load tenant workflows.');
+      setError(error, 'Unable to load tenant workflows.');
       return null;
     }
-  }, [api, listState]);
+  }, [api, setError, setLoading, setSuccess]);
 
   useEffect(() => {
     if (options.autoLoad === false) {

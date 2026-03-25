@@ -1,9 +1,8 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 
-import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { AnimatePresence, motion } from 'motion/react';
 import { ArrowRight, Menu, X } from 'lucide-react';
@@ -35,6 +34,10 @@ export function DonorNavbar({ heroMode = false }: { heroMode?: boolean }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
   const isHome = pathname === '/';
+  const headerOverlayStyle: CSSProperties = {
+    opacity: headerOpacity,
+    pointerEvents: headerOpacity === 0 ? 'none' : 'auto',
+  };
 
   useEffect(() => {
     const handleScroll = () => {
@@ -79,20 +82,17 @@ export function DonorNavbar({ heroMode = false }: { heroMode?: boolean }) {
       )}
     >
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-6">
-        <Link href="/" className="flex items-center gap-2">
+        <a href="/" className="flex items-center gap-2">
           <AriesMark className={cn('transition-opacity duration-300', showIcon ? 'opacity-100' : 'opacity-0')} />
           <span className="text-xl font-bold tracking-tight text-white" style={{ opacity: headerOpacity }}>
             Aries AI
           </span>
           <span className="sr-only">Aries AI</span>
-        </Link>
+        </a>
 
-        <div
-          className="hidden md:flex items-center gap-8"
-          style={{ opacity: headerOpacity, pointerEvents: headerOpacity === 0 ? 'none' : 'auto' }}
-        >
+        <div className="hidden md:flex items-center gap-8" style={headerOverlayStyle}>
           {NAV_ITEMS.map((link) => (
-            <Link
+            <a
               key={link.name}
               href={link.href}
               className={cn(
@@ -101,27 +101,24 @@ export function DonorNavbar({ heroMode = false }: { heroMode?: boolean }) {
               )}
             >
               {link.name}
-            </Link>
+            </a>
           ))}
         </div>
 
-        <div
-          className="hidden md:flex items-center gap-4"
-          style={{ opacity: headerOpacity, pointerEvents: headerOpacity === 0 ? 'none' : 'auto' }}
-        >
-          <Link
+        <div className="hidden md:flex items-center gap-4" style={headerOverlayStyle}>
+          <a
             href="/login"
             className="px-5 py-2 rounded-full bg-gradient-to-r from-primary to-secondary hover:opacity-90 text-sm font-medium transition-all shadow-lg shadow-primary/20 flex items-center gap-2 text-white"
           >
             Start Automating <ArrowRight className="w-4 h-4" />
-          </Link>
+          </a>
         </div>
 
         <button
           type="button"
           className="md:hidden text-white"
           onClick={() => setIsMobileMenuOpen((value) => !value)}
-          style={{ opacity: headerOpacity, pointerEvents: headerOpacity === 0 ? 'none' : 'auto' }}
+          style={headerOverlayStyle}
           aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
         >
           {isMobileMenuOpen ? <X /> : <Menu />}
@@ -137,23 +134,23 @@ export function DonorNavbar({ heroMode = false }: { heroMode?: boolean }) {
             className="absolute top-full left-0 right-0 bg-black/95 backdrop-blur-xl border-b border-white/10 p-6 flex flex-col gap-6 md:hidden"
           >
             {NAV_ITEMS.map((link) => (
-              <Link
+              <a
                 key={link.name}
                 href={link.href}
                 className="text-lg font-medium text-white/70 hover:text-white"
                 onClick={() => setIsMobileMenuOpen(false)}
               >
                 {link.name}
-              </Link>
+              </a>
             ))}
             <div className="flex flex-col gap-4 pt-4 border-t border-white/10">
-              <Link
+              <a
                 href="/login"
                 className="w-full py-3 flex justify-center rounded-xl bg-gradient-to-r from-primary to-secondary font-medium text-white"
                 onClick={() => setIsMobileMenuOpen(false)}
               >
                 Start Automating
-              </Link>
+              </a>
             </div>
           </motion.div>
         )}
@@ -173,9 +170,9 @@ export function DonorFooter() {
               The browser-safe Aries control surface for autonomous marketing workflows, approvals, and platform orchestration.
             </p>
             <div className="flex gap-4 text-sm text-white/60">
-              <Link href="/documentation" className="hover:text-white transition-colors">Docs</Link>
-              <Link href="/api-docs" className="hover:text-white transition-colors">API</Link>
-              <Link href="/features" className="hover:text-white transition-colors">Features</Link>
+              <a href="/documentation" className="hover:text-white transition-colors">Docs</a>
+              <a href="/api-docs" className="hover:text-white transition-colors">API</a>
+              <a href="/features" className="hover:text-white transition-colors">Features</a>
             </div>
           </div>
 
@@ -186,20 +183,20 @@ export function DonorFooter() {
           <div>
             <h4 className="font-bold mb-6">Product</h4>
             <ul className="space-y-4 text-white/50 text-sm">
-              <li><Link href="/#features" className="hover:text-white transition-colors">Features</Link></li>
-              <li><Link href="/platforms" prefetch={false} className="hover:text-white transition-colors">Platforms</Link></li>
-              <li><Link href="/dashboard" prefetch={false} className="hover:text-white transition-colors">Dashboard</Link></li>
-              <li><Link href="/marketing/new-job" className="hover:text-white transition-colors">Campaigns</Link></li>
+              <li><a href="/#features" className="hover:text-white transition-colors">Features</a></li>
+              <li><a href="/platforms" className="hover:text-white transition-colors">Platforms</a></li>
+              <li><a href="/dashboard" className="hover:text-white transition-colors">Dashboard</a></li>
+              <li><a href="/marketing/new-job" className="hover:text-white transition-colors">Campaigns</a></li>
             </ul>
           </div>
 
           <div>
             <h4 className="font-bold mb-6">Runtime</h4>
             <ul className="space-y-4 text-white/50 text-sm">
-              <li><Link href="/documentation" className="hover:text-white transition-colors">Documentation</Link></li>
-              <li><Link href="/api-docs" className="hover:text-white transition-colors">Internal APIs</Link></li>
-              <li><Link href="/onboarding/start" className="hover:text-white transition-colors">Onboarding</Link></li>
-              <li><Link href="/oauth/connect/facebook" prefetch={false} className="hover:text-white transition-colors">OAuth Flow</Link></li>
+              <li><a href="/documentation" className="hover:text-white transition-colors">Documentation</a></li>
+              <li><a href="/api-docs" className="hover:text-white transition-colors">Internal APIs</a></li>
+              <li><a href="/onboarding/start" className="hover:text-white transition-colors">Onboarding</a></li>
+              <li><a href="/oauth/connect/facebook" className="hover:text-white transition-colors">OAuth Flow</a></li>
             </ul>
           </div>
 
@@ -216,6 +213,11 @@ export function DonorFooter() {
 
         <div className="pt-8 border-t border-white/5 flex flex-col md:flex-row justify-center items-center gap-4 text-white/30 text-xs">
           <p>© 2026 Aries AI Inc. All rights reserved.</p>
+          <div className="flex flex-wrap items-center justify-center gap-4">
+            <a href="/terms" className="hover:text-white transition-colors">Terms</a>
+            <a href="/privacy" className="hover:text-white transition-colors">Privacy</a>
+            <a href="/sitemap" className="hover:text-white transition-colors">Sitemap</a>
+          </div>
         </div>
       </div>
     </footer>

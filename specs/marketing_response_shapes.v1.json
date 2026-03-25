@@ -54,6 +54,14 @@
       "additionalProperties": false,
       "required": [
         "jobId",
+        "tenantName",
+        "brandWebsiteUrl",
+        "campaignWindow",
+        "durationDays",
+        "plannedPostCount",
+        "createdPostCount",
+        "assetPreviewCards",
+        "calendarEvents",
         "marketing_job_state",
         "marketing_job_status",
         "marketing_stage",
@@ -64,6 +72,121 @@
         "jobId": {
           "type": "string",
           "minLength": 1
+        },
+        "tenantName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "brandWebsiteUrl": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "campaignWindow": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "start": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "end": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "durationDays": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "plannedPostCount": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "createdPostCount": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "assetPreviewCards": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "platformSlug",
+              "platformName",
+              "channelType",
+              "title",
+              "summary",
+              "mediaCount",
+              "assetCount",
+              "previewHref"
+            ],
+            "properties": {
+              "id": { "type": "string" },
+              "platformSlug": { "type": "string" },
+              "platformName": { "type": "string" },
+              "channelType": { "type": "string" },
+              "title": { "type": "string" },
+              "summary": { "type": "string" },
+              "mediaCount": { "type": "number" },
+              "assetCount": { "type": "number" },
+              "previewHref": { "type": "string" }
+            }
+          }
+        },
+        "calendarEvents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "startsAt",
+              "endsAt",
+              "platform",
+              "title",
+              "status",
+              "assetPreviewId"
+            ],
+            "properties": {
+              "id": { "type": "string" },
+              "startsAt": { "type": "string" },
+              "endsAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "platform": { "type": "string" },
+              "title": { "type": "string" },
+              "status": { "type": "string" },
+              "assetPreviewId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
         },
         "updatedAt": {
           "type": [

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:22-alpine AS base
+FROM node:22-bookworm-slim AS base
 WORKDIR /app
 
 FROM base AS deps
@@ -11,14 +11,19 @@ FROM deps AS builder
 COPY . .
 RUN npm run build
 
-FROM node:22-alpine AS runner
+FROM node:22-bookworm-slim AS runner
 WORKDIR /app
+
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV CODE_ROOT=/app
 ENV DATA_ROOT=/data
 
-RUN apk add --no-cache python3
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    ca-certificates \
+    wget \
+ && rm -rf /var/lib/apt/lists/*
 
 # install only production deps for next start runtime
 COPY package*.json ./

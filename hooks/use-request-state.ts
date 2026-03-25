@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
 import {
   buildApiError,
@@ -54,16 +54,19 @@ export function useRequestState<TData>() {
     setState(initialState());
   }, []);
 
-  return {
-    ...state,
-    isLoading: state.status === 'loading',
-    isSuccess: state.status === 'success',
-    isError: state.status === 'error',
-    setLoading,
-    setSuccess,
-    setError,
-    reset,
-  };
+  return useMemo(
+    () => ({
+      ...state,
+      isLoading: state.status === 'loading',
+      isSuccess: state.status === 'success',
+      isError: state.status === 'error',
+      setLoading,
+      setSuccess,
+      setError,
+      reset,
+    }),
+    [reset, setError, setLoading, setSuccess, state]
+  );
 }
 
 export interface AsyncActionState<TData> {
@@ -79,20 +82,21 @@ export interface AsyncActionState<TData> {
 
 export function useAsyncAction<TData>(): AsyncActionState<TData> {
   const requestState = useRequestState<TData>();
+  const { setLoading, setSuccess, setError } = requestState;
 
   const run = useCallback<AsyncActionState<TData>['run']>(
     async (action, fallbackMessage) => {
-      requestState.setLoading();
+      setLoading();
       try {
         const result = await action();
-        requestState.setSuccess(result);
+        setSuccess(result);
         return result;
       } catch (error) {
-        requestState.setError(error, fallbackMessage);
+        setError(error, fallbackMessage);
         return null;
       }
     },
-    [requestState]
+    [setError, setLoading, setSuccess]
   );
 
   return {

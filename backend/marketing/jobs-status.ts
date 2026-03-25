@@ -10,6 +10,7 @@ import {
   type MarketingJobRuntimeDocument,
   type MarketingStage,
 } from './runtime-state';
+import { buildMarketingAssetLinks, marketingAssetUrl, type MarketingAssetLink } from './asset-library';
 
 type TimelineTone = 'info' | 'success' | 'warning' | 'danger';
 
@@ -62,8 +63,8 @@ export type MarketingReviewPreviewCard = {
   caption?: string;
   cta?: string;
   details: string[];
-  mediaPaths: string[];
-  assetPaths: string[];
+  mediaAssets: MarketingAssetLink[];
+  assetLinks: MarketingAssetLink[];
 };
 
 export type MarketingReviewBundle = {
@@ -73,22 +74,22 @@ export type MarketingReviewBundle = {
   generatedAt: string | null;
   approvalMessage: string;
   summary: string;
-  previewPath?: string;
-  reviewPacketPaths: string[];
+  previewAsset?: MarketingAssetLink;
+  reviewPacketAssets: MarketingAssetLink[];
   landingPage?: {
     headline: string;
     subheadline: string;
     cta: string;
     slug?: string;
     sections: string[];
-    path?: string;
+    asset?: MarketingAssetLink;
   } | null;
   scriptPreview?: {
     metaAdHook?: string;
     metaAdBody: string[];
     shortVideoOpeningLine?: string;
     shortVideoBeats: string[];
-    paths: string[];
+    assets: MarketingAssetLink[];
   } | null;
   platformPreviews: MarketingReviewPreviewCard[];
 };
@@ -98,9 +99,44 @@ export type MarketingSummary = {
   subheadline: string;
 };
 
+export type MarketingCampaignWindow = {
+  start: string | null;
+  end: string | null;
+};
+
+export type MarketingAssetPreviewCard = {
+  id: string;
+  platformSlug: string;
+  platformName: string;
+  channelType: string;
+  title: string;
+  summary: string;
+  mediaCount: number;
+  assetCount: number;
+  previewHref: string;
+};
+
+export type MarketingCalendarEvent = {
+  id: string;
+  startsAt: string;
+  endsAt: string | null;
+  platform: string;
+  title: string;
+  status: string;
+  assetPreviewId: string | null;
+};
+
 export type MarketingJobStatusResponse = {
   jobId: string;
   tenantId: string | null;
+  tenantName: string | null;
+  brandWebsiteUrl: string | null;
+  campaignWindow: MarketingCampaignWindow | null;
+  durationDays: number | null;
+  plannedPostCount: number | null;
+  createdPostCount: number | null;
+  assetPreviewCards: MarketingAssetPreviewCard[];
+  calendarEvents: MarketingCalendarEvent[];
   state: string;
   status: string;
   currentStage: string | null;
@@ -220,6 +256,17 @@ function stringArray(value: unknown): string[] {
         .map((entry) => stringValue(entry))
         .filter((entry) => entry.length > 0)
     : [];
+}
+
+function numberValue(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
 }
 
 function recordValue(value: unknown): Record<string, unknown> | null {
@@ -488,6 +535,7 @@ function buildTimeline(
 }
 
 function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): MarketingReviewBundle | null {
+  const jobId = runtimeDoc.job_id;
   const publishStage = runtimeDoc.stages.publish;
   const review =
     recordValue(publishStage.outputs.review) ??
@@ -501,6 +549,8 @@ function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): MarketingRe
   const scriptPreview = recordValue(reviewBundle.script_preview);
   const reviewPacket = recordValue(reviewBundle.review_packet);
   const artifactPaths = recordValue(reviewBundle.artifact_paths);
+  const assetLinks = buildMarketingAssetLinks(jobId, runtimeDoc);
+  const linkById = new Map(assetLinks.map((asset) => [asset.id, asset] as const));
 
   return {
     stage: 'publish',
@@ -515,13 +565,11 @@ function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): MarketingRe
       stringValue(recordValue(reviewBundle.summary)?.core_message) ||
       stringValue(recordValue(reviewBundle.summary)?.offer_summary) ||
       'Review the draft launch materials before approving the publish stage.',
-    previewPath: stringValue(artifactPaths?.preview_path) || undefined,
-    reviewPacketPaths: [
-      stringValue(reviewPacket?.production_review_preview_path),
-      stringValue(reviewPacket?.canonical_review_packet_path),
-      stringValue(artifactPaths?.static_platform_index_path),
-      stringValue(artifactPaths?.video_platform_index_path),
-    ].filter(Boolean),
+    previewAsset: linkById.get('launch-review-preview'),
+    reviewPacketAssets: [
+      linkById.get('review-packet-production'),
+      linkById.get('review-packet-canonical'),
+    ].filter((asset): asset is MarketingAssetLink => !!asset),
     landingPage: landingPage
       ? {
           headline: stringValue(landingPage.headline),
@@ -529,7 +577,7 @@ function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): MarketingRe
           cta: stringValue(landingPage.cta),
           slug: stringValue(landingPage.slug) || undefined,
           sections: stringArray(landingPage.sections),
-          path: stringValue(landingPage.landing_page_path) || undefined,
+          asset: linkById.get('landing-page-path'),
         }
       : null,
     scriptPreview: scriptPreview
@@ -538,18 +586,17 @@ function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): MarketingRe
           metaAdBody: stringArray(scriptPreview.meta_ad_body),
           shortVideoOpeningLine: stringValue(scriptPreview.short_video_opening_line) || undefined,
           shortVideoBeats: stringArray(scriptPreview.short_video_beats),
-          paths: [
-            stringValue(scriptPreview.meta_script_path),
-            stringValue(scriptPreview.short_video_script_path),
-            stringValue(scriptPreview.preview_path),
-          ].filter(Boolean),
+          assets: [
+            linkById.get('script-meta'),
+            linkById.get('script-video'),
+          ].filter((asset): asset is MarketingAssetLink => !!asset),
         }
       : null,
     platformPreviews: recordArray(reviewBundle.platform_previews).map((entry, index) => {
-      const assetPaths = recordValue(entry.asset_paths);
+      const platformSlug = stringValue(entry.platform_slug, `platform-${index + 1}`);
       return {
-        id: `platform-preview-${stringValue(entry.platform_slug, String(index + 1))}`,
-        platformSlug: stringValue(entry.platform_slug, `platform-${index + 1}`),
+        id: `platform-preview-${platformSlug}`,
+        platformSlug,
         platformName: stringValue(entry.platform_name, `Platform ${index + 1}`),
         channelType: stringValue(entry.channel_type, 'draft'),
         summary:
@@ -564,14 +611,116 @@ function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): MarketingRe
           ...stringArray(entry.proof_points),
           ...stringArray(recordValue(entry.format) ? Object.values(recordValue(entry.format) as Record<string, unknown>) : []),
         ],
-        mediaPaths: stringArray(entry.media_paths),
-        assetPaths: [
-          stringValue(assetPaths?.contract_path),
-          stringValue(assetPaths?.brief_path),
-          stringValue(assetPaths?.landing_page_path),
-        ].filter(Boolean),
+        mediaAssets: stringArray(entry.media_paths)
+          .map((_, mediaIndex) => linkById.get(`platform-preview-${platformSlug}-media-${mediaIndex + 1}`))
+          .filter((asset): asset is MarketingAssetLink => !!asset),
+        assetLinks: [
+          linkById.get(`platform-preview-${platformSlug}-asset-contract`),
+          linkById.get(`platform-preview-${platformSlug}-asset-brief`),
+          linkById.get(`platform-preview-${platformSlug}-asset-landing-page`),
+        ].filter((asset): asset is MarketingAssetLink => !!asset),
       };
     }),
+  };
+}
+
+function rawPublishReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): Record<string, unknown> | null {
+  const publishStage = runtimeDoc.stages.publish;
+  const review = recordValue(publishStage.outputs.review) ?? recordValue(publishStage.primary_output);
+  return recordValue(review?.review_bundle);
+}
+
+function buildCampaignWindow(runtimeDoc: MarketingJobRuntimeDocument): MarketingCampaignWindow | null {
+  const reviewBundle = rawPublishReviewBundle(runtimeDoc);
+  const summary = recordValue(reviewBundle?.summary);
+  const campaignWindow = recordValue(summary?.campaign_window);
+
+  const start = stringValue(campaignWindow?.start) || null;
+  const end = stringValue(campaignWindow?.end) || null;
+  if (!start && !end) {
+    return null;
+  }
+
+  return { start, end };
+}
+
+function buildDurationDays(window: MarketingCampaignWindow | null): number | null {
+  if (!window?.start || !window.end) {
+    return null;
+  }
+
+  const start = Date.parse(window.start);
+  const end = Date.parse(window.end);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+    return null;
+  }
+
+  return Math.floor((end - start) / (24 * 60 * 60 * 1000)) + 1;
+}
+
+function buildAssetPreviewCards(jobId: string, reviewBundle: MarketingReviewBundle | null): MarketingAssetPreviewCard[] {
+  if (!reviewBundle) {
+    return [];
+  }
+
+  return reviewBundle.platformPreviews.map((preview) => ({
+    id: preview.id,
+    platformSlug: preview.platformSlug,
+    platformName: preview.platformName,
+    channelType: preview.channelType,
+    title: preview.headline || preview.platformName,
+    summary: preview.summary,
+    mediaCount: preview.mediaAssets.length,
+    assetCount: preview.assetLinks.length,
+    previewHref: `/marketing/job-approve?jobId=${encodeURIComponent(jobId)}&preview=${encodeURIComponent(preview.id)}`,
+  }));
+}
+
+function buildCalendarEvents(runtimeDoc: MarketingJobRuntimeDocument): MarketingCalendarEvent[] {
+  const reviewBundle = rawPublishReviewBundle(runtimeDoc);
+  const contentCalendar = recordValue(reviewBundle?.content_calendar);
+  const events = recordArray(contentCalendar?.events);
+
+  return events
+    .map((event, index) => {
+      const startsAt = stringValue(event.starts_at);
+      if (!startsAt) {
+        return null;
+      }
+
+      return {
+        id: stringValue(event.id, `calendar-event-${index + 1}`),
+        startsAt,
+        endsAt: stringValue(event.ends_at) || null,
+        platform: stringValue(event.platform, 'unknown'),
+        title: stringValue(event.title, 'Scheduled campaign event'),
+        status: stringValue(event.status, 'planned'),
+        assetPreviewId: stringValue(event.asset_preview_id) || null,
+      };
+    })
+    .filter((event): event is MarketingCalendarEvent => !!event);
+}
+
+function buildPostCounts(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  reviewBundle: MarketingReviewBundle | null,
+  calendarEvents: MarketingCalendarEvent[]
+): { plannedPostCount: number | null; createdPostCount: number | null } {
+  const rawBundle = rawPublishReviewBundle(runtimeDoc);
+  const summary = recordValue(rawBundle?.summary);
+  const explicitPlanned = numberValue(summary?.planned_posts);
+  const explicitCreated = numberValue(summary?.created_posts);
+
+  const fallbackPlanned = calendarEvents.length > 0
+    ? calendarEvents.length
+    : reviewBundle?.platformPreviews.length ?? 0;
+  const fallbackCreated = calendarEvents.filter((event) => event.status === 'created' || event.status === 'published').length > 0
+    ? calendarEvents.filter((event) => event.status === 'created' || event.status === 'published').length
+    : reviewBundle?.platformPreviews.filter((preview) => preview.mediaAssets.length > 0).length ?? 0;
+
+  return {
+    plannedPostCount: explicitPlanned ?? (fallbackPlanned > 0 ? fallbackPlanned : null),
+    createdPostCount: explicitCreated ?? (fallbackCreated > 0 ? fallbackCreated : null),
   };
 }
 
@@ -583,6 +732,14 @@ export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse
     return {
       jobId,
       tenantId: null,
+      tenantName: null,
+      brandWebsiteUrl: null,
+      campaignWindow: null,
+      durationDays: null,
+      plannedPostCount: null,
+      createdPostCount: null,
+      assetPreviewCards: [],
+      calendarEvents: [],
       state: 'not_found',
       status: 'error',
       currentStage: null,
@@ -618,10 +775,23 @@ export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse
   const state = deriveState(runtimeDoc, stageStatus);
   const approval = buildApproval(jobId, runtimeDoc);
   const reviewBundle = buildReviewBundle(runtimeDoc);
+  const campaignWindow = buildCampaignWindow(runtimeDoc);
+  const durationDays = buildDurationDays(campaignWindow);
+  const assetPreviewCards = buildAssetPreviewCards(jobId, reviewBundle);
+  const calendarEvents = buildCalendarEvents(runtimeDoc);
+  const postCounts = buildPostCounts(runtimeDoc, reviewBundle, calendarEvents);
 
   return {
     jobId,
     tenantId: runtimeDoc.tenant_id,
+    tenantName: runtimeDoc.brand_kit?.brand_name || null,
+    brandWebsiteUrl: runtimeDoc.brand_kit?.source_url || runtimeDoc.inputs.brand_url || null,
+    campaignWindow,
+    durationDays,
+    plannedPostCount: postCounts.plannedPostCount,
+    createdPostCount: postCounts.createdPostCount,
+    assetPreviewCards,
+    calendarEvents,
     state: state.state,
     status: state.status,
     currentStage: state.currentStage,

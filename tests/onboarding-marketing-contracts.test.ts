@@ -32,7 +32,13 @@ test('createOnboardingClient.status appends signup_event_id when provided', asyn
           signup_event_id: 'signup_backend',
           provisioning_status: 'in_progress',
           validation_status: 'unknown',
-          paths: {},
+          progress_hint: 'waiting_for_validation',
+          artifacts: {
+            draft: false,
+            validated: false,
+            validation_report: false,
+            idempotency_marker: false,
+          },
         }),
         {
           status: 200,

@@ -51,19 +51,37 @@ export default function PipelineIntake() {
     setSubmitError(null);
 
     try {
-      const res = await fetch('/api/pipeline/start', {
+      const res = await fetch('/api/marketing/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          jobType: 'brand_campaign',
+          payload: {
+            brandUrl: brandUrl,
+            competitorUrl: competitorUrl,
+            goal,
+            channels,
+            mode,
+          },
+        }),
       });
 
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        message?: string;
+        jobId?: string;
+        jobStatusUrl?: string;
+      };
+
       if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error((errData as { error?: string }).error || `Request failed: ${res.status}`);
+        throw new Error(body.error || body.message || `Request failed: ${res.status}`);
       }
 
-      const data = await res.json() as { job_id: string; status: string };
-      router.push(`/onboarding/status?job_id=${encodeURIComponent(data.job_id)}`);
+      const nextUrl = body.jobStatusUrl?.trim() || `/marketing/job-status?jobId=${encodeURIComponent(body.jobId ?? '')}`;
+      if (!body.jobId?.trim()) {
+        throw new Error('Marketing job response missing jobId');
+      }
+      router.push(nextUrl);
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : 'Something went wrong');
       setIsSubmitting(false);

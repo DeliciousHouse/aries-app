@@ -18,6 +18,8 @@
     "stages",
     "approvals",
     "publish_config",
+    "brand_kit",
+    "inputs",
     "history",
     "created_at",
     "updated_at"
@@ -141,9 +143,32 @@
     "publish_config": {
       "$ref": "#/$defs/publishConfig"
     },
+    "brand_kit": {
+      "$ref": "#/$defs/brandKitReference"
+    },
     "inputs": {
       "type": "object",
-      "additionalProperties": true
+      "additionalProperties": true,
+      "required": [
+        "request",
+        "brand_url"
+      ],
+      "properties": {
+        "request": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "brand_url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "competitor_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
     },
     "summary": {
       "type": "object",
@@ -444,6 +469,114 @@
         }
       }
     },
+    "brandKitReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "source_url",
+        "canonical_url",
+        "brand_name",
+        "logo_urls",
+        "colors",
+        "font_families",
+        "external_links",
+        "extracted_at"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "source_url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "canonical_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "brand_name": {
+          "type": "string"
+        },
+        "logo_urls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "colors": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "primary",
+            "secondary",
+            "accent",
+            "palette"
+          ],
+          "properties": {
+            "primary": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "secondary": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "accent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "palette": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": []
+            }
+          }
+        },
+        "font_families": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "external_links": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "platform",
+              "url"
+            ],
+            "properties": {
+              "platform": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            }
+          },
+          "default": []
+        },
+        "extracted_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
     "approvalCheckpoint": {
       "type": "object",
       "additionalProperties": false,
@@ -478,6 +611,12 @@
         "requested_at": {
           "type": "string",
           "format": "date-time"
+        },
+        "resume_token": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "action_label": {
           "type": [

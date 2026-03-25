@@ -45,6 +45,14 @@ export async function handleGetMarketingJobStatus(
     return NextResponse.json(
       {
         jobId: result.jobId,
+        tenantName: result.tenantName,
+        brandWebsiteUrl: result.brandWebsiteUrl,
+        campaignWindow: result.campaignWindow,
+        durationDays: result.durationDays,
+        plannedPostCount: result.plannedPostCount,
+        createdPostCount: result.createdPostCount,
+        assetPreviewCards: result.assetPreviewCards,
+        calendarEvents: result.calendarEvents,
         marketing_job_state: result.state,
         marketing_job_status: result.status,
         marketing_stage: result.currentStage,

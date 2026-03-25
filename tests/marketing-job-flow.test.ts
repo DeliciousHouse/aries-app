@@ -12,7 +12,7 @@ import { resolveProjectRoot } from './helpers/project-root';
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
 async function loadStartMarketingJob() {
-  const module = await import('../backend/marketing/jobs-start');
+  const module = await import('../backend/marketing/orchestrator');
   return module.startMarketingJob;
 }
 
@@ -61,40 +61,45 @@ function clearOpenClawTestInvoker(): void {
   delete (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__;
 }
 
-function installMarketingPipelineInvoker(): void {
+/**
+ * Production contract: one `marketing-pipeline.lobster` run, then `resume` with approval tokens
+ * between human gates (see orchestrator.ts + gateway-client run/resume payloads).
+ */
+function installMarketingPipelineInvoker(
+  tracking: { actions: string[]; resumeTokens: string[]; firstRunPayload: Record<string, unknown> | null },
+): void {
   setOpenClawTestInvoker((payload) => {
-    const pipeline = String((payload as any)?.args?.pipeline || '');
-    switch (pipeline) {
-      case 'stage-1-research/workflow.lobster':
+    const args = (payload.args as Record<string, unknown> | undefined) ?? {};
+    const action = String(args.action || '');
+    tracking.actions.push(action);
+
+    if (action === 'run') {
+      tracking.firstRunPayload = payload;
+      return {
+        ok: true,
+        status: 'needs_approval',
+        output: [{
+          run_id: 'run-research',
+          executive_summary: {
+            market_positioning: 'Proof-led competitive research is complete.',
+            campaign_takeaway: 'Outcome-first hooks are strongest.',
+          },
+        }],
+        requiresApproval: {
+          resumeToken: 'resume_strategy',
+          prompt: 'Research complete. Approve strategy to continue.',
+        },
+      };
+    }
+
+    if (action === 'resume') {
+      const token = String(args.token || '');
+      tracking.resumeTokens.push(token);
+
+      if (token === 'resume_strategy') {
         return {
           ok: true,
-          status: 'ok',
-          output: [{
-            run_id: 'run-research',
-            executive_summary: {
-              market_positioning: 'Proof-led competitive research is complete.',
-              campaign_takeaway: 'Outcome-first hooks are strongest.',
-            },
-          }],
-          requiresApproval: null,
-        };
-      case 'stage-2-strategy/review-workflow.lobster':
-        return {
-          ok: true,
-          status: 'ok',
-          output: [{
-            run_id: 'run-strategy',
-            approval_preview: {
-              status: 'pending_human_review',
-              message: 'Strategy review is ready for approval.',
-            },
-          }],
-          requiresApproval: null,
-        };
-      case 'stage-2-strategy/finalize-workflow.lobster':
-        return {
-          ok: true,
-          status: 'ok',
+          status: 'needs_approval',
           output: [{
             run_id: 'run-strategy',
             strategy_handoff: {
@@ -103,25 +108,17 @@ function installMarketingPipelineInvoker(): void {
               primary_cta: 'Book a walkthrough',
             },
           }],
-          requiresApproval: null,
+          requiresApproval: {
+            resumeToken: 'resume_production',
+            prompt: 'Strategy complete. Approve production to continue.',
+          },
         };
-      case 'stage-3-production/review-workflow.lobster':
+      }
+
+      if (token === 'resume_production') {
         return {
           ok: true,
-          status: 'ok',
-          output: [{
-            run_id: 'run-production',
-            approval_preview: {
-              status: 'pending_human_review',
-              message: 'Production review is ready for approval.',
-            },
-          }],
-          requiresApproval: null,
-        };
-      case 'stage-3-production/finalize-workflow.lobster':
-        return {
-          ok: true,
-          status: 'ok',
+          status: 'needs_approval',
           output: [{
             run_id: 'run-production',
             production_handoff: {
@@ -139,22 +136,14 @@ function installMarketingPipelineInvoker(): void {
               },
             },
           }],
-          requiresApproval: null,
+          requiresApproval: {
+            resumeToken: 'resume_publish',
+            prompt: 'Production complete. Approve launch to continue.',
+          },
         };
-      case 'stage-4-publish-optimize/review-workflow.lobster':
-        return {
-          ok: true,
-          status: 'ok',
-          output: [{
-            run_id: 'run-publish',
-            approval_preview: {
-              status: 'pending_human_review',
-              message: 'Launch approval is required before publishing.',
-            },
-          }],
-          requiresApproval: null,
-        };
-      case 'stage-4-publish-optimize/publish-workflow.lobster':
+      }
+
+      if (token === 'resume_publish') {
         return {
           ok: true,
           status: 'ok',
@@ -166,9 +155,10 @@ function installMarketingPipelineInvoker(): void {
           }],
           requiresApproval: null,
         };
-      default:
-        throw new Error(`Unexpected marketing pipeline ${pipeline}`);
+      }
     }
+
+    throw new Error(`Unexpected OpenClaw lobster invocation: action=${action}`);
   });
 }
 
@@ -211,7 +201,12 @@ test('startMarketingJob rejects brand_campaign requests without both required UR
 
 test('startMarketingJob uses repo-managed runtime without legacy workflow env', async () => {
   await withMarketingRuntimeEnv(async (dataRoot) => {
-    installMarketingPipelineInvoker();
+    const tracking = {
+      actions: [] as string[],
+      resumeTokens: [] as string[],
+      firstRunPayload: null as Record<string, unknown> | null,
+    };
+    installMarketingPipelineInvoker(tracking);
     const startMarketingJob = await loadStartMarketingJob();
     const result = await startMarketingJob({
       tenantId: 'tenant_123',
@@ -225,8 +220,13 @@ test('startMarketingJob uses repo-managed runtime without legacy workflow env', 
     assert.equal(result.jobType, 'brand_campaign');
     assert.equal(result.jobId.includes('tenant_123'), false);
     assert.equal(result.approvalRequired, true);
-    assert.equal(result.currentStage, 'strategy');
-    assert.equal(result.approval?.stage, 'strategy');
+
+    assert.deepEqual(tracking.actions, ['run']);
+    assert.deepEqual(tracking.resumeTokens, []);
+    const firstArgs = (tracking.firstRunPayload?.args as Record<string, unknown> | undefined) ?? {};
+    assert.equal(firstArgs.action, 'run');
+    assert.equal(firstArgs.pipeline, 'marketing-pipeline.lobster');
+    assert.equal(firstArgs.cwd, path.join(PROJECT_ROOT, 'lobster'));
 
     const runtimeFile = path.join(dataRoot, 'generated', 'draft', 'marketing-jobs', `${result.jobId}.json`);
     const runtimeDoc = JSON.parse(await readFile(runtimeFile, 'utf8')) as any;
@@ -242,6 +242,7 @@ test('startMarketingJob uses repo-managed runtime without legacy workflow env', 
     assert.equal(runtimeDoc.stages.strategy.status, 'awaiting_approval');
     assert.equal(runtimeDoc.stages.production.status, 'not_started');
     assert.equal(runtimeDoc.approvals.current.stage, 'strategy');
+    assert.equal(runtimeDoc.approvals.current.resume_token, 'resume_strategy');
     clearOpenClawTestInvoker();
   });
 });
@@ -311,7 +312,12 @@ test('approveMarketingJob advances strategy, production, and publish approvals t
   await withMarketingRuntimeEnv(async (dataRoot) => {
     const { approveMarketingJob } = await import('../backend/marketing/jobs-approve');
     const { startMarketingJob } = await import('../backend/marketing/jobs-start');
-    installMarketingPipelineInvoker();
+    const tracking = {
+      actions: [] as string[],
+      resumeTokens: [] as string[],
+      firstRunPayload: null as Record<string, unknown> | null,
+    };
+    installMarketingPipelineInvoker(tracking);
     const started = await startMarketingJob({
       tenantId: 'tenant-a',
       jobType: 'brand_campaign',
@@ -359,11 +365,7 @@ test('approveMarketingJob advances strategy, production, and publish approvals t
       tenantId: 'tenant-a',
       approvedBy: 'operator',
       approvedStages: ['publish'],
-      publishConfig: {
-        platforms: ['meta-ads', 'tiktok'],
-        live_publish_platforms: ['meta-ads'],
-        video_render_platforms: ['tiktok'],
-      },
+      resumePublishIfNeeded: true,
     });
 
     runtimeDoc = JSON.parse(await readFile(runtimeFile, 'utf8')) as any;
@@ -373,11 +375,190 @@ test('approveMarketingJob advances strategy, production, and publish approvals t
     assert.equal(runtimeDoc.state, 'completed');
     assert.equal(runtimeDoc.status, 'completed');
     assert.equal(runtimeDoc.stages.publish.status, 'completed');
+    assert.deepEqual(tracking.actions, ['run', 'resume', 'resume', 'resume']);
+    assert.deepEqual(tracking.resumeTokens, ['resume_strategy', 'resume_production', 'resume_publish']);
     assert.deepEqual(runtimeDoc.publish_config, {
       platforms: ['meta-ads', 'tiktok'],
       live_publish_platforms: ['meta-ads'],
       video_render_platforms: ['tiktok'],
     });
+    clearOpenClawTestInvoker();
+  });
+});
+
+test('approveMarketingJob preserves the active approval checkpoint when resume fails', async () => {
+  await withMarketingRuntimeEnv(async (dataRoot) => {
+    const { approveMarketingJob } = await import('../backend/marketing/jobs-approve');
+    const { startMarketingJob } = await import('../backend/marketing/jobs-start');
+
+    setOpenClawTestInvoker((payload) => {
+      const args = (payload.args as Record<string, unknown> | undefined) ?? {};
+      const action = String(args.action || '');
+
+      if (action === 'run') {
+        return {
+          ok: true,
+          status: 'needs_approval',
+          output: [{
+            run_id: 'run-research',
+            executive_summary: {
+              market_positioning: 'Proof-led competitive research is complete.',
+              campaign_takeaway: 'Outcome-first hooks are strongest.',
+            },
+          }],
+          requiresApproval: {
+            resumeToken: 'resume_strategy',
+            prompt: 'Research complete. Approve strategy to continue.',
+          },
+        };
+      }
+
+      if (action === 'resume') {
+        throw new Error('resume_pipeline_failed:gateway_timeout');
+      }
+
+      throw new Error(`Unexpected OpenClaw lobster invocation: action=${action}`);
+    });
+
+    const started = await startMarketingJob({
+      tenantId: 'tenant-a',
+      jobType: 'brand_campaign',
+      payload: {
+        brandUrl: 'https://brand.example',
+        competitorUrl: 'https://facebook.com/competitor',
+      },
+    });
+
+    await assert.rejects(
+      () =>
+        approveMarketingJob({
+          jobId: started.jobId,
+          tenantId: 'tenant-a',
+          approvedBy: 'operator',
+          approvedStages: ['strategy'],
+        }),
+      /resume_pipeline_failed:gateway_timeout/i
+    );
+
+    const runtimeFile = path.join(dataRoot, 'generated', 'draft', 'marketing-jobs', `${started.jobId}.json`);
+    const runtimeDoc = JSON.parse(await readFile(runtimeFile, 'utf8')) as any;
+
+    assert.equal(runtimeDoc.state, 'failed');
+    assert.equal(runtimeDoc.status, 'failed');
+    assert.equal(runtimeDoc.approvals.current.stage, 'strategy');
+    assert.equal(runtimeDoc.approvals.current.resume_token, 'resume_strategy');
+    clearOpenClawTestInvoker();
+  });
+});
+
+test('approveMarketingJob backfills a missing brand kit for legacy runtime documents before saving approval state', async () => {
+  await withMarketingRuntimeEnv(async (dataRoot) => {
+    const { approveMarketingJob } = await import('../backend/marketing/jobs-approve');
+    const { saveTenantBrandKit } = await import('../backend/marketing/brand-kit');
+    const runtimeFile = path.join(dataRoot, 'generated', 'draft', 'marketing-jobs', 'mkt_legacy_brandless.json');
+    await mkdir(path.dirname(runtimeFile), { recursive: true });
+
+    saveTenantBrandKit('tenant-a', {
+      tenant_id: 'tenant-a',
+      source_url: 'https://brand.example',
+      canonical_url: 'https://brand.example',
+      brand_name: 'Brand Example',
+      logo_urls: [],
+      colors: {
+        primary: null,
+        secondary: null,
+        accent: null,
+        palette: [],
+      },
+      font_families: [],
+      external_links: [],
+      extracted_at: new Date().toISOString(),
+    });
+
+    await writeFile(
+      runtimeFile,
+      JSON.stringify({
+        schema_name: 'marketing_job_state_schema',
+        schema_version: '1.0.0',
+        job_id: 'mkt_legacy_brandless',
+        job_type: 'brand_campaign',
+        tenant_id: 'tenant-a',
+        state: 'approval_required',
+        status: 'awaiting_approval',
+        current_stage: 'strategy',
+        stage_order: ['research', 'strategy', 'production', 'publish'],
+        stages: {
+          research: { stage: 'research', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-r', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          strategy: { stage: 'strategy', status: 'awaiting_approval', started_at: null, completed_at: null, failed_at: null, run_id: 'run-s', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          production: { stage: 'production', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          publish: { stage: 'publish', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+        },
+        approvals: {
+          current: {
+            stage: 'strategy',
+            status: 'awaiting_approval',
+            title: 'Strategy approval required',
+            message: 'Strategy review is ready.',
+            requested_at: new Date().toISOString(),
+            resume_token: 'resume_strategy',
+          },
+          history: [],
+        },
+        publish_config: {
+          platforms: ['meta-ads'],
+          live_publish_platforms: [],
+          video_render_platforms: [],
+        },
+        inputs: {
+          request: {
+            brandUrl: 'https://brand.example',
+            competitorUrl: 'https://facebook.com/competitor',
+          },
+          brand_url: 'https://brand.example',
+          competitor_url: 'https://facebook.com/competitor',
+        },
+        errors: [],
+        last_error: null,
+        history: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, null, 2)
+    );
+
+    setOpenClawTestInvoker((payload) => {
+      const args = (payload.args as Record<string, unknown> | undefined) ?? {};
+      if (String(args.action || '') === 'resume') {
+        return {
+          ok: true,
+          status: 'needs_approval',
+          output: [{
+            run_id: 'run-production',
+            strategy_handoff: {
+              core_message: 'Strategy approved and handed off.',
+              primary_cta: 'Shop now',
+            },
+          }],
+          requiresApproval: {
+            resumeToken: 'resume_production',
+            prompt: 'Approve production to continue.',
+          },
+        };
+      }
+      throw new Error(`Unexpected OpenClaw lobster invocation: action=${String(args.action || '')}`);
+    });
+
+    const result = await approveMarketingJob({
+      jobId: 'mkt_legacy_brandless',
+      tenantId: 'tenant-a',
+      approvedBy: 'operator',
+      approvedStages: ['strategy'],
+    });
+
+    const runtimeDoc = JSON.parse(await readFile(runtimeFile, 'utf8')) as any;
+    assert.equal(result.status, 'resumed');
+    assert.equal(result.resumedStage, 'production');
+    assert.equal(runtimeDoc.brand_kit.source_url, 'https://brand.example');
+    assert.equal(runtimeDoc.approvals.current.stage, 'production');
     clearOpenClawTestInvoker();
   });
 });

@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["frontend/marketing/job-status.tsx", "frontend/onboarding/start.tsx", "frontend/onboarding/status.tsx", "lib/api/marketing.ts", "lib/api/onboarding.ts", "hooks/use-marketing-job-status.ts", "hooks/use-onboarding-start.ts", "hooks/use-onboarding-status.ts"]
+}

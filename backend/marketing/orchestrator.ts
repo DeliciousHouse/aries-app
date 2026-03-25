@@ -1,16 +1,12 @@
 import { randomUUID } from 'node:crypto';
 
-import { runAriesOpenClawWorkflow } from '../openclaw/aries-execution';
-import { OpenClawGatewayError } from '../openclaw/gateway-client';
+import { resolveCodePath, resolveCodeRoot } from '@/lib/runtime-paths';
 import {
-  collectProductionFinalizeArtifacts,
-  collectProductionReviewArtifacts,
-  collectPublishFinalizeArtifacts,
-  collectPublishReviewArtifacts,
-  collectResearchStageArtifacts,
-  collectStrategyFinalizeArtifacts,
-  collectStrategyReviewArtifacts,
-} from './artifact-collector';
+  OpenClawGatewayError,
+  resumeOpenClawLobsterWorkflow,
+  runOpenClawLobsterWorkflow,
+  type LobsterEnvelope,
+} from '../openclaw/gateway-client';
 import {
   appendHistory,
   assertMarketingRuntimeSchemas,
@@ -21,6 +17,7 @@ import {
   markStageAwaitingApproval,
   markStageCompleted,
   markStageInProgress,
+  nowIso,
   recordApproval,
   recordStageFailure,
   saveMarketingJobRuntime,
@@ -30,6 +27,12 @@ import {
   type MarketingPublishConfig,
   type MarketingStage,
 } from './runtime-state';
+import {
+  extractAndSaveTenantBrandKit,
+  loadTenantBrandKit,
+  tenantBrandKitPath,
+  type TenantBrandKit,
+} from './brand-kit';
 
 export type StartMarketingJobRequest = {
   tenantId: string;
@@ -70,6 +73,46 @@ export type ApproveMarketingJobResponse = {
   reason?: string;
 };
 
+function runtimeBrandKitReference(
+  brandKit: TenantBrandKit,
+  filePath: string
+): MarketingJobRuntimeDocument['brand_kit'] {
+  return {
+    path: filePath,
+    source_url: brandKit.source_url,
+    canonical_url: brandKit.canonical_url,
+    brand_name: brandKit.brand_name,
+    logo_urls: brandKit.logo_urls,
+    colors: brandKit.colors,
+    font_families: brandKit.font_families,
+    external_links: brandKit.external_links,
+    extracted_at: brandKit.extracted_at,
+  };
+}
+
+async function ensureRuntimeBrandKit(doc: MarketingJobRuntimeDocument): Promise<void> {
+  if (doc.brand_kit) {
+    return;
+  }
+
+  const brandUrl = doc.inputs.brand_url?.trim();
+  if (!brandUrl) {
+    return;
+  }
+
+  const existingBrandKit = loadTenantBrandKit(doc.tenant_id);
+  if (existingBrandKit && existingBrandKit.source_url === brandUrl) {
+    doc.brand_kit = runtimeBrandKitReference(existingBrandKit, tenantBrandKitPath(doc.tenant_id));
+    return;
+  }
+
+  const { brandKit, filePath } = await extractAndSaveTenantBrandKit({
+    tenantId: doc.tenant_id,
+    brandUrl,
+  });
+  doc.brand_kit = runtimeBrandKitReference(brandKit, filePath);
+}
+
 function runtimeArtifactPath(jobId: string): string {
   return `generated/draft/marketing-jobs/${jobId}.json`;
 }
@@ -78,33 +121,13 @@ function makeMarketingJobId(): string {
   return `mkt_${randomUUID()}`;
 }
 
-function toBase64(value: unknown): string {
-  return Buffer.from(JSON.stringify(value), 'utf8').toString('base64');
-}
-
 function stringValue(value: unknown, fallback = ''): string {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback;
 }
 
-function mergeArtifacts(
-  existing: MarketingJobRuntimeDocument['stages'][MarketingStage]['artifacts'],
-  incoming: MarketingJobRuntimeDocument['stages'][MarketingStage]['artifacts']
-): MarketingJobRuntimeDocument['stages'][MarketingStage]['artifacts'] {
-  const entries = [...existing];
-  for (const artifact of incoming) {
-    const idx = entries.findIndex((entry) => entry.id === artifact.id);
-    if (idx >= 0) {
-      entries[idx] = artifact;
-    } else {
-      entries.push(artifact);
-    }
-  }
-  return entries;
-}
-
 function ensureBrandCampaignInput(input: StartMarketingJobRequest): { brandUrl: string; competitorUrl: string } {
-  const brandUrl = typeof input.payload?.brandUrl === 'string' ? input.payload.brandUrl.trim() : '';
-  const competitorUrl = typeof input.payload?.competitorUrl === 'string' ? input.payload.competitorUrl.trim() : '';
+  const brandUrl = stringValue(input.payload?.brandUrl);
+  const competitorUrl = stringValue(input.payload?.competitorUrl);
   const missing: string[] = [];
   if (!brandUrl) missing.push('payload.brandUrl');
   if (!competitorUrl) missing.push('payload.competitorUrl');
@@ -114,18 +137,108 @@ function ensureBrandCampaignInput(input: StartMarketingJobRequest): { brandUrl: 
   return { brandUrl, competitorUrl };
 }
 
-async function executeWorkflow(
-  key: Parameters<typeof runAriesOpenClawWorkflow>[0],
-  args: Record<string, unknown>
-): Promise<Record<string, unknown>> {
-  const executed = await runAriesOpenClawWorkflow(key, args);
-  if (executed.kind === 'gateway_error') {
-    throw executed.error;
+const MARKETING_PIPELINE_FILE = 'marketing-pipeline.lobster';
+
+function marketingPipelineCwd(): string {
+  const explicit = process.env.OPENCLAW_LOBSTER_CWD?.trim();
+  if (explicit) {
+    return explicit;
   }
-  if (executed.kind === 'not_implemented') {
-    throw new Error(`${executed.payload.code}:${executed.payload.route}`);
-  }
-  return executed.primaryOutput ?? {};
+  return resolveCodeRoot() === '/app' ? 'aries-app/lobster' : resolveCodePath('lobster');
+}
+
+function marketingPipelineArgs(doc: MarketingJobRuntimeDocument): Record<string, unknown> {
+  return {
+    brand_url: doc.inputs.brand_url ?? '',
+    competitor: doc.inputs.competitor_url ?? '',
+    brand_slug: doc.tenant_id,
+  };
+}
+
+function primaryOutputRecord(envelope: LobsterEnvelope): Record<string, unknown> {
+  const first = Array.isArray(envelope.output) ? envelope.output[0] : null;
+  return first && typeof first === 'object' && !Array.isArray(first)
+    ? (first as Record<string, unknown>)
+    : {};
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    : [];
+}
+
+function runIdFromPrimaryOutput(primaryOutput: Record<string, unknown>): string | null {
+  return stringValue(primaryOutput.run_id) || null;
+}
+
+function approvalPrompt(envelope: LobsterEnvelope, fallback: string): string {
+  return stringValue(envelope.requiresApproval?.prompt) || fallback;
+}
+
+function summarizeResearch(primaryOutput: Record<string, unknown>) {
+  const executiveSummary = (primaryOutput.executive_summary as Record<string, unknown> | undefined) ?? {};
+  return {
+    summary:
+      stringValue(executiveSummary.market_positioning) ||
+      'Competitive research completed and the strongest marketing angle was captured.',
+    highlight: stringValue(executiveSummary.campaign_takeaway) || null,
+  };
+}
+
+function summarizeStrategy(primaryOutput: Record<string, unknown>) {
+  const strategyHandoff = (primaryOutput.strategy_handoff as Record<string, unknown> | undefined) ?? primaryOutput;
+  return {
+    summary:
+      stringValue(strategyHandoff.core_message) ||
+      'Strategy handoff is approved and ready for production.',
+    highlight: stringValue(strategyHandoff.primary_cta) || null,
+    handoff: strategyHandoff,
+  };
+}
+
+function summarizeProduction(primaryOutput: Record<string, unknown>) {
+  const productionHandoff =
+    (primaryOutput.production_handoff as Record<string, unknown> | undefined) ?? primaryOutput;
+  const productionBrief =
+    (productionHandoff.production_brief as Record<string, unknown> | undefined) ?? {};
+  const contractHandoffs =
+    (productionHandoff.contract_handoffs as Record<string, unknown> | undefined) ?? {};
+  const staticHandoff = (contractHandoffs.static as Record<string, unknown> | undefined) ?? {};
+  const videoHandoff = (contractHandoffs.video as Record<string, unknown> | undefined) ?? {};
+  return {
+    summary:
+      stringValue(productionBrief.core_message) ||
+      'Production handoff is approved and ready for publish review.',
+    highlight: `Static contracts: ${stringArray(staticHandoff.platform_contract_paths).length}, Video contracts: ${stringArray(videoHandoff.platform_contract_paths).length}`,
+    handoff: productionHandoff,
+  };
+}
+
+function summarizePublish(primaryOutput: Record<string, unknown>) {
+  const summary = (primaryOutput.summary as Record<string, unknown> | undefined) ?? {};
+  return {
+    summary:
+      stringValue(summary.message) ||
+      'Publish-ready assets were generated successfully.',
+    highlight: null,
+  };
+}
+
+async function runMarketingPipeline(doc: MarketingJobRuntimeDocument): Promise<LobsterEnvelope> {
+  return runOpenClawLobsterWorkflow({
+    pipeline: MARKETING_PIPELINE_FILE,
+    cwd: marketingPipelineCwd(),
+    argsJson: JSON.stringify(marketingPipelineArgs(doc)),
+  });
+}
+
+async function resumeMarketingPipeline(resumeToken: string): Promise<LobsterEnvelope> {
+  return resumeOpenClawLobsterWorkflow({
+    token: resumeToken,
+    approve: true,
+    cwd: marketingPipelineCwd(),
+  });
 }
 
 function stageApprovalMessage(
@@ -150,73 +263,49 @@ function stageApprovalMessage(
   };
 }
 
-function publishWorkflowArgs(doc: MarketingJobRuntimeDocument, productionHandoff: Record<string, unknown>): Record<string, unknown> {
-  const config = defaultPublishConfig(doc.publish_config);
-  const has = (platform: string, entries: string[]) => entries.includes(platform);
-  return {
-    brand_slug: doc.tenant_id,
-    production_handoff_base64: toBase64(productionHandoff),
-    platforms_csv: config.platforms.join(','),
-    live_publish_platforms_csv: config.live_publish_platforms.join(','),
-    video_render_platforms_csv: config.video_render_platforms.join(','),
-    meta_ads_enabled: has('meta-ads', config.platforms),
-    instagram_enabled: has('instagram', config.platforms),
-    x_enabled: has('x', config.platforms),
-    tiktok_enabled: has('tiktok', config.platforms),
-    youtube_enabled: has('youtube', config.platforms),
-    linkedin_enabled: has('linkedin', config.platforms),
-    reddit_enabled: has('reddit', config.platforms),
-    meta_ads_live_publish_requested: has('meta-ads', config.live_publish_platforms),
-    instagram_live_publish_requested: has('instagram', config.live_publish_platforms),
-    x_live_publish_requested: has('x', config.live_publish_platforms),
-    linkedin_live_publish_requested: has('linkedin', config.live_publish_platforms),
-    reddit_live_publish_requested: has('reddit', config.live_publish_platforms),
-    tiktok_render_requested: has('tiktok', config.video_render_platforms),
-    youtube_render_requested: has('youtube', config.video_render_platforms),
-  };
-}
-
-function productionHandoffFromDoc(doc: MarketingJobRuntimeDocument): Record<string, unknown> | null {
-  return (getStageRecord(doc, 'production').outputs.production_handoff as Record<string, unknown> | undefined) ?? null;
-}
 
 async function runResearchStage(doc: MarketingJobRuntimeDocument): Promise<void> {
   setJobRunning(doc, 'research', 'running research stage');
   markStageInProgress(doc, 'research');
   saveMarketingJobRuntime(doc.job_id, doc);
 
-  const researchOutput = await executeWorkflow('marketing_stage1_research', {
-    competitor: '',
-    competitor_facebook_url: doc.inputs.competitor_url,
-    strict_mode: true,
-  });
-  const capture = collectResearchStageArtifacts(researchOutput);
+  const envelope = await runMarketingPipeline(doc);
+  const primaryOutput = primaryOutputRecord(envelope);
+  const summary = summarizeResearch(primaryOutput);
+  const runId = runIdFromPrimaryOutput(primaryOutput);
   markStageCompleted(doc, 'research', {
-    runId: capture.runId,
-    summary: capture.summary,
-    primaryOutput: researchOutput,
-    outputs: capture.outputs,
-    artifacts: capture.artifacts,
+    runId,
+    summary,
+    primaryOutput,
+    outputs: {
+      envelope,
+    },
+    artifacts: [
+      {
+        id: 'research-summary',
+        stage: 'research',
+        title: 'Competitor research summary',
+        category: 'analysis',
+        status: 'completed',
+        summary: summary.summary,
+        details: [
+          `Competitor URL: ${doc.inputs.competitor_url ?? 'n/a'}`,
+          `Brand URL: ${doc.inputs.brand_url ?? 'n/a'}`,
+        ],
+      },
+    ],
   });
   appendHistory(doc, 'research stage completed', { stage: 'research' });
   saveMarketingJobRuntime(doc.job_id, doc);
-}
 
-async function runStrategyReviewStage(doc: MarketingJobRuntimeDocument): Promise<void> {
-  setJobRunning(doc, 'strategy', 'running strategy stage');
-  markStageInProgress(doc, 'strategy');
-  saveMarketingJobRuntime(doc.job_id, doc);
+  if (!envelope.requiresApproval?.resumeToken) {
+    throw new Error('marketing_pipeline_missing_resume_token:strategy');
+  }
 
-  const researchPrimaryOutput = getStageRecord(doc, 'research').primary_output ?? {};
-  const strategyReviewOutput = await executeWorkflow('marketing_stage2_strategy_review', {
-    website_url: doc.inputs.brand_url,
-    brand_slug: doc.tenant_id,
-    stage1_summary_base64: toBase64(researchPrimaryOutput),
-    strict_mode: true,
-  });
-  const capture = collectStrategyReviewArtifacts(strategyReviewOutput);
-  const approvalPreview = (strategyReviewOutput.approval_preview as Record<string, unknown> | undefined) ?? {};
-  const approval = stageApprovalMessage('strategy', stringValue(approvalPreview.message));
+  const approval = stageApprovalMessage(
+    'strategy',
+    approvalPrompt(envelope, 'Research is complete. Approve the strategy step to continue.')
+  );
   markStageAwaitingApproval(
     doc,
     'strategy',
@@ -224,56 +313,69 @@ async function runStrategyReviewStage(doc: MarketingJobRuntimeDocument): Promise
       title: approval.title,
       message: approval.message,
       action_label: 'Review strategy',
+      resume_token: envelope.requiresApproval.resumeToken,
     },
     {
-      runId: capture.runId,
-      summary: capture.summary,
-      primaryOutput: strategyReviewOutput,
-      outputs: capture.outputs,
-      artifacts: capture.artifacts,
+      runId,
+      summary: {
+        summary: approval.message,
+        highlight: summary.highlight,
+      },
+      primaryOutput,
+      outputs: {
+        resume_token: envelope.requiresApproval.resumeToken,
+      },
+      artifacts: [
+        {
+          id: 'strategy-review',
+          stage: 'strategy',
+          title: 'Strategy approval checkpoint',
+          category: 'approval',
+          status: 'awaiting_approval',
+          summary: approval.message,
+          details: [],
+        },
+      ],
     }
   );
   appendHistory(doc, 'strategy stage is awaiting approval', { stage: 'strategy' });
   saveMarketingJobRuntime(doc.job_id, doc);
 }
 
-async function finalizeStrategyAndRunProductionReview(doc: MarketingJobRuntimeDocument): Promise<void> {
-  const strategyStage = getStageRecord(doc, 'strategy');
-  const strategyRunId = strategyStage.run_id;
-  if (!strategyRunId) {
-    throw new Error('missing_strategy_run_id');
+async function finalizeStrategyAndRunProductionReview(
+  doc: MarketingJobRuntimeDocument,
+  resumeToken: string
+): Promise<void> {
+  if (!resumeToken) {
+    throw new Error('missing_strategy_resume_token');
   }
 
-  const strategyFinalizeOutput = await executeWorkflow('marketing_stage2_strategy_finalize', {
-    brand_slug: doc.tenant_id,
-    run_id: strategyRunId,
-  });
-  const strategyFinalizeCapture = collectStrategyFinalizeArtifacts(strategyFinalizeOutput);
+  const envelope = await resumeMarketingPipeline(resumeToken);
+  const primaryOutput = primaryOutputRecord(envelope);
+  const strategy = summarizeStrategy(primaryOutput);
   markStageCompleted(doc, 'strategy', {
-    runId: strategyFinalizeCapture.runId ?? strategyRunId,
-    summary: strategyFinalizeCapture.summary ?? strategyStage.summary,
-    primaryOutput: strategyFinalizeOutput,
-    outputs: {
-      ...strategyStage.outputs,
-      ...strategyFinalizeCapture.outputs,
+    runId: runIdFromPrimaryOutput(primaryOutput) ?? getStageRecord(doc, 'research').run_id,
+    summary: {
+      summary: strategy.summary,
+      highlight: strategy.highlight,
     },
-    artifacts: mergeArtifacts(strategyStage.artifacts, strategyFinalizeCapture.artifacts),
+    primaryOutput,
+    outputs: {
+      strategy_handoff: strategy.handoff,
+    },
+    artifacts: [],
   });
   appendHistory(doc, 'strategy stage approved and finalized', { stage: 'strategy' });
   saveMarketingJobRuntime(doc.job_id, doc);
 
-  setJobRunning(doc, 'production', 'running production stage');
-  markStageInProgress(doc, 'production');
-  saveMarketingJobRuntime(doc.job_id, doc);
+  if (!envelope.requiresApproval?.resumeToken) {
+    throw new Error('marketing_pipeline_missing_resume_token:production');
+  }
 
-  const strategyHandoff = strategyFinalizeCapture.outputs.strategy_handoff ?? {};
-  const productionReviewOutput = await executeWorkflow('marketing_stage3_production_review', {
-    brand_slug: doc.tenant_id,
-    strategy_handoff_base64: toBase64(strategyHandoff),
-  });
-  const productionCapture = collectProductionReviewArtifacts(productionReviewOutput);
-  const approvalPreview = (productionReviewOutput.approval_preview as Record<string, unknown> | undefined) ?? {};
-  const approval = stageApprovalMessage('production', stringValue(approvalPreview.message));
+  const approval = stageApprovalMessage(
+    'production',
+    approvalPrompt(envelope, 'Strategy is complete. Approve production to continue.')
+  );
   markStageAwaitingApproval(
     doc,
     'production',
@@ -281,56 +383,69 @@ async function finalizeStrategyAndRunProductionReview(doc: MarketingJobRuntimeDo
       title: approval.title,
       message: approval.message,
       action_label: 'Review production',
+      resume_token: envelope.requiresApproval.resumeToken,
     },
     {
-      runId: productionCapture.runId,
-      summary: productionCapture.summary,
-      primaryOutput: productionReviewOutput,
-      outputs: productionCapture.outputs,
-      artifacts: productionCapture.artifacts,
+      runId: runIdFromPrimaryOutput(primaryOutput) ?? getStageRecord(doc, 'strategy').run_id,
+      summary: {
+        summary: approval.message,
+        highlight: strategy.highlight,
+      },
+      primaryOutput,
+      outputs: {
+        resume_token: envelope.requiresApproval.resumeToken,
+      },
+      artifacts: [
+        {
+          id: 'production-review',
+          stage: 'production',
+          title: 'Production approval checkpoint',
+          category: 'approval',
+          status: 'awaiting_approval',
+          summary: approval.message,
+          details: [],
+        },
+      ],
     }
   );
   appendHistory(doc, 'production stage is awaiting approval', { stage: 'production' });
   saveMarketingJobRuntime(doc.job_id, doc);
 }
 
-async function finalizeProductionAndRunPublishReview(doc: MarketingJobRuntimeDocument): Promise<void> {
-  const productionStage = getStageRecord(doc, 'production');
-  const productionRunId = productionStage.run_id;
-  if (!productionRunId) {
-    throw new Error('missing_production_run_id');
+async function finalizeProductionAndRunPublishReview(
+  doc: MarketingJobRuntimeDocument,
+  resumeToken: string
+): Promise<void> {
+  if (!resumeToken) {
+    throw new Error('missing_production_resume_token');
   }
 
-  const productionFinalizeOutput = await executeWorkflow('marketing_stage3_production_finalize', {
-    brand_slug: doc.tenant_id,
-    run_id: productionRunId,
-  });
-  const productionFinalizeCapture = collectProductionFinalizeArtifacts(productionFinalizeOutput);
+  const envelope = await resumeMarketingPipeline(resumeToken);
+  const primaryOutput = primaryOutputRecord(envelope);
+  const production = summarizeProduction(primaryOutput);
   markStageCompleted(doc, 'production', {
-    runId: productionFinalizeCapture.runId ?? productionRunId,
-    summary: productionFinalizeCapture.summary ?? productionStage.summary,
-    primaryOutput: productionFinalizeOutput,
-    outputs: {
-      ...productionStage.outputs,
-      ...productionFinalizeCapture.outputs,
+    runId: runIdFromPrimaryOutput(primaryOutput) ?? getStageRecord(doc, 'strategy').run_id,
+    summary: {
+      summary: production.summary,
+      highlight: production.highlight,
     },
-    artifacts: mergeArtifacts(productionStage.artifacts, productionFinalizeCapture.artifacts),
+    primaryOutput,
+    outputs: {
+      production_handoff: production.handoff,
+    },
+    artifacts: [],
   });
   appendHistory(doc, 'production stage approved and finalized', { stage: 'production' });
   saveMarketingJobRuntime(doc.job_id, doc);
 
-  setJobRunning(doc, 'publish', 'running publish preflight stage');
-  markStageInProgress(doc, 'publish');
-  saveMarketingJobRuntime(doc.job_id, doc);
+  if (!envelope.requiresApproval?.resumeToken) {
+    throw new Error('marketing_pipeline_missing_resume_token:publish');
+  }
 
-  const productionHandoff = productionFinalizeCapture.outputs.production_handoff ?? {};
-  const publishReviewOutput = await executeWorkflow('marketing_stage4_publish_review', {
-    brand_slug: doc.tenant_id,
-    production_handoff_base64: toBase64(productionHandoff),
-  });
-  const publishCapture = collectPublishReviewArtifacts(publishReviewOutput);
-  const approvalPreview = (publishReviewOutput.approval_preview as Record<string, unknown> | undefined) ?? {};
-  const approval = stageApprovalMessage('publish', stringValue(approvalPreview.message));
+  const approval = stageApprovalMessage(
+    'publish',
+    approvalPrompt(envelope, 'Production is complete. Approve publish to continue.')
+  );
   markStageAwaitingApproval(
     doc,
     'publish',
@@ -339,41 +454,59 @@ async function finalizeProductionAndRunPublishReview(doc: MarketingJobRuntimeDoc
       message: approval.message,
       action_label: 'Approve launch',
       publish_config: doc.publish_config,
+      resume_token: envelope.requiresApproval.resumeToken,
     },
     {
-      runId: publishCapture.runId,
-      summary: publishCapture.summary,
-      primaryOutput: publishReviewOutput,
-      outputs: publishCapture.outputs,
-      artifacts: publishCapture.artifacts,
+      runId: runIdFromPrimaryOutput(primaryOutput) ?? getStageRecord(doc, 'production').run_id,
+      summary: {
+        summary: approval.message,
+        highlight: production.highlight,
+      },
+      primaryOutput,
+      outputs: {
+        resume_token: envelope.requiresApproval.resumeToken,
+      },
+      artifacts: [
+        {
+          id: 'launch-review',
+          stage: 'publish',
+          title: 'Launch approval checkpoint',
+          category: 'approval',
+          status: 'awaiting_approval',
+          summary: approval.message,
+          details: [],
+        },
+      ],
     }
   );
   appendHistory(doc, 'publish stage is awaiting approval', { stage: 'publish' });
   saveMarketingJobRuntime(doc.job_id, doc);
 }
 
-async function finalizePublish(doc: MarketingJobRuntimeDocument): Promise<void> {
+async function finalizePublish(doc: MarketingJobRuntimeDocument, resumeToken: string): Promise<void> {
   const publishStage = getStageRecord(doc, 'publish');
-  const productionHandoff = productionHandoffFromDoc(doc);
-  if (!productionHandoff) {
-    throw new Error('missing_production_handoff');
+  if (!resumeToken) {
+    throw new Error('missing_publish_resume_token');
   }
 
   setJobRunning(doc, 'publish', 'running publish finalize stage');
   markStageInProgress(doc, 'publish');
   saveMarketingJobRuntime(doc.job_id, doc);
 
-  const publishFinalizeOutput = await executeWorkflow('marketing_stage4_publish_finalize', publishWorkflowArgs(doc, productionHandoff));
-  const publishCapture = collectPublishFinalizeArtifacts(publishFinalizeOutput);
+  const envelope = await resumeMarketingPipeline(resumeToken);
+  const primaryOutput = primaryOutputRecord(envelope);
+  const publish = summarizePublish(primaryOutput);
   markStageCompleted(doc, 'publish', {
-    runId: publishCapture.runId ?? publishStage.run_id,
-    summary: publishCapture.summary ?? publishStage.summary,
-    primaryOutput: publishFinalizeOutput,
-    outputs: {
-      ...publishStage.outputs,
-      ...publishCapture.outputs,
+    runId: runIdFromPrimaryOutput(primaryOutput) ?? publishStage.run_id,
+    summary: {
+      summary: publish.summary,
+      highlight: publish.highlight,
     },
-    artifacts: mergeArtifacts(publishStage.artifacts, publishCapture.artifacts),
+    primaryOutput,
+    outputs: {
+      envelope,
+    },
+    artifacts: publishStage.artifacts,
   });
 
   doc.state = 'completed';
@@ -418,19 +551,23 @@ export async function startMarketingJob(input: StartMarketingJobRequest): Promis
   if (input.jobType !== 'brand_campaign') {
     throw new Error(`unsupported_job_type:${input.jobType}`);
   }
-  ensureBrandCampaignInput(input);
+  const brandCampaignInput = ensureBrandCampaignInput(input);
 
   const jobId = makeMarketingJobId();
+  const { brandKit, filePath } = await extractAndSaveTenantBrandKit({
+    tenantId: input.tenantId.trim(),
+    brandUrl: brandCampaignInput.brandUrl,
+  });
   const doc = createMarketingJobRuntimeDocument({
     jobId,
     tenantId: input.tenantId.trim(),
     payload: input.payload,
+    brandKit: runtimeBrandKitReference(brandKit, filePath),
   });
   saveMarketingJobRuntime(jobId, doc);
 
   try {
     await runResearchStage(doc);
-    await runStrategyReviewStage(doc);
   } catch (error) {
     handleFailure(doc, doc.current_stage, error);
   }
@@ -495,6 +632,9 @@ export async function approveMarketingJob(
       reason: 'approval_stage_not_selected',
     };
   }
+  const resumeToken = checkpoint.resume_token?.trim() || '';
+
+  await ensureRuntimeBrandKit(doc);
 
   recordApproval(doc, {
     stage: checkpoint.stage,
@@ -511,7 +651,7 @@ export async function approveMarketingJob(
 
   try {
     if (checkpoint.stage === 'strategy') {
-      await finalizeStrategyAndRunProductionReview(doc);
+      await finalizeStrategyAndRunProductionReview(doc, resumeToken);
       return {
         status: 'resumed',
         jobId: input.jobId,
@@ -522,7 +662,7 @@ export async function approveMarketingJob(
     }
 
     if (checkpoint.stage === 'production') {
-      await finalizeProductionAndRunPublishReview(doc);
+      await finalizeProductionAndRunPublishReview(doc, resumeToken);
       return {
         status: 'resumed',
         jobId: input.jobId,
@@ -532,7 +672,7 @@ export async function approveMarketingJob(
       };
     }
 
-    await finalizePublish(doc);
+    await finalizePublish(doc, resumeToken);
     return {
       status: 'resumed',
       jobId: input.jobId,

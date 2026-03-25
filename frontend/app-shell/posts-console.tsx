@@ -1,69 +1,140 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
-import { Repeat2, Send, Sparkles } from 'lucide-react';
+import Link from 'next/link';
 
-import { usePublishDispatch } from '@/hooks/use-publish-dispatch';
-import { usePublishRetry } from '@/hooks/use-publish-retry';
+import { CheckCircle, Clock3, Sparkles } from 'lucide-react';
+
+import { useLatestMarketingJob } from '@/hooks/use-latest-marketing-job';
 
 export default function PostsConsole(): JSX.Element {
-  return (
-    <div className="grid xl:grid-cols-2 gap-6">
-      <div className="glass rounded-[2.5rem] p-8">
-        <div className="space-y-6">
-          <div>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center">
-                <Sparkles className="w-6 h-6 text-primary" />
+  const latestJob = useLatestMarketingJob({ autoLoad: true });
+  const campaign = latestJob.data;
+  const events = campaign?.calendarEvents ?? [];
+  const previewFallback = campaign?.assetPreviewCards ?? [];
+
+  let postQueueBody: JSX.Element;
+  if (latestJob.isLoading) {
+    postQueueBody = <div className="text-white/60">Loading post queue…</div>;
+  } else if (events.length === 0 && previewFallback.length === 0) {
+    postQueueBody = (
+      <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-6 text-white/60">
+        No scheduled post events are available yet for this campaign.
+      </div>
+    );
+  } else if (events.length === 0) {
+    postQueueBody = (
+      <div className="grid md:grid-cols-2 gap-4">
+        {previewFallback.map((preview) => (
+          <Link
+            key={preview.id}
+            href={preview.previewHref}
+            className="rounded-[1.5rem] border border-white/10 bg-white/5 overflow-hidden hover:bg-white/10 transition-colors"
+          >
+            <div className="h-44 flex items-center justify-center bg-black/20 text-white/45">
+              {preview.platformName}
+            </div>
+            <div className="p-4">
+              <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-2">{preview.channelType}</p>
+              <h3 className="font-semibold mb-1">{preview.title}</h3>
+              <p className="text-sm text-white/60">{preview.summary}</p>
+            </div>
+          </Link>
+        ))}
+      </div>
+    );
+  } else {
+    const assetPreviewCards = campaign?.assetPreviewCards ?? [];
+    postQueueBody = (
+      <div className="space-y-4">
+        {events.map((event) => {
+          const matchingPreview = assetPreviewCards.find((preview) => preview.id === event.assetPreviewId);
+          return (
+            <div key={event.id} className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid md:grid-cols-[1fr_auto] gap-4">
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <CheckCircle className="w-5 h-5 text-primary" />
+                  <div>
+                    <h3 className="font-semibold">{event.title}</h3>
+                    <p className="text-sm text-white/50">{event.platform} · {event.status}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-white/60">
+                  <Clock3 className="w-4 h-4" />
+                  <span>{new Date(event.startsAt).toLocaleString()}</span>
+                </div>
+                {matchingPreview ? (
+                  <Link href={matchingPreview.previewHref} className="inline-flex items-center gap-2 text-primary hover:text-primary/80 transition-colors">
+                    Open linked preview <Sparkles className="w-4 h-4" />
+                  </Link>
+                ) : null}
               </div>
-              <div>
-                <p className="text-xs uppercase tracking-[0.24em] text-white/35">Campaign publishing</p>
-                <h2 className="text-2xl font-bold">Publishing now lives inside the marketing job flow</h2>
+              <div className="text-sm text-white/60 rounded-[1.25rem] border border-white/10 bg-black/20 px-4 py-3 h-fit">
+                Asset preview: {event.assetPreviewId || 'none'}
               </div>
             </div>
-            <p className="text-white/60 leading-relaxed">
-              Aries no longer treats standalone publish dispatch and retry controls as the canonical workflow. Real publishing happens after research, strategy, production, and explicit approvals inside a marketing job.
+          );
+        })}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="glass rounded-[2.5rem] p-8">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-3">Post queue</p>
+            <h2 className="text-3xl font-bold mb-3">Planned and created content</h2>
+            <p className="text-white/60 leading-relaxed max-w-2xl">
+              Review every scheduled post in the current campaign, along with live status and direct links back to the exact preview bundle.
             </p>
           </div>
+          <div className="flex flex-wrap gap-3">
+            <div className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/70">
+              Planned: <strong className="text-white">{campaign?.plannedPostCount ?? 0}</strong>
+            </div>
+            <div className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/70">
+              Created: <strong className="text-white">{campaign?.createdPostCount ?? 0}</strong>
+            </div>
+          </div>
+        </div>
+      </div>
 
-          <div className="space-y-3">
-            {[
-              'Create a marketing job from the campaign launcher.',
-              'Review real stage outputs from the job status workspace.',
-              'Approve the publish checkpoint with platform-specific publish/render selections.',
-            ].map((item) => (
-              <div key={item} className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-white/75 flex items-center gap-3">
-                <CheckCircle2 className="w-5 h-5 text-primary" />
-                <span>{item}</span>
+      {!campaign ? (
+        <div className="glass rounded-[2.5rem] p-8 text-white/60">
+          No campaign is available for this tenant yet. Launch a campaign to populate the queue.
+        </div>
+      ) : (
+        <div className="grid xl:grid-cols-[1.15fr_0.85fr] gap-6">
+          <div className="glass rounded-[2.5rem] p-8">
+            {postQueueBody}
+          </div>
+          <div className="glass rounded-[2.5rem] p-8">
+            <div className="space-y-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-3">Campaign actions</p>
+                <h3 className="text-2xl font-bold">Continue in the live workspace</h3>
               </div>
-            ))}
-          </div>
-
-          <div className="flex flex-col sm:flex-row gap-4">
-            <Link href="/marketing/new-job" className="px-6 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 text-center">
-              Launch a campaign
-            </Link>
-            <Link href="/marketing/job-status" className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all text-center">
-              Open job status
-            </Link>
+              <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-white/70">
+                <p className="mb-3">This queue is sourced from the latest campaign runtime, not static guidance content.</p>
+                <div className="flex flex-col gap-3">
+                  <Link href={`/marketing/job-status?jobId=${encodeURIComponent(campaign.jobId)}`} className="px-5 py-3 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold text-center">
+                    Open job status
+                  </Link>
+                  {campaign.approval?.actionHref ? (
+                    <Link href={campaign.approval.actionHref} className="px-5 py-3 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all text-center">
+                      Open approval
+                    </Link>
+                  ) : null}
+                  <Link href="/calendar" className="px-5 py-3 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all text-center">
+                    Open campaign calendar
+                  </Link>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-
-      <div className="glass rounded-[2.5rem] p-8">
-        <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 h-full">
-          <div className="flex items-center gap-3 mb-3">
-            <Sparkles className="w-5 h-5 text-primary" />
-            <h3 className="font-semibold">Operator guidance</h3>
-          </div>
-          <p className="text-white/60 mb-4">
-            Calendar sync remains available from the calendar route, but campaign publishing itself should be driven from the marketing job status and approval surfaces.
-          </p>
-          <a href="/calendar" className="inline-flex items-center gap-2 text-primary hover:text-primary/80 transition-colors">
-            Open calendar sync <Sparkles className="w-4 h-4" />
-          </a>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

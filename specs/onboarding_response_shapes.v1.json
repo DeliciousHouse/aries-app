@@ -183,23 +183,32 @@
         "validation_status": {
           "$ref": "#/$defs/validation_status"
         },
-        "paths": {
+        "progress_hint": {
+          "$ref": "#/$defs/onboarding_progress_hint"
+        },
+        "artifacts": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "draft": {
-              "type": "string"
+              "type": "boolean"
             },
             "validated": {
-              "type": "string"
+              "type": "boolean"
             },
             "validation_report": {
-              "type": "string"
+              "type": "boolean"
             },
             "idempotency_marker": {
-              "type": "string"
+              "type": "boolean"
             }
-          }
+          },
+          "required": [
+            "draft",
+            "validated",
+            "validation_report",
+            "idempotency_marker"
+          ]
         },
         "onboarding_status": {
           "const": "ok"
@@ -213,7 +222,8 @@
         "tenant_id",
         "provisioning_status",
         "validation_status",
-        "paths"
+        "progress_hint",
+        "artifacts"
       ]
     },
     "onboardingStatusError": {
@@ -264,6 +274,16 @@
         "pass",
         "fail",
         "unknown"
+      ]
+    },
+    "onboarding_progress_hint": {
+      "type": "string",
+      "enum": [
+        "validated",
+        "repair_needed",
+        "duplicate_request",
+        "waiting_for_validation",
+        "not_started"
       ]
     }
   }

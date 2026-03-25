@@ -45,7 +45,7 @@ function asCompatBoolean(value: unknown, fallback = false): string {
 }
 
 function shouldTryMarketingCompat(key: AriesOpenClawWorkflowKey): boolean {
-  return key === 'marketing_start';
+  return key === 'marketing_stage1_research';
 }
 
 function isWorkflowFileRuntimeMismatch(value: unknown): boolean {

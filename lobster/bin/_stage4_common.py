@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
+import base64
 import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.error
+import urllib.request
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -194,34 +198,126 @@ def aspect_ratio_to_flag(value: str) -> str:
 
 
 def nano_banana_enabled() -> bool:
-    return bool(os.environ.get("GEMINI_API_KEY", "").strip()) and NANO_BANANA_SCRIPT.exists()
+    return bool(os.environ.get("GEMINI_API_KEY", "").strip())
 
 
 def run_nano_banana(prompt: str, destination: Path, aspect_ratio: str) -> dict:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    command = [
-        "uv",
-        "run",
-        str(NANO_BANANA_SCRIPT),
-        "--prompt",
-        prompt,
-        "--filename",
-        str(destination),
-        "--resolution",
-        os.environ.get("LOBSTER_IMAGE_RESOLUTION", "1K"),
-        "--aspect-ratio",
-        aspect_ratio_to_flag(aspect_ratio),
-    ]
+    use_script = NANO_BANANA_SCRIPT.exists() and shutil.which("uv")
+    if use_script:
+        command = [
+            "uv",
+            "run",
+            str(NANO_BANANA_SCRIPT),
+            "--prompt",
+            prompt,
+            "--filename",
+            str(destination),
+            "--resolution",
+            os.environ.get("LOBSTER_IMAGE_RESOLUTION", "1K"),
+            "--aspect-ratio",
+            aspect_ratio_to_flag(aspect_ratio),
+        ]
+        try:
+            completed = subprocess.run(command, text=True, capture_output=True, check=False, timeout=180)
+            return {
+                "executed": True,
+                "status": "ok" if completed.returncode == 0 and destination.exists() else "error",
+                "stdout": completed.stdout.strip(),
+                "stderr": completed.stderr.strip(),
+                "returncode": completed.returncode,
+                "command": command,
+                "output_path": str(destination),
+                "provider": "nano_banana_script",
+            }
+        except Exception as exc:
+            return {
+                "executed": False,
+                "status": type(exc).__name__,
+                "stdout": "",
+                "stderr": str(exc),
+                "returncode": None,
+                "command": command,
+                "output_path": str(destination),
+                "provider": "nano_banana_script",
+            }
+
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    endpoint = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"gemini-3-pro-image-preview:generateContent?key={api_key}"
+    )
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "text": "\n".join(
+                            [
+                                prompt,
+                                f"Aspect ratio: {aspect_ratio_to_flag(aspect_ratio)}.",
+                                "Return one polished final marketing image.",
+                            ]
+                        )
+                    }
+                ]
+            }
+        ],
+        "generationConfig": {
+            "responseModalities": ["image", "text"]
+        },
+    }
+    request = urllib.request.Request(
+        endpoint,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
     try:
-        completed = subprocess.run(command, text=True, capture_output=True, check=False, timeout=180)
+        with urllib.request.urlopen(request, timeout=180) as response:
+            body = json.loads(response.read().decode("utf-8"))
+        inline_data = None
+        for candidate in body.get("candidates", []):
+            content = candidate.get("content", {})
+            for part in content.get("parts", []):
+                data = part.get("inlineData", {}).get("data")
+                if data:
+                    inline_data = data
+                    break
+            if inline_data:
+                break
+        if not inline_data:
+            return {
+                "executed": False,
+                "status": "error",
+                "stdout": json.dumps(body),
+                "stderr": "Nano Banana API returned no image data",
+                "returncode": None,
+                "command": ["gemini-3-pro-image-preview"],
+                "output_path": str(destination),
+                "provider": "nano_banana_direct",
+            }
+        destination.write_bytes(base64.b64decode(inline_data))
         return {
             "executed": True,
-            "status": "ok" if completed.returncode == 0 and destination.exists() else "error",
-            "stdout": completed.stdout.strip(),
-            "stderr": completed.stderr.strip(),
-            "returncode": completed.returncode,
-            "command": command,
+            "status": "ok" if destination.exists() else "error",
+            "stdout": "",
+            "stderr": "",
+            "returncode": 0,
+            "command": ["gemini-3-pro-image-preview"],
             "output_path": str(destination),
+            "provider": "nano_banana_direct",
+        }
+    except urllib.error.HTTPError as exc:
+        return {
+            "executed": False,
+            "status": "HTTPError",
+            "stdout": "",
+            "stderr": exc.read().decode("utf-8", "ignore"),
+            "returncode": exc.code,
+            "command": ["gemini-3-pro-image-preview"],
+            "output_path": str(destination),
+            "provider": "nano_banana_direct",
         }
     except Exception as exc:
         return {
@@ -230,8 +326,9 @@ def run_nano_banana(prompt: str, destination: Path, aspect_ratio: str) -> dict:
             "stdout": "",
             "stderr": str(exc),
             "returncode": None,
-            "command": command,
+            "command": ["gemini-3-pro-image-preview"],
             "output_path": str(destination),
+            "provider": "nano_banana_direct",
         }
 
 

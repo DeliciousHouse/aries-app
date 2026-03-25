@@ -7,6 +7,7 @@ import FeaturesPage from '../app/features/page';
 import DocumentationPage from '../app/documentation/page';
 import ApiDocsPage from '../app/api-docs/page';
 import OnboardingStartPage from '../app/onboarding/start/page';
+import PipelineIntakePage from '../app/onboarding/pipeline-intake/page';
 import OnboardingStatusPage from '../app/onboarding/status/page';
 import MarketingNewJobPage from '../app/marketing/new-job/page';
 import MarketingJobStatusPage from '../app/marketing/job-status/page';
@@ -16,6 +17,7 @@ import SettingsPage from '../app/settings/page';
 import DonorHomePage from '../frontend/donor/marketing/home-page';
 import MarketingLayout from '../frontend/marketing/MarketingLayout';
 import OnboardingStartScreen from '../frontend/onboarding/start';
+import PipelineIntake from '../frontend/onboarding/pipeline-intake';
 import OnboardingStatusScreen from '../frontend/onboarding/status';
 import MarketingNewJobScreen from '../frontend/marketing/new-job';
 import MarketingJobStatusScreen from '../frontend/marketing/job-status';
@@ -57,6 +59,13 @@ test('/onboarding/start returns the onboarding start screen', () => {
 
   assert.equal(isValidElement(element), true);
   assert.equal(element.type, OnboardingStartScreen);
+});
+
+test('/onboarding/pipeline-intake returns the guided intake workflow', () => {
+  const element = PipelineIntakePage();
+
+  assert.equal(isValidElement(element), true);
+  assert.equal(element.type, PipelineIntake);
 });
 
 test('/onboarding/status preserves tenant_id and signup_event_id from the route boundary', async () => {

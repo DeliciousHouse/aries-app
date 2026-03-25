@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { BarChart3, CalendarDays, Compass, Settings2, Sparkles } from 'lucide-react';
+import { BarChart3, CalendarDays, Compass, Megaphone, SearchCheck, Settings2, Sparkles } from 'lucide-react';
 
 import { auth } from '@/auth';
 import { AriesMark } from '@/frontend/donor/ui';
@@ -22,6 +22,9 @@ const ICONS: Record<AppRouteId, typeof BarChart3> = {
   platforms: Compass,
   settings: Settings2,
 };
+
+const WORKFLOW_LINK_CLASS =
+  'flex items-center gap-3 rounded-2xl px-4 py-3 transition-all border bg-white/5 border-transparent text-white/65 hover:text-white hover:bg-white/10';
 
 export default async function RedesignAppShell({
   children,
@@ -90,6 +93,23 @@ export default async function RedesignAppShell({
             </nav>
           </div>
 
+          <div>
+            <p className="text-xs uppercase tracking-[0.25em] text-white/35 mb-4">Campaign workflows</p>
+            <div className="space-y-2">
+              <Link href="/onboarding/pipeline-intake" className={WORKFLOW_LINK_CLASS}>
+                <SearchCheck className="w-4 h-4" />
+                <span className="font-medium">Brand and competitor research</span>
+              </Link>
+              <Link
+                href="/marketing/new-job"
+                className={WORKFLOW_LINK_CLASS}
+              >
+                <Megaphone className="w-4 h-4" />
+                <span className="font-medium">Launch campaign</span>
+              </Link>
+            </div>
+          </div>
+
           <div className="mt-auto rounded-[2rem] border border-white/10 bg-white/5 p-5">
             <p className="text-xs uppercase tracking-[0.25em] text-white/35 mb-2">Signed in</p>
             <p className="font-semibold">{session.user.name || session.user.email || 'Operator'}</p>
@@ -117,6 +137,21 @@ export default async function RedesignAppShell({
             </header>
 
             {children}
+
+            <footer className="glass rounded-[2rem] p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-sm text-white/60">
+              <span>Need legal details or route map?</span>
+              <div className="flex flex-wrap gap-4">
+                <Link href="/terms" className="hover:text-white transition-colors">
+                  Terms of Service
+                </Link>
+                <Link href="/privacy" className="hover:text-white transition-colors">
+                  Privacy Policy
+                </Link>
+                <Link href="/sitemap" className="hover:text-white transition-colors">
+                  Sitemap
+                </Link>
+              </div>
+            </footer>
           </div>
         </main>
       </div>

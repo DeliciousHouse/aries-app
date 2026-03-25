@@ -44,11 +44,23 @@ function collectText(node: ReactNode): string {
   return '';
 }
 
-test('public marketing pages return valid elements with expected route shells and stable content markers', () => {
-  const g = globalThis as any;
+async function withReactGlobal<T>(fn: () => T | Promise<T>): Promise<T> {
+  const g = globalThis as Record<string, unknown>;
   const prevReact = g.React;
   g.React = React;
   try {
+    return await Promise.resolve(fn());
+  } finally {
+    if (prevReact === undefined) {
+      delete g.React;
+    } else {
+      g.React = prevReact;
+    }
+  }
+}
+
+test('public marketing pages return valid elements with expected route shells and stable content markers', async () => {
+  await withReactGlobal(() => {
     const homeElement = HomePage();
     assert.equal(isValidElement(homeElement), true);
     assert.equal(homeElement.type, DonorHomePage);
@@ -90,18 +102,14 @@ test('public marketing pages return valid elements with expected route shells an
     assert.match(apiDocsText, /\/api\/contact/);
     assert.match(apiDocsText, /\/api\/marketing\/jobs/);
     assert.match(apiDocsText, /Browser-safe routes for the current Aries contract/);
-  } finally {
-    if (prevReact === undefined) { delete g.React; } else { g.React = prevReact; }
-  }
+  });
 });
 
 test('DonorNavbar toggles the mobile menu, renders mobile nav links, and keeps the primary CTA available', async () => {
   const g = globalThis as any;
-  const prevReact = g.React;
   const prevSelf = g.self;
   const prevWindow = g.window;
 
-  g.React = React;
   g.self = globalThis;
   g.window = {
     scrollY: 0,
@@ -118,62 +126,76 @@ test('DonorNavbar toggles the mobile menu, renders mobile nav links, and keeps t
   };
 
   try {
-    const { act, create } = await import('react-test-renderer');
-    const { DonorNavbar } = await import('../frontend/donor/marketing/chrome');
+    await withReactGlobal(async () => {
+      const { act, create } = await import('react-test-renderer');
+      const { DonorNavbar } = await import('../frontend/donor/marketing/chrome');
 
-    let root: import('react-test-renderer').ReactTestRenderer | null = null;
-    await act(async () => {
-      root = create(React.createElement(DonorNavbar, { heroMode: false }));
+      let root: import('react-test-renderer').ReactTestRenderer | null = null;
+      await act(async () => {
+        root = create(React.createElement(DonorNavbar, { heroMode: false }));
+      });
+
+      const getRoot = () => {
+        assert.ok(root);
+        return root;
+      };
+
+      const countAnchors = (href: string) =>
+        getRoot().root.findAll(
+          (node: import('react-test-renderer').ReactTestInstance) =>
+            node.type === 'a'
+            && typeof node.props.href === 'string'
+            && node.props.href === href,
+        ).length;
+
+      const menuButton = () => getRoot().root.findByType('button');
+
+      assert.equal(menuButton().props['aria-label'], 'Open menu');
+      assert.equal(countAnchors('/documentation'), 1);
+      assert.equal(countAnchors('/login'), 1);
+
+      await act(async () => {
+        menuButton().props.onClick();
+      });
+
+      assert.equal(menuButton().props['aria-label'], 'Close menu');
+      assert.equal(countAnchors('/documentation'), 2);
+      assert.equal(countAnchors('/login'), 2);
+
+      const renderedAnchorText = getRoot().root
+        .findAllByType('a')
+        .map((anchor: import('react-test-renderer').ReactTestInstance) => normalizeWhitespace(collectText(anchor.props.children)))
+        .filter(Boolean);
+
+      assert.ok(renderedAnchorText.includes('Docs'));
+      assert.ok(renderedAnchorText.includes('How it Works'));
+      assert.ok(renderedAnchorText.includes('Features'));
+      assert.ok(renderedAnchorText.includes('Pricing'));
+      assert.ok(renderedAnchorText.includes('Start Automating'));
+
+      await act(async () => {
+        menuButton().props.onClick();
+      });
+
+      assert.equal(menuButton().props['aria-label'], 'Open menu');
     });
-
-    const getRoot = () => {
-      assert.ok(root);
-      return root;
-    };
-
-    const countAnchors = (href: string) =>
-      getRoot().root.findAll(
-        (node: import('react-test-renderer').ReactTestInstance) =>
-          node.type === 'a'
-          && typeof node.props.href === 'string'
-          && node.props.href === href,
-      ).length;
-
-    const menuButton = () => getRoot().root.findByType('button');
-
-    assert.equal(menuButton().props['aria-label'], 'Open menu');
-    assert.equal(countAnchors('/documentation'), 1);
-    assert.equal(countAnchors('/login'), 1);
-
-    await act(async () => {
-      menuButton().props.onClick();
-    });
-
-    assert.equal(menuButton().props['aria-label'], 'Close menu');
-    assert.equal(countAnchors('/documentation'), 2);
-    assert.equal(countAnchors('/login'), 2);
-
-    const renderedAnchorText = getRoot().root
-      .findAllByType('a')
-      .map((anchor: import('react-test-renderer').ReactTestInstance) => normalizeWhitespace(collectText(anchor.props.children)))
-      .filter(Boolean);
-
-    assert.ok(renderedAnchorText.includes('Docs'));
-    assert.ok(renderedAnchorText.includes('Product'));
-    assert.ok(renderedAnchorText.includes('How it Works'));
-    assert.ok(renderedAnchorText.includes('Features'));
-    assert.ok(renderedAnchorText.includes('Pricing'));
-    assert.ok(renderedAnchorText.includes('Start Automating'));
-
-    await act(async () => {
-      menuButton().props.onClick();
-    });
-
-    assert.equal(menuButton().props['aria-label'], 'Open menu');
   } finally {
     nextLink.default = originalLink;
-    if (prevReact === undefined) { delete g.React; } else { g.React = prevReact; }
     if (prevSelf === undefined) { delete g.self; } else { g.self = prevSelf; }
     if (prevWindow === undefined) { delete g.window; } else { g.window = prevWindow; }
   }
+});
+
+test('public marketing pages use direct document navigation for public links', () => {
+  const chromeSource = readRepoFile('frontend/donor/marketing/chrome.tsx');
+  const homeSource = readRepoFile('frontend/donor/marketing/home-page.tsx');
+  const sitemapSource = readRepoFile('app/sitemap/page.tsx');
+
+  assert.doesNotMatch(chromeSource, /import Link from 'next\/link'/);
+  assert.doesNotMatch(homeSource, /import Link from 'next\/link'/);
+  assert.doesNotMatch(sitemapSource, /import Link from 'next\/link'/);
+
+  assert.match(chromeSource, /href="\/terms"/);
+  assert.match(chromeSource, /href="\/privacy"/);
+  assert.match(chromeSource, /href="\/sitemap"/);
 });

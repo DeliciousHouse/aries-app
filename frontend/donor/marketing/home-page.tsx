@@ -2,8 +2,6 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 
-import dynamic from 'next/dynamic';
-import Link from 'next/link';
 import {
   ArrowRight,
   BarChart3,
@@ -12,7 +10,6 @@ import {
   ChevronRight,
   Clock,
   Facebook,
-  Github,
   Instagram,
   Layers,
   Lightbulb,
@@ -37,19 +34,6 @@ import { motion, useScroll, useSpring, useTransform, type MotionValue } from 'mo
 import { cn } from '../lib/utils';
 import { AriesMark } from '../ui';
 import { DonorMarketingShell } from './chrome';
-
-const FeatureShowcase3D = dynamic(() => import('./feature-showcase-3d'), {
-  ssr: false,
-  loading: () => (
-    <section className="py-24 relative overflow-hidden bg-black">
-      <div className="container mx-auto px-6">
-        <div className="glass rounded-[2.5rem] p-10 text-center text-white/60">
-          Loading interactive showcase…
-        </div>
-      </div>
-    </section>
-  ),
-});
 
 function NetworkBackground() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -362,18 +346,18 @@ function Hero() {
             }}
             className="flex flex-col sm:flex-row items-center justify-center gap-4"
           >
-            <Link
+            <a
               href="/login"
               className="w-full sm:w-auto px-8 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 hover:scale-105 transition-transform flex items-center justify-center gap-2"
             >
               Start Automating <ArrowRight className="w-5 h-5" />
-            </Link>
-            <Link
+            </a>
+            <a
               href="/documentation"
               className="w-full sm:w-auto px-8 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2"
             >
               <Play className="w-5 h-5 fill-current" /> See Runtime
-            </Link>
+            </a>
           </motion.div>
 
           <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
@@ -731,6 +715,123 @@ function HowItWorks() {
   );
 }
 
+/** Demo schedule for the marketing calendar section (static showcase data). */
+const CONTENT_CALENDAR_SCHEDULE = [
+  {
+    day: 'Mon',
+    date: '16',
+    posts: [
+      { title: 'AI Marketing Trends 2026 Strategy', platform: 'LinkedIn', time: '09:00', status: 'Published' },
+      { title: 'Aries AI Feature Reveal Today', platform: 'X / Twitter', time: '14:00', status: 'Published' },
+    ],
+  },
+  {
+    day: 'Tue',
+    date: '17',
+    posts: [
+      { title: 'The Power of GEO Optimization', platform: 'Instagram', time: '10:30', status: 'Published' },
+      { title: 'Market Intelligence 101 Guide', platform: 'YouTube', time: '16:00', status: 'Published' },
+    ],
+  },
+  {
+    day: 'Wed',
+    date: '18',
+    posts: [
+      { title: 'Autonomous Growth Case Study Analysis', platform: 'LinkedIn', time: '11:00', status: 'Published' },
+      { title: 'Facebook Ads Mastery Course', platform: 'Facebook', time: '15:30', status: 'Published' },
+    ],
+  },
+  {
+    day: 'Thu',
+    date: '19',
+    posts: [
+      { title: 'Why AEO is the new SEO', platform: 'X / Twitter', time: '09:30', status: 'Published' },
+      { title: 'Weekly AI Wrap-up Content', platform: 'Instagram', time: '15:00', status: 'Published' },
+    ],
+  },
+  {
+    day: 'Fri',
+    date: '20',
+    posts: [{ title: 'Aries AI v2.0 Launch Event', platform: 'LinkedIn', time: '10:00', status: 'Scheduled' }],
+  },
+  {
+    day: 'Sat',
+    date: '21',
+    posts: [],
+  },
+  {
+    day: 'Sun',
+    date: '22',
+    posts: [],
+  },
+  {
+    day: 'Mon',
+    date: '23',
+    posts: [
+      { title: 'Next-Gen Automation Primer', platform: 'X / Twitter', time: '09:30', status: 'Scheduled' },
+      { title: 'Brand Identity Deep-dive', platform: 'Instagram', time: '15:00', status: 'Scheduled' },
+    ],
+  },
+  {
+    day: 'Tue',
+    date: '24',
+    posts: [{ title: 'Future of SaaS Marketing', platform: 'LinkedIn', time: '10:00', status: 'Scheduled' }],
+  },
+  {
+    day: 'Wed',
+    date: '25',
+    posts: [{ title: 'Social Media Strategy Session', platform: 'Facebook', time: '13:00', status: 'Scheduled' }],
+  },
+  {
+    day: 'Thu',
+    date: '26',
+    posts: [{ title: 'Content Performance Review', platform: 'Instagram', time: '11:30', status: 'Scheduled' }],
+  },
+  {
+    day: 'Fri',
+    date: '27',
+    posts: [{ title: 'Quarterly Growth Planning', platform: 'LinkedIn', time: '09:00', status: 'Scheduled' }],
+  },
+  {
+    day: 'Sat',
+    date: '28',
+    posts: [],
+  },
+  {
+    day: 'Sun',
+    date: '29',
+    posts: [],
+  },
+] as const;
+
+const PLATFORM_CALENDAR_STYLE = {
+  LinkedIn: { Icon: Linkedin, border: 'border-blue-600/30', iconClass: 'text-blue-400' },
+  YouTube: { Icon: Youtube, border: 'border-red-500/30', iconClass: 'text-red-400' },
+  'X / Twitter': { Icon: Twitter, border: 'border-white/20', iconClass: 'text-white/80' },
+  Instagram: { Icon: Instagram, border: 'border-pink-500/30', iconClass: 'text-pink-400' },
+  Facebook: { Icon: Facebook, border: 'border-blue-700/30', iconClass: 'text-blue-600' },
+} as const;
+
+function platformCalendarMeta(platform: string) {
+  if (platform in PLATFORM_CALENDAR_STYLE) {
+    return PLATFORM_CALENDAR_STYLE[platform as keyof typeof PLATFORM_CALENDAR_STYLE];
+  }
+  return {
+    Icon: Sparkles,
+    border: 'border-primary/20',
+    iconClass: 'text-primary',
+  };
+}
+
+function calendarPlatformIcon(platform: string) {
+  const { Icon, iconClass } = platformCalendarMeta(platform);
+  return <Icon className={`w-3.5 h-3.5 ${iconClass}`} />;
+}
+
+function calendarPlatformBorder(platform: string) {
+  return platformCalendarMeta(platform).border;
+}
+
 function ContentCalendar() {
   const [activeDate, setActiveDate] = useState('20');
   const [currentWeek, setCurrentWeek] = useState<'current' | 'next'>('current');
@@ -744,142 +845,20 @@ function ContentCalendar() {
     { name: 'Facebook' },
   ];
 
-  const getPlatformIcon = (platform: string) => {
-    switch (platform) {
-      case 'LinkedIn':
-        return <Linkedin className="w-3.5 h-3.5 text-blue-400" />;
-      case 'YouTube':
-        return <Youtube className="w-3.5 h-3.5 text-red-400" />;
-      case 'X / Twitter':
-        return <Twitter className="w-3.5 h-3.5 text-white/80" />;
-      case 'Instagram':
-        return <Instagram className="w-3.5 h-3.5 text-pink-400" />;
-      case 'Facebook':
-        return <Facebook className="w-3.5 h-3.5 text-blue-600" />;
-      default:
-        return <Sparkles className="w-3.5 h-3.5 text-primary" />;
-    }
-  };
-
-
-  const getPlatformBorder = (platform: string) => {
-    switch (platform) {
-      case 'LinkedIn':
-        return 'border-blue-600/30';
-      case 'YouTube':
-        return 'border-red-500/30';
-      case 'X / Twitter':
-        return 'border-white/20';
-      case 'Instagram':
-        return 'border-pink-500/30';
-      case 'Facebook':
-        return 'border-blue-700/30';
-      default:
-        return 'border-primary/20';
-    }
-  };
-
   const truncateTitle = (title: string, wordCount = 3) => {
     const words = title.split(' ');
     return words.length <= wordCount ? title : `${words.slice(0, wordCount).join(' ')}...`;
   };
 
-  const schedule = [
-    {
-      day: 'Mon',
-      date: '16',
-      posts: [
-        { title: 'AI Marketing Trends 2026 Strategy', platform: 'LinkedIn', time: '09:00', status: 'Published' },
-        { title: 'Aries AI Feature Reveal Today', platform: 'X / Twitter', time: '14:00', status: 'Published' },
-      ],
-    },
-    {
-      day: 'Tue',
-      date: '17',
-      posts: [
-        { title: 'The Power of GEO Optimization', platform: 'Instagram', time: '10:30', status: 'Published' },
-        { title: 'Market Intelligence 101 Guide', platform: 'YouTube', time: '16:00', status: 'Published' },
-      ],
-    },
-    {
-      day: 'Wed',
-      date: '18',
-      posts: [
-        { title: 'Autonomous Growth Case Study Analysis', platform: 'LinkedIn', time: '11:00', status: 'Published' },
-        { title: 'Facebook Ads Mastery Course', platform: 'Facebook', time: '15:30', status: 'Published' },
-      ],
-    },
-    {
-      day: 'Thu',
-      date: '19',
-      posts: [
-        { title: 'Why AEO is the new SEO', platform: 'X / Twitter', time: '09:30', status: 'Published' },
-        { title: 'Weekly AI Wrap-up Content', platform: 'Instagram', time: '15:00', status: 'Published' },
-      ],
-    },
-    {
-      day: 'Fri',
-      date: '20',
-      posts: [{ title: 'Aries AI v2.0 Launch Event', platform: 'LinkedIn', time: '10:00', status: 'Scheduled' }],
-    },
-    {
-      day: 'Sat',
-      date: '21',
-      posts: [],
-    },
-    {
-      day: 'Sun',
-      date: '22',
-      posts: [],
-    },
-    {
-      day: 'Mon',
-      date: '23',
-      posts: [
-        { title: 'Next-Gen Automation Primer', platform: 'X / Twitter', time: '09:30', status: 'Scheduled' },
-        { title: 'Brand Identity Deep-dive', platform: 'Instagram', time: '15:00', status: 'Scheduled' },
-      ],
-    },
-    {
-      day: 'Tue',
-      date: '24',
-      posts: [{ title: 'Future of SaaS Marketing', platform: 'LinkedIn', time: '10:00', status: 'Scheduled' }],
-    },
-    {
-      day: 'Wed',
-      date: '25',
-      posts: [{ title: 'Social Media Strategy Session', platform: 'Facebook', time: '13:00', status: 'Scheduled' }],
-    },
-    {
-      day: 'Thu',
-      date: '26',
-      posts: [{ title: 'Content Performance Review', platform: 'Instagram', time: '11:30', status: 'Scheduled' }],
-    },
-    {
-      day: 'Fri',
-      date: '27',
-      posts: [{ title: 'Quarterly Growth Planning', platform: 'LinkedIn', time: '09:00', status: 'Scheduled' }],
-    },
-    {
-      day: 'Sat',
-      date: '28',
-      posts: [],
-    },
-    {
-      day: 'Sun',
-      date: '29',
-      posts: [],
-    },
-  ];
-
   const monthDays = Array.from({ length: 31 }, (_, i) => i + 1);
-  const getPostsForDate = (date: string) => schedule.find((entry) => entry.date === date)?.posts || [];
+  const getPostsForDate = (date: string) =>
+    CONTENT_CALENDAR_SCHEDULE.find((entry) => entry.date === date)?.posts || [];
 
   const displayedSchedule = useMemo(() => {
     return currentWeek === 'current'
-      ? schedule.filter((item) => ['16', '17', '18', '19', '20', '21', '22'].includes(item.date))
-      : schedule.filter((item) => ['23', '24', '25', '26', '27', '28', '29'].includes(item.date));
-  }, [currentWeek, schedule]);
+      ? CONTENT_CALENDAR_SCHEDULE.filter((item) => ['16', '17', '18', '19', '20', '21', '22'].includes(item.date))
+      : CONTENT_CALENDAR_SCHEDULE.filter((item) => ['23', '24', '25', '26', '27', '28', '29'].includes(item.date));
+  }, [currentWeek]);
 
   return (
     <section id="calendar" className="py-24 relative overflow-hidden">
@@ -1025,12 +1004,12 @@ function ContentCalendar() {
                     Month
                   </button>
                 </div>
-                <Link href="/calendar" prefetch={false} className="px-6 py-2 bg-gradient-to-r from-primary to-secondary rounded-xl text-sm font-bold shadow-lg shadow-primary/20">
+                <a href="/calendar" className="px-6 py-2 bg-gradient-to-r from-primary to-secondary rounded-xl text-sm font-bold shadow-lg shadow-primary/20">
                   Open Runtime
-                </Link>
-                <Link href="/login" className="px-6 py-2 bg-gradient-to-r from-primary to-secondary rounded-xl text-sm font-bold shadow-lg shadow-primary/20">
+                </a>
+                <a href="/login" className="px-6 py-2 bg-gradient-to-r from-primary to-secondary rounded-xl text-sm font-bold shadow-lg shadow-primary/20">
                   New Post
-                </Link>
+                </a>
               </div>
             </div>
 
@@ -1064,7 +1043,7 @@ function ContentCalendar() {
                             transition={{ delay: dayIndex * 0.1 + postIndex * 0.1 }}
                             className={cn(
                               'p-2 border bg-white/5 backdrop-blur-sm relative group cursor-pointer hover:bg-white/10 transition-all',
-                              getPlatformBorder(post.platform),
+                              calendarPlatformBorder(post.platform),
                             )}
                           >
                             <div className="flex items-center justify-between mb-1">
@@ -1073,7 +1052,7 @@ function ContentCalendar() {
                             </div>
                             <h5 className="text-[10px] font-light mb-1.5 leading-tight">{truncateTitle(post.title, 3)}</h5>
                             <div className="flex items-center justify-between gap-1.5 pt-0.5">
-                              {getPlatformIcon(post.platform)}
+                              {calendarPlatformIcon(post.platform)}
                               <span
                                 className={cn(
                                   'text-[5.5px] font-bold uppercase tracking-widest px-1 py-0.5 rounded-sm border',
@@ -1118,7 +1097,7 @@ function ContentCalendar() {
                         </span>
                         <div className="flex-1 space-y-1 overflow-hidden">
                           {posts.map((post) => (
-                            <div key={post.title} className={cn('p-1 border text-[7px] font-light leading-none truncate', getPlatformBorder(post.platform))}>
+                            <div key={post.title} className={cn('p-1 border text-[7px] font-light leading-none truncate', calendarPlatformBorder(post.platform))}>
                               {truncateTitle(post.title, 2)}
                             </div>
                           ))}
@@ -1200,7 +1179,7 @@ function Pricing() {
                   ))}
                 </div>
 
-                <Link
+                <a
                   href={plan.price === 'Custom' ? '/documentation' : '/login'}
                   className={cn(
                     'w-full py-4 rounded-2xl font-bold transition-all text-center',
@@ -1210,7 +1189,7 @@ function Pricing() {
                   )}
                 >
                   {plan.price === 'Custom' ? 'Review Runtime' : 'Get Started'}
-                </Link>
+                </a>
               </div>
 
               {plan.highlight ? (
@@ -1219,6 +1198,56 @@ function Pricing() {
                 </div>
               ) : null}
             </motion.div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FeatureShowcaseFallback() {
+  const panels = [
+    {
+      title: 'Campaign orchestration',
+      description: 'Aries sequences research, strategy, production, and publish steps into one operational flow instead of scattering the work across disconnected tools.',
+      icon: <Zap className="w-5 h-5 text-primary" />,
+    },
+    {
+      title: 'Growth command center',
+      description: 'Operators can move from create to status to approval without leaving the runtime, with stage-aware summaries and artifact tracking.',
+      icon: <Layers className="w-5 h-5 text-secondary" />,
+    },
+    {
+      title: 'Performance visibility',
+      description: 'Every approval and stage transition writes durable runtime state so the team can inspect live progress instead of trusting optimistic UI.',
+      icon: <BarChart3 className="w-5 h-5 text-primary" />,
+    },
+  ];
+
+  return (
+    <section className="py-24 relative overflow-hidden bg-black">
+      <div className="container mx-auto px-6">
+        <div className="text-center mb-16">
+          <h2 className="text-[48px] leading-tight font-bold mb-6">
+            Visualize Your <span className="text-gradient">Growth</span>
+          </h2>
+          <p className="text-white/60 max-w-3xl mx-auto text-lg">
+            The homepage now favors a stable marketing overview over the previous interactive 3D showcase so the landing route remains reliable in production.
+          </p>
+        </div>
+
+        <div className="grid gap-6 md:grid-cols-3">
+          {panels.map((panel) => (
+            <div
+              key={panel.title}
+              className="glass rounded-[2.5rem] border border-white/10 p-8 text-left"
+            >
+              <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-white/5">
+                {panel.icon}
+              </div>
+              <h3 className="mb-3 text-2xl font-bold">{panel.title}</h3>
+              <p className="text-sm leading-relaxed text-white/60">{panel.description}</p>
+            </div>
           ))}
         </div>
       </div>
@@ -1249,18 +1278,18 @@ function FinalCTA() {
                 viewport={{ once: true }}
                 className="flex flex-wrap items-center gap-4"
               >
-                <Link
+                <a
                   href="/login"
                   className="px-8 py-4 rounded-full border border-white/20 hover:border-white/40 text-white font-bold transition-all backdrop-blur-md text-sm"
                 >
                   Start Automating
-                </Link>
-                <Link
+                </a>
+                <a
                   href="/documentation"
                   className="px-8 py-4 rounded-full border border-white/20 hover:border-white/40 text-white font-bold transition-all backdrop-blur-md text-sm"
                 >
                   Read the Docs
-                </Link>
+                </a>
               </motion.div>
             </div>
           </div>
@@ -1347,7 +1376,7 @@ export default function DonorHomePage() {
       <Features />
       <HowItWorks />
       <ContentCalendar />
-      <FeatureShowcase3D />
+      <FeatureShowcaseFallback />
       <Pricing />
       <FinalCTA />
     </DonorMarketingShell>

@@ -1,392 +1,225 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{{BRAND}} Meta Ads Campaign Proposal</title>
-<style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { 
-  background: #fff; 
-  color: #1a1a1a; 
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
-  line-height: 1.7;
-  font-size: 15px;
-}
-.container { max-width: 900px; margin: 0 auto; padding: 40px 24px; }
-h1 { font-size: 2rem; color: #111; margin-bottom: 8px; font-weight: 700; }
-h2 { font-size: 1.4rem; color: #111; margin: 40px 0 16px; font-weight: 600; border-bottom: 2px solid #eee; padding-bottom: 8px; }
-h3 { font-size: 1.1rem; color: #333; margin: 24px 0 12px; font-weight: 600; }
-h4 { font-size: 1rem; color: #444; margin: 16px 0 8px; font-weight: 600; }
-p { margin-bottom: 12px; color: #333; }
-ul, ol { margin: 12px 0 12px 24px; }
-li { margin-bottom: 6px; color: #444; }
-strong { color: #111; }
-
-.header { margin-bottom: 40px; padding-bottom: 24px; border-bottom: 1px solid #e5e5e5; }
-.header .subtitle { color: #666; font-size: 1rem; margin-top: 4px; }
-.header .status { display: inline-block; background: #fef3c7; color: #92400e; padding: 4px 12px; border-radius: 4px; font-size: 0.85rem; font-weight: 600; margin-top: 12px; }
-
-/* Summary Box */
-.summary-box {
-  background: #f8f9fa;
-  border: 1px solid #e5e5e5;
-  border-radius: 8px;
-  padding: 24px;
-  margin: 24px 0;
-}
-.summary-box h3 { margin-top: 0; }
-
-/* Strategy Box */
-.strategy-box {
-  background: #fffbeb;
-  border-left: 4px solid #f59e0b;
-  padding: 20px;
-  margin: 20px 0;
-  border-radius: 0 8px 8px 0;
-}
-
-/* Funnel Diagram */
-.funnel-diagram {
-  background: #f8f9fa;
-  border: 1px solid #e5e5e5;
-  border-radius: 8px;
-  padding: 24px;
-  margin: 24px 0;
-  font-family: monospace;
-  font-size: 0.95rem;
-  line-height: 2;
-}
-.funnel-arrow { color: #f59e0b; font-weight: bold; }
-
-/* Tables */
-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 16px 0;
-  font-size: 0.95rem;
-}
-th, td {
-  padding: 12px;
-  text-align: left;
-  border-bottom: 1px solid #e5e5e5;
-}
-th {
-  background: #f8f9fa;
-  font-weight: 600;
-  color: #111;
-}
-tr:hover { background: #fafafa; }
-
-/* Landing Page Cards */
-.landing-card {
-  background: #fff;
-  border: 1px solid #e5e5e5;
-  border-radius: 12px;
-  padding: 24px;
-  margin: 24px 0;
-}
-.landing-card h3 { margin-top: 0; }
-.landing-card .url {
-  color: #666;
-  font-size: 0.9rem;
-  font-family: monospace;
-  margin-bottom: 16px;
-}
-.landing-card .purpose {
-  background: #e0f2fe;
-  color: #0369a1;
-  padding: 12px 16px;
-  border-radius: 6px;
-  margin-bottom: 16px;
-  font-size: 0.95rem;
-}
-
-/* Ad Creative Cards */
-.ad-card {
-  background: #fff;
-  border: 1px solid #e5e5e5;
-  border-radius: 12px;
-  margin: 24px 0;
-  overflow: hidden;
-}
-.ad-card-header {
-  background: #f8f9fa;
-  padding: 16px 20px;
-  border-bottom: 1px solid #e5e5e5;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.ad-card-header h4 { margin: 0; flex: 1; }
-.ad-card-body { padding: 20px; }
-
-/* Badges */
-.badge {
-  display: inline-block;
-  padding: 3px 10px;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-.badge-video { background: #e0e7ff; color: #3730a3; }
-.badge-image { background: #cffafe; color: #0e7490; }
-.badge-carousel { background: #fce7f3; color: #be185d; }
-.badge-tofu { background: #dcfce7; color: #166534; }
-.badge-mofu { background: #fef3c7; color: #92400e; }
-.badge-bofu { background: #fee2e2; color: #991b1b; }
-.badge-new { background: #f3e8ff; color: #7c3aed; }
-
-/* Script Block */
-.script-block {
-  background: #1a1a1a;
-  color: #e0e0e0;
-  border-radius: 8px;
-  padding: 20px;
-  margin: 16px 0;
-  font-family: monospace;
-  font-size: 0.9rem;
-  line-height: 1.6;
-}
-.script-block .timestamp { color: #f59e0b; font-weight: bold; }
-.script-block .direction { color: #60a5fa; font-style: italic; }
-.script-block .dialogue { color: #fff; }
-
-/* Visual Notes */
-.visual-notes {
-  background: #f8f9fa;
-  border-left: 3px solid #9ca3af;
-  padding: 12px 16px;
-  margin: 12px 0;
-  font-size: 0.9rem;
-  color: #666;
-}
-.visual-notes strong { color: #444; }
-
-/* Image Mockup */
-.image-mockup {
-  background: #fff;
-  border: 2px solid #e5e5e5;
-  border-radius: 8px;
-  padding: 32px;
-  margin: 16px 0;
-  text-align: center;
-}
-
-/* Checklist */
-.checklist {
-  list-style: none;
-  padding: 0;
-  margin: 16px 0;
-}
-.checklist li {
-  padding: 8px 0 8px 28px;
-  position: relative;
-}
-.checklist li::before {
-  content: "☐";
-  position: absolute;
-  left: 0;
-  color: #9ca3af;
-}
-
-/* Approval Section */
-.approval-section {
-  background: #f0fdf4;
-  border: 2px solid #22c55e;
-  border-radius: 12px;
-  padding: 24px;
-  margin: 32px 0;
-}
-.approval-section h3 {
-  color: #166534;
-  margin-top: 0;
-}
-.approval-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 0;
-  border-bottom: 1px solid #dcfce7;
-}
-.approval-item:last-child { border-bottom: none; }
-.approval-checkbox {
-  width: 24px;
-  height: 24px;
-  border: 2px solid #22c55e;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #22c55e;
-  font-weight: bold;
-}
-
-/* Budget Table */
-.budget-table th { background: #0f1e35; color: #fff; }
-
-footer {
-  margin-top: 48px;
-  padding-top: 24px;
-  border-top: 1px solid #e5e5e5;
-  color: #999;
-  font-size: 0.85rem;
-  text-align: center;
-}
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{brand_name}} — Campaign Proposal</title>
+  <style>
+    :root {
+      --bg: #fbfbfa;
+      --paper: #ffffff;
+      --text: #141414;
+      --muted: #66645f;
+      --border: #ddd9d2;
+      --primary: #111827;
+      --accent: #d97706;
+      --accent-soft: #fff7ed;
+      --tofu: #eff6ff;
+      --mofu: #f5f3ff;
+      --bofu: #fef2f2;
+      --shadow: 0 12px 30px rgba(0, 0, 0, 0.06);
+      --radius: 16px;
+      --font-heading: "Canela", "Baskerville", "Times New Roman", serif;
+      --font-body: "Avenir Next", "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      line-height: 1.6;
+    }
+    .doc {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 42px 18px 72px;
+    }
+    .hero {
+      background: var(--paper);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+      padding: 32px;
+    }
+    .kicker {
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+    h1, h2, h3, h4 {
+      font-family: var(--font-heading);
+      letter-spacing: -0.02em;
+      line-height: 1.1;
+      margin: 0 0 14px;
+    }
+    h1 { font-size: clamp(2.2rem, 4vw, 3.4rem); }
+    h2 { font-size: clamp(1.5rem, 3vw, 2.2rem); margin-top: 36px; }
+    h3 { font-size: 1.3rem; }
+    p { margin: 0 0 14px; }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 18px;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    .section {
+      background: var(--paper);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+      padding: 24px;
+      margin-top: 24px;
+    }
+    .grid {
+      display: grid;
+      gap: 18px;
+    }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px;
+      background: #fff;
+    }
+    .badge-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 700;
+    }
+    .badge.tofu { background: var(--tofu); color: #1d4ed8; }
+    .badge.mofu { background: var(--mofu); color: #6d28d9; }
+    .badge.bofu { background: var(--bofu); color: #b91c1c; }
+    .badge.accent { background: var(--accent-soft); color: var(--accent); }
+    .funnel {
+      background: linear-gradient(180deg, #fff 0%, #faf8f4 100%);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 22px;
+    }
+    .funnel pre,
+    .script-block {
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 16px;
+      border-radius: 14px;
+      overflow-x: auto;
+      font-family: "SFMono-Regular", Consolas, Menlo, monospace;
+      white-space: pre-wrap;
+    }
+    .approval {
+      border: 2px dashed rgba(217, 119, 6, 0.35);
+      background: #fffaf0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    th, td {
+      text-align: left;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    th {
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+    }
+    ul { margin: 0; padding-left: 20px; }
+    .mockup {
+      border: 1px solid var(--border);
+      background: linear-gradient(180deg, #fff, #f8f4ee);
+      border-radius: 18px;
+      padding: 20px;
+      min-height: 200px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 10px;
+    }
+    .mockup .headline {
+      font-size: 1.6rem;
+      font-family: var(--font-heading);
+      line-height: 1.1;
+    }
+    .muted { color: var(--muted); }
+    @media (max-width: 900px) {
+      .grid.two,
+      .grid.three { grid-template-columns: 1fr; }
+      .hero, .section { padding: 20px; }
+      .doc { padding: 24px 12px 56px; }
+    }
+  </style>
 </head>
 <body>
-<div class="container">
+  <main class="doc">
+    <section class="hero">
+      <div class="kicker">Meta Ads Campaign Proposal</div>
+      <h1>{{brand_name}}</h1>
+      <p>{{executive_summary_text}}</p>
+      <div class="meta">
+        <span>Prepared: {{generated_date}}</span>
+        <span>Landing pages: {{landing_page_count}}</span>
+        <span>Ad creatives: {{creative_count}}</span>
+        <span>Budget split: {{budget_split_text}}</span>
+      </div>
+    </section>
 
-<div class="header">
-  <h1>📋 {{BRAND}} Meta Ads Campaign Proposal</h1>
-  <p class="subtitle">Strategic advertising plan based on brand analysis</p>
-  <span class="status">⏳ DRAFT — Awaiting Review</span>
-</div>
+    <section class="section">
+      <h2>Strategic Framework</h2>
+      {{strategic_framework_html}}
+    </section>
 
-<!-- EXECUTIVE SUMMARY -->
-<div class="summary-box">
-  <h3>Executive Summary</h3>
-  <p>{{EXECUTIVE_SUMMARY}}</p>
-  
-  <table>
-    <tr>
-      <td><strong>Landing Pages</strong></td>
-      <td>{{NUM_LANDING_PAGES}}</td>
-    </tr>
-    <tr>
-      <td><strong>Ad Creatives</strong></td>
-      <td>{{NUM_ADS}} ({{NUM_VIDEOS}} videos + {{NUM_IMAGES}} images)</td>
-    </tr>
-    <tr>
-      <td><strong>Video Scripts</strong></td>
-      <td>{{NUM_SCRIPTS}}</td>
-    </tr>
-  </table>
-</div>
+    <section class="section">
+      <h2>Funnel Strategy</h2>
+      <div class="grid three">
+        {{funnel_cards_html}}
+      </div>
+    </section>
 
-<!-- STRATEGIC FRAMEWORK -->
-<h2>🎯 Strategic Framework</h2>
+    <section class="section">
+      <h2>Landing Pages</h2>
+      <div class="grid two">
+        {{landing_pages_html}}
+      </div>
+    </section>
 
-<h3>Product Ladder</h3>
-<div class="funnel-diagram">
-  {{PRODUCT_LADDER}}
-</div>
+    <section class="section">
+      <h2>Ad Creatives</h2>
+      {{ad_creatives_html}}
+    </section>
 
-<h3>Recommended Funnel Structure</h3>
-<div class="funnel-diagram" style="text-align: left;">
-  {{FUNNEL_STRUCTURE}}
-</div>
+    <section class="section">
+      <h2>Budget Allocation</h2>
+      {{budget_allocation_html}}
+    </section>
 
-<!-- LANDING PAGES -->
-<h2>🖥️ Proposed Landing Pages</h2>
+    <section class="section">
+      <h2>Testing Plan</h2>
+      {{testing_plan_html}}
+    </section>
 
-{{LANDING_PAGES}}
-
-<!-- AD CREATIVES -->
-<h2>🎬 Proposed Ad Creatives</h2>
-
-<h3>TOFU Ads (Cold Traffic)</h3>
-{{TOFU_ADS}}
-
-<h3>MOFU Ads (Warm Traffic — Retargeting)</h3>
-{{MOFU_ADS}}
-
-<h3>BOFU Ads (Hot Traffic — High Intent)</h3>
-{{BOFU_ADS}}
-
-<!-- CREATIVE SUMMARY -->
-<h2>📊 Creative Summary</h2>
-{{CREATIVE_SUMMARY_TABLE}}
-
-<!-- BUDGET -->
-<h2>💰 Budget Allocation</h2>
-<table class="budget-table">
-  <thead>
-    <tr>
-      <th>Stage</th>
-      <th>% of Budget</th>
-      <th>Objective</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><strong>TOFU</strong> (Cold)</td>
-      <td>50-60%</td>
-      <td>Lead generation, email capture</td>
-    </tr>
-    <tr>
-      <td><strong>MOFU</strong> (Warm)</td>
-      <td>30-40%</td>
-      <td>Product/course sales</td>
-    </tr>
-    <tr>
-      <td><strong>BOFU</strong> (Hot)</td>
-      <td>10-15%</td>
-      <td>High-ticket / enterprise inquiries</td>
-    </tr>
-  </tbody>
-</table>
-
-<div class="strategy-box">
-  {{BUDGET_NOTES}}
-</div>
-
-<!-- TESTING PLAN -->
-<h2>🧪 Testing Plan</h2>
-{{TESTING_PLAN}}
-
-<!-- ASSETS CHECKLIST -->
-<h2>📝 Assets to Create</h2>
-{{ASSETS_CHECKLIST}}
-
-<!-- APPROVAL SECTION -->
-<div class="approval-section">
-  <h3>✅ Approval Checklist</h3>
-  <p>Please review and confirm each item:</p>
-  
-  <div class="approval-item">
-    <div class="approval-checkbox">?</div>
-    <div><strong>Overall funnel strategy</strong></div>
-  </div>
-  
-  <div class="approval-item">
-    <div class="approval-checkbox">?</div>
-    <div><strong>Landing page concepts</strong></div>
-  </div>
-  
-  <div class="approval-item">
-    <div class="approval-checkbox">?</div>
-    <div><strong>Ad creative concepts</strong></div>
-  </div>
-  
-  <div class="approval-item">
-    <div class="approval-checkbox">?</div>
-    <div><strong>Video scripts</strong></div>
-  </div>
-  
-  <div class="approval-item">
-    <div class="approval-checkbox">?</div>
-    <div><strong>Budget allocation approach</strong></div>
-  </div>
-</div>
-
-<h3>After Approval</h3>
-<p>Once approved, the following assets will be created:</p>
-<ul>
-  <li>Full video scripts with shot-by-shot direction</li>
-  <li>Landing page wireframes and copy</li>
-  <li>Image mockups or designer briefs</li>
-  <li>Complete ad copy document (all variations)</li>
-</ul>
-
-<footer>
-  {{BRAND}} Campaign Proposal · {{DATE}}<br>
-  Generated by Campaign Planner
-</footer>
-
-</div>
+    <section class="section approval">
+      <h2>Approval Checklist</h2>
+      {{approval_checklist_html}}
+    </section>
+  </main>
 </body>
 </html>

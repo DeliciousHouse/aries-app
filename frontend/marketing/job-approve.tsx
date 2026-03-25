@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
-import { CheckCircle2, Sparkles } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 import type {
   ApproveJobResult,
   MarketingArtifactCard,
@@ -94,8 +94,41 @@ function ReviewPreviewCard({ preview }: { preview: MarketingReviewPreviewCard })
           ))}
         </ul>
       ) : null}
-      {preview.mediaPaths.length > 0 ? (
-        <div className="text-sm text-white/50 break-all whitespace-pre-wrap">{preview.mediaPaths.join('\n')}</div>
+      {preview.mediaAssets.length > 0 ? (
+        <div className="grid gap-3">
+          <div className="grid sm:grid-cols-2 gap-3">
+            {preview.mediaAssets.map((asset) => (
+              <a
+                key={asset.id}
+                href={asset.url}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-[1.25rem] overflow-hidden border border-white/10 bg-black/30"
+              >
+                {asset.contentType.startsWith('image/') ? (
+                  <img src={asset.url} alt={asset.label} className="w-full h-44 object-cover" />
+                ) : (
+                  <div className="p-4 text-sm text-white/70">{asset.label}</div>
+                )}
+              </a>
+            ))}
+          </div>
+          {preview.assetLinks.length > 0 ? (
+            <div className="flex flex-wrap gap-3">
+              {preview.assetLinks.map((asset) => (
+                <a
+                  key={asset.id}
+                  href={asset.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-sm text-primary hover:text-primary/80 transition-colors"
+                >
+                  {asset.label}
+                </a>
+              ))}
+            </div>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );
@@ -118,7 +151,11 @@ function ReviewBundlePreview({ reviewBundle }: { reviewBundle: MarketingReviewBu
               <span><strong className="text-white">Subheadline:</strong> {reviewBundle.landingPage.subheadline || 'n/a'}</span>
               <span><strong className="text-white">CTA:</strong> {reviewBundle.landingPage.cta || 'n/a'}</span>
               {reviewBundle.landingPage.slug ? <span><strong className="text-white">Slug:</strong> {reviewBundle.landingPage.slug}</span> : null}
-              {reviewBundle.landingPage.path ? <span className="break-all"><strong className="text-white">Path:</strong> {reviewBundle.landingPage.path}</span> : null}
+              {reviewBundle.landingPage.asset ? (
+                <a href={reviewBundle.landingPage.asset.url} target="_blank" rel="noreferrer" className="text-primary hover:text-primary/80 transition-colors">
+                  Open landing page artifact
+                </a>
+              ) : null}
             </div>
             {reviewBundle.landingPage.sections.length > 0 ? (
               <ul className="m-0 pl-5 text-white/60">
@@ -155,14 +192,22 @@ function ReviewBundlePreview({ reviewBundle }: { reviewBundle: MarketingReviewBu
         ) : null}
       </div>
 
-      {reviewBundle.reviewPacketPaths.length > 0 ? (
+      {reviewBundle.reviewPacketAssets.length > 0 ? (
         <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5">
           <strong className="block mb-3">Review packet and contract indexes</strong>
-          <ul className="m-0 pl-5 text-white/60 break-all">
-            {reviewBundle.reviewPacketPaths.map((pathValue) => (
-              <li key={pathValue}>{pathValue}</li>
+          <div className="flex flex-wrap gap-3">
+            {reviewBundle.reviewPacketAssets.map((asset) => (
+              <a
+                key={asset.id}
+                href={asset.url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-sm text-primary hover:text-primary/80 transition-colors"
+              >
+                {asset.label}
+              </a>
             ))}
-          </ul>
+          </div>
         </div>
       ) : null}
 
@@ -209,7 +254,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
   });
 
   const [jobId, setJobId] = useState(props.defaultJobId ?? '');
-  const [approvedBy, setApprovedBy] = useState(props.defaultApprovedBy ?? '');
+  const [approvedBy, setApprovedBy] = useState(props.defaultApprovedBy ?? 'operator');
   const [resumePublishIfNeeded, setResumePublishIfNeeded] = useState(true);
   const [approvedStages, setApprovedStages] = useState<MarketingStage[]>([]);
   const [platforms, setPlatforms] = useState<string[]>([]);
@@ -311,6 +356,27 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
   const statusSuccess = jobStatus && !isErrorResult(jobStatus) ? jobStatus : null;
   const approveSuccess = approveResult && !isErrorResult(approveResult) ? approveResult : null;
   const pendingStage = statusSuccess?.approval ? statusSuccess.marketing_stage : null;
+  const loadOrActionFailed = !!(
+    marketingStatus.error ||
+    marketingApprove.error ||
+    (jobStatus && isErrorResult(jobStatus))
+  );
+  const showIdleHint =
+    !loadingStatus &&
+    !loadOrActionFailed &&
+    !statusSuccess &&
+    !approveResult &&
+    !approvalMessage;
+
+  function approvalCheckpointLabel(): string {
+    if (loadingStatus) {
+      return 'Loading…';
+    }
+    if (marketingStatus.error) {
+      return `Status unavailable: ${marketingStatus.error.message}`;
+    }
+    return pendingStage ?? 'Load a job to see the active checkpoint.';
+  }
 
   return (
     <div className="min-h-screen bg-background px-6 py-10 md:px-8 lg:px-10">
@@ -353,7 +419,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
             <div className="grid gap-2">
               <span className="text-xs uppercase tracking-[0.22em] text-white/35">Current approval checkpoint</span>
               <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white/75">
-                {pendingStage ?? 'Load a job to see the active checkpoint.'}
+                {approvalCheckpointLabel()}
               </div>
             </div>
 
@@ -452,9 +518,11 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
               </button>
             </div>
 
-            {marketingStatus.error || marketingApprove.error ? (
+            {marketingStatus.error || marketingApprove.error || (jobStatus && isErrorResult(jobStatus)) ? (
               <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-red-100">
-                {marketingApprove.error?.message || marketingStatus.error?.message}
+                {marketingApprove.error?.message ||
+                  marketingStatus.error?.message ||
+                  (jobStatus && isErrorResult(jobStatus) ? jobStatus.error : '')}
               </div>
             ) : null}
         </div>
@@ -464,9 +532,24 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
         <div className="grid gap-5">
           <p className="text-xs uppercase tracking-[0.24em] text-white/35">Outcome</p>
 
-            {!approvalMessage ? (
-              <p className="text-white/60">Load a campaign to review its launch state before approving.</p>
-            ) : (
+            {loadingStatus ? (
+              <p className="text-white/60">Loading campaign status…</p>
+            ) : null}
+
+            {loadOrActionFailed ? (
+              <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-5 text-red-100">
+                <strong className="block mb-1">
+                  {jobStatus && isErrorResult(jobStatus) ? 'Could not load campaign' : 'Request failed'}
+                </strong>
+                <span>
+                  {marketingApprove.error?.message ||
+                    marketingStatus.error?.message ||
+                    (jobStatus && isErrorResult(jobStatus) ? jobStatus.error : '')}
+                </span>
+              </div>
+            ) : null}
+
+            {approvalMessage ? (
               <div
                 className={approvalMessage.tone === 'success'
                   ? 'rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-5 text-emerald-100'
@@ -482,18 +565,22 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
                   ) : null}
                 </div>
               </div>
-            )}
+            ) : null}
+
+            {showIdleHint ? (
+              <p className="text-white/60">Load a campaign to review its launch state before approving.</p>
+            ) : null}
 
             {statusSuccess ? (
               <div className="grid gap-5">
                 <div className="space-y-3">
-                  <div className="rounded-[1.5rem] border border-white/10 bg-white/5 px-5 py-4 flex items-center justify-between gap-4"><strong>Headline</strong><span>{statusSuccess.summary.headline}</span></div>
+                  
                   <div className="rounded-[1.5rem] border border-white/10 bg-white/5 px-5 py-4 flex items-center justify-between gap-4">
                     <strong>Status</strong>
                     <StatusBadge status={statusSuccess.marketing_job_status as any} />
                   </div>
                   <div className="rounded-[1.5rem] border border-white/10 bg-white/5 px-5 py-4 flex items-center justify-between gap-4"><strong>Current stage</strong><span>{statusSuccess.marketing_stage ?? 'none'}</span></div>
-                  <div className="rounded-[1.5rem] border border-white/10 bg-white/5 px-5 py-4 flex items-center justify-between gap-4"><strong>Next step</strong><span>{statusSuccess.nextStep}</span></div>
+                  
                 </div>
 
                 <div className="rounded-[1.5rem] border border-white/10 bg-white/5 px-5 py-4 text-white/70">
@@ -513,8 +600,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
                 ) : null}
 
                 {statusSuccess.reviewBundle ? (
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-3">Pre-approval review bundle</p>
+                  <div className="border-t border-white/5 pt-5 mt-5">
                     <ReviewBundlePreview reviewBundle={statusSuccess.reviewBundle} />
                   </div>
                 ) : null}
@@ -528,16 +614,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
                   </div>
                 </div>
 
-                {statusSuccess.artifacts.length > 0 ? (
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-3">Key artifacts</p>
-                    <div className="grid gap-3">
-                      {statusSuccess.artifacts.slice(0, 3).map((artifact) => (
-                        <ArtifactPreview key={artifact.id} artifact={artifact} />
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
+                
               </div>
             ) : null}
         </div>
