@@ -275,6 +275,7 @@ test('/api/marketing/jobs resolves tenant context server-side and returns a fron
     assert.equal(invokeArgs?.pipeline, 'marketing-pipeline.lobster');
     assert.equal(workflowArgs.brand_url, 'https://brand.example');
     assert.equal(workflowArgs.competitor, 'https://facebook.com/competitor');
+    assert.equal(workflowArgs.competitor_facebook_url, '');
     assert.equal(workflowArgs.brand_slug, 'tenant_real');
     assert.equal(invokeArgs?.cwd, path.join(PROJECT_ROOT, 'lobster'));
     clearOpenClawTestInvoker();
@@ -578,6 +579,106 @@ test('/api/marketing/jobs/:jobId/assets/:assetId serves a tenant-scoped preview 
     const { handleGetMarketingJobAsset } = await import('../app/api/marketing/jobs/[jobId]/assets/[assetId]/handler');
     const jobId = 'mkt_asset_job';
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
+    const mediaAssetRelativePath = path.join('generated', 'draft', 'marketing-assets', 'meta-preview.png');
+    const mediaAssetPath = path.join(dataRoot, mediaAssetRelativePath);
+    await mkdir(path.dirname(runtimeFile), { recursive: true });
+    await mkdir(path.dirname(mediaAssetPath), { recursive: true });
+    await writeFile(mediaAssetPath, 'png-preview', 'utf8');
+    let tenantLoaderCalls = 0;
+    await writeFile(
+      runtimeFile,
+      JSON.stringify({
+        schema_name: 'marketing_job_state_schema',
+        schema_version: '1.0.0',
+        job_id: jobId,
+        job_type: 'brand_campaign',
+        tenant_id: 'tenant_real',
+        state: 'approval_required',
+        status: 'awaiting_approval',
+        current_stage: 'publish',
+        stage_order: ['research', 'strategy', 'production', 'publish'],
+        stages: {
+          research: { stage: 'research', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-r', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          strategy: { stage: 'strategy', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-s', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          production: { stage: 'production', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-p', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          publish: {
+            stage: 'publish',
+            status: 'awaiting_approval',
+            started_at: null,
+            completed_at: null,
+            failed_at: null,
+            run_id: 'run-publish',
+            summary: null,
+            primary_output: null,
+            outputs: {
+              review: {
+                review_bundle: {
+                  campaign_name: 'Sugar & Leather',
+                  summary: {},
+                  platform_previews: [
+                    {
+                      platform_slug: 'meta-ads',
+                      platform_name: 'Meta Ads',
+                      channel_type: 'paid-social',
+                      summary: 'Preview ready',
+                       media_paths: [mediaAssetRelativePath],
+                       asset_paths: {},
+                     },
+                   ],
+                },
+              },
+            },
+            artifacts: [],
+            errors: [],
+          },
+        },
+        approvals: { current: null, history: [] },
+        publish_config: { platforms: ['meta-ads'], live_publish_platforms: [], video_render_platforms: [] },
+        brand_kit: {
+          path: path.join(dataRoot, 'generated', 'validated', 'tenant_real', 'brand-kit.json'),
+          source_url: 'https://sugarandleather.com',
+          canonical_url: 'https://sugarandleather.com',
+          brand_name: 'Sugar & Leather',
+          logo_urls: [],
+          colors: { primary: '#9c6b3e', secondary: '#f3e9dd', accent: '#3d2410', palette: ['#9c6b3e', '#f3e9dd', '#3d2410'] },
+          font_families: ['Manrope'],
+          external_links: [],
+          extracted_at: '2026-03-18T00:00:00.000Z',
+        },
+        inputs: { request: {}, brand_url: 'https://sugarandleather.com' },
+        errors: [],
+        last_error: null,
+        history: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, null, 2)
+    );
+
+      const response = await handleGetMarketingJobAsset(
+        jobId,
+        'platform-preview-meta-ads-media-1',
+        async () => ({
+          ...(tenantLoaderCalls++, {}),
+          userId: 'user_123',
+          tenantId: 'tenant_real',
+          tenantSlug: 'acme',
+          role: 'tenant_admin',
+        })
+    );
+    const body = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'image/png');
+    assert.equal(body, 'png-preview');
+    assert.equal(tenantLoaderCalls, 1);
+  });
+});
+
+test('/api/marketing/jobs/:jobId/assets/:assetId rejects runtime-derived absolute paths', async () => {
+  await withRuntimeEnv(async (dataRoot) => {
+    const { handleGetMarketingJobAsset } = await import('../app/api/marketing/jobs/[jobId]/assets/[assetId]/handler');
+    const jobId = 'mkt_asset_job_blocked';
+    const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
     const mediaAssetPath = path.join(dataRoot, 'meta-preview.png');
     await mkdir(path.dirname(runtimeFile), { recursive: true });
     await writeFile(mediaAssetPath, 'png-preview', 'utf8');
@@ -660,11 +761,10 @@ test('/api/marketing/jobs/:jobId/assets/:assetId serves a tenant-scoped preview 
         role: 'tenant_admin',
       })
     );
-    const body = await response.text();
+    const body = (await response.json()) as Record<string, unknown>;
 
-    assert.equal(response.status, 200);
-    assert.equal(response.headers.get('content-type'), 'image/png');
-    assert.equal(body, 'png-preview');
+    assert.equal(response.status, 404);
+    assert.equal(body.reason, 'marketing_asset_not_found');
   });
 });
 

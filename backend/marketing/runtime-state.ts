@@ -114,6 +114,7 @@ export type MarketingJobRuntimeDocument = {
     request: Record<string, unknown>;
     brand_url: string;
     competitor_url?: string | null;
+    competitor_facebook_url?: string | null;
   };
   summary?: {
     headline?: string;
@@ -201,6 +202,7 @@ export function createMarketingJobRuntimeDocument(input: {
       request: input.payload,
       brand_url: asString(input.payload.brandUrl) || '',
       competitor_url: asString(input.payload.competitorUrl),
+      competitor_facebook_url: asString(input.payload.competitorFacebookUrl),
     },
     errors: [],
     last_error: null,
