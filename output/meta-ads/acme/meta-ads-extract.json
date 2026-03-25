@@ -59,7 +59,7 @@
     "Uses low-friction CTAs to move prospects from awareness to discovery calls.",
     "Frames delivery confidence and reduced risk as differentiators."
   ],
-  "generated_at": "2026-03-25T03:36:07+00:00",
+  "generated_at": "2026-03-25T11:39:36+00:00",
   "landing_pages": [
     "https://example.com"
   ],
@@ -109,7 +109,7 @@
     }
   },
   "research_model": "gemini/gemini-2.5-flash",
-  "run_id": "acme-a795279b",
+  "run_id": "acme-79854b59",
   "source": "local-stage1-wrapper",
   "stub": false,
   "type": "meta_ads_extract",
