@@ -1,5 +1,5 @@
-import PipelineIntake from '@/frontend/onboarding/pipeline-intake';
+import AriesOnboardingFlow from '@/frontend/aries-v1/onboarding-flow';
 
 export default function PipelineIntakePage() {
-  return <PipelineIntake />;
+  return <AriesOnboardingFlow />;
 }

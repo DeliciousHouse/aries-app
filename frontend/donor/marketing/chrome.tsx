@@ -16,10 +16,10 @@ export interface DonorMarketingShellProps {
 }
 
 const NAV_ITEMS = [
-  { name: 'How it Works', href: '/#how-it-works' },
-  { name: 'Features', href: '/#features' },
-  { name: 'Pricing', href: '/#pricing' },
-  { name: 'Docs', href: '/documentation' },
+  { name: 'How it works', href: '/#how-it-works' },
+  { name: 'Safety', href: '/#safety' },
+  { name: 'Results', href: '/#results' },
+  { name: 'Start', href: '/onboarding/start' },
 ] as const;
 
 function normalizeForActive(href: string) {
@@ -107,10 +107,10 @@ export function DonorNavbar({ heroMode = false }: { heroMode?: boolean }) {
 
         <div className="hidden md:flex items-center gap-4" style={headerOverlayStyle}>
           <a
-            href="/login"
+            href="/onboarding/start"
             className="px-5 py-2 rounded-full bg-gradient-to-r from-primary to-secondary hover:opacity-90 text-sm font-medium transition-all shadow-lg shadow-primary/20 flex items-center gap-2 text-white"
           >
-            Start Automating <ArrowRight className="w-4 h-4" />
+            Start with your business <ArrowRight className="w-4 h-4" />
           </a>
         </div>
 
@@ -145,11 +145,11 @@ export function DonorNavbar({ heroMode = false }: { heroMode?: boolean }) {
             ))}
             <div className="flex flex-col gap-4 pt-4 border-t border-white/10">
               <a
-                href="/login"
+                href="/onboarding/start"
                 className="w-full py-3 flex justify-center rounded-xl bg-gradient-to-r from-primary to-secondary font-medium text-white"
                 onClick={() => setIsMobileMenuOpen(false)}
               >
-                Start Automating
+                Start with your business
               </a>
             </div>
           </motion.div>
@@ -167,36 +167,34 @@ export function DonorFooter() {
           <div className="col-span-2">
             <AriesWordmark className="mb-6" />
             <p className="text-white/50 max-w-xs mb-8 leading-relaxed">
-              The browser-safe Aries control surface for autonomous marketing workflows, approvals, and platform orchestration.
+              A calm marketing workspace where small businesses plan campaigns, approve creative, launch safely, and see what worked.
             </p>
             <div className="flex gap-4 text-sm text-white/60">
-              <a href="/documentation" className="hover:text-white transition-colors">Docs</a>
-              <a href="/api-docs" className="hover:text-white transition-colors">API</a>
-              <a href="/features" className="hover:text-white transition-colors">Features</a>
+              <a href="/#how-it-works" className="hover:text-white transition-colors">How it works</a>
+              <a href="/#safety" className="hover:text-white transition-colors">Safety</a>
+              <a href="/#results" className="hover:text-white transition-colors">Results</a>
             </div>
           </div>
 
-
-          {/* Spacer Column */}
           <div className="hidden lg:block"></div>
 
           <div>
             <h4 className="font-bold mb-6">Product</h4>
             <ul className="space-y-4 text-white/50 text-sm">
-              <li><a href="/#features" className="hover:text-white transition-colors">Features</a></li>
-              <li><a href="/platforms" className="hover:text-white transition-colors">Platforms</a></li>
+              <li><a href="/#how-it-works" className="hover:text-white transition-colors">How it works</a></li>
               <li><a href="/dashboard" className="hover:text-white transition-colors">Dashboard</a></li>
-              <li><a href="/marketing/new-job" className="hover:text-white transition-colors">Campaigns</a></li>
+              <li><a href="/campaigns" className="hover:text-white transition-colors">Campaigns</a></li>
+              <li><a href="/review" className="hover:text-white transition-colors">Review queue</a></li>
             </ul>
           </div>
 
           <div>
-            <h4 className="font-bold mb-6">Runtime</h4>
+            <h4 className="font-bold mb-6">Get started</h4>
             <ul className="space-y-4 text-white/50 text-sm">
-              <li><a href="/documentation" className="hover:text-white transition-colors">Documentation</a></li>
-              <li><a href="/api-docs" className="hover:text-white transition-colors">Internal APIs</a></li>
-              <li><a href="/onboarding/start" className="hover:text-white transition-colors">Onboarding</a></li>
-              <li><a href="/oauth/connect/facebook" className="hover:text-white transition-colors">OAuth Flow</a></li>
+              <li><a href="/onboarding/start" className="hover:text-white transition-colors">Set up your business</a></li>
+              <li><a href="/login" className="hover:text-white transition-colors">Sign in</a></li>
+              <li><a href="/calendar" className="hover:text-white transition-colors">Calendar</a></li>
+              <li><a href="/results" className="hover:text-white transition-colors">Results</a></li>
             </ul>
           </div>
 
@@ -204,15 +202,15 @@ export function DonorFooter() {
             <h4 className="font-bold mb-6">Channels</h4>
             <ul className="space-y-4 text-white/50 text-sm">
               <li>Meta</li>
+              <li>Instagram</li>
               <li>LinkedIn</li>
-              <li>X</li>
-              <li>TikTok</li>
+              <li>Google Business</li>
             </ul>
           </div>
         </div>
 
         <div className="pt-8 border-t border-white/5 flex flex-col md:flex-row justify-center items-center gap-4 text-white/30 text-xs">
-          <p>© 2026 Aries AI Inc. All rights reserved.</p>
+          <p>© 2026 Aries AI. Built for small businesses that want marketing results without marketing software overhead.</p>
           <div className="flex flex-wrap items-center justify-center gap-4">
             <a href="/terms" className="hover:text-white transition-colors">Terms</a>
             <a href="/privacy" className="hover:text-white transition-colors">Privacy</a>

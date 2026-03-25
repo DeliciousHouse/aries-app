@@ -9,7 +9,7 @@ Analyze ad creatives like a media buyer — not generic descriptions, but tactic
 
 ## Video Ad Analysis
 
-Upload video to Gemini Files API, then run analysis via `gemini-2.0-flash`.
+Upload video to Gemini Files API, then run analysis via `gemini-2.5-flash`.
 
 ### Step 1: Upload video
 
@@ -43,7 +43,7 @@ Wait for `state: "ACTIVE"` before proceeding (poll with GET on the file URI + AP
 
 ```bash
 curl -s -X POST \
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$GEMINI_API_KEY" \
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$GEMINI_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "contents": [{"parts": [

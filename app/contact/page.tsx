@@ -12,30 +12,24 @@ export default function ContactPage() {
               Contact
             </span>
             <h1 className="text-5xl md:text-6xl font-bold leading-tight mb-6">
-              Contact intake stays inside the <span className="text-gradient">Aries route boundary</span>
+              Get in touch with the <span className="text-gradient">Aries team</span>
             </h1>
             <p className="text-xl text-white/60 mb-8">
-              No contact workflow is deployed in this runtime today. The supported interface is the internal
-              <code className="mx-1 text-white">/api/contact</code> route, which returns an explicit unavailable
-              response until a real adapter is configured.
+              Contact intake is not available yet. In the meantime, the best way to get started is to set up your business directly in the app.
             </p>
-
-            <div className="rounded-[1.5rem] border border-white/10 bg-black/30 p-6 font-mono text-sm text-white/75 mb-8">
-              POST /api/contact
-            </div>
 
             <div className="flex flex-col sm:flex-row gap-4">
               <Link
-                href="/api-docs"
+                href="/onboarding/start"
                 className="px-8 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20"
               >
-                Review the API
+                Start with your business
               </Link>
               <Link
-                href="/documentation"
+                href="/login"
                 className="px-8 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all"
               >
-                Read the docs
+                Sign in
               </Link>
             </div>
           </div>

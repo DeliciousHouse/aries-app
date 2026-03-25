@@ -22,7 +22,7 @@ const sections = [
   { id: 'overview', title: 'Overview', icon: BookOpen },
   { id: 'quick-start', title: 'Quick Start', icon: Terminal },
   { id: 'architecture', title: 'Architecture', icon: Layout },
-  { id: 'n8n-workflows', title: 'n8n Workflows', icon: GitBranch },
+  { id: 'campaigns', title: 'Campaigns', icon: GitBranch },
   { id: 'integrations', title: 'Integrations', icon: Plug },
   { id: 'security', title: 'Security', icon: ShieldCheck },
 ];
@@ -160,10 +160,10 @@ export default function Docs() {
 
                 <div className="prose prose-invert prose-p:text-white/70 prose-p:leading-relaxed prose-p:text-lg max-w-none">
                   <p>
-                    Aries AI is a multi-tenant platform that orchestrates AI-powered content pipelines across 7 social platforms. Built on Next.js 15 and n8n, it provides end-to-end automation from research and strategy through production, approval, and publishing.
+                    Aries AI is a marketing operating system for small businesses. It helps business owners plan campaigns, review creative, approve launches, and see what worked from one calm workspace.
                   </p>
                   <p className="mt-6">
-                    The system uses a workflow-first architecture: every operation — from onboarding a new tenant to publishing a scheduled post — is modeled as an n8n workflow with built-in repair, retry, and observability.
+                    The system is built around a clear product loop: set up your business, review the plan, approve the creative, schedule the launch, and see the results. Every step stays approval-safe and human-readable.
                   </p>
                 </div>
               </section>
@@ -228,10 +228,10 @@ npm run dev --turbopack`}
 
                 <div className="prose prose-invert prose-p:text-white/70 prose-p:leading-relaxed prose-p:text-lg max-w-none">
                   <p>
-                    Aries follows a layered architecture with clear boundaries, ensuring scalability and maintainability across both frontend components and backend orchestration.
+                    Aries follows a layered architecture with clear boundaries, ensuring scalability and maintainability across both frontend components and backend services.
                   </p>
                   <p className="mt-4">
-                    The direct architecture ensures that the execution boundary is respected between the Next.js app and the OpenClaw gateway.
+                    The direct architecture ensures that the execution boundary is respected between the Next.js app and the backend services.
                   </p>
                 </div>
               </section>

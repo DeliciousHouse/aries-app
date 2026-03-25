@@ -1,53 +1,61 @@
 export type AppRouteId =
-  | 'dashboard'
-  | 'posts'
+  | 'home'
+  | 'campaigns'
   | 'calendar'
-  | 'platforms'
+  | 'results'
+  | 'review'
   | 'settings';
 
 export interface AppRoute {
   id: AppRouteId;
   title: string;
   href: string;
-  section: 'operator';
+  section: 'primary' | 'utility';
   description: string;
 }
 
 export const APP_ROUTES: readonly AppRoute[] = [
   {
-    id: 'dashboard',
-    title: 'Dashboard',
+    id: 'home',
+    title: 'Home',
     href: '/dashboard',
-    section: 'operator',
-    description: 'Operator overview for queue health, publish velocity, and platform status.'
+    section: 'primary',
+    description: 'Executive command center for approvals, schedule, active campaigns, and results.'
   },
   {
-    id: 'posts',
-    title: 'Posts',
-    href: '/posts',
-    section: 'operator',
-    description: 'Operator guidance for campaign publishing through the stage-based marketing job flow.'
+    id: 'campaigns',
+    title: 'Campaigns',
+    href: '/campaigns',
+    section: 'primary',
+    description: 'Campaign list and campaign workspace for plans, creative, schedule, and results.'
   },
   {
     id: 'calendar',
     title: 'Calendar',
     href: '/calendar',
-    section: 'operator',
-    description: 'Schedule visibility and sync control across connected channels.'
+    section: 'primary',
+    description: 'Human-readable schedule visibility across campaigns and channels.'
   },
   {
-    id: 'platforms',
-    title: 'Platforms',
-    href: '/platforms',
-    section: 'operator',
-    description: 'Shared OAuth broker status and provider connection controls.'
+    id: 'results',
+    title: 'Results',
+    href: '/results',
+    section: 'primary',
+    description: 'Business-readable reporting and recommended next actions.'
+  },
+  {
+    id: 'review',
+    title: 'Review Queue',
+    href: '/review',
+    section: 'utility',
+    description: 'Approval queue for anything that could affect a launch.'
   },
   {
     id: 'settings',
     title: 'Settings',
     href: '/settings',
-    section: 'operator',
-    description: 'Tenant, delivery, and platform defaults used by orchestration flows.'
+    section: 'utility',
+    description: 'Business profile, channels, team approvals, and other account controls.'
   }
 ] as const;
 
