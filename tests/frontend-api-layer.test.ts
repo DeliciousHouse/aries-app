@@ -243,7 +243,8 @@ test('/api/marketing/jobs resolves tenant context server-side and returns a fron
           jobType: 'brand_campaign',
           payload: {
             brandUrl: 'https://brand.example',
-            competitorUrl: 'https://facebook.com/competitor',
+            competitorUrl: 'CompetitorCo',
+            competitorFacebookUrl: 'https://facebook.com/competitor',
           },
         }),
       }),
@@ -274,8 +275,8 @@ test('/api/marketing/jobs resolves tenant context server-side and returns a fron
     assert.equal(invokeArgs?.action, 'run');
     assert.equal(invokeArgs?.pipeline, 'marketing-pipeline.lobster');
     assert.equal(workflowArgs.brand_url, 'https://brand.example');
-    assert.equal(workflowArgs.competitor, 'https://facebook.com/competitor');
-    assert.equal(workflowArgs.competitor_facebook_url, '');
+    assert.equal(workflowArgs.competitor, 'CompetitorCo');
+    assert.equal(workflowArgs.competitor_facebook_url, 'https://facebook.com/competitor');
     assert.equal(workflowArgs.brand_slug, 'tenant_real');
     assert.equal(invokeArgs?.cwd, path.join(PROJECT_ROOT, 'lobster'));
     clearOpenClawTestInvoker();

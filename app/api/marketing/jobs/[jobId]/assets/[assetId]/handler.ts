@@ -12,6 +12,11 @@ const MARKETING_ONBOARDING_REQUIRED = {
   message: 'Complete tenant onboarding before viewing brand campaign assets.',
 } as const;
 
+/**
+ * Normalizes a runtime-derived asset path into a safe relative path.
+ * Rejects empty input, absolute paths, and any "." / ".." segments so the
+ * handler never resolves a path that can escape the trusted asset roots.
+ */
 function normalizeRelativeAssetPath(filePath: string): string | null {
   const trimmed = filePath.trim();
   if (!trimmed || path.isAbsolute(trimmed)) {
@@ -26,6 +31,11 @@ function normalizeRelativeAssetPath(filePath: string): string | null {
   return path.join(...segments);
 }
 
+/**
+ * Returns true only when the resolved candidate stays within the provided
+ * root directory. Paths that escape upward or resolve to another absolute
+ * location are rejected.
+ */
 function isWithinRoot(root: string, candidate: string): boolean {
   const relative = path.relative(root, candidate);
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
