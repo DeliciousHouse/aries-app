@@ -1,10 +1,28 @@
+'use client';
+
 import Link from 'next/link';
 
-import { ARIES_REVIEW_ITEMS } from './data';
-import { EmptyStatePanel, ShellPanel, StatusChip } from './components';
+import { useRuntimeReviews } from '@/hooks/use-runtime-reviews';
+
+import { EmptyStatePanel, LoadingStateGrid, ShellPanel, StatusChip } from './components';
 
 export default function AriesReviewQueueScreen() {
-  if (ARIES_REVIEW_ITEMS.length === 0) {
+  const reviews = useRuntimeReviews({ autoLoad: true });
+  const items = reviews.data?.reviews ?? [];
+
+  if (reviews.isLoading) {
+    return <LoadingStateGrid />;
+  }
+
+  if (reviews.error) {
+    return (
+      <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
+        {reviews.error.message}
+      </div>
+    );
+  }
+
+  if (items.length === 0) {
     return (
       <EmptyStatePanel
         title="You are clear for now"
@@ -23,7 +41,7 @@ export default function AriesReviewQueueScreen() {
       </ShellPanel>
 
       <div className="grid gap-4">
-        {ARIES_REVIEW_ITEMS.map((item) => (
+        {items.map((item) => (
           <Link
             key={item.id}
             href={`/review/${item.id}`}

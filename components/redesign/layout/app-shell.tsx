@@ -3,11 +3,11 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { BarChart3, CalendarDays, CheckCheck, Home, LineChart, Settings2 } from 'lucide-react';
 
-import { auth } from '@/auth';
+import { auth, signOut } from '@/auth';
 import { AriesMark } from '@/frontend/donor/ui';
 import { getRouteById, getSectionRoutes, type AppRouteId } from '@/frontend/app-shell/routes';
 import { ReviewBadge } from '@/frontend/aries-v1/components';
-import { ARIES_REVIEW_ITEMS } from '@/frontend/aries-v1/data';
+import { countPendingMarketingReviewItemsForTenant } from '@/backend/marketing/runtime-views';
 
 export interface RedesignAppShellProps {
   children: ReactNode;
@@ -39,7 +39,14 @@ export default async function RedesignAppShell({
   }
 
   const currentRoute = currentRouteId ? getRouteById(currentRouteId) : null;
-  const reviewCount = ARIES_REVIEW_ITEMS.length;
+  const reviewCount = session.user.tenantId
+    ? await countPendingMarketingReviewItemsForTenant(String(session.user.tenantId))
+    : 0;
+
+  async function logoutAction() {
+    'use server';
+    await signOut({ redirectTo: '/' });
+  }
 
   return (
     <div className="min-h-screen bg-[#0d1218] text-white selection:bg-white/20">
@@ -105,6 +112,11 @@ export default async function RedesignAppShell({
                     <Link href="/privacy" className="block rounded-[1rem] px-3 py-2 text-sm text-white/70 transition hover:bg-white/[0.05] hover:text-white">
                       Privacy
                     </Link>
+                    <form action={logoutAction}>
+                      <button type="submit" className="block w-full rounded-[1rem] px-3 py-2 text-left text-sm text-white/70 transition hover:bg-white/[0.05] hover:text-white">
+                        Logout
+                      </button>
+                    </form>
                   </div>
                 </div>
               </details>

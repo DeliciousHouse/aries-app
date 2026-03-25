@@ -1,22 +1,31 @@
+'use client';
+
 import Link from 'next/link';
 import { ArrowRight, Plus } from 'lucide-react';
 
-import { getCampaignCollection } from './adapters';
-import { EmptyStatePanel, ShellPanel, StatusChip } from './components';
+import { useRuntimeCampaigns } from '@/hooks/use-runtime-campaigns';
+
+import { EmptyStatePanel, LoadingStateGrid, ShellPanel, StatusChip } from './components';
 
 export default function AriesCampaignListScreen() {
-  const campaigns = getCampaignCollection();
+  const campaigns = useRuntimeCampaigns({ autoLoad: true });
+  const items = campaigns.data?.campaigns ?? [];
 
-  if (campaigns.length === 0) {
+  if (campaigns.isLoading) {
+    return <LoadingStateGrid />;
+  }
+
+  if (campaigns.error) {
+    return <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">{campaigns.error.message}</div>;
+  }
+
+  if (items.length === 0) {
     return (
       <EmptyStatePanel
-        title="Let us build your first campaign"
-        description="Aries will turn your business and goals into a review-ready marketing plan."
+        title="No campaigns yet"
+        description="Aries will turn your business and goals into a review-ready marketing plan once you create your first campaign."
         action={
-          <Link
-            href="/onboarding/start"
-            className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c]"
-          >
+          <Link href="/onboarding/start" className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c]">
             Create first campaign
             <ArrowRight className="h-4 w-4" />
           </Link>
@@ -31,23 +40,19 @@ export default function AriesCampaignListScreen() {
         eyebrow="Campaigns"
         title="Every campaign in one place"
         action={
-          <Link
-            href="/onboarding/start"
-            className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-semibold text-[#11161c]"
-          >
+          <Link href="/onboarding/start" className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-semibold text-[#11161c]">
             <Plus className="h-4 w-4" />
             New campaign
           </Link>
         }
       >
         <p className="max-w-3xl text-sm leading-7 text-white/65">
-          Review the current state of each campaign, open what needs attention, and jump directly into review,
-          schedule, or results without piecing the story together yourself.
+          Review the current state of each campaign, open what needs attention, and jump directly into review, schedule, or results.
         </p>
       </ShellPanel>
 
       <div className="grid gap-4">
-        {campaigns.map((campaign) => (
+        {items.map((campaign) => (
           <Link
             key={campaign.id}
             href={`/campaigns/${campaign.id}`}

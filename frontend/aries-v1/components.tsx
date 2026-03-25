@@ -21,7 +21,7 @@ import type {
   AriesRecommendation,
   AriesReviewItem,
   AriesScheduleItem,
-} from './data';
+} from '@/lib/api/aries-v1';
 
 export function ShellPanel(props: {
   title?: string;
