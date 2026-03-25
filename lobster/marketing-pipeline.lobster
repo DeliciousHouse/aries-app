@@ -4,6 +4,8 @@ args:
     default: default
   competitor:
     default: ""
+  competitor_facebook_url:
+    default: ""
   research_mode:
     default: top 5
   brand_url:
@@ -22,10 +24,15 @@ steps:
     command: bash ../bin/bootstrap_marketing_workspace.sh
 
   - id: stage_1_extract
-    command: >
-      ./bin/meta-ads-extractor --json
-      --competitor-facebook-url "${competitor}"
-      --research-model "gemini/gemini-2.5-flash"
+    command: |
+      bash -lc '
+        set -euo pipefail
+        cmd=(./bin/meta-ads-extractor --json --competitor "$1" --research-model "gemini/gemini-2.5-flash")
+        if [ -n "$2" ]; then
+          cmd+=(--competitor-facebook-url "$2")
+        fi
+        "${cmd[@]}"
+      ' -- "${competitor}" "${competitor_facebook_url}"
 
   - id: stage_1_analyse
     command: ./bin/meta-ads-analyser --json

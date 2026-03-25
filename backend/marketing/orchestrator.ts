@@ -40,6 +40,7 @@ export type StartMarketingJobRequest = {
   payload: {
     brandUrl?: unknown;
     competitorUrl?: unknown;
+    competitorFacebookUrl?: unknown;
     [key: string]: unknown;
   };
 };
@@ -151,6 +152,7 @@ function marketingPipelineArgs(doc: MarketingJobRuntimeDocument): Record<string,
   return {
     brand_url: doc.inputs.brand_url ?? '',
     competitor: doc.inputs.competitor_url ?? '',
+    competitor_facebook_url: doc.inputs.competitor_facebook_url ?? '',
     brand_slug: doc.tenant_id,
   };
 }

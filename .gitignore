@@ -48,6 +48,7 @@ logs/
 *.log
 
 # Lobster generated output / local temp files
+output/
 lobster/output/
 lobster/tmp-debug-args.lobster
 lobster/bin/__pycache__/
@@ -57,3 +58,6 @@ lobster/bin/__pycache__/
 .eslintcache
 .stylelintcache
 .npm
+SOUL.md
+USER.md
+IDENTITY.md
