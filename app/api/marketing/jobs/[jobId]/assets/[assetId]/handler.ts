@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 import { findMarketingAsset } from '@/backend/marketing/asset-library';
@@ -54,7 +54,14 @@ async function readAssetWithinAllowedRoots(filePath: string): Promise<Buffer | n
       continue;
     }
     try {
-      return await readFile(candidate);
+      const [resolvedRoot, resolvedCandidate] = await Promise.all([
+        realpath(root).catch(() => root),
+        realpath(candidate),
+      ]);
+      if (!isWithinRoot(resolvedRoot, resolvedCandidate)) {
+        continue;
+      }
+      return await readFile(resolvedCandidate);
     } catch (error) {
       if (
         error &&
