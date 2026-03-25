@@ -3,6 +3,8 @@ export type {
   OnboardingLifecycleStatus,
   ProvisioningStatus,
   ValidationStatus,
+  OnboardingProgressHint,
+  OnboardingStatusArtifacts,
   OnboardingErrorReason,
   OnboardingStartRequest,
   OnboardingStartSuccess,

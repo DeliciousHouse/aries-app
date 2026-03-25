@@ -2,8 +2,6 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 
-import dynamic from 'next/dynamic';
-import Link from 'next/link';
 import {
   ArrowRight,
   BarChart3,
@@ -12,7 +10,6 @@ import {
   ChevronRight,
   Clock,
   Facebook,
-  Github,
   Instagram,
   Layers,
   Lightbulb,
@@ -37,19 +34,6 @@ import { motion, useScroll, useSpring, useTransform, type MotionValue } from 'mo
 import { cn } from '../lib/utils';
 import { AriesMark } from '../ui';
 import { DonorMarketingShell } from './chrome';
-
-const FeatureShowcase3D = dynamic(() => import('./feature-showcase-3d'), {
-  ssr: false,
-  loading: () => (
-    <section className="py-24 relative overflow-hidden bg-black">
-      <div className="container mx-auto px-6">
-        <div className="glass rounded-[2.5rem] p-10 text-center text-white/60">
-          Loading interactive showcase…
-        </div>
-      </div>
-    </section>
-  ),
-});
 
 function NetworkBackground() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -330,7 +314,7 @@ function Hero() {
           <motion.div style={{ opacity: useTransform(smoothProgress, [0, 0.05], [1, 0]) }} className="mb-8">
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-reflection relative">
               <Sparkles className="w-4 h-4 text-primary" />
-              <span className="text-sm font-medium text-white/80">Next-Gen Marketing Intelligence</span>
+              <span className="text-sm font-medium text-white/80">Nothing goes live without your approval</span>
             </div>
           </motion.div>
 
@@ -341,8 +325,8 @@ function Hero() {
             }}
             className="text-3xl md:text-[3rem] lg:text-[4rem] font-bold tracking-tight mb-8 leading-[1.1]"
           >
-            Turn Your Marketing Into an <br />
-            <span className="text-gradient">Autonomous Growth Engine</span>
+            Plan, create, approve, launch, and <br />
+            <span className="text-gradient">improve your marketing</span>
           </motion.h1>
 
           <motion.p
@@ -352,7 +336,7 @@ function Hero() {
             }}
             className="max-w-2xl mx-auto text-[1rem] text-white/60 mb-12"
           >
-            Aries AI analyzes markets, generates content, and automatically publishes across all social media platforms. Experience the future of marketing execution.
+            Aries gives business owners a calm workspace to see what is running, what needs approval, what is scheduled next, what is working, and what to do now.
           </motion.p>
 
           <motion.div
@@ -362,18 +346,18 @@ function Hero() {
             }}
             className="flex flex-col sm:flex-row items-center justify-center gap-4"
           >
-            <Link
-              href="/login"
+            <a
+              href="/onboarding/start"
               className="w-full sm:w-auto px-8 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 hover:scale-105 transition-transform flex items-center justify-center gap-2"
             >
-              Start Automating <ArrowRight className="w-5 h-5" />
-            </Link>
-            <Link
-              href="/documentation"
+              Start with your business <ArrowRight className="w-5 h-5" />
+            </a>
+            <a
+              href="/#how-it-works"
               className="w-full sm:w-auto px-8 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2"
             >
-              <Play className="w-5 h-5 fill-current" /> See Runtime
-            </Link>
+              <Play className="w-5 h-5 fill-current" /> See how it works
+            </a>
           </motion.div>
 
           <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
@@ -478,13 +462,13 @@ function Hero() {
             transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
             className="absolute glass p-5 rounded-3xl w-72 text-left border border-white/10 glow-purple pointer-events-auto shadow-2xl"
           >
-            <div className="flex items-center gap-3 mb-2">
+              <div className="flex items-center gap-3 mb-2">
               <div className="p-2 bg-primary/20 rounded-lg">
                 <BarChart3 className="w-5 h-5 text-primary" />
               </div>
-              <span className="font-bold text-white">Analytics</span>
+              <span className="font-bold text-white">Approvals</span>
             </div>
-            <p className="text-sm font-medium text-white/50 tracking-tight">+24% Growth this week</p>
+            <p className="text-sm font-medium text-white/50 tracking-tight">3 items waiting for review</p>
           </motion.div>
 
 
@@ -502,9 +486,9 @@ function Hero() {
                 <div className="p-2 bg-secondary/20 rounded-lg">
                   <Share2 className="w-5 h-5 text-secondary" />
                 </div>
-                <span className="font-bold text-white">Auto-Post</span>
+                <span className="font-bold text-white">Scheduled</span>
               </div>
-              <p className="text-sm font-medium text-white/50 tracking-tight">X, LinkedIn, Insta, etc.</p>
+              <p className="text-sm font-medium text-white/50 tracking-tight">Thu, Apr 2 at 8:30 AM</p>
             </motion.div>
           </div>
         </div>
@@ -517,23 +501,23 @@ function Problem() {
   const problems = [
     {
       icon: <TrendingDown className="w-6 h-6 text-red-400" />,
-      title: 'Inconsistent Lead Flow',
-      description: 'Manual marketing efforts lead to unpredictable results and missed opportunities.',
+      title: 'Missed launches',
+      description: 'Without a clear schedule, campaigns slip and opportunities pass before you notice.',
     },
     {
       icon: <AlertCircle className="w-6 h-6 text-orange-400" />,
-      title: 'Wasted Marketing Budgets',
-      description: "Spending money on campaigns that don't convert due to lack of real-time intelligence.",
+      title: 'Unclear approvals',
+      description: 'When nobody knows who approved what, mistakes go live and trust erodes fast.',
     },
     {
       icon: <Clock className="w-6 h-6 text-yellow-400" />,
-      title: 'Slow Campaign Execution',
-      description: 'Taking weeks to go from idea to launch while competitors move at lightning speed.',
+      title: 'Scattered results',
+      description: 'Checking five different dashboards to answer one question: is this working?',
     },
     {
       icon: <Layers className="w-6 h-6 text-blue-400" />,
-      title: 'Tool Overload',
-      description: 'Managing 10+ disconnected tools just to keep your social media active.',
+      title: 'No clear next step',
+      description: 'Finishing a campaign and having no idea what to do next to keep momentum going.',
     },
   ];
 
@@ -547,7 +531,7 @@ function Problem() {
             viewport={{ once: true }}
             className="text-4xl md:text-5xl font-bold mb-6"
           >
-            Marketing Today Is <span className="text-red-400">Fragmented</span>
+            Marketing without a system is <span className="text-red-400">stressful</span>
           </motion.h2>
           <motion.p
             initial={{ opacity: 0, y: 20 }}
@@ -556,7 +540,7 @@ function Problem() {
             transition={{ delay: 0.2 }}
             className="text-white/60 max-w-2xl mx-auto"
           >
-            Traditional marketing teams are overwhelmed by data and manual tasks. Aries AI solves the complexity of modern growth.
+            Small businesses deserve a calm, clear place to plan marketing, approve work, and see what is actually driving results.
           </motion.p>
         </div>
 
@@ -587,38 +571,38 @@ function Features() {
   const features = [
     {
       icon: <Share2 className="w-6 h-6" />,
-      title: 'AI Social Media Automation',
-      description: 'Automatically creates and publishes posts across LinkedIn, X, Instagram, and more.',
+      title: 'Campaign planning',
+      description: 'Turn your business goals into a clear campaign plan you can read in seconds.',
       color: 'from-blue-500/20 to-blue-600/20',
     },
     {
       icon: <Search className="w-6 h-6" />,
-      title: 'Market Intelligence Engine',
-      description: 'Analyzes competitors, trends, and audience signals to find growth opportunities.',
+      title: 'Creative review',
+      description: 'See every draft, compare versions, and approve what ships before it goes live.',
       color: 'from-purple-500/20 to-purple-600/20',
     },
     {
       icon: <PenTool className="w-6 h-6" />,
-      title: 'AI Content Generation',
-      description: 'Creates high-performing marketing content tailored to your brand voice.',
+      title: 'Approval safety',
+      description: 'Nothing publishes without sign-off. Material edits return to review automatically.',
       color: 'from-pink-500/20 to-pink-600/20',
     },
     {
       icon: <Zap className="w-6 h-6" />,
-      title: 'Campaign Automation',
-      description: 'Deploys multi-channel campaigns across platforms with zero manual effort.',
+      title: 'Launch scheduling',
+      description: 'See exactly what is going out, when, and on which channels before it runs.',
       color: 'from-yellow-500/20 to-yellow-600/20',
     },
     {
       icon: <BarChart3 className="w-6 h-6" />,
-      title: 'Performance Analytics',
-      description: "Real-time insights into what's working and where to double down.",
+      title: 'Results clarity',
+      description: 'Business-readable reporting that answers one question: is this working?',
       color: 'from-green-500/20 to-green-600/20',
     },
     {
       icon: <RefreshCw className="w-6 h-6" />,
-      title: 'Continuous Optimization',
-      description: 'AI continuously learns from performance data to improve results over time.',
+      title: 'Next-step recommendations',
+      description: 'Every result ends with a clear next action so you always know what to do.',
       color: 'from-red-500/20 to-red-600/20',
     },
   ];
@@ -633,8 +617,8 @@ function Features() {
             viewport={{ once: true }}
             className="text-4xl md:text-[48px] leading-tight font-bold mb-6"
           >
-            Features for <br />
-            <span className="text-gradient">Hyper-Growth</span>
+            Everything you need to <br />
+            <span className="text-gradient">market with confidence</span>
           </motion.h2>
         </div>
 
@@ -672,23 +656,23 @@ function HowItWorks() {
   const steps = [
     {
       icon: <Search className="w-6 h-6 text-primary" />,
-      title: 'Market Intelligence',
-      description: 'AI gathers competitor and industry data to understand your landscape.',
+      title: 'Connect your business',
+      description: 'Set up once with your website, brand, and goals. Aries handles the rest.',
     },
     {
       icon: <Lightbulb className="w-6 h-6 text-secondary" />,
-      title: 'Strategy',
-      description: 'AI identifies growth opportunities and creates a custom execution plan.',
+      title: 'Review the plan',
+      description: 'See a clear campaign plan in plain English before anything is created.',
     },
     {
       icon: <Zap className="w-6 h-6 text-yellow-400" />,
-      title: 'Execution',
-      description: 'AI generates and publishes high-performing content across all channels.',
+      title: 'Approve and launch',
+      description: 'Review every creative draft, approve what ships, and schedule with confidence.',
     },
     {
       icon: <BarChart3 className="w-6 h-6 text-green-400" />,
-      title: 'Optimization',
-      description: 'AI continuously improves results based on real-time performance data.',
+      title: 'See what worked',
+      description: 'Business-readable results with one clear recommendation for what to do next.',
     },
   ];
 
@@ -697,7 +681,7 @@ function HowItWorks() {
       <div className="container mx-auto px-6">
         <div className="text-center mb-20">
           <h2 className="text-4xl md:text-[48px] leading-tight font-bold mb-6">How It Works</h2>
-          <p className="text-white/60">Four steps to autonomous growth.</p>
+          <p className="text-white/60">Four steps to marketing clarity.</p>
         </div>
 
         <div className="relative">
@@ -731,6 +715,123 @@ function HowItWorks() {
   );
 }
 
+/** Demo schedule for the marketing calendar section (static showcase data). */
+const CONTENT_CALENDAR_SCHEDULE = [
+  {
+    day: 'Mon',
+    date: '16',
+    posts: [
+      { title: 'AI Marketing Trends 2026 Strategy', platform: 'LinkedIn', time: '09:00', status: 'Published' },
+      { title: 'Aries AI Feature Reveal Today', platform: 'X / Twitter', time: '14:00', status: 'Published' },
+    ],
+  },
+  {
+    day: 'Tue',
+    date: '17',
+    posts: [
+      { title: 'The Power of GEO Optimization', platform: 'Instagram', time: '10:30', status: 'Published' },
+      { title: 'Market Intelligence 101 Guide', platform: 'YouTube', time: '16:00', status: 'Published' },
+    ],
+  },
+  {
+    day: 'Wed',
+    date: '18',
+    posts: [
+      { title: 'Spring Campaign Case Study', platform: 'LinkedIn', time: '11:00', status: 'Published' },
+      { title: 'Facebook Ads Mastery Course', platform: 'Facebook', time: '15:30', status: 'Published' },
+    ],
+  },
+  {
+    day: 'Thu',
+    date: '19',
+    posts: [
+      { title: 'Why AEO is the new SEO', platform: 'X / Twitter', time: '09:30', status: 'Published' },
+      { title: 'Weekly AI Wrap-up Content', platform: 'Instagram', time: '15:00', status: 'Published' },
+    ],
+  },
+  {
+    day: 'Fri',
+    date: '20',
+    posts: [{ title: 'Aries AI v2.0 Launch Event', platform: 'LinkedIn', time: '10:00', status: 'Scheduled' }],
+  },
+  {
+    day: 'Sat',
+    date: '21',
+    posts: [],
+  },
+  {
+    day: 'Sun',
+    date: '22',
+    posts: [],
+  },
+  {
+    day: 'Mon',
+    date: '23',
+    posts: [
+      { title: 'Next-Gen Automation Primer', platform: 'X / Twitter', time: '09:30', status: 'Scheduled' },
+      { title: 'Brand Identity Deep-dive', platform: 'Instagram', time: '15:00', status: 'Scheduled' },
+    ],
+  },
+  {
+    day: 'Tue',
+    date: '24',
+    posts: [{ title: 'Future of SaaS Marketing', platform: 'LinkedIn', time: '10:00', status: 'Scheduled' }],
+  },
+  {
+    day: 'Wed',
+    date: '25',
+    posts: [{ title: 'Social Media Strategy Session', platform: 'Facebook', time: '13:00', status: 'Scheduled' }],
+  },
+  {
+    day: 'Thu',
+    date: '26',
+    posts: [{ title: 'Content Performance Review', platform: 'Instagram', time: '11:30', status: 'Scheduled' }],
+  },
+  {
+    day: 'Fri',
+    date: '27',
+    posts: [{ title: 'Quarterly Growth Planning', platform: 'LinkedIn', time: '09:00', status: 'Scheduled' }],
+  },
+  {
+    day: 'Sat',
+    date: '28',
+    posts: [],
+  },
+  {
+    day: 'Sun',
+    date: '29',
+    posts: [],
+  },
+] as const;
+
+const PLATFORM_CALENDAR_STYLE = {
+  LinkedIn: { Icon: Linkedin, border: 'border-blue-600/30', iconClass: 'text-blue-400' },
+  YouTube: { Icon: Youtube, border: 'border-red-500/30', iconClass: 'text-red-400' },
+  'X / Twitter': { Icon: Twitter, border: 'border-white/20', iconClass: 'text-white/80' },
+  Instagram: { Icon: Instagram, border: 'border-pink-500/30', iconClass: 'text-pink-400' },
+  Facebook: { Icon: Facebook, border: 'border-blue-700/30', iconClass: 'text-blue-600' },
+} as const;
+
+function platformCalendarMeta(platform: string) {
+  if (platform in PLATFORM_CALENDAR_STYLE) {
+    return PLATFORM_CALENDAR_STYLE[platform as keyof typeof PLATFORM_CALENDAR_STYLE];
+  }
+  return {
+    Icon: Sparkles,
+    border: 'border-primary/20',
+    iconClass: 'text-primary',
+  };
+}
+
+function calendarPlatformIcon(platform: string) {
+  const { Icon, iconClass } = platformCalendarMeta(platform);
+  return <Icon className={`w-3.5 h-3.5 ${iconClass}`} />;
+}
+
+function calendarPlatformBorder(platform: string) {
+  return platformCalendarMeta(platform).border;
+}
+
 function ContentCalendar() {
   const [activeDate, setActiveDate] = useState('20');
   const [currentWeek, setCurrentWeek] = useState<'current' | 'next'>('current');
@@ -744,142 +845,20 @@ function ContentCalendar() {
     { name: 'Facebook' },
   ];
 
-  const getPlatformIcon = (platform: string) => {
-    switch (platform) {
-      case 'LinkedIn':
-        return <Linkedin className="w-3.5 h-3.5 text-blue-400" />;
-      case 'YouTube':
-        return <Youtube className="w-3.5 h-3.5 text-red-400" />;
-      case 'X / Twitter':
-        return <Twitter className="w-3.5 h-3.5 text-white/80" />;
-      case 'Instagram':
-        return <Instagram className="w-3.5 h-3.5 text-pink-400" />;
-      case 'Facebook':
-        return <Facebook className="w-3.5 h-3.5 text-blue-600" />;
-      default:
-        return <Sparkles className="w-3.5 h-3.5 text-primary" />;
-    }
-  };
-
-
-  const getPlatformBorder = (platform: string) => {
-    switch (platform) {
-      case 'LinkedIn':
-        return 'border-blue-600/30';
-      case 'YouTube':
-        return 'border-red-500/30';
-      case 'X / Twitter':
-        return 'border-white/20';
-      case 'Instagram':
-        return 'border-pink-500/30';
-      case 'Facebook':
-        return 'border-blue-700/30';
-      default:
-        return 'border-primary/20';
-    }
-  };
-
   const truncateTitle = (title: string, wordCount = 3) => {
     const words = title.split(' ');
     return words.length <= wordCount ? title : `${words.slice(0, wordCount).join(' ')}...`;
   };
 
-  const schedule = [
-    {
-      day: 'Mon',
-      date: '16',
-      posts: [
-        { title: 'AI Marketing Trends 2026 Strategy', platform: 'LinkedIn', time: '09:00', status: 'Published' },
-        { title: 'Aries AI Feature Reveal Today', platform: 'X / Twitter', time: '14:00', status: 'Published' },
-      ],
-    },
-    {
-      day: 'Tue',
-      date: '17',
-      posts: [
-        { title: 'The Power of GEO Optimization', platform: 'Instagram', time: '10:30', status: 'Published' },
-        { title: 'Market Intelligence 101 Guide', platform: 'YouTube', time: '16:00', status: 'Published' },
-      ],
-    },
-    {
-      day: 'Wed',
-      date: '18',
-      posts: [
-        { title: 'Autonomous Growth Case Study Analysis', platform: 'LinkedIn', time: '11:00', status: 'Published' },
-        { title: 'Facebook Ads Mastery Course', platform: 'Facebook', time: '15:30', status: 'Published' },
-      ],
-    },
-    {
-      day: 'Thu',
-      date: '19',
-      posts: [
-        { title: 'Why AEO is the new SEO', platform: 'X / Twitter', time: '09:30', status: 'Published' },
-        { title: 'Weekly AI Wrap-up Content', platform: 'Instagram', time: '15:00', status: 'Published' },
-      ],
-    },
-    {
-      day: 'Fri',
-      date: '20',
-      posts: [{ title: 'Aries AI v2.0 Launch Event', platform: 'LinkedIn', time: '10:00', status: 'Scheduled' }],
-    },
-    {
-      day: 'Sat',
-      date: '21',
-      posts: [],
-    },
-    {
-      day: 'Sun',
-      date: '22',
-      posts: [],
-    },
-    {
-      day: 'Mon',
-      date: '23',
-      posts: [
-        { title: 'Next-Gen Automation Primer', platform: 'X / Twitter', time: '09:30', status: 'Scheduled' },
-        { title: 'Brand Identity Deep-dive', platform: 'Instagram', time: '15:00', status: 'Scheduled' },
-      ],
-    },
-    {
-      day: 'Tue',
-      date: '24',
-      posts: [{ title: 'Future of SaaS Marketing', platform: 'LinkedIn', time: '10:00', status: 'Scheduled' }],
-    },
-    {
-      day: 'Wed',
-      date: '25',
-      posts: [{ title: 'Social Media Strategy Session', platform: 'Facebook', time: '13:00', status: 'Scheduled' }],
-    },
-    {
-      day: 'Thu',
-      date: '26',
-      posts: [{ title: 'Content Performance Review', platform: 'Instagram', time: '11:30', status: 'Scheduled' }],
-    },
-    {
-      day: 'Fri',
-      date: '27',
-      posts: [{ title: 'Quarterly Growth Planning', platform: 'LinkedIn', time: '09:00', status: 'Scheduled' }],
-    },
-    {
-      day: 'Sat',
-      date: '28',
-      posts: [],
-    },
-    {
-      day: 'Sun',
-      date: '29',
-      posts: [],
-    },
-  ];
-
   const monthDays = Array.from({ length: 31 }, (_, i) => i + 1);
-  const getPostsForDate = (date: string) => schedule.find((entry) => entry.date === date)?.posts || [];
+  const getPostsForDate = (date: string) =>
+    CONTENT_CALENDAR_SCHEDULE.find((entry) => entry.date === date)?.posts || [];
 
   const displayedSchedule = useMemo(() => {
     return currentWeek === 'current'
-      ? schedule.filter((item) => ['16', '17', '18', '19', '20', '21', '22'].includes(item.date))
-      : schedule.filter((item) => ['23', '24', '25', '26', '27', '28', '29'].includes(item.date));
-  }, [currentWeek, schedule]);
+      ? CONTENT_CALENDAR_SCHEDULE.filter((item) => ['16', '17', '18', '19', '20', '21', '22'].includes(item.date))
+      : CONTENT_CALENDAR_SCHEDULE.filter((item) => ['23', '24', '25', '26', '27', '28', '29'].includes(item.date));
+  }, [currentWeek]);
 
   return (
     <section id="calendar" className="py-24 relative overflow-hidden">
@@ -891,7 +870,7 @@ function ContentCalendar() {
             viewport={{ once: true }}
             className="text-4xl md:text-[48px] leading-tight font-light mb-6"
           >
-            Autonomous <span className="text-gradient">Content Calendar</span>
+            Your <span className="text-gradient">marketing schedule</span>
           </motion.h2>
           <motion.p
             initial={{ opacity: 0, y: 20 }}
@@ -900,7 +879,7 @@ function ContentCalendar() {
             transition={{ delay: 0.2 }}
             className="text-white/60 max-w-2xl mx-auto"
           >
-            Aries AI automatically generates, schedules, and publishes your content across all platforms.
+            See what is planned, what is approved, and what is going out this week across your channels.
           </motion.p>
         </div>
 
@@ -1025,12 +1004,12 @@ function ContentCalendar() {
                     Month
                   </button>
                 </div>
-                <Link href="/calendar" prefetch={false} className="px-6 py-2 bg-gradient-to-r from-primary to-secondary rounded-xl text-sm font-bold shadow-lg shadow-primary/20">
+                <a href="/calendar" className="px-6 py-2 bg-gradient-to-r from-primary to-secondary rounded-xl text-sm font-bold shadow-lg shadow-primary/20">
                   Open Runtime
-                </Link>
-                <Link href="/login" className="px-6 py-2 bg-gradient-to-r from-primary to-secondary rounded-xl text-sm font-bold shadow-lg shadow-primary/20">
+                </a>
+                <a href="/login" className="px-6 py-2 bg-gradient-to-r from-primary to-secondary rounded-xl text-sm font-bold shadow-lg shadow-primary/20">
                   New Post
-                </Link>
+                </a>
               </div>
             </div>
 
@@ -1064,7 +1043,7 @@ function ContentCalendar() {
                             transition={{ delay: dayIndex * 0.1 + postIndex * 0.1 }}
                             className={cn(
                               'p-2 border bg-white/5 backdrop-blur-sm relative group cursor-pointer hover:bg-white/10 transition-all',
-                              getPlatformBorder(post.platform),
+                              calendarPlatformBorder(post.platform),
                             )}
                           >
                             <div className="flex items-center justify-between mb-1">
@@ -1073,7 +1052,7 @@ function ContentCalendar() {
                             </div>
                             <h5 className="text-[10px] font-light mb-1.5 leading-tight">{truncateTitle(post.title, 3)}</h5>
                             <div className="flex items-center justify-between gap-1.5 pt-0.5">
-                              {getPlatformIcon(post.platform)}
+                              {calendarPlatformIcon(post.platform)}
                               <span
                                 className={cn(
                                   'text-[5.5px] font-bold uppercase tracking-widest px-1 py-0.5 rounded-sm border',
@@ -1118,7 +1097,7 @@ function ContentCalendar() {
                         </span>
                         <div className="flex-1 space-y-1 overflow-hidden">
                           {posts.map((post) => (
-                            <div key={post.title} className={cn('p-1 border text-[7px] font-light leading-none truncate', getPlatformBorder(post.platform))}>
+                            <div key={post.title} className={cn('p-1 border text-[7px] font-light leading-none truncate', calendarPlatformBorder(post.platform))}>
                               {truncateTitle(post.title, 2)}
                             </div>
                           ))}
@@ -1141,22 +1120,22 @@ function Pricing() {
     {
       name: 'Starter',
       price: '49',
-      description: 'Perfect for solo founders and small startups.',
-      features: ['3 Social Accounts', 'AI Content Generation', 'Basic Analytics', 'Weekly Reports'],
+      description: 'For one business with a few active channels.',
+      features: ['3 Connected Channels', 'Campaign Planning', 'Approval Queue', 'Weekly Results'],
       highlight: false,
     },
     {
       name: 'Growth',
       price: '149',
-      description: 'Ideal for scaling companies and marketing teams.',
-      features: ['Unlimited Accounts', 'Market Intelligence Engine', 'Advanced Analytics', 'Daily Optimization', 'Priority Support'],
+      description: 'For businesses ready to run consistent campaigns.',
+      features: ['Unlimited Channels', 'Full Campaign Workspace', 'Detailed Results', 'Next-Step Recommendations', 'Priority Support'],
       highlight: true,
     },
     {
       name: 'Enterprise',
       price: 'Custom',
-      description: 'For large organizations with complex needs.',
-      features: ['Custom AI Training', 'Dedicated Account Manager', 'API Access', 'White-label Reports', 'SLA Guarantee'],
+      description: 'For multi-location or high-volume businesses.',
+      features: ['Multiple Brands', 'Dedicated Support', 'Custom Reporting', 'Team Approvals', 'SLA Guarantee'],
       highlight: false,
     },
   ];
@@ -1200,8 +1179,8 @@ function Pricing() {
                   ))}
                 </div>
 
-                <Link
-                  href={plan.price === 'Custom' ? '/documentation' : '/login'}
+                <a
+                  href={plan.price === 'Custom' ? '/onboarding/start' : '/onboarding/start'}
                   className={cn(
                     'w-full py-4 rounded-2xl font-bold transition-all text-center',
                     plan.highlight
@@ -1209,8 +1188,8 @@ function Pricing() {
                       : 'bg-white/10 hover:bg-white/20 text-white',
                   )}
                 >
-                  {plan.price === 'Custom' ? 'Review Runtime' : 'Get Started'}
-                </Link>
+                  {plan.price === 'Custom' ? 'Contact us' : 'Get started'}
+                </a>
               </div>
 
               {plan.highlight ? (
@@ -1219,6 +1198,56 @@ function Pricing() {
                 </div>
               ) : null}
             </motion.div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FeatureShowcaseFallback() {
+  const panels = [
+    {
+      title: 'Campaign clarity',
+      description: 'Aries keeps your plan, creative, schedule, and results in one place so you never lose track of what is running or what needs attention.',
+      icon: <Zap className="w-5 h-5 text-primary" />,
+    },
+    {
+      title: 'Approval confidence',
+      description: 'Every launch stays reviewable. You move from plan to review to schedule without worrying that something shipped without sign-off.',
+      icon: <Layers className="w-5 h-5 text-secondary" />,
+    },
+    {
+      title: 'Results you can act on',
+      description: 'Every campaign summary ends with a clear next step instead of a wall of charts, so you always know what to do next.',
+      icon: <BarChart3 className="w-5 h-5 text-primary" />,
+    },
+  ];
+
+  return (
+    <section className="py-24 relative overflow-hidden bg-black">
+      <div className="container mx-auto px-6">
+        <div className="text-center mb-16">
+          <h2 className="text-[48px] leading-tight font-bold mb-6">
+            Built for <span className="text-gradient">business owners</span>
+          </h2>
+          <p className="text-white/60 max-w-3xl mx-auto text-lg">
+            Aries keeps the complex work behind the scenes so you can focus on the decisions that matter for your business.
+          </p>
+        </div>
+
+        <div className="grid gap-6 md:grid-cols-3">
+          {panels.map((panel) => (
+            <div
+              key={panel.title}
+              className="glass rounded-[2.5rem] border border-white/10 p-8 text-left"
+            >
+              <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-white/5">
+                {panel.icon}
+              </div>
+              <h3 className="mb-3 text-2xl font-bold">{panel.title}</h3>
+              <p className="text-sm leading-relaxed text-white/60">{panel.description}</p>
+            </div>
           ))}
         </div>
       </div>
@@ -1249,18 +1278,18 @@ function FinalCTA() {
                 viewport={{ once: true }}
                 className="flex flex-wrap items-center gap-4"
               >
-                <Link
-                  href="/login"
+                <a
+                  href="/onboarding/start"
                   className="px-8 py-4 rounded-full border border-white/20 hover:border-white/40 text-white font-bold transition-all backdrop-blur-md text-sm"
                 >
-                  Start Automating
-                </Link>
-                <Link
-                  href="/documentation"
+                  Start with your business
+                </a>
+                <a
+                  href="/#how-it-works"
                   className="px-8 py-4 rounded-full border border-white/20 hover:border-white/40 text-white font-bold transition-all backdrop-blur-md text-sm"
                 >
-                  Read the Docs
-                </Link>
+                  See how it works
+                </a>
               </motion.div>
             </div>
           </div>
@@ -1324,14 +1353,14 @@ export default function DonorHomePage() {
             className="max-w-6xl mx-auto"
           >
             <div className="max-w-4xl mx-auto">
-              <h2 className="text-4xl md:text-[48px] leading-tight font-bold mb-8">Meet Aries AI</h2>
+              <h2 className="text-4xl md:text-[48px] leading-tight font-bold mb-8">Meet Aries</h2>
               <p className="text-xl text-white/60 mb-12 leading-relaxed">
-                Aries AI is an AI-native marketing intelligence system that continuously learns and executes campaigns automatically. It&apos;s not just a tool; it&apos;s your new autonomous marketing department.
+                A calm workspace where you plan campaigns, approve creative, launch safely, and see what worked &mdash; without learning marketing software.
               </p>
             </div>
 
             <div className="flex flex-wrap items-center justify-center gap-4 md:gap-6 w-full pb-4">
-              {['Market Intelligence', 'Strategy', 'Content', 'Automation', 'Optimization'].map((step, index) => (
+              {['Set up your business', 'See the plan', 'Review the creative', 'Launch safely', 'See what worked'].map((step, index) => (
                 <Fragment key={step}>
                   <div className="glass px-8 py-4 rounded-full text-sm font-semibold border-primary/20 whitespace-nowrap cursor-pointer hover-gradient-border">
                     {step}
@@ -1347,7 +1376,7 @@ export default function DonorHomePage() {
       <Features />
       <HowItWorks />
       <ContentCalendar />
-      <FeatureShowcase3D />
+      <FeatureShowcaseFallback />
       <Pricing />
       <FinalCTA />
     </DonorMarketingShell>

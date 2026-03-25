@@ -3,8 +3,8 @@ import './globals.css';
 import { ARIES_FAVICON_ICO_PATH, ARIES_FAVICON_PNG_PATH, ARIES_LOGO_WEBP_PATH } from '@/lib/brand';
 
 export const metadata = {
-  title: 'Aries AI — Next-Generation LLM-Powered Agent',
-  description: 'Sophisticated reasoning and seamless integrations for your most demanding tasks. Multi-platform publishing, AI-driven marketing, and intelligent automation.',
+  title: 'Aries AI - Marketing Operating System',
+  description: 'A premium, approval-safe marketing operating system for small businesses. Plan campaigns, approve creative, launch safely, and see what worked.',
   icons: {
     icon: [
       { url: ARIES_FAVICON_ICO_PATH, type: 'image/x-icon' },

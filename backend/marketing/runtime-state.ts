@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { resolveDataPath, resolveSpecPath } from '@/lib/runtime-paths';
+import type { TenantBrandKit } from './brand-kit';
 
 const REQUIRED_SCHEMA_PATHS = [
   resolveSpecPath('marketing_job_state_schema.v1.json'),
@@ -60,12 +61,17 @@ export type MarketingPublishConfig = {
   video_render_platforms: string[];
 };
 
+export type MarketingBrandKitReference = Omit<TenantBrandKit, 'tenant_id'> & {
+  path: string;
+};
+
 export type MarketingApprovalCheckpoint = {
   stage: Extract<MarketingStage, 'strategy' | 'production' | 'publish'>;
   status: 'awaiting_approval';
   title: string;
   message: string;
   requested_at: string;
+  resume_token?: string | null;
   action_label?: string | null;
   publish_config?: MarketingPublishConfig | null;
 };
@@ -103,10 +109,12 @@ export type MarketingJobRuntimeDocument = {
     history: MarketingApprovalHistoryEntry[];
   };
   publish_config: MarketingPublishConfig;
+  brand_kit: MarketingBrandKitReference;
   inputs: {
     request: Record<string, unknown>;
-    brand_url?: string | null;
+    brand_url: string;
     competitor_url?: string | null;
+    competitor_facebook_url?: string | null;
   };
   summary?: {
     headline?: string;
@@ -127,9 +135,9 @@ export function nowIso(): string {
 
 export function defaultPublishConfig(input: Partial<MarketingPublishConfig> = {}): MarketingPublishConfig {
   return {
-    platforms: normalizePlatformList(input.platforms, ['meta-ads', 'instagram', 'x', 'tiktok', 'youtube', 'linkedin', 'reddit']),
-    live_publish_platforms: normalizePlatformList(input.live_publish_platforms),
-    video_render_platforms: normalizePlatformList(input.video_render_platforms),
+    platforms: normalizePlatformList(input.platforms, ['meta-ads', 'tiktok']),
+    live_publish_platforms: normalizePlatformList(input.live_publish_platforms, ['meta-ads']),
+    video_render_platforms: normalizePlatformList(input.video_render_platforms, ['tiktok']),
   };
 }
 
@@ -164,6 +172,7 @@ export function createMarketingJobRuntimeDocument(input: {
   jobId: string;
   tenantId: string;
   payload: Record<string, unknown>;
+  brandKit: MarketingBrandKitReference;
   publishConfig?: Partial<MarketingPublishConfig>;
 }): MarketingJobRuntimeDocument {
   const ts = nowIso();
@@ -188,10 +197,12 @@ export function createMarketingJobRuntimeDocument(input: {
       history: [],
     },
     publish_config: defaultPublishConfig(input.publishConfig),
+    brand_kit: input.brandKit,
     inputs: {
       request: input.payload,
-      brand_url: asString(input.payload.brandUrl),
+      brand_url: asString(input.payload.brandUrl) || '',
       competitor_url: asString(input.payload.competitorUrl),
+      competitor_facebook_url: asString(input.payload.competitorFacebookUrl),
     },
     errors: [],
     last_error: null,
@@ -232,6 +243,25 @@ export function marketingRuntimePath(jobId: string): string {
   return resolveDataPath('generated', 'draft', 'marketing-jobs', `${jobId}.json`);
 }
 
+function marketingRuntimeRoot(): string {
+  return resolveDataPath('generated', 'draft', 'marketing-jobs');
+}
+
+function assertMarketingRuntimeDocument(doc: MarketingJobRuntimeDocument): void {
+  if (!doc.brand_kit) {
+    throw new Error('invalid_marketing_runtime_document:brand_kit_required');
+  }
+  if (!doc.inputs?.brand_url || doc.inputs.brand_url.trim().length === 0) {
+    throw new Error('invalid_marketing_runtime_document:brand_url_required');
+  }
+  if (doc.brand_kit.source_url !== doc.inputs.brand_url) {
+    throw new Error('invalid_marketing_runtime_document:brand_kit_source_mismatch');
+  }
+  if (!Number.isFinite(Date.parse(doc.brand_kit.extracted_at))) {
+    throw new Error('invalid_marketing_runtime_document:brand_kit_extracted_at_invalid');
+  }
+}
+
 export function loadMarketingJobRuntime(jobId: string): MarketingJobRuntimeDocument | null {
   const filePath = marketingRuntimePath(jobId);
   if (!existsSync(filePath)) {
@@ -242,7 +272,45 @@ export function loadMarketingJobRuntime(jobId: string): MarketingJobRuntimeDocum
   return JSON.parse(raw) as MarketingJobRuntimeDocument;
 }
 
+function collectMarketingJobRefsForTenant(tenantId: string): Array<{ jobId: string; updatedAt: number }> {
+  const root = marketingRuntimeRoot();
+  if (!existsSync(root)) {
+    return [];
+  }
+
+  const refs: Array<{ jobId: string; updatedAt: number }> = [];
+  const entries = readdirSync(root).filter((entry) => entry.endsWith('.json'));
+
+  for (const entry of entries) {
+    try {
+      const raw = readFileSync(path.join(root, entry), 'utf8');
+      const doc = JSON.parse(raw) as MarketingJobRuntimeDocument;
+      if (doc.tenant_id !== tenantId) {
+        continue;
+      }
+      const updatedAt = Date.parse(doc.updated_at);
+      if (!Number.isFinite(updatedAt)) {
+        continue;
+      }
+      refs.push({ jobId: doc.job_id, updatedAt });
+    } catch {
+      continue;
+    }
+  }
+
+  return refs.sort((left, right) => right.updatedAt - left.updatedAt);
+}
+
+export function listMarketingJobIdsForTenant(tenantId: string): string[] {
+  return collectMarketingJobRefsForTenant(tenantId).map((entry) => entry.jobId);
+}
+
+export function findLatestMarketingJobIdForTenant(tenantId: string): string | null {
+  return collectMarketingJobRefsForTenant(tenantId)[0]?.jobId ?? null;
+}
+
 export function saveMarketingJobRuntime(jobId: string, doc: MarketingJobRuntimeDocument): string {
+  assertMarketingRuntimeDocument(doc);
   doc.updated_at = nowIso();
   const filePath = marketingRuntimePath(jobId);
   mkdirSync(path.dirname(filePath), { recursive: true });
@@ -369,6 +437,7 @@ export function markStageAwaitingApproval(
     title: checkpoint.title,
     message: checkpoint.message,
     requested_at: checkpoint.requested_at ?? nowIso(),
+    resume_token: checkpoint.resume_token ?? null,
     action_label: checkpoint.action_label ?? null,
     publish_config: checkpoint.publish_config ?? null,
   };
@@ -420,7 +489,6 @@ export function recordApproval(
     message: input.message ?? null,
     publish_config: input.stage === 'publish' ? doc.publish_config : null,
   });
-  doc.approvals.current = null;
 }
 
 export function recordStageFailure(

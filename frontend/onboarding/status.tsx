@@ -171,12 +171,12 @@ export default function OnboardingStatusScreen({
               </div>
               <div className="rounded-[1.5rem] border border-white/10 bg-white/5 px-5 py-4 flex items-center justify-between gap-4">
                 <strong>progress_hint</strong>
-                <span className="text-white/70">{success.progress_hint}</span>
+                <span className="text-white/70 text-right font-mono text-sm">{success.progress_hint}</span>
               </div>
             </div>
 
             <div>
-              <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-3">Available artifacts</p>
+              <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-3">Artifact availability</p>
               <div className="flex flex-wrap gap-3">
                 <span className={`px-4 py-2 rounded-full border ${success.artifacts.draft ? 'border-primary/30 bg-primary/15 text-white' : 'border-white/10 bg-white/5 text-white/45'}`}>draft</span>
                 <span className={`px-4 py-2 rounded-full border ${success.artifacts.validated ? 'border-primary/30 bg-primary/15 text-white' : 'border-white/10 bg-white/5 text-white/45'}`}>validated</span>

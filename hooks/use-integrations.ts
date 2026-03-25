@@ -39,20 +39,21 @@ export function useIntegrations(options: UseIntegrationsOptions = {}) {
   const api = useMemo(() => createIntegrationsApi(options), [options.baseUrl]);
   const state = useRequestState<GetIntegrationsPageResponse>();
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const { setError, setLoading, setSuccess } = state;
 
   const refresh = useCallback(
     async (query: GetIntegrationsPageQuery = options.initialQuery ?? {}) => {
-      state.setLoading();
+      setLoading();
       try {
         const response = await api.getPage(query);
-        state.setSuccess(response);
+        setSuccess(response);
         return response;
       } catch (error) {
-        state.setError(error, 'Unable to load integrations page data.');
+        setError(error, 'Unable to load integrations page data.');
         return null;
       }
     },
-    [api, options.initialQuery, state]
+    [api, options.initialQuery, setError, setLoading, setSuccess]
   );
 
   useEffect(() => {
@@ -116,13 +117,13 @@ export function useIntegrations(options: UseIntegrationsOptions = {}) {
 
         return null;
       } catch (error) {
-        state.setError(error, 'Unable to complete platform action.');
+        setError(error, 'Unable to complete platform action.');
         return null;
       } finally {
         setBusyAction(null);
       }
     },
-    [api, refresh, state]
+    [api, refresh, setError]
   );
 
   return {

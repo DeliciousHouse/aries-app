@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo } from 'react';
 
 import {
   createMarketingApi,
+  isMarketingErrorResult,
   type GetMarketingJobStatusResponse,
   type MarketingResult,
 } from '@/lib/api/marketing';
@@ -22,28 +23,38 @@ export interface LoadMarketingJobStatusOptions {
 export function useMarketingJobStatus(options: UseMarketingJobStatusOptions = {}) {
   const api = useMemo(() => createMarketingApi(options), [options.baseUrl]);
   const state = useRequestState<MarketingResult<GetMarketingJobStatusResponse>>();
+  const { reset, setError, setLoading, setSuccess } = state;
 
   const load = useCallback(
     async (jobId: string, loadOptions: LoadMarketingJobStatusOptions = {}) => {
       const normalizedJobId = jobId.trim();
       if (!normalizedJobId) {
-        state.setError(new Error('jobId is required'));
+        setError(new Error('jobId is required'));
         return null;
       }
 
       if (!loadOptions.quiet) {
-        state.setLoading();
+        setLoading();
       }
       try {
         const response = await api.getJob(normalizedJobId);
-        state.setSuccess(response);
+        if (isMarketingErrorResult(response)) {
+          const message =
+            (typeof response.message === 'string' && response.message.trim()) ||
+            response.error ||
+            'Failed to load job status.';
+          reset();
+          setError(new Error(message));
+          return null;
+        }
+        setSuccess(response);
         return response;
       } catch (error) {
-        state.setError(error, 'Failed to load job status.');
+        setError(error, 'Failed to load job status.');
         return null;
       }
     },
-    [api, state]
+    [api, reset, setError, setLoading, setSuccess]
   );
 
   useEffect(() => {

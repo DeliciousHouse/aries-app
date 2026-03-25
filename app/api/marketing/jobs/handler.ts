@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-import { startMarketingJob } from '@/backend/marketing/jobs-start';
+import { startMarketingJob } from '@/backend/marketing/orchestrator';
 import { OpenClawGatewayError } from '@/backend/openclaw/gateway-client';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
@@ -10,17 +10,31 @@ const MARKETING_ONBOARDING_REQUIRED = {
   message: 'Complete tenant onboarding before starting a brand campaign.',
 } as const;
 
+function marketingStatusPublic(): boolean {
+  const raw = process.env.MARKETING_STATUS_PUBLIC?.trim().toLowerCase();
+  return raw === '1' || raw === 'true';
+}
+
+function derivePublicMarketingTenantId(payload: Record<string, unknown>): string {
+  const brandUrl = typeof payload.brandUrl === 'string' ? payload.brandUrl.trim() : '';
+  if (!brandUrl) {
+    return 'public_campaign';
+  }
+
+  try {
+    const hostname = new URL(brandUrl).hostname.trim().toLowerCase();
+    const slug = hostname.replace(/^www\./, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return slug ? `public_${slug}` : 'public_campaign';
+  } catch {
+    const slug = brandUrl.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return slug ? `public_${slug}` : 'public_campaign';
+  }
+}
+
 export async function handlePostMarketingJobs(
   req: Request,
   tenantContextLoader?: TenantContextLoader
 ) {
-  const tenantResult = await loadTenantContextOrResponse(tenantContextLoader, {
-    missingMembershipResponse: MARKETING_ONBOARDING_REQUIRED,
-  });
-  if ('response' in tenantResult) {
-    return tenantResult.response;
-  }
-
   let payload: { jobType?: unknown; payload?: Record<string, unknown> } = {};
   try {
     payload = await req.json();
@@ -28,9 +42,33 @@ export async function handlePostMarketingJobs(
     payload = {};
   }
 
+  const tenantResult = await loadTenantContextOrResponse(tenantContextLoader, {
+    missingMembershipResponse: MARKETING_ONBOARDING_REQUIRED,
+  });
+  const resolvedTenantId =
+    'response' in tenantResult
+      ? marketingStatusPublic() && payload.payload
+        ? derivePublicMarketingTenantId(payload.payload)
+        : null
+      : tenantResult.tenantContext.tenantId;
+
+  if (!resolvedTenantId) {
+    if ('response' in tenantResult) {
+      return tenantResult.response;
+    }
+    return NextResponse.json(
+      {
+        status: 'error',
+        reason: 'tenant_context_required',
+        message: 'Authentication required.',
+      },
+      { status: 403 }
+    );
+  }
+
   try {
     const result = await startMarketingJob({
-      tenantId: tenantResult.tenantContext.tenantId,
+      tenantId: resolvedTenantId,
       jobType: payload.jobType as 'brand_campaign',
       payload: payload.payload ?? {},
     });

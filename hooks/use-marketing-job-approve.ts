@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 
 import {
   createMarketingApi,
+  isMarketingErrorResult,
   type ApproveJobResult,
   type MarketingResult,
   type PostMarketingJobApproveRequest,
@@ -21,6 +22,16 @@ export function useMarketingJobApprove(options: UseMarketingJobApproveOptions = 
   return {
     ...state,
     approveJob: (jobId: string, body: PostMarketingJobApproveRequest) =>
-      state.run(() => api.approveJob(jobId, body), 'Approval request failed.'),
+      state.run(async () => {
+        const result = await api.approveJob(jobId, body);
+        if (isMarketingErrorResult(result)) {
+          throw new Error(
+            (typeof result.message === 'string' && result.message.trim()) ||
+              result.error ||
+              'Approval request failed.'
+          );
+        }
+        return result;
+      }, 'Approval request failed.'),
   };
 }

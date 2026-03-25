@@ -9,7 +9,7 @@ Generate professional image ad creatives for Meta/social campaigns using AI imag
 
 ## Model
 
-**Nano Banana Pro** (`gemini-3-pro-image-preview`)
+**Nano Banana** (`gemini-2.5-flash-image`)
 - State-of-the-art image generation and editing
 - Good text rendering for ad copy
 - Supports multiple aspect ratios
@@ -118,7 +118,7 @@ NO logos. NO brand names. NO company names. NO watermarks. Clean minimal design.
 ## API Usage
 
 ```bash
-curl -s "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=$GEMINI_API_KEY" \
+curl -s "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=$GEMINI_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "contents": [{

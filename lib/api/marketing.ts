@@ -6,6 +6,10 @@ export type MarketingStage = 'research' | 'strategy' | 'production' | 'publish';
 export interface BrandCampaignPayload {
   brandUrl: string;
   competitorUrl: string;
+  /** Optional intake fields stored on the runtime job `inputs.request` record */
+  goal?: string;
+  channels?: string[];
+  mode?: string;
 }
 
 export interface PostMarketingJobsRequest {
@@ -18,9 +22,9 @@ export interface StartJobAccepted {
   jobId: string;
   jobType: MarketingJobType;
   marketing_stage: MarketingStage;
-  approvalRequired?: boolean;
+  approvalRequired: boolean;
   approval?: MarketingApprovalSummary | null;
-  jobStatusUrl?: string;
+  jobStatusUrl: string;
 }
 
 export interface MarketingStageCard {
@@ -52,6 +56,40 @@ export interface MarketingTimelineEntry {
   description: string;
 }
 
+export interface MarketingCampaignWindow {
+  start: string | null;
+  end: string | null;
+}
+
+export interface MarketingAssetPreviewCard {
+  id: string;
+  platformSlug: string;
+  platformName: string;
+  channelType: string;
+  title: string;
+  summary: string;
+  mediaCount: number;
+  assetCount: number;
+  previewHref: string;
+}
+
+export interface MarketingCalendarEvent {
+  id: string;
+  startsAt: string;
+  endsAt: string | null;
+  platform: string;
+  title: string;
+  status: string;
+  assetPreviewId: string | null;
+}
+
+export interface MarketingAssetLink {
+  id: string;
+  url: string;
+  label: string;
+  contentType: string;
+}
+
 export interface MarketingApprovalSummary {
   required: boolean;
   status: string;
@@ -72,8 +110,8 @@ export interface MarketingReviewPreviewCard {
   caption?: string;
   cta?: string;
   details: string[];
-  mediaPaths: string[];
-  assetPaths: string[];
+  mediaAssets: MarketingAssetLink[];
+  assetLinks: MarketingAssetLink[];
 }
 
 export interface MarketingReviewBundle {
@@ -83,35 +121,43 @@ export interface MarketingReviewBundle {
   generatedAt: string | null;
   approvalMessage: string;
   summary: string;
-  previewPath?: string;
-  reviewPacketPaths: string[];
+  previewAsset?: MarketingAssetLink;
+  reviewPacketAssets: MarketingAssetLink[];
   landingPage?: {
     headline: string;
     subheadline: string;
     cta: string;
     slug?: string;
     sections: string[];
-    path?: string;
+    asset?: MarketingAssetLink;
   } | null;
   scriptPreview?: {
     metaAdHook?: string;
     metaAdBody: string[];
     shortVideoOpeningLine?: string;
     shortVideoBeats: string[];
-    paths: string[];
+    assets: MarketingAssetLink[];
   } | null;
   platformPreviews: MarketingReviewPreviewCard[];
 }
 
 export interface GetMarketingJobStatusResponse {
   jobId: string;
+  tenantName: string | null;
+  brandWebsiteUrl: string | null;
+  campaignWindow: MarketingCampaignWindow | null;
+  durationDays: number | null;
+  plannedPostCount: number | null;
+  createdPostCount: number | null;
+  assetPreviewCards: MarketingAssetPreviewCard[];
+  calendarEvents: MarketingCalendarEvent[];
   marketing_job_state: string;
   marketing_job_status: string;
   marketing_stage: string | null;
   marketing_stage_status: Record<string, string>;
   updatedAt: string | null;
   needs_attention: boolean;
-  approvalRequired?: boolean;
+  approvalRequired: boolean;
   summary: {
     headline: string;
     subheadline: string;
@@ -175,6 +221,14 @@ export function createMarketingApi(options: ApiClientOptions = {}) {
     getJob(jobId: string) {
       return requestJson<MarketingResult<GetMarketingJobStatusResponse>>(
         `/api/marketing/jobs/${encodeURIComponent(jobId)}`,
+        { method: 'GET' },
+        options
+      );
+    },
+
+    getLatestJob() {
+      return requestJson<MarketingResult<GetMarketingJobStatusResponse>>(
+        '/api/marketing/jobs/latest',
         { method: 'GET' },
         options
       );

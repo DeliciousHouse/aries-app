@@ -1,8 +1,8 @@
 'use client';
 
 import React from 'react';
-import OnboardingStartScreen from '../../../frontend/onboarding/start';
+import AriesOnboardingFlow from '@/frontend/aries-v1/onboarding-flow';
 
 export default function OnboardingStartPage() {
-  return <OnboardingStartScreen />;
+  return <AriesOnboardingFlow />;
 }

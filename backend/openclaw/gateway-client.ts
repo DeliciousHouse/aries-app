@@ -1,4 +1,4 @@
-import { resolveCodePath } from '../../lib/runtime-paths';
+import { resolveCodePath, resolveCodeRoot } from '../../lib/runtime-paths';
 
 type OpenClawInvokeResponse = {
   ok: boolean;
@@ -71,12 +71,29 @@ export class OpenClawGatewayError extends Error {
   }
 }
 
+function createGatewayError(
+  code: OpenClawGatewayError['code'],
+  message: string,
+  status?: number,
+  details?: Record<string, unknown>
+): OpenClawGatewayError {
+  console.error('[openclaw-gateway]', {
+    code,
+    message,
+    status: status ?? null,
+    ...details,
+  });
+  return new OpenClawGatewayError(code, message, status);
+}
+
 function requiredEnv(key: string): string {
   const value = process.env[key]?.trim();
   if (!value) {
-    throw new OpenClawGatewayError(
+    throw createGatewayError(
       'openclaw_gateway_not_configured',
       `Missing required OpenClaw environment variable: ${key}`,
+      undefined,
+      { envKey: key }
     );
   }
   return value;
@@ -98,10 +115,15 @@ function defaultSessionKey(): string {
   return optionalEnv('OPENCLAW_SESSION_KEY', 'main');
 }
 
+function defaultGatewayLobsterCwd(): string {
+  const codeRoot = resolveCodeRoot();
+  return codeRoot === '/app' ? 'aries-app/lobster' : resolveCodePath('lobster');
+}
+
 function defaultLobsterCwd(): string {
   return optionalEnv(
     'OPENCLAW_GATEWAY_LOBSTER_CWD',
-    optionalEnv('OPENCLAW_LOBSTER_CWD', resolveCodePath('lobster')),
+    optionalEnv('OPENCLAW_LOBSTER_CWD', defaultGatewayLobsterCwd()),
   );
 }
 
@@ -138,21 +160,23 @@ async function invokeGateway(payload: Record<string, unknown>): Promise<LobsterE
     },
     body: JSON.stringify(payload),
   }).catch((error: unknown) => {
-    throw new OpenClawGatewayError(
+    throw createGatewayError(
       'openclaw_gateway_unreachable',
       String((error as Error)?.message || error),
+      undefined,
+      { operation: 'invoke', tool: payload.tool ?? null }
     );
   });
 
   if (response.status === 401) {
-    throw new OpenClawGatewayError('openclaw_gateway_unauthorized', 'OpenClaw gateway rejected the bearer token.', 401);
+    throw createGatewayError('openclaw_gateway_unauthorized', 'OpenClaw gateway rejected the bearer token.', 401);
   }
   if (response.status === 404) {
-    throw new OpenClawGatewayError('openclaw_gateway_tool_unavailable', 'OpenClaw gateway does not expose the requested tool.', 404);
+    throw createGatewayError('openclaw_gateway_tool_unavailable', 'OpenClaw gateway does not expose the requested tool.', 404);
   }
   if (response.status === 400) {
     const body = (await response.json().catch(() => ({}))) as OpenClawInvokeResponse;
-    throw new OpenClawGatewayError(
+    throw createGatewayError(
       'openclaw_gateway_request_invalid',
       body.error?.message || 'OpenClaw gateway rejected the request.',
       400,
@@ -160,7 +184,7 @@ async function invokeGateway(payload: Record<string, unknown>): Promise<LobsterE
   }
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as OpenClawInvokeResponse;
-    throw new OpenClawGatewayError(
+    throw createGatewayError(
       'openclaw_gateway_server_error',
       body.error?.message || `OpenClaw gateway failed with status ${response.status}.`,
       response.status,
@@ -169,7 +193,7 @@ async function invokeGateway(payload: Record<string, unknown>): Promise<LobsterE
 
   const body = (await response.json()) as OpenClawInvokeResponse;
   if (!body.ok || !body.result) {
-    throw new OpenClawGatewayError(
+    throw createGatewayError(
       'openclaw_gateway_response_invalid',
       body.error?.message || 'OpenClaw gateway returned an invalid success payload.',
     );

@@ -3,10 +3,18 @@ import test from 'node:test';
 import { isValidElement } from 'react';
 
 import HomePage from '../app/page';
+import DashboardPage from '../app/dashboard/page';
+import CampaignsPage from '../app/campaigns/page';
+import CampaignWorkspacePage from '../app/campaigns/[campaignId]/page';
+import ReviewQueuePage from '../app/review/page';
+import ReviewItemPage from '../app/review/[reviewId]/page';
+import ResultsPage from '../app/results/page';
+import CalendarPage from '../app/calendar/page';
 import FeaturesPage from '../app/features/page';
 import DocumentationPage from '../app/documentation/page';
 import ApiDocsPage from '../app/api-docs/page';
 import OnboardingStartPage from '../app/onboarding/start/page';
+import PipelineIntakePage from '../app/onboarding/pipeline-intake/page';
 import OnboardingStatusPage from '../app/onboarding/status/page';
 import MarketingNewJobPage from '../app/marketing/new-job/page';
 import MarketingJobStatusPage from '../app/marketing/job-status/page';
@@ -14,21 +22,107 @@ import MarketingJobApprovePage from '../app/marketing/job-approve/page';
 import PlatformsPage from '../app/platforms/page';
 import SettingsPage from '../app/settings/page';
 import DonorHomePage from '../frontend/donor/marketing/home-page';
+import AriesHomeDashboard from '../frontend/aries-v1/home-dashboard';
+import AriesCampaignListScreen from '../frontend/aries-v1/campaign-list';
+import AriesCampaignWorkspace from '../frontend/aries-v1/campaign-workspace';
+import AriesReviewQueueScreen from '../frontend/aries-v1/review-queue';
+import AriesReviewItemScreen from '../frontend/aries-v1/review-item';
+import AriesCalendarScreen from '../frontend/aries-v1/calendar-screen';
+import AriesResultsScreen from '../frontend/aries-v1/results-screen';
+import AriesSettingsScreen from '../frontend/aries-v1/settings-screen';
+import AriesOnboardingFlow from '../frontend/aries-v1/onboarding-flow';
 import MarketingLayout from '../frontend/marketing/MarketingLayout';
-import OnboardingStartScreen from '../frontend/onboarding/start';
 import OnboardingStatusScreen from '../frontend/onboarding/status';
 import MarketingNewJobScreen from '../frontend/marketing/new-job';
 import MarketingJobStatusScreen from '../frontend/marketing/job-status';
 import MarketingJobApproveScreen from '../frontend/marketing/job-approve';
 import AppShellLayout from '../frontend/app-shell/layout';
-import IntegrationsScreen from '../frontend/settings/integrations';
-import SettingsScreen from '../frontend/settings';
 
 test('/ returns the public homepage component', () => {
   const element = HomePage();
 
   assert.equal(isValidElement(element), true);
   assert.equal(element.type, DonorHomePage);
+});
+
+test('/dashboard wraps the Home screen in the app shell', () => {
+  const element = DashboardPage();
+
+  assert.equal(isValidElement(element), true);
+  assert.equal(element.type, AppShellLayout);
+  assert.equal(element.props.currentRouteId, 'home');
+  assert.equal(isValidElement(element.props.children), true);
+  assert.equal(element.props.children.type, AriesHomeDashboard);
+});
+
+test('/campaigns wraps the campaign list in the app shell', () => {
+  const element = CampaignsPage();
+
+  assert.equal(isValidElement(element), true);
+  assert.equal(element.type, AppShellLayout);
+  assert.equal(element.props.currentRouteId, 'campaigns');
+  assert.equal(isValidElement(element.props.children), true);
+  assert.equal(element.props.children.type, AriesCampaignListScreen);
+});
+
+test('/campaigns/[campaignId] preserves the campaign id for the workspace', async () => {
+  const element = await CampaignWorkspacePage({
+    params: Promise.resolve({
+      campaignId: 'spring-atelier-launch',
+    }),
+  });
+
+  assert.equal(isValidElement(element), true);
+  assert.equal(element.type, AppShellLayout);
+  assert.equal(element.props.currentRouteId, 'campaigns');
+  assert.equal(isValidElement(element.props.children), true);
+  assert.equal(element.props.children.type, AriesCampaignWorkspace);
+  assert.equal(element.props.children.props.campaignId, 'spring-atelier-launch');
+});
+
+test('/review wraps the review queue in the app shell', () => {
+  const element = ReviewQueuePage();
+
+  assert.equal(isValidElement(element), true);
+  assert.equal(element.type, AppShellLayout);
+  assert.equal(element.props.currentRouteId, 'review');
+  assert.equal(isValidElement(element.props.children), true);
+  assert.equal(element.props.children.type, AriesReviewQueueScreen);
+});
+
+test('/review/[reviewId] preserves the review id for the review detail experience', async () => {
+  const element = await ReviewItemPage({
+    params: Promise.resolve({
+      reviewId: 'review_meta_launch_hero',
+    }),
+  });
+
+  assert.equal(isValidElement(element), true);
+  assert.equal(element.type, AppShellLayout);
+  assert.equal(element.props.currentRouteId, 'review');
+  assert.equal(isValidElement(element.props.children), true);
+  assert.equal(element.props.children.type, AriesReviewItemScreen);
+  assert.equal(element.props.children.props.reviewId, 'review_meta_launch_hero');
+});
+
+test('/calendar wraps the calendar screen in the app shell', () => {
+  const element = CalendarPage();
+
+  assert.equal(isValidElement(element), true);
+  assert.equal(element.type, AppShellLayout);
+  assert.equal(element.props.currentRouteId, 'calendar');
+  assert.equal(isValidElement(element.props.children), true);
+  assert.equal(element.props.children.type, AriesCalendarScreen);
+});
+
+test('/results wraps the results screen in the app shell', () => {
+  const element = ResultsPage();
+
+  assert.equal(isValidElement(element), true);
+  assert.equal(element.type, AppShellLayout);
+  assert.equal(element.props.currentRouteId, 'results');
+  assert.equal(isValidElement(element.props.children), true);
+  assert.equal(element.props.children.type, AriesResultsScreen);
 });
 
 test('/features renders inside the marketing layout', () => {
@@ -56,7 +150,14 @@ test('/onboarding/start returns the onboarding start screen', () => {
   const element = OnboardingStartPage();
 
   assert.equal(isValidElement(element), true);
-  assert.equal(element.type, OnboardingStartScreen);
+  assert.equal(element.type, AriesOnboardingFlow);
+});
+
+test('/onboarding/pipeline-intake returns the guided intake workflow', () => {
+  const element = PipelineIntakePage();
+
+  assert.equal(isValidElement(element), true);
+  assert.equal(element.type, AriesOnboardingFlow);
 });
 
 test('/onboarding/status preserves tenant_id and signup_event_id from the route boundary', async () => {
@@ -109,9 +210,9 @@ test('/platforms wraps the integrations screen in the app shell', () => {
 
   assert.equal(isValidElement(element), true);
   assert.equal(element.type, AppShellLayout);
-  assert.equal(element.props.currentRouteId, 'platforms');
+  assert.equal(element.props.currentRouteId, 'settings');
   assert.equal(isValidElement(element.props.children), true);
-  assert.equal(element.props.children.type, IntegrationsScreen);
+  assert.equal(element.props.children.type, AriesSettingsScreen);
 });
 
 test('/settings wraps the settings screen in the app shell', () => {
@@ -121,5 +222,5 @@ test('/settings wraps the settings screen in the app shell', () => {
   assert.equal(element.type, AppShellLayout);
   assert.equal(element.props.currentRouteId, 'settings');
   assert.equal(isValidElement(element.props.children), true);
-  assert.equal(element.props.children.type, SettingsScreen);
+  assert.equal(element.props.children.type, AriesSettingsScreen);
 });

@@ -127,7 +127,9 @@ test('marketing job creation response omits banned runtime and tenant fields', a
     );
 
     const body = (await response.json()) as Record<string, unknown>;
-    const workflowArgs = JSON.parse(String((captured as any)?.args?.argsJson)) as Record<string, unknown>;
+    const invokerPayload = captured as { args?: { pipeline?: string; argsJson?: string; action?: string } } | null;
+    assert.equal(invokerPayload?.args?.pipeline, 'marketing-pipeline.lobster');
+    const workflowArgs = JSON.parse(String(invokerPayload?.args?.argsJson ?? '{}')) as Record<string, unknown>;
 
     assert.equal(response.status, 202);
     assert.equal(body.marketing_job_status, 'accepted');
@@ -137,7 +139,12 @@ test('marketing job creation response omits banned runtime and tenant fields', a
     assert.equal('runtimeArtifactPath' in body, false);
     assert.equal('runtimePath' in body, false);
     assert.equal('runtimePathDeprecated' in body, false);
+    // Tenant id must come from session context, not a forged top-level JSON field.
     assert.equal(workflowArgs.brand_slug, 'tenant_real');
+    assert.notEqual(workflowArgs.brand_slug, 'forged_tenant');
+    assert.equal(workflowArgs.brand_url, 'https://brand.example');
+    assert.equal(workflowArgs.competitor, 'https://facebook.com/competitor');
+    assert.equal('tenant_id' in workflowArgs, false);
   });
 });
 
@@ -159,25 +166,53 @@ test('marketing job status response omits banned path leakage fields', async () 
         job_id: jobId,
         job_type: 'brand_campaign',
         tenant_id: 'tenant_real',
-        state: 'running',
-        status: 'pending',
+        state: 'approval_required',
+        status: 'awaiting_approval',
         attempt: 1,
         max_attempts: 3,
-        outputs: {
-          current_stage: 'publish',
-          stage_status: {
-            research: 'completed',
-            strategy: 'completed',
-            production: 'completed',
-            publish: 'awaiting_approval',
+        current_stage: 'publish',
+        stage_order: ['research', 'strategy', 'production', 'publish'],
+        stages: {
+          research: { stage: 'research', status: 'completed', artifacts: [], outputs: {}, errors: [] },
+          strategy: { stage: 'strategy', status: 'completed', artifacts: [], outputs: {}, errors: [] },
+          production: { stage: 'production', status: 'completed', artifacts: [], outputs: {}, errors: [] },
+          publish: { 
+            stage: 'publish', 
+            status: 'awaiting_approval', 
+            outputs: {},
+            errors: [],
+            artifacts: [
+              {
+                id: 'launch-review',
+                stage: 'publish',
+                title: 'Launch Review',
+                category: 'review',
+                status: 'ready',
+                summary: 'Review the launch preview.',
+                details: [],
+                preview_path: launchPreviewPath
+              }
+            ] 
           },
-          openclaw: {
-            run_id: runId,
-            resume_token: 'resume_verify_123',
-            primary_output: { run_id: runId },
-          },
-          structured_status_updates: [],
         },
+        approvals: {
+          current: {
+            stage: 'publish',
+            status: 'awaiting_approval',
+            title: 'Launch approval required',
+            message: 'Approval needed before publish-ready assets are generated.',
+            requested_at: new Date().toISOString()
+          },
+          history: []
+        },
+        publish_config: {
+          platforms: ['meta-ads'],
+          live_publish_platforms: [],
+          video_render_platforms: []
+        },
+        inputs: { request: {} },
+        errors: [],
+        last_error: null,
         history: [],
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),

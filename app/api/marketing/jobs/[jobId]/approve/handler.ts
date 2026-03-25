@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
-import { approveMarketingJob } from '@/backend/marketing/jobs-approve';
+import { approveMarketingJob } from '@/backend/marketing/orchestrator';
+import { loadMarketingJobRuntime } from '@/backend/marketing/runtime-state';
 import { OpenClawGatewayError } from '@/backend/openclaw/gateway-client';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
@@ -10,18 +11,16 @@ const MARKETING_ONBOARDING_REQUIRED = {
   message: 'Complete tenant onboarding before approving brand campaigns.',
 } as const;
 
+function marketingStatusPublic(): boolean {
+  const raw = process.env.MARKETING_STATUS_PUBLIC?.trim().toLowerCase();
+  return raw === '1' || raw === 'true';
+}
+
 export async function handleApproveMarketingJob(
   jobId: string,
   req: Request,
   tenantContextLoader?: TenantContextLoader
 ) {
-  const tenantResult = await loadTenantContextOrResponse(tenantContextLoader, {
-    missingMembershipResponse: MARKETING_ONBOARDING_REQUIRED,
-  });
-  if ('response' in tenantResult) {
-    return tenantResult.response;
-  }
-
   let payload: {
     approvedBy?: unknown;
     approvedStages?: Array<'research' | 'strategy' | 'production' | 'publish'>;
@@ -39,9 +38,41 @@ export async function handleApproveMarketingJob(
   }
 
   try {
+    const doc = loadMarketingJobRuntime(jobId);
+    if (!doc) {
+      return NextResponse.json(
+        {
+          error: 'Marketing job not found.',
+          reason: 'marketing_job_not_found',
+        },
+        { status: 404 }
+      );
+    }
+    const tenantResult = await loadTenantContextOrResponse(tenantContextLoader, {
+      missingMembershipResponse: MARKETING_ONBOARDING_REQUIRED,
+    });
+    const resolvedTenantId =
+      'response' in tenantResult
+        ? marketingStatusPublic()
+          ? doc.tenant_id
+          : null
+        : tenantResult.tenantContext.tenantId;
+    if (!resolvedTenantId) {
+      if ('response' in tenantResult) {
+        return tenantResult.response;
+      }
+      return NextResponse.json(
+        {
+          status: 'error',
+          reason: 'tenant_context_required',
+          message: 'Authentication required.',
+        },
+        { status: 403 }
+      );
+    }
     const result = await approveMarketingJob({
       jobId,
-      tenantId: tenantResult.tenantContext.tenantId,
+      tenantId: resolvedTenantId,
       approvedBy: typeof payload.approvedBy === 'string' ? payload.approvedBy : '',
       approvedStages: payload.approvedStages,
       resumePublishIfNeeded: payload.resumePublishIfNeeded,
@@ -52,7 +83,7 @@ export async function handleApproveMarketingJob(
             video_render_platforms: payload.publishConfig.videoRenderPlatforms,
           }
         : undefined,
-    });
+    }, doc);
 
     if (result.reason === 'tenant_mismatch' || result.reason === 'job_not_found') {
       return NextResponse.json(

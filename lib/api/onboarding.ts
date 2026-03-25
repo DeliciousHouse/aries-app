@@ -12,6 +12,21 @@ export type OnboardingLifecycleStatus = 'accepted' | 'duplicate' | 'validated' |
 export type ProvisioningStatus = 'validated' | 'needs_repair' | 'in_progress' | 'duplicate' | 'not_found';
 export type ValidationStatus = 'pass' | 'fail' | 'unknown';
 
+/** Mirrors `/api/onboarding/status/:tenantId` `progress_hint` (derived from provisioning state). */
+export type OnboardingProgressHint =
+  | 'validated'
+  | 'repair_needed'
+  | 'duplicate_request'
+  | 'waiting_for_validation'
+  | 'not_started';
+
+export interface OnboardingStatusArtifacts {
+  draft: boolean;
+  validated: boolean;
+  validation_report: boolean;
+  idempotency_marker: boolean;
+}
+
 export type OnboardingErrorReason =
   | 'workflow_request_failed'
   | 'tenant_context_required'
@@ -33,12 +48,13 @@ export interface OnboardingStartSuccess {
   tenant_type: string;
   signup_event_id: string;
   onboarding_status: OnboardingLifecycleStatus;
+  workflow_status: number;
+  raw: JsonValue;
 }
 
 export interface OnboardingStartError {
   onboarding_status: 'error';
   reason: OnboardingErrorReason;
-  message?: string;
   tenant_id?: string;
   tenant_type?: string;
   signup_event_id?: string;
@@ -54,24 +70,14 @@ export interface OnboardingStatusSuccess {
   signup_event_id?: string;
   provisioning_status: ProvisioningStatus;
   validation_status: ValidationStatus;
-  progress_hint:
-    | 'not_started'
-    | 'waiting_for_validation'
-    | 'validated'
-    | 'repair_needed'
-    | 'duplicate_request';
-  artifacts: {
-    draft: boolean;
-    validated: boolean;
-    validation_report: boolean;
-    idempotency_marker: boolean;
-  };
+  progress_hint: OnboardingProgressHint;
+  /** Presence of runtime artifacts (booleans only; no filesystem paths exposed). */
+  artifacts: OnboardingStatusArtifacts;
 }
 
 export interface OnboardingStatusError {
   onboarding_status: 'error';
   reason: OnboardingErrorReason;
-  message?: string;
 }
 
 export type OnboardingStartResponse = OnboardingStartSuccess | OnboardingStartError;

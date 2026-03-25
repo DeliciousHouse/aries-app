@@ -225,7 +225,6 @@ export default function OnboardingStartScreen(): JSX.Element {
           <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-5 text-red-100">
             <strong className="block mb-2">Onboarding failed</strong>
             <span>{result.reason}</span>
-            {result.message ? <p className="mt-2">{result.message}</p> : null}
           </div>
         ) : null}
 
