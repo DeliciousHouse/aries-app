@@ -621,10 +621,10 @@ test('/api/marketing/jobs/:jobId/assets/:assetId serves a tenant-scoped preview 
                       platform_name: 'Meta Ads',
                       channel_type: 'paid-social',
                       summary: 'Preview ready',
-                       media_paths: [mediaAssetRelativePath],
-                       asset_paths: {},
-                     },
-                   ],
+                      media_paths: [mediaAssetRelativePath],
+                      asset_paths: {},
+                    },
+                  ],
                 },
               },
             },
@@ -654,16 +654,18 @@ test('/api/marketing/jobs/:jobId/assets/:assetId serves a tenant-scoped preview 
       }, null, 2)
     );
 
-      const response = await handleGetMarketingJobAsset(
-        jobId,
-        'platform-preview-meta-ads-media-1',
-        async () => ({
-          ...(tenantLoaderCalls++, {}),
+    const response = await handleGetMarketingJobAsset(
+      jobId,
+      'platform-preview-meta-ads-media-1',
+      async () => {
+        tenantLoaderCalls += 1;
+        return {
           userId: 'user_123',
           tenantId: 'tenant_real',
           tenantSlug: 'acme',
           role: 'tenant_admin',
-        })
+        };
+      }
     );
     const body = await response.text();
 
