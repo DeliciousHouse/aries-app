@@ -27,11 +27,44 @@ import {
   Share2,
   Sparkles,
   TrendingDown,
-  Twitter,
   Youtube,
   Zap,
   AlertCircle,
 } from 'lucide-react';
+
+
+const XIcon = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
+    <path d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932 6.064-6.932zm-1.294 19.497h2.039L6.482 2.39H4.294l13.313 18.26z" />
+  </svg>
+);
+
+const PinterestIcon = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
+    <path d="M12.017 0C5.396 0 .029 5.367.029 11.987c0 5.079 3.158 9.417 7.618 11.162-.105-.949-.199-2.403.041-3.439.219-.937 1.406-5.965 1.406-5.965s-.359-.719-.359-1.782c0-1.668.967-2.914 2.171-2.914 1.026 0 1.518.769 1.518 1.69 0 1.029-.655 2.568-.994 3.995-.283 1.194.599 2.169 1.777 2.169 2.131 0 3.768-2.248 3.768-5.487 0-2.868-2.062-4.878-5.008-4.878-3.41 0-5.413 2.561-5.413 5.2 0 1.033.394 2.137.886 2.738.097.118.11.222.081.332-.089.373-.288 1.171-.328 1.334-.051.213-.173.258-.396.155-1.474-.686-2.392-2.844-2.392-4.577 0-3.725 2.706-7.147 7.807-7.147 4.097 0 7.283 2.92 7.283 6.821 0 4.072-2.568 7.348-6.136 7.348-1.2 0-2.327-.622-2.713-1.359 0 0-.594 2.258-.738 2.816-.269 1.037-1 2.337-1.488 3.132 1.12.339 2.298.536 3.526.536 6.621 0 11.983-5.367 11.983-11.987S18.638 0 12.017 0z" />
+  </svg>
+);
+
+const RedditIcon = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
+    <path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.056 1.597.04.21.06.427.06.646 0 2.834-3.334 5.141-7.447 5.141-4.113 0-7.447-2.307-7.447-5.141 0-.219.02-.436.06-.646a1.754 1.754 0 0 1-1.056-1.597c0-.968.786-1.754 1.754-1.754.478 0 .9.182 1.208.491 1.194-.856 2.85-1.419 4.674-1.488l.82-3.847a.125.125 0 0 1 .15-.097l2.907.612c.24-.265.589-.427.97-.427zM8.17 11.23a1.102 1.102 0 0 0-1.101 1.101 1.102 1.102 0 0 0 1.101 1.101 1.102 1.102 0 0 0 1.101-1.101 1.102 1.102 0 0 0-1.101-1.101zm7.658 0a1.102 1.102 0 0 0-1.101 1.101 1.102 1.102 0 0 0 1.101 1.101 1.102 1.102 0 0 0 1.101-1.101 1.102 1.102 0 0 0-1.101-1.101zm-5.462 4.414c-.04 0-.08.01-.12.016-1.096.11-2.03.46-2.031.864 0 .041.01.08.03.116l-.012.012c.11.28.69.51 1.43.64.33.06.7.09 1.11.09s.78-.03 1.11-.09c.74-.13 1.32-.36 1.43-.64l-.01-.01c.02-.04.03-.08.03-.12 0-.404-.93-.75-2-.86a1.104 1.104 0 0 0-.12-.016z" />
+  </svg>
+);
+
+
+const WikipediaIcon = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
+    <path d="M16.924 8.536h-4.884v1.127h.955l-3.3 9.673h-.04l-2.731-8.52h1.666V8.536H3.84v1.127h1.011l4.496 12.838h1.107l2.844-8.75 3.018 8.75h1.109l4.588-12.838h1.096V8.536h-4.664v1.127h.955l-3.3 9.673h-.04l-2.731-8.52z" />
+  </svg>
+);
+
+const QuoraIcon = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
+    <path d="M7.3799.9483A11.9628 11.9628 0 0 1 21.248 19.5397l2.4096 2.4225c.7322.7362.21 1.9905-.8272 1.9905l-10.7105.01a12.52 12.52 0 0 1-.304 0h-.02A11.9628 11.9628 0 0 1 7.3818.9503Zm7.3217 4.428a7.1717 7.1717 0 1 0-5.4873 13.2512 7.1717 7.1717 0 0 0 5.4883-13.2511Z"/>
+  </svg>
+);
+
+
 import { motion, useScroll, useSpring, useTransform, type MotionValue } from 'motion/react';
 
 import { cn } from '../lib/utils';
@@ -41,7 +74,7 @@ import { DonorMarketingShell } from './chrome';
 const FeatureShowcase3D = dynamic(() => import('./feature-showcase-3d'), {
   ssr: false,
   loading: () => (
-    <section className="py-24 relative overflow-hidden bg-black">
+    <section className="py-24 relative overflow-hidden bg-[#030014]">
       <div className="container mx-auto px-6">
         <div className="glass rounded-[2.5rem] p-10 text-center text-white/60">
           Loading interactive showcase…
@@ -140,19 +173,28 @@ function NetworkBackground() {
 }
 
 type PlatformOrbit = {
-  icon: typeof Twitter;
+  icon: (props: { className?: string }) => React.ReactNode;
   angle: number;
   radius: number;
 };
 
 const PLATFORM_ORBITS: PlatformOrbit[] = [
-  { icon: Twitter, angle: 180, radius: 180 },
-  { icon: Instagram, angle: 60, radius: 300 },
-  { icon: Linkedin, angle: 240, radius: 300 },
-  { icon: Facebook, angle: 0, radius: 420 },
-  { icon: Youtube, angle: 120, radius: 420 },
-  { icon: MessageCircle, angle: 300, radius: 420 },
+  // Orbit 1: Radius 180 (2 platforms)
+  { icon: XIcon, angle: 0, radius: 180 },
+  { icon: WikipediaIcon, angle: 200, radius: 180 },
+  
+  // Orbit 2: Radius 300 (3 platforms)
+  { icon: Linkedin, angle: 40, radius: 300 },
+  { icon: Instagram, angle: 120, radius: 300 },
+  { icon: RedditIcon, angle: 280, radius: 300 },
+  
+  // Orbit 3: Radius 420 (4 platforms)
+  { icon: Youtube, angle: 80, radius: 420 },
+  { icon: Facebook, angle: 160, radius: 420 },
+  { icon: PinterestIcon, angle: 240, radius: 420 },
+  { icon: QuoraIcon, angle: 320, radius: 420 },
 ];
+
 
 function OrbitLine({
   angle,
@@ -237,6 +279,7 @@ function OrbitPlatform({
 function Hero() {
   const containerRef = useRef<HTMLElement>(null);
   const [isMounted, setIsMounted] = useState(false);
+  const [hostname, setHostname] = useState('aries-ai.io');
   const { scrollYProgress } = useScroll({
     target: containerRef,
     offset: ['start start', 'end start'],
@@ -259,6 +302,7 @@ function Hero() {
       });
     };
     updateSize();
+    setHostname(window.location.hostname || 'aries-ai.io');
     window.addEventListener('resize', updateSize);
     return () => window.removeEventListener('resize', updateSize);
   }, []);
@@ -326,7 +370,7 @@ function Hero() {
           </div>
         </div>
 
-        <div className="container mx-auto px-6 relative z-20 text-center pt-48 md:pt-32 lg:pt-0">
+        <div className="container mx-auto px-6 relative z-20 text-center pt-0">
           <motion.div style={{ opacity: useTransform(smoothProgress, [0, 0.05], [1, 0]) }} className="mb-8">
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-reflection relative">
               <Sparkles className="w-4 h-4 text-primary" />
@@ -339,7 +383,7 @@ function Hero() {
               opacity: useTransform(smoothProgress, [0, 0.05], [1, 0]),
               y: useTransform(smoothProgress, [0, 0.05], [0, -20]),
             }}
-            className="text-3xl md:text-[3rem] lg:text-[4rem] font-bold tracking-tight mb-8 leading-[1.1]"
+            className="text-[64px] font-bold tracking-tight mb-8 leading-[1.05]"
           >
             Turn Your Marketing Into an <br />
             <span className="text-gradient">Autonomous Growth Engine</span>
@@ -732,17 +776,24 @@ function HowItWorks() {
 }
 
 function ContentCalendar() {
-  const [activeDate, setActiveDate] = useState('20');
+  const [activeDate, setActiveDate] = useState('25');
   const [currentWeek, setCurrentWeek] = useState<'current' | 'next'>('current');
   const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [activePlatforms, setActivePlatforms] = useState<string[]>([]);
 
   const platforms = [
-    { name: 'X / Twitter' },
+    { name: 'X' },
     { name: 'LinkedIn' },
     { name: 'Instagram' },
     { name: 'YouTube' },
     { name: 'Facebook' },
+    { name: 'Reddit' },
+    { name: 'Pinterest' },
+    { name: 'Wikipedia' },
+    { name: 'Quora' },
   ];
+
 
   const getPlatformIcon = (platform: string) => {
     switch (platform) {
@@ -750,16 +801,26 @@ function ContentCalendar() {
         return <Linkedin className="w-3.5 h-3.5 text-blue-400" />;
       case 'YouTube':
         return <Youtube className="w-3.5 h-3.5 text-red-400" />;
-      case 'X / Twitter':
-        return <Twitter className="w-3.5 h-3.5 text-white/80" />;
+      case 'X':
+        return <XIcon className="w-3.5 h-3.5 text-white" />;
+
       case 'Instagram':
         return <Instagram className="w-3.5 h-3.5 text-pink-400" />;
       case 'Facebook':
         return <Facebook className="w-3.5 h-3.5 text-blue-600" />;
+      case 'Reddit':
+        return <RedditIcon className="w-3.5 h-3.5 text-orange-500" />;
+      case 'Pinterest':
+        return <PinterestIcon className="w-3.5 h-3.5 text-red-600" />;
+      case 'Wikipedia':
+        return <WikipediaIcon className="w-3.5 h-3.5 text-gray-300" />;
+      case 'Quora':
+        return <QuoraIcon className="w-3.5 h-3.5 text-red-700" />;
       default:
         return <Sparkles className="w-3.5 h-3.5 text-primary" />;
     }
   };
+
 
 
   const getPlatformBorder = (platform: string) => {
@@ -768,16 +829,26 @@ function ContentCalendar() {
         return 'border-blue-600/30';
       case 'YouTube':
         return 'border-red-500/30';
-      case 'X / Twitter':
+      case 'X':
         return 'border-white/20';
+
       case 'Instagram':
         return 'border-pink-500/30';
       case 'Facebook':
         return 'border-blue-700/30';
+      case 'Reddit':
+        return 'border-orange-500/30';
+      case 'Pinterest':
+        return 'border-red-600/30';
+      case 'Wikipedia':
+        return 'border-gray-500/30';
+      case 'Quora':
+        return 'border-red-700/30';
       default:
         return 'border-primary/20';
     }
   };
+
 
   const truncateTitle = (title: string, wordCount = 3) => {
     const words = title.split(' ');
@@ -787,99 +858,144 @@ function ContentCalendar() {
   const schedule = [
     {
       day: 'Mon',
-      date: '16',
-      posts: [
-        { title: 'AI Marketing Trends 2026 Strategy', platform: 'LinkedIn', time: '09:00', status: 'Published' },
-        { title: 'Aries AI Feature Reveal Today', platform: 'X / Twitter', time: '14:00', status: 'Published' },
-      ],
-    },
-    {
-      day: 'Tue',
-      date: '17',
-      posts: [
-        { title: 'The Power of GEO Optimization', platform: 'Instagram', time: '10:30', status: 'Published' },
-        { title: 'Market Intelligence 101 Guide', platform: 'YouTube', time: '16:00', status: 'Published' },
-      ],
-    },
-    {
-      day: 'Wed',
-      date: '18',
-      posts: [
-        { title: 'Autonomous Growth Case Study Analysis', platform: 'LinkedIn', time: '11:00', status: 'Published' },
-        { title: 'Facebook Ads Mastery Course', platform: 'Facebook', time: '15:30', status: 'Published' },
-      ],
-    },
-    {
-      day: 'Thu',
-      date: '19',
-      posts: [
-        { title: 'Why AEO is the new SEO', platform: 'X / Twitter', time: '09:30', status: 'Published' },
-        { title: 'Weekly AI Wrap-up Content', platform: 'Instagram', time: '15:00', status: 'Published' },
-      ],
-    },
-    {
-      day: 'Fri',
-      date: '20',
-      posts: [{ title: 'Aries AI v2.0 Launch Event', platform: 'LinkedIn', time: '10:00', status: 'Scheduled' }],
-    },
-    {
-      day: 'Sat',
-      date: '21',
-      posts: [],
-    },
-    {
-      day: 'Sun',
-      date: '22',
-      posts: [],
-    },
-    {
-      day: 'Mon',
       date: '23',
       posts: [
-        { title: 'Next-Gen Automation Primer', platform: 'X / Twitter', time: '09:30', status: 'Scheduled' },
-        { title: 'Brand Identity Deep-dive', platform: 'Instagram', time: '15:00', status: 'Scheduled' },
+        { title: 'Enterprise AI Strategy Playbook', platform: 'LinkedIn', time: '09:00', status: 'Published', category: 'Strategy' },
+        { title: 'Next-Gen Automation Primer', platform: 'X', time: '09:30', status: 'Published', category: 'Education' },
+        { title: 'Brand Identity Deep-dive', platform: 'Instagram', time: '15:00', status: 'Published', category: 'Strategy' },
+        { title: 'Market Intelligence Insights', platform: 'Quora', time: '18:00', status: 'Published', category: 'Education' },
       ],
     },
     {
       day: 'Tue',
       date: '24',
-      posts: [{ title: 'Future of SaaS Marketing', platform: 'LinkedIn', time: '10:00', status: 'Scheduled' }],
+      posts: [
+        { title: 'Future of SaaS Marketing', platform: 'LinkedIn', time: '10:00', status: 'Published', category: 'Strategy' },
+        { title: 'B2B Lead Gen Analysis', platform: 'LinkedIn', time: '14:30', status: 'Published', category: 'Performance' },
+        { title: 'Community Building 101', platform: 'Reddit', time: '19:00', status: 'Published', category: 'Community' },
+      ],
     },
     {
       day: 'Wed',
       date: '25',
-      posts: [{ title: 'Social Media Strategy Session', platform: 'Facebook', time: '13:00', status: 'Scheduled' }],
+      posts: [
+        { title: 'Data-Driven CMO Insights', platform: 'LinkedIn', time: '09:30', status: 'Published', category: 'Performance' },
+        { title: 'Social Media Strategy Session', platform: 'Facebook', time: '13:00', status: 'Published', category: 'Strategy' },
+        { title: 'Aries AI v2.1 Update Pre-launch', platform: 'X', time: '16:45', status: 'Published', category: 'Social' },
+      ],
     },
     {
       day: 'Thu',
       date: '26',
-      posts: [{ title: 'Content Performance Review', platform: 'Instagram', time: '11:30', status: 'Scheduled' }],
+      posts: [
+        { title: 'LinkedIn Ads Optimization', platform: 'LinkedIn', time: '10:45', status: 'Scheduled', category: 'Performance' },
+        { title: 'Content Performance Review', platform: 'Instagram', time: '11:30', status: 'Scheduled', category: 'Performance' },
+        { title: 'YouTube: Scaling with AI Video', platform: 'YouTube', time: '15:15', status: 'Scheduled', category: 'Education' },
+        { title: 'Quora: AI in 2026 Predictions', platform: 'Quora', time: '20:00', status: 'Scheduled', category: 'Education' },
+        { title: 'Wikipedia: Tech Innovation Board', platform: 'Wikipedia', time: '22:30', status: 'Scheduled', category: 'Social' },
+      ],
     },
     {
       day: 'Fri',
       date: '27',
-      posts: [{ title: 'Quarterly Growth Planning', platform: 'LinkedIn', time: '09:00', status: 'Scheduled' }],
+      posts: [
+        { title: 'Quarterly Growth Planning', platform: 'LinkedIn', time: '09:00', status: 'Scheduled', category: 'Strategy' },
+        { title: 'Wikipedia: Project Aries Entry', platform: 'Wikipedia', time: '14:00', status: 'Scheduled', category: 'Social' },
+        { title: 'Friday Innovation Recap', platform: 'Instagram', time: '17:30', status: 'Scheduled', category: 'Social' },
+      ],
     },
     {
       day: 'Sat',
       date: '28',
-      posts: [],
+      posts: [
+        { title: 'AI Automation Workshop', platform: 'YouTube', time: '10:00', status: 'Scheduled', category: 'Education' },
+        { title: 'Global SaaS Community Update', platform: 'LinkedIn', time: '11:30', status: 'Scheduled', category: 'Community' },
+        { title: 'Pinterest: Board Cleanup', platform: 'Pinterest', time: '15:00', status: 'Scheduled', category: 'Strategy' },
+      ],
     },
     {
       day: 'Sun',
       date: '29',
-      posts: [],
+      posts: [
+        { title: 'Future Tech Predictions', platform: 'X', time: '14:30', status: 'Scheduled', category: 'Strategy' },
+        { title: 'Weekly Review Live Session', platform: 'YouTube', time: '21:00', status: 'Scheduled', category: 'Social' },
+      ],
     },
+    {
+      day: 'Mon',
+      date: '30',
+      posts: [
+        { title: 'April Marketing Blueprint', platform: 'LinkedIn', time: '09:00', status: 'Scheduled', category: 'Strategy' },
+        { title: 'Q2 Growth Initiatives', platform: 'X', time: '11:00', status: 'Scheduled', category: 'Strategy' },
+      ],
+    },
+    {
+      day: 'Tue',
+      date: '31',
+      posts: [
+        { title: 'March Performance Retrospective', platform: 'LinkedIn', time: '10:00', status: 'Scheduled', category: 'Performance' },
+        { title: 'Closing the Output Gap', platform: 'Instagram', time: '14:00', status: 'Scheduled', category: 'Social' },
+      ],
+    },
+    {
+      day: 'Wed',
+      date: '01',
+      posts: [
+        { title: 'April Fools: The Future of Manual Work', platform: 'X', time: '08:00', status: 'Scheduled', category: 'Social' },
+        { title: 'New Platform Integration: Pinterest', platform: 'Pinterest', time: '12:00', status: 'Scheduled', category: 'Social' },
+      ],
+    },
+    {
+      day: 'Thu',
+      date: '02',
+      posts: [
+        { title: 'Scaling Social Presence with AI', platform: 'LinkedIn', time: '09:45', status: 'Scheduled', category: 'Performance' },
+      ],
+    },
+    {
+      day: 'Fri',
+      date: '03',
+      posts: [
+        { title: 'Community Q&A Roundup', platform: 'Reddit', time: '16:00', status: 'Scheduled', category: 'Community' },
+        { title: 'Weekend Strategy Planning', platform: 'LinkedIn', time: '17:30', status: 'Scheduled', category: 'Strategy' },
+      ],
+    },
+    {
+      day: 'Sat',
+      date: '04',
+      posts: [
+        { title: 'The Art of AI Content Creation', platform: 'YouTube', time: '11:00', status: 'Scheduled', category: 'Education' },
+      ],
+    },
+    {
+      day: 'Sun',
+      date: '05',
+      posts: [
+        { title: 'Weekly Performance Snapshot', platform: 'LinkedIn', time: '18:00', status: 'Scheduled', category: 'Performance' },
+      ],
+    },
+
   ];
+
+
 
   const monthDays = Array.from({ length: 31 }, (_, i) => i + 1);
   const getPostsForDate = (date: string) => schedule.find((entry) => entry.date === date)?.posts || [];
 
   const displayedSchedule = useMemo(() => {
-    return currentWeek === 'current'
-      ? schedule.filter((item) => ['16', '17', '18', '19', '20', '21', '22'].includes(item.date))
-      : schedule.filter((item) => ['23', '24', '25', '26', '27', '28', '29'].includes(item.date));
-  }, [currentWeek, schedule]);
+    const base = currentWeek === 'current'
+      ? schedule.filter((item) => ['23', '24', '25', '26', '27', '28', '29'].includes(item.date))
+      : schedule.filter((item) => ['30', '31', '01', '02', '03', '04', '05'].includes(item.date));
+
+    return base.map(day => ({
+      ...day,
+      posts: day.posts.filter(post => {
+        const matchesSearch = post.title.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesPlatform = activePlatforms.length === 0 || activePlatforms.includes(post.platform);
+        return matchesSearch && matchesPlatform;
+      })
+    }));
+  }, [currentWeek, schedule, searchTerm, activePlatforms]);
 
   return (
     <section id="calendar" className="py-24 relative overflow-hidden">
@@ -925,22 +1041,44 @@ function ContentCalendar() {
               <input
                 type="text"
                 placeholder="Search posts..."
-                className="w-full bg-black/30 border border-white/10 rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-primary/50 transition-colors"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full bg-[#1a1a2e]/30 border border-white/10 rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-primary/50 transition-colors text-white"
               />
             </div>
 
             <div className="space-y-6">
+
               <div>
                 <h4 className="text-xs font-bold uppercase tracking-widest text-white/30 mb-4">Platforms</h4>
                 <div className="space-y-2">
                   {platforms.map((platform) => (
-                    <div key={platform.name} className="flex items-center justify-between p-3 rounded-xl hover:bg-white/5 transition-colors cursor-pointer group">
+                    <div 
+                      key={platform.name} 
+                      onClick={() => {
+                        setActivePlatforms(prev => 
+                          prev.includes(platform.name) 
+                            ? prev.filter(p => p !== platform.name) 
+                            : [...prev, platform.name]
+                        );
+                      }}
+                      className={cn(
+                        "flex items-center justify-between p-3 rounded-xl transition-colors cursor-pointer group",
+                        activePlatforms.includes(platform.name) ? "bg-white/10" : "hover:bg-white/5"
+                      )}
+                    >
                       <div className="flex items-center gap-3">
-                        <span className="text-sm font-medium text-white/70 group-hover:text-white transition-colors">
+                        <span className={cn(
+                          "text-sm font-medium transition-colors",
+                          activePlatforms.includes(platform.name) ? "text-white" : "text-white/70 group-hover:text-white"
+                        )}>
                           {platform.name}
                         </span>
                       </div>
-                      <div className="w-2 h-2 rounded-full bg-primary" />
+                      <div className={cn(
+                        "w-2 h-2 rounded-full transition-all",
+                        activePlatforms.includes(platform.name) ? "bg-primary scale-125 shadow-[0_0_8px_rgba(124,58,237,0.5)]" : "bg-white/10"
+                      )} />
                     </div>
                   ))}
                 </div>
@@ -1025,11 +1163,11 @@ function ContentCalendar() {
                     Month
                   </button>
                 </div>
-                <Link href="/calendar" prefetch={false} className="px-6 py-2 bg-gradient-to-r from-primary to-secondary rounded-xl text-sm font-bold shadow-lg shadow-primary/20">
-                  Open Runtime
-                  <Link href="/login" className="px-6 py-2 bg-gradient-to-r from-primary to-secondary rounded-xl text-sm font-bold shadow-lg shadow-primary/20">
+                <div className="flex gap-3">
+                  <Link href="/login" className="px-6 py-2 bg-white/5 border border-white/10 rounded-xl text-sm font-bold hover:bg-white/10 transition-all">
                     New Post
                   </Link>
+                </div>
               </div>
             </div>
 
@@ -1299,7 +1437,7 @@ export default function DonorHomePage() {
 
       <Hero />
 
-      <section className="py-12 border-y border-white/5 bg-black/50 overflow-hidden">
+      <section className="py-12 border-y border-white/5 bg-[#0a0a20]/50 overflow-hidden">
         <div className="container mx-auto px-6">
           <p className="text-center text-white/30 text-sm font-medium uppercase tracking-widest mb-8">
             Trusted by industry leaders

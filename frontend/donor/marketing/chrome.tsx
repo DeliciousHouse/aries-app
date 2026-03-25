@@ -74,18 +74,19 @@ export function DonorNavbar({ heroMode = false }: { heroMode?: boolean }) {
       className={cn(
         'fixed top-0 left-0 right-0 z-50 transition-all duration-300 px-6',
         isScrolled && (!heroMode || !isHome || scrollProgress > 0.95)
-          ? 'bg-black/50 backdrop-blur-md border-b border-white/10 py-3'
+          ? 'bg-[#030014]/50 backdrop-blur-md border-b border-white/10 py-3'
           : 'bg-transparent py-4',
       )}
     >
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-6">
-        <Link href="/" className="flex items-center gap-2">
-          <AriesMark className={cn('transition-opacity duration-300', showIcon ? 'opacity-100' : 'opacity-0')} />
-          <span className="text-xl font-bold tracking-tight text-white" style={{ opacity: headerOpacity }}>
+        <Link href="/" className="flex items-center gap-1.5">
+          <AriesMark className={cn('transition-all duration-300', showIcon ? 'opacity-100 scale-100' : 'opacity-0 scale-90')} />
+          <span className="text-lg font-bold tracking-tight text-white mb-0.5" style={{ opacity: headerOpacity }}>
             Aries AI
           </span>
           <span className="sr-only">Aries AI</span>
         </Link>
+
 
         <div
           className="hidden md:flex items-center gap-8"
@@ -134,7 +135,7 @@ export function DonorNavbar({ heroMode = false }: { heroMode?: boolean }) {
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className="absolute top-full left-0 right-0 bg-black/95 backdrop-blur-xl border-b border-white/10 p-6 flex flex-col gap-6 md:hidden"
+            className="absolute top-full left-0 right-0 bg-[#030014]/95 backdrop-blur-xl border-b border-white/10 p-6 flex flex-col gap-6 md:hidden"
           >
             {NAV_ITEMS.map((link) => (
               <Link
@@ -164,7 +165,7 @@ export function DonorNavbar({ heroMode = false }: { heroMode?: boolean }) {
 
 export function DonorFooter() {
   return (
-    <footer className="pt-24 pb-12 border-t border-white/5 bg-black">
+    <footer className="pt-24 pb-12 border-t border-white/5 bg-[#030014]">
       <div className="container mx-auto px-6">
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-12 mb-16">
           <div className="col-span-2">
