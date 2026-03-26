@@ -1,0 +1,63 @@
+{
+  "analysed_ads": [
+    {
+      "ad_id": "betterup-ad-01",
+      "angles": [
+        "speed to value",
+        "risk reduction"
+      ],
+      "creative_strength_score": 79,
+      "funnel_stage": "awareness",
+      "headline": "BetterUp - Facebook",
+      "landing_page_url": "",
+      "why_it_might_work": "Connects speed to value, risk reduction to a clear CTA."
+    },
+    {
+      "ad_id": "betterup-ad-02",
+      "angles": [
+        "efficiency",
+        "proof points"
+      ],
+      "creative_strength_score": 76,
+      "funnel_stage": "consideration",
+      "headline": "How BetterUp removes manual busywork",
+      "landing_page_url": "",
+      "why_it_might_work": "Connects efficiency, proof points to a clear CTA."
+    },
+    {
+      "ad_id": "betterup-ad-03",
+      "angles": [
+        "simplicity",
+        "enterprise trust"
+      ],
+      "creative_strength_score": 73,
+      "funnel_stage": "awareness",
+      "headline": "BetterUp makes enterprise rollout feel simple",
+      "landing_page_url": "",
+      "why_it_might_work": "Connects simplicity, enterprise trust to a clear CTA."
+    }
+  ],
+  "competitor": "BetterUp",
+  "generated_at": "2026-03-24T11:32:38+00:00",
+  "mode": "live",
+  "run_id": "betterup-47a431e6",
+  "stub": false,
+  "summary": {
+    "ad_count": 3,
+    "dominant_cta": "Learn More",
+    "format_mix": {
+      "carousel": 1,
+      "image": 2,
+      "square": 1,
+      "story": 1,
+      "video": 1
+    },
+    "top_hooks": [
+      "speed to value",
+      "risk reduction",
+      "efficiency",
+      "proof points"
+    ]
+  },
+  "type": "meta_ads_analysis"
+}

@@ -1,0 +1,117 @@
+{
+  "ads": [
+    {
+      "ad_id": "acme-ad-01",
+      "brand": "Acme",
+      "call_to_action": "Learn More",
+      "formats": [
+        "video",
+        "square"
+      ],
+      "headline": "Acme growth campaign",
+      "hooks": [
+        "speed to value",
+        "risk reduction"
+      ],
+      "landing_page_url": "https://example.com",
+      "platform": "meta",
+      "primary_text": "Campaign proof point."
+    },
+    {
+      "ad_id": "acme-ad-02",
+      "brand": "Acme",
+      "call_to_action": "Book Demo",
+      "formats": [
+        "image",
+        "carousel"
+      ],
+      "headline": "How Acme removes manual busywork",
+      "hooks": [
+        "efficiency",
+        "proof points"
+      ],
+      "landing_page_url": "https://example.com",
+      "platform": "meta",
+      "primary_text": "Acme leads with an operational efficiency angle and a proof-oriented CTA."
+    },
+    {
+      "ad_id": "acme-ad-03",
+      "brand": "Acme",
+      "call_to_action": "Get Started",
+      "formats": [
+        "image",
+        "story"
+      ],
+      "headline": "Acme makes enterprise rollout feel simple",
+      "hooks": [
+        "simplicity",
+        "enterprise trust"
+      ],
+      "landing_page_url": "https://example.com",
+      "platform": "meta",
+      "primary_text": "Acme uses reassurance language for larger buyers with security and onboarding concerns."
+    }
+  ],
+  "competitor": "Acme",
+  "competitor_facebook_url": "",
+  "competitor_research_summary": [
+    "Positions services around practical outcomes and proof of execution.",
+    "Uses low-friction CTAs to move prospects from awareness to discovery calls.",
+    "Frames delivery confidence and reduced risk as differentiators."
+  ],
+  "generated_at": "2026-03-25T11:39:36+00:00",
+  "landing_pages": [
+    "https://example.com"
+  ],
+  "meta_config": {
+    "access_token_source": "app_credentials",
+    "has_access_token": true,
+    "has_app_id": true,
+    "has_app_secret": true,
+    "has_page_id": false
+  },
+  "mode": "live",
+  "notes": [
+    "Live data path executed for at least one source (web search, Meta Graph, or Gemini)."
+  ],
+  "research": {
+    "gemini": {
+      "error": "GEMINI_API_KEY not set",
+      "live": false,
+      "model": "gemini-2.5-flash",
+      "provider": "gemini",
+      "text": ""
+    },
+    "meta_graph": {
+      "attempts": [
+        {
+          "error": "No Meta access token source available or no object ids available",
+          "live": false,
+          "object_id": ""
+        }
+      ],
+      "live": false,
+      "objects": [],
+      "profile_id_from_url": ""
+    },
+    "web_search": {
+      "error": "",
+      "live": true,
+      "provider": "command",
+      "query": "Acme meta ads creative campaign positioning",
+      "results": [
+        {
+          "snippet": "Campaign proof point.",
+          "title": "Acme growth campaign",
+          "url": "https://example.com"
+        }
+      ]
+    }
+  },
+  "research_model": "gemini/gemini-2.5-flash",
+  "run_id": "acme-79854b59",
+  "source": "local-stage1-wrapper",
+  "stub": false,
+  "type": "meta_ads_extract",
+  "web_search_required": true
+}
