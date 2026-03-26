@@ -600,3 +600,19 @@ select {
     background-position: 0% 0%, 200% 50%;
   }
 }
+
+.glass-panel {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1.5rem;
+}
+
+.neon-glow {
+  box-shadow: 0 0 15px rgba(123, 97, 255, 0.3);
+}
+
+.text-text-muted {
+  color: rgba(255, 255, 255, 0.5);
+}
