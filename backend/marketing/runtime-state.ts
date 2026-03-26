@@ -7,6 +7,9 @@ import type { TenantBrandKit } from './brand-kit';
 const REQUIRED_SCHEMA_PATHS = [
   resolveSpecPath('marketing_job_state_schema.v1.json'),
 ] as const;
+const MARKETING_RUNTIME_SCHEMA_NAME = 'marketing_job_state_schema';
+const LEGACY_MARKETING_RUNTIME_SCHEMA_NAME = 'job_runtime_state_schema';
+const MARKETING_RUNTIME_SCHEMA_VERSION = '1.0.0';
 
 export type MarketingStage = 'research' | 'strategy' | 'production' | 'publish';
 export type MarketingJobState = 'queued' | 'running' | 'approval_required' | 'completed' | 'failed';
@@ -94,8 +97,8 @@ export type MarketingHistoryEntry = {
 };
 
 export type MarketingJobRuntimeDocument = {
-  schema_name: 'marketing_job_state_schema';
-  schema_version: '1.0.0';
+  schema_name: typeof MARKETING_RUNTIME_SCHEMA_NAME;
+  schema_version: typeof MARKETING_RUNTIME_SCHEMA_VERSION;
   job_id: string;
   tenant_id: string;
   job_type: 'brand_campaign';
@@ -114,6 +117,7 @@ export type MarketingJobRuntimeDocument = {
     request: Record<string, unknown>;
     brand_url: string;
     competitor_url?: string | null;
+    competitor_facebook_url?: string | null;
   };
   summary?: {
     headline?: string;
@@ -176,8 +180,8 @@ export function createMarketingJobRuntimeDocument(input: {
 }): MarketingJobRuntimeDocument {
   const ts = nowIso();
   return {
-    schema_name: 'marketing_job_state_schema',
-    schema_version: '1.0.0',
+    schema_name: MARKETING_RUNTIME_SCHEMA_NAME,
+    schema_version: MARKETING_RUNTIME_SCHEMA_VERSION,
     job_id: input.jobId,
     tenant_id: input.tenantId,
     job_type: 'brand_campaign',
@@ -201,6 +205,7 @@ export function createMarketingJobRuntimeDocument(input: {
       request: input.payload,
       brand_url: asString(input.payload.brandUrl) || '',
       competitor_url: asString(input.payload.competitorUrl),
+      competitor_facebook_url: asString(input.payload.competitorFacebookUrl),
     },
     errors: [],
     last_error: null,
@@ -266,8 +271,57 @@ export function loadMarketingJobRuntime(jobId: string): MarketingJobRuntimeDocum
     return null;
   }
 
-  const raw = readFileSync(filePath, 'utf8');
-  return JSON.parse(raw) as MarketingJobRuntimeDocument;
+  try {
+    const raw = readFileSync(filePath, 'utf8');
+    const parsed = JSON.parse(raw) as Record<string, unknown> | null;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null;
+    }
+    const schemaName = parsed.schema_name;
+    const isKnownSchema =
+      schemaName === MARKETING_RUNTIME_SCHEMA_NAME || schemaName === LEGACY_MARKETING_RUNTIME_SCHEMA_NAME;
+    if (!isKnownSchema) {
+      return null;
+    }
+    if (typeof parsed.job_id !== 'string' || parsed.job_id.length === 0) {
+      return null;
+    }
+    if (typeof parsed.tenant_id !== 'string' || parsed.tenant_id.length === 0) {
+      return null;
+    }
+
+    const doc = parsed as MarketingJobRuntimeDocument;
+    if (!doc.stage_order || !Array.isArray(doc.stage_order) || doc.stage_order.length === 0) {
+      doc.stage_order = [...STAGES];
+    }
+    if (!doc.current_stage || !STAGES.includes(doc.current_stage)) {
+      doc.current_stage = 'research';
+    }
+    if (!doc.stages || typeof doc.stages !== 'object' || Array.isArray(doc.stages)) {
+      return null;
+    }
+    if (
+      !doc.stages.research &&
+      !doc.stages.strategy &&
+      !doc.stages.production &&
+      !doc.stages.publish
+    ) {
+      return null;
+    }
+    for (const stage of STAGES) {
+      if (!doc.stages[stage]) {
+        doc.stages[stage] = defaultStageRecord(stage);
+      }
+    }
+    if (!doc.publish_config || typeof doc.publish_config !== 'object' || Array.isArray(doc.publish_config)) {
+      doc.publish_config = defaultPublishConfig();
+    } else {
+      doc.publish_config = defaultPublishConfig(doc.publish_config);
+    }
+    return doc;
+  } catch {
+    return null;
+  }
 }
 
 function collectMarketingJobRefsForTenant(tenantId: string): Array<{ jobId: string; updatedAt: number }> {
@@ -282,11 +336,35 @@ function collectMarketingJobRefsForTenant(tenantId: string): Array<{ jobId: stri
   for (const entry of entries) {
     try {
       const raw = readFileSync(path.join(root, entry), 'utf8');
-      const doc = JSON.parse(raw) as MarketingJobRuntimeDocument;
+      const doc = JSON.parse(raw) as Record<string, unknown>;
+      if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
+        continue;
+      }
+      const schemaName = doc.schema_name;
+      const isKnownSchema =
+        schemaName === MARKETING_RUNTIME_SCHEMA_NAME || schemaName === LEGACY_MARKETING_RUNTIME_SCHEMA_NAME;
+      if (!isKnownSchema) {
+        continue;
+      }
+      const stages = doc.stages as Record<string, unknown> | undefined;
+      if (!stages || typeof stages !== 'object' || Array.isArray(stages)) {
+        continue;
+      }
+      const hasAtLeastOneStage =
+        'research' in stages || 'strategy' in stages || 'production' in stages || 'publish' in stages;
+      if (!hasAtLeastOneStage) {
+        continue;
+      }
+      if (typeof doc.job_id !== 'string' || doc.job_id.length === 0) {
+        continue;
+      }
+      if (typeof doc.tenant_id !== 'string' || doc.tenant_id.length === 0) {
+        continue;
+      }
       if (doc.tenant_id !== tenantId) {
         continue;
       }
-      const updatedAt = Date.parse(doc.updated_at);
+      const updatedAt = Date.parse(typeof doc.updated_at === 'string' ? doc.updated_at : '');
       if (!Number.isFinite(updatedAt)) {
         continue;
       }

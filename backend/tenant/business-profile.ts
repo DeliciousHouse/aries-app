@@ -65,7 +65,7 @@ async function launchApproverName(client: PoolClient, approverUserId: string | n
 
 export async function getBusinessProfile(client: PoolClient, tenantId: string): Promise<BusinessProfileView> {
   const tenant = await client.query(
-    'SELECT id, name, COALESCE(NULLIF(slug, \"\"), \"org-\" || id::text) AS slug FROM organizations WHERE id = $1 LIMIT 1',
+    "SELECT id, name, COALESCE(NULLIF(slug, ''), 'org-' || id::text) AS slug FROM organizations WHERE id = $1 LIMIT 1",
     [Number(tenantId)],
   );
   if ((tenant.rowCount ?? 0) === 0) {

@@ -4,6 +4,10 @@ import { isValidElement } from 'react';
 
 import HomePage from '../app/page';
 import DashboardPage from '../app/dashboard/page';
+import DashboardCampaignsPage from '../app/dashboard/campaigns/page';
+import DashboardCalendarPage from '../app/dashboard/calendar/page';
+import DashboardResultsPage from '../app/dashboard/results/page';
+import DashboardSettingsPage from '../app/dashboard/settings/page';
 import CampaignsPage from '../app/campaigns/page';
 import CampaignWorkspacePage from '../app/campaigns/[campaignId]/page';
 import ReviewQueuePage from '../app/review/page';
@@ -38,6 +42,14 @@ import MarketingJobStatusScreen from '../frontend/marketing/job-status';
 import MarketingJobApproveScreen from '../frontend/marketing/job-approve';
 import AppShellLayout from '../frontend/app-shell/layout';
 
+function expectRedirect(callable: () => unknown, location: string) {
+  assert.throws(callable, (error: unknown) => {
+    assert.equal(error instanceof Error ? error.message : String(error), 'NEXT_REDIRECT');
+    assert.equal((error as { digest?: string }).digest, `NEXT_REDIRECT;replace;${location};307;`);
+    return true;
+  });
+}
+
 test('/ returns the public homepage component', () => {
   const element = HomePage();
 
@@ -55,14 +67,18 @@ test('/dashboard wraps the Home screen in the app shell', () => {
   assert.equal(element.props.children.type, AriesHomeDashboard);
 });
 
-test('/campaigns wraps the campaign list in the app shell', () => {
-  const element = CampaignsPage();
+test('/dashboard/campaigns wraps the campaign list in the app shell', () => {
+  const element = DashboardCampaignsPage();
 
   assert.equal(isValidElement(element), true);
   assert.equal(element.type, AppShellLayout);
   assert.equal(element.props.currentRouteId, 'campaigns');
   assert.equal(isValidElement(element.props.children), true);
   assert.equal(element.props.children.type, AriesCampaignListScreen);
+});
+
+test('/campaigns redirects to the canonical dashboard campaigns route', () => {
+  expectRedirect(() => CampaignsPage(), '/dashboard/campaigns');
 });
 
 test('/campaigns/[campaignId] preserves the campaign id for the workspace', async () => {
@@ -105,8 +121,8 @@ test('/review/[reviewId] preserves the review id for the review detail experienc
   assert.equal(element.props.children.props.reviewId, 'review_meta_launch_hero');
 });
 
-test('/calendar wraps the calendar screen in the app shell', () => {
-  const element = CalendarPage();
+test('/dashboard/calendar wraps the calendar screen in the app shell', () => {
+  const element = DashboardCalendarPage();
 
   assert.equal(isValidElement(element), true);
   assert.equal(element.type, AppShellLayout);
@@ -115,14 +131,22 @@ test('/calendar wraps the calendar screen in the app shell', () => {
   assert.equal(element.props.children.type, AriesCalendarScreen);
 });
 
-test('/results wraps the results screen in the app shell', () => {
-  const element = ResultsPage();
+test('/calendar redirects to the canonical dashboard calendar route', () => {
+  expectRedirect(() => CalendarPage(), '/dashboard/calendar');
+});
+
+test('/dashboard/results wraps the results screen in the app shell', () => {
+  const element = DashboardResultsPage();
 
   assert.equal(isValidElement(element), true);
   assert.equal(element.type, AppShellLayout);
   assert.equal(element.props.currentRouteId, 'results');
   assert.equal(isValidElement(element.props.children), true);
   assert.equal(element.props.children.type, AriesResultsScreen);
+});
+
+test('/results redirects to the canonical dashboard results route', () => {
+  expectRedirect(() => ResultsPage(), '/dashboard/results');
 });
 
 test('/features renders inside the marketing layout', () => {
@@ -215,12 +239,16 @@ test('/platforms wraps the integrations screen in the app shell', () => {
   assert.equal(element.props.children.type, AriesSettingsScreen);
 });
 
-test('/settings wraps the settings screen in the app shell', () => {
-  const element = SettingsPage();
+test('/dashboard/settings wraps the settings screen in the app shell', () => {
+  const element = DashboardSettingsPage();
 
   assert.equal(isValidElement(element), true);
   assert.equal(element.type, AppShellLayout);
   assert.equal(element.props.currentRouteId, 'settings');
   assert.equal(isValidElement(element.props.children), true);
   assert.equal(element.props.children.type, AriesSettingsScreen);
+});
+
+test('/settings redirects to the canonical dashboard settings route', () => {
+  expectRedirect(() => SettingsPage(), '/dashboard/settings');
 });

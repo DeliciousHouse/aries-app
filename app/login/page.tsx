@@ -1,20 +1,20 @@
-"use client";
+import { Suspense } from 'react';
 
-import React from 'react';
 import AuthLayout from '../../frontend/auth/auth-layout';
-import LoginForm from '../../frontend/auth/login-form';
-import { signIn } from "next-auth/react";
+import LoginPageClient from './page-client';
 
 export default function LoginPage() {
-  const handleGoogleSuccess = () => {
-    signIn("google", { callbackUrl: "/dashboard" });
-  };
-
   return (
-    <AuthLayout>
-      <div className="flex justify-center w-full">
-        <LoginForm onGoogleSuccess={handleGoogleSuccess} isLoading={false} authError={null} />
-      </div>
-    </AuthLayout>
+    <Suspense
+      fallback={
+        <AuthLayout>
+          <div className="mx-auto max-w-md rounded-2xl border border-white/10 bg-white/5 px-6 py-10 text-center text-white/70">
+            Loading sign-in…
+          </div>
+        </AuthLayout>
+      }
+    >
+      <LoginPageClient />
+    </Suspense>
   );
 }

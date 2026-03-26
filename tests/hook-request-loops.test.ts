@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import React from 'react';
 
+import { useBusinessProfile } from '../hooks/use-business-profile';
 import { useIntegrations } from '../hooks/use-integrations';
 import { useLatestMarketingJob } from '../hooks/use-latest-marketing-job';
 import { useTenantWorkflows } from '../hooks/use-tenant-workflows';
@@ -57,6 +58,7 @@ function DashboardHooksHarness() {
   useLatestMarketingJob({ autoLoad: true });
   useIntegrations();
   useTenantWorkflows();
+  useBusinessProfile({ autoLoad: true });
   return React.createElement('div', null, 'dashboard-data');
 }
 
@@ -99,6 +101,36 @@ test('dashboard data hooks auto-load once instead of looping requests after succ
       });
     }
 
+    if (path === '/api/business/profile') {
+      return new Response(
+        JSON.stringify({
+          profile: {
+            tenantId: '11',
+            businessName: 'Sugar & Leather',
+            tenantSlug: 'sugar-leather',
+            websiteUrl: 'https://sugarandleather.com',
+            businessType: 'retail',
+            primaryGoal: 'grow-repeat-sales',
+            launchApproverUserId: null,
+            launchApproverName: null,
+            brandKit: null,
+            incomplete: false,
+          },
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }
+      );
+    }
+
+    if (path === '/api/tenant/profiles') {
+      return new Response(JSON.stringify({ profiles: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
     throw new Error(`Unexpected fetch in hook loop test: ${path}`);
   }) as typeof fetch;
 
@@ -117,6 +149,49 @@ test('dashboard data hooks auto-load once instead of looping requests after succ
     assert.equal(counts.get('/api/marketing/jobs/latest'), 1);
     assert.equal(counts.get('/api/integrations'), 1);
     assert.equal(counts.get('/api/tenant/workflows'), 1);
+    assert.equal(counts.get('/api/business/profile'), 1);
+    assert.equal(counts.get('/api/tenant/profiles'), 1);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test('business profile auto-load does not retry forever after request failures', async () => {
+  const previousFetch = globalThis.fetch;
+  const counts = new Map<string, number>();
+
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    const path = new URL(url, 'https://aries.sugarandleather.com').pathname;
+    counts.set(path, (counts.get(path) ?? 0) + 1);
+
+    if (path === '/api/business/profile' || path === '/api/tenant/profiles') {
+      return new Response(JSON.stringify({ error: 'upstream failure' }), {
+        status: 500,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
+    throw new Error(`Unexpected fetch in business-profile failure test: ${path}`);
+  }) as typeof fetch;
+
+  function BusinessProfileHarness() {
+    useBusinessProfile({ autoLoad: true });
+    return React.createElement('div', null, 'business-profile');
+  }
+
+  try {
+    const { act, create } = await import('react-test-renderer');
+
+    await act(async () => {
+      create(React.createElement(BusinessProfileHarness));
+      await flushMicrotasks();
+      await flushMicrotasks();
+      await flushMicrotasks();
+    });
+
+    assert.equal(counts.get('/api/business/profile'), 1);
+    assert.equal(counts.get('/api/tenant/profiles'), 1);
   } finally {
     globalThis.fetch = previousFetch;
   }
