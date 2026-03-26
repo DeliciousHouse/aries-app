@@ -10,32 +10,43 @@ export function useBusinessProfile(options: { baseUrl?: string; autoLoad?: boole
   const profile = useRequestState<BusinessProfileResponse>();
   const team = useRequestState<TenantProfilesResponse>();
   const save = useAsyncAction<BusinessProfileResponse>();
+  const {
+    setError: setProfileError,
+    setLoading: setProfileLoading,
+    setSuccess: setProfileSuccess,
+  } = profile;
+  const {
+    setError: setTeamError,
+    setLoading: setTeamLoading,
+    setSuccess: setTeamSuccess,
+  } = team;
+  const { run: runSave } = save;
 
   const load = useCallback(async () => {
-    profile.setLoading();
-    team.setLoading();
+    setProfileLoading();
+    setTeamLoading();
     try {
       const [profileResponse, teamResponse] = await Promise.all([
         api.getBusinessProfile(),
         api.getTenantProfiles(),
       ]);
-      profile.setSuccess(profileResponse);
-      team.setSuccess(teamResponse);
+      setProfileSuccess(profileResponse);
+      setTeamSuccess(teamResponse);
       return { profileResponse, teamResponse };
     } catch (error) {
-      profile.setError(error, 'Failed to load business profile.');
-      team.setError(error, 'Failed to load team settings.');
+      setProfileError(error, 'Failed to load business profile.');
+      setTeamError(error, 'Failed to load team settings.');
       return null;
     }
-  }, [api, profile, team]);
+  }, [api, setProfileError, setProfileLoading, setProfileSuccess, setTeamError, setTeamLoading, setTeamSuccess]);
 
   const updateProfile = useCallback(async (body: BusinessProfilePatch) => {
-    const response = await save.run(() => api.updateBusinessProfile(body), 'Failed to save business profile.');
+    const response = await runSave(() => api.updateBusinessProfile(body), 'Failed to save business profile.');
     if (response) {
-      profile.setSuccess(response);
+      setProfileSuccess(response);
     }
     return response;
-  }, [api, profile, save]);
+  }, [api, runSave, setProfileSuccess]);
 
   useEffect(() => {
     if (options.autoLoad === false) return;

@@ -1,3 +1,4 @@
+import type { ComponentPropsWithoutRef } from 'react';
 import Link from 'next/link';
 import clsx from 'clsx';
 import {
@@ -52,6 +53,80 @@ export function ShellPanel(props: {
       ) : null}
       <div className="px-6 py-5 md:px-7">{props.children}</div>
     </section>
+  );
+}
+
+export interface DashboardHeroMetric {
+  label: string;
+  value: string;
+  detail: string;
+  tone?: 'default' | 'good' | 'watch';
+}
+
+export function DashboardHero(props: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  metrics: DashboardHeroMetric[];
+  aside?: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <section
+      className={clsx(
+        'overflow-hidden rounded-[2.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.14),transparent_32%),radial-gradient(circle_at_88%_16%,rgba(124,58,237,0.18),transparent_20%),linear-gradient(135deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] shadow-[0_36px_120px_rgba(0,0,0,0.28)]',
+        props.className,
+      )}
+    >
+      <div className="grid gap-6 px-6 py-6 md:px-8 md:py-8 xl:grid-cols-[1.2fr_0.8fr]">
+        <div className="space-y-6">
+          <div className="space-y-3">
+            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#dcb58f]">
+              {props.eyebrow}
+            </p>
+            <h2 className="text-4xl font-semibold tracking-[-0.04em] text-white md:text-5xl">
+              {props.title}
+            </h2>
+            <p className="max-w-3xl text-base leading-7 text-white/65">{props.description}</p>
+          </div>
+
+          {props.metrics.length > 0 ? (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {props.metrics.map((metric) => (
+                <MetricCard key={metric.label} {...metric} />
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        {props.aside ? (
+          <div className="rounded-[2rem] border border-white/10 bg-black/18 p-5 backdrop-blur-sm">
+            {props.aside}
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+export function MetricCard(props: DashboardHeroMetric) {
+  return (
+    <div className="rounded-[1.35rem] border border-white/8 bg-white/[0.035] px-5 py-5">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.label}</p>
+      <p className="mt-3 text-3xl font-semibold text-white">{props.value}</p>
+      <p
+        className={clsx(
+          'mt-2 text-sm',
+          props.tone === 'good'
+            ? 'text-emerald-200'
+            : props.tone === 'watch'
+              ? 'text-amber-100'
+              : 'text-white/55',
+        )}
+      >
+        {props.detail}
+      </p>
+    </div>
   );
 }
 
@@ -369,22 +444,13 @@ export function KpiStrip(props: { items: AriesKpi[] }) {
   return (
     <div className="grid gap-4 md:grid-cols-3">
       {props.items.map((item) => (
-        <div key={item.label} className="rounded-[1.35rem] border border-white/8 bg-white/[0.035] px-5 py-5">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{item.label}</p>
-          <p className="mt-3 text-3xl font-semibold text-white">{item.value}</p>
-          <p
-            className={clsx(
-              'mt-2 text-sm',
-              item.tone === 'good'
-                ? 'text-emerald-200'
-                : item.tone === 'watch'
-                  ? 'text-amber-100'
-                  : 'text-white/55',
-            )}
-          >
-            {item.delta}
-          </p>
-        </div>
+        <MetricCard
+          key={item.label}
+          label={item.label}
+          value={item.value}
+          detail={item.delta}
+          tone={item.tone === 'neutral' ? 'default' : item.tone}
+        />
       ))}
     </div>
   );
@@ -493,6 +559,46 @@ export function SectionLink(props: { href: string; label: string }) {
       {props.label}
       <ArrowRight className="h-4 w-4" />
     </Link>
+  );
+}
+
+export function SurfaceField(props: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block space-y-2.5">
+      <div className="space-y-1">
+        <span className="text-sm font-medium text-white/78">{props.label}</span>
+        {props.hint ? <p className="text-xs leading-5 text-white/45">{props.hint}</p> : null}
+      </div>
+      {props.children}
+    </label>
+  );
+}
+
+export function SurfaceInput(props: ComponentPropsWithoutRef<'input'>) {
+  return (
+    <input
+      {...props}
+      className={clsx(
+        'w-full rounded-[1.1rem] border border-white/10 bg-black/20 px-4 py-3 text-white placeholder:text-white/28 focus:border-white/20 focus:outline-none',
+        props.className,
+      )}
+    />
+  );
+}
+
+export function SurfaceSelect(props: ComponentPropsWithoutRef<'select'>) {
+  return (
+    <select
+      {...props}
+      className={clsx(
+        'w-full rounded-[1.1rem] border border-white/10 bg-black/20 px-4 py-3 text-white focus:border-white/20 focus:outline-none',
+        props.className,
+      )}
+    />
   );
 }
 

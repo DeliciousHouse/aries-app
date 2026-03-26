@@ -1,17 +1,34 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, ArrowRight, Chrome, Github, Lock, Mail, Sparkles, Twitter } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Chrome, Lock, Mail } from 'lucide-react';
 
 import { AriesMark } from '@/frontend/donor/ui';
 
 interface LoginFormProps {
+  defaultEmail?: string;
+  onCredentialsSubmit: (email: string, password: string) => void;
   onGoogleSuccess: () => void;
   onSlackClick?: () => void;
   isLoading: boolean;
   authError?: string | null;
 }
 
-const LoginForm: React.FC<LoginFormProps> = ({ onGoogleSuccess, onSlackClick, isLoading, authError }) => {
+const LoginForm: React.FC<LoginFormProps> = ({
+  defaultEmail,
+  onCredentialsSubmit,
+  onGoogleSuccess,
+  onSlackClick,
+  isLoading,
+  authError,
+}) => {
+  const [email, setEmail] = useState(defaultEmail || '');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+
+  useEffect(() => {
+    setEmail(defaultEmail || '');
+  }, [defaultEmail]);
+
   return (
     <div className="max-w-md mx-auto">
       <Link href="/" className="inline-flex items-center gap-2 text-white/60 hover:text-white transition-colors mb-8 group">
@@ -31,7 +48,13 @@ const LoginForm: React.FC<LoginFormProps> = ({ onGoogleSuccess, onSlackClick, is
           <p className="text-white/60">Sign in to your Aries AI account</p>
         </div>
 
-        <form className="space-y-5" onSubmit={(event) => event.preventDefault()}>
+        <form
+          className="space-y-5"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onCredentialsSubmit(email, password);
+          }}
+        >
           <div>
             <label className="block text-sm font-medium text-white/80 mb-1.5">Email Address</label>
             <div className="relative">
@@ -42,7 +65,10 @@ const LoginForm: React.FC<LoginFormProps> = ({ onGoogleSuccess, onSlackClick, is
                 type="email"
                 className="block w-full pl-10 pr-3 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none transition-all disabled:opacity-60"
                 placeholder="you@example.com"
-                disabled
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                autoComplete="email"
+                disabled={isLoading}
               />
             </div>
           </div>
@@ -50,31 +76,38 @@ const LoginForm: React.FC<LoginFormProps> = ({ onGoogleSuccess, onSlackClick, is
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="block text-sm font-medium text-white/80">Password</label>
-              <Link href="/forgot-password" title="Forgot password" className="text-sm font-bold text-primary hover:text-primary/80 transition-colors">
-                Forgot password?
-              </Link>
+              <span className="text-sm text-white/40">Password reset is not self-serve yet</span>
             </div>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <Lock className="h-5 w-5 text-white/40" />
               </div>
               <input
-                type="password"
-                className="block w-full pl-10 pr-3 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none transition-all disabled:opacity-60"
+                type={showPassword ? 'text' : 'password'}
+                className="block w-full pl-10 pr-12 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none transition-all disabled:opacity-60"
                 placeholder="••••••••"
-                disabled
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete="current-password"
+                disabled={isLoading}
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword((value) => !value)}
+                className="absolute inset-y-0 right-0 px-3 text-sm text-white/50 transition hover:text-white"
+              >
+                {showPassword ? 'Hide' : 'Show'}
+              </button>
             </div>
           </div>
 
           <button
-            type="button"
-            onClick={onGoogleSuccess}
-            disabled={isLoading}
+            type="submit"
+            disabled={isLoading || !email || !password}
             className="w-full py-3 px-4 bg-gradient-to-r from-primary to-secondary hover:opacity-90 text-white font-medium rounded-xl transition-all shadow-[0_0_20px_rgba(124,58,237,0.3)] hover:shadow-[0_0_30px_rgba(124,58,237,0.5)] flex items-center justify-center gap-2 disabled:opacity-60"
           >
-            <Chrome className="w-4 h-4" />
-            {isLoading ? 'Redirecting...' : 'Continue with Google'}
+            <Lock className="w-4 h-4" />
+            {isLoading ? 'Signing in...' : 'Sign in'}
             <ArrowRight className="w-4 h-4" />
           </button>
         </form>
@@ -85,7 +118,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onGoogleSuccess, onSlackClick, is
               <div className="w-full border-t border-white/10" />
             </div>
             <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-background/80 backdrop-blur-sm text-white/40 uppercase tracking-wider">or continue with</span>
+              <span className="px-2 bg-background/80 backdrop-blur-sm text-white/40 uppercase tracking-wider">or continue with Google</span>
             </div>
           </div>
 
@@ -121,7 +154,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onGoogleSuccess, onSlackClick, is
         </div>
 
         <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-4 text-center text-sm text-white/75">
-          Email/password, signup, and recovery flows are intentionally disabled in this runtime while authentication is hardened.
+          Use your Postgres-backed email and password, or continue with Google if your account is managed there.
         </div>
 
         {authError ? (

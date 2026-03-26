@@ -353,6 +353,12 @@ function Hero() {
               Start with your business <ArrowRight className="w-5 h-5" />
             </a>
             <a
+              href="/login"
+              className="w-full sm:w-auto px-8 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2"
+            >
+              Log in
+            </a>
+            <a
               href="/#how-it-works"
               className="w-full sm:w-auto px-8 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2"
             >

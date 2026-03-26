@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -126,6 +126,16 @@ test('production authenticated v1 surfaces do not import demo fixture data direc
     'frontend/aries-v1/calendar-screen.tsx',
     'frontend/aries-v1/results-screen.tsx',
     'frontend/aries-v1/settings-screen.tsx',
+    'frontend/aries-v1/presenters/dashboard-home-presenter.tsx',
+    'frontend/aries-v1/presenters/campaign-list-presenter.tsx',
+    'frontend/aries-v1/presenters/results-presenter.tsx',
+    'frontend/aries-v1/presenters/calendar-presenter.tsx',
+    'frontend/aries-v1/presenters/settings-presenter.tsx',
+    'frontend/aries-v1/view-models/dashboard-home.ts',
+    'frontend/aries-v1/view-models/campaign-list.ts',
+    'frontend/aries-v1/view-models/results.ts',
+    'frontend/aries-v1/view-models/calendar.ts',
+    'frontend/aries-v1/view-models/settings.ts',
   ];
 
   for (const file of files) {
@@ -137,16 +147,47 @@ test('production authenticated v1 surfaces do not import demo fixture data direc
 });
 
 test('authenticated app shell exposes a visible logout control and does not hardcode review badge counts', () => {
-  const source = readRepoFile('components/redesign/layout/app-shell.tsx');
+  const serverSource = readRepoFile('components/redesign/layout/app-shell.tsx');
+  const clientSource = readRepoFile('components/redesign/layout/app-shell-client.tsx');
 
-  assert.match(source, /Logout/);
-  assert.doesNotMatch(source, /ARIES_REVIEW_ITEMS/);
+  assert.match(clientSource, /Logout/);
+  assert.doesNotMatch(`${serverSource}\n${clientSource}`, /ARIES_REVIEW_ITEMS/);
 });
 
 test('runtime campaign and review view services exist and return honest empty states without demo data', async () => {
   await withMarketingRuntimeEnv(async () => {
     const views = await import('../backend/marketing/runtime-views');
 
+    const campaigns = await views.listMarketingCampaignsForTenant('tenant_empty');
+    const reviews = await views.listMarketingReviewItemsForTenant('tenant_empty');
+
+    assert.deepEqual(campaigns, []);
+    assert.deepEqual(reviews, []);
+  });
+});
+
+test('runtime views ignore malformed legacy marketing runtime documents without crashing', async () => {
+  await withMarketingRuntimeEnv(async () => {
+    const jobsRoot = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs');
+    await mkdir(jobsRoot, { recursive: true });
+    await writeFile(
+      path.join(jobsRoot, 'legacy-bad.json'),
+      JSON.stringify({
+        schema_name: 'job_runtime_state_schema',
+        schema_version: '1.0.0',
+        job_id: 'legacy-bad',
+        job_type: 'brand_campaign',
+        tenant_id: 'tenant_empty',
+        state: 'approval_required',
+        status: 'awaiting_approval',
+        attempt: 1,
+        max_attempts: 3,
+        inputs: { request: {} },
+        updated_at: new Date().toISOString(),
+      }, null, 2)
+    );
+
+    const views = await import('../backend/marketing/runtime-views');
     const campaigns = await views.listMarketingCampaignsForTenant('tenant_empty');
     const reviews = await views.listMarketingReviewItemsForTenant('tenant_empty');
 

@@ -1,10 +1,5 @@
-import AppShellLayout from '@/frontend/app-shell/layout';
-import AriesResultsScreen from '@/frontend/aries-v1/results-screen';
+import { redirect } from 'next/navigation';
 
 export default function ResultsPage() {
-  return (
-    <AppShellLayout currentRouteId="results">
-      <AriesResultsScreen />
-    </AppShellLayout>
-  );
+  redirect('/dashboard/results');
 }

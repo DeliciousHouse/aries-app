@@ -99,8 +99,8 @@ export default function AriesCampaignWorkspace(props: { campaignId: string }) {
             </div>
             <div className="mt-6 flex flex-wrap gap-3">
               <SectionLink href="/review" label="Open review queue" />
-              <SectionLink href="/calendar" label="Open calendar" />
-              <SectionLink href="/results" label="See results" />
+              <SectionLink href="/dashboard/calendar" label="Open calendar" />
+              <SectionLink href="/dashboard/results" label="See results" />
             </div>
           </ShellPanel>
 

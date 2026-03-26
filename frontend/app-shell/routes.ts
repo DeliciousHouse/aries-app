@@ -23,23 +23,23 @@ export const APP_ROUTES: readonly AppRoute[] = [
     description: 'Executive command center for approvals, schedule, active campaigns, and results.'
   },
   {
-    id: 'campaigns',
-    title: 'Campaigns',
-    href: '/campaigns',
-    section: 'primary',
-    description: 'Campaign list and campaign workspace for plans, creative, schedule, and results.'
-  },
-  {
     id: 'calendar',
     title: 'Calendar',
-    href: '/calendar',
+    href: '/dashboard/calendar',
     section: 'primary',
     description: 'Human-readable schedule visibility across campaigns and channels.'
   },
   {
+    id: 'campaigns',
+    title: 'Campaigns',
+    href: '/dashboard/campaigns',
+    section: 'primary',
+    description: 'Campaign list and campaign workspace for plans, creative, schedule, and results.'
+  },
+  {
     id: 'results',
     title: 'Results',
-    href: '/results',
+    href: '/dashboard/results',
     section: 'primary',
     description: 'Business-readable reporting and recommended next actions.'
   },
@@ -53,7 +53,7 @@ export const APP_ROUTES: readonly AppRoute[] = [
   {
     id: 'settings',
     title: 'Settings',
-    href: '/settings',
+    href: '/dashboard/settings',
     section: 'utility',
     description: 'Business profile, channels, team approvals, and other account controls.'
   }

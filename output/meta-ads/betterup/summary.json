@@ -1,0 +1,274 @@
+{
+  "artifacts": {
+    "ad_creative_analysis": {
+      "artifacts": {
+        "creative_analysis_path": "/app/aries-app/output/meta-ads/betterup/ad-creative-analysis.json"
+      },
+      "competitor": "BetterUp",
+      "creative_findings": [
+        {
+          "ad_id": "betterup-ad-01",
+          "recommended_iterations": [
+            "Open with the strongest proof point in the first sentence.",
+            "Shorten headline to a single outcome-focused claim."
+          ],
+          "score": 79,
+          "winning_pattern": "speed to value"
+        },
+        {
+          "ad_id": "betterup-ad-02",
+          "recommended_iterations": [
+            "Open with the strongest proof point in the first sentence.",
+            "Shorten headline to a single outcome-focused claim."
+          ],
+          "score": 76,
+          "winning_pattern": "efficiency"
+        },
+        {
+          "ad_id": "betterup-ad-03",
+          "recommended_iterations": [
+            "Open with the strongest proof point in the first sentence.",
+            "Shorten headline to a single outcome-focused claim."
+          ],
+          "score": 73,
+          "winning_pattern": "simplicity"
+        }
+      ],
+      "creative_summary": {
+        "priority": "Lead with proof and compress the message.",
+        "top_pattern": "speed to value"
+      },
+      "generated_at": "2026-03-24T11:32:38+00:00",
+      "mode": "live",
+      "run_id": "betterup-47a431e6",
+      "stub": false,
+      "type": "ad_creative_analysis"
+    },
+    "meta_ads_analysis": {
+      "analysed_ads": [
+        {
+          "ad_id": "betterup-ad-01",
+          "angles": [
+            "speed to value",
+            "risk reduction"
+          ],
+          "creative_strength_score": 79,
+          "funnel_stage": "awareness",
+          "headline": "BetterUp - Facebook",
+          "landing_page_url": "",
+          "why_it_might_work": "Connects speed to value, risk reduction to a clear CTA."
+        },
+        {
+          "ad_id": "betterup-ad-02",
+          "angles": [
+            "efficiency",
+            "proof points"
+          ],
+          "creative_strength_score": 76,
+          "funnel_stage": "consideration",
+          "headline": "How BetterUp removes manual busywork",
+          "landing_page_url": "",
+          "why_it_might_work": "Connects efficiency, proof points to a clear CTA."
+        },
+        {
+          "ad_id": "betterup-ad-03",
+          "angles": [
+            "simplicity",
+            "enterprise trust"
+          ],
+          "creative_strength_score": 73,
+          "funnel_stage": "awareness",
+          "headline": "BetterUp makes enterprise rollout feel simple",
+          "landing_page_url": "",
+          "why_it_might_work": "Connects simplicity, enterprise trust to a clear CTA."
+        }
+      ],
+      "artifacts": {
+        "analysis_path": "/app/aries-app/output/meta-ads/betterup/meta-ads-analysis.json"
+      },
+      "competitor": "BetterUp",
+      "generated_at": "2026-03-24T11:32:38+00:00",
+      "mode": "live",
+      "run_id": "betterup-47a431e6",
+      "stub": false,
+      "summary": {
+        "ad_count": 3,
+        "dominant_cta": "Learn More",
+        "format_mix": {
+          "carousel": 1,
+          "image": 2,
+          "square": 1,
+          "story": 1,
+          "video": 1
+        },
+        "top_hooks": [
+          "speed to value",
+          "risk reduction",
+          "efficiency",
+          "proof points"
+        ]
+      },
+      "type": "meta_ads_analysis"
+    },
+    "meta_ads_extract": {
+      "ads": [
+        {
+          "ad_id": "betterup-ad-01",
+          "brand": "BetterUp",
+          "call_to_action": "Learn More",
+          "formats": [
+            "video",
+            "square"
+          ],
+          "headline": "BetterUp - Facebook",
+          "hooks": [
+            "speed to value",
+            "risk reduction"
+          ],
+          "landing_page_url": "",
+          "platform": "meta",
+          "primary_text": "BetterUp is on Facebook. Join Facebook to connect with BetterUp and others you may know. Facebook gives people the power to share and makes the world more open and connected."
+        },
+        {
+          "ad_id": "betterup-ad-02",
+          "brand": "BetterUp",
+          "call_to_action": "Book Demo",
+          "formats": [
+            "image",
+            "carousel"
+          ],
+          "headline": "How BetterUp removes manual busywork",
+          "hooks": [
+            "efficiency",
+            "proof points"
+          ],
+          "landing_page_url": "",
+          "platform": "meta",
+          "primary_text": "BetterUp leads with an operational efficiency angle and a proof-oriented CTA."
+        },
+        {
+          "ad_id": "betterup-ad-03",
+          "brand": "BetterUp",
+          "call_to_action": "Get Started",
+          "formats": [
+            "image",
+            "story"
+          ],
+          "headline": "BetterUp makes enterprise rollout feel simple",
+          "hooks": [
+            "simplicity",
+            "enterprise trust"
+          ],
+          "landing_page_url": "",
+          "platform": "meta",
+          "primary_text": "BetterUp uses reassurance language for larger buyers with security and onboarding concerns."
+        }
+      ],
+      "artifacts": {
+        "extract_path": "/app/aries-app/output/meta-ads/betterup/meta-ads-extract.json",
+        "summary_markdown_path": "/app/aries-app/output/meta-ads/betterup/summary.md"
+      },
+      "competitor": "BetterUp",
+      "competitor_facebook_url": "https://www.facebook.com/betterupco?mibextid=wwXIfr&mibextid=wwXIfr",
+      "competitor_research_summary": [
+        "Based on the evidence, BetterUp's likely Meta ad angles are:",
+        "*   **Driving Measurable Business Performance:** Ads will likely focus on how BetterUp unlocks workforce potential and delivers quantifiable improvements in business outcomes through coaching.",
+        "*   **Unique AI + Human Coaching Methodology:** Emphasizing their proprietary blend of AI, human coaching, and behavioral science as a cutting-edge approach to talent development."
+      ],
+      "generated_at": "2026-03-24T11:32:38+00:00",
+      "landing_pages": [],
+      "meta_config": {
+        "access_token_source": "app_credentials",
+        "has_access_token": true,
+        "has_app_id": true,
+        "has_app_secret": true,
+        "has_page_id": false
+      },
+      "mode": "live",
+      "notes": [
+        "Live data path executed for at least one source (web search, Meta Graph, or Gemini)."
+      ],
+      "research": {
+        "gemini": {
+          "error": "",
+          "live": true,
+          "model": "gemini-2.5-flash",
+          "provider": "gemini",
+          "text": "Based on the evidence, BetterUp's likely Meta ad angles are:\n\n*   **Driving Measurable Business Performance:** Ads will likely focus on how BetterUp unlocks workforce potential and delivers quantifiable improvements in business outcomes through coaching.\n*   **Unique AI + Human Coaching Methodology:** Emphasizing their proprietary blend of AI, human coaching, and behavioral science as a cutting-edge approach to talent development.\n*   **Preparing Workforces for the AI Era:** Targeting businesses looking to future-proof their teams and enhance readiness for the evolving demands of the \"AI era.\""
+        },
+        "meta_graph": {
+          "attempts": [
+            {
+              "error": "HTTPError: HTTP Error 400: Bad Request",
+              "live": false,
+              "object_id": "betterupco"
+            }
+          ],
+          "live": false,
+          "objects": [],
+          "profile_id_from_url": "betterupco"
+        },
+        "web_search": {
+          "error": "",
+          "live": true,
+          "provider": "duckduckgo-html",
+          "query": "BetterUp https://www.facebook.com/betterupco?mibextid=wwXIfr&mibextid=wwXIfr betterupco meta ads creative campaign positioning",
+          "results": [
+            {
+              "snippet": "BetterUp is on Facebook. Join Facebook to connect with BetterUp and others you may know. Facebook gives people the power to share and makes the world more open and connected.",
+              "title": "BetterUp - Facebook",
+              "url": "//duckduckgo.com/l/?uddg=https://www.facebook.com/betterup.betterup/&amp;rut=0057058d9c6c428581fba7924ee5db90f4bfa49d1eeec7f09cc3351344e29b03"
+            },
+            {
+              "snippet": "BetterUp Past events See more",
+              "title": "BetterUp - Facebook",
+              "url": "//duckduckgo.com/l/?uddg=https://www.facebook.com/betterupco/events/&amp;rut=2ba94b7733bdc224531e7d574127652087b05f6112c69e338cb2373bcd4d7d68"
+            },
+            {
+              "snippet": "Connect and share with friends, family, and the world on Facebook.",
+              "title": "Facebook",
+              "url": "//duckduckgo.com/l/?uddg=https://www.facebook.com/&amp;rut=03fc0e817e8c51e038eed6c2aa339ee5ae81f41a6589b08cf8e34dffc3b0aa3c"
+            },
+            {
+              "snippet": "Unlock workforce performance with BetterUp&amp;mdash;the only platform combining AI, coaching, and behavioral science to drive measurable business performance.",
+              "title": "Powering performance-ready workforces in the AI era | BetterUp",
+              "url": "//duckduckgo.com/l/?uddg=https://www.betterup.com/&amp;rut=eefc9647bdaa7fda4348f3915aebe727e765106767cd5de9d13c321cc715b419"
+            },
+            {
+              "snippet": "When this happens, it&#x27;s usually because the owner only shared it with a small group of people, changed who can see it or it&#x27;s been deleted.",
+              "title": "Facebook",
+              "url": "//duckduckgo.com/l/?uddg=https://www.facebook.com/betterupco/&amp;rut=ab4a86d5bddff6068a527e7641f9cb8c16f889bc98d23a8960325374480eabc2"
+            }
+          ]
+        }
+      },
+      "research_model": "gemini/gemini-2.5-flash",
+      "run_id": "betterup-47a431e6",
+      "source": "local-stage1-wrapper",
+      "stub": false,
+      "type": "meta_ads_extract",
+      "web_search_required": true
+    }
+  },
+  "competitor": "BetterUp",
+  "executive_summary": {
+    "campaign_takeaway": "Dominant campaign angle observed: speed to value.",
+    "creative_takeaway": "Best observed creative pattern: speed to value.",
+    "market_positioning": "Competitor is leaning on speed to value to create mid-funnel confidence."
+  },
+  "generated_at": "2026-03-24T11:32:38+00:00",
+  "inputs": {
+    "ads_seen": 3,
+    "campaign_angles_detected": 4,
+    "creative_findings": 3
+  },
+  "mode": "live",
+  "recommended_actions": [
+    "Test one proof-first creative against one speed-to-value creative.",
+    "Mirror the competitor's strongest hook with a differentiated proof claim.",
+    "Keep CTA language aligned with the winning campaign angle per ad variant."
+  ],
+  "run_id": "betterup-47a431e6",
+  "stub": false,
+  "type": "ads_analyst_compile"
+}
