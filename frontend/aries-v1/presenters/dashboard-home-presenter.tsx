@@ -14,6 +14,7 @@ import {
   Zap,
 } from 'lucide-react';
 
+import { StatusChip } from '@/frontend/aries-v1/components';
 import type { DashboardHomeViewModel } from '@/frontend/aries-v1/view-models/dashboard-home';
 
 export interface DashboardHomePresenterProps {
@@ -36,25 +37,32 @@ export default function DashboardHomePresenter({
   channelsErrorMessage,
 }: DashboardHomePresenterProps) {
   const surfaces = useMemo<OrbitSurface[]>(() => {
-    const profileMetric = model.hero.metrics[3];
+    const metricByLabel = (label: string) =>
+      model.hero.metrics.find((metric) => metric.label === label);
+    const campaignsMetric = metricByLabel('Campaigns');
+    const approvalsMetric = metricByLabel('Pending approvals');
+    const publishMetric = metricByLabel('Ready to publish');
+    const channelsMetric = metricByLabel('Connected channels');
+    const profileMetric = metricByLabel('Profile status');
+
     return [
       {
         label: 'Campaigns',
-        value: model.hero.metrics[0]?.value || '0',
+        value: campaignsMetric?.value || '0',
         supporting: model.activeCampaign ? model.activeCampaign.stageLabel : 'No active campaign',
         icon: Layers3,
         glow: 'rgba(123,97,255,0.28)',
       },
       {
         label: 'Approvals',
-        value: String(model.reviews.count),
+        value: approvalsMetric?.value || String(model.reviews.count),
         supporting: model.reviews.count > 0 ? 'Waiting on review' : 'Queue is clear',
         icon: CheckCheck,
         glow: 'rgba(229,192,123,0.3)',
       },
       {
         label: 'Channels',
-        value: String(model.channels.connectedCount),
+        value: channelsMetric?.value || String(model.channels.connectedCount),
         supporting:
           model.channels.attentionCount > 0
             ? `${model.channels.attentionCount} need attention`
@@ -69,13 +77,26 @@ export default function DashboardHomePresenter({
         icon: ShieldCheck,
         glow: 'rgba(52,211,153,0.26)',
       },
-      {
-        label: 'Results',
-        value: String(model.results.items.length),
-        supporting: model.results.items.length > 0 ? 'Live signal available' : 'Waiting on live activity',
-        icon: Zap,
-        glow: 'rgba(244,114,182,0.24)',
-      },
+      model.workingNow.mode === 'publish'
+        ? {
+            label: 'Ready',
+            value: publishMetric?.value || String(model.publish.count),
+            supporting:
+              model.publish.pausedCount > 0
+                ? `${model.publish.pausedCount} paused in Meta`
+                : model.publish.count > 0
+                  ? `${model.publish.count} ready now`
+                  : 'Waiting on publish-ready work',
+            icon: Sparkles,
+            glow: 'rgba(192,132,252,0.24)',
+          }
+        : {
+            label: 'Results',
+            value: String(model.results.items.length),
+            supporting: model.results.items.length > 0 ? 'Live signal available' : 'Waiting on live activity',
+            icon: Zap,
+            glow: 'rgba(244,114,182,0.24)',
+          },
     ];
   }, [model]);
 
@@ -279,44 +300,56 @@ export default function DashboardHomePresenter({
           <div className="flex items-start justify-between p-6 pb-5">
             <div>
               <h4 className="mb-2 text-[11px] font-bold uppercase tracking-[0.15em] text-white/40">Working Now</h4>
-              <h3 className="text-xl font-semibold tracking-tight text-white">
-                {model.results.items.length > 0 ? 'Live campaigns are sending result signal.' : 'Results will populate after launch.'}
-              </h3>
+              <h3 className="text-xl font-semibold tracking-tight text-white">{model.workingNow.title}</h3>
             </div>
-            <Link href="/dashboard/results" className="flex items-center gap-1 text-sm font-medium text-white/90 transition-colors hover:text-white">
-              Open results
+            <Link href={model.workingNow.href} className="flex items-center gap-1 text-sm font-medium text-white/90 transition-colors hover:text-white">
+              {model.workingNow.label}
               <ChevronRight className="h-4 w-4" />
             </Link>
           </div>
           <div className="h-px w-full bg-white/10" />
 
           <div className="space-y-4 p-6">
-            <p className="text-[15px] leading-relaxed text-white/60">
-              {model.results.items.length > 0
-                ? 'Aries is already seeing live campaign activity. Open the results surface for the operational mix, schedule readiness, and trust notes.'
-                : 'Aries will summarize launch momentum and next actions here as soon as a campaign is live.'}
-            </p>
+            <p className="text-[15px] leading-relaxed text-white/60">{model.workingNow.summary}</p>
 
-            <div className="rounded-2xl border border-white/[0.05] bg-[#1B1524] p-5">
-              <div className="flex items-start gap-4">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10">
-                  <Sparkles className="h-5 w-5 text-white/90" />
-                </div>
-                <div>
-                  <h4 className="mb-2 text-[15px] font-semibold text-white">
-                    {model.nextAction.title}
-                  </h4>
-                  <p className="mb-4 text-[14px] leading-relaxed text-white/50">{model.nextAction.summary}</p>
+            {model.workingNow.items.length > 0 ? (
+              <div className="space-y-3">
+                {model.workingNow.items.map((item) => (
                   <Link
-                    href={model.nextAction.href}
-                    className="inline-flex items-center gap-2 text-sm font-medium text-white transition-colors hover:text-white/80"
+                    key={item.id}
+                    href={item.href}
+                    className="flex items-center justify-between gap-4 rounded-2xl border border-white/[0.05] bg-[#1B1524] p-5 transition-colors hover:bg-[#231a2f]"
                   >
-                    {model.nextAction.label}
-                    <ArrowRight className="h-4 w-4" />
+                    <div>
+                      <span className="mb-1 block text-[15px] font-medium text-white/90">{item.title}</span>
+                      <span className="text-sm text-white/40">{item.meta}</span>
+                    </div>
+                    <StatusChip status={item.status} />
                   </Link>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-white/[0.05] bg-[#1B1524] p-5">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10">
+                    <Sparkles className="h-5 w-5 text-white/90" />
+                  </div>
+                  <div>
+                    <h4 className="mb-2 text-[15px] font-semibold text-white">
+                      {model.nextAction.title}
+                    </h4>
+                    <p className="mb-4 text-[14px] leading-relaxed text-white/50">{model.nextAction.summary}</p>
+                    <Link
+                      href={model.nextAction.href}
+                      className="inline-flex items-center gap-2 text-sm font-medium text-white transition-colors hover:text-white/80"
+                    >
+                      {model.nextAction.label}
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         </motion.section>
 

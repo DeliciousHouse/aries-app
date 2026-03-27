@@ -3,8 +3,13 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
+import MediaPreview from '@/frontend/components/media-preview';
 import type {
   MarketingApprovalSummary,
+  MarketingDashboardAsset,
+  MarketingDashboardPost,
+  MarketingDashboardPublishItem,
+  MarketingReviewPreviewCard,
   GetMarketingJobStatusResponse,
   MarketingApiError,
 } from '@/lib/api/marketing';
@@ -65,6 +70,94 @@ function ApprovalBanner({ approval }: { approval: MarketingApprovalSummary }) {
   );
 }
 
+function DashboardAssetCard({ asset }: { asset: MarketingDashboardAsset }) {
+  return (
+    <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
+      <MediaPreview
+        src={asset.thumbnailUrl || asset.previewUrl}
+        alt={asset.title}
+        contentType={asset.contentType}
+        className="h-40 overflow-hidden rounded-[1rem] border border-white/8 bg-black/20"
+        emptyLabel="Preview pending"
+        nonImageLabel={asset.type === 'landing_page' ? 'Landing page preview available' : 'Asset preview available'}
+      />
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs uppercase tracking-[0.22em] text-white/35">{asset.type.replace(/_/g, ' ')}</p>
+          <h3 className="mt-2 text-base font-semibold text-white">{asset.title}</h3>
+          <p className="mt-2 text-sm text-white/55">{asset.platformLabel}</p>
+        </div>
+        <StatusBadge status={asset.status as any} />
+      </div>
+      <p className="text-sm text-white/60">{asset.summary}</p>
+    </div>
+  );
+}
+
+function DashboardPostCard({
+  post,
+  previewAsset,
+}: {
+  post: MarketingDashboardPost | MarketingDashboardPublishItem;
+  previewAsset: MarketingDashboardAsset | null;
+}) {
+  return (
+    <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
+      <MediaPreview
+        src={previewAsset?.thumbnailUrl || previewAsset?.previewUrl}
+        alt={post.title}
+        contentType={previewAsset?.contentType}
+        className="h-40 overflow-hidden rounded-[1rem] border border-white/8 bg-black/20"
+        emptyLabel="Preview pending"
+        nonImageLabel="Preview available"
+      />
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs uppercase tracking-[0.22em] text-white/35">{post.platformLabel}</p>
+          <h3 className="mt-2 text-base font-semibold text-white">{post.title}</h3>
+          <p className="mt-2 text-sm text-white/55">{post.summary}</p>
+        </div>
+        <StatusBadge status={post.status as any} />
+      </div>
+    </div>
+  );
+}
+
+function ReviewPreviewGallery({ previews }: { previews: MarketingReviewPreviewCard[] }) {
+  return (
+    <div className="grid gap-4 xl:grid-cols-2">
+      {previews.map((preview) => (
+        <div key={preview.id} className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
+          <p className="text-xs uppercase tracking-[0.22em] text-white/35">{preview.platformName}</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {preview.mediaAssets.length > 0 ? (
+              preview.mediaAssets.map((asset) => (
+                <a key={asset.id} href={asset.url} target="_blank" rel="noreferrer" className="rounded-[1rem] overflow-hidden border border-white/8 bg-black/20">
+                  <MediaPreview
+                    src={asset.url}
+                    alt={asset.label}
+                    contentType={asset.contentType}
+                    className="h-36 w-full"
+                    emptyLabel="Preview pending"
+                    nonImageLabel={asset.label}
+                  />
+                </a>
+              ))
+            ) : (
+              <MediaPreview
+                alt={preview.platformName}
+                className="h-36 rounded-[1rem] border border-white/8 bg-black/20"
+                emptyLabel="Preview pending"
+              />
+            )}
+          </div>
+          <p className="text-sm text-white/60">{preview.summary}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
   const marketingStatus = useMarketingJobStatus({
     baseUrl: props.baseUrl,
@@ -120,6 +213,9 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
 
   const successResult = result && !isErrorResult(result) ? result : null;
   const statusLoadFailed = !!(marketingStatus.error || (result && isErrorResult(result)));
+  const assetById = successResult
+    ? new Map(successResult.dashboard.assets.map((asset) => [asset.id, asset] as const))
+    : new Map<string, MarketingDashboardAsset>();
 
   useEffect(() => {
     if (!successResult || !jobId.trim() || !isActiveStatus(successResult.marketing_job_status)) {
@@ -337,6 +433,50 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
               </div>
             </div>
           ) : null}
+        </div>
+      ) : null}
+
+      {successResult?.reviewBundle?.platformPreviews?.length ? (
+        <div className="glass rounded-[2.5rem] p-8 mt-6">
+          <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-6">Launch review previews</p>
+          <ReviewPreviewGallery previews={successResult.reviewBundle.platformPreviews} />
+        </div>
+      ) : null}
+
+      {successResult && (successResult.dashboard.assets.length > 0 || successResult.dashboard.posts.length > 0 || successResult.dashboard.publishItems.length > 0) ? (
+        <div className="grid gap-6 mt-6 xl:grid-cols-3">
+          <div className="glass rounded-[2.5rem] p-8">
+            <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-6">Assets</p>
+            <div className="grid gap-4">
+              {successResult.dashboard.assets.slice(0, 4).map((asset) => (
+                <DashboardAssetCard key={asset.id} asset={asset} />
+              ))}
+            </div>
+          </div>
+          <div className="glass rounded-[2.5rem] p-8">
+            <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-6">Posts</p>
+            <div className="grid gap-4">
+              {successResult.dashboard.posts.slice(0, 4).map((post) => (
+                <DashboardPostCard
+                  key={post.id}
+                  post={post}
+                  previewAsset={post.previewAssetId ? assetById.get(post.previewAssetId) || null : null}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="glass rounded-[2.5rem] p-8">
+            <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-6">Publish queue</p>
+            <div className="grid gap-4">
+              {successResult.dashboard.publishItems.slice(0, 4).map((item) => (
+                <DashboardPostCard
+                  key={item.id}
+                  post={item}
+                  previewAsset={item.previewAssetId ? assetById.get(item.previewAssetId) || null : null}
+                />
+              ))}
+            </div>
+          </div>
         </div>
       ) : null}
       </div>

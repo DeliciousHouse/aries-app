@@ -1,4 +1,14 @@
 import { requestJson, type ApiClientOptions } from './http';
+import type {
+  MarketingDashboardAsset,
+  MarketingDashboardCalendarEvent,
+  MarketingDashboardCampaignContent,
+  MarketingDashboardContent,
+  MarketingDashboardItemStatus,
+  MarketingDashboardPost,
+  MarketingDashboardPublishItem,
+  MarketingDashboardStatusSummary,
+} from './marketing';
 import type { TenantUserProfile } from '@/backend/tenant/user-profiles';
 
 export type AriesCampaignStatus = 'draft' | 'in_review' | 'approved' | 'scheduled' | 'live' | 'changes_requested';
@@ -8,7 +18,9 @@ export type RuntimeCampaignListItem = {
   jobId: string;
   name: string;
   objective: string;
+  funnelStage: string | null;
   status: AriesCampaignStatus;
+  dashboardStatus: AriesItemStatus;
   stageLabel: string;
   summary: string;
   dateRange: string;
@@ -18,6 +30,22 @@ export type RuntimeCampaignListItem = {
   updatedAt: string | null;
   approvalRequired: boolean;
   approvalActionHref?: string;
+  counts: {
+    posts: number;
+    landingPages: number;
+    imageAds: number;
+    scripts: number;
+    publishItems: number;
+    proposalConcepts: number;
+    ready: number;
+    readyToPublish: number;
+    pausedMetaAds: number;
+    scheduled: number;
+    live: number;
+  };
+  previewPosts: AriesDashboardPost[];
+  previewAssets: AriesDashboardAsset[];
+  dashboard: AriesDashboardCampaignContent;
 };
 
 export type RuntimeReviewDecision = {
@@ -84,7 +112,12 @@ export type BusinessProfileView = {
 export type CampaignListResponse = { campaigns: RuntimeCampaignListItem[] };
 export type ReviewQueueResponse = { reviews: RuntimeReviewItem[] };
 export type ReviewItemResponse = { review: RuntimeReviewItem };
-export type ReviewDecisionRequest = { action: 'approve' | 'changes_requested' | 'reject'; actedBy: string; note?: string };
+export type ReviewDecisionRequest = {
+  action: 'approve' | 'changes_requested' | 'reject';
+  actedBy: string;
+  note?: string;
+  approvalId?: string;
+};
 export type BusinessProfileResponse = { profile: BusinessProfileView };
 export type BusinessProfilePatch = {
   businessName?: string | null;
@@ -109,12 +142,13 @@ export type AriesKpi = {
   delta: string;
   tone: 'good' | 'neutral' | 'watch';
 };
+export type AriesItemStatus = MarketingDashboardItemStatus;
 export type AriesScheduleItem = {
   id: string;
   title: string;
   channel: string;
   scheduledFor: string;
-  status: AriesCampaignStatus;
+  status: AriesCampaignStatus | AriesItemStatus;
 };
 export type AriesChannelConnection = {
   id: string;
@@ -155,6 +189,13 @@ export type AriesCampaign = RuntimeCampaignListItem & {
   activity: Array<{ id: string; label: string; detail: string; at: string }>;
 };
 export type AriesReviewItem = RuntimeReviewItem;
+export type AriesDashboardAsset = MarketingDashboardAsset;
+export type AriesDashboardPost = MarketingDashboardPost;
+export type AriesDashboardPublishItem = MarketingDashboardPublishItem;
+export type AriesDashboardCalendarEvent = MarketingDashboardCalendarEvent;
+export type AriesDashboardStatusSummary = MarketingDashboardStatusSummary;
+export type AriesDashboardCampaignContent = MarketingDashboardCampaignContent;
+export type PostsInventoryResponse = MarketingDashboardContent;
 
 export function createAriesV1Api(options: ApiClientOptions = {}) {
   return {
@@ -163,6 +204,9 @@ export function createAriesV1Api(options: ApiClientOptions = {}) {
     },
     getReviews() {
       return requestJson<ReviewQueueResponse>('/api/marketing/reviews', { method: 'GET' }, options);
+    },
+    getPosts() {
+      return requestJson<PostsInventoryResponse>('/api/marketing/posts', { method: 'GET' }, options);
     },
     getReviewItem(reviewId: string) {
       return requestJson<ReviewItemResponse>(`/api/marketing/reviews/${encodeURIComponent(reviewId)}`, { method: 'GET' }, options);

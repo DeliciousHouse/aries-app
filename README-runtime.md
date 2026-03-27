@@ -7,7 +7,7 @@ Aries is a Next.js 15 runtime that serves the public marketing site, the authent
 ```text
 Browser
   -> public pages (`/`, `/features`, `/documentation`, `/api-docs`)
-  -> operator pages (`/dashboard`, `/platforms`, `/settings`, `/posts`, `/calendar`)
+  -> operator pages (`/dashboard`, `/dashboard/campaigns`, `/dashboard/posts`, `/dashboard/calendar`, `/dashboard/results`, `/dashboard/settings`, `/review`)
   -> workflow pages (`/onboarding/*`, `/marketing/*`, `/oauth/connect/:provider`)
   -> Next.js route handlers (`app/api/*`)
       -> Aries domain services (`backend/*`, `lib/*`)
@@ -25,10 +25,14 @@ Browser
 
 ### Operator and workflow pages
 - `/dashboard`
-- `/platforms`
-- `/settings`
-- `/posts`
-- `/calendar`
+- `/dashboard/campaigns`
+- `/dashboard/campaigns/:campaignId`
+- `/dashboard/posts`
+- `/dashboard/calendar`
+- `/dashboard/results`
+- `/dashboard/settings`
+- `/review`
+- `/review/:reviewId`
 - `/onboarding/start`
 - `/onboarding/status`
 - `/marketing/new-job`

@@ -4,17 +4,42 @@ import crypto from 'node:crypto';
 
 import { resolveDataPath } from '@/lib/runtime-paths';
 
+import { approveMarketingJob } from './jobs-approve';
+import { denyMarketingJob } from './orchestrator';
 import { loadMarketingJobRuntime, listMarketingJobIdsForTenant, type MarketingJobRuntimeDocument } from './runtime-state';
+import {
+  dashboardDateRangeText,
+  getMarketingDashboardCampaignContent,
+  getMarketingDashboardContentForTenant,
+  type MarketingDashboardAsset,
+  type MarketingDashboardCampaign,
+  type MarketingDashboardCalendarEvent,
+  type MarketingDashboardCampaignContent,
+  type MarketingDashboardItemStatus,
+  type MarketingDashboardPost,
+  type MarketingDashboardPublishItem,
+  type MarketingDashboardStatusSummary,
+} from './dashboard-content';
 import { getMarketingJobStatus, type MarketingJobStatusResponse, type MarketingReviewBundle } from './jobs-status';
 
 export type RuntimeCampaignStatus = 'draft' | 'in_review' | 'approved' | 'scheduled' | 'live' | 'changes_requested';
+
+export type RuntimeCampaignDashboard = {
+  posts: MarketingDashboardPost[];
+  assets: MarketingDashboardAsset[];
+  publishItems: MarketingDashboardPublishItem[];
+  calendarEvents: MarketingDashboardCalendarEvent[];
+  statuses: MarketingDashboardStatusSummary;
+};
 
 export type RuntimeCampaignListItem = {
   id: string;
   jobId: string;
   name: string;
   objective: string;
+  funnelStage: string | null;
   status: RuntimeCampaignStatus;
+  dashboardStatus: MarketingDashboardItemStatus;
   stageLabel: string;
   summary: string;
   dateRange: string;
@@ -24,6 +49,10 @@ export type RuntimeCampaignListItem = {
   updatedAt: string | null;
   approvalRequired: boolean;
   approvalActionHref?: string;
+  counts: MarketingDashboardCampaign['counts'];
+  previewPosts: MarketingDashboardPost[];
+  previewAssets: MarketingDashboardAsset[];
+  dashboard: RuntimeCampaignDashboard;
 };
 
 export type RuntimeReviewDecision = {
@@ -79,6 +108,18 @@ export type RuntimeReviewStateFile = {
   updated_at: string;
 };
 
+export class RuntimeReviewDecisionError extends Error {
+  code: string;
+  status: number;
+
+  constructor(code: string, message: string, status: number) {
+    super(message);
+    this.name = 'RuntimeReviewDecisionError';
+    this.code = code;
+    this.status = status;
+  }
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -124,6 +165,45 @@ function stableHash(value: unknown): string {
   return crypto.createHash('sha1').update(JSON.stringify(value)).digest('hex');
 }
 
+function reviewIdParts(reviewId: string): { jobId: string; itemId: string } {
+  const separator = reviewId.indexOf('::');
+  if (separator === -1) {
+    return { jobId: reviewId, itemId: '' };
+  }
+  return {
+    jobId: reviewId.slice(0, separator),
+    itemId: reviewId.slice(separator + 2),
+  };
+}
+
+function reviewItemSourceHash(item: RuntimeReviewItem): string {
+  return stableHash({
+    title: item.title,
+    summary: item.summary,
+    scheduledFor: item.scheduledFor,
+    currentVersion: {
+      label: item.currentVersion.label,
+      headline: item.currentVersion.headline,
+      supportingText: item.currentVersion.supportingText,
+      cta: item.currentVersion.cta,
+      notes: item.currentVersion.notes,
+    },
+    previousVersion: item.previousVersion
+      ? {
+          label: item.previousVersion.label,
+          headline: item.previousVersion.headline,
+          supportingText: item.previousVersion.supportingText,
+          cta: item.previousVersion.cta,
+          notes: item.previousVersion.notes,
+        }
+      : null,
+  });
+}
+
+function isWorkflowApprovalItem(item: RuntimeReviewItem): boolean {
+  return item.currentVersion.id === 'approval' || item.currentVersion.id.startsWith('approval:') || item.id.endsWith('::approval');
+}
+
 function mapCampaignStatus(status: MarketingJobStatusResponse): RuntimeCampaignStatus {
   if (status.approvalRequired) return 'in_review';
   const normalized = String(status.status || '').toLowerCase();
@@ -151,6 +231,21 @@ function campaignDateRange(status: MarketingJobStatusResponse): string {
   return 'Dates not scheduled yet';
 }
 
+function formatUtcTimestampLabel(value: string): string {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    return value;
+  }
+
+  return `${new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'UTC',
+  }).format(new Date(timestamp))} UTC`;
+}
+
 function nextScheduledText(status: MarketingJobStatusResponse): string {
   const next = status.calendarEvents
     .slice()
@@ -158,25 +253,65 @@ function nextScheduledText(status: MarketingJobStatusResponse): string {
   if (!next) {
     return status.approvalRequired ? 'Waiting on approval before scheduling' : 'Nothing scheduled yet';
   }
-  return `${next.startsAt}${next.platform ? ` · ${next.platform}` : ''}`;
+  return `${formatUtcTimestampLabel(next.startsAt)}${next.platform ? ` · ${next.platform}` : ''}`;
 }
 
-function buildCampaignListItem(status: MarketingJobStatusResponse, pendingApprovals: number): RuntimeCampaignListItem {
+function nextScheduledTextFromDashboard(events: MarketingDashboardCalendarEvent[]): string {
+  const next = events
+    .slice()
+    .sort((left, right) => left.startsAt.localeCompare(right.startsAt))[0];
+  if (!next) {
+    return 'Nothing scheduled yet';
+  }
+  return `${formatUtcTimestampLabel(next.startsAt)} · ${next.statusLabel}${next.platformLabel ? ` · ${next.platformLabel}` : ''}`;
+}
+
+function buildCampaignListItem(
+  status: MarketingJobStatusResponse,
+  dashboardCampaign: MarketingDashboardCampaign | null,
+  dashboard: MarketingDashboardCampaignContent,
+  pendingApprovals: number,
+): RuntimeCampaignListItem {
+  const fallbackStatus = mapCampaignStatus(status);
   return {
     id: status.jobId,
     jobId: status.jobId,
-    name: campaignName(status),
-    objective: campaignObjective(status),
-    status: mapCampaignStatus(status),
-    stageLabel: status.currentStage || 'campaign',
-    summary: status.summary.subheadline || 'Campaign status is available for review.',
-    dateRange: campaignDateRange(status),
+    name: dashboardCampaign?.name || campaignName(status),
+    objective: dashboardCampaign?.objective || campaignObjective(status),
+    funnelStage: dashboardCampaign?.funnelStage || null,
+    status: dashboardCampaign?.compatibilityStatus || fallbackStatus,
+    dashboardStatus: dashboardCampaign?.status || 'draft',
+    stageLabel: dashboardCampaign?.stageLabel || status.currentStage || 'campaign',
+    summary: dashboardCampaign?.summary || status.summary.subheadline || 'Campaign status is available for review.',
+    dateRange: dashboardCampaign ? dashboardDateRangeText(dashboardCampaign.campaignWindow) : campaignDateRange(status),
     pendingApprovals,
-    nextScheduled: nextScheduledText(status),
+    nextScheduled: dashboard.calendarEvents.length > 0 ? nextScheduledTextFromDashboard(dashboard.calendarEvents) : nextScheduledText(status),
     trustNote: 'Nothing goes live without approval.',
-    updatedAt: status.updatedAt,
-    approvalRequired: status.approvalRequired,
-    approvalActionHref: status.approval?.actionHref,
+    updatedAt: dashboardCampaign?.updatedAt || status.updatedAt,
+    approvalRequired: dashboardCampaign?.approvalRequired ?? status.approvalRequired,
+    approvalActionHref: dashboardCampaign?.approvalActionHref || status.approval?.actionHref,
+    counts: dashboardCampaign?.counts || {
+      posts: dashboard.posts.length,
+      landingPages: dashboard.assets.filter((asset) => asset.type === 'landing_page').length,
+      imageAds: dashboard.assets.filter((asset) => asset.type === 'image_ad').length,
+      scripts: dashboard.assets.filter((asset) => asset.type === 'script' || asset.type === 'copy').length,
+      publishItems: dashboard.publishItems.length,
+      proposalConcepts: dashboard.posts.filter((post) => post.provenance.sourceKind === 'proposal').length,
+      ready: dashboard.statuses.countsByStatus.ready,
+      readyToPublish: dashboard.statuses.countsByStatus.ready_to_publish,
+      pausedMetaAds: dashboard.statuses.countsByStatus.published_to_meta_paused,
+      scheduled: dashboard.statuses.countsByStatus.scheduled,
+      live: dashboard.statuses.countsByStatus.live,
+    },
+    previewPosts: dashboard.posts.slice(0, 3),
+    previewAssets: dashboard.assets.slice(0, 3),
+    dashboard: {
+      posts: dashboard.posts,
+      assets: dashboard.assets,
+      publishItems: dashboard.publishItems,
+      calendarEvents: dashboard.calendarEvents,
+      statuses: dashboard.statuses,
+    },
   };
 }
 
@@ -193,21 +328,23 @@ function buildPreviewItems(status: MarketingJobStatusResponse, reviewBundle: Mar
     return [];
   }
 
+  const defaultStatus: RuntimeCampaignStatus = status.approvalRequired ? 'in_review' : 'approved';
+
   return reviewBundle.platformPreviews.map((preview) => ({
     id: `${status.jobId}::${preview.id}`,
     jobId: status.jobId,
     campaignId: status.jobId,
     campaignName: campaignName(status),
-    title: preview.headline || preview.platformName,
+    title: preview.displayTitle || preview.platformName,
     channel: preview.platformName,
     placement: preview.channelType,
     scheduledFor: deriveScheduledFor(status, preview.id),
-    status: 'in_review',
+    status: defaultStatus,
     summary: preview.summary,
     currentVersion: {
       id: preview.id,
       label: 'Current version',
-      headline: preview.headline || preview.platformName,
+      headline: preview.displayTitle || preview.platformName,
       supportingText: preview.caption || preview.summary,
       cta: preview.cta || '',
       notes: preview.details,
@@ -234,12 +371,12 @@ function buildFallbackApprovalItem(status: MarketingJobStatusResponse): RuntimeR
     status: 'in_review',
     summary: status.approval.message,
     currentVersion: {
-      id: 'approval',
+      id: status.approval?.approvalId ? `approval:${status.approval.approvalId}` : 'approval',
       label: 'Current version',
       headline: status.approval.title,
       supportingText: status.approval.message,
       cta: 'Approve',
-      notes: [],
+      notes: status.approval.workflowStepId ? [`Workflow step: ${status.approval.workflowStepId}`] : [],
     },
     previousVersion: undefined,
     lastDecision: null,
@@ -251,13 +388,9 @@ function mergeReviewState(status: MarketingJobStatusResponse, items: RuntimeRevi
   let changed = false;
 
   for (const item of items) {
-    const sourceHash = stableHash({
-      title: item.title,
-      summary: item.summary,
-      currentVersion: item.currentVersion,
-      scheduledFor: item.scheduledFor,
-    });
-    const existing = state.items[item.id];
+    const sourceHash = reviewItemSourceHash(item);
+    const exact = state.items[item.id];
+    const existing = exact ?? Object.values(state.items).find((entry) => entry.sourceHash === sourceHash);
 
     if (!existing) {
       state.items[item.id] = {
@@ -269,7 +402,14 @@ function mergeReviewState(status: MarketingJobStatusResponse, items: RuntimeRevi
       continue;
     }
 
-    if (existing.sourceHash !== sourceHash) {
+    if (!exact) {
+      state.items[item.id] = {
+        sourceHash,
+        status: existing.status,
+        lastDecision: existing.lastDecision,
+      };
+      changed = true;
+    } else if (existing.sourceHash !== sourceHash) {
       state.items[item.id] = {
         sourceHash,
         status: existing.status === 'approved' ? 'in_review' : existing.status,
@@ -278,16 +418,20 @@ function mergeReviewState(status: MarketingJobStatusResponse, items: RuntimeRevi
       changed = true;
     }
 
-    item.status = state.items[item.id].status;
-    item.lastDecision = state.items[item.id].lastDecision;
-  }
-
-  const validIds = new Set(items.map((item) => item.id));
-  for (const id of Object.keys(state.items)) {
-    if (!validIds.has(id)) {
-      delete state.items[id];
+    if (
+      state.items[item.id].lastDecision === null &&
+      state.items[item.id].status !== item.status &&
+      (state.items[item.id].status === 'in_review' || item.status === 'in_review' || item.status === 'approved')
+    ) {
+      state.items[item.id] = {
+        ...state.items[item.id],
+        status: item.status,
+      };
       changed = true;
     }
+
+    item.status = state.items[item.id].status;
+    item.lastDecision = state.items[item.id].lastDecision;
   }
 
   if (changed) {
@@ -303,19 +447,70 @@ function mergeReviewState(status: MarketingJobStatusResponse, items: RuntimeRevi
 }
 
 function buildReviewItemsForStatus(status: MarketingJobStatusResponse): RuntimeReviewItem[] {
-  const baseItems = status.reviewBundle
-    ? buildPreviewItems(status, status.reviewBundle)
-    : buildFallbackApprovalItem(status);
+  const baseItems = [
+    ...(status.reviewBundle ? buildPreviewItems(status, status.reviewBundle) : []),
+    ...buildFallbackApprovalItem(status),
+  ];
   return mergeReviewState(status, baseItems);
 }
 
+function resolveRuntimeReviewItem(status: MarketingJobStatusResponse, reviewId: string): RuntimeReviewItem | null {
+  const items = buildReviewItemsForStatus(status);
+  const exact = items.find((item) => item.id === reviewId);
+  if (exact) {
+    return exact;
+  }
+
+  const { itemId } = reviewIdParts(reviewId);
+  if (itemId) {
+    const byCurrentVersionId = items.find((item) => item.currentVersion.id === itemId);
+    if (byCurrentVersionId) {
+      return byCurrentVersionId;
+    }
+  }
+
+  const state = loadReviewState(status.jobId, status.tenantId || 'unknown');
+  const persisted = state.items[reviewId];
+  if (!persisted) {
+    return null;
+  }
+
+  return items.find((item) => reviewItemSourceHash(item) === persisted.sourceHash) ?? null;
+}
+
 export async function listMarketingCampaignsForTenant(tenantId: string): Promise<RuntimeCampaignListItem[]> {
-  const jobIds = listMarketingJobIdsForTenant(tenantId);
-  return jobIds.map((jobId) => {
+  const content = getMarketingDashboardContentForTenant(tenantId);
+  const campaignById = new Map(content.campaigns.map((campaign) => [campaign.jobId, campaign]));
+  const campaigns = content.campaigns.map((campaign) => {
+    const jobId = campaign.jobId;
     const status = getMarketingJobStatus(jobId);
     const pendingApprovals = buildReviewItemsForStatus(status).filter((item) => item.status !== 'approved').length;
-    return buildCampaignListItem(status, pendingApprovals);
+    const dashboard = getMarketingDashboardCampaignContent(jobId);
+    return buildCampaignListItem(status, campaignById.get(jobId) || null, dashboard, pendingApprovals);
   });
+
+  return campaigns.sort((left, right) => {
+    const leftUpdated = Date.parse(left.updatedAt || '');
+    const rightUpdated = Date.parse(right.updatedAt || '');
+    return (Number.isFinite(rightUpdated) ? rightUpdated : 0) - (Number.isFinite(leftUpdated) ? leftUpdated : 0);
+  });
+}
+
+export async function getMarketingCampaignContentForTenant(
+  tenantId: string,
+  campaignId: string,
+): Promise<MarketingDashboardCampaignContent | null> {
+  const jobIds = new Set(listMarketingJobIdsForTenant(tenantId));
+  if (!jobIds.has(campaignId)) {
+    return null;
+  }
+  return getMarketingDashboardCampaignContent(campaignId);
+}
+
+export async function listMarketingPostsForTenant(
+  tenantId: string,
+): Promise<ReturnType<typeof getMarketingDashboardContentForTenant>> {
+  return getMarketingDashboardContentForTenant(tenantId);
 }
 
 export async function listMarketingReviewItemsForTenant(tenantId: string): Promise<RuntimeReviewItem[]> {
@@ -325,12 +520,12 @@ export async function listMarketingReviewItemsForTenant(tenantId: string): Promi
 }
 
 export async function getMarketingReviewItemForTenant(tenantId: string, reviewId: string): Promise<RuntimeReviewItem | null> {
-  const [jobId] = reviewId.split('::');
+  const { jobId } = reviewIdParts(reviewId);
   const status = getMarketingJobStatus(jobId);
   if (status.tenantId !== tenantId) {
     return null;
   }
-  return buildReviewItemsForStatus(status).find((item) => item.id === reviewId) ?? null;
+  return resolveRuntimeReviewItem(status, reviewId);
 }
 
 export async function recordMarketingReviewDecision(input: {
@@ -339,28 +534,107 @@ export async function recordMarketingReviewDecision(input: {
   action: 'approve' | 'changes_requested' | 'reject';
   actedBy: string;
   note?: string;
+  approvalId?: string;
 }): Promise<RuntimeReviewItem | null> {
-  const [jobId] = input.reviewId.split('::');
+  const { jobId } = reviewIdParts(input.reviewId);
   const runtimeDoc = loadMarketingJobRuntime(jobId);
   if (!runtimeDoc || runtimeDoc.tenant_id !== input.tenantId) {
     return null;
   }
 
   const status = getMarketingJobStatus(jobId);
-  const allItems = buildReviewItemsForStatus(status);
-  const item = allItems.find((entry) => entry.id === input.reviewId);
+  const item = resolveRuntimeReviewItem(status, input.reviewId);
   if (!item) {
     return null;
   }
 
+  if (input.action === 'approve' && isWorkflowApprovalItem(item)) {
+    const checkpoint = runtimeDoc.approvals.current;
+    const approvalResult = await approveMarketingJob({
+      jobId,
+      tenantId: input.tenantId,
+      approvedBy: input.actedBy,
+      approvedStages: checkpoint ? [checkpoint.stage] : undefined,
+      approvalId: input.approvalId,
+      resumePublishIfNeeded: checkpoint?.stage === 'publish' ? true : undefined,
+      publishConfig: checkpoint?.stage === 'publish' ? (checkpoint.publish_config ?? undefined) : undefined,
+    });
+
+    if (approvalResult.reason === 'job_not_found' || approvalResult.reason === 'tenant_mismatch') {
+      return null;
+    }
+
+    if (approvalResult.reason === 'missing_approved_by') {
+      throw new RuntimeReviewDecisionError(
+        'missing_approved_by',
+        'approvedBy is required.',
+        400,
+      );
+    }
+
+    if (approvalResult.reason === 'approval_not_available') {
+      throw new RuntimeReviewDecisionError(
+        'approval_not_available',
+        'This campaign is not waiting on an active approval checkpoint.',
+        409,
+      );
+    }
+
+    if (approvalResult.reason === 'approval_stage_not_selected') {
+      throw new RuntimeReviewDecisionError(
+        'approval_stage_not_selected',
+        'The current approval checkpoint was not selected.',
+        409,
+      );
+    }
+
+    if (approvalResult.reason === 'workflow_missing_for_route') {
+      throw new RuntimeReviewDecisionError(
+        'workflow_missing_for_route',
+        'The workflow route for this approval is not available.',
+        501,
+      );
+    }
+
+    if (approvalResult.status !== 'resumed' && approvalResult.status !== 'already_resolved') {
+      throw new RuntimeReviewDecisionError(
+        approvalResult.reason || 'approval_failed',
+        `Approval failed: ${approvalResult.reason || approvalResult.status}`,
+        400,
+      );
+    }
+  } else if (isWorkflowApprovalItem(item) && input.action === 'reject') {
+    const denialResult = await denyMarketingJob({
+      jobId,
+      tenantId: input.tenantId,
+      deniedBy: input.actedBy,
+      approvalId: input.approvalId,
+      note: input.note,
+      publishConfig: runtimeDoc.approvals.current?.stage === 'publish'
+        ? (runtimeDoc.approvals.current.publish_config ?? undefined)
+        : undefined,
+    }, runtimeDoc);
+
+    if (denialResult.reason === 'approval_not_available') {
+      throw new RuntimeReviewDecisionError(
+        'approval_not_available',
+        'This campaign is not waiting on an active approval checkpoint.',
+        409,
+      );
+    }
+
+    if (denialResult.status !== 'denied' && denialResult.status !== 'already_resolved') {
+      throw new RuntimeReviewDecisionError(
+        denialResult.reason || 'approval_denial_failed',
+        `Approval denial failed: ${denialResult.reason || denialResult.status}`,
+        400,
+      );
+    }
+  }
+
   const state = loadReviewState(jobId, input.tenantId);
-  const persisted = state.items[input.reviewId] ?? {
-    sourceHash: stableHash({
-      title: item.title,
-      summary: item.summary,
-      currentVersion: item.currentVersion,
-      scheduledFor: item.scheduledFor,
-    }),
+  const persisted = state.items[item.id] ?? state.items[input.reviewId] ?? {
+    sourceHash: reviewItemSourceHash(item),
     status: 'in_review' as RuntimeCampaignStatus,
     lastDecision: null,
   };
@@ -379,7 +653,10 @@ export async function recordMarketingReviewDecision(input: {
     note: input.note?.trim() || null,
     at: nowIso(),
   };
-  state.items[input.reviewId] = persisted;
+  state.items[item.id] = persisted;
+  if (input.reviewId !== item.id) {
+    state.items[input.reviewId] = persisted;
+  }
   saveReviewState(state);
 
   return {

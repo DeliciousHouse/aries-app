@@ -54,6 +54,7 @@ lobster/tmp-debug-args.lobster
 lobster/bin/__pycache__/
 
 # Misc
+.artifacts/
 .cache/
 .eslintcache
 .stylelintcache

@@ -184,7 +184,7 @@ export default function DashboardConsole(): JSX.Element {
                         )}
                         <div className="p-4">
                           <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-2">{preview.platformName}</p>
-                          <h4 className="font-semibold mb-1">{preview.headline || preview.summary}</h4>
+                          <h4 className="font-semibold mb-1">{preview.displayTitle || preview.summary}</h4>
                           <p className="text-sm text-white/55">{preview.summary}</p>
                         </div>
                       </Link>
@@ -254,7 +254,7 @@ export default function DashboardConsole(): JSX.Element {
                   Open approval checkpoint <Activity className="w-4 h-4" />
                 </Link>
               ) : null}
-              <Link href="/posts" className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2">
+              <Link href="/dashboard/posts" className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2">
                 Review post queue <Activity className="w-4 h-4" />
               </Link>
               <Link href="/dashboard/calendar" className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2">

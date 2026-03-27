@@ -93,6 +93,8 @@ export interface MarketingAssetLink {
 export interface MarketingApprovalSummary {
   required: boolean;
   status: string;
+  approvalId?: string;
+  workflowStepId?: string;
   title: string;
   message: string;
   actionLabel?: string;
@@ -104,6 +106,7 @@ export interface MarketingReviewPreviewCard {
   platformSlug: string;
   platformName: string;
   channelType: string;
+  displayTitle?: string;
   summary: string;
   headline?: string;
   hook?: string;
@@ -141,6 +144,208 @@ export interface MarketingReviewBundle {
   platformPreviews: MarketingReviewPreviewCard[];
 }
 
+export type MarketingDashboardItemStatus =
+  | 'draft'
+  | 'in_review'
+  | 'ready'
+  | 'ready_to_publish'
+  | 'published_to_meta_paused'
+  | 'scheduled'
+  | 'live';
+
+export type MarketingDashboardSourceKind =
+  | 'live_platform'
+  | 'live_publish_result'
+  | 'publish_review'
+  | 'creative_output'
+  | 'proposal';
+
+export interface MarketingDashboardProvenance {
+  sourceKind: MarketingDashboardSourceKind;
+  sourceStage: MarketingStage | 'runtime';
+  sourceRunId: string | null;
+  isDerivedSchedule: boolean;
+  isPlatformNative: boolean;
+}
+
+export type MarketingDashboardAssetType =
+  | 'landing_page'
+  | 'image_ad'
+  | 'script'
+  | 'copy'
+  | 'contract'
+  | 'proposal_document'
+  | 'review_package'
+  | 'publish_package';
+
+export type MarketingDashboardPostType =
+  | 'platform_post'
+  | 'meta_ad'
+  | 'pre_publish_ad'
+  | 'creative_output'
+  | 'proposal_concept';
+
+export type MarketingDashboardPublishItemType =
+  | 'pre_publish_review'
+  | 'publish_package'
+  | 'meta_paused_ad'
+  | 'scheduled_post'
+  | 'live_post';
+
+export type MarketingDashboardCampaignCompatibilityStatus =
+  | 'draft'
+  | 'in_review'
+  | 'approved'
+  | 'scheduled'
+  | 'live'
+  | 'changes_requested';
+
+export interface MarketingDashboardAsset {
+  id: string;
+  campaignId: string;
+  jobId: string;
+  type: MarketingDashboardAssetType;
+  title: string;
+  summary: string;
+  platform: string;
+  platformLabel: string;
+  campaignName: string;
+  funnelStage: string | null;
+  objective: string;
+  destinationUrl: string | null;
+  previewUrl: string | null;
+  thumbnailUrl: string | null;
+  contentType: string | null;
+  status: MarketingDashboardItemStatus;
+  createdAt: string | null;
+  relatedPostIds: string[];
+  relatedPublishItemIds: string[];
+  provenance: MarketingDashboardProvenance;
+}
+
+export interface MarketingDashboardPost {
+  id: string;
+  campaignId: string;
+  jobId: string;
+  type: MarketingDashboardPostType;
+  title: string;
+  summary: string;
+  platform: string;
+  platformLabel: string;
+  campaignName: string;
+  funnelStage: string | null;
+  objective: string;
+  destinationUrl: string | null;
+  previewAssetId: string | null;
+  status: MarketingDashboardItemStatus;
+  createdAt: string | null;
+  conceptId: string | null;
+  relatedAssetIds: string[];
+  relatedPublishItemIds: string[];
+  provenance: MarketingDashboardProvenance;
+}
+
+export interface MarketingDashboardPublishItem {
+  id: string;
+  campaignId: string;
+  jobId: string;
+  type: MarketingDashboardPublishItemType;
+  title: string;
+  summary: string;
+  platform: string;
+  platformLabel: string;
+  campaignName: string;
+  funnelStage: string | null;
+  objective: string;
+  destinationUrl: string | null;
+  previewAssetId: string | null;
+  status: MarketingDashboardItemStatus;
+  createdAt: string | null;
+  relatedAssetIds: string[];
+  relatedPostIds: string[];
+  provenance: MarketingDashboardProvenance;
+}
+
+export interface MarketingDashboardCalendarEvent {
+  id: string;
+  campaignId: string;
+  jobId: string;
+  title: string;
+  platform: string;
+  platformLabel: string;
+  startsAt: string;
+  endsAt: string | null;
+  status: MarketingDashboardItemStatus;
+  statusLabel: string;
+  campaignName: string;
+  funnelStage: string | null;
+  objective: string;
+  destinationUrl: string | null;
+  previewAssetId: string | null;
+  sourcePostId: string | null;
+  sourcePublishItemId: string | null;
+  provenance: MarketingDashboardProvenance;
+}
+
+export interface MarketingDashboardStatusSummary {
+  countsByStatus: Record<MarketingDashboardItemStatus, number>;
+}
+
+export interface MarketingDashboardCampaign {
+  id: string;
+  jobId: string;
+  externalCampaignId: string;
+  name: string;
+  objective: string;
+  funnelStage: string | null;
+  summary: string;
+  stageLabel: string;
+  status: MarketingDashboardItemStatus;
+  compatibilityStatus: MarketingDashboardCampaignCompatibilityStatus;
+  campaignWindow: MarketingCampaignWindow | null;
+  updatedAt: string | null;
+  approvalRequired: boolean;
+  approvalActionHref?: string;
+  previewPostIds: string[];
+  previewAssetIds: string[];
+  postIds: string[];
+  assetIds: string[];
+  publishItemIds: string[];
+  calendarEventIds: string[];
+  counts: {
+    posts: number;
+    landingPages: number;
+    imageAds: number;
+    scripts: number;
+    publishItems: number;
+    proposalConcepts: number;
+    ready: number;
+    readyToPublish: number;
+    pausedMetaAds: number;
+    scheduled: number;
+    live: number;
+  };
+  provenance: MarketingDashboardProvenance;
+}
+
+export interface MarketingDashboardContent {
+  campaigns: MarketingDashboardCampaign[];
+  posts: MarketingDashboardPost[];
+  assets: MarketingDashboardAsset[];
+  publishItems: MarketingDashboardPublishItem[];
+  calendarEvents: MarketingDashboardCalendarEvent[];
+  statuses: MarketingDashboardStatusSummary;
+}
+
+export interface MarketingDashboardCampaignContent {
+  campaign: MarketingDashboardCampaign | null;
+  posts: MarketingDashboardPost[];
+  assets: MarketingDashboardAsset[];
+  publishItems: MarketingDashboardPublishItem[];
+  calendarEvents: MarketingDashboardCalendarEvent[];
+  statuses: MarketingDashboardStatusSummary;
+}
+
 export interface GetMarketingJobStatusResponse {
   jobId: string;
   tenantName: string | null;
@@ -174,11 +379,15 @@ export interface GetMarketingJobStatusResponse {
   };
   nextStep: string;
   repairStatus: string;
+  dashboard: MarketingDashboardCampaignContent;
 }
+
+export type GetMarketingPostsResponse = MarketingDashboardContent;
 
 export interface PostMarketingJobApproveRequest {
   approvedBy: string;
   approvedStages?: MarketingStage[];
+  approvalId?: string;
   resumePublishIfNeeded?: boolean;
   publishConfig?: {
     platforms?: string[];
@@ -188,10 +397,11 @@ export interface PostMarketingJobApproveRequest {
 }
 
 export interface ApproveJobResult {
-  approval_status: 'resumed' | 'error';
+  approval_status: 'resumed' | 'already_resolved' | 'denied' | 'error';
   jobId: string;
   resumedStage: string | null;
   completed: boolean;
+  approvalId?: string | null;
   reason?: string;
   jobStatusUrl?: string;
 }
@@ -229,6 +439,14 @@ export function createMarketingApi(options: ApiClientOptions = {}) {
     getLatestJob() {
       return requestJson<MarketingResult<GetMarketingJobStatusResponse>>(
         '/api/marketing/jobs/latest',
+        { method: 'GET' },
+        options
+      );
+    },
+
+    getPosts() {
+      return requestJson<MarketingResult<GetMarketingPostsResponse>>(
+        '/api/marketing/posts',
         { method: 'GET' },
         options
       );

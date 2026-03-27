@@ -24,6 +24,7 @@ export async function handleApproveMarketingJob(
   let payload: {
     approvedBy?: unknown;
     approvedStages?: Array<'research' | 'strategy' | 'production' | 'publish'>;
+    approvalId?: unknown;
     resumePublishIfNeeded?: boolean;
     publishConfig?: {
       platforms?: string[];
@@ -75,6 +76,7 @@ export async function handleApproveMarketingJob(
       tenantId: resolvedTenantId,
       approvedBy: typeof payload.approvedBy === 'string' ? payload.approvedBy : '',
       approvedStages: payload.approvedStages,
+      approvalId: typeof payload.approvalId === 'string' ? payload.approvalId : undefined,
       resumePublishIfNeeded: payload.resumePublishIfNeeded,
       publishConfig: payload.publishConfig
         ? {
@@ -131,6 +133,7 @@ export async function handleApproveMarketingJob(
         jobId: result.jobId,
         resumedStage: result.resumedStage,
         completed: result.completed,
+        approvalId: result.approvalId,
         reason: result.reason,
         jobStatusUrl: `/marketing/job-status?jobId=${encodeURIComponent(result.jobId)}`,
       },
@@ -138,7 +141,7 @@ export async function handleApproveMarketingJob(
         status:
           result.reason === 'workflow_missing_for_route'
             ? 501
-            : result.status === 'resumed'
+            : result.status === 'resumed' || result.status === 'already_resolved'
               ? 200
               : 400,
       }

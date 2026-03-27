@@ -18,11 +18,27 @@ import type {
   AriesCampaign,
   AriesCampaignStatus,
   AriesChannelConnection,
+  AriesItemStatus,
   AriesKpi,
   AriesRecommendation,
   AriesReviewItem,
   AriesScheduleItem,
 } from '@/lib/api/aries-v1';
+
+function formatUtcTimestampLabel(value: string): string {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    return value;
+  }
+
+  return `${new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'UTC',
+  }).format(new Date(timestamp))} UTC`;
+}
 
 export function ShellPanel(props: {
   title?: string;
@@ -130,12 +146,18 @@ export function MetricCard(props: DashboardHeroMetric) {
   );
 }
 
-export function StatusChip(props: { status: AriesCampaignStatus; children?: React.ReactNode }) {
+export function StatusChip(props: { status: AriesCampaignStatus | AriesItemStatus; children?: React.ReactNode }) {
   const palette =
     props.status === 'live'
       ? 'border-emerald-400/25 bg-emerald-400/10 text-emerald-100'
       : props.status === 'scheduled'
         ? 'border-sky-400/25 bg-sky-400/10 text-sky-100'
+        : props.status === 'published_to_meta_paused'
+          ? 'border-cyan-400/25 bg-cyan-400/10 text-cyan-100'
+          : props.status === 'ready_to_publish'
+            ? 'border-violet-400/25 bg-violet-400/10 text-violet-100'
+            : props.status === 'ready'
+              ? 'border-teal-400/25 bg-teal-400/10 text-teal-100'
         : props.status === 'approved'
           ? 'border-indigo-400/25 bg-indigo-400/10 text-indigo-100'
           : props.status === 'in_review'
@@ -149,6 +171,9 @@ export function StatusChip(props: { status: AriesCampaignStatus; children?: Reac
     {
       draft: 'Draft',
       in_review: 'In review',
+      ready: 'Ready',
+      ready_to_publish: 'Ready to publish',
+      published_to_meta_paused: 'Published to Meta (Paused)',
       approved: 'Approved',
       scheduled: 'Scheduled',
       live: 'Live',
@@ -229,7 +254,7 @@ export function ApprovalCard(props: { reviewItems: AriesReviewItem[] }) {
             <div className="space-y-1">
               <p className="text-sm font-medium text-white">{item.title}</p>
               <p className="text-sm text-white/55">
-                {item.channel} · {item.placement} · {item.scheduledFor}
+                {item.channel} · {item.placement} · {formatUtcTimestampLabel(item.scheduledFor)}
               </p>
             </div>
             <StatusChip status={item.status} />
@@ -247,7 +272,7 @@ export function ScheduleCard(props: { item: AriesScheduleItem | null }) {
         <div className="space-y-4">
           <div className="flex items-center gap-3 text-sm text-white/70">
             <CalendarClock className="h-4 w-4 text-white/50" />
-            <span>{props.item.scheduledFor}</span>
+            <span>{formatUtcTimestampLabel(props.item.scheduledFor)}</span>
           </div>
           <div className="flex items-center justify-between gap-4">
             <p className="text-sm text-white/60">{props.item.channel}</p>
@@ -287,7 +312,7 @@ export function CampaignSummaryCard(props: { campaign: AriesCampaign }) {
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-white/35">Trust note</p>
           <p className="mt-3 text-sm leading-7 text-white/75">{props.campaign.trustNote}</p>
           <Link
-            href={`/campaigns/${props.campaign.id}`}
+            href={`/dashboard/campaigns/${props.campaign.id}`}
             className="mt-5 inline-flex items-center gap-2 text-sm font-medium text-white"
           >
             Open campaign
@@ -422,7 +447,7 @@ export function ScheduleComposer(props: { items: AriesScheduleItem[] }) {
           <div className="space-y-1">
             <p className="text-sm font-medium text-white">{item.title}</p>
             <p className="text-sm text-white/55">
-              {item.channel} · {item.scheduledFor}
+              {item.channel} · {formatUtcTimestampLabel(item.scheduledFor)}
             </p>
           </div>
           <StatusChip status={item.status} />

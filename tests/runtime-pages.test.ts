@@ -5,7 +5,9 @@ import { isValidElement } from 'react';
 import HomePage from '../app/page';
 import DashboardPage from '../app/dashboard/page';
 import DashboardCampaignsPage from '../app/dashboard/campaigns/page';
+import DashboardCampaignWorkspacePage from '../app/dashboard/campaigns/[campaignId]/page';
 import DashboardCalendarPage from '../app/dashboard/calendar/page';
+import DashboardPostsPage from '../app/dashboard/posts/page';
 import DashboardResultsPage from '../app/dashboard/results/page';
 import DashboardSettingsPage from '../app/dashboard/settings/page';
 import CampaignsPage from '../app/campaigns/page';
@@ -14,6 +16,7 @@ import ReviewQueuePage from '../app/review/page';
 import ReviewItemPage from '../app/review/[reviewId]/page';
 import ResultsPage from '../app/results/page';
 import CalendarPage from '../app/calendar/page';
+import PostsPage from '../app/posts/page';
 import FeaturesPage from '../app/features/page';
 import DocumentationPage from '../app/documentation/page';
 import ApiDocsPage from '../app/api-docs/page';
@@ -34,6 +37,7 @@ import AriesReviewItemScreen from '../frontend/aries-v1/review-item';
 import AriesCalendarScreen from '../frontend/aries-v1/calendar-screen';
 import AriesResultsScreen from '../frontend/aries-v1/results-screen';
 import AriesSettingsScreen from '../frontend/aries-v1/settings-screen';
+import AriesPostsScreen from '../frontend/aries-v1/posts-screen';
 import AriesOnboardingFlow from '../frontend/aries-v1/onboarding-flow';
 import MarketingLayout from '../frontend/marketing/MarketingLayout';
 import OnboardingStatusScreen from '../frontend/onboarding/status';
@@ -44,6 +48,14 @@ import AppShellLayout from '../frontend/app-shell/layout';
 
 function expectRedirect(callable: () => unknown, location: string) {
   assert.throws(callable, (error: unknown) => {
+    assert.equal(error instanceof Error ? error.message : String(error), 'NEXT_REDIRECT');
+    assert.equal((error as { digest?: string }).digest, `NEXT_REDIRECT;replace;${location};307;`);
+    return true;
+  });
+}
+
+async function expectAsyncRedirect(callable: () => Promise<unknown>, location: string) {
+  await assert.rejects(callable, (error: unknown) => {
     assert.equal(error instanceof Error ? error.message : String(error), 'NEXT_REDIRECT');
     assert.equal((error as { digest?: string }).digest, `NEXT_REDIRECT;replace;${location};307;`);
     return true;
@@ -81,8 +93,8 @@ test('/campaigns redirects to the canonical dashboard campaigns route', () => {
   expectRedirect(() => CampaignsPage(), '/dashboard/campaigns');
 });
 
-test('/campaigns/[campaignId] preserves the campaign id for the workspace', async () => {
-  const element = await CampaignWorkspacePage({
+test('/dashboard/campaigns/[campaignId] preserves the campaign id for the workspace', async () => {
+  const element = await DashboardCampaignWorkspacePage({
     params: Promise.resolve({
       campaignId: 'spring-atelier-launch',
     }),
@@ -94,6 +106,17 @@ test('/campaigns/[campaignId] preserves the campaign id for the workspace', asyn
   assert.equal(isValidElement(element.props.children), true);
   assert.equal(element.props.children.type, AriesCampaignWorkspace);
   assert.equal(element.props.children.props.campaignId, 'spring-atelier-launch');
+});
+
+test('/campaigns/[campaignId] redirects to the canonical dashboard campaign workspace route', async () => {
+  await expectAsyncRedirect(
+    () => CampaignWorkspacePage({
+      params: Promise.resolve({
+        campaignId: 'spring-atelier-launch',
+      }),
+    }),
+    '/dashboard/campaigns/spring-atelier-launch',
+  );
 });
 
 test('/review wraps the review queue in the app shell', () => {
@@ -121,6 +144,17 @@ test('/review/[reviewId] preserves the review id for the review detail experienc
   assert.equal(element.props.children.props.reviewId, 'review_meta_launch_hero');
 });
 
+test('/review/[reviewId] decodes encoded review ids before rendering the detail experience', async () => {
+  const element = await ReviewItemPage({
+    params: Promise.resolve({
+      reviewId: 'mkt_123%3A%3Aapproval',
+    }),
+  });
+
+  assert.equal(isValidElement(element), true);
+  assert.equal(element.props.children.props.reviewId, 'mkt_123::approval');
+});
+
 test('/dashboard/calendar wraps the calendar screen in the app shell', () => {
   const element = DashboardCalendarPage();
 
@@ -133,6 +167,20 @@ test('/dashboard/calendar wraps the calendar screen in the app shell', () => {
 
 test('/calendar redirects to the canonical dashboard calendar route', () => {
   expectRedirect(() => CalendarPage(), '/dashboard/calendar');
+});
+
+test('/dashboard/posts restores the ready-to-publish inventory in the app shell', () => {
+  const element = DashboardPostsPage();
+
+  assert.equal(isValidElement(element), true);
+  assert.equal(element.type, AppShellLayout);
+  assert.equal(element.props.currentRouteId, 'posts');
+  assert.equal(isValidElement(element.props.children), true);
+  assert.equal(element.props.children.type, AriesPostsScreen);
+});
+
+test('/posts redirects to the canonical dashboard posts route', () => {
+  expectRedirect(() => PostsPage(), '/dashboard/posts');
 });
 
 test('/dashboard/results wraps the results screen in the app shell', () => {
@@ -229,14 +277,8 @@ test('/marketing/job-approve preserves the job id from the route boundary', asyn
   assert.equal(element.props.defaultJobId, 'mkt_123');
 });
 
-test('/platforms wraps the integrations screen in the app shell', () => {
-  const element = PlatformsPage();
-
-  assert.equal(isValidElement(element), true);
-  assert.equal(element.type, AppShellLayout);
-  assert.equal(element.props.currentRouteId, 'settings');
-  assert.equal(isValidElement(element.props.children), true);
-  assert.equal(element.props.children.type, AriesSettingsScreen);
+test('/platforms redirects to the canonical dashboard settings route', () => {
+  expectRedirect(() => PlatformsPage(), '/dashboard/settings');
 });
 
 test('/dashboard/settings wraps the settings screen in the app shell', () => {

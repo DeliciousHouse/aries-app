@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { getMarketingDashboardCampaignContent } from '@/backend/marketing/dashboard-content';
 import { getMarketingJobStatus } from '@/backend/marketing/jobs-status';
 import { findLatestMarketingJobIdForTenant } from '@/backend/marketing/runtime-state';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
@@ -60,6 +61,7 @@ export async function handleGetLatestMarketingJobStatus(
       publishConfig: result.publishConfig,
       nextStep: result.nextStep,
       repairStatus: result.repairStatus,
+      dashboard: getMarketingDashboardCampaignContent(latestJobId),
     },
     { status: 200 }
   );

@@ -1,21 +1,43 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
 
+import MediaPreview from '@/frontend/components/media-preview';
 import { useMarketingJobStatus } from '@/hooks/use-marketing-job-status';
 import { useRuntimeReviews } from '@/hooks/use-runtime-reviews';
 
 import { ActivityFeed, EmptyStatePanel, PublishReceipt, ScheduleComposer, SectionLink, ShellPanel, StatusChip } from './components';
 
-const tabs = ['Overview', 'Plan', 'Creative', 'Schedule', 'Results'] as const;
+const tabs = ['Overview', 'Plan', 'Creative', 'Publish', 'Schedule', 'Results'] as const;
 
 function campaignStatus(status: string, approvalRequired: boolean) {
   if (approvalRequired) return 'in_review';
   if ((status || '').toLowerCase().includes('complete')) return 'scheduled';
   if ((status || '').toLowerCase().includes('fail')) return 'changes_requested';
   return 'draft';
+}
+
+function isActiveJobStatus(status: string): boolean {
+  return ['accepted', 'running', 'in_progress', 'ready', 'awaiting_approval', 'resumed', 'pending'].includes(
+    (status || '').toLowerCase(),
+  );
+}
+
+function formatUtcTimestampLabel(value: string): string {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    return value;
+  }
+
+  return `${new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'UTC',
+  }).format(new Date(timestamp))} UTC`;
 }
 
 export default function AriesCampaignWorkspace(props: { campaignId: string }) {
@@ -29,6 +51,22 @@ export default function AriesCampaignWorkspace(props: { campaignId: string }) {
     () => (reviews.data?.reviews ?? []).filter((item) => item.campaignId === props.campaignId),
     [reviews.data, props.campaignId],
   );
+  const assetsById = useMemo(
+    () => new Map((status?.dashboard.assets ?? []).map((asset) => [asset.id, asset] as const)),
+    [status?.dashboard.assets],
+  );
+
+  useEffect(() => {
+    if (!status || !isActiveJobStatus(status.marketing_job_status)) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void job.load(props.campaignId, { quiet: true });
+    }, 5000);
+
+    return () => window.clearInterval(timer);
+  }, [job.load, props.campaignId, status]);
 
   if (job.isLoading) {
     return <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-8 text-white/60">Loading campaign…</div>;
@@ -43,15 +81,18 @@ export default function AriesCampaignWorkspace(props: { campaignId: string }) {
   }
 
   const uiStatus = campaignStatus(status.marketing_job_status, status.approvalRequired);
-  const campaignName = status.reviewBundle?.campaignName || status.tenantName || `Campaign ${status.jobId}`;
-  const nextScheduled = status.calendarEvents[0]?.startsAt || (status.approvalRequired ? 'Waiting on approval before scheduling' : 'Nothing scheduled yet');
+  const campaignName = status.dashboard.campaign?.name || status.reviewBundle?.campaignName || status.tenantName || `Campaign ${status.jobId}`;
+  const dashboard = status.dashboard;
+  const nextScheduled = dashboard.calendarEvents[0]
+    ? `${formatUtcTimestampLabel(dashboard.calendarEvents[0].startsAt)} · ${dashboard.calendarEvents[0].statusLabel}`
+    : (status.approvalRequired ? 'Waiting on approval before scheduling' : 'Nothing scheduled yet');
 
   return (
     <div className="space-y-6">
       <ShellPanel eyebrow="Campaign" title={campaignName}>
         <div className="space-y-5">
           <div className="flex flex-wrap items-center gap-3">
-            <StatusChip status={uiStatus} />
+            <StatusChip status={dashboard.campaign?.status || uiStatus} />
             <span className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-white/70">
               {status.campaignWindow?.start && status.campaignWindow?.end ? `${status.campaignWindow.start} - ${status.campaignWindow.end}` : 'Dates not scheduled yet'}
             </span>
@@ -95,11 +136,12 @@ export default function AriesCampaignWorkspace(props: { campaignId: string }) {
               <InfoCard label="Current stage" value={status.marketing_stage || 'Unknown'} />
               <InfoCard label="Pending approvals" value={String(campaignReviews.length)} />
               <InfoCard label="Next scheduled" value={nextScheduled} />
-              <InfoCard label="Planned posts" value={String(status.plannedPostCount ?? 0)} />
+              <InfoCard label="Ready to publish" value={String(dashboard.statuses.countsByStatus.ready_to_publish + dashboard.statuses.countsByStatus.published_to_meta_paused)} />
             </div>
             <div className="mt-6 flex flex-wrap gap-3">
               <SectionLink href="/review" label="Open review queue" />
               <SectionLink href="/dashboard/calendar" label="Open calendar" />
+              <SectionLink href="/dashboard/posts" label="Open posts" />
               <SectionLink href="/dashboard/results" label="See results" />
             </div>
           </ShellPanel>
@@ -148,25 +190,39 @@ export default function AriesCampaignWorkspace(props: { campaignId: string }) {
 
       {activeTab === 'Creative' ? (
         <div className="space-y-4">
-          <ShellPanel eyebrow="Creative" title="Review-ready assets">
-            {status.reviewBundle ? (
+          <ShellPanel eyebrow="Creative" title="Generated assets and concepts">
+            {dashboard.assets.length > 0 || dashboard.posts.length > 0 ? (
               <div className="space-y-4">
-                <p className="max-w-3xl text-sm leading-7 text-white/65">{status.reviewBundle.summary}</p>
+                <p className="max-w-3xl text-sm leading-7 text-white/65">
+                  Landing pages, image ads, scripts, and post concepts surface here as soon as planning and production artifacts exist, even before platform scheduling begins.
+                </p>
                 <div className="grid gap-4 xl:grid-cols-2">
-                  {status.reviewBundle.platformPreviews.map((preview) => (
-                    <div key={preview.id} className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-2">{preview.channelType}</p>
-                        <strong>{preview.platformName}</strong>
+                  {dashboard.assets.map((asset) => (
+                    <div key={asset.id} className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
+                      <MediaPreview
+                        src={asset.thumbnailUrl || asset.previewUrl}
+                        alt={asset.title}
+                        contentType={asset.contentType}
+                        className="h-44 overflow-hidden rounded-[1.1rem] border border-white/8 bg-black/20"
+                        emptyLabel={`${asset.type.replace(/_/g, ' ')} pending`}
+                        nonImageLabel={asset.type === 'landing_page' ? 'Landing page preview available' : 'Asset preview available'}
+                      />
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="mb-2 text-xs uppercase tracking-[0.22em] text-white/35">{asset.type.replace(/_/g, ' ')}</p>
+                          <strong>{asset.title}</strong>
+                          <p className="mt-2 text-sm text-white/55">{asset.platformLabel}</p>
+                        </div>
+                        <StatusChip status={asset.status} />
                       </div>
-                      <p className="text-white/60 m-0">{preview.summary}</p>
-                      {preview.headline ? <span className="text-white/70"><strong className="text-white">Headline:</strong> {preview.headline}</span> : null}
+                      <p className="m-0 text-white/60">{asset.summary}</p>
+                      {asset.destinationUrl ? <span className="text-white/70"><strong className="text-white">Destination:</strong> {asset.destinationUrl}</span> : null}
                     </div>
                   ))}
                 </div>
               </div>
             ) : (
-              <EmptyStatePanel compact title="No creative previews yet" description="Creative previews will appear here once production outputs are available." />
+              <EmptyStatePanel compact title="No creative assets yet" description="Campaign concepts and generated assets will appear here as soon as the workflow produces them." />
             )}
           </ShellPanel>
           {campaignReviews.length > 0 ? (
@@ -187,17 +243,51 @@ export default function AriesCampaignWorkspace(props: { campaignId: string }) {
         </div>
       ) : null}
 
+      {activeTab === 'Publish' ? (
+        <div className="space-y-4">
+          <ShellPanel eyebrow="Publish" title="Ready to publish and paused platform state">
+            {dashboard.publishItems.length === 0 ? (
+              <EmptyStatePanel compact title="No publish items yet" description="Review packages, publish-ready assets, and paused Meta ads will appear here automatically." />
+            ) : (
+              <div className="space-y-3">
+                {dashboard.publishItems.map((item) => (
+                  <div key={item.id} className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4">
+                    <MediaPreview
+                      src={item.previewAssetId ? (assetsById.get(item.previewAssetId)?.thumbnailUrl || assetsById.get(item.previewAssetId)?.previewUrl) : null}
+                      alt={item.title}
+                      contentType={item.previewAssetId ? assetsById.get(item.previewAssetId)?.contentType || null : null}
+                      className="mb-4 h-40 overflow-hidden rounded-[1rem] border border-white/8 bg-black/20"
+                      emptyLabel="Publish preview pending"
+                      nonImageLabel="Publish package available"
+                    />
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-white">{item.title}</p>
+                        <p className="text-sm text-white/50">{item.platformLabel} · {item.funnelStage || item.objective}</p>
+                        <p className="text-sm text-white/55">{item.summary}</p>
+                      </div>
+                      <StatusChip status={item.status} />
+                    </div>
+                    {item.destinationUrl ? <p className="mt-3 text-sm text-white/45">{item.destinationUrl}</p> : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </ShellPanel>
+        </div>
+      ) : null}
+
       {activeTab === 'Schedule' ? (
         <div className="space-y-4">
           <ShellPanel eyebrow="Schedule" title="Launch timing and visibility">
             <div className="space-y-4">
               <p className="max-w-3xl text-sm leading-7 text-white/65">
-                Aries keeps every scheduled item readable and approval-safe. If something changes materially, it moves back into review before scheduling continues.
+                Aries keeps every scheduled item readable and approval-safe. When there are no live platform schedule signals yet, this calendar still shows truthful planned or ready-to-publish items derived from campaign artifacts.
               </p>
-              {status.calendarEvents.length === 0 ? (
-                <EmptyStatePanel compact title="Nothing is scheduled yet" description="Approved work will appear here once this campaign is ready to place on the calendar." />
+              {dashboard.calendarEvents.length === 0 ? (
+                <EmptyStatePanel compact title="Nothing is scheduled yet" description="Planned and ready-to-publish items will appear here as soon as campaign artifacts exist." />
               ) : (
-                <ScheduleComposer items={status.calendarEvents.map((event) => ({ id: event.id, title: event.title, channel: event.platform, scheduledFor: event.startsAt, status: uiStatus }))} />
+                <ScheduleComposer items={dashboard.calendarEvents.map((event) => ({ id: event.id, title: event.title, channel: `${event.platformLabel} · ${event.statusLabel}`, scheduledFor: event.startsAt, status: event.status }))} />
               )}
               <PublishReceipt />
             </div>

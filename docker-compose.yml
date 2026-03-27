@@ -31,8 +31,12 @@ services:
       MARKETING_STATUS_PUBLIC: ${MARKETING_STATUS_PUBLIC:-}
       NEXTAUTH_URL: ${NEXTAUTH_URL}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      OPENCLAW_LOBSTER_CWD: ${OPENCLAW_LOBSTER_CWD:-/app/aries-app/lobster}
+      OPENCLAW_GATEWAY_LOBSTER_CWD: ${OPENCLAW_GATEWAY_LOBSTER_CWD:-/app/aries-app/lobster}
+      OPENCLAW_LOCAL_LOBSTER_CWD: ${OPENCLAW_LOCAL_LOBSTER_CWD:-/app/aries-app/lobster}
     volumes:
       - aries_runtime_data:/data
+      - ./:/app/aries-app
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]

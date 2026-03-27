@@ -3,9 +3,11 @@
 import Link from 'next/link';
 import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import { CheckCircle2 } from 'lucide-react';
+import MediaPreview from '@/frontend/components/media-preview';
 import type {
   ApproveJobResult,
   MarketingArtifactCard,
+  MarketingDashboardAsset,
   MarketingReviewBundle,
   MarketingReviewPreviewCard,
   MarketingStageCard,
@@ -105,11 +107,14 @@ function ReviewPreviewCard({ preview }: { preview: MarketingReviewPreviewCard })
                 rel="noreferrer"
                 className="rounded-[1.25rem] overflow-hidden border border-white/10 bg-black/30"
               >
-                {asset.contentType.startsWith('image/') ? (
-                  <img src={asset.url} alt={asset.label} className="w-full h-44 object-cover" />
-                ) : (
-                  <div className="p-4 text-sm text-white/70">{asset.label}</div>
-                )}
+                <MediaPreview
+                  src={asset.url}
+                  alt={asset.label}
+                  contentType={asset.contentType}
+                  className="h-44 w-full"
+                  emptyLabel="Preview pending"
+                  nonImageLabel={asset.label}
+                />
               </a>
             ))}
           </div>
@@ -227,6 +232,76 @@ function ReviewBundlePreview({ reviewBundle }: { reviewBundle: MarketingReviewBu
   );
 }
 
+function DashboardAssetPreviewCard({ asset }: { asset: MarketingDashboardAsset }) {
+  return (
+    <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
+      <MediaPreview
+        src={asset.thumbnailUrl || asset.previewUrl}
+        alt={asset.title}
+        contentType={asset.contentType}
+        className="h-44 overflow-hidden rounded-[1.1rem] border border-white/8 bg-black/20"
+        emptyLabel={`${asset.type.replace(/_/g, ' ')} pending`}
+        nonImageLabel={asset.type === 'landing_page' ? 'Landing page preview available' : 'Asset preview available'}
+      />
+      <div className="flex justify-between gap-4 flex-wrap">
+        <div>
+          <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-2">{asset.type.replace(/_/g, ' ')}</p>
+          <strong>{asset.title}</strong>
+          <p className="mt-2 text-white/60">{asset.platformLabel}</p>
+        </div>
+        <StatusBadge status={asset.status as any} />
+      </div>
+      <p className="text-white/60 m-0">{asset.summary}</p>
+      {asset.destinationUrl ? <span className="text-sm text-white/70">{asset.destinationUrl}</span> : null}
+    </div>
+  );
+}
+
+function DashboardListCard(props: {
+  title: string
+  subtitle: string
+  summary: string
+  status: string
+  previewUrl?: string | null
+  previewContentType?: string | null
+}) {
+  return (
+    <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
+      <MediaPreview
+        src={props.previewUrl}
+        alt={props.title}
+        contentType={props.previewContentType}
+        className="h-36 overflow-hidden rounded-[1.1rem] border border-white/8 bg-black/20"
+        emptyLabel="Preview pending"
+        nonImageLabel="Preview available"
+      />
+      <div className="flex justify-between gap-4 flex-wrap">
+        <div>
+          <strong>{props.title}</strong>
+          <p className="mt-2 text-white/60">{props.subtitle}</p>
+        </div>
+        <StatusBadge status={props.status as any} />
+      </div>
+      <p className="text-white/60 m-0">{props.summary}</p>
+    </div>
+  );
+}
+
+function dashboardPreviewUrl(
+  assetId: string | null | undefined,
+  assetsById: Map<string, MarketingDashboardAsset>
+): { url: string | null; contentType: string | null } {
+  if (!assetId) {
+    return { url: null, contentType: null };
+  }
+
+  const asset = assetsById.get(assetId);
+  return {
+    url: asset?.thumbnailUrl || asset?.previewUrl || null,
+    contentType: asset?.contentType || null,
+  };
+}
+
 function Field({
   label,
   children,
@@ -311,6 +386,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
     const body: PostMarketingJobApproveRequest = {
       approvedBy: approvedBy.trim(),
       approvedStages: approvedStages.length > 0 ? approvedStages : undefined,
+      approvalId: !isErrorResult(jobStatus) ? jobStatus?.approval?.approvalId : undefined,
       resumePublishIfNeeded,
       publishConfig: {
         platforms,
@@ -348,9 +424,13 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
         text: 'This campaign is not holding an active launch approval token, so there is nothing real to resume yet.',
       };
     }
-    return approveResult.approval_status === 'resumed'
-      ? { tone: 'success', text: 'Approval succeeded and resume was accepted.' }
-      : { tone: 'danger', text: `Approval failed: ${approveResult.approval_status}` };
+    if (approveResult.approval_status === 'resumed') {
+      return { tone: 'success', text: 'Approval succeeded and resume was accepted.' };
+    }
+    if (approveResult.approval_status === 'already_resolved') {
+      return { tone: 'success', text: 'This approval was already resolved, so nothing new was consumed.' };
+    }
+    return { tone: 'danger', text: `Approval failed: ${approveResult.approval_status}` };
   })();
 
   const statusSuccess = jobStatus && !isErrorResult(jobStatus) ? jobStatus : null;
@@ -573,6 +653,72 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
 
             {statusSuccess ? (
               <div className="grid gap-5">
+                {(() => {
+                  const dashboardAssetsById = new Map(statusSuccess.dashboard.assets.map((asset) => [asset.id, asset] as const))
+                  return (
+                    <>
+                {statusSuccess.dashboard.assets.length > 0 || statusSuccess.dashboard.posts.length > 0 || statusSuccess.dashboard.publishItems.length > 0 ? (
+                  <div className="grid gap-5">
+                    {statusSuccess.dashboard.assets.length > 0 ? (
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-3">Assets ready in this approval</p>
+                        <div className="grid xl:grid-cols-2 gap-4">
+                          {statusSuccess.dashboard.assets.slice(0, 8).map((asset) => (
+                            <DashboardAssetPreviewCard key={asset.id} asset={asset} />
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {statusSuccess.dashboard.posts.length > 0 ? (
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-3">Posts and concepts in scope</p>
+                        <div className="grid xl:grid-cols-2 gap-4">
+                          {statusSuccess.dashboard.posts.slice(0, 6).map((post) => {
+                            const preview = dashboardPreviewUrl(post.previewAssetId, dashboardAssetsById);
+                            return (
+                              <DashboardListCard
+                                key={post.id}
+                                title={post.title}
+                                subtitle={`${post.platformLabel} · ${post.funnelStage || post.objective}`}
+                                summary={post.summary}
+                                status={post.status}
+                                previewUrl={preview.url}
+                                previewContentType={preview.contentType}
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {statusSuccess.dashboard.publishItems.length > 0 ? (
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-3">Publish items</p>
+                        <div className="grid xl:grid-cols-2 gap-4">
+                          {statusSuccess.dashboard.publishItems.slice(0, 6).map((item) => {
+                            const preview = dashboardPreviewUrl(item.previewAssetId, dashboardAssetsById);
+                            return (
+                              <DashboardListCard
+                                key={item.id}
+                                title={item.title}
+                                subtitle={`${item.platformLabel} · ${item.funnelStage || item.objective}`}
+                                summary={item.summary}
+                                status={item.status}
+                                previewUrl={preview.url}
+                                previewContentType={preview.contentType}
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                    </>
+                  )
+                })()}
+
                 <div className="space-y-3">
                   
                   <div className="rounded-[1.5rem] border border-white/10 bg-white/5 px-5 py-4 flex items-center justify-between gap-4">

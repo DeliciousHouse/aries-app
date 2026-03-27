@@ -1,3 +1,6 @@
+import crypto from 'node:crypto';
+import path from 'node:path';
+
 import { resolveCodePath, resolveCodeRoot } from '../../lib/runtime-paths';
 
 type OpenClawInvokeResponse = {
@@ -9,6 +12,9 @@ type OpenClawInvokeResponse = {
   error?: {
     type?: string;
     message?: string;
+    details?: {
+      message?: string;
+    };
   };
 };
 
@@ -41,6 +47,19 @@ export type OpenClawResumeCallInput = {
   cwd?: string;
   timeoutMs?: number;
   maxStdoutBytes?: number;
+};
+
+export type OpenClawLobsterRuntimeContext = {
+  sessionKey: string;
+  cwd: string;
+  configuredCwd: string;
+  stateDir: string;
+  gatewayUrl: string | null;
+};
+
+export type LobsterResumeTokenDescriptor = {
+  fingerprint: string;
+  stateKeys: string[];
 };
 
 type OpenClawTestInvoker = (
@@ -103,6 +122,15 @@ function optionalEnv(key: string, fallback: string): string {
   return process.env[key]?.trim() || fallback;
 }
 
+function gatewayErrorMessage(body: OpenClawInvokeResponse, fallback: string): string {
+  const detailMessage = body.error?.details?.message?.trim();
+  if (detailMessage) {
+    return detailMessage;
+  }
+  const message = body.error?.message?.trim();
+  return message || fallback;
+}
+
 function gatewayBaseUrl(): string {
   return requiredEnv('OPENCLAW_GATEWAY_URL').replace(/\/$/, '');
 }
@@ -125,6 +153,152 @@ function defaultLobsterCwd(): string {
     'OPENCLAW_GATEWAY_LOBSTER_CWD',
     optionalEnv('OPENCLAW_LOBSTER_CWD', defaultGatewayLobsterCwd()),
   );
+}
+
+function normalizeGatewayCwd(cwd: string): string {
+  const normalized = cwd.trim();
+  if (!normalized || !path.isAbsolute(normalized)) {
+    return normalized;
+  }
+
+  const codeRoot = resolveCodeRoot();
+  const gatewayWorkspaceRoot = path.join(codeRoot, 'aries-app');
+  if (
+    normalized === gatewayWorkspaceRoot ||
+    normalized.startsWith(`${gatewayWorkspaceRoot}${path.sep}`)
+  ) {
+    return path.relative(codeRoot, normalized) || 'aries-app';
+  }
+
+  return normalized;
+}
+
+function defaultGatewayHome(): string {
+  return optionalEnv('OPENCLAW_GATEWAY_HOME', optionalEnv('OPENCLAW_HOME', '/home/node'));
+}
+
+function defaultLobsterStateDir(): string {
+  return optionalEnv(
+    'OPENCLAW_GATEWAY_LOBSTER_STATE_DIR',
+    optionalEnv(
+      'OPENCLAW_LOBSTER_STATE_DIR',
+      optionalEnv('LOBSTER_STATE_DIR', path.join(defaultGatewayHome(), '.lobster', 'state')),
+    ),
+  );
+}
+
+function gatewayUrlOrNull(): string | null {
+  return process.env.OPENCLAW_GATEWAY_URL?.trim() ? gatewayBaseUrl() : null;
+}
+
+function fingerprintToken(token: string): string {
+  return crypto.createHash('sha1').update(token).digest('hex').slice(0, 12);
+}
+
+function compatibilityStateKeys(stateKey: string): string[] {
+  const normalized = stateKey.trim();
+  if (!normalized) {
+    return [];
+  }
+
+  const candidates = new Set<string>([normalized]);
+  const match = normalized.match(/^(workflow[-_]resume)([_-].+)$/);
+  if (!match) {
+    return [...candidates];
+  }
+
+  const suffix = match[2];
+  const cleanSuffix = suffix.replace(/^[_-]/, '');
+  candidates.add(`workflow_resume${suffix}`);
+  candidates.add(`workflow-resume${suffix}`);
+  candidates.add(`workflow_resume_${cleanSuffix}`);
+  candidates.add(`workflow-resume_${cleanSuffix}`);
+  candidates.add(`workflow_resume-${cleanSuffix}`);
+  candidates.add(`workflow-resume-${cleanSuffix}`);
+  return [...candidates];
+}
+
+function decodedOpaqueToken(token: string): { payload: Record<string, unknown>; stateKey: string } | null {
+  try {
+    const decoded = Buffer.from(token, 'base64url').toString('utf8');
+    const parsed = JSON.parse(decoded) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null;
+    }
+    const stateKey = typeof parsed.stateKey === 'string' ? parsed.stateKey.trim() : '';
+    if (!stateKey) {
+      return null;
+    }
+    return { payload: parsed, stateKey };
+  } catch {
+    return null;
+  }
+}
+
+function compatibleResumeTokens(token: string): string[] {
+  const normalized = token.trim();
+  if (!normalized) {
+    return [];
+  }
+
+  const candidates = new Set<string>([normalized]);
+  if (/^workflow[-_]resume[_-]/.test(normalized)) {
+    for (const stateKey of compatibilityStateKeys(normalized)) {
+      candidates.add(stateKey);
+    }
+    return [...candidates];
+  }
+
+  const decoded = decodedOpaqueToken(normalized);
+  if (!decoded) {
+    return [...candidates];
+  }
+
+  for (const stateKey of compatibilityStateKeys(decoded.stateKey)) {
+    const payload = {
+      ...decoded.payload,
+      stateKey,
+    };
+    candidates.add(Buffer.from(JSON.stringify(payload)).toString('base64url'));
+  }
+  return [...candidates];
+}
+
+export function isOpenClawLobsterResumeStateMissing(error: unknown): boolean {
+  if (!(error instanceof OpenClawGatewayError)) {
+    return false;
+  }
+  return /workflow resume state not found/i.test(error.message);
+}
+
+export function describeLobsterResumeToken(token: string): LobsterResumeTokenDescriptor {
+  const normalized = token.trim();
+  if (!normalized) {
+    return { fingerprint: 'missing', stateKeys: [] };
+  }
+
+  const decoded = decodedOpaqueToken(normalized);
+  const stateKeys = decoded
+    ? compatibilityStateKeys(decoded.stateKey)
+    : /^workflow[-_]resume[_-]/.test(normalized)
+      ? compatibilityStateKeys(normalized)
+      : [];
+
+  return {
+    fingerprint: fingerprintToken(normalized),
+    stateKeys,
+  };
+}
+
+export function resolveOpenClawLobsterRuntimeContext(input: { cwd?: string } = {}): OpenClawLobsterRuntimeContext {
+  const configuredCwd = input.cwd?.trim() || defaultLobsterCwd();
+  return {
+    sessionKey: defaultSessionKey(),
+    cwd: normalizeGatewayCwd(configuredCwd),
+    configuredCwd,
+    stateDir: defaultLobsterStateDir(),
+    gatewayUrl: gatewayUrlOrNull(),
+  };
 }
 
 function asEnvelope(value: unknown): LobsterEnvelope {
@@ -178,7 +352,7 @@ async function invokeGateway(payload: Record<string, unknown>): Promise<LobsterE
     const body = (await response.json().catch(() => ({}))) as OpenClawInvokeResponse;
     throw createGatewayError(
       'openclaw_gateway_request_invalid',
-      body.error?.message || 'OpenClaw gateway rejected the request.',
+      gatewayErrorMessage(body, 'OpenClaw gateway rejected the request.'),
       400,
     );
   }
@@ -186,7 +360,7 @@ async function invokeGateway(payload: Record<string, unknown>): Promise<LobsterE
     const body = (await response.json().catch(() => ({}))) as OpenClawInvokeResponse;
     throw createGatewayError(
       'openclaw_gateway_server_error',
-      body.error?.message || `OpenClaw gateway failed with status ${response.status}.`,
+      gatewayErrorMessage(body, `OpenClaw gateway failed with status ${response.status}.`),
       response.status,
     );
   }
@@ -203,33 +377,94 @@ async function invokeGateway(payload: Record<string, unknown>): Promise<LobsterE
 }
 
 export async function runOpenClawLobsterWorkflow(input: OpenClawWorkflowCallInput): Promise<LobsterEnvelope> {
-  const cwd = input.cwd?.trim() || defaultLobsterCwd();
+  const runtime = resolveOpenClawLobsterRuntimeContext({ cwd: input.cwd });
+  const timeoutMs = input.timeoutMs ?? 120000;
+  const maxStdoutBytes = input.maxStdoutBytes ?? 1024 * 1024;
+  console.info('[openclaw-gateway]', {
+    event: 'workflow-run-requested',
+    sessionKey: runtime.sessionKey,
+    cwd: runtime.cwd,
+    configuredCwd: runtime.configuredCwd === runtime.cwd ? undefined : runtime.configuredCwd,
+    stateDir: runtime.stateDir,
+    pipeline: input.pipeline,
+    timeoutMs,
+    maxStdoutBytes,
+  });
   return invokeGateway({
     tool: 'lobster',
-    sessionKey: defaultSessionKey(),
+    sessionKey: runtime.sessionKey,
     args: {
       action: 'run',
       pipeline: input.pipeline,
       argsJson: input.argsJson ?? '',
-      cwd,
-      timeoutMs: input.timeoutMs ?? 120000,
-      maxStdoutBytes: input.maxStdoutBytes ?? 1024 * 1024,
+      cwd: runtime.cwd,
+      timeoutMs,
+      maxStdoutBytes,
     },
   });
 }
 
 export async function resumeOpenClawLobsterWorkflow(input: OpenClawResumeCallInput): Promise<LobsterEnvelope> {
-  const cwd = input.cwd?.trim() || defaultLobsterCwd();
-  return invokeGateway({
-    tool: 'lobster',
-    sessionKey: defaultSessionKey(),
-    args: {
-      action: 'resume',
-      token: input.token,
+  const runtime = resolveOpenClawLobsterRuntimeContext({ cwd: input.cwd });
+  const descriptor = describeLobsterResumeToken(input.token);
+  const attempts = compatibleResumeTokens(input.token);
+  const timeoutMs = input.timeoutMs ?? 120000;
+  const maxStdoutBytes = input.maxStdoutBytes ?? 1024 * 1024;
+  let lastError: unknown = null;
+
+  for (let index = 0; index < attempts.length; index += 1) {
+    const candidate = attempts[index];
+    const candidateDescriptor = describeLobsterResumeToken(candidate);
+    console.info('[openclaw-gateway]', {
+      event: 'workflow-resume-requested',
+      sessionKey: runtime.sessionKey,
+      cwd: runtime.cwd,
+      configuredCwd: runtime.configuredCwd === runtime.cwd ? undefined : runtime.configuredCwd,
+      stateDir: runtime.stateDir,
       approve: input.approve,
-      cwd,
-      timeoutMs: input.timeoutMs ?? 120000,
-      maxStdoutBytes: input.maxStdoutBytes ?? 1024 * 1024,
-    },
-  });
+      tokenFingerprint: candidateDescriptor.fingerprint,
+      tokenStateKeys: candidateDescriptor.stateKeys,
+      timeoutMs,
+      maxStdoutBytes,
+      compatibilityAttempt: index,
+      compatibilityFallback: index > 0,
+    });
+
+    try {
+      return await invokeGateway({
+        tool: 'lobster',
+        sessionKey: runtime.sessionKey,
+        args: {
+          action: 'resume',
+          token: candidate,
+          approve: input.approve,
+          cwd: runtime.cwd,
+          timeoutMs,
+          maxStdoutBytes,
+        },
+      });
+    } catch (error) {
+      lastError = error;
+      const canRetry = isOpenClawLobsterResumeStateMissing(error) && index < attempts.length - 1;
+      console.warn('[openclaw-gateway]', {
+        event: canRetry ? 'workflow-resume-compatibility-retry' : 'workflow-resume-failed',
+        sessionKey: runtime.sessionKey,
+        cwd: runtime.cwd,
+        configuredCwd: runtime.configuredCwd === runtime.cwd ? undefined : runtime.configuredCwd,
+        stateDir: runtime.stateDir,
+        approve: input.approve,
+        tokenFingerprint: candidateDescriptor.fingerprint,
+        requestedTokenFingerprint: descriptor.fingerprint,
+        tokenStateKeys: candidateDescriptor.stateKeys,
+        compatibilityAttempt: index,
+        compatibilityFallback: index > 0,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      if (!canRetry) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('workflow_resume_failed');
 }
