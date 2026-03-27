@@ -386,6 +386,176 @@ test('approveMarketingJob advances strategy, production, and publish approvals t
   });
 });
 
+test('approveMarketingJob preserves the second publish-as-paused approval checkpoint before final completion', async () => {
+  await withMarketingRuntimeEnv(async (dataRoot) => {
+    const { approveMarketingJob } = await import('../backend/marketing/jobs-approve');
+    const { startMarketingJob } = await import('../backend/marketing/jobs-start');
+
+    setOpenClawTestInvoker((payload) => {
+      const args = (payload.args as Record<string, unknown> | undefined) ?? {};
+      const action = String(args.action || '');
+      const token = String(args.token || '');
+
+      if (action === 'run') {
+        return {
+          ok: true,
+          status: 'needs_approval',
+          output: [{
+            run_id: 'run-research',
+            executive_summary: {
+              market_positioning: 'Proof-led competitive research is complete.',
+              campaign_takeaway: 'Outcome-first hooks are strongest.',
+            },
+          }],
+          requiresApproval: {
+            resumeToken: 'resume_strategy',
+            prompt: 'Research complete. Approve strategy to continue.',
+          },
+        };
+      }
+
+      if (action === 'resume' && token === 'resume_strategy') {
+        return {
+          ok: true,
+          status: 'needs_approval',
+          output: [{
+            run_id: 'run-strategy',
+            strategy_handoff: {
+              run_id: 'run-strategy',
+              core_message: 'Launch campaigns with operator control.',
+              primary_cta: 'Book a walkthrough',
+            },
+          }],
+          requiresApproval: {
+            resumeToken: 'resume_production',
+            prompt: 'Strategy complete. Approve production to continue.',
+          },
+        };
+      }
+
+      if (action === 'resume' && token === 'resume_production') {
+        return {
+          ok: true,
+          status: 'needs_approval',
+          output: [{
+            run_id: 'run-production',
+            production_handoff: {
+              run_id: 'run-production',
+              production_brief: {
+                core_message: 'Launch campaigns with operator control.',
+              },
+              contract_handoffs: {
+                static: {
+                  platform_contract_paths: ['output/static/meta-ads.json'],
+                },
+                video: {
+                  platform_contract_paths: ['output/video/tiktok.json'],
+                },
+              },
+            },
+          }],
+          requiresApproval: {
+            resumeToken: 'resume_publish_review',
+            prompt: 'Production complete. Approve launch review to continue.',
+          },
+        };
+      }
+
+      if (action === 'resume' && token === 'resume_publish_review') {
+        return {
+          ok: true,
+          status: 'needs_approval',
+          output: [{
+            run_id: 'run-publish-review',
+            review_bundle: {
+              campaign_name: 'Stage 4 launch review',
+            },
+          }],
+          requiresApproval: {
+            resumeToken: 'resume_publish_paused',
+            prompt: 'Stage 4 pre-flight complete. Approve creation of the Meta campaigns, ad sets, and ads as PAUSED.',
+          },
+        };
+      }
+
+      if (action === 'resume' && token === 'resume_publish_paused') {
+        return {
+          ok: true,
+          status: 'ok',
+          output: [{
+            run_id: 'run-publish-paused',
+            summary: {
+              message: 'Selected platform packages were created as paused ads.',
+            },
+          }],
+          requiresApproval: null,
+        };
+      }
+
+      throw new Error(`Unexpected OpenClaw lobster invocation: action=${action} token=${token}`);
+    });
+
+    const started = await startMarketingJob({
+      tenantId: 'tenant-a',
+      jobType: 'brand_campaign',
+      payload: {
+        brandUrl: 'https://brand.example',
+        competitorUrl: 'https://facebook.com/competitor',
+      },
+    });
+
+    const jobId = started.jobId;
+    const runtimeFile = path.join(dataRoot, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
+
+    await approveMarketingJob({
+      jobId,
+      tenantId: 'tenant-a',
+      approvedBy: 'operator',
+      approvedStages: ['strategy'],
+    });
+
+    await approveMarketingJob({
+      jobId,
+      tenantId: 'tenant-a',
+      approvedBy: 'operator',
+      approvedStages: ['production'],
+    });
+
+    const publishReviewApproved = await approveMarketingJob({
+      jobId,
+      tenantId: 'tenant-a',
+      approvedBy: 'operator',
+      approvedStages: ['publish'],
+      resumePublishIfNeeded: true,
+    });
+
+    let runtimeDoc = JSON.parse(await readFile(runtimeFile, 'utf8')) as any;
+    assert.equal(publishReviewApproved.status, 'resumed');
+    assert.equal(publishReviewApproved.completed, false);
+    assert.equal(runtimeDoc.state, 'approval_required');
+    assert.equal(runtimeDoc.status, 'awaiting_approval');
+    assert.equal(runtimeDoc.current_stage, 'publish');
+    assert.equal(runtimeDoc.approvals.current.stage, 'publish');
+    assert.equal(runtimeDoc.approvals.current.resume_token, 'resume_publish_paused');
+
+    const pausedPublishApproved = await approveMarketingJob({
+      jobId,
+      tenantId: 'tenant-a',
+      approvedBy: 'operator',
+      approvedStages: ['publish'],
+      resumePublishIfNeeded: true,
+    });
+
+    runtimeDoc = JSON.parse(await readFile(runtimeFile, 'utf8')) as any;
+    assert.equal(pausedPublishApproved.status, 'resumed');
+    assert.equal(pausedPublishApproved.completed, true);
+    assert.equal(runtimeDoc.state, 'completed');
+    assert.equal(runtimeDoc.status, 'completed');
+    assert.equal(runtimeDoc.approvals.current, null);
+    clearOpenClawTestInvoker();
+  });
+});
+
 test('approveMarketingJob preserves the active approval checkpoint when resume fails', async () => {
   await withMarketingRuntimeEnv(async (dataRoot) => {
     const { approveMarketingJob } = await import('../backend/marketing/jobs-approve');
