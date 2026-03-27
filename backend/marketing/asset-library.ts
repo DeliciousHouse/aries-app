@@ -1,5 +1,6 @@
 import path from 'node:path';
 
+import { listMarketingDashboardAssetsForJob } from './dashboard-content';
 import type { MarketingJobRuntimeDocument } from './runtime-state';
 
 export type MarketingAssetDescriptor = {
@@ -81,18 +82,14 @@ export function marketingAssetUrl(jobId: string, assetId: string): string {
 }
 
 export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJobRuntimeDocument): MarketingAssetDescriptor[] {
-  const reviewBundle = publishReviewBundle(runtimeDoc);
-  if (!reviewBundle) {
-    return [];
-  }
-
   const assets: MarketingAssetDescriptor[] = [];
+  const assetById = new Map<string, MarketingAssetDescriptor>();
   const addAsset = (id: string, filePath: string | null | undefined, label: string) => {
     const normalizedPath = stringValue(filePath);
     if (!normalizedPath) {
       return;
     }
-    assets.push({
+    assetById.set(id, {
       id,
       filePath: normalizedPath,
       label,
@@ -100,36 +97,47 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
     });
   };
 
-  const artifactPaths = recordValue(reviewBundle.artifact_paths);
-  const landingPage = recordValue(reviewBundle.landing_page_preview);
-  const scriptPreview = recordValue(reviewBundle.script_preview);
-  const reviewPacket = recordValue(reviewBundle.review_packet);
-  const platformPreviews = recordArray(reviewBundle.platform_previews);
+  const reviewBundle = publishReviewBundle(runtimeDoc);
+  if (reviewBundle) {
+    const artifactPaths = recordValue(reviewBundle.artifact_paths);
+    const landingPage = recordValue(reviewBundle.landing_page_preview);
+    const scriptPreview = recordValue(reviewBundle.script_preview);
+    const reviewPacket = recordValue(reviewBundle.review_packet);
+    const platformPreviews = recordArray(reviewBundle.platform_previews);
 
-  addAsset('launch-review-preview', stringValue(artifactPaths?.preview_path) || null, 'Launch review preview');
-  addAsset('landing-page-path', stringValue(landingPage?.landing_page_path) || null, 'Landing page');
-  addAsset('script-meta', stringValue(scriptPreview?.meta_script_path) || null, 'Meta script');
-  addAsset('script-video', stringValue(scriptPreview?.short_video_script_path) || null, 'Short video script');
-  addAsset('review-packet-production', stringValue(reviewPacket?.production_review_preview_path) || null, 'Production review preview');
-  addAsset('review-packet-canonical', stringValue(reviewPacket?.canonical_review_packet_path) || null, 'Canonical review packet');
+    addAsset('launch-review-preview', stringValue(artifactPaths?.preview_path) || null, 'Launch review preview');
+    addAsset('landing-page-path', stringValue(landingPage?.landing_page_path) || null, 'Landing page');
+    addAsset('script-meta', stringValue(scriptPreview?.meta_script_path) || null, 'Meta script');
+    addAsset('script-video', stringValue(scriptPreview?.short_video_script_path) || null, 'Short video script');
+    addAsset('review-packet-production', stringValue(reviewPacket?.production_review_preview_path) || null, 'Production review preview');
+    addAsset('review-packet-canonical', stringValue(reviewPacket?.canonical_review_packet_path) || null, 'Canonical review packet');
 
-  for (const platform of platformPreviews) {
-    const slug = stringValue(platform.platform_slug, 'platform');
-    const platformName = stringValue(platform.platform_name, slug);
-    const assetPaths = recordValue(platform.asset_paths);
+    for (const platform of platformPreviews) {
+      const slug = stringValue(platform.platform_slug, 'platform');
+      const platformName = stringValue(platform.platform_name, slug);
+      const assetPaths = recordValue(platform.asset_paths);
 
-    stringArray(platform.media_paths).forEach((filePath, index) => {
-      addAsset(
-        `platform-preview-${slug}-media-${index + 1}`,
-        filePath,
-        `${platformName} media ${index + 1}`
-      );
-    });
-    addAsset(`platform-preview-${slug}-asset-contract`, stringValue(assetPaths?.contract_path) || null, `${platformName} contract`);
-    addAsset(`platform-preview-${slug}-asset-brief`, stringValue(assetPaths?.brief_path) || null, `${platformName} brief`);
-    addAsset(`platform-preview-${slug}-asset-landing-page`, stringValue(assetPaths?.landing_page_path) || null, `${platformName} landing page`);
+      stringArray(platform.media_paths).forEach((filePath, index) => {
+        addAsset(
+          `platform-preview-${slug}-media-${index + 1}`,
+          filePath,
+          `${platformName} media ${index + 1}`
+        );
+      });
+      addAsset(`platform-preview-${slug}-asset-contract`, stringValue(assetPaths?.contract_path) || null, `${platformName} contract`);
+      addAsset(`platform-preview-${slug}-asset-brief`, stringValue(assetPaths?.brief_path) || null, `${platformName} brief`);
+      addAsset(`platform-preview-${slug}-asset-landing-page`, stringValue(assetPaths?.landing_page_path) || null, `${platformName} landing page`);
+    }
   }
 
+  for (const asset of listMarketingDashboardAssetsForJob(jobId)) {
+    if (!asset.filePath) {
+      continue;
+    }
+    addAsset(asset.id, asset.filePath, asset.title);
+  }
+
+  assets.push(...assetById.values());
   return assets;
 }
 

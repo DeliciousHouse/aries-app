@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { findMarketingAsset } from '@/backend/marketing/asset-library';
 import { loadMarketingJobRuntime } from '@/backend/marketing/runtime-state';
-import { resolveCodePath, resolveDataRoot } from '@/lib/runtime-paths';
+import { resolveCodePath, resolveCodeRoot, resolveDataRoot } from '@/lib/runtime-paths';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
 const MARKETING_ONBOARDING_REQUIRED = {
@@ -12,15 +12,21 @@ const MARKETING_ONBOARDING_REQUIRED = {
   message: 'Complete tenant onboarding before viewing brand campaign assets.',
 } as const;
 
-/**
- * Normalizes a runtime-derived asset path into a safe relative path.
- * Rejects empty input, absolute paths, and any "." / ".." segments so the
- * handler never resolves a path that can escape the trusted asset roots.
- */
-function normalizeRelativeAssetPath(filePath: string): string | null {
+type NormalizedAssetPath =
+  | { kind: 'relative'; path: string }
+  | { kind: 'absolute'; path: string };
+
+function normalizeAssetPath(filePath: string): NormalizedAssetPath | null {
   const trimmed = filePath.trim();
-  if (!trimmed || path.isAbsolute(trimmed)) {
+  if (!trimmed) {
     return null;
+  }
+
+  if (path.isAbsolute(trimmed)) {
+    return {
+      kind: 'absolute',
+      path: path.normalize(trimmed),
+    };
   }
 
   const segments = trimmed.split(/[\\/]+/).filter(Boolean);
@@ -28,7 +34,23 @@ function normalizeRelativeAssetPath(filePath: string): string | null {
     return null;
   }
 
-  return path.join(...segments);
+  return {
+    kind: 'relative',
+    path: path.join(...segments),
+  };
+}
+
+function trustedRoots(): string[] {
+  return Array.from(
+    new Set(
+      [
+        resolveDataRoot(),
+        resolveCodeRoot(),
+        resolveCodePath('lobster'),
+        process.env.OPENCLAW_LOBSTER_CWD?.trim(),
+      ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    )
+  );
 }
 
 /**
@@ -42,14 +64,17 @@ function isWithinRoot(root: string, candidate: string): boolean {
 }
 
 async function readAssetWithinAllowedRoots(filePath: string): Promise<Buffer | null> {
-  const relativePath = normalizeRelativeAssetPath(filePath);
-  if (!relativePath) {
+  const normalizedPath = normalizeAssetPath(filePath);
+  if (!normalizedPath) {
     return null;
   }
 
-  const roots = [resolveDataRoot(), resolveCodePath('lobster')];
+  const roots = trustedRoots();
   for (const root of roots) {
-    const candidate = path.resolve(root, relativePath);
+    const candidate =
+      normalizedPath.kind === 'absolute'
+        ? normalizedPath.path
+        : path.resolve(root, normalizedPath.path);
     if (!isWithinRoot(root, candidate)) {
       continue;
     }

@@ -1,13 +1,23 @@
 import { NextResponse } from 'next/server';
 
-import { recordMarketingReviewDecision } from '@/backend/marketing/runtime-views';
+import { RuntimeReviewDecisionError, recordMarketingReviewDecision } from '@/backend/marketing/runtime-views';
+import { OpenClawGatewayError } from '@/backend/openclaw/gateway-client';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
+
+function decodeReviewIdParam(reviewId: string): string {
+  try {
+    return decodeURIComponent(reviewId);
+  } catch {
+    return reviewId;
+  }
+}
 
 export async function handlePostMarketingReviewDecision(
   reviewId: string,
   req: Request,
   tenantContextLoader?: TenantContextLoader,
 ) {
+  const decodedReviewId = decodeReviewIdParam(reviewId);
   const tenantResult = await loadTenantContextOrResponse(tenantContextLoader);
   if ('response' in tenantResult) {
     return tenantResult.response;
@@ -31,19 +41,54 @@ export async function handlePostMarketingReviewDecision(
     return NextResponse.json({ error: 'actedBy is required.' }, { status: 400 });
   }
 
-  const review = await recordMarketingReviewDecision({
-    tenantId: tenantResult.tenantContext.tenantId,
-    reviewId,
-    action: action as 'approve' | 'changes_requested' | 'reject',
-    actedBy,
-    note,
-  });
+  try {
+    const review = await recordMarketingReviewDecision({
+      tenantId: tenantResult.tenantContext.tenantId,
+      reviewId: decodedReviewId,
+      action: action as 'approve' | 'changes_requested' | 'reject',
+      actedBy,
+      note,
+    });
 
-  if (!review) {
-    return NextResponse.json({ error: 'review_not_found' }, { status: 404 });
+    if (!review) {
+      return NextResponse.json({ error: 'review_not_found' }, { status: 404 });
+    }
+
+    return NextResponse.json({ review }, { status: 200 });
+  } catch (error) {
+    if (error instanceof RuntimeReviewDecisionError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          reason: error.code,
+        },
+        { status: error.status },
+      );
+    }
+    if (error instanceof OpenClawGatewayError) {
+      const status =
+        error.code === 'openclaw_gateway_unauthorized'
+          ? 401
+          : error.code === 'openclaw_gateway_unreachable' || error.code === 'openclaw_gateway_not_configured'
+            ? 503
+            : error.status || 500;
+      return NextResponse.json(
+        {
+          error: error.message,
+          reason: error.code,
+        },
+        { status },
+      );
+    }
+
+    const message = error instanceof Error ? error.message : String(error);
+    return NextResponse.json(
+      {
+        error: message,
+      },
+      { status: 500 },
+    );
   }
-
-  return NextResponse.json({ review }, { status: 200 });
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ reviewId: string }> }) {

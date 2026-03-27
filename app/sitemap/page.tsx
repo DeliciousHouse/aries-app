@@ -24,10 +24,12 @@ const ROUTE_GROUPS: Array<{ title: string; routes: Array<{ href: string; label: 
     title: 'Operator',
     routes: [
       { href: '/dashboard', label: 'Dashboard' },
-      { href: '/posts', label: 'Posts' },
-      { href: '/calendar', label: 'Calendar' },
-      { href: '/platforms', label: 'Platforms' },
-      { href: '/settings', label: 'Settings' },
+      { href: '/dashboard/campaigns', label: 'Campaigns' },
+      { href: '/dashboard/posts', label: 'Posts' },
+      { href: '/dashboard/calendar', label: 'Calendar' },
+      { href: '/dashboard/results', label: 'Results' },
+      { href: '/dashboard/settings', label: 'Settings' },
+      { href: '/review', label: 'Review queue' },
     ],
   },
   {

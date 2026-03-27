@@ -1,7 +1,5 @@
 'use client';
 
-import { useMemo } from 'react';
-
 import { useRuntimeCampaigns } from '@/hooks/use-runtime-campaigns';
 
 import { EmptyStatePanel, LoadingStateGrid, ScheduleComposer, ShellPanel, StatusChip } from './components';
@@ -9,17 +7,16 @@ import { EmptyStatePanel, LoadingStateGrid, ScheduleComposer, ShellPanel, Status
 export default function AriesCalendarScreen() {
   const campaigns = useRuntimeCampaigns({ autoLoad: true });
   const items = campaigns.data?.campaigns ?? [];
-
-  const schedule = useMemo(
-    () => items.filter((campaign) => !campaign.nextScheduled.startsWith('Nothing') && !campaign.nextScheduled.startsWith('Waiting')).map((campaign) => ({
-      id: `${campaign.id}::next`,
-      title: campaign.name,
-      channel: campaign.stageLabel,
-      scheduledFor: campaign.nextScheduled,
-      status: campaign.status,
-    })),
-    [items],
-  );
+  const schedule = items
+    .flatMap((campaign) => campaign.dashboard.calendarEvents)
+    .sort((left, right) => left.startsAt.localeCompare(right.startsAt))
+    .map((event) => ({
+      id: event.id,
+      title: event.title,
+      channel: `${event.campaignName} · ${event.platformLabel} · ${event.statusLabel}`,
+      scheduledFor: event.startsAt,
+      status: event.status,
+    }));
 
   if (campaigns.isLoading) {
     return <LoadingStateGrid />;
@@ -42,7 +39,7 @@ export default function AriesCalendarScreen() {
     <div className="space-y-5">
       <ShellPanel eyebrow="Calendar" title="What is going out and when">
         <p className="max-w-3xl text-sm leading-7 text-white/65">
-          Aries keeps the schedule human-readable. You can see what is planned next, which campaign it belongs to, and whether it is still waiting on approval or ready to run.
+          Aries keeps the schedule human-readable. Live platform events appear first when they exist, and the calendar stays populated with truthful planned or ready-to-publish items when only internal campaign artifacts are available.
         </p>
       </ShellPanel>
 
@@ -56,9 +53,12 @@ export default function AriesCalendarScreen() {
               <div key={campaign.id} className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-medium text-white">{campaign.name}</p>
-                  <StatusChip status={campaign.status} />
+                  <StatusChip status={campaign.dashboardStatus} />
                 </div>
                 <p className="mt-2 text-sm text-white/55">{campaign.nextScheduled}</p>
+                <p className="mt-2 text-xs uppercase tracking-[0.18em] text-white/35">
+                  {campaign.counts.readyToPublish} ready to publish · {campaign.counts.pausedMetaAds} paused in Meta
+                </p>
               </div>
             ))}
           </div>

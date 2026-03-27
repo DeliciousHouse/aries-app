@@ -180,6 +180,62 @@ function installMarketingPipelineInvoker(
   });
 }
 
+function makeApprovalReviewRuntimeDoc(input: {
+  dataRoot: string;
+  jobId: string;
+  tenantId: string;
+  resumeToken?: string;
+}) {
+  return {
+    schema_name: 'marketing_job_state_schema',
+    schema_version: '1.0.0',
+    job_id: input.jobId,
+    job_type: 'brand_campaign',
+    tenant_id: input.tenantId,
+    state: 'approval_required',
+    status: 'awaiting_approval',
+    current_stage: 'strategy',
+    stage_order: ['research', 'strategy', 'production', 'publish'],
+    stages: {
+      research: { stage: 'research', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-r', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+      strategy: { stage: 'strategy', status: 'awaiting_approval', started_at: null, completed_at: null, failed_at: null, run_id: 'run-s', summary: { summary: 'Strategy is ready for approval.', highlight: null }, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+      production: { stage: 'production', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+      publish: { stage: 'publish', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+    },
+    approvals: {
+      current: {
+        stage: 'strategy',
+        status: 'awaiting_approval',
+        title: 'Strategy approval required',
+        message: 'Approve the strategy handoff before production can begin.',
+        requested_at: '2026-03-20T00:00:00.000Z',
+        resume_token: input.resumeToken ?? null,
+        action_label: 'Approve strategy',
+        publish_config: { platforms: ['meta-ads'], live_publish_platforms: [], video_render_platforms: [] },
+      },
+      history: [],
+    },
+    publish_config: { platforms: ['meta-ads'], live_publish_platforms: [], video_render_platforms: [] },
+    brand_kit: {
+      path: path.join(input.dataRoot, 'generated', 'validated', input.tenantId, 'brand-kit.json'),
+      source_url: `https://${input.tenantId}.example.com`,
+      canonical_url: `https://${input.tenantId}.example.com`,
+      brand_name: 'Brand Example',
+      logo_urls: [],
+      colors: { primary: '#9c6b3e', secondary: '#f3e9dd', accent: '#3d2410', palette: ['#9c6b3e', '#f3e9dd', '#3d2410'] },
+      font_families: ['Manrope'],
+      external_links: [],
+      extracted_at: '2026-03-18T00:00:00.000Z',
+    },
+    inputs: { request: {}, brand_url: `https://${input.tenantId}.example.com` },
+    errors: [],
+    last_error: null,
+    history: [],
+    created_at: '2026-03-20T00:00:00.000Z',
+    updated_at: '2026-03-20T00:00:00.000Z',
+  };
+}
+
 test('/api/onboarding/start returns a frontend-safe payload without workflow internals', async () => {
   setOpenClawTestInvoker(() => ({
     ok: true,
@@ -677,7 +733,7 @@ test('/api/marketing/jobs/:jobId/assets/:assetId serves a tenant-scoped preview 
   });
 });
 
-test('/api/marketing/jobs/:jobId/assets/:assetId rejects runtime-derived absolute paths', async () => {
+test('/api/marketing/jobs/:jobId/assets/:assetId allows runtime-derived absolute paths inside trusted roots', async () => {
   await withRuntimeEnv(async (dataRoot) => {
     const { handleGetMarketingJobAsset } = await import('../app/api/marketing/jobs/[jobId]/assets/[assetId]/handler');
     const jobId = 'mkt_asset_job_blocked';
@@ -764,10 +820,110 @@ test('/api/marketing/jobs/:jobId/assets/:assetId rejects runtime-derived absolut
         role: 'tenant_admin',
       })
     );
-    const body = (await response.json()) as Record<string, unknown>;
+    const body = await response.text();
 
-    assert.equal(response.status, 404);
-    assert.equal(body.reason, 'marketing_asset_not_found');
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'image/png');
+    assert.equal(body, 'png-preview');
+  });
+});
+
+test('/api/marketing/jobs/:jobId/assets/:assetId rejects runtime-derived absolute paths outside trusted roots', async () => {
+  await withRuntimeEnv(async () => {
+    const { handleGetMarketingJobAsset } = await import('../app/api/marketing/jobs/[jobId]/assets/[assetId]/handler');
+    const jobId = 'mkt_asset_job_outside_root';
+    const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
+    const outsideRoot = await mkdtemp(path.join(tmpdir(), 'aries-asset-outside-'));
+    const outsideFile = path.join(outsideRoot, 'outside-preview.png');
+    await mkdir(path.dirname(runtimeFile), { recursive: true });
+    await writeFile(outsideFile, 'png-preview', 'utf8');
+    try {
+      await writeFile(
+        runtimeFile,
+        JSON.stringify({
+          schema_name: 'marketing_job_state_schema',
+          schema_version: '1.0.0',
+          job_id: jobId,
+          job_type: 'brand_campaign',
+          tenant_id: 'tenant_real',
+          state: 'approval_required',
+          status: 'awaiting_approval',
+          current_stage: 'publish',
+          stage_order: ['research', 'strategy', 'production', 'publish'],
+          stages: {
+            research: { stage: 'research', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-r', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+            strategy: { stage: 'strategy', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-s', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+            production: { stage: 'production', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-p', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+            publish: {
+              stage: 'publish',
+              status: 'awaiting_approval',
+              started_at: null,
+              completed_at: null,
+              failed_at: null,
+              run_id: 'run-publish',
+              summary: null,
+              primary_output: null,
+              outputs: {
+                review: {
+                  review_bundle: {
+                    campaign_name: 'Sugar & Leather',
+                    summary: {},
+                    platform_previews: [
+                      {
+                        platform_slug: 'meta-ads',
+                        platform_name: 'Meta Ads',
+                        channel_type: 'paid-social',
+                        summary: 'Preview ready',
+                        media_paths: [outsideFile],
+                        asset_paths: {},
+                      },
+                    ],
+                  },
+                },
+              },
+              artifacts: [],
+              errors: [],
+            },
+          },
+          approvals: { current: null, history: [] },
+          publish_config: { platforms: ['meta-ads'], live_publish_platforms: [], video_render_platforms: [] },
+          brand_kit: {
+            path: path.join(process.env.DATA_ROOT!, 'generated', 'validated', 'tenant_real', 'brand-kit.json'),
+            source_url: 'https://sugarandleather.com',
+            canonical_url: 'https://sugarandleather.com',
+            brand_name: 'Sugar & Leather',
+            logo_urls: [],
+            colors: { primary: '#9c6b3e', secondary: '#f3e9dd', accent: '#3d2410', palette: ['#9c6b3e', '#f3e9dd', '#3d2410'] },
+            font_families: ['Manrope'],
+            external_links: [],
+            extracted_at: '2026-03-18T00:00:00.000Z',
+          },
+          inputs: { request: {}, brand_url: 'https://sugarandleather.com' },
+          errors: [],
+          last_error: null,
+          history: [],
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }, null, 2)
+      );
+
+      const response = await handleGetMarketingJobAsset(
+        jobId,
+        'platform-preview-meta-ads-media-1',
+        async () => ({
+          userId: 'user_123',
+          tenantId: 'tenant_real',
+          tenantSlug: 'acme',
+          role: 'tenant_admin',
+        })
+      );
+      const body = (await response.json()) as Record<string, unknown>;
+
+      assert.equal(response.status, 404);
+      assert.equal(body.reason, 'marketing_asset_not_found');
+    } finally {
+      await rm(outsideRoot, { recursive: true, force: true });
+    }
   });
 });
 
@@ -1177,6 +1333,81 @@ test('/api/marketing/jobs/:jobId/approve resolves tenant context server-side and
     assert.equal(lastArgs?.approve, true);
     assert.equal(String(lastArgs?.token), 'resume_publish');
     assert.equal(lastArgs?.cwd, path.join(PROJECT_ROOT, 'lobster'));
+  clearOpenClawTestInvoker();
+});
+
+test('/api/marketing/reviews/[reviewId] decodes encoded review ids before loading the review item', async () => {
+  await withRuntimeEnv(async (dataRoot) => {
+    const { handleGetMarketingReviewItem } = await import('../app/api/marketing/reviews/[reviewId]/route');
+    const jobsRoot = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs');
+    const jobId = 'mkt_review_encoded';
+    await mkdir(jobsRoot, { recursive: true });
+    await writeFile(
+      path.join(jobsRoot, `${jobId}.json`),
+      JSON.stringify(makeApprovalReviewRuntimeDoc({
+        dataRoot,
+        jobId,
+        tenantId: 'tenant_review',
+      }), null, 2),
+    );
+
+    const response = await handleGetMarketingReviewItem(
+      `${jobId}%3A%3Aapproval`,
+      async () => ({
+        userId: 'user_1',
+        tenantId: 'tenant_review',
+        tenantSlug: 'tenant-review',
+        role: 'tenant_admin',
+      }),
+    );
+    const body = (await response.json()) as Record<string, unknown>;
+
+    assert.equal(response.status, 200);
+    assert.equal((body.review as { id: string }).id, `${jobId}::approval`);
+  });
+});
+
+test('/api/marketing/reviews/[reviewId]/decision decodes encoded review ids before saving the decision', async () => {
+  await withRuntimeEnv(async (dataRoot) => {
+    const { handlePostMarketingReviewDecision } = await import('../app/api/marketing/reviews/[reviewId]/decision/route');
+    const jobsRoot = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs');
+    const jobId = 'mkt_review_encoded_decision';
+    installMarketingPipelineInvoker({ value: null });
+    await mkdir(jobsRoot, { recursive: true });
+    await writeFile(
+      path.join(jobsRoot, `${jobId}.json`),
+      JSON.stringify(makeApprovalReviewRuntimeDoc({
+        dataRoot,
+        jobId,
+        tenantId: 'tenant_review',
+        resumeToken: 'resume_strategy',
+      }), null, 2),
+    );
+
+    const response = await handlePostMarketingReviewDecision(
+      `${jobId}%3A%3Aapproval`,
+      new Request('http://localhost/api/marketing/reviews/test/decision', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          action: 'approve',
+          actedBy: 'operator',
+          note: 'Looks good.',
+        }),
+      }),
+      async () => ({
+        userId: 'user_1',
+        tenantId: 'tenant_review',
+        tenantSlug: 'tenant-review',
+        role: 'tenant_admin',
+      }),
+    );
+    const body = (await response.json()) as Record<string, unknown>;
+
+    assert.equal(response.status, 200);
+    assert.equal((body.review as { id: string; status: string }).id, `${jobId}::approval`);
+    assert.equal((body.review as { id: string; status: string }).status, 'approved');
     clearOpenClawTestInvoker();
   });
+});
 });

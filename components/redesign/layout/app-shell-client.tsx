@@ -8,6 +8,7 @@ import {
   BarChart3,
   Calendar,
   CheckCheck,
+  FileStack,
   LayoutDashboard,
   LogOut,
   Rocket,
@@ -21,6 +22,7 @@ import { getRouteById, getSectionRoutes, type AppRouteId } from '@/frontend/app-
 
 const ICONS: Record<AppRouteId, typeof LayoutDashboard> = {
   home: LayoutDashboard,
+  posts: FileStack,
   campaigns: Rocket,
   calendar: Calendar,
   results: BarChart3,

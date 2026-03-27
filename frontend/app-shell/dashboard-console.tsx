@@ -254,7 +254,7 @@ export default function DashboardConsole(): JSX.Element {
                   Open approval checkpoint <Activity className="w-4 h-4" />
                 </Link>
               ) : null}
-              <Link href="/posts" className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2">
+              <Link href="/dashboard/posts" className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2">
                 Review post queue <Activity className="w-4 h-4" />
               </Link>
               <Link href="/dashboard/calendar" className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2">

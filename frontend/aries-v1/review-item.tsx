@@ -12,6 +12,7 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
   const review = useRuntimeReviewItem(props.reviewId, { autoLoad: true });
   const item = review.data?.review ?? null;
   const [note, setNote] = useState('');
+  const isWorkflowApproval = item?.currentVersion.id === 'approval' || item?.id.endsWith('::approval');
 
   const busy = review.decision.isLoading;
 
@@ -59,7 +60,9 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
           <div className="rounded-[1.5rem] border border-white/8 bg-black/15 px-5 py-5 text-sm leading-7 text-white/65">
             <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Decision guidance</p>
             <p className="mt-3">
-              Approving keeps the item eligible for scheduling. Requesting changes returns it to review before launch.
+              {isWorkflowApproval
+                ? 'Approving resumes the workflow and advances the campaign to the next stage.'
+                : 'Approving keeps the item eligible for scheduling. Requesting changes returns it to review before launch.'}
             </p>
             {decisionSummary ? <p className="mt-3 text-white/55">Last decision: {decisionSummary}</p> : null}
           </div>
@@ -88,7 +91,7 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
               className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] disabled:opacity-60"
             >
               <CheckCircle2 className="h-4 w-4" />
-              {busy ? 'Saving…' : 'Approve'}
+              {busy ? 'Saving…' : isWorkflowApproval ? 'Approve and resume' : 'Approve'}
             </button>
             <button
               type="button"

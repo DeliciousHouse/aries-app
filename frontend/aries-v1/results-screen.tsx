@@ -44,7 +44,7 @@ export default function AriesResultsScreen() {
 
       <div className="grid gap-4">
         {liveCampaigns.map((campaign) => (
-          <Link key={campaign.id} href={`/campaigns/${campaign.id}`} className="rounded-[2rem] border border-white/10 bg-white/[0.04] px-6 py-5 transition hover:border-white/16 hover:bg-white/[0.06]">
+          <Link key={campaign.id} href={`/dashboard/campaigns/${campaign.id}`} className="rounded-[2rem] border border-white/10 bg-white/[0.04] px-6 py-5 transition hover:border-white/16 hover:bg-white/[0.06]">
             <div className="grid gap-5 lg:grid-cols-[1.3fr_0.9fr_0.8fr]">
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center gap-3">

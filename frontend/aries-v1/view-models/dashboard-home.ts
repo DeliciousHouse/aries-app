@@ -2,11 +2,20 @@ import type { IntegrationCard } from '@/lib/api/integrations';
 import type {
   AriesCampaignStatus,
   AriesChannelConnection,
+  AriesItemStatus,
   BusinessProfileView,
   RuntimeCampaignListItem,
   RuntimeReviewItem,
 } from '@/lib/api/aries-v1';
 import type { DashboardHeroMetric } from '@/frontend/aries-v1/components';
+
+type DashboardHomePreviewItem = {
+  id: string;
+  title: string;
+  meta: string;
+  status: AriesCampaignStatus | AriesItemStatus;
+  href: string;
+};
 
 export interface DashboardHomeViewModel {
   hero: {
@@ -31,7 +40,7 @@ export interface DashboardHomeViewModel {
     id: string;
     name: string;
     summary: string;
-    status: AriesCampaignStatus;
+    status: AriesCampaignStatus | AriesItemStatus;
     objective: string;
     stageLabel: string;
     nextScheduled: string;
@@ -39,6 +48,21 @@ export interface DashboardHomeViewModel {
     trustNote: string;
     href: string;
   } | null;
+  publish: {
+    count: number;
+    pausedCount: number;
+    title: string;
+    detail: string;
+    href: string;
+    label: string;
+    items: Array<{
+      id: string;
+      title: string;
+      meta: string;
+      status: AriesItemStatus;
+      href: string;
+    }>;
+  };
   reviews: {
     count: number;
     items: Array<{
@@ -59,10 +83,18 @@ export interface DashboardHomeViewModel {
       id: string;
       name: string;
       summary: string;
-      status: AriesCampaignStatus;
+      status: AriesCampaignStatus | AriesItemStatus;
       href: string;
       updatedLabel: string;
     }>;
+  };
+  workingNow: {
+    mode: 'results' | 'publish' | 'waiting';
+    title: string;
+    summary: string;
+    href: string;
+    label: string;
+    items: DashboardHomePreviewItem[];
   };
   channels: {
     connectedCount: number;
@@ -72,8 +104,15 @@ export interface DashboardHomeViewModel {
   };
 }
 
+const DASHBOARD_POSTS_HREF = '/dashboard/posts';
+const DASHBOARD_RESULTS_HREF = '/dashboard/results';
+
 function isScheduledValue(value: string): boolean {
   return !value.startsWith('Nothing') && !value.startsWith('Waiting');
+}
+
+function campaignHref(campaignId: string): string {
+  return `/dashboard/campaigns/${campaignId}`;
 }
 
 function formatUpdatedLabel(updatedAt: string | null): string {
@@ -116,6 +155,14 @@ function mapChannelConnection(card: IntegrationCard): AriesChannelConnection {
   };
 }
 
+function readyToPublishCountFor(campaign: RuntimeCampaignListItem): number {
+  return campaign.counts.readyToPublish + campaign.counts.pausedMetaAds;
+}
+
+function isLiveCampaign(campaign: RuntimeCampaignListItem): boolean {
+  return campaign.status === 'live' || campaign.dashboardStatus === 'live';
+}
+
 function nextActionFor(
   campaigns: RuntimeCampaignListItem[],
   reviewCount: number,
@@ -139,6 +186,17 @@ function nextActionFor(
     };
   }
 
+  const readyCampaign = campaigns.find((campaign) => readyToPublishCountFor(campaign) > 0);
+  if (readyCampaign) {
+    const readyCount = readyToPublishCountFor(readyCampaign);
+    return {
+      title: 'Review what is ready to publish',
+      summary: `${readyCount} publish-ready item${readyCount === 1 ? '' : 's'} are available now.`,
+      href: DASHBOARD_POSTS_HREF,
+      label: 'Open posts',
+    };
+  }
+
   const active = campaigns[0];
   if (active.approvalRequired && active.approvalActionHref) {
     return {
@@ -154,7 +212,7 @@ function nextActionFor(
     title: 'Open your latest campaign',
     summary:
       'Your workspace is ready. Check schedule, results, or prepare the next change from the active campaign.',
-    href: `/campaigns/${active.id}`,
+    href: campaignHref(active.id),
     label: 'Open campaign',
   };
 }
@@ -171,7 +229,71 @@ export function createDashboardHomeViewModel(args: {
   const channelItems = args.integrationCards.map(mapChannelConnection);
   const connectedCount = channelItems.filter((item) => item.health === 'connected').length;
   const attentionCount = channelItems.filter((item) => item.health === 'attention').length;
-  const liveCampaigns = args.campaigns.filter((campaign) => campaign.status === 'live');
+  const readyToPublishCount = args.campaigns.reduce((total, campaign) => total + readyToPublishCountFor(campaign), 0);
+  const pausedCount = args.campaigns.reduce((total, campaign) => total + campaign.counts.pausedMetaAds, 0);
+  const liveCampaigns = args.campaigns.filter(isLiveCampaign);
+  const publishPreviewItems = args.campaigns
+    .flatMap((campaign) =>
+      campaign.dashboard.publishItems
+        .filter((item) => item.status === 'ready_to_publish' || item.status === 'published_to_meta_paused')
+        .map((item) => ({
+          id: item.id,
+          title: item.title,
+          meta: `${item.campaignName} · ${item.platformLabel}`,
+          status: item.status,
+          href: DASHBOARD_POSTS_HREF,
+        })),
+    )
+    .slice(0, 3);
+  const resultItems = liveCampaigns.map((campaign) => ({
+    id: campaign.id,
+    name: campaign.name,
+    summary:
+      campaign.pendingApprovals > 0
+        ? 'This campaign is live, but follow-up approvals are still queued.'
+        : 'Live activity is present, so results can be reviewed without demo metrics.',
+    status: campaign.dashboardStatus === 'live' ? campaign.dashboardStatus : campaign.status,
+    href: campaignHref(campaign.id),
+    updatedLabel: formatUpdatedLabel(campaign.updatedAt),
+  }));
+  const workingNow: DashboardHomeViewModel['workingNow'] =
+    resultItems.length > 0
+      ? {
+          mode: 'results',
+          title: 'Live campaigns are sending result signal.',
+          summary:
+            'Aries is already seeing live campaign activity. Open the results surface for the operational mix, schedule readiness, and trust notes.',
+          href: DASHBOARD_RESULTS_HREF,
+          label: 'Open results',
+          items: resultItems.map((item) => ({
+            id: item.id,
+            title: item.name,
+            meta: item.updatedLabel,
+            status: item.status,
+            href: item.href,
+          })),
+        }
+      : readyToPublishCount > 0
+        ? {
+            mode: 'publish',
+            title: 'Launch-ready work is waiting for activation.',
+            summary:
+              'Nothing is live yet, but publish-ready items are already staged in the runtime. Open posts to review assets, publish-review entries, and paused Meta ads.',
+            href: DASHBOARD_POSTS_HREF,
+            label: 'Open posts',
+            items: publishPreviewItems,
+          }
+        : {
+            mode: 'waiting',
+            title: 'Results will populate after launch.',
+            summary:
+              activeCampaign !== null
+                ? 'Aries will summarize launch momentum and next actions here as soon as a campaign is live.'
+                : 'Create a campaign and Aries will start grounding this surface in live runtime data.',
+            href: activeCampaign !== null ? campaignHref(activeCampaign.id) : '/onboarding/start',
+            label: activeCampaign !== null ? 'Open campaign' : 'Create campaign',
+            items: [],
+          };
 
   return {
     hero: {
@@ -198,6 +320,15 @@ export function createDashboardHomeViewModel(args: {
           tone: args.reviews.length > 0 ? 'watch' : 'good',
         },
         {
+          label: 'Ready to publish',
+          value: String(readyToPublishCount),
+          detail:
+            readyToPublishCount > 0
+              ? `${readyToPublishCount} item${readyToPublishCount === 1 ? '' : 's'} are staged for launch now.`
+              : 'New ready items will appear as soon as they are generated.',
+          tone: readyToPublishCount > 0 ? 'good' : 'default',
+        },
+        {
           label: 'Connected channels',
           value: args.integrationsPending ? '...' : String(connectedCount),
           detail: args.integrationsPending
@@ -205,8 +336,7 @@ export function createDashboardHomeViewModel(args: {
             : channelItems.length > 0
               ? `${channelItems.length} total publishing surfaces configured.`
               : 'No channels connected yet.',
-          tone:
-            args.integrationsPending || connectedCount > 0 ? 'good' : 'watch',
+          tone: args.integrationsPending || connectedCount > 0 ? 'good' : 'watch',
         },
         {
           label: 'Profile status',
@@ -259,14 +389,31 @@ export function createDashboardHomeViewModel(args: {
             id: activeCampaign.id,
             name: activeCampaign.name,
             summary: activeCampaign.summary,
-            status: activeCampaign.status,
+            status: activeCampaign.dashboardStatus,
             objective: activeCampaign.objective,
             stageLabel: activeCampaign.stageLabel,
             nextScheduled: activeCampaign.nextScheduled,
             pendingApprovals: String(activeCampaign.pendingApprovals),
             trustNote: activeCampaign.trustNote,
-            href: `/campaigns/${activeCampaign.id}`,
+            href: campaignHref(activeCampaign.id),
           },
+    publish: {
+      count: readyToPublishCount,
+      pausedCount,
+      title:
+        readyToPublishCount > 0
+          ? `${readyToPublishCount} item${readyToPublishCount === 1 ? '' : 's'} ready to publish`
+          : 'Nothing is ready to publish yet',
+      detail:
+        readyToPublishCount > 0
+          ? pausedCount > 0
+            ? `${pausedCount} Meta ad${pausedCount === 1 ? '' : 's'} are already created and paused for activation.`
+            : 'Creative outputs and publish-review items are already staged in the runtime.'
+          : 'Images, scripts, landing pages, and paused platform ads will appear here as soon as they are ready.',
+      href: DASHBOARD_POSTS_HREF,
+      label: 'Open posts',
+      items: publishPreviewItems,
+    },
     reviews: {
       count: args.reviews.length,
       items: args.reviews.slice(0, 3).map((item) => ({
@@ -282,7 +429,7 @@ export function createDashboardHomeViewModel(args: {
         ? {
             title: activeCampaign.nextScheduled,
             detail: `${activeCampaign.name} is the next item on the schedule.`,
-            href: `/campaigns/${activeCampaign.id}`,
+            href: campaignHref(activeCampaign.id),
           }
         : {
             title: 'Nothing scheduled yet',
@@ -290,18 +437,9 @@ export function createDashboardHomeViewModel(args: {
             href: null,
           },
     results: {
-      items: liveCampaigns.map((campaign) => ({
-        id: campaign.id,
-        name: campaign.name,
-        summary:
-          campaign.pendingApprovals > 0
-            ? 'This campaign is live, but follow-up approvals are still queued.'
-            : 'Live activity is present, so results can be reviewed without demo metrics.',
-        status: campaign.status,
-        href: `/campaigns/${campaign.id}`,
-        updatedLabel: formatUpdatedLabel(campaign.updatedAt),
-      })),
+      items: resultItems,
     },
+    workingNow,
     channels: {
       connectedCount,
       totalCount: channelItems.length,

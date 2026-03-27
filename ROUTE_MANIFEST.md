@@ -16,10 +16,14 @@ This manifest lists the supported direct route contract for the current Aries ru
 | Route | Surface | Purpose |
 |---|---|---|
 | `/dashboard` | App shell | Operator overview |
-| `/platforms` | App shell | Platform connection status and OAuth actions |
-| `/settings` | App shell | Tenant settings surface |
-| `/posts` | App shell | Publish controls |
-| `/calendar` | App shell | Calendar and sync controls |
+| `/dashboard/campaigns` | App shell | Campaign list and workspace entrypoint |
+| `/dashboard/campaigns/:campaignId` | App shell | Campaign workspace |
+| `/dashboard/posts` | App shell | Publish controls |
+| `/dashboard/calendar` | App shell | Calendar and sync controls |
+| `/dashboard/results` | App shell | Runtime-backed results overview |
+| `/dashboard/settings` | App shell | Tenant settings surface |
+| `/review` | App shell | Review queue |
+| `/review/:reviewId` | App shell | Review detail |
 
 ## Workflow routes
 

@@ -1,5 +1,6 @@
 export type AppRouteId =
   | 'home'
+  | 'posts'
   | 'campaigns'
   | 'calendar'
   | 'results'
@@ -21,6 +22,13 @@ export const APP_ROUTES: readonly AppRoute[] = [
     href: '/dashboard',
     section: 'primary',
     description: 'Executive command center for approvals, schedule, active campaigns, and results.'
+  },
+  {
+    id: 'posts',
+    title: 'Posts',
+    href: '/dashboard/posts',
+    section: 'primary',
+    description: 'Ready-to-publish inventory across images, scripts, landing pages, and paused platform ads.'
   },
   {
     id: 'calendar',

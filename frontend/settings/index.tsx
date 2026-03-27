@@ -29,7 +29,7 @@ export default function SettingsScreen(_props: SettingsScreenProps): JSX.Element
         <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-4">Next best actions</p>
         <div className="space-y-4 mb-6">
           <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-white/70">
-            Review platform credentials and token health in <strong>Platforms</strong>.
+            Review platform credentials and token health in <strong>Settings</strong>.
           </div>
           <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-white/70">
             Use the <strong>marketing job</strong> surfaces for real publish approvals and package generation.
@@ -39,10 +39,10 @@ export default function SettingsScreen(_props: SettingsScreenProps): JSX.Element
           </div>
         </div>
         <div className="flex flex-col sm:flex-row gap-4">
-          <a href="/platforms" className="px-6 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 text-center">
-            Go to platforms
+          <a href="/dashboard/settings" className="px-6 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 text-center">
+            Open dashboard settings
           </a>
-          <a href="/posts" className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all text-center">
+          <a href="/dashboard/posts" className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all text-center">
             Open posts console
           </a>
         </div>

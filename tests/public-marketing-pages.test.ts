@@ -109,6 +109,6 @@ test('the authenticated route registry uses the required v1 top navigation label
   assert.match(routeSource, /title:\s*'Campaigns'/);
   assert.match(routeSource, /title:\s*'Calendar'/);
   assert.match(routeSource, /title:\s*'Results'/);
-  assert.match(routeSource, /href:\s*'\/campaigns'/);
-  assert.match(routeSource, /href:\s*'\/results'/);
+  assert.match(routeSource, /href:\s*'\/dashboard\/campaigns'/);
+  assert.match(routeSource, /href:\s*'\/dashboard\/results'/);
 });

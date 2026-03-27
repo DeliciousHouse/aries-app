@@ -18,6 +18,7 @@ import type {
   AriesCampaign,
   AriesCampaignStatus,
   AriesChannelConnection,
+  AriesItemStatus,
   AriesKpi,
   AriesRecommendation,
   AriesReviewItem,
@@ -130,12 +131,18 @@ export function MetricCard(props: DashboardHeroMetric) {
   );
 }
 
-export function StatusChip(props: { status: AriesCampaignStatus; children?: React.ReactNode }) {
+export function StatusChip(props: { status: AriesCampaignStatus | AriesItemStatus; children?: React.ReactNode }) {
   const palette =
     props.status === 'live'
       ? 'border-emerald-400/25 bg-emerald-400/10 text-emerald-100'
       : props.status === 'scheduled'
         ? 'border-sky-400/25 bg-sky-400/10 text-sky-100'
+        : props.status === 'published_to_meta_paused'
+          ? 'border-cyan-400/25 bg-cyan-400/10 text-cyan-100'
+          : props.status === 'ready_to_publish'
+            ? 'border-violet-400/25 bg-violet-400/10 text-violet-100'
+            : props.status === 'ready'
+              ? 'border-teal-400/25 bg-teal-400/10 text-teal-100'
         : props.status === 'approved'
           ? 'border-indigo-400/25 bg-indigo-400/10 text-indigo-100'
           : props.status === 'in_review'
@@ -149,6 +156,9 @@ export function StatusChip(props: { status: AriesCampaignStatus; children?: Reac
     {
       draft: 'Draft',
       in_review: 'In review',
+      ready: 'Ready',
+      ready_to_publish: 'Ready to publish',
+      published_to_meta_paused: 'Published to Meta (Paused)',
       approved: 'Approved',
       scheduled: 'Scheduled',
       live: 'Live',
