@@ -71,6 +71,9 @@ export type MarketingBrandKitReference = Omit<TenantBrandKit, 'tenant_id'> & {
 export type MarketingApprovalCheckpoint = {
   stage: Extract<MarketingStage, 'strategy' | 'production' | 'publish'>;
   status: 'awaiting_approval';
+  approval_id?: string | null;
+  workflow_name?: string | null;
+  workflow_step_id?: string | null;
   title: string;
   message: string;
   requested_at: string;
@@ -81,8 +84,10 @@ export type MarketingApprovalCheckpoint = {
 
 export type MarketingApprovalHistoryEntry = {
   stage: Extract<MarketingStage, 'strategy' | 'production' | 'publish'>;
-  status: 'requested' | 'approved' | 'cleared';
+  status: 'requested' | 'approved' | 'denied' | 'cleared';
   at: string;
+  approval_id?: string | null;
+  workflow_step_id?: string | null;
   approved_by?: string | null;
   message?: string | null;
   publish_config?: MarketingPublishConfig | null;
@@ -510,6 +515,9 @@ export function markStageAwaitingApproval(
   doc.approvals.current = {
     stage,
     status: 'awaiting_approval',
+    approval_id: checkpoint.approval_id ?? null,
+    workflow_name: checkpoint.workflow_name ?? null,
+    workflow_step_id: checkpoint.workflow_step_id ?? null,
     title: checkpoint.title,
     message: checkpoint.message,
     requested_at: checkpoint.requested_at ?? nowIso(),
@@ -521,6 +529,8 @@ export function markStageAwaitingApproval(
     stage,
     status: 'requested',
     at: doc.approvals.current.requested_at,
+    approval_id: doc.approvals.current.approval_id ?? null,
+    workflow_step_id: doc.approvals.current.workflow_step_id ?? null,
     message: checkpoint.message,
     publish_config: checkpoint.publish_config ?? null,
   });
@@ -534,6 +544,8 @@ export function clearApprovalCheckpoint(doc: MarketingJobRuntimeDocument, note: 
       stage: current.stage,
       status: 'cleared',
       at: nowIso(),
+      approval_id: current.approval_id ?? null,
+      workflow_step_id: current.workflow_step_id ?? null,
       message: current.message,
       publish_config: current.publish_config ?? null,
     });
@@ -549,6 +561,8 @@ export function recordApproval(
     approvedBy: string;
     message?: string;
     publishConfig?: Partial<MarketingPublishConfig>;
+    approvalId?: string | null;
+    workflowStepId?: string | null;
   }
 ): void {
   if (input.stage === 'publish' && input.publishConfig) {
@@ -561,7 +575,38 @@ export function recordApproval(
     stage: input.stage,
     status: 'approved',
     at: nowIso(),
+    approval_id: input.approvalId ?? doc.approvals.current?.approval_id ?? null,
+    workflow_step_id: input.workflowStepId ?? doc.approvals.current?.workflow_step_id ?? null,
     approved_by: input.approvedBy,
+    message: input.message ?? null,
+    publish_config: input.stage === 'publish' ? doc.publish_config : null,
+  });
+}
+
+export function recordApprovalDenied(
+  doc: MarketingJobRuntimeDocument,
+  input: {
+    stage: Extract<MarketingStage, 'strategy' | 'production' | 'publish'>;
+    deniedBy: string;
+    message?: string;
+    publishConfig?: Partial<MarketingPublishConfig>;
+    approvalId?: string | null;
+    workflowStepId?: string | null;
+  }
+): void {
+  if (input.stage === 'publish' && input.publishConfig) {
+    doc.publish_config = defaultPublishConfig({
+      ...doc.publish_config,
+      ...input.publishConfig,
+    });
+  }
+  doc.approvals.history.push({
+    stage: input.stage,
+    status: 'denied',
+    at: nowIso(),
+    approval_id: input.approvalId ?? doc.approvals.current?.approval_id ?? null,
+    workflow_step_id: input.workflowStepId ?? doc.approvals.current?.workflow_step_id ?? null,
+    approved_by: input.deniedBy,
     message: input.message ?? null,
     publish_config: input.stage === 'publish' ? doc.publish_config : null,
   });

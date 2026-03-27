@@ -1,12 +1,25 @@
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 
 import { resolveCodePath, resolveCodeRoot } from '@/lib/runtime-paths';
 import {
   OpenClawGatewayError,
+  describeLobsterResumeToken,
+  resolveOpenClawLobsterRuntimeContext,
   resumeOpenClawLobsterWorkflow,
   runOpenClawLobsterWorkflow,
   type LobsterEnvelope,
 } from '../openclaw/gateway-client';
+import {
+  MarketingApprovalLockError,
+  createMarketingApprovalRecord,
+  findLatestMarketingApprovalRecord,
+  loadMarketingApprovalRecord,
+  saveMarketingApprovalRecord,
+  withMarketingApprovalLock,
+  type MarketingApprovalRecord,
+  type MarketingApprovalResolution,
+} from './approval-store';
 import {
   appendHistory,
   assertMarketingRuntimeSchemas,
@@ -19,12 +32,15 @@ import {
   markStageInProgress,
   nowIso,
   recordApproval,
+  recordApprovalDenied,
   recordStageFailure,
   saveMarketingJobRuntime,
   setJobRunning,
   type MarketingApprovalCheckpoint,
   type MarketingJobRuntimeDocument,
   type MarketingPublishConfig,
+  type MarketingStageArtifact,
+  type MarketingStageRecord,
   type MarketingStage,
 } from './runtime-state';
 import {
@@ -61,18 +77,35 @@ export type ApproveMarketingJobRequest = {
   tenantId: string;
   approvedBy: string;
   approvedStages?: Array<'research' | 'strategy' | 'production' | 'publish'>;
+  approvalId?: string;
   resumePublishIfNeeded?: boolean;
   publishConfig?: Partial<MarketingPublishConfig>;
 };
 
 export type ApproveMarketingJobResponse = {
-  status: 'resumed' | 'error';
+  status: 'resumed' | 'already_resolved' | 'denied' | 'error';
   jobId: string;
   tenantId: string;
   resumedStage: MarketingStage | null;
   completed: boolean;
+  approvalId?: string | null;
   reason?: string;
 };
+
+export type DenyMarketingJobRequest = {
+  jobId: string;
+  tenantId: string;
+  deniedBy: string;
+  approvalId?: string;
+  note?: string;
+  publishConfig?: Partial<MarketingPublishConfig>;
+};
+
+type WorkflowApprovalStepId =
+  | 'approve_stage_2'
+  | 'approve_stage_3'
+  | 'approve_stage_4'
+  | 'approve_stage_4_publish';
 
 function runtimeBrandKitReference(
   brandKit: TenantBrandKit,
@@ -139,6 +172,23 @@ function ensureBrandCampaignInput(input: StartMarketingJobRequest): { brandUrl: 
 }
 
 const MARKETING_PIPELINE_FILE = 'marketing-pipeline.lobster';
+const MARKETING_WORKFLOW_NAME = 'marketing-pipeline';
+const DEFAULT_MARKETING_WORKFLOW_TIMEOUT_MS = 15 * 60 * 1000;
+const DEFAULT_MARKETING_WORKFLOW_MAX_STDOUT_BYTES = 8 * 1024 * 1024;
+
+function positiveIntegerEnv(key: string, fallback: number): number {
+  const raw = process.env[key]?.trim();
+  if (!raw) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return parsed;
+}
 
 function marketingPipelineCwd(): string {
   const explicit = process.env.OPENCLAW_LOBSTER_CWD?.trim();
@@ -154,7 +204,51 @@ function marketingPipelineArgs(doc: MarketingJobRuntimeDocument): Record<string,
     competitor: doc.inputs.competitor_url ?? '',
     competitor_facebook_url: doc.inputs.competitor_facebook_url ?? '',
     brand_slug: doc.tenant_id,
+    agent_id: process.env.OPENCLAW_SESSION_KEY?.trim() || 'main',
   };
+}
+
+function marketingPipelinePath(): string {
+  return path.join(marketingPipelineCwd(), MARKETING_PIPELINE_FILE);
+}
+
+function marketingWorkflowTimeoutMs(): number {
+  return positiveIntegerEnv(
+    'OPENCLAW_MARKETING_WORKFLOW_TIMEOUT_MS',
+    DEFAULT_MARKETING_WORKFLOW_TIMEOUT_MS,
+  );
+}
+
+function marketingWorkflowMaxStdoutBytes(): number {
+  return positiveIntegerEnv(
+    'OPENCLAW_MARKETING_WORKFLOW_MAX_STDOUT_BYTES',
+    DEFAULT_MARKETING_WORKFLOW_MAX_STDOUT_BYTES,
+  );
+}
+
+function marketingWorkflowRuntimeContext() {
+  const runtime = resolveOpenClawLobsterRuntimeContext({ cwd: marketingPipelineCwd() });
+  return {
+    workflowName: MARKETING_WORKFLOW_NAME,
+    pipelinePath: marketingPipelinePath(),
+    runtime,
+  };
+}
+
+function approvalLifecycleLog(
+  event:
+    | 'workflow-run'
+    | 'approval-created'
+    | 'approval-read'
+    | 'approval-resume-requested'
+    | 'approval-resume-succeeded'
+    | 'approval-resume-failed',
+  input: Record<string, unknown>,
+): void {
+  console.info('[marketing-approval]', {
+    event,
+    ...input,
+  });
 }
 
 function primaryOutputRecord(envelope: LobsterEnvelope): Record<string, unknown> {
@@ -232,14 +326,18 @@ async function runMarketingPipeline(doc: MarketingJobRuntimeDocument): Promise<L
     pipeline: MARKETING_PIPELINE_FILE,
     cwd: marketingPipelineCwd(),
     argsJson: JSON.stringify(marketingPipelineArgs(doc)),
+    timeoutMs: marketingWorkflowTimeoutMs(),
+    maxStdoutBytes: marketingWorkflowMaxStdoutBytes(),
   });
 }
 
-async function resumeMarketingPipeline(resumeToken: string): Promise<LobsterEnvelope> {
+async function resumeMarketingPipeline(resumeToken: string, approve = true): Promise<LobsterEnvelope> {
   return resumeOpenClawLobsterWorkflow({
     token: resumeToken,
-    approve: true,
+    approve,
     cwd: marketingPipelineCwd(),
+    timeoutMs: marketingWorkflowTimeoutMs(),
+    maxStdoutBytes: marketingWorkflowMaxStdoutBytes(),
   });
 }
 
@@ -265,11 +363,170 @@ function stageApprovalMessage(
   };
 }
 
+function publishPausedApprovalMessage(fallback: string): { title: string; message: string } {
+  return {
+    title: 'Publish to Meta (paused) approval required',
+    message: fallback || 'Stage 4 pre-flight is complete. Approve creation of Meta campaigns, ad sets, and ads as paused.',
+  };
+}
+
+function checkpointSummary(
+  title: string,
+  message: string,
+  highlight: string | null | undefined,
+): MarketingStageRecord['summary'] {
+  return {
+    summary: message,
+    highlight: highlight ?? null,
+  };
+}
+
+function approvalRecordPreviewPayload(envelope: LobsterEnvelope): unknown {
+  const previewItems = Array.isArray(envelope.requiresApproval?.items) ? envelope.requiresApproval?.items : [];
+  if (previewItems && previewItems.length > 0) {
+    return previewItems;
+  }
+  const primaryOutput = primaryOutputRecord(envelope);
+  return Object.keys(primaryOutput).length > 0 ? primaryOutput : null;
+}
+
+function createAndPersistApprovalCheckpoint(
+  doc: MarketingJobRuntimeDocument,
+  input: {
+    stage: Extract<MarketingStage, 'strategy' | 'production' | 'publish'>;
+    workflowStepId: WorkflowApprovalStepId;
+    title: string;
+    message: string;
+    actionLabel: string;
+    resumeToken: string;
+    envelope: LobsterEnvelope;
+    runId: string | null;
+    highlight?: string | null;
+    primaryOutput?: Record<string, unknown> | null;
+    outputs?: Record<string, unknown>;
+    artifacts?: MarketingStageArtifact[];
+    publishConfig?: MarketingPublishConfig | null;
+  },
+): MarketingApprovalRecord {
+  const { workflowName, pipelinePath, runtime } = marketingWorkflowRuntimeContext();
+  const descriptor = describeLobsterResumeToken(input.resumeToken);
+  const approvalRecord = createMarketingApprovalRecord({
+    tenantId: doc.tenant_id,
+    marketingJobId: doc.job_id,
+    workflowName,
+    workflowStepId: input.workflowStepId,
+    marketingStage: input.stage,
+    lobsterResumeToken: input.resumeToken,
+    lobsterResumeStateKeys: descriptor.stateKeys,
+    approvalPrompt: input.message,
+    approvalPreviewPayload: approvalRecordPreviewPayload(input.envelope),
+    runtimeContext: {
+      pipelinePath,
+      cwd: runtime.cwd,
+      stateDir: runtime.stateDir,
+      sessionKey: runtime.sessionKey,
+      gatewayUrl: runtime.gatewayUrl,
+    },
+    publishConfig: input.publishConfig ?? null,
+  });
+  saveMarketingApprovalRecord(approvalRecord);
+  approvalLifecycleLog('approval-created', {
+    jobId: doc.job_id,
+    tenantId: doc.tenant_id,
+    stage: input.stage,
+    workflowStepId: input.workflowStepId,
+    approvalId: approvalRecord.approval_id,
+    correlationId: approvalRecord.correlation_id,
+    traceId: approvalRecord.trace_id,
+    tokenFingerprint: approvalRecord.lobster_resume_token_fingerprint,
+    tokenStateKeys: approvalRecord.lobster_resume_state_keys,
+    sessionKey: approvalRecord.runtime_context.session_key,
+    cwd: approvalRecord.runtime_context.cwd,
+    stateDir: approvalRecord.runtime_context.state_dir,
+    pipelinePath: approvalRecord.runtime_context.pipeline_path,
+  });
+
+  markStageAwaitingApproval(
+    doc,
+    input.stage,
+    {
+      approval_id: approvalRecord.approval_id,
+      workflow_name: approvalRecord.workflow_name,
+      workflow_step_id: approvalRecord.workflow_step_id,
+      title: input.title,
+      message: input.message,
+      action_label: input.actionLabel,
+      publish_config: input.publishConfig ?? null,
+      resume_token: input.resumeToken,
+    },
+    {
+      runId: input.runId,
+      summary: checkpointSummary(input.title, input.message, input.highlight),
+      primaryOutput: input.primaryOutput ?? null,
+      outputs: {
+        ...(input.outputs ?? {}),
+        resume_token: input.resumeToken,
+        approval_id: approvalRecord.approval_id,
+        workflow_step_id: input.workflowStepId,
+      },
+      artifacts: input.artifacts ?? [],
+    },
+  );
+
+  return approvalRecord;
+}
+
+function activeApprovalRecord(
+  doc: MarketingJobRuntimeDocument,
+  input: { approvalId?: string | null } = {},
+): MarketingApprovalRecord | null {
+  const checkpoint = doc.approvals.current;
+  const approvalId = input.approvalId?.trim() || checkpoint?.approval_id?.trim() || '';
+  const record = findLatestMarketingApprovalRecord({
+    marketingJobId: doc.job_id,
+    tenantId: doc.tenant_id,
+    approvalId: approvalId || undefined,
+    workflowStepId: checkpoint?.workflow_step_id ?? null,
+    marketingStage: checkpoint?.stage ?? null,
+    statuses: ['pending', 'failed', 'approved', 'denied', 'consumed'],
+  });
+
+  if (record) {
+    approvalLifecycleLog('approval-read', {
+      jobId: doc.job_id,
+      tenantId: doc.tenant_id,
+      stage: record.marketing_stage,
+      workflowStepId: record.workflow_step_id,
+      approvalId: record.approval_id,
+      status: record.status,
+      attemptCount: record.attempt_count,
+      tokenFingerprint: record.lobster_resume_token_fingerprint,
+      tokenStateKeys: record.lobster_resume_state_keys,
+    });
+  }
+
+  return record;
+}
+
 
 async function runResearchStage(doc: MarketingJobRuntimeDocument): Promise<void> {
   setJobRunning(doc, 'research', 'running research stage');
   markStageInProgress(doc, 'research');
   saveMarketingJobRuntime(doc.job_id, doc);
+
+  const { runtime, pipelinePath } = marketingWorkflowRuntimeContext();
+  approvalLifecycleLog('workflow-run', {
+    jobId: doc.job_id,
+    tenantId: doc.tenant_id,
+    stage: 'research',
+    workflowName: MARKETING_WORKFLOW_NAME,
+    pipelinePath,
+    sessionKey: runtime.sessionKey,
+    cwd: runtime.cwd,
+    stateDir: runtime.stateDir,
+    timeoutMs: marketingWorkflowTimeoutMs(),
+    maxStdoutBytes: marketingWorkflowMaxStdoutBytes(),
+  });
 
   const envelope = await runMarketingPipeline(doc);
   const primaryOutput = primaryOutputRecord(envelope);
@@ -308,38 +565,29 @@ async function runResearchStage(doc: MarketingJobRuntimeDocument): Promise<void>
     'strategy',
     approvalPrompt(envelope, 'Research is complete. Approve the strategy step to continue.')
   );
-  markStageAwaitingApproval(
-    doc,
-    'strategy',
-    {
-      title: approval.title,
-      message: approval.message,
-      action_label: 'Review strategy',
-      resume_token: envelope.requiresApproval.resumeToken,
-    },
-    {
-      runId,
-      summary: {
+  createAndPersistApprovalCheckpoint(doc, {
+    stage: 'strategy',
+    workflowStepId: 'approve_stage_2',
+    title: approval.title,
+    message: approval.message,
+    actionLabel: 'Review strategy',
+    resumeToken: envelope.requiresApproval.resumeToken,
+    envelope,
+    runId,
+    highlight: summary.highlight,
+    primaryOutput,
+    artifacts: [
+      {
+        id: 'strategy-review',
+        stage: 'strategy',
+        title: 'Strategy approval checkpoint',
+        category: 'approval',
+        status: 'awaiting_approval',
         summary: approval.message,
-        highlight: summary.highlight,
+        details: [],
       },
-      primaryOutput,
-      outputs: {
-        resume_token: envelope.requiresApproval.resumeToken,
-      },
-      artifacts: [
-        {
-          id: 'strategy-review',
-          stage: 'strategy',
-          title: 'Strategy approval checkpoint',
-          category: 'approval',
-          status: 'awaiting_approval',
-          summary: approval.message,
-          details: [],
-        },
-      ],
-    }
-  );
+    ],
+  });
   appendHistory(doc, 'strategy stage is awaiting approval', { stage: 'strategy' });
   saveMarketingJobRuntime(doc.job_id, doc);
 }
@@ -378,38 +626,29 @@ async function finalizeStrategyAndRunProductionReview(
     'production',
     approvalPrompt(envelope, 'Strategy is complete. Approve production to continue.')
   );
-  markStageAwaitingApproval(
-    doc,
-    'production',
-    {
-      title: approval.title,
-      message: approval.message,
-      action_label: 'Review production',
-      resume_token: envelope.requiresApproval.resumeToken,
-    },
-    {
-      runId: runIdFromPrimaryOutput(primaryOutput) ?? getStageRecord(doc, 'strategy').run_id,
-      summary: {
+  createAndPersistApprovalCheckpoint(doc, {
+    stage: 'production',
+    workflowStepId: 'approve_stage_3',
+    title: approval.title,
+    message: approval.message,
+    actionLabel: 'Review production',
+    resumeToken: envelope.requiresApproval.resumeToken,
+    envelope,
+    runId: runIdFromPrimaryOutput(primaryOutput) ?? getStageRecord(doc, 'strategy').run_id,
+    highlight: strategy.highlight,
+    primaryOutput,
+    artifacts: [
+      {
+        id: 'production-review',
+        stage: 'production',
+        title: 'Production approval checkpoint',
+        category: 'approval',
+        status: 'awaiting_approval',
         summary: approval.message,
-        highlight: strategy.highlight,
+        details: [],
       },
-      primaryOutput,
-      outputs: {
-        resume_token: envelope.requiresApproval.resumeToken,
-      },
-      artifacts: [
-        {
-          id: 'production-review',
-          stage: 'production',
-          title: 'Production approval checkpoint',
-          category: 'approval',
-          status: 'awaiting_approval',
-          summary: approval.message,
-          details: [],
-        },
-      ],
-    }
-  );
+    ],
+  });
   appendHistory(doc, 'production stage is awaiting approval', { stage: 'production' });
   saveMarketingJobRuntime(doc.job_id, doc);
 }
@@ -448,44 +687,35 @@ async function finalizeProductionAndRunPublishReview(
     'publish',
     approvalPrompt(envelope, 'Production is complete. Approve publish to continue.')
   );
-  markStageAwaitingApproval(
-    doc,
-    'publish',
-    {
-      title: approval.title,
-      message: approval.message,
-      action_label: 'Approve launch',
-      publish_config: doc.publish_config,
-      resume_token: envelope.requiresApproval.resumeToken,
-    },
-    {
-      runId: runIdFromPrimaryOutput(primaryOutput) ?? getStageRecord(doc, 'production').run_id,
-      summary: {
+  createAndPersistApprovalCheckpoint(doc, {
+    stage: 'publish',
+    workflowStepId: 'approve_stage_4',
+    title: approval.title,
+    message: approval.message,
+    actionLabel: 'Approve launch review',
+    resumeToken: envelope.requiresApproval.resumeToken,
+    envelope,
+    runId: runIdFromPrimaryOutput(primaryOutput) ?? getStageRecord(doc, 'production').run_id,
+    highlight: production.highlight,
+    primaryOutput,
+    publishConfig: doc.publish_config,
+    artifacts: [
+      {
+        id: 'launch-review',
+        stage: 'publish',
+        title: 'Launch approval checkpoint',
+        category: 'approval',
+        status: 'awaiting_approval',
         summary: approval.message,
-        highlight: production.highlight,
+        details: [],
       },
-      primaryOutput,
-      outputs: {
-        resume_token: envelope.requiresApproval.resumeToken,
-      },
-      artifacts: [
-        {
-          id: 'launch-review',
-          stage: 'publish',
-          title: 'Launch approval checkpoint',
-          category: 'approval',
-          status: 'awaiting_approval',
-          summary: approval.message,
-          details: [],
-        },
-      ],
-    }
-  );
+    ],
+  });
   appendHistory(doc, 'publish stage is awaiting approval', { stage: 'publish' });
   saveMarketingJobRuntime(doc.job_id, doc);
 }
 
-async function finalizePublish(doc: MarketingJobRuntimeDocument, resumeToken: string): Promise<void> {
+async function advancePublishStage(doc: MarketingJobRuntimeDocument, resumeToken: string): Promise<void> {
   const publishStage = getStageRecord(doc, 'publish');
   if (!resumeToken) {
     throw new Error('missing_publish_resume_token');
@@ -498,6 +728,32 @@ async function finalizePublish(doc: MarketingJobRuntimeDocument, resumeToken: st
   const envelope = await resumeMarketingPipeline(resumeToken);
   const primaryOutput = primaryOutputRecord(envelope);
   const publish = summarizePublish(primaryOutput);
+  if (envelope.requiresApproval?.resumeToken) {
+    const approval = publishPausedApprovalMessage(
+      approvalPrompt(envelope, 'Stage 4 pre-flight is complete. Approve creation of Meta campaigns, ad sets, and ads as paused.')
+    );
+    createAndPersistApprovalCheckpoint(doc, {
+      stage: 'publish',
+      workflowStepId: 'approve_stage_4_publish',
+      title: approval.title,
+      message: approval.message,
+      actionLabel: 'Approve paused publish',
+      resumeToken: envelope.requiresApproval.resumeToken,
+      envelope,
+      runId: runIdFromPrimaryOutput(primaryOutput) ?? publishStage.run_id,
+      highlight: publish.highlight,
+      primaryOutput,
+      publishConfig: doc.publish_config,
+      outputs: {
+        envelope,
+      },
+      artifacts: publishStage.artifacts,
+    });
+    appendHistory(doc, 'publish stage is awaiting paused-publish approval', { stage: 'publish' });
+    saveMarketingJobRuntime(doc.job_id, doc);
+    return;
+  }
+
   markStageCompleted(doc, 'publish', {
     runId: runIdFromPrimaryOutput(primaryOutput) ?? publishStage.run_id,
     summary: {
@@ -586,13 +842,117 @@ export async function startMarketingJob(input: StartMarketingJobRequest): Promis
   };
 }
 
-export async function approveMarketingJob(
-  input: ApproveMarketingJobRequest,
-  doc: MarketingJobRuntimeDocument
+function inferredWorkflowStepId(checkpoint: MarketingApprovalCheckpoint): WorkflowApprovalStepId {
+  if (checkpoint.workflow_step_id === 'approve_stage_2' || checkpoint.workflow_step_id === 'approve_stage_3' || checkpoint.workflow_step_id === 'approve_stage_4' || checkpoint.workflow_step_id === 'approve_stage_4_publish') {
+    return checkpoint.workflow_step_id;
+  }
+  if (checkpoint.stage === 'strategy') {
+    return 'approve_stage_2';
+  }
+  if (checkpoint.stage === 'production') {
+    return 'approve_stage_3';
+  }
+  if (/paused/i.test(checkpoint.message) || /paused/i.test(checkpoint.title)) {
+    return 'approve_stage_4_publish';
+  }
+  return 'approve_stage_4';
+}
+
+function terminalApprovalResponse(
+  input: { jobId: string; tenantId: string },
+  record: MarketingApprovalRecord,
+): ApproveMarketingJobResponse {
+  return {
+    status: 'already_resolved',
+    jobId: input.jobId,
+    tenantId: input.tenantId,
+    resumedStage: record.resolution_result?.resumed_stage ?? record.marketing_stage,
+    completed: record.resolution_result?.completed ?? false,
+    approvalId: record.approval_id,
+    reason:
+      record.status === 'denied'
+        ? 'already_denied'
+        : record.status === 'consumed'
+          ? 'already_consumed'
+          : 'already_resolved',
+  };
+}
+
+async function waitForApprovalRecordResolution(approvalId: string, timeoutMs = 4_000): Promise<MarketingApprovalRecord | null> {
+  const started = Date.now();
+  while ((Date.now() - started) < timeoutMs) {
+    const record = loadMarketingApprovalRecord(approvalId);
+    if (record && (record.status === 'approved' || record.status === 'denied' || record.status === 'consumed')) {
+      return record;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return loadMarketingApprovalRecord(approvalId);
+}
+
+function backfillApprovalRecordFromCheckpoint(doc: MarketingJobRuntimeDocument, checkpoint: MarketingApprovalCheckpoint): MarketingApprovalRecord | null {
+  const resumeToken = checkpoint.resume_token?.trim() || '';
+  if (!resumeToken) {
+    return null;
+  }
+  const { workflowName, pipelinePath, runtime } = marketingWorkflowRuntimeContext();
+  const descriptor = describeLobsterResumeToken(resumeToken);
+  const record = createMarketingApprovalRecord({
+    approvalId: checkpoint.approval_id ?? undefined,
+    tenantId: doc.tenant_id,
+    marketingJobId: doc.job_id,
+    workflowName: checkpoint.workflow_name?.trim() || workflowName,
+    workflowStepId: inferredWorkflowStepId(checkpoint),
+    marketingStage: checkpoint.stage,
+    lobsterResumeToken: resumeToken,
+    lobsterResumeStateKeys: descriptor.stateKeys,
+    approvalPrompt: checkpoint.message,
+    runtimeContext: {
+      pipelinePath,
+      cwd: runtime.cwd,
+      stateDir: runtime.stateDir,
+      sessionKey: runtime.sessionKey,
+      gatewayUrl: runtime.gatewayUrl,
+    },
+    publishConfig: checkpoint.publish_config ?? null,
+  });
+  saveMarketingApprovalRecord(record);
+  checkpoint.approval_id = record.approval_id;
+  checkpoint.workflow_name = record.workflow_name;
+  checkpoint.workflow_step_id = record.workflow_step_id;
+  saveMarketingJobRuntime(doc.job_id, doc);
+  return record;
+}
+
+function activeOrBackfilledApprovalRecord(
+  doc: MarketingJobRuntimeDocument,
+  input: { approvalId?: string | null } = {},
+): MarketingApprovalRecord | null {
+  const existing = activeApprovalRecord(doc, input);
+  if (existing) {
+    return existing;
+  }
+  if (!doc.approvals.current) {
+    return null;
+  }
+  return backfillApprovalRecordFromCheckpoint(doc, doc.approvals.current);
+}
+
+async function resolveMarketingApproval(
+  input: {
+    jobId: string;
+    tenantId: string;
+    actedBy: string;
+    approvedStages?: Array<'research' | 'strategy' | 'production' | 'publish'>;
+    approvalId?: string;
+    publishConfig?: Partial<MarketingPublishConfig>;
+    resolution: MarketingApprovalResolution;
+  },
+  doc: MarketingJobRuntimeDocument,
 ): Promise<ApproveMarketingJobResponse> {
   assertMarketingRuntimeSchemas();
 
-  if (!input.approvedBy?.trim()) {
+  if (!input.actedBy?.trim()) {
     return {
       status: 'error',
       jobId: input.jobId,
@@ -613,8 +973,35 @@ export async function approveMarketingJob(
     };
   }
 
+  await ensureRuntimeBrandKit(doc);
+
   const checkpoint = doc.approvals.current;
+  const targetedRecord =
+    activeOrBackfilledApprovalRecord(doc, { approvalId: input.approvalId }) ||
+    findLatestMarketingApprovalRecord({
+      marketingJobId: input.jobId,
+      tenantId: input.tenantId,
+      approvalId: input.approvalId,
+      statuses: ['approved', 'denied', 'consumed'],
+    });
+
   if (!checkpoint) {
+    if (targetedRecord) {
+      return terminalApprovalResponse(input, targetedRecord);
+    }
+    return {
+      status: 'error',
+      jobId: input.jobId,
+      tenantId: input.tenantId,
+      resumedStage: null,
+      completed: false,
+      reason: 'approval_not_available',
+    };
+  }
+  if (input.approvalId?.trim() && checkpoint.approval_id?.trim() && input.approvalId.trim() !== checkpoint.approval_id.trim()) {
+    if (targetedRecord) {
+      return terminalApprovalResponse(input, targetedRecord);
+    }
     return {
       status: 'error',
       jobId: input.jobId,
@@ -634,55 +1021,213 @@ export async function approveMarketingJob(
       reason: 'approval_stage_not_selected',
     };
   }
-  const resumeToken = checkpoint.resume_token?.trim() || '';
 
-  await ensureRuntimeBrandKit(doc);
-
-  recordApproval(doc, {
-    stage: checkpoint.stage,
-    approvedBy: input.approvedBy.trim(),
-    message: checkpoint.message,
-    publishConfig: checkpoint.stage === 'publish' ? input.publishConfig : undefined,
-  });
-  appendHistory(doc, `${checkpoint.stage} approval received from ${input.approvedBy.trim()}`, {
-    stage: checkpoint.stage,
-    state: 'running',
-    status: 'running',
-  });
-  saveMarketingJobRuntime(doc.job_id, doc);
-
-  try {
-    if (checkpoint.stage === 'strategy') {
-      await finalizeStrategyAndRunProductionReview(doc, resumeToken);
-      return {
-        status: 'resumed',
-        jobId: input.jobId,
-        tenantId: input.tenantId,
-        resumedStage: 'production',
-        completed: false,
-      };
-    }
-
-    if (checkpoint.stage === 'production') {
-      await finalizeProductionAndRunPublishReview(doc, resumeToken);
-      return {
-        status: 'resumed',
-        jobId: input.jobId,
-        tenantId: input.tenantId,
-        resumedStage: 'publish',
-        completed: false,
-      };
-    }
-
-    await finalizePublish(doc, resumeToken);
+  const approvalRecord = activeOrBackfilledApprovalRecord(doc, { approvalId: input.approvalId });
+  if (!approvalRecord) {
     return {
-      status: 'resumed',
+      status: 'error',
       jobId: input.jobId,
       tenantId: input.tenantId,
-      resumedStage: 'publish',
-      completed: true,
+      resumedStage: null,
+      completed: false,
+      reason: 'approval_not_available',
     };
+  }
+
+  if (approvalRecord.status === 'approved' || approvalRecord.status === 'denied' || approvalRecord.status === 'consumed') {
+    return terminalApprovalResponse(input, approvalRecord);
+  }
+
+  const resumeToken = approvalRecord.lobster_resume_token.trim() || checkpoint.resume_token?.trim() || '';
+  try {
+    return await withMarketingApprovalLock(approvalRecord.approval_id, async () => {
+      const currentRecord = loadMarketingApprovalRecord(approvalRecord.approval_id);
+      if (!currentRecord) {
+        return {
+          status: 'error',
+          jobId: input.jobId,
+          tenantId: input.tenantId,
+          resumedStage: null,
+          completed: false,
+          reason: 'approval_not_available',
+        } satisfies ApproveMarketingJobResponse;
+      }
+
+      if (currentRecord.status === 'approved' || currentRecord.status === 'denied' || currentRecord.status === 'consumed') {
+        return terminalApprovalResponse(input, currentRecord);
+      }
+
+      currentRecord.attempt_count += 1;
+      currentRecord.last_error = null;
+      saveMarketingApprovalRecord(currentRecord);
+
+      approvalLifecycleLog('approval-resume-requested', {
+        jobId: doc.job_id,
+        tenantId: doc.tenant_id,
+        stage: checkpoint.stage,
+        workflowStepId: currentRecord.workflow_step_id,
+        approvalId: currentRecord.approval_id,
+        resolution: input.resolution,
+        attemptCount: currentRecord.attempt_count,
+        correlationId: currentRecord.correlation_id,
+        traceId: currentRecord.trace_id,
+        tokenFingerprint: currentRecord.lobster_resume_token_fingerprint,
+        tokenStateKeys: currentRecord.lobster_resume_state_keys,
+        timeoutMs: marketingWorkflowTimeoutMs(),
+        maxStdoutBytes: marketingWorkflowMaxStdoutBytes(),
+      });
+
+      let resumedStage: MarketingStage | null = null;
+      let completed = false;
+
+      if (input.resolution === 'deny') {
+        const envelope = await resumeMarketingPipeline(resumeToken, false);
+        if (envelope.status !== 'cancelled') {
+          throw new Error('workflow_deny_failed:workflow_did_not_cancel');
+        }
+        recordApprovalDenied(doc, {
+          stage: checkpoint.stage,
+          deniedBy: input.actedBy.trim(),
+          message: checkpoint.message,
+          publishConfig: checkpoint.stage === 'publish' ? input.publishConfig : undefined,
+          approvalId: checkpoint.approval_id ?? currentRecord.approval_id,
+          workflowStepId: checkpoint.workflow_step_id ?? currentRecord.workflow_step_id,
+        });
+        clearApprovalCheckpoint(doc, `${checkpoint.stage} approval denied by ${input.actedBy.trim()}`);
+        doc.state = 'failed';
+        doc.status = 'failed';
+        saveMarketingJobRuntime(doc.job_id, doc);
+        resumedStage = checkpoint.stage;
+        completed = false;
+      } else {
+        if (checkpoint.stage === 'strategy') {
+          await finalizeStrategyAndRunProductionReview(doc, resumeToken);
+          resumedStage = 'production';
+        } else if (checkpoint.stage === 'production') {
+          await finalizeProductionAndRunPublishReview(doc, resumeToken);
+          resumedStage = 'publish';
+        } else {
+          await advancePublishStage(doc, resumeToken);
+          resumedStage = 'publish';
+        }
+
+        completed = doc.state === 'completed';
+        recordApproval(doc, {
+          stage: checkpoint.stage,
+          approvedBy: input.actedBy.trim(),
+          message: checkpoint.message,
+          publishConfig: checkpoint.stage === 'publish' ? input.publishConfig : undefined,
+          approvalId: checkpoint.approval_id ?? currentRecord.approval_id,
+          workflowStepId: checkpoint.workflow_step_id ?? currentRecord.workflow_step_id,
+        });
+        appendHistory(doc, `${checkpoint.stage} approval received from ${input.actedBy.trim()}`, {
+          stage: checkpoint.stage,
+          state: completed ? 'completed' : doc.state,
+          status: completed ? 'completed' : doc.status,
+        });
+        saveMarketingJobRuntime(doc.job_id, doc);
+      }
+
+      currentRecord.status = input.resolution === 'approve' ? 'approved' : 'denied';
+      currentRecord.resolution = input.resolution;
+      currentRecord.resolved_at = nowIso();
+      currentRecord.resolution_result = {
+        resumed_stage: resumedStage,
+        completed,
+        outcome: input.resolution === 'approve' ? 'workflow_resumed' : 'workflow_cancelled',
+      };
+      currentRecord.last_error = null;
+      saveMarketingApprovalRecord(currentRecord);
+
+      approvalLifecycleLog('approval-resume-succeeded', {
+        jobId: doc.job_id,
+        tenantId: doc.tenant_id,
+        stage: checkpoint.stage,
+        workflowStepId: currentRecord.workflow_step_id,
+        approvalId: currentRecord.approval_id,
+        resolution: input.resolution,
+        resumedStage,
+        completed,
+        attemptCount: currentRecord.attempt_count,
+        tokenFingerprint: currentRecord.lobster_resume_token_fingerprint,
+      });
+
+      return {
+        status: input.resolution === 'approve' ? 'resumed' : 'denied',
+        jobId: input.jobId,
+        tenantId: input.tenantId,
+        resumedStage,
+        completed,
+        approvalId: currentRecord.approval_id,
+      } satisfies ApproveMarketingJobResponse;
+    });
   } catch (error) {
+    if (error instanceof MarketingApprovalLockError) {
+      const settled = await waitForApprovalRecordResolution(error.approvalId);
+      if (settled && (settled.status === 'approved' || settled.status === 'denied' || settled.status === 'consumed')) {
+        return terminalApprovalResponse(input, settled);
+      }
+      return {
+        status: 'error',
+        jobId: input.jobId,
+        tenantId: input.tenantId,
+        resumedStage: null,
+        completed: false,
+        approvalId: error.approvalId,
+        reason: 'approval_resolution_in_progress',
+      };
+    }
+
+    const record = loadMarketingApprovalRecord(approvalRecord.approval_id);
+    if (record) {
+      record.status = 'failed';
+      record.last_error = {
+        code: error instanceof OpenClawGatewayError ? error.code : 'approval_resume_failed',
+        message: error instanceof Error ? error.message : String(error),
+        at: nowIso(),
+      };
+      saveMarketingApprovalRecord(record);
+      approvalLifecycleLog('approval-resume-failed', {
+        jobId: doc.job_id,
+        tenantId: doc.tenant_id,
+        stage: checkpoint.stage,
+        workflowStepId: record.workflow_step_id,
+        approvalId: record.approval_id,
+        resolution: input.resolution,
+        attemptCount: record.attempt_count,
+        tokenFingerprint: record.lobster_resume_token_fingerprint,
+        reason: record.last_error.message,
+      });
+    }
     handleFailure(doc, checkpoint.stage, error);
   }
+}
+
+export async function approveMarketingJob(
+  input: ApproveMarketingJobRequest,
+  doc: MarketingJobRuntimeDocument
+): Promise<ApproveMarketingJobResponse> {
+  return resolveMarketingApproval({
+    jobId: input.jobId,
+    tenantId: input.tenantId,
+    actedBy: input.approvedBy,
+    approvedStages: input.approvedStages,
+    approvalId: input.approvalId,
+    publishConfig: input.publishConfig,
+    resolution: 'approve',
+  }, doc);
+}
+
+export async function denyMarketingJob(
+  input: DenyMarketingJobRequest,
+  doc: MarketingJobRuntimeDocument,
+): Promise<ApproveMarketingJobResponse> {
+  return resolveMarketingApproval({
+    jobId: input.jobId,
+    tenantId: input.tenantId,
+    actedBy: input.deniedBy,
+    approvalId: input.approvalId,
+    publishConfig: input.publishConfig,
+    resolution: 'deny',
+  }, doc);
 }

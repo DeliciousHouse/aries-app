@@ -46,6 +46,8 @@ export type MarketingTimelineEntry = {
 export type MarketingApprovalSummary = {
   required: boolean;
   status: string;
+  approvalId?: string;
+  workflowStepId?: string;
   title: string;
   message: string;
   actionLabel?: string;
@@ -413,6 +415,8 @@ function buildApproval(
   return {
     required: true,
     status: approval.status,
+    approvalId: approval.approval_id ?? undefined,
+    workflowStepId: approval.workflow_step_id ?? undefined,
     title: approval.title,
     message: approval.message,
     actionLabel: 'Open approval dashboard',
