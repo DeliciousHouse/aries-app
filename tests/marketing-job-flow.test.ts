@@ -537,6 +537,10 @@ test('approveMarketingJob preserves the second publish-as-paused approval checkp
     assert.equal(runtimeDoc.current_stage, 'publish');
     assert.equal(runtimeDoc.approvals.current.stage, 'publish');
     assert.equal(runtimeDoc.approvals.current.resume_token, 'resume_publish_paused');
+    assert.deepEqual(
+      runtimeDoc.stages.publish.artifacts.map((artifact: any) => artifact.id),
+      ['publish-paused-review'],
+    );
 
     const pausedPublishApproved = await approveMarketingJob({
       jobId,
@@ -552,6 +556,7 @@ test('approveMarketingJob preserves the second publish-as-paused approval checkp
     assert.equal(runtimeDoc.state, 'completed');
     assert.equal(runtimeDoc.status, 'completed');
     assert.equal(runtimeDoc.approvals.current, null);
+    assert.equal(runtimeDoc.stages.publish.artifacts.length, 0);
     clearOpenClawTestInvoker();
   });
 });

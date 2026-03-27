@@ -476,6 +476,21 @@ function createAndPersistApprovalCheckpoint(
   return approvalRecord;
 }
 
+function replacePublishApprovalArtifacts(
+  artifacts: MarketingStageArtifact[] | undefined,
+  replacement?: MarketingStageArtifact,
+): MarketingStageArtifact[] {
+  const nextArtifacts = Array.isArray(artifacts)
+    ? artifacts.filter((artifact) => artifact.category !== 'approval')
+    : [];
+
+  if (replacement) {
+    nextArtifacts.push(replacement);
+  }
+
+  return nextArtifacts;
+}
+
 function activeApprovalRecord(
   doc: MarketingJobRuntimeDocument,
   input: { approvalId?: string | null } = {},
@@ -747,7 +762,15 @@ async function advancePublishStage(doc: MarketingJobRuntimeDocument, resumeToken
       outputs: {
         envelope,
       },
-      artifacts: publishStage.artifacts,
+      artifacts: replacePublishApprovalArtifacts(publishStage.artifacts, {
+        id: 'publish-paused-review',
+        stage: 'publish',
+        title: 'Publish to Meta (paused) approval checkpoint',
+        category: 'approval',
+        status: 'awaiting_approval',
+        summary: approval.message,
+        details: [],
+      }),
     });
     appendHistory(doc, 'publish stage is awaiting paused-publish approval', { stage: 'publish' });
     saveMarketingJobRuntime(doc.job_id, doc);
@@ -764,7 +787,7 @@ async function advancePublishStage(doc: MarketingJobRuntimeDocument, resumeToken
     outputs: {
       envelope,
     },
-    artifacts: publishStage.artifacts,
+    artifacts: replacePublishApprovalArtifacts(publishStage.artifacts),
   });
 
   doc.state = 'completed';
