@@ -112,7 +112,12 @@ export type BusinessProfileView = {
 export type CampaignListResponse = { campaigns: RuntimeCampaignListItem[] };
 export type ReviewQueueResponse = { reviews: RuntimeReviewItem[] };
 export type ReviewItemResponse = { review: RuntimeReviewItem };
-export type ReviewDecisionRequest = { action: 'approve' | 'changes_requested' | 'reject'; actedBy: string; note?: string };
+export type ReviewDecisionRequest = {
+  action: 'approve' | 'changes_requested' | 'reject';
+  actedBy: string;
+  note?: string;
+  approvalId?: string;
+};
 export type BusinessProfileResponse = { profile: BusinessProfileView };
 export type BusinessProfilePatch = {
   businessName?: string | null;

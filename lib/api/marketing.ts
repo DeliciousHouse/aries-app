@@ -93,6 +93,8 @@ export interface MarketingAssetLink {
 export interface MarketingApprovalSummary {
   required: boolean;
   status: string;
+  approvalId?: string;
+  workflowStepId?: string;
   title: string;
   message: string;
   actionLabel?: string;
@@ -384,6 +386,7 @@ export type GetMarketingPostsResponse = MarketingDashboardContent;
 export interface PostMarketingJobApproveRequest {
   approvedBy: string;
   approvedStages?: MarketingStage[];
+  approvalId?: string;
   resumePublishIfNeeded?: boolean;
   publishConfig?: {
     platforms?: string[];
@@ -393,10 +396,11 @@ export interface PostMarketingJobApproveRequest {
 }
 
 export interface ApproveJobResult {
-  approval_status: 'resumed' | 'error';
+  approval_status: 'resumed' | 'already_resolved' | 'denied' | 'error';
   jobId: string;
   resumedStage: string | null;
   completed: boolean;
+  approvalId?: string | null;
   reason?: string;
   jobStatusUrl?: string;
 }

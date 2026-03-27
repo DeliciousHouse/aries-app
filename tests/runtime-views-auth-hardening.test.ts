@@ -463,6 +463,59 @@ test('approving a workflow approval review item resumes the marketing job', asyn
   });
 });
 
+test('stale workflow approval ids do not advance a newer approval checkpoint', async () => {
+  await withMarketingRuntimeEnv(async () => {
+    installMinimalMarketingInvoker();
+    const { startMarketingJob } = await import('../backend/marketing/orchestrator');
+    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const views = await import('../backend/marketing/runtime-views');
+
+    const started = await startMarketingJob({
+      tenantId: 'tenant_123',
+      jobType: 'brand_campaign',
+      payload: {
+        brandUrl: 'https://brand.example',
+        competitorUrl: 'https://facebook.com/competitor',
+      },
+    });
+
+    const reviewsBefore = await views.listMarketingReviewItemsForTenant('tenant_123');
+    const approvalItem = reviewsBefore.find((item) => item.id === `${started.jobId}::approval`);
+    const staleApprovalId = approvalItem?.currentVersion.id.startsWith('approval:')
+      ? approvalItem.currentVersion.id.slice('approval:'.length)
+      : undefined;
+
+    assert.equal(!!staleApprovalId, true);
+
+    await views.recordMarketingReviewDecision({
+      tenantId: 'tenant_123',
+      reviewId: approvalItem!.id,
+      action: 'approve',
+      actedBy: 'Morgan',
+      note: 'Move to the next stage.',
+      approvalId: staleApprovalId,
+    });
+
+    let runtimeDoc = loadMarketingJobRuntime(started.jobId);
+    assert.equal(runtimeDoc?.current_stage, 'production');
+    assert.equal(runtimeDoc?.approvals.current?.stage, 'production');
+
+    await views.recordMarketingReviewDecision({
+      tenantId: 'tenant_123',
+      reviewId: approvalItem!.id,
+      action: 'approve',
+      actedBy: 'Morgan',
+      note: 'A duplicate stale click should not advance the next approval.',
+      approvalId: staleApprovalId,
+    });
+
+    runtimeDoc = loadMarketingJobRuntime(started.jobId);
+    assert.equal(runtimeDoc?.current_stage, 'production');
+    assert.equal(runtimeDoc?.approvals.current?.stage, 'production');
+    clearOpenClawTestInvoker();
+  });
+});
+
 test('review decisions still resolve after the runtime preview id changes between list and approval', async () => {
   await withMarketingRuntimeEnv(async (dataRoot) => {
     const jobsRoot = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs');

@@ -311,6 +311,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
     const body: PostMarketingJobApproveRequest = {
       approvedBy: approvedBy.trim(),
       approvedStages: approvedStages.length > 0 ? approvedStages : undefined,
+      approvalId: !isErrorResult(jobStatus) ? jobStatus?.approval?.approvalId : undefined,
       resumePublishIfNeeded,
       publishConfig: {
         platforms,
@@ -348,9 +349,13 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
         text: 'This campaign is not holding an active launch approval token, so there is nothing real to resume yet.',
       };
     }
-    return approveResult.approval_status === 'resumed'
-      ? { tone: 'success', text: 'Approval succeeded and resume was accepted.' }
-      : { tone: 'danger', text: `Approval failed: ${approveResult.approval_status}` };
+    if (approveResult.approval_status === 'resumed') {
+      return { tone: 'success', text: 'Approval succeeded and resume was accepted.' };
+    }
+    if (approveResult.approval_status === 'already_resolved') {
+      return { tone: 'success', text: 'This approval was already resolved, so nothing new was consumed.' };
+    }
+    return { tone: 'danger', text: `Approval failed: ${approveResult.approval_status}` };
   })();
 
   const statusSuccess = jobStatus && !isErrorResult(jobStatus) ? jobStatus : null;

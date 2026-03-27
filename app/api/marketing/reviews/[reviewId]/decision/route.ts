@@ -23,7 +23,7 @@ export async function handlePostMarketingReviewDecision(
     return tenantResult.response;
   }
 
-  let payload: { action?: unknown; actedBy?: unknown; note?: unknown } = {};
+  let payload: { action?: unknown; actedBy?: unknown; note?: unknown; approvalId?: unknown } = {};
   try {
     payload = await req.json();
   } catch {
@@ -33,6 +33,7 @@ export async function handlePostMarketingReviewDecision(
   const action = typeof payload.action === 'string' ? payload.action : '';
   const actedBy = typeof payload.actedBy === 'string' ? payload.actedBy : '';
   const note = typeof payload.note === 'string' ? payload.note : undefined;
+  const approvalId = typeof payload.approvalId === 'string' ? payload.approvalId : undefined;
 
   if (!['approve', 'changes_requested', 'reject'].includes(action)) {
     return NextResponse.json({ error: 'invalid_action' }, { status: 400 });
@@ -48,6 +49,7 @@ export async function handlePostMarketingReviewDecision(
       action: action as 'approve' | 'changes_requested' | 'reject',
       actedBy,
       note,
+      approvalId,
     });
 
     if (!review) {

@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { resolveDataPath } from '@/lib/runtime-paths';
 
 import { approveMarketingJob } from './jobs-approve';
+import { denyMarketingJob } from './orchestrator';
 import { loadMarketingJobRuntime, listMarketingJobIdsForTenant, type MarketingJobRuntimeDocument } from './runtime-state';
 import {
   dashboardDateRangeText,
@@ -200,7 +201,7 @@ function reviewItemSourceHash(item: RuntimeReviewItem): string {
 }
 
 function isWorkflowApprovalItem(item: RuntimeReviewItem): boolean {
-  return item.currentVersion.id === 'approval' || item.id.endsWith('::approval');
+  return item.currentVersion.id === 'approval' || item.currentVersion.id.startsWith('approval:') || item.id.endsWith('::approval');
 }
 
 function mapCampaignStatus(status: MarketingJobStatusResponse): RuntimeCampaignStatus {
@@ -353,12 +354,12 @@ function buildFallbackApprovalItem(status: MarketingJobStatusResponse): RuntimeR
     status: 'in_review',
     summary: status.approval.message,
     currentVersion: {
-      id: 'approval',
+      id: status.approval?.approvalId ? `approval:${status.approval.approvalId}` : 'approval',
       label: 'Current version',
       headline: status.approval.title,
       supportingText: status.approval.message,
       cta: 'Approve',
-      notes: [],
+      notes: status.approval.workflowStepId ? [`Workflow step: ${status.approval.workflowStepId}`] : [],
     },
     previousVersion: undefined,
     lastDecision: null,
@@ -503,6 +504,7 @@ export async function recordMarketingReviewDecision(input: {
   action: 'approve' | 'changes_requested' | 'reject';
   actedBy: string;
   note?: string;
+  approvalId?: string;
 }): Promise<RuntimeReviewItem | null> {
   const { jobId } = reviewIdParts(input.reviewId);
   const runtimeDoc = loadMarketingJobRuntime(jobId);
@@ -523,6 +525,7 @@ export async function recordMarketingReviewDecision(input: {
       tenantId: input.tenantId,
       approvedBy: input.actedBy,
       approvedStages: checkpoint ? [checkpoint.stage] : undefined,
+      approvalId: input.approvalId,
       resumePublishIfNeeded: checkpoint?.stage === 'publish' ? true : undefined,
       publishConfig: checkpoint?.stage === 'publish' ? (checkpoint.publish_config ?? undefined) : undefined,
     });
@@ -563,10 +566,37 @@ export async function recordMarketingReviewDecision(input: {
       );
     }
 
-    if (approvalResult.status !== 'resumed') {
+    if (approvalResult.status !== 'resumed' && approvalResult.status !== 'already_resolved') {
       throw new RuntimeReviewDecisionError(
         approvalResult.reason || 'approval_failed',
         `Approval failed: ${approvalResult.reason || approvalResult.status}`,
+        400,
+      );
+    }
+  } else if (isWorkflowApprovalItem(item) && input.action === 'reject') {
+    const denialResult = await denyMarketingJob({
+      jobId,
+      tenantId: input.tenantId,
+      deniedBy: input.actedBy,
+      approvalId: input.approvalId,
+      note: input.note,
+      publishConfig: runtimeDoc.approvals.current?.stage === 'publish'
+        ? (runtimeDoc.approvals.current.publish_config ?? undefined)
+        : undefined,
+    }, runtimeDoc);
+
+    if (denialResult.reason === 'approval_not_available') {
+      throw new RuntimeReviewDecisionError(
+        'approval_not_available',
+        'This campaign is not waiting on an active approval checkpoint.',
+        409,
+      );
+    }
+
+    if (denialResult.status !== 'denied' && denialResult.status !== 'already_resolved') {
+      throw new RuntimeReviewDecisionError(
+        denialResult.reason || 'approval_denial_failed',
+        `Approval denial failed: ${denialResult.reason || denialResult.status}`,
         400,
       );
     }

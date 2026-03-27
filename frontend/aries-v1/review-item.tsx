@@ -12,7 +12,10 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
   const review = useRuntimeReviewItem(props.reviewId, { autoLoad: true });
   const item = review.data?.review ?? null;
   const [note, setNote] = useState('');
-  const isWorkflowApproval = item?.currentVersion.id === 'approval' || item?.id.endsWith('::approval');
+  const isWorkflowApproval =
+    item?.currentVersion.id === 'approval' ||
+    item?.currentVersion.id.startsWith('approval:') ||
+    item?.id.endsWith('::approval');
 
   const busy = review.decision.isLoading;
 
@@ -34,10 +37,16 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
   }
 
   async function applyDecision(action: 'approve' | 'changes_requested' | 'reject') {
+    if (!item) return;
+    const approvalId =
+      isWorkflowApproval && item.currentVersion.id.startsWith('approval:')
+        ? item.currentVersion.id.slice('approval:'.length)
+        : undefined;
     await review.submitDecision({
       action,
       actedBy: 'operator',
       note,
+      approvalId,
     });
   }
 
