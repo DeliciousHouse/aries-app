@@ -865,7 +865,7 @@ function normalizeMarketingText(value: string): string {
   return value
     .replace(/(^|\n)\s*[*-]\s+/g, '$1')
     .replace(/\r/g, ' ')
-    .replace(/\*\*/g, '')
+    .replace(/\*/g, ' ')
     .replace(/[`>#]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
