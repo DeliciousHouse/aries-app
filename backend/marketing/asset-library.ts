@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import { listMarketingDashboardAssetsForJob } from './dashboard-content';
+import { extractPublishReviewBundle } from './publish-review';
 import type { MarketingJobRuntimeDocument } from './runtime-state';
 
 export type MarketingAssetDescriptor = {
@@ -71,12 +72,6 @@ function contentTypeForAsset(filePath: string): string {
   }
 }
 
-function publishReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): Record<string, unknown> | null {
-  const publishStage = runtimeDoc.stages.publish;
-  const review = recordValue(publishStage.outputs.review) ?? recordValue(publishStage.primary_output);
-  return recordValue(review?.review_bundle);
-}
-
 export function marketingAssetUrl(jobId: string, assetId: string): string {
   return `/api/marketing/jobs/${encodeURIComponent(jobId)}/assets/${encodeURIComponent(assetId)}`;
 }
@@ -97,7 +92,7 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
     });
   };
 
-  const reviewBundle = publishReviewBundle(runtimeDoc);
+  const reviewBundle = extractPublishReviewBundle(runtimeDoc);
   if (reviewBundle) {
     const artifactPaths = recordValue(reviewBundle.artifact_paths);
     const landingPage = recordValue(reviewBundle.landing_page_preview);

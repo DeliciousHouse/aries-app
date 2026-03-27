@@ -1,4 +1,5 @@
 import { readFile, realpath } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { findMarketingAsset } from '@/backend/marketing/asset-library';
@@ -48,9 +49,27 @@ function trustedRoots(): string[] {
         resolveCodeRoot(),
         resolveCodePath('lobster'),
         process.env.OPENCLAW_LOBSTER_CWD?.trim(),
+        process.env.LOBSTER_STAGE1_CACHE_DIR?.trim() || path.join(tmpdir(), 'lobster-stage1-cache'),
+        process.env.LOBSTER_STAGE2_CACHE_DIR?.trim() || path.join(tmpdir(), 'lobster-stage2-cache'),
+        process.env.LOBSTER_STAGE3_CACHE_DIR?.trim() || path.join(tmpdir(), 'lobster-stage3-cache'),
+        process.env.LOBSTER_STAGE4_CACHE_DIR?.trim() || path.join(tmpdir(), 'lobster-stage4-cache'),
       ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
     )
   );
+}
+
+function absoluteCompatibilityCandidates(filePath: string): string[] {
+  const normalized = path.normalize(filePath);
+  const candidates = new Set([normalized]);
+  const codeRoot = path.normalize(resolveCodeRoot());
+  const legacyCodeRoot = path.join(codeRoot, 'aries-app');
+
+  if (normalized === legacyCodeRoot || normalized.startsWith(`${legacyCodeRoot}${path.sep}`)) {
+    const suffix = normalized.slice(legacyCodeRoot.length);
+    candidates.add(path.join(codeRoot, suffix));
+  }
+
+  return Array.from(candidates);
 }
 
 /**
@@ -70,33 +89,36 @@ async function readAssetWithinAllowedRoots(filePath: string): Promise<Buffer | n
   }
 
   const roots = trustedRoots();
-  for (const root of roots) {
-    const candidate =
-      normalizedPath.kind === 'absolute'
-        ? normalizedPath.path
-        : path.resolve(root, normalizedPath.path);
-    if (!isWithinRoot(root, candidate)) {
-      continue;
-    }
-    try {
-      const [resolvedRoot, resolvedCandidate] = await Promise.all([
-        realpath(root).catch(() => root),
-        realpath(candidate),
-      ]);
-      if (!isWithinRoot(resolvedRoot, resolvedCandidate)) {
+  const candidates =
+    normalizedPath.kind === 'absolute'
+      ? absoluteCompatibilityCandidates(normalizedPath.path)
+      : roots.map((root) => path.resolve(root, normalizedPath.path));
+
+  for (const candidate of candidates) {
+    for (const root of roots) {
+      if (!isWithinRoot(root, candidate)) {
         continue;
       }
-      return await readFile(resolvedCandidate);
-    } catch (error) {
-      if (
-        error &&
-        typeof error === 'object' &&
-        'code' in error &&
-        (error.code === 'ENOENT' || error.code === 'ENOTDIR')
-      ) {
-        continue;
+      try {
+        const [resolvedRoot, resolvedCandidate] = await Promise.all([
+          realpath(root).catch(() => root),
+          realpath(candidate),
+        ]);
+        if (!isWithinRoot(resolvedRoot, resolvedCandidate)) {
+          continue;
+        }
+        return await readFile(resolvedCandidate);
+      } catch (error) {
+        if (
+          error &&
+          typeof error === 'object' &&
+          'code' in error &&
+          (error.code === 'ENOENT' || error.code === 'ENOTDIR')
+        ) {
+          continue;
+        }
+        throw error;
       }
-      throw error;
     }
   }
 

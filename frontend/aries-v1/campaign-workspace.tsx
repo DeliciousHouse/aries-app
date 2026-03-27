@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
 
+import MediaPreview from '@/frontend/components/media-preview';
 import { useMarketingJobStatus } from '@/hooks/use-marketing-job-status';
 import { useRuntimeReviews } from '@/hooks/use-runtime-reviews';
 
@@ -28,6 +29,10 @@ export default function AriesCampaignWorkspace(props: { campaignId: string }) {
   const campaignReviews = useMemo(
     () => (reviews.data?.reviews ?? []).filter((item) => item.campaignId === props.campaignId),
     [reviews.data, props.campaignId],
+  );
+  const assetsById = useMemo(
+    () => new Map((status?.dashboard.assets ?? []).map((asset) => [asset.id, asset] as const)),
+    [status?.dashboard.assets],
   );
 
   if (job.isLoading) {
@@ -161,6 +166,14 @@ export default function AriesCampaignWorkspace(props: { campaignId: string }) {
                 <div className="grid gap-4 xl:grid-cols-2">
                   {dashboard.assets.map((asset) => (
                     <div key={asset.id} className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
+                      <MediaPreview
+                        src={asset.thumbnailUrl || asset.previewUrl}
+                        alt={asset.title}
+                        contentType={asset.contentType}
+                        className="h-44 overflow-hidden rounded-[1.1rem] border border-white/8 bg-black/20"
+                        emptyLabel={`${asset.type.replace(/_/g, ' ')} pending`}
+                        nonImageLabel={asset.type === 'landing_page' ? 'Landing page preview available' : 'Asset preview available'}
+                      />
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <p className="mb-2 text-xs uppercase tracking-[0.22em] text-white/35">{asset.type.replace(/_/g, ' ')}</p>
@@ -206,6 +219,14 @@ export default function AriesCampaignWorkspace(props: { campaignId: string }) {
               <div className="space-y-3">
                 {dashboard.publishItems.map((item) => (
                   <div key={item.id} className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4">
+                    <MediaPreview
+                      src={item.previewAssetId ? (assetsById.get(item.previewAssetId)?.thumbnailUrl || assetsById.get(item.previewAssetId)?.previewUrl) : null}
+                      alt={item.title}
+                      contentType={item.previewAssetId ? assetsById.get(item.previewAssetId)?.contentType || null : null}
+                      className="mb-4 h-40 overflow-hidden rounded-[1rem] border border-white/8 bg-black/20"
+                      emptyLabel="Publish preview pending"
+                      nonImageLabel="Publish package available"
+                    />
                     <div className="flex items-start justify-between gap-3">
                       <div className="space-y-1">
                         <p className="text-sm font-medium text-white">{item.title}</p>

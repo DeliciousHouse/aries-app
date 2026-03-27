@@ -11,6 +11,7 @@ import {
   type MarketingStage,
 } from './runtime-state';
 import { buildMarketingAssetLinks, marketingAssetUrl, type MarketingAssetLink } from './asset-library';
+import { extractPublishReviewBundle, extractPublishReviewPayload } from './publish-review';
 
 type TimelineTone = 'info' | 'success' | 'warning' | 'danger';
 
@@ -540,11 +541,8 @@ function buildTimeline(
 
 function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): MarketingReviewBundle | null {
   const jobId = runtimeDoc.job_id;
-  const publishStage = runtimeDoc.stages.publish;
-  const review =
-    recordValue(publishStage.outputs.review) ??
-    recordValue(publishStage.primary_output);
-  const reviewBundle = recordValue(review?.review_bundle);
+  const review = extractPublishReviewPayload(runtimeDoc);
+  const reviewBundle = extractPublishReviewBundle(runtimeDoc);
   if (!reviewBundle) {
     return null;
   }
@@ -629,9 +627,7 @@ function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): MarketingRe
 }
 
 function rawPublishReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): Record<string, unknown> | null {
-  const publishStage = runtimeDoc.stages.publish;
-  const review = recordValue(publishStage.outputs.review) ?? recordValue(publishStage.primary_output);
-  return recordValue(review?.review_bundle);
+  return extractPublishReviewBundle(runtimeDoc);
 }
 
 function buildCampaignWindow(runtimeDoc: MarketingJobRuntimeDocument): MarketingCampaignWindow | null {

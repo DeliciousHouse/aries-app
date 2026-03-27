@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { ArrowRight, FileImage, FileText, Layers3, Plus } from 'lucide-react';
 
+import MediaPreview from '@/frontend/components/media-preview';
 import { useRuntimeCampaigns } from '@/hooks/use-runtime-campaigns';
 import type { AriesDashboardAsset, AriesDashboardPost } from '@/lib/api/aries-v1';
 
@@ -84,7 +85,12 @@ export default function AriesCampaignListScreen() {
               </div>
 
               <div className="space-y-4">
-                <PreviewGroup title="Posts" items={campaign.previewPosts} emptyLabel="Proposal concepts and generated posts will appear here." />
+                <PreviewGroup
+                  title="Posts"
+                  items={campaign.previewPosts}
+                  assets={campaign.dashboard.assets}
+                  emptyLabel="Proposal concepts and generated posts will appear here."
+                />
                 <PreviewAssetGroup title="Assets" items={campaign.previewAssets} emptyLabel="Landing pages, image ads, and scripts will appear here." />
               </div>
             </div>
@@ -114,7 +120,8 @@ function CountPill(props: { icon: React.ReactNode; label: string; value: number 
   );
 }
 
-function PreviewGroup(props: { title: string; items: AriesDashboardPost[]; emptyLabel: string }) {
+function PreviewGroup(props: { title: string; items: AriesDashboardPost[]; assets: AriesDashboardAsset[]; emptyLabel: string }) {
+  const assetsById = new Map(props.assets.map((asset) => [asset.id, asset] as const));
   return (
     <div className="rounded-[1.4rem] border border-white/8 bg-black/15 px-4 py-4">
       <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.title}</p>
@@ -124,6 +131,14 @@ function PreviewGroup(props: { title: string; items: AriesDashboardPost[]; empty
         <div className="mt-3 space-y-3">
           {props.items.slice(0, 3).map((item) => (
             <div key={item.id} className="rounded-[1rem] border border-white/8 bg-white/[0.035] px-4 py-3">
+              <MediaPreview
+                src={item.previewAssetId ? (assetsById.get(item.previewAssetId)?.thumbnailUrl || assetsById.get(item.previewAssetId)?.previewUrl) : null}
+                alt={item.title}
+                contentType={item.previewAssetId ? assetsById.get(item.previewAssetId)?.contentType || null : null}
+                className="mb-3 h-24 overflow-hidden rounded-[0.9rem] border border-white/8 bg-black/20"
+                emptyLabel="Post preview pending"
+                nonImageLabel="Post preview available"
+              />
               <div className="flex items-start justify-between gap-3">
                 <div className="space-y-1">
                   <p className="text-sm font-medium text-white">{item.title}</p>
@@ -149,6 +164,14 @@ function PreviewAssetGroup(props: { title: string; items: AriesDashboardAsset[];
         <div className="mt-3 space-y-3">
           {props.items.slice(0, 3).map((item) => (
             <div key={item.id} className="rounded-[1rem] border border-white/8 bg-white/[0.035] px-4 py-3">
+              <MediaPreview
+                src={item.thumbnailUrl || item.previewUrl}
+                alt={item.title}
+                contentType={item.contentType}
+                className="mb-3 h-24 overflow-hidden rounded-[0.9rem] border border-white/8 bg-black/20"
+                emptyLabel="Asset preview pending"
+                nonImageLabel={item.type === 'landing_page' ? 'Landing page preview available' : 'Asset preview available'}
+              />
               <div className="flex items-start justify-between gap-3">
                 <div className="space-y-1">
                   <p className="text-sm font-medium text-white">{item.title}</p>

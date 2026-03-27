@@ -6,6 +6,7 @@ import path from 'node:path'
 import { resolveCodePath } from '@/lib/runtime-paths'
 
 import type { MarketingCampaignWindow } from './jobs-status'
+import { extractPublishReviewBundle } from './publish-review'
 import {
   asRecord,
   asString,
@@ -520,9 +521,7 @@ function statusLabel(status: MarketingDashboardItemStatus): string {
 }
 
 function rawPublishReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): Record<string, unknown> | null {
-  const publishStage = runtimeDoc.stages.publish
-  const review = recordValue(publishStage.outputs.review) ?? recordValue(publishStage.primary_output)
-  return recordValue(review?.review_bundle)
+  return extractPublishReviewBundle(runtimeDoc)
 }
 
 function envCacheRoot(stage: 1 | 2 | 3 | 4): string {

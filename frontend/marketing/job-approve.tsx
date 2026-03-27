@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import { CheckCircle2 } from 'lucide-react';
+import MediaPreview from '@/frontend/components/media-preview';
 import type {
   ApproveJobResult,
   MarketingArtifactCard,
@@ -105,11 +106,14 @@ function ReviewPreviewCard({ preview }: { preview: MarketingReviewPreviewCard })
                 rel="noreferrer"
                 className="rounded-[1.25rem] overflow-hidden border border-white/10 bg-black/30"
               >
-                {asset.contentType.startsWith('image/') ? (
-                  <img src={asset.url} alt={asset.label} className="w-full h-44 object-cover" />
-                ) : (
-                  <div className="p-4 text-sm text-white/70">{asset.label}</div>
-                )}
+                <MediaPreview
+                  src={asset.url}
+                  alt={asset.label}
+                  contentType={asset.contentType}
+                  className="h-44 w-full"
+                  emptyLabel="Preview pending"
+                  nonImageLabel={asset.label}
+                />
               </a>
             ))}
           </div>

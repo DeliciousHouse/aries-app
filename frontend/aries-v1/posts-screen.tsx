@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { ArrowRight, ExternalLink, FileImage, FileText, Globe, PauseCircle, Send } from 'lucide-react';
 
+import MediaPreview from '@/frontend/components/media-preview';
 import { useRuntimePosts } from '@/hooks/use-runtime-posts';
 import type {
   AriesDashboardAsset,
@@ -23,6 +24,7 @@ type InventoryItem = {
   funnelLabel: string
   destinationUrl: string | null
   previewUrl: string | null
+  previewContentType: string | null
   status: AriesItemStatus
   platformLabel: string
   provenanceLabel: string
@@ -83,6 +85,7 @@ function assetToInventory(asset: AriesDashboardAsset): InventoryItem {
     funnelLabel: asset.funnelStage || asset.objective,
     destinationUrl: asset.destinationUrl,
     previewUrl: asset.thumbnailUrl || asset.previewUrl,
+    previewContentType: asset.contentType,
     status: asset.status,
     platformLabel: asset.platformLabel,
     provenanceLabel: provenanceLabel(asset.provenance.sourceKind),
@@ -101,6 +104,7 @@ function postToInventory(post: AriesDashboardPost, assetsById: Map<string, Aries
     funnelLabel: post.funnelStage || post.objective,
     destinationUrl: post.destinationUrl,
     previewUrl: previewAsset?.thumbnailUrl || previewAsset?.previewUrl || null,
+    previewContentType: previewAsset?.contentType || null,
     status: post.status,
     platformLabel: post.platformLabel,
     provenanceLabel: provenanceLabel(post.provenance.sourceKind),
@@ -124,6 +128,7 @@ function publishToInventory(item: AriesDashboardPublishItem, assetsById: Map<str
     funnelLabel: item.funnelStage || item.objective,
     destinationUrl: item.destinationUrl,
     previewUrl: previewAsset?.thumbnailUrl || previewAsset?.previewUrl || null,
+    previewContentType: previewAsset?.contentType || null,
     status: item.status,
     platformLabel: item.platformLabel,
     provenanceLabel: provenanceLabel(item.provenance.sourceKind),
@@ -131,19 +136,15 @@ function publishToInventory(item: AriesDashboardPublishItem, assetsById: Map<str
 }
 
 function previewCard(item: InventoryItem) {
-  if (item.previewUrl) {
-    return (
-      <div className="h-28 overflow-hidden rounded-[1.2rem] border border-white/8 bg-black/20">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={item.previewUrl} alt={item.title} className="h-full w-full object-cover" />
-      </div>
-    )
-  }
-
   return (
-    <div className="flex h-28 items-center justify-center rounded-[1.2rem] border border-white/8 bg-black/20 text-white/40">
-      {item.kind === 'asset' ? <FileImage className="h-6 w-6" /> : item.kind === 'publish' ? <Send className="h-6 w-6" /> : <FileText className="h-6 w-6" />}
-    </div>
+    <MediaPreview
+      src={item.previewUrl}
+      alt={item.title}
+      contentType={item.previewContentType}
+      className="h-28 overflow-hidden rounded-[1.2rem] border border-white/8 bg-black/20"
+      emptyLabel={item.kind === 'asset' ? 'Preview pending' : item.kind === 'publish' ? 'Publish preview pending' : 'Post preview pending'}
+      nonImageLabel={item.kind === 'asset' ? 'Asset preview available' : item.kind === 'publish' ? 'Publish package available' : 'Post preview available'}
+    />
   )
 }
 
