@@ -16,6 +16,7 @@ type DashboardEnv = {
 async function withDashboardEnv<T>(run: (env: DashboardEnv) => Promise<T>): Promise<T> {
   const previousCodeRoot = process.env.CODE_ROOT;
   const previousDataRoot = process.env.DATA_ROOT;
+  const previousLocalLobsterCwd = process.env.OPENCLAW_LOCAL_LOBSTER_CWD;
   const previousOpenClawLobsterCwd = process.env.OPENCLAW_LOBSTER_CWD;
   const previousStage1CacheDir = process.env.LOBSTER_STAGE1_CACHE_DIR;
   const previousStage2CacheDir = process.env.LOBSTER_STAGE2_CACHE_DIR;
@@ -26,6 +27,7 @@ async function withDashboardEnv<T>(run: (env: DashboardEnv) => Promise<T>): Prom
 
   process.env.CODE_ROOT = PROJECT_ROOT;
   process.env.DATA_ROOT = dataRoot;
+  process.env.OPENCLAW_LOCAL_LOBSTER_CWD = lobsterRoot;
   process.env.OPENCLAW_LOBSTER_CWD = lobsterRoot;
   process.env.LOBSTER_STAGE1_CACHE_DIR = path.join(dataRoot, 'lobster-stage1-cache');
   process.env.LOBSTER_STAGE2_CACHE_DIR = path.join(dataRoot, 'lobster-stage2-cache');
@@ -39,6 +41,8 @@ async function withDashboardEnv<T>(run: (env: DashboardEnv) => Promise<T>): Prom
     else process.env.CODE_ROOT = previousCodeRoot;
     if (previousDataRoot === undefined) delete process.env.DATA_ROOT;
     else process.env.DATA_ROOT = previousDataRoot;
+    if (previousLocalLobsterCwd === undefined) delete process.env.OPENCLAW_LOCAL_LOBSTER_CWD;
+    else process.env.OPENCLAW_LOCAL_LOBSTER_CWD = previousLocalLobsterCwd;
     if (previousOpenClawLobsterCwd === undefined) delete process.env.OPENCLAW_LOBSTER_CWD;
     else process.env.OPENCLAW_LOBSTER_CWD = previousOpenClawLobsterCwd;
     if (previousStage1CacheDir === undefined) delete process.env.LOBSTER_STAGE1_CACHE_DIR;
@@ -266,6 +270,111 @@ test('dashboard adapter derives proposal-backed content and calendar without liv
     assert.equal(campaigns.length, 1);
     assert.equal(campaigns[0].dashboard.posts.length > 0, true);
     assert.notEqual(campaigns[0].nextScheduled, 'Nothing scheduled yet');
+  });
+});
+
+test('dashboard adapter recovers proposal artifacts from live Lobster logs when strategy run_id is missing', async () => {
+  await withDashboardEnv(async (env) => {
+    const jobId = 'proposal-inferred-run';
+    const doc: any = baseRuntimeDoc(jobId, '6');
+    doc.current_stage = 'production';
+    doc.inputs = {
+      request: {
+        competitorUrl: 'betterup.com',
+      },
+      brand_url: 'https://sugarandleather.com',
+      competitor_url: 'betterup.com',
+    };
+    doc.brand_kit = {
+      ...doc.brand_kit,
+      source_url: 'https://sugarandleather.com',
+      canonical_url: 'https://sugarandleather.com',
+      brand_name: 'Sugar & Leather',
+    };
+    doc.stages.strategy = stageRecord('strategy', 'completed', null);
+    doc.updated_at = '2026-03-27T08:37:06.000Z';
+    await writeJson(path.join(env.lobsterRoot, 'output', 'logs', 'betterup-com-live123', 'stage-2-strategy', 'campaign_planner.json'), {
+      brand_slug: '6',
+      brand_profiles_record: {
+        brand_slug: '6',
+        created_at: '2026-03-27T08:36:00.000Z',
+      },
+      campaign_plan: {
+        campaign_name: '6-stage2-plan',
+        objective: 'Grow coaching leads with proof-first messaging.',
+        core_message: 'Lead with proof, then invite the next step.',
+        primary_cta: 'Book a call',
+        offer: 'Free coaching assessment',
+        audience: 'Mid-funnel buyers',
+        channel_plans: [
+          {
+            channel: 'meta',
+            message: 'Proof-first Meta concept',
+            creative_bias: 'Outcome proof with a direct CTA',
+          },
+        ],
+      },
+    });
+    await writeText(path.join(env.lobsterRoot, 'output', '6-campaign-proposal.md'), '# Sugar & Leather Proposal');
+    await writeRuntimeDoc(jobId, doc);
+
+    const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
+    const content = getMarketingDashboardContent(jobId, {
+      referenceDate: new Date('2026-03-27T00:00:00.000Z'),
+    });
+
+    assert.equal(content.posts.some((post) => post.provenance.sourceKind === 'proposal'), true);
+    assert.equal(content.assets.some((asset) => asset.type === 'proposal_document'), true);
+    assert.equal((content.campaigns[0]?.counts.proposalConcepts ?? 0) > 0, true);
+  });
+});
+
+test('dashboard adapter keeps proposal approval truthful and does not leak future-stage artifacts before production starts', async () => {
+  await withDashboardEnv(async (env) => {
+    const jobId = 'pre-production-approval';
+    const doc: any = baseRuntimeDoc(jobId, 'tenant_dashboard');
+    doc.current_stage = 'production';
+    doc.state = 'approval_required';
+    doc.status = 'awaiting_approval';
+    doc.stages.production = stageRecord('production', 'awaiting_approval', null);
+    doc.stages.publish = stageRecord('publish', 'not_started', null);
+    doc.approvals = {
+      current: {
+        stage: 'production',
+        status: 'awaiting_approval',
+        workflow_step_id: 'approve_stage_3',
+        title: 'Production approval required',
+        message: 'Stage 2 complete. Approve the campaign proposal and continue to Stage 3 production?',
+        requested_at: '2026-03-27T08:37:06.603Z',
+      },
+      history: [],
+    };
+
+    await seedPlanner('plan-run');
+    await writeText(path.join(env.lobsterRoot, 'output', 'brand-example-campaign-proposal.md'), '# Proposal');
+
+    await seedCreativeArtifacts(env);
+    await seedPublishArtifacts(env, 'older-publish-run', { paused: true });
+    await writeJson(path.join(env.lobsterRoot, 'output', 'logs', 'betterup-com-oldrun', 'stage-4-publish-optimize', 'meta_ads_publisher.json'), {
+      platform: 'meta-ads',
+      generated_at: '2026-03-20T00:00:00.000Z',
+      publish_package: {
+        copy_path: path.join(env.lobsterRoot, 'output', 'publish-ready', 'brand-example-stage2-plan', 'meta-ads', 'meta-ads.json'),
+        image_path: path.join(env.lobsterRoot, 'output', 'publish-ready', 'brand-example-stage2-plan', 'meta-ads', 'meta-ads.png'),
+      },
+    });
+    await writeRuntimeDoc(jobId, doc);
+
+    const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
+    const content = getMarketingDashboardContent(jobId, {
+      referenceDate: new Date('2026-03-27T00:00:00.000Z'),
+    });
+
+    assert.equal(content.posts.some((post) => post.provenance.sourceKind === 'proposal' && post.status === 'in_review'), true);
+    assert.equal(content.assets.some((asset) => asset.type === 'proposal_document' && asset.status === 'in_review'), true);
+    assert.equal(content.assets.some((asset) => asset.provenance.sourceKind === 'creative_output'), false);
+    assert.equal(content.publishItems.length, 0);
+    assert.equal(content.posts.some((post) => post.provenance.sourceKind === 'publish_review' || post.provenance.sourceKind === 'live_publish_result'), false);
   });
 });
 

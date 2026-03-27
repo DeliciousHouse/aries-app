@@ -1,4 +1,7 @@
+import { existsSync } from 'node:fs';
 import path from 'node:path';
+
+import { resolveCodeRoot } from '@/lib/runtime-paths';
 
 import { listMarketingDashboardAssetsForJob } from './dashboard-content';
 import { extractPublishReviewBundle } from './publish-review';
@@ -17,6 +20,25 @@ export type MarketingAssetLink = {
   label: string;
   contentType: string;
 };
+
+function resolveExistingAbsoluteAssetPath(filePath: string): string | null {
+  const normalizedPath = path.normalize(filePath);
+  if (existsSync(normalizedPath)) {
+    return normalizedPath;
+  }
+
+  const codeRoot = path.normalize(resolveCodeRoot());
+  const legacyCodeRoot = path.join(codeRoot, 'aries-app');
+  if (normalizedPath === legacyCodeRoot || normalizedPath.startsWith(`${legacyCodeRoot}${path.sep}`)) {
+    const suffix = normalizedPath.slice(legacyCodeRoot.length + 1);
+    const candidate = path.join(codeRoot, suffix);
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
 
 function stringValue(value: unknown, fallback = ''): string {
   if (typeof value === 'string' && value.trim()) {
@@ -79,18 +101,67 @@ export function marketingAssetUrl(jobId: string, assetId: string): string {
 export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJobRuntimeDocument): MarketingAssetDescriptor[] {
   const assets: MarketingAssetDescriptor[] = [];
   const assetById = new Map<string, MarketingAssetDescriptor>();
-  const addAsset = (id: string, filePath: string | null | undefined, label: string) => {
-    const normalizedPath = stringValue(filePath);
-    if (!normalizedPath) {
+  const resolveAssetPath = (
+    filePath: string | null | undefined,
+    fallbackPaths: Array<string | null | undefined> = []
+  ): string | null => {
+    const candidates = [filePath, ...fallbackPaths]
+      .map((value) => stringValue(value))
+      .filter(Boolean);
+
+    for (const candidate of candidates) {
+      if (!path.isAbsolute(candidate)) {
+        return candidate;
+      }
+      const resolved = resolveExistingAbsoluteAssetPath(candidate);
+      if (resolved) {
+        return resolved;
+      }
+    }
+
+    return null;
+  };
+
+  const addAsset = (
+    id: string,
+    filePath: string | null | undefined,
+    label: string,
+    fallbackPaths: Array<string | null | undefined> = []
+  ) => {
+    const resolvedPath = resolveAssetPath(filePath, fallbackPaths);
+    if (!resolvedPath) {
       return;
     }
     assetById.set(id, {
       id,
-      filePath: normalizedPath,
+      filePath: resolvedPath,
       label,
-      contentType: contentTypeForAsset(normalizedPath),
+      contentType: contentTypeForAsset(resolvedPath),
     });
   };
+
+  const dashboardAssets = listMarketingDashboardAssetsForJob(jobId);
+  const previewFallbacksByPlatform = new Map<string, string[]>();
+  const rememberPreviewFallback = (platform: string, filePath: string) => {
+    previewFallbacksByPlatform.set(platform, [
+      ...(previewFallbacksByPlatform.get(platform) || []),
+      filePath,
+    ]);
+  };
+
+  for (const asset of dashboardAssets) {
+    if (!asset.filePath || !asset.contentType?.startsWith('image/')) {
+      continue;
+    }
+    if (
+      !asset.id.startsWith('publish-image-') &&
+      !asset.id.startsWith('publish-fallback-') &&
+      !asset.id.startsWith('image-')
+    ) {
+      continue;
+    }
+    rememberPreviewFallback(asset.platform, asset.filePath);
+  }
 
   const reviewBundle = extractPublishReviewBundle(runtimeDoc);
   if (reviewBundle) {
@@ -116,7 +187,8 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
         addAsset(
           `platform-preview-${slug}-media-${index + 1}`,
           filePath,
-          `${platformName} media ${index + 1}`
+          `${platformName} media ${index + 1}`,
+          previewFallbacksByPlatform.get(slug) || previewFallbacksByPlatform.get('landing-page') || []
         );
       });
       addAsset(`platform-preview-${slug}-asset-contract`, stringValue(assetPaths?.contract_path) || null, `${platformName} contract`);
@@ -125,7 +197,7 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
     }
   }
 
-  for (const asset of listMarketingDashboardAssetsForJob(jobId)) {
+  for (const asset of dashboardAssets) {
     if (!asset.filePath) {
       continue;
     }

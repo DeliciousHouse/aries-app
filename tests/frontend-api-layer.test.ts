@@ -634,12 +634,26 @@ test('/api/marketing/jobs/:jobId hides jobs owned by a different tenant', async 
 test('/api/marketing/jobs/:jobId surfaces launch review previews when completed publish output nests them under primary_output.launch_review', async () => {
   await withRuntimeEnv(async (dataRoot) => {
     const { handleGetMarketingJobStatus } = await import('../app/api/marketing/jobs/[jobId]/handler');
+    const { handleGetMarketingJobAsset } = await import('../app/api/marketing/jobs/[jobId]/assets/[assetId]/handler');
     const jobId = 'mkt_completed_launch_review';
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
-    const mediaAssetPath = path.join(process.env.CODE_ROOT!, 'lobster', 'output', 'publish-ready', 'brand-example-stage2-plan', 'meta-ads', 'meta-ads.png');
+    const publishImagePath = path.join(process.env.CODE_ROOT!, 'lobster', 'output', 'publish-ready', 'brand-example-stage2-plan', 'meta-ads', 'meta-ads.png');
+    const legacyPreviewPath = path.join(process.env.CODE_ROOT!, 'aries-app', 'lobster', 'output', 'static-contracts', 'brand-example-stage2-plan', 'rendered', 'meta-ads', 'meta-ads.svg');
     await mkdir(path.dirname(runtimeFile), { recursive: true });
-    await mkdir(path.dirname(mediaAssetPath), { recursive: true });
-    await writeFile(mediaAssetPath, 'png-preview', 'utf8');
+    await mkdir(path.dirname(publishImagePath), { recursive: true });
+    await mkdir(path.join(process.env.LOBSTER_STAGE4_CACHE_DIR!, 'run-publish'), { recursive: true });
+    await writeFile(publishImagePath, 'png-preview', 'utf8');
+    await writeFile(
+      path.join(process.env.LOBSTER_STAGE4_CACHE_DIR!, 'run-publish', 'meta_ads_publisher.json'),
+      JSON.stringify({
+        platform: 'meta-ads',
+        generated_at: '2026-03-19T00:10:05.000Z',
+        publish_package: {
+          image_path: publishImagePath,
+        },
+      }, null, 2),
+      'utf8',
+    );
     await writeFile(
       runtimeFile,
       JSON.stringify({
@@ -685,7 +699,7 @@ test('/api/marketing/jobs/:jobId surfaces launch review previews when completed 
                       headline: 'April collection launch',
                       caption_text: 'Meet the April collection.',
                       cta: 'Shop the drop',
-                      media_paths: [mediaAssetPath],
+                      media_paths: [legacyPreviewPath],
                       asset_paths: {},
                     },
                   ],
@@ -736,6 +750,21 @@ test('/api/marketing/jobs/:jobId surfaces launch review previews when completed 
     assert.equal(body.assetPreviewCards[0].platformSlug, 'meta-ads');
     assert.equal(body.reviewBundle.platformPreviews.length, 1);
     assert.equal(body.reviewBundle.platformPreviews[0].mediaAssets[0].url, `/api/marketing/jobs/${jobId}/assets/platform-preview-meta-ads-media-1`);
+    assert.equal(body.reviewBundle.platformPreviews[0].mediaAssets[0].contentType, 'image/png');
+
+    const assetResponse = await handleGetMarketingJobAsset(
+      jobId,
+      'platform-preview-meta-ads-media-1',
+      async () => ({
+        userId: 'user_123',
+        tenantId: 'tenant_real',
+        tenantSlug: 'acme',
+        role: 'tenant_admin',
+      })
+    );
+    assert.equal(assetResponse.status, 200);
+    assert.equal(assetResponse.headers.get('content-type'), 'image/png');
+    assert.equal(await assetResponse.text(), 'png-preview');
   });
 });
 

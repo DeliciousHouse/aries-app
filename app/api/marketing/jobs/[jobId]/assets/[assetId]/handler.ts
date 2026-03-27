@@ -48,6 +48,7 @@ function trustedRoots(): string[] {
         resolveDataRoot(),
         resolveCodeRoot(),
         resolveCodePath('lobster'),
+        process.env.OPENCLAW_LOCAL_LOBSTER_CWD?.trim(),
         process.env.OPENCLAW_LOBSTER_CWD?.trim(),
         process.env.LOBSTER_STAGE1_CACHE_DIR?.trim() || path.join(tmpdir(), 'lobster-stage1-cache'),
         process.env.LOBSTER_STAGE2_CACHE_DIR?.trim() || path.join(tmpdir(), 'lobster-stage2-cache'),

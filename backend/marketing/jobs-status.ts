@@ -596,6 +596,9 @@ function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): MarketingRe
       : null,
     platformPreviews: recordArray(reviewBundle.platform_previews).map((entry, index) => {
       const platformSlug = stringValue(entry.platform_slug, `platform-${index + 1}`);
+      const directMediaAssets = stringArray(entry.media_paths)
+        .map((_, mediaIndex) => linkById.get(`platform-preview-${platformSlug}-media-${mediaIndex + 1}`))
+        .filter((asset): asset is MarketingAssetLink => !!asset);
       return {
         id: `platform-preview-${platformSlug}`,
         platformSlug,
@@ -613,9 +616,7 @@ function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): MarketingRe
           ...stringArray(entry.proof_points),
           ...stringArray(recordValue(entry.format) ? Object.values(recordValue(entry.format) as Record<string, unknown>) : []),
         ],
-        mediaAssets: stringArray(entry.media_paths)
-          .map((_, mediaIndex) => linkById.get(`platform-preview-${platformSlug}-media-${mediaIndex + 1}`))
-          .filter((asset): asset is MarketingAssetLink => !!asset),
+        mediaAssets: directMediaAssets.length > 0 ? directMediaAssets : fallbackPlatformMediaAssets(assetLinks, platformSlug),
         assetLinks: [
           linkById.get(`platform-preview-${platformSlug}-asset-contract`),
           linkById.get(`platform-preview-${platformSlug}-asset-brief`),
@@ -624,6 +625,19 @@ function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): MarketingRe
       };
     }),
   };
+}
+
+function fallbackPlatformMediaAssets(assetLinks: MarketingAssetLink[], platformSlug: string): MarketingAssetLink[] {
+  return assetLinks.filter((asset) => {
+    if (!asset.contentType.startsWith('image/')) {
+      return false;
+    }
+    return (
+      asset.id.startsWith(`publish-image-${platformSlug}`) ||
+      asset.id.startsWith(`publish-fallback-${platformSlug}`) ||
+      asset.id.startsWith(`image-${platformSlug}`)
+    );
+  });
 }
 
 function rawPublishReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): Record<string, unknown> | null {

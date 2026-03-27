@@ -1,9 +1,9 @@
 import crypto from 'node:crypto'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
-import { resolveCodePath } from '@/lib/runtime-paths'
+import { resolveCodePath, resolveCodeRoot } from '@/lib/runtime-paths'
 
 import type { MarketingCampaignWindow } from './jobs-status'
 import { extractPublishReviewBundle } from './publish-review'
@@ -553,6 +553,7 @@ function stageFolder(stage: 1 | 2 | 3 | 4): string {
 
 function lobsterRoots(): string[] {
   return uniqueStrings([
+    process.env.OPENCLAW_LOCAL_LOBSTER_CWD,
     process.env.OPENCLAW_LOBSTER_CWD,
     resolveCodePath('lobster'),
   ]).map((root) => path.resolve(root))
@@ -601,22 +602,102 @@ function listFiles(directoryPath: string | null | undefined, predicate?: (fileNa
   }
 }
 
-function readStageStepPayload(stage: 1 | 2 | 3 | 4, runId: string | null, stepName: string): Record<string, unknown> | null {
-  if (!runId) {
+function competitorSlug(runtimeDoc: MarketingJobRuntimeDocument): string | null {
+  const raw = stringValue(runtimeDoc.inputs.competitor_url || runtimeDoc.inputs.request?.competitorUrl)
+  if (!raw) {
     return null
   }
 
-  const cachePath = path.join(envCacheRoot(stage), runId, `${stepName}.json`)
-  const cached = readJsonIfExists(cachePath)
-  if (cached) {
-    return cached
+  try {
+    return slugify(new URL(raw).hostname.replace(/^www\./, ''), 'campaign')
+  } catch {
+    return slugify(raw, 'campaign')
+  }
+}
+
+function stageTimestamp(runtimeDoc: MarketingJobRuntimeDocument, stage: MarketingStage): number {
+  const record = runtimeDoc.stages[stage]
+  const candidates = [
+    record.completed_at,
+    record.started_at,
+    runtimeDoc.updated_at,
+    runtimeDoc.created_at,
+  ]
+    .map((value) => Date.parse(stringValue(value)))
+    .filter((value) => Number.isFinite(value))
+
+  return candidates[0] ?? 0
+}
+
+function inferStageRunId(runtimeDoc: MarketingJobRuntimeDocument, stage: 1 | 2 | 3 | 4): string | null {
+  const stageKey = stage === 1 ? 'research' : stage === 2 ? 'strategy' : stage === 3 ? 'production' : 'publish'
+  const explicitRunId = stringValue(runtimeDoc.stages[stageKey].run_id)
+  if (explicitRunId) {
+    return explicitRunId
   }
 
-  for (const outputRoot of lobsterOutputRoots()) {
-    const logPath = path.join(outputRoot, 'logs', runId, stageFolder(stage), `${stepName}.json`)
-    const logged = readJsonIfExists(logPath)
-    if (logged) {
-      return logged
+  const prefix = competitorSlug(runtimeDoc)
+  if (!prefix) {
+    return null
+  }
+
+  const stageDirName = stageFolder(stage)
+  const targetTime = stageTimestamp(runtimeDoc, stageKey)
+  const candidates = lobsterOutputRoots()
+    .flatMap((outputRoot) => {
+      const logsRoot = path.join(outputRoot, 'logs')
+      if (!existsSync(logsRoot)) {
+        return []
+      }
+      return readdirSync(logsRoot)
+        .filter((entry) => entry.startsWith(`${prefix}-`))
+        .map((entry) => {
+          const stagePath = path.join(logsRoot, entry, stageDirName)
+          if (!existsSync(stagePath)) {
+            return null
+          }
+          try {
+            const stats = statSync(stagePath)
+            return {
+              runId: entry,
+              score: Math.abs(stats.mtimeMs - targetTime),
+              mtimeMs: stats.mtimeMs,
+            }
+          } catch {
+            return null
+          }
+        })
+        .filter((entry): entry is { runId: string; score: number; mtimeMs: number } => !!entry)
+    })
+    .sort((left, right) => left.score - right.score || right.mtimeMs - left.mtimeMs)
+
+  return candidates[0]?.runId || null
+}
+
+function readStageStepPayload(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  stage: 1 | 2 | 3 | 4,
+  stepName: string,
+): Record<string, unknown> | null {
+  const stageKey = stage === 1 ? 'research' : stage === 2 ? 'strategy' : stage === 3 ? 'production' : 'publish'
+  const runIds = uniqueStrings([
+    stringValue(runtimeDoc.stages[stageKey].run_id),
+    inferStageRunId(runtimeDoc, stage),
+  ])
+
+  for (const runId of runIds) {
+    const cachePath = path.join(envCacheRoot(stage), runId, `${stepName}.json`)
+    const cached = readJsonIfExists(cachePath)
+    if (cached) {
+      return cached
+    }
+
+    for (const outputRoot of lobsterOutputRoots()) {
+      const logPath = path.join(outputRoot, 'logs', runId, stageFolder(stage), `${stepName}.json`)
+      const logged = readJsonIfExists(logPath)
+      if (logged) {
+        return logged
+      }
     }
   }
 
@@ -667,7 +748,7 @@ function extractBrandSlug(runtimeDoc: MarketingJobRuntimeDocument, planner: Prop
 }
 
 function parseProposalPlan(runtimeDoc: MarketingJobRuntimeDocument): ProposalPlan {
-  const planner = readStageStepPayload(2, runtimeDoc.stages.strategy.run_id, 'campaign_planner')
+  const planner = readStageStepPayload(runtimeDoc, 2, 'campaign_planner')
   const plan = recordValue(planner?.campaign_plan) ?? {}
   const brandProfiles = recordValue(planner?.brand_profiles_record) ?? {}
   return {
@@ -797,31 +878,79 @@ function isProductionReady(runtimeDoc: MarketingJobRuntimeDocument): boolean {
   return runtimeDoc.stages.production.status === 'completed' || runtimeDoc.stages.publish.status !== 'not_started'
 }
 
+function approvalWorkflowStepId(runtimeDoc: MarketingJobRuntimeDocument): string | null {
+  return stringValue(runtimeDoc.approvals.current?.workflow_step_id) || null
+}
+
+function strategyArtifactsAvailable(runtimeDoc: MarketingJobRuntimeDocument): boolean {
+  const strategy = runtimeDoc.stages.strategy
+  return strategy.status === 'completed' || !!strategy.run_id || !!strategy.primary_output || Object.keys(strategy.outputs || {}).length > 0
+}
+
+function productionArtifactsAvailable(runtimeDoc: MarketingJobRuntimeDocument): boolean {
+  const production = runtimeDoc.stages.production
+  const publish = runtimeDoc.stages.publish
+  const approvalStep = approvalWorkflowStepId(runtimeDoc)
+  return (
+    production.status === 'completed' ||
+    production.status === 'failed' ||
+    approvalStep === 'approve_stage_4' ||
+    approvalStep === 'approve_stage_4_publish' ||
+    publish.status === 'in_progress' ||
+    publish.status === 'completed' ||
+    publish.status === 'failed' ||
+    !!production.run_id ||
+    !!production.primary_output ||
+    Object.keys(production.outputs || {}).length > 0
+  )
+}
+
+function publishArtifactsAvailable(runtimeDoc: MarketingJobRuntimeDocument): boolean {
+  const publish = runtimeDoc.stages.publish
+  const approvalStep = approvalWorkflowStepId(runtimeDoc)
+  return (
+    approvalStep === 'approve_stage_4_publish' ||
+    publish.status === 'in_progress' ||
+    publish.status === 'completed' ||
+    publish.status === 'failed' ||
+    !!publish.run_id ||
+    !!publish.primary_output ||
+    Object.keys(publish.outputs || {}).length > 0
+  )
+}
+
 function proposalStatus(runtimeDoc: MarketingJobRuntimeDocument): MarketingDashboardItemStatus {
-  if (runtimeDoc.approvals.current?.stage === 'strategy') {
+  if (approvalWorkflowStepId(runtimeDoc) === 'approve_stage_3') {
     return 'in_review'
   }
-  if (runtimeDoc.stages.strategy.status === 'completed' || runtimeDoc.stages.production.status !== 'not_started') {
+  if (strategyArtifactsAvailable(runtimeDoc)) {
     return 'ready'
   }
   return 'draft'
 }
 
 function creativeStatus(runtimeDoc: MarketingJobRuntimeDocument): MarketingDashboardItemStatus {
-  if (runtimeDoc.approvals.current?.stage === 'production') {
+  if (approvalWorkflowStepId(runtimeDoc) === 'approve_stage_4') {
     return 'in_review'
   }
-  if (isProductionReady(runtimeDoc)) {
+  if (productionArtifactsAvailable(runtimeDoc) || isProductionReady(runtimeDoc)) {
     return 'ready'
   }
   return 'draft'
 }
 
 function publishReadyStatus(runtimeDoc: MarketingJobRuntimeDocument): MarketingDashboardItemStatus {
-  if (runtimeDoc.approvals.current?.stage === 'publish') {
+  if (approvalWorkflowStepId(runtimeDoc) === 'approve_stage_4_publish') {
     return 'ready_to_publish'
   }
-  if (runtimeDoc.stages.publish.status === 'completed') {
+  if (
+    publishArtifactsAvailable(runtimeDoc) &&
+    (
+      runtimeDoc.approvals.current?.stage === 'publish' ||
+      runtimeDoc.stages.publish.status === 'awaiting_approval' ||
+      runtimeDoc.stages.publish.status === 'completed'
+    )
+  ) {
     return 'ready_to_publish'
   }
   return 'ready'
@@ -1195,6 +1324,40 @@ function makeCandidateAsset(input: CandidateAsset): MarketingDashboardAssetInter
   }
 }
 
+function resolveDashboardAssetFilePath(
+  filePath: string | null | undefined,
+  fallbackPaths: Array<string | null | undefined> = [],
+): string | null {
+  const codeRoot = path.normalize(resolveCodeRoot())
+  const legacyCodeRoot = path.join(codeRoot, 'aries-app')
+
+  for (const rawPath of [filePath, ...fallbackPaths]) {
+    const candidate = stringValue(rawPath)
+    if (!candidate) {
+      continue
+    }
+
+    if (!path.isAbsolute(candidate)) {
+      return candidate
+    }
+
+    const normalized = path.normalize(candidate)
+    if (existsSync(normalized)) {
+      return normalized
+    }
+
+    if (normalized === legacyCodeRoot || normalized.startsWith(`${legacyCodeRoot}${path.sep}`)) {
+      const suffix = normalized.slice(legacyCodeRoot.length + 1)
+      const remapped = path.join(codeRoot, suffix)
+      if (existsSync(remapped)) {
+        return remapped
+      }
+    }
+  }
+
+  return null
+}
+
 function buildCampaignContentInternal(context: CampaignBuildContext): MarketingDashboardContentInternal {
   const assetByKey = new Map<string, { priority: number; asset: MarketingDashboardAssetInternal }>()
   const postCandidates: Array<{ priority: number; post: CandidatePost }> = []
@@ -1207,12 +1370,28 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
   const objective = context.objective
   const funnelStage = context.funnelStage
   const brandUrl = context.status.brandWebsiteUrl || context.runtimeDoc.inputs.brand_url || null
+  const canUseProposalArtifacts = strategyArtifactsAvailable(context.runtimeDoc)
+  const canUseProductionArtifacts = productionArtifactsAvailable(context.runtimeDoc)
+  const canUsePublishArtifacts = publishArtifactsAvailable(context.runtimeDoc)
 
-  const addAsset = (candidate: CandidateAsset) => {
-    const key = candidate.filePath || candidate.id
+  const addAsset = (
+    candidate: CandidateAsset,
+    fallbackFilePaths: Array<string | null | undefined> = [],
+  ) => {
+    const resolvedFilePath = resolveDashboardAssetFilePath(candidate.filePath, fallbackFilePaths)
+    if (candidate.filePath && !resolvedFilePath) {
+      return null
+    }
+
+    const filePath = resolvedFilePath || candidate.filePath
+    const key = filePath || candidate.id
     const priority = sourcePriority(candidate.provenance.sourceKind)
     const existing = assetByKey.get(key)
-    const asset = makeCandidateAsset(candidate)
+    const asset = makeCandidateAsset({
+      ...candidate,
+      filePath,
+      contentType: filePath ? contentTypeForAsset(filePath) : candidate.contentType,
+    })
     if (!existing || priority < existing.priority) {
       assetByKey.set(key, { priority, asset })
       return asset
@@ -1345,8 +1524,10 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
     }
   }
 
-  addProposalDocumentAssets()
-  addProposalConcepts()
+  if (canUseProposalArtifacts) {
+    addProposalDocumentAssets()
+    addProposalConcepts()
+  }
 
   const staticContractRoot = context.outputRoots[0]
     ? path.join(context.outputRoots[0], 'static-contracts', context.externalCampaignId)
@@ -1355,11 +1536,17 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
     ? path.join(context.outputRoots[0], 'video-contracts', context.externalCampaignId)
     : null
 
-  const productionFinalize = readStageStepPayload(3, context.runtimeDoc.stages.production.run_id, 'creative_director_finalize')
+  const productionFinalize = canUseProductionArtifacts
+    ? readStageStepPayload(context.runtimeDoc, 3, 'creative_director_finalize')
+    : null
   const productionHandoff = recordValue(productionFinalize?.production_handoff) ?? {}
   const contractHandoffs = recordValue(productionHandoff.contract_handoffs) ?? {}
-  const staticPaths = asStringArray(recordValue(contractHandoffs.static)?.platform_contract_paths)
-  const videoPaths = asStringArray(recordValue(contractHandoffs.video)?.platform_contract_paths)
+  const staticPaths = canUseProductionArtifacts
+    ? asStringArray(recordValue(contractHandoffs.static)?.platform_contract_paths)
+    : []
+  const videoPaths = canUseProductionArtifacts
+    ? asStringArray(recordValue(contractHandoffs.video)?.platform_contract_paths)
+    : []
   const contracts = [
     ...loadContracts(staticPaths, staticContractRoot),
     ...loadContracts(videoPaths, videoContractRoot),
@@ -1367,13 +1554,19 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
 
   const creativeAssetStatus = creativeStatus(context.runtimeDoc)
 
-  const landingPageFiles = listFiles(context.campaignRoot ? path.join(context.campaignRoot, 'landing-pages') : null, (fileName) => fileName.endsWith('.html'))
-  const adImageFiles = listFiles(context.campaignRoot ? path.join(context.campaignRoot, 'ad-images') : null, (fileName) =>
-    /\.(png|jpe?g|gif|webp|svg)$/i.test(fileName),
-  )
-  const scriptFiles = listFiles(context.campaignRoot ? path.join(context.campaignRoot, 'scripts') : null, (fileName) =>
-    /\.(md|txt|json)$/i.test(fileName),
-  )
+  const landingPageFiles = canUseProductionArtifacts
+    ? listFiles(context.campaignRoot ? path.join(context.campaignRoot, 'landing-pages') : null, (fileName) => fileName.endsWith('.html'))
+    : []
+  const adImageFiles = canUseProductionArtifacts
+    ? listFiles(context.campaignRoot ? path.join(context.campaignRoot, 'ad-images') : null, (fileName) =>
+        /\.(png|jpe?g|gif|webp|svg)$/i.test(fileName),
+      )
+    : []
+  const scriptFiles = canUseProductionArtifacts
+    ? listFiles(context.campaignRoot ? path.join(context.campaignRoot, 'scripts') : null, (fileName) =>
+        /\.(md|txt|json)$/i.test(fileName),
+      )
+    : []
 
   const contractByPlatform = new Map<string, ContractRecord>()
   for (const contract of contracts) {
@@ -1581,9 +1774,35 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
     }
   }
 
-  const publishBundle = rawPublishReviewBundle(context.runtimeDoc)
-  const platformPreviews = recordArray(publishBundle?.platform_previews)
-  const reviewCalendarEvents = recordArray(recordValue(publishBundle?.content_calendar)?.events)
+  const publisherPayloads = canUsePublishArtifacts
+    ? PUBLISHER_STEPS.map((stepName) => {
+        const payload = readStageStepPayload(context.runtimeDoc, 4, stepName)
+        return payload ? { stepName, payload } : null
+      }).filter((entry): entry is { stepName: typeof PUBLISHER_STEPS[number]; payload: Record<string, unknown> } => !!entry)
+    : []
+
+  const previewFallbackPathsByPlatform = new Map<string, string[]>()
+  const rememberPreviewFallbackPath = (platform: string, filePath: string | null | undefined) => {
+    const normalizedPath = stringValue(filePath)
+    if (!normalizedPath) {
+      return
+    }
+    previewFallbackPathsByPlatform.set(platform, [
+      ...(previewFallbackPathsByPlatform.get(platform) || []),
+      normalizedPath,
+    ])
+  }
+
+  for (const { payload } of publisherPayloads) {
+    const platform = normalizePlatformSlug(stringValue(payload.platform) || stringValue(payload.type))
+    const publishPackage = recordValue(payload.publish_package) ?? {}
+    rememberPreviewFallbackPath(platform, stringValue(publishPackage.image_path || publishPackage.poster_image_path))
+    rememberPreviewFallbackPath(platform, stringValue(publishPackage.fallback_svg_path))
+  }
+
+  const publishBundle = canUsePublishArtifacts ? rawPublishReviewBundle(context.runtimeDoc) : null
+  const platformPreviews = canUsePublishArtifacts ? recordArray(publishBundle?.platform_previews) : []
+  const reviewCalendarEvents = canUsePublishArtifacts ? recordArray(recordValue(publishBundle?.content_calendar)?.events) : []
   const publishStatus = publishReadyStatus(context.runtimeDoc)
 
   for (const [index, preview] of platformPreviews.entries()) {
@@ -1594,7 +1813,7 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
 
     mediaPaths.forEach((filePath, mediaIndex) => {
       const assetId = `platform-preview-${platform}-media-${mediaIndex + 1}`
-      addAsset({
+      const addedAsset = addAsset({
         id: assetId,
         campaignId,
         jobId: campaignId,
@@ -1621,8 +1840,10 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
           isDerivedSchedule: false,
           isPlatformNative: false,
         },
-      })
-      assetIds.push(assetId)
+      }, previewFallbackPathsByPlatform.get(platform) || [])
+      if (addedAsset) {
+        assetIds.push(addedAsset.id)
+      }
     })
 
     ;[
@@ -1635,7 +1856,7 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
       }
       const suffix = label === 'contract' ? 'contract' : label === 'brief' ? 'brief' : 'landing-page'
       const assetId = `platform-preview-${platform}-asset-${suffix}`
-      addAsset({
+      const addedAsset = addAsset({
         id: assetId,
         campaignId,
         jobId: campaignId,
@@ -1663,7 +1884,9 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
           isPlatformNative: false,
         },
       })
-      assetIds.push(assetId)
+      if (addedAsset) {
+        assetIds.push(addedAsset.id)
+      }
     })
 
     const title = stringValue(preview.headline || preview.platform_name, `${platformLabel(platform)} preview`)
@@ -1769,11 +1992,6 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
     })
   }
 
-  const publisherPayloads = PUBLISHER_STEPS.map((stepName) => {
-    const payload = readStageStepPayload(4, context.runtimeDoc.stages.publish.run_id, stepName)
-    return payload ? { stepName, payload } : null
-  }).filter((entry): entry is { stepName: typeof PUBLISHER_STEPS[number]; payload: Record<string, unknown> } => !!entry)
-
   const reviewPackagePaths = new Set<string>()
 
   for (const { payload } of publisherPayloads) {
@@ -1822,7 +2040,7 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
         return
       }
       const assetId = makeAssetId(campaignId, String(prefix), filePath)
-      addAsset({
+      const addedAsset = addAsset({
         id: assetId,
         campaignId,
         jobId: campaignId,
@@ -1850,7 +2068,9 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
           isPlatformNative: false,
         },
       })
-      assetIds.push(assetId)
+      if (addedAsset) {
+        assetIds.push(addedAsset.id)
+      }
     })
 
     const publishItem = addPublishItem({
@@ -1988,7 +2208,7 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
           return
         }
         const assetId = makeAssetId(campaignId, String(prefix), `${filePath}-${index}`)
-        addAsset({
+        const addedAsset = addAsset({
           id: assetId,
           campaignId,
           jobId: campaignId,
@@ -2016,7 +2236,9 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
             isPlatformNative: false,
           },
         })
-        assetIds.push(assetId)
+        if (addedAsset) {
+          assetIds.push(addedAsset.id)
+        }
       })
 
       const publishItem = addPublishItem({
