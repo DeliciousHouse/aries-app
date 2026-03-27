@@ -13,9 +13,10 @@ export interface CalendarViewModel {
     title: string;
     platform: string;
     scheduledFor: string;
-    status: RuntimeCampaignListItem['status'];
+    status: RuntimeCampaignListItem['status'] | RuntimeCampaignListItem['dashboardStatus'];
     href: string;
     timestamp: number;
+    dayKey: string;
   }>;
   campaigns: Array<{
     id: string;
@@ -28,78 +29,72 @@ export interface CalendarViewModel {
   }>;
 }
 
-function isScheduledValue(value: string): boolean {
-  return !value.startsWith('Nothing') && !value.startsWith('Waiting');
-}
-
-function parseScheduledValue(value: string): { timestamp: number; platform: string; label: string } | null {
-  const [startsAt, platform] = value.split(' · ');
-  const timestamp = Date.parse(startsAt);
-
+function formatScheduledLabel(value: string, campaignName: string, statusLabel: string): string {
+  const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) {
-    return null;
+    return `${campaignName} · ${statusLabel}`;
   }
 
-  return {
-    timestamp,
-    platform: platform || 'Scheduled',
-    label: new Intl.DateTimeFormat('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    }).format(new Date(timestamp)),
-  };
+  return `${new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'UTC',
+  }).format(new Date(timestamp))} UTC · ${campaignName} · ${statusLabel}`;
 }
 
 export function createCalendarViewModel(campaigns: RuntimeCampaignListItem[]): CalendarViewModel {
   const events = campaigns
-    .filter((campaign) => isScheduledValue(campaign.nextScheduled))
-    .map((campaign) => {
-      const parsed = parseScheduledValue(campaign.nextScheduled);
-      if (!parsed) {
+    .flatMap((campaign) => campaign.dashboard.calendarEvents.map((event) => ({ campaign, event })))
+    .map(({ campaign, event }) => {
+      const timestamp = Date.parse(event.startsAt);
+      if (!Number.isFinite(timestamp)) {
         return null;
       }
 
       return {
-        id: `${campaign.id}::next`,
-        title: campaign.name,
-        platform: parsed.platform,
-        scheduledFor: parsed.label,
-        status: campaign.status,
+        id: event.id,
+        title: event.title,
+        platform: event.platformLabel,
+        scheduledFor: formatScheduledLabel(event.startsAt, event.campaignName, event.statusLabel),
+        status: event.status,
         href: `/dashboard/campaigns/${campaign.id}`,
-        timestamp: parsed.timestamp,
+        timestamp,
+        dayKey: event.startsAt.slice(0, 10),
       };
     })
     .filter((event): event is NonNullable<typeof event> => event !== null)
     .sort((left, right) => left.timestamp - right.timestamp);
+
   const readyCount = campaigns.filter(
     (campaign) => campaign.status === 'scheduled' || campaign.status === 'live',
   ).length;
   const approvalCount = campaigns.filter(
     (campaign) => campaign.pendingApprovals > 0 || campaign.status === 'in_review',
   ).length;
+  const scheduledCount = events.filter((event) => event.status === 'scheduled' || event.status === 'live').length;
 
   return {
     hero: {
       eyebrow: 'Calendar',
       title: 'What is going out and when',
       description:
-        'This calendar restores the richer dashboard composition, but it only renders schedule signals that already exist in the live runtime.',
+        'This calendar restores the visual month view while staying honest: every tile comes from Aries runtime schedule events that already exist.',
       metrics: [
         {
           label: 'Upcoming items',
           value: String(events.length),
-          detail: events.length > 0 ? 'Schedule windows are coming from runtime-backed campaigns.' : 'Nothing is scheduled yet.',
+          detail: events.length > 0 ? 'Calendar tiles are populated from runtime-backed schedule events.' : 'Nothing is scheduled yet.',
         },
         {
-          label: 'Ready to run',
-          value: String(readyCount),
+          label: 'Scheduled or live',
+          value: String(scheduledCount || readyCount),
           detail:
-            readyCount > 0
-              ? 'Scheduled or live campaigns are represented here.'
+            scheduledCount > 0 || readyCount > 0
+              ? 'These items already have real publish windows or live delivery status.'
               : 'No campaigns are ready for publish windows yet.',
-          tone: readyCount > 0 ? 'good' : 'default',
+          tone: scheduledCount > 0 || readyCount > 0 ? 'good' : 'default',
         },
         {
           label: 'Approval blockers',

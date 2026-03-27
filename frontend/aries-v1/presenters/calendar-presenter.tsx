@@ -21,10 +21,8 @@ export interface CalendarPresenterProps {
 }
 
 export default function CalendarPresenter({ model }: CalendarPresenterProps) {
-  const [view, setView] = useState<CalendarMode>('week');
-  const [currentDate, setCurrentDate] = useState(() => {
-    return model.events[0] ? new Date(model.events[0].timestamp) : new Date();
-  });
+  const [view, setView] = useState<CalendarMode>('month');
+  const [currentDate, setCurrentDate] = useState(() => getInitialCalendarDate(model.events));
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
 
   const calendarDays = useMemo(() => {
@@ -42,7 +40,7 @@ export default function CalendarPresenter({ model }: CalendarPresenterProps) {
   const eventsByDay = useMemo(() => {
     const map = new Map<string, CalendarViewModel['events']>();
     for (const event of model.events) {
-      const key = dateKey(new Date(event.timestamp));
+      const key = event.dayKey || dateKey(new Date(event.timestamp));
       const entry = map.get(key) || [];
       entry.push(event);
       map.set(key, entry);
@@ -194,7 +192,7 @@ export default function CalendarPresenter({ model }: CalendarPresenterProps) {
                 <div
                   className={`grid grid-cols-7 ${
                     view === 'month'
-                      ? 'grid-rows-5 gap-px overflow-hidden rounded-2xl border border-white/[0.05] bg-white/[0.05]'
+                      ? 'gap-px overflow-hidden rounded-2xl border border-white/[0.05] bg-white/[0.05]'
                       : 'gap-3'
                   }`}
                 >
@@ -423,6 +421,20 @@ function InfoPanel(props: { label: string; value: string }) {
       <p className="mt-2 text-sm text-white/80">{props.value}</p>
     </div>
   );
+}
+
+function getInitialCalendarDate(events: CalendarViewModel['events']): Date {
+  const now = Date.now();
+  const nextUpcoming = events.find((event) => event.timestamp >= now);
+  if (nextUpcoming) {
+    return new Date(nextUpcoming.timestamp);
+  }
+
+  if (events[0]) {
+    return new Date(events[0].timestamp);
+  }
+
+  return new Date();
 }
 
 function startOfMonth(date: Date): Date {

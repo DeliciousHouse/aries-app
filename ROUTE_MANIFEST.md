@@ -10,6 +10,7 @@ This manifest lists the supported direct route contract for the current Aries ru
 | `/features` | Marketing site | Capability overview for the current operator surface |
 | `/documentation` | Marketing site | Runtime architecture, setup, and validation steps |
 | `/api-docs` | Marketing site | Browser-safe API reference for the current UI contract |
+| `/public-:brandSlug/campaign` | Public campaign page | Generated landing page backed by Lobster stage outputs |
 
 ## Authenticated operator routes
 
