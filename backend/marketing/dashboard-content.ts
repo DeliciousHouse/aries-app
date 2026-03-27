@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
-import { resolveCodePath, resolveCodeRoot } from '@/lib/runtime-paths'
+import { resolveCodePath, resolveCodeRoot, resolveDataRoot } from '@/lib/runtime-paths'
 
 import type { MarketingCampaignWindow } from './jobs-status'
 import { extractPublishReviewBundle } from './publish-review'
@@ -461,7 +461,49 @@ function compatibilityStatusFor(itemStatus: MarketingDashboardItemStatus): Marke
   }
 }
 
+function sniffImageContentType(filePath: string): string | null {
+  try {
+    const buffer = readFileSync(filePath)
+    if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+      return 'image/jpeg'
+    }
+    if (
+      buffer.length >= 8 &&
+      buffer[0] === 0x89 &&
+      buffer[1] === 0x50 &&
+      buffer[2] === 0x4e &&
+      buffer[3] === 0x47 &&
+      buffer[4] === 0x0d &&
+      buffer[5] === 0x0a &&
+      buffer[6] === 0x1a &&
+      buffer[7] === 0x0a
+    ) {
+      return 'image/png'
+    }
+    if (buffer.length >= 6) {
+      const signature = buffer.subarray(0, 6).toString('utf8')
+      if (signature === 'GIF87a' || signature === 'GIF89a') {
+        return 'image/gif'
+      }
+    }
+    if (
+      buffer.length >= 12 &&
+      buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+      buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+    ) {
+      return 'image/webp'
+    }
+  } catch {}
+
+  return null
+}
+
 function contentTypeForAsset(filePath: string): string {
+  const sniffedImageType = sniffImageContentType(filePath)
+  if (sniffedImageType) {
+    return sniffedImageType
+  }
+
   const ext = path.extname(filePath).toLowerCase()
   switch (ext) {
     case '.png':
@@ -748,6 +790,31 @@ function extractBrandSlug(runtimeDoc: MarketingJobRuntimeDocument, planner: Prop
 }
 
 function parseProposalPlan(runtimeDoc: MarketingJobRuntimeDocument): ProposalPlan {
+  if (
+    runtimeDoc.stages.strategy.status !== 'completed' &&
+    runtimeDoc.stages.strategy.status !== 'failed' &&
+    runtimeDoc.current_stage !== 'production' &&
+    runtimeDoc.current_stage !== 'publish' &&
+    runtimeDoc.stages.production.status === 'not_started' &&
+    runtimeDoc.stages.publish.status === 'not_started' &&
+    approvalWorkflowStepId(runtimeDoc) !== 'approve_stage_3' &&
+    approvalWorkflowStepId(runtimeDoc) !== 'approve_stage_4' &&
+    approvalWorkflowStepId(runtimeDoc) !== 'approve_stage_4_publish'
+  ) {
+    return {
+      campaignName: null,
+      objective: null,
+      primaryCta: null,
+      audience: null,
+      coreMessage: null,
+      offer: null,
+      channelPlans: [],
+      brandSlug: null,
+      campaignId: null,
+      createdAt: null,
+    }
+  }
+
   const planner = readStageStepPayload(runtimeDoc, 2, 'campaign_planner')
   const plan = recordValue(planner?.campaign_plan) ?? {}
   const brandProfiles = recordValue(planner?.brand_profiles_record) ?? {}
@@ -883,39 +950,38 @@ function approvalWorkflowStepId(runtimeDoc: MarketingJobRuntimeDocument): string
 }
 
 function strategyArtifactsAvailable(runtimeDoc: MarketingJobRuntimeDocument): boolean {
-  const strategy = runtimeDoc.stages.strategy
-  return strategy.status === 'completed' || !!strategy.run_id || !!strategy.primary_output || Object.keys(strategy.outputs || {}).length > 0
+  return runtimeDoc.stages.strategy.status === 'completed'
 }
 
 function productionArtifactsAvailable(runtimeDoc: MarketingJobRuntimeDocument): boolean {
-  const production = runtimeDoc.stages.production
   const publish = runtimeDoc.stages.publish
   const approvalStep = approvalWorkflowStepId(runtimeDoc)
   return (
-    production.status === 'completed' ||
-    production.status === 'failed' ||
+    runtimeDoc.stages.production.status === 'completed' ||
+    runtimeDoc.stages.production.status === 'failed' ||
     approvalStep === 'approve_stage_4' ||
     approvalStep === 'approve_stage_4_publish' ||
+    publish.status === 'awaiting_approval' ||
     publish.status === 'in_progress' ||
     publish.status === 'completed' ||
-    publish.status === 'failed' ||
-    !!production.run_id ||
-    !!production.primary_output ||
-    Object.keys(production.outputs || {}).length > 0
+    publish.status === 'failed'
   )
 }
 
 function publishArtifactsAvailable(runtimeDoc: MarketingJobRuntimeDocument): boolean {
   const publish = runtimeDoc.stages.publish
   const approvalStep = approvalWorkflowStepId(runtimeDoc)
+  const publishOutputs = recordValue(publish.outputs)
+  const primaryOutput = recordValue(publish.primary_output)
   return (
     approvalStep === 'approve_stage_4_publish' ||
     publish.status === 'in_progress' ||
     publish.status === 'completed' ||
     publish.status === 'failed' ||
-    !!publish.run_id ||
-    !!publish.primary_output ||
-    Object.keys(publish.outputs || {}).length > 0
+    !!recordValue(publishOutputs?.review) ||
+    !!recordValue(publishOutputs?.envelope) ||
+    !!recordValue(primaryOutput?.launch_review) ||
+    !!extractPublishReviewBundle(runtimeDoc)
   )
 }
 
@@ -1330,6 +1396,15 @@ function resolveDashboardAssetFilePath(
 ): string | null {
   const codeRoot = path.normalize(resolveCodeRoot())
   const legacyCodeRoot = path.join(codeRoot, 'aries-app')
+  const roots = [
+    resolveDataRoot(),
+    resolveCodeRoot(),
+    ...lobsterRoots(),
+    envCacheRoot(1),
+    envCacheRoot(2),
+    envCacheRoot(3),
+    envCacheRoot(4),
+  ]
 
   for (const rawPath of [filePath, ...fallbackPaths]) {
     const candidate = stringValue(rawPath)
@@ -1338,6 +1413,12 @@ function resolveDashboardAssetFilePath(
     }
 
     if (!path.isAbsolute(candidate)) {
+      for (const root of roots) {
+        const resolved = path.resolve(root, candidate)
+        if (existsSync(resolved)) {
+          return resolved
+        }
+      }
       return candidate
     }
 
@@ -2493,6 +2574,11 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
     if (item.status === 'live') counts.live += 1
   }
 
+  const operationalCampaignStatus =
+    context.status.approvalRequired && campaignStatus !== 'live' && campaignStatus !== 'scheduled'
+      ? 'in_review'
+      : campaignStatus
+
   const campaign: MarketingDashboardCampaignInternal = {
     id: campaignId,
     jobId: campaignId,
@@ -2502,8 +2588,8 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
     funnelStage,
     summary: summaryFromStatus(context),
     stageLabel: context.status.currentStage || 'campaign',
-    status: campaignStatus,
-    compatibilityStatus: compatibilityStatusFor(campaignStatus),
+    status: operationalCampaignStatus,
+    compatibilityStatus: compatibilityStatusFor(operationalCampaignStatus),
     campaignWindow: context.status.campaignWindow,
     updatedAt: context.status.updatedAt,
     approvalRequired: context.status.approvalRequired,

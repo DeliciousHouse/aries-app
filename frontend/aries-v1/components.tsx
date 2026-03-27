@@ -297,7 +297,7 @@ export function CampaignSummaryCard(props: { campaign: AriesCampaign }) {
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-white/35">Trust note</p>
           <p className="mt-3 text-sm leading-7 text-white/75">{props.campaign.trustNote}</p>
           <Link
-            href={`/campaigns/${props.campaign.id}`}
+            href={`/dashboard/campaigns/${props.campaign.id}`}
             className="mt-5 inline-flex items-center gap-2 text-sm font-medium text-white"
           >
             Open campaign

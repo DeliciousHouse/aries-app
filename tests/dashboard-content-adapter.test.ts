@@ -378,6 +378,62 @@ test('dashboard adapter keeps proposal approval truthful and does not leak futur
   });
 });
 
+test('dashboard adapter does not infer publish review content during strategy approval from older Stage 4 logs', async () => {
+  await withDashboardEnv(async (env) => {
+    const jobId = 'strategy-approval-no-publish-leak';
+    const doc: any = baseRuntimeDoc(jobId, 'tenant_dashboard');
+    doc.current_stage = 'strategy';
+    doc.state = 'approval_required';
+    doc.status = 'awaiting_approval';
+    doc.stages.strategy = stageRecord('strategy', 'awaiting_approval', null);
+    doc.stages.publish = stageRecord('publish', 'not_started', null);
+    doc.inputs.request = { competitorUrl: 'https://betterup.com' };
+    doc.inputs.competitor_url = 'https://betterup.com';
+    doc.approvals = {
+      current: {
+        stage: 'strategy',
+        status: 'awaiting_approval',
+        workflow_step_id: 'approve_stage_2',
+        title: 'Strategy approval required',
+        message: 'Approve research handoff to continue to planning.',
+        requested_at: '2026-03-27T09:25:43.387Z',
+      },
+      history: [],
+    };
+
+    await writeJson(path.join(env.lobsterRoot, 'output', 'logs', 'betterup-com-oldrun', 'stage-4-publish-optimize', 'launch_review_preview.json'), {
+      generated_at: '2026-03-27T09:11:25+00:00',
+      review_bundle: {
+        campaign_name: '6-stage2-plan',
+        summary: {
+          core_message: 'Old launch review should not bleed into a fresh strategy checkpoint.',
+        },
+        platform_previews: [
+          {
+            platform_slug: 'meta-ads',
+            platform_name: 'Meta Ads',
+            summary: 'Old launch package',
+            media_paths: [path.join(env.lobsterRoot, 'output', 'publish-ready', '6-stage2-plan', 'meta-ads', 'meta.png')],
+            asset_paths: {},
+          },
+        ],
+      },
+    });
+    await writeRuntimeDoc(jobId, doc);
+
+    const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
+    const content = getMarketingDashboardContent(jobId, {
+      referenceDate: new Date('2026-03-27T00:00:00.000Z'),
+    });
+
+    assert.equal(content.campaigns[0]?.name, 'Brand Example');
+    assert.equal(content.assets.length, 0);
+    assert.equal(content.posts.length, 0);
+    assert.equal(content.publishItems.length, 0);
+    assert.equal(content.calendarEvents.length, 0);
+  });
+});
+
 test('dashboard adapter surfaces generated landing pages, image ads, scripts, and creative-output posts', async () => {
   await withDashboardEnv(async (env) => {
     const jobId = 'creative-ready';
@@ -400,6 +456,48 @@ test('dashboard adapter surfaces generated landing pages, image ads, scripts, an
     assert.equal(content.campaigns[0]?.counts.landingPages, 1);
     assert.equal(content.campaigns[0]?.counts.imageAds, 1);
     assert.equal(content.campaigns[0]?.counts.scripts, 1);
+  });
+});
+
+test('dashboard adapter keeps campaign status in review while a live approval checkpoint is pending', async () => {
+  await withDashboardEnv(async (env) => {
+    const jobId = 'creative-awaiting-launch-approval';
+    const doc: any = baseRuntimeDoc(jobId, 'tenant_dashboard');
+    doc.current_stage = 'publish';
+    doc.state = 'approval_required';
+    doc.status = 'awaiting_approval';
+    doc.stages.production = stageRecord('production', 'completed', 'prod-run');
+    doc.stages.publish = stageRecord('publish', 'awaiting_approval', null);
+    doc.stages.publish.outputs = {
+      approval_id: 'mkta_launch',
+      workflow_step_id: 'approve_stage_4',
+      resume_token: 'resume-publish',
+    };
+    doc.approvals = {
+      current: {
+        stage: 'publish',
+        status: 'awaiting_approval',
+        approval_id: 'mkta_launch',
+        workflow_step_id: 'approve_stage_4',
+        title: 'Launch approval required',
+        message: 'Stage 3 complete. Approve the creative assets and continue to Stage 4 publishing?',
+        requested_at: '2026-03-27T08:52:56.458Z',
+      },
+      history: [],
+    };
+
+    await seedPlanner('plan-run');
+    await seedCreativeArtifacts(env);
+    await writeRuntimeDoc(jobId, doc);
+
+    const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
+    const content = getMarketingDashboardContent(jobId, {
+      referenceDate: new Date('2026-03-27T00:00:00.000Z'),
+    });
+
+    assert.equal(content.assets.some((asset) => asset.provenance.sourceKind === 'creative_output'), true);
+    assert.equal(content.campaigns[0]?.status, 'in_review');
+    assert.equal(content.campaigns[0]?.compatibilityStatus, 'in_review');
   });
 });
 
@@ -448,6 +546,92 @@ test('dashboard adapter surfaces pre-publish review items as ready to publish', 
     await seedPlanner('plan-run');
     await seedCreativeArtifacts(env);
     await seedPublishArtifacts(env, 'publish-run');
+    await writeRuntimeDoc(jobId, doc);
+
+    const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
+    const content = getMarketingDashboardContent(jobId, {
+      referenceDate: new Date('2026-03-27T00:00:00.000Z'),
+    });
+
+    assert.equal(content.publishItems.some((item) => item.status === 'ready_to_publish'), true);
+    assert.equal(content.posts.some((item) => item.status === 'ready_to_publish'), true);
+    assert.equal(content.calendarEvents.some((event) => event.statusLabel === 'Ready to Publish'), true);
+  });
+});
+
+test('dashboard adapter recovers paused-publish review items from Stage 4 logs when the runtime doc only stores the approval envelope', async () => {
+  await withDashboardEnv(async (env) => {
+    const jobId = 'publish-review-from-logs';
+    const runId = 'betterup-com-live';
+    const doc: any = baseRuntimeDoc(jobId, 'tenant_dashboard');
+    doc.current_stage = 'publish';
+    doc.state = 'approval_required';
+    doc.status = 'awaiting_approval';
+    doc.stages.production = stageRecord('production', 'completed', 'prod-run');
+    doc.stages.publish = stageRecord('publish', 'awaiting_approval', null);
+    doc.stages.publish.started_at = '2026-03-27T09:03:41.000Z';
+    doc.stages.publish.outputs = {
+      envelope: {
+        protocolVersion: 1,
+        ok: true,
+        status: 'needs_approval',
+        output: [],
+        requiresApproval: {
+          prompt: 'Stage 4 pre-flight complete. Approve creation of the Meta campaigns, ad sets, and ads as PAUSED?',
+          resumeToken: 'resume-publish-paused',
+        },
+      },
+      approval_id: 'mkta_publish_paused',
+      workflow_step_id: 'approve_stage_4_publish',
+      resume_token: 'resume-publish-paused',
+    };
+    doc.approvals = {
+      current: {
+        stage: 'publish',
+        status: 'awaiting_approval',
+        approval_id: 'mkta_publish_paused',
+        workflow_step_id: 'approve_stage_4_publish',
+        title: 'Publish to Meta (paused) approval required',
+        message: 'Stage 4 pre-flight complete. Approve creation of the Meta campaigns, ad sets, and ads as PAUSED?',
+        requested_at: '2026-03-27T09:03:41.000Z',
+      },
+      history: [],
+    };
+    doc.inputs.request = { competitorUrl: 'https://betterup.com' };
+
+    await seedPlanner('plan-run');
+    await seedCreativeArtifacts(env);
+    await seedPublishArtifacts(env, runId);
+    await writeJson(path.join(env.lobsterRoot, 'output', 'logs', runId, 'stage-4-publish-optimize', 'launch_review_preview.json'), {
+      generated_at: '2026-03-27T09:03:41+00:00',
+      approval_preview: {
+        message: 'Stage 4 pre-flight complete. Approve creation of the Meta campaigns, ad sets, and ads as PAUSED?',
+      },
+      review_bundle: {
+        campaign_name: 'brand-example-stage2-plan',
+        approval_message: 'Stage 4 pre-flight complete. Approve creation of the Meta campaigns, ad sets, and ads as PAUSED?',
+        summary: {
+          core_message: 'Launch package ready for paused publish.',
+        },
+        platform_previews: [
+          {
+            platform_slug: 'meta-ads',
+            platform_name: 'Meta Ads',
+            summary: 'Launch package ready for review.',
+            headline: 'Meta launch package',
+            media_paths: [path.join(env.lobsterRoot, 'output', 'publish-ready', 'brand-example-stage2-plan', 'meta-ads', 'meta-ads.png')],
+            asset_paths: {},
+          },
+        ],
+      },
+    });
+    await writeJson(path.join(env.lobsterRoot, 'output', 'logs', runId, 'stage-4-publish-optimize', 'performance_marketer_preflight.json'), {
+      run_id: runId,
+      publish_plan: {
+        static_contract_count: 6,
+        video_contract_count: 2,
+      },
+    });
     await writeRuntimeDoc(jobId, doc);
 
     const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');

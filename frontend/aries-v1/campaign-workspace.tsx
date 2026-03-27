@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ChevronDown } from 'lucide-react';
 
@@ -19,6 +19,12 @@ function campaignStatus(status: string, approvalRequired: boolean) {
   return 'draft';
 }
 
+function isActiveJobStatus(status: string): boolean {
+  return ['accepted', 'running', 'in_progress', 'ready', 'awaiting_approval', 'resumed', 'pending'].includes(
+    (status || '').toLowerCase(),
+  );
+}
+
 export default function AriesCampaignWorkspace(props: { campaignId: string }) {
   const job = useMarketingJobStatus({ jobId: props.campaignId, autoLoad: true });
   const reviews = useRuntimeReviews({ autoLoad: true });
@@ -34,6 +40,18 @@ export default function AriesCampaignWorkspace(props: { campaignId: string }) {
     () => new Map((status?.dashboard.assets ?? []).map((asset) => [asset.id, asset] as const)),
     [status?.dashboard.assets],
   );
+
+  useEffect(() => {
+    if (!status || !isActiveJobStatus(status.marketing_job_status)) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void job.load(props.campaignId, { quiet: true });
+    }, 5000);
+
+    return () => window.clearInterval(timer);
+  }, [job.load, props.campaignId, status]);
 
   if (job.isLoading) {
     return <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-8 text-white/60">Loading campaign…</div>;

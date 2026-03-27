@@ -149,7 +149,7 @@ export function createResultsViewModel(campaigns: RuntimeCampaignListItem[]): Re
       nextScheduled: campaign.nextScheduled,
       updatedLabel: formatUpdatedLabel(campaign.updatedAt),
       pendingApprovals: String(campaign.pendingApprovals),
-      href: `/campaigns/${campaign.id}`,
+      href: `/dashboard/campaigns/${campaign.id}`,
       needsReview: campaign.pendingApprovals > 0 || campaign.status === 'in_review',
     })),
   };

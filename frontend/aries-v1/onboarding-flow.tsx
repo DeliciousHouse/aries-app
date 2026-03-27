@@ -1,11 +1,12 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import clsx from 'clsx';
 import { ArrowLeft, ArrowRight, Check, ShieldCheck } from 'lucide-react';
 
 import { createMarketingApi } from '@/lib/api/marketing';
+import { useBusinessProfile } from '@/hooks/use-business-profile';
 
 type StepKey = 'welcome' | 'business' | 'brand' | 'channels' | 'goal';
 
@@ -38,19 +39,53 @@ function brandSummaryFromWebsite(websiteUrl: string, businessName: string) {
   };
 }
 
+function goalFromBusinessProfile(primaryGoal: string | null | undefined): string {
+  const normalized = primaryGoal?.trim().toLowerCase() || '';
+  if (!normalized) {
+    return goalOptions[0];
+  }
+  if (normalized.includes('appoint')) {
+    return 'Book more appointments';
+  }
+  if (normalized.includes('sale') || normalized.includes('revenue') || normalized.includes('purchase')) {
+    return 'Increase sales';
+  }
+  if (normalized.includes('visible') || normalized.includes('awareness') || normalized.includes('brand')) {
+    return 'Stay visible every week';
+  }
+  return 'Get more leads';
+}
+
 export default function AriesOnboardingFlow() {
   const router = useRouter();
+  const businessProfile = useBusinessProfile({ autoLoad: true });
   const [stepIndex, setStepIndex] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [businessName, setBusinessName] = useState('Northstar Studio');
-  const [websiteUrl, setWebsiteUrl] = useState('https://northstarstudio.com');
-  const [businessType, setBusinessType] = useState('Wellness studio');
-  const [approverName, setApproverName] = useState('Morgan');
+  const [hydratedFromProfile, setHydratedFromProfile] = useState(false);
+  const [businessName, setBusinessName] = useState('');
+  const [websiteUrl, setWebsiteUrl] = useState('');
+  const [businessType, setBusinessType] = useState('');
+  const [approverName, setApproverName] = useState('');
   const [selectedChannels, setSelectedChannels] = useState<string[]>(['Meta', 'Instagram']);
-  const [goal, setGoal] = useState(goalOptions[1]);
-  const [offer, setOffer] = useState('Spring intro membership');
-  const [competitorUrl, setCompetitorUrl] = useState('https://localpilateshouse.com');
+  const [goal, setGoal] = useState(goalOptions[0]);
+  const [offer, setOffer] = useState('');
+  const [competitorUrl, setCompetitorUrl] = useState('');
+
+  const profile = businessProfile.profile.data?.profile ?? null;
+
+  useEffect(() => {
+    if (!profile || hydratedFromProfile) {
+      return;
+    }
+
+    setBusinessName(profile.brandKit?.brand_name || profile.businessName || '');
+    setWebsiteUrl(profile.websiteUrl || profile.brandKit?.source_url || '');
+    setBusinessType(profile.businessType || '');
+    setApproverName(profile.launchApproverName || '');
+    setGoal(goalFromBusinessProfile(profile.primaryGoal));
+    setHydratedFromProfile(true);
+  }, [hydratedFromProfile, profile]);
 
   const brandSummary = useMemo(
     () => brandSummaryFromWebsite(websiteUrl, businessName),
@@ -80,15 +115,14 @@ export default function AriesOnboardingFlow() {
         throw new Error(result.message || result.error || 'Unable to start the first campaign.');
       }
 
-      router.push(`/dashboard?campaignId=${encodeURIComponent(result.jobId)}&welcome=1`);
+      router.push(`/dashboard/campaigns/${encodeURIComponent(result.jobId)}?welcome=1`);
       return;
     } catch (submissionError) {
       const message =
         submissionError instanceof Error
           ? submissionError.message
-          : 'We could not reach the live runtime, so Aries opened the app with demo-ready data instead.';
+          : 'We could not reach the live runtime, so Aries kept you on setup with the real error.';
       setError(message);
-      router.push('/dashboard?campaignId=spring-membership-drive&welcome=1&mode=demo');
     } finally {
       setSubmitting(false);
     }

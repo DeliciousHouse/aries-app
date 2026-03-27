@@ -313,6 +313,8 @@ function buildPreviewItems(status: MarketingJobStatusResponse, reviewBundle: Mar
     return [];
   }
 
+  const defaultStatus: RuntimeCampaignStatus = status.approvalRequired ? 'in_review' : 'approved';
+
   return reviewBundle.platformPreviews.map((preview) => ({
     id: `${status.jobId}::${preview.id}`,
     jobId: status.jobId,
@@ -322,7 +324,7 @@ function buildPreviewItems(status: MarketingJobStatusResponse, reviewBundle: Mar
     channel: preview.platformName,
     placement: preview.channelType,
     scheduledFor: deriveScheduledFor(status, preview.id),
-    status: 'in_review',
+    status: defaultStatus,
     summary: preview.summary,
     currentVersion: {
       id: preview.id,
@@ -397,6 +399,18 @@ function mergeReviewState(status: MarketingJobStatusResponse, items: RuntimeRevi
         sourceHash,
         status: existing.status === 'approved' ? 'in_review' : existing.status,
         lastDecision: existing.lastDecision,
+      };
+      changed = true;
+    }
+
+    if (
+      state.items[item.id].lastDecision === null &&
+      state.items[item.id].status !== item.status &&
+      (state.items[item.id].status === 'in_review' || item.status === 'in_review' || item.status === 'approved')
+    ) {
+      state.items[item.id] = {
+        ...state.items[item.id],
+        status: item.status,
       };
       changed = true;
     }

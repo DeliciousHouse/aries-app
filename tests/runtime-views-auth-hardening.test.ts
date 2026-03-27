@@ -570,6 +570,79 @@ test('review decisions still resolve after the runtime preview id changes betwee
   });
 });
 
+test('publish review previews stop counting as pending once the workflow checkpoint is approved', async () => {
+  await withMarketingRuntimeEnv(async (dataRoot) => {
+    const jobsRoot = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs');
+    const reviewStateRoot = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-reviews');
+    const jobId = 'review-approved-runtime';
+    const runtimeFile = path.join(jobsRoot, `${jobId}.json`);
+    const reviewStateFile = path.join(reviewStateRoot, `${jobId}.json`);
+    const launchPreviewPath = path.join(dataRoot, 'launch-review-preview.txt');
+    await mkdir(jobsRoot, { recursive: true });
+    await mkdir(reviewStateRoot, { recursive: true });
+    await writeFile(launchPreviewPath, 'Launch review packet', 'utf8');
+
+    const awaitingApproval = makeAwaitingPublishApprovalRuntimeDoc({
+      dataRoot,
+      jobId,
+      tenantId: 'tenant_review',
+      launchPreviewPath,
+      platformSlug: 'meta-ads',
+    });
+
+    await writeFile(runtimeFile, JSON.stringify(awaitingApproval, null, 2));
+
+    const views = await import('../backend/marketing/runtime-views');
+    const reviewsBefore = await views.listMarketingReviewItemsForTenant('tenant_review');
+    assert.equal(reviewsBefore.length > 0, true);
+    const previewReview = reviewsBefore.find((item) => item.currentVersion.id !== 'approval');
+    assert.equal(!!previewReview, true);
+
+    const resolvedRuntime = {
+      ...awaitingApproval,
+      state: 'completed',
+      status: 'completed',
+      stages: {
+        ...awaitingApproval.stages,
+        publish: {
+          ...awaitingApproval.stages.publish,
+          status: 'completed',
+          completed_at: '2026-03-20T00:20:00.000Z',
+        },
+      },
+      approvals: {
+        current: null,
+        history: [
+          {
+            stage: 'publish',
+            status: 'approved',
+            at: '2026-03-20T00:20:00.000Z',
+            approval_id: 'mkta_publish',
+            workflow_step_id: 'approve_stage_4_publish',
+            approved_by: 'Morgan',
+            message: 'Launch approval completed.',
+          },
+        ],
+      },
+      updated_at: '2026-03-20T00:20:00.000Z',
+    };
+
+    await writeFile(runtimeFile, JSON.stringify(resolvedRuntime, null, 2));
+
+    const reviewsAfter = await views.listMarketingReviewItemsForTenant('tenant_review');
+    assert.deepEqual(reviewsAfter, []);
+
+    const campaigns = await views.listMarketingCampaignsForTenant('tenant_review');
+    assert.equal(campaigns.length, 1);
+    assert.equal(campaigns[0].pendingApprovals, 0);
+
+    const savedReviewState = JSON.parse(await readFile(reviewStateFile, 'utf8')) as {
+      items: Record<string, { status: string }>;
+    };
+    assert.equal(savedReviewState.items[previewReview!.id]?.status, 'approved');
+  });
+});
+
 test('publish approvals still surface a workflow review item when the bundle has no platform previews', async () => {
   await withMarketingRuntimeEnv(async (dataRoot) => {
     const jobsRoot = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs');

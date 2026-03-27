@@ -768,6 +768,279 @@ test('/api/marketing/jobs/:jobId surfaces launch review previews when completed 
   });
 });
 
+test('/api/marketing/jobs/:jobId recovers paused-publish review previews from Stage 4 log artifacts when the runtime checkpoint stores only the approval envelope', async () => {
+  await withRuntimeEnv(async (dataRoot) => {
+    const { handleGetMarketingJobStatus } = await import('../app/api/marketing/jobs/[jobId]/handler');
+    const jobId = 'mkt_publish_review_from_logs';
+    const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
+    const runId = 'betterup-com-live';
+    const logsRoot = path.join(process.env.OPENCLAW_LOBSTER_CWD!, 'output', 'logs', runId, 'stage-4-publish-optimize');
+    const publishImagePath = path.join(process.env.CODE_ROOT!, 'lobster', 'output', 'publish-ready', 'brand-example-stage2-plan', 'meta-ads', 'meta-ads.png');
+    await mkdir(path.dirname(runtimeFile), { recursive: true });
+    await mkdir(logsRoot, { recursive: true });
+    await mkdir(path.dirname(publishImagePath), { recursive: true });
+    await writeFile(publishImagePath, 'png-preview', 'utf8');
+    await writeFile(
+      path.join(logsRoot, 'launch_review_preview.json'),
+      JSON.stringify({
+        generated_at: '2026-03-19T00:10:05.000Z',
+        approval_preview: {
+          message: 'Approve creation of the Meta campaigns, ad sets, and ads as PAUSED.',
+        },
+        review_bundle: {
+          campaign_name: 'Sugar & Leather April Launch',
+          approval_message: 'Approve creation of the Meta campaigns, ad sets, and ads as PAUSED.',
+          summary: {
+            core_message: 'Launch the April collection with luxury-first creative.',
+          },
+          platform_previews: [
+            {
+              platform_slug: 'meta-ads',
+              platform_name: 'Meta Ads',
+              channel_type: 'paid-social',
+              summary: 'Carousel preview ready for paused publish.',
+              headline: 'April collection launch',
+              caption_text: 'Meet the April collection.',
+              cta: 'Shop the drop',
+              media_paths: [publishImagePath],
+              asset_paths: {},
+            },
+          ],
+        },
+      }, null, 2)
+    );
+    await writeFile(
+      path.join(logsRoot, 'performance_marketer_preflight.json'),
+      JSON.stringify({
+        run_id: runId,
+        publish_plan: {
+          static_contract_count: 6,
+          video_contract_count: 2,
+        },
+      }, null, 2)
+    );
+    await writeFile(
+      runtimeFile,
+      JSON.stringify({
+        schema_name: 'marketing_job_state_schema',
+        schema_version: '1.0.0',
+        job_id: jobId,
+        job_type: 'brand_campaign',
+        tenant_id: 'tenant_real',
+        state: 'approval_required',
+        status: 'awaiting_approval',
+        current_stage: 'publish',
+        stage_order: ['research', 'strategy', 'production', 'publish'],
+        stages: {
+          research: { stage: 'research', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-r', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          strategy: { stage: 'strategy', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-s', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          production: { stage: 'production', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-p', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          publish: {
+            stage: 'publish',
+            status: 'awaiting_approval',
+            started_at: '2026-03-19T00:10:05.000Z',
+            completed_at: null,
+            failed_at: null,
+            run_id: null,
+            summary: { summary: 'Stage 4 pre-flight complete.' },
+            primary_output: {},
+            outputs: {
+              envelope: {
+                protocolVersion: 1,
+                ok: true,
+                status: 'needs_approval',
+                output: [],
+                requiresApproval: {
+                  prompt: 'Approve creation of the Meta campaigns, ad sets, and ads as PAUSED.',
+                  resumeToken: 'resume-publish-paused',
+                },
+              },
+              approval_id: 'mkta_publish_paused',
+              workflow_step_id: 'approve_stage_4_publish',
+              resume_token: 'resume-publish-paused',
+            },
+            artifacts: [],
+            errors: [],
+          },
+        },
+        approvals: {
+          current: {
+            stage: 'publish',
+            status: 'awaiting_approval',
+            approval_id: 'mkta_publish_paused',
+            workflow_step_id: 'approve_stage_4_publish',
+            title: 'Publish to Meta (paused) approval required',
+            message: 'Stage 4 pre-flight complete. Approve creation of the Meta campaigns, ad sets, and ads as PAUSED?',
+            requested_at: '2026-03-19T00:10:05.000Z',
+            resume_token: 'resume-publish-paused',
+          },
+          history: [],
+        },
+        publish_config: { platforms: ['meta-ads'], live_publish_platforms: ['meta-ads'], video_render_platforms: [] },
+        brand_kit: {
+          path: path.join(dataRoot, 'generated', 'validated', 'tenant_real', 'brand-kit.json'),
+          source_url: 'https://sugarandleather.com',
+          canonical_url: 'https://sugarandleather.com',
+          brand_name: 'Sugar & Leather',
+          logo_urls: [],
+          colors: { primary: '#9c6b3e', secondary: '#f3e9dd', accent: '#3d2410', palette: ['#9c6b3e', '#f3e9dd', '#3d2410'] },
+          font_families: ['Manrope'],
+          external_links: [],
+          extracted_at: '2026-03-18T00:00:00.000Z',
+        },
+        inputs: { request: { competitorUrl: 'https://betterup.com' }, brand_url: 'https://sugarandleather.com' },
+        errors: [],
+        last_error: null,
+        history: [],
+        created_at: '2026-03-19T00:00:00.000Z',
+        updated_at: '2026-03-19T00:10:05.000Z',
+      }, null, 2)
+    );
+
+    const response = await handleGetMarketingJobStatus(
+      jobId,
+      async () => ({
+        userId: 'user_123',
+        tenantId: 'tenant_real',
+        tenantSlug: 'acme',
+        role: 'tenant_admin',
+      })
+    );
+    const body = (await response.json()) as Record<string, any>;
+
+    assert.equal(response.status, 200);
+    assert.equal(body.marketing_job_status, 'awaiting_approval');
+    assert.equal(body.approval.workflowStepId, 'approve_stage_4_publish');
+    assert.equal(body.assetPreviewCards.length > 0, true);
+    assert.equal(body.assetPreviewCards.some((card: { platformSlug: string }) => card.platformSlug === 'meta-ads'), true);
+    assert.equal(body.reviewBundle.platformPreviews.length > 0, true);
+    assert.equal(body.reviewBundle.platformPreviews.some((preview: { platformSlug: string }) => preview.platformSlug === 'meta-ads'), true);
+  });
+});
+
+test('/api/marketing/jobs/:jobId does not leak an older Stage 4 launch review into a fresh strategy approval', async () => {
+  await withRuntimeEnv(async (dataRoot) => {
+    const { handleGetMarketingJobStatus } = await import('../app/api/marketing/jobs/[jobId]/handler');
+    const jobId = 'mkt_strategy_no_publish_leak';
+    const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
+    const runId = 'betterup-com-oldrun';
+    const logsRoot = path.join(process.env.OPENCLAW_LOBSTER_CWD!, 'output', 'logs', runId, 'stage-4-publish-optimize');
+    const stalePublishImagePath = path.join(process.env.CODE_ROOT!, 'lobster', 'output', 'publish-ready', '6-stage2-plan', 'meta-ads', 'meta.png');
+
+    await mkdir(path.dirname(runtimeFile), { recursive: true });
+    await mkdir(logsRoot, { recursive: true });
+    await mkdir(path.dirname(stalePublishImagePath), { recursive: true });
+    await writeFile(stalePublishImagePath, 'png-preview', 'utf8');
+    await writeFile(
+      path.join(logsRoot, 'launch_review_preview.json'),
+      JSON.stringify({
+        generated_at: '2026-03-27T09:11:25.000Z',
+        review_bundle: {
+          campaign_name: '6-stage2-plan',
+          summary: {
+            core_message: 'This stale launch review must not attach to a new strategy checkpoint.',
+          },
+          platform_previews: [
+            {
+              platform_slug: 'meta-ads',
+              platform_name: 'Meta Ads',
+              channel_type: 'paid-social',
+              summary: 'Old launch package',
+              media_paths: [stalePublishImagePath],
+              asset_paths: {},
+            },
+          ],
+        },
+      }, null, 2)
+    );
+
+    await writeFile(
+      runtimeFile,
+      JSON.stringify({
+        schema_name: 'marketing_job_state_schema',
+        schema_version: '1.0.0',
+        job_id: jobId,
+        job_type: 'brand_campaign',
+        tenant_id: 'tenant_real',
+        state: 'approval_required',
+        status: 'awaiting_approval',
+        current_stage: 'strategy',
+        stage_order: ['research', 'strategy', 'production', 'publish'],
+        stages: {
+          research: { stage: 'research', status: 'completed', started_at: '2026-03-27T09:25:35.136Z', completed_at: '2026-03-27T09:25:43.384Z', failed_at: null, run_id: null, summary: null, primary_output: {}, outputs: {}, artifacts: [], errors: [] },
+          strategy: { stage: 'strategy', status: 'awaiting_approval', started_at: '2026-03-27T09:25:43.387Z', completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: {}, outputs: { approval_id: 'mkta_strategy', workflow_step_id: 'approve_stage_2' }, artifacts: [], errors: [] },
+          production: { stage: 'production', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          publish: { stage: 'publish', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+        },
+        approvals: {
+          current: {
+            stage: 'strategy',
+            status: 'awaiting_approval',
+            approval_id: 'mkta_strategy',
+            workflow_name: 'marketing-pipeline',
+            workflow_step_id: 'approve_stage_2',
+            title: 'Strategy approval required',
+            message: 'Stage 1 complete. Continue to Stage 2 and run head-of-marketing for the provided brand_url?',
+            requested_at: '2026-03-27T09:25:43.387Z',
+            resume_token: 'resume-strategy',
+            action_label: 'Review strategy',
+            publish_config: null,
+          },
+          history: [],
+        },
+        publish_config: { platforms: ['meta-ads'], live_publish_platforms: ['meta-ads'], video_render_platforms: [] },
+        brand_kit: {
+          path: path.join(dataRoot, 'generated', 'validated', 'tenant_real', 'brand-kit.json'),
+          source_url: 'https://sugarandleather.com',
+          canonical_url: 'https://sugarandleather.com',
+          brand_name: 'Sugar & Leather | Elite Coaching Network',
+          logo_urls: [],
+          colors: { primary: '#000000', secondary: '#ffffff', accent: '#fb2c36', palette: ['#000000', '#ffffff', '#fb2c36'] },
+          font_families: ['Inter'],
+          external_links: [],
+          extracted_at: '2026-03-27T08:35:42.657Z',
+        },
+        inputs: {
+          request: {
+            brandUrl: 'https://sugarandleather.com',
+            competitorUrl: 'https://betterup.com',
+          },
+          brand_url: 'https://sugarandleather.com',
+          competitor_url: 'https://betterup.com',
+          competitor_facebook_url: null,
+        },
+        errors: [],
+        last_error: null,
+        history: [],
+        created_at: '2026-03-27T09:25:35.134Z',
+        updated_at: '2026-03-27T09:25:43.387Z',
+      }, null, 2)
+    );
+
+    const response = await handleGetMarketingJobStatus(
+      jobId,
+      async () => ({
+        userId: 'user_123',
+        tenantId: 'tenant_real',
+        tenantSlug: 'acme',
+        role: 'tenant_admin',
+      })
+    );
+    const body = (await response.json()) as Record<string, any>;
+
+    assert.equal(response.status, 200);
+    assert.equal(body.marketing_stage, 'strategy');
+    assert.equal(body.summary.headline, 'Strategy stage is ready for approval');
+    assert.equal(body.reviewBundle, null);
+    assert.equal(body.assetPreviewCards.length, 0);
+    assert.equal(body.dashboard.campaign.name, 'Sugar & Leather | Elite Coaching Network');
+    assert.equal(body.dashboard.assets.length, 0);
+    assert.equal(body.dashboard.posts.length, 0);
+    assert.equal(body.dashboard.publishItems.length, 0);
+    assert.equal(body.dashboard.calendarEvents.length, 0);
+  });
+});
+
 test('/api/marketing/jobs/:jobId/assets/:assetId serves a tenant-scoped preview asset without exposing file paths', async () => {
   await withRuntimeEnv(async (dataRoot) => {
     const { handleGetMarketingJobAsset } = await import('../app/api/marketing/jobs/[jobId]/assets/[assetId]/handler');
@@ -867,6 +1140,101 @@ test('/api/marketing/jobs/:jobId/assets/:assetId serves a tenant-scoped preview 
     assert.equal(response.headers.get('content-type'), 'image/png');
     assert.equal(body, 'png-preview');
     assert.equal(tenantLoaderCalls, 1);
+  });
+});
+
+test('/api/marketing/jobs/:jobId/assets/:assetId sniffs image bytes so preview content types stay truthful when file extensions drift', async () => {
+  await withRuntimeEnv(async (dataRoot) => {
+    const { handleGetMarketingJobAsset } = await import('../app/api/marketing/jobs/[jobId]/assets/[assetId]/handler');
+    const jobId = 'mkt_asset_sniffed_job';
+    const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
+    const mediaAssetRelativePath = path.join('generated', 'draft', 'marketing-assets', 'meta-preview.png');
+    const mediaAssetPath = path.join(dataRoot, mediaAssetRelativePath);
+    await mkdir(path.dirname(runtimeFile), { recursive: true });
+    await mkdir(path.dirname(mediaAssetPath), { recursive: true });
+    await writeFile(mediaAssetPath, Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00]));
+    await writeFile(
+      runtimeFile,
+      JSON.stringify({
+        schema_name: 'marketing_job_state_schema',
+        schema_version: '1.0.0',
+        job_id: jobId,
+        job_type: 'brand_campaign',
+        tenant_id: 'tenant_real',
+        state: 'approval_required',
+        status: 'awaiting_approval',
+        current_stage: 'publish',
+        stage_order: ['research', 'strategy', 'production', 'publish'],
+        stages: {
+          research: { stage: 'research', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-r', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          strategy: { stage: 'strategy', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-s', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          production: { stage: 'production', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-p', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          publish: {
+            stage: 'publish',
+            status: 'awaiting_approval',
+            started_at: null,
+            completed_at: null,
+            failed_at: null,
+            run_id: 'run-publish',
+            summary: null,
+            primary_output: null,
+            outputs: {
+              review: {
+                review_bundle: {
+                  campaign_name: 'Sugar & Leather',
+                  summary: {},
+                  platform_previews: [
+                    {
+                      platform_slug: 'meta-ads',
+                      platform_name: 'Meta Ads',
+                      channel_type: 'paid-social',
+                      summary: 'Preview ready',
+                      media_paths: [mediaAssetRelativePath],
+                      asset_paths: {},
+                    },
+                  ],
+                },
+              },
+            },
+            artifacts: [],
+            errors: [],
+          },
+        },
+        approvals: { current: null, history: [] },
+        publish_config: { platforms: ['meta-ads'], live_publish_platforms: [], video_render_platforms: [] },
+        brand_kit: {
+          path: path.join(dataRoot, 'generated', 'validated', 'tenant_real', 'brand-kit.json'),
+          source_url: 'https://sugarandleather.com',
+          canonical_url: 'https://sugarandleather.com',
+          brand_name: 'Sugar & Leather',
+          logo_urls: [],
+          colors: { primary: '#9c6b3e', secondary: '#f3e9dd', accent: '#3d2410', palette: ['#9c6b3e', '#f3e9dd', '#3d2410'] },
+          font_families: ['Manrope'],
+          external_links: [],
+          extracted_at: '2026-03-18T00:00:00.000Z',
+        },
+        inputs: { request: {}, brand_url: 'https://sugarandleather.com' },
+        errors: [],
+        last_error: null,
+        history: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, null, 2)
+    );
+
+    const response = await handleGetMarketingJobAsset(
+      jobId,
+      'platform-preview-meta-ads-media-1',
+      async () => ({
+        userId: 'user_123',
+        tenantId: 'tenant_real',
+        tenantSlug: 'acme',
+        role: 'tenant_admin',
+      })
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'image/jpeg');
   });
 });
 
