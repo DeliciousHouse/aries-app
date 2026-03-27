@@ -106,6 +106,7 @@ export interface MarketingReviewPreviewCard {
   platformSlug: string;
   platformName: string;
   channelType: string;
+  displayTitle?: string;
   summary: string;
   headline?: string;
   hook?: string;

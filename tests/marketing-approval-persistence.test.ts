@@ -242,6 +242,116 @@ test('duplicate approval clicks return already_resolved after the checkpoint is 
   });
 });
 
+test('approving the paused-publish checkpoint clears the active approval while the long-running publish is still in progress', async () => {
+  await withRuntimeEnv(async (dataRoot) => {
+    let resolvePausedPublish: ((value: Record<string, unknown>) => void) | null = null;
+    setOpenClawTestInvoker((payload) => {
+      const args = (payload.args as Record<string, unknown> | undefined) ?? {};
+      const action = String(args.action || '');
+      const token = String(args.token || '');
+
+      if (action === 'resume' && token === 'resume_publish_paused') {
+        return new Promise((resolve) => {
+          resolvePausedPublish = resolve as (value: Record<string, unknown>) => void;
+        });
+      }
+
+      const response = fourCheckpointResponse(action, token);
+      if (response) {
+        return response;
+      }
+      throw new Error(`Unexpected OpenClaw lobster invocation: action=${action} token=${token}`);
+    });
+
+    const { startMarketingJob } = await import('../backend/marketing/jobs-start');
+    const { approveMarketingJob } = await import('../backend/marketing/jobs-approve');
+    const { listMarketingApprovalRecordsForJob } = await import('../backend/marketing/approval-store');
+
+    const started = await startMarketingJob({
+      tenantId: 'tenant-publish-processing',
+      jobType: 'brand_campaign',
+      payload: {
+        brandUrl: 'https://brand.example',
+        competitorUrl: 'https://facebook.com/competitor',
+      },
+    });
+
+    const runtimeFile = path.join(dataRoot, 'generated', 'draft', 'marketing-jobs', `${started.jobId}.json`);
+
+    let approvals = listMarketingApprovalRecordsForJob(started.jobId);
+    await approveMarketingJob({
+      jobId: started.jobId,
+      tenantId: 'tenant-publish-processing',
+      approvedBy: 'operator',
+      approvedStages: ['strategy'],
+      approvalId: approvals.find((record) => record.workflow_step_id === 'approve_stage_2')?.approval_id,
+    });
+
+    approvals = listMarketingApprovalRecordsForJob(started.jobId);
+    await approveMarketingJob({
+      jobId: started.jobId,
+      tenantId: 'tenant-publish-processing',
+      approvedBy: 'operator',
+      approvedStages: ['production'],
+      approvalId: approvals.find((record) => record.workflow_step_id === 'approve_stage_3')?.approval_id,
+    });
+
+    approvals = listMarketingApprovalRecordsForJob(started.jobId);
+    await approveMarketingJob({
+      jobId: started.jobId,
+      tenantId: 'tenant-publish-processing',
+      approvedBy: 'operator',
+      approvedStages: ['publish'],
+      approvalId: approvals.find((record) => record.workflow_step_id === 'approve_stage_4')?.approval_id,
+    });
+
+    approvals = listMarketingApprovalRecordsForJob(started.jobId);
+    const pausedPublishApprovalId = approvals.find((record) => record.workflow_step_id === 'approve_stage_4_publish')?.approval_id;
+    assert.equal(!!pausedPublishApprovalId, true);
+
+    const finalApprovalPromise = approveMarketingJob({
+      jobId: started.jobId,
+      tenantId: 'tenant-publish-processing',
+      approvedBy: 'operator',
+      approvedStages: ['publish'],
+      approvalId: pausedPublishApprovalId,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const inProgressDoc = JSON.parse(await readFile(runtimeFile, 'utf8')) as any;
+    assert.equal(inProgressDoc.state, 'running');
+    assert.equal(inProgressDoc.status, 'running');
+    assert.equal(inProgressDoc.stages.publish.status, 'in_progress');
+    assert.equal(inProgressDoc.approvals.current, null);
+
+    const finishPausedPublish = resolvePausedPublish as ((value: Record<string, unknown>) => void) | null;
+    if (!finishPausedPublish) {
+      throw new Error('Expected paused publish resolver to be captured');
+    }
+    finishPausedPublish({
+      ok: true,
+      status: 'ok',
+      output: [{
+        run_id: 'run-publish-paused',
+        summary: {
+          message: 'Selected platform packages were created as paused ads.',
+        },
+      }],
+      requiresApproval: null,
+    });
+
+    const finalResult = await finalApprovalPromise;
+    const completedDoc = JSON.parse(await readFile(runtimeFile, 'utf8')) as any;
+
+    assert.equal(finalResult.status, 'resumed');
+    assert.equal(finalResult.completed, true);
+    assert.equal(completedDoc.state, 'completed');
+    assert.equal(completedDoc.status, 'completed');
+    clearOpenClawTestInvoker();
+  });
+});
+
 test('marketing pipeline persists every approval checkpoint through the paused-publish flow', async () => {
   await withRuntimeEnv(async () => {
     installFourCheckpointInvoker();

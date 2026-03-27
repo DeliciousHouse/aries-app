@@ -184,7 +184,7 @@ export default function DashboardConsole(): JSX.Element {
                         )}
                         <div className="p-4">
                           <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-2">{preview.platformName}</p>
-                          <h4 className="font-semibold mb-1">{preview.headline || preview.summary}</h4>
+                          <h4 className="font-semibold mb-1">{preview.displayTitle || preview.summary}</h4>
                           <p className="text-sm text-white/55">{preview.summary}</p>
                         </div>
                       </Link>

@@ -25,6 +25,21 @@ import type {
   AriesScheduleItem,
 } from '@/lib/api/aries-v1';
 
+function formatUtcTimestampLabel(value: string): string {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    return value;
+  }
+
+  return `${new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'UTC',
+  }).format(new Date(timestamp))} UTC`;
+}
+
 export function ShellPanel(props: {
   title?: string;
   eyebrow?: string;
@@ -239,7 +254,7 @@ export function ApprovalCard(props: { reviewItems: AriesReviewItem[] }) {
             <div className="space-y-1">
               <p className="text-sm font-medium text-white">{item.title}</p>
               <p className="text-sm text-white/55">
-                {item.channel} · {item.placement} · {item.scheduledFor}
+                {item.channel} · {item.placement} · {formatUtcTimestampLabel(item.scheduledFor)}
               </p>
             </div>
             <StatusChip status={item.status} />
@@ -257,7 +272,7 @@ export function ScheduleCard(props: { item: AriesScheduleItem | null }) {
         <div className="space-y-4">
           <div className="flex items-center gap-3 text-sm text-white/70">
             <CalendarClock className="h-4 w-4 text-white/50" />
-            <span>{props.item.scheduledFor}</span>
+            <span>{formatUtcTimestampLabel(props.item.scheduledFor)}</span>
           </div>
           <div className="flex items-center justify-between gap-4">
             <p className="text-sm text-white/60">{props.item.channel}</p>
@@ -432,7 +447,7 @@ export function ScheduleComposer(props: { items: AriesScheduleItem[] }) {
           <div className="space-y-1">
             <p className="text-sm font-medium text-white">{item.title}</p>
             <p className="text-sm text-white/55">
-              {item.channel} · {item.scheduledFor}
+              {item.channel} · {formatUtcTimestampLabel(item.scheduledFor)}
             </p>
           </div>
           <StatusChip status={item.status} />

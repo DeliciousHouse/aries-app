@@ -349,6 +349,86 @@ test('runtime campaign views stay populated when proposal artifacts exist even w
   });
 });
 
+test('tenant runtime views keep only the latest rerun for the same campaign identity', async () => {
+  await withMarketingRuntimeEnv(async () => {
+    const jobsRoot = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs');
+    await mkdir(jobsRoot, { recursive: true });
+
+    for (const runId of ['plan-run-old', 'plan-run-new']) {
+      await mkdir(path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, runId), { recursive: true });
+      await writeFile(
+        path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, runId, 'campaign_planner.json'),
+        JSON.stringify({
+          brand_slug: 'brand-example',
+          campaign_plan: {
+            campaign_name: 'brand-example-stage2-plan',
+            objective: 'Drive demo requests from a proposal-backed launch.',
+            core_message: 'Proof-first messaging keeps the dashboard truthful.',
+            channel_plans: [
+              { channel: 'meta', message: 'Meta launch concept', creative_bias: 'Outcome proof' },
+            ],
+          },
+        }, null, 2),
+      );
+    }
+
+    const runtimeDoc = (jobId: string, runId: string, updatedAt: string) => ({
+      schema_name: 'marketing_job_state_schema',
+      schema_version: '1.0.0',
+      job_id: jobId,
+      job_type: 'brand_campaign',
+      tenant_id: 'tenant_runtime_dedupe',
+      state: 'running',
+      status: 'running',
+      current_stage: 'strategy',
+      stage_order: ['research', 'strategy', 'production', 'publish'],
+      stages: {
+        research: { stage: 'research', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-r', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+        strategy: { stage: 'strategy', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: runId, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+        production: { stage: 'production', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+        publish: { stage: 'publish', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+      },
+      approvals: { current: null, history: [] },
+      publish_config: { platforms: ['meta-ads'], live_publish_platforms: [], video_render_platforms: [] },
+      brand_kit: {
+        path: path.join(process.env.DATA_ROOT!, 'generated', 'validated', 'tenant_runtime_dedupe', 'brand-kit.json'),
+        source_url: 'https://brand.example',
+        canonical_url: 'https://brand.example',
+        brand_name: 'Brand Example',
+        logo_urls: [],
+        colors: { primary: '#123456', secondary: '#abcdef', accent: '#fedcba', palette: ['#123456', '#abcdef', '#fedcba'] },
+        font_families: ['Manrope'],
+        external_links: [],
+        extracted_at: '2026-03-20T00:00:00.000Z',
+      },
+      inputs: { request: {}, brand_url: 'https://brand.example' },
+      errors: [],
+      last_error: null,
+      history: [],
+      created_at: '2026-03-20T00:00:00.000Z',
+      updated_at: updatedAt,
+    });
+
+    await writeFile(
+      path.join(jobsRoot, 'proposal-backed-runtime-view-old.json'),
+      JSON.stringify(runtimeDoc('proposal-backed-runtime-view-old', 'plan-run-old', '2026-03-20T00:10:00.000Z'), null, 2),
+    );
+    await writeFile(
+      path.join(jobsRoot, 'proposal-backed-runtime-view-new.json'),
+      JSON.stringify(runtimeDoc('proposal-backed-runtime-view-new', 'plan-run-new', '2026-03-21T00:10:00.000Z'), null, 2),
+    );
+
+    const views = await import('../backend/marketing/runtime-views');
+    const campaigns = await views.listMarketingCampaignsForTenant('tenant_runtime_dedupe');
+    const posts = await views.listMarketingPostsForTenant('tenant_runtime_dedupe');
+
+    assert.equal(campaigns.length, 1);
+    assert.equal(campaigns[0].jobId, 'proposal-backed-runtime-view-new');
+    assert.equal(posts.campaigns.length, 1);
+    assert.equal(posts.posts.length, 1);
+  });
+});
+
 test('runtime views ignore malformed legacy marketing runtime documents without crashing', async () => {
   await withMarketingRuntimeEnv(async () => {
     const jobsRoot = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs');

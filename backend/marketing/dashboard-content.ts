@@ -437,11 +437,26 @@ function formatDateRange(window: MarketingCampaignWindow | null): string {
   return 'Dates not scheduled yet'
 }
 
+function formatUtcTimestampLabel(value: string): string {
+  const timestamp = Date.parse(value)
+  if (!Number.isFinite(timestamp)) {
+    return value
+  }
+
+  return `${new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'UTC',
+  }).format(new Date(timestamp))} UTC`
+}
+
 function nextScheduledText(event: MarketingDashboardCalendarEventInternal | null): string {
   if (!event) {
     return 'Nothing scheduled yet'
   }
-  return `${event.startsAt} · ${event.statusLabel}${event.platformLabel ? ` · ${event.platformLabel}` : ''}`
+  return `${formatUtcTimestampLabel(event.startsAt)} · ${event.statusLabel}${event.platformLabel ? ` · ${event.platformLabel}` : ''}`
 }
 
 function compatibilityStatusFor(itemStatus: MarketingDashboardItemStatus): MarketingDashboardCampaignCompatibilityStatus {
@@ -833,17 +848,69 @@ function parseProposalPlan(runtimeDoc: MarketingJobRuntimeDocument): ProposalPla
 }
 
 function extractCampaignName(runtimeDoc: MarketingJobRuntimeDocument, status: DashboardStatusSnapshot, proposal: ProposalPlan): string {
-  return (
-    status.reviewCampaignName ||
-    proposal.campaignName ||
-    status.tenantName ||
-    runtimeDoc.brand_kit?.brand_name ||
-    `Campaign ${runtimeDoc.job_id}`
-  )
+  const candidates = [
+    status.reviewCampaignName,
+    proposal.campaignName,
+    status.tenantName,
+    runtimeDoc.brand_kit?.brand_name,
+  ]
+    .map((value) => stringValue(value))
+    .filter(Boolean)
+
+  const preferred = candidates.find((value) => !/(^|-)stage\d+(-plan)?$/i.test(slugify(value, '')))
+  return preferred || candidates[0] || `Campaign ${runtimeDoc.job_id}`
+}
+
+function normalizeMarketingText(value: string): string {
+  return value
+    .replace(/(^|\n)\s*[*-]\s+/g, '$1')
+    .replace(/\r/g, ' ')
+    .replace(/\*\*/g, '')
+    .replace(/[`>#]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function stripMarketingPrefix(value: string): string {
+  let normalized = value.trim()
+
+  while (normalized) {
+    const next = normalized.replace(
+      /^(?:brand promise|market positioning|core offer|strategic proof|proof points?|audience|offer|hook|opening line|headline|summary|problem|proof|cta)\s*:\s*/i,
+      '',
+    ).trim()
+
+    if (next === normalized) {
+      break
+    }
+
+    normalized = next
+  }
+
+  return normalized
 }
 
 function extractObjective(status: DashboardStatusSnapshot, proposal: ProposalPlan): string {
-  return proposal.objective || status.summary.headline || 'Campaign in progress'
+  const channelTexts = proposal.channelPlans.flatMap((plan) => {
+    const entry = recordValue(plan)
+    return [
+      stringValue(entry?.creative_bias),
+      stringValue(entry?.goal),
+      stringValue(entry?.message),
+    ]
+  })
+
+  return (
+    conciseMarketingText(
+      120,
+      proposal.objective,
+      proposal.offer,
+      ...channelTexts,
+      proposal.audience,
+      status.summary.headline,
+    ) ||
+    'Campaign in progress'
+  )
 }
 
 function extractFunnelStage(...values: unknown[]): string | null {
@@ -854,6 +921,121 @@ function extractFunnelStage(...values: unknown[]): string | null {
     }
   }
   return null
+}
+
+function lowSignalProposalText(value: string): boolean {
+  const normalized = normalizeMarketingText(value).toLowerCase()
+  return (
+    !normalized ||
+    normalized.startsWith('based on the brand identity') ||
+    normalized.startsWith('based on the provided brand') ||
+    normalized.startsWith('here is the brand strategy analysis') ||
+    normalized.includes('here is a concise strategy analysis') ||
+    normalized.includes('here is the concise brand strategy') ||
+    normalized === 'campaign in progress' ||
+    normalized === 'campaign status is available for review.' ||
+    normalized === 'campaign status is available for review' ||
+    normalized === 'build a cross-channel strategy handoff from the canonical brand profile.' ||
+    normalized === 'build a cross-channel strategy handoff from the canonical brand profile'
+  )
+}
+
+function conciseMarketingText(maxLength: number, ...values: unknown[]): string | null {
+  for (const value of values) {
+    const text = stringValue(value)
+    if (!text) {
+      continue
+    }
+
+    const normalized = stripMarketingPrefix(normalizeMarketingText(text))
+    if (!normalized || lowSignalProposalText(normalized)) {
+      continue
+    }
+
+    if (normalized.length <= maxLength) {
+      return normalized
+    }
+
+    return `${normalized.slice(0, maxLength - 1).replace(/\s+\S*$/, '')}…`
+  }
+
+  return null
+}
+
+function proposalConceptTitle(channelPlan: Record<string, unknown>, platform: string): string {
+  const explicitTitle = stringValue(channelPlan.title)
+  if (explicitTitle && !lowSignalProposalText(explicitTitle)) {
+    return explicitTitle
+  }
+
+  const message = stringValue(channelPlan.message)
+  if (message && !lowSignalProposalText(message)) {
+    return message
+  }
+
+  return `${platformLabel(platform)} concept`
+}
+
+function proposalConceptSummary(channelPlan: Record<string, unknown>): string {
+  const creativeBias = stringValue(channelPlan.creative_bias)
+  if (creativeBias) {
+    return creativeBias
+  }
+
+  const goal = stringValue(channelPlan.goal)
+  if (goal) {
+    return goal
+  }
+
+  const message = stringValue(channelPlan.message)
+  if (message && !lowSignalProposalText(message)) {
+    return message
+  }
+
+  return 'Creative concept approved at the proposal stage.'
+}
+
+function lowSignalCreativeText(value: string): boolean {
+  const normalized = value.trim().toLowerCase()
+  return lowSignalProposalText(value) || normalized === 'stale production creative'
+}
+
+function creativeContractTitle(payload: Record<string, unknown>, platform: string): string {
+  const creative = recordValue(payload.creative)
+  const headline = stringValue(creative?.headline || creative?.hook)
+  if (headline && !lowSignalCreativeText(headline)) {
+    return headline
+  }
+
+  return `${platformLabel(platform)} creative`
+}
+
+function creativeContractSummary(payload: Record<string, unknown>): string {
+  const landingPage = recordValue(payload.landing_page)
+  const heroSubheadline = stringValue(landingPage?.hero_subheadline)
+  if (heroSubheadline && !lowSignalCreativeText(heroSubheadline)) {
+    return heroSubheadline
+  }
+
+  const firstBodyLine = asStringArray(recordValue(payload.creative)?.body_lines).find((line) => !lowSignalCreativeText(line))
+  if (firstBodyLine) {
+    return firstBodyLine
+  }
+
+  return 'Generated creative output ready for publishing workflows.'
+}
+
+function publishReviewDisplayTitle(preview: Record<string, unknown>, platform: string): string {
+  const headline = stringValue(preview.headline || preview.hook)
+  if (headline && !lowSignalProposalText(headline)) {
+    return headline
+  }
+
+  return platformLabel(platform)
+}
+
+function publishReviewSummary(preview: Record<string, unknown>, fallback: string): string {
+  return conciseMarketingText(180, preview.caption_text, preview.summary) || fallback
 }
 
 function extractCampaignId(runtimeDoc: MarketingJobRuntimeDocument, proposal: ProposalPlan): string {
@@ -907,11 +1089,13 @@ function extractTitleFromCopyPayload(filePath: string | null | undefined): strin
 function extractSummaryFromCopyPayload(filePath: string | null | undefined): string {
   const payload = readJsonIfExists(filePath)
   if (payload) {
-    const bodyLines = asStringArray(payload.body_lines)
-    if (bodyLines.length > 0) {
-      return bodyLines.slice(0, 2).join(' ')
+    const bodyLine = asStringArray(payload.body_lines)
+      .map((line) => conciseMarketingText(180, line))
+      .find((line): line is string => !!line)
+    if (bodyLine) {
+      return bodyLine
     }
-    return stringValue(payload.summary || payload.caption || payload.description)
+    return conciseMarketingText(180, payload.summary, payload.caption, payload.description) || ''
   }
 
   const text = readTextIfExists(filePath)
@@ -919,12 +1103,15 @@ function extractSummaryFromCopyPayload(filePath: string | null | undefined): str
     return ''
   }
 
-  return text
+  const lines = text
     .split('\n')
     .map((line) => line.replace(/^#+\s*/, '').trim())
     .filter(Boolean)
     .slice(1, 3)
-    .join(' ')
+    .map((line) => conciseMarketingText(180, line))
+    .filter((line): line is string => !!line)
+
+  return lines[0] || ''
 }
 
 function extractDestinationUrl(runtimeDoc: MarketingJobRuntimeDocument, contractPayload: Record<string, unknown> | null): string | null {
@@ -1143,7 +1330,26 @@ function scheduledTimestamp(value: Record<string, unknown> | null): string | nul
 }
 
 function summaryFromStatus(context: CampaignBuildContext): string {
-  return context.status.summary.subheadline || context.proposal.coreMessage || 'Campaign status is available for review.'
+  const channelTexts = context.proposal.channelPlans.flatMap((plan) => {
+    const entry = recordValue(plan)
+    return [
+      stringValue(entry?.creative_bias),
+      stringValue(entry?.goal),
+      stringValue(entry?.message),
+    ]
+  })
+
+  return (
+    conciseMarketingText(
+      180,
+      context.status.summary.subheadline,
+      context.proposal.offer,
+      context.proposal.audience,
+      context.proposal.coreMessage,
+      ...channelTexts,
+    ) ||
+    'Campaign status is available for review.'
+  )
 }
 
 function buildCampaignWindowSnapshot(runtimeDoc: MarketingJobRuntimeDocument): MarketingCampaignWindow | null {
@@ -1358,6 +1564,20 @@ function dedupePostKey(input: {
   return `${input.campaignId}::${input.platform}::${stableHash([input.title, input.destinationUrl || '', input.platform])}`
 }
 
+function campaignIdentityKey(
+  campaign: Pick<MarketingDashboardCampaignInternal, 'externalCampaignId' | 'name' | 'objective' | 'funnelStage'>,
+): string {
+  if (campaign.externalCampaignId) {
+    return `external::${campaign.externalCampaignId}`
+  }
+
+  return [
+    slugify(campaign.name, 'campaign'),
+    slugify(campaign.objective, 'objective'),
+    slugify(campaign.funnelStage || 'funnel', 'funnel'),
+  ].join('::')
+}
+
 function buildCampaignContext(jobId: string, runtimeDoc: MarketingJobRuntimeDocument, options: MarketingDashboardBuildOptions): CampaignBuildContext {
   const proposal = parseProposalPlan(runtimeDoc)
   const status = buildStatusSnapshot(runtimeDoc, proposal)
@@ -1561,19 +1781,13 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
     const status = proposalStatus(context.runtimeDoc)
     for (const [index, channelPlan] of context.proposal.channelPlans.entries()) {
       const platform = normalizePlatformSlug(stringValue(channelPlan.channel, 'campaign'))
-      const title =
-        stringValue(channelPlan.message) ||
-        stringValue(channelPlan.goal) ||
-        `${platformLabel(platform)} creative concept`
+      const title = proposalConceptTitle(channelPlan, platform)
       addPostCandidate({
         campaignId,
         jobId: campaignId,
         type: 'proposal_concept',
         title,
-        summary:
-          stringValue(channelPlan.creative_bias) ||
-          stringValue(channelPlan.goal) ||
-          'Creative concept approved at the proposal stage.',
+        summary: proposalConceptSummary(channelPlan),
         platform,
         platformLabel: platformLabel(platform),
         campaignName,
@@ -1628,10 +1842,12 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
   const videoPaths = canUseProductionArtifacts
     ? asStringArray(recordValue(contractHandoffs.video)?.platform_contract_paths)
     : []
-  const contracts = [
-    ...loadContracts(staticPaths, staticContractRoot),
-    ...loadContracts(videoPaths, videoContractRoot),
-  ]
+  const contracts = canUseProductionArtifacts
+    ? [
+        ...loadContracts(staticPaths, staticContractRoot),
+        ...loadContracts(videoPaths, videoContractRoot),
+      ]
+    : []
 
   const creativeAssetStatus = creativeStatus(context.runtimeDoc)
 
@@ -1770,19 +1986,14 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
     const payload = contract.payload
     const platform = normalizePlatformSlug(stringValue(payload.platform_slug || payload.platform))
     const conceptId = stringValue(payload.concept_id) || null
-    const title =
-      stringValue(recordValue(payload.creative)?.headline || recordValue(payload.creative)?.hook) ||
-      `${platformLabel(platform)} creative`
+    const title = creativeContractTitle(payload, platform)
     const destinationUrl = extractDestinationUrl(context.runtimeDoc, payload)
     addPostCandidate({
       campaignId,
       jobId: campaignId,
       type: platform === 'meta-ads' ? 'meta_ad' : 'creative_output',
       title,
-      summary:
-        stringValue(recordValue(payload.landing_page)?.hero_subheadline) ||
-        asStringArray(recordValue(payload.creative)?.body_lines)[0] ||
-        'Generated creative output ready for publishing workflows.',
+      summary: creativeContractSummary(payload),
       platform,
       platformLabel: platformLabel(platform),
       campaignName,
@@ -1900,7 +2111,7 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
         jobId: campaignId,
         type: 'image_ad',
         title: `${platformLabel(platform)} media ${mediaIndex + 1}`,
-        summary: stringValue(preview.summary) || 'Preview media ready for publish review.',
+        summary: publishReviewSummary(preview, 'Preview media ready for publish review.'),
         platform,
         platformLabel: platformLabel(platform),
         campaignName,
@@ -1943,7 +2154,7 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
         jobId: campaignId,
         type: type as MarketingDashboardAssetType,
         title: `${platformLabel(platform)} ${label}`,
-        summary: stringValue(preview.summary) || 'Preview asset ready for publish review.',
+        summary: publishReviewSummary(preview, 'Preview asset ready for publish review.'),
         platform,
         platformLabel: platformLabel(platform),
         campaignName,
@@ -1970,7 +2181,7 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
       }
     })
 
-    const title = stringValue(preview.headline || preview.platform_name, `${platformLabel(platform)} preview`)
+    const title = publishReviewDisplayTitle(preview, platform)
     const postDedupeKey = dedupePostKey({
       campaignId,
       platform,
@@ -1984,7 +2195,7 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
       jobId: campaignId,
       type: 'pre_publish_review',
       title,
-      summary: stringValue(preview.summary) || 'Pre-publish review item is ready for launch review.',
+      summary: publishReviewSummary(preview, 'Pre-publish review item is ready for launch review.'),
       platform,
       platformLabel: platformLabel(platform),
       campaignName,
@@ -2010,7 +2221,7 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
       jobId: campaignId,
       type: platform === 'meta-ads' ? 'pre_publish_ad' : 'platform_post',
       title,
-      summary: stringValue(preview.caption_text || preview.summary),
+      summary: publishReviewSummary(preview, 'Pre-publish review item is ready for launch review.'),
       platform,
       platformLabel: platformLabel(platform),
       campaignName,
@@ -2446,7 +2657,7 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
     }
   }
 
-  for (const publishItem of publishItems) {
+  for (const publishItem of publishItems.filter((item) => item.type !== 'publish_package')) {
     derivedCalendarSeeds.push({
       entityId: publishItem.id,
       campaignId,
@@ -2469,7 +2680,17 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
     })
   }
 
-  for (const asset of assets) {
+  for (const asset of assets.filter((candidate) =>
+    (
+      candidate.type === 'landing_page' ||
+      candidate.type === 'image_ad' ||
+      candidate.type === 'script' ||
+      candidate.type === 'copy'
+    ) &&
+    candidate.relatedPublishItemIds.length === 0 &&
+    candidate.provenance.sourceKind !== 'publish_review' &&
+    candidate.provenance.sourceKind !== 'live_publish_result'
+  )) {
     const sortPriority =
       asset.type === 'landing_page'
         ? 3
@@ -2695,8 +2916,22 @@ export function getMarketingDashboardContentForTenantInternal(
   tenantId: string,
   options: MarketingDashboardBuildOptions = {},
 ): MarketingDashboardContentInternal {
-  const jobIds = listMarketingJobIdsForTenant(tenantId)
-  return mergeContent(jobIds.map((jobId) => getMarketingDashboardContentInternal(jobId, options)))
+  const dedupedCampaigns: MarketingDashboardContentInternal[] = []
+  const seenCampaigns = new Set<string>()
+
+  for (const jobId of listMarketingJobIdsForTenant(tenantId)) {
+    const content = getMarketingDashboardContentInternal(jobId, options)
+    const campaign = content.campaigns[0]
+    const dedupeKey = campaign ? campaignIdentityKey(campaign) : `job::${jobId}`
+    if (seenCampaigns.has(dedupeKey)) {
+      continue
+    }
+
+    seenCampaigns.add(dedupeKey)
+    dedupedCampaigns.push(content)
+  }
+
+  return mergeContent(dedupedCampaigns)
 }
 
 export function getMarketingDashboardContentForTenant(

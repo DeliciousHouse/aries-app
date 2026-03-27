@@ -60,6 +60,7 @@ export type MarketingReviewPreviewCard = {
   platformSlug: string;
   platformName: string;
   channelType: string;
+  displayTitle?: string;
   summary: string;
   headline?: string;
   hook?: string;
@@ -282,6 +283,23 @@ function recordArray(value: unknown): Array<Record<string, unknown>> {
   return Array.isArray(value)
     ? value.filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === 'object' && !Array.isArray(entry))
     : [];
+}
+
+function lowSignalReviewText(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return (
+    !normalized ||
+    normalized.startsWith('based on the brand identity') ||
+    normalized.startsWith('based on the provided brand') ||
+    normalized.startsWith('here is the brand strategy analysis') ||
+    normalized.includes('here is a concise strategy analysis') ||
+    normalized.includes('here is the concise brand strategy')
+  );
+}
+
+function reviewPreviewDisplayTitle(platformName: string, preview: Record<string, unknown>): string {
+  const headline = stringValue(preview.headline || preview.hook);
+  return headline && !lowSignalReviewText(headline) ? headline : platformName;
 }
 
 function deriveState(
@@ -563,10 +581,14 @@ function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): MarketingRe
       stringValue(reviewBundle.approval_message) ||
       stringValue(recordValue(review?.approval_preview)?.message) ||
       'Launch approval is waiting on operator review.',
-    summary:
-      stringValue(recordValue(reviewBundle.summary)?.core_message) ||
-      stringValue(recordValue(reviewBundle.summary)?.offer_summary) ||
-      'Review the draft launch materials before approving the publish stage.',
+    summary: (() => {
+      const summaryCandidate =
+        stringValue(recordValue(reviewBundle.summary)?.core_message) ||
+        stringValue(recordValue(reviewBundle.summary)?.offer_summary);
+      return summaryCandidate && !lowSignalReviewText(summaryCandidate)
+        ? summaryCandidate
+        : 'Review the draft launch materials before approving the publish stage.';
+    })(),
     previewAsset: linkById.get('launch-review-preview'),
     reviewPacketAssets: [
       linkById.get('review-packet-production'),
@@ -596,14 +618,16 @@ function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): MarketingRe
       : null,
     platformPreviews: recordArray(reviewBundle.platform_previews).map((entry, index) => {
       const platformSlug = stringValue(entry.platform_slug, `platform-${index + 1}`);
+      const platformName = stringValue(entry.platform_name, `Platform ${index + 1}`);
       const directMediaAssets = stringArray(entry.media_paths)
         .map((_, mediaIndex) => linkById.get(`platform-preview-${platformSlug}-media-${mediaIndex + 1}`))
         .filter((asset): asset is MarketingAssetLink => !!asset);
       return {
         id: `platform-preview-${platformSlug}`,
         platformSlug,
-        platformName: stringValue(entry.platform_name, `Platform ${index + 1}`),
+        platformName,
         channelType: stringValue(entry.channel_type, 'draft'),
+        displayTitle: reviewPreviewDisplayTitle(platformName, entry),
         summary:
           stringValue(entry.summary) ||
           stringValue(entry.headline) ||
@@ -682,7 +706,7 @@ function buildAssetPreviewCards(jobId: string, reviewBundle: MarketingReviewBund
     platformSlug: preview.platformSlug,
     platformName: preview.platformName,
     channelType: preview.channelType,
-    title: preview.headline || preview.platformName,
+    title: preview.displayTitle || preview.platformName,
     summary: preview.summary,
     mediaCount: preview.mediaAssets.length,
     assetCount: preview.assetLinks.length,

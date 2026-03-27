@@ -901,6 +901,54 @@ function terminalApprovalResponse(
   };
 }
 
+function cloneApprovalCheckpoint(
+  checkpoint: MarketingApprovalCheckpoint,
+): MarketingApprovalCheckpoint {
+  return {
+    ...checkpoint,
+    publish_config: checkpoint.publish_config
+      ? {
+          ...checkpoint.publish_config,
+          platforms: [...checkpoint.publish_config.platforms],
+          live_publish_platforms: [...checkpoint.publish_config.live_publish_platforms],
+          video_render_platforms: [...checkpoint.publish_config.video_render_platforms],
+        }
+      : null,
+  };
+}
+
+function markApprovalResolutionInProgress(
+  doc: MarketingJobRuntimeDocument,
+  checkpoint: MarketingApprovalCheckpoint,
+  actedBy: string,
+): void {
+  const record = markStageInProgress(doc, checkpoint.stage);
+  record.artifacts = record.artifacts.map((artifact) =>
+    artifact.category === 'approval'
+      ? {
+          ...artifact,
+          status: 'in_progress',
+        }
+      : artifact,
+  );
+  doc.approvals.current = null;
+  appendHistory(doc, `${checkpoint.stage} approval is being processed by ${actedBy}`, {
+    stage: checkpoint.stage,
+    state: 'running',
+    status: 'running',
+  });
+}
+
+function restoreApprovalCheckpointAfterFailure(
+  doc: MarketingJobRuntimeDocument,
+  checkpoint: MarketingApprovalCheckpoint,
+): void {
+  if (doc.approvals.current) {
+    return;
+  }
+  doc.approvals.current = cloneApprovalCheckpoint(checkpoint);
+}
+
 async function waitForApprovalRecordResolution(approvalId: string, timeoutMs = 4_000): Promise<MarketingApprovalRecord | null> {
   const started = Date.now();
   while ((Date.now() - started) < timeoutMs) {
@@ -1062,6 +1110,7 @@ async function resolveMarketingApproval(
   }
 
   const resumeToken = approvalRecord.lobster_resume_token.trim() || checkpoint.resume_token?.trim() || '';
+  const checkpointSnapshot = cloneApprovalCheckpoint(checkpoint);
   try {
     return await withMarketingApprovalLock(approvalRecord.approval_id, async () => {
       const currentRecord = loadMarketingApprovalRecord(approvalRecord.approval_id);
@@ -1083,6 +1132,11 @@ async function resolveMarketingApproval(
       currentRecord.attempt_count += 1;
       currentRecord.last_error = null;
       saveMarketingApprovalRecord(currentRecord);
+
+      if (input.resolution === 'approve') {
+        markApprovalResolutionInProgress(doc, checkpoint, input.actedBy.trim());
+        saveMarketingJobRuntime(doc.job_id, doc);
+      }
 
       approvalLifecycleLog('approval-resume-requested', {
         jobId: doc.job_id,
@@ -1199,6 +1253,10 @@ async function resolveMarketingApproval(
         approvalId: error.approvalId,
         reason: 'approval_resolution_in_progress',
       };
+    }
+
+    if (input.resolution === 'approve') {
+      restoreApprovalCheckpointAfterFailure(doc, checkpointSnapshot);
     }
 
     const record = loadMarketingApprovalRecord(approvalRecord.approval_id);

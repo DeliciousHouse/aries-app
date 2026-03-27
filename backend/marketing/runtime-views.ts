@@ -231,6 +231,21 @@ function campaignDateRange(status: MarketingJobStatusResponse): string {
   return 'Dates not scheduled yet';
 }
 
+function formatUtcTimestampLabel(value: string): string {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    return value;
+  }
+
+  return `${new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'UTC',
+  }).format(new Date(timestamp))} UTC`;
+}
+
 function nextScheduledText(status: MarketingJobStatusResponse): string {
   const next = status.calendarEvents
     .slice()
@@ -238,7 +253,7 @@ function nextScheduledText(status: MarketingJobStatusResponse): string {
   if (!next) {
     return status.approvalRequired ? 'Waiting on approval before scheduling' : 'Nothing scheduled yet';
   }
-  return `${next.startsAt}${next.platform ? ` · ${next.platform}` : ''}`;
+  return `${formatUtcTimestampLabel(next.startsAt)}${next.platform ? ` · ${next.platform}` : ''}`;
 }
 
 function nextScheduledTextFromDashboard(events: MarketingDashboardCalendarEvent[]): string {
@@ -248,7 +263,7 @@ function nextScheduledTextFromDashboard(events: MarketingDashboardCalendarEvent[
   if (!next) {
     return 'Nothing scheduled yet';
   }
-  return `${next.startsAt} · ${next.statusLabel}${next.platformLabel ? ` · ${next.platformLabel}` : ''}`;
+  return `${formatUtcTimestampLabel(next.startsAt)} · ${next.statusLabel}${next.platformLabel ? ` · ${next.platformLabel}` : ''}`;
 }
 
 function buildCampaignListItem(
@@ -320,7 +335,7 @@ function buildPreviewItems(status: MarketingJobStatusResponse, reviewBundle: Mar
     jobId: status.jobId,
     campaignId: status.jobId,
     campaignName: campaignName(status),
-    title: preview.headline || preview.platformName,
+    title: preview.displayTitle || preview.platformName,
     channel: preview.platformName,
     placement: preview.channelType,
     scheduledFor: deriveScheduledFor(status, preview.id),
@@ -329,7 +344,7 @@ function buildPreviewItems(status: MarketingJobStatusResponse, reviewBundle: Mar
     currentVersion: {
       id: preview.id,
       label: 'Current version',
-      headline: preview.headline || preview.platformName,
+      headline: preview.displayTitle || preview.platformName,
       supportingText: preview.caption || preview.summary,
       cta: preview.cta || '',
       notes: preview.details,
@@ -466,7 +481,8 @@ function resolveRuntimeReviewItem(status: MarketingJobStatusResponse, reviewId: 
 export async function listMarketingCampaignsForTenant(tenantId: string): Promise<RuntimeCampaignListItem[]> {
   const content = getMarketingDashboardContentForTenant(tenantId);
   const campaignById = new Map(content.campaigns.map((campaign) => [campaign.jobId, campaign]));
-  const campaigns = listMarketingJobIdsForTenant(tenantId).map((jobId) => {
+  const campaigns = content.campaigns.map((campaign) => {
+    const jobId = campaign.jobId;
     const status = getMarketingJobStatus(jobId);
     const pendingApprovals = buildReviewItemsForStatus(status).filter((item) => item.status !== 'approved').length;
     const dashboard = getMarketingDashboardCampaignContent(jobId);

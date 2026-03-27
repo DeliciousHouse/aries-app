@@ -329,6 +329,169 @@ test('dashboard adapter recovers proposal artifacts from live Lobster logs when 
   });
 });
 
+test('dashboard adapter uses human-readable campaign and proposal concept labels when planner fields are low-signal', async () => {
+  await withDashboardEnv(async () => {
+    const jobId = 'proposal-display-cleanup';
+    const doc: any = baseRuntimeDoc(jobId, 'tenant_dashboard');
+    doc.current_stage = 'production';
+    doc.stages.production = stageRecord('production', 'awaiting_approval', null);
+    doc.approvals = {
+      current: {
+        stage: 'production',
+        status: 'awaiting_approval',
+        workflow_step_id: 'approve_stage_3',
+        title: 'Production approval required',
+        message: 'Approve the strategy proposal before production begins.',
+        requested_at: '2026-03-27T08:37:06.603Z',
+      },
+      history: [],
+    };
+
+    await writeJson(path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, 'plan-run', 'campaign_planner.json'), {
+      brand_slug: '6',
+      campaign_plan: {
+        campaign_name: '6-stage2-plan',
+        objective: 'Build a cross-channel strategy handoff from the canonical brand profile.',
+        channel_plans: [
+          {
+            channel: 'meta',
+            creative_bias: 'performance-first paid acquisition testing',
+            goal: 'Translate the core message into meta execution.',
+            message: 'Based on the brand identity of **Sugar & Leather** and the competitive landscape provided, here is the brand strategy analysis:',
+          },
+        ],
+      },
+    });
+    await writeRuntimeDoc(jobId, doc);
+
+    const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
+    const content = getMarketingDashboardContent(jobId, {
+      referenceDate: new Date('2026-03-27T00:00:00.000Z'),
+    });
+
+    assert.equal(content.campaigns[0]?.name, 'Brand Example');
+    assert.equal(content.campaigns[0]?.objective, 'performance-first paid acquisition testing');
+    assert.equal(content.campaigns[0]?.summary, 'performance-first paid acquisition testing');
+    assert.equal(content.posts[0]?.title, 'Meta Ads concept');
+    assert.equal(content.posts[0]?.summary, 'performance-first paid acquisition testing');
+  });
+});
+
+test('dashboard adapter falls back to platform labels when creative contract headlines are low-signal', async () => {
+  await withDashboardEnv(async (env) => {
+    const jobId = 'creative-display-cleanup';
+    const doc: any = baseRuntimeDoc(jobId, 'tenant_dashboard');
+    doc.current_stage = 'publish';
+    doc.stages.production = stageRecord('production', 'completed', 'prod-run');
+    doc.stages.publish = stageRecord('publish', 'awaiting_approval', null);
+    doc.approvals = {
+      current: {
+        stage: 'publish',
+        status: 'awaiting_approval',
+        workflow_step_id: 'approve_stage_4',
+        title: 'Launch approval required',
+        message: 'Approve the creative assets and continue to Stage 4 publishing?',
+        requested_at: '2026-03-27T08:52:56.603Z',
+      },
+      history: [],
+    };
+
+    await writeJson(path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, 'plan-run', 'campaign_planner.json'), {
+      brand_slug: '6',
+      campaign_plan: {
+        campaign_name: '6-stage2-plan',
+        objective: 'Build a cross-channel strategy handoff from the canonical brand profile.',
+        channel_plans: [
+          {
+            channel: 'meta',
+            creative_bias: 'performance-first paid acquisition testing',
+            goal: 'Translate the core message into meta execution.',
+            message: 'Based on the brand identity of **Sugar & Leather** and the competitive landscape provided, here is the brand strategy analysis:',
+          },
+        ],
+      },
+    });
+    await writeText(path.join(env.lobsterRoot, 'output', '6-campaign', 'landing-pages', 'index.html'), '<html><body>Landing page</body></html>');
+    await writeText(path.join(env.lobsterRoot, 'output', '6-campaign', 'ad-images', 'meta-feed.png'), 'png-preview');
+    await writeJson(path.join(env.lobsterRoot, 'output', 'static-contracts', '6-stage2-plan', 'meta-ads.json'), {
+      campaign_id: '6-stage2-plan',
+      platform_slug: 'meta-ads',
+      creative: {
+        headline: 'Stale production creative',
+      },
+    });
+    await writeRuntimeDoc(jobId, doc);
+
+    const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
+    const content = getMarketingDashboardContent(jobId, {
+      referenceDate: new Date('2026-03-27T00:00:00.000Z'),
+    });
+    const metaCreative = content.posts.find((post) => post.type === 'meta_ad');
+
+    assert.equal(metaCreative?.title, 'Meta Ads creative');
+    assert.equal(metaCreative?.summary, 'Generated creative output ready for publishing workflows.');
+  });
+});
+
+test('dashboard adapter falls back to platform labels when creative contract copy still mirrors strategy boilerplate', async () => {
+  await withDashboardEnv(async (env) => {
+    const jobId = 'creative-display-generic-copy';
+    const doc: any = baseRuntimeDoc(jobId, 'tenant_dashboard');
+    doc.current_stage = 'publish';
+    doc.stages.production = stageRecord('production', 'completed', 'prod-run');
+    doc.stages.publish = stageRecord('publish', 'awaiting_approval', null);
+    doc.approvals = {
+      current: {
+        stage: 'publish',
+        status: 'awaiting_approval',
+        workflow_step_id: 'approve_stage_4',
+        title: 'Launch approval required',
+        message: 'Approve the creative assets and continue to Stage 4 publishing?',
+        requested_at: '2026-03-27T08:52:56.603Z',
+      },
+      history: [],
+    };
+
+    await writeJson(path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, 'plan-run', 'campaign_planner.json'), {
+      brand_slug: '6',
+      campaign_plan: {
+        campaign_name: '6-stage2-plan',
+        objective: 'Build a cross-channel strategy handoff from the canonical brand profile.',
+        channel_plans: [
+          {
+            channel: 'meta',
+            creative_bias: 'performance-first paid acquisition testing',
+            goal: 'Translate the core message into meta execution.',
+            message: 'Based on the brand identity and the competitive landscape, here is a concise strategy analysis for **Sugar & Leather**:',
+          },
+        ],
+      },
+    });
+    await writeText(path.join(env.lobsterRoot, 'output', '6-campaign', 'landing-pages', 'index.html'), '<html><body>Landing page</body></html>');
+    await writeText(path.join(env.lobsterRoot, 'output', '6-campaign', 'ad-images', 'meta-feed.png'), 'png-preview');
+    await writeJson(path.join(env.lobsterRoot, 'output', 'static-contracts', '6-stage2-plan', 'meta-ads.json'), {
+      campaign_id: '6-stage2-plan',
+      platform_slug: 'meta-ads',
+      creative: {
+        headline: 'Based on the brand identity and the competitive landscape, here is a concise strategy analysis for **Sugar & Leather**:',
+      },
+      landing_page: {
+        hero_subheadline: 'Based on the brand identity and the competitive landscape, here is a concise strategy analysis for **Sugar & Leather**:',
+      },
+    });
+    await writeRuntimeDoc(jobId, doc);
+
+    const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
+    const content = getMarketingDashboardContent(jobId, {
+      referenceDate: new Date('2026-03-27T00:00:00.000Z'),
+    });
+    const metaCreative = content.posts.find((post) => post.type === 'meta_ad');
+
+    assert.equal(metaCreative?.title, 'Meta Ads creative');
+    assert.equal(metaCreative?.summary, 'Generated creative output ready for publishing workflows.');
+  });
+});
+
 test('dashboard adapter keeps proposal approval truthful and does not leak future-stage artifacts before production starts', async () => {
   await withDashboardEnv(async (env) => {
     const jobId = 'pre-production-approval';
@@ -371,6 +534,7 @@ test('dashboard adapter keeps proposal approval truthful and does not leak futur
     });
 
     assert.equal(content.posts.some((post) => post.provenance.sourceKind === 'proposal' && post.status === 'in_review'), true);
+    assert.equal(content.posts.some((post) => post.provenance.sourceKind === 'creative_output'), false);
     assert.equal(content.assets.some((asset) => asset.type === 'proposal_document' && asset.status === 'in_review'), true);
     assert.equal(content.assets.some((asset) => asset.provenance.sourceKind === 'creative_output'), false);
     assert.equal(content.publishItems.length, 0);
@@ -535,7 +699,7 @@ test('dashboard adapter surfaces pre-publish review items as ready to publish', 
               platform_slug: 'meta-ads',
               platform_name: 'Meta Ads',
               summary: 'Launch package ready for review.',
-              headline: 'Meta launch package',
+              headline: 'Based on the brand identity of **Sugar & Leather** and the competitive landscape provided, here is the brand strategy analysis:',
               media_paths: [path.join(env.lobsterRoot, 'output', 'brand-example-campaign', 'ad-images', 'meta-feed.png')],
               asset_paths: {},
             },
@@ -554,8 +718,15 @@ test('dashboard adapter surfaces pre-publish review items as ready to publish', 
     });
 
     assert.equal(content.publishItems.some((item) => item.status === 'ready_to_publish'), true);
+    assert.equal(content.publishItems.find((item) => item.platform === 'meta-ads')?.title, 'Meta Ads');
     assert.equal(content.posts.some((item) => item.status === 'ready_to_publish'), true);
+    assert.equal(content.posts.find((item) => item.platform === 'meta-ads' && item.provenance.sourceKind === 'publish_review')?.title, 'Meta Ads');
+    assert.doesNotMatch(
+      content.posts.find((item) => item.platform === 'meta-ads' && item.provenance.sourceKind === 'publish_review')?.summary || '',
+      /based on the brand identity/i,
+    );
     assert.equal(content.calendarEvents.some((event) => event.statusLabel === 'Ready to Publish'), true);
+    assert.equal(content.calendarEvents.some((event) => /contract|brief/i.test(event.title)), false);
   });
 });
 

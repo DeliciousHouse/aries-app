@@ -22,6 +22,10 @@ function stringValue(value: unknown, fallback = ''): string {
   return fallback;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function slugify(value: string, fallback: string): string {
   const normalized = value
     .toLowerCase()
@@ -95,71 +99,192 @@ function publishStageTimestamp(runtimeDoc: MarketingJobRuntimeDocument): number 
   return candidates[0] ?? 0;
 }
 
-function inferPublishRunId(runtimeDoc: MarketingJobRuntimeDocument): string | null {
-  const explicitRunId = stringValue(runtimeDoc.stages.publish.run_id);
-  if (explicitRunId) {
-    return explicitRunId;
+function runtimeBrandSlugCandidates(runtimeDoc: MarketingJobRuntimeDocument): string[] {
+  const runtimeInputs = runtimeDoc.inputs as Record<string, unknown>;
+  return uniqueStrings([
+    stringValue(runtimeInputs.brand_slug || runtimeDoc.inputs.request?.brandSlug),
+    stringValue(runtimeDoc.tenant_id),
+  ]).map((value) => slugify(value, value));
+}
+
+type PublishStepPayloadCandidate = {
+  runId: string;
+  payload: Record<string, unknown>;
+  mtimeMs: number;
+};
+
+function readExactPublishStepPayload(runtimeDoc: MarketingJobRuntimeDocument, stepName: string, runId: string): PublishStepPayloadCandidate | null {
+  const cachePath = path.join(cacheRoot('LOBSTER_STAGE4_CACHE_DIR', 'lobster-stage4-cache'), runId, `${stepName}.json`);
+  const cached = readJsonIfExists(cachePath);
+  if (cached) {
+    try {
+      return {
+        runId,
+        payload: cached,
+        mtimeMs: statSync(cachePath).mtimeMs,
+      };
+    } catch {
+      return {
+        runId,
+        payload: cached,
+        mtimeMs: 0,
+      };
+    }
   }
 
+  for (const outputRoot of lobsterOutputRoots()) {
+    const logPath = path.join(outputRoot, 'logs', runId, 'stage-4-publish-optimize', `${stepName}.json`);
+    const logged = readJsonIfExists(logPath);
+    if (logged) {
+      try {
+        return {
+          runId,
+          payload: logged,
+          mtimeMs: statSync(logPath).mtimeMs,
+        };
+      } catch {
+        return {
+          runId,
+          payload: logged,
+          mtimeMs: 0,
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+function scorePublishStepPayloadCandidate(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  prefix: string,
+  candidate: PublishStepPayloadCandidate
+): { trust: number; distance: number } {
+  const targetTime = publishStageTimestamp(runtimeDoc);
+  const runtimeBrandSlugs = runtimeBrandSlugCandidates(runtimeDoc);
+  const reviewBundle = recordValue(candidate.payload.review_bundle);
+  const approvalPreview = recordValue(candidate.payload.approval_preview);
+  const payloadBrandSlug = stringValue(candidate.payload.brand_slug || reviewBundle?.brand_slug);
+  const normalizedPayloadBrandSlug = payloadBrandSlug ? slugify(payloadBrandSlug, payloadBrandSlug) : '';
+  const platformPreviews = Array.isArray(reviewBundle?.platform_previews) ? reviewBundle.platform_previews : [];
+  let trust = 0;
+
+  if (new RegExp(`^${escapeRegExp(prefix)}-[a-f0-9]{8,}$`, 'i').test(candidate.runId)) {
+    trust += 25;
+  } else if (candidate.runId.startsWith(`${prefix}-`)) {
+    trust += 5;
+  }
+
+  if (normalizedPayloadBrandSlug && runtimeBrandSlugs.includes(normalizedPayloadBrandSlug)) {
+    trust += 80;
+  } else if (normalizedPayloadBrandSlug) {
+    trust -= 20;
+  } else {
+    trust += 5;
+  }
+
+  if (stringValue(candidate.payload.mode).toLowerCase() === 'compiled') {
+    trust += 20;
+  }
+  if (stringValue(approvalPreview?.message)) {
+    trust += 20;
+  }
+  if (recordValue(reviewBundle?.artifact_paths)) {
+    trust += 30;
+  }
+  if (platformPreviews.length > 0) {
+    trust += 10;
+  }
+
+  return {
+    trust,
+    distance: Math.abs(candidate.mtimeMs - targetTime),
+  };
+}
+
+function collectFallbackPublishStepPayloadCandidates(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  stepName: string
+): PublishStepPayloadCandidate[] {
   const prefix = competitorSlug(runtimeDoc);
   if (!prefix) {
-    return null;
+    return [];
   }
 
-  const targetTime = publishStageTimestamp(runtimeDoc);
-  const candidates = lobsterOutputRoots()
-    .flatMap((outputRoot) => {
-      const logsRoot = path.join(outputRoot, 'logs');
-      if (!existsSync(logsRoot)) {
-        return [];
+  const candidates: PublishStepPayloadCandidate[] = [];
+  const seenPaths = new Set<string>();
+
+  const cacheDir = cacheRoot('LOBSTER_STAGE4_CACHE_DIR', 'lobster-stage4-cache');
+  if (existsSync(cacheDir)) {
+    for (const entry of readdirSync(cacheDir)) {
+      if (!entry.startsWith(`${prefix}-`)) {
+        continue;
       }
+      const candidatePath = path.join(cacheDir, entry, `${stepName}.json`);
+      if (seenPaths.has(candidatePath)) {
+        continue;
+      }
+      const payload = readJsonIfExists(candidatePath);
+      if (!payload) {
+        continue;
+      }
+      seenPaths.add(candidatePath);
+      try {
+        candidates.push({ runId: entry, payload, mtimeMs: statSync(candidatePath).mtimeMs });
+      } catch {
+        candidates.push({ runId: entry, payload, mtimeMs: 0 });
+      }
+    }
+  }
 
-      return readdirSync(logsRoot)
-        .filter((entry) => entry.startsWith(`${prefix}-`))
-        .map((entry) => {
-          const stagePath = path.join(logsRoot, entry, 'stage-4-publish-optimize');
-          if (!existsSync(stagePath)) {
-            return null;
-          }
-          try {
-            const stats = statSync(stagePath);
-            return {
-              runId: entry,
-              score: Math.abs(stats.mtimeMs - targetTime),
-              mtimeMs: stats.mtimeMs,
-            };
-          } catch {
-            return null;
-          }
-        })
-        .filter((entry): entry is { runId: string; score: number; mtimeMs: number } => !!entry);
-    })
-    .sort((left, right) => left.score - right.score || right.mtimeMs - left.mtimeMs);
+  for (const outputRoot of lobsterOutputRoots()) {
+    const logsRoot = path.join(outputRoot, 'logs');
+    if (!existsSync(logsRoot)) {
+      continue;
+    }
+    for (const entry of readdirSync(logsRoot)) {
+      if (!entry.startsWith(`${prefix}-`)) {
+        continue;
+      }
+      const candidatePath = path.join(logsRoot, entry, 'stage-4-publish-optimize', `${stepName}.json`);
+      if (seenPaths.has(candidatePath)) {
+        continue;
+      }
+      const payload = readJsonIfExists(candidatePath);
+      if (!payload) {
+        continue;
+      }
+      seenPaths.add(candidatePath);
+      try {
+        candidates.push({ runId: entry, payload, mtimeMs: statSync(candidatePath).mtimeMs });
+      } catch {
+        candidates.push({ runId: entry, payload, mtimeMs: 0 });
+      }
+    }
+  }
 
-  return candidates[0]?.runId || null;
+  return candidates.sort((left, right) => {
+    const leftScore = scorePublishStepPayloadCandidate(runtimeDoc, prefix, left);
+    const rightScore = scorePublishStepPayloadCandidate(runtimeDoc, prefix, right);
+    return (
+      rightScore.trust - leftScore.trust ||
+      leftScore.distance - rightScore.distance ||
+      right.mtimeMs - left.mtimeMs
+    );
+  });
 }
 
 function readPublishStepPayload(runtimeDoc: MarketingJobRuntimeDocument, stepName: string): Record<string, unknown> | null {
-  const runIds = uniqueStrings([
-    runtimeDoc.stages.publish.run_id,
-    inferPublishRunId(runtimeDoc),
-  ]);
-
-  for (const runId of runIds) {
-    const cachePath = path.join(cacheRoot('LOBSTER_STAGE4_CACHE_DIR', 'lobster-stage4-cache'), runId, `${stepName}.json`);
-    const cached = readJsonIfExists(cachePath);
-    if (cached) {
-      return cached;
+  const explicitRunId = stringValue(runtimeDoc.stages.publish.run_id);
+  if (explicitRunId) {
+    const explicit = readExactPublishStepPayload(runtimeDoc, stepName, explicitRunId);
+    if (explicit) {
+      return explicit.payload;
     }
+  }
 
-    for (const outputRoot of lobsterOutputRoots()) {
-      const logged = readJsonIfExists(
-        path.join(outputRoot, 'logs', runId, 'stage-4-publish-optimize', `${stepName}.json`)
-      );
-      if (logged) {
-        return logged;
-      }
-    }
+  for (const candidate of collectFallbackPublishStepPayloadCandidates(runtimeDoc, stepName)) {
+    return candidate.payload;
   }
 
   return null;
@@ -179,12 +304,6 @@ function publishStageHasRuntimeContext(runtimeDoc: MarketingJobRuntimeDocument):
     publishStage.status === 'in_progress' ||
     publishStage.status === 'completed' ||
     publishStage.status === 'failed'
-  ) {
-    return true;
-  }
-  if (
-    publishStage.status !== 'not_started' &&
-    (publishStage.run_id || publishStage.started_at || publishStage.completed_at || publishStage.failed_at)
   ) {
     return true;
   }

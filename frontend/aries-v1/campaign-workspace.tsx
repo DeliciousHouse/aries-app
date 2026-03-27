@@ -25,6 +25,21 @@ function isActiveJobStatus(status: string): boolean {
   );
 }
 
+function formatUtcTimestampLabel(value: string): string {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    return value;
+  }
+
+  return `${new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'UTC',
+  }).format(new Date(timestamp))} UTC`;
+}
+
 export default function AriesCampaignWorkspace(props: { campaignId: string }) {
   const job = useMarketingJobStatus({ jobId: props.campaignId, autoLoad: true });
   const reviews = useRuntimeReviews({ autoLoad: true });
@@ -66,10 +81,10 @@ export default function AriesCampaignWorkspace(props: { campaignId: string }) {
   }
 
   const uiStatus = campaignStatus(status.marketing_job_status, status.approvalRequired);
-  const campaignName = status.reviewBundle?.campaignName || status.tenantName || `Campaign ${status.jobId}`;
+  const campaignName = status.dashboard.campaign?.name || status.reviewBundle?.campaignName || status.tenantName || `Campaign ${status.jobId}`;
   const dashboard = status.dashboard;
   const nextScheduled = dashboard.calendarEvents[0]
-    ? `${dashboard.calendarEvents[0].startsAt} · ${dashboard.calendarEvents[0].statusLabel}`
+    ? `${formatUtcTimestampLabel(dashboard.calendarEvents[0].startsAt)} · ${dashboard.calendarEvents[0].statusLabel}`
     : (status.approvalRequired ? 'Waiting on approval before scheduling' : 'Nothing scheduled yet');
 
   return (
