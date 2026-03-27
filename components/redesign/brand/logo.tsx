@@ -1,6 +1,6 @@
 import Image from 'next/image';
 
-import { ARIES_FAVICON_SVG_PATH, ARIES_LOGO_WEBP_PATH } from '@/lib/brand';
+import { ARIES_FAVICON_SVG_PATH } from '@/lib/brand';
 
 export interface BrandLogoProps {
   size?: number;
@@ -32,7 +32,7 @@ export function BrandLogo({
       aria-hidden={variant === 'mark' ? undefined : true}
     >
       <Image
-        src={ARIES_LOGO_WEBP_PATH}
+        src={ARIES_FAVICON_SVG_PATH}
         alt={alt}
         width={size}
         height={size}

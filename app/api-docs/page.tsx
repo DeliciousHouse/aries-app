@@ -1,3 +1,5 @@
+import React from 'react';
+
 import MarketingLayout from '../../frontend/marketing/MarketingLayout';
 
 const ENDPOINTS = [
@@ -96,53 +98,55 @@ const ENDPOINTS = [
 export default function ApiDocsPage() {
   return (
     <MarketingLayout>
-      <section className="pt-36 pb-24">
-        <div className="container mx-auto px-6 space-y-10">
+      <section className="public-page-section">
+        <div className="container space-y-8 md:space-y-10">
           <div className="max-w-4xl">
-            <span className="inline-flex px-4 py-2 rounded-full border border-primary/20 bg-primary/10 text-primary text-xs uppercase tracking-[0.2em] font-semibold mb-6">
+            <span className="eyebrow mb-6">
               API reference
             </span>
-            <h1 className="text-5xl md:text-6xl font-bold leading-tight mb-6">
+            <h1 className="public-heading-lg mb-6 max-w-5xl">
               Internal routes that keep the browser contract <span className="text-gradient">safe</span>
             </h1>
-            <p className="text-xl text-white/60">
+            <p className="public-subcopy">
               These are the routes the browser can call. Aries stays responsible for validation, auth context, payload shaping, and workflow orchestration boundaries.
             </p>
           </div>
 
-          <div className="glass rounded-[2rem] p-8 md:p-10">
-            <h2 className="text-2xl font-bold mb-4">Base URL</h2>
-            <div className="rounded-[1.25rem] border border-white/10 bg-black/30 p-5 font-mono text-white/75">[REDACTED]</div>
-            <p className="text-white/60 mt-4">
+          <div className="glass rounded-[2rem] p-6 md:p-8 lg:p-10">
+            <h2 className="mb-4 font-display text-2xl font-semibold text-white">Base URL</h2>
+            <div className="overflow-x-auto rounded-[1.25rem] border border-white/10 bg-black/30 p-4 font-mono text-sm text-white/76 md:p-5">
+              [REDACTED]
+            </div>
+            <p className="mt-4 text-sm leading-7 text-white/68 md:text-base">
               App-shell endpoints use session authentication. Public marketing endpoints exist, but contact, waitlist, and events are still explicit placeholders until corresponding workflows are deployed.
             </p>
           </div>
 
-          <div className="space-y-6">
+          <div className="space-y-5 md:space-y-6">
             {ENDPOINTS.map((endpoint) => (
-              <div key={`${endpoint.method}-${endpoint.path}`} className="glass rounded-[2rem] p-8">
-                <div className="flex flex-wrap items-center gap-3 mb-4">
-                  <span className="inline-flex px-3 py-1 rounded-full bg-primary/15 border border-primary/20 text-primary text-xs uppercase tracking-[0.2em] font-semibold">
+              <article key={`${endpoint.method}-${endpoint.path}`} className="glass rounded-[2rem] p-6 md:p-8">
+                <div className="mb-4 flex flex-wrap items-center gap-3">
+                  <span className="inline-flex rounded-full border border-primary/20 bg-primary/15 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-primary">
                     {endpoint.method}
                   </span>
-                  <code className="font-semibold text-white">{endpoint.path}</code>
+                  <code className="break-all font-semibold text-white">{endpoint.path}</code>
                 </div>
-                <p className="text-white/60 mb-6">{endpoint.desc}</p>
-                <div className="grid lg:grid-cols-2 gap-6">
+                <p className="mb-6 text-sm leading-7 text-white/68 md:text-base">{endpoint.desc}</p>
+                <div className="grid gap-5 lg:grid-cols-2 lg:gap-6">
                   <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-white/40 mb-3">Request body</p>
-                    <div className="rounded-[1.25rem] border border-white/10 bg-black/30 p-5 font-mono text-sm text-white/75 break-words">
+                    <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-white/44">Request body</p>
+                    <div className="rounded-[1.25rem] border border-white/10 bg-black/30 p-4 font-mono text-sm text-white/75 break-words md:p-5">
                       {endpoint.body}
                     </div>
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-white/40 mb-3">Response</p>
-                    <div className="rounded-[1.25rem] border border-white/10 bg-black/30 p-5 font-mono text-sm text-white/75 break-words">
+                    <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-white/44">Response</p>
+                    <div className="rounded-[1.25rem] border border-white/10 bg-black/30 p-4 font-mono text-sm text-white/75 break-words md:p-5">
                       {endpoint.response}
                     </div>
                   </div>
                 </div>
-              </div>
+              </article>
             ))}
           </div>
         </div>

@@ -1,5 +1,8 @@
+import React from 'react';
 import type { CSSProperties } from 'react';
+import Image from 'next/image';
 
+import { ARIES_FAVICON_SVG_PATH } from '@/lib/brand';
 import { cn } from './lib/utils';
 
 export interface AriesMarkProps {
@@ -12,14 +15,20 @@ export function AriesMark({ className, sizeClassName = 'w-8 h-8', style }: Aries
   return (
     <div
       className={cn(
-        'rounded-lg bg-gradient-to-br from-primary to-secondary flex items-center justify-center font-bold text-white border border-white/20 shadow-lg shadow-primary/20',
+        'inline-flex items-center justify-center overflow-hidden rounded-[24%] border border-white/14 bg-white/[0.04] p-[18%] shadow-[0_16px_38px_rgba(124,58,237,0.18)]',
         sizeClassName,
         className,
       )}
       style={style}
       aria-hidden="true"
     >
-      A
+      <Image
+        src={ARIES_FAVICON_SVG_PATH}
+        alt=""
+        width={256}
+        height={256}
+        className="h-full w-full object-contain"
+      />
     </div>
   );
 }
