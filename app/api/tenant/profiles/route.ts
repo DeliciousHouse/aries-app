@@ -1,6 +1,7 @@
 import pool from '@/lib/db';
 import { getTenantContext } from '@/lib/tenant-context';
 import { createTenantUserProfile, listTenantUserProfiles } from '@/backend/tenant/user-profiles';
+import { isMarketingPublicMode } from '@/lib/marketing-public-mode';
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -11,6 +12,9 @@ export async function GET() {
   try {
     tenantContext = await getTenantContext();
   } catch (error) {
+    if (isMarketingPublicMode()) {
+      return json({ profiles: [] });
+    }
     return json({ error: error instanceof Error ? error.message : 'Authentication required.' }, 403);
   }
 

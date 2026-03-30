@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 
-import { getMarketingDashboardCampaignContent } from '@/backend/marketing/dashboard-content';
 import { getMarketingJobStatus } from '@/backend/marketing/jobs-status';
 import { findLatestMarketingJobIdForTenant } from '@/backend/marketing/runtime-state';
+import { buildCampaignWorkspaceView } from '@/backend/marketing/workspace-views';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
 const MARKETING_ONBOARDING_REQUIRED = {
@@ -10,6 +10,24 @@ const MARKETING_ONBOARDING_REQUIRED = {
   reason: 'onboarding_required',
   message: 'Complete tenant onboarding before viewing brand campaign status.',
 } as const;
+
+function alignApprovalWithWorkspace(
+  approval: ReturnType<typeof getMarketingJobStatus>['approval'],
+  workflowState: ReturnType<typeof buildCampaignWorkspaceView>['workflowState'],
+  publishBlockedReason: ReturnType<typeof buildCampaignWorkspaceView>['publishBlockedReason'],
+) {
+  if (!approval || workflowState !== 'revisions_requested') {
+    return approval;
+  }
+
+  return {
+    ...approval,
+    status: 'changes_requested',
+    message: publishBlockedReason || 'Resolve requested revisions before workflow approval can resume.',
+    actionLabel: undefined,
+    actionHref: undefined,
+  };
+}
 
 export async function handleGetLatestMarketingJobStatus(
   tenantContextLoader?: TenantContextLoader
@@ -34,6 +52,7 @@ export async function handleGetLatestMarketingJobStatus(
   }
 
   const result = getMarketingJobStatus(latestJobId);
+  const workspaceView = buildCampaignWorkspaceView(latestJobId);
   return NextResponse.json(
     {
       jobId: result.jobId,
@@ -56,12 +75,18 @@ export async function handleGetLatestMarketingJobStatus(
       stageCards: result.stageCards,
       artifacts: result.artifacts,
       timeline: result.timeline,
-      approval: result.approval,
+      approval: alignApprovalWithWorkspace(result.approval, workspaceView.workflowState, workspaceView.publishBlockedReason),
       reviewBundle: result.reviewBundle,
+      campaignBrief: workspaceView.campaignBrief,
+      workflowState: workspaceView.workflowState,
+      statusHistory: workspaceView.statusHistory,
+      brandReview: workspaceView.brandReview,
+      strategyReview: workspaceView.strategyReview,
+      creativeReview: workspaceView.creativeReview,
       publishConfig: result.publishConfig,
       nextStep: result.nextStep,
       repairStatus: result.repairStatus,
-      dashboard: getMarketingDashboardCampaignContent(latestJobId),
+      dashboard: workspaceView.dashboard,
     },
     { status: 200 }
   );

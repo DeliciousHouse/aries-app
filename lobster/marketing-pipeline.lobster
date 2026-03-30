@@ -27,7 +27,7 @@ steps:
     command: |
       bash -lc '
         set -euo pipefail
-        cmd=(./bin/meta-ads-extractor --json --competitor "$1" --research-model "gemini/gemini-2.5-flash")
+        cmd=(./bin/meta-ads-extractor --json --competitor "$1" --research-model "gemini/gemini-3-pro-image-preview")
         if [ -n "$2" ]; then
           cmd+=(--competitor-facebook-url "$2")
         fi

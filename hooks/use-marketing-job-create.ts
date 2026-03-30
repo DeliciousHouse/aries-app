@@ -21,7 +21,7 @@ export function useMarketingJobCreate(options: UseMarketingJobCreateOptions = {}
 
   return {
     ...state,
-    createJob: (body: PostMarketingJobsRequest) =>
+    createJob: (body: PostMarketingJobsRequest | FormData) =>
       state.run(async () => {
         const result = await api.createJob(body);
         if (isMarketingErrorResult(result)) {

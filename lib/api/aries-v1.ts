@@ -1,5 +1,6 @@
 import { requestJson, type ApiClientOptions } from './http';
 import type {
+  MarketingCampaignStatusHistoryEntry,
   MarketingDashboardAsset,
   MarketingDashboardCalendarEvent,
   MarketingDashboardCampaignContent,
@@ -7,11 +8,21 @@ import type {
   MarketingDashboardItemStatus,
   MarketingDashboardPost,
   MarketingDashboardPublishItem,
+  MarketingReviewAttachment,
+  MarketingReviewSection,
   MarketingDashboardStatusSummary,
+  MarketingWorkflowState,
 } from './marketing';
 import type { TenantUserProfile } from '@/backend/tenant/user-profiles';
 
-export type AriesCampaignStatus = 'draft' | 'in_review' | 'approved' | 'scheduled' | 'live' | 'changes_requested';
+export type AriesCampaignStatus =
+  | 'draft'
+  | 'in_review'
+  | 'approved'
+  | 'scheduled'
+  | 'live'
+  | 'changes_requested'
+  | 'rejected';
 
 export type RuntimeCampaignListItem = {
   id: string;
@@ -60,6 +71,9 @@ export type RuntimeReviewItem = {
   jobId: string;
   campaignId: string;
   campaignName: string;
+  reviewType: 'brand' | 'strategy' | 'creative' | 'workflow_approval';
+  workflowState: MarketingWorkflowState;
+  workflowStage: string | null;
   title: string;
   channel: string;
   placement: string;
@@ -83,6 +97,15 @@ export type RuntimeReviewItem = {
     notes: string[];
   };
   lastDecision: RuntimeReviewDecision | null;
+  notePlaceholder?: string;
+  assetId?: string;
+  contentType?: string | null;
+  previewUrl?: string | null;
+  fullPreviewUrl?: string | null;
+  destinationUrl?: string | null;
+  sections: MarketingReviewSection[];
+  attachments: MarketingReviewAttachment[];
+  history: MarketingCampaignStatusHistoryEntry[];
 };
 
 export type BusinessProfileView = {
@@ -94,9 +117,14 @@ export type BusinessProfileView = {
   primaryGoal: string | null;
   launchApproverUserId: string | null;
   launchApproverName: string | null;
+  offer: string | null;
+  notes: string | null;
+  competitorUrl: string | null;
+  channels: string[];
   brandKit: {
     brand_name: string;
     source_url: string;
+    canonical_url: string | null;
     logo_urls: string[];
     colors: {
       primary: string | null;
@@ -105,8 +133,44 @@ export type BusinessProfileView = {
       palette: string[];
     };
     font_families: string[];
+    external_links: Array<{
+      platform: string;
+      url: string;
+    }>;
+    extracted_at: string;
+    brand_voice_summary: string | null;
+    offer_summary: string | null;
   } | null;
   incomplete: boolean;
+};
+
+export type UrlPreviewBrandKitPreview = {
+  brandName: string;
+  canonicalUrl: string | null;
+  logoUrls: string[];
+  colors: {
+    primary: string | null;
+    secondary: string | null;
+    accent: string | null;
+    palette: string[];
+  };
+  fontFamilies: string[];
+  externalLinks: Array<{
+    platform: string;
+    url: string;
+  }>;
+  extractedAt: string;
+  brandVoiceSummary: string | null;
+  offerSummary: string | null;
+};
+
+export type UrlPreviewResponse = {
+  title: string;
+  favicon: string;
+  domain: string;
+  description: string;
+  canonicalUrl: string | null;
+  brandKitPreview: UrlPreviewBrandKitPreview | null;
 };
 
 export type CampaignListResponse = { campaigns: RuntimeCampaignListItem[] };
@@ -125,6 +189,11 @@ export type BusinessProfilePatch = {
   businessType?: string | null;
   primaryGoal?: string | null;
   launchApproverUserId?: string | null;
+  launchApproverName?: string | null;
+  offer?: string | null;
+  notes?: string | null;
+  competitorUrl?: string | null;
+  channels?: string[] | null;
 };
 export type TenantProfilesResponse = { profiles: TenantUserProfile[] };
 
@@ -225,6 +294,9 @@ export function createAriesV1Api(options: ApiClientOptions = {}) {
         method: 'PATCH',
         body: JSON.stringify(body),
       }, options);
+    },
+    getUrlPreview(url: string) {
+      return requestJson<UrlPreviewResponse>(`/api/pipeline/url-preview?url=${encodeURIComponent(url)}`, { method: 'GET' }, options);
     },
     getTenantProfiles() {
       return requestJson<TenantProfilesResponse>('/api/tenant/profiles', { method: 'GET' }, options);

@@ -160,6 +160,8 @@ export function StatusChip(props: { status: AriesCampaignStatus | AriesItemStatu
               ? 'border-teal-400/25 bg-teal-400/10 text-teal-100'
         : props.status === 'approved'
           ? 'border-indigo-400/25 bg-indigo-400/10 text-indigo-100'
+          : props.status === 'rejected'
+            ? 'border-rose-400/25 bg-rose-400/10 text-rose-100'
           : props.status === 'in_review'
             ? 'border-amber-400/25 bg-amber-400/10 text-amber-100'
             : props.status === 'changes_requested'
@@ -175,6 +177,7 @@ export function StatusChip(props: { status: AriesCampaignStatus | AriesItemStatu
       ready_to_publish: 'Ready to publish',
       published_to_meta_paused: 'Published to Meta (Paused)',
       approved: 'Approved',
+      rejected: 'Rejected',
       scheduled: 'Scheduled',
       live: 'Live',
       changes_requested: 'Needs changes',

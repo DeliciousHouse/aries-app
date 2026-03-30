@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-test('runOpenClawLobsterWorkflow logs missing gateway configuration before throwing', async () => {
+test('runOpenClawLobsterWorkflow logs missing gateway configuration before attempting local fallback', async () => {
   const previousGatewayUrl = process.env.OPENCLAW_GATEWAY_URL;
   const previousGatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN;
   const originalConsoleError = console.error;
@@ -25,7 +25,8 @@ test('runOpenClawLobsterWorkflow logs missing gateway configuration before throw
         }),
       (error: unknown) =>
         error instanceof OpenClawGatewayError &&
-        error.code === 'openclaw_gateway_not_configured'
+        error.code === 'openclaw_gateway_unreachable' &&
+        /local lobster cli failed/i.test(error.message)
     );
 
     assert.ok(logged.length > 0);
@@ -100,7 +101,7 @@ test('resumeOpenClawLobsterWorkflow preserves detailed gateway failure messages 
   }
 });
 
-test('runOpenClawLobsterWorkflow falls back to OPENCLAW_LOBSTER_CWD when gateway-specific cwd is unset', async () => {
+test('runOpenClawLobsterWorkflow normalizes OPENCLAW_LOBSTER_CWD when gateway-specific cwd is unset', async () => {
   const previousGatewayUrl = process.env.OPENCLAW_GATEWAY_URL;
   const previousGatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN;
   const previousGatewayLobsterCwd = process.env.OPENCLAW_GATEWAY_LOBSTER_CWD;
@@ -124,7 +125,7 @@ test('runOpenClawLobsterWorkflow falls back to OPENCLAW_LOBSTER_CWD when gateway
     });
 
     assert.equal(captured.length, 1);
-    assert.equal((captured[0]?.args as Record<string, unknown>)?.cwd, '/app/lobster');
+    assert.equal((captured[0]?.args as Record<string, unknown>)?.cwd, 'lobster');
   } finally {
     delete (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__;
     if (previousGatewayUrl === undefined) {

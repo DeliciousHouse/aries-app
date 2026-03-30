@@ -4,6 +4,7 @@ import path from 'node:path';
 import { resolveCodeRoot, resolveDataRoot } from '@/lib/runtime-paths';
 
 import { listMarketingDashboardAssetsForJob } from './dashboard-content';
+import { collectStrategyReviewArtifacts } from './artifact-collector';
 import { extractPublishReviewBundle } from './publish-review';
 import type { MarketingJobRuntimeDocument } from './runtime-state';
 
@@ -57,6 +58,22 @@ function assetRoots(): string[] {
   );
 }
 
+function outputRoots(): string[] {
+  return Array.from(
+    new Set(
+      [
+        process.env.OPENCLAW_LOCAL_LOBSTER_CWD?.trim()
+          ? path.join(process.env.OPENCLAW_LOCAL_LOBSTER_CWD.trim(), 'output')
+          : null,
+        process.env.OPENCLAW_LOBSTER_CWD?.trim()
+          ? path.join(process.env.OPENCLAW_LOBSTER_CWD.trim(), 'output')
+          : null,
+        path.join(resolveCodeRoot(), 'lobster', 'output'),
+      ].filter((value): value is string => typeof value === 'string' && value.length > 0),
+    ),
+  );
+}
+
 function resolveExistingRelativeAssetPath(filePath: string): string | null {
   for (const root of assetRoots()) {
     const candidate = path.resolve(root, filePath);
@@ -93,6 +110,18 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.map((entry) => stringValue(entry)).filter(Boolean)
     : [];
+}
+
+function slugify(value: string, fallback = ''): string {
+  const normalized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized || fallback;
+}
+
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(values.map((value) => stringValue(value)).filter(Boolean)));
 }
 
 function sniffImageContentType(filePath: string): string | null {
@@ -181,7 +210,10 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
     for (const candidate of candidates) {
       if (!path.isAbsolute(candidate)) {
         const resolved = resolveExistingRelativeAssetPath(candidate);
-        return resolved || candidate;
+        if (resolved) {
+          return resolved;
+        }
+        continue;
       }
       const resolved = resolveExistingAbsoluteAssetPath(candidate);
       if (resolved) {
@@ -198,6 +230,9 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
     label: string,
     fallbackPaths: Array<string | null | undefined> = []
   ) => {
+    if (assetById.has(id)) {
+      return;
+    }
     const resolvedPath = resolveAssetPath(filePath, fallbackPaths);
     if (!resolvedPath) {
       return;
@@ -209,6 +244,83 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
       contentType: contentTypeForAsset(resolvedPath),
     });
   };
+
+  const strategyOutputs = recordValue(runtimeDoc.stages.strategy.outputs);
+  const strategyFallback = collectStrategyReviewArtifacts(
+    runtimeDoc.stages.strategy.primary_output || { run_id: runtimeDoc.stages.strategy.run_id },
+    runtimeDoc,
+  );
+  const websiteAnalysisPath =
+    stringValue(strategyOutputs?.website_brand_analysis_path) ||
+    stringValue(strategyFallback.outputs.website_brand_analysis_path) ||
+    null;
+  const plannerPath =
+    stringValue(strategyOutputs?.campaign_planner_path) ||
+    stringValue(strategyFallback.outputs.campaign_planner_path) ||
+    null;
+  const strategyReviewPath =
+    stringValue(strategyOutputs?.strategy_review_path) ||
+    stringValue(strategyFallback.outputs.strategy_review_path) ||
+    null;
+  let websiteAnalysis: Record<string, unknown> | null = null;
+  if (websiteAnalysisPath) {
+    try {
+      const resolvedWebsiteAnalysisPath = resolveAssetPath(websiteAnalysisPath) || websiteAnalysisPath;
+      websiteAnalysis = recordValue(JSON.parse(readFileSync(resolvedWebsiteAnalysisPath, 'utf8')));
+    } catch {
+      websiteAnalysis = null;
+    }
+  }
+  websiteAnalysis ||= recordValue(strategyFallback.outputs.website);
+  const brandArtifacts = recordValue(websiteAnalysis?.artifacts);
+  const brandSlugCandidates = uniqueStrings([
+    stringValue(websiteAnalysis?.brand_slug),
+    stringValue(recordValue(websiteAnalysis?.brand_analysis)?.brand_slug),
+    slugify(stringValue(runtimeDoc.tenant_id)),
+    slugify(stringValue(runtimeDoc.brand_kit?.brand_name)),
+    (() => {
+      const candidateUrl = stringValue(runtimeDoc.brand_kit?.canonical_url, stringValue(runtimeDoc.inputs.brand_url));
+      if (!candidateUrl) {
+        return '';
+      }
+      try {
+        return slugify(new URL(candidateUrl).hostname.replace(/^www\./, ''));
+      } catch {
+        return '';
+      }
+    })(),
+  ]);
+
+  addAsset('strategy-website-analysis', websiteAnalysisPath, 'Website brand analysis');
+  addAsset('strategy-campaign-planner', plannerPath, 'Campaign planner');
+  addAsset('strategy-review-preview', strategyReviewPath, 'Strategy review preview');
+  addAsset(
+    'brand-bible-markdown',
+    stringValue(brandArtifacts?.brand_bible_markdown_path) || null,
+    'Brand bible',
+    outputRoots().flatMap((outputRoot) => brandSlugCandidates.map((brandSlug) => path.join(outputRoot, `${brandSlug}-brand-bible.md`))),
+  );
+  addAsset(
+    'brand-design-system',
+    stringValue(brandArtifacts?.design_system_css_path) || null,
+    'Design system',
+    outputRoots().flatMap((outputRoot) => brandSlugCandidates.map((brandSlug) => path.join(outputRoot, `${brandSlug}-design-system.css`))),
+  );
+
+  if (brandSlugCandidates.length > 0) {
+    addAsset(
+      'strategy-proposal-markdown',
+      null,
+      'Campaign proposal',
+      outputRoots().flatMap((outputRoot) => brandSlugCandidates.map((brandSlug) => path.join(outputRoot, `${brandSlug}-campaign-proposal.md`))),
+    );
+    addAsset(
+      'strategy-proposal-html',
+      null,
+      'Campaign proposal preview',
+      outputRoots().flatMap((outputRoot) => brandSlugCandidates.map((brandSlug) => path.join(outputRoot, `${brandSlug}-campaign-proposal.html`))),
+    );
+  }
 
   const dashboardAssets = listMarketingDashboardAssetsForJob(jobId);
   const previewFallbacksByPlatform = new Map<string, string[]>();

@@ -107,7 +107,7 @@ Generate a self-contained HTML report using the template structure below.
    - Funnel header (name, URL)
    - Landing page card (screenshot + analysis)
    - Ad cards grid (media + analysis for each)
-   
+
 4. Footer
    - Source attribution
    - Date generated

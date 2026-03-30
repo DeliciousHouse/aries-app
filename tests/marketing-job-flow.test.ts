@@ -169,21 +169,9 @@ test('/marketing/new-job uses the canonical MarketingNewJobScreen', () => {
   assert.equal(element.type, MarketingNewJobScreen);
 });
 
-test('startMarketingJob rejects brand_campaign requests without both required URLs', async () => {
+test('startMarketingJob rejects brand_campaign requests without a brand URL', async () => {
   await withMarketingRuntimeEnv(async () => {
     const startMarketingJob = await loadStartMarketingJob();
-
-    await assert.rejects(
-      () =>
-        startMarketingJob({
-          tenantId: 'tenant_123',
-          jobType: 'brand_campaign',
-          payload: {
-            brandUrl: 'https://brand.example',
-          },
-        }),
-      /missing_required_fields:.*competitorUrl/i,
-    );
 
     await assert.rejects(
       () =>
@@ -226,7 +214,7 @@ test('startMarketingJob uses repo-managed runtime without legacy workflow env', 
     const firstArgs = (tracking.firstRunPayload?.args as Record<string, unknown> | undefined) ?? {};
     assert.equal(firstArgs.action, 'run');
     assert.equal(firstArgs.pipeline, 'marketing-pipeline.lobster');
-    assert.equal(firstArgs.cwd, path.join(PROJECT_ROOT, 'lobster'));
+    assert.equal(firstArgs.cwd, 'lobster');
 
     const runtimeFile = path.join(dataRoot, 'generated', 'draft', 'marketing-jobs', `${result.jobId}.json`);
     const runtimeDoc = JSON.parse(await readFile(runtimeFile, 'utf8')) as any;
@@ -774,6 +762,8 @@ test('approveMarketingJob backfills a missing brand kit for legacy runtime docum
       font_families: [],
       external_links: [],
       extracted_at: new Date().toISOString(),
+      brand_voice_summary: null,
+      offer_summary: null,
     });
 
     await writeFile(

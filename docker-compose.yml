@@ -22,6 +22,9 @@ services:
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI}
       META_REDIRECT_URI: ${META_REDIRECT_URI}
+      META_ACCESS_TOKEN: ${META_ACCESS_TOKEN}
+      META_AD_ACCOUNT_ID: ${META_AD_ACCOUNT_ID}
+      META_PAGE_ID: ${META_PAGE_ID}
       LINKEDIN_REDIRECT_URI: ${LINKEDIN_REDIRECT_URI}
       TIKTOK_REDIRECT_URI: ${TIKTOK_REDIRECT_URI}
       X_REDIRECT_URI: ${X_REDIRECT_URI}
@@ -44,6 +47,19 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    networks:
+      - docker_stack
+
+  mission-control:
+    image: node:24
+    working_dir: /app/mission-control
+    command: sh -lc "npm install && npm run build && npm run preview"
+    volumes:
+      - /home/node/openclaw/projects/mission-control-builder/mission-control:/app/mission-control
+      - /home/node/openclaw/aries-app:/app/aries-app
+    ports:
+      - "4174:4174"
+    restart: unless-stopped
     networks:
       - docker_stack
 

@@ -47,6 +47,7 @@ const STATUS_META: Record<AriesCampaignStatus, { label: string; color: string }>
   scheduled: { label: 'Scheduled', color: '#38bdf8' },
   live: { label: 'Live', color: '#34d399' },
   changes_requested: { label: 'Needs changes', color: '#fb7185' },
+  rejected: { label: 'Rejected', color: '#ef4444' },
 };
 
 function formatUpdatedLabel(updatedAt: string | null): string {

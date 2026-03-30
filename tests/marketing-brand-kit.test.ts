@@ -170,17 +170,19 @@ test('extractBrandKitFromWebsite derives logo, palette, fonts, and social links 
     assert.equal(brandKit.tenant_id, 'sugarandleather');
     assert.equal(brandKit.source_url, 'https://sugarandleather.com');
     assert.equal(brandKit.brand_name, 'Sugar & Leather');
-    assert.equal(brandKit.canonical_url, 'https://sugarandleather.com');
+    assert.equal(brandKit.canonical_url, 'https://cdn.sugarandleather.com/pages/home');
     assert.deepEqual(brandKit.logo_urls, [
+      'https://sugarandleather.com/assets/wordmark.png',
       'https://sugarandleather.com/assets/logo-mark.svg',
       'https://sugarandleather.com/assets/social-card.jpg',
-      'https://sugarandleather.com/assets/wordmark.png',
     ]);
     assert.equal(brandKit.colors.primary, '#9c6b3e');
     assert.equal(brandKit.colors.secondary, '#f3e9dd');
     assert.equal(brandKit.colors.accent, '#3d2410');
     assert.deepEqual(brandKit.font_families, ['Manrope', 'Cormorant Garamond']);
     assert.match(brandKit.extracted_at, /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal(brandKit.brand_voice_summary, null);
+    assert.equal(brandKit.offer_summary, null);
     assert.deepEqual(brandKit.external_links, [
       { platform: 'instagram', url: 'https://instagram.com/sugarandleather' },
       { platform: 'facebook', url: 'https://facebook.com/sugarandleather' },
@@ -216,14 +218,14 @@ test('startMarketingJob persists a reusable tenant brand kit and stores a runtim
       assert.equal(runtimeDoc.brand_kit.source_url, 'https://sugarandleather.com');
       assert.equal(runtimeDoc.brand_kit.brand_name, 'Sugar & Leather');
       assert.equal(runtimeDoc.brand_kit.path, brandKitFile);
-      assert.equal(runtimeDoc.brand_kit.canonical_url, 'https://sugarandleather.com');
+      assert.equal(runtimeDoc.brand_kit.canonical_url, 'https://cdn.sugarandleather.com/pages/home');
       assert.equal(runtimeDoc.brand_kit.colors.primary, '#9c6b3e');
       assert.deepEqual(runtimeDoc.brand_kit.font_families, ['Manrope', 'Cormorant Garamond']);
       assert.match(runtimeDoc.brand_kit.extracted_at, /^\d{4}-\d{2}-\d{2}T/);
       assert.equal(persistedBrandKit.tenant_id, 'sugarandleather');
       assert.equal(persistedBrandKit.brand_name, 'Sugar & Leather');
       assert.equal(persistedBrandKit.source_url, 'https://sugarandleather.com');
-      assert.equal(persistedBrandKit.canonical_url, 'https://sugarandleather.com');
+      assert.equal(persistedBrandKit.canonical_url, 'https://cdn.sugarandleather.com/pages/home');
       assert.equal(persistedBrandKit.colors.accent, '#3d2410');
       assert.match(persistedBrandKit.extracted_at, /^\d{4}-\d{2}-\d{2}T/);
     } finally {
@@ -383,6 +385,8 @@ test('saveMarketingJobRuntime rejects brand campaign runtime documents without a
         font_families: ['Manrope'],
         external_links: [],
         extracted_at: new Date().toISOString(),
+        brand_voice_summary: null,
+        offer_summary: null,
       },
     });
 

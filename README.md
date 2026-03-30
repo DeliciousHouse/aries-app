@@ -146,9 +146,15 @@ NODE_ENV=development npm ci
 ```bash
 cp .env.example .env
 export DB_HOST=localhost DB_PORT=5432 DB_USER=aries_user DB_PASSWORD=aries_pass DB_NAME=aries_dev
-export CODE_ROOT=/workspace DATA_ROOT=/tmp/aries-data NODE_ENV=development
+export CODE_ROOT=/home/node/openclaw/aries-app DATA_ROOT=/tmp/aries-data NODE_ENV=development
+export OPENCLAW_GATEWAY_LOBSTER_CWD=lobster
+export OPENCLAW_LOCAL_LOBSTER_CWD=/home/node/openclaw/aries-app/lobster
+export OPENCLAW_LOBSTER_CWD=/home/node/openclaw/aries-app/lobster
 export APP_BASE_URL=http://localhost:3000 NEXTAUTH_URL=http://localhost:3000 AUTH_URL=http://localhost:3000 AUTH_TRUST_HOST=true
+export MARKETING_STATUS_PUBLIC=1
 ```
+
+Use `OPENCLAW_GATEWAY_LOBSTER_CWD=lobster` for gateway calls. Keep `OPENCLAW_LOCAL_LOBSTER_CWD` / `OPENCLAW_LOBSTER_CWD` pointed at the absolute checkout path for local file reads and compatibility tooling.
 
 ### 3) Start PostgreSQL
 
@@ -164,13 +170,13 @@ npm run db:init
 
 ### 5) Start the dev server
 
-Use **Turbopack**. In this repo, that is required for Tailwind CSS v4 processing.
+Use **Turbopack**. In this repo, that is required for Tailwind CSS v4 processing, and `next.config.ts` pins the app root so Next does not drift up to the parent workspace.
 
 ```bash
-npx next dev -p 3000 --turbopack
+npm run dev
 ```
 
-> `npm run dev` exists, but it does **not** add `--turbopack`. Prefer the explicit command above for local development.
+`MARKETING_STATUS_PUBLIC=1` is optional for local demo flows where teammates want to use the dashboard, campaign workspace, review queue, status pages, and asset routes without a full authenticated session. In that mode, Aries serves the latest runtime-backed marketing data directly so teammates can reproduce UI fixes locally instead of depending on a VM-only session.
 
 ## Docker Compose
 
@@ -237,10 +243,12 @@ docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml
 
 - `AUTH_TRUST_HOST`
 - `OPENCLAW_SESSION_KEY`
+- `OPENCLAW_GATEWAY_LOBSTER_CWD`
+- `OPENCLAW_LOCAL_LOBSTER_CWD`
 - `OPENCLAW_LOBSTER_CWD`
 - `INTERNAL_API_SECRET`
 - `LOG_LEVEL`
-- Provider-specific OAuth credentials such as `META_APP_ID`, `META_APP_SECRET`, and similar values for supported platforms
+- Provider-specific credentials such as `META_ACCESS_TOKEN`, `META_AD_ACCOUNT_ID`, `META_PAGE_ID`, `META_REDIRECT_URI`, and similar values for supported platforms
 
 ## Supported product flows
 

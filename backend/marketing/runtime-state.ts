@@ -1,11 +1,11 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { resolveDataPath, resolveSpecPath } from '@/lib/runtime-paths';
+import { describeSpecResolution, resolveDataPath } from '@/lib/runtime-paths';
 import type { TenantBrandKit } from './brand-kit';
 
-const REQUIRED_SCHEMA_PATHS = [
-  resolveSpecPath('marketing_job_state_schema.v1.json'),
+const REQUIRED_SCHEMA_FILES = [
+  'marketing_job_state_schema.v1.json',
 ] as const;
 const MARKETING_RUNTIME_SCHEMA_NAME = 'marketing_job_state_schema';
 const LEGACY_MARKETING_RUNTIME_SCHEMA_NAME = 'job_runtime_state_schema';
@@ -209,7 +209,7 @@ export function createMarketingJobRuntimeDocument(input: {
     inputs: {
       request: input.payload,
       brand_url: asString(input.payload.brandUrl) || '',
-      competitor_url: asString(input.payload.competitorUrl),
+      competitor_url: asString(input.payload.competitorUrl) || asString(input.payload.brandUrl),
       competitor_facebook_url: asString(input.payload.competitorFacebookUrl),
     },
     errors: [],
@@ -229,9 +229,22 @@ export function createMarketingJobRuntimeDocument(input: {
 }
 
 export function assertMarketingRuntimeSchemas(): void {
-  for (const schemaPath of REQUIRED_SCHEMA_PATHS) {
+  for (const fileName of REQUIRED_SCHEMA_FILES) {
+    const resolution = describeSpecResolution(fileName);
+    console.info('[marketing-runtime-schema]', {
+      event: 'resolve',
+      requestedCodeRoot: resolution.requestedCodeRoot,
+      resolvedCodeRoot: resolution.resolvedCodeRoot,
+      resolvedSpecPath: resolution.resolvedSpecPath,
+      cwd: process.cwd(),
+      triedSpecPaths: resolution.triedSpecPaths,
+    });
+
+    const schemaPath = resolution.resolvedSpecPath;
     if (!existsSync(schemaPath)) {
-      throw new Error(`HARD_FAILURE: missing required schema input: ${schemaPath}`);
+      throw new Error(
+        `marketing_runtime_schema_resolution_failed: requestedCodeRoot=${resolution.requestedCodeRoot || 'unset'} cwd=${process.cwd()} resolvedCodeRoot=${resolution.resolvedCodeRoot} triedSpecPaths=${resolution.triedSpecPaths.join(', ')}`,
+      );
     }
 
     try {
@@ -384,6 +397,60 @@ function collectMarketingJobRefsForTenant(tenantId: string): Array<{ jobId: stri
 
 export function listMarketingJobIdsForTenant(tenantId: string): string[] {
   return collectMarketingJobRefsForTenant(tenantId).map((entry) => entry.jobId);
+}
+
+export function listMarketingTenantIds(): string[] {
+  const root = marketingRuntimeRoot();
+  if (!existsSync(root)) {
+    return [];
+  }
+
+  const entries = readdirSync(root).filter((entry) => entry.endsWith('.json'));
+  const tenants = new Set<string>();
+
+  for (const entry of entries) {
+    try {
+      const raw = readFileSync(path.join(root, entry), 'utf8');
+      const doc = JSON.parse(raw) as Record<string, unknown>;
+      const tenantId = typeof doc.tenant_id === 'string' ? doc.tenant_id.trim() : '';
+      if (tenantId) {
+        tenants.add(tenantId);
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return [...tenants];
+}
+
+export function findLatestMarketingTenantId(): string | null {
+  const root = marketingRuntimeRoot();
+  if (!existsSync(root)) {
+    return null;
+  }
+
+  const entries = readdirSync(root).filter((entry) => entry.endsWith('.json'));
+  let latest: { tenantId: string; updatedAt: number } | null = null;
+
+  for (const entry of entries) {
+    try {
+      const raw = readFileSync(path.join(root, entry), 'utf8');
+      const doc = JSON.parse(raw) as Record<string, unknown>;
+      const tenantId = typeof doc.tenant_id === 'string' ? doc.tenant_id.trim() : '';
+      const updatedAt = Date.parse(typeof doc.updated_at === 'string' ? doc.updated_at : '');
+      if (!tenantId || !Number.isFinite(updatedAt)) {
+        continue;
+      }
+      if (!latest || updatedAt > latest.updatedAt) {
+        latest = { tenantId, updatedAt };
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return latest?.tenantId ?? null;
 }
 
 export function findLatestMarketingJobIdForTenant(tenantId: string): string | null {

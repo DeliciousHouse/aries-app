@@ -4,12 +4,17 @@ import { isValidElement } from 'react';
 
 import HomePage from '../app/page';
 import DashboardPage from '../app/dashboard/page';
+import DashboardBrandReviewPage from '../app/dashboard/brand-review/page';
 import DashboardCampaignsPage from '../app/dashboard/campaigns/page';
+import DashboardNewCampaignPage from '../app/dashboard/campaigns/new/page';
 import DashboardCampaignWorkspacePage from '../app/dashboard/campaigns/[campaignId]/page';
 import DashboardCalendarPage from '../app/dashboard/calendar/page';
+import DashboardCreativeReviewPage from '../app/dashboard/creative-review/page';
+import DashboardPublishStatusPage from '../app/dashboard/publish-status/page';
 import DashboardPostsPage from '../app/dashboard/posts/page';
 import DashboardResultsPage from '../app/dashboard/results/page';
 import DashboardSettingsPage from '../app/dashboard/settings/page';
+import DashboardStrategyReviewPage from '../app/dashboard/strategy-review/page';
 import CampaignsPage from '../app/campaigns/page';
 import CampaignWorkspacePage from '../app/campaigns/[campaignId]/page';
 import ReviewQueuePage from '../app/review/page';
@@ -32,6 +37,7 @@ import DonorHomePage from '../frontend/donor/marketing/home-page';
 import AriesHomeDashboard from '../frontend/aries-v1/home-dashboard';
 import AriesCampaignListScreen from '../frontend/aries-v1/campaign-list';
 import AriesCampaignWorkspace from '../frontend/aries-v1/campaign-workspace';
+import AriesLatestCampaignView from '../frontend/aries-v1/latest-campaign-view';
 import AriesReviewQueueScreen from '../frontend/aries-v1/review-queue';
 import AriesReviewItemScreen from '../frontend/aries-v1/review-item';
 import AriesCalendarScreen from '../frontend/aries-v1/calendar-screen';
@@ -89,6 +95,16 @@ test('/dashboard/campaigns wraps the campaign list in the app shell', () => {
   assert.equal(element.props.children.type, AriesCampaignListScreen);
 });
 
+test('/dashboard/campaigns/new wraps the new campaign flow in the app shell', () => {
+  const element = DashboardNewCampaignPage();
+
+  assert.equal(isValidElement(element), true);
+  assert.equal(element.type, AppShellLayout);
+  assert.equal(element.props.currentRouteId, 'newCampaign');
+  assert.equal(isValidElement(element.props.children), true);
+  assert.equal(element.props.children.type, MarketingNewJobScreen);
+});
+
 test('/campaigns redirects to the canonical dashboard campaigns route', () => {
   expectRedirect(() => CampaignsPage(), '/dashboard/campaigns');
 });
@@ -98,6 +114,7 @@ test('/dashboard/campaigns/[campaignId] preserves the campaign id for the worksp
     params: Promise.resolve({
       campaignId: 'spring-atelier-launch',
     }),
+    searchParams: Promise.resolve({}),
   });
 
   assert.equal(isValidElement(element), true);
@@ -106,6 +123,22 @@ test('/dashboard/campaigns/[campaignId] preserves the campaign id for the worksp
   assert.equal(isValidElement(element.props.children), true);
   assert.equal(element.props.children.type, AriesCampaignWorkspace);
   assert.equal(element.props.children.props.campaignId, 'spring-atelier-launch');
+});
+
+test('/dashboard/campaigns/[campaignId] forwards the selected review view into the workspace', async () => {
+  const element = await DashboardCampaignWorkspacePage({
+    params: Promise.resolve({
+      campaignId: 'spring-atelier-launch',
+    }),
+    searchParams: Promise.resolve({
+      view: 'creative',
+    }),
+  });
+
+  assert.equal(isValidElement(element), true);
+  assert.equal(element.type, AppShellLayout);
+  assert.equal(element.props.currentRouteId, 'creativeReview');
+  assert.equal(element.props.children.props.initialView, 'creative');
 });
 
 test('/campaigns/[campaignId] redirects to the canonical dashboard campaign workspace route', async () => {
@@ -163,6 +196,50 @@ test('/dashboard/calendar wraps the calendar screen in the app shell', () => {
   assert.equal(element.props.currentRouteId, 'calendar');
   assert.equal(isValidElement(element.props.children), true);
   assert.equal(element.props.children.type, AriesCalendarScreen);
+});
+
+test('/dashboard/brand-review opens the latest campaign brand review route inside the app shell', () => {
+  const element = DashboardBrandReviewPage();
+
+  assert.equal(isValidElement(element), true);
+  assert.equal(element.type, AppShellLayout);
+  assert.equal(element.props.currentRouteId, 'brandReview');
+  assert.equal(isValidElement(element.props.children), true);
+  assert.equal(element.props.children.type, AriesLatestCampaignView);
+  assert.equal(element.props.children.props.view, 'brand');
+});
+
+test('/dashboard/strategy-review opens the latest campaign strategy review route inside the app shell', () => {
+  const element = DashboardStrategyReviewPage();
+
+  assert.equal(isValidElement(element), true);
+  assert.equal(element.type, AppShellLayout);
+  assert.equal(element.props.currentRouteId, 'strategyReview');
+  assert.equal(isValidElement(element.props.children), true);
+  assert.equal(element.props.children.type, AriesLatestCampaignView);
+  assert.equal(element.props.children.props.view, 'strategy');
+});
+
+test('/dashboard/creative-review opens the latest campaign creative review route inside the app shell', () => {
+  const element = DashboardCreativeReviewPage();
+
+  assert.equal(isValidElement(element), true);
+  assert.equal(element.type, AppShellLayout);
+  assert.equal(element.props.currentRouteId, 'creativeReview');
+  assert.equal(isValidElement(element.props.children), true);
+  assert.equal(element.props.children.type, AriesLatestCampaignView);
+  assert.equal(element.props.children.props.view, 'creative');
+});
+
+test('/dashboard/publish-status opens the latest campaign publish status route inside the app shell', () => {
+  const element = DashboardPublishStatusPage();
+
+  assert.equal(isValidElement(element), true);
+  assert.equal(element.type, AppShellLayout);
+  assert.equal(element.props.currentRouteId, 'publishStatus');
+  assert.equal(isValidElement(element.props.children), true);
+  assert.equal(element.props.children.type, AriesLatestCampaignView);
+  assert.equal(element.props.children.props.view, 'publish');
 });
 
 test('/calendar redirects to the canonical dashboard calendar route', () => {

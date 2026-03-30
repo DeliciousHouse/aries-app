@@ -25,6 +25,8 @@ export type TenantBrandKit = {
   font_families: string[];
   external_links: TenantBrandLink[];
   extracted_at: string;
+  brand_voice_summary: string | null;
+  offer_summary: string | null;
 };
 
 const SOCIAL_HOSTS: Array<[platform: string, hostname: string]> = [
@@ -37,6 +39,67 @@ const SOCIAL_HOSTS: Array<[platform: string, hostname: string]> = [
   ['linkedin', 'linkedin.com'],
 ];
 const TENANT_BRAND_KIT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const GENERIC_FONT_NAMES = new Set([
+  'serif',
+  'sans-serif',
+  'monospace',
+  'system-ui',
+  'ui-sans-serif',
+  'ui-serif',
+  'ui-monospace',
+  'cursive',
+  'fantasy',
+  'emoji',
+  'math',
+  'fangsong',
+  'inherit',
+  'initial',
+  'unset',
+  '-apple-system',
+  'blinkmacsystemfont',
+  'segoe ui',
+  'helvetica',
+  'helvetica neue',
+  'arial',
+  'sans',
+  'system',
+]);
+const OFFER_KEYWORDS = [
+  'coaching',
+  'program',
+  'membership',
+  'course',
+  'shop',
+  'book',
+  'apply',
+  'join',
+  'subscribe',
+  'buy',
+  'schedule',
+  'consult',
+  'free',
+  'sale',
+  'offer',
+  'service',
+];
+const CTA_KEYWORDS = [
+  'book',
+  'apply',
+  'join',
+  'shop',
+  'start',
+  'schedule',
+  'learn',
+  'watch',
+  'discover',
+  'browse',
+  'contact',
+];
+
+function includesKeywordPhrase(value: string, keywords: string[]): boolean {
+  const normalized = value.toLowerCase();
+  return keywords.some((keyword) => new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(normalized));
+}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -55,9 +118,22 @@ function unique<T>(values: T[]): T[] {
   return Array.from(new Set(values));
 }
 
+function normalizeWhitespace(value: string): string {
+  return decodeHtmlEntities(value).replace(/\s+/g, ' ').trim();
+}
+
 function normalizeColor(value: string): string | null {
   const trimmed = value.trim().toLowerCase();
-  return /^#[0-9a-f]{3,8}$/.test(trimmed) ? trimmed : null;
+  if (!trimmed || trimmed === 'transparent') {
+    return null;
+  }
+  if (!/^#[0-9a-f]{3,8}$/.test(trimmed)) {
+    return null;
+  }
+  if ((trimmed.length === 5 && trimmed.endsWith('0')) || (trimmed.length === 9 && trimmed.endsWith('00'))) {
+    return null;
+  }
+  return trimmed;
 }
 
 function websiteHostname(url: string): string {
@@ -73,14 +149,13 @@ function hostnameRoot(hostname: string): string {
   return parts.length >= 2 ? parts.slice(-2).join('.') : hostname;
 }
 
-function inferBrandName(url: string): string {
+function domainTokens(url: string): string[] {
   const hostname = websiteHostname(url).replace(/^www\./, '');
   const root = hostname.split('.')[0] || hostname;
   return root
     .split(/[^a-z0-9]+/i)
     .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
+    .map((token) => token.toLowerCase());
 }
 
 function resolveAbsoluteUrl(baseUrl: string, candidate: string): string | null {
@@ -96,22 +171,6 @@ function resolveAbsoluteUrl(baseUrl: string, candidate: string): string | null {
   }
 }
 
-function extractMetaContent(html: string, attribute: string, key: string): string | null {
-  const matches = html.matchAll(/<meta\b([^>]*)>/gi);
-  for (const match of matches) {
-    const attributes = parseTagAttributes(match[1] || '');
-    if ((attributes[attribute] || '').toLowerCase() === key.toLowerCase()) {
-      return decodeHtmlEntities((attributes.content || '').trim()) || null;
-    }
-  }
-  return null;
-}
-
-function extractTitle(html: string): string | null {
-  const title = html.match(/<title>([^<]+)<\/title>/i)?.[1]?.replace(/\s+/g, ' ').trim() || null;
-  return title ? decodeHtmlEntities(title) : null;
-}
-
 function parseTagAttributes(attributesSource: string): Record<string, string> {
   const attributes: Record<string, string> = {};
   const matches = attributesSource.matchAll(/([a-zA-Z_:-]+)\s*=\s*["']([^"']*)["']/g);
@@ -119,6 +178,23 @@ function parseTagAttributes(attributesSource: string): Record<string, string> {
     attributes[match[1].toLowerCase()] = decodeHtmlEntities(match[2]);
   }
   return attributes;
+}
+
+function extractMetaContent(html: string, attribute: string, key: string): string | null {
+  const matches = html.matchAll(/<meta\b([^>]*)>/gi);
+  for (const match of matches) {
+    const attributes = parseTagAttributes(match[1] || '');
+    if ((attributes[attribute] || '').toLowerCase() === key.toLowerCase()) {
+      const content = normalizeWhitespace(attributes.content || '');
+      return content || null;
+    }
+  }
+  return null;
+}
+
+function extractTitle(html: string): string | null {
+  const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '';
+  return normalizeWhitespace(title) || null;
 }
 
 function extractLinkCandidates(html: string, relNeedle: string): string[] {
@@ -134,13 +210,21 @@ function extractLinkCandidates(html: string, relNeedle: string): string[] {
   return urls.filter(Boolean);
 }
 
-function extractImageCandidates(html: string): string[] {
+function extractCanonicalUrl(html: string, baseUrl: string): string | null {
+  const raw = extractLinkCandidates(html, 'canonical')[0] || '';
+  return raw ? resolveAbsoluteUrl(baseUrl, raw) : null;
+}
+
+function extractImageCandidates(html: string): Array<{ url: string; alt: string }> {
   const matches = html.matchAll(/<img\b([^>]*)>/gi);
-  const urls: string[] = [];
+  const urls: Array<{ url: string; alt: string }> = [];
   for (const match of matches) {
     const attributes = parseTagAttributes(match[1] || '');
     if (attributes.src) {
-      urls.push(attributes.src);
+      urls.push({
+        url: attributes.src,
+        alt: normalizeWhitespace(attributes.alt || ''),
+      });
     }
   }
   return urls;
@@ -155,8 +239,56 @@ function extractStylesheetUrls(html: string, baseUrl: string): string[] {
 function extractInlineCss(html: string): string[] {
   return Array.from(
     html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi),
-    (match) => match[1]?.trim() || ''
+    (match) => match[1]?.trim() || '',
   ).filter(Boolean);
+}
+
+function extractTextByTag(html: string, tagName: string): string[] {
+  return Array.from(
+    html.matchAll(new RegExp(`<${tagName}\\b[^>]*>([\\s\\S]*?)<\\/${tagName}>`, 'gi')),
+    (match) => normalizeWhitespace(match[1] || ''),
+  ).filter(Boolean);
+}
+
+function htmlToText(html: string): string {
+  return normalizeWhitespace(
+    html
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, ' ')
+      .replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, ' ')
+      .replace(/<[^>]+>/g, ' '),
+  );
+}
+
+function cleanSentenceCandidate(value: string | null | undefined, maxLength = 220): string | null {
+  const normalized = normalizeWhitespace(value || '');
+  if (!normalized) {
+    return null;
+  }
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, maxLength).trimEnd()}...`;
+}
+
+function normalizeFontFamilyCandidate(value: string): string | null {
+  const cleaned = value.trim().replace(/^['"]|['"]$/g, '');
+  if (!cleaned) {
+    return null;
+  }
+  const normalized = cleaned.toLowerCase();
+  if (
+    GENERIC_FONT_NAMES.has(normalized) ||
+    normalized.startsWith('var(') ||
+    normalized.startsWith('--') ||
+    normalized.includes('var(--') ||
+    normalized.includes('!important') ||
+    normalized.includes('system')
+  ) {
+    return null;
+  }
+  return cleaned;
 }
 
 function extractFontFamilies(cssBlocks: string[]): string[] {
@@ -165,14 +297,12 @@ function extractFontFamilies(cssBlocks: string[]): string[] {
   for (const css of cssBlocks) {
     const matches = css.matchAll(/font-family\s*:\s*([^;}{]+)[;}]?/gi);
     for (const match of matches) {
-      const rawFamilies = match[1].split(',').map((entry) => entry.trim().replace(/^['"]|['"]$/g, ''));
-      for (const family of rawFamilies) {
-        if (!family) continue;
-        const normalized = family.toLowerCase();
-        if (['serif', 'sans-serif', 'monospace', 'system-ui', 'cursive', 'fantasy'].includes(normalized)) {
-          continue;
+      const rawFamilies = match[1].split(',');
+      for (const rawFamily of rawFamilies) {
+        const family = normalizeFontFamilyCandidate(rawFamily);
+        if (family) {
+          families.push(family);
         }
-        families.push(family);
       }
     }
   }
@@ -188,11 +318,9 @@ function extractBrandColors(html: string, cssBlocks: string[]): TenantBrandColor
     palette.push(themeColor);
   }
 
-  const customPropertyOrder = ['--brand-primary', '--brand-secondary', '--brand-accent'];
   for (const css of cssBlocks) {
-    for (const property of customPropertyOrder) {
-      const match = css.match(new RegExp(`${property}\\s*:\\s*(#[0-9a-fA-F]{3,8})`, 'i'));
-      const color = normalizeColor(match?.[1] || '');
+    for (const match of css.matchAll(/--(?:brand|color|accent|primary|secondary)[\w-]*\s*:\s*([^;}{]+)/gi)) {
+      const color = normalizeColor(match[1] || '');
       if (color) {
         palette.push(color);
       }
@@ -250,35 +378,266 @@ function extractExternalLinks(html: string, baseUrl: string): TenantBrandLink[] 
   return unique(discovered.map((entry) => JSON.stringify(entry))).map((entry) => JSON.parse(entry));
 }
 
-function dedupeLogoUrls(urls: Array<string | null>): string[] {
-  return unique(urls.filter((entry): entry is string => !!entry));
+function brandNameScore(candidate: string, url: string): number {
+  const normalized = normalizeWhitespace(candidate);
+  if (!normalized) {
+    return -1;
+  }
+
+  const tokens = domainTokens(url);
+  const normalizedTokens = normalized.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const overlap = normalizedTokens.filter((token) => tokens.some((domainToken) => domainToken.includes(token) || token.includes(domainToken))).length;
+  const separatorPenalty = /[|•]/.test(normalized) ? 3 : 0;
+  const lengthPenalty = normalized.length > 60 ? 2 : 0;
+  return overlap * 10 - separatorPenalty - lengthPenalty;
 }
 
-async function fetchText(url: string, fetchImpl: typeof fetch): Promise<string | null> {
-  const response = await fetchImpl(url);
+function cleanBrandNameCandidate(candidate: string, url: string): string | null {
+  const normalized = normalizeWhitespace(candidate);
+  if (!normalized) {
+    return null;
+  }
+
+  const segments = normalized
+    .split(/\s+[|•-]\s+/)
+    .map((segment) => normalizeWhitespace(segment))
+    .filter(Boolean);
+
+  if (segments.length === 0) {
+    return null;
+  }
+
+  const best = segments
+    .map((segment) => ({ segment, score: brandNameScore(segment, url) }))
+    .sort((left, right) => right.score - left.score || left.segment.length - right.segment.length)[0];
+
+  return best?.segment || normalized;
+}
+
+function chooseBrandName(candidates: Array<string | null | undefined>, url: string): string | null {
+  const cleaned = candidates
+    .map((candidate) => cleanBrandNameCandidate(candidate || '', url))
+    .filter((candidate): candidate is string => !!candidate);
+  if (cleaned.length === 0) {
+    return null;
+  }
+
+  return cleaned
+    .map((candidate) => ({ candidate, score: brandNameScore(candidate, url) }))
+    .sort((left, right) => right.score - left.score || left.candidate.length - right.candidate.length)[0]
+    ?.candidate || null;
+}
+
+type LogoCandidate = {
+  url: string;
+  score: number;
+};
+
+function scoreLogoCandidate(input: {
+  url: string;
+  alt?: string;
+  rel?: string;
+  source: 'img' | 'link' | 'og';
+}): number {
+  const lowerUrl = input.url.toLowerCase();
+  const alt = normalizeWhitespace(input.alt || '').toLowerCase();
+  const explicitLogoSignal = /logo|wordmark|logotype|lockup|brand|mark/.test(lowerUrl) || /logo|wordmark|logotype|lockup|brand|mark/.test(alt);
+  let score = 0;
+
+  if (input.source === 'img') score += 20;
+  if (input.source === 'og') score += 8;
+  if (input.source === 'link') score -= 20;
+  if (explicitLogoSignal) {
+    score += 80;
+  }
+  if (/favicon|apple-touch-icon|mask-icon|mstile|android-chrome|icon-16|icon-32|icon-48/.test(lowerUrl)) {
+    score -= 100;
+  }
+  if (!explicitLogoSignal && /icon/.test(input.rel || '')) {
+    score -= 40;
+  }
+  if (/\.(svg|png|webp|jpg|jpeg)$/i.test(lowerUrl)) {
+    score += 6;
+  }
+
+  return score;
+}
+
+function extractLogoUrls(html: string, baseUrl: string): string[] {
+  const candidates: LogoCandidate[] = [];
+  const ogImage = extractMetaContent(html, 'property', 'og:image');
+  const ogImageUrl = resolveAbsoluteUrl(baseUrl, ogImage || '');
+  if (ogImageUrl) {
+    candidates.push({
+      url: ogImageUrl,
+      score: scoreLogoCandidate({ url: ogImageUrl, source: 'og' }),
+    });
+  }
+
+  for (const match of html.matchAll(/<link\b([^>]*)>/gi)) {
+    const attributes = parseTagAttributes(match[1] || '');
+    const href = resolveAbsoluteUrl(baseUrl, attributes.href || '');
+    if (!href) {
+      continue;
+    }
+    candidates.push({
+      url: href,
+      score: scoreLogoCandidate({ url: href, rel: attributes.rel, source: 'link' }),
+    });
+  }
+
+  for (const image of extractImageCandidates(html)) {
+    const href = resolveAbsoluteUrl(baseUrl, image.url);
+    if (!href) {
+      continue;
+    }
+    candidates.push({
+      url: href,
+      score: scoreLogoCandidate({ url: href, alt: image.alt, source: 'img' }),
+    });
+  }
+
+  return unique(
+    candidates
+      .filter((candidate) => candidate.score >= 0)
+      .sort((left, right) => right.score - left.score)
+      .map((candidate) => candidate.url),
+  );
+}
+
+function likelyCtas(html: string): string[] {
+  const texts = [
+    ...extractTextByTag(html, 'button'),
+    ...extractTextByTag(html, 'a'),
+  ]
+    .map((text) => normalizeWhitespace(text))
+    .filter((text) => text.length > 1 && text.length <= 90);
+
+  return unique(
+    texts.filter((text) => includesKeywordPhrase(text, CTA_KEYWORDS)).slice(0, 4),
+  );
+}
+
+function deriveBrandVoiceSummary(html: string): string | null {
+  const metaDescription = cleanSentenceCandidate(
+    extractMetaContent(html, 'name', 'description') || extractMetaContent(html, 'property', 'og:description'),
+  );
+  const headings = [
+    ...extractTextByTag(html, 'h1'),
+    ...extractTextByTag(html, 'h2'),
+  ].filter(Boolean);
+  const hero = cleanSentenceCandidate(headings[0] || null, 140);
+  const ctas = likelyCtas(html);
+
+  if (!metaDescription && !hero) {
+    return null;
+  }
+
+  const parts = [metaDescription, hero].filter((part, index, array) => !!part && array.indexOf(part) === index) as string[];
+  if (ctas.length > 0) {
+    parts.push(`Calls to action include ${ctas.slice(0, 3).join(', ')}.`);
+  }
+  return parts.join(' ').trim() || null;
+}
+
+function deriveOfferSummary(html: string): string | null {
+  const descriptiveCandidates = [
+    extractMetaContent(html, 'name', 'description'),
+    extractMetaContent(html, 'property', 'og:description'),
+    ...extractTextByTag(html, 'h1'),
+    ...extractTextByTag(html, 'h2'),
+    ...extractTextByTag(html, 'p'),
+  ]
+    .map((candidate) => cleanSentenceCandidate(candidate, 200))
+    .filter((candidate): candidate is string => !!candidate);
+
+  const descriptiveMatch =
+    descriptiveCandidates.find(
+      (candidate) =>
+        includesKeywordPhrase(candidate, OFFER_KEYWORDS) &&
+        (candidate.length >= 24 || candidate.split(/\s+/).length >= 4),
+    ) || null;
+
+  if (descriptiveMatch) {
+    return descriptiveMatch;
+  }
+
+  const ctaCandidates = [...extractTextByTag(html, 'a'), ...extractTextByTag(html, 'button')]
+    .map((candidate) => cleanSentenceCandidate(candidate, 120))
+    .filter((candidate): candidate is string => !!candidate);
+
+  return (
+    ctaCandidates.find(
+      (candidate) =>
+        includesKeywordPhrase(candidate, OFFER_KEYWORDS) &&
+        candidate.length >= 18 &&
+        candidate.split(/\s+/).length >= 3,
+    ) || null
+  );
+}
+
+async function fetchText(
+  url: string,
+  fetchImpl: typeof fetch,
+  accept = 'text/html,application/xhtml+xml,text/css;q=0.9,*/*;q=0.8',
+): Promise<string | null> {
+  const response = await fetchImpl(url, {
+    redirect: 'follow',
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (compatible; AriesBot/1.0)',
+      Accept: accept,
+    },
+  });
   if (!response.ok) {
     return null;
   }
+
+  const contentType = response.headers.get('content-type') || '';
+  if (!/text\/|application\/(json|xml|xhtml\+xml)/i.test(contentType)) {
+    return null;
+  }
+
   return response.text();
 }
 
-function brandKitFallback(tenantId: string, brandUrl: string): TenantBrandKit {
+function normalizePersistedBrandKit(brandKit: TenantBrandKit): TenantBrandKit {
   return {
-    tenant_id: tenantId,
-    source_url: brandUrl,
-    canonical_url: brandUrl,
-    brand_name: inferBrandName(brandUrl),
-    logo_urls: [],
+    tenant_id: brandKit.tenant_id,
+    source_url: brandKit.source_url,
+    canonical_url: brandKit.canonical_url ?? null,
+    brand_name: brandKit.brand_name,
+    logo_urls: unique(brandKit.logo_urls || []),
     colors: {
-      primary: null,
-      secondary: null,
-      accent: null,
-      palette: [],
+      primary: normalizeColor(brandKit.colors?.primary || '') || null,
+      secondary: normalizeColor(brandKit.colors?.secondary || '') || null,
+      accent: normalizeColor(brandKit.colors?.accent || '') || null,
+      palette: unique((brandKit.colors?.palette || []).map((value) => normalizeColor(value) || '').filter(Boolean)),
     },
-    font_families: [],
-    external_links: [],
-    extracted_at: nowIso(),
+    font_families: unique((brandKit.font_families || []).map((value) => normalizeFontFamilyCandidate(value) || '').filter(Boolean)),
+    external_links: Array.isArray(brandKit.external_links) ? brandKit.external_links : [],
+    extracted_at: brandKit.extracted_at,
+    brand_voice_summary: cleanSentenceCandidate((brandKit as TenantBrandKit).brand_voice_summary || null),
+    offer_summary: cleanSentenceCandidate((brandKit as TenantBrandKit).offer_summary || null),
   };
+}
+
+function hasExtractedSignals(brandKit: TenantBrandKit): boolean {
+  return (
+    brandKit.logo_urls.length > 0 ||
+    brandKit.font_families.length > 0 ||
+    brandKit.external_links.length > 0 ||
+    brandKit.colors.palette.length > 0 ||
+    !!brandKit.brand_voice_summary ||
+    !!brandKit.offer_summary
+  );
+}
+
+function hasLowQualitySignals(brandKit: TenantBrandKit): boolean {
+  return (
+    /[|•]/.test(brandKit.brand_name) ||
+    brandKit.colors.palette.some((value) => !normalizeColor(value)) ||
+    brandKit.font_families.some((value) => !normalizeFontFamilyCandidate(value))
+  );
 }
 
 function assertTenantBrandKit(brandKit: TenantBrandKit): void {
@@ -299,42 +658,63 @@ export async function extractBrandKitFromWebsite(input: {
   fetchImpl?: typeof fetch;
 }): Promise<TenantBrandKit> {
   const fetchImpl = input.fetchImpl ?? fetch;
-  const fallback = brandKitFallback(input.tenantId, input.brandUrl);
 
+  let html: string | null = null;
   try {
-    const html = await fetchText(input.brandUrl, fetchImpl);
-    if (!html) {
-      return fallback;
-    }
-
-    const stylesheetUrls = extractStylesheetUrls(html, input.brandUrl);
-    const stylesheetTexts = (
-      await Promise.all(stylesheetUrls.map((url) => fetchText(url, fetchImpl)))
-    ).filter((entry): entry is string => !!entry);
-    const cssBlocks = [...extractInlineCss(html), ...stylesheetTexts];
-    const title = extractTitle(html);
-    const ogSiteName = extractMetaContent(html, 'property', 'og:site_name');
-    const ogImage = extractMetaContent(html, 'property', 'og:image');
-    return {
-      tenant_id: input.tenantId,
-      source_url: input.brandUrl,
-      canonical_url: input.brandUrl,
-      brand_name: ogSiteName || title || fallback.brand_name,
-      logo_urls: dedupeLogoUrls([
-        ...extractLinkCandidates(html, 'icon').map((candidate) => resolveAbsoluteUrl(input.brandUrl, candidate)),
-        resolveAbsoluteUrl(input.brandUrl, ogImage || ''),
-        ...extractImageCandidates(html)
-          .map((candidate) => resolveAbsoluteUrl(input.brandUrl, candidate))
-          .filter((candidate) => candidate && /logo|mark|wordmark|brand/i.test(candidate)),
-      ]),
-      colors: extractBrandColors(html, cssBlocks),
-      font_families: extractFontFamilies(cssBlocks),
-      external_links: extractExternalLinks(html, input.brandUrl),
-      extracted_at: nowIso(),
-    };
-  } catch {
-    return fallback;
+    html = await fetchText(input.brandUrl, fetchImpl);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`brand_kit_fetch_failed:${message}`);
   }
+
+  if (!html) {
+    throw new Error('brand_kit_fetch_failed:site_unavailable');
+  }
+
+  const stylesheetUrls = extractStylesheetUrls(html, input.brandUrl);
+  const stylesheetTexts = (
+    await Promise.all(
+      stylesheetUrls.map(async (url) => {
+        try {
+          return await fetchText(url, fetchImpl, 'text/css,*/*;q=0.8');
+        } catch {
+          return null;
+        }
+      }),
+    )
+  ).filter((entry): entry is string => !!entry);
+  const cssBlocks = [...extractInlineCss(html), ...stylesheetTexts];
+  const canonicalUrl = extractCanonicalUrl(html, input.brandUrl) || input.brandUrl;
+  const brandName = chooseBrandName(
+    [
+      extractMetaContent(html, 'property', 'og:site_name'),
+      extractTitle(html),
+      extractTextByTag(html, 'h1')[0] || null,
+      ...extractImageCandidates(html).map((image) => image.alt || null),
+    ],
+    canonicalUrl,
+  );
+
+  if (!brandName) {
+    throw new Error('brand_kit_insufficient_source_data:brand_name');
+  }
+
+  const brandKit: TenantBrandKit = {
+    tenant_id: input.tenantId,
+    source_url: input.brandUrl,
+    canonical_url: canonicalUrl,
+    brand_name: brandName,
+    logo_urls: extractLogoUrls(html, input.brandUrl),
+    colors: extractBrandColors(html, cssBlocks),
+    font_families: extractFontFamilies(cssBlocks),
+    external_links: extractExternalLinks(html, input.brandUrl),
+    extracted_at: nowIso(),
+    brand_voice_summary: deriveBrandVoiceSummary(html),
+    offer_summary: deriveOfferSummary(html),
+  };
+
+  assertTenantBrandKit(brandKit);
+  return brandKit;
 }
 
 export function tenantBrandKitPath(tenantId: string): string {
@@ -347,7 +727,7 @@ export function loadTenantBrandKit(tenantId: string): TenantBrandKit | null {
     return null;
   }
 
-  const brandKit = JSON.parse(readFileSync(filePath, 'utf8')) as TenantBrandKit;
+  const brandKit = normalizePersistedBrandKit(JSON.parse(readFileSync(filePath, 'utf8')) as TenantBrandKit);
   assertTenantBrandKit(brandKit);
   return brandKit;
 }
@@ -362,12 +742,7 @@ function isFreshBrandKit(brandKit: TenantBrandKit, brandUrl: string): boolean {
     return false;
   }
 
-  const hasExtractedSignals =
-    brandKit.logo_urls.length > 0 ||
-    brandKit.font_families.length > 0 ||
-    brandKit.external_links.length > 0 ||
-    brandKit.colors.palette.length > 0;
-  if (!hasExtractedSignals) {
+  if (!hasExtractedSignals(brandKit) || hasLowQualitySignals(brandKit)) {
     return false;
   }
 

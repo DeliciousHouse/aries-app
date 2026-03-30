@@ -59,6 +59,8 @@ lobster/bin/__pycache__/
 .eslintcache
 .stylelintcache
 .npm
+.tmp/
+.clawhub/
 SOUL.md
 USER.md
 IDENTITY.md

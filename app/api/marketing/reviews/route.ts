@@ -1,11 +1,15 @@
 import { NextResponse } from 'next/server';
 
-import { listMarketingReviewItemsForTenant } from '@/backend/marketing/runtime-views';
+import { listMarketingReviewItemsForTenant, listPublicMarketingReviewItems } from '@/backend/marketing/runtime-views';
+import { isMarketingPublicMode } from '@/lib/marketing-public-mode';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
 export async function handleGetMarketingReviews(tenantContextLoader?: TenantContextLoader) {
   const tenantResult = await loadTenantContextOrResponse(tenantContextLoader);
   if ('response' in tenantResult) {
+    if (isMarketingPublicMode()) {
+      return NextResponse.json({ reviews: await listPublicMarketingReviewItems() }, { status: 200 });
+    }
     return tenantResult.response;
   }
 

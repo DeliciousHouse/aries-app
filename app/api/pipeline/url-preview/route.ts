@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { extractAndSaveTenantBrandKit, extractBrandKitFromWebsite, loadTenantBrandKit } from '@/backend/marketing/brand-kit';
+import { derivePublicMarketingTenantId, normalizeMarketingWebsiteUrl } from '@/lib/marketing-public-mode';
+
 const IP_REGEX = /^(\d{1,3}\.){3}\d{1,3}$/;
 const BLOCKLIST = ['localhost', '127.0.0.1', 'example.com', '0.0.0.0'];
 
@@ -15,7 +18,7 @@ function validateUrl(url: string): string | null {
 
   const hostname = parsed.hostname.toLowerCase();
 
-  if (BLOCKLIST.some((b) => hostname === b || hostname.endsWith('.' + b))) {
+  if (BLOCKLIST.some((blocked) => hostname === blocked || hostname.endsWith(`.${blocked}`))) {
     return 'Domain not allowed';
   }
 
@@ -26,108 +29,58 @@ function validateUrl(url: string): string | null {
   return null;
 }
 
-function extractMeta(html: string, baseUrl: string): {
-  title: string;
-  favicon: string;
-  domain: string;
-  description: string;
-} {
-  const domain = new URL(baseUrl).hostname;
-
-  // Title
-  const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
-  const title = titleMatch ? titleMatch[1].trim() : domain;
-
-  // Description
-  const descMatch = html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']*)/i)
-    || html.match(/<meta[^>]+content=["']([^"']*)[^>]+name=["']description["']/i)
-    || html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']*)/i);
-  const description = descMatch ? descMatch[1].trim() : '';
-
-  // Favicon — look for link rel=icon/shortcut icon, then og:image, then default /favicon.ico
-  const faviconMatch = html.match(/<link[^>]+rel=["'](?:shortcut icon|icon)["'][^>]+href=["']([^"']+)/i)
-    || html.match(/<link[^>]+href=["']([^"']+)[^>]+rel=["'](?:shortcut icon|icon)["']/i);
-
-  let favicon = '';
-  if (faviconMatch) {
-    const raw = faviconMatch[1];
-    if (raw.startsWith('http')) {
-      favicon = raw;
-    } else if (raw.startsWith('//')) {
-      favicon = `https:${raw}`;
-    } else {
-      const origin = new URL(baseUrl).origin;
-      favicon = `${origin}${raw.startsWith('/') ? raw : `/${raw}`}`;
-    }
-  } else {
-    const origin = new URL(baseUrl).origin;
-    favicon = `${origin}/favicon.ico`;
-  }
-
-  return { title, favicon, domain, description };
-}
-
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const url = searchParams.get('url');
-
+  const url = req.nextUrl.searchParams.get('url');
   if (!url) {
     return NextResponse.json({ error: 'Missing url parameter' }, { status: 400 });
   }
 
-  const decodedUrl = decodeURIComponent(url);
-  const validationError = validateUrl(decodedUrl);
+  const normalizedUrl = normalizeMarketingWebsiteUrl(decodeURIComponent(url));
+  if (!normalizedUrl) {
+    return NextResponse.json({ error: 'Invalid URL' }, { status: 400 });
+  }
 
+  const validationError = validateUrl(normalizedUrl);
   if (validationError) {
     return NextResponse.json({ error: validationError }, { status: 400 });
   }
 
+  const tenantId = derivePublicMarketingTenantId(normalizedUrl);
+  if (!tenantId) {
+    return NextResponse.json({ error: 'Invalid URL' }, { status: 400 });
+  }
+
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
+    const storedBrandKit = loadTenantBrandKit(tenantId);
+    const sameStoredBrandKit =
+      storedBrandKit &&
+      (storedBrandKit.source_url === normalizedUrl || storedBrandKit.canonical_url === normalizedUrl)
+        ? storedBrandKit
+        : null;
+    const brandKit = sameStoredBrandKit
+      ? (await extractAndSaveTenantBrandKit({ tenantId, brandUrl: normalizedUrl })).brandKit
+      : await extractBrandKitFromWebsite({ tenantId, brandUrl: normalizedUrl });
 
-    const res = await fetch(decodedUrl, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; AriesBot/1.0)',
-        Accept: 'text/html,application/xhtml+xml',
+    return NextResponse.json({
+      title: brandKit.brand_name,
+      favicon: brandKit.logo_urls[0] || '',
+      domain: new URL(normalizedUrl).hostname,
+      description: brandKit.offer_summary || brandKit.brand_voice_summary || '',
+      canonicalUrl: brandKit.canonical_url,
+      brandKitPreview: {
+        brandName: brandKit.brand_name,
+        canonicalUrl: brandKit.canonical_url,
+        logoUrls: brandKit.logo_urls,
+        colors: brandKit.colors,
+        fontFamilies: brandKit.font_families,
+        externalLinks: brandKit.external_links,
+        extractedAt: brandKit.extracted_at,
+        brandVoiceSummary: brandKit.brand_voice_summary,
+        offerSummary: brandKit.offer_summary,
       },
-      redirect: 'follow',
     });
-
-    clearTimeout(timeout);
-
-    if (!res.ok) {
-      return NextResponse.json({ error: `Site returned ${res.status}` }, { status: 422 });
-    }
-
-    const contentType = res.headers.get('content-type') ?? '';
-    if (!contentType.includes('text/html')) {
-      // Return minimal metadata for non-HTML responses
-      const domain = new URL(decodedUrl).hostname;
-      return NextResponse.json({ title: domain, favicon: '', domain, description: '' });
-    }
-
-    // Read up to 50KB to find meta tags
-    const reader = res.body?.getReader();
-    let html = '';
-    if (reader) {
-      let done = false;
-      while (!done && html.length < 50_000) {
-        const { value, done: d } = await reader.read();
-        done = d;
-        if (value) html += new TextDecoder().decode(value);
-      }
-      reader.cancel().catch(() => {});
-    }
-
-    const meta = extractMeta(html, decodedUrl);
-    return NextResponse.json(meta);
-  } catch (err) {
-    if (err instanceof Error && err.name === 'AbortError') {
-      return NextResponse.json({ error: 'Request timed out' }, { status: 504 });
-    }
-    const msg = err instanceof Error ? err.message : 'Unknown error';
-    return NextResponse.json({ error: `Failed to fetch: ${msg}` }, { status: 502 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: message }, { status: message.startsWith('brand_kit_') ? 422 : 502 });
   }
 }

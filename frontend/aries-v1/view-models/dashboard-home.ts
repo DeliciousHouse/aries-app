@@ -172,8 +172,8 @@ function nextActionFor(
       title: 'Create your first campaign',
       summary:
         'Aries will turn your business and goals into a campaign you can review before anything goes live.',
-      href: '/onboarding/start',
-      label: 'Create campaign',
+      href: '/dashboard/campaigns/new',
+      label: 'New Campaign',
     };
   }
 
