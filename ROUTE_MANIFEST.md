@@ -45,7 +45,14 @@ This manifest lists the supported direct route contract for the current Aries ru
 | `GET` | `/api/onboarding/status/:tenantId` | Read onboarding status |
 | `POST` | `/api/marketing/jobs` | Start the canonical marketing flow |
 | `GET` | `/api/marketing/jobs/:jobId` | Read job status |
+| `GET` | `/api/marketing/jobs/latest` | Read latest job status for the active tenant |
 | `POST` | `/api/marketing/jobs/:jobId/approve` | Resume an approval-gated job |
+| `GET` | `/api/marketing/jobs/:jobId/assets/:assetId` | Read a generated marketing asset stream |
+| `GET` | `/api/marketing/posts` | Read tenant-scoped posts and publish inventory feed |
+| `GET` | `/api/marketing/campaigns` | Read tenant campaign list view model |
+| `GET` | `/api/marketing/reviews` | Read pending tenant review queue items |
+| `GET` | `/api/marketing/reviews/:reviewId` | Read a single tenant review item |
+| `POST` | `/api/marketing/reviews/:reviewId/decision` | Record approve/reject/changes_requested decision |
 | `GET` | `/api/integrations` | Read integrations page data |
 | `POST` | `/api/integrations/connect` | Start a platform connection |
 | `POST` | `/api/integrations/disconnect` | Disconnect a platform |
@@ -55,6 +62,13 @@ This manifest lists the supported direct route contract for the current Aries ru
 | `POST` | `/api/publish/dispatch` | Dispatch publish work |
 | `POST` | `/api/publish/retry` | Retry publish work |
 | `POST` | `/api/calendar/sync` | Trigger calendar sync |
+
+## Marketing inventory notes
+
+- `/api/marketing/posts` is the inventory contract used by the posts dashboard and should be treated as the canonical "ready now" feed.
+- The response is sourced from `backend/marketing/dashboard-content.ts` and includes normalized `campaigns`, `posts`, `assets`, `publishItems`, `calendarEvents`, and aggregated status counts.
+- Route handlers under `/api/marketing/*` are tenant-scoped via `loadTenantContextOrResponse`, with a documented dev/staging bypass on selected job routes when `MARKETING_STATUS_PUBLIC=1|true`: `POST /api/marketing/jobs`, `GET /api/marketing/jobs/:jobId`, `POST /api/marketing/jobs/:jobId/approve`, and `GET /api/marketing/jobs/:jobId/assets/:assetId`.
+- `GET /api/marketing/jobs/latest` is single-job status oriented; `GET /api/marketing/posts` is cross-job inventory oriented.
 
 ## Verification commands
 

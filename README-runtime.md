@@ -45,7 +45,14 @@ Browser
 - `GET /api/onboarding/status/:tenantId`
 - `POST /api/marketing/jobs`
 - `GET /api/marketing/jobs/:jobId`
+- `GET /api/marketing/jobs/latest`
 - `POST /api/marketing/jobs/:jobId/approve`
+- `GET /api/marketing/jobs/:jobId/assets/:assetId`
+- `GET /api/marketing/posts`
+- `GET /api/marketing/campaigns`
+- `GET /api/marketing/reviews`
+- `GET /api/marketing/reviews/:reviewId`
+- `POST /api/marketing/reviews/:reviewId/decision`
 - `GET /api/integrations`
 - `POST /api/integrations/connect`
 - `POST /api/integrations/disconnect`
@@ -55,6 +62,32 @@ Browser
 - `POST /api/publish/dispatch`
 - `POST /api/publish/retry`
 - `POST /api/calendar/sync`
+
+### Marketing posts inventory contract
+
+`GET /api/marketing/posts` is the canonical feed for the modern posts/dashboard surfaces (`/dashboard/posts` via `useRuntimePosts`).
+
+- Scope: always tenant-scoped through `loadTenantContextOrResponse`.
+- Shape: returns `MarketingDashboardContent` (`campaigns`, `posts`, `assets`, `publishItems`, `calendarEvents`, `statuses`).
+- Source model: built by the dashboard-content adapter in `backend/marketing/dashboard-content.ts`.
+- Safety: source file paths are not exposed; provenance is sanitized (`sourceKind`, `sourceStage`, `sourceRunId`, derived/platform flags only).
+
+### Latest-job status vs posts inventory
+
+- `GET /api/marketing/jobs/latest` returns the latest single job status payload (`plannedPostCount`, `createdPostCount`, stage cards, timeline, review bundle, plus `dashboard` for that job).
+- `GET /api/marketing/posts` returns tenant-wide publish inventory merged across visible jobs/campaign identities.
+- Use `/jobs/latest` for status dashboards and step-by-step job progression.
+- Use `/marketing/posts` for "what is ready now" inventory views across proposal, production, and publish outputs.
+
+### Dashboard-content adapter behavior
+
+`backend/marketing/dashboard-content.ts` normalizes runtime artifacts into consistent dashboard entities:
+
+- Proposal stage: emits proposal concepts/documents as `draft` or `in_review`.
+- Production stage: emits landing pages, images, scripts/copy, and creative-output posts as `ready` once production artifacts exist.
+- Publish stage: emits pre-publish review items as `ready_to_publish`; emits live publish results and paused Meta results as `published_to_meta_paused`, `scheduled`, or `live`.
+- Calendar: prefers explicit live platform events when present; otherwise derives deterministic fallback schedule entries.
+- Truthfulness guardrails: tests enforce no future-stage artifact leakage (for example, stale stage-4 logs are excluded while strategy/production approvals are still pending).
 
 ## Optional host-node flow
 - Dev: `npx next dev -p 3000 --turbopack`

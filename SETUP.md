@@ -92,7 +92,14 @@ Browser
 | `GET /api/onboarding/status/:tenantId` | Read onboarding status from runtime state |
 | `POST /api/marketing/jobs` | Start the canonical `brand_campaign` flow |
 | `GET /api/marketing/jobs/:jobId` | Read marketing job status |
+| `GET /api/marketing/jobs/latest` | Read latest marketing job status for the active tenant |
 | `POST /api/marketing/jobs/:jobId/approve` | Resume an approval-gated marketing run |
+| `GET /api/marketing/jobs/:jobId/assets/:assetId` | Stream a generated marketing asset file |
+| `GET /api/marketing/posts` | Read tenant-scoped posts and publish inventory |
+| `GET /api/marketing/campaigns` | Read tenant campaign list view models |
+| `GET /api/marketing/reviews` | Read pending tenant review queue items |
+| `GET /api/marketing/reviews/:reviewId` | Read one tenant review item |
+| `POST /api/marketing/reviews/:reviewId/decision` | Record review decision (`approve`, `changes_requested`, `reject`) |
 | `GET /api/integrations` | Read platform connection cards |
 | `POST /api/integrations/connect` | Start a provider connection |
 | `POST /api/integrations/disconnect` | Remove a provider connection |
@@ -102,6 +109,27 @@ Browser
 | `POST /api/publish/dispatch` | Submit a publish dispatch request |
 | `POST /api/publish/retry` | Retry publish work |
 | `POST /api/calendar/sync` | Request calendar synchronization |
+
+### Marketing posts inventory behavior
+
+- `GET /api/marketing/posts` is the canonical feed used by `/dashboard/posts`.
+- The payload shape is `MarketingDashboardContent` and includes:
+  - `campaigns`
+  - `posts`
+  - `assets`
+  - `publishItems`
+  - `calendarEvents`
+  - `statuses.countsByStatus`
+- Data comes from `backend/marketing/dashboard-content.ts`, which merges proposal, production, publish-review, and live publish/runtime signals into one tenant-scoped inventory model.
+
+### Tenant context and auth troubleshooting
+
+- Most marketing routes are tenant-gated through `loadTenantContextOrResponse`. If the session has no tenant membership, responses are `403` or a documented `409 onboarding_required` variant (for status surfaces that require onboarding completion).
+- Job creation/status/approval and job-asset endpoints support a dev/staging bypass via `MARKETING_STATUS_PUBLIC=1` (or `true`). Keep this unset in normal local/production environments.
+- If the posts dashboard appears empty while a job exists, verify:
+  - the signed-in user belongs to the expected tenant
+  - runtime files are present under `DATA_ROOT/generated/draft/marketing-jobs`
+  - Lobster output/cache paths are correctly set when using local generated artifacts
 
 ## Verification
 
