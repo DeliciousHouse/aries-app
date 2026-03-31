@@ -26,6 +26,13 @@ def safe_path_exists(candidate: str | Path) -> bool:
         return False
 
 
+def safe_path_exists(candidate: str | Path) -> bool:
+    try:
+        return Path(candidate).exists()
+    except OSError:
+        return False
+
+
 def resolve_nano_banana_script() -> Path:
     candidates = [
         os.environ.get("NANO_BANANA_SCRIPT", "").strip(),
