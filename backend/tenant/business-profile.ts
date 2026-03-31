@@ -14,6 +14,7 @@ import {
   findLatestMarketingTenantId,
   loadMarketingJobRuntime,
 } from '@/backend/marketing/runtime-state';
+import { loadValidatedMarketingProfileSnapshot, type ValidatedMarketingProfileSnapshot } from '@/backend/marketing/validated-profile-store';
 import {
   derivePublicMarketingTenantId,
   normalizeMarketingWebsiteUrl,
@@ -347,29 +348,39 @@ function buildBusinessProfileView(input: {
   record: BusinessProfileRecord | null;
   brandKit: TenantBrandKit | null;
   approverName: string | null;
+  validatedProfile: ValidatedMarketingProfileSnapshot;
 }): BusinessProfileView {
-  const websiteUrl = input.record?.website_url ?? input.brandKit?.source_url ?? null;
-  const businessName = input.businessName.trim() || input.record?.business_name || input.brandKit?.brand_name || '';
+  const websiteUrl =
+    input.validatedProfile.websiteUrl ??
+    input.record?.website_url ??
+    input.brandKit?.source_url ??
+    null;
+  const businessName =
+    input.businessName.trim() ||
+    input.validatedProfile.businessName ||
+    input.record?.business_name ||
+    input.brandKit?.brand_name ||
+    '';
 
   return {
     tenantId: input.tenantId,
     businessName,
     tenantSlug: input.tenantSlug,
     websiteUrl,
-    businessType: input.record?.business_type ?? null,
-    primaryGoal: input.record?.primary_goal ?? null,
+    businessType: input.validatedProfile.businessType ?? input.record?.business_type ?? null,
+    primaryGoal: input.validatedProfile.primaryGoal ?? input.record?.primary_goal ?? null,
     launchApproverUserId: input.record?.launch_approver_user_id ?? null,
     launchApproverName: input.approverName,
-    offer: input.record?.offer ?? null,
+    offer: input.validatedProfile.offer ?? input.record?.offer ?? null,
     notes: input.record?.notes ?? null,
-    competitorUrl: input.record?.competitor_url ?? null,
-    channels: input.record?.channels ?? [],
+    competitorUrl: input.validatedProfile.competitorUrl ?? input.record?.competitor_url ?? null,
+    channels: input.validatedProfile.channels.length > 0 ? input.validatedProfile.channels : (input.record?.channels ?? []),
     brandKit: input.brandKit,
     incomplete: incompleteProfile({
       businessName,
       websiteUrl,
-      businessType: input.record?.business_type ?? null,
-      primaryGoal: input.record?.primary_goal ?? null,
+      businessType: input.validatedProfile.businessType ?? input.record?.business_type ?? null,
+      primaryGoal: input.validatedProfile.primaryGoal ?? input.record?.primary_goal ?? null,
     }),
   };
 }
@@ -406,19 +417,22 @@ export async function getBusinessProfileWithDiagnostics(client: PoolClient, tena
   const tenantRow = tenant.rows[0] as { id: number; name: string; slug: string };
   const record = loadBusinessProfileRecord(tenantId);
   const { brandKit, source, latestJobId } = resolveBusinessProfileBrandKit(tenantId);
+  const validatedProfile = loadValidatedMarketingProfileSnapshot(tenantId);
   const resolvedApproverName =
     (await launchApproverName(client, record?.launch_approver_user_id ?? null)) ||
+    validatedProfile.launchApproverName ||
     record?.launch_approver_name ||
     null;
 
   return {
     profile: buildBusinessProfileView({
       tenantId,
-      businessName: record?.business_name || tenantRow.name || brandKit?.brand_name || '',
+      businessName: validatedProfile.businessName || record?.business_name || tenantRow.name || brandKit?.brand_name || '',
       tenantSlug: record?.tenant_slug || tenantRow.slug,
       record,
       brandKit,
       approverName: resolvedApproverName,
+      validatedProfile,
     }),
     brandKitSource: source,
     latestJobId,
@@ -500,8 +514,9 @@ export function getPublicBusinessProfile(websiteUrl?: string | null): ResolvedBu
     'public_campaign';
   const record = loadBusinessProfileRecord(tenantId);
   const { brandKit, source, latestJobId } = resolveBusinessProfileBrandKit(tenantId);
+  const validatedProfile = loadValidatedMarketingProfileSnapshot(tenantId);
   const tenantSlug = record?.tenant_slug || publicTenantSlug(tenantId);
-  const businessName = record?.business_name || brandKit?.brand_name || '';
+  const businessName = validatedProfile.businessName || record?.business_name || brandKit?.brand_name || '';
 
   return {
     profile: buildBusinessProfileView({
@@ -510,7 +525,8 @@ export function getPublicBusinessProfile(websiteUrl?: string | null): ResolvedBu
       tenantSlug,
       record,
       brandKit,
-      approverName: record?.launch_approver_name ?? null,
+      approverName: validatedProfile.launchApproverName || record?.launch_approver_name || null,
+      validatedProfile,
     }),
     brandKitSource: source,
     latestJobId,

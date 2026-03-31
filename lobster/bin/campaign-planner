@@ -5,60 +5,26 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _stage2_common import emit_json, normalize_research_model, read_stdin_json, save_step, utc_now
-from _stage2_common import ensure_run_id
+from _marketing_profile_common import record_or_empty, validate_copy_text
+from _stage2_common import emit_json, ensure_run_id, normalize_research_model, read_stdin_json, save_step, utc_now
 
 
-def _record_from_brand_analysis(analysis: dict, brand_slug: str) -> dict:
-    return {
-        "brand_slug": analysis.get("brand_slug", brand_slug),
-        "brand_name": analysis.get("brand_name", "Client Brand"),
-        "brand_promise": analysis.get("brand_promise", ""),
-        "audience_summary": analysis.get("audience_summary", ""),
-        "offer_summary": analysis.get("offer_summary", ""),
-        "proof_points": analysis.get("proof_points", []),
-        "brand_voice": analysis.get("brand_voice", []),
-        "cta_preferences": analysis.get("cta_preferences", []),
-    }
-
-
-def _channel_contexts_from_analysis(analysis: dict) -> dict:
-    promise = analysis.get("brand_promise", "")
-    audience = analysis.get("audience_summary", "")
-    offer = analysis.get("offer_summary", "")
-    proof_points = analysis.get("proof_points", [])
-    brand_voice = analysis.get("brand_voice", [])
-    cta_preferences = analysis.get("cta_preferences") or ["Learn More"]
-    contexts = {
-        "meta": {
-            "primary_message": promise,
-            "audience_angle": audience,
-            "offer_angle": offer,
-            "proof_points": proof_points[:3],
-            "brand_voice": brand_voice,
-            "cta": cta_preferences[0],
-            "creative_bias": "performance-first paid acquisition testing",
-        },
-        "landing-page": {
-            "primary_message": promise,
-            "audience_angle": audience,
-            "offer_angle": offer,
-            "proof_points": proof_points[:3],
-            "brand_voice": brand_voice,
-            "cta": cta_preferences[0],
-            "creative_bias": "message match and friction reduction",
-        },
-        "youtube": {
-            "primary_message": promise,
-            "audience_angle": audience,
-            "offer_angle": offer,
-            "proof_points": proof_points[:3],
-            "brand_voice": brand_voice,
-            "cta": cta_preferences[0],
-            "creative_bias": "educational problem-solution storytelling",
-        },
-    }
-    return contexts
+def _channel_plans(creative_handoff: dict, channel_contexts: dict) -> list[dict]:
+    plans = []
+    for channel in ("meta", "landing-page", "video"):
+        context = record_or_empty(channel_contexts.get(channel))
+        plans.append(
+            {
+                "channel": channel,
+                "goal": validate_copy_text(f"campaign_plan.{channel}.goal", context.get("angle") or creative_handoff["channel_specific_angles"][channel], min_tokens=4),
+                "message": creative_handoff["channel_specific_angles"][channel],
+                "hook": creative_handoff["hooks"][channel][0],
+                "opening_line": creative_handoff["opening_lines"][channel][0],
+                "cta": creative_handoff["primary_cta"],
+                "creative_bias": context.get("creative_bias", ""),
+            }
+        )
+    return plans
 
 
 def main() -> int:
@@ -69,47 +35,41 @@ def main() -> int:
     args = parser.parse_args()
 
     data = read_stdin_json()
-    record = data.get("brand_profiles_record", {})
-    channels = data.get("downstream_channel_context", {})
-    if not record:
-        record = _record_from_brand_analysis(data.get("brand_analysis", {}), args.brand_slug)
-    if not channels:
-        channels = _channel_contexts_from_analysis(data.get("brand_analysis", {}))
-    run_id = ensure_run_id(data.get("run_id", ""), record.get("brand_slug", ""), args.brand_slug)
-    research_model = normalize_research_model(args.research_model or data.get("research_model", ""))
+    record = record_or_empty(data.get("brand_profiles_record"))
+    creative_handoff = record_or_empty(data.get("creative_handoff") or record.get("creative_handoff"))
+    channels = record_or_empty(data.get("downstream_channel_context"))
+    if not creative_handoff:
+        raise SystemExit("quality_gate_failed:creative_handoff:missing")
 
-    primary_cta = (record.get("cta_preferences") or ["Learn More"])[0]
-    proof_points = (record.get("proof_points") or [])[:3]
+    run_id = ensure_run_id(data.get("run_id", ""), record.get("tenant_id", ""), args.brand_slug)
+    research_model = normalize_research_model(args.research_model or data.get("research_model", ""))
+    primary_cta = creative_handoff.get("primary_cta", "")
+    proof_points = creative_handoff.get("proof_points", [])[:3]
+    campaign_name = f"{record.get('brand_slug', args.brand_slug)}-stage2-plan"
     plan = {
-        "campaign_name": f"{record.get('brand_slug', args.brand_slug)}-stage2-plan",
-        "objective": "Build a cross-channel strategy handoff from the canonical brand profile.",
-        "core_message": record.get("brand_promise", ""),
-        "audience": record.get("audience_summary", ""),
-        "offer": record.get("offer_summary", ""),
+        "campaign_name": campaign_name,
+        "objective": f"Turn the validated {record.get('brand_name', 'brand')} analysis into differentiated paid, page, and video creative.",
+        "core_message": creative_handoff["hooks"]["landing-page"][0],
+        "audience": creative_handoff["audience"],
+        "positioning": creative_handoff["positioning"],
+        "problem_statement": creative_handoff["problem_statement"],
+        "offer": creative_handoff["offer"],
         "primary_cta": primary_cta,
         "proof_points": proof_points,
-        "channel_plans": [
-            {
-                "channel": channel,
-                "goal": f"Translate the core message into {channel.replace('_', ' ').replace('-', ' ')} execution.",
-                "message": context.get("primary_message", ""),
-                "cta": context.get("cta", primary_cta),
-                "creative_bias": context.get("creative_bias", ""),
-            }
-            for channel, context in channels.items()
-        ],
+        "channel_plans": _channel_plans(creative_handoff, channels),
     }
 
     payload = {
         "type": "campaign_planner",
         "stub": False,
-        "mode": data.get("mode", "fallback"),
+        "mode": "live",
         "generated_at": utc_now(),
         "run_id": run_id,
         "research_model": research_model,
         "brand_slug": record.get("brand_slug", args.brand_slug),
         "campaign_plan": plan,
         "brand_profiles_record": record,
+        "creative_handoff": creative_handoff,
         "downstream_channel_context": channels,
     }
     save_step(run_id, "campaign_planner", payload)

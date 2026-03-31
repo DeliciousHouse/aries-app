@@ -41,6 +41,7 @@ import {
   type MarketingReviewStageKey,
   type MarketingReviewStatus,
 } from './workspace-store';
+import { loadValidatedMarketingProfileDocs, loadValidatedMarketingProfileSnapshot } from './validated-profile-store';
 
 export type CampaignWorkspaceView = {
   jobId: string;
@@ -364,6 +365,7 @@ function buildCampaignBrief(record: CampaignWorkspaceRecord): MarketingCampaignB
 }
 
 function loadStagePayloadBundle(runtimeDoc: MarketingJobRuntimeDocument): StagePayloadBundle {
+  const validatedDocs = loadValidatedMarketingProfileDocs(runtimeDoc.tenant_id);
   const strategyOutputs = recordValue(runtimeDoc.stages.strategy.outputs) || {};
   const productionOutputs = recordValue(runtimeDoc.stages.production.outputs) || {};
   const strategyFallback = collectStrategyReviewArtifacts(
@@ -375,7 +377,7 @@ function loadStagePayloadBundle(runtimeDoc: MarketingJobRuntimeDocument): StageP
     runtimeDoc,
   );
 
-  const runtimeWebsiteAnalysisPath = stringValue(strategyOutputs.website_brand_analysis_path);
+  const runtimeWebsiteAnalysisPath = stringValue(strategyOutputs.validated_website_analysis_path) || stringValue(strategyOutputs.website_brand_analysis_path);
   const runtimeCampaignPlannerPath = stringValue(strategyOutputs.campaign_planner_path);
   const runtimeStrategyPreviewPath = stringValue(strategyOutputs.strategy_review_path);
   const runtimeProductionPreviewPath = stringValue(productionOutputs.production_review_path);
@@ -386,6 +388,7 @@ function loadStagePayloadBundle(runtimeDoc: MarketingJobRuntimeDocument): StageP
   const fallbackProductionPreviewPath = stringValue(productionFallback.outputs.production_review_path);
 
   const runtimeWebsiteAnalysis = recordValue(strategyOutputs.website) ||
+    validatedDocs.websiteAnalysis ||
     readJsonIfExists(runtimeWebsiteAnalysisPath);
   const runtimeCampaignPlanner = recordValue(strategyOutputs.planner) ||
     readJsonIfExists(runtimeCampaignPlannerPath);
@@ -481,17 +484,23 @@ function buildBrandReview(
   record: CampaignWorkspaceRecord,
   payloads: StagePayloadBundle,
 ): MarketingStageReviewPayload | null {
+  const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id);
   const brandAnalysis = recordValue(payloads.websiteAnalysis?.brand_analysis);
   const artifacts = recordValue(payloads.websiteAnalysis?.artifacts);
   const runtimeBrandKit = runtimeDoc.brand_kit;
-  const runtimeBrandName = stringValue(runtimeBrandKit?.brand_name);
-  const runtimeCanonicalUrl = stringValue(runtimeBrandKit?.canonical_url);
-  const runtimeOfferSummary = stringValue(runtimeBrandKit?.offer_summary);
+  const runtimeBrandName = stringValue(validatedProfile.brandName, stringValue(runtimeBrandKit?.brand_name));
+  const runtimeCanonicalUrl = stringValue(validatedProfile.canonicalUrl, stringValue(runtimeBrandKit?.canonical_url));
+  const runtimeOfferSummary = stringValue(validatedProfile.offer, stringValue(runtimeBrandKit?.offer_summary));
   const runtimeVoiceSummary = stringValue(runtimeBrandKit?.brand_voice_summary);
   const runtimeLogoUrls = runtimeBrandKit?.logo_urls ?? [];
   const runtimePalette = runtimeBrandKit?.colors.palette ?? [];
   const runtimeFonts = runtimeBrandKit?.font_families ?? [];
   const runtimeExternalLinks = runtimeBrandKit?.external_links ?? [];
+  const validatedLandingHooks = Array.isArray(recordValue(validatedProfile.hooks)?.['landing-page'])
+    ? (recordValue(validatedProfile.hooks)?.['landing-page'] as unknown[])
+        .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+        .map((entry) => entry.trim())
+    : [];
   const attachments: MarketingReviewAttachment[] = [];
   const assetLinks = new Map(buildMarketingAssetLinks(runtimeDoc.job_id, runtimeDoc).map((asset) => [asset.id, asset] as const));
 
@@ -526,23 +535,23 @@ function buildBrandReview(
       id: 'brand-overview',
       title: 'Brand overview',
       body: labeledBlock([
-        ['Brand', stringValue(brandAnalysis?.brand_name, runtimeBrandName)],
-        ['Website', stringValue(brandAnalysis?.website_url, record.brief.websiteUrl || runtimeDoc.inputs.brand_url)],
+        ['Brand', stringValue(validatedProfile.brandName, stringValue(brandAnalysis?.brand_name, runtimeBrandName))],
+        ['Website', stringValue(validatedProfile.websiteUrl, stringValue(brandAnalysis?.website_url, record.brief.websiteUrl || runtimeDoc.inputs.brand_url))],
         ['Canonical URL', runtimeCanonicalUrl],
-        ['Brand promise', stringValue(brandAnalysis?.brand_promise)],
-        ['Audience summary', stringValue(brandAnalysis?.audience_summary)],
-        ['Positioning summary', stringValue(brandAnalysis?.positioning_summary)],
-        ['Offer summary', stringValue(brandAnalysis?.offer_summary, runtimeOfferSummary)],
+        ['Brand promise', validatedLandingHooks[0] || stringValue(brandAnalysis?.brand_promise)],
+        ['Audience summary', stringValue(validatedProfile.audience, stringValue(brandAnalysis?.audience_summary))],
+        ['Positioning summary', stringValue(validatedProfile.positioning, stringValue(brandAnalysis?.positioning_summary))],
+        ['Offer summary', stringValue(validatedProfile.offer, stringValue(brandAnalysis?.offer_summary, runtimeOfferSummary))],
       ]),
     },
     {
       id: 'voice-guardrails',
       title: 'Voice and guardrails',
       body: labeledBlock([
-        ['Brand voice', formatList(stringArray(brandAnalysis?.brand_voice))],
+        ['Brand voice', formatList(validatedProfile.brandVoice.length > 0 ? validatedProfile.brandVoice : stringArray(brandAnalysis?.brand_voice))],
         ['Derived voice summary', runtimeVoiceSummary],
-        ['CTA preferences', formatList(stringArray(brandAnalysis?.cta_preferences))],
-        ['Proof points', formatList(stringArray(brandAnalysis?.proof_points))],
+        ['CTA preferences', formatList(validatedProfile.primaryCta ? [validatedProfile.primaryCta] : stringArray(brandAnalysis?.cta_preferences))],
+        ['Proof points', formatList(validatedProfile.proofPoints.length > 0 ? validatedProfile.proofPoints : stringArray(brandAnalysis?.proof_points))],
         ['Must-use copy', record.brief.mustUseCopy || 'None provided.'],
         ['Must-avoid aesthetics', record.brief.mustAvoidAesthetics || 'None provided.'],
       ]),

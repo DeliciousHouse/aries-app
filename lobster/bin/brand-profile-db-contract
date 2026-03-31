@@ -6,57 +6,104 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from _marketing_profile_common import (
+    build_business_profile_update,
+    load_json_file,
+    normalize_marketing_url,
+    normalize_space,
+    record_or_empty,
+    utc_now,
+    validate_brand_name,
+    validate_channel_angles,
+    validate_copy_text,
+    validate_line_options,
+    validate_optional_copy_text,
+    validate_short_text,
+    validate_unique_copy_list,
+    validated_document_path,
+    write_json_file,
+)
 from _stage2_common import (
-    ensure_run_id,
     emit_json,
+    ensure_run_id,
     normalize_research_model,
     read_stdin_json,
-    run_dir,
     save_step,
     slugify,
-    upsert_mock_brand_profile,
-    utc_now,
 )
 
 
-CHANNELS = [
-    "meta",
-    "instagram",
-    "facebook",
-    "tiktok",
-    "youtube",
-    "linkedin",
-    "email",
-    "landing-page",
-]
+CHANNELS = ("meta", "landing-page", "video")
+CHANNEL_BIASES = {
+    "meta": "paid-social conversion testing with proof-first messaging",
+    "landing-page": "message match and objection removal across the page flow",
+    "video": "short-form narrative payoff with a concrete opening line",
+}
 
 
-def _build_channel_contexts(profile: dict) -> dict:
-    promise = profile.get("brand_promise", "")
-    audience = profile.get("audience_summary", "")
-    offer = profile.get("offer_summary", "")
-    proof_points = profile.get("proof_points", [])
-    brand_voice = profile.get("brand_voice", [])
+def _validated_brand_analysis(analysis: dict) -> dict:
+    hooks = validate_line_options(analysis.get("hooks"), "brand_profile.hooks")
+    opening_lines = validate_line_options(analysis.get("opening_lines"), "brand_profile.opening_lines")
+    return {
+        "tenant_id": normalize_space(analysis.get("tenant_id")),
+        "brand_name": validate_brand_name(analysis.get("brand_name")),
+        "brand_slug": normalize_space(analysis.get("brand_slug")),
+        "website_url": normalize_marketing_url(analysis.get("website_url")),
+        "canonical_url": normalize_marketing_url(analysis.get("canonical_url") or analysis.get("website_url")),
+        "competitor_url": normalize_marketing_url(analysis.get("competitor_url")),
+        "audience": validate_copy_text("brand_profile.audience", analysis.get("audience") or analysis.get("audience_summary"), min_tokens=4),
+        "positioning": validate_copy_text("brand_profile.positioning", analysis.get("positioning") or analysis.get("positioning_summary"), min_tokens=4),
+        "problem_statement": validate_copy_text("brand_profile.problem_statement", analysis.get("problem_statement"), min_tokens=4),
+        "offer": validate_copy_text("brand_profile.offer", analysis.get("offer") or analysis.get("offer_summary"), min_tokens=4),
+        "primary_cta": validate_copy_text("brand_profile.primary_cta", analysis.get("primary_cta"), min_tokens=2),
+        "proof_points": validate_unique_copy_list("brand_profile.proof_points", analysis.get("proof_points"), min_items=3, max_items=5, min_tokens=3),
+        "brand_voice": [validate_short_text("brand_profile.brand_voice", item) for item in analysis.get("brand_voice", [])][:5],
+        "channel_specific_angles": validate_channel_angles(analysis.get("channel_specific_angles")),
+        "hooks": hooks,
+        "opening_lines": opening_lines,
+        "business_type": validate_optional_copy_text("brand_profile.business_type", analysis.get("business_type"), min_tokens=1),
+        "primary_goal": validate_optional_copy_text("brand_profile.primary_goal", analysis.get("primary_goal"), min_tokens=2),
+        "launch_approver_name": validate_optional_copy_text("brand_profile.launch_approver_name", analysis.get("launch_approver_name"), min_tokens=1),
+        "channels": [validate_short_text("brand_profile.channels", item) for item in analysis.get("channels", [])] if isinstance(analysis.get("channels"), list) else [],
+    }
+
+
+def _creative_handoff(record: dict) -> dict:
+    return {
+        "brand_name": record["brand_name"],
+        "brand_slug": record["brand_slug"],
+        "website_url": record["website_url"],
+        "audience": record["audience"],
+        "positioning": record["positioning"],
+        "problem_statement": record["problem_statement"],
+        "offer": record["offer"],
+        "primary_cta": record["primary_cta"],
+        "proof_points": record["proof_points"],
+        "brand_voice": record["brand_voice"],
+        "channel_specific_angles": record["channel_specific_angles"],
+        "hooks": record["hooks"],
+        "opening_lines": record["opening_lines"],
+    }
+
+
+def _build_channel_contexts(record: dict, creative_handoff: dict) -> dict:
     contexts = {}
     for channel in CHANNELS:
-        cta_preferences = profile.get("cta_preferences") or ["Learn More"]
         contexts[channel] = {
             "channel": channel,
-            "primary_message": promise,
-            "audience_angle": audience,
-            "offer_angle": offer,
-            "proof_points": proof_points[:3],
-            "brand_voice": brand_voice,
-            "cta": cta_preferences[0],
+            "primary_message": creative_handoff["hooks"][channel][0],
+            "audience_angle": creative_handoff["audience"],
+            "offer_angle": creative_handoff["offer"],
+            "problem_statement": creative_handoff["problem_statement"],
+            "proof_points": creative_handoff["proof_points"][:3],
+            "brand_voice": creative_handoff["brand_voice"],
+            "cta": creative_handoff["primary_cta"],
+            "creative_bias": CHANNEL_BIASES[channel],
+            "angle": creative_handoff["channel_specific_angles"][channel],
+            "hooks": creative_handoff["hooks"][channel],
+            "opening_lines": creative_handoff["opening_lines"][channel],
+            "brand_name": record["brand_name"],
         }
-    contexts["instagram"]["creative_bias"] = "visual proof with concise hooks"
-    contexts["facebook"]["creative_bias"] = "mid-funnel reassurance with proof"
-    contexts["meta"]["creative_bias"] = "performance-first paid acquisition testing"
-    contexts["tiktok"]["creative_bias"] = "native short-form hook and quick payoff"
-    contexts["youtube"]["creative_bias"] = "educational problem-solution storytelling"
-    contexts["linkedin"]["creative_bias"] = "category authority and buyer trust"
-    contexts["email"]["creative_bias"] = "offer clarity and proof sequencing"
-    contexts["landing-page"]["creative_bias"] = "message match and friction reduction"
     return contexts
 
 
@@ -68,53 +115,98 @@ def main() -> int:
     args = parser.parse_args()
 
     data = read_stdin_json()
-    analysis = data.get("brand_analysis", {})
-    run_id = ensure_run_id(data.get("run_id", ""), args.brand_slug, analysis.get("website_url", ""))
-    brand_slug = slugify(args.brand_slug or analysis.get("brand_slug", "client-brand"))
-    research_model = normalize_research_model(args.research_model or data.get("research_model", ""))
+    analysis = record_or_empty(data.get("brand_analysis"))
+    record = _validated_brand_analysis(analysis)
+    tenant_id = normalize_space(record["tenant_id"] or args.brand_slug)
+    if not tenant_id:
+        raise SystemExit("runtime_persistence_unavailable:tenant_id_missing")
+    if not record["website_url"]:
+        raise SystemExit("runtime_persistence_unavailable:website_url_missing")
 
+    run_id = ensure_run_id(data.get("run_id", ""), tenant_id, record["website_url"])
+    research_model = normalize_research_model(args.research_model or data.get("research_model", ""))
+    brand_slug = slugify(record["brand_slug"] or tenant_id)
+    validated_website_analysis_path = normalize_space(data.get("validated_website_analysis_path"))
+    if not validated_website_analysis_path:
+        raise SystemExit("runtime_persistence_unavailable:validated_website_analysis_missing")
+
+    existing_business_profile = load_json_file(validated_document_path(tenant_id, "business-profile.json"))
+    next_business_profile = build_business_profile_update(
+        tenant_id,
+        existing_business_profile,
+        business_name=record["brand_name"],
+        website_url=record["website_url"],
+        competitor_url=record["competitor_url"],
+        offer=record["offer"],
+        business_type=record["business_type"],
+        primary_goal=record["primary_goal"],
+        launch_approver_name=record["launch_approver_name"],
+        channels=record["channels"],
+    )
+    business_profile_path = write_json_file(
+        validated_document_path(tenant_id, "business-profile.json"),
+        next_business_profile,
+    )
+
+    creative_handoff = _creative_handoff(record)
     canonical_payload = {
+        "schema_version": "2026-03-31.brand-profile.v1",
+        "type": "brand_profile",
+        "tenant_id": tenant_id,
         "brand_slug": brand_slug,
-        "brand_name": analysis.get("brand_name") or "Client Brand",
-        "website_url": analysis.get("website_url") or data.get("website_url", ""),
-        "domain": analysis.get("domain", ""),
-        "brand_promise": analysis.get("brand_promise", ""),
-        "audience_summary": analysis.get("audience_summary", ""),
-        "positioning_summary": analysis.get("positioning_summary", ""),
-        "offer_summary": analysis.get("offer_summary", ""),
-        "proof_points": analysis.get("proof_points", []),
-        "brand_voice": analysis.get("brand_voice", []),
-        "cta_preferences": analysis.get("cta_preferences", []),
-        "homepage_signals": analysis.get("homepage_signals", {}),
+        "brand_name": record["brand_name"],
+        "website_url": record["website_url"],
+        "canonical_url": record["canonical_url"],
+        "competitor_url": record["competitor_url"],
+        "business_type": record["business_type"],
+        "primary_goal": record["primary_goal"],
+        "launch_approver_name": record["launch_approver_name"],
+        "channels": record["channels"],
+        "audience": record["audience"],
+        "positioning": record["positioning"],
+        "problem_statement": record["problem_statement"],
+        "offer": record["offer"],
+        "primary_cta": record["primary_cta"],
+        "proof_points": record["proof_points"],
+        "brand_voice": record["brand_voice"],
+        "channel_specific_angles": record["channel_specific_angles"],
+        "hooks": record["hooks"],
+        "opening_lines": record["opening_lines"],
+        "creative_handoff": creative_handoff,
         "source_run_id": run_id,
         "source_generated_at": data.get("generated_at", ""),
+        "validated_at": utc_now(),
+        "validated_website_analysis_path": validated_website_analysis_path,
+        "business_profile_path": business_profile_path,
     }
-
-    record = upsert_mock_brand_profile(canonical_payload)
-    profile_path = run_dir(run_id) / "brand_profiles_record.json"
-    profile_path.write_text(
-        json.dumps(record, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
+    validated_brand_profile_path = write_json_file(
+        validated_document_path(tenant_id, "brand-profile.json"),
+        canonical_payload,
     )
 
     payload = {
         "type": "brand_profile_db_contract",
         "stub": False,
-        "mode": data.get("mode", "fallback"),
+        "mode": "live",
         "generated_at": utc_now(),
         "run_id": run_id,
         "research_model": research_model,
+        "tenant_id": tenant_id,
         "brand_slug": brand_slug,
+        "validated_brand_profile_path": validated_brand_profile_path,
+        "validated_website_analysis_path": validated_website_analysis_path,
         "persistence": {
             "table": "brand_profiles",
             "operation": "upsert",
-            "backend": "local-mock",
-            "honesty_note": "No real database is configured; this wrapper upserts into a deterministic local JSON mock store.",
-            "record_path": str(profile_path),
+            "backend": "runtime-validated-store",
+            "validated_brand_profile_path": validated_brand_profile_path,
+            "validated_website_analysis_path": validated_website_analysis_path,
+            "business_profile_path": business_profile_path,
         },
         "db_payload": canonical_payload,
-        "brand_profiles_record": record,
-        "downstream_channel_context": _build_channel_contexts(record),
+        "brand_profiles_record": canonical_payload,
+        "creative_handoff": creative_handoff,
+        "downstream_channel_context": _build_channel_contexts(canonical_payload, creative_handoff),
     }
     save_step(run_id, "brand_profile_db_contract", payload)
     emit_json(payload)

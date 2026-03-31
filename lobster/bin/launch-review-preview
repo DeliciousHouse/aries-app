@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _stage4_common import emit_json, ensure_run_id, openclaw_system_event, read_stdin_json, save_artifact_text, save_step, slugify, utc_now
+from _marketing_profile_common import validate_copy_text, validate_unique_copy_list
 
 
 def _as_bool(value: str) -> bool:
@@ -232,6 +233,38 @@ def _build_review_bundle(data: dict, preview_path: str, approval_message: str, l
     }
 
 
+def _validate_review_bundle(review_bundle: dict) -> None:
+    landing_page_preview = _as_dict(review_bundle.get("landing_page_preview"))
+    script_preview = _as_dict(review_bundle.get("script_preview"))
+    summary = _as_dict(review_bundle.get("summary"))
+    validate_copy_text("launch_review.summary.core_message", _as_str(summary.get("core_message")), min_tokens=3)
+    validate_copy_text("launch_review.summary.primary_cta", _as_str(summary.get("primary_cta")), min_tokens=2)
+    validate_copy_text("launch_review.landing_page.headline", _as_str(landing_page_preview.get("headline")), min_tokens=3)
+    validate_copy_text("launch_review.landing_page.subheadline", _as_str(landing_page_preview.get("subheadline")), min_tokens=4)
+    validate_copy_text("launch_review.landing_page.cta", _as_str(landing_page_preview.get("cta")), min_tokens=2)
+    validate_copy_text("launch_review.script.meta_hook", _as_str(script_preview.get("meta_ad_hook")), min_tokens=3)
+    validate_copy_text("launch_review.script.video_opening_line", _as_str(script_preview.get("short_video_opening_line")), min_tokens=3)
+    validate_unique_copy_list("launch_review.script.meta_body", script_preview.get("meta_ad_body"), min_items=1, max_items=4, min_tokens=3)
+    validate_unique_copy_list("launch_review.script.video_beats", script_preview.get("short_video_beats"), min_items=3, max_items=4, min_tokens=3)
+    for platform in _as_list(review_bundle.get("platform_previews")):
+        platform_dict = _as_dict(platform)
+        validate_copy_text(
+            f"launch_review.platform.{_as_str(platform_dict.get('platform_slug'), 'platform')}.summary",
+            _as_str(platform_dict.get("summary")),
+            min_tokens=3,
+        )
+        validate_copy_text(
+            f"launch_review.platform.{_as_str(platform_dict.get('platform_slug'), 'platform')}.headline",
+            _as_str(platform_dict.get("headline")),
+            min_tokens=3,
+        )
+        validate_copy_text(
+            f"launch_review.platform.{_as_str(platform_dict.get('platform_slug'), 'platform')}.cta",
+            _as_str(platform_dict.get("cta")),
+            min_tokens=2,
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json", action="store_true")
@@ -251,6 +284,7 @@ def main() -> int:
         "Reply with approval and rerun with launch_approved=true to generate publish-ready assets."
     )
     review_bundle = _build_review_bundle(data, "", approval_message, launch_approved)
+    _validate_review_bundle(review_bundle)
     preview_lines = [
         f"Campaign: {review_bundle.get('campaign_name', '')}",
         f"Core message: {_as_str(_as_dict(review_bundle.get('summary')).get('core_message'), 'n/a')}",

@@ -19,6 +19,7 @@ import {
 } from './real-artifacts';
 import { inferMarketingStageRunId, readMarketingStageStepPayload } from './stage-artifact-resolution';
 import type { MarketingJobRuntimeDocument } from './runtime-state';
+import { loadValidatedMarketingProfileDocs } from './validated-profile-store';
 
 type StageCapture = {
   runId: string | null;
@@ -143,6 +144,7 @@ export function collectStrategyReviewArtifacts(
   primaryOutput: Record<string, unknown> | null,
   runtimeDoc?: MarketingJobRuntimeDocument | null,
 ): StageCapture {
+  const validatedDocs = runtimeDoc ? loadValidatedMarketingProfileDocs(runtimeDoc.tenant_id) : null;
   const websiteStep = runtimeDoc ? readMarketingStageStepPayload(runtimeDoc, 2, 'website_brand_analysis') : null;
   const plannerStep = runtimeDoc ? readMarketingStageStepPayload(runtimeDoc, 2, 'campaign_planner') : null;
   const reviewStep = runtimeDoc ? readMarketingStageStepPayload(runtimeDoc, 2, 'strategy_review_preview') : null;
@@ -152,10 +154,19 @@ export function collectStrategyReviewArtifacts(
     plannerStep?.runId ||
     reviewStep?.runId ||
     null;
-  const websitePath = websiteStep?.path || (runId ? stepPayloadPath(2, runId, 'website_brand_analysis') : '');
+  const websitePath =
+    stringValue(asRecord(primaryOutput)?.validated_website_analysis_path) ||
+    validatedDocs?.paths.websiteAnalysis ||
+    websiteStep?.path ||
+    (runId ? stepPayloadPath(2, runId, 'website_brand_analysis') : '');
+  const brandProfilePath =
+    stringValue(asRecord(primaryOutput)?.validated_brand_profile_path) ||
+    validatedDocs?.paths.brandProfile ||
+    null;
   const plannerPath = plannerStep?.path || (runId ? stepPayloadPath(2, runId, 'campaign_planner') : '');
   const reviewPath = reviewStep?.path || (runId ? stepPayloadPath(2, runId, 'strategy_review_preview') : '');
-  const website = websiteStep?.payload || (websitePath ? readJsonIfExists(websitePath) : null);
+  const website = websiteStep?.payload || validatedDocs?.websiteAnalysis || (websitePath ? readJsonIfExists(websitePath) : null);
+  const brandProfile = validatedDocs?.brandProfile || (brandProfilePath ? readJsonIfExists(brandProfilePath) : null);
   const planner = plannerStep?.payload || (plannerPath ? readJsonIfExists(plannerPath) : null);
   const review = reviewStep?.payload || (reviewPath ? readJsonIfExists(reviewPath) : null);
   const brandAnalysis = asRecord(website?.brand_analysis) ?? {};
@@ -177,9 +188,12 @@ export function collectStrategyReviewArtifacts(
     summary,
     outputs: {
       website_brand_analysis_path: websitePath || null,
+      validated_website_analysis_path: websitePath || null,
+      validated_brand_profile_path: brandProfilePath,
       campaign_planner_path: plannerPath || null,
       strategy_review_path: reviewPath || null,
       website,
+      brand_profile: brandProfile,
       planner,
       review,
     },

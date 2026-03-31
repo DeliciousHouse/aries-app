@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { installMarketingBrandExampleFetchMock } from './helpers/install-marketing-brand-fetch-mock';
 import { resolveProjectRoot } from './helpers/project-root';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
@@ -27,9 +28,11 @@ async function withMarketingRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>)
   process.env.DATA_ROOT = dataRoot;
   process.env.OPENCLAW_LOBSTER_CWD = path.join(PROJECT_ROOT, 'lobster');
 
+  const restoreBrandFetch = installMarketingBrandExampleFetchMock();
   try {
     return await run(dataRoot);
   } finally {
+    restoreBrandFetch();
     clearOpenClawTestInvoker();
 
     if (previousCodeRoot === undefined) {

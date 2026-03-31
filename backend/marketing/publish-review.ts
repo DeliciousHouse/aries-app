@@ -15,6 +15,7 @@ import {
   readScriptArtifactDetails,
   resolveMarketingArtifactPath,
 } from './real-artifacts';
+import { loadValidatedMarketingProfileSnapshot } from './validated-profile-store';
 
 function recordValue(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -811,6 +812,12 @@ function buildFallbackPublishReviewBundle(
     resolveMarketingArtifactPath(stringValue(recordValue(reviewPayload?.artifact_paths)?.preview_path)) ||
     stringArray(platformPreviews[0]?.media_paths)[0] ||
     null;
+  const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id);
+  const validatedLandingHooks = recordValue(validatedProfile.hooks)?.['landing-page'];
+  const validatedLandingHook =
+    Array.isArray(validatedLandingHooks)
+      ? validatedLandingHooks.find((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0) || null
+      : null;
 
   const fallbackBundle = {
     campaign_name: campaignName || runtimeDoc.job_id,
@@ -819,13 +826,18 @@ function buildFallbackPublishReviewBundle(
     summary: {
       core_message:
         preferredText(
+          validatedLandingHook,
           stringValue(recordValue(reviewBundle?.summary)?.core_message),
           stringValue(productionBrief?.core_message),
           stringValue(productionHandoff?.core_message),
           stringValue(platformPreviews[0]?.summary),
           stringValue(platformPreviews[0]?.headline),
         ) || ARTIFACT_INCOMPLETE_TEXT,
-      offer_summary: preferredText(stringValue(productionHandoff?.offer_summary)) || undefined,
+      offer_summary:
+        preferredText(
+          validatedProfile.offer,
+          stringValue(productionHandoff?.offer_summary),
+        ) || undefined,
     },
     artifact_paths: {
       preview_path: previewPath || undefined,
