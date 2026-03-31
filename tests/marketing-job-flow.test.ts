@@ -7,7 +7,6 @@ import { isValidElement } from 'react';
 
 import MarketingNewJobPage from '../app/marketing/new-job/page';
 import MarketingNewJobScreen from '../frontend/marketing/new-job';
-import { installMarketingBrandExampleFetchMock } from './helpers/install-marketing-brand-fetch-mock';
 import { resolveProjectRoot } from './helpers/project-root';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
@@ -27,11 +26,9 @@ async function withMarketingRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>)
   process.env.DATA_ROOT = dataRoot;
   process.env.OPENCLAW_LOBSTER_CWD = path.join(PROJECT_ROOT, 'lobster');
 
-  const restoreBrandFetch = installMarketingBrandExampleFetchMock();
   try {
     return await run(dataRoot);
   } finally {
-    restoreBrandFetch();
     if (previousCodeRoot === undefined) {
       delete process.env.CODE_ROOT;
     } else {

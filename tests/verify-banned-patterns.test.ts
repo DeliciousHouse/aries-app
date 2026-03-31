@@ -3,7 +3,6 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { installMarketingBrandExampleFetchMock } from './helpers/install-marketing-brand-fetch-mock';
 import { resolveProjectRoot } from './helpers/project-root';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
@@ -36,11 +35,9 @@ async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise
   process.env.LOBSTER_STAGE3_CACHE_DIR = path.join(dataRoot, 'lobster-stage3-cache');
   process.env.LOBSTER_STAGE4_CACHE_DIR = path.join(dataRoot, 'lobster-stage4-cache');
 
-  const restoreBrandFetch = installMarketingBrandExampleFetchMock();
   try {
     return await run(dataRoot);
   } finally {
-    restoreBrandFetch();
     clearOpenClawTestInvoker();
 
     if (previousCodeRoot === undefined) {
@@ -145,7 +142,7 @@ test('marketing job creation response omits banned runtime and tenant fields', a
     // Tenant id must come from session context, not a forged top-level JSON field.
     assert.equal(workflowArgs.brand_slug, 'tenant_real');
     assert.notEqual(workflowArgs.brand_slug, 'forged_tenant');
-    assert.equal(String(workflowArgs.brand_url).replace(/\/$/, ''), 'https://brand.example');
+    assert.equal(workflowArgs.brand_url, 'https://brand.example');
     assert.equal(workflowArgs.competitor, 'https://facebook.com/competitor');
     assert.equal('tenant_id' in workflowArgs, false);
   });

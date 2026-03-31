@@ -148,10 +148,6 @@ function defaultSessionKey(): string {
 }
 
 function defaultGatewayLobsterCwd(): string {
-  const explicitCodeRoot = process.env.CODE_ROOT?.trim();
-  if (explicitCodeRoot === '/app') {
-    return 'aries-app/lobster';
-  }
   const codeRoot = resolveCodeRoot();
   return codeRoot === '/app' ? 'aries-app/lobster' : resolveCodePath('lobster');
 }
@@ -170,28 +166,15 @@ function normalizeGatewayCwd(cwd: string): string {
   }
 
   const codeRoot = resolveCodeRoot();
-  const explicitRaw = process.env.CODE_ROOT?.trim();
-  const orderedRoots: string[] = [];
-
-  if (path.basename(codeRoot) === 'aries-app' && explicitRaw) {
-    const resolvedExplicit = path.resolve(explicitRaw);
-    const parentOfCheckout = path.dirname(codeRoot);
-    if (resolvedExplicit === parentOfCheckout) {
-      orderedRoots.push(parentOfCheckout, codeRoot, '/app');
-    } else if (resolvedExplicit === codeRoot) {
-      orderedRoots.push(codeRoot, parentOfCheckout, '/app');
-    }
-  }
-
-  if (orderedRoots.length === 0) {
-    orderedRoots.push(
-      codeRoot,
-      ...(path.basename(codeRoot) === 'aries-app' ? [path.dirname(codeRoot)] : []),
-      '/app',
-    );
-  }
-
-  const candidateRoots = Array.from(new Set(orderedRoots.filter(Boolean)));
+  const candidateRoots = Array.from(
+    new Set(
+      [
+        path.basename(codeRoot) === 'aries-app' ? path.dirname(codeRoot) : null,
+        codeRoot,
+        '/app',
+      ].filter((candidate): candidate is string => Boolean(candidate))
+    )
+  );
 
   for (const root of candidateRoots) {
     if (normalized === root || normalized.startsWith(`${root}${path.sep}`)) {
