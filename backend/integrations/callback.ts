@@ -25,6 +25,25 @@ type OAuthCallbackSuccess = {
   granted_scopes?: string[];
 };
 
+type XTokenResponse = {
+  token_type?: string;
+  expires_in?: number;
+  access_token?: string;
+  scope?: string;
+  refresh_token?: string;
+  error?: string;
+  error_description?: string;
+};
+
+type XMeResponse = {
+  data?: {
+    id?: string;
+    name?: string;
+    username?: string;
+  };
+  errors?: Array<{ detail?: string }>;
+};
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -73,6 +92,76 @@ function shouldRedirectToUi(req: Request): boolean {
   return accept.includes('text/html');
 }
 
+function xClientCredentials(): { clientId: string; clientSecret: string } | null {
+  const clientId = process.env.X_CLIENT_ID?.trim() || '';
+  const clientSecret = process.env.X_CLIENT_SECRET?.trim() || '';
+  if (!clientId || !clientSecret) {
+    return null;
+  }
+  return { clientId, clientSecret };
+}
+
+async function exchangeXCodeForToken(input: {
+  code: string;
+  redirectUri: string;
+  codeVerifier?: string;
+}): Promise<{ accessToken: string; expiresIn?: number }> {
+  const creds = xClientCredentials();
+  if (!creds) {
+    throw new Error('x_oauth_not_configured');
+  }
+  if (!input.codeVerifier) {
+    throw new Error('x_oauth_missing_code_verifier');
+  }
+
+  const body = new URLSearchParams();
+  body.set('grant_type', 'authorization_code');
+  body.set('code', input.code);
+  body.set('redirect_uri', input.redirectUri);
+  body.set('code_verifier', input.codeVerifier);
+
+  const basic = Buffer.from(`${creds.clientId}:${creds.clientSecret}`).toString('base64');
+  const response = await fetch('https://api.twitter.com/2/oauth2/token', {
+    method: 'POST',
+    headers: {
+      authorization: `Basic ${basic}`,
+      'content-type': 'application/x-www-form-urlencoded',
+    },
+    body: body.toString(),
+  });
+  const parsed = (await response.json().catch(() => ({}))) as XTokenResponse;
+  if (!response.ok || !parsed.access_token) {
+    throw new Error(parsed.error_description || parsed.error || 'X OAuth token exchange failed.');
+  }
+
+  return {
+    accessToken: parsed.access_token,
+    expiresIn: typeof parsed.expires_in === 'number' && parsed.expires_in > 0 ? parsed.expires_in : undefined,
+  };
+}
+
+async function fetchXProfile(accessToken: string): Promise<{ id?: string; label?: string }> {
+  const url = new URL('https://api.twitter.com/2/users/me');
+  url.searchParams.set('user.fields', 'name,username');
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+    },
+  });
+  if (!response.ok) {
+    return {};
+  }
+  const parsed = (await response.json().catch(() => ({}))) as XMeResponse;
+  const id = typeof parsed.data?.id === 'string' ? parsed.data.id : undefined;
+  const name = typeof parsed.data?.name === 'string' ? parsed.data.name : undefined;
+  const username = typeof parsed.data?.username === 'string' ? parsed.data.username : undefined;
+  return {
+    id,
+    label: [name, username ? `@${username}` : ''].filter(Boolean).join(' ') || undefined,
+  };
+}
+
 export async function oauthCallback(provider: string, query: OAuthCallbackQuery): Promise<OAuthCallbackSuccess | OAuthBrokerError> {
   if (!isAllowedProvider(provider)) return brokerError('invalid_provider', { provider });
 
@@ -107,8 +196,28 @@ export async function oauthCallback(provider: string, query: OAuthCallbackQuery)
 
   const connectedAt = nowIso();
   const connectionId = pending.connection_id || randomConnectionId(provider);
-  const accessTtlSeconds = parsePositiveInt(query.expires_in);
+  let accessTtlSeconds = parsePositiveInt(query.expires_in);
   const refreshTtlSeconds = parsePositiveInt(query.refresh_expires_in);
+
+  // Real X OAuth code exchange when credentials are configured.
+  if (provider === 'x' && xClientCredentials()) {
+    try {
+      const token = await exchangeXCodeForToken({
+        code: query.code.trim(),
+        redirectUri: pending.redirect_uri,
+        codeVerifier: pending.code_verifier,
+      });
+      accessTtlSeconds = token.expiresIn;
+      const profile = await fetchXProfile(token.accessToken);
+      void profile;
+    } catch (error) {
+      store.pendingByState.delete(state);
+      return brokerError('provider_callback_error', {
+        provider,
+        message: error instanceof Error ? error.message : 'X OAuth token exchange failed.',
+      });
+    }
+  }
 
   store.connectionsById.set(connectionId, {
     connection_id: connectionId,
@@ -119,7 +228,7 @@ export async function oauthCallback(provider: string, query: OAuthCallbackQuery)
     created_at: connectedAt,
     updated_at: connectedAt,
     token_expires_at: typeof accessTtlSeconds === 'number' ? addSeconds(connectedAt, accessTtlSeconds) : undefined,
-    refresh_token_expires_at: typeof refreshTtlSeconds === 'number' ? addSeconds(connectedAt, refreshTtlSeconds) : undefined
+    refresh_token_expires_at: typeof refreshTtlSeconds === 'number' ? addSeconds(connectedAt, refreshTtlSeconds) : undefined,
   });
   store.connectedByTenantProvider.set(providerTenantKey(pending.tenant_id, provider), connectionId);
   store.pendingByState.delete(state);

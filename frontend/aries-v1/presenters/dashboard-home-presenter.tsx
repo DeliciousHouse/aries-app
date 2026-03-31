@@ -502,6 +502,16 @@ export default function DashboardHomePresenter({
                   </div>
                   <span className="mb-4 block text-sm text-white/40">{channel.handle}</span>
                   <p className="pr-4 text-sm leading-relaxed text-white/50">{channel.detail}</p>
+                  {channel.health !== 'connected' ? (
+                    <div className="mt-4">
+                      <Link
+                        href={`/oauth/connect/${encodeURIComponent(channel.id)}?mode=${channel.health === 'attention' ? 'reconnect' : 'connect'}`}
+                        className="inline-flex items-center gap-2 rounded-full border border-white/[0.15] bg-white/5 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-white/10"
+                      >
+                        {channel.health === 'attention' ? 'Reconnect' : 'Connect'}
+                      </Link>
+                    </div>
+                  ) : null}
                 </div>
               ))
             )}

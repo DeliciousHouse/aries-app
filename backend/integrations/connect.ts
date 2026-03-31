@@ -1,3 +1,5 @@
+import { createHash, randomBytes } from 'node:crypto';
+
 type Provider = 'facebook' | 'instagram' | 'linkedin' | 'x' | 'youtube' | 'reddit' | 'tiktok';
 
 type BrokerStatus = 'ok' | 'error';
@@ -52,6 +54,8 @@ type ConnectionRecord = {
   token_expires_at?: string;
   refresh_token_expires_at?: string;
   disconnected_at?: string;
+  external_account_id?: string;
+  external_account_name?: string;
 };
 
 type PendingAuthRecord = {
@@ -62,6 +66,7 @@ type PendingAuthRecord = {
   scopes: string[];
   expires_at: string;
   connection_id?: string;
+  code_verifier?: string;
 };
 
 type OauthBrokerStore = {
@@ -127,6 +132,22 @@ function providerTenantKey(tenantId: string, provider: Provider): string {
   return `${tenantId}::${provider}`;
 }
 
+function xClientId(): string {
+  return process.env.X_CLIENT_ID?.trim() || '';
+}
+
+function base64Url(input: Buffer): string {
+  return input.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function createCodeVerifier(): string {
+  return base64Url(randomBytes(32));
+}
+
+function createCodeChallenge(verifier: string): string {
+  return base64Url(createHash('sha256').update(verifier).digest());
+}
+
 export async function oauthConnect(provider: string, payload: OAuthConnectRequest): Promise<OAuthConnectSuccess | OAuthBrokerError> {
   if (!isAllowedProvider(provider)) {
     return brokerError('invalid_provider', { provider });
@@ -173,6 +194,7 @@ export async function oauthConnect(provider: string, payload: OAuthConnectReques
   const expiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
   const scopes = normalizeScopes(payload.scopes);
   const redirectUri = redirectUriRaw.trim();
+  const codeVerifier = provider === 'x' && xClientId() ? createCodeVerifier() : undefined;
 
   store.pendingByState.set(state, {
     state,
@@ -180,15 +202,36 @@ export async function oauthConnect(provider: string, payload: OAuthConnectReques
     tenant_id: tenantId,
     redirect_uri: redirectUri,
     scopes,
-    expires_at: expiresAt
+    expires_at: expiresAt,
+    code_verifier: codeVerifier,
   });
 
-  const authUrl = new URL(`https://oauth.${provider}.example/authorize`);
-  authUrl.searchParams.set('response_type', 'code');
-  authUrl.searchParams.set('client_id', `${provider}_client`);
-  authUrl.searchParams.set('redirect_uri', redirectUri);
-  authUrl.searchParams.set('state', state);
-  if (scopes.length > 0) authUrl.searchParams.set('scope', scopes.join(' '));
+  const authUrl =
+    provider === 'x' && xClientId()
+      ? (() => {
+          const url = new URL('https://twitter.com/i/oauth2/authorize');
+          url.searchParams.set('response_type', 'code');
+          url.searchParams.set('client_id', xClientId());
+          url.searchParams.set('redirect_uri', redirectUri);
+          url.searchParams.set('state', state);
+          if (scopes.length > 0) {
+            url.searchParams.set('scope', scopes.join(' '));
+          }
+          if (codeVerifier) {
+            url.searchParams.set('code_challenge', createCodeChallenge(codeVerifier));
+            url.searchParams.set('code_challenge_method', 'S256');
+          }
+          return url;
+        })()
+      : new URL(`https://oauth.${provider}.example/authorize`);
+
+  if (!(provider === 'x' && xClientId())) {
+    authUrl.searchParams.set('response_type', 'code');
+    authUrl.searchParams.set('client_id', `${provider}_client`);
+    authUrl.searchParams.set('redirect_uri', redirectUri);
+    authUrl.searchParams.set('state', state);
+    if (scopes.length > 0) authUrl.searchParams.set('scope', scopes.join(' '));
+  }
 
   return {
     broker_status: 'ok',
