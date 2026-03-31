@@ -116,11 +116,14 @@ def derive_concept_id(brief: dict, script_assets: dict) -> str:
 
 
 def brand_guidelines_from_brief(brief: dict) -> dict:
+    design_tokens = record_or_empty(brief.get("design_tokens") or record_or_empty(brief.get("creative_handoff")).get("design_tokens"))
     return {
         "voice_attributes": list_or_empty(brief.get("brand_voice")),
         "proof_points": validate_unique_copy_list("video_contract.proof_points", brief.get("proof_points"), min_items=3, max_items=3, min_tokens=3),
         "primary_cta": validate_copy_text("video_contract.primary_cta", brief.get("primary_cta", ""), min_tokens=2),
         "production_constraints": brief.get("constraints", {}),
+        "design_tokens": design_tokens,
+        "brand_kit": record_or_empty(brief.get("brand_kit") or record_or_empty(brief.get("creative_handoff")).get("brand_kit")),
     }
 
 

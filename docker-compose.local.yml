@@ -19,6 +19,7 @@ services:
       PORT: 3000
       CODE_ROOT: /app
       DATA_ROOT: /data
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
       OPENCLAW_GATEWAY_URL: ${OPENCLAW_GATEWAY_URL:-http://host.docker.internal:18789}
       OPENCLAW_SESSION_KEY: ${OPENCLAW_SESSION_KEY:-main}
       OPENCLAW_LOBSTER_CWD: ${OPENCLAW_LOBSTER_CWD:-/app/lobster}

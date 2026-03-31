@@ -38,9 +38,14 @@ def main() -> int:
         "problem_statement": plan.get("problem_statement", ""),
         "proof_points": plan.get("proof_points", []),
         "channels": plan.get("channel_plans", []),
+        "competitor_context": plan.get("competitor_context", {}),
+        "testing_matrix": plan.get("testing_matrix", {}),
+        "budget_testing_plan": plan.get("budget_testing_plan", {}),
         "brand_profile_id": record.get("tenant_id", brand_slug),
         "brand_profile_path": record.get("validated_brand_profile_path", ""),
         "creative_handoff": creative_handoff,
+        "design_tokens": creative_handoff.get("design_tokens", {}),
+        "brand_kit": creative_handoff.get("brand_kit", {}),
     }
 
     payload = {
@@ -79,8 +84,40 @@ def main() -> int:
             "",
             "## Channel Plans",
             *[
-                f"- {channel.get('channel', 'channel')}: {channel.get('message', '')} | Hook: {channel.get('hook', '')} | CTA: {channel.get('cta', '')}"
+                f"- {channel.get('channel', 'channel')}: {channel.get('message', '')} | Hook: {channel.get('hook', '')} | CTA: {channel.get('cta', '')} | Hypothesis: {channel.get('hypothesis', '')}"
                 for channel in plan.get("channel_plans", [])
+            ],
+            "",
+            "## Competitor Context",
+            f"- Competitor input: {plan.get('competitor_context', {}).get('competitor', '')}",
+            f"- Market positioning: {plan.get('competitor_context', {}).get('market_positioning', '')}",
+            f"- Creative takeaway: {plan.get('competitor_context', {}).get('creative_takeaway', '')}",
+            f"- Campaign takeaway: {plan.get('competitor_context', {}).get('campaign_takeaway', '')}",
+            *[f"- Recommended action: {item}" for item in plan.get("competitor_context", {}).get("recommended_actions", [])],
+            "",
+            "## Testing Matrix",
+            *[
+                line
+                for channel_name, matrix in plan.get("testing_matrix", {}).items()
+                for line in [
+                    f"### {channel_name}",
+                    f"- Budget share: {matrix.get('budget_share_percent', 0)}%",
+                    *[
+                        f"- {family.get('family_name', '')} [{family.get('funnel_stage', '')}]: {family.get('angle', '')} | Hypothesis: {family.get('hypothesis', '')}"
+                        for family in [*matrix.get("cold_funnel", []), *matrix.get("warm_funnel", [])]
+                    ],
+                ]
+            ],
+            "",
+            "## Budget And Testing Plan",
+            *[
+                line
+                for phase in plan.get("budget_testing_plan", {}).get("phases", [])
+                for line in [
+                    f"- {phase.get('phase', '')}: {phase.get('budget_share_percent', 0)}% across {', '.join(phase.get('channels', []))}",
+                    *[f"  Hypothesis: {item}" for item in phase.get("hypotheses", [])],
+                    *[f"  Success criterion: {item}" for item in phase.get("success_criteria", [])],
+                ]
             ],
         ]
     )
@@ -99,8 +136,46 @@ def main() -> int:
             *[f"<li>{item}</li>" for item in plan.get("proof_points", [])],
             "</ul><h2>Channel Plans</h2><ul>",
             *[
-                f"<li><strong>{channel.get('channel', 'channel')}</strong>: {channel.get('message', '')} (Hook: {channel.get('hook', '')}; CTA: {channel.get('cta', '')})</li>"
+                f"<li><strong>{channel.get('channel', 'channel')}</strong>: {channel.get('message', '')} (Hook: {channel.get('hook', '')}; CTA: {channel.get('cta', '')}; Hypothesis: {channel.get('hypothesis', '')})</li>"
                 for channel in plan.get("channel_plans", [])
+            ],
+            "</ul><h2>Competitor Context</h2><ul>",
+            f"<li><strong>Competitor input:</strong> {plan.get('competitor_context', {}).get('competitor', '')}</li>",
+            f"<li><strong>Market positioning:</strong> {plan.get('competitor_context', {}).get('market_positioning', '')}</li>",
+            f"<li><strong>Creative takeaway:</strong> {plan.get('competitor_context', {}).get('creative_takeaway', '')}</li>",
+            f"<li><strong>Campaign takeaway:</strong> {plan.get('competitor_context', {}).get('campaign_takeaway', '')}</li>",
+            *[
+                f"<li><strong>Recommended action:</strong> {item}</li>"
+                for item in plan.get("competitor_context", {}).get("recommended_actions", [])
+            ],
+            "</ul><h2>Testing Matrix</h2>",
+            *[
+                "".join(
+                    [
+                        f"<h3>{channel_name}</h3>",
+                        f"<p><strong>Budget share:</strong> {matrix.get('budget_share_percent', 0)}%</p>",
+                        "<ul>",
+                        *[
+                            f"<li><strong>{family.get('family_name', '')}</strong> [{family.get('funnel_stage', '')}]: {family.get('angle', '')} (Hypothesis: {family.get('hypothesis', '')})</li>"
+                            for family in [*matrix.get("cold_funnel", []), *matrix.get("warm_funnel", [])]
+                        ],
+                        "</ul>",
+                    ]
+                )
+                for channel_name, matrix in plan.get("testing_matrix", {}).items()
+            ],
+            "<h2>Budget And Testing Plan</h2><ul>",
+            *[
+                "".join(
+                    [
+                        f"<li><strong>{phase.get('phase', '')}</strong>: {phase.get('budget_share_percent', 0)}% across {', '.join(phase.get('channels', []))}",
+                        "<ul>",
+                        *[f"<li>Hypothesis: {item}</li>" for item in phase.get("hypotheses", [])],
+                        *[f"<li>Success criterion: {item}</li>" for item in phase.get("success_criteria", [])],
+                        "</ul></li>",
+                    ]
+                )
+                for phase in plan.get("budget_testing_plan", {}).get("phases", [])
             ],
             "</ul></body></html>",
         ]

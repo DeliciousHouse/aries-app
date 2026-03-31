@@ -27,7 +27,7 @@ steps:
     command: |
       bash -lc '
         set -euo pipefail
-        cmd=(./bin/meta-ads-extractor --json --competitor "$1" --research-model "gemini/gemini-3-pro-image-preview")
+        cmd=(python3 ./bin/meta-ads-extractor --json --competitor "$1" --research-model "gemini/gemini-3-pro-image-preview" --strict-mode true)
         if [ -n "$2" ]; then
           cmd+=(--competitor-facebook-url "$2")
         fi
@@ -35,15 +35,15 @@ steps:
       ' -- "${competitor}" "${competitor_facebook_url}"
 
   - id: stage_1_analyse
-    command: ./bin/meta-ads-analyser --json
+    command: python3 ./bin/meta-ads-analyser --json
     stdin: $stage_1_extract.json
 
   - id: stage_1_creative
-    command: ./bin/ad-creative-analysis --json
+    command: python3 ./bin/ad-creative-analysis --json
     stdin: $stage_1_analyse.json
 
   - id: stage_1_compile
-    command: ./bin/ads-analyst --json --mode compile
+    command: python3 ./bin/ads-analyst --json --mode compile
     stdin: $stage_1_creative.json
 
   - id: approve_stage_2
@@ -51,9 +51,16 @@ steps:
       printf '%s\n' '{"prompt":"Stage 1 complete. Continue to Stage 2 and run head-of-marketing for the provided brand_url?"}'
     approval: required
 
+  - id: stage_2_brand_kit
+    command: >
+      ./../node_modules/.bin/tsx ./bin/brand-kit-bootstrap.ts
+      --tenant-id "${brand_slug}"
+      --brand-url "${brand_url}"
+    when: $approve_stage_2.approved
+
   - id: stage_2_brand_analysis
     command: >
-      ./bin/website-brand-analysis --json
+      python3 ./bin/website-brand-analysis --json
       --website-url "${brand_url}"
       --brand-slug "${brand_slug}"
     stdin: $stage_1_compile.json
@@ -61,28 +68,28 @@ steps:
 
   - id: stage_2_profile
     command: >
-      ./bin/brand-profile-db-contract --json
+      python3 ./bin/brand-profile-db-contract --json
       --brand-slug "${brand_slug}"
     stdin: $stage_2_brand_analysis.json
     when: $approve_stage_2.approved
 
   - id: stage_2_plan
     command: >
-      ./bin/campaign-planner --json
+      python3 ./bin/campaign-planner --json
       --brand-slug "${brand_slug}"
     stdin: $stage_2_profile.json
     when: $approve_stage_2.approved
 
   - id: stage_2_review_preview
     command: >
-      ./bin/strategy-review-preview --json
+      python3 ./bin/strategy-review-preview --json
       --brand-slug "${brand_slug}"
     stdin: $stage_2_plan.json
     when: $approve_stage_2.approved
 
   - id: stage_2_finalize
     command: >
-      ./bin/head-of-marketing --json
+      python3 ./bin/head-of-marketing --json
       --mode finalize
       --brand-slug "${brand_slug}"
     stdin: $stage_2_plan.json
@@ -95,7 +102,7 @@ steps:
 
   - id: stage_3_preflight
     command: >
-      ./bin/creative-director --json
+      python3 ./bin/creative-director --json
       --mode preflight
       --brand-slug "${brand_slug}"
     stdin: $stage_2_finalize.json
@@ -103,42 +110,42 @@ steps:
 
   - id: stage_3_page
     command: >
-      ./bin/page-designer --json
+      python3 ./bin/page-designer --json
       --brand-slug "${brand_slug}"
     stdin: $stage_3_preflight.json
     when: $approve_stage_3.approved
 
   - id: stage_3_script
     command: >
-      ./bin/scriptwriter --json
+      python3 ./bin/scriptwriter --json
       --brand-slug "${brand_slug}"
     stdin: $stage_3_preflight.json
     when: $approve_stage_3.approved
 
   - id: stage_3_ad
     command: >
-      ./bin/ad-designer --json
+      python3 ./bin/ad-designer --json
       --brand-slug "${brand_slug}"
     stdin: $stage_3_script.json
     when: $approve_stage_3.approved
 
   - id: stage_3_video
     command: >
-      ./bin/veo-video-generator --json
+      python3 ./bin/veo-video-generator --json
       --brand-slug "${brand_slug}"
     stdin: $stage_3_ad.json
     when: $approve_stage_3.approved
 
   - id: stage_3_review_preview
     command: >
-      ./bin/production-review-preview --json
+      python3 ./bin/production-review-preview --json
       --brand-slug "${brand_slug}"
     stdin: $stage_3_video.json
     when: $approve_stage_3.approved
 
   - id: stage_3_finalize
     command: >
-      ./bin/creative-director --json
+      python3 ./bin/creative-director --json
       --mode finalize
       --brand-slug "${brand_slug}"
     stdin: $stage_3_review_preview.json
@@ -151,7 +158,7 @@ steps:
 
   - id: stage_4_preflight
     command: >
-      ./bin/performance-marketer --json
+      python3 ./bin/performance-marketer --json
       --mode preflight
       --brand-slug "${brand_slug}"
     stdin: $stage_3_finalize.json
@@ -159,7 +166,7 @@ steps:
 
   - id: stage_4_launch_review
     command: >
-      ./bin/launch-review-preview --json
+      python3 ./bin/launch-review-preview --json
       --brand-slug "${brand_slug}"
       --launch-approved false
       --notify-chat false
@@ -174,7 +181,7 @@ steps:
 
   - id: stage_4_publish_paused
     command: >
-      ./bin/stage4-publish-compat --json
+      python3 ./bin/stage4-publish-compat --json
       --brand-slug "${brand_slug}"
     stdin: $stage_3_finalize.json
     when: $approve_stage_4_publish.approved

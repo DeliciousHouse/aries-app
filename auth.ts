@@ -2,40 +2,20 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import bcrypt from "bcryptjs";
-import type { PoolClient } from "pg";
 import pool from "./lib/db";
 import { resolveAuthRuntimeConfig } from "./lib/auth-runtime-config";
 import type { TenantRole } from "./lib/tenant-context";
+import {
+  ensureTenantAccessForUser,
+  findTenantClaimsByEmail,
+  findTenantClaimsByUserId,
+  isTenantRole,
+  missingTenantClaims,
+  normalizeEmail,
+  tenantClaimsErrorRedirect,
+} from "./lib/auth-tenant-membership";
 
 const authRuntime = resolveAuthRuntimeConfig(process.env);
-const TENANT_ROLES = new Set<TenantRole>(["tenant_admin", "tenant_analyst", "tenant_viewer"]);
-
-function isTenantRole(value: unknown): value is TenantRole {
-  return typeof value === "string" && TENANT_ROLES.has(value as TenantRole);
-}
-
-function slugFromIdentity(name: string | null | undefined, email: string): string {
-  return (name || email.split("@")[0])
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 60);
-}
-
-async function ensureOrganizationForUser(
-  client: PoolClient,
-  userId: number,
-  name: string | null | undefined,
-  email: string,
-): Promise<void> {
-  const slug = slugFromIdentity(name, email);
-  const orgResult = await client.query(
-    "INSERT INTO organizations (name, slug) VALUES ($1, $2) RETURNING id",
-    [name || email, slug],
-  );
-  const orgId = orgResult.rows[0].id as number;
-  await client.query("UPDATE users SET organization_id = $1 WHERE id = $2", [orgId, userId]);
-}
 
 if (authRuntime.authUrl) {
   process.env.NEXTAUTH_URL = process.env.NEXTAUTH_URL ?? authRuntime.authUrl;
@@ -123,39 +103,69 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
       const email = user.email;
       if (!email) return false;
+      const normalizedEmail = normalizeEmail(email);
 
       const client = await pool.connect();
       try {
         const existingUser = await client.query(
-          "SELECT id, organization_id FROM users WHERE LOWER(email) = LOWER($1)",
-          [email],
+          "SELECT id, organization_id, role FROM users WHERE LOWER(email) = LOWER($1)",
+          [normalizedEmail],
         );
+
+        let authenticatedUser =
+          (existingUser.rowCount ?? 0) > 0
+            ? (existingUser.rows[0] as {
+                id: string | number;
+                organization_id?: string | number | null;
+                role?: string | null;
+              })
+            : null;
 
         if (account.provider === "google") {
           if ((existingUser.rowCount ?? 0) === 0) {
             const inserted = await client.query(
-              "INSERT INTO users (email, full_name, password_hash) VALUES ($1, $2, $3) RETURNING id",
-              [email, user.name || "", "oauth_managed"],
+              `
+                INSERT INTO users (email, full_name, password_hash)
+                VALUES ($1, $2, $3)
+                RETURNING id, organization_id, role
+              `,
+              [normalizedEmail, user.name || "", "oauth_managed"],
             );
-            await ensureOrganizationForUser(
-              client,
-              inserted.rows[0].id as number,
-              user.name,
-              email,
-            );
-            return true;
+            authenticatedUser = inserted.rows[0] as {
+              id: string | number;
+              organization_id?: string | number | null;
+              role?: string | null;
+            };
           }
         } else if ((existingUser.rowCount ?? 0) === 0) {
           return false;
         }
 
-        if (!existingUser.rows[0].organization_id) {
-          await ensureOrganizationForUser(
-            client,
-            existingUser.rows[0].id as number,
-            user.name,
-            email,
-          );
+        if (!authenticatedUser) {
+          return false;
+        }
+
+        await ensureTenantAccessForUser(client, {
+          userId: authenticatedUser.id,
+          organizationId: authenticatedUser.organization_id,
+          role: authenticatedUser.role,
+          name: user.name,
+          email: normalizedEmail,
+        });
+
+        const tenantClaims = await findTenantClaimsByUserId(
+          client,
+          Number(authenticatedUser.id),
+        );
+        const missingClaims = missingTenantClaims(tenantClaims);
+        if (missingClaims.length > 0) {
+          console.error("Authenticated user is missing required tenant claims after sign-in.", {
+            provider: account.provider,
+            email: normalizedEmail,
+            userId: String(authenticatedUser.id),
+            missingClaims,
+          });
+          return tenantClaimsErrorRedirect(missingClaims);
         }
 
         return true;
@@ -170,30 +180,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       const hydrateTenantClaimsByUserId = async (userId: string) => {
         const client = await pool.connect();
         try {
-          const tenantResult = await client.query(
-            `
-              SELECT
-                o.id AS tenant_id,
-                COALESCE(NULLIF(o.slug, ''), 'org-' || o.id::text) AS tenant_slug,
-                u.role
-              FROM users u
-              INNER JOIN organizations o ON o.id = u.organization_id
-              WHERE u.id = $1
-              LIMIT 1
-            `,
-            [Number(userId)]
-          );
-
-          if ((tenantResult.rowCount ?? 0) > 0) {
-            const row = tenantResult.rows[0] as {
-              tenant_id: string | number;
-              tenant_slug: string;
-              role: TenantRole;
-            };
-            token.tenantId = String(row.tenant_id);
-            token.tenantSlug = row.tenant_slug;
-            token.tenantRole = row.role;
+          const row = await findTenantClaimsByUserId(client, userId);
+          if (!row || missingTenantClaims(row).length > 0) {
+            return;
           }
+
+          token.tenantId = String(row.tenant_id);
+          token.tenantSlug = row.tenant_slug as string;
+          token.tenantRole = row.role as TenantRole;
         } finally {
           client.release();
         }
@@ -202,32 +196,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (user?.email) {
         const client = await pool.connect();
         try {
-          const result = await client.query(
-            `
-              SELECT
-                u.id AS user_id,
-                o.id AS tenant_id,
-                COALESCE(NULLIF(o.slug, ''), 'org-' || o.id::text) AS tenant_slug,
-                u.role
-              FROM users u
-              LEFT JOIN organizations o ON o.id = u.organization_id
-              WHERE u.email = $1
-              LIMIT 1
-            `,
-            [user.email]
-          );
+          const row = await findTenantClaimsByEmail(client, normalizeEmail(user.email));
 
-          if ((result.rowCount ?? 0) > 0) {
-            const row = result.rows[0] as {
-              user_id: string | number;
-              tenant_id?: string | number | null;
-              tenant_slug?: string | null;
-              role?: TenantRole | null;
-            };
+          if (row) {
             token.userId = String(row.user_id);
-            if (row.tenant_id && row.tenant_slug && row.role) {
+            if (missingTenantClaims(row).length === 0) {
               token.tenantId = String(row.tenant_id);
-              token.tenantSlug = row.tenant_slug;
+              token.tenantSlug = row.tenant_slug as string;
               token.tenantRole = isTenantRole(row.role) ? row.role : undefined;
             }
           }
