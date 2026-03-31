@@ -1,11 +1,11 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { resolveDataPath, resolveSpecPath } from '@/lib/runtime-paths';
-import type { TenantBrandKit } from './brand-kit';
+import { describeSpecResolution, resolveDataPath } from '@/lib/runtime-paths';
+import { loadTenantBrandKit, tenantBrandKitPath, type TenantBrandKit } from './brand-kit';
 
-const REQUIRED_SCHEMA_PATHS = [
-  resolveSpecPath('marketing_job_state_schema.v1.json'),
+const REQUIRED_SCHEMA_FILES = [
+  'marketing_job_state_schema.v1.json',
 ] as const;
 const MARKETING_RUNTIME_SCHEMA_NAME = 'marketing_job_state_schema';
 const LEGACY_MARKETING_RUNTIME_SCHEMA_NAME = 'job_runtime_state_schema';
@@ -117,7 +117,7 @@ export type MarketingJobRuntimeDocument = {
     history: MarketingApprovalHistoryEntry[];
   };
   publish_config: MarketingPublishConfig;
-  brand_kit: MarketingBrandKitReference;
+  brand_kit: MarketingBrandKitReference | null;
   inputs: {
     request: Record<string, unknown>;
     brand_url: string;
@@ -209,7 +209,7 @@ export function createMarketingJobRuntimeDocument(input: {
     inputs: {
       request: input.payload,
       brand_url: asString(input.payload.brandUrl) || '',
-      competitor_url: asString(input.payload.competitorUrl),
+      competitor_url: asString(input.payload.competitorUrl) || asString(input.payload.brandUrl),
       competitor_facebook_url: asString(input.payload.competitorFacebookUrl),
     },
     errors: [],
@@ -229,9 +229,22 @@ export function createMarketingJobRuntimeDocument(input: {
 }
 
 export function assertMarketingRuntimeSchemas(): void {
-  for (const schemaPath of REQUIRED_SCHEMA_PATHS) {
+  for (const fileName of REQUIRED_SCHEMA_FILES) {
+    const resolution = describeSpecResolution(fileName);
+    console.info('[marketing-runtime-schema]', {
+      event: 'resolve',
+      requestedCodeRoot: resolution.requestedCodeRoot,
+      resolvedCodeRoot: resolution.resolvedCodeRoot,
+      resolvedSpecPath: resolution.resolvedSpecPath,
+      cwd: process.cwd(),
+      triedSpecPaths: resolution.triedSpecPaths,
+    });
+
+    const schemaPath = resolution.resolvedSpecPath;
     if (!existsSync(schemaPath)) {
-      throw new Error(`HARD_FAILURE: missing required schema input: ${schemaPath}`);
+      throw new Error(
+        `marketing_runtime_schema_resolution_failed: requestedCodeRoot=${resolution.requestedCodeRoot || 'unset'} cwd=${process.cwd()} resolvedCodeRoot=${resolution.resolvedCodeRoot} triedSpecPaths=${resolution.triedSpecPaths.join(', ')}`,
+      );
     }
 
     try {
@@ -253,6 +266,67 @@ export function marketingRuntimePath(jobId: string): string {
 
 function marketingRuntimeRoot(): string {
   return resolveDataPath('generated', 'draft', 'marketing-jobs');
+}
+
+function runtimeBrandKitReferenceFromTenantBrandKit(
+  tenantId: string,
+  brandKit: TenantBrandKit,
+): MarketingBrandKitReference {
+  return {
+    path: tenantBrandKitPath(tenantId),
+    source_url: brandKit.source_url,
+    canonical_url: brandKit.canonical_url,
+    brand_name: brandKit.brand_name,
+    logo_urls: [...brandKit.logo_urls],
+    colors: {
+      primary: brandKit.colors.primary,
+      secondary: brandKit.colors.secondary,
+      accent: brandKit.colors.accent,
+      palette: [...brandKit.colors.palette],
+    },
+    font_families: [...brandKit.font_families],
+    external_links: [...brandKit.external_links],
+    extracted_at: brandKit.extracted_at,
+    brand_voice_summary: brandKit.brand_voice_summary ?? null,
+    offer_summary: brandKit.offer_summary ?? null,
+  };
+}
+
+function recoverLegacyRuntimeBrandKit(doc: MarketingJobRuntimeDocument): MarketingBrandKitReference | null {
+  try {
+    const persistedBrandKit = loadTenantBrandKit(doc.tenant_id);
+    if (!persistedBrandKit) {
+      console.warn('[marketing-runtime-state]', {
+        event: 'legacy-runtime-brand-kit-missing',
+        jobId: doc.job_id,
+        tenantId: doc.tenant_id,
+        recovered: false,
+        source: 'none',
+      });
+      return null;
+    }
+
+    const recoveredBrandKit = runtimeBrandKitReferenceFromTenantBrandKit(doc.tenant_id, persistedBrandKit);
+    console.warn('[marketing-runtime-state]', {
+      event: 'legacy-runtime-brand-kit-missing',
+      jobId: doc.job_id,
+      tenantId: doc.tenant_id,
+      recovered: true,
+      source: 'validated_brand_kit_file',
+      brandKitPath: recoveredBrandKit.path,
+    });
+    return recoveredBrandKit;
+  } catch (error) {
+    console.warn('[marketing-runtime-state]', {
+      event: 'legacy-runtime-brand-kit-missing',
+      jobId: doc.job_id,
+      tenantId: doc.tenant_id,
+      recovered: false,
+      source: 'none',
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
 }
 
 function assertMarketingRuntimeDocument(doc: MarketingJobRuntimeDocument): void {
@@ -323,6 +397,9 @@ export function loadMarketingJobRuntime(jobId: string): MarketingJobRuntimeDocum
     } else {
       doc.publish_config = defaultPublishConfig(doc.publish_config);
     }
+    if (!doc.brand_kit) {
+      doc.brand_kit = recoverLegacyRuntimeBrandKit(doc);
+    }
     return doc;
   } catch {
     return null;
@@ -384,6 +461,60 @@ function collectMarketingJobRefsForTenant(tenantId: string): Array<{ jobId: stri
 
 export function listMarketingJobIdsForTenant(tenantId: string): string[] {
   return collectMarketingJobRefsForTenant(tenantId).map((entry) => entry.jobId);
+}
+
+export function listMarketingTenantIds(): string[] {
+  const root = marketingRuntimeRoot();
+  if (!existsSync(root)) {
+    return [];
+  }
+
+  const entries = readdirSync(root).filter((entry) => entry.endsWith('.json'));
+  const tenants = new Set<string>();
+
+  for (const entry of entries) {
+    try {
+      const raw = readFileSync(path.join(root, entry), 'utf8');
+      const doc = JSON.parse(raw) as Record<string, unknown>;
+      const tenantId = typeof doc.tenant_id === 'string' ? doc.tenant_id.trim() : '';
+      if (tenantId) {
+        tenants.add(tenantId);
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return [...tenants];
+}
+
+export function findLatestMarketingTenantId(): string | null {
+  const root = marketingRuntimeRoot();
+  if (!existsSync(root)) {
+    return null;
+  }
+
+  const entries = readdirSync(root).filter((entry) => entry.endsWith('.json'));
+  let latest: { tenantId: string; updatedAt: number } | null = null;
+
+  for (const entry of entries) {
+    try {
+      const raw = readFileSync(path.join(root, entry), 'utf8');
+      const doc = JSON.parse(raw) as Record<string, unknown>;
+      const tenantId = typeof doc.tenant_id === 'string' ? doc.tenant_id.trim() : '';
+      const updatedAt = Date.parse(typeof doc.updated_at === 'string' ? doc.updated_at : '');
+      if (!tenantId || !Number.isFinite(updatedAt)) {
+        continue;
+      }
+      if (!latest || updatedAt > latest.updatedAt) {
+        latest = { tenantId, updatedAt };
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return latest?.tenantId ?? null;
 }
 
 export function findLatestMarketingJobIdForTenant(tenantId: string): string | null {

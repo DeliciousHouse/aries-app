@@ -179,7 +179,7 @@ After delivering competitor intel, prompt for next step:
 ```
 "Ready to plan your campaign based on these learnings?
 
-Next step: I'll analyze YOUR brand and create a campaign proposal 
+Next step: I'll analyze YOUR brand and create a campaign proposal
 that applies what we learned from {competitor}.
 
 To proceed, I need your website URL:

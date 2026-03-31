@@ -22,6 +22,12 @@ import {
   type MarketingApprovalResolution,
 } from './approval-store';
 import {
+  collectProductionReviewArtifacts,
+  collectPublishReviewArtifacts,
+  collectResearchStageArtifacts,
+  collectStrategyReviewArtifacts,
+} from './artifact-collector';
+import {
   appendHistory,
   assertMarketingRuntimeSchemas,
   clearApprovalCheckpoint,
@@ -111,7 +117,7 @@ type WorkflowApprovalStepId =
 function runtimeBrandKitReference(
   brandKit: TenantBrandKit,
   filePath: string
-): MarketingJobRuntimeDocument['brand_kit'] {
+): NonNullable<MarketingJobRuntimeDocument['brand_kit']> {
   return {
     path: filePath,
     source_url: brandKit.source_url,
@@ -122,6 +128,8 @@ function runtimeBrandKitReference(
     font_families: brandKit.font_families,
     external_links: brandKit.external_links,
     extracted_at: brandKit.extracted_at,
+    brand_voice_summary: brandKit.brand_voice_summary ?? null,
+    offer_summary: brandKit.offer_summary ?? null,
   };
 }
 
@@ -162,10 +170,9 @@ function stringValue(value: unknown, fallback = ''): string {
 
 function ensureBrandCampaignInput(input: StartMarketingJobRequest): { brandUrl: string; competitorUrl: string } {
   const brandUrl = stringValue(input.payload?.brandUrl);
-  const competitorUrl = stringValue(input.payload?.competitorUrl);
+  const competitorUrl = stringValue(input.payload?.competitorUrl, brandUrl);
   const missing: string[] = [];
   if (!brandUrl) missing.push('payload.brandUrl');
-  if (!competitorUrl) missing.push('payload.competitorUrl');
   if (missing.length > 0) {
     throw new Error(`missing_required_fields:${missing.join(',')}`);
   }
@@ -653,29 +660,18 @@ async function runResearchStage(doc: MarketingJobRuntimeDocument): Promise<void>
 
   const envelope = await runMarketingPipeline(doc);
   const primaryOutput = primaryOutputRecord(envelope);
+  const capture = collectResearchStageArtifacts(primaryOutput);
   const summary = summarizeResearch(primaryOutput);
-  const runId = runIdFromPrimaryOutput(primaryOutput);
+  const runId = capture.runId || runIdFromPrimaryOutput(primaryOutput);
   markStageCompleted(doc, 'research', {
     runId,
-    summary,
+    summary: capture.summary || summary,
     primaryOutput,
     outputs: {
+      ...capture.outputs,
       envelope,
     },
-    artifacts: [
-      {
-        id: 'research-summary',
-        stage: 'research',
-        title: 'Competitor research summary',
-        category: 'analysis',
-        status: 'completed',
-        summary: summary.summary,
-        details: [
-          `Competitor URL: ${doc.inputs.competitor_url ?? 'n/a'}`,
-          `Brand URL: ${doc.inputs.brand_url ?? 'n/a'}`,
-        ],
-      },
-    ],
+    artifacts: capture.artifacts,
   });
   appendHistory(doc, 'research stage completed', { stage: 'research' });
   saveMarketingJobRuntime(doc.job_id, doc);
@@ -725,18 +721,20 @@ async function finalizeStrategyAndRunProductionReview(
 
   const envelope = await resumeMarketingPipeline(resumeToken);
   const primaryOutput = primaryOutputRecord(envelope);
+  const strategyReviewCapture = collectStrategyReviewArtifacts(primaryOutput, doc);
   const strategy = summarizeStrategy(primaryOutput);
   markStageCompleted(doc, 'strategy', {
-    runId: runIdFromPrimaryOutput(primaryOutput) ?? getStageRecord(doc, 'research').run_id,
-    summary: {
+    runId: strategyReviewCapture.runId ?? runIdFromPrimaryOutput(primaryOutput) ?? getStageRecord(doc, 'research').run_id,
+    summary: strategyReviewCapture.summary || {
       summary: strategy.summary,
       highlight: strategy.highlight,
     },
     primaryOutput,
     outputs: {
+      ...strategyReviewCapture.outputs,
       strategy_handoff: strategy.handoff,
     },
-    artifacts: [],
+    artifacts: strategyReviewCapture.artifacts,
   });
   appendHistory(doc, 'strategy stage approved and finalized', { stage: 'strategy' });
   saveMarketingJobRuntime(doc.job_id, doc);
@@ -786,18 +784,20 @@ async function finalizeProductionAndRunPublishReview(
 
   const envelope = await resumeMarketingPipeline(resumeToken);
   const primaryOutput = primaryOutputRecord(envelope);
+  const productionReviewCapture = collectProductionReviewArtifacts(primaryOutput, doc);
   const production = summarizeProduction(primaryOutput);
   markStageCompleted(doc, 'production', {
-    runId: runIdFromPrimaryOutput(primaryOutput) ?? getStageRecord(doc, 'strategy').run_id,
-    summary: {
+    runId: productionReviewCapture.runId ?? runIdFromPrimaryOutput(primaryOutput) ?? getStageRecord(doc, 'strategy').run_id,
+    summary: productionReviewCapture.summary || {
       summary: production.summary,
       highlight: production.highlight,
     },
     primaryOutput,
     outputs: {
+      ...productionReviewCapture.outputs,
       production_handoff: production.handoff,
     },
-    artifacts: [],
+    artifacts: productionReviewCapture.artifacts,
   });
   appendHistory(doc, 'production stage approved and finalized', { stage: 'production' });
   saveMarketingJobRuntime(doc.job_id, doc);
@@ -850,6 +850,7 @@ async function advancePublishStage(doc: MarketingJobRuntimeDocument, resumeToken
 
   const envelope = await resumeMarketingPipeline(resumeToken);
   const primaryOutput = primaryOutputRecord(envelope);
+  const publishReviewCapture = collectPublishReviewArtifacts(primaryOutput, doc);
   const publish = summarizePublish(primaryOutput);
   if (envelope.requiresApproval?.resumeToken) {
     const approval = publishPausedApprovalMessage(
@@ -863,22 +864,26 @@ async function advancePublishStage(doc: MarketingJobRuntimeDocument, resumeToken
       actionLabel: 'Approve paused publish',
       resumeToken: envelope.requiresApproval.resumeToken,
       envelope,
-      runId: runIdFromPrimaryOutput(primaryOutput) ?? publishStage.run_id,
+      runId: publishReviewCapture.runId ?? runIdFromPrimaryOutput(primaryOutput) ?? publishStage.run_id,
       highlight: publish.highlight,
       primaryOutput,
       publishConfig: doc.publish_config,
       outputs: {
+        ...publishStage.outputs,
+        ...publishReviewCapture.outputs,
         envelope,
       },
-      artifacts: replacePublishApprovalArtifacts(publishStage.artifacts, {
-        id: 'publish-paused-review',
-        stage: 'publish',
-        title: 'Publish to Meta (paused) approval checkpoint',
-        category: 'approval',
-        status: 'awaiting_approval',
-        summary: approval.message,
-        details: [],
-      }),
+      artifacts: [
+        ...replacePublishApprovalArtifacts(publishReviewCapture.artifacts, {
+          id: 'publish-paused-review',
+          stage: 'publish',
+          title: 'Publish to Meta (paused) approval checkpoint',
+          category: 'approval',
+          status: 'awaiting_approval',
+          summary: approval.message,
+          details: [],
+        }),
+      ],
     });
     appendHistory(doc, 'publish stage is awaiting paused-publish approval', { stage: 'publish' });
     saveMarketingJobRuntime(doc.job_id, doc);
@@ -886,16 +891,20 @@ async function advancePublishStage(doc: MarketingJobRuntimeDocument, resumeToken
   }
 
   markStageCompleted(doc, 'publish', {
-    runId: runIdFromPrimaryOutput(primaryOutput) ?? publishStage.run_id,
-    summary: {
+    runId: publishReviewCapture.runId ?? runIdFromPrimaryOutput(primaryOutput) ?? publishStage.run_id,
+    summary: publishReviewCapture.summary || {
       summary: publish.summary,
       highlight: publish.highlight,
     },
     primaryOutput,
     outputs: {
+      ...publishStage.outputs,
+      ...publishReviewCapture.outputs,
       envelope,
     },
-    artifacts: replacePublishApprovalArtifacts(publishStage.artifacts),
+    artifacts: replacePublishApprovalArtifacts(
+      publishReviewCapture.artifacts.length > 0 ? publishReviewCapture.artifacts : publishStage.artifacts,
+    ),
   });
 
   doc.state = 'completed';

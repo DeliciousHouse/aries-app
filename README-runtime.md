@@ -57,7 +57,7 @@ Browser
 - `POST /api/calendar/sync`
 
 ## Optional host-node flow
-- Dev: `npx next dev -p 3000 --turbopack`
+- Dev: `npm run dev`
 - Build: `npm run build`
 - Start: `npm run start`
 - Precheck: `npm run precheck`
@@ -80,8 +80,10 @@ This document intentionally excludes removed placeholder endpoints and unsupport
 3. Export local overrides so VM-level environment variables do not leak into the app:
    ```bash
    export DB_HOST=localhost DB_PORT=5432 DB_USER=aries_user DB_PASSWORD=aries_pass DB_NAME=aries_dev
-   export CODE_ROOT=/workspace DATA_ROOT=/tmp/aries-data NODE_ENV=development
+   export CODE_ROOT=/home/node/openclaw/aries-app DATA_ROOT=/tmp/aries-data NODE_ENV=development
+   export OPENCLAW_LOBSTER_CWD=/home/node/openclaw/aries-app/lobster
    export APP_BASE_URL=http://localhost:3000 NEXTAUTH_URL=http://localhost:3000 AUTH_URL=http://localhost:3000 AUTH_TRUST_HOST=true
+   export MARKETING_STATUS_PUBLIC=1
    ```
 4. Initialize the database when needed:
    ```bash
@@ -89,7 +91,7 @@ This document intentionally excludes removed placeholder endpoints and unsupport
    ```
 5. Start the dev server with Turbopack:
    ```bash
-   npx next dev -p 3000 --turbopack
+   npm run dev
    ```
 
 ## Required environment variables for live execution
@@ -110,7 +112,7 @@ Optional but commonly used:
 - `OPENCLAW_LOBSTER_CWD`
 - `INTERNAL_API_SECRET`
 - `LOG_LEVEL`
-- provider OAuth credentials such as `META_APP_ID`, `META_APP_SECRET`, and `META_REDIRECT_URI`
+- provider credentials such as `META_ACCESS_TOKEN`, `META_AD_ACCOUNT_ID`, `META_PAGE_ID`, and `META_REDIRECT_URI`
 
 ## Validation
 

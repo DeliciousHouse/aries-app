@@ -18,6 +18,13 @@ from typing import Any
 from _canonical_outputs import write_stage_log
 
 
+def safe_path_exists(candidate: str | Path) -> bool:
+    try:
+        return Path(candidate).exists()
+    except OSError:
+        return False
+
+
 def resolve_nano_banana_script() -> Path:
     candidates = [
         os.environ.get("NANO_BANANA_SCRIPT", "").strip(),
@@ -26,7 +33,7 @@ def resolve_nano_banana_script() -> Path:
         "/home/bkam/.npm-global/lib/node_modules/openclaw/skills/nano-banana-pro/scripts/generate_image.py",
     ]
     for candidate in candidates:
-        if candidate and Path(candidate).exists():
+        if candidate and safe_path_exists(candidate):
             return Path(candidate)
     return Path("/app/skills/nano-banana-pro/scripts/generate_image.py")
 
@@ -203,7 +210,7 @@ def nano_banana_enabled() -> bool:
 
 def run_nano_banana(prompt: str, destination: Path, aspect_ratio: str) -> dict:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    use_script = NANO_BANANA_SCRIPT.exists() and shutil.which("uv")
+    use_script = safe_path_exists(NANO_BANANA_SCRIPT) and shutil.which("uv")
     if use_script:
         command = [
             "uv",

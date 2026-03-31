@@ -1,7 +1,11 @@
+import { execFile } from 'node:child_process';
 import crypto from 'node:crypto';
 import path from 'node:path';
+import { promisify } from 'node:util';
 
 import { resolveCodePath, resolveCodeRoot } from '../../lib/runtime-paths';
+
+const execFileAsync = promisify(execFile);
 
 type OpenClawInvokeResponse = {
   ok: boolean;
@@ -162,12 +166,21 @@ function normalizeGatewayCwd(cwd: string): string {
   }
 
   const codeRoot = resolveCodeRoot();
-  const gatewayWorkspaceRoot = path.join(codeRoot, 'aries-app');
-  if (
-    normalized === gatewayWorkspaceRoot ||
-    normalized.startsWith(`${gatewayWorkspaceRoot}${path.sep}`)
-  ) {
-    return path.relative(codeRoot, normalized) || 'aries-app';
+  const candidateRoots = Array.from(
+    new Set(
+      [
+        path.basename(codeRoot) === 'aries-app' ? path.dirname(codeRoot) : null,
+        codeRoot,
+        '/app',
+      ].filter((candidate): candidate is string => Boolean(candidate))
+    )
+  );
+
+  for (const root of candidateRoots) {
+    if (normalized === root || normalized.startsWith(`${root}${path.sep}`)) {
+      const relative = path.relative(root, normalized);
+      return relative || '.';
+    }
   }
 
   return normalized;
@@ -320,6 +333,117 @@ function asEnvelope(value: unknown): LobsterEnvelope {
   return candidate as unknown as LobsterEnvelope;
 }
 
+function resolveLocalLobsterCwd(configuredCwd: string): string {
+  const normalized = configuredCwd.trim();
+  if (!normalized) {
+    return resolveCodePath('lobster');
+  }
+  if (path.isAbsolute(normalized)) {
+    return normalized;
+  }
+  return resolveCodePath(normalized);
+}
+
+function shouldFallbackToLocalLobster(error: unknown): boolean {
+  if (!(error instanceof OpenClawGatewayError)) {
+    return false;
+  }
+
+  if (
+    error.code === 'openclaw_gateway_not_configured' ||
+    error.code === 'openclaw_gateway_unreachable' ||
+    error.code === 'openclaw_gateway_tool_unavailable'
+  ) {
+    return true;
+  }
+
+  if (error.code !== 'openclaw_gateway_server_error') {
+    return false;
+  }
+
+  return /spawn lobster enoent|cwd must be a relative path|unknown command|unknown workflow/i.test(error.message);
+}
+
+async function invokeLocalLobster(
+  runtime: OpenClawLobsterRuntimeContext,
+  commandArgs: string[],
+  metadata: Record<string, unknown>,
+  timeoutMs: number,
+  maxStdoutBytes: number,
+): Promise<LobsterEnvelope> {
+  const cwd = resolveLocalLobsterCwd(runtime.configuredCwd);
+  console.warn('[openclaw-gateway]', {
+    event: 'workflow-local-fallback',
+    sessionKey: runtime.sessionKey,
+    cwd,
+    stateDir: runtime.stateDir,
+    timeoutMs,
+    maxStdoutBytes,
+    ...metadata,
+  });
+
+  let stdout = '';
+  try {
+    ({ stdout } = await execFileAsync('lobster', commandArgs, {
+      cwd,
+      timeout: timeoutMs,
+      maxBuffer: maxStdoutBytes,
+      env: {
+        ...process.env,
+        LOBSTER_STATE_DIR: runtime.stateDir,
+      },
+    }));
+  } catch (error) {
+    const execError = error as Error & { stdout?: string; stderr?: string; code?: number | string | null };
+    const localStdout = typeof execError.stdout === 'string' ? execError.stdout.trim() : '';
+    const localStderr = typeof execError.stderr === 'string' ? execError.stderr.trim() : '';
+    if (localStdout) {
+      try {
+        const parsed = JSON.parse(localStdout) as Record<string, unknown>;
+        const localMessage =
+          typeof parsed?.error === 'object' && parsed.error && typeof (parsed.error as Record<string, unknown>).message === 'string'
+            ? String((parsed.error as Record<string, unknown>).message)
+            : '';
+        if (localMessage) {
+          throw createGatewayError(
+            'openclaw_gateway_server_error',
+            localMessage,
+            undefined,
+            {
+              localCli: true,
+              stderr: localStderr || null,
+              ...metadata,
+            },
+          );
+        }
+      } catch (parseOrGatewayError) {
+        if (parseOrGatewayError instanceof OpenClawGatewayError) {
+          throw parseOrGatewayError;
+        }
+      }
+    }
+
+    const message = error instanceof Error ? error.message : String(error);
+    throw createGatewayError(
+      'openclaw_gateway_unreachable',
+      `Local lobster CLI failed: ${message}`,
+      undefined,
+      {
+        localCli: true,
+        stderr: localStderr || null,
+        ...metadata,
+      },
+    );
+  }
+
+  try {
+    return asEnvelope(JSON.parse(stdout));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw createGatewayError('openclaw_gateway_response_invalid', `Local lobster CLI returned invalid JSON: ${message}`);
+  }
+}
+
 async function invokeGateway(payload: Record<string, unknown>): Promise<LobsterEnvelope> {
   const testInvoker = (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ as OpenClawTestInvoker | undefined;
   if (testInvoker) {
@@ -390,18 +514,36 @@ export async function runOpenClawLobsterWorkflow(input: OpenClawWorkflowCallInpu
     timeoutMs,
     maxStdoutBytes,
   });
-  return invokeGateway({
-    tool: 'lobster',
-    sessionKey: runtime.sessionKey,
-    args: {
-      action: 'run',
-      pipeline: input.pipeline,
-      argsJson: input.argsJson ?? '',
-      cwd: runtime.cwd,
+  try {
+    return await invokeGateway({
+      tool: 'lobster',
+      sessionKey: runtime.sessionKey,
+      args: {
+        action: 'run',
+        pipeline: input.pipeline,
+        argsJson: input.argsJson ?? '',
+        cwd: runtime.cwd,
+        timeoutMs,
+        maxStdoutBytes,
+      },
+    });
+  } catch (error) {
+    if (!shouldFallbackToLocalLobster(error)) {
+      throw error;
+    }
+
+    return invokeLocalLobster(
+      runtime,
+      ['run', '--mode', 'tool', '--file', input.pipeline, '--args-json', input.argsJson ?? ''],
+      {
+        action: 'run',
+        pipeline: input.pipeline,
+        fallbackReason: error instanceof Error ? error.message : String(error),
+      },
       timeoutMs,
       maxStdoutBytes,
-    },
-  });
+    );
+  }
 }
 
 export async function resumeOpenClawLobsterWorkflow(input: OpenClawResumeCallInput): Promise<LobsterEnvelope> {
@@ -460,9 +602,24 @@ export async function resumeOpenClawLobsterWorkflow(input: OpenClawResumeCallInp
         compatibilityFallback: index > 0,
         reason: error instanceof Error ? error.message : String(error),
       });
-      if (!canRetry) {
-        throw error;
+      if (canRetry) {
+        continue;
       }
+      if (shouldFallbackToLocalLobster(error)) {
+        return invokeLocalLobster(
+          runtime,
+          ['resume', '--mode', 'tool', '--token', candidate, '--approve', input.approve ? 'yes' : 'no'],
+          {
+            action: 'resume',
+            tokenFingerprint: candidateDescriptor.fingerprint,
+            tokenStateKeys: candidateDescriptor.stateKeys,
+            fallbackReason: error instanceof Error ? error.message : String(error),
+          },
+          timeoutMs,
+          maxStdoutBytes,
+        );
+      }
+      throw error;
     }
   }
 

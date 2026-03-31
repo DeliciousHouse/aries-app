@@ -6,6 +6,12 @@ import { useRuntimeReviews } from '@/hooks/use-runtime-reviews';
 
 import { EmptyStatePanel, LoadingStateGrid, ShellPanel, StatusChip } from './components';
 
+function reviewTypeLabel(value: string): string {
+  return value
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 export default function AriesReviewQueueScreen() {
   const reviews = useRuntimeReviews({ autoLoad: true });
   const items = reviews.data?.reviews ?? [];
@@ -26,7 +32,7 @@ export default function AriesReviewQueueScreen() {
     return (
       <EmptyStatePanel
         title="You are clear for now"
-        description="New review items will appear here when something needs your decision."
+        description="New review items will appear here when something needs a decision."
       />
     );
   }
@@ -35,8 +41,7 @@ export default function AriesReviewQueueScreen() {
     <div className="space-y-5">
       <ShellPanel eyebrow="Review Queue" title="Everything that needs a decision">
         <p className="max-w-3xl text-sm leading-7 text-white/65">
-          Use this queue to approve, request changes, or reject anything that could affect a launch.
-          Every item stays visible until the decision is complete.
+          This queue reflects the persisted campaign workflow. Brand review, strategy review, creative assets, and explicit workflow approvals all stay visible here until the decision is complete.
         </p>
       </ShellPanel>
 
@@ -47,7 +52,7 @@ export default function AriesReviewQueueScreen() {
             href={`/review/${item.id}`}
             className="rounded-[2rem] border border-white/10 bg-white/[0.04] px-6 py-5 transition hover:border-white/16 hover:bg-white/[0.06]"
           >
-            <div className="grid gap-5 lg:grid-cols-[1.25fr_0.85fr_0.75fr]">
+            <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr_0.85fr]">
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center gap-3">
                   <h2 className="text-xl font-semibold text-white">{item.title}</h2>
@@ -57,11 +62,13 @@ export default function AriesReviewQueueScreen() {
               </div>
               <div className="space-y-2 text-sm text-white/62">
                 <InfoRow label="Campaign" value={item.campaignName} />
+                <InfoRow label="Type" value={reviewTypeLabel(item.reviewType)} />
                 <InfoRow label="Placement" value={`${item.channel} · ${item.placement}`} />
               </div>
               <div className="space-y-2 text-sm text-white/62">
-                <InfoRow label="Scheduled for" value={item.scheduledFor} />
-                <InfoRow label="Version" value={item.currentVersion.label} />
+                <InfoRow label="Workflow state" value={reviewTypeLabel(item.workflowState)} />
+                <InfoRow label="Current version" value={item.currentVersion.label} />
+                <InfoRow label="Decision history" value={String(item.history.length)} />
               </div>
             </div>
           </Link>

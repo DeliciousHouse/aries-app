@@ -114,12 +114,13 @@ export async function requestJson<TResponse>(
   const { baseUrl = '', fetchImpl = fetch } = clientOptions;
   const { query, headers, ...init } = options;
   const url = buildApiUrl(path, baseUrl, query);
+  const normalizedHeaders = new Headers(headers || undefined);
+  if (!(init.body instanceof FormData) && !normalizedHeaders.has('content-type')) {
+    normalizedHeaders.set('content-type', 'application/json');
+  }
   const response = await fetchImpl(url, {
     ...init,
-    headers: {
-      'content-type': 'application/json',
-      ...headers,
-    },
+    headers: normalizedHeaders,
   });
 
   const body = await readJsonBody(response);

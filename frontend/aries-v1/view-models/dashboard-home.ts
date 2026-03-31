@@ -172,8 +172,8 @@ function nextActionFor(
       title: 'Create your first campaign',
       summary:
         'Aries will turn your business and goals into a campaign you can review before anything goes live.',
-      href: '/onboarding/start',
-      label: 'Create campaign',
+      href: '/dashboard/campaigns/new',
+      label: 'New Campaign',
     };
   }
 
@@ -251,7 +251,7 @@ export function createDashboardHomeViewModel(args: {
     summary:
       campaign.pendingApprovals > 0
         ? 'This campaign is live, but follow-up approvals are still queued.'
-        : 'Live activity is present, so results can be reviewed without demo metrics.',
+        : 'Live activity is present, so results can be reviewed directly from current runtime signals.',
     status: campaign.dashboardStatus === 'live' ? campaign.dashboardStatus : campaign.status,
     href: campaignHref(campaign.id),
     updatedLabel: formatUpdatedLabel(campaign.updatedAt),

@@ -9,7 +9,7 @@ import { resolveProjectRoot } from './helpers/project-root';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
-test('meta-ads-extractor derives access-token presence from app credentials and omits raw ids', () => {
+test('meta-ads-extractor reports configured Meta env flags without exposing raw ids', () => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), 'meta-ads-extractor-'));
 
   try {
@@ -32,9 +32,9 @@ test('meta-ads-extractor derives access-token presence from app credentials and 
           ...process.env,
           LOBSTER_WEB_SEARCH_CMD: mockSearchPath,
           LOBSTER_STAGE1_CACHE_DIR: path.join(tempDir, 'cache'),
-          META_APP_ID: '123456789',
-          META_APP_SECRET: 'secret-value',
-          META_ACCESS_TOKEN: '',
+          META_ACCESS_TOKEN: 'secret-value',
+          META_AD_ACCOUNT_ID: '123456789',
+          META_PAGE_ID: '',
           GEMINI_API_KEY: '',
         },
         encoding: 'utf8',
@@ -48,10 +48,8 @@ test('meta-ads-extractor derives access-token presence from app credentials and 
 
     assert.deepEqual(payload.meta_config, {
       has_access_token: true,
-      access_token_source: 'app_credentials',
+      has_ad_account_id: true,
       has_page_id: false,
-      has_app_id: true,
-      has_app_secret: true,
     });
   } finally {
     rmSync(tempDir, { recursive: true, force: true });

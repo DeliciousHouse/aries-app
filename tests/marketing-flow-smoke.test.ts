@@ -165,7 +165,7 @@ test('targeted marketing verification covers create, inspect, approve, and publi
     assert.equal(startResult.approvalRequired, true);
     assert.equal((startPayload as any)?.args?.action, 'run');
     assert.equal((startPayload as any)?.args?.pipeline, 'marketing-pipeline.lobster');
-    assert.equal((startPayload as any)?.args?.cwd, path.join(PROJECT_ROOT, 'lobster'));
+    assert.equal((startPayload as any)?.args?.cwd, 'lobster');
 
     const statusBeforeApproval = getMarketingJobStatus(startResult.jobId);
     assert.equal(statusBeforeApproval.state, 'approval_required');

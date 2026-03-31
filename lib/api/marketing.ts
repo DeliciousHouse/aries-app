@@ -2,12 +2,48 @@ import { requestJson, type ApiClientOptions } from './http';
 
 export type MarketingJobType = 'brand_campaign';
 export type MarketingStage = 'research' | 'strategy' | 'production' | 'publish';
+export type MarketingWorkflowState =
+  | 'draft'
+  | 'brand_review_required'
+  | 'strategy_review_required'
+  | 'creative_review_required'
+  | 'revisions_requested'
+  | 'approved'
+  | 'ready_to_publish'
+  | 'published';
+export type MarketingReviewType = 'brand' | 'strategy' | 'creative' | 'workflow_approval';
+export type MarketingReviewDecisionStatus =
+  | 'not_ready'
+  | 'pending_review'
+  | 'approved'
+  | 'changes_requested'
+  | 'rejected';
+
+export interface MarketingBriefAssetUploadMetadata {
+  name: string;
+  contentType: string;
+  size: number;
+}
 
 export interface BrandCampaignPayload {
   brandUrl: string;
-  competitorUrl: string;
+  competitorUrl?: string;
+  businessName?: string;
+  businessType?: string;
+  approverName?: string;
   /** Optional intake fields stored on the runtime job `inputs.request` record */
+  websiteUrl?: string;
+  brandVoice?: string;
+  styleVibe?: string;
+  visualReferences?: string[];
+  mustUseCopy?: string;
+  mustAvoidAesthetics?: string;
+  notes?: string;
+  brandAssetsMetadata?: MarketingBriefAssetUploadMetadata[];
+  primaryGoal?: string;
   goal?: string;
+  launchApproverName?: string;
+  offer?: string;
   channels?: string[];
   mode?: string;
 }
@@ -142,6 +178,105 @@ export interface MarketingReviewBundle {
     assets: MarketingAssetLink[];
   } | null;
   platformPreviews: MarketingReviewPreviewCard[];
+}
+
+export interface MarketingCampaignBriefAsset {
+  id: string;
+  name: string;
+  fileName: string;
+  contentType: string;
+  size: number;
+  uploadedAt: string;
+  url: string;
+}
+
+export interface MarketingCampaignBrief {
+  websiteUrl: string;
+  businessName: string;
+  businessType: string;
+  approverName: string;
+  goal: string;
+  offer: string;
+  competitorUrl: string;
+  channels: string[];
+  brandVoice: string;
+  styleVibe: string;
+  visualReferences: string[];
+  mustUseCopy: string;
+  mustAvoidAesthetics: string;
+  notes: string;
+  brandAssets: MarketingCampaignBriefAsset[];
+}
+
+export interface MarketingCampaignStatusHistoryEntry {
+  id: string;
+  at: string;
+  actor: string;
+  type: 'state_changed' | 'stage_review' | 'creative_asset_review' | 'comment';
+  workflowState: MarketingWorkflowState;
+  stage?: 'brand' | 'strategy' | 'creative';
+  assetId?: string;
+  action?: 'approve' | 'changes_requested' | 'reject';
+  note?: string | null;
+  status?: MarketingReviewDecisionStatus;
+}
+
+export interface MarketingReviewSection {
+  id: string;
+  title: string;
+  body: string;
+}
+
+export interface MarketingReviewAttachment {
+  id: string;
+  label: string;
+  url: string;
+  contentType: string;
+  kind: 'brand_asset' | 'document' | 'preview' | 'artifact';
+}
+
+export interface MarketingStageReviewPayload {
+  reviewId: string;
+  reviewType: Extract<MarketingReviewType, 'brand' | 'strategy'>;
+  status: MarketingReviewDecisionStatus;
+  title: string;
+  summary: string;
+  notePlaceholder: string;
+  sections: MarketingReviewSection[];
+  attachments: MarketingReviewAttachment[];
+  history: MarketingCampaignStatusHistoryEntry[];
+  latestNote: string | null;
+}
+
+export interface MarketingCreativeAssetReviewPayload {
+  reviewId: string;
+  reviewType: 'creative';
+  assetId: string;
+  title: string;
+  summary: string;
+  platformLabel: string;
+  status: MarketingReviewDecisionStatus;
+  contentType: string | null;
+  previewUrl: string | null;
+  fullPreviewUrl: string | null;
+  destinationUrl: string | null;
+  notes: string[];
+  latestNote: string | null;
+  history: MarketingCampaignStatusHistoryEntry[];
+}
+
+export interface MarketingCreativeReviewPayload {
+  status: MarketingReviewDecisionStatus;
+  title: string;
+  summary: string;
+  latestNote: string | null;
+  approvalComplete: boolean;
+  approvedCount: number;
+  pendingCount: number;
+  rejectedCount: number;
+  publishBlockedReason: string | null;
+  assets: MarketingCreativeAssetReviewPayload[];
+  history: MarketingCampaignStatusHistoryEntry[];
 }
 
 export type MarketingDashboardItemStatus =
@@ -372,6 +507,12 @@ export interface GetMarketingJobStatusResponse {
   timeline: MarketingTimelineEntry[];
   approval: MarketingApprovalSummary | null;
   reviewBundle: MarketingReviewBundle | null;
+  campaignBrief: MarketingCampaignBrief | null;
+  workflowState: MarketingWorkflowState;
+  statusHistory: MarketingCampaignStatusHistoryEntry[];
+  brandReview: MarketingStageReviewPayload | null;
+  strategyReview: MarketingStageReviewPayload | null;
+  creativeReview: MarketingCreativeReviewPayload | null;
   publishConfig: {
     platforms: string[];
     livePublishPlatforms: string[];
@@ -417,12 +558,12 @@ export type MarketingResult<TData> = TData | MarketingApiError;
 
 export function createMarketingApi(options: ApiClientOptions = {}) {
   return {
-    createJob(body: PostMarketingJobsRequest) {
+    createJob(body: PostMarketingJobsRequest | FormData) {
       return requestJson<MarketingResult<StartJobAccepted>>(
         '/api/marketing/jobs',
         {
           method: 'POST',
-          body: JSON.stringify(body),
+          body: body instanceof FormData ? body : JSON.stringify(body),
         },
         options
       );

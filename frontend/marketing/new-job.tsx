@@ -2,9 +2,9 @@
 
 import React, { useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Rocket, Sparkles } from 'lucide-react';
+import { ArrowRight, FileUp, Rocket, Sparkles } from 'lucide-react';
 
-import type { MarketingApiError, PostMarketingJobsRequest } from '@/lib/api/marketing';
+import type { MarketingApiError } from '@/lib/api/marketing';
 import { useMarketingJobCreate, type UseMarketingJobCreateOptions } from '@/hooks/use-marketing-job-create';
 import StatusBadge from '../components/status-badge';
 
@@ -12,17 +12,32 @@ function isErrorResult(value: unknown): value is MarketingApiError {
   return typeof (value as MarketingApiError)?.error === 'string';
 }
 
+function splitLines(value: string): string[] {
+  return value
+    .split('\n')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
 export interface MarketingNewJobScreenProps {
   clientOptions?: UseMarketingJobCreateOptions;
+  embedded?: boolean;
+  redirectMode?: 'status' | 'dashboard';
 }
 
 export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
   const router = useRouter();
   const marketingCreate = useMarketingJobCreate(props.clientOptions);
 
-  const [brandUrl, setBrandUrl] = useState('');
-  const [competitorUrl, setCompetitorUrl] = useState('');
-
+  const [websiteUrl, setWebsiteUrl] = useState('');
+  const [brandVoice, setBrandVoice] = useState('');
+  const [styleVibe, setStyleVibe] = useState('');
+  const [visualReferences, setVisualReferences] = useState('');
+  const [mustUseCopy, setMustUseCopy] = useState('');
+  const [mustAvoidAesthetics, setMustAvoidAesthetics] = useState('');
+  const [notes, setNotes] = useState('');
+  const [referenceUrl, setReferenceUrl] = useState('');
+  const [brandAssets, setBrandAssets] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
 
@@ -30,24 +45,44 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
     event.preventDefault();
     setErrorText(null);
 
-    const trimmedBrandUrl = brandUrl.trim();
-    const trimmedCompetitorUrl = competitorUrl.trim();
-    if (!trimmedBrandUrl || !trimmedCompetitorUrl) {
-      setErrorText('brandUrl and competitorUrl are required');
+    const trimmedWebsiteUrl = websiteUrl.trim();
+    if (!trimmedWebsiteUrl) {
+      setErrorText('website URL is required');
       return;
     }
 
-    const request: PostMarketingJobsRequest = {
-      jobType: 'brand_campaign',
-      payload: {
-        brandUrl: trimmedBrandUrl,
-        competitorUrl: trimmedCompetitorUrl
-      }
-    };
+    const formData = new FormData();
+    formData.set('jobType', 'brand_campaign');
+    formData.set('brandUrl', trimmedWebsiteUrl);
+    formData.set('websiteUrl', trimmedWebsiteUrl);
+    if (referenceUrl.trim()) {
+      formData.set('competitorUrl', referenceUrl.trim());
+    }
+    if (brandVoice.trim()) {
+      formData.set('brandVoice', brandVoice.trim());
+    }
+    if (styleVibe.trim()) {
+      formData.set('styleVibe', styleVibe.trim());
+    }
+    for (const entry of splitLines(visualReferences)) {
+      formData.append('visualReferences', entry);
+    }
+    if (mustUseCopy.trim()) {
+      formData.set('mustUseCopy', mustUseCopy.trim());
+    }
+    if (mustAvoidAesthetics.trim()) {
+      formData.set('mustAvoidAesthetics', mustAvoidAesthetics.trim());
+    }
+    if (notes.trim()) {
+      formData.set('notes', notes.trim());
+    }
+    for (const file of brandAssets) {
+      formData.append('brandAssets', file);
+    }
 
     setSubmitting(true);
     try {
-      const response = await marketingCreate.createJob(request);
+      const response = await marketingCreate.createJob(formData);
       if (!response) {
         setErrorText('Failed to create marketing job');
         return;
@@ -58,110 +93,228 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
         return;
       }
 
+      if (props.redirectMode === 'dashboard') {
+        router.push(`/dashboard/campaigns/${encodeURIComponent(response.jobId)}?view=brand`);
+        return;
+      }
+
       router.push(response.jobStatusUrl ?? `/marketing/job-status?jobId=${encodeURIComponent(response.jobId)}`);
     } finally {
       setSubmitting(false);
     }
   }
 
+  const wrapperClassName = props.embedded
+    ? 'space-y-6'
+    : 'min-h-screen bg-background px-6 py-10 md:px-8 lg:px-10';
+  const contentClassName = props.embedded ? 'grid gap-6' : 'max-w-7xl mx-auto grid gap-6';
+
   return (
-    <div className="min-h-screen bg-background px-6 py-10 md:px-8 lg:px-10">
-      <div className="max-w-7xl mx-auto grid gap-6">
+    <div className={wrapperClassName}>
+      <div className={contentClassName}>
         <div className="glass rounded-[2.5rem] p-8 md:p-10">
-          <p className="text-xs uppercase tracking-[0.3em] text-primary mb-3">Aries workflow</p>
-          <h1 className="text-4xl font-bold mb-3">Marketing launch</h1>
-          <p className="text-white/60">Donor-style workflow layout running directly against the canonical Aries marketing job API.</p>
-        </div>
-
-        <div className="grid xl:grid-cols-2 gap-6">
-      <div className="glass rounded-[2.5rem] p-8">
-        <form onSubmit={onSubmit} className="space-y-6">
-          <div>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center">
-                <Rocket className="w-6 h-6 text-primary" />
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-[0.24em] text-white/35">Brand campaign</p>
-                <h1 className="text-3xl font-bold">Launch the canonical marketing job</h1>
-              </div>
-            </div>
-            <p className="text-white/60 leading-relaxed">
-              Start a workflow-backed brand campaign using your current workspace context and the URLs that define the brief.
-            </p>
-          </div>
-
-          <label className="block space-y-2">
-            <span className="text-xs uppercase tracking-[0.22em] text-white/35">Brand website URL</span>
-            <input
-              value={brandUrl}
-              onChange={(event) => setBrandUrl(event.target.value)}
-              placeholder="https://yourbrand.com"
-              required
-              className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
-            />
-          </label>
-
-          <label className="block space-y-2">
-            <span className="text-xs uppercase tracking-[0.22em] text-white/35">Competitor Facebook URL</span>
-            <input
-              value={competitorUrl}
-              onChange={(event) => setCompetitorUrl(event.target.value)}
-              placeholder="https://facebook.com/competitor"
-              required
-              className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
-            />
-          </label>
-
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full px-6 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 disabled:opacity-60"
-          >
-            {submitting ? 'Starting campaign…' : 'Start brand campaign'}
-          </button>
-
-          {errorText ? <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-red-100">{errorText}</div> : null}
-        </form>
-      </div>
-
-      <div className="glass rounded-[2.5rem] p-8 space-y-6">
-        <div>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-12 h-12 rounded-2xl bg-secondary/10 border border-secondary/20 flex items-center justify-center">
-              <Sparkles className="w-6 h-6 text-secondary" />
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-white/35">Next steps</p>
-              <h2 className="text-3xl font-bold">Workflow handoff</h2>
-            </div>
-          </div>
-          <div className="space-y-3">
-            {[
-              'The browser submits only to the Aries internal route.',
-              'Aries launches the real OpenClaw-backed Lobster pipeline server-side.',
-              'After launch, you land on the campaign status workspace automatically.',
-            ].map((item) => (
-              <div key={item} className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-white/70">
-                {item}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-[1.5rem] border border-white/10 bg-black/25 p-8 min-h-[280px] flex flex-col items-center justify-center text-center">
-          <strong className="text-2xl mb-3">{submitting ? 'Launching your campaign...' : 'Ready to launch'}</strong>
-          <p className="text-white/60 max-w-md">
-            {submitting
-              ? 'Aries is starting the campaign and will take you straight to the status workspace.'
-              : 'Submit the brief to start the pipeline and move into the operational status view.'}
+          <p className="mb-3 text-xs uppercase tracking-[0.3em] text-primary">Aries workflow</p>
+          <h1 className="mb-3 text-4xl font-bold">New Campaign</h1>
+          <p className="text-white/60">
+            Create a real campaign brief with brand inputs, review constraints, and uploads that persist into the campaign workspace.
           </p>
-          {submitting ? <div className="mt-5"><StatusBadge status="running" /></div> : null}
         </div>
-      </div>
+
+        <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+          <div className="glass rounded-[2.5rem] p-8">
+            <form onSubmit={onSubmit} className="space-y-6">
+              <div>
+                <div className="mb-4 flex items-center gap-3">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10">
+                    <Rocket className="h-6 w-6 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.24em] text-white/35">Campaign intake</p>
+                    <h2 className="text-3xl font-bold">Capture the brief once</h2>
+                  </div>
+                </div>
+                <p className="text-white/60 leading-relaxed">
+                  Aries uses this brief as the user-visible source of truth for brand review, strategy review, creative review, and publish gating.
+                </p>
+              </div>
+
+              <Field label="Website URL" required>
+                <input
+                  value={websiteUrl}
+                  onChange={(event) => setWebsiteUrl(event.target.value)}
+                  placeholder="https://yourbrand.com"
+                  required
+                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+                />
+              </Field>
+
+              <Field label="Brand voice">
+                <textarea
+                  value={brandVoice}
+                  onChange={(event) => setBrandVoice(event.target.value)}
+                  rows={3}
+                  placeholder="Proof-led, practical, calm, founder-close..."
+                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+                />
+              </Field>
+
+              <Field label="Style / vibe">
+                <textarea
+                  value={styleVibe}
+                  onChange={(event) => setStyleVibe(event.target.value)}
+                  rows={3}
+                  placeholder="Editorial, warm neutrals, tactile photography, understated luxury..."
+                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+                />
+              </Field>
+
+              <Field label="Visual references">
+                <textarea
+                  value={visualReferences}
+                  onChange={(event) => setVisualReferences(event.target.value)}
+                  rows={4}
+                  placeholder="Paste one reference per line"
+                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+                />
+              </Field>
+
+              <Field label="Logo uploads / brand assets">
+                <label className="flex cursor-pointer flex-col gap-3 rounded-[1.75rem] border border-dashed border-white/15 bg-white/[0.03] px-5 py-5 text-white/70 transition hover:border-white/25 hover:text-white">
+                  <span className="inline-flex items-center gap-2 text-sm font-medium">
+                    <FileUp className="h-4 w-4" />
+                    Add brand files
+                  </span>
+                  <span className="text-sm text-white/50">Upload logos, lockups, style guides, or other source assets.</span>
+                  <input
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={(event) => setBrandAssets(Array.from(event.target.files || []))}
+                  />
+                </label>
+                {brandAssets.length > 0 ? (
+                  <div className="rounded-[1.5rem] border border-white/10 bg-black/20 px-4 py-4 text-sm text-white/70">
+                    {brandAssets.map((file) => (
+                      <div key={`${file.name}-${file.size}`} className="truncate">
+                        {file.name}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </Field>
+
+              <Field label="Must-use copy">
+                <textarea
+                  value={mustUseCopy}
+                  onChange={(event) => setMustUseCopy(event.target.value)}
+                  rows={3}
+                  placeholder="Required phrases, legal copy, CTA language..."
+                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+                />
+              </Field>
+
+              <Field label="Must-avoid aesthetics">
+                <textarea
+                  value={mustAvoidAesthetics}
+                  onChange={(event) => setMustAvoidAesthetics(event.target.value)}
+                  rows={3}
+                  placeholder="Avoid loud gradients, stock-smile imagery, crowded layouts..."
+                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+                />
+              </Field>
+
+              <Field label="Extra notes / instructions">
+                <textarea
+                  value={notes}
+                  onChange={(event) => setNotes(event.target.value)}
+                  rows={4}
+                  placeholder="Anything the team should know before analysis or production begins"
+                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+                />
+              </Field>
+
+              <Field label="Reference URL">
+                <input
+                  value={referenceUrl}
+                  onChange={(event) => setReferenceUrl(event.target.value)}
+                  placeholder="Optional competitor or inspiration URL"
+                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+                />
+              </Field>
+
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-full rounded-full bg-gradient-to-r from-primary to-secondary px-6 py-4 text-white font-semibold shadow-xl shadow-primary/20 disabled:opacity-60"
+              >
+                {submitting ? 'Starting campaign...' : 'Start campaign'}
+              </button>
+
+              {errorText ? (
+                <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-red-100">{errorText}</div>
+              ) : null}
+            </form>
+          </div>
+
+          <div className="glass rounded-[2.5rem] p-8 space-y-6">
+            <div>
+              <div className="mb-4 flex items-center gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-secondary/20 bg-secondary/10">
+                  <Sparkles className="h-6 w-6 text-secondary" />
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.24em] text-white/35">What happens next</p>
+                  <h2 className="text-3xl font-bold">Review-first flow</h2>
+                </div>
+              </div>
+              <div className="space-y-3">
+                {[
+                  'Website brand analysis and uploaded assets feed the brand review.',
+                  'Strategy output is surfaced in a readable proposal with comments and approval state.',
+                  'Creative assets stay review-gated per asset until every required approval is complete.',
+                  'Publish remains blocked until the workflow is explicitly approved.',
+                ].map((item) => (
+                  <div key={item} className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-white/70">
+                    {item}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="min-h-[280px] rounded-[1.5rem] border border-white/10 bg-black/25 p-8 flex flex-col items-center justify-center text-center">
+              <strong className="mb-3 text-2xl">{submitting ? 'Creating your campaign...' : 'Ready to review for real'}</strong>
+              <p className="max-w-md text-white/60">
+                {submitting
+                  ? 'Aries is saving the brief, storing brand assets, and preparing the campaign workspace.'
+                  : 'When this launches, the next stop is the actual campaign workspace with brand review, strategy review, creative review, and publish status.'}
+              </p>
+              {submitting ? (
+                <div className="mt-5">
+                  <StatusBadge status="running" />
+                </div>
+              ) : (
+                <div className="mt-5 inline-flex items-center gap-2 text-sm text-white/55">
+                  Review-gated workflow
+                  <ArrowRight className="h-4 w-4" />
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
+  );
+}
+
+function Field(props: { label: string; required?: boolean; children: React.ReactNode }) {
+  return (
+    <label className="block space-y-2">
+      <span className="text-xs uppercase tracking-[0.22em] text-white/35">
+        {props.label}
+        {props.required ? ' *' : ''}
+      </span>
+      {props.children}
+    </label>
   );
 }
 

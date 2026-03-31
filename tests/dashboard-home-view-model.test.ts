@@ -244,7 +244,7 @@ test('the dashboard home view-model builds from plain runtime inputs without dem
   });
 
   assert.equal(model.hero.title, 'Your business');
-  assert.equal(model.nextAction.href, '/onboarding/start');
+  assert.equal(model.nextAction.href, '/dashboard/campaigns/new');
   assert.equal(model.workingNow.mode, 'waiting');
   assert.deepEqual(model.results.items, []);
 });

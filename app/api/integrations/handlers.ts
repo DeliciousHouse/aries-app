@@ -8,6 +8,8 @@ import { mapOpenClawGatewayError, runAriesOpenClawWorkflow } from '../../../back
 import { PROVIDER_REGISTRY } from '../../../backend/integrations/provider-registry';
 import { buildOauthConnectInput } from '@/lib/oauth-connect-input';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
+import { findLatestMarketingTenantId } from '@/backend/marketing/runtime-state';
+import { isMarketingPublicMode } from '@/lib/marketing-public-mode';
 
 const platforms = Object.keys(PROVIDER_REGISTRY) as Array<keyof typeof PROVIDER_REGISTRY>;
 
@@ -86,6 +88,12 @@ export function buildIntegrationsPageData(tenantId: string) {
 export async function handleIntegrationsGet(tenantContextLoader?: TenantContextLoader) {
   const tenantResult = await loadTenantContextOrResponse(tenantContextLoader);
   if ('response' in tenantResult) {
+    if (isMarketingPublicMode()) {
+      return new Response(JSON.stringify(buildIntegrationsPageData(findLatestMarketingTenantId() || 'public_empty')), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      });
+    }
     return tenantResult.response;
   }
 

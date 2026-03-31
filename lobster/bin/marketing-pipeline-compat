@@ -93,12 +93,12 @@ def main() -> int:
         )
         (tmp / "08-stage2-final.json").write_text(json.dumps(stage2_final), encoding="utf-8")
 
-        stage3 = run_json([str(bin_dir / "stage3-production-bridge"), "--json", "--brand-slug", args.brand_slug], tmp / "08-stage2-final.json")
+        stage3 = run_json([sys.executable, str(bin_dir / "stage3-finalize-bridge"), "--json", "--brand-slug", args.brand_slug], tmp / "08-stage2-final.json")
         (tmp / "09-stage3-final.json").write_text(json.dumps(stage3), encoding="utf-8")
 
         stage4 = run_json(
             [
-                str(bin_dir / "stage4-publish-bridge"),
+                str(bin_dir / "stage4-publish-compat"),
                 "--json",
                 "--brand-slug",
                 args.brand_slug,

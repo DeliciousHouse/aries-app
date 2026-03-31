@@ -1,7 +1,12 @@
 export type AppRouteId =
   | 'home'
-  | 'posts'
+  | 'newCampaign'
+  | 'brandReview'
+  | 'strategyReview'
+  | 'creativeReview'
+  | 'publishStatus'
   | 'campaigns'
+  | 'posts'
   | 'calendar'
   | 'results'
   | 'review'
@@ -24,31 +29,66 @@ export const APP_ROUTES: readonly AppRoute[] = [
     description: 'Executive command center for approvals, schedule, active campaigns, and results.'
   },
   {
+    id: 'newCampaign',
+    title: 'New Campaign',
+    href: '/dashboard/campaigns/new',
+    section: 'primary',
+    description: 'Start a campaign with a persisted brief, uploads, and review-ready workflow state.'
+  },
+  {
+    id: 'brandReview',
+    title: 'Brand Review',
+    href: '/dashboard/brand-review',
+    section: 'primary',
+    description: 'Review website analysis, brand bible output, design system, and uploaded brand assets.'
+  },
+  {
+    id: 'strategyReview',
+    title: 'Strategy Review',
+    href: '/dashboard/strategy-review',
+    section: 'primary',
+    description: 'Review the campaign proposal, strategy packet, and revision history before production.'
+  },
+  {
+    id: 'creativeReview',
+    title: 'Creative Review',
+    href: '/dashboard/creative-review',
+    section: 'primary',
+    description: 'Approve or request changes on every reviewable asset with full-preview access.'
+  },
+  {
+    id: 'publishStatus',
+    title: 'Publish / Status',
+    href: '/dashboard/publish-status',
+    section: 'primary',
+    description: 'See workflow state, publish gating reasons, and what is truly ready to publish.'
+  },
+  {
+    id: 'campaigns',
+    title: 'Campaigns',
+    href: '/dashboard/campaigns',
+    section: 'utility',
+    description: 'Campaign list and direct links into each campaign workspace.'
+  },
+  {
     id: 'posts',
     title: 'Posts',
     href: '/dashboard/posts',
-    section: 'primary',
+    section: 'utility',
     description: 'Ready-to-publish inventory across images, scripts, landing pages, and paused platform ads.'
   },
   {
     id: 'calendar',
     title: 'Calendar',
     href: '/dashboard/calendar',
-    section: 'primary',
+    section: 'utility',
     description: 'Human-readable schedule visibility across campaigns and channels.'
-  },
-  {
-    id: 'campaigns',
-    title: 'Campaigns',
-    href: '/dashboard/campaigns',
-    section: 'primary',
-    description: 'Campaign list and campaign workspace for plans, creative, schedule, and results.'
   },
   {
     id: 'results',
     title: 'Results',
     href: '/dashboard/results',
-    section: 'primary',
+    section: 'utility',
     description: 'Business-readable reporting and recommended next actions.'
   },
   {

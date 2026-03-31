@@ -124,8 +124,17 @@ export default function DashboardHomePresenter({
     <div className="space-y-6 pb-12">
       <section className="relative min-h-[430px] overflow-hidden rounded-[2rem] border border-white/10 bg-[radial-gradient(ellipse_at_bottom,rgba(123,97,255,0.16),transparent_45%),linear-gradient(180deg,#0a0a0f_0%,#050505_100%)] shadow-[0_24px_80px_rgba(0,0,0,0.42)]">
         <div className="absolute right-5 top-5 z-40 md:right-8 md:top-8">
-          <div className="rounded-xl border border-white/10 bg-[#12121a] px-3 py-2 shadow-xl md:rounded-2xl md:px-6 md:py-4">
-            <h2 className="text-sm font-bold tracking-tight text-white md:text-2xl">{model.hero.title}</h2>
+          <div className="space-y-3">
+            <div className="rounded-xl border border-white/10 bg-[#12121a] px-3 py-2 shadow-xl md:rounded-2xl md:px-6 md:py-4">
+              <h2 className="text-sm font-bold tracking-tight text-white md:text-2xl">{model.hero.title}</h2>
+            </div>
+            <Link
+              href="/dashboard/campaigns/new"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-[#dcb58f]/30 bg-[#dcb58f] px-4 py-3 text-sm font-semibold text-[#11161c] shadow-[0_10px_30px_rgba(220,181,143,0.25)] transition hover:translate-y-[-1px] hover:shadow-[0_14px_36px_rgba(220,181,143,0.32)]"
+            >
+              New Campaign
+              <ArrowRight className="h-4 w-4" />
+            </Link>
           </div>
         </div>
 

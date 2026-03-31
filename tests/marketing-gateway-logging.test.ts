@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
-test('runOpenClawLobsterWorkflow logs missing gateway configuration before throwing', async () => {
+test('runOpenClawLobsterWorkflow logs missing gateway configuration before attempting local fallback', async () => {
   const previousGatewayUrl = process.env.OPENCLAW_GATEWAY_URL;
   const previousGatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN;
   const originalConsoleError = console.error;
@@ -25,7 +28,8 @@ test('runOpenClawLobsterWorkflow logs missing gateway configuration before throw
         }),
       (error: unknown) =>
         error instanceof OpenClawGatewayError &&
-        error.code === 'openclaw_gateway_not_configured'
+        error.code === 'openclaw_gateway_unreachable' &&
+        /local lobster cli failed/i.test(error.message)
     );
 
     assert.ok(logged.length > 0);
@@ -100,7 +104,7 @@ test('resumeOpenClawLobsterWorkflow preserves detailed gateway failure messages 
   }
 });
 
-test('runOpenClawLobsterWorkflow falls back to OPENCLAW_LOBSTER_CWD when gateway-specific cwd is unset', async () => {
+test('runOpenClawLobsterWorkflow normalizes OPENCLAW_LOBSTER_CWD when gateway-specific cwd is unset', async () => {
   const previousGatewayUrl = process.env.OPENCLAW_GATEWAY_URL;
   const previousGatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN;
   const previousGatewayLobsterCwd = process.env.OPENCLAW_GATEWAY_LOBSTER_CWD;
@@ -124,7 +128,7 @@ test('runOpenClawLobsterWorkflow falls back to OPENCLAW_LOBSTER_CWD when gateway
     });
 
     assert.equal(captured.length, 1);
-    assert.equal((captured[0]?.args as Record<string, unknown>)?.cwd, '/app/lobster');
+    assert.equal((captured[0]?.args as Record<string, unknown>)?.cwd, 'lobster');
   } finally {
     delete (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__;
     if (previousGatewayUrl === undefined) {
@@ -240,6 +244,73 @@ test('runOpenClawLobsterWorkflow normalizes the bind-mounted /app/aries-app lobs
     assert.equal((captured[0]?.args as Record<string, unknown>)?.cwd, 'aries-app/lobster');
   } finally {
     delete (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__;
+    if (previousCodeRoot === undefined) {
+      delete process.env.CODE_ROOT;
+    } else {
+      process.env.CODE_ROOT = previousCodeRoot;
+    }
+    if (previousGatewayUrl === undefined) {
+      delete process.env.OPENCLAW_GATEWAY_URL;
+    } else {
+      process.env.OPENCLAW_GATEWAY_URL = previousGatewayUrl;
+    }
+    if (previousGatewayToken === undefined) {
+      delete process.env.OPENCLAW_GATEWAY_TOKEN;
+    } else {
+      process.env.OPENCLAW_GATEWAY_TOKEN = previousGatewayToken;
+    }
+    if (previousGatewayLobsterCwd === undefined) {
+      delete process.env.OPENCLAW_GATEWAY_LOBSTER_CWD;
+    } else {
+      process.env.OPENCLAW_GATEWAY_LOBSTER_CWD = previousGatewayLobsterCwd;
+    }
+  }
+});
+
+test('runOpenClawLobsterWorkflow keeps gateway cwd relative to the gateway root when CODE_ROOT resolves to the mounted aries-app checkout', async () => {
+  const previousCodeRoot = process.env.CODE_ROOT;
+  const previousGatewayUrl = process.env.OPENCLAW_GATEWAY_URL;
+  const previousGatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN;
+  const previousGatewayLobsterCwd = process.env.OPENCLAW_GATEWAY_LOBSTER_CWD;
+  const captured: Array<Record<string, unknown>> = [];
+  const fixtureRoot = await mkdtemp(path.join(os.tmpdir(), 'aries-gateway-cwd-'));
+  const appRoot = path.join(fixtureRoot, 'aries-app');
+
+  await mkdir(appRoot, { recursive: true });
+  await Promise.all([
+    mkdir(path.join(appRoot, 'app'), { recursive: true }),
+    mkdir(path.join(appRoot, 'backend'), { recursive: true }),
+    mkdir(path.join(appRoot, 'specs'), { recursive: true }),
+    writeFile(path.join(appRoot, 'package.json'), '{}'),
+  ]);
+
+  process.env.CODE_ROOT = fixtureRoot;
+  process.env.OPENCLAW_GATEWAY_URL = 'http://gateway.example.test';
+  process.env.OPENCLAW_GATEWAY_TOKEN = 'debug-token';
+  process.env.OPENCLAW_GATEWAY_LOBSTER_CWD = path.join(appRoot, 'lobster');
+  (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ = (payload: Record<string, unknown>) => {
+    captured.push(payload);
+    return { ok: true, status: 'ok', output: [], requiresApproval: null };
+  };
+
+  try {
+    const {
+      resolveOpenClawLobsterRuntimeContext,
+      runOpenClawLobsterWorkflow,
+    } = await import('../backend/openclaw/gateway-client');
+    const runtime = resolveOpenClawLobsterRuntimeContext();
+    await runOpenClawLobsterWorkflow({
+      pipeline: 'marketing-pipeline.lobster',
+      argsJson: '{}',
+    });
+
+    assert.equal(runtime.configuredCwd, path.join(appRoot, 'lobster'));
+    assert.equal(runtime.cwd, 'aries-app/lobster');
+    assert.equal(captured.length, 1);
+    assert.equal((captured[0]?.args as Record<string, unknown>)?.cwd, 'aries-app/lobster');
+  } finally {
+    delete (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__;
+    await rm(fixtureRoot, { recursive: true, force: true });
     if (previousCodeRoot === undefined) {
       delete process.env.CODE_ROOT;
     } else {

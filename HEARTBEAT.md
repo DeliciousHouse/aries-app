@@ -1,53 +1,65 @@
 # HEARTBEAT — Aries Persistent Continuation Engine
 
-This heartbeat drives a **long-running phase machine**. It must continue progress across multiple runs until roadmap completion.
+This heartbeat drives a **long-running phase machine**. It must continue progress across multiple runs until the reconciled roadmap work is complete.
 
 ## Source of truth
 - `./generated/validated/project-progress.json`
-- `./ROADMAP.md`
+- `./generated/validated/canonical-roadmap-baseline.md`
+- `./generated/validated/repo-audit-summary.md`
 
-## Required log/defect outputs
-- Phase log: `./generated/draft/heartbeat-phase-log.md`
-- Hard blockers: `./generated/draft/heartbeat-defect-report.json`
+## Dedicated heartbeat state location
+Heartbeat/status artifacts must live outside `/app/aries-app`.
+Use:
+- Phase log: `/app/state/aries-heartbeat/heartbeat-phase-log.md`
+- Hard blockers / defect state: `/app/state/aries-heartbeat/heartbeat-defect-report.json`
+
+Heartbeat state is file-based operational status only. It must not be treated as the main restored chat, mirrored into the rolling conversation, or used as a conversation transcript.
 
 ## Run algorithm (every heartbeat)
-1. Read `project-progress.json`.
-2. Work only on `current_phase`.
-3. Execute only tasks defined for that phase in `ROADMAP.md`.
-4. If blocked by independent work, spawn bounded subagents in parallel.
-5. Validate phase outputs with the phase validator/gate.
-6. If validation passes:
+1. Read `generated/validated/project-progress.json`.
+2. Read `generated/validated/canonical-roadmap-baseline.md`.
+3. Work only on `current_phase`.
+4. Execute only tasks defined for the active phase in the reconciled canonical roadmap baseline.
+5. If blocked by independent work, spawn bounded subagents in parallel.
+6. Validate phase outputs with the active phase gate.
+7. If validation passes:
    - update `completed_phases`
-   - set next `current_phase`
-   - set `current_status` accordingly
+   - set `next_phase`
+   - set `current_phase` to the actual new active phase or `complete`
+   - update `status`
    - clear resolved blockers
-7. If validation fails but bounded repair is possible:
+   - update `last_updated`
+8. If validation fails but bounded repair is possible:
    - patch only failing section(s)
    - increment retry counter for current phase
    - retry up to 3 times
-8. If hard failure occurs:
-   - write `heartbeat-defect-report.json`
+9. If hard failure occurs:
+   - write `/app/state/aries-heartbeat/heartbeat-defect-report.json`
    - set `last_hard_failure`
    - stop phase advancement
-9. Never start unrelated features.
-10. If all phases in `ROADMAP.md` are complete:
-    - write final completion summary to `heartbeat-phase-log.md`
-    - return `HEARTBEAT_OK`
+10. Never start unrelated features.
+11. If all active reconciled phases are complete and no blockers remain:
+   - update `/app/state/aries-heartbeat/heartbeat-phase-log.md`
+   - return `HEARTBEAT_OK`
 
 ## Hard rules
-- Do not redesign validated contracts or workflows unless the current phase validator proves a defect.
+- Do not redesign validated contracts or workflows unless the active validator proves a defect.
 - Do not fabricate pass results.
 - Use subagents only for independent bounded scopes.
-- Keep all writes inside `./aries-platform-bootstrap`.
+- Write heartbeat/status artifacts only to `/app/state/aries-heartbeat/`.
+- Keep Mission Control in its separate project path outside `/app/aries-app`.
 
-## Phase mapping
-- `phase_1_fix_frontend_wireup_drift`
-- `phase_2_rerun_frontend_validator`
-- `phase_3_end_to_end_ui_smoke`
-- `phase_4_polish_operational_frontend`
-- `phase_5_verify_backend_behavior_against_live_ui`
-- `phase_6_package_repo_for_production_openclaw_import`
-- `phase_7_prepare_production_deployment_handoff`
+## Active phase mapping
+- `repo_audit_reconciliation`
+- `working_tree_validation`
+- `targeted_repair_if_needed`
+- `revalidation_and_handoff_refresh`
 
 ## Completion condition
-When phase 7 validates successfully and no blockers remain, mark `current_status: complete`, keep final summaries updated, and return `HEARTBEAT_OK`.
+When the reconciled active phases validate successfully and no blockers remain, mark:
+- `current_phase: complete`
+- `status: complete`
+- `next_phase: null`
+- `last_updated: <ISO timestamp>`
+
+Then keep final summaries current and return `HEARTBEAT_OK`.

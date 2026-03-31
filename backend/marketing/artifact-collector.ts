@@ -10,6 +10,15 @@ import {
   type MarketingStageArtifact,
   type MarketingStageSummary,
 } from './runtime-state';
+import { resolvePublishReviewBundle } from './publish-review';
+import {
+  ARTIFACT_UNAVAILABLE_TEXT,
+  normalizeArtifactText,
+  readLandingPageArtifactDetails,
+  readScriptArtifactDetails,
+} from './real-artifacts';
+import { inferMarketingStageRunId, readMarketingStageStepPayload } from './stage-artifact-resolution';
+import type { MarketingJobRuntimeDocument } from './runtime-state';
 
 type StageCapture = {
   runId: string | null;
@@ -78,8 +87,12 @@ function detailLines(label: string, values: Array<string | null | undefined>, ma
   return cleaned.length > 0 ? [`${label}: ${cleaned.join(' • ')}`] : [];
 }
 
-function resolveRunId(primaryOutput: Record<string, unknown> | null): string | null {
-  return asString(primaryOutput?.run_id);
+function resolveRunId(
+  primaryOutput: Record<string, unknown> | null,
+  runtimeDoc?: MarketingJobRuntimeDocument | null,
+  stage?: 1 | 2 | 3 | 4,
+): string | null {
+  return asString(primaryOutput?.run_id) || (runtimeDoc && stage ? inferMarketingStageRunId(runtimeDoc, stage) : null);
 }
 
 export function collectResearchStageArtifacts(primaryOutput: Record<string, unknown> | null): StageCapture {
@@ -126,14 +139,25 @@ export function collectResearchStageArtifacts(primaryOutput: Record<string, unkn
   };
 }
 
-export function collectStrategyReviewArtifacts(primaryOutput: Record<string, unknown> | null): StageCapture {
-  const runId = resolveRunId(primaryOutput);
-  const websitePath = runId ? stepPayloadPath(2, runId, 'website_brand_analysis') : '';
-  const plannerPath = runId ? stepPayloadPath(2, runId, 'campaign_planner') : '';
-  const reviewPath = runId ? stepPayloadPath(2, runId, 'strategy_review_preview') : '';
-  const website = websitePath ? readJsonIfExists(websitePath) : null;
-  const planner = plannerPath ? readJsonIfExists(plannerPath) : null;
-  const review = reviewPath ? readJsonIfExists(reviewPath) : null;
+export function collectStrategyReviewArtifacts(
+  primaryOutput: Record<string, unknown> | null,
+  runtimeDoc?: MarketingJobRuntimeDocument | null,
+): StageCapture {
+  const websiteStep = runtimeDoc ? readMarketingStageStepPayload(runtimeDoc, 2, 'website_brand_analysis') : null;
+  const plannerStep = runtimeDoc ? readMarketingStageStepPayload(runtimeDoc, 2, 'campaign_planner') : null;
+  const reviewStep = runtimeDoc ? readMarketingStageStepPayload(runtimeDoc, 2, 'strategy_review_preview') : null;
+  const runId =
+    resolveRunId(primaryOutput, runtimeDoc, 2) ||
+    websiteStep?.runId ||
+    plannerStep?.runId ||
+    reviewStep?.runId ||
+    null;
+  const websitePath = websiteStep?.path || (runId ? stepPayloadPath(2, runId, 'website_brand_analysis') : '');
+  const plannerPath = plannerStep?.path || (runId ? stepPayloadPath(2, runId, 'campaign_planner') : '');
+  const reviewPath = reviewStep?.path || (runId ? stepPayloadPath(2, runId, 'strategy_review_preview') : '');
+  const website = websiteStep?.payload || (websitePath ? readJsonIfExists(websitePath) : null);
+  const planner = plannerStep?.payload || (plannerPath ? readJsonIfExists(plannerPath) : null);
+  const review = reviewStep?.payload || (reviewPath ? readJsonIfExists(reviewPath) : null);
   const brandAnalysis = asRecord(website?.brand_analysis) ?? {};
   const plan = asRecord(planner?.campaign_plan) ?? {};
   const reviewPacket = asRecord(review?.review_packet) ?? {};
@@ -169,8 +193,8 @@ export function collectStrategyReviewArtifacts(primaryOutput: Record<string, unk
         summary: summary.summary,
         details: [
           stringValue(brandAnalysis.audience_summary),
-          `Offer: ${stringValue(brandAnalysis.offer_summary || plan.offer, 'n/a')}`,
-          `Primary CTA: ${stringValue(plan.primary_cta, 'Learn More')}`,
+          `Offer: ${normalizeArtifactText(stringValue(brandAnalysis.offer_summary || plan.offer)) || ARTIFACT_UNAVAILABLE_TEXT}`,
+          `Primary CTA: ${normalizeArtifactText(stringValue(plan.primary_cta)) || ARTIFACT_UNAVAILABLE_TEXT}`,
         ].filter(Boolean),
         path: plannerPath || null,
       }),
@@ -208,22 +232,38 @@ export function collectStrategyFinalizeArtifacts(primaryOutput: Record<string, u
   };
 }
 
-export function collectProductionReviewArtifacts(primaryOutput: Record<string, unknown> | null): StageCapture {
-  const runId = resolveRunId(primaryOutput);
-  const reviewPath = runId ? stepPayloadPath(3, runId, 'production_review_preview') : '';
-  const finalizePath = runId ? stepPayloadPath(3, runId, 'creative_director_finalize') : '';
-  const videoPath = runId ? stepPayloadPath(3, runId, 'veo_video_generator') : '';
-  const review = reviewPath ? readJsonIfExists(reviewPath) : null;
-  const video = videoPath ? readJsonIfExists(videoPath) : null;
+export function collectProductionReviewArtifacts(
+  primaryOutput: Record<string, unknown> | null,
+  runtimeDoc?: MarketingJobRuntimeDocument | null,
+): StageCapture {
+  const reviewStep = runtimeDoc ? readMarketingStageStepPayload(runtimeDoc, 3, 'production_review_preview') : null;
+  const finalizeStep = runtimeDoc ? readMarketingStageStepPayload(runtimeDoc, 3, 'creative_director_finalize') : null;
+  const videoStep = runtimeDoc ? readMarketingStageStepPayload(runtimeDoc, 3, 'veo_video_generator') : null;
+  const runId =
+    resolveRunId(primaryOutput, runtimeDoc, 3) ||
+    reviewStep?.runId ||
+    finalizeStep?.runId ||
+    videoStep?.runId ||
+    null;
+  const reviewPath = reviewStep?.path || (runId ? stepPayloadPath(3, runId, 'production_review_preview') : '');
+  const finalizePath = finalizeStep?.path || (runId ? stepPayloadPath(3, runId, 'creative_director_finalize') : '');
+  const videoPath = videoStep?.path || (runId ? stepPayloadPath(3, runId, 'veo_video_generator') : '');
+  const review = reviewStep?.payload || (reviewPath ? readJsonIfExists(reviewPath) : null);
+  const video = videoStep?.payload || (videoPath ? readJsonIfExists(videoPath) : null);
   const packet = asRecord(review?.review_packet) ?? {};
   const summaryBlock = asRecord(packet.summary) ?? {};
   const previews = asRecord(packet.asset_previews) ?? {};
+  const landingDetails = readLandingPageArtifactDetails({ runtimeDoc });
+  const scriptDetails = readScriptArtifactDetails({ runtimeDoc });
   const videoAssets = asRecord(video?.video_assets) ?? {};
   const summary: MarketingStageSummary | null = {
     summary:
       stringValue(summaryBlock.core_message) ||
       'Production assets and contracts are ready for review.',
-    highlight: stringValue(previews.landing_page_headline) || null,
+    highlight:
+      normalizeArtifactText(landingDetails.headline) ||
+      normalizeArtifactText(stringValue(previews.landing_page_headline)) ||
+      null,
   };
 
   return {
@@ -245,9 +285,9 @@ export function collectProductionReviewArtifacts(primaryOutput: Record<string, u
         status: 'awaiting_approval',
         summary: summary.summary,
         details: [
-          `Landing page headline: ${stringValue(previews.landing_page_headline, 'n/a')}`,
-          `Ad hook: ${stringValue(previews.meta_ad_hook, 'n/a')}`,
-          `Video opening line: ${stringValue(previews.video_opening_line, 'n/a')}`,
+          `Landing page headline: ${landingDetails.headline || normalizeArtifactText(stringValue(previews.landing_page_headline)) || ARTIFACT_UNAVAILABLE_TEXT}`,
+          `Ad hook: ${scriptDetails.metaAdHook || normalizeArtifactText(stringValue(previews.meta_ad_hook)) || ARTIFACT_UNAVAILABLE_TEXT}`,
+          `Video opening line: ${scriptDetails.shortVideoOpeningLine || normalizeArtifactText(stringValue(previews.video_opening_line)) || ARTIFACT_UNAVAILABLE_TEXT}`,
         ],
         path: reviewPath || null,
         preview_path: asString(asRecord(review?.artifacts)?.preview_path),
@@ -291,22 +331,41 @@ export function collectProductionFinalizeArtifacts(primaryOutput: Record<string,
   };
 }
 
-export function collectPublishReviewArtifacts(primaryOutput: Record<string, unknown> | null): StageCapture {
-  const runId = resolveRunId(primaryOutput);
-  const preflightPath = runId ? stepPayloadPath(4, runId, 'performance_marketer_preflight') : '';
-  const reviewPath = runId ? stepPayloadPath(4, runId, 'launch_review_preview') : '';
-  const preflight = preflightPath ? readJsonIfExists(preflightPath) : null;
-  const review = reviewPath ? readJsonIfExists(reviewPath) : null;
+export function collectPublishReviewArtifacts(
+  primaryOutput: Record<string, unknown> | null,
+  runtimeDoc?: MarketingJobRuntimeDocument | null,
+): StageCapture {
+  const preflightStep = runtimeDoc ? readMarketingStageStepPayload(runtimeDoc, 4, 'performance_marketer_preflight') : null;
+  const reviewStep = runtimeDoc ? readMarketingStageStepPayload(runtimeDoc, 4, 'launch_review_preview') : null;
+  const runId =
+    resolveRunId(primaryOutput, runtimeDoc, 4) ||
+    preflightStep?.runId ||
+    reviewStep?.runId ||
+    null;
+  const preflightPath = preflightStep?.path || (runId ? stepPayloadPath(4, runId, 'performance_marketer_preflight') : '');
+  const reviewPath = reviewStep?.path || (runId ? stepPayloadPath(4, runId, 'launch_review_preview') : '');
+  const preflight = preflightStep?.payload || (preflightPath ? readJsonIfExists(preflightPath) : null);
+  const resolvedPublishReview = runtimeDoc ? resolvePublishReviewBundle(runtimeDoc) : { reviewPayload: null, reviewBundle: null };
+  const review = resolvedPublishReview.reviewPayload || reviewStep?.payload || (reviewPath ? readJsonIfExists(reviewPath) : null);
   const publishPlan = asRecord(preflight?.publish_plan) ?? {};
   const approvalPreview = asRecord(review?.approval_preview) ?? asRecord(primaryOutput?.approval_preview) ?? {};
-  const reviewBundle = asRecord(review?.review_bundle) ?? asRecord(primaryOutput?.review_bundle) ?? {};
+  const reviewBundle = resolvedPublishReview.reviewBundle ?? asRecord(review?.review_bundle) ?? asRecord(primaryOutput?.review_bundle) ?? {};
   const reviewSummary = asRecord(reviewBundle.summary) ?? {};
   const landingPagePreview = asRecord(reviewBundle.landing_page_preview) ?? {};
   const scriptPreview = asRecord(reviewBundle.script_preview) ?? {};
   const platformPreviews = asRecordArray(reviewBundle.platform_previews);
+  const landingDetails = readLandingPageArtifactDetails({
+    path: stringValue(landingPagePreview.landing_page_path) || null,
+    runtimeDoc: runtimeDoc || null,
+  });
+  const scriptDetails = readScriptArtifactDetails({
+    metaScriptPath: stringValue(scriptPreview.meta_script_path) || null,
+    shortVideoScriptPath: stringValue(scriptPreview.short_video_script_path) || null,
+    runtimeDoc: runtimeDoc || null,
+  });
   const message =
     stringValue(approvalPreview.message) ||
-    'Launch approval is required before publish-ready assets are generated.';
+    ARTIFACT_UNAVAILABLE_TEXT;
   const reviewArtifacts: MarketingStageArtifact[] = [];
 
   if (Object.keys(landingPagePreview).length > 0) {
@@ -318,12 +377,13 @@ export function collectPublishReviewArtifacts(primaryOutput: Record<string, unkn
         category: 'review',
         status: 'awaiting_approval',
         summary:
-          stringValue(landingPagePreview.headline) ||
-          'Landing page copy and CTA are available for launch review.',
+          landingDetails.headline ||
+          normalizeArtifactText(stringValue(landingPagePreview.headline)) ||
+          ARTIFACT_UNAVAILABLE_TEXT,
         details: [
-          `CTA: ${stringValue(landingPagePreview.cta, 'n/a')}`,
-          `Slug: ${stringValue(landingPagePreview.slug, 'n/a')}`,
-          ...detailLines('Sections', Array.isArray(landingPagePreview.sections) ? landingPagePreview.sections.map((entry) => stringValue(entry)) : []),
+          `CTA: ${landingDetails.cta || normalizeArtifactText(stringValue(landingPagePreview.cta)) || ARTIFACT_UNAVAILABLE_TEXT}`,
+          `Slug: ${normalizeArtifactText(landingDetails.slug || stringValue(landingPagePreview.slug)) || ARTIFACT_UNAVAILABLE_TEXT}`,
+          ...detailLines('Sections', landingDetails.sections.length > 0 ? landingDetails.sections : (Array.isArray(landingPagePreview.sections) ? landingPagePreview.sections.map((entry) => stringValue(entry)) : [])),
           ...detailLines(
             'Message match checks',
             Array.isArray(landingPagePreview.message_match_checks) ? landingPagePreview.message_match_checks.map((entry) => stringValue(entry)) : [],
@@ -345,19 +405,25 @@ export function collectPublishReviewArtifacts(primaryOutput: Record<string, unkn
         category: 'review',
         status: 'awaiting_approval',
         summary:
-          stringValue(scriptPreview.meta_ad_hook) ||
-          stringValue(scriptPreview.short_video_opening_line) ||
-          'Platform copy drafts are available for review.',
+          scriptDetails.metaAdHook ||
+          scriptDetails.shortVideoOpeningLine ||
+          normalizeArtifactText(stringValue(scriptPreview.meta_ad_hook)) ||
+          normalizeArtifactText(stringValue(scriptPreview.short_video_opening_line)) ||
+          ARTIFACT_UNAVAILABLE_TEXT,
         details: [
-          `Meta hook: ${stringValue(scriptPreview.meta_ad_hook, 'n/a')}`,
+          `Meta hook: ${scriptDetails.metaAdHook || normalizeArtifactText(stringValue(scriptPreview.meta_ad_hook)) || ARTIFACT_UNAVAILABLE_TEXT}`,
           ...detailLines(
             'Meta body',
-            Array.isArray(scriptPreview.meta_ad_body) ? scriptPreview.meta_ad_body.map((entry) => stringValue(entry)) : []
+            scriptDetails.metaAdBody.length > 0
+              ? scriptDetails.metaAdBody
+              : (Array.isArray(scriptPreview.meta_ad_body) ? scriptPreview.meta_ad_body.map((entry) => stringValue(entry)) : [])
           ),
-          `Video opening line: ${stringValue(scriptPreview.short_video_opening_line, 'n/a')}`,
+          `Video opening line: ${scriptDetails.shortVideoOpeningLine || normalizeArtifactText(stringValue(scriptPreview.short_video_opening_line)) || ARTIFACT_UNAVAILABLE_TEXT}`,
           ...detailLines(
             'Video beats',
-            Array.isArray(scriptPreview.short_video_beats) ? scriptPreview.short_video_beats.map((entry) => stringValue(entry)) : [],
+            scriptDetails.shortVideoBeats.length > 0
+              ? scriptDetails.shortVideoBeats
+              : (Array.isArray(scriptPreview.short_video_beats) ? scriptPreview.short_video_beats.map((entry) => stringValue(entry)) : []),
             2
           ),
         ],
@@ -379,13 +445,13 @@ export function collectPublishReviewArtifacts(primaryOutput: Record<string, unkn
         category: `${channelType} preview`,
         status: 'awaiting_approval',
         summary:
-          stringValue(platform.summary) ||
-          stringValue(platform.headline) ||
-          'A platform-specific launch draft is ready for review.',
+          normalizeArtifactText(stringValue(platform.summary)) ||
+          normalizeArtifactText(stringValue(platform.headline)) ||
+          ARTIFACT_UNAVAILABLE_TEXT,
         details: [
-          `Hook: ${stringValue(platform.hook, 'n/a')}`,
-          `Headline: ${stringValue(platform.headline, 'n/a')}`,
-          `CTA: ${stringValue(platform.cta, 'n/a')}`,
+          `Hook: ${normalizeArtifactText(stringValue(platform.hook)) || ARTIFACT_UNAVAILABLE_TEXT}`,
+          `Headline: ${normalizeArtifactText(stringValue(platform.headline)) || ARTIFACT_UNAVAILABLE_TEXT}`,
+          `CTA: ${normalizeArtifactText(stringValue(platform.cta)) || ARTIFACT_UNAVAILABLE_TEXT}`,
           ...detailLines(
             channelType === 'video' ? 'Story beats' : 'Draft copy',
             channelType === 'video'

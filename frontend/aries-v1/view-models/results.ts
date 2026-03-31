@@ -47,6 +47,7 @@ const STATUS_META: Record<AriesCampaignStatus, { label: string; color: string }>
   scheduled: { label: 'Scheduled', color: '#38bdf8' },
   live: { label: 'Live', color: '#34d399' },
   changes_requested: { label: 'Needs changes', color: '#fb7185' },
+  rejected: { label: 'Rejected', color: '#ef4444' },
 };
 
 function formatUpdatedLabel(updatedAt: string | null): string {
@@ -82,7 +83,7 @@ export function createResultsViewModel(campaigns: RuntimeCampaignListItem[]): Re
       eyebrow: 'Results',
       title: 'Runtime-backed campaign outcomes',
       description:
-        'This screen restores the richer dashboard presentation, but every card and chart still comes from the live campaign runtime instead of demo analytics.',
+        'This screen restores the richer dashboard presentation, and every card and chart comes directly from the live campaign runtime.',
       metrics: [
         {
           label: 'Tracked campaigns',

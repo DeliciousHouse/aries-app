@@ -20,8 +20,8 @@ Stage-1 behavior:
 
 Runtime env vars used by stage-1 wrappers:
 - `META_ACCESS_TOKEN` (Meta Graph live extraction)
+- `META_AD_ACCOUNT_ID` (available for downstream Meta publish flows and traceability)
 - `META_PAGE_ID` (optional extra object lookup)
-- `META_APP_ID` (recorded for traceability)
 - `GEMINI_API_KEY` (optional live Gemini summarization)
 - `LOBSTER_WEB_SEARCH_CMD` (optional custom live web-search command that returns JSON)
 

@@ -37,7 +37,7 @@ export default function CampaignListPresenter({ model }: CampaignListPresenterPr
           <p className="text-sm text-text-muted">{model.hero.description}</p>
         </div>
         <Link
-          href="/onboarding/start"
+          href="/dashboard/campaigns/new"
           className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3 text-white shadow-[0_0_20px_rgba(123,97,255,0.3)] transition-all duration-300 hover:bg-primary/90 sm:w-auto"
         >
           <Plus className="h-4 w-4" />
@@ -52,7 +52,7 @@ export default function CampaignListPresenter({ model }: CampaignListPresenterPr
             Create the first campaign and Aries will restore this board with live runtime-backed launch state.
           </p>
           <Link
-            href="/onboarding/start"
+            href="/dashboard/campaigns/new"
             className="mt-6 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-medium text-white shadow-[0_0_20px_rgba(123,97,255,0.3)]"
           >
             Create first campaign
