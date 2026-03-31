@@ -155,29 +155,3 @@ def summarize_with_gemini(prompt: str, research_model: str) -> dict[str, Any]:
             "text": "",
             "error": f"{type(exc).__name__}: {exc}",
         }
-
-
-def mock_brand_profile_store_path() -> Path:
-    return cache_root() / "mock_brand_profiles.json"
-
-
-def upsert_mock_brand_profile(record: dict[str, Any]) -> dict[str, Any]:
-    path = mock_brand_profile_store_path()
-    if path.exists():
-        try:
-            store = json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            store = {}
-    else:
-        store = {}
-    slug = slugify(record.get("brand_slug", "client-brand"))
-    existing = store.get(slug, {})
-    revision = int(existing.get("revision", 0)) + 1
-    stored = {**existing, **record, "brand_slug": slug, "revision": revision, "updated_at": utc_now()}
-    if not existing:
-        stored["created_at"] = stored["updated_at"]
-    else:
-        stored["created_at"] = existing.get("created_at", stored["updated_at"])
-    store[slug] = stored
-    path.write_text(json.dumps(store, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return stored

@@ -5,6 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from _marketing_profile_common import record_or_empty
 from _stage2_common import emit_json, normalize_research_model, read_stdin_json, save_step, utc_now
 from _stage2_common import ensure_run_id
 from _canonical_outputs import brand_output_paths, write_text
@@ -19,11 +20,28 @@ def main() -> int:
     args = parser.parse_args()
 
     data = read_stdin_json()
-    plan = data.get("campaign_plan", {})
-    record = data.get("brand_profiles_record", {})
+    plan = record_or_empty(data.get("campaign_plan"))
+    record = record_or_empty(data.get("brand_profiles_record"))
+    creative_handoff = record_or_empty(data.get("creative_handoff") or record.get("creative_handoff"))
     brand_slug = record.get("brand_slug", args.brand_slug)
     run_id = ensure_run_id(data.get("run_id", ""), brand_slug, plan.get("campaign_name", ""))
     research_model = normalize_research_model(args.research_model or data.get("research_model", ""))
+
+    strategy_handoff = {
+        "campaign_name": plan.get("campaign_name", ""),
+        "objective": plan.get("objective", ""),
+        "core_message": plan.get("core_message", ""),
+        "primary_cta": plan.get("primary_cta", ""),
+        "offer_summary": plan.get("offer", ""),
+        "audience_summary": plan.get("audience", ""),
+        "positioning": plan.get("positioning", ""),
+        "problem_statement": plan.get("problem_statement", ""),
+        "proof_points": plan.get("proof_points", []),
+        "channels": plan.get("channel_plans", []),
+        "brand_profile_id": record.get("tenant_id", brand_slug),
+        "brand_profile_path": record.get("validated_brand_profile_path", ""),
+        "creative_handoff": creative_handoff,
+    }
 
     payload = {
         "type": "head_of_marketing",
@@ -33,33 +51,25 @@ def main() -> int:
         "run_id": run_id,
         "research_model": research_model,
         "brand_slug": brand_slug,
-        "strategy_handoff": {
-            "campaign_name": plan.get("campaign_name", ""),
-            "objective": plan.get("objective", ""),
-            "core_message": plan.get("core_message", ""),
-            "primary_cta": plan.get("primary_cta", ""),
-            "offer_summary": plan.get("offer", ""),
-            "audience_summary": plan.get("audience", ""),
-            "proof_points": plan.get("proof_points", []),
-            "channels": plan.get("channel_plans", []),
-            "brand_profile_id": brand_slug,
-        },
+        "strategy_handoff": strategy_handoff,
     }
     paths = brand_output_paths(record.get("brand_slug", args.brand_slug))
     proposal_md = "\n".join(
         [
             f"# {record.get('brand_name', payload['brand_slug'])} Campaign Proposal",
             "",
-            f"- Brand slug: {payload['brand_slug']}",
             f"- Campaign: {plan.get('campaign_name', '')}",
             f"- Objective: {plan.get('objective', '')}",
             f"- Primary CTA: {plan.get('primary_cta', '')}",
             "",
-            "## Core Message",
-            plan.get("core_message", ""),
-            "",
             "## Audience",
             plan.get("audience", ""),
+            "",
+            "## Positioning",
+            plan.get("positioning", ""),
+            "",
+            "## Problem Statement",
+            plan.get("problem_statement", ""),
             "",
             "## Offer",
             plan.get("offer", ""),
@@ -69,7 +79,7 @@ def main() -> int:
             "",
             "## Channel Plans",
             *[
-                f"- {channel.get('channel', 'channel')}: {channel.get('message', '')} | CTA: {channel.get('cta', '')}"
+                f"- {channel.get('channel', 'channel')}: {channel.get('message', '')} | Hook: {channel.get('hook', '')} | CTA: {channel.get('cta', '')}"
                 for channel in plan.get("channel_plans", [])
             ],
         ]
@@ -81,14 +91,15 @@ def main() -> int:
             f"<p><strong>Campaign:</strong> {plan.get('campaign_name', '')}</p>",
             f"<p><strong>Objective:</strong> {plan.get('objective', '')}</p>",
             f"<p><strong>Primary CTA:</strong> {plan.get('primary_cta', '')}</p>",
-            f"<h2>Core Message</h2><p>{plan.get('core_message', '')}</p>",
             f"<h2>Audience</h2><p>{plan.get('audience', '')}</p>",
+            f"<h2>Positioning</h2><p>{plan.get('positioning', '')}</p>",
+            f"<h2>Problem Statement</h2><p>{plan.get('problem_statement', '')}</p>",
             f"<h2>Offer</h2><p>{plan.get('offer', '')}</p>",
             "<h2>Proof Points</h2><ul>",
             *[f"<li>{item}</li>" for item in plan.get("proof_points", [])],
             "</ul><h2>Channel Plans</h2><ul>",
             *[
-                f"<li><strong>{channel.get('channel', 'channel')}</strong>: {channel.get('message', '')} (CTA: {channel.get('cta', '')})</li>"
+                f"<li><strong>{channel.get('channel', 'channel')}</strong>: {channel.get('message', '')} (Hook: {channel.get('hook', '')}; CTA: {channel.get('cta', '')})</li>"
                 for channel in plan.get("channel_plans", [])
             ],
             "</ul></body></html>",

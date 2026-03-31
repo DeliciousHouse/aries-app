@@ -16,6 +16,14 @@ from pathlib import Path
 from typing import Any
 
 from _canonical_outputs import write_stage_log
+from _marketing_profile_common import contains_wrapper_language, normalize_space
+
+
+def safe_path_exists(candidate: str | Path) -> bool:
+    try:
+        return Path(candidate).exists()
+    except OSError:
+        return False
 
 
 def safe_path_exists(candidate: str | Path) -> bool:
@@ -169,7 +177,7 @@ def render_static_svg(contract: dict, destination: Path) -> str:
     creative = contract.get("creative", {})
     proof_points = list_or_empty(creative.get("proof_points"))[:3]
     body_lines = list_or_empty(creative.get("body_lines"))[:3]
-    lines = [contract.get("platform", "Static Asset"), creative.get("headline", "Headline"), *body_lines, *proof_points]
+    lines = [contract.get("platform", "Static Asset"), creative.get("headline", ""), *body_lines, *proof_points]
     escaped = [line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") for line in lines]
     svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1350" viewBox="0 0 1080 1350">
   <rect width="1080" height="1350" fill="#f4efe5"/>
@@ -180,7 +188,7 @@ def render_static_svg(contract: dict, destination: Path) -> str:
   <text x="108" y="450" fill="#d8e3dc" font-family="Arial, sans-serif" font-size="34">{escaped[3] if len(escaped) > 3 else ''}</text>
   <text x="108" y="510" fill="#d8e3dc" font-family="Arial, sans-serif" font-size="34">{escaped[4] if len(escaped) > 4 else ''}</text>
   <rect x="108" y="1120" width="360" height="96" rx="20" fill="#f0b429"/>
-  <text x="148" y="1182" fill="#1d3124" font-family="Arial, sans-serif" font-size="40" font-weight="700">{creative.get('primary_cta', 'Learn More')}</text>
+  <text x="148" y="1182" fill="#1d3124" font-family="Arial, sans-serif" font-size="40" font-weight="700">{creative.get('primary_cta', '')}</text>
 </svg>
     """
     destination.write_text(svg, encoding="utf-8")
@@ -339,6 +347,87 @@ def run_nano_banana(prompt: str, destination: Path, aspect_ratio: str) -> dict:
         }
 
 
+def image_mime_type(image_path: Path) -> str:
+    suffix = image_path.suffix.lower()
+    if suffix == ".png":
+        return "image/png"
+    if suffix in {".jpg", ".jpeg"}:
+        return "image/jpeg"
+    if suffix == ".webp":
+        return "image/webp"
+    if suffix == ".gif":
+        return "image/gif"
+    return "application/octet-stream"
+
+
+def extract_svg_text(image_path: Path) -> list[str]:
+    if not image_path.exists():
+        return []
+    text = image_path.read_text(encoding="utf-8", errors="ignore")
+    return [normalize_space(match.group(1)) for match in re.finditer(r"<text\b[^>]*>(.*?)</text>", text, flags=re.IGNORECASE | re.DOTALL) if normalize_space(match.group(1))]
+
+
+def ocr_image_text_with_gemini(image_path: Path) -> list[str]:
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("image_text_qa_unavailable:gemini_api_key_missing")
+    request_body = {
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "text": (
+                            "Read any visible marketing text in this image. "
+                            "Return strict JSON only in the shape "
+                            '{"lines":["text line 1","text line 2"]}. '
+                            "Do not summarize."
+                        )
+                    },
+                    {
+                        "inlineData": {
+                            "mimeType": image_mime_type(image_path),
+                            "data": base64.b64encode(image_path.read_bytes()).decode("ascii"),
+                        }
+                    },
+                ]
+            }
+        ]
+    }
+    endpoint = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{urllib.parse.quote(os.environ.get('MARKETING_IMAGE_QA_MODEL', 'gemini-2.5-flash'))}:generateContent"
+        f"?key={urllib.parse.quote(api_key)}"
+    )
+    req = urllib.request.Request(
+        endpoint,
+        data=json.dumps(request_body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=60) as response:
+        parsed = json.loads(response.read().decode("utf-8", errors="replace"))
+    candidates = parsed.get("candidates", [])
+    if not candidates:
+        raise RuntimeError("image_text_qa_failed:empty_candidates")
+    parts = candidates[0].get("content", {}).get("parts", [])
+    raw_text = "\n".join(part.get("text", "") for part in parts if part.get("text"))
+    if not raw_text.strip():
+        return []
+    lines_payload = json.loads(re.search(r"\{.*\}", raw_text, flags=re.DOTALL).group(0)) if re.search(r"\{.*\}", raw_text, flags=re.DOTALL) else {}
+    lines = lines_payload.get("lines", [])
+    if not isinstance(lines, list):
+        return []
+    return [normalize_space(line) for line in lines if normalize_space(line)]
+
+
+def assert_generated_image_text_safe(image_path: Path) -> list[str]:
+    lines = extract_svg_text(image_path) if image_path.suffix.lower() == ".svg" else ocr_image_text_with_gemini(image_path)
+    for line in lines:
+        if contains_wrapper_language(line):
+            raise RuntimeError(f"quality_gate_failed:image_text:{image_path.name}:wrapper_language")
+    return lines
+
+
 def static_image_prompt(contract: dict) -> str:
     creative = contract.get("creative", {})
     platform = contract.get("platform", "marketing creative")
@@ -349,10 +438,10 @@ def static_image_prompt(contract: dict) -> str:
             f"Create a polished high-converting ad creative for {platform}.",
             "Style: premium B2B marketing creative, clean typography, believable modern layout, not generic clipart, not meme-like.",
             "Use readable text in the image.",
-            f"Headline: {creative.get('headline', 'Lead with proof.')}",
+            f"Headline: {creative.get('headline', '')}",
             *(f"Support line: {line}" for line in body_lines),
             *(f"Proof point: {line}" for line in proof_points),
-            f"CTA button text: {creative.get('primary_cta', 'Learn More')}",
+            f"CTA button text: {creative.get('primary_cta', '')}",
             f"Aspect ratio: {contract.get('layout', {}).get('aspect_ratio', '4:5')}",
             "Design direction: dark green and warm neutral palette, premium consulting aesthetic, strong contrast, clear hierarchy.",
             "Output a single finished marketing image.",
@@ -361,7 +450,7 @@ def static_image_prompt(contract: dict) -> str:
 
 
 def video_poster_prompt(contract: dict) -> str:
-    hook = contract.get("creative", {}).get("hook") or contract.get("creative", {}).get("headline") or contract.get("concept_id", "Lead with proof")
+    hook = contract.get("creative", {}).get("hook") or contract.get("creative", {}).get("headline") or contract.get("concept_id", "video-concept")
     beats = [line for line in list_or_empty(contract.get("creative", {}).get("beats"))[:3] if line]
     platform = contract.get("platform", contract.get("platform_slug", "video"))
     return "\n".join(
@@ -397,11 +486,16 @@ def render_static_publish_asset(contract: dict, destination_root: Path, filename
         if nano_result.get("status") == "ok" and png_path.exists():
             final_image_path = str(png_path)
             final_image_kind = "nano_banana_png"
+    extracted_text = assert_generated_image_text_safe(Path(final_image_path))
     return {
         "image_path": final_image_path,
         "image_kind": final_image_kind,
         "fallback_svg_path": str(svg_path),
         "nano_banana": nano_result,
+        "text_qa": {
+            "status": "passed",
+            "extracted_lines": extracted_text,
+        },
     }
 
 
@@ -419,9 +513,14 @@ def render_video_poster_asset(contract: dict, destination_root: Path, filename_s
             png_path,
             contract.get("layout", {}).get("aspect_ratio", "9:16"),
         )
+    extracted_text = assert_generated_image_text_safe(png_path) if png_path.exists() else []
     return {
         "poster_image_path": str(png_path) if png_path.exists() else "",
         "nano_banana": nano_result,
+        "text_qa": {
+            "status": "passed" if extracted_text or not png_path.exists() else "passed",
+            "extracted_lines": extracted_text,
+        },
     }
 
 

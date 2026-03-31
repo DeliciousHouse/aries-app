@@ -17,6 +17,7 @@ from _stage3_common import (
     slugify,
     utc_now,
 )
+from _marketing_profile_common import record_or_empty, validate_copy_text, validate_unique_copy_list
 
 
 PLATFORM_DEFAULTS = [
@@ -116,23 +117,18 @@ def derive_concept_id(brief: dict, script_assets: dict) -> str:
 
 def brand_guidelines_from_brief(brief: dict) -> dict:
     return {
-        "voice_attributes": list_or_empty(brief.get("brand_voice")) or ["clear", "proof-led", "practical"],
-        "proof_points": list_or_empty(brief.get("proof_points")),
-        "primary_cta": first_nonempty(brief.get("primary_cta", ""), default="Learn More"),
+        "voice_attributes": list_or_empty(brief.get("brand_voice")),
+        "proof_points": validate_unique_copy_list("video_contract.proof_points", brief.get("proof_points"), min_items=3, max_items=3, min_tokens=3),
+        "primary_cta": validate_copy_text("video_contract.primary_cta", brief.get("primary_cta", ""), min_tokens=2),
         "production_constraints": brief.get("constraints", {}),
     }
 
 
 def build_story_beats(brief: dict, script_assets: dict) -> list[dict]:
-    short_video = script_assets.get("short_video_script", {})
+    short_video = record_or_empty(script_assets.get("short_video_script"))
     raw_beats = list_or_empty(short_video.get("beats"))
     if not raw_beats:
-        raw_beats = [
-            "State the problem clearly.",
-            "Introduce the offer.",
-            "Prove the claim with one concrete point.",
-            "Close with the CTA.",
-        ]
+        raise SystemExit("quality_gate_failed:video_story_beats:missing")
     total_beats = max(len(raw_beats), 1)
     step = max(int(short_video.get("duration_seconds", 30) / total_beats), 1)
     beats = []
@@ -149,9 +145,13 @@ def build_story_beats(brief: dict, script_assets: dict) -> list[dict]:
 
 
 def build_master_script(brief: dict, script_assets: dict) -> dict:
-    short_video = script_assets.get("short_video_script", {})
-    meta_ad = script_assets.get("meta_ad_script", {})
-    opening_line = first_nonempty(short_video.get("opening_line", ""), brief.get("core_message", ""), default="Lead with proof.")
+    short_video = record_or_empty(script_assets.get("short_video_script"))
+    meta_ad = record_or_empty(script_assets.get("meta_ad_script"))
+    opening_line = validate_copy_text(
+        "master_script.opening_line",
+        first_nonempty(short_video.get("opening_line", ""), brief.get("core_message", "")),
+        min_tokens=3,
+    )
     voiceover_lines = [opening_line]
     voiceover_lines.extend(list_or_empty(meta_ad.get("body")))
     return {
@@ -282,8 +282,8 @@ def main() -> int:
     args = parser.parse_args()
 
     data = read_stdin_json()
-    script_assets = data.get("script_assets", {})
-    brief = data.get("production_brief", {})
+    script_assets = record_or_empty(data.get("script_assets"))
+    brief = record_or_empty(data.get("production_brief"))
     brand_slug = slugify(args.brand_slug or data.get("brand_slug", "client-brand"))
     research_model = normalize_research_model(args.research_model or data.get("research_model", ""))
     run_id = ensure_run_id(data.get("run_id", ""), brand_slug, brief.get("campaign_name", ""))
@@ -326,16 +326,16 @@ def main() -> int:
         "inputs": {
             "approved_campaign_strategy": brief,
             "approved_offer": {
-                "summary": first_nonempty(brief.get("offer_summary", ""), default="Keep the offer concise."),
-                "primary_cta": first_nonempty(brief.get("primary_cta", ""), default="Learn More"),
+                "summary": validate_copy_text("master_video_contract.offer_summary", brief.get("offer_summary", ""), min_tokens=4),
+                "primary_cta": validate_copy_text("master_video_contract.primary_cta", brief.get("primary_cta", ""), min_tokens=2),
             },
             "brand_guidelines": brand_guidelines_from_brief(brief),
             "master_script": master_script,
         },
         "creative": {
-            "summary": first_nonempty(brief.get("core_message", ""), default="Lead with proof."),
+            "summary": validate_copy_text("master_video_contract.summary", brief.get("core_message", ""), min_tokens=3),
             "opening_line": master_script["opening_line"],
-            "primary_cta": first_nonempty(brief.get("primary_cta", ""), default="Learn More"),
+            "primary_cta": validate_copy_text("master_video_contract.primary_cta", brief.get("primary_cta", ""), min_tokens=2),
             "voiceover_lines": master_script["voiceover_lines"],
             "story_beats": master_script["story_beats"],
         },
