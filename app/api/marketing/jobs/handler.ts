@@ -7,7 +7,10 @@ import {
   type CampaignWorkspaceAssetUpload,
 } from '@/backend/marketing/workspace-store';
 import { OpenClawGatewayError } from '@/backend/openclaw/gateway-client';
-import { marketingPayloadDefaultsFromBusinessProfile } from '@/backend/tenant/business-profile';
+import {
+  marketingPayloadDefaultsFromBusinessProfile,
+  persistBusinessProfileFieldsFromMarketingPayload,
+} from '@/backend/tenant/business-profile';
 import {
   derivePublicMarketingTenantId,
   isMarketingPublicMode,
@@ -89,6 +92,28 @@ function normalizeJobPayload(payload: Record<string, unknown>): Record<string, u
     nextPayload.competitorUrl = normalizedCompetitorUrl;
   }
 
+  const normalizedPrimaryGoal =
+    typeof payload.primaryGoal === 'string'
+      ? payload.primaryGoal.trim()
+      : typeof payload.goal === 'string'
+        ? payload.goal.trim()
+        : '';
+  if (normalizedPrimaryGoal) {
+    nextPayload.primaryGoal = normalizedPrimaryGoal;
+    nextPayload.goal = normalizedPrimaryGoal;
+  }
+
+  const normalizedApproverName =
+    typeof payload.launchApproverName === 'string'
+      ? payload.launchApproverName.trim()
+      : typeof payload.approverName === 'string'
+        ? payload.approverName.trim()
+        : '';
+  if (normalizedApproverName) {
+    nextPayload.launchApproverName = normalizedApproverName;
+    nextPayload.approverName = normalizedApproverName;
+  }
+
   return nextPayload;
 }
 
@@ -157,6 +182,7 @@ async function parseCreateJobRequest(req: Request): Promise<{
         competitorUrl: coerceFieldValue(formData.get('competitorUrl')),
         businessName: coerceFieldValue(formData.get('businessName')),
         businessType: coerceFieldValue(formData.get('businessType')),
+        launchApproverName: coerceFieldValue(formData.get('launchApproverName')) || coerceFieldValue(formData.get('approverName')),
         approverName: coerceFieldValue(formData.get('approverName')),
         brandVoice: coerceFieldValue(formData.get('brandVoice')),
         styleVibe: coerceFieldValue(formData.get('styleVibe')),
@@ -164,6 +190,7 @@ async function parseCreateJobRequest(req: Request): Promise<{
         mustUseCopy: coerceFieldValue(formData.get('mustUseCopy')),
         mustAvoidAesthetics: coerceFieldValue(formData.get('mustAvoidAesthetics')),
         notes: coerceFieldValue(formData.get('notes')),
+        primaryGoal: coerceFieldValue(formData.get('primaryGoal')) || coerceFieldValue(formData.get('goal')),
         goal: coerceFieldValue(formData.get('goal')),
         offer: coerceFieldValue(formData.get('offer')),
         mode: coerceFieldValue(formData.get('mode')),
@@ -226,6 +253,14 @@ export async function handlePostMarketingJobs(
   });
 
   try {
+    persistBusinessProfileFieldsFromMarketingPayload({
+      tenantId: resolvedTenantId,
+      tenantSlug:
+        'response' in tenantResult
+          ? null
+          : tenantResult.tenantContext.tenantSlug,
+      payload: normalizedPayload,
+    });
     const hydratedPayload = enrichPayloadFromBusinessProfile(resolvedTenantId, normalizedPayload);
     const result = await startMarketingJob({
       tenantId: resolvedTenantId,

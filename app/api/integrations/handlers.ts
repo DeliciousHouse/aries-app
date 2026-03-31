@@ -89,7 +89,7 @@ export async function handleIntegrationsGet(tenantContextLoader?: TenantContextL
   const tenantResult = await loadTenantContextOrResponse(tenantContextLoader);
   if ('response' in tenantResult) {
     if (isMarketingPublicMode()) {
-      return new Response(JSON.stringify(buildIntegrationsPageData(findLatestMarketingTenantId() || 'public_demo')), {
+      return new Response(JSON.stringify(buildIntegrationsPageData(findLatestMarketingTenantId() || 'public_empty')), {
         status: 200,
         headers: { 'content-type': 'application/json' }
       });

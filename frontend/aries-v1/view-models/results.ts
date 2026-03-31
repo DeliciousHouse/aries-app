@@ -83,7 +83,7 @@ export function createResultsViewModel(campaigns: RuntimeCampaignListItem[]): Re
       eyebrow: 'Results',
       title: 'Runtime-backed campaign outcomes',
       description:
-        'This screen restores the richer dashboard presentation, but every card and chart still comes from the live campaign runtime instead of demo analytics.',
+        'This screen restores the richer dashboard presentation, and every card and chart comes directly from the live campaign runtime.',
       metrics: [
         {
           label: 'Tracked campaigns',

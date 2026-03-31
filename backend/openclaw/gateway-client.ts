@@ -166,9 +166,21 @@ function normalizeGatewayCwd(cwd: string): string {
   }
 
   const codeRoot = resolveCodeRoot();
-  if (normalized === codeRoot || normalized.startsWith(`${codeRoot}${path.sep}`)) {
-    const relative = path.relative(codeRoot, normalized);
-    return relative || '.';
+  const candidateRoots = Array.from(
+    new Set(
+      [
+        path.basename(codeRoot) === 'aries-app' ? path.dirname(codeRoot) : null,
+        codeRoot,
+        '/app',
+      ].filter((candidate): candidate is string => Boolean(candidate))
+    )
+  );
+
+  for (const root of candidateRoots) {
+    if (normalized === root || normalized.startsWith(`${root}${path.sep}`)) {
+      const relative = path.relative(root, normalized);
+      return relative || '.';
+    }
   }
 
   return normalized;

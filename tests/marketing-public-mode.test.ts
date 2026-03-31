@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -224,6 +224,92 @@ test('/api/marketing/jobs/:jobId/approve allows public approval when MARKETING_S
   });
 });
 
+test('/api/marketing/jobs/latest allows public read when MARKETING_STATUS_PUBLIC is enabled', async () => {
+  await withPublicMarketingEnv(async () => {
+    const { handleGetLatestMarketingJobStatus } = await import('../app/api/marketing/jobs/latest/handler');
+    const jobsRoot = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs');
+    await rm(jobsRoot, { recursive: true, force: true });
+    await mkdir(jobsRoot, { recursive: true });
+
+    const updatedAt = '2026-04-05T00:00:00.000Z';
+    await writeFile(
+      path.join(jobsRoot, 'mkt_public_latest.json'),
+      JSON.stringify({
+        schema_name: 'marketing_job_state_schema',
+        schema_version: '1.0.0',
+        job_id: 'mkt_public_latest',
+        job_type: 'brand_campaign',
+        tenant_id: 'public_brand-example',
+        state: 'approval_required',
+        status: 'awaiting_approval',
+        current_stage: 'publish',
+        stage_order: ['research', 'strategy', 'production', 'publish'],
+        stages: {
+          research: { stage: 'research', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-r', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          strategy: { stage: 'strategy', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-s', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          production: { stage: 'production', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-p', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          publish: {
+            stage: 'publish',
+            status: 'awaiting_approval',
+            started_at: null,
+            completed_at: null,
+            failed_at: null,
+            run_id: 'run-publish',
+            summary: { summary: 'Approval needed', highlight: null },
+            primary_output: null,
+            outputs: {},
+            artifacts: [],
+            errors: [],
+          },
+        },
+        approvals: {
+          current: {
+            stage: 'publish',
+            status: 'awaiting_approval',
+            title: 'Launch approval required',
+            message: 'Approval needed before publish-ready assets are generated.',
+            requested_at: updatedAt,
+            resume_token: 'resume_publish',
+            action_label: 'Approve launch',
+            publish_config: { platforms: ['meta-ads'], live_publish_platforms: [], video_render_platforms: [] },
+          },
+          history: [],
+        },
+        publish_config: { platforms: ['meta-ads'], live_publish_platforms: [], video_render_platforms: [] },
+        brand_kit: {
+          path: path.join(process.env.DATA_ROOT!, 'generated', 'validated', 'public_brand-example', 'brand-kit.json'),
+          source_url: 'https://brand.example',
+          canonical_url: 'https://brand.example',
+          brand_name: 'Brand Example',
+          logo_urls: [],
+          colors: { primary: '#111111', secondary: '#f4f4f4', accent: '#c24d2c', palette: ['#111111', '#f4f4f4', '#c24d2c'] },
+          font_families: ['Manrope'],
+          external_links: [],
+          extracted_at: '2026-03-18T00:00:00.000Z',
+        },
+        inputs: { request: {}, brand_url: 'https://brand.example' },
+        errors: [],
+        last_error: null,
+        history: [],
+        created_at: updatedAt,
+        updated_at: updatedAt,
+      }, null, 2),
+    );
+
+    let tenantLoaderCalls = 0;
+    const response = await handleGetLatestMarketingJobStatus(async () => {
+      tenantLoaderCalls += 1;
+      throw new Error('Authentication required.');
+    });
+    const body = (await response.json()) as Record<string, unknown>;
+
+    assert.equal(response.status, 200);
+    assert.equal(body.jobId, 'mkt_public_latest');
+    assert.equal(body.tenantName, 'Brand Example');
+    assert.equal(tenantLoaderCalls, 0);
+  });
+});
+
 test('/api/business/profile persists public onboarding fields file-backed and hydrates brandKit from extracted data', async () => {
   await withPublicMarketingEnv(async () => {
     const { GET: getBusinessProfileRoute, PATCH: patchBusinessProfileRoute } = await import('../app/api/business/profile/route');
@@ -280,6 +366,56 @@ test('/api/business/profile persists public onboarding fields file-backed and hy
       assert.equal(getBody.profile.brandKit.source_url, 'https://brand.example/');
       assert.equal(getBody.profile.brandKit.colors.primary, '#111111');
       assert.deepEqual(getBody.profile.channels, ['meta-ads', 'instagram']);
+    } finally {
+      restoreFetch();
+    }
+  });
+});
+
+test('/api/business/profile preserves existing businessType, launchApproverName, and offer when PATCH receives empty values', async () => {
+  await withPublicMarketingEnv(async () => {
+    const { PATCH: patchBusinessProfileRoute } = await import('../app/api/business/profile/route');
+    const restoreFetch = installPublicBrandSiteFetchMock();
+
+    try {
+      await patchBusinessProfileRoute(
+        new Request('http://localhost/api/business/profile', {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            businessName: 'Brand Example LLC',
+            websiteUrl: 'https://brand.example',
+            businessType: 'coaching',
+            primaryGoal: 'book more calls',
+            launchApproverName: 'Avery Example',
+            offer: 'Operator-led launch intensives',
+          }),
+        }),
+      );
+
+      const patchResponse = await patchBusinessProfileRoute(
+        new Request('http://localhost/api/business/profile', {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            websiteUrl: 'https://brand.example',
+            businessType: '',
+            launchApproverName: '   ',
+            offer: '',
+          }),
+        }),
+      );
+      const patchedBody = (await patchResponse.json()) as { profile: Record<string, any> };
+      const persistedPath = path.join(process.env.DATA_ROOT!, 'generated', 'validated', 'public_brand-example', 'business-profile.json');
+      const persistedRecord = JSON.parse(await readFile(persistedPath, 'utf8')) as Record<string, any>;
+
+      assert.equal(patchResponse.status, 200);
+      assert.equal(patchedBody.profile.businessType, 'coaching');
+      assert.equal(patchedBody.profile.launchApproverName, 'Avery Example');
+      assert.equal(patchedBody.profile.offer, 'Operator-led launch intensives');
+      assert.equal(persistedRecord.business_type, 'coaching');
+      assert.equal(persistedRecord.launch_approver_name, 'Avery Example');
+      assert.equal(persistedRecord.offer, 'Operator-led launch intensives');
     } finally {
       restoreFetch();
     }
@@ -366,6 +502,95 @@ test('/api/marketing/jobs backfills missing onboarding fields from the persisted
       assert.deepEqual(getBody.profile.channels, ['meta-ads', 'instagram']);
     } finally {
       restoreFetch();
+    }
+  });
+});
+
+test('/api/marketing/jobs persists present public onboarding fields and does not clobber them with empty follow-up payloads', async () => {
+  await withPublicMarketingEnv(async () => {
+    const { handlePostMarketingJobs } = await import('../app/api/marketing/jobs/handler');
+    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const restoreFetch = installPublicBrandSiteFetchMock();
+    const businessProfilePath = path.join(
+      process.env.DATA_ROOT!,
+      'generated',
+      'validated',
+      'public_brand-example',
+      'business-profile.json',
+    );
+
+    try {
+      setOpenClawTestInvoker(() => ({
+        ok: true,
+        status: 'needs_approval',
+        output: [{ run_id: 'public-run-persist' }],
+        requiresApproval: { resumeToken: 'resume_public_persist', prompt: 'Continue to strategy?' },
+      }));
+
+      const firstCreateResponse = await handlePostMarketingJobs(
+        new Request('http://localhost/api/marketing/jobs', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            jobType: 'brand_campaign',
+            payload: {
+              brandUrl: 'https://brand.example',
+              businessType: 'coaching',
+              goal: 'book more calls',
+              approverName: 'Avery Example',
+              offer: 'Operator-led launch intensives',
+              competitorUrl: 'https://competitor.example',
+              channels: ['meta-ads', 'instagram'],
+            },
+          }),
+        }),
+      );
+      const firstCreated = (await firstCreateResponse.json()) as Record<string, unknown>;
+      const firstRuntime = loadMarketingJobRuntime(String(firstCreated.jobId));
+      const persistedAfterFirstCreate = JSON.parse(await readFile(businessProfilePath, 'utf8')) as Record<string, any>;
+
+      assert.equal(firstCreateResponse.status, 202);
+      assert.equal(persistedAfterFirstCreate.business_type, 'coaching');
+      assert.equal(persistedAfterFirstCreate.primary_goal, 'book more calls');
+      assert.equal(persistedAfterFirstCreate.launch_approver_name, 'Avery Example');
+      assert.equal(persistedAfterFirstCreate.offer, 'Operator-led launch intensives');
+      assert.equal(persistedAfterFirstCreate.competitor_url, 'https://competitor.example/');
+      assert.deepEqual(persistedAfterFirstCreate.channels, ['meta-ads', 'instagram']);
+      assert.equal(firstRuntime?.inputs.request.primaryGoal, 'book more calls');
+      assert.equal(firstRuntime?.inputs.request.goal, 'book more calls');
+      assert.equal(firstRuntime?.inputs.request.launchApproverName, 'Avery Example');
+      assert.equal(firstRuntime?.inputs.request.approverName, 'Avery Example');
+
+      const secondCreateResponse = await handlePostMarketingJobs(
+        new Request('http://localhost/api/marketing/jobs', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            jobType: 'brand_campaign',
+            payload: {
+              brandUrl: 'https://brand.example',
+              businessType: '',
+              primaryGoal: '',
+              launchApproverName: '',
+              offer: '',
+              competitorUrl: '',
+              channels: [],
+            },
+          }),
+        }),
+      );
+      const persistedAfterSecondCreate = JSON.parse(await readFile(businessProfilePath, 'utf8')) as Record<string, any>;
+
+      assert.equal(secondCreateResponse.status, 202);
+      assert.equal(persistedAfterSecondCreate.business_type, 'coaching');
+      assert.equal(persistedAfterSecondCreate.primary_goal, 'book more calls');
+      assert.equal(persistedAfterSecondCreate.launch_approver_name, 'Avery Example');
+      assert.equal(persistedAfterSecondCreate.offer, 'Operator-led launch intensives');
+      assert.equal(persistedAfterSecondCreate.competitor_url, 'https://competitor.example/');
+      assert.deepEqual(persistedAfterSecondCreate.channels, ['meta-ads', 'instagram']);
+    } finally {
+      restoreFetch();
+      clearOpenClawTestInvoker();
     }
   });
 });

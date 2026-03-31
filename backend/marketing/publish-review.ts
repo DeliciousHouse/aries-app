@@ -658,6 +658,57 @@ function reviewPackageCandidatePaths(runtimeDoc: MarketingJobRuntimeDocument, ca
   return Array.from(candidates);
 }
 
+function campaignNameBrandSlugCandidates(campaignName: string | null | undefined): string[] {
+  const normalizedCampaignName = stringValue(campaignName);
+  if (!normalizedCampaignName) {
+    return [];
+  }
+
+  const normalizedSlug = slugify(normalizedCampaignName, '');
+  if (!normalizedSlug) {
+    return [];
+  }
+
+  const candidates = new Set<string>([normalizedSlug]);
+  const suffixPatterns = [
+    /-stage-?4(?:-[a-z0-9-]+)?$/i,
+    /-stage-?3(?:-[a-z0-9-]+)?$/i,
+    /-stage-?2(?:-plan)?$/i,
+    /-stage-?1(?:-[a-z0-9-]+)?$/i,
+    /-plan$/i,
+    /-campaign$/i,
+  ];
+
+  for (const pattern of suffixPatterns) {
+    const stripped = normalizedSlug.replace(pattern, '');
+    if (stripped && stripped !== normalizedSlug) {
+      candidates.add(stripped);
+    }
+  }
+
+  return Array.from(candidates);
+}
+
+function resolvePublishArtifactBrandSlug(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  campaignName: string | null,
+): string | null {
+  const candidates = uniqueStrings([
+    ...campaignNameBrandSlugCandidates(campaignName),
+    inferBrandSlug(runtimeDoc),
+  ]);
+
+  for (const candidate of candidates) {
+    for (const outputRoot of lobsterOutputRoots()) {
+      if (existsSync(path.join(outputRoot, `${candidate}-campaign`))) {
+        return candidate;
+      }
+    }
+  }
+
+  return candidates[0] || null;
+}
+
 function buildFallbackPublishReviewBundle(
   runtimeDoc: MarketingJobRuntimeDocument,
   reviewPayload: Record<string, unknown> | null,
@@ -681,6 +732,7 @@ function buildFallbackPublishReviewBundle(
     stringValue(reviewBundle?.campaign_name) ||
     stringValue(reviewPayload?.campaign_name) ||
     stringValue(preflight?.campaign_name);
+  const artifactBrandSlug = resolvePublishArtifactBrandSlug(runtimeDoc, campaignName || null);
   for (const candidatePath of reviewPackageCandidatePaths(runtimeDoc, campaignName || null)) {
     const resolved = resolveMarketingArtifactPath(candidatePath);
     if (resolved) {
@@ -691,12 +743,14 @@ function buildFallbackPublishReviewBundle(
   const landingDetails = readLandingPageArtifactDetails({
     path: stringValue(recordValue(reviewBundle?.landing_page_preview)?.landing_page_path) || null,
     runtimeDoc,
+    brandSlug: artifactBrandSlug,
   });
   const runtimeScriptPreview = recordValue(reviewBundle?.script_preview);
   const scriptDetails = readScriptArtifactDetails({
     metaScriptPath: stringValue(runtimeScriptPreview?.meta_script_path) || null,
     shortVideoScriptPath: stringValue(runtimeScriptPreview?.short_video_script_path) || null,
     runtimeDoc,
+    brandSlug: artifactBrandSlug,
   });
   const productionReview = readMarketingStageStepPayload(runtimeDoc, 3, 'production_review_preview');
   const platformPreviews = Array.from(reviewPackagePaths).flatMap((reviewPackagePath) => {

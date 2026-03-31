@@ -473,6 +473,89 @@ function creativeReviewItem(
   };
 }
 
+function normalizePublishPreviewPlatform(value: string | null | undefined): string {
+  const normalized = (value || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  if (['meta', 'facebook', 'facebook-ads', 'meta-ads'].includes(normalized)) {
+    return 'meta-ads';
+  }
+  return normalized || 'preview';
+}
+
+function publishPreviewReviewItems(
+  status: MarketingJobStatusResponse,
+  view: CampaignWorkspaceView,
+  campaignNameValue: string,
+): RuntimeReviewItem[] {
+  const reviewBundle = status.reviewBundle;
+  if (!status.approval || status.currentStage !== 'publish' || !reviewBundle || reviewBundle.platformPreviews.length === 0) {
+    return [];
+  }
+
+  return reviewBundle.platformPreviews.map((preview, index) => {
+    const normalizedPlatform = normalizePublishPreviewPlatform(preview.platformSlug || preview.platformName);
+    const previewAsset = preview.mediaAssets[0] || preview.assetLinks[0] || reviewBundle.previewAsset;
+
+    return {
+      id: `${status.jobId}::publish-preview:${normalizedPlatform}`,
+      jobId: status.jobId,
+      campaignId: status.jobId,
+      campaignName: campaignNameValue,
+      reviewType: 'creative',
+      workflowState: view.workflowState,
+      workflowStage: 'publish',
+      title: preview.displayTitle || preview.platformName || `Platform ${index + 1}`,
+      channel: preview.platformName || 'Publish preview',
+      placement: 'Publish preview',
+      scheduledFor: 'Before workflow resume',
+      status: 'in_review',
+      summary: preview.summary,
+      currentVersion: {
+        id: preview.id || `platform-preview:${normalizedPlatform}`,
+        label: 'Current version',
+        headline: preview.displayTitle || preview.platformName || `Platform ${index + 1}`,
+        supportingText: preview.summary,
+        cta: 'Approve',
+        notes: preview.details,
+      },
+      previousVersion: undefined,
+      lastDecision: null,
+      notePlaceholder: 'Add launch review notes, requested changes, or approval context.',
+      contentType: previewAsset?.contentType || null,
+      previewUrl: previewAsset?.url || null,
+      fullPreviewUrl: previewAsset?.url || null,
+      destinationUrl: undefined,
+      sections: [
+        {
+          id: `${normalizedPlatform}-publish-preview`,
+          title: 'Launch preview',
+          body: [preview.summary, ...preview.details].filter(Boolean).join('\n'),
+        },
+      ],
+      attachments: [
+        ...preview.mediaAssets.map((asset) => ({
+          id: asset.id,
+          label: asset.label,
+          url: asset.url,
+          contentType: asset.contentType,
+          kind: asset.contentType.startsWith('image/') ? ('preview' as const) : ('artifact' as const),
+        })),
+        ...preview.assetLinks.map((asset) => ({
+          id: asset.id,
+          label: asset.label,
+          url: asset.url,
+          contentType: asset.contentType,
+          kind: asset.contentType.startsWith('image/') ? ('preview' as const) : ('artifact' as const),
+        })),
+      ],
+      history: [],
+    };
+  });
+}
+
 function workflowApprovalItem(
   status: MarketingJobStatusResponse,
   view: CampaignWorkspaceView,
@@ -602,6 +685,7 @@ function buildReviewItemsForJob(jobId: string): RuntimeReviewItem[] {
   for (const asset of view.creativeReview?.assets || []) {
     items.push(creativeReviewItem(view, asset, campaignNameValue));
   }
+  items.push(...publishPreviewReviewItems(status, view, campaignNameValue));
 
   const approvalItem = workflowApprovalItem(status, view, campaignNameValue);
   if (approvalItem) {
@@ -794,7 +878,7 @@ export async function listMarketingPostsForTenant(tenantId: string): Promise<Mar
 
 export async function listPublicMarketingPosts(): Promise<MarketingDashboardContent> {
   const tenantIds = listMarketingTenantIds();
-  const emptyTenantId = tenantIds[0] || 'public_demo';
+  const emptyTenantId = tenantIds[0] || 'public_empty';
   const content = getWorkflowAwareDashboardContentForTenant(emptyTenantId);
 
   if (tenantIds.length <= 1) {

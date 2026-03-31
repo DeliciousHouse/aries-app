@@ -251,7 +251,7 @@ export function createDashboardHomeViewModel(args: {
     summary:
       campaign.pendingApprovals > 0
         ? 'This campaign is live, but follow-up approvals are still queued.'
-        : 'Live activity is present, so results can be reviewed without demo metrics.',
+        : 'Live activity is present, so results can be reviewed directly from current runtime signals.',
     status: campaign.dashboardStatus === 'live' ? campaign.dashboardStatus : campaign.status,
     href: campaignHref(campaign.id),
     updatedLabel: formatUpdatedLabel(campaign.updatedAt),

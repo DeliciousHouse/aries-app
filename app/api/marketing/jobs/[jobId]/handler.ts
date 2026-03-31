@@ -28,6 +28,20 @@ function alignApprovalWithWorkspace(
   };
 }
 
+function alignApprovalRequiredWithWorkspace(
+  approvalRequired: boolean,
+  workflowState: ReturnType<typeof buildCampaignWorkspaceView>['workflowState'],
+) {
+  return workflowState === 'revisions_requested' ? false : approvalRequired;
+}
+
+function alignNextStepWithWorkspace(
+  nextStep: ReturnType<typeof getMarketingJobStatus>['nextStep'],
+  workflowState: ReturnType<typeof buildCampaignWorkspaceView>['workflowState'],
+) {
+  return workflowState === 'revisions_requested' ? 'wait_for_completion' : nextStep;
+}
+
 export async function handleGetMarketingJobStatus(
   jobId: string,
   tenantContextLoader?: TenantContextLoader
@@ -79,7 +93,7 @@ export async function handleGetMarketingJobStatus(
         marketing_stage_status: result.stageStatus,
         updatedAt: result.updatedAt,
         needs_attention: result.needsAttention,
-        approvalRequired: result.approvalRequired,
+        approvalRequired: alignApprovalRequiredWithWorkspace(result.approvalRequired, workspaceView.workflowState),
         summary: result.summary,
         stageCards: result.stageCards,
         artifacts: result.artifacts,
@@ -93,7 +107,7 @@ export async function handleGetMarketingJobStatus(
         strategyReview: workspaceView.strategyReview,
         creativeReview: workspaceView.creativeReview,
         publishConfig: result.publishConfig,
-        nextStep: result.nextStep,
+        nextStep: alignNextStepWithWorkspace(result.nextStep, workspaceView.workflowState),
         repairStatus: result.repairStatus,
         dashboard: workspaceView.dashboard,
       },

@@ -1,9 +1,38 @@
 # Aries System Reference
 
-Last refreshed Mar 29, 2026, 23:39 PDT.
+Last refreshed Mar 30, 2026, 21:45 PDT.
 
 ## What changed today
-- No git-tracked file changes detected since local midnight.
+- .env.example
+- .gitignore
+- AGENTS.md
+- Dockerfile
+- HEARTBEAT.md
+- IDENTITY.md
+- MEMORY.md
+- OPERATING_STRUCTURE.md
+- OVERNIGHT_LOG.md
+- PRIORITIES.md
+- README-runtime.md
+- README.md
+- ROADMAP.md
+- SETUP.md
+- SOUL.md
+- USER.md
+- app/api/business/profile/route.ts
+- app/api/integrations/handlers.ts
+- app/api/marketing/campaigns/route.ts
+- app/api/marketing/jobs/[jobId]/brief/route.ts
+- app/api/marketing/jobs/[jobId]/handler.ts
+- app/api/marketing/jobs/[jobId]/workspace-assets/[assetId]/handler.ts
+- app/api/marketing/jobs/[jobId]/workspace-assets/[assetId]/route.ts
+- app/api/marketing/jobs/handler.ts
+- app/api/marketing/jobs/latest/handler.ts
+- app/api/marketing/posts/route.ts
+- app/api/marketing/reviews/[reviewId]/decision/route.ts
+- app/api/marketing/reviews/[reviewId]/route.ts
+- app/api/marketing/reviews/route.ts
+- app/api/pipeline/url-preview/route.ts
 
 ## Current architecture overview
 - Next.js App Router runtime serves the public site, authenticated operator shell, and browser-safe internal APIs.
@@ -13,12 +42,12 @@ Last refreshed Mar 29, 2026, 23:39 PDT.
 
 ## Module inventory
 - app/ 100 files
-- backend/ 59 files
+- backend/ 61 files
 - components/ 14 files
 - hooks/ 17 files
 - lib/ 16 files
 - scripts/ 16 files
-- skills/ 30 files
+- skills/ 29 files
 - workflows/ 4 files
 
 ## Active cron jobs
@@ -57,26 +86,21 @@ Last refreshed Mar 29, 2026, 23:39 PDT.
 - Mission Control standalone app is still a shell around runtime overview data and awaits richer live API adapters for actions/transcripts.
 
 ## Working tree snapshot
-- M .env.example
-- M HEARTBEAT.md
-- M IDENTITY.md
-- D OVERNIGHT_LOG.md
-- M README-runtime.md
-- M README.md
-- M ROADMAP.md
-- M SETUP.md
-- M SOUL.md
-- M USER.md
-- M app/api/business/profile/route.ts
-- M app/api/integrations/handlers.ts
-- M app/api/marketing/campaigns/route.ts
 - M app/api/marketing/jobs/[jobId]/handler.ts
 - M app/api/marketing/jobs/handler.ts
 - M app/api/marketing/jobs/latest/handler.ts
-- M app/api/marketing/posts/route.ts
-- M app/api/marketing/reviews/[reviewId]/decision/route.ts
-- M app/api/marketing/reviews/[reviewId]/route.ts
-- M app/api/marketing/reviews/route.ts
+- M backend/marketing/dashboard-content.ts
+- M  backend/marketing/orchestrator.ts
+- M backend/marketing/publish-review.ts
+- M  backend/marketing/runtime-state.ts
+- MM backend/marketing/workspace-views.ts
+- M backend/openclaw/gateway-client.ts
+- M backend/tenant/business-profile.ts
+- M docker-compose.yml
+- M lib/api/marketing.ts
+- MM tests/frontend-api-layer.test.ts
+- M tests/marketing-gateway-logging.test.ts
+- M tests/marketing-public-mode.test.ts
 
 ## Reference date
-- 2026-03-29
+- 2026-03-30

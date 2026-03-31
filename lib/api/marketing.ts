@@ -40,7 +40,9 @@ export interface BrandCampaignPayload {
   mustAvoidAesthetics?: string;
   notes?: string;
   brandAssetsMetadata?: MarketingBriefAssetUploadMetadata[];
+  primaryGoal?: string;
   goal?: string;
+  launchApproverName?: string;
   offer?: string;
   channels?: string[];
   mode?: string;

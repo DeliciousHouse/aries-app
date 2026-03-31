@@ -92,6 +92,12 @@ type BusinessProfileUpdateInput = {
   channels?: string[] | null;
 };
 
+type MarketingProfilePersistenceInput = {
+  tenantId: string;
+  payload: Record<string, unknown>;
+  tenantSlug?: string | null;
+};
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -111,6 +117,91 @@ function stringArray(value: unknown): string[] {
         .map((entry) => entry.trim()),
     ),
   );
+}
+
+function hasOwnField(value: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function firstPresentStringField(
+  payload: Record<string, unknown>,
+  keys: string[],
+): { present: boolean; value: string | null } {
+  for (const key of keys) {
+    if (!hasOwnField(payload, key)) {
+      continue;
+    }
+    return {
+      present: true,
+      value: stringOrNull(payload[key]),
+    };
+  }
+
+  return {
+    present: false,
+    value: null,
+  };
+}
+
+function firstPresentStringArrayField(
+  payload: Record<string, unknown>,
+  keys: string[],
+): { present: boolean; value: string[] } {
+  for (const key of keys) {
+    if (!hasOwnField(payload, key)) {
+      continue;
+    }
+    return {
+      present: true,
+      value: stringArray(payload[key]),
+    };
+  }
+
+  return {
+    present: false,
+    value: [],
+  };
+}
+
+function mergePersistedStringField(
+  currentValue: string | null,
+  nextValue: string | null | undefined,
+  normalize?: (value: string) => string | null,
+): { value: string | null; changed: boolean } {
+  if (nextValue === undefined || nextValue === null) {
+    return { value: currentValue, changed: false };
+  }
+
+  const trimmed = nextValue.trim();
+  if (!trimmed) {
+    return { value: currentValue, changed: false };
+  }
+
+  const resolved = normalize ? normalize(trimmed) || trimmed : trimmed;
+  return {
+    value: resolved,
+    changed: resolved !== currentValue,
+  };
+}
+
+function mergePersistedStringArrayField(
+  currentValue: string[],
+  nextValue: string[] | null | undefined,
+): { value: string[]; changed: boolean } {
+  if (nextValue === undefined || nextValue === null) {
+    return { value: currentValue, changed: false };
+  }
+
+  const normalized = stringArray(nextValue);
+  if (normalized.length === 0) {
+    return { value: currentValue, changed: false };
+  }
+
+  const resolved = Array.from(new Set(normalized));
+  return {
+    value: resolved,
+    changed: JSON.stringify(resolved) !== JSON.stringify(currentValue),
+  };
 }
 
 function businessProfilePath(tenantId: string): string {
@@ -348,28 +439,33 @@ export async function updateBusinessProfileWithDiagnostics(
 ): Promise<ResolvedBusinessProfile> {
   const current = await getBusinessProfileWithDiagnostics(client, input.tenantId);
 
-  const nextBusinessName = stringOrNull(input.businessName) || current.profile.businessName;
-  const nextWebsiteUrl =
-    input.websiteUrl === undefined
-      ? current.profile.websiteUrl
-      : normalizeMarketingWebsiteUrl(input.websiteUrl) || null;
-  const nextBusinessType =
-    input.businessType === undefined ? current.profile.businessType : stringOrNull(input.businessType);
-  const nextPrimaryGoal =
-    input.primaryGoal === undefined ? current.profile.primaryGoal : stringOrNull(input.primaryGoal);
-  const nextApproverUserId =
-    input.launchApproverUserId === undefined ? current.profile.launchApproverUserId : stringOrNull(input.launchApproverUserId);
-  const nextApproverName =
-    input.launchApproverName === undefined ? current.profile.launchApproverName : stringOrNull(input.launchApproverName);
-  const nextOffer = input.offer === undefined ? current.profile.offer : stringOrNull(input.offer);
-  const nextNotes = input.notes === undefined ? current.profile.notes : stringOrNull(input.notes);
-  const nextCompetitorUrl =
-    input.competitorUrl === undefined
-      ? current.profile.competitorUrl
-      : normalizeMarketingWebsiteUrl(input.competitorUrl) || stringOrNull(input.competitorUrl);
-  const nextChannels = input.channels === undefined || input.channels === null
-    ? current.profile.channels
-    : stringArray(input.channels);
+  const nextBusinessName =
+    mergePersistedStringField(current.profile.businessName || null, input.businessName).value ||
+    current.profile.businessName ||
+    '';
+  const nextWebsiteUrl = mergePersistedStringField(
+    current.profile.websiteUrl,
+    input.websiteUrl,
+    normalizeMarketingWebsiteUrl,
+  ).value;
+  const nextBusinessType = mergePersistedStringField(current.profile.businessType, input.businessType).value;
+  const nextPrimaryGoal = mergePersistedStringField(current.profile.primaryGoal, input.primaryGoal).value;
+  const nextApproverUserId = mergePersistedStringField(
+    current.profile.launchApproverUserId,
+    input.launchApproverUserId,
+  ).value;
+  const nextApproverName = mergePersistedStringField(
+    current.profile.launchApproverName,
+    input.launchApproverName,
+  ).value;
+  const nextOffer = mergePersistedStringField(current.profile.offer, input.offer).value;
+  const nextNotes = mergePersistedStringField(current.profile.notes, input.notes).value;
+  const nextCompetitorUrl = mergePersistedStringField(
+    current.profile.competitorUrl,
+    input.competitorUrl,
+    (value) => normalizeMarketingWebsiteUrl(value) || value,
+  ).value;
+  const nextChannels = mergePersistedStringArrayField(current.profile.channels, input.channels).value;
 
   if (!nextBusinessName?.trim()) {
     throw new Error('missing_required_fields:businessName');
@@ -434,7 +530,7 @@ export async function updatePublicBusinessProfile(input: Omit<BusinessProfileUpd
 
   const current = getPublicBusinessProfile(normalizedWebsiteUrl);
   const nextBusinessName =
-    stringOrNull(input.businessName) ||
+    mergePersistedStringField(current.profile.businessName || null, input.businessName).value ||
     current.profile.businessName ||
     current.profile.brandKit?.brand_name ||
     '';
@@ -447,26 +543,24 @@ export async function updatePublicBusinessProfile(input: Omit<BusinessProfileUpd
     business_name: nextBusinessName,
     tenant_slug: current.profile.tenantSlug || publicTenantSlug(tenantId),
     website_url: normalizedWebsiteUrl,
-    business_type:
-      input.businessType === undefined ? current.profile.businessType : stringOrNull(input.businessType),
-    primary_goal:
-      input.primaryGoal === undefined ? current.profile.primaryGoal : stringOrNull(input.primaryGoal),
-    launch_approver_user_id:
-      input.launchApproverUserId === undefined ? current.profile.launchApproverUserId : stringOrNull(input.launchApproverUserId),
-    launch_approver_name:
-      input.launchApproverName === undefined ? current.profile.launchApproverName : stringOrNull(input.launchApproverName),
-    offer:
-      input.offer === undefined ? current.profile.offer : stringOrNull(input.offer),
-    notes:
-      input.notes === undefined ? current.profile.notes : stringOrNull(input.notes),
-    competitor_url:
-      input.competitorUrl === undefined
-        ? current.profile.competitorUrl
-        : normalizeMarketingWebsiteUrl(input.competitorUrl) || stringOrNull(input.competitorUrl),
-    channels:
-      input.channels === undefined || input.channels === null
-        ? current.profile.channels
-        : stringArray(input.channels),
+    business_type: mergePersistedStringField(current.profile.businessType, input.businessType).value,
+    primary_goal: mergePersistedStringField(current.profile.primaryGoal, input.primaryGoal).value,
+    launch_approver_user_id: mergePersistedStringField(
+      current.profile.launchApproverUserId,
+      input.launchApproverUserId,
+    ).value,
+    launch_approver_name: mergePersistedStringField(
+      current.profile.launchApproverName,
+      input.launchApproverName,
+    ).value,
+    offer: mergePersistedStringField(current.profile.offer, input.offer).value,
+    notes: mergePersistedStringField(current.profile.notes, input.notes).value,
+    competitor_url: mergePersistedStringField(
+      current.profile.competitorUrl,
+      input.competitorUrl,
+      (value) => normalizeMarketingWebsiteUrl(value) || value,
+    ).value,
+    channels: mergePersistedStringArrayField(current.profile.channels, input.channels).value,
     updated_at: nowIso(),
   });
 
@@ -480,6 +574,112 @@ export function businessProfileWritePathForTenant(tenantId: string): string {
 
 export function tenantBrandKitWritePathForTenant(tenantId: string): string {
   return tenantBrandKitPath(tenantId);
+}
+
+export function persistBusinessProfileFieldsFromMarketingPayload(
+  input: MarketingProfilePersistenceInput,
+): BusinessProfileRecord | null {
+  const current = loadBusinessProfileRecord(input.tenantId);
+  const websiteField = firstPresentStringField(input.payload, ['websiteUrl', 'brandUrl']);
+  const businessTypeField = firstPresentStringField(input.payload, ['businessType']);
+  const primaryGoalField = firstPresentStringField(input.payload, ['primaryGoal', 'goal']);
+  const approverField = firstPresentStringField(input.payload, ['launchApproverName', 'approverName']);
+  const offerField = firstPresentStringField(input.payload, ['offer']);
+  const competitorField = firstPresentStringField(input.payload, ['competitorUrl']);
+  const channelsField = firstPresentStringArrayField(input.payload, ['channels']);
+
+  const nextRecord: BusinessProfileRecord = {
+    tenant_id: input.tenantId,
+    business_name: current?.business_name ?? null,
+    tenant_slug: current?.tenant_slug ?? stringOrNull(input.tenantSlug),
+    website_url: current?.website_url ?? null,
+    business_type: current?.business_type ?? null,
+    primary_goal: current?.primary_goal ?? null,
+    launch_approver_user_id: current?.launch_approver_user_id ?? null,
+    launch_approver_name: current?.launch_approver_name ?? null,
+    offer: current?.offer ?? null,
+    notes: current?.notes ?? null,
+    competitor_url: current?.competitor_url ?? null,
+    channels: current?.channels ?? [],
+    updated_at: nowIso(),
+  };
+
+  let shouldPersist = false;
+
+  if (websiteField.present) {
+    const websiteMerge = mergePersistedStringField(
+      nextRecord.website_url,
+      websiteField.value,
+      normalizeMarketingWebsiteUrl,
+    );
+    if (websiteMerge.changed) {
+      nextRecord.website_url = websiteMerge.value;
+      shouldPersist = true;
+    }
+  }
+
+  if (businessTypeField.present) {
+    const businessTypeMerge = mergePersistedStringField(nextRecord.business_type, businessTypeField.value);
+    if (businessTypeMerge.changed) {
+      nextRecord.business_type = businessTypeMerge.value;
+      shouldPersist = true;
+    }
+  }
+
+  if (primaryGoalField.present) {
+    const primaryGoalMerge = mergePersistedStringField(nextRecord.primary_goal, primaryGoalField.value);
+    if (primaryGoalMerge.changed) {
+      nextRecord.primary_goal = primaryGoalMerge.value;
+      shouldPersist = true;
+    }
+  }
+
+  if (approverField.present) {
+    const approverMerge = mergePersistedStringField(nextRecord.launch_approver_name, approverField.value);
+    if (approverMerge.changed) {
+      nextRecord.launch_approver_name = approverMerge.value;
+      shouldPersist = true;
+    }
+  }
+
+  if (offerField.present) {
+    const offerMerge = mergePersistedStringField(nextRecord.offer, offerField.value);
+    if (offerMerge.changed) {
+      nextRecord.offer = offerMerge.value;
+      shouldPersist = true;
+    }
+  }
+
+  if (competitorField.present) {
+    const competitorMerge = mergePersistedStringField(
+      nextRecord.competitor_url,
+      competitorField.value,
+      (value) => normalizeMarketingWebsiteUrl(value) || value,
+    );
+    if (competitorMerge.changed) {
+      nextRecord.competitor_url = competitorMerge.value;
+      shouldPersist = true;
+    }
+  }
+
+  if (channelsField.present) {
+    const channelsMerge = mergePersistedStringArrayField(nextRecord.channels, channelsField.value);
+    if (channelsMerge.changed) {
+      nextRecord.channels = channelsMerge.value;
+      shouldPersist = true;
+    }
+  }
+
+  if (!current && !shouldPersist) {
+    return null;
+  }
+
+  if (!shouldPersist && current) {
+    return current;
+  }
+
+  saveBusinessProfileRecord(nextRecord);
+  return nextRecord;
 }
 
 export function marketingPayloadDefaultsFromBusinessProfile(tenantId: string): PersistedMarketingProfileDefaults {

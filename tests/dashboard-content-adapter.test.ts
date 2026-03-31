@@ -718,9 +718,9 @@ test('dashboard adapter surfaces pre-publish review items as ready to publish', 
     });
 
     assert.equal(content.publishItems.some((item) => item.status === 'ready_to_publish'), true);
-    assert.equal(content.publishItems.find((item) => item.platform === 'meta-ads')?.title, 'Meta Ads');
+    assert.equal(content.publishItems.find((item) => item.platform === 'meta-ads')?.title, 'Meta launch package');
     assert.equal(content.posts.some((item) => item.status === 'ready_to_publish'), true);
-    assert.equal(content.posts.find((item) => item.platform === 'meta-ads' && item.provenance.sourceKind === 'publish_review')?.title, 'Meta Ads');
+    assert.equal(content.posts.find((item) => item.platform === 'meta-ads' && item.provenance.sourceKind === 'publish_review')?.title, 'Meta launch package');
     assert.doesNotMatch(
       content.posts.find((item) => item.platform === 'meta-ads' && item.provenance.sourceKind === 'publish_review')?.summary || '',
       /based on the brand identity/i,

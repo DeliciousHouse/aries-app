@@ -175,6 +175,37 @@ function labeledBlock(items: Array<[string, string | string[] | null | undefined
     .join('\n\n');
 }
 
+function normalizeStrategyChannelDetail(value: unknown): string | null {
+  const normalized = normalizeArtifactText(stringValue(value));
+  if (!normalized) {
+    return null;
+  }
+
+  if (/^translate the core message into .+ execution\.?$/i.test(normalized)) {
+    return null;
+  }
+
+  return normalized;
+}
+
+function strategyChannelBlock(channel: Record<string, unknown>): string {
+  const channelName = stringValue(channel.channel || channel.platform_slug || channel.platform, 'Channel').toUpperCase();
+  const detailBlocks = [
+    ['Goal', normalizeStrategyChannelDetail(channel.goal)],
+    ['Message', normalizeStrategyChannelDetail(channel.message)],
+    ['Creative bias', normalizeStrategyChannelDetail(channel.creative_bias)],
+    ['CTA', normalizeStrategyChannelDetail(channel.cta)],
+  ]
+    .map(([label, value]) => (value ? `${label}\n${value}` : ''))
+    .filter(Boolean);
+
+  if (detailBlocks.length === 0) {
+    return '';
+  }
+
+  return [channelName, ...detailBlocks].join('\n\n');
+}
+
 function workflowCampaignStatus(workflowState: MarketingCampaignWorkflowState): MarketingDashboardItemStatus {
   switch (workflowState) {
     case 'approved':
@@ -265,6 +296,14 @@ function withGatedDashboardStatus(
   const campaign = dashboard.campaign
     ? ({
         ...dashboard.campaign,
+        approvalRequired:
+          workflowState === 'revisions_requested'
+            ? false
+            : dashboard.campaign.approvalRequired,
+        approvalActionHref:
+          workflowState === 'revisions_requested'
+            ? undefined
+            : dashboard.campaign.approvalActionHref,
         status:
           workflowState === 'published'
             ? gatedItemStatus(dashboard.campaign.status, workflowState)
@@ -445,6 +484,14 @@ function buildBrandReview(
   const brandAnalysis = recordValue(payloads.websiteAnalysis?.brand_analysis);
   const artifacts = recordValue(payloads.websiteAnalysis?.artifacts);
   const runtimeBrandKit = runtimeDoc.brand_kit;
+  const runtimeBrandName = stringValue(runtimeBrandKit?.brand_name);
+  const runtimeCanonicalUrl = stringValue(runtimeBrandKit?.canonical_url);
+  const runtimeOfferSummary = stringValue(runtimeBrandKit?.offer_summary);
+  const runtimeVoiceSummary = stringValue(runtimeBrandKit?.brand_voice_summary);
+  const runtimeLogoUrls = runtimeBrandKit?.logo_urls ?? [];
+  const runtimePalette = runtimeBrandKit?.colors.palette ?? [];
+  const runtimeFonts = runtimeBrandKit?.font_families ?? [];
+  const runtimeExternalLinks = runtimeBrandKit?.external_links ?? [];
   const attachments: MarketingReviewAttachment[] = [];
   const assetLinks = new Map(buildMarketingAssetLinks(runtimeDoc.job_id, runtimeDoc).map((asset) => [asset.id, asset] as const));
 
@@ -479,13 +526,13 @@ function buildBrandReview(
       id: 'brand-overview',
       title: 'Brand overview',
       body: labeledBlock([
-        ['Brand', stringValue(brandAnalysis?.brand_name, runtimeBrandKit.brand_name)],
+        ['Brand', stringValue(brandAnalysis?.brand_name, runtimeBrandName)],
         ['Website', stringValue(brandAnalysis?.website_url, record.brief.websiteUrl || runtimeDoc.inputs.brand_url)],
-        ['Canonical URL', stringValue(runtimeBrandKit.canonical_url)],
+        ['Canonical URL', runtimeCanonicalUrl],
         ['Brand promise', stringValue(brandAnalysis?.brand_promise)],
         ['Audience summary', stringValue(brandAnalysis?.audience_summary)],
         ['Positioning summary', stringValue(brandAnalysis?.positioning_summary)],
-        ['Offer summary', stringValue(brandAnalysis?.offer_summary, runtimeBrandKit.offer_summary ?? undefined)],
+        ['Offer summary', stringValue(brandAnalysis?.offer_summary, runtimeOfferSummary)],
       ]),
     },
     {
@@ -493,7 +540,7 @@ function buildBrandReview(
       title: 'Voice and guardrails',
       body: labeledBlock([
         ['Brand voice', formatList(stringArray(brandAnalysis?.brand_voice))],
-        ['Derived voice summary', stringValue(runtimeBrandKit.brand_voice_summary)],
+        ['Derived voice summary', runtimeVoiceSummary],
         ['CTA preferences', formatList(stringArray(brandAnalysis?.cta_preferences))],
         ['Proof points', formatList(stringArray(brandAnalysis?.proof_points))],
         ['Must-use copy', record.brief.mustUseCopy || 'None provided.'],
@@ -504,10 +551,10 @@ function buildBrandReview(
       id: 'brand-kit',
       title: 'Extracted brand kit',
       body: labeledBlock([
-        ['Logo / wordmark candidates', formatList(runtimeBrandKit.logo_urls)],
-        ['Palette', formatList(runtimeBrandKit.colors.palette)],
-        ['Fonts', formatList(runtimeBrandKit.font_families)],
-        ['External links', formatList(runtimeBrandKit.external_links.map((link) => `${link.platform}: ${link.url}`))],
+        ['Logo / wordmark candidates', formatList(runtimeLogoUrls)],
+        ['Palette', formatList(runtimePalette)],
+        ['Fonts', formatList(runtimeFonts)],
+        ['External links', formatList(runtimeExternalLinks.map((link) => `${link.platform}: ${link.url}`))],
       ]),
     },
   ];
@@ -537,9 +584,7 @@ function buildBrandReview(
     reviewType: 'brand',
     status: record.stage_reviews.brand.status,
     title: 'Brand Review',
-    summary:
-      stringValue(brandAnalysis?.brand_promise, runtimeBrandKit.brand_voice_summary ?? undefined) ||
-      'Review the generated brand strategy, guardrails, and design system before moving to campaign strategy.',
+    summary: stringValue(brandAnalysis?.brand_promise, runtimeVoiceSummary),
     notePlaceholder: 'Add brand-direction notes, copy edits, or visual guardrails.',
     sections: sections.filter((section) => section.body.trim().length > 0),
     attachments,
@@ -555,6 +600,7 @@ function buildStrategyReview(
 ): MarketingStageReviewPayload | null {
   const campaignPlan = recordValue(payloads.campaignPlanner?.campaign_plan);
   const reviewPacket = recordValue(payloads.strategyPreview?.review_packet);
+  const productionBrief = recordValue(recordValue(payloads.productionPreview?.production_handoff)?.production_brief);
   const attachments: MarketingReviewAttachment[] = [];
   const assetLinks = new Map(buildMarketingAssetLinks(runtimeDoc.job_id, runtimeDoc).map((asset) => [asset.id, asset] as const));
 
@@ -565,16 +611,12 @@ function buildStrategyReview(
     }
   }
 
-  const channelPlans = recordArray(campaignPlan?.channel_plans)
-    .map((plan) =>
-      labeledBlock([
-        [stringValue(plan.channel, 'Channel').toUpperCase(), ''],
-        ['Goal', stringValue(plan.goal)],
-        ['Message', stringValue(plan.message)],
-        ['Creative bias', stringValue(plan.creative_bias)],
-        ['CTA', stringValue(plan.cta)],
-      ]),
-    )
+  const channelPlans = (
+    recordArray(campaignPlan?.channel_plans).length > 0
+      ? recordArray(campaignPlan?.channel_plans)
+      : recordArray(productionBrief?.channel_priorities)
+  )
+    .map(strategyChannelBlock)
     .filter(Boolean);
   const scopedChannels = stringArray(reviewPacket?.channels_in_scope);
   const sections: MarketingReviewSection[] = [
@@ -655,10 +697,24 @@ function buildCreativeAssets(
       ? readLandingPageArtifactDetails({ path: resolvedAsset?.filePath || null, runtimeDoc })
       : fallbackLanding;
     const detailLines: string[] = [];
-    const summaryText = normalizeArtifactText(asset.summary);
-    if (summaryText) {
-      detailLines.push(summaryText);
-    }
+    const assetSummary =
+      asset.type === 'landing_page'
+        ? normalizeArtifactText(landingDetails.headline) ||
+          normalizeArtifactText(landingDetails.subheadline) ||
+          normalizeArtifactText(stringValue(assetPreviews?.landing_page_headline))
+        : asset.type === 'image_ad'
+          ? normalizeArtifactText(scriptDetails.metaAdHook) ||
+            normalizeArtifactText(fallbackScripts.metaAdHook) ||
+            normalizeArtifactText(stringValue(assetPreviews?.meta_ad_hook))
+          : isVideoScript
+            ? normalizeArtifactText(scriptDetails.shortVideoOpeningLine) ||
+              normalizeArtifactText(fallbackScripts.shortVideoOpeningLine) ||
+              normalizeArtifactText(stringValue(assetPreviews?.video_opening_line))
+            : normalizeArtifactText(scriptDetails.metaAdHook) ||
+              normalizeArtifactText(fallbackScripts.metaAdHook) ||
+              normalizeArtifactText(scriptDetails.metaAdBody[0]) ||
+              normalizeArtifactText(fallbackScripts.metaAdBody[0]) ||
+              normalizeArtifactText(stringValue(assetPreviews?.meta_ad_hook));
     detailLines.push(`Platform: ${asset.platformLabel}`);
     if (fileName) {
       detailLines.push(`Source file: ${fileName}`);
@@ -690,7 +746,7 @@ function buildCreativeAssets(
       reviewType: 'creative',
       assetId: asset.id,
       title: asset.title,
-      summary: asset.summary,
+      summary: assetSummary || ARTIFACT_UNAVAILABLE_TEXT,
       platformLabel: asset.platformLabel,
       status: reviewState?.status || 'pending_review',
       contentType: asset.contentType,
@@ -775,6 +831,73 @@ function ensureCreativeAssetReadyState(record: CampaignWorkspaceRecord, assetIds
   return changed;
 }
 
+function isAutoApprovableReviewStatus(status: MarketingReviewStatus): boolean {
+  return status === 'not_ready' || status === 'pending_review';
+}
+
+function syncWorkspaceReviewsFromRuntime(
+  record: CampaignWorkspaceRecord,
+  runtimeDoc: MarketingJobRuntimeDocument,
+  creativeAssetIds: string[],
+): boolean {
+  const updatedAt = new Date().toISOString();
+  let changed = false;
+
+  const brandProgressed =
+    runtimeDoc.current_stage !== 'research' ||
+    runtimeDoc.stages.strategy.status !== 'not_started' ||
+    runtimeDoc.stages.production.status !== 'not_started' ||
+    runtimeDoc.stages.publish.status !== 'not_started';
+  const strategyProgressed =
+    runtimeDoc.current_stage === 'production' ||
+    runtimeDoc.current_stage === 'publish' ||
+    runtimeDoc.stages.production.status !== 'not_started' ||
+    runtimeDoc.stages.publish.status !== 'not_started';
+  const creativeProgressed =
+    runtimeDoc.state === 'completed' ||
+    runtimeDoc.stages.publish.status === 'in_progress' ||
+    runtimeDoc.stages.publish.status === 'completed' ||
+    runtimeDoc.stages.publish.status === 'failed';
+
+  const maybeApproveStage = (stage: MarketingReviewStageKey, shouldApprove: boolean) => {
+    if (!shouldApprove) {
+      return;
+    }
+    const current = record.stage_reviews[stage];
+    if (!isAutoApprovableReviewStatus(current.status)) {
+      return;
+    }
+    record.stage_reviews[stage] = {
+      ...current,
+      status: 'approved',
+      updatedAt: current.updatedAt || updatedAt,
+    };
+    changed = true;
+  };
+
+  maybeApproveStage('brand', brandProgressed);
+  maybeApproveStage('strategy', strategyProgressed);
+  maybeApproveStage('creative', creativeProgressed && creativeAssetIds.length > 0);
+
+  if (creativeProgressed) {
+    for (const assetId of creativeAssetIds) {
+      const current = record.creative_asset_reviews[assetId];
+      if (current && !isAutoApprovableReviewStatus(current.status)) {
+        continue;
+      }
+      record.creative_asset_reviews[assetId] = {
+        assetId,
+        status: 'approved',
+        latestNote: current?.latestNote || null,
+        updatedAt: current?.updatedAt || updatedAt,
+      };
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
 export function buildCampaignWorkspaceView(jobId: string): CampaignWorkspaceView {
   const runtimeDoc = loadMarketingJobRuntime(jobId);
   if (!runtimeDoc) {
@@ -835,6 +958,7 @@ export function buildCampaignWorkspaceView(jobId: string): CampaignWorkspaceView
     changed = ensureReviewReadyState(record, 'creative') || changed;
     changed = ensureCreativeAssetReadyState(record, creativeAssetIds) || changed;
   }
+  changed = syncWorkspaceReviewsFromRuntime(record, runtimeDoc, creativeAssetIds) || changed;
   if (changed) {
     saveCampaignWorkspaceRecord(record);
   }

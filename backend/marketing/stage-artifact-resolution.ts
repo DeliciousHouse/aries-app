@@ -98,17 +98,27 @@ function readJsonIfExists(filePath: string | null | undefined): Record<string, u
   }
 }
 
-function competitorSlug(runtimeDoc: MarketingJobRuntimeDocument): string | null {
+function competitorRunIdPrefixes(runtimeDoc: MarketingJobRuntimeDocument): string[] {
   const raw = stringValue(runtimeDoc.inputs.competitor_url || runtimeDoc.inputs.request?.competitorUrl);
   if (!raw) {
-    return null;
+    return [];
   }
 
+  const prefixes = uniqueStrings([
+    slugify(raw, 'campaign'),
+  ]);
+
   try {
-    return slugify(new URL(raw).hostname.replace(/^www\./, ''), 'campaign');
+    const url = new URL(raw);
+    prefixes.push(
+      slugify(url.hostname.replace(/^www\./, ''), 'campaign'),
+      slugify(url.hostname, 'campaign'),
+    );
   } catch {
-    return slugify(raw, 'campaign');
+    // Keep the raw-url slug only when the URL parser fails.
   }
+
+  return uniqueStrings(prefixes);
 }
 
 function stageTimestamp(runtimeDoc: MarketingJobRuntimeDocument, stage: MarketingStage): number {
@@ -135,8 +145,8 @@ export function inferMarketingStageRunId(
     return explicitRunId;
   }
 
-  const prefix = competitorSlug(runtimeDoc);
-  if (!prefix) {
+  const prefixes = competitorRunIdPrefixes(runtimeDoc);
+  if (prefixes.length === 0) {
     return null;
   }
 
@@ -147,7 +157,7 @@ export function inferMarketingStageRunId(
   const stageCacheRoot = cacheRoot(stage);
   if (existsSync(stageCacheRoot)) {
     for (const entry of readdirSync(stageCacheRoot)) {
-      if (!entry.startsWith(`${prefix}-`)) {
+      if (!prefixes.some((prefix) => entry.startsWith(`${prefix}-`))) {
         continue;
       }
       if (seenRunIds.has(entry)) {
@@ -175,7 +185,7 @@ export function inferMarketingStageRunId(
       continue;
     }
     for (const entry of readdirSync(logsRoot)) {
-      if (!entry.startsWith(`${prefix}-`)) {
+      if (!prefixes.some((prefix) => entry.startsWith(`${prefix}-`))) {
         continue;
       }
       if (seenRunIds.has(entry)) {

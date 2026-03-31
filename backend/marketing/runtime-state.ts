@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import path from 'node:path';
 
 import { describeSpecResolution, resolveDataPath } from '@/lib/runtime-paths';
-import type { TenantBrandKit } from './brand-kit';
+import { loadTenantBrandKit, tenantBrandKitPath, type TenantBrandKit } from './brand-kit';
 
 const REQUIRED_SCHEMA_FILES = [
   'marketing_job_state_schema.v1.json',
@@ -117,7 +117,7 @@ export type MarketingJobRuntimeDocument = {
     history: MarketingApprovalHistoryEntry[];
   };
   publish_config: MarketingPublishConfig;
-  brand_kit: MarketingBrandKitReference;
+  brand_kit: MarketingBrandKitReference | null;
   inputs: {
     request: Record<string, unknown>;
     brand_url: string;
@@ -268,6 +268,67 @@ function marketingRuntimeRoot(): string {
   return resolveDataPath('generated', 'draft', 'marketing-jobs');
 }
 
+function runtimeBrandKitReferenceFromTenantBrandKit(
+  tenantId: string,
+  brandKit: TenantBrandKit,
+): MarketingBrandKitReference {
+  return {
+    path: tenantBrandKitPath(tenantId),
+    source_url: brandKit.source_url,
+    canonical_url: brandKit.canonical_url,
+    brand_name: brandKit.brand_name,
+    logo_urls: [...brandKit.logo_urls],
+    colors: {
+      primary: brandKit.colors.primary,
+      secondary: brandKit.colors.secondary,
+      accent: brandKit.colors.accent,
+      palette: [...brandKit.colors.palette],
+    },
+    font_families: [...brandKit.font_families],
+    external_links: [...brandKit.external_links],
+    extracted_at: brandKit.extracted_at,
+    brand_voice_summary: brandKit.brand_voice_summary ?? null,
+    offer_summary: brandKit.offer_summary ?? null,
+  };
+}
+
+function recoverLegacyRuntimeBrandKit(doc: MarketingJobRuntimeDocument): MarketingBrandKitReference | null {
+  try {
+    const persistedBrandKit = loadTenantBrandKit(doc.tenant_id);
+    if (!persistedBrandKit) {
+      console.warn('[marketing-runtime-state]', {
+        event: 'legacy-runtime-brand-kit-missing',
+        jobId: doc.job_id,
+        tenantId: doc.tenant_id,
+        recovered: false,
+        source: 'none',
+      });
+      return null;
+    }
+
+    const recoveredBrandKit = runtimeBrandKitReferenceFromTenantBrandKit(doc.tenant_id, persistedBrandKit);
+    console.warn('[marketing-runtime-state]', {
+      event: 'legacy-runtime-brand-kit-missing',
+      jobId: doc.job_id,
+      tenantId: doc.tenant_id,
+      recovered: true,
+      source: 'validated_brand_kit_file',
+      brandKitPath: recoveredBrandKit.path,
+    });
+    return recoveredBrandKit;
+  } catch (error) {
+    console.warn('[marketing-runtime-state]', {
+      event: 'legacy-runtime-brand-kit-missing',
+      jobId: doc.job_id,
+      tenantId: doc.tenant_id,
+      recovered: false,
+      source: 'none',
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
 function assertMarketingRuntimeDocument(doc: MarketingJobRuntimeDocument): void {
   if (!doc.brand_kit) {
     throw new Error('invalid_marketing_runtime_document:brand_kit_required');
@@ -335,6 +396,9 @@ export function loadMarketingJobRuntime(jobId: string): MarketingJobRuntimeDocum
       doc.publish_config = defaultPublishConfig();
     } else {
       doc.publish_config = defaultPublishConfig(doc.publish_config);
+    }
+    if (!doc.brand_kit) {
+      doc.brand_kit = recoverLegacyRuntimeBrandKit(doc);
     }
     return doc;
   } catch {

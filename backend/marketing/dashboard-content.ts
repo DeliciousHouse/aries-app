@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -7,6 +7,10 @@ import { resolveCodePath, resolveCodeRoot, resolveDataRoot } from '@/lib/runtime
 
 import type { MarketingCampaignWindow } from './jobs-status'
 import { extractPublishReviewBundle } from './publish-review'
+import {
+  campaignRootForBrand as realArtifactCampaignRootForBrand,
+  inferBrandSlug,
+} from './real-artifacts'
 import {
   asRecord,
   asString,
@@ -16,6 +20,7 @@ import {
   type MarketingJobRuntimeDocument,
   type MarketingStage,
 } from './runtime-state'
+import { readMarketingStageStepPayload } from './stage-artifact-resolution'
 
 export type MarketingDashboardItemStatus =
   | 'draft'
@@ -601,13 +606,6 @@ function envCacheRoot(stage: 1 | 2 | 3 | 4): string {
   return process.env[envKey]?.trim() || path.join(tmpdir(), fallback)
 }
 
-function stageFolder(stage: 1 | 2 | 3 | 4): string {
-  if (stage === 1) return 'stage-1-research'
-  if (stage === 2) return 'stage-2-strategy'
-  if (stage === 3) return 'stage-3-production'
-  return 'stage-4-publish-optimize'
-}
-
 function lobsterRoots(): string[] {
   return uniqueStrings([
     process.env.OPENCLAW_LOCAL_LOBSTER_CWD,
@@ -659,106 +657,12 @@ function listFiles(directoryPath: string | null | undefined, predicate?: (fileNa
   }
 }
 
-function competitorSlug(runtimeDoc: MarketingJobRuntimeDocument): string | null {
-  const raw = stringValue(runtimeDoc.inputs.competitor_url || runtimeDoc.inputs.request?.competitorUrl)
-  if (!raw) {
-    return null
-  }
-
-  try {
-    return slugify(new URL(raw).hostname.replace(/^www\./, ''), 'campaign')
-  } catch {
-    return slugify(raw, 'campaign')
-  }
-}
-
-function stageTimestamp(runtimeDoc: MarketingJobRuntimeDocument, stage: MarketingStage): number {
-  const record = runtimeDoc.stages[stage]
-  const candidates = [
-    record.completed_at,
-    record.started_at,
-    runtimeDoc.updated_at,
-    runtimeDoc.created_at,
-  ]
-    .map((value) => Date.parse(stringValue(value)))
-    .filter((value) => Number.isFinite(value))
-
-  return candidates[0] ?? 0
-}
-
-function inferStageRunId(runtimeDoc: MarketingJobRuntimeDocument, stage: 1 | 2 | 3 | 4): string | null {
-  const stageKey = stage === 1 ? 'research' : stage === 2 ? 'strategy' : stage === 3 ? 'production' : 'publish'
-  const explicitRunId = stringValue(runtimeDoc.stages[stageKey].run_id)
-  if (explicitRunId) {
-    return explicitRunId
-  }
-
-  const prefix = competitorSlug(runtimeDoc)
-  if (!prefix) {
-    return null
-  }
-
-  const stageDirName = stageFolder(stage)
-  const targetTime = stageTimestamp(runtimeDoc, stageKey)
-  const candidates = lobsterOutputRoots()
-    .flatMap((outputRoot) => {
-      const logsRoot = path.join(outputRoot, 'logs')
-      if (!existsSync(logsRoot)) {
-        return []
-      }
-      return readdirSync(logsRoot)
-        .filter((entry) => entry.startsWith(`${prefix}-`))
-        .map((entry) => {
-          const stagePath = path.join(logsRoot, entry, stageDirName)
-          if (!existsSync(stagePath)) {
-            return null
-          }
-          try {
-            const stats = statSync(stagePath)
-            return {
-              runId: entry,
-              score: Math.abs(stats.mtimeMs - targetTime),
-              mtimeMs: stats.mtimeMs,
-            }
-          } catch {
-            return null
-          }
-        })
-        .filter((entry): entry is { runId: string; score: number; mtimeMs: number } => !!entry)
-    })
-    .sort((left, right) => left.score - right.score || right.mtimeMs - left.mtimeMs)
-
-  return candidates[0]?.runId || null
-}
-
 function readStageStepPayload(
   runtimeDoc: MarketingJobRuntimeDocument,
   stage: 1 | 2 | 3 | 4,
   stepName: string,
 ): Record<string, unknown> | null {
-  const stageKey = stage === 1 ? 'research' : stage === 2 ? 'strategy' : stage === 3 ? 'production' : 'publish'
-  const runIds = uniqueStrings([
-    stringValue(runtimeDoc.stages[stageKey].run_id),
-    inferStageRunId(runtimeDoc, stage),
-  ])
-
-  for (const runId of runIds) {
-    const cachePath = path.join(envCacheRoot(stage), runId, `${stepName}.json`)
-    const cached = readJsonIfExists(cachePath)
-    if (cached) {
-      return cached
-    }
-
-    for (const outputRoot of lobsterOutputRoots()) {
-      const logPath = path.join(outputRoot, 'logs', runId, stageFolder(stage), `${stepName}.json`)
-      const logged = readJsonIfExists(logPath)
-      if (logged) {
-        return logged
-      }
-    }
-  }
-
-  return null
+  return readMarketingStageStepPayload(runtimeDoc, stage, stepName).payload
 }
 
 function normalizePlatformSlug(value: string | null | undefined): string {
@@ -787,21 +691,7 @@ function extractBrandSlug(runtimeDoc: MarketingJobRuntimeDocument, planner: Prop
   if (planner.brandSlug) {
     return planner.brandSlug
   }
-
-  const runtimeBrand = stringValue(runtimeDoc.brand_kit?.brand_name)
-  if (runtimeBrand) {
-    return slugify(runtimeBrand, 'campaign')
-  }
-
-  const website = stringValue(runtimeDoc.inputs.brand_url)
-  if (website) {
-    try {
-      const url = new URL(website)
-      return slugify(url.hostname.replace(/^www\./, ''), 'campaign')
-    } catch {}
-  }
-
-  return slugify(runtimeDoc.tenant_id || runtimeDoc.job_id, 'campaign')
+  return inferBrandSlug(runtimeDoc)
 }
 
 function parseProposalPlan(runtimeDoc: MarketingJobRuntimeDocument): ProposalPlan {
@@ -1050,16 +940,6 @@ function extractCampaignId(runtimeDoc: MarketingJobRuntimeDocument, proposal: Pr
   }
 
   return runtimeDoc.job_id
-}
-
-function campaignRootForBrand(brandSlug: string): string | null {
-  for (const outputRoot of lobsterOutputRoots()) {
-    const candidate = path.join(outputRoot, `${brandSlug}-campaign`)
-    if (existsSync(candidate)) {
-      return candidate
-    }
-  }
-  return lobsterOutputRoots()[0] ? path.join(lobsterOutputRoots()[0], `${brandSlug}-campaign`) : null
 }
 
 function proposalDocumentPaths(brandSlug: string): string[] {
@@ -1597,7 +1477,7 @@ function buildCampaignContext(jobId: string, runtimeDoc: MarketingJobRuntimeDocu
       proposal.objective,
       recordValue(rawPublishReviewBundle(runtimeDoc)?.summary)?.funnel_stage,
     ),
-    campaignRoot: campaignRootForBrand(brandSlug),
+    campaignRoot: realArtifactCampaignRootForBrand(brandSlug),
     outputRoots: lobsterOutputRoots(),
   }
 }

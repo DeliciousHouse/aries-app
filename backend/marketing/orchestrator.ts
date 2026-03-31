@@ -117,7 +117,7 @@ type WorkflowApprovalStepId =
 function runtimeBrandKitReference(
   brandKit: TenantBrandKit,
   filePath: string
-): MarketingJobRuntimeDocument['brand_kit'] {
+): NonNullable<MarketingJobRuntimeDocument['brand_kit']> {
   return {
     path: filePath,
     source_url: brandKit.source_url,
