@@ -14,6 +14,22 @@ from _stage3_common import emit_json, ensure_run_id, normalize_research_model, r
 from _canonical_outputs import brand_output_paths, write_text
 
 
+def _token(value: dict, *path: str, default: str = "") -> str:
+    current = value
+    for key in path:
+        if not isinstance(current, dict):
+            return default
+        current = current.get(key)
+    return current if isinstance(current, str) and current.strip() else default
+
+
+def _require_token(value: dict, *path: str) -> str:
+    token = _token(value, *path, default="")
+    if not token:
+        raise RuntimeError(f"quality_gate_failed:page_design_tokens_missing:{'.'.join(path)}")
+    return token
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json", action="store_true")
@@ -36,6 +52,17 @@ def main() -> int:
     hero_headline = validate_copy_text("page.hero_headline", landing_hooks[0] if landing_hooks else brief.get("core_message"), min_tokens=3)
     hero_subheadline = validate_copy_text("page.hero_subheadline", landing_opening_lines[0] if landing_opening_lines else brief.get("offer_summary"), min_tokens=4)
     problem_statement = validate_copy_text("page.problem_statement", brief.get("problem_statement"), min_tokens=4)
+    design_tokens = record_or_empty(brief.get("design_tokens") or creative_handoff.get("design_tokens"))
+    theme_mode = _require_token(design_tokens, "palette", "theme_mode")
+    background = _require_token(design_tokens, "palette", "background")
+    _require_token(design_tokens, "palette", "surface")
+    _require_token(design_tokens, "palette", "text")
+    _require_token(design_tokens, "palette", "accent")
+    _require_token(design_tokens, "palette", "accent_contrast")
+    _require_token(design_tokens, "palette", "outline")
+    _require_token(design_tokens, "palette", "muted")
+    _require_token(design_tokens, "typography", "display_stack")
+    _require_token(design_tokens, "typography", "body_stack")
 
     page_assets = {
         "landing_page": {
@@ -67,6 +94,8 @@ def main() -> int:
             },
         ],
         "proof_points": proof_points,
+        "design_tokens": design_tokens,
+        "design_token_source": "validated_brand_kit",
     }
 
     preview_text = "\n".join(
@@ -87,10 +116,19 @@ def main() -> int:
         [
             "<!doctype html><html><head><meta charset='utf-8' />",
             f"<title>{brief.get('campaign_name', brand_slug)}</title>",
+            f"<meta name='theme-color' content='{background}' />",
             f"<link rel='stylesheet' href='../../{brand_slug}-design-system.css' />",
-            "<style>body{max-width:960px;margin:0 auto;padding:48px;font-family:Inter,Arial,sans-serif;background:#0f1720;color:#f5f2eb;} .cta{display:inline-block;padding:14px 22px;background:#d4a94f;color:#111827;border-radius:999px;font-weight:700;text-decoration:none;} section{margin:28px 0;} .card{padding:24px;border:1px solid rgba(255,255,255,.12);border-radius:20px;background:#16212c;}</style>",
-            "</head><body>",
-            f"<section class='card'><h1>{hero_headline}</h1><p>{hero_subheadline}</p><p>{problem_statement}</p><a class='cta' href='#cta'>{primary_cta}</a></section>",
+            "<style>",
+            f"html{{color-scheme:{theme_mode};}}",
+            "body{max-width:960px;margin:0 auto;padding:48px;background:var(--brand-bg);color:var(--brand-text);font-family:var(--font-body);}",
+            "h1,h2{font-family:var(--font-display);}",
+            ".cta{display:inline-block;padding:14px 22px;background:var(--brand-accent);color:var(--brand-accent-contrast);border-radius:999px;font-weight:700;text-decoration:none;}",
+            "section{margin:28px 0;}",
+            ".card{padding:24px;border:1px solid var(--brand-outline);border-radius:20px;background:var(--brand-surface);}",
+            ".lede{color:var(--brand-muted);}",
+            "</style>",
+            f"</head><body data-brand-theme='{theme_mode}' data-design-token-source='validated_brand_kit'>",
+            f"<section class='card'><h1>{hero_headline}</h1><p class='lede'>{hero_subheadline}</p><p>{problem_statement}</p><a class='cta' href='#cta'>{primary_cta}</a></section>",
             "<section class='card'><h2>Proof</h2><ul>",
             *[f"<li>{item}</li>" for item in proof_points],
             "</ul></section>",
@@ -114,6 +152,7 @@ def main() -> int:
             "preview_path": preview_path,
             "landing_page_path": landing_page_path,
             "honesty_note": "This local wrapper generates page recommendations and copy structure only; no page is rendered or deployed.",
+            "design_token_source": "validated_brand_kit",
         },
     }
     save_step(run_id, "page_designer", payload)

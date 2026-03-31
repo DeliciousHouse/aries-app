@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from _canonical_outputs import write_stage_log
+from _brand_tokens import brand_direction_lines
 from _marketing_profile_common import contains_wrapper_language, normalize_space
 
 
@@ -130,11 +131,66 @@ def list_or_empty(value: Any) -> list:
     return value if isinstance(value, list) else []
 
 
+def record_or_empty(value: Any) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
 def load_json_file(path: str) -> dict:
     candidate = Path(path)
     if not path or not candidate.exists() or not candidate.is_file():
         return {}
     return json.loads(candidate.read_text(encoding="utf-8"))
+
+
+def contract_brand_tokens(contract: dict) -> dict:
+    candidates = [
+        record_or_empty(contract.get("brand_tokens")),
+        record_or_empty(record_or_empty(record_or_empty(contract.get("inputs")).get("brand_guidelines")).get("design_tokens")),
+        record_or_empty(record_or_empty(contract.get("approved_campaign_strategy")).get("design_tokens")),
+        record_or_empty(record_or_empty(contract.get("creative")).get("brand_tokens")),
+    ]
+    for candidate in candidates:
+        if record_or_empty(candidate.get("palette")):
+            return candidate
+    return {}
+
+
+def require_contract_brand_tokens(contract: dict) -> dict:
+    brand_tokens = contract_brand_tokens(contract)
+    required_pairs = [
+        ("palette", "background"),
+        ("palette", "surface"),
+        ("palette", "text"),
+        ("palette", "accent"),
+        ("palette", "accent_contrast"),
+        ("palette", "muted"),
+        ("palette", "theme_mode"),
+        ("typography", "display_family"),
+        ("typography", "body_family"),
+    ]
+    missing = [f"{section}.{key}" for section, key in required_pairs if not record_or_empty(brand_tokens.get(section)).get(key)]
+    if missing:
+        raise RuntimeError(f"quality_gate_failed:contract_brand_tokens_missing:{','.join(missing)}")
+    return brand_tokens
+
+
+def token_value(tokens: dict, section: str, key: str, default: str) -> str:
+    section_value = record_or_empty(tokens.get(section))
+    value = section_value.get(key)
+    return value.strip() if isinstance(value, str) and value.strip() else default
+
+
+def contract_brand_voice_lines(contract: dict) -> list[str]:
+    candidates = [
+        list_or_empty(record_or_empty(record_or_empty(contract.get("inputs")).get("brand_guidelines")).get("voice_attributes")),
+        list_or_empty(record_or_empty(contract.get("approved_campaign_strategy")).get("brand_voice")),
+        list_or_empty(record_or_empty(record_or_empty(contract.get("inputs")).get("approved_campaign_strategy")).get("brand_voice")),
+    ]
+    for candidate in candidates:
+        voices = [normalize_space(value) for value in candidate if normalize_space(value)]
+        if voices:
+            return [f"Voice attributes: {', '.join(voices[:4])}."]
+    return []
 
 
 def output_root() -> Path:
@@ -175,20 +231,30 @@ def contract_platform_map(handoff: dict, handoff_key: str) -> dict[str, dict]:
 def render_static_svg(contract: dict, destination: Path) -> str:
     destination.parent.mkdir(parents=True, exist_ok=True)
     creative = contract.get("creative", {})
+    brand_tokens = require_contract_brand_tokens(contract)
     proof_points = list_or_empty(creative.get("proof_points"))[:3]
     body_lines = list_or_empty(creative.get("body_lines"))[:3]
     lines = [contract.get("platform", "Static Asset"), creative.get("headline", ""), *body_lines, *proof_points]
     escaped = [line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") for line in lines]
+    background = token_value(brand_tokens, "palette", "background", "")
+    surface = token_value(brand_tokens, "palette", "surface", "")
+    overline = token_value(brand_tokens, "palette", "muted", "")
+    headline = token_value(brand_tokens, "palette", "text", "")
+    body = token_value(brand_tokens, "palette", "muted", "")
+    accent = token_value(brand_tokens, "palette", "accent", "")
+    accent_contrast = token_value(brand_tokens, "palette", "accent_contrast", "")
+    display_font = token_value(brand_tokens, "typography", "display_family", "")
+    body_font = token_value(brand_tokens, "typography", "body_family", display_font)
     svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1350" viewBox="0 0 1080 1350">
-  <rect width="1080" height="1350" fill="#f4efe5"/>
-  <rect x="54" y="54" width="972" height="1242" rx="36" fill="#1d3124"/>
-  <text x="108" y="160" fill="#f0e7d8" font-family="Arial, sans-serif" font-size="38" font-weight="700">{escaped[0]}</text>
-  <text x="108" y="270" fill="#ffffff" font-family="Arial, sans-serif" font-size="72" font-weight="700">{escaped[1]}</text>
-  <text x="108" y="390" fill="#d8e3dc" font-family="Arial, sans-serif" font-size="34">{escaped[2] if len(escaped) > 2 else ''}</text>
-  <text x="108" y="450" fill="#d8e3dc" font-family="Arial, sans-serif" font-size="34">{escaped[3] if len(escaped) > 3 else ''}</text>
-  <text x="108" y="510" fill="#d8e3dc" font-family="Arial, sans-serif" font-size="34">{escaped[4] if len(escaped) > 4 else ''}</text>
-  <rect x="108" y="1120" width="360" height="96" rx="20" fill="#f0b429"/>
-  <text x="148" y="1182" fill="#1d3124" font-family="Arial, sans-serif" font-size="40" font-weight="700">{creative.get('primary_cta', '')}</text>
+  <rect width="1080" height="1350" fill="{background}"/>
+  <rect x="54" y="54" width="972" height="1242" rx="36" fill="{surface}"/>
+  <text x="108" y="160" fill="{overline}" font-family="{display_font}, sans-serif" font-size="38" font-weight="700">{escaped[0]}</text>
+  <text x="108" y="270" fill="{headline}" font-family="{display_font}, sans-serif" font-size="72" font-weight="700">{escaped[1]}</text>
+  <text x="108" y="390" fill="{body}" font-family="{body_font}, sans-serif" font-size="34">{escaped[2] if len(escaped) > 2 else ''}</text>
+  <text x="108" y="450" fill="{body}" font-family="{body_font}, sans-serif" font-size="34">{escaped[3] if len(escaped) > 3 else ''}</text>
+  <text x="108" y="510" fill="{body}" font-family="{body_font}, sans-serif" font-size="34">{escaped[4] if len(escaped) > 4 else ''}</text>
+  <rect x="108" y="1120" width="360" height="96" rx="20" fill="{accent}"/>
+  <text x="148" y="1182" fill="{accent_contrast}" font-family="{display_font}, sans-serif" font-size="40" font-weight="700">{creative.get('primary_cta', '')}</text>
 </svg>
     """
     destination.write_text(svg, encoding="utf-8")
@@ -433,17 +499,19 @@ def static_image_prompt(contract: dict) -> str:
     platform = contract.get("platform", "marketing creative")
     proof_points = list_or_empty(creative.get("proof_points"))[:3]
     body_lines = [line for line in list_or_empty(creative.get("body_lines"))[:3] if line]
+    brand_tokens = require_contract_brand_tokens(contract)
     return "\n".join(
         [
-            f"Create a polished high-converting ad creative for {platform}.",
-            "Style: premium B2B marketing creative, clean typography, believable modern layout, not generic clipart, not meme-like.",
+            f"Create a finished marketing image for {platform} using only the validated brand system in this contract.",
             "Use readable text in the image.",
             f"Headline: {creative.get('headline', '')}",
             *(f"Support line: {line}" for line in body_lines),
             *(f"Proof point: {line}" for line in proof_points),
             f"CTA button text: {creative.get('primary_cta', '')}",
             f"Aspect ratio: {contract.get('layout', {}).get('aspect_ratio', '4:5')}",
-            "Design direction: dark green and warm neutral palette, premium consulting aesthetic, strong contrast, clear hierarchy.",
+            *contract_brand_voice_lines(contract),
+            *brand_direction_lines(brand_tokens),
+            "Design direction: keep clear hierarchy and legible contrast, but do not introduce off-palette colors, substitute fonts, or generic template styling.",
             "Output a single finished marketing image.",
         ]
     )
@@ -453,12 +521,15 @@ def video_poster_prompt(contract: dict) -> str:
     hook = contract.get("creative", {}).get("hook") or contract.get("creative", {}).get("headline") or contract.get("concept_id", "video-concept")
     beats = [line for line in list_or_empty(contract.get("creative", {}).get("beats"))[:3] if line]
     platform = contract.get("platform", contract.get("platform_slug", "video"))
+    brand_tokens = require_contract_brand_tokens(contract)
     return "\n".join(
         [
-            f"Create a striking poster frame / thumbnail for a {platform} marketing video.",
-            "Style: premium performance marketing creative, cinematic but realistic, clean typography, persuasive and modern.",
+            f"Create a poster frame for a {platform} marketing video using only the validated brand system in this contract.",
             f"Primary hook: {hook}",
             *(f"Story beat: {line}" for line in beats),
+            *contract_brand_voice_lines(contract),
+            *brand_direction_lines(brand_tokens),
+            "Keep the poster on-brand, readable, and free of substitute palette or substitute typography choices.",
             "Include bold headline text and room for platform-safe crops.",
             "Output a single finished image suitable as a poster frame.",
         ]

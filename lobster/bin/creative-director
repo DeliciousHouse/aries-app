@@ -103,6 +103,11 @@ def _build_production_brief(strategy_handoff: dict, brand_slug: str) -> dict:
         "offer_summary": validate_copy_text("production_brief.offer_summary", creative_handoff.get("offer"), min_tokens=4),
         "proof_points": proof_points,
         "brand_voice": _as_list(creative_handoff.get("brand_voice")),
+        "brand_kit": record_or_empty(strategy_handoff.get("brand_kit") or creative_handoff.get("brand_kit")),
+        "design_tokens": record_or_empty(strategy_handoff.get("design_tokens") or creative_handoff.get("design_tokens")),
+        "competitor_context": record_or_empty(strategy_handoff.get("competitor_context")),
+        "testing_matrix": record_or_empty(strategy_handoff.get("testing_matrix")),
+        "budget_testing_plan": record_or_empty(strategy_handoff.get("budget_testing_plan")),
         "creative_handoff": creative_handoff,
         "deliverables": [
             "master_static_contract",
@@ -148,6 +153,7 @@ def _build_static_contract_bundle(brief: dict, page_assets: dict, script_assets:
     primary_cta = validate_copy_text("static_contract.primary_cta", brief.get("primary_cta"), min_tokens=2)
     proof_points = _as_list(brief.get("proof_points"))[:3]
     body_lines = _as_list(script_assets.get("meta_ad_script", {}).get("body"))
+    design_tokens = record_or_empty(brief.get("design_tokens") or record_or_empty(brief.get("creative_handoff")).get("design_tokens"))
 
     master_contract = {
         "schema_version": "2026-03-17.static-contract.v1",
@@ -169,6 +175,7 @@ def _build_static_contract_bundle(brief: dict, page_assets: dict, script_assets:
                 "voice_attributes": _as_list(brief.get("brand_voice")),
                 "proof_points": proof_points,
                 "primary_cta": primary_cta,
+                "design_tokens": design_tokens,
             },
         },
         "creative": {
@@ -182,6 +189,7 @@ def _build_static_contract_bundle(brief: dict, page_assets: dict, script_assets:
             "proof_points": proof_points,
             "landing_page": page_assets.get("landing_page", {}),
         },
+        "brand_tokens": design_tokens,
         "execution": {
             "mode": "contract_generation_only",
             "render_stage": "stage-4-publish-optimize",
@@ -220,6 +228,7 @@ def _build_static_contract_bundle(brief: dict, page_assets: dict, script_assets:
                 "primary_cta": primary_cta,
                 "proof_points": proof_points,
             },
+            "brand_tokens": design_tokens,
             "layout": {
                 "aspect_ratio": spec["aspect_ratio"],
                 "target_size": spec["size"],

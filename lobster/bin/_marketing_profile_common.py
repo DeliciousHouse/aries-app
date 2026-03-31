@@ -215,13 +215,13 @@ def normalize_marketing_url(value: Any) -> str | None:
 
 
 def data_root() -> Path:
-    raw = normalize_space(os.environ.get("DATA_ROOT"))
-    if not raw:
-        raise RuntimeError("runtime_persistence_unavailable:data_root_missing")
+    raw = normalize_space(os.environ.get("DATA_ROOT")) or "/data"
     root = Path(raw).resolve()
     allow_tmp = normalize_space(os.environ.get("ALLOW_TMP_RUNTIME_PERSISTENCE")).lower() in {"1", "true", "yes", "on"}
     if not allow_tmp and (str(root) == "/tmp" or str(root).startswith("/tmp/")):
         raise RuntimeError("runtime_persistence_unavailable:data_root_tmp")
+    if not root.exists() or not root.is_dir():
+        raise RuntimeError("runtime_persistence_unavailable:data_root_missing")
     return root
 
 

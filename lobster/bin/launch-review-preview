@@ -42,6 +42,136 @@ def _read_json_file(path_value: str) -> dict:
         return {}
 
 
+def _existing_file_paths(paths: list[str]) -> list[str]:
+    existing: list[str] = []
+    seen: set[str] = set()
+    for path_value in paths:
+        normalized = _as_str(path_value)
+        if not normalized:
+            continue
+        candidate = Path(normalized)
+        if candidate.exists() and candidate.is_file():
+            resolved = str(candidate)
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            existing.append(resolved)
+    return existing
+
+
+STATIC_PREVIEW_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".html"}
+VIDEO_PREVIEW_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".mov", ".webm", ".m4v"}
+
+
+def _existing_preview_media_paths(paths: list[str], allowed_suffixes: set[str]) -> list[str]:
+    existing: list[str] = []
+    seen: set[str] = set()
+    for path_value in paths:
+        normalized = _as_str(path_value)
+        if not normalized:
+            continue
+        candidate = Path(normalized)
+        if not candidate.exists() or not candidate.is_file():
+            continue
+        if candidate.suffix.lower() not in allowed_suffixes:
+            continue
+        resolved = str(candidate)
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        existing.append(resolved)
+    return existing
+
+
+def _preview_state(actual_media_paths: list[str]) -> str:
+    return "generated_preview" if actual_media_paths else "contract_only"
+
+
+def _stage3_static_asset_previews(production_handoff: dict) -> list[dict]:
+    artifacts = _as_dict(_as_dict(production_handoff.get("artifacts")).get("ad_designer"))
+    production_brief = _as_dict(artifacts.get("production_brief"))
+    script_assets = _as_dict(artifacts.get("script_assets"))
+    ad_artifacts = _as_dict(artifacts.get("artifacts"))
+    hook = _as_str(_as_dict(script_assets.get("meta_ad_script")).get("hook"), _as_str(_as_dict(production_brief).get("core_message")))
+    cta = _as_str(_as_dict(production_brief).get("primary_cta"))
+    entries = [
+        {
+            "platform_slug": "meta-feed",
+            "platform_name": "Meta Feed",
+            "summary": "Stage-3 generated Meta Feed asset is ready for launch review.",
+            "media_paths": _existing_file_paths(
+                [
+                    _as_str(ad_artifacts.get("meta_feed_image_path")),
+                    _as_str(_as_dict(ad_artifacts.get("meta_feed_image_generation")).get("output_path")),
+                ]
+            ),
+            "asset_paths": {
+                "spec_path": _as_str(ad_artifacts.get("canonical_spec_path"), _as_str(ad_artifacts.get("spec_path"))),
+                "generation_log_path": _as_str(_as_dict(ad_artifacts.get("meta_feed_image_generation")).get("output_path")),
+            },
+        },
+        {
+            "platform_slug": "meta-story",
+            "platform_name": "Meta Story",
+            "summary": "Stage-3 generated Meta Story asset is ready for launch review.",
+            "media_paths": _existing_file_paths(
+                [
+                    _as_str(ad_artifacts.get("meta_story_image_path")),
+                    _as_str(_as_dict(ad_artifacts.get("meta_story_image_generation")).get("output_path")),
+                ]
+            ),
+            "asset_paths": {
+                "spec_path": _as_str(ad_artifacts.get("canonical_spec_path"), _as_str(ad_artifacts.get("spec_path"))),
+                "generation_log_path": _as_str(_as_dict(ad_artifacts.get("meta_story_image_generation")).get("output_path")),
+            },
+        },
+    ]
+    previews = []
+    for entry in entries:
+        actual_media_paths = entry["media_paths"]
+        if not actual_media_paths:
+            continue
+        previews.append(
+            {
+                "platform_slug": entry["platform_slug"],
+                "platform_name": entry["platform_name"],
+                "channel_type": "static",
+                "summary": entry["summary"],
+                "headline": hook,
+                "caption_text": "\n".join(
+                    [
+                        line
+                        for line in _as_list(_as_dict(script_assets.get("meta_ad_script")).get("body"))
+                        if isinstance(line, str) and line.strip()
+                    ]
+                ),
+                "cta": cta,
+                "hook": hook,
+                "proof_points": [
+                    line
+                    for line in _as_list(_as_dict(production_brief).get("proof_points"))
+                    if isinstance(line, str) and line.strip()
+                ][:3],
+                "media_paths": actual_media_paths,
+                "expected_output_paths": [],
+                "preview_status": _preview_state(actual_media_paths),
+                "asset_paths": entry["asset_paths"],
+                "preview_text": "\n".join(
+                    [
+                        f"Headline: {hook or 'n/a'}",
+                        f"CTA: {cta or 'n/a'}",
+                        *(f"Preview asset: {path}" for path in actual_media_paths[:2]),
+                    ]
+                ),
+                "format": {
+                    "aspect_ratio": "4:5" if entry["platform_slug"] == "meta-feed" else "9:16",
+                    "target_size": "1080x1350" if entry["platform_slug"] == "meta-feed" else "1080x1920",
+                },
+            }
+        )
+    return previews
+
+
 def _build_static_platform_previews(production_handoff: dict) -> list[dict]:
     static_handoff = _as_dict(_as_dict(production_handoff.get("contract_handoffs")).get("static"))
     previews = []
@@ -53,9 +183,25 @@ def _build_static_platform_previews(production_handoff: dict) -> list[dict]:
         expected_outputs = _as_dict(contract.get("expected_render_outputs"))
         body_lines = [line for line in _as_list(creative.get("body_lines")) if isinstance(line, str) and line.strip()]
         proof_points = [line for line in _as_list(creative.get("proof_points")) if isinstance(line, str) and line.strip()]
+        actual_media_paths = _existing_preview_media_paths(
+            [
+                _as_str(expected_outputs.get("image_file")),
+            ],
+            STATIC_PREVIEW_SUFFIXES,
+        )
+        expected_output_paths = [
+            path
+            for path in [
+                _as_str(expected_outputs.get("image_file")),
+                _as_str(expected_outputs.get("copy_file")),
+            ]
+            if path
+        ]
+        preview_status = _preview_state(actual_media_paths)
         summary = (
-            f"{_as_str(contract.get('platform'), _as_str(entry.get('platform'), 'Platform'))} static draft is ready "
-            "for launch review."
+            f"{_as_str(contract.get('platform'), _as_str(entry.get('platform'), 'Platform'))} static preview is backed by generated files."
+            if actual_media_paths
+            else f"{_as_str(contract.get('platform'), _as_str(entry.get('platform'), 'Platform'))} static contract is ready for review; render outputs are still expected only."
         )
         previews.append(
             {
@@ -68,14 +214,9 @@ def _build_static_platform_previews(production_handoff: dict) -> list[dict]:
                 "cta": _as_str(creative.get("primary_cta")),
                 "hook": _as_str(creative.get("headline")),
                 "proof_points": proof_points,
-                "media_paths": [
-                    path
-                    for path in [
-                        _as_str(expected_outputs.get("image_file")),
-                        _as_str(expected_outputs.get("copy_file")),
-                    ]
-                    if path
-                ],
+                "media_paths": actual_media_paths,
+                "expected_output_paths": expected_output_paths,
+                "preview_status": preview_status,
                 "asset_paths": {
                     "contract_path": _as_str(entry.get("contract_path")),
                     "brief_path": _as_str(entry.get("brief_path")),
@@ -83,10 +224,12 @@ def _build_static_platform_previews(production_handoff: dict) -> list[dict]:
                 },
                 "preview_text": "\n".join(
                     [
+                        "Status: generated preview." if actual_media_paths else "Status: contract-only; no rendered preview file exists.",
                         f"Headline: {_as_str(creative.get('headline'), 'n/a')}",
                         *(f"- {line}" for line in body_lines[:3]),
                         f"CTA: {_as_str(creative.get('primary_cta'), 'n/a')}",
                         *(f"Proof: {point}" for point in proof_points[:3]),
+                        *(f"Preview asset: {path}" for path in actual_media_paths[:2]),
                     ]
                 ),
                 "format": {
@@ -107,6 +250,23 @@ def _build_video_platform_previews(production_handoff: dict) -> list[dict]:
         creative = _as_dict(contract.get("creative"))
         requirements = _as_dict(contract.get("platform_requirements"))
         expected_outputs = _as_dict(contract.get("expected_render_outputs"))
+        actual_media_paths = _existing_preview_media_paths(
+            [
+                _as_str(expected_outputs.get("poster_file")),
+                _as_str(expected_outputs.get("video_file")),
+            ],
+            VIDEO_PREVIEW_SUFFIXES,
+        )
+        expected_output_paths = [
+            path
+            for path in [
+                _as_str(expected_outputs.get("poster_file")),
+                _as_str(expected_outputs.get("video_file")),
+                _as_str(expected_outputs.get("captions_file")),
+                _as_str(expected_outputs.get("project_file")),
+            ]
+            if path
+        ]
         story_beats = [
             _as_str(_as_dict(beat).get("description"))
             for beat in _as_list(creative.get("story_beats"))
@@ -119,34 +279,30 @@ def _build_video_platform_previews(production_handoff: dict) -> list[dict]:
                 "platform_name": _as_str(contract.get("platform"), _as_str(entry.get("platform"), "Video platform")),
                 "channel_type": "video",
                 "summary": (
-                    f"{_as_str(contract.get('platform'), _as_str(entry.get('platform'), 'Platform'))} video concept is "
-                    "ready for launch review."
+                    f"{_as_str(contract.get('platform'), _as_str(entry.get('platform'), 'Platform'))} video preview is backed by generated files."
+                    if actual_media_paths
+                    else f"{_as_str(contract.get('platform'), _as_str(entry.get('platform'), 'Platform'))} video contract is ready for review; no rendered poster or video exists yet."
                 ),
                 "headline": _as_str(creative.get("summary")),
                 "caption_text": "\n".join(voiceover_lines),
                 "cta": _as_str(creative.get("primary_cta")),
                 "hook": _as_str(creative.get("opening_line")),
                 "proof_points": story_beats,
-                "media_paths": [
-                    path
-                    for path in [
-                        _as_str(expected_outputs.get("poster_file")),
-                        _as_str(expected_outputs.get("video_file")),
-                        _as_str(expected_outputs.get("captions_file")),
-                        _as_str(expected_outputs.get("project_file")),
-                    ]
-                    if path
-                ],
+                "media_paths": actual_media_paths,
+                "expected_output_paths": expected_output_paths,
+                "preview_status": _preview_state(actual_media_paths),
                 "asset_paths": {
                     "contract_path": _as_str(entry.get("contract_path")),
                     "brief_path": _as_str(entry.get("brief_path")),
                 },
                 "preview_text": "\n".join(
                     [
+                        "Status: generated preview." if actual_media_paths else "Status: contract-only; no rendered poster or video file exists.",
                         f"Opening line: {_as_str(creative.get('opening_line'), 'n/a')}",
                         *(f"- {line}" for line in voiceover_lines[:4]),
                         f"CTA: {_as_str(creative.get('primary_cta'), 'n/a')}",
                         *(f"Beat: {beat}" for beat in story_beats[:4]),
+                        *(f"Preview asset: {path}" for path in actual_media_paths[:2]),
                     ]
                 ),
                 "format": {
@@ -174,6 +330,7 @@ def _build_review_bundle(data: dict, preview_path: str, approval_message: str, l
     static_handoff = _as_dict(_as_dict(handoff.get("contract_handoffs")).get("static"))
     video_handoff = _as_dict(_as_dict(handoff.get("contract_handoffs")).get("video"))
     platform_previews = [
+        *_stage3_static_asset_previews(handoff),
         *_build_static_platform_previews(handoff),
         *_build_video_platform_previews(handoff),
     ]
@@ -309,7 +466,10 @@ def main() -> int:
         preview_text = _as_str(platform_dict.get("preview_text"))
         preview_lines.extend(
             [
-                f"- {_as_str(platform_dict.get('platform_name'), _as_str(platform_dict.get('platform_slug'), 'Platform'))} [{_as_str(platform_dict.get('channel_type'), 'draft')}]",
+                (
+                    f"- {_as_str(platform_dict.get('platform_name'), _as_str(platform_dict.get('platform_slug'), 'Platform'))} "
+                    f"[{_as_str(platform_dict.get('channel_type'), 'draft')} | {_as_str(platform_dict.get('preview_status'), 'contract_only')}]"
+                ),
                 f"  Hook: {_as_str(platform_dict.get('hook'), 'n/a')}",
                 f"  CTA: {_as_str(platform_dict.get('cta'), 'n/a')}",
                 *(f"  {line}" for line in preview_text.splitlines()[:4] if line.strip()),

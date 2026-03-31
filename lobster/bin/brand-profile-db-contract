@@ -65,6 +65,9 @@ def _validated_brand_analysis(analysis: dict) -> dict:
         "primary_goal": validate_optional_copy_text("brand_profile.primary_goal", analysis.get("primary_goal"), min_tokens=2),
         "launch_approver_name": validate_optional_copy_text("brand_profile.launch_approver_name", analysis.get("launch_approver_name"), min_tokens=1),
         "channels": [validate_short_text("brand_profile.channels", item) for item in analysis.get("channels", [])] if isinstance(analysis.get("channels"), list) else [],
+        "brand_kit": record_or_empty(analysis.get("brand_kit")),
+        "design_tokens": record_or_empty(analysis.get("design_tokens")),
+        "stage1_summary": record_or_empty(analysis.get("stage1_summary")),
     }
 
 
@@ -83,6 +86,9 @@ def _creative_handoff(record: dict) -> dict:
         "channel_specific_angles": record["channel_specific_angles"],
         "hooks": record["hooks"],
         "opening_lines": record["opening_lines"],
+        "brand_kit": record["brand_kit"],
+        "design_tokens": record["design_tokens"],
+        "stage1_summary": record["stage1_summary"],
     }
 
 
@@ -172,6 +178,9 @@ def main() -> int:
         "channel_specific_angles": record["channel_specific_angles"],
         "hooks": record["hooks"],
         "opening_lines": record["opening_lines"],
+        "brand_kit": record["brand_kit"],
+        "design_tokens": record["design_tokens"],
+        "stage1_summary": record["stage1_summary"],
         "creative_handoff": creative_handoff,
         "source_run_id": run_id,
         "source_generated_at": data.get("generated_at", ""),
