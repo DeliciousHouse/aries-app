@@ -278,7 +278,47 @@ export async function oauthCallback(provider: string, query: OAuthCallbackQuery)
       });
       accessTtlSeconds = token.expiresIn;
       const profile = await fetchXProfile(token.accessToken);
-      void profile;
+
+      const externalAccountId =
+        (profile && (profile.id ?? profile.data?.id)) ?? null;
+      const externalAccountName =
+        (profile && (profile.name ?? profile.data?.name ?? profile.username ?? profile.data?.username)) ?? null;
+
+      await dbUpsertConnection({
+        id: connectionId,
+        provider,
+        tenantId: pending.tenant_id,
+        connectedAt,
+        externalAccountId,
+        externalAccountName,
+      });
+
+      const accessExpiresAt =
+        typeof accessTtlSeconds === 'number'
+          ? new Date(Date.now() + accessTtlSeconds * 1000).toISOString()
+          : null;
+
+      const refreshTtlFromToken =
+        typeof (token as any).refreshExpiresIn === 'number'
+          ? (token as any).refreshExpiresIn
+          : refreshTtlSeconds;
+
+      const refreshExpiresAt =
+        typeof refreshTtlFromToken === 'number'
+          ? new Date(Date.now() + refreshTtlFromToken * 1000).toISOString()
+          : null;
+
+      await dbInsertOAuthToken({
+        connectionId,
+        provider,
+        accessToken: token.accessToken,
+        refreshToken: (token as any).refreshToken ?? null,
+        tokenType: (token as any).tokenType ?? null,
+        scope: (token as any).scope ?? null,
+        accessExpiresAt,
+        refreshExpiresAt,
+        createdAt: connectedAt,
+      });
     } catch (error) {
       await dbDeletePendingState(state);
       return brokerError('provider_callback_error', {
