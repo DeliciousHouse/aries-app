@@ -81,10 +81,13 @@ async function initDb() {
         redirect_uri TEXT NOT NULL,
         scopes TEXT[] NOT NULL DEFAULT '{}',
         connection_id BIGINT REFERENCES oauth_connections(id) ON DELETE SET NULL,
+        code_verifier TEXT,
         expires_at TIMESTAMPTZ NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
 
+      ALTER TABLE oauth_pending_states
+        ADD COLUMN IF NOT EXISTS code_verifier TEXT;
       CREATE TABLE IF NOT EXISTS oauth_audit_events (
         id BIGSERIAL PRIMARY KEY,
         tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
