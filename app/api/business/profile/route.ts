@@ -147,6 +147,14 @@ export async function PATCH(req: Request) {
       return json({ profile: resolved.profile });
     } catch (updateError) {
       const message = updateError instanceof Error ? updateError.message : String(updateError);
+      console.error('[business-profile]', {
+        event: 'write-failed',
+        mode: 'public_file_only',
+        normalizedWebsiteUrl,
+        derivedTenantId: publicTenantId,
+        error: message,
+        stack: updateError instanceof Error ? updateError.stack : undefined,
+      });
       return json({ error: message }, errorStatus(message));
     }
   }
@@ -188,6 +196,14 @@ export async function PATCH(req: Request) {
     return json({ profile: resolved.profile });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    console.error('[business-profile]', {
+      event: 'write-failed',
+      mode: 'authenticated_db_plus_file',
+      tenantId: tenantContext.tenantId,
+      normalizedWebsiteUrl,
+      error: message,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     return json({ error: message }, errorStatus(message));
   } finally {
     client.release();

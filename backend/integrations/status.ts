@@ -1,5 +1,6 @@
-import { isAllowedProvider, oauthStore } from './connect';
+import { isAllowedProvider } from './connect';
 import { resolveTokenHealth } from './connection-schema';
+import { dbGetConnection } from './oauth-db';
 
 type PlatformConnectionStatus =
   | 'disconnected'
@@ -82,6 +83,31 @@ function healthFromInternal(connection: {
 }
 
 export function oauthStatus(provider: string, tenantId?: string): PlatformConnectionStatusShape | StatusError {
+  // Deprecated sync wrapper (kept for older callers).
+  // Prefer `oauthStatusAsync` for real data.
+  const now = new Date().toISOString();
+  if (!isAllowedProvider(provider)) {
+    return { broker_status: 'error', reason: 'invalid_provider', provider };
+  }
+  if (!tenantId || tenantId.trim().length === 0) {
+    return { broker_status: 'error', reason: 'missing_required_fields', provider, message: 'missing_required_fields:tenant_id' };
+  }
+  return {
+    schema_name: 'platform_connection_status_schema',
+    schema_version: '1.0.0',
+    tenant_id: tenantId.trim(),
+    integration_id: undefined,
+    platform: provider,
+    connection_status: 'disconnected',
+    status_reason: 'connection_not_found',
+    health: 'unknown',
+    updated_at: now,
+    capabilities: [],
+    metadata: {},
+  };
+}
+
+export async function oauthStatusAsync(provider: string, tenantId?: string): Promise<PlatformConnectionStatusShape | StatusError> {
   if (!isAllowedProvider(provider)) {
     return { broker_status: 'error', reason: 'invalid_provider', provider };
   }
@@ -90,9 +116,16 @@ export function oauthStatus(provider: string, tenantId?: string): PlatformConnec
   }
 
   const normalizedTenantId = tenantId.trim();
-  const store = oauthStore();
-  const connectionId = store.connectedByTenantProvider.get(providerTenantKey(normalizedTenantId, provider));
-  const connection = connectionId ? store.connectionsById.get(connectionId) : undefined;
+  const row = await dbGetConnection({ tenantId: normalizedTenantId, provider });
+  const connection = row
+    ? {
+        connection_id: row.id,
+        connection_status: row.status,
+        token_expires_at: row.token_expires_at ?? undefined,
+        refresh_token_expires_at: row.refresh_expires_at ?? undefined,
+        updated_at: row.updated_at,
+      }
+    : undefined;
 
   const now = new Date().toISOString();
   return {
@@ -109,7 +142,7 @@ export function oauthStatus(provider: string, tenantId?: string): PlatformConnec
     last_success_at: undefined,
     capabilities: [],
     metadata: {},
-    updated_at: connection?.updated_at || now
+    updated_at: connection?.updated_at || now,
   };
 }
 
@@ -118,7 +151,7 @@ export async function handleOauthStatusHttp(req: Request, providerFromPath?: str
   const provider = (providerFromPath || url.searchParams.get('provider') || '').toLowerCase();
   const tenantId = url.searchParams.get('tenant_id') || undefined;
 
-  const result = oauthStatus(provider, tenantId);
+  const result = await oauthStatusAsync(provider, tenantId);
   const status = 'broker_status' in result ? 400 : 200;
 
   return new Response(JSON.stringify(result), {

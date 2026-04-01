@@ -1,4 +1,7 @@
-type Provider = 'facebook' | 'instagram' | 'linkedin' | 'x' | 'youtube' | 'reddit' | 'tiktok';
+import { dbAuditEvent, dbGetConnection, dbInsertPendingState, dbUpsertConnection, type DbProvider } from './oauth-db';
+import { buildProviderAuthorizationUrl, createCodeVerifier } from './oauth-authorize-urls';
+
+type Provider = DbProvider;
 
 type BrokerStatus = 'ok' | 'error';
 type OAuthConnectionStatus = 'connected' | 'disconnected' | 'pending' | 'reauthorization_required';
@@ -52,6 +55,8 @@ type ConnectionRecord = {
   token_expires_at?: string;
   refresh_token_expires_at?: string;
   disconnected_at?: string;
+  external_account_id?: string;
+  external_account_name?: string;
 };
 
 type PendingAuthRecord = {
@@ -62,12 +67,7 @@ type PendingAuthRecord = {
   scopes: string[];
   expires_at: string;
   connection_id?: string;
-};
-
-type OauthBrokerStore = {
-  pendingByState: Map<string, PendingAuthRecord>;
-  connectionsById: Map<string, ConnectionRecord>;
-  connectedByTenantProvider: Map<string, string>;
+  code_verifier?: string;
 };
 
 const PROVIDERS = ['facebook', 'instagram', 'linkedin', 'x', 'youtube', 'reddit', 'tiktok'] as const;
@@ -106,25 +106,12 @@ export function isAllowedProvider(provider: string): provider is Provider {
   return (PROVIDERS as readonly string[]).includes(provider);
 }
 
-export function oauthStore(): OauthBrokerStore {
-  const key = '__aries_oauth_broker_store_v2_2__';
-  const g = globalThis as Record<string, unknown>;
-  if (!g[key]) {
-    g[key] = {
-      pendingByState: new Map<string, PendingAuthRecord>(),
-      connectionsById: new Map<string, ConnectionRecord>(),
-      connectedByTenantProvider: new Map<string, string>()
-    } satisfies OauthBrokerStore;
-  }
-  return g[key] as OauthBrokerStore;
-}
-
 export function brokerError(reason: OAuthBrokerErrorReason, extras?: Omit<OAuthBrokerError, 'broker_status' | 'reason'>): OAuthBrokerError {
   return { broker_status: 'error', reason, ...(extras || {}) };
 }
 
-function providerTenantKey(tenantId: string, provider: Provider): string {
-  return `${tenantId}::${provider}`;
+function xClientId(): string {
+  return process.env.X_CLIENT_ID?.trim() || '';
 }
 
 export async function oauthConnect(provider: string, payload: OAuthConnectRequest): Promise<OAuthConnectSuccess | OAuthBrokerError> {
@@ -156,39 +143,57 @@ export async function oauthConnect(provider: string, payload: OAuthConnectReques
   }
 
   const tenantId = tenantIdRaw.trim();
-  const store = oauthStore();
-  const existingConnectionId = store.connectedByTenantProvider.get(providerTenantKey(tenantId, provider));
-  if (existingConnectionId) {
-    const existing = store.connectionsById.get(existingConnectionId);
-    if (existing && existing.connection_status === 'connected') {
-      return brokerError('already_connected', {
-        provider,
-        connection_id: existing.connection_id,
-        message: 'provider is already connected for tenant'
-      });
-    }
+  const existing = await dbGetConnection({ tenantId, provider });
+  if (existing && existing.status === 'connected') {
+    return brokerError('already_connected', {
+      provider,
+      connection_id: existing.id,
+      message: 'provider is already connected for tenant',
+    });
   }
 
   const state = randomToken(payload.state_hint ? payload.state_hint.replace(/[^a-z0-9_-]/gi, '').slice(0, 16) || 'state' : 'state');
   const expiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
   const scopes = normalizeScopes(payload.scopes);
   const redirectUri = redirectUriRaw.trim();
+  const codeVerifier = provider === 'x' && xClientId() ? createCodeVerifier() : undefined;
 
-  store.pendingByState.set(state, {
-    state,
+  const connection = await dbUpsertConnection({
+    tenantId,
     provider,
-    tenant_id: tenantId,
-    redirect_uri: redirectUri,
-    scopes,
-    expires_at: expiresAt
+    status: 'pending',
+    grantedScopes: scopes,
+    disconnectedAt: null,
+    lastErrorCode: null,
+    lastErrorMessage: null,
   });
 
-  const authUrl = new URL(`https://oauth.${provider}.example/authorize`);
-  authUrl.searchParams.set('response_type', 'code');
-  authUrl.searchParams.set('client_id', `${provider}_client`);
-  authUrl.searchParams.set('redirect_uri', redirectUri);
-  authUrl.searchParams.set('state', state);
-  if (scopes.length > 0) authUrl.searchParams.set('scope', scopes.join(' '));
+  await dbInsertPendingState({
+    state,
+    tenantId,
+    provider,
+    redirectUri,
+    scopes,
+    connectionId: connection.id,
+    expiresAt,
+  });
+
+  await dbAuditEvent({
+    tenantId,
+    connectionId: connection.id,
+    provider,
+    eventType: 'oauth.connect.initiated',
+    eventStatus: 'ok',
+    detail: { redirect_uri: redirectUri, scopes },
+  });
+
+  const authUrl = buildProviderAuthorizationUrl({
+    provider,
+    redirectUri,
+    state,
+    scopes,
+    codeVerifier,
+  });
 
   return {
     broker_status: 'ok',
@@ -210,7 +215,15 @@ export async function handleOauthConnectHttp(req: Request, providerFromPath?: st
 
   const url = new URL(req.url);
   const provider = (providerFromPath || url.searchParams.get('provider') || '').toLowerCase();
-  const result = await oauthConnect(provider, payload);
+  let result: OAuthConnectSuccess | OAuthBrokerError;
+  try {
+    result = await oauthConnect(provider, payload);
+  } catch (error) {
+    result = brokerError('internal_error', {
+      provider,
+      message: error instanceof Error ? error.message : 'internal_error',
+    });
+  }
 
   const status =
     result.broker_status === 'ok'
@@ -226,5 +239,8 @@ export async function handleOauthConnectHttp(req: Request, providerFromPath?: st
     headers: { 'content-type': 'application/json' }
   });
 }
+
+export { oauthStore } from './oauth-memory-store';
+export type { OauthBrokerMemoryStore, MemoryConnectionRecord, MemoryPendingAuthRecord } from './oauth-memory-store';
 
 export type { Provider, BrokerStatus, OAuthConnectionStatus, ConnectionRecord, PendingAuthRecord };

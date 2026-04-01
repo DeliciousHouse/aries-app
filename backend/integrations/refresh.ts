@@ -1,4 +1,5 @@
-import { isAllowedProvider, oauthStore, brokerError } from './connect';
+import { isAllowedProvider, brokerError } from './connect';
+import { dbGetConnection, dbUpsertConnection } from './oauth-db';
 
 type OAuthRefreshInput = {
   token_expires_in_seconds?: number;
@@ -13,28 +14,41 @@ export async function oauthRefresh(provider: string, tenantId?: string, input: O
   if (!isAllowedProvider(provider)) return brokerError('invalid_provider', { provider });
   if (!tenantId) return brokerError('missing_required_fields', { provider, message: 'missing_required_fields:tenant_id' });
 
-  const store = oauthStore();
-  const key = `${tenantId.trim()}::${provider}`;
-  const connectionId = store.connectedByTenantProvider.get(key);
-  if (!connectionId) return brokerError('connection_not_found', { provider });
-  const connection = store.connectionsById.get(connectionId);
-  if (!connection) return brokerError('connection_not_found', { provider });
+  const tenant = tenantId.trim();
+  const existing = await dbGetConnection({ tenantId: tenant, provider });
+  if (!existing) return brokerError('connection_not_found', { provider });
 
-  connection.updated_at = new Date().toISOString();
-  connection.connection_status = 'connected';
+  const refreshedAt = new Date().toISOString();
   if (typeof input.token_expires_in_seconds === 'number' && input.token_expires_in_seconds > 0) {
-    connection.token_expires_at = addSeconds(connection.updated_at, input.token_expires_in_seconds);
+    void 0;
   }
   if (typeof input.refresh_expires_in_seconds === 'number' && input.refresh_expires_in_seconds > 0) {
-    connection.refresh_token_expires_at = addSeconds(connection.updated_at, input.refresh_expires_in_seconds);
+    void 0;
   }
-  store.connectionsById.set(connectionId, connection);
+  const tokenExpiresAt =
+    typeof input.token_expires_in_seconds === 'number' && input.token_expires_in_seconds > 0
+      ? addSeconds(refreshedAt, input.token_expires_in_seconds)
+      : null;
+  const refreshExpiresAt =
+    typeof input.refresh_expires_in_seconds === 'number' && input.refresh_expires_in_seconds > 0
+      ? addSeconds(refreshedAt, input.refresh_expires_in_seconds)
+      : null;
+
+  const updated = await dbUpsertConnection({
+    tenantId: tenant,
+    provider,
+    status: 'connected',
+    grantedScopes: existing.granted_scopes,
+    tokenExpiresAt: tokenExpiresAt ?? undefined,
+    refreshExpiresAt: refreshExpiresAt ?? undefined,
+    disconnectedAt: null,
+  });
 
   return {
     broker_status: 'ok' as const,
     provider,
-    connection_id: connection.connection_id,
+    connection_id: updated.id,
     connection_status: 'connected' as const,
-    refreshed_at: connection.updated_at
+    refreshed_at: refreshedAt
   };
 }
