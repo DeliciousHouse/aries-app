@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { dbAuditEvent, dbGetConnection, dbInsertPendingState, dbUpsertConnection, type DbProvider } from './oauth-db';
 
-type Provider = 'facebook' | 'instagram' | 'linkedin' | 'x' | 'youtube' | 'reddit' | 'tiktok';
+type Provider = DbProvider;
 
 type BrokerStatus = 'ok' | 'error';
 type OAuthConnectionStatus = 'connected' | 'disconnected' | 'pending' | 'reauthorization_required';
@@ -69,12 +70,6 @@ type PendingAuthRecord = {
   code_verifier?: string;
 };
 
-type OauthBrokerStore = {
-  pendingByState: Map<string, PendingAuthRecord>;
-  connectionsById: Map<string, ConnectionRecord>;
-  connectedByTenantProvider: Map<string, string>;
-};
-
 const PROVIDERS = ['facebook', 'instagram', 'linkedin', 'x', 'youtube', 'reddit', 'tiktok'] as const;
 
 function nowIso(): string {
@@ -111,29 +106,16 @@ export function isAllowedProvider(provider: string): provider is Provider {
   return (PROVIDERS as readonly string[]).includes(provider);
 }
 
-export function oauthStore(): OauthBrokerStore {
-  const key = '__aries_oauth_broker_store_v2_2__';
-  const g = globalThis as Record<string, unknown>;
-  if (!g[key]) {
-    g[key] = {
-      pendingByState: new Map<string, PendingAuthRecord>(),
-      connectionsById: new Map<string, ConnectionRecord>(),
-      connectedByTenantProvider: new Map<string, string>()
-    } satisfies OauthBrokerStore;
-  }
-  return g[key] as OauthBrokerStore;
-}
-
 export function brokerError(reason: OAuthBrokerErrorReason, extras?: Omit<OAuthBrokerError, 'broker_status' | 'reason'>): OAuthBrokerError {
   return { broker_status: 'error', reason, ...(extras || {}) };
 }
 
-function providerTenantKey(tenantId: string, provider: Provider): string {
-  return `${tenantId}::${provider}`;
-}
-
 function xClientId(): string {
   return process.env.X_CLIENT_ID?.trim() || '';
+}
+
+function linkedInClientId(): string {
+  return process.env.LINKEDIN_CLIENT_ID?.trim() || '';
 }
 
 function base64Url(input: Buffer): string {
@@ -177,17 +159,13 @@ export async function oauthConnect(provider: string, payload: OAuthConnectReques
   }
 
   const tenantId = tenantIdRaw.trim();
-  const store = oauthStore();
-  const existingConnectionId = store.connectedByTenantProvider.get(providerTenantKey(tenantId, provider));
-  if (existingConnectionId) {
-    const existing = store.connectionsById.get(existingConnectionId);
-    if (existing && existing.connection_status === 'connected') {
-      return brokerError('already_connected', {
-        provider,
-        connection_id: existing.connection_id,
-        message: 'provider is already connected for tenant'
-      });
-    }
+  const existing = await dbGetConnection({ tenantId, provider });
+  if (existing && existing.status === 'connected') {
+    return brokerError('already_connected', {
+      provider,
+      connection_id: existing.id,
+      message: 'provider is already connected for tenant',
+    });
   }
 
   const state = randomToken(payload.state_hint ? payload.state_hint.replace(/[^a-z0-9_-]/gi, '').slice(0, 16) || 'state' : 'state');
@@ -196,19 +174,52 @@ export async function oauthConnect(provider: string, payload: OAuthConnectReques
   const redirectUri = redirectUriRaw.trim();
   const codeVerifier = provider === 'x' && xClientId() ? createCodeVerifier() : undefined;
 
-  store.pendingByState.set(state, {
-    state,
+  const connection = await dbUpsertConnection({
+    tenantId,
     provider,
-    tenant_id: tenantId,
-    redirect_uri: redirectUri,
+    status: 'pending',
+    grantedScopes: scopes,
+    disconnectedAt: null,
+    lastErrorCode: null,
+    lastErrorMessage: null,
+  });
+
+  await dbInsertPendingState({
+    state,
+    tenantId,
+    provider,
+    redirectUri,
     scopes,
-    expires_at: expiresAt,
-    code_verifier: codeVerifier,
+    connectionId: connection.id,
+    expiresAt,
+  });
+
+  await dbAuditEvent({
+    tenantId,
+    connectionId: connection.id,
+    provider,
+    eventType: 'oauth.connect.initiated',
+    eventStatus: 'ok',
+    detail: { redirect_uri: redirectUri, scopes },
   });
 
   const authUrl =
-    provider === 'x' && xClientId()
+    provider === 'linkedin'
       ? (() => {
+          const clientId = linkedInClientId();
+          if (!clientId) {
+            throw new Error('linkedin_oauth_not_configured');
+          }
+          const url = new URL('https://www.linkedin.com/oauth/v2/authorization');
+          url.searchParams.set('response_type', 'code');
+          url.searchParams.set('client_id', clientId);
+          url.searchParams.set('redirect_uri', redirectUri);
+          url.searchParams.set('state', state);
+          if (scopes.length > 0) url.searchParams.set('scope', scopes.join(' '));
+          return url;
+        })()
+      : provider === 'x' && xClientId()
+        ? (() => {
           const url = new URL('https://twitter.com/i/oauth2/authorize');
           url.searchParams.set('response_type', 'code');
           url.searchParams.set('client_id', xClientId());
@@ -223,9 +234,9 @@ export async function oauthConnect(provider: string, payload: OAuthConnectReques
           }
           return url;
         })()
-      : new URL(`https://oauth.${provider}.example/authorize`);
+        : new URL(`https://oauth.${provider}.example/authorize`);
 
-  if (!(provider === 'x' && xClientId())) {
+  if (!(provider === 'x' && xClientId()) && provider !== 'linkedin') {
     authUrl.searchParams.set('response_type', 'code');
     authUrl.searchParams.set('client_id', `${provider}_client`);
     authUrl.searchParams.set('redirect_uri', redirectUri);
@@ -253,7 +264,15 @@ export async function handleOauthConnectHttp(req: Request, providerFromPath?: st
 
   const url = new URL(req.url);
   const provider = (providerFromPath || url.searchParams.get('provider') || '').toLowerCase();
-  const result = await oauthConnect(provider, payload);
+  let result: OAuthConnectSuccess | OAuthBrokerError;
+  try {
+    result = await oauthConnect(provider, payload);
+  } catch (error) {
+    result = brokerError('internal_error', {
+      provider,
+      message: error instanceof Error ? error.message : 'internal_error',
+    });
+  }
 
   const status =
     result.broker_status === 'ok'

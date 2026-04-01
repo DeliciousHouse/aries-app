@@ -477,7 +477,7 @@ export default function DashboardHomePresenter({
                 No channel connections yet. Connect platforms in Settings when you are ready to schedule or monitor launches.
               </div>
             ) : (
-              model.channels.items.slice(0, 4).map((channel) => (
+              model.channels.items.map((channel) => (
                 <div key={channel.id} className="rounded-2xl border border-white/[0.05] bg-[#1B1524] p-5">
                   <div className="mb-1 flex items-center justify-between gap-3">
                     <span className="text-[15px] font-medium text-white/90">{channel.name}</span>

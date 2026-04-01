@@ -38,6 +38,69 @@ async function initDb() {
       ALTER TABLE users
         ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'tenant_admin';
     `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS oauth_connections (
+        id BIGSERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        provider TEXT NOT NULL CHECK (provider IN ('facebook','instagram','linkedin','x','youtube','tiktok','reddit')),
+        external_account_id TEXT,
+        external_account_name TEXT,
+        status TEXT NOT NULL CHECK (status IN ('pending','connected','reauthorization_required','disconnected','error')),
+        granted_scopes TEXT[] NOT NULL DEFAULT '{}',
+        token_expires_at TIMESTAMPTZ,
+        refresh_expires_at TIMESTAMPTZ,
+        connected_at TIMESTAMPTZ,
+        disconnected_at TIMESTAMPTZ,
+        last_error_code TEXT,
+        last_error_message TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (tenant_id, provider)
+      );
+
+      CREATE TABLE IF NOT EXISTS oauth_tokens (
+        id BIGSERIAL PRIMARY KEY,
+        connection_id BIGINT NOT NULL REFERENCES oauth_connections(id) ON DELETE CASCADE,
+        access_token_enc TEXT,
+        refresh_token_enc TEXT,
+        token_type TEXT,
+        scope TEXT,
+        expires_at TIMESTAMPTZ,
+        refresh_expires_at TIMESTAMPTZ,
+        issued_at TIMESTAMPTZ,
+        rotated_from_token_id BIGINT REFERENCES oauth_tokens(id),
+        revoked_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS oauth_pending_states (
+        state TEXT PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        provider TEXT NOT NULL,
+        redirect_uri TEXT NOT NULL,
+        scopes TEXT[] NOT NULL DEFAULT '{}',
+        connection_id BIGINT REFERENCES oauth_connections(id) ON DELETE SET NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS oauth_audit_events (
+        id BIGSERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+        connection_id BIGINT REFERENCES oauth_connections(id) ON DELETE SET NULL,
+        provider TEXT,
+        event_type TEXT NOT NULL,
+        event_status TEXT NOT NULL CHECK (event_status IN ('ok','error')),
+        detail JSONB NOT NULL DEFAULT '{}'::jsonb,
+        occurred_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_oauth_connections_tenant_provider ON oauth_connections (tenant_id, provider);
+      CREATE INDEX IF NOT EXISTS idx_oauth_tokens_connection_created ON oauth_tokens (connection_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_oauth_pending_states_expires ON oauth_pending_states (expires_at);
+      CREATE INDEX IF NOT EXISTS idx_oauth_audit_tenant_time ON oauth_audit_events (tenant_id, occurred_at DESC);
+    `);
     
     console.log('Database initialized successfully.');
   } catch (err) {

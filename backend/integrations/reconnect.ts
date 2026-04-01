@@ -1,4 +1,5 @@
-import { brokerError, isAllowedProvider, oauthStore, type OAuthBrokerError } from './connect';
+import { brokerError, isAllowedProvider, type OAuthBrokerError } from './connect';
+import { dbAuditEvent, dbGetConnectionById, dbInsertPendingState, dbUpsertConnection } from './oauth-db';
 
 type OAuthReconnectRequest = {
   connection_id?: string;
@@ -66,9 +67,8 @@ export async function oauthReconnect(
     return brokerError('validation_error', { provider, message: 'redirect_uri must be a valid uri' });
   }
 
-  const store = oauthStore();
   const connectionId = payload.connection_id.trim();
-  const existingConnection = store.connectionsById.get(connectionId);
+  const existingConnection = await dbGetConnectionById(connectionId);
 
   if (!existingConnection || existingConnection.provider !== provider) {
     return brokerError('connection_not_found', { provider, connection_id: connectionId });
@@ -78,19 +78,32 @@ export async function oauthReconnect(
   const expiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
   const scopes = normalizeScopes(payload.scopes, existingConnection.granted_scopes);
 
-  store.pendingByState.set(state, {
+  await dbInsertPendingState({
     state,
     provider,
-    tenant_id: existingConnection.tenant_id,
-    redirect_uri: redirectUri,
+    tenantId: existingConnection.tenant_id,
+    redirectUri,
     scopes,
-    expires_at: expiresAt,
-    connection_id: connectionId,
+    connectionId,
+    expiresAt,
   });
 
-  existingConnection.connection_status = 'reauthorization_required';
-  existingConnection.updated_at = new Date().toISOString();
-  store.connectionsById.set(connectionId, existingConnection);
+  await dbUpsertConnection({
+    tenantId: existingConnection.tenant_id,
+    provider,
+    status: 'reauthorization_required',
+    grantedScopes: scopes,
+    disconnectedAt: null,
+  });
+
+  await dbAuditEvent({
+    tenantId: existingConnection.tenant_id,
+    connectionId,
+    provider,
+    eventType: 'oauth.reconnect.initiated',
+    eventStatus: 'ok',
+    detail: { redirect_uri: redirectUri, scopes },
+  });
 
   const authorizationUrl = new URL(`https://oauth.${provider}.example/authorize`);
   authorizationUrl.searchParams.set('response_type', 'code');
