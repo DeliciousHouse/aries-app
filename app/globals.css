@@ -220,6 +220,15 @@ select {
   backdrop-filter: blur(8px);
 }
 
+.review-dropdown {
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  background-color: color-mix(in oklab, var(--color-white) 18%, transparent);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+
 .btn-secondary:hover:not(:disabled) {
   background: var(--aries-glass);
   border-color: #FFFFFF;
