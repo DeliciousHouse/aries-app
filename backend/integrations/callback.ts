@@ -275,6 +275,7 @@ export async function oauthCallback(provider: string, query: OAuthCallbackQuery)
       const token = await exchangeXCodeForToken({
         code: query.code.trim(),
         redirectUri: pending.redirect_uri,
+        codeVerifier: pending.code_verifier,
       });
       accessTtlSeconds = token.expiresIn;
       const profile = await fetchXProfile(token.accessToken);
