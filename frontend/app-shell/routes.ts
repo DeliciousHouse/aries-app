@@ -10,6 +10,8 @@ export type AppRouteId =
   | 'calendar'
   | 'results'
   | 'review'
+  | 'businessProfile'
+  | 'channelIntegrations'
   | 'settings';
 
 export interface AppRoute {
@@ -97,6 +99,20 @@ export const APP_ROUTES: readonly AppRoute[] = [
     href: '/review',
     section: 'utility',
     description: 'Approval queue for anything that could affect a launch.'
+  },
+  {
+    id: 'businessProfile',
+    title: 'Business Profile',
+    href: '/dashboard/settings/business-profile',
+    section: 'utility',
+    description: 'Business context, website, goals, and launch approvals.'
+  },
+  {
+    id: 'channelIntegrations',
+    title: 'Channel Integrations',
+    href: '/dashboard/settings/channel-integrations',
+    section: 'utility',
+    description: 'Connect publishing channels so Aries can schedule and monitor.'
   },
   {
     id: 'settings',
