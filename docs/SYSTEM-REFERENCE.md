@@ -1,38 +1,38 @@
 # Aries System Reference
 
-Last refreshed Mar 30, 2026, 21:45 PDT.
+Last refreshed Mar 31, 2026, 21:45 PDT.
 
 ## What changed today
 - .env.example
-- .gitignore
-- AGENTS.md
-- Dockerfile
-- HEARTBEAT.md
-- IDENTITY.md
-- MEMORY.md
-- OPERATING_STRUCTURE.md
-- OVERNIGHT_LOG.md
-- PRIORITIES.md
-- README-runtime.md
-- README.md
-- ROADMAP.md
-- SETUP.md
-- SOUL.md
-- USER.md
-- app/api/business/profile/route.ts
-- app/api/integrations/handlers.ts
-- app/api/marketing/campaigns/route.ts
-- app/api/marketing/jobs/[jobId]/brief/route.ts
-- app/api/marketing/jobs/[jobId]/handler.ts
-- app/api/marketing/jobs/[jobId]/workspace-assets/[assetId]/handler.ts
-- app/api/marketing/jobs/[jobId]/workspace-assets/[assetId]/route.ts
-- app/api/marketing/jobs/handler.ts
-- app/api/marketing/jobs/latest/handler.ts
-- app/api/marketing/posts/route.ts
-- app/api/marketing/reviews/[reviewId]/decision/route.ts
-- app/api/marketing/reviews/[reviewId]/route.ts
-- app/api/marketing/reviews/route.ts
-- app/api/pipeline/url-preview/route.ts
+- app/login/page-client.tsx
+- auth.ts
+- docker-compose.local.yml
+- docker-compose.yml
+- docs/briefs/2026-03-31-brief.md
+- lib/auth-tenant-membership.ts
+- lib/tenant-context-http.ts
+- lib/tenant-context.ts
+- lobster/bin/_brand_tokens.py
+- lobster/bin/_marketing_profile_common.py
+- lobster/bin/_stage4_common.py
+- lobster/bin/ad-designer
+- lobster/bin/brand-kit-bootstrap.ts
+- lobster/bin/brand-profile-db-contract
+- lobster/bin/campaign-planner
+- lobster/bin/creative-director
+- lobster/bin/head-of-marketing
+- lobster/bin/launch-review-preview
+- lobster/bin/marketing-pipeline-compat
+- lobster/bin/meta-ads-extractor
+- lobster/bin/page-designer
+- lobster/bin/stage2-finalize-bridge
+- lobster/bin/stage3-finalize-bridge
+- lobster/bin/stage4-publish-compat
+- lobster/bin/veo-video-generator
+- lobster/bin/website-brand-analysis
+- lobster/marketing-pipeline.lobster
+- tests/auth/auth-tenant-membership.test.ts
+- tests/auth/tenant-context.test.ts
 
 ## Current architecture overview
 - Next.js App Router runtime serves the public site, authenticated operator shell, and browser-safe internal APIs.
@@ -42,10 +42,10 @@ Last refreshed Mar 30, 2026, 21:45 PDT.
 
 ## Module inventory
 - app/ 100 files
-- backend/ 61 files
+- backend/ 62 files
 - components/ 14 files
 - hooks/ 17 files
-- lib/ 16 files
+- lib/ 17 files
 - scripts/ 16 files
 - skills/ 29 files
 - workflows/ 4 files
@@ -86,21 +86,7 @@ Last refreshed Mar 30, 2026, 21:45 PDT.
 - Mission Control standalone app is still a shell around runtime overview data and awaits richer live API adapters for actions/transcripts.
 
 ## Working tree snapshot
-- M app/api/marketing/jobs/[jobId]/handler.ts
-- M app/api/marketing/jobs/handler.ts
-- M app/api/marketing/jobs/latest/handler.ts
-- M backend/marketing/dashboard-content.ts
-- M  backend/marketing/orchestrator.ts
-- M backend/marketing/publish-review.ts
-- M  backend/marketing/runtime-state.ts
-- MM backend/marketing/workspace-views.ts
-- M backend/openclaw/gateway-client.ts
-- M backend/tenant/business-profile.ts
-- M docker-compose.yml
-- M lib/api/marketing.ts
-- MM tests/frontend-api-layer.test.ts
-- M tests/marketing-gateway-logging.test.ts
-- M tests/marketing-public-mode.test.ts
+- M Dockerfile
 
 ## Reference date
-- 2026-03-30
+- 2026-03-31
