@@ -19,7 +19,13 @@ export const PROVIDER_REGISTRY: Record<ProviderKey, ProviderConfig> = {
     default_scopes: ['tweet.read', 'tweet.write', 'users.read', 'media.write', 'offline.access'],
     adapter: 'x',
   },
-  youtube: { key: 'youtube', family: 'youtube', display_name: 'YouTube', default_scopes: ['youtube.upload'], adapter: 'youtube' },
+  youtube: {
+    key: 'youtube',
+    family: 'youtube',
+    display_name: 'YouTube',
+    default_scopes: ['https://www.googleapis.com/auth/youtube.upload'],
+    adapter: 'youtube',
+  },
   tiktok: { key: 'tiktok', family: 'tiktok', display_name: 'TikTok', default_scopes: ['video.publish'], adapter: 'tiktok' },
   reddit: { key: 'reddit', family: 'reddit', display_name: 'Reddit', default_scopes: ['submit'], adapter: 'reddit' }
 };

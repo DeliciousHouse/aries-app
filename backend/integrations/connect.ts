@@ -1,5 +1,5 @@
-import { createHash, randomBytes } from 'node:crypto';
 import { dbAuditEvent, dbGetConnection, dbInsertPendingState, dbUpsertConnection, type DbProvider } from './oauth-db';
+import { buildProviderAuthorizationUrl, createCodeVerifier } from './oauth-authorize-urls';
 
 type Provider = DbProvider;
 
@@ -114,22 +114,6 @@ function xClientId(): string {
   return process.env.X_CLIENT_ID?.trim() || '';
 }
 
-function linkedInClientId(): string {
-  return process.env.LINKEDIN_CLIENT_ID?.trim() || '';
-}
-
-function base64Url(input: Buffer): string {
-  return input.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
-function createCodeVerifier(): string {
-  return base64Url(randomBytes(32));
-}
-
-function createCodeChallenge(verifier: string): string {
-  return base64Url(createHash('sha256').update(verifier).digest());
-}
-
 export async function oauthConnect(provider: string, payload: OAuthConnectRequest): Promise<OAuthConnectSuccess | OAuthBrokerError> {
   if (!isAllowedProvider(provider)) {
     return brokerError('invalid_provider', { provider });
@@ -203,46 +187,13 @@ export async function oauthConnect(provider: string, payload: OAuthConnectReques
     detail: { redirect_uri: redirectUri, scopes },
   });
 
-  const authUrl =
-    provider === 'linkedin'
-      ? (() => {
-          const clientId = linkedInClientId();
-          if (!clientId) {
-            throw new Error('linkedin_oauth_not_configured');
-          }
-          const url = new URL('https://www.linkedin.com/oauth/v2/authorization');
-          url.searchParams.set('response_type', 'code');
-          url.searchParams.set('client_id', clientId);
-          url.searchParams.set('redirect_uri', redirectUri);
-          url.searchParams.set('state', state);
-          if (scopes.length > 0) url.searchParams.set('scope', scopes.join(' '));
-          return url;
-        })()
-      : provider === 'x' && xClientId()
-        ? (() => {
-          const url = new URL('https://twitter.com/i/oauth2/authorize');
-          url.searchParams.set('response_type', 'code');
-          url.searchParams.set('client_id', xClientId());
-          url.searchParams.set('redirect_uri', redirectUri);
-          url.searchParams.set('state', state);
-          if (scopes.length > 0) {
-            url.searchParams.set('scope', scopes.join(' '));
-          }
-          if (codeVerifier) {
-            url.searchParams.set('code_challenge', createCodeChallenge(codeVerifier));
-            url.searchParams.set('code_challenge_method', 'S256');
-          }
-          return url;
-        })()
-        : new URL(`https://oauth.${provider}.example/authorize`);
-
-  if (!(provider === 'x' && xClientId()) && provider !== 'linkedin') {
-    authUrl.searchParams.set('response_type', 'code');
-    authUrl.searchParams.set('client_id', `${provider}_client`);
-    authUrl.searchParams.set('redirect_uri', redirectUri);
-    authUrl.searchParams.set('state', state);
-    if (scopes.length > 0) authUrl.searchParams.set('scope', scopes.join(' '));
-  }
+  const authUrl = buildProviderAuthorizationUrl({
+    provider,
+    redirectUri,
+    state,
+    scopes,
+    codeVerifier,
+  });
 
   return {
     broker_status: 'ok',
@@ -288,5 +239,8 @@ export async function handleOauthConnectHttp(req: Request, providerFromPath?: st
     headers: { 'content-type': 'application/json' }
   });
 }
+
+export { oauthStore } from './oauth-memory-store';
+export type { OauthBrokerMemoryStore, MemoryConnectionRecord, MemoryPendingAuthRecord } from './oauth-memory-store';
 
 export type { Provider, BrokerStatus, OAuthConnectionStatus, ConnectionRecord, PendingAuthRecord };

@@ -1,5 +1,6 @@
 import { brokerError, isAllowedProvider, type OAuthBrokerError } from './connect';
-import { dbAuditEvent, dbGetConnectionById, dbInsertPendingState, dbUpsertConnection } from './oauth-db';
+import { buildProviderAuthorizationUrl } from './oauth-authorize-urls';
+import { dbAuditEvent, dbGetConnectionById, dbInsertPendingState, dbUpsertConnection, type DbProvider } from './oauth-db';
 
 type OAuthReconnectRequest = {
   connection_id?: string;
@@ -105,21 +106,19 @@ export async function oauthReconnect(
     detail: { redirect_uri: redirectUri, scopes },
   });
 
-  const authorizationUrl = new URL(`https://oauth.${provider}.example/authorize`);
-  authorizationUrl.searchParams.set('response_type', 'code');
-  authorizationUrl.searchParams.set('client_id', `${provider}_client`);
-  authorizationUrl.searchParams.set('redirect_uri', redirectUri);
-  authorizationUrl.searchParams.set('state', state);
-  if (scopes.length > 0) {
-    authorizationUrl.searchParams.set('scope', scopes.join(' '));
-  }
+  const built = buildProviderAuthorizationUrl({
+    provider: provider as DbProvider,
+    redirectUri,
+    state,
+    scopes,
+  });
 
   return {
     broker_status: 'ok',
     provider,
     connection_id: connectionId,
     connection_status: 'reauthorization_required',
-    authorization_url: authorizationUrl.toString(),
+    authorization_url: built.toString(),
     state,
     expires_at: expiresAt,
   };
@@ -135,7 +134,15 @@ export async function handleOauthReconnectHttp(req: Request, providerFromPath?: 
 
   const url = new URL(req.url);
   const provider = (providerFromPath || url.searchParams.get('provider') || '').toLowerCase();
-  const result = await oauthReconnect(provider, payload);
+  let result: Awaited<ReturnType<typeof oauthReconnect>>;
+  try {
+    result = await oauthReconnect(provider, payload);
+  } catch (error) {
+    result = brokerError('internal_error', {
+      provider,
+      message: error instanceof Error ? error.message : 'internal_error',
+    });
+  }
 
   const status =
     result.broker_status === 'ok'
@@ -144,7 +151,9 @@ export async function handleOauthReconnectHttp(req: Request, providerFromPath?: 
         ? 400
         : result.reason === 'connection_not_found'
           ? 404
-          : 500;
+          : result.reason === 'internal_error'
+            ? 500
+            : 500;
 
   return new Response(JSON.stringify(result), {
     status,
