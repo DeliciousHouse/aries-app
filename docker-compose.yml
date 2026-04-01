@@ -3,12 +3,17 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        ARIES_NODE_UID: 1004
+        ARIES_NODE_GID: 1004
     image: ${ARIES_APP_IMAGE:-aries-app:local}
     environment:
+      HOME: /home/node
       NODE_ENV: production
       PORT: ${PORT:-3000}
       CODE_ROOT: /app
       DATA_ROOT: /data
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
       OPENCLAW_GATEWAY_URL: ${OPENCLAW_GATEWAY_URL}
       OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
       OPENCLAW_SESSION_KEY: ${OPENCLAW_SESSION_KEY:-main}
@@ -52,11 +57,15 @@ services:
 
   mission-control:
     image: node:24
+    user: "${ARIES_NODE_UID:-1004}:${ARIES_NODE_GID:-1004}"
     working_dir: /app/mission-control
-    command: sh -lc "npm install && npm run build && npm run preview"
+    environment:
+      HOME: /tmp
+      NPM_CONFIG_CACHE: /tmp/.npm
+    command: sh -lc "npm install && npm run build && npm run preview -- --host 0.0.0.0 --port 4174"
     volumes:
       - /home/node/openclaw/projects/mission-control-builder/mission-control:/app/mission-control
-      - /home/node/openclaw/aries-app:/app/aries-app
+      - /home/node/openclaw/aries-app:/app/aries-app:ro
     ports:
       - "4174:4174"
     restart: unless-stopped
@@ -70,3 +79,4 @@ networks:
 
 volumes:
   aries_runtime_data:
+    name: aries-app_aries_runtime_data

@@ -1,11 +1,34 @@
 #!/usr/bin/env python3
 import argparse
+import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from _brand_tokens import build_brand_tokens
+from _marketing_profile_common import (
+    extract_json_object,
+    list_of_strings,
+    load_json_file,
+    normalize_marketing_url,
+    normalize_space,
+    record_or_empty,
+    string_or_none,
+    unique_strings,
+    utc_now,
+    validate_brand_name,
+    validate_channel_angles,
+    validate_copy_text,
+    validate_line_options,
+    validate_optional_copy_text,
+    validate_short_text,
+    validate_unique_copy_list,
+    validated_document_path,
+    write_json_file,
+)
 from _stage2_common import (
     emit_json,
     ensure_run_id,
@@ -16,50 +39,225 @@ from _stage2_common import (
     save_step,
     slugify,
     summarize_with_gemini,
-    utc_now,
 )
 from _canonical_outputs import brand_output_paths, write_text
 
 
-def _extract_title_and_h1(html: str) -> tuple[str, str]:
-    title_match = re.search(r"<title[^>]*>(.*?)</title>", html, flags=re.IGNORECASE | re.DOTALL)
-    h1_match = re.search(r"<h1[^>]*>(.*?)</h1>", html, flags=re.IGNORECASE | re.DOTALL)
-    title = re.sub(r"<[^>]+>", "", title_match.group(1)).strip() if title_match else ""
-    h1 = re.sub(r"<[^>]+>", "", h1_match.group(1)).strip() if h1_match else ""
-    return title, h1
+def _tsx_command(repo_root: Path) -> list[str]:
+    local_tsx = repo_root / "node_modules" / ".bin" / "tsx"
+    if local_tsx.exists():
+        return [str(local_tsx)]
+    return ["npx", "tsx"]
 
 
-def _canonical_brand_name(brand_slug: str, website_url: str, stage1_summary: dict) -> str:
-    if stage1_summary.get("brand_name"):
-        return str(stage1_summary["brand_name"]).strip()[:120]
-    if brand_slug and brand_slug != "client-brand":
-        return " ".join(part.capitalize() for part in brand_slug.replace("-", " ").split())[:120]
-    domain = parse_domain(website_url)
-    if domain:
-        return domain.split(".")[0].replace("-", " ").title()[:120]
-    return "Client Brand"
+def _bootstrap_validated_brand_kit(tenant_id: str, website_url: str) -> dict:
+    repo_root = Path(__file__).resolve().parents[2]
+    command = [
+        *_tsx_command(repo_root),
+        str(Path(__file__).resolve().parent / "brand-kit-bootstrap.ts"),
+        "--tenant-id",
+        tenant_id,
+        "--brand-url",
+        website_url,
+    ]
+    proc = subprocess.run(
+        command,
+        text=True,
+        capture_output=True,
+        check=False,
+        cwd=repo_root,
+    )
+    if proc.returncode != 0:
+        message = proc.stderr.strip() or proc.stdout.strip() or "brand_kit_bootstrap_failed"
+        raise SystemExit(message)
+    try:
+        return json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"runtime_persistence_unavailable:brand_kit_bootstrap_invalid_json:{exc}") from exc
 
 
-def _fallback_analysis(brand_name: str, website_url: str, stage1_summary: dict) -> dict:
-    executive = stage1_summary.get("executive_summary", {})
-    actions = stage1_summary.get("recommended_actions", [])
-    market_positioning = executive.get("market_positioning") or f"{brand_name} appears to sell a proof-oriented, conversion-led offer."
-    creative_takeaway = executive.get("creative_takeaway") or f"{brand_name} should keep messaging concrete and outcomes-first."
-    campaign_takeaway = executive.get("campaign_takeaway") or f"{brand_name} should align paid traffic to one clear primary CTA."
+def _extract_tag_text(html: str, tag_name: str) -> str:
+    match = re.search(rf"<{tag_name}[^>]*>(.*?)</{tag_name}>", html, flags=re.IGNORECASE | re.DOTALL)
+    return re.sub(r"<[^>]+>", "", match.group(1)).strip() if match else ""
+
+
+def _extract_meta_content(html: str, attribute_name: str, attribute_value: str) -> str:
+    pattern = re.compile(r"<meta\b([^>]*)>", flags=re.IGNORECASE)
+    for match in pattern.finditer(html):
+        attrs = match.group(1) or ""
+        attribute_match = re.search(
+            rf'{attribute_name}\s*=\s*["\']{re.escape(attribute_value)}["\']',
+            attrs,
+            flags=re.IGNORECASE,
+        )
+        if not attribute_match:
+            continue
+        content_match = re.search(r'content\s*=\s*["\']([^"\']+)["\']', attrs, flags=re.IGNORECASE)
+        if content_match:
+            return normalize_space(content_match.group(1))
+    return ""
+
+
+def _canonical_brand_name(tenant_id: str, website_url: str, brand_kit: dict, website_html: str) -> str:
+    title = _extract_tag_text(website_html, "title")
+    h1 = _extract_tag_text(website_html, "h1")
+    site_name = _extract_meta_content(website_html, "property", "og:site_name") or _extract_meta_content(
+        website_html,
+        "name",
+        "application-name",
+    )
+    return validate_brand_name(
+        site_name or h1 or title or tenant_id,
+        canonical_name=brand_kit.get("brand_name") or site_name or h1 or title,
+    )
+
+
+def _structured_analysis_prompt(
+    brand_name: str,
+    tenant_id: str,
+    website_url: str,
+    title: str,
+    h1: str,
+    description: str,
+    stage1_summary: dict,
+) -> str:
+    return "\n".join(
+        [
+            "Analyze the brand website and return one strict JSON object only.",
+            f"Brand name: {brand_name}",
+            f"Tenant id: {tenant_id}",
+            f"Website URL: {website_url}",
+            f"Page title: {title}",
+            f"H1: {h1}",
+            f"Meta description: {description}",
+            f"Competitive context: {json.dumps(stage1_summary, ensure_ascii=True)}",
+            "Requirements:",
+            "- No markdown.",
+            "- No wrapper language.",
+            "- No placeholder framing.",
+            "- No analysis narration in any field.",
+            "- Use finished customer-facing copy for hooks and opening lines.",
+            "- Keep proof points specific and non-repeating.",
+            "- Return this schema exactly:",
+            json.dumps(
+                {
+                    "audience": "string",
+                    "positioning": "string",
+                    "problem_statement": "string",
+                    "offer": "string",
+                    "primary_cta": "string",
+                    "proof_points": ["string", "string", "string"],
+                    "brand_voice": ["string", "string", "string"],
+                    "channel_specific_angles": {
+                        "meta": "string",
+                        "landing-page": "string",
+                        "video": "string",
+                    },
+                    "hooks": {
+                        "meta": ["string", "string"],
+                        "landing-page": ["string", "string"],
+                        "video": ["string", "string"],
+                    },
+                    "opening_lines": {
+                        "meta": ["string"],
+                        "landing-page": ["string"],
+                        "video": ["string", "string"],
+                    },
+                    "business_type": "string or empty",
+                    "primary_goal": "string or empty",
+                    "launch_approver_name": "string or empty",
+                    "channels": ["string", "string"],
+                },
+                ensure_ascii=True,
+            ),
+        ]
+    )
+
+
+def _validated_analysis_fields(parsed: dict, brand_name: str) -> dict:
+    audience = validate_copy_text("audience", parsed.get("audience"), min_tokens=4)
+    positioning = validate_copy_text("positioning", parsed.get("positioning"), min_tokens=4)
+    problem_statement = validate_copy_text("problem_statement", parsed.get("problem_statement"), min_tokens=4)
+    offer = validate_copy_text("offer", parsed.get("offer"), min_tokens=4)
+    primary_cta = validate_copy_text("primary_cta", parsed.get("primary_cta"), min_tokens=2)
+    proof_points = validate_unique_copy_list("proof_points", parsed.get("proof_points"), min_items=3, max_items=5, min_tokens=3)
+    brand_voice = unique_strings([validate_short_text("brand_voice", item) for item in list_of_strings(parsed.get("brand_voice"))])[:5]
+    if len(brand_voice) < 2:
+      raise RuntimeError("quality_gate_failed:brand_voice:too_few_items")
+    channel_specific_angles = validate_channel_angles(parsed.get("channel_specific_angles"))
+    hooks = validate_line_options(parsed.get("hooks"), "hooks")
+    opening_lines = validate_line_options(parsed.get("opening_lines"), "opening_lines")
     return {
-        "brand_promise": market_positioning[:180],
-        "audience_summary": "Mid-funnel buyers looking for a lower-risk, faster path to results.",
-        "positioning_summary": creative_takeaway[:180],
-        "offer_summary": campaign_takeaway[:180],
-        "proof_points": [
-            "Outcome-oriented promise appears consistent across strategy inputs.",
-            "Paid acquisition should reinforce proof, clarity, and reduced friction.",
-            actions[0] if actions else "Use a single, concrete CTA in early channel plans.",
-        ],
-        "brand_voice": ["clear", "proof-led", "practical"],
-        "cta_preferences": ["Book Demo", "Learn More", "Get Started"],
-        "website_url": website_url,
+        "brand_name": brand_name,
+        "audience": audience,
+        "positioning": positioning,
+        "problem_statement": problem_statement,
+        "offer": offer,
+        "primary_cta": primary_cta,
+        "proof_points": proof_points,
+        "brand_voice": brand_voice,
+        "channel_specific_angles": channel_specific_angles,
+        "hooks": hooks,
+        "opening_lines": opening_lines,
+        "business_type": validate_optional_copy_text("business_type", parsed.get("business_type"), min_tokens=1),
+        "primary_goal": validate_optional_copy_text("primary_goal", parsed.get("primary_goal"), min_tokens=2),
+        "launch_approver_name": validate_optional_copy_text("launch_approver_name", parsed.get("launch_approver_name"), min_tokens=1),
+        "channels": unique_strings([validate_short_text("channels", item) for item in list_of_strings(parsed.get("channels"))]) if isinstance(parsed.get("channels"), list) else [],
     }
+
+
+def _structured_from_validated_analysis(existing_analysis: dict) -> dict:
+    return {
+        "audience": existing_analysis.get("audience") or existing_analysis.get("audience_summary"),
+        "positioning": existing_analysis.get("positioning") or existing_analysis.get("positioning_summary"),
+        "problem_statement": existing_analysis.get("problem_statement"),
+        "offer": existing_analysis.get("offer") or existing_analysis.get("offer_summary"),
+        "primary_cta": existing_analysis.get("primary_cta"),
+        "proof_points": existing_analysis.get("proof_points"),
+        "brand_voice": existing_analysis.get("brand_voice"),
+        "channel_specific_angles": existing_analysis.get("channel_specific_angles"),
+        "hooks": existing_analysis.get("hooks"),
+        "opening_lines": existing_analysis.get("opening_lines"),
+        "business_type": existing_analysis.get("business_type"),
+        "primary_goal": existing_analysis.get("primary_goal"),
+        "launch_approver_name": existing_analysis.get("launch_approver_name"),
+        "channels": existing_analysis.get("channels"),
+    }
+
+
+def _required_brand_token(brand_tokens: dict, section: str, key: str) -> str:
+    section_value = record_or_empty(brand_tokens.get(section))
+    value = normalize_space(section_value.get(key))
+    if not value:
+        raise RuntimeError(f"quality_gate_failed:brand_tokens_missing:{section}.{key}")
+    return value
+
+
+def _render_design_system_css(brand_tokens: dict) -> str:
+    return "\n".join(
+        [
+            ":root {",
+            f"  color-scheme: {_required_brand_token(brand_tokens, 'palette', 'theme_mode')};",
+            f"  --brand-primary: {_required_brand_token(brand_tokens, 'palette', 'primary')};",
+            f"  --brand-secondary: {_required_brand_token(brand_tokens, 'palette', 'secondary')};",
+            f"  --brand-accent: {_required_brand_token(brand_tokens, 'palette', 'accent')};",
+            f"  --brand-bg: {_required_brand_token(brand_tokens, 'palette', 'background')};",
+            f"  --brand-surface: {_required_brand_token(brand_tokens, 'palette', 'surface')};",
+            f"  --brand-text: {_required_brand_token(brand_tokens, 'palette', 'text')};",
+            f"  --brand-muted: {_required_brand_token(brand_tokens, 'palette', 'muted')};",
+            f"  --brand-outline: {_required_brand_token(brand_tokens, 'palette', 'outline')};",
+            f"  --brand-accent-contrast: {_required_brand_token(brand_tokens, 'palette', 'accent_contrast')};",
+            f"  --font-display: {_required_brand_token(brand_tokens, 'typography', 'display_stack')};",
+            f"  --font-body: {_required_brand_token(brand_tokens, 'typography', 'body_stack')};",
+            "}",
+            "",
+            "body {",
+            "  background: var(--brand-bg);",
+            "  color: var(--brand-text);",
+            "  font-family: var(--font-body);",
+            "}",
+        ]
+    )
 
 
 def main() -> int:
@@ -70,173 +268,233 @@ def main() -> int:
     parser.add_argument("--research-model", default="gemini/gemini-3-flash-preview")
     parser.add_argument("--stage1-summary-json", default="")
     parser.add_argument("--stage1-summary-base64", default="")
-    parser.add_argument("--strict-mode", default="false")
+    parser.add_argument("--strict-mode", default="true")
     args = parser.parse_args()
 
     if args.stage1_summary_base64.strip():
         import base64
-        import json
-        try:
-            raw_stage1_summary = base64.b64decode(args.stage1_summary_base64).decode("utf-8")
-            stage1_summary = json.loads(raw_stage1_summary)
-        except Exception as exc:
-            raise SystemExit(f"invalid stage1 summary base64 arg ({type(exc).__name__}: {exc})") from exc
+
+        raw_stage1_summary = base64.b64decode(args.stage1_summary_base64).decode("utf-8")
+        stage1_summary = json.loads(raw_stage1_summary)
     elif args.stage1_summary_json.strip():
-        import ast
-        import json
         raw_stage1_summary = args.stage1_summary_json.strip()
-        if (
-            len(raw_stage1_summary) >= 2
-            and raw_stage1_summary[0] == raw_stage1_summary[-1]
-            and raw_stage1_summary[0] in {'"', "'"}
-        ):
-            raw_stage1_summary = raw_stage1_summary[1:-1]
-        try:
-            stage1_summary = json.loads(raw_stage1_summary)
-        except json.JSONDecodeError:
-            try:
-                stage1_summary = ast.literal_eval(raw_stage1_summary)
-            except Exception as exc:
-                raise SystemExit(f"invalid stage1 summary arg: {raw_stage1_summary!r} ({type(exc).__name__}: {exc})") from exc
+        stage1_summary = json.loads(raw_stage1_summary)
     else:
         stage1_summary = read_stdin_json()
-    website_url = args.website_url.strip() or stage1_summary.get("website_url", "")
-    brand_slug = slugify(args.brand_slug or stage1_summary.get("brand_slug", "client-brand"))
+
+    tenant_id = normalize_space(args.brand_slug or stage1_summary.get("tenant_id") or stage1_summary.get("brand_slug"))
+    if not tenant_id:
+        raise SystemExit("stage2_live_strategy_input_required:tenant_id_missing")
+
+    website_url = normalize_marketing_url(args.website_url.strip() or stage1_summary.get("website_url", ""))
+    if not website_url:
+        raise SystemExit("stage2_live_strategy_input_required:website_url_missing")
+
+    brand_slug = slugify(tenant_id)
     research_model = normalize_research_model(args.research_model or stage1_summary.get("research_model", ""))
+    run_id = ensure_run_id(stage1_summary.get("run_id", ""), tenant_id, website_url)
     strict_mode = args.strict_mode.strip().lower() in {"1", "true", "yes", "y", "on"}
-    run_id = ensure_run_id(stage1_summary.get("run_id", ""), brand_slug, website_url)
-    brand_name = _canonical_brand_name(brand_slug, website_url, stage1_summary)
 
-    website_html = ""
-    website_fetch_error = ""
-    if website_url:
-        try:
-            website_html = fetch_text(website_url, timeout=20.0, headers={"User-Agent": "lobster-stage2/1.0"})
-        except Exception as exc:
-            website_fetch_error = f"{type(exc).__name__}: {exc}"
+    brand_kit_bootstrap = _bootstrap_validated_brand_kit(tenant_id, website_url)
+    brand_kit_path = validated_document_path(tenant_id, "brand-kit.json")
+    brand_kit = load_json_file(brand_kit_path)
+    if not brand_kit:
+        raise SystemExit("runtime_persistence_unavailable:brand_kit_missing")
+    brand_tokens = build_brand_tokens(brand_kit)
 
-    title, h1 = _extract_title_and_h1(website_html) if website_html else ("", "")
-    fallback = _fallback_analysis(brand_name, website_url, stage1_summary)
-    prompt = (
-        "Produce a concise brand strategy analysis for a website.\n"
-        f"Brand: {brand_name}\n"
-        f"Brand slug: {brand_slug}\n"
-        f"Website URL: {website_url}\n"
-        f"Page title: {title}\n"
-        f"H1: {h1}\n"
-        f"Stage 1 summary: {stage1_summary}\n"
-        "Return 5 bullets covering brand promise, audience, positioning, offer, and proof."
+    try:
+        website_html = fetch_text(website_url, timeout=20.0, headers={"User-Agent": "lobster-stage2/2.0"})
+    except Exception as exc:
+        raise SystemExit(f"stage2_live_strategy_input_required:website_fetch_failed:{type(exc).__name__}:{exc}") from exc
+
+    title = _extract_tag_text(website_html, "title")
+    h1 = _extract_tag_text(website_html, "h1")
+    description = _extract_meta_content(website_html, "name", "description")
+    brand_name = _canonical_brand_name(tenant_id, website_url, brand_kit, website_html)
+    existing_validated_website_analysis = load_json_file(validated_document_path(tenant_id, "website-analysis.json"))
+    existing_brand_analysis = record_or_empty(existing_validated_website_analysis.get("brand_analysis"))
+    prompt = _structured_analysis_prompt(
+        brand_name=brand_name,
+        tenant_id=tenant_id,
+        website_url=website_url,
+        title=title,
+        h1=h1,
+        description=description,
+        stage1_summary={
+            "competitor": stage1_summary.get("competitor", ""),
+            "executive_summary": stage1_summary.get("executive_summary", {}),
+            "recommended_actions": stage1_summary.get("recommended_actions", []),
+        },
     )
     gemini = summarize_with_gemini(prompt=prompt, research_model=research_model)
-    gemini_lines = [line.strip("- ").strip() for line in gemini.get("text", "").splitlines() if line.strip()]
-    if strict_mode and not website_html and not gemini.get("live"):
-        raise SystemExit(
-            "stage2_live_strategy_input_required: Stage 2 strategy analysis requires either a live website fetch "
-            "or live Gemini summarization."
-        )
+    reused_validated_analysis = False
+    if gemini.get("live"):
+        structured = extract_json_object(gemini.get("text", ""))
+        if not structured:
+            raise SystemExit("quality_gate_failed:website_analysis:invalid_json")
+    else:
+        existing_website_url = normalize_marketing_url(existing_brand_analysis.get("website_url") or existing_brand_analysis.get("canonical_url"))
+        if existing_brand_analysis and existing_website_url == website_url:
+            structured = _structured_from_validated_analysis(existing_brand_analysis)
+            reused_validated_analysis = True
+        elif strict_mode:
+            raise SystemExit("stage2_live_strategy_input_required:gemini_analysis_unavailable")
+        else:
+            structured = {}
+    if not structured:
+        raise SystemExit("quality_gate_failed:website_analysis:invalid_json")
+
+    validated_fields = _validated_analysis_fields(structured, brand_name)
+    canonical_url = normalize_marketing_url(brand_kit.get("canonical_url") or website_url) or website_url
+    competitor_url = normalize_marketing_url(record_or_empty(stage1_summary).get("competitor")) or None
 
     brand_analysis = {
+        "tenant_id": tenant_id,
         "brand_name": brand_name,
         "brand_slug": brand_slug,
         "website_url": website_url,
-        "domain": parse_domain(website_url),
+        "canonical_url": canonical_url,
+        "domain": parse_domain(canonical_url),
         "homepage_signals": {
-            "title": title or f"{brand_name} website",
+            "title": title or brand_name,
             "h1": h1 or brand_name,
+            "description": description,
         },
-        "brand_promise": gemini_lines[0][:180] if len(gemini_lines) > 0 else fallback["brand_promise"],
-        "audience_summary": gemini_lines[1][:180] if len(gemini_lines) > 1 else fallback["audience_summary"],
-        "positioning_summary": gemini_lines[2][:180] if len(gemini_lines) > 2 else fallback["positioning_summary"],
-        "offer_summary": gemini_lines[3][:180] if len(gemini_lines) > 3 else fallback["offer_summary"],
-        "proof_points": gemini_lines[4:7] if len(gemini_lines) > 4 else fallback["proof_points"],
-        "brand_voice": fallback["brand_voice"],
-        "cta_preferences": fallback["cta_preferences"],
+        "brand_promise": validated_fields["hooks"]["landing-page"][0],
+        "audience": validated_fields["audience"],
+        "audience_summary": validated_fields["audience"],
+        "positioning": validated_fields["positioning"],
+        "positioning_summary": validated_fields["positioning"],
+        "problem_statement": validated_fields["problem_statement"],
+        "offer": validated_fields["offer"],
+        "offer_summary": validated_fields["offer"],
+        "primary_cta": validated_fields["primary_cta"],
+        "cta_preferences": [validated_fields["primary_cta"]],
+        "proof_points": validated_fields["proof_points"],
+        "brand_voice": validated_fields["brand_voice"],
+        "channel_specific_angles": validated_fields["channel_specific_angles"],
+        "hooks": validated_fields["hooks"],
+        "opening_lines": validated_fields["opening_lines"],
+        "business_type": validated_fields["business_type"],
+        "primary_goal": validated_fields["primary_goal"],
+        "launch_approver_name": validated_fields["launch_approver_name"],
+        "channels": validated_fields["channels"],
+        "competitor_url": competitor_url,
+        "brand_kit": {
+            "brand_name": brand_kit.get("brand_name"),
+            "source_url": brand_kit.get("source_url"),
+            "canonical_url": brand_kit.get("canonical_url"),
+            "colors": record_or_empty(brand_kit.get("colors")),
+            "font_families": list_of_strings(brand_kit.get("font_families")),
+            "logo_urls": list_of_strings(brand_kit.get("logo_urls")),
+            "extracted_at": string_or_none(brand_kit.get("extracted_at")),
+        },
+        "design_tokens": brand_tokens,
         "stage1_summary": {
             "competitor": stage1_summary.get("competitor", ""),
             "executive_summary": stage1_summary.get("executive_summary", {}),
             "recommended_actions": stage1_summary.get("recommended_actions", []),
         },
     }
+
     paths = brand_output_paths(brand_slug)
     brand_bible_md = "\n".join(
         [
             f"# {brand_name} Brand Bible",
             "",
-            f"- Brand slug: {brand_slug}",
-            f"- Website: {website_url or 'n/a'}",
-            "",
-            "## Brand Promise",
-            brand_analysis["brand_promise"],
+            f"- Tenant id: {tenant_id}",
+            f"- Website: {website_url}",
+            f"- Primary CTA: {brand_analysis['primary_cta']}",
             "",
             "## Audience",
-            brand_analysis["audience_summary"],
+            brand_analysis["audience"],
             "",
             "## Positioning",
-            brand_analysis["positioning_summary"],
+            brand_analysis["positioning"],
+            "",
+            "## Problem Statement",
+            brand_analysis["problem_statement"],
             "",
             "## Offer",
-            brand_analysis["offer_summary"],
+            brand_analysis["offer"],
             "",
             "## Proof Points",
             *[f"- {point}" for point in brand_analysis["proof_points"]],
             "",
-            "## Brand Voice",
-            *[f"- {trait}" for trait in brand_analysis["brand_voice"]],
+            "## Channel Angles",
+            *[f"- {channel}: {angle}" for channel, angle in brand_analysis["channel_specific_angles"].items()],
             "",
-            "## CTA Preferences",
-            *[f"- {cta}" for cta in brand_analysis["cta_preferences"]],
+            "## Hooks",
+            *[
+                f"- {channel}: {' | '.join(lines)}"
+                for channel, lines in brand_analysis["hooks"].items()
+            ],
+            "",
+            "## Opening Lines",
+            *[
+                f"- {channel}: {' | '.join(lines)}"
+                for channel, lines in brand_analysis["opening_lines"].items()
+            ],
         ]
     )
-    design_system_css = "\n".join(
-        [
-            ":root {",
-            "  --brand-bg: #0f1720;",
-            "  --brand-surface: #16212c;",
-            "  --brand-text: #f5f2eb;",
-            "  --brand-accent: #d4a94f;",
-            "  --brand-muted: #9fb1c1;",
-            "  --font-display: 'Inter', 'Helvetica Neue', Arial, sans-serif;",
-            "  --font-body: 'Inter', Arial, sans-serif;",
-            "}",
-            "",
-            "body {",
-            "  background: var(--brand-bg);",
-            "  color: var(--brand-text);",
-            "  font-family: var(--font-body);",
-            "}",
-            "",
-            ".button-primary {",
-            "  background: var(--brand-accent);",
-            "  color: #111827;",
-            "  border-radius: 999px;",
-            "  padding: 0.9rem 1.4rem;",
-            "  font-weight: 700;",
-            "}",
-        ]
-    )
+    design_system_css = _render_design_system_css(brand_tokens)
     brand_bible_path = write_text(paths["brand_bible_md"], brand_bible_md)
     design_system_path = write_text(paths["design_system_css"], design_system_css)
+
+    validated_payload = {
+        "schema_version": "2026-03-31.website-analysis.v1",
+        "type": "website_analysis",
+        "tenant_id": tenant_id,
+        "brand_slug": brand_slug,
+        "brand_name": brand_name,
+        "website_url": website_url,
+        "canonical_url": canonical_url,
+        "source_run_id": run_id,
+        "validated_at": utc_now(),
+        "research_model": research_model,
+        "brand_analysis": brand_analysis,
+        "research": {
+            "website_fetch": {
+                "live": True,
+                "error": "",
+            },
+            "gemini": gemini,
+            "brand_kit_bootstrap": brand_kit_bootstrap,
+            "validated_website_analysis_reuse": {
+                "used": reused_validated_analysis,
+                "path": str(validated_document_path(tenant_id, "website-analysis.json")) if reused_validated_analysis else "",
+            },
+        },
+    }
+    validated_website_analysis_path = write_json_file(
+        validated_document_path(tenant_id, "website-analysis.json"),
+        validated_payload,
+    )
 
     payload = {
         "type": "website_brand_analysis",
         "stub": False,
-        "mode": "live" if (bool(website_html) or gemini.get("live")) else "fallback",
+        "mode": "live",
         "generated_at": utc_now(),
         "run_id": run_id,
         "research_model": research_model,
+        "tenant_id": tenant_id,
         "brand_slug": brand_slug,
         "website_url": website_url,
+        "validated_website_analysis_path": validated_website_analysis_path,
         "brand_analysis": brand_analysis,
-        "research": {
-            "website_fetch": {
-                "live": bool(website_html),
-                "error": website_fetch_error,
-            },
-            "gemini": gemini,
-        },
+        "research": validated_payload["research"],
         "artifacts": {
             "brand_bible_markdown_path": brand_bible_path,
             "design_system_css_path": design_system_path,
+            "design_token_source_path": str(brand_kit_path),
+        },
+        "persistence": {
+            "backend": "runtime-validated-store",
+            "validated_website_analysis_path": validated_website_analysis_path,
+            "brand_kit_path": str(brand_kit_path),
+            "brand_kit_bootstrap_action": brand_kit_bootstrap.get("bootstrap_action", ""),
+            "design_token_source": "validated_brand_kit",
         },
     }
     save_step(run_id, "website_brand_analysis", payload)

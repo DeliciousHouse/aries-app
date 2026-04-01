@@ -49,6 +49,10 @@ def run_json(command: list[str], payload: dict) -> dict:
     return json.loads(proc.stdout)
 
 
+def pybin(script_path: Path) -> list[str]:
+    return [sys.executable, str(script_path)]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json", action="store_true")
@@ -61,7 +65,7 @@ def main() -> int:
     production_handoff = read_input_or_handoff(args, bin_dir)
 
     preflight = run_json([
-        str(bin_dir / "performance-marketer"),
+        *pybin(bin_dir / "performance-marketer"),
         "--json",
         "--mode",
         "preflight",
@@ -70,7 +74,7 @@ def main() -> int:
     ], production_handoff)
 
     launch_review = run_json([
-        str(bin_dir / "launch-review-preview"),
+        *pybin(bin_dir / "launch-review-preview"),
         "--json",
         "--brand-slug",
         args.brand_slug,
@@ -92,14 +96,14 @@ def main() -> int:
     publisher_results: dict[str, dict] = {}
     for step_name, executable in publisher_names:
         publisher_results[step_name] = run_json([
-            str(bin_dir / executable),
+            *pybin(bin_dir / executable),
             "--json",
             "--brand-slug",
             args.brand_slug,
         ], preflight)
 
     summary = run_json([
-        str(bin_dir / "performance-marketer"),
+        *pybin(bin_dir / "performance-marketer"),
         "--json",
         "--mode",
         "summarize",

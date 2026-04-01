@@ -7,7 +7,7 @@ import { signIn } from 'next-auth/react';
 import AuthLayout from '../../frontend/auth/auth-layout';
 import LoginForm from '../../frontend/auth/login-form';
 
-function authErrorMessage(errorCode: string | null): string | null {
+function authErrorMessage(errorCode: string | null, missingClaims: string | null): string | null {
   if (!errorCode) {
     return null;
   }
@@ -17,6 +17,13 @@ function authErrorMessage(errorCode: string | null): string | null {
       return 'Invalid email or password.';
     case 'AccessDenied':
       return 'Access was denied. Try a different sign-in method.';
+    case 'TenantClaimsIncomplete':
+      return missingClaims
+        ? `Your account is authenticated but missing required tenant claims: ${missingClaims
+            .split(',')
+            .filter(Boolean)
+            .join(', ')}.`
+        : 'Your account is authenticated but missing required tenant claims.';
     case 'OAuthAccountNotLinked':
       return 'This email is already linked to a different sign-in method.';
     case 'CallbackRouteError':
@@ -34,7 +41,7 @@ export default function LoginPageClient() {
   const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
   const defaultEmail = searchParams.get('email') || '';
   const queryError = useMemo(
-    () => authErrorMessage(searchParams.get('error')),
+    () => authErrorMessage(searchParams.get('error'), searchParams.get('missing')),
     [searchParams],
   );
 
@@ -66,7 +73,9 @@ export default function LoginPageClient() {
       }
 
       if (result.error) {
-        setAuthError(authErrorMessage(result.error) || 'Invalid email or password.');
+        setAuthError(
+          authErrorMessage(result.error, searchParams.get('missing')) || 'Invalid email or password.',
+        );
         setIsLoading(false);
         return;
       }

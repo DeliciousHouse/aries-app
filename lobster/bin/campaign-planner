@@ -5,60 +5,296 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _stage2_common import emit_json, normalize_research_model, read_stdin_json, save_step, utc_now
-from _stage2_common import ensure_run_id
+from _marketing_profile_common import record_or_empty, validate_copy_text
+from _stage2_common import emit_json, ensure_run_id, normalize_research_model, read_stdin_json, save_step, utc_now
 
 
-def _record_from_brand_analysis(analysis: dict, brand_slug: str) -> dict:
+def _as_list(value) -> list:
+    return value if isinstance(value, list) else []
+
+
+def _stage1_context(creative_handoff: dict) -> dict:
+    stage1_summary = record_or_empty(creative_handoff.get("stage1_summary"))
+    executive_summary = record_or_empty(stage1_summary.get("executive_summary"))
     return {
-        "brand_slug": analysis.get("brand_slug", brand_slug),
-        "brand_name": analysis.get("brand_name", "Client Brand"),
-        "brand_promise": analysis.get("brand_promise", ""),
-        "audience_summary": analysis.get("audience_summary", ""),
-        "offer_summary": analysis.get("offer_summary", ""),
-        "proof_points": analysis.get("proof_points", []),
-        "brand_voice": analysis.get("brand_voice", []),
-        "cta_preferences": analysis.get("cta_preferences", []),
+        "competitor": stage1_summary.get("competitor", ""),
+        "market_positioning": executive_summary.get("market_positioning", ""),
+        "creative_takeaway": executive_summary.get("creative_takeaway", ""),
+        "campaign_takeaway": executive_summary.get("campaign_takeaway", ""),
+        "recommended_actions": _as_list(stage1_summary.get("recommended_actions")),
     }
 
 
-def _channel_contexts_from_analysis(analysis: dict) -> dict:
-    promise = analysis.get("brand_promise", "")
-    audience = analysis.get("audience_summary", "")
-    offer = analysis.get("offer_summary", "")
-    proof_points = analysis.get("proof_points", [])
-    brand_voice = analysis.get("brand_voice", [])
-    cta_preferences = analysis.get("cta_preferences") or ["Learn More"]
-    contexts = {
-        "meta": {
-            "primary_message": promise,
-            "audience_angle": audience,
-            "offer_angle": offer,
-            "proof_points": proof_points[:3],
-            "brand_voice": brand_voice,
-            "cta": cta_preferences[0],
-            "creative_bias": "performance-first paid acquisition testing",
+def _audience_variants(creative_handoff: dict, channel: str) -> list[dict]:
+    audience = creative_handoff["audience"]
+    problem_statement = creative_handoff["problem_statement"]
+    offer = creative_handoff["offer"]
+    proof_points = creative_handoff["proof_points"][:2]
+    channel_angle = creative_handoff["channel_specific_angles"][channel]
+    return [
+        {
+            "segment": "Core audience",
+            "message": validate_copy_text(
+                f"campaign_plan.{channel}.audience_variants.core",
+                f"{audience} needs a direct message about {channel_angle.lower()} without losing the concrete offer.",
+                min_tokens=8,
+            ),
         },
-        "landing-page": {
-            "primary_message": promise,
-            "audience_angle": audience,
-            "offer_angle": offer,
-            "proof_points": proof_points[:3],
-            "brand_voice": brand_voice,
-            "cta": cta_preferences[0],
-            "creative_bias": "message match and friction reduction",
+        {
+            "segment": "Problem-aware buyers",
+            "message": validate_copy_text(
+                f"campaign_plan.{channel}.audience_variants.problem_aware",
+                f"Lead with {problem_statement.lower()} and pivot quickly into {offer.lower()} backed by {proof_points[0].lower()}.",
+                min_tokens=8,
+            ),
         },
-        "youtube": {
-            "primary_message": promise,
-            "audience_angle": audience,
-            "offer_angle": offer,
-            "proof_points": proof_points[:3],
-            "brand_voice": brand_voice,
-            "cta": cta_preferences[0],
-            "creative_bias": "educational problem-solution storytelling",
+        {
+            "segment": "High-intent evaluators",
+            "message": validate_copy_text(
+                f"campaign_plan.{channel}.audience_variants.high_intent",
+                f"Use proof-first language for evaluators who need to see {proof_points[-1].lower()} before accepting the CTA.",
+                min_tokens=8,
+            ),
         },
+    ]
+
+
+def _family_templates(channel: str, creative_handoff: dict, stage1_context: dict) -> list[dict]:
+    hooks = creative_handoff["hooks"][channel]
+    opening_lines = creative_handoff["opening_lines"][channel]
+    proof_points = creative_handoff["proof_points"][:3]
+    channel_angle = creative_handoff["channel_specific_angles"][channel]
+    competitor_takeaway = (
+        stage1_context.get("campaign_takeaway")
+        or stage1_context.get("creative_takeaway")
+        or "competitor proof-led angle"
+    )
+    return [
+        {
+            "family_id": f"{channel}-outcome-proof",
+            "family_name": "Outcome proof",
+            "funnel_stage": "cold",
+            "primary_hook": hooks[0],
+            "opening_line": opening_lines[0],
+            "angle": validate_copy_text(
+                f"campaign_plan.{channel}.family.outcome_proof.angle",
+                f"{hooks[0]} Anchor the message in {proof_points[0].lower()} and keep the CTA attached to the promised outcome.",
+                min_tokens=8,
+            ),
+            "offer_variants": [
+                f"Offer the clearest path into {creative_handoff['offer'].lower()} with the CTA held constant.",
+                f"Translate the offer into a low-friction first step tied to {creative_handoff['primary_cta'].lower()}.",
+            ],
+            "proof_variants": [
+                proof_points[0],
+                proof_points[1] if len(proof_points) > 1 else proof_points[0],
+            ],
+            "objection_variants": [
+                f"Remove the fear that the offer feels generic by proving how {proof_points[0].lower()}.",
+                f"Answer the trust gap with proof before the CTA instead of after it.",
+            ],
+            "hypothesis": validate_copy_text(
+                f"campaign_plan.{channel}.family.outcome_proof.hypothesis",
+                f"If {channel} leads with a concrete outcome plus {proof_points[0].lower()}, cold traffic will click at a higher rate than a generic value-first control.",
+                min_tokens=10,
+            ),
+        },
+        {
+            "family_id": f"{channel}-problem-to-promise",
+            "family_name": "Problem to promise",
+            "funnel_stage": "cold",
+            "primary_hook": hooks[1] if len(hooks) > 1 else hooks[0],
+            "opening_line": opening_lines[0],
+            "angle": validate_copy_text(
+                f"campaign_plan.{channel}.family.problem_to_promise.angle",
+                f"Start with {creative_handoff['problem_statement'].lower()} and move straight into {channel_angle.lower()} without softening the stakes.",
+                min_tokens=10,
+            ),
+            "offer_variants": [
+                f"Frame the offer as the operational answer to {creative_handoff['problem_statement'].lower()}.",
+                f"Position the CTA as the next logical move after naming the buyer pain clearly.",
+            ],
+            "proof_variants": [
+                proof_points[1] if len(proof_points) > 1 else proof_points[0],
+                proof_points[2] if len(proof_points) > 2 else proof_points[0],
+            ],
+            "objection_variants": [
+                "Answer the 'this sounds like every other vendor' objection by naming the specific mechanism.",
+                "Answer the 'this will take too long to implement' objection with a tight next-step CTA.",
+            ],
+            "hypothesis": validate_copy_text(
+                f"campaign_plan.{channel}.family.problem_to_promise.hypothesis",
+                f"If {channel} dramatizes the current problem before introducing the offer, problem-aware buyers will stay engaged longer and move deeper into the funnel.",
+                min_tokens=10,
+            ),
+        },
+        {
+            "family_id": f"{channel}-offer-clarity",
+            "family_name": "Offer clarity",
+            "funnel_stage": "warm",
+            "primary_hook": hooks[0],
+            "opening_line": opening_lines[1] if len(opening_lines) > 1 else opening_lines[0],
+            "angle": validate_copy_text(
+                f"campaign_plan.{channel}.family.offer_clarity.angle",
+                f"Use warm-funnel messaging to explain {creative_handoff['offer'].lower()} with tighter proof and less introduction copy.",
+                min_tokens=9,
+            ),
+            "offer_variants": [
+                f"Spell out what the buyer gets, how quickly they get it, and what {creative_handoff['primary_cta'].lower()} unlocks.",
+                f"Shift the message from awareness into decision support with explicit offer mechanics.",
+            ],
+            "proof_variants": [
+                proof_points[0],
+                proof_points[-1],
+            ],
+            "objection_variants": [
+                "Handle the 'I need to justify this internally' objection with proof that feels boardroom-safe.",
+                "Handle the 'I need to see the process before I commit' objection with transparent next-step framing.",
+            ],
+            "hypothesis": validate_copy_text(
+                f"campaign_plan.{channel}.family.offer_clarity.hypothesis",
+                f"If {channel} explains the offer mechanics with proof stacked nearby, warm audiences will convert more efficiently than they do on broad awareness language.",
+                min_tokens=11,
+            ),
+        },
+        {
+            "family_id": f"{channel}-differentiated-proof",
+            "family_name": "Differentiated proof",
+            "funnel_stage": "warm",
+            "primary_hook": hooks[2] if len(hooks) > 2 else hooks[0],
+            "opening_line": opening_lines[-1],
+            "angle": validate_copy_text(
+                f"campaign_plan.{channel}.family.differentiated_proof.angle",
+                f"Use {creative_handoff['positioning'].lower()} to separate the brand from the competitor pattern around {competitor_takeaway.lower()}.",
+                min_tokens=10,
+            ),
+            "offer_variants": [
+                "Compare the buyer's current alternative to the brand's differentiated operating model.",
+                "Use the offer to prove why this brand is not just a cosmetic version of the competitor set.",
+            ],
+            "proof_variants": [
+                proof_points[-1],
+                proof_points[0],
+            ],
+            "objection_variants": [
+                "Answer the 'why not stay with the current option' objection with differentiated proof, not adjectives.",
+                "Answer the 'I have seen this claim before' objection by tightening the proof and removing generic language.",
+            ],
+            "hypothesis": validate_copy_text(
+                f"campaign_plan.{channel}.family.differentiated_proof.hypothesis",
+                f"If {channel} contrasts the brand's positioning against the competitor pattern around {competitor_takeaway.lower()}, high-intent buyers will show stronger conversion intent.",
+                min_tokens=12,
+            ),
+        },
+    ]
+
+
+def _channel_matrix(channel: str, creative_handoff: dict, stage1_context: dict, budget_share_percent: int) -> dict:
+    families = _family_templates(channel, creative_handoff, stage1_context)
+    return {
+        "channel": channel,
+        "audience_variants": _audience_variants(creative_handoff, channel),
+        "cold_funnel": [family for family in families if family["funnel_stage"] == "cold"],
+        "warm_funnel": [family for family in families if family["funnel_stage"] == "warm"],
+        "budget_share_percent": budget_share_percent,
+        "success_criteria": {
+            "meta": [
+                "Raise click-through rate above the current control while holding message match to the landing page.",
+                "Improve qualified visit volume without relying on generic CTA copy.",
+                "Promote the proof-led variant into warm retargeting only after it beats the cold control.",
+            ],
+            "landing-page": [
+                "Increase CTA click-through without weakening the problem-to-offer sequence.",
+                "Hold the proof section above the fold for warm visitors and track deeper page engagement.",
+                "Keep message match between paid hook and hero headline explicit on every variant.",
+            ],
+            "video": [
+                "Improve first-three-second hold rate with the strongest opening line.",
+                "Move more viewers into click or retargeting pools with proof before the final CTA.",
+                "Promote only the variants that retain attention and keep offer clarity intact.",
+            ],
+        }[channel],
     }
-    return contexts
+
+
+def _channel_plans(matrix: dict, creative_handoff: dict, channel_contexts: dict) -> list[dict]:
+    plans = []
+    for channel in ("meta", "landing-page", "video"):
+        context = record_or_empty(channel_contexts.get(channel))
+        platform_matrix = record_or_empty(matrix.get(channel))
+        cold_funnel = _as_list(platform_matrix.get("cold_funnel"))
+        lead_family = cold_funnel[0] if cold_funnel else {}
+        plans.append(
+            {
+                "channel": channel,
+                "goal": validate_copy_text(
+                    f"campaign_plan.{channel}.goal",
+                    lead_family.get("angle") or context.get("angle") or creative_handoff["channel_specific_angles"][channel],
+                    min_tokens=4,
+                ),
+                "message": creative_handoff["channel_specific_angles"][channel],
+                "hook": lead_family.get("primary_hook") or creative_handoff["hooks"][channel][0],
+                "opening_line": lead_family.get("opening_line") or creative_handoff["opening_lines"][channel][0],
+                "cta": creative_handoff["primary_cta"],
+                "creative_bias": context.get("creative_bias", ""),
+                "hypothesis": lead_family.get("hypothesis", ""),
+                "funnel_stage": lead_family.get("funnel_stage", "cold"),
+            }
+        )
+    return plans
+
+
+def _budget_testing_plan(plan: dict, stage1_context: dict) -> dict:
+    recommended_actions = stage1_context.get("recommended_actions") or []
+    competitor_pressure = stage1_context.get("campaign_takeaway") or stage1_context.get("creative_takeaway") or "competitor proof-first pattern"
+    return {
+        "budget_guardrails": [
+            "Hold back scaling budget until one cold hook family and one warm proof family beat the control.",
+            "Keep landing-page variants message-matched to the winning paid hook families.",
+            "Retain a challenger cell against the current winner so the system does not converge on one thin angle.",
+        ],
+        "phases": [
+            {
+                "phase": "Cold acquisition discovery",
+                "budget_share_percent": 55,
+                "channels": ["meta", "video"],
+                "hypotheses": [
+                    "Outcome proof will outperform broad category language for first-touch traffic.",
+                    f"Differentiated messaging will beat creative that looks too close to the competitor pattern around {competitor_pressure.lower()}.",
+                ],
+                "success_criteria": [
+                    "Promote only hook families that win on attention and qualified visit quality.",
+                    "Cut variants that cannot beat the control on message-match traffic quality.",
+                ],
+            },
+            {
+                "phase": "Landing-page message match",
+                "budget_share_percent": 20,
+                "channels": ["landing-page"],
+                "hypotheses": [
+                    "The hero promise that mirrors the winning paid hook will lift CTA interaction.",
+                    "Proof-first page structure will reduce friction for high-intent visitors.",
+                ],
+                "success_criteria": [
+                    "Advance only page variants that increase CTA clicks without weakening proof clarity.",
+                    "Keep the offer explanation below the proof section unless the data disproves that structure.",
+                ],
+            },
+            {
+                "phase": "Warm retargeting and objection removal",
+                "budget_share_percent": 25,
+                "channels": ["meta", "video", "landing-page"],
+                "hypotheses": [
+                    "Offer-clarity and differentiated-proof families will close warmer audiences faster than awareness copy.",
+                    *(recommended_actions[:1] or ["Warm retargeting should prove why this brand is the safer next step."]),
+                ],
+                "success_criteria": [
+                    "Promote only variants that resolve trust objections with concrete proof.",
+                    "Keep warm-funnel CTA language consistent with the tested offer framing.",
+                ],
+            },
+        ],
+    }
 
 
 def main() -> int:
@@ -69,47 +305,51 @@ def main() -> int:
     args = parser.parse_args()
 
     data = read_stdin_json()
-    record = data.get("brand_profiles_record", {})
-    channels = data.get("downstream_channel_context", {})
-    if not record:
-        record = _record_from_brand_analysis(data.get("brand_analysis", {}), args.brand_slug)
-    if not channels:
-        channels = _channel_contexts_from_analysis(data.get("brand_analysis", {}))
-    run_id = ensure_run_id(data.get("run_id", ""), record.get("brand_slug", ""), args.brand_slug)
-    research_model = normalize_research_model(args.research_model or data.get("research_model", ""))
+    record = record_or_empty(data.get("brand_profiles_record"))
+    creative_handoff = record_or_empty(data.get("creative_handoff") or record.get("creative_handoff"))
+    channels = record_or_empty(data.get("downstream_channel_context"))
+    if not creative_handoff:
+        raise SystemExit("quality_gate_failed:creative_handoff:missing")
 
-    primary_cta = (record.get("cta_preferences") or ["Learn More"])[0]
-    proof_points = (record.get("proof_points") or [])[:3]
+    run_id = ensure_run_id(data.get("run_id", ""), record.get("tenant_id", ""), args.brand_slug)
+    research_model = normalize_research_model(args.research_model or data.get("research_model", ""))
+    primary_cta = creative_handoff.get("primary_cta", "")
+    proof_points = creative_handoff.get("proof_points", [])[:3]
+    campaign_name = f"{record.get('brand_slug', args.brand_slug)}-stage2-plan"
+    stage1_context = _stage1_context(creative_handoff)
+    testing_matrix = {
+        "meta": _channel_matrix("meta", creative_handoff, stage1_context, 45),
+        "landing-page": _channel_matrix("landing-page", creative_handoff, stage1_context, 20),
+        "video": _channel_matrix("video", creative_handoff, stage1_context, 35),
+    }
+
     plan = {
-        "campaign_name": f"{record.get('brand_slug', args.brand_slug)}-stage2-plan",
-        "objective": "Build a cross-channel strategy handoff from the canonical brand profile.",
-        "core_message": record.get("brand_promise", ""),
-        "audience": record.get("audience_summary", ""),
-        "offer": record.get("offer_summary", ""),
+        "campaign_name": campaign_name,
+        "objective": f"Turn the validated {record.get('brand_name', 'brand')} analysis into a differentiated paid, landing-page, and video testing system.",
+        "core_message": creative_handoff["hooks"]["landing-page"][0],
+        "audience": creative_handoff["audience"],
+        "positioning": creative_handoff["positioning"],
+        "problem_statement": creative_handoff["problem_statement"],
+        "offer": creative_handoff["offer"],
         "primary_cta": primary_cta,
         "proof_points": proof_points,
-        "channel_plans": [
-            {
-                "channel": channel,
-                "goal": f"Translate the core message into {channel.replace('_', ' ').replace('-', ' ')} execution.",
-                "message": context.get("primary_message", ""),
-                "cta": context.get("cta", primary_cta),
-                "creative_bias": context.get("creative_bias", ""),
-            }
-            for channel, context in channels.items()
-        ],
+        "channel_plans": _channel_plans(testing_matrix, creative_handoff, channels),
+        "competitor_context": stage1_context,
+        "testing_matrix": testing_matrix,
+        "budget_testing_plan": _budget_testing_plan(record, stage1_context),
     }
 
     payload = {
         "type": "campaign_planner",
         "stub": False,
-        "mode": data.get("mode", "fallback"),
+        "mode": "live",
         "generated_at": utc_now(),
         "run_id": run_id,
         "research_model": research_model,
         "brand_slug": record.get("brand_slug", args.brand_slug),
         "campaign_plan": plan,
         "brand_profiles_record": record,
+        "creative_handoff": creative_handoff,
         "downstream_channel_context": channels,
     }
     save_step(run_id, "campaign_planner", payload)

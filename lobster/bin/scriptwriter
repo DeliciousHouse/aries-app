@@ -5,6 +5,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from _marketing_profile_common import (
+    record_or_empty,
+    validate_copy_text,
+    validate_unique_copy_list,
+)
 from _stage3_common import emit_json, ensure_run_id, normalize_research_model, read_stdin_json, save_artifact_text, save_step, slugify, utc_now
 from _canonical_outputs import brand_output_paths, write_text
 
@@ -17,38 +22,49 @@ def main() -> int:
     args = parser.parse_args()
 
     data = read_stdin_json()
-    brief = data.get("production_brief", {})
+    brief = record_or_empty(data.get("production_brief"))
+    creative_handoff = record_or_empty(brief.get("creative_handoff"))
+    hooks = record_or_empty(creative_handoff.get("hooks"))
+    opening_lines = record_or_empty(creative_handoff.get("opening_lines"))
+    meta_hooks = hooks.get("meta") if isinstance(hooks.get("meta"), list) else []
+    video_opening_lines = opening_lines.get("video") if isinstance(opening_lines.get("video"), list) else []
     brand_slug = slugify(args.brand_slug or data.get("brand_slug", "client-brand"))
     research_model = normalize_research_model(args.research_model or data.get("research_model", ""))
     run_id = ensure_run_id(data.get("run_id", ""), brand_slug, brief.get("campaign_name", ""))
-    core_message = brief.get("core_message", "Lead with a concrete result.")
-    offer_summary = brief.get("offer_summary", "Keep the offer concise.")
-    primary_cta = brief.get("primary_cta", "Learn More")
-    proof_points = brief.get("proof_points", [])[:3]
+    meta_hook = validate_copy_text("script.meta_hook", meta_hooks[0] if meta_hooks else brief.get("core_message"), min_tokens=3)
+    offer_summary = validate_copy_text("script.offer_summary", brief.get("offer_summary"), min_tokens=4)
+    problem_statement = validate_copy_text("script.problem_statement", brief.get("problem_statement"), min_tokens=4)
+    primary_cta = validate_copy_text("script.primary_cta", brief.get("primary_cta"), min_tokens=2)
+    proof_points = validate_unique_copy_list("script.proof_points", brief.get("proof_points"), min_items=3, max_items=3, min_tokens=3)
+    video_opening_line = validate_copy_text(
+        "script.video_opening_line",
+        video_opening_lines[0] if video_opening_lines else meta_hook,
+        min_tokens=3,
+    )
 
     script_assets = {
         "meta_ad_script": {
-            "hook": core_message,
+            "hook": meta_hook,
             "body": [
-                f"Problem: {offer_summary}",
-                f"Proof: {proof_points[0] if proof_points else 'Use the strongest proof point available.'}",
-                f"CTA: {primary_cta}",
+                problem_statement,
+                f"{offer_summary} {proof_points[0]}",
+                f"{primary_cta}.",
             ],
             "duration_seconds": 30,
         },
         "short_video_script": {
-            "opening_line": core_message,
+            "opening_line": video_opening_line,
             "beats": [
-                "State the painful status quo in one sentence.",
-                "Introduce the new path or offer.",
-                f"Deliver proof: {proof_points[0] if proof_points else 'show one specific result.'}",
-                f"Close on CTA: {primary_cta}",
+                problem_statement,
+                offer_summary,
+                proof_points[0],
+                primary_cta,
             ],
             "duration_seconds": 30,
         },
         "voiceover_options": [
-            "Direct response, low-jargon, outcome-first read.",
-            "Slightly more consultative version for warmer audiences.",
+            f"{meta_hook} {problem_statement}",
+            f"{video_opening_line} {offer_summary}",
         ],
         "proof_points": proof_points,
     }
@@ -99,7 +115,7 @@ def main() -> int:
     payload = {
         "type": "scriptwriter",
         "stub": False,
-        "mode": "fallback",
+        "mode": "live",
         "generated_at": utc_now(),
         "run_id": run_id,
         "research_model": research_model,

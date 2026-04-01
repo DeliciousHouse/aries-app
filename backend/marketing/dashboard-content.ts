@@ -21,6 +21,7 @@ import {
   type MarketingStage,
 } from './runtime-state'
 import { readMarketingStageStepPayload } from './stage-artifact-resolution'
+import { loadValidatedMarketingProfileSnapshot } from './validated-profile-store'
 
 export type MarketingDashboardItemStatus =
   | 'draft'
@@ -723,6 +724,7 @@ function parseProposalPlan(runtimeDoc: MarketingJobRuntimeDocument): ProposalPla
   const planner = readStageStepPayload(runtimeDoc, 2, 'campaign_planner')
   const plan = recordValue(planner?.campaign_plan) ?? {}
   const brandProfiles = recordValue(planner?.brand_profiles_record) ?? {}
+  const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id)
   return {
     campaignName: stringValue(plan.campaign_name) || null,
     objective: stringValue(plan.objective) || null,
@@ -731,7 +733,7 @@ function parseProposalPlan(runtimeDoc: MarketingJobRuntimeDocument): ProposalPla
     coreMessage: stringValue(plan.core_message) || null,
     offer: stringValue(plan.offer) || null,
     channelPlans: recordArray(plan.channel_plans),
-    brandSlug: stringValue(planner?.brand_slug || brandProfiles.brand_slug) || null,
+    brandSlug: stringValue(validatedProfile.brandSlug || planner?.brand_slug || brandProfiles.brand_slug) || null,
     campaignId: stringValue(plan.campaign_name) || null,
     createdAt: stringValue(brandProfiles.created_at || planner?.created_at) || null,
   }
@@ -742,6 +744,7 @@ function extractCampaignName(runtimeDoc: MarketingJobRuntimeDocument, status: Da
     status.reviewCampaignName,
     proposal.campaignName,
     status.tenantName,
+    loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id).brandName,
     runtimeDoc.brand_kit?.brand_name,
   ]
     .map((value) => stringValue(value))
@@ -1245,6 +1248,7 @@ function buildCampaignWindowSnapshot(runtimeDoc: MarketingJobRuntimeDocument): M
 }
 
 function buildStatusSnapshot(runtimeDoc: MarketingJobRuntimeDocument, proposal: ProposalPlan): DashboardStatusSnapshot {
+  const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id)
   const reviewBundle = rawPublishReviewBundle(runtimeDoc)
   const summaryHeadline =
     proposal.objective ||
@@ -1259,8 +1263,8 @@ function buildStatusSnapshot(runtimeDoc: MarketingJobRuntimeDocument, proposal: 
   const approvalActionHref = runtimeDoc.approvals.current ? `/marketing/job-approve?jobId=${encodeURIComponent(runtimeDoc.job_id)}` : undefined
 
   return {
-    tenantName: runtimeDoc.brand_kit?.brand_name || null,
-    brandWebsiteUrl: runtimeDoc.brand_kit?.source_url || runtimeDoc.inputs.brand_url || null,
+    tenantName: validatedProfile.brandName || runtimeDoc.brand_kit?.brand_name || null,
+    brandWebsiteUrl: validatedProfile.websiteUrl || runtimeDoc.brand_kit?.source_url || runtimeDoc.inputs.brand_url || null,
     campaignWindow: buildCampaignWindowSnapshot(runtimeDoc),
     currentStage: runtimeDoc.current_stage || null,
     updatedAt: runtimeDoc.updated_at || null,

@@ -7,6 +7,7 @@ import { listMarketingDashboardAssetsForJob } from './dashboard-content';
 import { collectStrategyReviewArtifacts } from './artifact-collector';
 import { extractPublishReviewBundle } from './publish-review';
 import type { MarketingJobRuntimeDocument } from './runtime-state';
+import { loadValidatedMarketingProfileDocs, loadValidatedMarketingProfileSnapshot } from './validated-profile-store';
 
 export type MarketingAssetDescriptor = {
   id: string;
@@ -246,11 +247,15 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
   };
 
   const strategyOutputs = recordValue(runtimeDoc.stages.strategy.outputs);
+  const validatedProfileDocs = loadValidatedMarketingProfileDocs(runtimeDoc.tenant_id);
+  const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id);
   const strategyFallback = collectStrategyReviewArtifacts(
     runtimeDoc.stages.strategy.primary_output || { run_id: runtimeDoc.stages.strategy.run_id },
     runtimeDoc,
   );
   const websiteAnalysisPath =
+    validatedProfileDocs.paths.websiteAnalysis ||
+    stringValue(strategyOutputs?.validated_website_analysis_path) ||
     stringValue(strategyOutputs?.website_brand_analysis_path) ||
     stringValue(strategyFallback.outputs.website_brand_analysis_path) ||
     null;
@@ -271,15 +276,17 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
       websiteAnalysis = null;
     }
   }
+  websiteAnalysis ||= validatedProfileDocs.websiteAnalysis;
   websiteAnalysis ||= recordValue(strategyFallback.outputs.website);
   const brandArtifacts = recordValue(websiteAnalysis?.artifacts);
   const brandSlugCandidates = uniqueStrings([
+    validatedProfile.brandSlug,
     stringValue(websiteAnalysis?.brand_slug),
     stringValue(recordValue(websiteAnalysis?.brand_analysis)?.brand_slug),
     slugify(stringValue(runtimeDoc.tenant_id)),
-    slugify(stringValue(runtimeDoc.brand_kit?.brand_name)),
+    slugify(stringValue(validatedProfile.brandName || runtimeDoc.brand_kit?.brand_name)),
     (() => {
-      const candidateUrl = stringValue(runtimeDoc.brand_kit?.canonical_url, stringValue(runtimeDoc.inputs.brand_url));
+      const candidateUrl = stringValue(validatedProfile.canonicalUrl || runtimeDoc.brand_kit?.canonical_url, stringValue(validatedProfile.websiteUrl || runtimeDoc.inputs.brand_url));
       if (!candidateUrl) {
         return '';
       }

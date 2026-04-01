@@ -18,6 +18,7 @@ import {
   explicitArtifactValue,
   normalizeArtifactText,
 } from './real-artifacts';
+import { loadValidatedMarketingProfileSnapshot } from './validated-profile-store';
 
 type TimelineTone = 'info' | 'success' | 'warning' | 'danger';
 
@@ -827,6 +828,7 @@ export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse
   const assetPreviewCards = buildAssetPreviewCards(jobId, reviewBundle);
   const calendarEvents = buildCalendarEvents(runtimeDoc);
   const postCounts = buildPostCounts(runtimeDoc, reviewBundle, calendarEvents);
+  const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id);
   console.info('[marketing-hydration]', {
     event: 'job-status',
     jobId,
@@ -838,8 +840,8 @@ export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse
   return {
     jobId,
     tenantId: runtimeDoc.tenant_id,
-    tenantName: runtimeDoc.brand_kit?.brand_name || null,
-    brandWebsiteUrl: runtimeDoc.brand_kit?.source_url || runtimeDoc.inputs.brand_url || null,
+    tenantName: validatedProfile.brandName || runtimeDoc.brand_kit?.brand_name || null,
+    brandWebsiteUrl: validatedProfile.websiteUrl || runtimeDoc.brand_kit?.source_url || runtimeDoc.inputs.brand_url || null,
     campaignWindow,
     durationDays,
     plannedPostCount: postCounts.plannedPostCount,
