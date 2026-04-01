@@ -121,9 +121,9 @@ export default function OAuthConnectScreen({
   return (
     <AuthLayout>
       <div className="max-w-md mx-auto">
-        <Link href="/dashboard/settings" className="inline-flex items-center gap-2 text-white/60 hover:text-white transition-colors mb-8 group">
+        <Link href="/dashboard/settings/channel-integrations" className="inline-flex items-center gap-2 text-white/60 hover:text-white transition-colors mb-8 group">
           <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-          <span>Back to Settings</span>
+          <span>Back to Channel Integrations</span>
         </Link>
 
         <div className="glass p-8 md:p-10 rounded-2xl border border-white/10 relative overflow-hidden">
@@ -217,10 +217,10 @@ export default function OAuthConnectScreen({
             ) : null}
 
             <Link
-              href="/dashboard/settings"
+              href="/dashboard/settings/channel-integrations"
               className="w-full py-3 px-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-colors text-sm font-medium flex items-center justify-center gap-2"
             >
-              Return to Settings
+              Return to Channel Integrations
             </Link>
           </div>
         </div>

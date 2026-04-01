@@ -50,7 +50,7 @@ export function ShellPanel(props: {
   return (
     <section
       className={clsx(
-        'rounded-[2rem] border border-white/10 bg-white/[0.045] shadow-[0_24px_80px_rgba(0,0,0,0.22)] backdrop-blur-xl',
+        'rounded-[2rem] border border-white/10 bg-white/[0.065] shadow-[0_24px_80px_rgba(0,0,0,0.22)] backdrop-blur-xl',
         props.className,
       )}
     >
@@ -116,7 +116,7 @@ export function DashboardHero(props: {
         </div>
 
         {props.aside ? (
-          <div className="rounded-[2rem] border border-white/10 bg-black/18 p-5 backdrop-blur-sm">
+          <div className="rounded-[2rem] border border-white/10 bg-black/28 p-5 backdrop-blur-sm">
             {props.aside}
           </div>
         ) : null}
@@ -127,7 +127,7 @@ export function DashboardHero(props: {
 
 export function MetricCard(props: DashboardHeroMetric) {
   return (
-    <div className="rounded-[1.35rem] border border-white/8 bg-white/[0.035] px-5 py-5">
+    <div className="rounded-[1.35rem] border border-white/8 bg-white/[0.06] px-5 py-5">
       <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.label}</p>
       <p className="mt-3 text-3xl font-semibold text-white">{props.value}</p>
       <p
@@ -252,7 +252,7 @@ export function ApprovalCard(props: { reviewItems: AriesReviewItem[] }) {
           <Link
             key={item.id}
             href={`/review/${item.id}`}
-            className="flex items-start justify-between gap-4 rounded-[1.25rem] border border-white/8 bg-black/15 px-4 py-4 transition hover:border-white/15 hover:bg-white/[0.06]"
+            className="flex items-start justify-between gap-4 rounded-[1.25rem] border border-white/8 bg-black/25 px-4 py-4 transition hover:border-white/15 hover:bg-white/[0.08]"
           >
             <div className="space-y-1">
               <p className="text-sm font-medium text-white">{item.title}</p>
@@ -329,7 +329,7 @@ export function CampaignSummaryCard(props: { campaign: AriesCampaign }) {
 
 function InfoTile(props: { label: string; value: string }) {
   return (
-    <div className="rounded-[1.25rem] border border-white/8 bg-white/[0.035] px-4 py-4">
+    <div className="rounded-[1.25rem] border border-white/8 bg-white/[0.06] px-4 py-4">
       <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.label}</p>
       <p className="mt-2 text-sm font-medium text-white/80">{props.value}</p>
     </div>
@@ -382,7 +382,7 @@ export function AssetGallery(props: { campaign: AriesCampaign }) {
       {props.campaign.creative.assets.map((asset) => (
         <div
           key={asset.id}
-          className="overflow-hidden rounded-[1.6rem] border border-white/8 bg-white/[0.03]"
+          className="overflow-hidden rounded-[1.6rem] border border-white/8 bg-white/[0.05]"
         >
           <div className="relative flex h-44 items-end bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.14),transparent_45%),linear-gradient(180deg,#1a222b_0%,#0f151b_100%)] p-5">
             <div className="max-w-[14rem] space-y-2">
@@ -533,7 +533,7 @@ export function LoadingStateGrid() {
       {Array.from({ length: 3 }, (_, index) => (
         <div
           key={index}
-          className="h-36 animate-pulse rounded-[1.4rem] border border-white/8 bg-white/[0.035]"
+          className="h-36 animate-pulse rounded-[1.4rem] border border-white/8 bg-white/[0.055]"
         />
       ))}
     </div>
