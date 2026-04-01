@@ -57,9 +57,11 @@ services:
 
   mission-control:
     image: node:24
+    user: "${ARIES_NODE_UID:-1004}:${ARIES_NODE_GID:-1004}"
     working_dir: /app/mission-control
     environment:
       HOME: /tmp
+      NPM_CONFIG_CACHE: /tmp/.npm
     command: sh -lc "npm install && npm run build && npm run preview -- --host 0.0.0.0 --port 4174"
     volumes:
       - /home/node/openclaw/projects/mission-control-builder/mission-control:/app/mission-control
