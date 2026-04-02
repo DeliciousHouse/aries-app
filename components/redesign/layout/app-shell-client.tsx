@@ -291,7 +291,7 @@ export default function AppShellClient({
         const leftEdge = sidebarRect ? Math.max(rect.right, sidebarRect.right) : rect.right;
         setDesktopMenuPosition({
           top: rect.top,
-          left: leftEdge + 12,
+          left: leftEdge + 4,
         });
       };
 
