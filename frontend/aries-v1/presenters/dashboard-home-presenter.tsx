@@ -121,31 +121,22 @@ export default function DashboardHomePresenter({
   const activeSurface = surfaces[activeIndex] || surfaces[0];
 
   return (
-    <div className="space-y-8 pb-12">
-      <section className="relative min-h-[min(88vh,820px)] overflow-hidden rounded-[2rem] border border-white/10 bg-[radial-gradient(ellipse_at_bottom,rgba(123,97,255,0.16),transparent_45%),linear-gradient(180deg,#0a0a0f_0%,#050505_100%)] shadow-[0_24px_80px_rgba(0,0,0,0.42)] md:min-h-[620px] lg:min-h-[550px]">
+    <div className="space-y-12 pb-12">
+      <section className="relative min-h-[min(88vh,820px)] overflow-hidden rounded-[2rem] border border-white/10 bg-[radial-gradient(ellipse_at_bottom,rgba(123,97,255,0.16),transparent_45%),linear-gradient(180deg,#0a0a0f_0%,#050505_100%)] shadow-[0_24px_80px_rgba(0,0,0,0.42)] md:min-h-[550px] lg:min-h-[550px]">
         <div className="absolute right-5 top-5 z-40 md:right-8 md:top-8">
-          <div className="space-y-3">
-            <div className="rounded-xl border border-white/10 bg-[#12121a] px-3 py-2 shadow-xl md:rounded-2xl md:px-6 md:py-4">
-              <h2 className="text-sm font-bold tracking-tight text-white md:text-2xl">{model.hero.title}</h2>
-            </div>
-            <Link
-              href="/dashboard/campaigns/new"
-              className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-[#dcb58f]/30 bg-[#dcb58f] px-4 py-3 text-sm font-semibold text-[#11161c] shadow-[0_10px_30px_rgba(220,181,143,0.25)] transition hover:translate-y-[-1px] hover:shadow-[0_14px_36px_rgba(220,181,143,0.32)]"
-            >
-              New Campaign
-              <ArrowRight className="h-4 w-4" />
-            </Link>
+          <div className="rounded-xl border border-white/10 bg-[#12121a] px-3 py-2 shadow-xl md:rounded-2xl md:px-6 md:py-4">
+            <h2 className="text-sm font-bold tracking-tight text-white md:text-2xl">{model.hero.title}</h2>
           </div>
         </div>
 
         <div className="absolute inset-0 flex items-end justify-center">
-          <div className="absolute top-28 left-1/2 z-20 flex -translate-x-1/2 flex-col items-center text-center md:top-16">
+          <div className="absolute top-28 left-1/2 z-20 flex -translate-x-1/2 flex-col items-center text-center md:top-32 lg:top-16">
             <motion.span
               key={activeSurface.value}
               initial={{ opacity: 0, filter: 'blur(4px)', y: 6 }}
               animate={{ opacity: 1, filter: 'blur(0px)', y: 0 }}
               transition={{ duration: 0.45 }}
-              className="text-4xl font-bold tracking-tight text-white md:text-5xl"
+              className="text-2xl font-bold tracking-tight text-white sm:text-4xl md:text-3xl lg:text-3xl"
             >
               {activeSurface.value}
             </motion.span>
@@ -217,18 +208,18 @@ export default function DashboardHomePresenter({
             </div>
           </div>
 
-          <div className="absolute bottom-0 z-30 flex aspect-[2/1] w-[52%] max-w-[460px] items-end justify-center rounded-t-full border-t border-primary/40 bg-gradient-to-t from-[#050505] to-primary/25 pb-5 shadow-[0_-30px_60px_rgba(123,97,255,0.18)] md:w-[38%] md:pb-8">
+          <div className="absolute bottom-0 z-30 flex aspect-[1.7/1] w-[58%] max-w-[460px] items-end justify-center rounded-t-full border-t border-primary/40 bg-gradient-to-t from-[#050505] to-primary/25 pb-5 shadow-[0_-30px_60px_rgba(123,97,255,0.18)] sm:aspect-[2/1] sm:w-[52%] sm:pb-5 md:w-[38%] md:pb-8">
             <div className="flex flex-col items-center text-center">
               <motion.span
                 key={activeSurface.supporting}
                 initial={{ opacity: 0, scale: 0.94 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.45 }}
-                className="max-w-[12rem] text-sm font-semibold text-white md:max-w-[15rem] md:text-2xl"
+                className="max-w-[12rem] text-sm font-semibold text-white md:max-w-[10rem] md:text-sm lg:max-w-[15rem] lg:text-2xl"
               >
                 {activeSurface.supporting}
               </motion.span>
-              <span className="mt-2 text-[9px] uppercase tracking-[0.28em] text-white/45 md:text-[11px]">
+              <span className="mt-2 text-[9px] uppercase tracking-[0.28em] text-white/45 md:text-[9px] lg:text-[11px]">
                 Current focus
               </span>
             </div>
@@ -236,7 +227,7 @@ export default function DashboardHomePresenter({
         </div>
 
         <div className="absolute inset-0 z-40 grid grid-cols-1 items-end justify-items-center gap-3 p-4 pb-8 sm:gap-4 sm:p-5 sm:pb-10 md:grid-cols-2 md:items-end md:justify-items-stretch md:gap-3 md:gap-x-4 md:p-4 md:pb-8 lg:grid-cols-12 lg:gap-6 lg:p-6 lg:pb-6">
-          <div className="w-full max-w-[min(100%,22rem)] sm:max-w-md md:max-w-[13rem] md:justify-self-start lg:col-span-3 lg:max-w-none lg:w-full lg:justify-self-start lg:self-end">
+          <div className="hidden w-full max-w-[min(100%,22rem)] sm:max-w-md md:block md:max-w-[13rem] md:justify-self-start lg:col-span-3 lg:max-w-none lg:w-full lg:justify-self-start lg:self-end">
             <HeroSideCard eyebrow="Next Action" title={model.nextAction.title} detail={model.nextAction.summary}>
               <Link
                 href={model.nextAction.href}
@@ -250,7 +241,7 @@ export default function DashboardHomePresenter({
 
           <div className="hidden lg:col-span-6 lg:block" />
 
-          <div className="w-full max-w-[min(100%,22rem)] sm:max-w-md md:max-w-[13rem] md:justify-self-end lg:col-span-3 lg:max-w-none lg:w-full lg:justify-self-end lg:self-end">
+          <div className="hidden w-full max-w-[min(100%,22rem)] sm:max-w-md md:block md:max-w-[13rem] md:justify-self-end lg:col-span-3 lg:max-w-none lg:w-full lg:justify-self-end lg:self-end">
             <HeroSideCard
               eyebrow="Campaign Focus"
               title={model.activeCampaign?.name || 'No active campaign yet'}
@@ -262,24 +253,6 @@ export default function DashboardHomePresenter({
                   <span>{model.activeCampaign.pendingApprovals} pending approvals</span>
                 </div>
               ) : null}
-            </HeroSideCard>
-
-            <HeroSideCard
-              eyebrow="Review Queue"
-              title={
-                model.reviews.count > 0
-                  ? `${model.reviews.count} item${model.reviews.count === 1 ? '' : 's'} waiting`
-                  : 'Approval queue is clear'
-              }
-              detail="Nothing goes live without an explicit human decision."
-            >
-              <Link
-                href="/review"
-                className="inline-flex items-center gap-2 text-sm font-medium text-white transition-colors hover:text-white/75"
-              >
-                Open review queue
-                <ArrowRight className="h-4 w-4" />
-              </Link>
             </HeroSideCard>
           </div>
         </div>

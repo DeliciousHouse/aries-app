@@ -38,7 +38,10 @@ export default function AriesLatestCampaignView(props: {
         title={props.title}
         description={props.description}
         action={
-          <Link href="/dashboard/campaigns/new" className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c]">
+          <Link
+            href="/dashboard/campaigns/new"
+            className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold !text-[#11161c] transition-colors hover:!text-[#11161c]"
+          >
             New Campaign
           </Link>
         }

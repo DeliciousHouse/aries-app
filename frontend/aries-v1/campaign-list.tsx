@@ -27,7 +27,10 @@ export default function AriesCampaignListScreen() {
         title="No campaigns yet"
         description="Aries will turn your business and goals into a review-ready marketing plan once you create your first campaign."
         action={
-          <Link href="/dashboard/campaigns/new" className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c]">
+          <Link
+            href="/dashboard/campaigns/new"
+            className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold !text-[#11161c] transition-colors hover:!text-[#11161c]"
+          >
             Create first campaign
             <ArrowRight className="h-4 w-4" />
           </Link>
@@ -42,7 +45,10 @@ export default function AriesCampaignListScreen() {
         eyebrow="Campaigns"
         title="Every campaign in one place"
         action={
-          <Link href="/dashboard/campaigns/new" className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-semibold text-[#11161c]">
+          <Link
+            href="/dashboard/campaigns/new"
+            className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-semibold !text-[#11161c] transition-colors hover:!text-[#11161c]"
+          >
             <Plus className="h-4 w-4" />
             New campaign
           </Link>
