@@ -10,16 +10,21 @@ This manifest lists the supported direct route contract for the current Aries ru
 | `/features` | Marketing site | Capability overview for the current operator surface |
 | `/documentation` | Marketing site | Runtime architecture, setup, and validation steps |
 | `/api-docs` | Marketing site | Browser-safe API reference for the current UI contract |
+| `/public-:brandSlug/campaign` | Public campaign page | Generated landing page backed by Lobster stage outputs |
 
 ## Authenticated operator routes
 
 | Route | Surface | Purpose |
 |---|---|---|
 | `/dashboard` | App shell | Operator overview |
-| `/platforms` | App shell | Platform connection status and OAuth actions |
-| `/settings` | App shell | Tenant settings surface |
-| `/posts` | App shell | Publish controls |
-| `/calendar` | App shell | Calendar and sync controls |
+| `/dashboard/campaigns` | App shell | Campaign list and workspace entrypoint |
+| `/dashboard/campaigns/:campaignId` | App shell | Campaign workspace |
+| `/dashboard/posts` | App shell | Publish controls |
+| `/dashboard/calendar` | App shell | Calendar and sync controls |
+| `/dashboard/results` | App shell | Runtime-backed results overview |
+| `/dashboard/settings` | App shell | Tenant settings surface |
+| `/review` | App shell | Review queue |
+| `/review/:reviewId` | App shell | Review detail |
 
 ## Workflow routes
 

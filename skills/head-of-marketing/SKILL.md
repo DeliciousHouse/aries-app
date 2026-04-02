@@ -92,7 +92,7 @@ I now understand:
 • Voice: {tone description}
 • Visual style: {style description}
 
-Brand bible saved. 
+Brand bible saved.
 
 Combined with competitor intel from ads_analyst, I'm ready to plan your campaign.
 
@@ -251,7 +251,7 @@ Otto: "🎯 Starting brand analysis for Acme...
 
 I have competitor intel ready:
 • Quiz-based TOFU converting well
-• Video ads outperforming static  
+• Video ads outperforming static
 • Price anchoring effective in MOFU
 
 Now analyzing your brand..."

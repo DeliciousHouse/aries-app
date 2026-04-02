@@ -1,6 +1,13 @@
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
+import { resolveCodeRoot, resolveDataRoot } from '@/lib/runtime-paths';
+
+import { listMarketingDashboardAssetsForJob } from './dashboard-content';
+import { collectStrategyReviewArtifacts } from './artifact-collector';
+import { extractPublishReviewBundle } from './publish-review';
 import type { MarketingJobRuntimeDocument } from './runtime-state';
+import { loadValidatedMarketingProfileDocs, loadValidatedMarketingProfileSnapshot } from './validated-profile-store';
 
 export type MarketingAssetDescriptor = {
   id: string;
@@ -15,6 +22,68 @@ export type MarketingAssetLink = {
   label: string;
   contentType: string;
 };
+
+function resolveExistingAbsoluteAssetPath(filePath: string): string | null {
+  const normalizedPath = path.normalize(filePath);
+  if (existsSync(normalizedPath)) {
+    return normalizedPath;
+  }
+
+  const codeRoot = path.normalize(resolveCodeRoot());
+  const legacyCodeRoot = path.join(codeRoot, 'aries-app');
+  if (normalizedPath === legacyCodeRoot || normalizedPath.startsWith(`${legacyCodeRoot}${path.sep}`)) {
+    const suffix = normalizedPath.slice(legacyCodeRoot.length + 1);
+    const candidate = path.join(codeRoot, suffix);
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function assetRoots(): string[] {
+  return Array.from(
+    new Set(
+      [
+        resolveDataRoot(),
+        resolveCodeRoot(),
+        process.env.OPENCLAW_LOCAL_LOBSTER_CWD?.trim(),
+        process.env.OPENCLAW_LOBSTER_CWD?.trim(),
+        process.env.LOBSTER_STAGE1_CACHE_DIR?.trim(),
+        process.env.LOBSTER_STAGE2_CACHE_DIR?.trim(),
+        process.env.LOBSTER_STAGE3_CACHE_DIR?.trim(),
+        process.env.LOBSTER_STAGE4_CACHE_DIR?.trim(),
+      ].filter((value): value is string => typeof value === 'string' && value.length > 0)
+    )
+  );
+}
+
+function outputRoots(): string[] {
+  return Array.from(
+    new Set(
+      [
+        process.env.OPENCLAW_LOCAL_LOBSTER_CWD?.trim()
+          ? path.join(process.env.OPENCLAW_LOCAL_LOBSTER_CWD.trim(), 'output')
+          : null,
+        process.env.OPENCLAW_LOBSTER_CWD?.trim()
+          ? path.join(process.env.OPENCLAW_LOBSTER_CWD.trim(), 'output')
+          : null,
+        path.join(resolveCodeRoot(), 'lobster', 'output'),
+      ].filter((value): value is string => typeof value === 'string' && value.length > 0),
+    ),
+  );
+}
+
+function resolveExistingRelativeAssetPath(filePath: string): string | null {
+  for (const root of assetRoots()) {
+    const candidate = path.resolve(root, filePath);
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
 
 function stringValue(value: unknown, fallback = ''): string {
   if (typeof value === 'string' && value.trim()) {
@@ -44,7 +113,61 @@ function stringArray(value: unknown): string[] {
     : [];
 }
 
+function slugify(value: string, fallback = ''): string {
+  const normalized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized || fallback;
+}
+
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(values.map((value) => stringValue(value)).filter(Boolean)));
+}
+
+function sniffImageContentType(filePath: string): string | null {
+  try {
+    const buffer = readFileSync(filePath);
+    if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+      return 'image/jpeg';
+    }
+    if (
+      buffer.length >= 8 &&
+      buffer[0] === 0x89 &&
+      buffer[1] === 0x50 &&
+      buffer[2] === 0x4e &&
+      buffer[3] === 0x47 &&
+      buffer[4] === 0x0d &&
+      buffer[5] === 0x0a &&
+      buffer[6] === 0x1a &&
+      buffer[7] === 0x0a
+    ) {
+      return 'image/png';
+    }
+    if (buffer.length >= 6) {
+      const signature = buffer.subarray(0, 6).toString('utf8');
+      if (signature === 'GIF87a' || signature === 'GIF89a') {
+        return 'image/gif';
+      }
+    }
+    if (
+      buffer.length >= 12 &&
+      buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+      buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+    ) {
+      return 'image/webp';
+    }
+  } catch {}
+
+  return null;
+}
+
 function contentTypeForAsset(filePath: string): string {
+  const sniffedImageType = sniffImageContentType(filePath);
+  if (sniffedImageType) {
+    return sniffedImageType;
+  }
+
   const ext = path.extname(filePath).toLowerCase();
   switch (ext) {
     case '.png':
@@ -70,66 +193,207 @@ function contentTypeForAsset(filePath: string): string {
   }
 }
 
-function publishReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): Record<string, unknown> | null {
-  const publishStage = runtimeDoc.stages.publish;
-  const review = recordValue(publishStage.outputs.review) ?? recordValue(publishStage.primary_output);
-  return recordValue(review?.review_bundle);
-}
-
 export function marketingAssetUrl(jobId: string, assetId: string): string {
   return `/api/marketing/jobs/${encodeURIComponent(jobId)}/assets/${encodeURIComponent(assetId)}`;
 }
 
 export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJobRuntimeDocument): MarketingAssetDescriptor[] {
-  const reviewBundle = publishReviewBundle(runtimeDoc);
-  if (!reviewBundle) {
-    return [];
-  }
-
   const assets: MarketingAssetDescriptor[] = [];
-  const addAsset = (id: string, filePath: string | null | undefined, label: string) => {
-    const normalizedPath = stringValue(filePath);
-    if (!normalizedPath) {
+  const assetById = new Map<string, MarketingAssetDescriptor>();
+  const resolveAssetPath = (
+    filePath: string | null | undefined,
+    fallbackPaths: Array<string | null | undefined> = []
+  ): string | null => {
+    const candidates = [filePath, ...fallbackPaths]
+      .map((value) => stringValue(value))
+      .filter(Boolean);
+
+    for (const candidate of candidates) {
+      if (!path.isAbsolute(candidate)) {
+        const resolved = resolveExistingRelativeAssetPath(candidate);
+        if (resolved) {
+          return resolved;
+        }
+        continue;
+      }
+      const resolved = resolveExistingAbsoluteAssetPath(candidate);
+      if (resolved) {
+        return resolved;
+      }
+    }
+
+    return null;
+  };
+
+  const addAsset = (
+    id: string,
+    filePath: string | null | undefined,
+    label: string,
+    fallbackPaths: Array<string | null | undefined> = []
+  ) => {
+    if (assetById.has(id)) {
       return;
     }
-    assets.push({
+    const resolvedPath = resolveAssetPath(filePath, fallbackPaths);
+    if (!resolvedPath) {
+      return;
+    }
+    assetById.set(id, {
       id,
-      filePath: normalizedPath,
+      filePath: resolvedPath,
       label,
-      contentType: contentTypeForAsset(normalizedPath),
+      contentType: contentTypeForAsset(resolvedPath),
     });
   };
 
-  const artifactPaths = recordValue(reviewBundle.artifact_paths);
-  const landingPage = recordValue(reviewBundle.landing_page_preview);
-  const scriptPreview = recordValue(reviewBundle.script_preview);
-  const reviewPacket = recordValue(reviewBundle.review_packet);
-  const platformPreviews = recordArray(reviewBundle.platform_previews);
+  const strategyOutputs = recordValue(runtimeDoc.stages.strategy.outputs);
+  const validatedProfileDocs = loadValidatedMarketingProfileDocs(runtimeDoc.tenant_id);
+  const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id);
+  const strategyFallback = collectStrategyReviewArtifacts(
+    runtimeDoc.stages.strategy.primary_output || { run_id: runtimeDoc.stages.strategy.run_id },
+    runtimeDoc,
+  );
+  const websiteAnalysisPath =
+    validatedProfileDocs.paths.websiteAnalysis ||
+    stringValue(strategyOutputs?.validated_website_analysis_path) ||
+    stringValue(strategyOutputs?.website_brand_analysis_path) ||
+    stringValue(strategyFallback.outputs.website_brand_analysis_path) ||
+    null;
+  const plannerPath =
+    stringValue(strategyOutputs?.campaign_planner_path) ||
+    stringValue(strategyFallback.outputs.campaign_planner_path) ||
+    null;
+  const strategyReviewPath =
+    stringValue(strategyOutputs?.strategy_review_path) ||
+    stringValue(strategyFallback.outputs.strategy_review_path) ||
+    null;
+  let websiteAnalysis: Record<string, unknown> | null = null;
+  if (websiteAnalysisPath) {
+    try {
+      const resolvedWebsiteAnalysisPath = resolveAssetPath(websiteAnalysisPath) || websiteAnalysisPath;
+      websiteAnalysis = recordValue(JSON.parse(readFileSync(resolvedWebsiteAnalysisPath, 'utf8')));
+    } catch {
+      websiteAnalysis = null;
+    }
+  }
+  websiteAnalysis ||= validatedProfileDocs.websiteAnalysis;
+  websiteAnalysis ||= recordValue(strategyFallback.outputs.website);
+  const brandArtifacts = recordValue(websiteAnalysis?.artifacts);
+  const brandSlugCandidates = uniqueStrings([
+    validatedProfile.brandSlug,
+    stringValue(websiteAnalysis?.brand_slug),
+    stringValue(recordValue(websiteAnalysis?.brand_analysis)?.brand_slug),
+    slugify(stringValue(runtimeDoc.tenant_id)),
+    slugify(stringValue(validatedProfile.brandName || runtimeDoc.brand_kit?.brand_name)),
+    (() => {
+      const candidateUrl = stringValue(validatedProfile.canonicalUrl || runtimeDoc.brand_kit?.canonical_url, stringValue(validatedProfile.websiteUrl || runtimeDoc.inputs.brand_url));
+      if (!candidateUrl) {
+        return '';
+      }
+      try {
+        return slugify(new URL(candidateUrl).hostname.replace(/^www\./, ''));
+      } catch {
+        return '';
+      }
+    })(),
+  ]);
 
-  addAsset('launch-review-preview', stringValue(artifactPaths?.preview_path) || null, 'Launch review preview');
-  addAsset('landing-page-path', stringValue(landingPage?.landing_page_path) || null, 'Landing page');
-  addAsset('script-meta', stringValue(scriptPreview?.meta_script_path) || null, 'Meta script');
-  addAsset('script-video', stringValue(scriptPreview?.short_video_script_path) || null, 'Short video script');
-  addAsset('review-packet-production', stringValue(reviewPacket?.production_review_preview_path) || null, 'Production review preview');
-  addAsset('review-packet-canonical', stringValue(reviewPacket?.canonical_review_packet_path) || null, 'Canonical review packet');
+  addAsset('strategy-website-analysis', websiteAnalysisPath, 'Website brand analysis');
+  addAsset('strategy-campaign-planner', plannerPath, 'Campaign planner');
+  addAsset('strategy-review-preview', strategyReviewPath, 'Strategy review preview');
+  addAsset(
+    'brand-bible-markdown',
+    stringValue(brandArtifacts?.brand_bible_markdown_path) || null,
+    'Brand bible',
+    outputRoots().flatMap((outputRoot) => brandSlugCandidates.map((brandSlug) => path.join(outputRoot, `${brandSlug}-brand-bible.md`))),
+  );
+  addAsset(
+    'brand-design-system',
+    stringValue(brandArtifacts?.design_system_css_path) || null,
+    'Design system',
+    outputRoots().flatMap((outputRoot) => brandSlugCandidates.map((brandSlug) => path.join(outputRoot, `${brandSlug}-design-system.css`))),
+  );
 
-  for (const platform of platformPreviews) {
-    const slug = stringValue(platform.platform_slug, 'platform');
-    const platformName = stringValue(platform.platform_name, slug);
-    const assetPaths = recordValue(platform.asset_paths);
-
-    stringArray(platform.media_paths).forEach((filePath, index) => {
-      addAsset(
-        `platform-preview-${slug}-media-${index + 1}`,
-        filePath,
-        `${platformName} media ${index + 1}`
-      );
-    });
-    addAsset(`platform-preview-${slug}-asset-contract`, stringValue(assetPaths?.contract_path) || null, `${platformName} contract`);
-    addAsset(`platform-preview-${slug}-asset-brief`, stringValue(assetPaths?.brief_path) || null, `${platformName} brief`);
-    addAsset(`platform-preview-${slug}-asset-landing-page`, stringValue(assetPaths?.landing_page_path) || null, `${platformName} landing page`);
+  if (brandSlugCandidates.length > 0) {
+    addAsset(
+      'strategy-proposal-markdown',
+      null,
+      'Campaign proposal',
+      outputRoots().flatMap((outputRoot) => brandSlugCandidates.map((brandSlug) => path.join(outputRoot, `${brandSlug}-campaign-proposal.md`))),
+    );
+    addAsset(
+      'strategy-proposal-html',
+      null,
+      'Campaign proposal preview',
+      outputRoots().flatMap((outputRoot) => brandSlugCandidates.map((brandSlug) => path.join(outputRoot, `${brandSlug}-campaign-proposal.html`))),
+    );
   }
 
+  const dashboardAssets = listMarketingDashboardAssetsForJob(jobId);
+  const previewFallbacksByPlatform = new Map<string, string[]>();
+  const rememberPreviewFallback = (platform: string, filePath: string) => {
+    previewFallbacksByPlatform.set(platform, [
+      ...(previewFallbacksByPlatform.get(platform) || []),
+      filePath,
+    ]);
+  };
+
+  for (const asset of dashboardAssets) {
+    if (!asset.filePath || !asset.contentType?.startsWith('image/')) {
+      continue;
+    }
+    if (
+      !asset.id.startsWith('publish-image-') &&
+      !asset.id.startsWith('publish-fallback-') &&
+      !asset.id.startsWith('image-')
+    ) {
+      continue;
+    }
+    rememberPreviewFallback(asset.platform, asset.filePath);
+  }
+
+  const reviewBundle = extractPublishReviewBundle(runtimeDoc);
+  if (reviewBundle) {
+    const artifactPaths = recordValue(reviewBundle.artifact_paths);
+    const landingPage = recordValue(reviewBundle.landing_page_preview);
+    const scriptPreview = recordValue(reviewBundle.script_preview);
+    const reviewPacket = recordValue(reviewBundle.review_packet);
+    const platformPreviews = recordArray(reviewBundle.platform_previews);
+
+    addAsset('launch-review-preview', stringValue(artifactPaths?.preview_path) || null, 'Launch review preview');
+    addAsset('landing-page-path', stringValue(landingPage?.landing_page_path) || null, 'Landing page');
+    addAsset('script-meta', stringValue(scriptPreview?.meta_script_path) || null, 'Meta script');
+    addAsset('script-video', stringValue(scriptPreview?.short_video_script_path) || null, 'Short video script');
+    addAsset('review-packet-production', stringValue(reviewPacket?.production_review_preview_path) || null, 'Production review preview');
+    addAsset('review-packet-canonical', stringValue(reviewPacket?.canonical_review_packet_path) || null, 'Canonical review packet');
+
+    for (const platform of platformPreviews) {
+      const slug = stringValue(platform.platform_slug, 'platform');
+      const platformName = stringValue(platform.platform_name, slug);
+      const assetPaths = recordValue(platform.asset_paths);
+
+      stringArray(platform.media_paths).forEach((filePath, index) => {
+        addAsset(
+          `platform-preview-${slug}-media-${index + 1}`,
+          filePath,
+          `${platformName} media ${index + 1}`,
+          previewFallbacksByPlatform.get(slug) || previewFallbacksByPlatform.get('landing-page') || []
+        );
+      });
+      addAsset(`platform-preview-${slug}-asset-contract`, stringValue(assetPaths?.contract_path) || null, `${platformName} contract`);
+      addAsset(`platform-preview-${slug}-asset-brief`, stringValue(assetPaths?.brief_path) || null, `${platformName} brief`);
+      addAsset(`platform-preview-${slug}-asset-landing-page`, stringValue(assetPaths?.landing_page_path) || null, `${platformName} landing page`);
+    }
+  }
+
+  for (const asset of dashboardAssets) {
+    if (!asset.filePath) {
+      continue;
+    }
+    addAsset(asset.id, asset.filePath, asset.title);
+  }
+
+  assets.push(...assetById.values());
   return assets;
 }
 

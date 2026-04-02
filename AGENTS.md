@@ -6,6 +6,16 @@
 
 **Aries AI** is a Next.js 15 (App Router) marketing automation platform that delegates workflow execution to an external OpenClaw Gateway. See `SETUP.md` and `README-runtime.md` for canonical setup docs.
 
+### Mission Control deployment path
+
+When working on the live standalone Mission Control that is served at `control.sugarandleather.com`, do not assume `/app/mission-control` is the deployed source. The current compose service mounts the live project from the host path:
+
+```
+/home/node/openclaw/projects/mission-control-builder/mission-control
+```
+
+Treat that host-mounted path as the deploy source of truth for live UI changes unless the human explicitly changes the compose mount. Local scratch work under `/app/mission-control` does not affect the domain by itself.
+
 ### Dev server
 
 The dev server **must** use Turbopack (`--turbopack` flag) because the project uses Tailwind CSS v4 with `@tailwindcss/postcss`, and the default webpack bundler in Next.js 15.5 fails to process `@import "tailwindcss"` in `app/globals.css`. Run:

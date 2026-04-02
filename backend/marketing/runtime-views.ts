@@ -1,20 +1,69 @@
+import crypto from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import crypto from 'node:crypto';
 
+import type {
+  MarketingCampaignStatusHistoryEntry,
+  MarketingReviewAttachment,
+  MarketingReviewSection,
+  MarketingStage,
+  MarketingWorkflowState,
+} from '@/lib/api/marketing';
 import { resolveDataPath } from '@/lib/runtime-paths';
 
-import { loadMarketingJobRuntime, listMarketingJobIdsForTenant, type MarketingJobRuntimeDocument } from './runtime-state';
-import { getMarketingJobStatus, type MarketingJobStatusResponse, type MarketingReviewBundle } from './jobs-status';
+import { approveMarketingJob } from './jobs-approve';
+import { denyMarketingJob } from './orchestrator';
+import { loadMarketingJobRuntime, listMarketingJobIdsForTenant, listMarketingTenantIds } from './runtime-state';
+import {
+  dashboardDateRangeText,
+  type MarketingDashboardAsset,
+  type MarketingDashboardCampaign,
+  type MarketingDashboardCampaignContent,
+  type MarketingDashboardCalendarEvent,
+  type MarketingDashboardContent,
+  type MarketingDashboardItemStatus,
+  type MarketingDashboardPost,
+  type MarketingDashboardPublishItem,
+  type MarketingDashboardStatusSummary,
+} from './dashboard-content';
+import { getMarketingJobStatus, type MarketingJobStatusResponse } from './jobs-status';
+import {
+  buildCampaignWorkspaceView,
+  getWorkflowAwareDashboardContentForTenant,
+  type CampaignWorkspaceView,
+} from './workspace-views';
+import {
+  ensureCampaignWorkspaceRecord,
+  saveCampaignWorkspaceRecord,
+  setCreativeAssetDecision,
+  setStageReviewDecision,
+} from './workspace-store';
 
-export type RuntimeCampaignStatus = 'draft' | 'in_review' | 'approved' | 'scheduled' | 'live' | 'changes_requested';
+export type RuntimeCampaignStatus =
+  | 'draft'
+  | 'in_review'
+  | 'approved'
+  | 'scheduled'
+  | 'live'
+  | 'changes_requested'
+  | 'rejected';
+
+export type RuntimeCampaignDashboard = {
+  posts: MarketingDashboardPost[];
+  assets: MarketingDashboardAsset[];
+  publishItems: MarketingDashboardPublishItem[];
+  calendarEvents: MarketingDashboardCalendarEvent[];
+  statuses: MarketingDashboardStatusSummary;
+};
 
 export type RuntimeCampaignListItem = {
   id: string;
   jobId: string;
   name: string;
   objective: string;
+  funnelStage: string | null;
   status: RuntimeCampaignStatus;
+  dashboardStatus: MarketingDashboardItemStatus;
   stageLabel: string;
   summary: string;
   dateRange: string;
@@ -24,6 +73,10 @@ export type RuntimeCampaignListItem = {
   updatedAt: string | null;
   approvalRequired: boolean;
   approvalActionHref?: string;
+  counts: MarketingDashboardCampaign['counts'];
+  previewPosts: MarketingDashboardPost[];
+  previewAssets: MarketingDashboardAsset[];
+  dashboard: RuntimeCampaignDashboard;
 };
 
 export type RuntimeReviewDecision = {
@@ -38,6 +91,9 @@ export type RuntimeReviewItem = {
   jobId: string;
   campaignId: string;
   campaignName: string;
+  reviewType: 'brand' | 'strategy' | 'creative' | 'workflow_approval';
+  workflowState: MarketingWorkflowState;
+  workflowStage: string | null;
   title: string;
   channel: string;
   placement: string;
@@ -61,6 +117,15 @@ export type RuntimeReviewItem = {
     notes: string[];
   };
   lastDecision: RuntimeReviewDecision | null;
+  notePlaceholder?: string;
+  assetId?: string;
+  contentType?: string | null;
+  previewUrl?: string | null;
+  fullPreviewUrl?: string | null;
+  destinationUrl?: string | null;
+  sections: MarketingReviewSection[];
+  attachments: MarketingReviewAttachment[];
+  history: MarketingCampaignStatusHistoryEntry[];
 };
 
 export type RuntimeReviewStateFile = {
@@ -78,6 +143,18 @@ export type RuntimeReviewStateFile = {
   >;
   updated_at: string;
 };
+
+export class RuntimeReviewDecisionError extends Error {
+  code: string;
+  status: number;
+
+  constructor(code: string, message: string, status: number) {
+    super(message);
+    this.name = 'RuntimeReviewDecisionError';
+    this.code = code;
+    this.status = status;
+  }
+}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -124,31 +201,68 @@ function stableHash(value: unknown): string {
   return crypto.createHash('sha1').update(JSON.stringify(value)).digest('hex');
 }
 
-function mapCampaignStatus(status: MarketingJobStatusResponse): RuntimeCampaignStatus {
-  if (status.approvalRequired) return 'in_review';
-  const normalized = String(status.status || '').toLowerCase();
-  if (status.calendarEvents.some((event) => String(event.status).toLowerCase() === 'published')) {
-    return 'live';
+function reviewIdParts(reviewId: string): { jobId: string; itemId: string } {
+  const separator = reviewId.indexOf('::');
+  if (separator === -1) {
+    return { jobId: reviewId, itemId: '' };
   }
-  if (normalized.includes('complete')) return 'scheduled';
-  if (normalized.includes('running') || normalized.includes('pending')) return 'draft';
-  if (normalized.includes('fail')) return 'changes_requested';
+  return {
+    jobId: reviewId.slice(0, separator),
+    itemId: reviewId.slice(separator + 2),
+  };
+}
+
+function runtimeStatusFromWorkflowState(
+  workflowState: MarketingWorkflowState,
+  dashboardStatus?: MarketingDashboardItemStatus | null,
+): RuntimeCampaignStatus {
+  if (workflowState === 'published') {
+    if (dashboardStatus === 'live') {
+      return 'live';
+    }
+    if (dashboardStatus === 'scheduled') {
+      return 'scheduled';
+    }
+    return 'approved';
+  }
+  if (workflowState === 'ready_to_publish' || workflowState === 'approved') {
+    return 'approved';
+  }
+  if (workflowState === 'revisions_requested') {
+    return 'changes_requested';
+  }
+  if (workflowState === 'brand_review_required' || workflowState === 'strategy_review_required' || workflowState === 'creative_review_required') {
+    return 'in_review';
+  }
   return 'draft';
 }
 
-function campaignName(status: MarketingJobStatusResponse): string {
-  return status.reviewBundle?.campaignName || status.tenantName || `Campaign ${status.jobId}`;
-}
-
-function campaignObjective(status: MarketingJobStatusResponse): string {
-  return status.summary.headline || 'Campaign in progress';
-}
-
-function campaignDateRange(status: MarketingJobStatusResponse): string {
-  if (status.campaignWindow?.start && status.campaignWindow?.end) {
-    return `${status.campaignWindow.start} - ${status.campaignWindow.end}`;
+function runtimeStatusFromReviewState(status: 'not_ready' | 'pending_review' | 'approved' | 'changes_requested' | 'rejected'): RuntimeCampaignStatus {
+  switch (status) {
+    case 'approved':
+      return 'approved';
+    case 'changes_requested':
+      return 'changes_requested';
+    case 'rejected':
+      return 'rejected';
+    default:
+      return 'in_review';
   }
-  return 'Dates not scheduled yet';
+}
+
+function formatUtcTimestampLabel(value: string): string {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    return value;
+  }
+
+  return `${new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'UTC',
+  }).format(new Date(timestamp))} UTC`;
 }
 
 function nextScheduledText(status: MarketingJobStatusResponse): string {
@@ -158,118 +272,363 @@ function nextScheduledText(status: MarketingJobStatusResponse): string {
   if (!next) {
     return status.approvalRequired ? 'Waiting on approval before scheduling' : 'Nothing scheduled yet';
   }
-  return `${next.startsAt}${next.platform ? ` · ${next.platform}` : ''}`;
+  return `${formatUtcTimestampLabel(next.startsAt)}${next.platform ? ` · ${next.platform}` : ''}`;
 }
 
-function buildCampaignListItem(status: MarketingJobStatusResponse, pendingApprovals: number): RuntimeCampaignListItem {
+function nextScheduledTextFromDashboard(events: MarketingDashboardCalendarEvent[]): string {
+  const next = events
+    .slice()
+    .sort((left, right) => left.startsAt.localeCompare(right.startsAt))[0];
+  if (!next) {
+    return 'Nothing scheduled yet';
+  }
+  return `${formatUtcTimestampLabel(next.startsAt)} · ${next.statusLabel}${next.platformLabel ? ` · ${next.platformLabel}` : ''}`;
+}
+
+function campaignName(status: MarketingJobStatusResponse, view: CampaignWorkspaceView): string {
+  return view.dashboard.campaign?.name || status.reviewBundle?.campaignName || status.tenantName || `Campaign ${status.jobId}`;
+}
+
+function campaignObjective(status: MarketingJobStatusResponse, view: CampaignWorkspaceView): string {
+  return view.dashboard.campaign?.objective || status.summary.headline || 'Campaign in progress';
+}
+
+function buildCampaignListItem(
+  status: MarketingJobStatusResponse,
+  view: CampaignWorkspaceView,
+  pendingApprovals: number,
+): RuntimeCampaignListItem {
+  const dashboardCampaign = view.dashboard.campaign;
   return {
     id: status.jobId,
     jobId: status.jobId,
-    name: campaignName(status),
-    objective: campaignObjective(status),
-    status: mapCampaignStatus(status),
-    stageLabel: status.currentStage || 'campaign',
-    summary: status.summary.subheadline || 'Campaign status is available for review.',
-    dateRange: campaignDateRange(status),
+    name: campaignName(status, view),
+    objective: campaignObjective(status, view),
+    funnelStage: dashboardCampaign?.funnelStage || null,
+    status: runtimeStatusFromWorkflowState(view.workflowState, dashboardCampaign?.status || null),
+    dashboardStatus: dashboardCampaign?.status || 'draft',
+    stageLabel: dashboardCampaign?.stageLabel || status.currentStage || 'campaign',
+    summary: dashboardCampaign?.summary || status.summary.subheadline || 'Campaign status is available for review.',
+    dateRange: dashboardCampaign ? dashboardDateRangeText(dashboardCampaign.campaignWindow) : 'Dates not scheduled yet',
     pendingApprovals,
-    nextScheduled: nextScheduledText(status),
-    trustNote: 'Nothing goes live without approval.',
-    updatedAt: status.updatedAt,
-    approvalRequired: status.approvalRequired,
-    approvalActionHref: status.approval?.actionHref,
+    nextScheduled:
+      view.dashboard.calendarEvents.length > 0 ? nextScheduledTextFromDashboard(view.dashboard.calendarEvents) : nextScheduledText(status),
+    trustNote: 'Nothing can reach publish until every required review is approved.',
+    updatedAt: dashboardCampaign?.updatedAt || status.updatedAt,
+    approvalRequired: dashboardCampaign?.approvalRequired ?? status.approvalRequired,
+    approvalActionHref:
+      view.workflowState === 'revisions_requested'
+        ? undefined
+        : dashboardCampaign?.approvalActionHref || status.approval?.actionHref,
+    counts: dashboardCampaign?.counts || {
+      posts: view.dashboard.posts.length,
+      landingPages: view.dashboard.assets.filter((asset) => asset.type === 'landing_page').length,
+      imageAds: view.dashboard.assets.filter((asset) => asset.type === 'image_ad').length,
+      scripts: view.dashboard.assets.filter((asset) => asset.type === 'script' || asset.type === 'copy').length,
+      publishItems: view.dashboard.publishItems.length,
+      proposalConcepts: view.dashboard.posts.filter((post) => post.provenance.sourceKind === 'proposal').length,
+      ready: view.dashboard.statuses.countsByStatus.ready,
+      readyToPublish: view.dashboard.statuses.countsByStatus.ready_to_publish,
+      pausedMetaAds: view.dashboard.statuses.countsByStatus.published_to_meta_paused,
+      scheduled: view.dashboard.statuses.countsByStatus.scheduled,
+      live: view.dashboard.statuses.countsByStatus.live,
+    },
+    previewPosts: view.dashboard.posts.slice(0, 3),
+    previewAssets: view.dashboard.assets.slice(0, 3),
+    dashboard: {
+      posts: view.dashboard.posts,
+      assets: view.dashboard.assets,
+      publishItems: view.dashboard.publishItems,
+      calendarEvents: view.dashboard.calendarEvents,
+      statuses: view.dashboard.statuses,
+    },
   };
 }
 
-function deriveScheduledFor(status: MarketingJobStatusResponse, previewId: string): string {
-  const event = status.calendarEvents.find((entry) => entry.assetPreviewId === previewId) || status.calendarEvents[0];
-  if (event) {
-    return event.startsAt;
-  }
-  return status.approvalRequired ? 'Before launch approval' : 'Not scheduled yet';
+function reviewItemSourceHash(item: RuntimeReviewItem): string {
+  return stableHash({
+    reviewType: item.reviewType,
+    title: item.title,
+    summary: item.summary,
+    scheduledFor: item.scheduledFor,
+    sections: item.sections,
+    attachments: item.attachments,
+    previewUrl: item.previewUrl,
+    fullPreviewUrl: item.fullPreviewUrl,
+    destinationUrl: item.destinationUrl,
+    currentVersion: item.currentVersion,
+  });
 }
 
-function buildPreviewItems(status: MarketingJobStatusResponse, reviewBundle: MarketingReviewBundle): RuntimeReviewItem[] {
-  if (reviewBundle.platformPreviews.length === 0) {
-    return [];
-  }
+function isWorkflowApprovalItem(item: RuntimeReviewItem): boolean {
+  return item.reviewType === 'workflow_approval' || item.currentVersion.id === 'approval' || item.currentVersion.id.startsWith('approval:');
+}
 
-  return reviewBundle.platformPreviews.map((preview) => ({
-    id: `${status.jobId}::${preview.id}`,
-    jobId: status.jobId,
-    campaignId: status.jobId,
-    campaignName: campaignName(status),
-    title: preview.headline || preview.platformName,
-    channel: preview.platformName,
-    placement: preview.channelType,
-    scheduledFor: deriveScheduledFor(status, preview.id),
-    status: 'in_review',
-    summary: preview.summary,
+function lastDecisionFromHistory(history: MarketingCampaignStatusHistoryEntry[]): RuntimeReviewDecision | null {
+  const latest = history
+    .filter((entry) => !!entry.action)
+    .slice()
+    .sort((left, right) => right.at.localeCompare(left.at))[0];
+  if (!latest?.action) {
+    return null;
+  }
+  return {
+    action: latest.action,
+    actedBy: latest.actor,
+    note: latest.note ?? null,
+    at: latest.at,
+  };
+}
+
+function stageReviewItem(
+  view: CampaignWorkspaceView,
+  review: NonNullable<CampaignWorkspaceView['brandReview'] | CampaignWorkspaceView['strategyReview']>,
+  campaignNameValue: string,
+): RuntimeReviewItem {
+  return {
+    id: review.reviewId,
+    jobId: view.jobId,
+    campaignId: view.jobId,
+    campaignName: campaignNameValue,
+    reviewType: review.reviewType,
+    workflowState: view.workflowState,
+    workflowStage: review.reviewType,
+    title: review.title,
+    channel: review.reviewType === 'brand' ? 'Brand' : 'Strategy',
+    placement: 'Campaign review',
+    scheduledFor: 'Awaiting review',
+    status: runtimeStatusFromReviewState(review.status),
+    summary: review.summary,
     currentVersion: {
-      id: preview.id,
+      id: `${review.reviewType}:${view.jobId}`,
       label: 'Current version',
-      headline: preview.headline || preview.platformName,
-      supportingText: preview.caption || preview.summary,
-      cta: preview.cta || '',
-      notes: preview.details,
+      headline: review.title,
+      supportingText: review.summary,
+      cta: 'Approve',
+      notes: review.sections.map((section) => section.title),
     },
     previousVersion: undefined,
-    lastDecision: null,
-  }));
+    lastDecision: lastDecisionFromHistory(review.history),
+    notePlaceholder: review.notePlaceholder,
+    sections: review.sections,
+    attachments: review.attachments,
+    history: review.history,
+  };
 }
 
-function buildFallbackApprovalItem(status: MarketingJobStatusResponse): RuntimeReviewItem[] {
-  if (!status.approvalRequired || !status.approval) {
+function creativeReviewItem(
+  view: CampaignWorkspaceView,
+  item: NonNullable<CampaignWorkspaceView['creativeReview']>['assets'][number],
+  campaignNameValue: string,
+): RuntimeReviewItem {
+  return {
+    id: item.reviewId,
+    jobId: view.jobId,
+    campaignId: view.jobId,
+    campaignName: campaignNameValue,
+    reviewType: 'creative',
+    workflowState: view.workflowState,
+    workflowStage: 'creative',
+    title: item.title,
+    channel: item.platformLabel,
+    placement: 'Creative asset',
+    scheduledFor: 'Awaiting review',
+    status: runtimeStatusFromReviewState(item.status),
+    summary: item.summary,
+    currentVersion: {
+      id: item.assetId,
+      label: 'Current version',
+      headline: item.title,
+      supportingText: item.summary,
+      cta: 'Approve',
+      notes: item.notes,
+    },
+    previousVersion: undefined,
+    lastDecision: lastDecisionFromHistory(item.history),
+    notePlaceholder: 'Add per-asset notes, approval context, or requested changes.',
+    assetId: item.assetId,
+    contentType: item.contentType,
+    previewUrl: item.previewUrl,
+    fullPreviewUrl: item.fullPreviewUrl,
+    destinationUrl: item.destinationUrl,
+    sections: [
+      {
+        id: `${item.assetId}-summary`,
+        title: 'Asset summary',
+        body: item.notes.join('\n'),
+      },
+    ],
+    attachments: item.fullPreviewUrl
+      ? [
+          {
+            id: `${item.assetId}-preview`,
+            label: 'Open full preview',
+            url: item.fullPreviewUrl,
+            contentType: item.contentType || 'application/octet-stream',
+            kind: 'preview',
+          },
+        ]
+      : [],
+    history: item.history,
+  };
+}
+
+function normalizePublishPreviewPlatform(value: string | null | undefined): string {
+  const normalized = (value || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  if (['meta', 'facebook', 'facebook-ads', 'meta-ads'].includes(normalized)) {
+    return 'meta-ads';
+  }
+  return normalized || 'preview';
+}
+
+function publishPreviewReviewItems(
+  status: MarketingJobStatusResponse,
+  view: CampaignWorkspaceView,
+  campaignNameValue: string,
+): RuntimeReviewItem[] {
+  const reviewBundle = status.reviewBundle;
+  if (!status.approval || status.currentStage !== 'publish' || !reviewBundle || reviewBundle.platformPreviews.length === 0) {
     return [];
   }
 
-  return [{
+  return reviewBundle.platformPreviews.map((preview, index) => {
+    const normalizedPlatform = normalizePublishPreviewPlatform(preview.platformSlug || preview.platformName);
+    const previewAsset = preview.mediaAssets[0] || preview.assetLinks[0] || reviewBundle.previewAsset;
+
+    return {
+      id: `${status.jobId}::publish-preview:${normalizedPlatform}`,
+      jobId: status.jobId,
+      campaignId: status.jobId,
+      campaignName: campaignNameValue,
+      reviewType: 'creative',
+      workflowState: view.workflowState,
+      workflowStage: 'publish',
+      title: preview.displayTitle || preview.platformName || `Platform ${index + 1}`,
+      channel: preview.platformName || 'Publish preview',
+      placement: 'Publish preview',
+      scheduledFor: 'Before workflow resume',
+      status: 'in_review',
+      summary: preview.summary,
+      currentVersion: {
+        id: preview.id || `platform-preview:${normalizedPlatform}`,
+        label: 'Current version',
+        headline: preview.displayTitle || preview.platformName || `Platform ${index + 1}`,
+        supportingText: preview.summary,
+        cta: 'Approve',
+        notes: preview.details,
+      },
+      previousVersion: undefined,
+      lastDecision: null,
+      notePlaceholder: 'Add launch review notes, requested changes, or approval context.',
+      contentType: previewAsset?.contentType || null,
+      previewUrl: previewAsset?.url || null,
+      fullPreviewUrl: previewAsset?.url || null,
+      destinationUrl: undefined,
+      sections: [
+        {
+          id: `${normalizedPlatform}-publish-preview`,
+          title: 'Launch preview',
+          body: [preview.summary, ...preview.details].filter(Boolean).join('\n'),
+        },
+      ],
+      attachments: [
+        ...preview.mediaAssets.map((asset) => ({
+          id: asset.id,
+          label: asset.label,
+          url: asset.url,
+          contentType: asset.contentType,
+          kind: asset.contentType.startsWith('image/') ? ('preview' as const) : ('artifact' as const),
+        })),
+        ...preview.assetLinks.map((asset) => ({
+          id: asset.id,
+          label: asset.label,
+          url: asset.url,
+          contentType: asset.contentType,
+          kind: asset.contentType.startsWith('image/') ? ('preview' as const) : ('artifact' as const),
+        })),
+      ],
+      history: [],
+    };
+  });
+}
+
+function workflowApprovalItem(
+  status: MarketingJobStatusResponse,
+  view: CampaignWorkspaceView,
+  campaignNameValue: string,
+): RuntimeReviewItem | null {
+  if (!status.approval) {
+    return null;
+  }
+
+  return {
     id: `${status.jobId}::approval`,
     jobId: status.jobId,
     campaignId: status.jobId,
-    campaignName: campaignName(status),
+    campaignName: campaignNameValue,
+    reviewType: 'workflow_approval',
+    workflowState: view.workflowState,
+    workflowStage: status.currentStage || status.approval.workflowStepId || 'approval',
     title: status.approval.title,
-    channel: 'Campaign',
-    placement: status.currentStage || 'approval',
-    scheduledFor: 'Before launch approval',
+    channel: 'Workflow',
+    placement: status.currentStage || 'approval checkpoint',
+    scheduledFor: 'Before workflow resume',
     status: 'in_review',
     summary: status.approval.message,
     currentVersion: {
-      id: 'approval',
+      id: status.approval.approvalId ? `approval:${status.approval.approvalId}` : 'approval',
       label: 'Current version',
       headline: status.approval.title,
       supportingText: status.approval.message,
-      cta: 'Approve',
-      notes: [],
+      cta: view.workflowState === 'revisions_requested' ? 'Resolve revisions' : 'Approve and resume',
+      notes: status.approval.workflowStepId ? [`Workflow step: ${status.approval.workflowStepId}`] : [],
     },
     previousVersion: undefined,
     lastDecision: null,
-  }];
+    notePlaceholder: 'Add workflow context for the next operator.',
+    sections: [
+      {
+        id: 'workflow-approval',
+        title: 'Workflow checkpoint',
+        body: status.approval.message,
+      },
+    ],
+    attachments: [],
+    history: [],
+  };
 }
 
-function mergeReviewState(status: MarketingJobStatusResponse, items: RuntimeReviewItem[]): RuntimeReviewItem[] {
-  const state = loadReviewState(status.jobId, status.tenantId || 'unknown');
+function mergeReviewState(jobId: string, tenantId: string, items: RuntimeReviewItem[]): RuntimeReviewItem[] {
+  const state = loadReviewState(jobId, tenantId);
   let changed = false;
 
   for (const item of items) {
-    const sourceHash = stableHash({
-      title: item.title,
-      summary: item.summary,
-      currentVersion: item.currentVersion,
-      scheduledFor: item.scheduledFor,
-    });
-    const existing = state.items[item.id];
+    const sourceHash = reviewItemSourceHash(item);
+    const exact = state.items[item.id];
+    const existing = exact ?? Object.values(state.items).find((entry) => entry.sourceHash === sourceHash);
 
     if (!existing) {
       state.items[item.id] = {
         sourceHash,
-        status: 'in_review',
-        lastDecision: null,
+        status: item.status,
+        lastDecision: item.lastDecision,
       };
       changed = true;
       continue;
     }
 
-    if (existing.sourceHash !== sourceHash) {
+    if (!exact) {
+      state.items[item.id] = {
+        sourceHash,
+        status: existing.status,
+        lastDecision: existing.lastDecision,
+      };
+      changed = true;
+    } else if (existing.sourceHash !== sourceHash) {
       state.items[item.id] = {
         sourceHash,
         status: existing.status === 'approved' ? 'in_review' : existing.status,
@@ -278,16 +637,20 @@ function mergeReviewState(status: MarketingJobStatusResponse, items: RuntimeRevi
       changed = true;
     }
 
-    item.status = state.items[item.id].status;
-    item.lastDecision = state.items[item.id].lastDecision;
-  }
-
-  const validIds = new Set(items.map((item) => item.id));
-  for (const id of Object.keys(state.items)) {
-    if (!validIds.has(id)) {
-      delete state.items[id];
+    if (
+      state.items[item.id].lastDecision === null &&
+      state.items[item.id].status !== item.status &&
+      (state.items[item.id].status === 'in_review' || item.status === 'in_review' || item.status === 'approved')
+    ) {
+      state.items[item.id] = {
+        ...state.items[item.id],
+        status: item.status,
+      };
       changed = true;
     }
+
+    item.status = state.items[item.id].status;
+    item.lastDecision = state.items[item.id].lastDecision;
   }
 
   if (changed) {
@@ -302,35 +665,292 @@ function mergeReviewState(status: MarketingJobStatusResponse, items: RuntimeRevi
   });
 }
 
-function buildReviewItemsForStatus(status: MarketingJobStatusResponse): RuntimeReviewItem[] {
-  const baseItems = status.reviewBundle
-    ? buildPreviewItems(status, status.reviewBundle)
-    : buildFallbackApprovalItem(status);
-  return mergeReviewState(status, baseItems);
+function buildReviewItemsForJob(jobId: string): RuntimeReviewItem[] {
+  const runtimeDoc = loadMarketingJobRuntime(jobId);
+  if (!runtimeDoc) {
+    return [];
+  }
+
+  const status = getMarketingJobStatus(jobId);
+  const view = buildCampaignWorkspaceView(jobId);
+  const campaignNameValue = campaignName(status, view);
+
+  const items: RuntimeReviewItem[] = [];
+  if (view.brandReview) {
+    items.push(stageReviewItem(view, view.brandReview, campaignNameValue));
+  }
+  if (view.strategyReview) {
+    items.push(stageReviewItem(view, view.strategyReview, campaignNameValue));
+  }
+  for (const asset of view.creativeReview?.assets || []) {
+    items.push(creativeReviewItem(view, asset, campaignNameValue));
+  }
+  items.push(...publishPreviewReviewItems(status, view, campaignNameValue));
+
+  const approvalItem = workflowApprovalItem(status, view, campaignNameValue);
+  if (approvalItem) {
+    items.push(approvalItem);
+  }
+
+  return mergeReviewState(jobId, runtimeDoc.tenant_id, items);
+}
+
+function resolveRuntimeReviewItem(jobId: string, reviewId: string): RuntimeReviewItem | null {
+  const items = buildReviewItemsForJob(jobId);
+  const exact = items.find((item) => item.id === reviewId);
+  if (exact) {
+    return exact;
+  }
+
+  const { itemId } = reviewIdParts(reviewId);
+  if (itemId) {
+    const byCurrentVersionId = items.find((item) => item.currentVersion.id === itemId || item.assetId === itemId);
+    if (byCurrentVersionId) {
+      return byCurrentVersionId;
+    }
+  }
+
+  const runtimeDoc = loadMarketingJobRuntime(jobId);
+  if (!runtimeDoc) {
+    return null;
+  }
+  const state = loadReviewState(jobId, runtimeDoc.tenant_id);
+  const persisted = state.items[reviewId];
+  if (!persisted) {
+    return null;
+  }
+
+  return items.find((item) => reviewItemSourceHash(item) === persisted.sourceHash) ?? null;
+}
+
+function nextStatusFromAction(action: 'approve' | 'changes_requested' | 'reject'): RuntimeCampaignStatus {
+  if (action === 'approve') {
+    return 'approved';
+  }
+  if (action === 'reject') {
+    return 'rejected';
+  }
+  return 'changes_requested';
+}
+
+function persistReviewDecision(
+  tenantId: string,
+  item: RuntimeReviewItem,
+  reviewId: string,
+  action: 'approve' | 'changes_requested' | 'reject',
+  actedBy: string,
+  note?: string,
+): RuntimeReviewDecision {
+  const state = loadReviewState(item.jobId, tenantId);
+  const lastDecision: RuntimeReviewDecision = {
+    action,
+    actedBy,
+    note: note?.trim() || null,
+    at: nowIso(),
+  };
+  const persisted = {
+    sourceHash: reviewItemSourceHash(item),
+    status: nextStatusFromAction(action),
+    lastDecision,
+  };
+  state.items[item.id] = persisted;
+  if (reviewId !== item.id) {
+    state.items[reviewId] = persisted;
+  }
+  saveReviewState(state);
+  return lastDecision;
+}
+
+function assertApprovalResult(result: Awaited<ReturnType<typeof approveMarketingJob>>) {
+  if (result.reason === 'job_not_found' || result.reason === 'tenant_mismatch') {
+    return;
+  }
+  if (result.reason === 'missing_approved_by') {
+    throw new RuntimeReviewDecisionError('missing_approved_by', 'approvedBy is required.', 400);
+  }
+  if (result.reason === 'approval_not_available') {
+    throw new RuntimeReviewDecisionError(
+      'approval_not_available',
+      'This campaign is not waiting on an active approval checkpoint.',
+      409,
+    );
+  }
+  if (result.reason === 'approval_stage_not_selected') {
+    throw new RuntimeReviewDecisionError(
+      'approval_stage_not_selected',
+      'The current approval checkpoint was not selected.',
+      409,
+    );
+  }
+  if (result.reason === 'workflow_missing_for_route') {
+    throw new RuntimeReviewDecisionError(
+      'workflow_missing_for_route',
+      'The workflow route for this approval is not available.',
+      501,
+    );
+  }
+  if (result.status !== 'resumed' && result.status !== 'already_resolved') {
+    throw new RuntimeReviewDecisionError(
+      result.reason || 'approval_failed',
+      `Approval failed: ${result.reason || result.status}`,
+      400,
+    );
+  }
+}
+
+function assertDenialResult(result: Awaited<ReturnType<typeof denyMarketingJob>>) {
+  if (result.reason === 'approval_not_available') {
+    throw new RuntimeReviewDecisionError(
+      'approval_not_available',
+      'This campaign is not waiting on an active approval checkpoint.',
+      409,
+    );
+  }
+
+  if (result.status !== 'denied' && result.status !== 'already_resolved') {
+    throw new RuntimeReviewDecisionError(
+      result.reason || 'approval_denial_failed',
+      `Approval denial failed: ${result.reason || result.status}`,
+      400,
+    );
+  }
 }
 
 export async function listMarketingCampaignsForTenant(tenantId: string): Promise<RuntimeCampaignListItem[]> {
-  const jobIds = listMarketingJobIdsForTenant(tenantId);
-  return jobIds.map((jobId) => {
+  const campaigns: RuntimeCampaignListItem[] = [];
+  const seen = new Set<string>();
+
+  for (const jobId of listMarketingJobIdsForTenant(tenantId)) {
     const status = getMarketingJobStatus(jobId);
-    const pendingApprovals = buildReviewItemsForStatus(status).filter((item) => item.status !== 'approved').length;
-    return buildCampaignListItem(status, pendingApprovals);
+    if (status.tenantName === null && status.brandWebsiteUrl === null && status.status === 'error') {
+      continue;
+    }
+    const view = buildCampaignWorkspaceView(jobId);
+    const key = view.dashboard.campaign?.externalCampaignId || view.dashboard.campaign?.name || `job::${jobId}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    const pendingApprovals = buildReviewItemsForJob(jobId).filter((item) => item.status !== 'approved').length;
+    campaigns.push(buildCampaignListItem(status, view, pendingApprovals));
+  }
+
+  return campaigns.sort((left, right) => {
+    const leftUpdated = Date.parse(left.updatedAt || '');
+    const rightUpdated = Date.parse(right.updatedAt || '');
+    return (Number.isFinite(rightUpdated) ? rightUpdated : 0) - (Number.isFinite(leftUpdated) ? leftUpdated : 0);
   });
 }
 
+export async function listPublicMarketingCampaigns(): Promise<RuntimeCampaignListItem[]> {
+  const byId = new Map<string, RuntimeCampaignListItem>();
+
+  for (const tenantId of listMarketingTenantIds()) {
+    const campaigns = await listMarketingCampaignsForTenant(tenantId);
+    for (const campaign of campaigns) {
+      if (!byId.has(campaign.id)) {
+        byId.set(campaign.id, campaign);
+      }
+    }
+  }
+
+  return [...byId.values()].sort((left, right) => {
+    const leftUpdated = Date.parse(left.updatedAt || '');
+    const rightUpdated = Date.parse(right.updatedAt || '');
+    return (Number.isFinite(rightUpdated) ? rightUpdated : 0) - (Number.isFinite(leftUpdated) ? leftUpdated : 0);
+  });
+}
+
+export async function getMarketingCampaignContentForTenant(
+  tenantId: string,
+  campaignId: string,
+): Promise<MarketingDashboardCampaignContent | null> {
+  const jobIds = new Set(listMarketingJobIdsForTenant(tenantId));
+  if (!jobIds.has(campaignId)) {
+    return null;
+  }
+  return buildCampaignWorkspaceView(campaignId).dashboard;
+}
+
+export async function listMarketingPostsForTenant(tenantId: string): Promise<MarketingDashboardContent> {
+  return getWorkflowAwareDashboardContentForTenant(tenantId);
+}
+
+export async function listPublicMarketingPosts(): Promise<MarketingDashboardContent> {
+  const tenantIds = listMarketingTenantIds();
+  const emptyTenantId = tenantIds[0] || 'public_empty';
+  const content = getWorkflowAwareDashboardContentForTenant(emptyTenantId);
+
+  if (tenantIds.length <= 1) {
+    return content;
+  }
+
+  const campaigns = [] as MarketingDashboardContent['campaigns'];
+  const posts = [] as MarketingDashboardContent['posts'];
+  const assets = [] as MarketingDashboardContent['assets'];
+  const publishItems = [] as MarketingDashboardContent['publishItems'];
+  const calendarEvents = [] as MarketingDashboardContent['calendarEvents'];
+  const statuses = {
+    countsByStatus: {
+      draft: 0,
+      in_review: 0,
+      ready: 0,
+      ready_to_publish: 0,
+      published_to_meta_paused: 0,
+      scheduled: 0,
+      live: 0,
+    },
+  };
+
+  for (const tenantId of tenantIds) {
+    const next = getWorkflowAwareDashboardContentForTenant(tenantId);
+    campaigns.push(...next.campaigns);
+    posts.push(...next.posts);
+    assets.push(...next.assets);
+    publishItems.push(...next.publishItems);
+    calendarEvents.push(...next.calendarEvents);
+    for (const key of Object.keys(statuses.countsByStatus) as Array<keyof typeof statuses.countsByStatus>) {
+      statuses.countsByStatus[key] += next.statuses.countsByStatus[key];
+    }
+  }
+
+  campaigns.sort((left, right) => {
+    const leftUpdated = Date.parse(left.updatedAt || '');
+    const rightUpdated = Date.parse(right.updatedAt || '');
+    return (Number.isFinite(rightUpdated) ? rightUpdated : 0) - (Number.isFinite(leftUpdated) ? leftUpdated : 0);
+  });
+  calendarEvents.sort((left, right) => left.startsAt.localeCompare(right.startsAt));
+
+  return {
+    campaigns,
+    posts,
+    assets,
+    publishItems,
+    calendarEvents,
+    statuses,
+  };
+}
+
 export async function listMarketingReviewItemsForTenant(tenantId: string): Promise<RuntimeReviewItem[]> {
-  const jobIds = listMarketingJobIdsForTenant(tenantId);
-  const items = jobIds.flatMap((jobId) => buildReviewItemsForStatus(getMarketingJobStatus(jobId)));
+  const items = listMarketingJobIdsForTenant(tenantId).flatMap((jobId) => buildReviewItemsForJob(jobId));
   return items.filter((item) => item.status !== 'approved');
 }
 
+export async function listPublicMarketingReviewItems(): Promise<RuntimeReviewItem[]> {
+  const items = [] as RuntimeReviewItem[];
+  for (const tenantId of listMarketingTenantIds()) {
+    items.push(...(await listMarketingReviewItemsForTenant(tenantId)));
+  }
+  return items.sort((left, right) => right.scheduledFor.localeCompare(left.scheduledFor));
+}
+
 export async function getMarketingReviewItemForTenant(tenantId: string, reviewId: string): Promise<RuntimeReviewItem | null> {
-  const [jobId] = reviewId.split('::');
-  const status = getMarketingJobStatus(jobId);
-  if (status.tenantId !== tenantId) {
+  const { jobId } = reviewIdParts(reviewId);
+  const runtimeDoc = loadMarketingJobRuntime(jobId);
+  if (!runtimeDoc || runtimeDoc.tenant_id !== tenantId) {
     return null;
   }
-  return buildReviewItemsForStatus(status).find((item) => item.id === reviewId) ?? null;
+  return resolveRuntimeReviewItem(jobId, reviewId);
 }
 
 export async function recordMarketingReviewDecision(input: {
@@ -339,53 +959,147 @@ export async function recordMarketingReviewDecision(input: {
   action: 'approve' | 'changes_requested' | 'reject';
   actedBy: string;
   note?: string;
+  approvalId?: string;
 }): Promise<RuntimeReviewItem | null> {
-  const [jobId] = input.reviewId.split('::');
+  const { jobId } = reviewIdParts(input.reviewId);
   const runtimeDoc = loadMarketingJobRuntime(jobId);
   if (!runtimeDoc || runtimeDoc.tenant_id !== input.tenantId) {
     return null;
   }
 
-  const status = getMarketingJobStatus(jobId);
-  const allItems = buildReviewItemsForStatus(status);
-  const item = allItems.find((entry) => entry.id === input.reviewId);
+  const item = resolveRuntimeReviewItem(jobId, input.reviewId);
   if (!item) {
     return null;
   }
 
-  const state = loadReviewState(jobId, input.tenantId);
-  const persisted = state.items[input.reviewId] ?? {
-    sourceHash: stableHash({
-      title: item.title,
-      summary: item.summary,
-      currentVersion: item.currentVersion,
-      scheduledFor: item.scheduledFor,
-    }),
-    status: 'in_review' as RuntimeCampaignStatus,
-    lastDecision: null,
-  };
+  if (isWorkflowApprovalItem(item)) {
+    const workspaceRecord = ensureCampaignWorkspaceRecord({
+      jobId,
+      tenantId: input.tenantId,
+      payload: (runtimeDoc.inputs.request as Record<string, unknown>) || {},
+    });
+    const approvalStage = runtimeDoc.approvals.current?.stage || runtimeDoc.current_stage;
 
-  const nextStatus: RuntimeCampaignStatus =
-    input.action === 'approve'
-      ? 'approved'
-      : input.action === 'reject'
-        ? 'changes_requested'
-        : 'changes_requested';
+    if (input.action === 'approve') {
+      const checkpoint = runtimeDoc.approvals.current;
+      const approvalResult = await approveMarketingJob({
+        jobId,
+        tenantId: input.tenantId,
+        approvedBy: input.actedBy,
+        approvedStages: checkpoint ? [checkpoint.stage] : undefined,
+        approvalId: input.approvalId,
+        resumePublishIfNeeded: checkpoint?.stage === 'publish' ? true : undefined,
+        publishConfig: checkpoint?.stage === 'publish' ? (checkpoint.publish_config ?? undefined) : undefined,
+      });
+      assertApprovalResult(approvalResult);
+    } else if (input.action === 'changes_requested') {
+      if (approvalStage === 'strategy') {
+        setStageReviewDecision(workspaceRecord, 'strategy', input.action, input.actedBy, input.note);
+        saveCampaignWorkspaceRecord(workspaceRecord);
+      } else if (approvalStage === 'production' || approvalStage === 'publish') {
+        setStageReviewDecision(workspaceRecord, 'creative', input.action, input.actedBy, input.note);
+        saveCampaignWorkspaceRecord(workspaceRecord);
+      }
+    } else if (input.action === 'reject') {
+      if (approvalStage === 'strategy') {
+        setStageReviewDecision(workspaceRecord, 'strategy', input.action, input.actedBy, input.note);
+        saveCampaignWorkspaceRecord(workspaceRecord);
+      } else if (approvalStage === 'production' || approvalStage === 'publish') {
+        setStageReviewDecision(workspaceRecord, 'creative', input.action, input.actedBy, input.note);
+        saveCampaignWorkspaceRecord(workspaceRecord);
+      }
+      const denialResult = await denyMarketingJob(
+        {
+          jobId,
+          tenantId: input.tenantId,
+          deniedBy: input.actedBy,
+          approvalId: input.approvalId,
+          note: input.note,
+          publishConfig:
+            runtimeDoc.approvals.current?.stage === 'publish'
+              ? (runtimeDoc.approvals.current.publish_config ?? undefined)
+              : undefined,
+        },
+        runtimeDoc,
+      );
+      assertDenialResult(denialResult);
+    }
+  } else {
+    const workspaceRecord = ensureCampaignWorkspaceRecord({
+      jobId,
+      tenantId: input.tenantId,
+      payload: (runtimeDoc.inputs.request as Record<string, unknown>) || {},
+    });
 
-  persisted.status = nextStatus;
-  persisted.lastDecision = {
-    action: input.action,
-    actedBy: input.actedBy,
-    note: input.note?.trim() || null,
-    at: nowIso(),
-  };
-  state.items[input.reviewId] = persisted;
-  saveReviewState(state);
+    if (item.reviewType === 'brand') {
+      setStageReviewDecision(workspaceRecord, 'brand', input.action, input.actedBy, input.note);
+      saveCampaignWorkspaceRecord(workspaceRecord);
+    }
+
+    if (item.reviewType === 'strategy') {
+      setStageReviewDecision(workspaceRecord, 'strategy', input.action, input.actedBy, input.note);
+      saveCampaignWorkspaceRecord(workspaceRecord);
+
+      if (runtimeDoc.approvals.current?.stage === 'strategy') {
+        if (input.action === 'approve') {
+          const approvalResult = await approveMarketingJob({
+            jobId,
+            tenantId: input.tenantId,
+            approvedBy: input.actedBy,
+            approvedStages: ['strategy'],
+            approvalId: input.approvalId,
+          });
+          assertApprovalResult(approvalResult);
+        } else {
+          const denialResult = await denyMarketingJob(
+            {
+              jobId,
+              tenantId: input.tenantId,
+              deniedBy: input.actedBy,
+              approvalId: input.approvalId,
+              note: input.note,
+            },
+            runtimeDoc,
+          );
+          assertDenialResult(denialResult);
+        }
+      }
+    }
+
+    if (item.reviewType === 'creative' && item.assetId) {
+      setCreativeAssetDecision(workspaceRecord, item.assetId, input.action, input.actedBy, input.note);
+      saveCampaignWorkspaceRecord(workspaceRecord);
+
+      if (input.action === 'approve' && runtimeDoc.approvals.current?.stage === 'production') {
+        const refreshedView = buildCampaignWorkspaceView(jobId);
+        if (refreshedView.creativeReview?.approvalComplete) {
+          const approvalResult = await approveMarketingJob({
+            jobId,
+            tenantId: input.tenantId,
+            approvedBy: input.actedBy,
+            approvedStages: ['production'],
+            approvalId: input.approvalId,
+          });
+          assertApprovalResult(approvalResult);
+        }
+      }
+    }
+  }
+
+  const lastDecision = persistReviewDecision(input.tenantId, item, input.reviewId, input.action, input.actedBy, input.note);
+  const refreshed = resolveRuntimeReviewItem(jobId, item.id) || resolveRuntimeReviewItem(jobId, input.reviewId);
+  if (!refreshed) {
+    return {
+      ...item,
+      status: nextStatusFromAction(input.action),
+      lastDecision,
+    };
+  }
 
   return {
-    ...item,
-    status: nextStatus,
-    lastDecision: persisted.lastDecision,
+    ...refreshed,
+    status: nextStatusFromAction(input.action),
+    lastDecision,
   };
 }
 

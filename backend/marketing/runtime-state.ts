@@ -1,12 +1,15 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { resolveDataPath, resolveSpecPath } from '@/lib/runtime-paths';
-import type { TenantBrandKit } from './brand-kit';
+import { describeSpecResolution, resolveDataPath } from '@/lib/runtime-paths';
+import { loadTenantBrandKit, tenantBrandKitPath, type TenantBrandKit } from './brand-kit';
 
-const REQUIRED_SCHEMA_PATHS = [
-  resolveSpecPath('marketing_job_state_schema.v1.json'),
+const REQUIRED_SCHEMA_FILES = [
+  'marketing_job_state_schema.v1.json',
 ] as const;
+const MARKETING_RUNTIME_SCHEMA_NAME = 'marketing_job_state_schema';
+const LEGACY_MARKETING_RUNTIME_SCHEMA_NAME = 'job_runtime_state_schema';
+const MARKETING_RUNTIME_SCHEMA_VERSION = '1.0.0';
 
 export type MarketingStage = 'research' | 'strategy' | 'production' | 'publish';
 export type MarketingJobState = 'queued' | 'running' | 'approval_required' | 'completed' | 'failed';
@@ -68,6 +71,9 @@ export type MarketingBrandKitReference = Omit<TenantBrandKit, 'tenant_id'> & {
 export type MarketingApprovalCheckpoint = {
   stage: Extract<MarketingStage, 'strategy' | 'production' | 'publish'>;
   status: 'awaiting_approval';
+  approval_id?: string | null;
+  workflow_name?: string | null;
+  workflow_step_id?: string | null;
   title: string;
   message: string;
   requested_at: string;
@@ -78,8 +84,10 @@ export type MarketingApprovalCheckpoint = {
 
 export type MarketingApprovalHistoryEntry = {
   stage: Extract<MarketingStage, 'strategy' | 'production' | 'publish'>;
-  status: 'requested' | 'approved' | 'cleared';
+  status: 'requested' | 'approved' | 'denied' | 'cleared';
   at: string;
+  approval_id?: string | null;
+  workflow_step_id?: string | null;
   approved_by?: string | null;
   message?: string | null;
   publish_config?: MarketingPublishConfig | null;
@@ -94,8 +102,8 @@ export type MarketingHistoryEntry = {
 };
 
 export type MarketingJobRuntimeDocument = {
-  schema_name: 'marketing_job_state_schema';
-  schema_version: '1.0.0';
+  schema_name: typeof MARKETING_RUNTIME_SCHEMA_NAME;
+  schema_version: typeof MARKETING_RUNTIME_SCHEMA_VERSION;
   job_id: string;
   tenant_id: string;
   job_type: 'brand_campaign';
@@ -109,7 +117,7 @@ export type MarketingJobRuntimeDocument = {
     history: MarketingApprovalHistoryEntry[];
   };
   publish_config: MarketingPublishConfig;
-  brand_kit: MarketingBrandKitReference;
+  brand_kit: MarketingBrandKitReference | null;
   inputs: {
     request: Record<string, unknown>;
     brand_url: string;
@@ -177,8 +185,8 @@ export function createMarketingJobRuntimeDocument(input: {
 }): MarketingJobRuntimeDocument {
   const ts = nowIso();
   return {
-    schema_name: 'marketing_job_state_schema',
-    schema_version: '1.0.0',
+    schema_name: MARKETING_RUNTIME_SCHEMA_NAME,
+    schema_version: MARKETING_RUNTIME_SCHEMA_VERSION,
     job_id: input.jobId,
     tenant_id: input.tenantId,
     job_type: 'brand_campaign',
@@ -201,7 +209,7 @@ export function createMarketingJobRuntimeDocument(input: {
     inputs: {
       request: input.payload,
       brand_url: asString(input.payload.brandUrl) || '',
-      competitor_url: asString(input.payload.competitorUrl),
+      competitor_url: asString(input.payload.competitorUrl) || asString(input.payload.brandUrl),
       competitor_facebook_url: asString(input.payload.competitorFacebookUrl),
     },
     errors: [],
@@ -221,9 +229,22 @@ export function createMarketingJobRuntimeDocument(input: {
 }
 
 export function assertMarketingRuntimeSchemas(): void {
-  for (const schemaPath of REQUIRED_SCHEMA_PATHS) {
+  for (const fileName of REQUIRED_SCHEMA_FILES) {
+    const resolution = describeSpecResolution(fileName);
+    console.info('[marketing-runtime-schema]', {
+      event: 'resolve',
+      requestedCodeRoot: resolution.requestedCodeRoot,
+      resolvedCodeRoot: resolution.resolvedCodeRoot,
+      resolvedSpecPath: resolution.resolvedSpecPath,
+      cwd: process.cwd(),
+      triedSpecPaths: resolution.triedSpecPaths,
+    });
+
+    const schemaPath = resolution.resolvedSpecPath;
     if (!existsSync(schemaPath)) {
-      throw new Error(`HARD_FAILURE: missing required schema input: ${schemaPath}`);
+      throw new Error(
+        `marketing_runtime_schema_resolution_failed: requestedCodeRoot=${resolution.requestedCodeRoot || 'unset'} cwd=${process.cwd()} resolvedCodeRoot=${resolution.resolvedCodeRoot} triedSpecPaths=${resolution.triedSpecPaths.join(', ')}`,
+      );
     }
 
     try {
@@ -247,6 +268,67 @@ function marketingRuntimeRoot(): string {
   return resolveDataPath('generated', 'draft', 'marketing-jobs');
 }
 
+function runtimeBrandKitReferenceFromTenantBrandKit(
+  tenantId: string,
+  brandKit: TenantBrandKit,
+): MarketingBrandKitReference {
+  return {
+    path: tenantBrandKitPath(tenantId),
+    source_url: brandKit.source_url,
+    canonical_url: brandKit.canonical_url,
+    brand_name: brandKit.brand_name,
+    logo_urls: [...brandKit.logo_urls],
+    colors: {
+      primary: brandKit.colors.primary,
+      secondary: brandKit.colors.secondary,
+      accent: brandKit.colors.accent,
+      palette: [...brandKit.colors.palette],
+    },
+    font_families: [...brandKit.font_families],
+    external_links: [...brandKit.external_links],
+    extracted_at: brandKit.extracted_at,
+    brand_voice_summary: brandKit.brand_voice_summary ?? null,
+    offer_summary: brandKit.offer_summary ?? null,
+  };
+}
+
+function recoverLegacyRuntimeBrandKit(doc: MarketingJobRuntimeDocument): MarketingBrandKitReference | null {
+  try {
+    const persistedBrandKit = loadTenantBrandKit(doc.tenant_id);
+    if (!persistedBrandKit) {
+      console.warn('[marketing-runtime-state]', {
+        event: 'legacy-runtime-brand-kit-missing',
+        jobId: doc.job_id,
+        tenantId: doc.tenant_id,
+        recovered: false,
+        source: 'none',
+      });
+      return null;
+    }
+
+    const recoveredBrandKit = runtimeBrandKitReferenceFromTenantBrandKit(doc.tenant_id, persistedBrandKit);
+    console.warn('[marketing-runtime-state]', {
+      event: 'legacy-runtime-brand-kit-missing',
+      jobId: doc.job_id,
+      tenantId: doc.tenant_id,
+      recovered: true,
+      source: 'validated_brand_kit_file',
+      brandKitPath: recoveredBrandKit.path,
+    });
+    return recoveredBrandKit;
+  } catch (error) {
+    console.warn('[marketing-runtime-state]', {
+      event: 'legacy-runtime-brand-kit-missing',
+      jobId: doc.job_id,
+      tenantId: doc.tenant_id,
+      recovered: false,
+      source: 'none',
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
 function assertMarketingRuntimeDocument(doc: MarketingJobRuntimeDocument): void {
   if (!doc.brand_kit) {
     throw new Error('invalid_marketing_runtime_document:brand_kit_required');
@@ -268,8 +350,60 @@ export function loadMarketingJobRuntime(jobId: string): MarketingJobRuntimeDocum
     return null;
   }
 
-  const raw = readFileSync(filePath, 'utf8');
-  return JSON.parse(raw) as MarketingJobRuntimeDocument;
+  try {
+    const raw = readFileSync(filePath, 'utf8');
+    const parsed = JSON.parse(raw) as Record<string, unknown> | null;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null;
+    }
+    const schemaName = parsed.schema_name;
+    const isKnownSchema =
+      schemaName === MARKETING_RUNTIME_SCHEMA_NAME || schemaName === LEGACY_MARKETING_RUNTIME_SCHEMA_NAME;
+    if (!isKnownSchema) {
+      return null;
+    }
+    if (typeof parsed.job_id !== 'string' || parsed.job_id.length === 0) {
+      return null;
+    }
+    if (typeof parsed.tenant_id !== 'string' || parsed.tenant_id.length === 0) {
+      return null;
+    }
+
+    const doc = parsed as MarketingJobRuntimeDocument;
+    if (!doc.stage_order || !Array.isArray(doc.stage_order) || doc.stage_order.length === 0) {
+      doc.stage_order = [...STAGES];
+    }
+    if (!doc.current_stage || !STAGES.includes(doc.current_stage)) {
+      doc.current_stage = 'research';
+    }
+    if (!doc.stages || typeof doc.stages !== 'object' || Array.isArray(doc.stages)) {
+      return null;
+    }
+    if (
+      !doc.stages.research &&
+      !doc.stages.strategy &&
+      !doc.stages.production &&
+      !doc.stages.publish
+    ) {
+      return null;
+    }
+    for (const stage of STAGES) {
+      if (!doc.stages[stage]) {
+        doc.stages[stage] = defaultStageRecord(stage);
+      }
+    }
+    if (!doc.publish_config || typeof doc.publish_config !== 'object' || Array.isArray(doc.publish_config)) {
+      doc.publish_config = defaultPublishConfig();
+    } else {
+      doc.publish_config = defaultPublishConfig(doc.publish_config);
+    }
+    if (!doc.brand_kit) {
+      doc.brand_kit = recoverLegacyRuntimeBrandKit(doc);
+    }
+    return doc;
+  } catch {
+    return null;
+  }
 }
 
 function collectMarketingJobRefsForTenant(tenantId: string): Array<{ jobId: string; updatedAt: number }> {
@@ -284,11 +418,35 @@ function collectMarketingJobRefsForTenant(tenantId: string): Array<{ jobId: stri
   for (const entry of entries) {
     try {
       const raw = readFileSync(path.join(root, entry), 'utf8');
-      const doc = JSON.parse(raw) as MarketingJobRuntimeDocument;
+      const doc = JSON.parse(raw) as Record<string, unknown>;
+      if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
+        continue;
+      }
+      const schemaName = doc.schema_name;
+      const isKnownSchema =
+        schemaName === MARKETING_RUNTIME_SCHEMA_NAME || schemaName === LEGACY_MARKETING_RUNTIME_SCHEMA_NAME;
+      if (!isKnownSchema) {
+        continue;
+      }
+      const stages = doc.stages as Record<string, unknown> | undefined;
+      if (!stages || typeof stages !== 'object' || Array.isArray(stages)) {
+        continue;
+      }
+      const hasAtLeastOneStage =
+        'research' in stages || 'strategy' in stages || 'production' in stages || 'publish' in stages;
+      if (!hasAtLeastOneStage) {
+        continue;
+      }
+      if (typeof doc.job_id !== 'string' || doc.job_id.length === 0) {
+        continue;
+      }
+      if (typeof doc.tenant_id !== 'string' || doc.tenant_id.length === 0) {
+        continue;
+      }
       if (doc.tenant_id !== tenantId) {
         continue;
       }
-      const updatedAt = Date.parse(doc.updated_at);
+      const updatedAt = Date.parse(typeof doc.updated_at === 'string' ? doc.updated_at : '');
       if (!Number.isFinite(updatedAt)) {
         continue;
       }
@@ -303,6 +461,60 @@ function collectMarketingJobRefsForTenant(tenantId: string): Array<{ jobId: stri
 
 export function listMarketingJobIdsForTenant(tenantId: string): string[] {
   return collectMarketingJobRefsForTenant(tenantId).map((entry) => entry.jobId);
+}
+
+export function listMarketingTenantIds(): string[] {
+  const root = marketingRuntimeRoot();
+  if (!existsSync(root)) {
+    return [];
+  }
+
+  const entries = readdirSync(root).filter((entry) => entry.endsWith('.json'));
+  const tenants = new Set<string>();
+
+  for (const entry of entries) {
+    try {
+      const raw = readFileSync(path.join(root, entry), 'utf8');
+      const doc = JSON.parse(raw) as Record<string, unknown>;
+      const tenantId = typeof doc.tenant_id === 'string' ? doc.tenant_id.trim() : '';
+      if (tenantId) {
+        tenants.add(tenantId);
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return [...tenants];
+}
+
+export function findLatestMarketingTenantId(): string | null {
+  const root = marketingRuntimeRoot();
+  if (!existsSync(root)) {
+    return null;
+  }
+
+  const entries = readdirSync(root).filter((entry) => entry.endsWith('.json'));
+  let latest: { tenantId: string; updatedAt: number } | null = null;
+
+  for (const entry of entries) {
+    try {
+      const raw = readFileSync(path.join(root, entry), 'utf8');
+      const doc = JSON.parse(raw) as Record<string, unknown>;
+      const tenantId = typeof doc.tenant_id === 'string' ? doc.tenant_id.trim() : '';
+      const updatedAt = Date.parse(typeof doc.updated_at === 'string' ? doc.updated_at : '');
+      if (!tenantId || !Number.isFinite(updatedAt)) {
+        continue;
+      }
+      if (!latest || updatedAt > latest.updatedAt) {
+        latest = { tenantId, updatedAt };
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return latest?.tenantId ?? null;
 }
 
 export function findLatestMarketingJobIdForTenant(tenantId: string): string | null {
@@ -434,6 +646,9 @@ export function markStageAwaitingApproval(
   doc.approvals.current = {
     stage,
     status: 'awaiting_approval',
+    approval_id: checkpoint.approval_id ?? null,
+    workflow_name: checkpoint.workflow_name ?? null,
+    workflow_step_id: checkpoint.workflow_step_id ?? null,
     title: checkpoint.title,
     message: checkpoint.message,
     requested_at: checkpoint.requested_at ?? nowIso(),
@@ -445,6 +660,8 @@ export function markStageAwaitingApproval(
     stage,
     status: 'requested',
     at: doc.approvals.current.requested_at,
+    approval_id: doc.approvals.current.approval_id ?? null,
+    workflow_step_id: doc.approvals.current.workflow_step_id ?? null,
     message: checkpoint.message,
     publish_config: checkpoint.publish_config ?? null,
   });
@@ -458,6 +675,8 @@ export function clearApprovalCheckpoint(doc: MarketingJobRuntimeDocument, note: 
       stage: current.stage,
       status: 'cleared',
       at: nowIso(),
+      approval_id: current.approval_id ?? null,
+      workflow_step_id: current.workflow_step_id ?? null,
       message: current.message,
       publish_config: current.publish_config ?? null,
     });
@@ -473,6 +692,8 @@ export function recordApproval(
     approvedBy: string;
     message?: string;
     publishConfig?: Partial<MarketingPublishConfig>;
+    approvalId?: string | null;
+    workflowStepId?: string | null;
   }
 ): void {
   if (input.stage === 'publish' && input.publishConfig) {
@@ -485,7 +706,38 @@ export function recordApproval(
     stage: input.stage,
     status: 'approved',
     at: nowIso(),
+    approval_id: input.approvalId ?? doc.approvals.current?.approval_id ?? null,
+    workflow_step_id: input.workflowStepId ?? doc.approvals.current?.workflow_step_id ?? null,
     approved_by: input.approvedBy,
+    message: input.message ?? null,
+    publish_config: input.stage === 'publish' ? doc.publish_config : null,
+  });
+}
+
+export function recordApprovalDenied(
+  doc: MarketingJobRuntimeDocument,
+  input: {
+    stage: Extract<MarketingStage, 'strategy' | 'production' | 'publish'>;
+    deniedBy: string;
+    message?: string;
+    publishConfig?: Partial<MarketingPublishConfig>;
+    approvalId?: string | null;
+    workflowStepId?: string | null;
+  }
+): void {
+  if (input.stage === 'publish' && input.publishConfig) {
+    doc.publish_config = defaultPublishConfig({
+      ...doc.publish_config,
+      ...input.publishConfig,
+    });
+  }
+  doc.approvals.history.push({
+    stage: input.stage,
+    status: 'denied',
+    at: nowIso(),
+    approval_id: input.approvalId ?? doc.approvals.current?.approval_id ?? null,
+    workflow_step_id: input.workflowStepId ?? doc.approvals.current?.workflow_step_id ?? null,
+    approved_by: input.deniedBy,
     message: input.message ?? null,
     publish_config: input.stage === 'publish' ? doc.publish_config : null,
   });

@@ -1,4 +1,6 @@
-import { brokerError, isAllowedProvider, oauthStore, type OAuthBrokerError } from './connect';
+import { brokerError, isAllowedProvider, type OAuthBrokerError } from './connect';
+import { dbAuditEvent, dbGetConnectionById, dbUpsertConnection } from './oauth-db';
+import { dbRevokeTokensForConnection } from './oauth-tokens-db';
 
 type OAuthDisconnectRequest = {
   connection_id?: string;
@@ -30,8 +32,7 @@ export async function oauthDisconnect(provider: string, payload: OAuthDisconnect
   }
 
   const connectionId = payload.connection_id.trim();
-  const store = oauthStore();
-  const connection = store.connectionsById.get(connectionId);
+  const connection = await dbGetConnectionById(connectionId);
 
   if (!connection || connection.provider !== provider) {
     return brokerError('connection_not_found', { provider, connection_id: connectionId });
@@ -39,11 +40,24 @@ export async function oauthDisconnect(provider: string, payload: OAuthDisconnect
 
   try {
     const at = nowIso();
-    connection.connection_status = 'disconnected';
-    connection.updated_at = at;
-    connection.disconnected_at = at;
-    store.connectionsById.set(connectionId, connection);
-    store.connectedByTenantProvider.delete(providerTenantKey(connection.tenant_id, provider));
+    await dbUpsertConnection({
+      tenantId: connection.tenant_id,
+      provider,
+      status: 'disconnected',
+      grantedScopes: connection.granted_scopes,
+      disconnectedAt: at,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+    });
+    await dbRevokeTokensForConnection(connectionId);
+    await dbAuditEvent({
+      tenantId: connection.tenant_id,
+      connectionId,
+      provider,
+      eventType: 'oauth.disconnect',
+      eventStatus: 'ok',
+      detail: { revoke_provider_token: !!payload.revoke_provider_token, reason: payload.reason || null },
+    });
 
     return {
       broker_status: 'ok',

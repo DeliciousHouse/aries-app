@@ -127,10 +127,10 @@ Recommended sequence (dependencies flow down):
 ```
 1. Landing Page(s)
    └── Need final copy for ad CTAs
-   
-2. Video Scripts  
+
+2. Video Scripts
    └── Reference landing page offer
-   
+
 3. Image Ads
    └── Pull headlines from scripts/pages
    └── Match landing page visual style

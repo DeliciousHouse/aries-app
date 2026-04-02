@@ -32,8 +32,10 @@ Copy the template and export local overrides before running the app:
 ```bash
 cp .env.example .env
 export DB_HOST=localhost DB_PORT=5432 DB_USER=aries_user DB_PASSWORD=aries_pass DB_NAME=aries_dev
-export CODE_ROOT=/workspace DATA_ROOT=/tmp/aries-data NODE_ENV=development
+export CODE_ROOT=/home/node/openclaw/aries-app DATA_ROOT=/tmp/aries-data NODE_ENV=development
+export OPENCLAW_LOBSTER_CWD=/home/node/openclaw/aries-app/lobster
 export APP_BASE_URL=http://localhost:3000 NEXTAUTH_URL=http://localhost:3000 AUTH_URL=http://localhost:3000 AUTH_TRUST_HOST=true
+export MARKETING_STATUS_PUBLIC=1
 ```
 
 ## Database
@@ -50,8 +52,10 @@ npm run db:init
 Use Turbopack for local development:
 
 ```bash
-npx next dev -p 3000 --turbopack
+npm run dev
 ```
+
+`MARKETING_STATUS_PUBLIC=1` is optional, but it makes local review/status links easier to exercise while wiring the campaign workflow.
 
 ## Required environment variables
 

@@ -1,11 +1,11 @@
 import {
   brokerError,
   isAllowedProvider,
-  oauthStore,
   type OAuthBrokerError,
-  type PendingAuthRecord,
   type Provider
 } from './connect';
+import { dbAuditEvent, dbDeletePendingState, dbGetPendingState, dbUpsertConnection } from './oauth-db';
+import { dbInsertOAuthToken } from './oauth-tokens-db';
 
 type OAuthCallbackQuery = {
   code?: string;
@@ -23,6 +23,36 @@ type OAuthCallbackSuccess = {
   connection_status: 'connected';
   connected_at?: string;
   granted_scopes?: string[];
+};
+
+type XTokenResponse = {
+  token_type?: string;
+  expires_in?: number;
+  access_token?: string;
+  scope?: string;
+  refresh_token?: string;
+  error?: string;
+  error_description?: string;
+};
+
+type XMeResponse = {
+  data?: {
+    id?: string;
+    name?: string;
+    username?: string;
+  };
+  errors?: Array<{ detail?: string }>;
+};
+
+type LinkedInTokenResponse = {
+  access_token?: string;
+  expires_in?: number;
+  refresh_token?: string;
+  refresh_token_expires_in?: number;
+  scope?: string;
+  token_type?: string;
+  error?: string;
+  error_description?: string;
 };
 
 function nowIso(): string {
@@ -73,6 +103,137 @@ function shouldRedirectToUi(req: Request): boolean {
   return accept.includes('text/html');
 }
 
+function xClientCredentials(): { clientId: string; clientSecret: string } | null {
+  const clientId = process.env.X_CLIENT_ID?.trim() || '';
+  const clientSecret = process.env.X_CLIENT_SECRET?.trim() || '';
+  if (!clientId || !clientSecret) {
+    return null;
+  }
+  return { clientId, clientSecret };
+}
+
+async function exchangeXCodeForToken(input: {
+  code: string;
+  redirectUri: string;
+  codeVerifier?: string;
+}): Promise<{
+  accessToken: string;
+  expiresIn?: number;
+  refreshToken?: string;
+  scope?: string;
+  tokenType?: string;
+}> {
+  const creds = xClientCredentials();
+  if (!creds) {
+    throw new Error('x_oauth_not_configured');
+  }
+  if (!input.codeVerifier) {
+    throw new Error('x_oauth_missing_code_verifier');
+  }
+
+  const body = new URLSearchParams();
+  body.set('grant_type', 'authorization_code');
+  body.set('code', input.code);
+  body.set('redirect_uri', input.redirectUri);
+  body.set('code_verifier', input.codeVerifier);
+
+  const basic = Buffer.from(`${creds.clientId}:${creds.clientSecret}`).toString('base64');
+  const response = await fetch('https://api.twitter.com/2/oauth2/token', {
+    method: 'POST',
+    headers: {
+      authorization: `Basic ${basic}`,
+      'content-type': 'application/x-www-form-urlencoded',
+    },
+    body: body.toString(),
+  });
+  const parsed = (await response.json().catch(() => ({}))) as XTokenResponse;
+  if (!response.ok || !parsed.access_token) {
+    throw new Error(parsed.error_description || parsed.error || 'X OAuth token exchange failed.');
+  }
+
+  return {
+    accessToken: parsed.access_token,
+    expiresIn: typeof parsed.expires_in === 'number' && parsed.expires_in > 0 ? parsed.expires_in : undefined,
+    refreshToken: typeof parsed.refresh_token === 'string' ? parsed.refresh_token : undefined,
+    scope: typeof parsed.scope === 'string' ? parsed.scope : undefined,
+    tokenType: typeof parsed.token_type === 'string' ? parsed.token_type : undefined,
+  };
+}
+
+async function fetchXProfile(accessToken: string): Promise<{ id?: string; label?: string }> {
+  const url = new URL('https://api.twitter.com/2/users/me');
+  url.searchParams.set('user.fields', 'name,username');
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+    },
+  });
+  if (!response.ok) {
+    return {};
+  }
+  const parsed = (await response.json().catch(() => ({}))) as XMeResponse;
+  const id = typeof parsed.data?.id === 'string' ? parsed.data.id : undefined;
+  const name = typeof parsed.data?.name === 'string' ? parsed.data.name : undefined;
+  const username = typeof parsed.data?.username === 'string' ? parsed.data.username : undefined;
+  return {
+    id,
+    label: [name, username ? `@${username}` : ''].filter(Boolean).join(' ') || undefined,
+  };
+}
+
+function linkedInClientCredentials(): { clientId: string; clientSecret: string } | null {
+  const clientId = process.env.LINKEDIN_CLIENT_ID?.trim() || '';
+  const clientSecret = process.env.LINKEDIN_CLIENT_SECRET?.trim() || '';
+  if (!clientId || !clientSecret) return null;
+  return { clientId, clientSecret };
+}
+
+async function exchangeLinkedInCodeForToken(input: {
+  code: string;
+  redirectUri: string;
+}): Promise<{
+  accessToken: string;
+  expiresIn?: number;
+  refreshToken?: string;
+  refreshExpiresIn?: number;
+  scope?: string;
+  tokenType?: string;
+}> {
+  const creds = linkedInClientCredentials();
+  if (!creds) {
+    throw new Error('linkedin_oauth_not_configured');
+  }
+
+  const body = new URLSearchParams();
+  body.set('grant_type', 'authorization_code');
+  body.set('code', input.code);
+  body.set('redirect_uri', input.redirectUri);
+  body.set('client_id', creds.clientId);
+  body.set('client_secret', creds.clientSecret);
+
+  const response = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  });
+  const parsed = (await response.json().catch(() => ({}))) as LinkedInTokenResponse;
+  if (!response.ok || !parsed.access_token) {
+    throw new Error(parsed.error_description || parsed.error || 'LinkedIn OAuth token exchange failed.');
+  }
+  return {
+    accessToken: parsed.access_token,
+    expiresIn: typeof parsed.expires_in === 'number' && parsed.expires_in > 0 ? parsed.expires_in : undefined,
+    refreshToken: typeof parsed.refresh_token === 'string' && parsed.refresh_token.length > 0 ? parsed.refresh_token : undefined,
+    refreshExpiresIn:
+      typeof parsed.refresh_token_expires_in === 'number' && parsed.refresh_token_expires_in > 0
+        ? parsed.refresh_token_expires_in
+        : undefined,
+    scope: typeof parsed.scope === 'string' ? parsed.scope : undefined,
+    tokenType: typeof parsed.token_type === 'string' ? parsed.token_type : undefined,
+  };
+}
+
 export async function oauthCallback(provider: string, query: OAuthCallbackQuery): Promise<OAuthCallbackSuccess | OAuthBrokerError> {
   if (!isAllowedProvider(provider)) return brokerError('invalid_provider', { provider });
 
@@ -81,20 +242,27 @@ export async function oauthCallback(provider: string, query: OAuthCallbackQuery)
   }
 
   const state = query.state.trim();
-  const store = oauthStore();
-  const pending = store.pendingByState.get(state) as PendingAuthRecord | undefined;
+  const pending = await dbGetPendingState(state);
 
   if (!pending || pending.provider !== provider) {
     return brokerError('invalid_state', { provider, message: 'state not found or provider mismatch' });
   }
 
   if (new Date(pending.expires_at).getTime() <= Date.now()) {
-    store.pendingByState.delete(state);
+    await dbDeletePendingState(state);
     return brokerError('invalid_state', { provider, message: 'state expired' });
   }
 
   if (query.error && query.error.trim().length > 0) {
-    store.pendingByState.delete(state);
+    await dbDeletePendingState(state);
+    await dbAuditEvent({
+      tenantId: pending.tenant_id,
+      connectionId: pending.connection_id,
+      provider,
+      eventType: 'oauth.callback.error',
+      eventStatus: 'error',
+      detail: { error: query.error.trim(), error_description: query.error_description?.trim() || null },
+    });
     return brokerError(resolveProviderErrorReason(query.error.trim()), {
       provider,
       message: query.error_description?.trim() || query.error.trim()
@@ -106,28 +274,134 @@ export async function oauthCallback(provider: string, query: OAuthCallbackQuery)
   }
 
   const connectedAt = nowIso();
-  const connectionId = pending.connection_id || randomConnectionId(provider);
-  const accessTtlSeconds = parsePositiveInt(query.expires_in);
+  let accessTtlSeconds = parsePositiveInt(query.expires_in);
   const refreshTtlSeconds = parsePositiveInt(query.refresh_expires_in);
+  let externalAccountId: string | null = null;
+  let externalAccountName: string | null = null;
+  let xToken:
+    | {
+        accessToken: string;
+        expiresIn?: number;
+        refreshToken?: string;
+        scope?: string;
+        tokenType?: string;
+      }
+    | null = null;
 
-  store.connectionsById.set(connectionId, {
-    connection_id: connectionId,
+  // Real X OAuth code exchange when credentials are configured.
+  if (provider === 'x' && xClientCredentials()) {
+    try {
+      xToken = await exchangeXCodeForToken({
+        code: query.code.trim(),
+        redirectUri: pending.redirect_uri,
+        codeVerifier: pending.code_verifier ?? undefined,
+      });
+      accessTtlSeconds = xToken.expiresIn;
+      const profile = await fetchXProfile(xToken.accessToken);
+      externalAccountId = profile.id ?? null;
+      externalAccountName = profile.label ?? null;
+    } catch (error) {
+      await dbDeletePendingState(state);
+      return brokerError('provider_callback_error', {
+        provider,
+        message: error instanceof Error ? error.message : 'X OAuth token exchange failed.',
+      });
+    }
+  }
+
+  let linkedInToken:
+    | {
+        accessToken: string;
+        expiresIn?: number;
+        refreshToken?: string;
+        refreshExpiresIn?: number;
+        scope?: string;
+        tokenType?: string;
+      }
+    | null = null;
+
+  if (provider === 'linkedin') {
+    try {
+      linkedInToken = await exchangeLinkedInCodeForToken({ code: query.code.trim(), redirectUri: pending.redirect_uri });
+      accessTtlSeconds = linkedInToken.expiresIn;
+    } catch (error) {
+      await dbDeletePendingState(state);
+      await dbAuditEvent({
+        tenantId: pending.tenant_id,
+        connectionId: pending.connection_id,
+        provider,
+        eventType: 'oauth.callback.exchange_failed',
+        eventStatus: 'error',
+        detail: { message: error instanceof Error ? error.message : String(error) },
+      });
+      return brokerError('provider_callback_error', {
+        provider,
+        message: error instanceof Error ? error.message : 'LinkedIn OAuth token exchange failed.',
+      });
+    }
+  }
+
+  const tokenExpiresAt = typeof accessTtlSeconds === 'number' ? addSeconds(connectedAt, accessTtlSeconds) : null;
+  const refreshExpiresAt =
+    typeof (linkedInToken?.refreshExpiresIn ?? refreshTtlSeconds) === 'number'
+      ? addSeconds(connectedAt, (linkedInToken?.refreshExpiresIn ?? refreshTtlSeconds) as number)
+      : null;
+
+  const connection = await dbUpsertConnection({
+    tenantId: pending.tenant_id,
     provider,
-    tenant_id: pending.tenant_id,
-    connection_status: 'connected',
-    granted_scopes: pending.scopes,
-    created_at: connectedAt,
-    updated_at: connectedAt,
-    token_expires_at: typeof accessTtlSeconds === 'number' ? addSeconds(connectedAt, accessTtlSeconds) : undefined,
-    refresh_token_expires_at: typeof refreshTtlSeconds === 'number' ? addSeconds(connectedAt, refreshTtlSeconds) : undefined
+    status: 'connected',
+    grantedScopes: pending.scopes,
+    tokenExpiresAt,
+    refreshExpiresAt,
+    connectedAt,
+    disconnectedAt: null,
+    externalAccountId,
+    externalAccountName,
+    lastErrorCode: null,
+    lastErrorMessage: null,
   });
-  store.connectedByTenantProvider.set(providerTenantKey(pending.tenant_id, provider), connectionId);
-  store.pendingByState.delete(state);
+
+  if (provider === 'x' && xToken) {
+    await dbInsertOAuthToken({
+      connectionId: connection.id,
+      accessToken: xToken.accessToken,
+      refreshToken: xToken.refreshToken ?? null,
+      tokenType: xToken.tokenType ?? null,
+      scope: xToken.scope ?? null,
+      expiresAt: tokenExpiresAt,
+      refreshExpiresAt,
+      issuedAt: connectedAt,
+    });
+  }
+
+  if (provider === 'linkedin' && linkedInToken) {
+    await dbInsertOAuthToken({
+      connectionId: connection.id,
+      accessToken: linkedInToken.accessToken,
+      refreshToken: linkedInToken.refreshToken ?? null,
+      tokenType: linkedInToken.tokenType ?? null,
+      scope: linkedInToken.scope ?? null,
+      expiresAt: tokenExpiresAt,
+      refreshExpiresAt,
+      issuedAt: connectedAt,
+    });
+  }
+
+  await dbDeletePendingState(state);
+  await dbAuditEvent({
+    tenantId: pending.tenant_id,
+    connectionId: connection.id,
+    provider,
+    eventType: 'oauth.callback.connected',
+    eventStatus: 'ok',
+    detail: { token_expires_at: tokenExpiresAt, refresh_expires_at: refreshExpiresAt },
+  });
 
   return {
     broker_status: 'ok',
     provider,
-    connection_id: connectionId,
+    connection_id: connection.id,
     connection_status: 'connected',
     connected_at: connectedAt,
     granted_scopes: pending.scopes

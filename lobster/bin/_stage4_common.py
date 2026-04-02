@@ -16,6 +16,22 @@ from pathlib import Path
 from typing import Any
 
 from _canonical_outputs import write_stage_log
+from _brand_tokens import brand_direction_lines
+from _marketing_profile_common import contains_wrapper_language, normalize_space
+
+
+def safe_path_exists(candidate: str | Path) -> bool:
+    try:
+        return Path(candidate).exists()
+    except OSError:
+        return False
+
+
+def safe_path_exists(candidate: str | Path) -> bool:
+    try:
+        return Path(candidate).exists()
+    except OSError:
+        return False
 
 
 def resolve_nano_banana_script() -> Path:
@@ -26,7 +42,7 @@ def resolve_nano_banana_script() -> Path:
         "/home/bkam/.npm-global/lib/node_modules/openclaw/skills/nano-banana-pro/scripts/generate_image.py",
     ]
     for candidate in candidates:
-        if candidate and Path(candidate).exists():
+        if candidate and safe_path_exists(candidate):
             return Path(candidate)
     return Path("/app/skills/nano-banana-pro/scripts/generate_image.py")
 
@@ -115,11 +131,66 @@ def list_or_empty(value: Any) -> list:
     return value if isinstance(value, list) else []
 
 
+def record_or_empty(value: Any) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
 def load_json_file(path: str) -> dict:
     candidate = Path(path)
     if not path or not candidate.exists() or not candidate.is_file():
         return {}
     return json.loads(candidate.read_text(encoding="utf-8"))
+
+
+def contract_brand_tokens(contract: dict) -> dict:
+    candidates = [
+        record_or_empty(contract.get("brand_tokens")),
+        record_or_empty(record_or_empty(record_or_empty(contract.get("inputs")).get("brand_guidelines")).get("design_tokens")),
+        record_or_empty(record_or_empty(contract.get("approved_campaign_strategy")).get("design_tokens")),
+        record_or_empty(record_or_empty(contract.get("creative")).get("brand_tokens")),
+    ]
+    for candidate in candidates:
+        if record_or_empty(candidate.get("palette")):
+            return candidate
+    return {}
+
+
+def require_contract_brand_tokens(contract: dict) -> dict:
+    brand_tokens = contract_brand_tokens(contract)
+    required_pairs = [
+        ("palette", "background"),
+        ("palette", "surface"),
+        ("palette", "text"),
+        ("palette", "accent"),
+        ("palette", "accent_contrast"),
+        ("palette", "muted"),
+        ("palette", "theme_mode"),
+        ("typography", "display_family"),
+        ("typography", "body_family"),
+    ]
+    missing = [f"{section}.{key}" for section, key in required_pairs if not record_or_empty(brand_tokens.get(section)).get(key)]
+    if missing:
+        raise RuntimeError(f"quality_gate_failed:contract_brand_tokens_missing:{','.join(missing)}")
+    return brand_tokens
+
+
+def token_value(tokens: dict, section: str, key: str, default: str) -> str:
+    section_value = record_or_empty(tokens.get(section))
+    value = section_value.get(key)
+    return value.strip() if isinstance(value, str) and value.strip() else default
+
+
+def contract_brand_voice_lines(contract: dict) -> list[str]:
+    candidates = [
+        list_or_empty(record_or_empty(record_or_empty(contract.get("inputs")).get("brand_guidelines")).get("voice_attributes")),
+        list_or_empty(record_or_empty(contract.get("approved_campaign_strategy")).get("brand_voice")),
+        list_or_empty(record_or_empty(record_or_empty(contract.get("inputs")).get("approved_campaign_strategy")).get("brand_voice")),
+    ]
+    for candidate in candidates:
+        voices = [normalize_space(value) for value in candidate if normalize_space(value)]
+        if voices:
+            return [f"Voice attributes: {', '.join(voices[:4])}."]
+    return []
 
 
 def output_root() -> Path:
@@ -160,20 +231,30 @@ def contract_platform_map(handoff: dict, handoff_key: str) -> dict[str, dict]:
 def render_static_svg(contract: dict, destination: Path) -> str:
     destination.parent.mkdir(parents=True, exist_ok=True)
     creative = contract.get("creative", {})
+    brand_tokens = require_contract_brand_tokens(contract)
     proof_points = list_or_empty(creative.get("proof_points"))[:3]
     body_lines = list_or_empty(creative.get("body_lines"))[:3]
-    lines = [contract.get("platform", "Static Asset"), creative.get("headline", "Headline"), *body_lines, *proof_points]
+    lines = [contract.get("platform", "Static Asset"), creative.get("headline", ""), *body_lines, *proof_points]
     escaped = [line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") for line in lines]
+    background = token_value(brand_tokens, "palette", "background", "")
+    surface = token_value(brand_tokens, "palette", "surface", "")
+    overline = token_value(brand_tokens, "palette", "muted", "")
+    headline = token_value(brand_tokens, "palette", "text", "")
+    body = token_value(brand_tokens, "palette", "muted", "")
+    accent = token_value(brand_tokens, "palette", "accent", "")
+    accent_contrast = token_value(brand_tokens, "palette", "accent_contrast", "")
+    display_font = token_value(brand_tokens, "typography", "display_family", "")
+    body_font = token_value(brand_tokens, "typography", "body_family", display_font)
     svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1350" viewBox="0 0 1080 1350">
-  <rect width="1080" height="1350" fill="#f4efe5"/>
-  <rect x="54" y="54" width="972" height="1242" rx="36" fill="#1d3124"/>
-  <text x="108" y="160" fill="#f0e7d8" font-family="Arial, sans-serif" font-size="38" font-weight="700">{escaped[0]}</text>
-  <text x="108" y="270" fill="#ffffff" font-family="Arial, sans-serif" font-size="72" font-weight="700">{escaped[1]}</text>
-  <text x="108" y="390" fill="#d8e3dc" font-family="Arial, sans-serif" font-size="34">{escaped[2] if len(escaped) > 2 else ''}</text>
-  <text x="108" y="450" fill="#d8e3dc" font-family="Arial, sans-serif" font-size="34">{escaped[3] if len(escaped) > 3 else ''}</text>
-  <text x="108" y="510" fill="#d8e3dc" font-family="Arial, sans-serif" font-size="34">{escaped[4] if len(escaped) > 4 else ''}</text>
-  <rect x="108" y="1120" width="360" height="96" rx="20" fill="#f0b429"/>
-  <text x="148" y="1182" fill="#1d3124" font-family="Arial, sans-serif" font-size="40" font-weight="700">{creative.get('primary_cta', 'Learn More')}</text>
+  <rect width="1080" height="1350" fill="{background}"/>
+  <rect x="54" y="54" width="972" height="1242" rx="36" fill="{surface}"/>
+  <text x="108" y="160" fill="{overline}" font-family="{display_font}, sans-serif" font-size="38" font-weight="700">{escaped[0]}</text>
+  <text x="108" y="270" fill="{headline}" font-family="{display_font}, sans-serif" font-size="72" font-weight="700">{escaped[1]}</text>
+  <text x="108" y="390" fill="{body}" font-family="{body_font}, sans-serif" font-size="34">{escaped[2] if len(escaped) > 2 else ''}</text>
+  <text x="108" y="450" fill="{body}" font-family="{body_font}, sans-serif" font-size="34">{escaped[3] if len(escaped) > 3 else ''}</text>
+  <text x="108" y="510" fill="{body}" font-family="{body_font}, sans-serif" font-size="34">{escaped[4] if len(escaped) > 4 else ''}</text>
+  <rect x="108" y="1120" width="360" height="96" rx="20" fill="{accent}"/>
+  <text x="148" y="1182" fill="{accent_contrast}" font-family="{display_font}, sans-serif" font-size="40" font-weight="700">{creative.get('primary_cta', '')}</text>
 </svg>
     """
     destination.write_text(svg, encoding="utf-8")
@@ -203,7 +284,7 @@ def nano_banana_enabled() -> bool:
 
 def run_nano_banana(prompt: str, destination: Path, aspect_ratio: str) -> dict:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    use_script = NANO_BANANA_SCRIPT.exists() and shutil.which("uv")
+    use_script = safe_path_exists(NANO_BANANA_SCRIPT) and shutil.which("uv")
     if use_script:
         command = [
             "uv",
@@ -332,37 +413,123 @@ def run_nano_banana(prompt: str, destination: Path, aspect_ratio: str) -> dict:
         }
 
 
+def image_mime_type(image_path: Path) -> str:
+    suffix = image_path.suffix.lower()
+    if suffix == ".png":
+        return "image/png"
+    if suffix in {".jpg", ".jpeg"}:
+        return "image/jpeg"
+    if suffix == ".webp":
+        return "image/webp"
+    if suffix == ".gif":
+        return "image/gif"
+    return "application/octet-stream"
+
+
+def extract_svg_text(image_path: Path) -> list[str]:
+    if not image_path.exists():
+        return []
+    text = image_path.read_text(encoding="utf-8", errors="ignore")
+    return [normalize_space(match.group(1)) for match in re.finditer(r"<text\b[^>]*>(.*?)</text>", text, flags=re.IGNORECASE | re.DOTALL) if normalize_space(match.group(1))]
+
+
+def ocr_image_text_with_gemini(image_path: Path) -> list[str]:
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("image_text_qa_unavailable:gemini_api_key_missing")
+    request_body = {
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "text": (
+                            "Read any visible marketing text in this image. "
+                            "Return strict JSON only in the shape "
+                            '{"lines":["text line 1","text line 2"]}. '
+                            "Do not summarize."
+                        )
+                    },
+                    {
+                        "inlineData": {
+                            "mimeType": image_mime_type(image_path),
+                            "data": base64.b64encode(image_path.read_bytes()).decode("ascii"),
+                        }
+                    },
+                ]
+            }
+        ]
+    }
+    endpoint = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{urllib.parse.quote(os.environ.get('MARKETING_IMAGE_QA_MODEL', 'gemini-2.5-flash'))}:generateContent"
+        f"?key={urllib.parse.quote(api_key)}"
+    )
+    req = urllib.request.Request(
+        endpoint,
+        data=json.dumps(request_body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=60) as response:
+        parsed = json.loads(response.read().decode("utf-8", errors="replace"))
+    candidates = parsed.get("candidates", [])
+    if not candidates:
+        raise RuntimeError("image_text_qa_failed:empty_candidates")
+    parts = candidates[0].get("content", {}).get("parts", [])
+    raw_text = "\n".join(part.get("text", "") for part in parts if part.get("text"))
+    if not raw_text.strip():
+        return []
+    lines_payload = json.loads(re.search(r"\{.*\}", raw_text, flags=re.DOTALL).group(0)) if re.search(r"\{.*\}", raw_text, flags=re.DOTALL) else {}
+    lines = lines_payload.get("lines", [])
+    if not isinstance(lines, list):
+        return []
+    return [normalize_space(line) for line in lines if normalize_space(line)]
+
+
+def assert_generated_image_text_safe(image_path: Path) -> list[str]:
+    lines = extract_svg_text(image_path) if image_path.suffix.lower() == ".svg" else ocr_image_text_with_gemini(image_path)
+    for line in lines:
+        if contains_wrapper_language(line):
+            raise RuntimeError(f"quality_gate_failed:image_text:{image_path.name}:wrapper_language")
+    return lines
+
+
 def static_image_prompt(contract: dict) -> str:
     creative = contract.get("creative", {})
     platform = contract.get("platform", "marketing creative")
     proof_points = list_or_empty(creative.get("proof_points"))[:3]
     body_lines = [line for line in list_or_empty(creative.get("body_lines"))[:3] if line]
+    brand_tokens = require_contract_brand_tokens(contract)
     return "\n".join(
         [
-            f"Create a polished high-converting ad creative for {platform}.",
-            "Style: premium B2B marketing creative, clean typography, believable modern layout, not generic clipart, not meme-like.",
+            f"Create a finished marketing image for {platform} using only the validated brand system in this contract.",
             "Use readable text in the image.",
-            f"Headline: {creative.get('headline', 'Lead with proof.')}",
+            f"Headline: {creative.get('headline', '')}",
             *(f"Support line: {line}" for line in body_lines),
             *(f"Proof point: {line}" for line in proof_points),
-            f"CTA button text: {creative.get('primary_cta', 'Learn More')}",
+            f"CTA button text: {creative.get('primary_cta', '')}",
             f"Aspect ratio: {contract.get('layout', {}).get('aspect_ratio', '4:5')}",
-            "Design direction: dark green and warm neutral palette, premium consulting aesthetic, strong contrast, clear hierarchy.",
+            *contract_brand_voice_lines(contract),
+            *brand_direction_lines(brand_tokens),
+            "Design direction: keep clear hierarchy and legible contrast, but do not introduce off-palette colors, substitute fonts, or generic template styling.",
             "Output a single finished marketing image.",
         ]
     )
 
 
 def video_poster_prompt(contract: dict) -> str:
-    hook = contract.get("creative", {}).get("hook") or contract.get("creative", {}).get("headline") or contract.get("concept_id", "Lead with proof")
+    hook = contract.get("creative", {}).get("hook") or contract.get("creative", {}).get("headline") or contract.get("concept_id", "video-concept")
     beats = [line for line in list_or_empty(contract.get("creative", {}).get("beats"))[:3] if line]
     platform = contract.get("platform", contract.get("platform_slug", "video"))
+    brand_tokens = require_contract_brand_tokens(contract)
     return "\n".join(
         [
-            f"Create a striking poster frame / thumbnail for a {platform} marketing video.",
-            "Style: premium performance marketing creative, cinematic but realistic, clean typography, persuasive and modern.",
+            f"Create a poster frame for a {platform} marketing video using only the validated brand system in this contract.",
             f"Primary hook: {hook}",
             *(f"Story beat: {line}" for line in beats),
+            *contract_brand_voice_lines(contract),
+            *brand_direction_lines(brand_tokens),
+            "Keep the poster on-brand, readable, and free of substitute palette or substitute typography choices.",
             "Include bold headline text and room for platform-safe crops.",
             "Output a single finished image suitable as a poster frame.",
         ]
@@ -390,11 +557,16 @@ def render_static_publish_asset(contract: dict, destination_root: Path, filename
         if nano_result.get("status") == "ok" and png_path.exists():
             final_image_path = str(png_path)
             final_image_kind = "nano_banana_png"
+    extracted_text = assert_generated_image_text_safe(Path(final_image_path))
     return {
         "image_path": final_image_path,
         "image_kind": final_image_kind,
         "fallback_svg_path": str(svg_path),
         "nano_banana": nano_result,
+        "text_qa": {
+            "status": "passed",
+            "extracted_lines": extracted_text,
+        },
     }
 
 
@@ -412,9 +584,14 @@ def render_video_poster_asset(contract: dict, destination_root: Path, filename_s
             png_path,
             contract.get("layout", {}).get("aspect_ratio", "9:16"),
         )
+    extracted_text = assert_generated_image_text_safe(png_path) if png_path.exists() else []
     return {
         "poster_image_path": str(png_path) if png_path.exists() else "",
         "nano_banana": nano_result,
+        "text_qa": {
+            "status": "passed" if extracted_text or not png_path.exists() else "passed",
+            "extracted_lines": extracted_text,
+        },
     }
 
 

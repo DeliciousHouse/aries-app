@@ -1,1382 +1,741 @@
-'use client';
-
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-
+import type { ReactNode } from 'react';
+import Link from 'next/link';
 import {
+  AlertCircle,
   ArrowRight,
   BarChart3,
   Check,
-  ChevronLeft,
-  ChevronRight,
   Clock,
-  Facebook,
-  Instagram,
   Layers,
   Lightbulb,
-  Linkedin,
-  MessageCircle,
-  MoreHorizontal,
+  type LucideIcon,
   PenTool,
   Play,
-  Plus,
   RefreshCw,
   Search,
   Share2,
   Sparkles,
   TrendingDown,
-  Twitter,
-  Youtube,
   Zap,
-  AlertCircle,
 } from 'lucide-react';
-import { motion, useScroll, useSpring, useTransform, type MotionValue } from 'motion/react';
 
 import { cn } from '../lib/utils';
 import { AriesMark } from '../ui';
 import { DonorMarketingShell } from './chrome';
+import MarketingDashboardPreview from './marketing-dashboard-preview';
 
-function NetworkBackground() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    let animationFrameId = 0;
-    let particles: Array<{
-      x: number;
-      y: number;
-      vx: number;
-      vy: number;
-      radius: number;
-    }> = [];
-
-    const initParticles = () => {
-      particles = [];
-      const count = Math.min(Math.floor((window.innerWidth * window.innerHeight) / 15000), 100);
-      for (let index = 0; index < count; index += 1) {
-        particles.push({
-          x: Math.random() * canvas.width,
-          y: Math.random() * canvas.height,
-          vx: (Math.random() - 0.5) * 0.5,
-          vy: (Math.random() - 0.5) * 0.5,
-          radius: Math.random() * 1.5 + 0.5,
-        });
-      }
-    };
-
-    const resize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-      initParticles();
-    };
-
-    const animate = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      for (let i = 0; i < particles.length; i += 1) {
-        const particle = particles[i];
-        particle.x += particle.vx;
-        particle.y += particle.vy;
-
-        if (particle.x < 0 || particle.x > canvas.width) particle.vx *= -1;
-        if (particle.y < 0 || particle.y > canvas.height) particle.vy *= -1;
-
-        ctx.beginPath();
-        ctx.arc(particle.x, particle.y, particle.radius, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(124, 58, 237, 0.9)';
-        ctx.fill();
-
-        for (let j = i + 1; j < particles.length; j += 1) {
-          const other = particles[j];
-          const dx = particle.x - other.x;
-          const dy = particle.y - other.y;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-
-          if (distance < 150) {
-            ctx.beginPath();
-            const opacity = 0.6 * (1 - distance / 150);
-            ctx.strokeStyle = `rgba(124, 58, 237, ${opacity})`;
-            ctx.lineWidth = 1;
-            ctx.moveTo(particle.x, particle.y);
-            ctx.lineTo(other.x, other.y);
-            ctx.stroke();
-          }
-        }
-      }
-
-      animationFrameId = requestAnimationFrame(animate);
-    };
-
-    window.addEventListener('resize', resize);
-    resize();
-    animate();
-
-    return () => {
-      window.removeEventListener('resize', resize);
-      cancelAnimationFrame(animationFrameId);
-    };
-  }, []);
-
-  return <canvas ref={canvasRef} className="absolute inset-0 z-0 pointer-events-none opacity-60" />;
-}
-
-type PlatformOrbit = {
-  icon: typeof Twitter;
-  angle: number;
-  radius: number;
+type IconCard = {
+  icon: LucideIcon;
+  title: string;
+  description: string;
 };
 
-const PLATFORM_ORBITS: PlatformOrbit[] = [
-  { icon: Twitter, angle: 180, radius: 180 },
-  { icon: Instagram, angle: 60, radius: 300 },
-  { icon: Linkedin, angle: 240, radius: 300 },
-  { icon: Facebook, angle: 0, radius: 420 },
-  { icon: Youtube, angle: 120, radius: 420 },
-  { icon: MessageCircle, angle: 300, radius: 420 },
+type MetricCard = {
+  label: string;
+  value: string;
+  detail: string;
+};
+
+const TRUSTED_LABELS = ['NEXUS', 'VELOCITY', 'QUANTUM', 'ELEVATE', 'ORBIT'] as const;
+
+const HERO_PROOF: MetricCard[] = [
+  {
+    label: 'Approvals waiting',
+    value: '3',
+    detail: 'Review queue stays visible before launch.',
+  },
+  {
+    label: 'Next launch',
+    value: 'Thu 8:30',
+    detail: 'The schedule stays readable without digging.',
+  },
+  {
+    label: 'Next step',
+    value: '1 clear action',
+    detail: 'Results end with what to do now.',
+  },
 ];
 
-function OrbitLine({
-  angle,
-  radius,
-  rotation,
-  progress,
-  index,
-}: {
-  angle: number;
-  radius: number;
-  rotation: MotionValue<number>;
-  progress: MotionValue<number>;
-  index: number;
-}) {
-  const startRadius = 25;
-  const lineTargetRadius = Math.max(startRadius, radius - 40);
-  const lineStart = 0.3 + index * 0.015;
-  const lineEnd = 0.35 + index * 0.015;
-  const lineCurrentRadius = useTransform(progress, [lineStart, lineEnd, 0.5, 0.6], [startRadius, lineTargetRadius, lineTargetRadius, startRadius]);
-  const lineOpacity = useTransform(progress, [lineStart, lineStart + 0.01, 0.5, 0.6], [0, 0.8, 0.8, 0]);
+const PROBLEMS: IconCard[] = [
+  {
+    icon: TrendingDown,
+    title: 'Missed launches',
+    description: 'Without a clear schedule, campaigns slip and opportunities pass before you notice.',
+  },
+  {
+    icon: AlertCircle,
+    title: 'Unclear approvals',
+    description: 'When nobody knows who approved what, mistakes go live and trust erodes fast.',
+  },
+  {
+    icon: Clock,
+    title: 'Scattered results',
+    description: 'Checking five different dashboards to answer one question: is this working?',
+  },
+  {
+    icon: Layers,
+    title: 'No clear next step',
+    description: 'Finishing a campaign and having no idea what to do next to keep momentum going.',
+  },
+];
 
-  const x1 = useTransform(rotation, (rot) => Math.cos(((angle + rot) * Math.PI) / 180) * startRadius);
-  const y1 = useTransform(rotation, (rot) => Math.sin(((angle + rot) * Math.PI) / 180) * startRadius);
-  const x2 = useTransform([lineCurrentRadius, rotation], ([r, rot]) => Math.cos(((angle + (rot as number)) * Math.PI) / 180) * (r as number));
-  const y2 = useTransform([lineCurrentRadius, rotation], ([r, rot]) => Math.sin(((angle + (rot as number)) * Math.PI) / 180) * (r as number));
+const FEATURES: IconCard[] = [
+  {
+    icon: Share2,
+    title: 'Campaign planning',
+    description: 'Turn your business goals into a clear campaign plan you can read in seconds.',
+  },
+  {
+    icon: Search,
+    title: 'Creative review',
+    description: 'See every draft, compare versions, and approve what ships before it goes live.',
+  },
+  {
+    icon: PenTool,
+    title: 'Approval safety',
+    description: 'Nothing publishes without sign-off. Material edits return to review automatically.',
+  },
+  {
+    icon: Zap,
+    title: 'Launch scheduling',
+    description: 'See exactly what is going out, when, and on which channels before it runs.',
+  },
+  {
+    icon: BarChart3,
+    title: 'Results clarity',
+    description: 'Business-readable reporting that answers one question: is this working?',
+  },
+  {
+    icon: RefreshCw,
+    title: 'Next-step recommendations',
+    description: 'Every result ends with a clear next action so you always know what to do.',
+  },
+];
 
-  return (
-    <motion.line
-      x1={x1}
-      y1={y1}
-      x2={x2}
-      y2={y2}
-      stroke="url(#line-gradient)"
-      strokeWidth="3"
-      strokeDasharray="15 30"
-      filter="url(#glow)"
-      animate={{ strokeDashoffset: [45, 0] }}
-      transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}
-      style={{ opacity: lineOpacity }}
-    />
-  );
-}
+const HOW_IT_WORKS: IconCard[] = [
+  {
+    icon: Search,
+    title: 'Connect your business',
+    description: 'Set up once with your website, brand, and goals. Aries handles the rest.',
+  },
+  {
+    icon: Lightbulb,
+    title: 'Review the plan',
+    description: 'See a clear campaign plan in plain English before anything is created.',
+  },
+  {
+    icon: Zap,
+    title: 'Approve and launch',
+    description: 'Review every creative draft, approve what ships, and schedule with confidence.',
+  },
+  {
+    icon: BarChart3,
+    title: 'See what worked',
+    description: 'Business-readable results with one clear recommendation for what to do next.',
+  },
+];
 
-function OrbitPlatform({
-  platform,
-  rotation,
-  progress,
-  index,
-}: {
-  platform: PlatformOrbit;
-  rotation: MotionValue<number>;
-  progress: MotionValue<number>;
-  index: number;
-}) {
-  const platformRadius = useTransform(progress, [0, 0.05, 0.15, 0.5, 0.6], [0, 0, platform.radius, platform.radius, 0]);
-  const x = useTransform([platformRadius, rotation], ([r, rot]) => Math.cos(((platform.angle + (rot as number)) * Math.PI) / 180) * (r as number));
-  const y = useTransform([platformRadius, rotation], ([r, rot]) => Math.sin(((platform.angle + (rot as number)) * Math.PI) / 180) * (r as number));
-  const Icon = platform.icon;
-
-  return (
-    <motion.div
-      style={{
-        position: 'absolute',
-        x,
-        y,
-        scale: useTransform(platformRadius, [0, platform.radius], [0, 1]),
-      }}
-      className="relative"
-    >
-      <div className="w-20 h-20 rounded-full bg-white/5 border border-white/10 backdrop-blur-md flex items-center justify-center shadow-2xl shadow-white/5 relative z-10">
-        <Icon className="w-10 h-10 text-white" />
-      </div>
-      <motion.div
-        className="absolute inset-0 rounded-full border-2 border-secondary/30"
-        animate={{ scale: [1, 1.5], opacity: [0.5, 0] }}
-        transition={{ duration: 2, repeat: Infinity, delay: index * 0.3, ease: 'easeOut' }}
-      />
-    </motion.div>
-  );
-}
-
-function Hero() {
-  const containerRef = useRef<HTMLElement>(null);
-  const [isMounted, setIsMounted] = useState(false);
-  const { scrollYProgress } = useScroll({
-    target: containerRef,
-    offset: ['start start', 'end start'],
-  });
-
-  const smoothProgress = useSpring(scrollYProgress, {
-    stiffness: 100,
-    damping: 30,
-    restDelta: 0.001,
-  });
-
-  const [windowSize, setWindowSize] = useState({ width: 1280, height: 800 });
-
-  useEffect(() => {
-    setIsMounted(true);
-    const updateSize = () => {
-      setWindowSize({
-        width: document.documentElement.clientWidth,
-        height: window.innerHeight,
-      });
-    };
-    updateSize();
-    window.addEventListener('resize', updateSize);
-    return () => window.removeEventListener('resize', updateSize);
-  }, []);
-
-  const particles = useMemo(
-    () =>
-      Array.from({ length: 20 }, (_, index) => ({
-        id: index,
-        left: `${(index * 17) % 100}%`,
-        top: `${(index * 29) % 100}%`,
-        y: -100 - ((index * 31) % 100),
-        x: ((index % 2 === 0 ? 1 : -1) * (15 + ((index * 7) % 35))),
-        duration: 5 + (index % 5),
-        delay: (index % 6) * 0.6,
-        scale: 0.5 + ((index * 9) % 10) / 10,
-      })),
-    [],
-  );
-
-  const navbarLogoX = Math.max(24, (windowSize.width - 1280) / 2) + 40;
-  const navbarLogoY = 56;
-  const startX = navbarLogoX - windowSize.width / 2;
-  const startY = navbarLogoY - windowSize.height / 2;
-
-  const logoX = useTransform(smoothProgress, [0, 0.15, 0.3, 0.5, 0.95, 1], [startX, startX, 0, 0, startX, startX]);
-  const logoY = useTransform(smoothProgress, [0, 0.15, 0.3, 0.5, 0.95, 1], [startY, startY, 0, 0, startY, startY]);
-  const logoScale = useTransform(smoothProgress, [0, 0.15, 0.3, 0.5, 0.95, 1], [1, 1, 1.5625, 1.5625, 1, 1]);
-  const logoOpacity = useTransform(smoothProgress, [0, 0.95, 1], [1, 1, 0]);
-  const centralCircleOpacity = useTransform(smoothProgress, [0, 0.05, 0.15, 0.5, 0.6], [0, 0, 1, 1, 0]);
-  const centralCircleScale = useTransform(smoothProgress, [0, 0.05, 0.15, 0.5, 0.6], [0.5, 0.5, 1, 1, 0.5]);
-  const platformsOpacity = useTransform(smoothProgress, [0, 0.05, 0.15, 0.5, 0.6], [0, 0, 1, 1, 0]);
-  const platformsRotate = useTransform(smoothProgress, [0, 1], [0, 360]);
-
-  return (
-    <section ref={containerRef} className="relative h-[250vh]">
-      <div className="sticky top-0 h-screen w-full flex items-center justify-center overflow-hidden bg-animate">
-        <NetworkBackground />
-
-        <div className="absolute inset-0 z-0">
-          <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/10 rounded-full blur-[120px] animate-pulse" />
-          <div
-            className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-secondary/10 rounded-full blur-[120px] animate-pulse"
-            style={{ animationDelay: '2s' }}
-          />
-          <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            {particles.map((particle) => (
-              <motion.div
-                key={particle.id}
-                className="absolute w-1.5 h-1.5 bg-primary/40 rounded-full"
-                style={{ left: particle.left, top: particle.top }}
-                animate={{
-                  y: [0, particle.y],
-                  x: [0, particle.x],
-                  opacity: [0, 0.8, 0],
-                  scale: [0, particle.scale, 0],
-                }}
-                transition={{
-                  duration: particle.duration,
-                  repeat: Infinity,
-                  ease: 'linear',
-                  delay: particle.delay,
-                }}
-              />
-            ))}
-          </div>
-        </div>
-
-        <div className="container mx-auto px-6 relative z-20 text-center pt-48 md:pt-32 lg:pt-0">
-          <motion.div style={{ opacity: useTransform(smoothProgress, [0, 0.05], [1, 0]) }} className="mb-8">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-reflection relative">
-              <Sparkles className="w-4 h-4 text-primary" />
-              <span className="text-sm font-medium text-white/80">Nothing goes live without your approval</span>
-            </div>
-          </motion.div>
-
-          <motion.h1
-            style={{
-              opacity: useTransform(smoothProgress, [0, 0.05], [1, 0]),
-              y: useTransform(smoothProgress, [0, 0.05], [0, -20]),
-            }}
-            className="text-3xl md:text-[3rem] lg:text-[4rem] font-bold tracking-tight mb-8 leading-[1.1]"
-          >
-            Plan, create, approve, launch, and <br />
-            <span className="text-gradient">improve your marketing</span>
-          </motion.h1>
-
-          <motion.p
-            style={{
-              opacity: useTransform(smoothProgress, [0, 0.05], [1, 0]),
-              y: useTransform(smoothProgress, [0, 0.05], [0, -20]),
-            }}
-            className="max-w-2xl mx-auto text-[1rem] text-white/60 mb-12"
-          >
-            Aries gives business owners a calm workspace to see what is running, what needs approval, what is scheduled next, what is working, and what to do now.
-          </motion.p>
-
-          <motion.div
-            style={{
-              opacity: useTransform(smoothProgress, [0, 0.05], [1, 0]),
-              y: useTransform(smoothProgress, [0, 0.05], [0, -20]),
-            }}
-            className="flex flex-col sm:flex-row items-center justify-center gap-4"
-          >
-            <a
-              href="/onboarding/start"
-              className="w-full sm:w-auto px-8 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 hover:scale-105 transition-transform flex items-center justify-center gap-2"
-            >
-              Start with your business <ArrowRight className="w-5 h-5" />
-            </a>
-            <a
-              href="/#how-it-works"
-              className="w-full sm:w-auto px-8 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2"
-            >
-              <Play className="w-5 h-5 fill-current" /> See how it works
-            </a>
-          </motion.div>
-
-          <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-            <motion.div style={{ opacity: platformsOpacity }} className="absolute inset-0 flex items-center justify-center">
-              {[180, 300, 420].map((radius) => (
-                <div key={radius} className="absolute rounded-full border border-white/5" style={{ width: radius * 2, height: radius * 2 }} />
-              ))}
-            </motion.div>
-
-            <motion.div
-              style={{ opacity: centralCircleOpacity, scale: centralCircleScale }}
-              className="w-40 h-40 rounded-full border border-white/10 bg-white/5 backdrop-blur-sm flex items-center justify-center"
-            >
-              <div className="w-28 h-28 rounded-full border border-primary/20 animate-pulse" />
-            </motion.div>
-
-            <svg
-              className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none overflow-visible"
-              width="1000"
-              height="1000"
-              viewBox="-500 -500 1000 1000"
-            >
-              <defs>
-                <linearGradient id="line-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="#7c3aed" stopOpacity="0.1" />
-                  <stop offset="50%" stopColor="#a855f7" stopOpacity="1" />
-                  <stop offset="100%" stopColor="#c084fc" stopOpacity="0.1" />
-                </linearGradient>
-                <filter id="glow">
-                  <feGaussianBlur stdDeviation="2" result="coloredBlur" />
-                  <feMerge>
-                    <feMergeNode in="coloredBlur" />
-                    <feMergeNode in="SourceGraphic" />
-                  </feMerge>
-                </filter>
-              </defs>
-              {isMounted && PLATFORM_ORBITS.map((platform, index) => (
-                <OrbitLine
-                  key={`${platform.angle}-${platform.radius}`}
-                  angle={platform.angle}
-                  radius={platform.radius}
-                  rotation={platformsRotate}
-                  progress={smoothProgress}
-                  index={index}
-                />
-              ))}
-            </svg>
-
-            <motion.div style={{ opacity: platformsOpacity }} className="absolute w-full h-full flex items-center justify-center">
-              {PLATFORM_ORBITS.map((platform, index) => (
-                <OrbitPlatform
-                  key={`${platform.angle}-${platform.radius}`}
-                  platform={platform}
-                  rotation={platformsRotate}
-                  progress={smoothProgress}
-                  index={index}
-                />
-              ))}
-            </motion.div>
-
-            <motion.div
-              style={{
-                x: logoX,
-                y: logoY,
-                scale: logoScale,
-                opacity: logoOpacity,
-                position: 'fixed',
-                top: '50%',
-                left: '50%',
-                marginTop: '-40px',
-                marginLeft: '-40px',
-              }}
-              className="z-[60]"
-            >
-              <div className="relative">
-                <AriesMark sizeClassName="w-20 h-20" />
-                <motion.div
-                  className="absolute inset-0 rounded-full border-2 border-primary/50"
-                  animate={{ scale: [1, 2], opacity: [0.8, 0] }}
-                  transition={{ duration: 2, repeat: Infinity, ease: 'easeOut' }}
-                />
-              </div>
-            </motion.div>
-          </div>
-        </div>
-
-
-      </div>
-
-
-      {/* Floating Insight Cards (Viewport-Anchored) */}
-      <div className="hidden lg:block sticky top-0 h-screen w-screen pointer-events-none z-30 -mt-[100vh]">
-        {/* Analytics Card (Left Anchor) */}
-        <div className="absolute inset-x-0 top-0 h-full pointer-events-none px-[4vw]">
-          <motion.div
-            style={{
-              left: 0,
-              top: '66%',
-              opacity: useTransform(smoothProgress, [0, 0.15], [1, 0])
-            }}
-            animate={{ y: [-15, 15, -15] }}
-            transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
-            className="absolute glass p-5 rounded-3xl w-72 text-left border border-white/10 glow-purple pointer-events-auto shadow-2xl"
-          >
-              <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 bg-primary/20 rounded-lg">
-                <BarChart3 className="w-5 h-5 text-primary" />
-              </div>
-              <span className="font-bold text-white">Approvals</span>
-            </div>
-            <p className="text-sm font-medium text-white/50 tracking-tight">3 items waiting for review</p>
-          </motion.div>
-
-
-          {/* Auto-Post Card (Force-Right Anchor via Flex) */}
-          <div className="absolute inset-0 flex justify-end items-start pt-[70vh] px-[4vw]">
-            <motion.div
-              style={{
-                opacity: useTransform(smoothProgress, [0, 0.15], [1, 0])
-              }}
-              animate={{ y: [15, -15, 15] }}
-              transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
-              className="glass p-5 rounded-3xl w-64 text-left border border-white/10 glow-purple pointer-events-auto shadow-2xl relative"
-            >
-              <div className="flex items-center gap-3 mb-2">
-                <div className="p-2 bg-secondary/20 rounded-lg">
-                  <Share2 className="w-5 h-5 text-secondary" />
-                </div>
-                <span className="font-bold text-white">Scheduled</span>
-              </div>
-              <p className="text-sm font-medium text-white/50 tracking-tight">Thu, Apr 2 at 8:30 AM</p>
-            </motion.div>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function Problem() {
-  const problems = [
-    {
-      icon: <TrendingDown className="w-6 h-6 text-red-400" />,
-      title: 'Missed launches',
-      description: 'Without a clear schedule, campaigns slip and opportunities pass before you notice.',
-    },
-    {
-      icon: <AlertCircle className="w-6 h-6 text-orange-400" />,
-      title: 'Unclear approvals',
-      description: 'When nobody knows who approved what, mistakes go live and trust erodes fast.',
-    },
-    {
-      icon: <Clock className="w-6 h-6 text-yellow-400" />,
-      title: 'Scattered results',
-      description: 'Checking five different dashboards to answer one question: is this working?',
-    },
-    {
-      icon: <Layers className="w-6 h-6 text-blue-400" />,
-      title: 'No clear next step',
-      description: 'Finishing a campaign and having no idea what to do next to keep momentum going.',
-    },
-  ];
-
-  return (
-    <section id="product" className="py-24 relative overflow-hidden">
-      <div className="container mx-auto px-6">
-        <div className="text-center mb-16">
-          <motion.h2
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="text-4xl md:text-5xl font-bold mb-6"
-          >
-            Marketing without a system is <span className="text-red-400">stressful</span>
-          </motion.h2>
-          <motion.p
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ delay: 0.2 }}
-            className="text-white/60 max-w-2xl mx-auto"
-          >
-            Small businesses deserve a calm, clear place to plan marketing, approve work, and see what is actually driving results.
-          </motion.p>
-        </div>
-
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {problems.map((problem, index) => (
-            <motion.div
-              key={problem.title}
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: index * 0.1 }}
-              className="glass p-8 rounded-3xl border border-white/5 hover:border-white/20 transition-all group"
-            >
-              <div className="mb-6 p-3 bg-white/5 rounded-2xl w-fit group-hover:scale-110 transition-transform">
-                {problem.icon}
-              </div>
-              <h3 className="text-xl font-bold mb-4">{problem.title}</h3>
-              <p className="text-white/50 text-sm leading-relaxed">{problem.description}</p>
-            </motion.div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function Features() {
-  const features = [
-    {
-      icon: <Share2 className="w-6 h-6" />,
-      title: 'Campaign planning',
-      description: 'Turn your business goals into a clear campaign plan you can read in seconds.',
-      color: 'from-blue-500/20 to-blue-600/20',
-    },
-    {
-      icon: <Search className="w-6 h-6" />,
-      title: 'Creative review',
-      description: 'See every draft, compare versions, and approve what ships before it goes live.',
-      color: 'from-purple-500/20 to-purple-600/20',
-    },
-    {
-      icon: <PenTool className="w-6 h-6" />,
-      title: 'Approval safety',
-      description: 'Nothing publishes without sign-off. Material edits return to review automatically.',
-      color: 'from-pink-500/20 to-pink-600/20',
-    },
-    {
-      icon: <Zap className="w-6 h-6" />,
-      title: 'Launch scheduling',
-      description: 'See exactly what is going out, when, and on which channels before it runs.',
-      color: 'from-yellow-500/20 to-yellow-600/20',
-    },
-    {
-      icon: <BarChart3 className="w-6 h-6" />,
-      title: 'Results clarity',
-      description: 'Business-readable reporting that answers one question: is this working?',
-      color: 'from-green-500/20 to-green-600/20',
-    },
-    {
-      icon: <RefreshCw className="w-6 h-6" />,
-      title: 'Next-step recommendations',
-      description: 'Every result ends with a clear next action so you always know what to do.',
-      color: 'from-red-500/20 to-red-600/20',
-    },
-  ];
-
-  return (
-    <section id="features" className="py-24 relative">
-      <div className="container mx-auto px-6">
-        <div className="text-center mb-20">
-          <motion.h2
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="text-4xl md:text-[48px] leading-tight font-bold mb-6"
-          >
-            Everything you need to <br />
-            <span className="text-gradient">market with confidence</span>
-          </motion.h2>
-        </div>
-
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {features.map((feature, index) => (
-            <motion.div
-              key={feature.title}
-              initial={{ opacity: 0, scale: 0.9 }}
-              whileInView={{ opacity: 1, scale: 1 }}
-              viewport={{ once: true }}
-              transition={{ delay: index * 0.1 }}
-              whileHover={{ y: -10 }}
-              className="glass p-10 rounded-[2.5rem] relative overflow-hidden group"
-            >
-              <div className={cn('absolute inset-0 bg-gradient-to-br opacity-0 group-hover:opacity-100 transition-opacity duration-500', feature.color)} />
-
-              <div className="relative z-10">
-                <div className="mb-8 p-4 bg-white/5 rounded-2xl w-fit group-hover:bg-white/10 transition-colors">
-                  {feature.icon}
-                </div>
-                <h3 className="text-2xl font-bold mb-4">{feature.title}</h3>
-                <p className="text-white/50 leading-relaxed">{feature.description}</p>
-              </div>
-
-              <div className="absolute -bottom-10 -right-10 w-32 h-32 bg-primary/10 blur-3xl rounded-full group-hover:bg-primary/20 transition-all" />
-            </motion.div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function HowItWorks() {
-  const steps = [
-    {
-      icon: <Search className="w-6 h-6 text-primary" />,
-      title: 'Connect your business',
-      description: 'Set up once with your website, brand, and goals. Aries handles the rest.',
-    },
-    {
-      icon: <Lightbulb className="w-6 h-6 text-secondary" />,
-      title: 'Review the plan',
-      description: 'See a clear campaign plan in plain English before anything is created.',
-    },
-    {
-      icon: <Zap className="w-6 h-6 text-yellow-400" />,
-      title: 'Approve and launch',
-      description: 'Review every creative draft, approve what ships, and schedule with confidence.',
-    },
-    {
-      icon: <BarChart3 className="w-6 h-6 text-green-400" />,
-      title: 'See what worked',
-      description: 'Business-readable results with one clear recommendation for what to do next.',
-    },
-  ];
-
-  return (
-    <section id="how-it-works" className="py-24 relative">
-      <div className="container mx-auto px-6">
-        <div className="text-center mb-20">
-          <h2 className="text-4xl md:text-[48px] leading-tight font-bold mb-6">How It Works</h2>
-          <p className="text-white/60">Four steps to marketing clarity.</p>
-        </div>
-
-        <div className="relative">
-          <div className="hidden lg:block absolute top-1/2 left-0 right-0 h-0.5 bg-gradient-to-r from-primary/20 via-secondary/20 to-primary/20 -translate-y-1/2 z-0" />
-
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-12">
-            {steps.map((step, index) => (
-              <motion.div
-                key={step.title}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: index * 0.2 }}
-                className="relative z-10 text-center"
-              >
-                <div className="w-20 h-20 mx-auto mb-8 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-center relative group">
-                  <div className="absolute inset-0 bg-primary/20 blur-xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
-                  {step.icon}
-                  <div className="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-black border border-white/10 flex items-center justify-center text-xs font-bold">
-                    0{index + 1}
-                  </div>
-                </div>
-                <h3 className="text-xl font-bold mb-4">{step.title}</h3>
-                <p className="text-white/50 text-sm leading-relaxed">{step.description}</p>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/** Demo schedule for the marketing calendar section (static showcase data). */
-const CONTENT_CALENDAR_SCHEDULE = [
+const SCHEDULE_DAYS = [
   {
     day: 'Mon',
     date: '16',
     posts: [
-      { title: 'AI Marketing Trends 2026 Strategy', platform: 'LinkedIn', time: '09:00', status: 'Published' },
-      { title: 'Aries AI Feature Reveal Today', platform: 'X / Twitter', time: '14:00', status: 'Published' },
+      { title: 'AI Marketing Trends 2026 Strategy', time: '09:00', status: 'Published' },
+      { title: 'Feature Reveal', time: '14:00', status: 'Published' },
     ],
   },
   {
     day: 'Tue',
     date: '17',
     posts: [
-      { title: 'The Power of GEO Optimization', platform: 'Instagram', time: '10:30', status: 'Published' },
-      { title: 'Market Intelligence 101 Guide', platform: 'YouTube', time: '16:00', status: 'Published' },
+      { title: 'GEO Optimization Guide', time: '10:30', status: 'Published' },
+      { title: 'Market Intelligence 101', time: '16:00', status: 'Published' },
     ],
   },
   {
     day: 'Wed',
     date: '18',
     posts: [
-      { title: 'Spring Campaign Case Study', platform: 'LinkedIn', time: '11:00', status: 'Published' },
-      { title: 'Facebook Ads Mastery Course', platform: 'Facebook', time: '15:30', status: 'Published' },
+      { title: 'Spring Campaign Case Study', time: '11:00', status: 'Review' },
+      { title: 'Facebook Ads Mastery', time: '15:30', status: 'Review' },
     ],
   },
   {
     day: 'Thu',
     date: '19',
     posts: [
-      { title: 'Why AEO is the new SEO', platform: 'X / Twitter', time: '09:30', status: 'Published' },
-      { title: 'Weekly AI Wrap-up Content', platform: 'Instagram', time: '15:00', status: 'Published' },
+      { title: 'Why AEO is the new SEO', time: '09:30', status: 'Scheduled' },
+      { title: 'Weekly AI Wrap-up', time: '15:00', status: 'Scheduled' },
     ],
   },
   {
     day: 'Fri',
     date: '20',
-    posts: [{ title: 'Aries AI v2.0 Launch Event', platform: 'LinkedIn', time: '10:00', status: 'Scheduled' }],
-  },
-  {
-    day: 'Sat',
-    date: '21',
-    posts: [],
-  },
-  {
-    day: 'Sun',
-    date: '22',
-    posts: [],
-  },
-  {
-    day: 'Mon',
-    date: '23',
-    posts: [
-      { title: 'Next-Gen Automation Primer', platform: 'X / Twitter', time: '09:30', status: 'Scheduled' },
-      { title: 'Brand Identity Deep-dive', platform: 'Instagram', time: '15:00', status: 'Scheduled' },
-    ],
-  },
-  {
-    day: 'Tue',
-    date: '24',
-    posts: [{ title: 'Future of SaaS Marketing', platform: 'LinkedIn', time: '10:00', status: 'Scheduled' }],
-  },
-  {
-    day: 'Wed',
-    date: '25',
-    posts: [{ title: 'Social Media Strategy Session', platform: 'Facebook', time: '13:00', status: 'Scheduled' }],
-  },
-  {
-    day: 'Thu',
-    date: '26',
-    posts: [{ title: 'Content Performance Review', platform: 'Instagram', time: '11:30', status: 'Scheduled' }],
-  },
-  {
-    day: 'Fri',
-    date: '27',
-    posts: [{ title: 'Quarterly Growth Planning', platform: 'LinkedIn', time: '09:00', status: 'Scheduled' }],
-  },
-  {
-    day: 'Sat',
-    date: '28',
-    posts: [],
-  },
-  {
-    day: 'Sun',
-    date: '29',
-    posts: [],
+    posts: [{ title: 'Quarterly Growth Planning', time: '10:00', status: 'Scheduled' }],
   },
 ] as const;
 
-const PLATFORM_CALENDAR_STYLE = {
-  LinkedIn: { Icon: Linkedin, border: 'border-blue-600/30', iconClass: 'text-blue-400' },
-  YouTube: { Icon: Youtube, border: 'border-red-500/30', iconClass: 'text-red-400' },
-  'X / Twitter': { Icon: Twitter, border: 'border-white/20', iconClass: 'text-white/80' },
-  Instagram: { Icon: Instagram, border: 'border-pink-500/30', iconClass: 'text-pink-400' },
-  Facebook: { Icon: Facebook, border: 'border-blue-700/30', iconClass: 'text-blue-600' },
-} as const;
+const RESULT_METRICS: MetricCard[] = [
+  {
+    label: 'Active campaigns',
+    value: '12',
+    detail: 'A single view of what is live, scheduled, or waiting for approval.',
+  },
+  {
+    label: 'Approval rate',
+    value: '96%',
+    detail: 'Owners can spot edits before launch instead of fixing them after launch.',
+  },
+  {
+    label: 'Reporting summary',
+    value: '1 answer',
+    detail: 'Every campaign closes with a plain-language summary and a next recommendation.',
+  },
+];
 
-function platformCalendarMeta(platform: string) {
-  if (platform in PLATFORM_CALENDAR_STYLE) {
-    return PLATFORM_CALENDAR_STYLE[platform as keyof typeof PLATFORM_CALENDAR_STYLE];
-  }
-  return {
-    Icon: Sparkles,
-    border: 'border-primary/20',
-    iconClass: 'text-primary',
-  };
-}
+const SAFETY_POINTS = [
+  'Nothing publishes without sign-off.',
+  'Material edits return to review automatically.',
+  'The owner always sees what is queued, scheduled, and live.',
+] as const;
 
-function calendarPlatformIcon(platform: string) {
-  const { Icon, iconClass } = platformCalendarMeta(platform);
-  return <Icon className={`w-3.5 h-3.5 ${iconClass}`} />;
-}
+const PLANS = [
+  {
+    name: 'Starter',
+    price: '$49',
+    description: 'For one business with a few active channels.',
+    features: ['3 Connected Channels', 'Campaign Planning', 'Approval Queue', 'Weekly Results'],
+    highlight: false,
+  },
+  {
+    name: 'Growth',
+    price: '$149',
+    description: 'For businesses ready to run consistent campaigns.',
+    features: ['Unlimited Channels', 'Full Campaign Workspace', 'Detailed Results', 'Next-Step Recommendations', 'Priority Support'],
+    highlight: true,
+  },
+  {
+    name: 'Enterprise',
+    price: 'Custom',
+    description: 'For multi-location or high-volume businesses.',
+    features: ['Multiple Brands', 'Dedicated Support', 'Custom Reporting', 'Team Approvals', 'SLA Guarantee'],
+    highlight: false,
+  },
+] as const;
 
-function calendarPlatformBorder(platform: string) {
-  return platformCalendarMeta(platform).border;
-}
-
-function ContentCalendar() {
-  const [activeDate, setActiveDate] = useState('20');
-  const [currentWeek, setCurrentWeek] = useState<'current' | 'next'>('current');
-  const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
-
-  const platforms = [
-    { name: 'X / Twitter' },
-    { name: 'LinkedIn' },
-    { name: 'Instagram' },
-    { name: 'YouTube' },
-    { name: 'Facebook' },
-  ];
-
-  const truncateTitle = (title: string, wordCount = 3) => {
-    const words = title.split(' ');
-    return words.length <= wordCount ? title : `${words.slice(0, wordCount).join(' ')}...`;
-  };
-
-  const monthDays = Array.from({ length: 31 }, (_, i) => i + 1);
-  const getPostsForDate = (date: string) =>
-    CONTENT_CALENDAR_SCHEDULE.find((entry) => entry.date === date)?.posts || [];
-
-  const displayedSchedule = useMemo(() => {
-    return currentWeek === 'current'
-      ? CONTENT_CALENDAR_SCHEDULE.filter((item) => ['16', '17', '18', '19', '20', '21', '22'].includes(item.date))
-      : CONTENT_CALENDAR_SCHEDULE.filter((item) => ['23', '24', '25', '26', '27', '28', '29'].includes(item.date));
-  }, [currentWeek]);
-
+function SectionShell({
+  id,
+  className,
+  children,
+}: {
+  id?: string;
+  className?: string;
+  children: ReactNode;
+}) {
   return (
-    <section id="calendar" className="py-24 relative overflow-hidden">
-      <div className="container mx-auto px-6">
-        <div className="text-center mb-16">
-          <motion.h2
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="text-4xl md:text-[48px] leading-tight font-light mb-6"
-          >
-            Your <span className="text-gradient">marketing schedule</span>
-          </motion.h2>
-          <motion.p
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ delay: 0.2 }}
-            className="text-white/60 max-w-2xl mx-auto"
-          >
-            See what is planned, what is approved, and what is going out this week across your channels.
-          </motion.p>
+    <section id={id} className={cn('deferred-section py-24', className)}>
+      <div className="container mx-auto px-6">{children}</div>
+    </section>
+  );
+}
+
+function SectionIntro({
+  title,
+  description,
+  align = 'center',
+}: {
+  title: ReactNode;
+  description: ReactNode;
+  align?: 'center' | 'left';
+}) {
+  return (
+    <div className={cn('mb-16 max-w-3xl', align === 'center' ? 'mx-auto text-center' : 'text-left')}>
+      <h2 className="text-4xl font-bold leading-tight md:text-[3rem]">{title}</h2>
+      <p className="mt-5 text-base leading-7 text-white/60 md:text-lg">{description}</p>
+    </div>
+  );
+}
+
+function Hero() {
+  return (
+    <section className="relative overflow-hidden pb-20 pt-16 md:pb-24 md:pt-20">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[28rem]">
+        <div className="absolute left-[-8rem] top-10 h-72 w-72 rounded-full bg-primary/20 blur-[120px]" />
+        <div className="absolute right-[-6rem] top-24 h-80 w-80 rounded-full bg-secondary/14 blur-[140px]" />
+      </div>
+
+      <div className="container relative mx-auto grid items-center gap-16 px-6 lg:grid-cols-[1.05fr_0.95fr]">
+        <div className="max-w-3xl">
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/8 px-4 py-2 text-sm font-medium text-white/80 shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur">
+            <Sparkles className="h-4 w-4 text-primary" />
+            <span>Nothing goes live without your approval</span>
+          </div>
+
+          <h1 className="mt-8 text-4xl font-bold leading-[1.02] tracking-tight md:text-[4.2rem]">
+            Plan, create, approve, launch, and{' '}
+            <span className="text-gradient">improve your marketing</span>
+          </h1>
+
+          <p className="mt-6 max-w-2xl text-base leading-8 text-white/65 md:text-lg">
+            Aries gives business owners a calm workspace to see what is running, what needs approval, what is scheduled next, what is working, and what to do now.
+          </p>
+
+          <div className="mt-10 flex flex-col gap-4 sm:flex-row">
+            <Link
+              href="/onboarding/start"
+              className="inline-flex min-h-14 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-primary to-secondary px-8 text-base font-semibold text-white shadow-xl shadow-primary/20 transition-opacity hover:opacity-90"
+            >
+              Start with your business <ArrowRight className="h-5 w-5" />
+            </Link>
+            <Link
+              href="/login"
+              className="inline-flex min-h-14 items-center justify-center rounded-full border border-white/12 bg-white/5 px-8 text-base font-semibold text-white transition-colors hover:bg-white/10"
+            >
+              Log in
+            </Link>
+            <Link
+              href="/#how-it-works"
+              className="inline-flex min-h-14 items-center justify-center gap-2 rounded-full border border-white/12 bg-white/5 px-8 text-base font-semibold text-white transition-colors hover:bg-white/10"
+            >
+              <Play className="h-5 w-5 fill-current" /> See how it works
+            </Link>
+          </div>
+
+          <div className="mt-10 grid gap-4 sm:grid-cols-3">
+            {HERO_PROOF.map((item) => (
+              <div key={item.label} className="glass-panel rounded-[1.75rem] p-5">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/35">{item.label}</p>
+                <p className="mt-3 text-xl font-bold text-white">{item.value}</p>
+                <p className="mt-2 text-sm leading-6 text-white/55">{item.detail}</p>
+              </div>
+            ))}
+          </div>
         </div>
 
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          whileInView={{ opacity: 1, scale: 1 }}
-          viewport={{ once: true }}
-          className="glass rounded-[3rem] overflow-hidden border-white/10 shadow-2xl flex flex-col lg:flex-row min-h-[700px]"
-        >
-          <div className="w-full lg:w-80 border-r border-white/10 bg-white/5 p-8 flex flex-col gap-8">
-            <div className="flex items-center justify-between">
+        <div className="relative lg:justify-self-end">
+          <div className="glass rounded-[2rem] border-white/10 p-6 shadow-[0_30px_80px_rgba(0,0,0,0.35)]">
+            <div className="flex items-center justify-between gap-4 border-b border-white/10 pb-5">
               <div className="flex items-center gap-3">
-                <span className="font-bold">Calendar</span>
+                <AriesMark sizeClassName="h-12 w-12" sizes="48px" />
+                <div>
+                  <p className="text-sm font-semibold text-white">Aries workspace</p>
+                  <p className="text-sm text-white/45">A calm view of plan, review, launch, and results.</p>
+                </div>
               </div>
-              <button type="button" className="p-2 hover:bg-white/5 rounded-lg transition-colors">
-                <Plus className="w-5 h-5 text-white/50" />
-              </button>
+              <div className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-xs font-semibold text-emerald-300">
+                Approval-safe
+              </div>
             </div>
 
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
-              <input
-                type="text"
-                placeholder="Search posts..."
-                className="w-full bg-black/30 border border-white/10 rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-primary/50 transition-colors"
-              />
-            </div>
+            <div className="mt-6 grid gap-4">
+              <MarketingDashboardPreview />
 
-            <div className="space-y-6">
-              <div>
-                <h4 className="text-xs font-bold uppercase tracking-widest text-white/30 mb-4">Platforms</h4>
-                <div className="space-y-2">
-                  {platforms.map((platform) => (
-                    <div key={platform.name} className="flex items-center justify-between p-3 rounded-xl hover:bg-white/5 transition-colors cursor-pointer group">
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-medium text-white/70 group-hover:text-white transition-colors">
-                          {platform.name}
-                        </span>
-                      </div>
-                      <div className="w-2 h-2 rounded-full bg-primary" />
-                    </div>
-                  ))}
+              <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.04] p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-white">Spring campaign</p>
+                    <p className="mt-1 text-sm text-white/50">Plan approved. Creative review opens next.</p>
+                  </div>
+                  <span className="rounded-full bg-primary/15 px-3 py-1 text-xs font-semibold text-primary">Plan</span>
+                </div>
+                <div className="mt-4 h-2 rounded-full bg-white/8">
+                  <div className="h-full w-2/3 rounded-full bg-gradient-to-r from-primary to-secondary" />
                 </div>
               </div>
 
-              <div>
-                <h4 className="text-xs font-bold uppercase tracking-widest text-white/30 mb-4">Status</h4>
-                <div className="space-y-3 px-2">
-                  <div className="flex items-center gap-3">
-                    <div className="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.5)]" />
-                    <span className="text-sm text-white/60">Published</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-2 h-2 rounded-full bg-yellow-400 shadow-[0_0_8px_rgba(250,204,21,0.5)]" />
-                    <span className="text-sm text-white/60">Scheduled</span>
-                  </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.04] p-5">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/35">Review queue</p>
+                  <p className="mt-3 text-3xl font-bold">3</p>
+                  <p className="mt-2 text-sm text-white/55">Items waiting for owner approval.</p>
                 </div>
+                <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.04] p-5">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/35">Next launch</p>
+                  <p className="mt-3 text-3xl font-bold">Thu</p>
+                  <p className="mt-2 text-sm text-white/55">8:30 AM across approved channels.</p>
+                </div>
+              </div>
+
+              <div className="rounded-[1.5rem] border border-white/10 bg-black/35 p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-white">What to do now</p>
+                  <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-white/60">Results</span>
+                </div>
+                <p className="mt-3 text-sm leading-6 text-white/60">
+                  Keep the strongest performing offer, shorten the next caption, and launch the next approved creative on Friday morning.
+                </p>
               </div>
             </div>
           </div>
-
-          <div className="flex-1 flex flex-col">
-            <div className="p-8 border-b border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-              <div className="flex items-center gap-6">
-                <h3 className="text-2xl font-light">March 2026</h3>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setCurrentWeek('current')}
-                    className={cn(
-                      "p-2 rounded-lg border border-white/10 transition-colors",
-                      currentWeek === 'current' ? "bg-white/5 opacity-50 cursor-not-allowed" : "hover:bg-white/5"
-                    )}
-                    disabled={currentWeek === 'current'}
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveDate('20');
-                      setCurrentWeek('current');
-                    }}
-                    className="px-4 py-2 hover:bg-white/5 rounded-lg border border-white/10 text-sm font-medium transition-colors"
-                  >
-                    Today
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCurrentWeek('next')}
-                    className={cn(
-                      "p-2 rounded-lg border border-white/10 transition-colors",
-                      currentWeek === 'next' ? "bg-white/5 opacity-50 cursor-not-allowed" : "hover:bg-white/5"
-                    )}
-                    disabled={currentWeek === 'next'}
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <div className="bg-white/5 p-1 rounded-xl border border-white/10 flex">
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('week')}
-                    className={cn(
-                      'px-4 py-2 rounded-lg text-sm font-bold transition-all',
-                      viewMode === 'week' ? 'bg-primary/20 text-primary' : 'hover:bg-white/5 text-white/50',
-                    )}
-                  >
-                    Week
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('month')}
-                    className={cn(
-                      'px-4 py-2 rounded-lg text-sm font-bold transition-all',
-                      viewMode === 'month' ? 'bg-primary/20 text-primary' : 'hover:bg-white/5 text-white/50',
-                    )}
-                  >
-                    Month
-                  </button>
-                </div>
-                <a href="/calendar" className="px-6 py-2 bg-gradient-to-r from-primary to-secondary rounded-xl text-sm font-bold shadow-lg shadow-primary/20">
-                  Open Runtime
-                </a>
-                <a href="/login" className="px-6 py-2 bg-gradient-to-r from-primary to-secondary rounded-xl text-sm font-bold shadow-lg shadow-primary/20">
-                  New Post
-                </a>
-              </div>
-            </div>
-
-            <div className="flex-1 p-8 overflow-x-auto">
-              {viewMode === 'week' ? (
-                <div className="min-w-[800px] grid grid-cols-7 gap-6 h-full">
-                  {displayedSchedule.map((day, dayIndex) => (
-                    <div key={day.day} className="flex flex-col gap-6">
-                      <div className="text-center">
-                        <span className="block text-xs font-bold uppercase tracking-widest text-white/30 mb-2">{day.day}</span>
-                        <button
-                          type="button"
-                          onClick={() => setActiveDate(day.date)}
-                          className={cn(
-                            'inline-flex items-center justify-center w-10 h-10 rounded-full text-lg font-bold transition-all',
-                            activeDate === day.date
-                              ? 'bg-primary text-white scale-110 shadow-lg shadow-primary/30'
-                              : 'text-white/70 hover:bg-white/10',
-                          )}
-                        >
-                          {day.date}
-                        </button>
-                      </div>
-
-                      <div className="flex-1 space-y-2">
-                        {day.posts.map((post, postIndex) => (
-                          <motion.div
-                            key={`${post.title}-${post.time}`}
-                            initial={{ opacity: 0, y: 10 }}
-                            whileInView={{ opacity: 1, y: 0 }}
-                            transition={{ delay: dayIndex * 0.1 + postIndex * 0.1 }}
-                            className={cn(
-                              'p-2 border bg-white/5 backdrop-blur-sm relative group cursor-pointer hover:bg-white/10 transition-all',
-                              calendarPlatformBorder(post.platform),
-                            )}
-                          >
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-[8px] font-bold uppercase tracking-tighter opacity-40">{post.time}</span>
-                              <MoreHorizontal className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
-                            </div>
-                            <h5 className="text-[10px] font-light mb-1.5 leading-tight">{truncateTitle(post.title, 3)}</h5>
-                            <div className="flex items-center justify-between gap-1.5 pt-0.5">
-                              {calendarPlatformIcon(post.platform)}
-                              <span
-                                className={cn(
-                                  'text-[5.5px] font-bold uppercase tracking-widest px-1 py-0.5 rounded-sm border',
-                                  post.status === 'Published'
-                                    ? 'border-green-400 text-white'
-                                    : 'border-yellow-400 text-white',
-                                )}
-                              >
-                                {post.status}
-                              </span>
-                            </div>
-                          </motion.div>
-                        ))}
-
-                        <div className="h-12 border border-dashed border-white/5 flex items-center justify-center group hover:border-white/20 transition-colors cursor-pointer">
-                          <Plus className="w-3 h-3 text-white/10 group-hover:text-white/30 transition-colors" />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="grid grid-cols-7 gap-2">
-                  {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
-                    <div key={day} className="text-center text-[10px] font-bold uppercase tracking-widest text-white/20 py-2">
-                      {day}
-                    </div>
-                  ))}
-                  {monthDays.map((day) => {
-                    const posts = getPostsForDate(String(day));
-                    return (
-                      <div
-                        key={day}
-                        className={cn(
-                          'h-28 border p-1.5 transition-all cursor-pointer group flex flex-col gap-1',
-                          String(day) === activeDate ? 'bg-primary/10 border-primary/50' : 'bg-white/5 border-white/5 hover:border-white/20',
-                        )}
-                        onClick={() => setActiveDate(String(day))}
-                      >
-                        <span className={cn('text-[10px] font-bold mb-1', String(day) === activeDate ? 'text-primary' : 'text-white/40')}>
-                          {day}
-                        </span>
-                        <div className="flex-1 space-y-1 overflow-hidden">
-                          {posts.map((post) => (
-                            <div key={post.title} className={cn('p-1 border text-[7px] font-light leading-none truncate', calendarPlatformBorder(post.platform))}>
-                              {truncateTitle(post.title, 2)}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-        </motion.div>
+        </div>
       </div>
     </section>
+  );
+}
+
+function TrustedBy() {
+  return (
+    <section className="border-y border-white/5 bg-black/50 py-12">
+      <div className="container mx-auto px-6">
+        <p className="mb-8 text-center text-sm font-medium uppercase tracking-[0.3em] text-white/30">
+          Trusted by industry leaders
+        </p>
+        <div className="flex flex-wrap items-center justify-center gap-10 text-xl font-bold tracking-[0.3em] text-white/35 md:gap-20 md:text-2xl">
+          {TRUSTED_LABELS.map((label) => (
+            <span key={label}>{label}</span>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MeetAries() {
+  const stages = [
+    'Set up your business',
+    'See the plan',
+    'Review the creative',
+    'Launch safely',
+    'See what worked',
+  ] as const;
+
+  return (
+    <SectionShell>
+      <SectionIntro
+        title="Meet Aries"
+        description="A calm workspace where you plan campaigns, approve creative, launch safely, and see what worked without learning marketing software."
+      />
+
+      <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-center gap-3">
+        {stages.map((stage) => (
+          <div
+            key={stage}
+            className="rounded-full border border-primary/20 bg-white/[0.04] px-6 py-3 text-sm font-semibold text-white/80"
+          >
+            {stage}
+          </div>
+        ))}
+      </div>
+    </SectionShell>
+  );
+}
+
+function Problem() {
+  return (
+    <SectionShell>
+      <SectionIntro
+        title={
+          <>
+            Marketing without a system is <span className="text-red-400">stressful</span>
+          </>
+        }
+        description="Small businesses deserve a calm, clear place to plan marketing, approve work, and see what is actually driving results."
+      />
+
+      <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+        {PROBLEMS.map((problem) => {
+          const Icon = problem.icon;
+          return (
+            <article key={problem.title} className="glass rounded-[2rem] p-7">
+              <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-white/5">
+                <Icon className="h-6 w-6 text-white" />
+              </div>
+              <h3 className="text-xl font-bold text-white">{problem.title}</h3>
+              <p className="mt-4 text-sm leading-7 text-white/55">{problem.description}</p>
+            </article>
+          );
+        })}
+      </div>
+    </SectionShell>
+  );
+}
+
+function Features() {
+  return (
+    <SectionShell>
+      <SectionIntro
+        title={
+          <>
+            Everything you need to <span className="text-gradient">market with confidence</span>
+          </>
+        }
+        description="The homepage now shows the operating model directly: clear planning, readable approval, a visible schedule, and results that end with a next move."
+      />
+
+      <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+        {FEATURES.map((feature) => {
+          const Icon = feature.icon;
+          return (
+            <article key={feature.title} className="glass rounded-[2rem] p-7">
+              <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-white/5">
+                <Icon className="h-6 w-6 text-white" />
+              </div>
+              <h3 className="text-2xl font-bold text-white">{feature.title}</h3>
+              <p className="mt-4 text-sm leading-7 text-white/55">{feature.description}</p>
+            </article>
+          );
+        })}
+      </div>
+    </SectionShell>
+  );
+}
+
+function HowItWorks() {
+  return (
+    <SectionShell id="how-it-works">
+      <SectionIntro title="How It Works" description="Four steps to marketing clarity." />
+
+      <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+        {HOW_IT_WORKS.map((step, index) => {
+          const Icon = step.icon;
+          return (
+            <article key={step.title} className="glass rounded-[2rem] p-7 text-left">
+              <div className="mb-5 flex items-center justify-between">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/5">
+                  <Icon className="h-6 w-6 text-white" />
+                </div>
+                <span className="text-sm font-semibold text-white/35">0{index + 1}</span>
+              </div>
+              <h3 className="text-xl font-bold text-white">{step.title}</h3>
+              <p className="mt-4 text-sm leading-7 text-white/55">{step.description}</p>
+            </article>
+          );
+        })}
+      </div>
+    </SectionShell>
+  );
+}
+
+function SafetyAndSchedule() {
+  return (
+    <SectionShell id="safety">
+      <div className="grid items-start gap-10 lg:grid-cols-[0.9fr_1.1fr]">
+        <div>
+          <SectionIntro
+            align="left"
+            title="Approval safety without a black box"
+            description="The homepage no longer depends on sticky scroll theater to explain the product. The story is visible immediately in plain markup."
+          />
+
+          <div className="grid gap-4">
+            {SAFETY_POINTS.map((point) => (
+              <div key={point} className="glass-panel rounded-[1.5rem] p-5">
+                <div className="flex items-start gap-4">
+                  <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-full bg-primary/15">
+                    <Check className="h-4 w-4 text-primary" />
+                  </div>
+                  <p className="text-sm leading-7 text-white/70">{point}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-6 rounded-[2rem] border border-white/10 bg-white/[0.03] p-6">
+            <p className="text-sm font-semibold text-white">Primary proof</p>
+            <p className="mt-3 text-sm leading-7 text-white/60">
+              The owner can read the plan, the review queue, the schedule, and the recommendation without waiting for client-side motion, orbit graphics, or a 3D embed to load.
+            </p>
+          </div>
+        </div>
+
+        <div className="glass rounded-[2rem] p-6">
+          <div className="flex flex-col gap-4 border-b border-white/10 pb-5 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-white">Your marketing schedule</p>
+              <p className="mt-1 text-sm text-white/50">See what is planned, approved, and scheduled across the week.</p>
+            </div>
+            <div className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white/70">
+              March 2026
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-4 md:grid-cols-5">
+            {SCHEDULE_DAYS.map((day) => (
+              <div key={day.day} className="rounded-[1.5rem] border border-white/10 bg-white/[0.04] p-4">
+                <div className="mb-4 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/35">{day.day}</p>
+                    <p className="mt-1 text-lg font-bold text-white">{day.date}</p>
+                  </div>
+                  <div className="h-2.5 w-2.5 rounded-full bg-primary" />
+                </div>
+
+                <div className="space-y-3">
+                  {day.posts.map((post) => (
+                    <div key={post.title} className="rounded-2xl border border-white/8 bg-black/30 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/30">{post.time}</p>
+                      <p className="mt-2 text-sm font-medium leading-6 text-white/80">{post.title}</p>
+                      <p className="mt-2 text-xs font-semibold text-white/45">{post.status}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </SectionShell>
+  );
+}
+
+function Results() {
+  return (
+    <SectionShell id="results">
+      <div className="grid items-start gap-10 lg:grid-cols-[0.95fr_1.05fr]">
+        <div>
+          <SectionIntro
+            align="left"
+            title={
+              <>
+                Results that answer <span className="text-gradient">what worked</span>
+              </>
+            }
+            description="Business-readable reporting matters more than ornamental motion. This section stays static, immediate, and readable on mobile."
+          />
+
+          <div className="rounded-[2rem] border border-white/10 bg-white/[0.03] p-6">
+            <p className="text-sm font-semibold text-white">What to do now</p>
+            <p className="mt-3 text-lg font-semibold text-white">Keep the best-performing offer and schedule the next approved creative for Friday morning.</p>
+            <p className="mt-4 text-sm leading-7 text-white/60">
+              Aries keeps the complex work behind the scenes so you can focus on the decisions that matter for your business.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid gap-4">
+          {RESULT_METRICS.map((metric) => (
+            <article key={metric.label} className="glass rounded-[2rem] p-6">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/35">{metric.label}</p>
+              <p className="mt-4 text-4xl font-bold text-white">{metric.value}</p>
+              <p className="mt-3 text-sm leading-7 text-white/55">{metric.detail}</p>
+            </article>
+          ))}
+        </div>
+      </div>
+    </SectionShell>
   );
 }
 
 function Pricing() {
-  const plans = [
-    {
-      name: 'Starter',
-      price: '49',
-      description: 'For one business with a few active channels.',
-      features: ['3 Connected Channels', 'Campaign Planning', 'Approval Queue', 'Weekly Results'],
-      highlight: false,
-    },
-    {
-      name: 'Growth',
-      price: '149',
-      description: 'For businesses ready to run consistent campaigns.',
-      features: ['Unlimited Channels', 'Full Campaign Workspace', 'Detailed Results', 'Next-Step Recommendations', 'Priority Support'],
-      highlight: true,
-    },
-    {
-      name: 'Enterprise',
-      price: 'Custom',
-      description: 'For multi-location or high-volume businesses.',
-      features: ['Multiple Brands', 'Dedicated Support', 'Custom Reporting', 'Team Approvals', 'SLA Guarantee'],
-      highlight: false,
-    },
-  ];
-
   return (
-    <section id="pricing" className="py-24 relative overflow-hidden">
-      <div className="container mx-auto px-6">
-        <div className="text-center mb-16">
-          <h2 className="text-4xl md:text-[48px] leading-tight font-bold mb-6">Simple, Transparent Pricing</h2>
-          <p className="text-white/60">Choose the plan that fits your growth stage.</p>
-        </div>
+    <SectionShell>
+      <SectionIntro
+        title="Simple, Transparent Pricing"
+        description="Choose the plan that fits your growth stage."
+      />
 
-        <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
-          {plans.map((plan, index) => (
-            <motion.div
-              key={plan.name}
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: index * 0.1 }}
-              className={cn('relative flex flex-col', plan.highlight ? 'scale-105 z-10' : '')}
-            >
-              <div className={cn('glass p-10 rounded-[3rem] h-full flex flex-col', plan.highlight ? 'border-primary/50 glow-purple' : 'border-white/5')}>
-                <div className="mb-8">
-                  <h3 className="text-2xl font-bold mb-2">{plan.name}</h3>
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-4xl font-bold">{plan.price === 'Custom' ? '' : '$'}{plan.price}</span>
-                    {plan.price !== 'Custom' ? <span className="text-white/50">/mo</span> : null}
+      <div className="grid gap-6 lg:grid-cols-3">
+        {PLANS.map((plan) => (
+          <article
+            key={plan.name}
+            className={cn(
+              'glass relative flex h-full flex-col rounded-[2rem] p-8',
+              plan.highlight ? 'border-primary/45 shadow-[0_24px_70px_rgba(124,58,237,0.18)]' : '',
+            )}
+          >
+            {plan.highlight ? (
+              <div className="mb-5 inline-flex w-fit rounded-full bg-primary px-4 py-1 text-xs font-bold uppercase tracking-[0.18em] text-white">
+                Most Popular
+              </div>
+            ) : null}
+
+            <h3 className="text-2xl font-bold text-white">{plan.name}</h3>
+            <p className="mt-3 text-4xl font-bold text-white">{plan.price}</p>
+            <p className="mt-4 text-sm leading-7 text-white/55">{plan.description}</p>
+
+            <div className="mt-8 space-y-4">
+              {plan.features.map((feature) => (
+                <div key={feature} className="flex items-start gap-3">
+                  <div className="mt-1 flex h-6 w-6 items-center justify-center rounded-full bg-primary/15">
+                    <Check className="h-3.5 w-3.5 text-primary" />
                   </div>
-                  <p className="text-white/50 text-sm mt-4">{plan.description}</p>
+                  <span className="text-sm leading-6 text-white/75">{feature}</span>
                 </div>
-
-                <div className="space-y-4 mb-10 flex-1">
-                  {plan.features.map((feature) => (
-                    <div key={feature} className="flex items-center gap-3">
-                      <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center">
-                        <Check className="w-3 h-3 text-primary" />
-                      </div>
-                      <span className="text-sm text-white/80">{feature}</span>
-                    </div>
-                  ))}
-                </div>
-
-                <a
-                  href={plan.price === 'Custom' ? '/onboarding/start' : '/onboarding/start'}
-                  className={cn(
-                    'w-full py-4 rounded-2xl font-bold transition-all text-center',
-                    plan.highlight
-                      ? 'bg-gradient-to-r from-primary to-secondary text-white shadow-lg shadow-primary/20'
-                      : 'bg-white/10 hover:bg-white/20 text-white',
-                  )}
-                >
-                  {plan.price === 'Custom' ? 'Contact us' : 'Get started'}
-                </a>
-              </div>
-
-              {plan.highlight ? (
-                <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-primary px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider z-20">
-                  Most Popular
-                </div>
-              ) : null}
-            </motion.div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function FeatureShowcaseFallback() {
-  const panels = [
-    {
-      title: 'Campaign clarity',
-      description: 'Aries keeps your plan, creative, schedule, and results in one place so you never lose track of what is running or what needs attention.',
-      icon: <Zap className="w-5 h-5 text-primary" />,
-    },
-    {
-      title: 'Approval confidence',
-      description: 'Every launch stays reviewable. You move from plan to review to schedule without worrying that something shipped without sign-off.',
-      icon: <Layers className="w-5 h-5 text-secondary" />,
-    },
-    {
-      title: 'Results you can act on',
-      description: 'Every campaign summary ends with a clear next step instead of a wall of charts, so you always know what to do next.',
-      icon: <BarChart3 className="w-5 h-5 text-primary" />,
-    },
-  ];
-
-  return (
-    <section className="py-24 relative overflow-hidden bg-black">
-      <div className="container mx-auto px-6">
-        <div className="text-center mb-16">
-          <h2 className="text-[48px] leading-tight font-bold mb-6">
-            Built for <span className="text-gradient">business owners</span>
-          </h2>
-          <p className="text-white/60 max-w-3xl mx-auto text-lg">
-            Aries keeps the complex work behind the scenes so you can focus on the decisions that matter for your business.
-          </p>
-        </div>
-
-        <div className="grid gap-6 md:grid-cols-3">
-          {panels.map((panel) => (
-            <div
-              key={panel.title}
-              className="glass rounded-[2.5rem] border border-white/10 p-8 text-left"
-            >
-              <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-white/5">
-                {panel.icon}
-              </div>
-              <h3 className="mb-3 text-2xl font-bold">{panel.title}</h3>
-              <p className="text-sm leading-relaxed text-white/60">{panel.description}</p>
+              ))}
             </div>
-          ))}
-        </div>
+
+            <Link
+              href="/onboarding/start"
+              className={cn(
+                'mt-8 inline-flex min-h-12 items-center justify-center rounded-2xl px-6 text-sm font-bold text-white transition-colors',
+                plan.highlight ? 'bg-gradient-to-r from-primary to-secondary hover:opacity-90' : 'bg-white/10 hover:bg-white/15',
+              )}
+            >
+              {plan.price === 'Custom' ? 'Contact us' : 'Get started'}
+            </Link>
+          </article>
+        ))}
       </div>
-    </section>
+    </SectionShell>
   );
 }
 
 function FinalCTA() {
   return (
-    <section className="py-24 relative overflow-hidden">
-      <div className="container mx-auto px-6">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          whileInView={{ opacity: 1, scale: 1 }}
-          viewport={{ once: true }}
-          className="relative bg-white/5 backdrop-blur-xl border border-white/10 rounded-[4rem] overflow-hidden h-[500px] md:h-[700px] w-full"
-        >
-          {/* Background Glow */}
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full bg-white/5 blur-[120px] -z-10 pointer-events-none" />
+    <SectionShell className="pt-8">
+      <div className="overflow-hidden rounded-[2.5rem] border border-white/10 bg-white/[0.04] p-8 md:p-12">
+        <div className="grid items-center gap-10 lg:grid-cols-[0.95fr_1.05fr]">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.22em] text-white/35">Ready when you are</p>
+            <h2 className="mt-5 max-w-2xl text-4xl font-bold leading-tight md:text-[3.2rem]">
+              Start with your business and keep every marketing launch readable.
+            </h2>
+            <p className="mt-5 max-w-xl text-base leading-8 text-white/60">
+              Aries gives you one place to review the plan, approve the creative, confirm the schedule, and see what worked.
+            </p>
 
-          {/* Content Overlay */}
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center md:items-end md:justify-end p-8 md:p-12 md:pr-10 lg:pr-21 lg:pb-24 pointer-events-none">
-            <div className="flex justify-center md:justify-end w-full pointer-events-auto">
-              {/* Action Buttons */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                className="flex flex-wrap items-center gap-4"
+            <div className="mt-8 flex flex-col gap-4 sm:flex-row">
+              <Link
+                href="/onboarding/start"
+                className="inline-flex min-h-14 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-primary to-secondary px-8 text-base font-semibold text-white shadow-xl shadow-primary/20 transition-opacity hover:opacity-90"
               >
-                <a
-                  href="/onboarding/start"
-                  className="px-8 py-4 rounded-full border border-white/20 hover:border-white/40 text-white font-bold transition-all backdrop-blur-md text-sm"
-                >
-                  Start with your business
-                </a>
-                <a
-                  href="/#how-it-works"
-                  className="px-8 py-4 rounded-full border border-white/20 hover:border-white/40 text-white font-bold transition-all backdrop-blur-md text-sm"
-                >
-                  See how it works
-                </a>
-              </motion.div>
+                Start with your business <ArrowRight className="h-5 w-5" />
+              </Link>
+              <Link
+                href="/#how-it-works"
+                className="inline-flex min-h-14 items-center justify-center rounded-full border border-white/12 bg-white/5 px-8 text-base font-semibold text-white transition-colors hover:bg-white/10"
+              >
+                See how it works
+              </Link>
             </div>
           </div>
 
-          {/* Spline 3D Integration */}
-          <div className="w-full h-full relative z-10 overflow-hidden">
-            <iframe
-              src="https://my.spline.design/boxeshover-1S9fbn10HLJkYTmxyOt88Ycb/"
-              frameBorder="0"
-              width="100%"
-              height="100%"
-              className="absolute -top-[50px] left-0 w-full md:w-[calc(100%+100px)] lg:w-[calc(100%+200px)] h-[calc(100%+100px)] max-w-none"
-              title="Interactive 3D Boxes"
-              sandbox="allow-scripts allow-same-origin"
-            ></iframe>
+          <div className="relative min-h-[22rem]">
+            <div className="absolute left-0 top-10 w-[78%] rounded-[2rem] border border-white/10 bg-black/45 p-5 shadow-2xl shadow-black/40">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/35">Plan</p>
+              <p className="mt-3 text-lg font-semibold text-white">Campaign ready for owner review</p>
+              <p className="mt-3 text-sm leading-7 text-white/55">Clear brief, clear creative direction, clear launch window.</p>
+            </div>
+
+            <div className="absolute right-0 top-0 w-[72%] rounded-[2rem] border border-white/10 bg-white/[0.06] p-5 shadow-2xl shadow-black/35">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/35">Review</p>
+              <p className="mt-3 text-lg font-semibold text-white">Nothing goes live without your approval</p>
+              <p className="mt-3 text-sm leading-7 text-white/55">Material edits come back through review before launch.</p>
+            </div>
+
+            <div className="absolute bottom-0 right-10 w-[76%] rounded-[2rem] border border-white/10 bg-primary/12 p-5 shadow-2xl shadow-primary/10">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/35">Results</p>
+              <p className="mt-3 text-lg font-semibold text-white">One summary. One next move.</p>
+              <p className="mt-3 text-sm leading-7 text-white/60">The route keeps the product story in fast static markup instead of shipping a third-party 3D runtime.</p>
+            </div>
           </div>
-        </motion.div>
+        </div>
       </div>
-    </section>
+    </SectionShell>
   );
 }
 
 export default function DonorHomePage() {
-  const { scrollYProgress } = useScroll();
-  const scaleX = useSpring(scrollYProgress, {
-    stiffness: 100,
-    damping: 30,
-    restDelta: 0.001,
-  });
-
   return (
-    <DonorMarketingShell heroMode>
-      <motion.div
-        className="fixed top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary to-secondary z-[100] origin-left"
-        style={{ scaleX }}
-      />
-
+    <DonorMarketingShell>
       <Hero />
-
-      <section className="py-12 border-y border-white/5 bg-black/50 overflow-hidden">
-        <div className="container mx-auto px-6">
-          <p className="text-center text-white/30 text-sm font-medium uppercase tracking-widest mb-8">
-            Trusted by industry leaders
-          </p>
-          <div className="flex flex-wrap justify-center items-center gap-12 md:gap-24 opacity-40 grayscale hover:grayscale-0 transition-all duration-500">
-            {['NEXUS', 'VELOCITY', 'QUANTUM', 'ELEVATE', 'ORBIT'].map((label) => (
-              <span key={label} className="text-2xl font-bold">{label}</span>
-            ))}
-          </div>
-        </div>
-      </section>
-
+      <TrustedBy />
+      <MeetAries />
       <Problem />
-
-      <section className="py-24 relative">
-        <div className="container mx-auto px-6 text-center">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="max-w-6xl mx-auto"
-          >
-            <div className="max-w-4xl mx-auto">
-              <h2 className="text-4xl md:text-[48px] leading-tight font-bold mb-8">Meet Aries</h2>
-              <p className="text-xl text-white/60 mb-12 leading-relaxed">
-                A calm workspace where you plan campaigns, approve creative, launch safely, and see what worked &mdash; without learning marketing software.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-center gap-4 md:gap-6 w-full pb-4">
-              {['Set up your business', 'See the plan', 'Review the creative', 'Launch safely', 'See what worked'].map((step, index) => (
-                <Fragment key={step}>
-                  <div className="glass px-8 py-4 rounded-full text-sm font-semibold border-primary/20 whitespace-nowrap cursor-pointer hover-gradient-border">
-                    {step}
-                  </div>
-                  {index < 4 ? <div className="hidden md:block w-8 md:w-12 h-px bg-white/20" /> : null}
-                </Fragment>
-              ))}
-            </div>
-          </motion.div>
-        </div>
-      </section>
-
       <Features />
       <HowItWorks />
-      <ContentCalendar />
-      <FeatureShowcaseFallback />
+      <SafetyAndSchedule />
+      <Results />
       <Pricing />
       <FinalCTA />
     </DonorMarketingShell>

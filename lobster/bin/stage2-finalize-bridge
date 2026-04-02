@@ -35,6 +35,7 @@ def main() -> int:
       raise SystemExit(f"missing stage-2 campaign planner output for run_id={run_id}")
 
     command = [
+      sys.executable,
       str(Path(__file__).resolve().parent / "head-of-marketing"),
       "--json",
       "--mode",

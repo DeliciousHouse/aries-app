@@ -18,6 +18,12 @@ from _stage3_common import (
     summarize_with_gemini,
     utc_now,
 )
+from _marketing_profile_common import (
+    normalize_marketing_url,
+    record_or_empty,
+    validate_copy_text,
+    validate_unique_copy_list,
+)
 from _canonical_outputs import brand_output_paths, write_text
 
 
@@ -55,36 +61,54 @@ def _write_text(path: Path, text: str) -> str:
 
 
 def _build_production_brief(strategy_handoff: dict, brand_slug: str) -> dict:
+    creative_handoff = record_or_empty(strategy_handoff.get("creative_handoff"))
+    if not creative_handoff:
+        raise SystemExit("quality_gate_failed:creative_handoff:missing")
     channels = _as_list(strategy_handoff.get("channels"))
     meta_channel = next((item for item in channels if item.get("channel") == "meta"), {})
     landing_channel = next((item for item in channels if item.get("channel") == "landing-page"), {})
-    youtube_channel = next((item for item in channels if item.get("channel") == "youtube"), {})
+    video_channel = next((item for item in channels if item.get("channel") == "video"), {})
     campaign_name = first_nonempty(strategy_handoff.get("campaign_name"), f"{brand_slug}-production")
     objective = first_nonempty(strategy_handoff.get("objective"), "Translate the approved strategy into production-ready assets.")
-    core_message = first_nonempty(strategy_handoff.get("core_message"), "Lead with a concrete promise backed by proof.")
-    primary_cta = first_nonempty(strategy_handoff.get("primary_cta"), "Learn More")
-    proof_points = [item for item in [
-        meta_channel.get("message"),
-        landing_channel.get("message"),
-        youtube_channel.get("message"),
-    ] if item][:3]
-    if not proof_points:
-        proof_points = [
-            "Lead with one clear outcome and reinforce it with proof.",
-            "Keep page, ad, and video messaging tightly message-matched.",
-            "Use a single primary CTA across production assets.",
-        ]
+    creative_hooks = record_or_empty(creative_handoff.get("hooks"))
+    landing_hooks = creative_hooks.get("landing-page") if isinstance(creative_hooks.get("landing-page"), list) else []
+    core_message = validate_copy_text(
+        "production_brief.core_message",
+        first_nonempty(landing_hooks[0] if landing_hooks else "", strategy_handoff.get("core_message")),
+        min_tokens=3,
+    )
+    primary_cta = validate_copy_text("production_brief.primary_cta", creative_handoff.get("primary_cta"), min_tokens=2)
+    proof_points = validate_unique_copy_list(
+        "production_brief.proof_points",
+        creative_handoff.get("proof_points"),
+        min_items=3,
+        max_items=3,
+        min_tokens=3,
+    )
+    website_url = normalize_marketing_url(creative_handoff.get("website_url"))
+    if not website_url:
+        raise SystemExit("quality_gate_failed:production_brief.website_url:invalid")
     return {
         "campaign_name": campaign_name,
         "brand_slug": brand_slug,
+        "brand_name": validate_copy_text("production_brief.brand_name", creative_handoff.get("brand_name"), min_tokens=1),
+        "website_url": website_url,
         "objective": objective,
         "core_message": core_message,
         "primary_cta": primary_cta,
         "production_goal": "Produce coordinated page, ad, and video-ready assets for human approval.",
-        "audience_summary": first_nonempty(meta_channel.get("audience_angle"), landing_channel.get("audience_angle")),
-        "offer_summary": first_nonempty(meta_channel.get("offer_angle"), landing_channel.get("offer_angle")),
+        "audience_summary": validate_copy_text("production_brief.audience_summary", creative_handoff.get("audience"), min_tokens=4),
+        "positioning": validate_copy_text("production_brief.positioning", creative_handoff.get("positioning"), min_tokens=4),
+        "problem_statement": validate_copy_text("production_brief.problem_statement", creative_handoff.get("problem_statement"), min_tokens=4),
+        "offer_summary": validate_copy_text("production_brief.offer_summary", creative_handoff.get("offer"), min_tokens=4),
         "proof_points": proof_points,
-        "brand_voice": _as_list(meta_channel.get("brand_voice")) or ["clear", "proof-led", "practical"],
+        "brand_voice": _as_list(creative_handoff.get("brand_voice")),
+        "brand_kit": record_or_empty(strategy_handoff.get("brand_kit") or creative_handoff.get("brand_kit")),
+        "design_tokens": record_or_empty(strategy_handoff.get("design_tokens") or creative_handoff.get("design_tokens")),
+        "competitor_context": record_or_empty(strategy_handoff.get("competitor_context")),
+        "testing_matrix": record_or_empty(strategy_handoff.get("testing_matrix")),
+        "budget_testing_plan": record_or_empty(strategy_handoff.get("budget_testing_plan")),
+        "creative_handoff": creative_handoff,
         "deliverables": [
             "master_static_contract",
             "platform_static_contracts",
@@ -104,6 +128,8 @@ def _build_production_brief(strategy_handoff: dict, brand_slug: str) -> dict:
                 "message": item.get("message", ""),
                 "cta": item.get("cta", primary_cta),
                 "creative_bias": item.get("creative_bias", ""),
+                "hook": item.get("hook", ""),
+                "opening_line": item.get("opening_line", ""),
             }
             for item in channels
         ],
@@ -124,9 +150,10 @@ def _build_static_contract_bundle(brief: dict, page_assets: dict, script_assets:
     concept_id = _slug(first_nonempty(script_assets.get("meta_ad_script", {}).get("hook"), brief.get("core_message"), "static-concept"))
     output_root = Path.cwd() / "output" / "static-contracts" / campaign_id
     briefs_dir = output_root / "briefs"
-    primary_cta = first_nonempty(brief.get("primary_cta"), "Learn More")
+    primary_cta = validate_copy_text("static_contract.primary_cta", brief.get("primary_cta"), min_tokens=2)
     proof_points = _as_list(brief.get("proof_points"))[:3]
     body_lines = _as_list(script_assets.get("meta_ad_script", {}).get("body"))
+    design_tokens = record_or_empty(brief.get("design_tokens") or record_or_empty(brief.get("creative_handoff")).get("design_tokens"))
 
     master_contract = {
         "schema_version": "2026-03-17.static-contract.v1",
@@ -141,22 +168,28 @@ def _build_static_contract_bundle(brief: dict, page_assets: dict, script_assets:
         "inputs": {
             "approved_campaign_strategy": brief,
             "approved_offer": {
-                "summary": first_nonempty(brief.get("offer_summary"), "Keep the offer concise."),
+                "summary": validate_copy_text("static_contract.offer_summary", brief.get("offer_summary"), min_tokens=4),
                 "primary_cta": primary_cta,
             },
             "brand_guidelines": {
-                "voice_attributes": _as_list(brief.get("brand_voice")) or ["clear", "proof-led", "practical"],
+                "voice_attributes": _as_list(brief.get("brand_voice")),
                 "proof_points": proof_points,
                 "primary_cta": primary_cta,
+                "design_tokens": design_tokens,
             },
         },
         "creative": {
-            "headline": first_nonempty(script_assets.get("meta_ad_script", {}).get("hook"), brief.get("core_message"), "Lead with proof."),
+            "headline": validate_copy_text(
+                "static_contract.headline",
+                first_nonempty(script_assets.get("meta_ad_script", {}).get("hook"), brief.get("core_message")),
+                min_tokens=3,
+            ),
             "body_lines": body_lines,
             "primary_cta": primary_cta,
             "proof_points": proof_points,
             "landing_page": page_assets.get("landing_page", {}),
         },
+        "brand_tokens": design_tokens,
         "execution": {
             "mode": "contract_generation_only",
             "render_stage": "stage-4-publish-optimize",
@@ -195,6 +228,7 @@ def _build_static_contract_bundle(brief: dict, page_assets: dict, script_assets:
                 "primary_cta": primary_cta,
                 "proof_points": proof_points,
             },
+            "brand_tokens": design_tokens,
             "layout": {
                 "aspect_ratio": spec["aspect_ratio"],
                 "target_size": spec["size"],
@@ -278,6 +312,7 @@ def _build_production_handoff(run_id: str, brand_slug: str, review_packet: dict)
 
     return {
         "brand_slug": brand_slug,
+        "brand_name": brief.get("brand_name", ""),
         "campaign_name": first_nonempty(brief.get("campaign_name"), review_packet.get("review_packet", {}).get("campaign_name")),
         "run_id": run_id,
         "production_brief": brief,

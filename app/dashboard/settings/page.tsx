@@ -1,6 +1,5 @@
-import React from 'react';
-import AriesSettingsScreen from '@/frontend/aries-v1/settings-screen';
+import { redirect } from 'next/navigation';
 
-export default function SettingsPage() {
-  return <AriesSettingsScreen />;
+export default function DashboardSettingsPage() {
+  redirect('/dashboard/settings/business-profile');
 }

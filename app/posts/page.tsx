@@ -1,10 +1,5 @@
-import AppShellLayout from '../../frontend/app-shell/layout';
-import AriesCampaignListScreen from '@/frontend/aries-v1/campaign-list';
+import { redirect } from 'next/navigation';
 
 export default function PostsPage() {
-  return (
-    <AppShellLayout currentRouteId="campaigns">
-      <AriesCampaignListScreen />
-    </AppShellLayout>
-  );
+  redirect('/dashboard/posts');
 }

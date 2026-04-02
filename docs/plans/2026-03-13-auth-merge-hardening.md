@@ -137,4 +137,3 @@
 
 **Step 3: Verify**
 - Run: `git status --short`
-

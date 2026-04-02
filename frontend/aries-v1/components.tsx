@@ -1,3 +1,4 @@
+import type { ComponentPropsWithoutRef } from 'react';
 import Link from 'next/link';
 import clsx from 'clsx';
 import {
@@ -17,11 +18,27 @@ import type {
   AriesCampaign,
   AriesCampaignStatus,
   AriesChannelConnection,
+  AriesItemStatus,
   AriesKpi,
   AriesRecommendation,
   AriesReviewItem,
   AriesScheduleItem,
 } from '@/lib/api/aries-v1';
+
+function formatUtcTimestampLabel(value: string): string {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    return value;
+  }
+
+  return `${new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'UTC',
+  }).format(new Date(timestamp))} UTC`;
+}
 
 export function ShellPanel(props: {
   title?: string;
@@ -33,7 +50,7 @@ export function ShellPanel(props: {
   return (
     <section
       className={clsx(
-        'rounded-[2rem] border border-white/10 bg-white/[0.045] shadow-[0_24px_80px_rgba(0,0,0,0.22)] backdrop-blur-xl',
+        'rounded-[2rem] border border-white/10 bg-white/[0.065] shadow-[0_24px_80px_rgba(0,0,0,0.22)] backdrop-blur-xl',
         props.className,
       )}
     >
@@ -55,14 +72,96 @@ export function ShellPanel(props: {
   );
 }
 
-export function StatusChip(props: { status: AriesCampaignStatus; children?: React.ReactNode }) {
+export interface DashboardHeroMetric {
+  label: string;
+  value: string;
+  detail: string;
+  tone?: 'default' | 'good' | 'watch';
+}
+
+export function DashboardHero(props: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  metrics: DashboardHeroMetric[];
+  aside?: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <section
+      className={clsx(
+        'overflow-hidden rounded-[2.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.14),transparent_32%),radial-gradient(circle_at_88%_16%,rgba(124,58,237,0.18),transparent_20%),linear-gradient(135deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] shadow-[0_36px_120px_rgba(0,0,0,0.28)]',
+        props.className,
+      )}
+    >
+      <div className="grid gap-6 px-6 py-6 md:px-8 md:py-8 xl:grid-cols-[1.2fr_0.8fr]">
+        <div className="space-y-6">
+          <div className="space-y-3">
+            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#dcb58f]">
+              {props.eyebrow}
+            </p>
+            <h2 className="text-4xl font-semibold tracking-[-0.04em] text-white md:text-5xl">
+              {props.title}
+            </h2>
+            <p className="max-w-3xl text-base leading-7 text-white/65">{props.description}</p>
+          </div>
+
+          {props.metrics.length > 0 ? (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {props.metrics.map((metric) => (
+                <MetricCard key={metric.label} {...metric} />
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        {props.aside ? (
+          <div className="rounded-[2rem] border border-white/10 bg-black/28 p-5 backdrop-blur-sm">
+            {props.aside}
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+export function MetricCard(props: DashboardHeroMetric) {
+  return (
+    <div className="rounded-[1.35rem] border border-white/8 bg-white/[0.06] px-5 py-5">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.label}</p>
+      <p className="mt-3 text-3xl font-semibold text-white">{props.value}</p>
+      <p
+        className={clsx(
+          'mt-2 text-sm',
+          props.tone === 'good'
+            ? 'text-emerald-200'
+            : props.tone === 'watch'
+              ? 'text-amber-100'
+              : 'text-white/55',
+        )}
+      >
+        {props.detail}
+      </p>
+    </div>
+  );
+}
+
+export function StatusChip(props: { status: AriesCampaignStatus | AriesItemStatus; children?: React.ReactNode }) {
   const palette =
     props.status === 'live'
       ? 'border-emerald-400/25 bg-emerald-400/10 text-emerald-100'
       : props.status === 'scheduled'
         ? 'border-sky-400/25 bg-sky-400/10 text-sky-100'
+        : props.status === 'published_to_meta_paused'
+          ? 'border-cyan-400/25 bg-cyan-400/10 text-cyan-100'
+          : props.status === 'ready_to_publish'
+            ? 'border-violet-400/25 bg-violet-400/10 text-violet-100'
+            : props.status === 'ready'
+              ? 'border-teal-400/25 bg-teal-400/10 text-teal-100'
         : props.status === 'approved'
           ? 'border-indigo-400/25 bg-indigo-400/10 text-indigo-100'
+          : props.status === 'rejected'
+            ? 'border-rose-400/25 bg-rose-400/10 text-rose-100'
           : props.status === 'in_review'
             ? 'border-amber-400/25 bg-amber-400/10 text-amber-100'
             : props.status === 'changes_requested'
@@ -74,7 +173,11 @@ export function StatusChip(props: { status: AriesCampaignStatus; children?: Reac
     {
       draft: 'Draft',
       in_review: 'In review',
+      ready: 'Ready',
+      ready_to_publish: 'Ready to publish',
+      published_to_meta_paused: 'Published to Meta (Paused)',
       approved: 'Approved',
+      rejected: 'Rejected',
       scheduled: 'Scheduled',
       live: 'Live',
       changes_requested: 'Needs changes',
@@ -149,12 +252,12 @@ export function ApprovalCard(props: { reviewItems: AriesReviewItem[] }) {
           <Link
             key={item.id}
             href={`/review/${item.id}`}
-            className="flex items-start justify-between gap-4 rounded-[1.25rem] border border-white/8 bg-black/15 px-4 py-4 transition hover:border-white/15 hover:bg-white/[0.06]"
+            className="flex items-start justify-between gap-4 rounded-[1.25rem] border border-white/8 bg-black/25 px-4 py-4 transition hover:border-white/15 hover:bg-white/[0.08]"
           >
             <div className="space-y-1">
               <p className="text-sm font-medium text-white">{item.title}</p>
               <p className="text-sm text-white/55">
-                {item.channel} · {item.placement} · {item.scheduledFor}
+                {item.channel} · {item.placement} · {formatUtcTimestampLabel(item.scheduledFor)}
               </p>
             </div>
             <StatusChip status={item.status} />
@@ -172,7 +275,7 @@ export function ScheduleCard(props: { item: AriesScheduleItem | null }) {
         <div className="space-y-4">
           <div className="flex items-center gap-3 text-sm text-white/70">
             <CalendarClock className="h-4 w-4 text-white/50" />
-            <span>{props.item.scheduledFor}</span>
+            <span>{formatUtcTimestampLabel(props.item.scheduledFor)}</span>
           </div>
           <div className="flex items-center justify-between gap-4">
             <p className="text-sm text-white/60">{props.item.channel}</p>
@@ -212,7 +315,7 @@ export function CampaignSummaryCard(props: { campaign: AriesCampaign }) {
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-white/35">Trust note</p>
           <p className="mt-3 text-sm leading-7 text-white/75">{props.campaign.trustNote}</p>
           <Link
-            href={`/campaigns/${props.campaign.id}`}
+            href={`/dashboard/campaigns/${props.campaign.id}`}
             className="mt-5 inline-flex items-center gap-2 text-sm font-medium text-white"
           >
             Open campaign
@@ -226,7 +329,7 @@ export function CampaignSummaryCard(props: { campaign: AriesCampaign }) {
 
 function InfoTile(props: { label: string; value: string }) {
   return (
-    <div className="rounded-[1.25rem] border border-white/8 bg-white/[0.035] px-4 py-4">
+    <div className="rounded-[1.25rem] border border-white/8 bg-white/[0.06] px-4 py-4">
       <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.label}</p>
       <p className="mt-2 text-sm font-medium text-white/80">{props.value}</p>
     </div>
@@ -279,7 +382,7 @@ export function AssetGallery(props: { campaign: AriesCampaign }) {
       {props.campaign.creative.assets.map((asset) => (
         <div
           key={asset.id}
-          className="overflow-hidden rounded-[1.6rem] border border-white/8 bg-white/[0.03]"
+          className="overflow-hidden rounded-[1.6rem] border border-white/8 bg-white/[0.05]"
         >
           <div className="relative flex h-44 items-end bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.14),transparent_45%),linear-gradient(180deg,#1a222b_0%,#0f151b_100%)] p-5">
             <div className="max-w-[14rem] space-y-2">
@@ -347,7 +450,7 @@ export function ScheduleComposer(props: { items: AriesScheduleItem[] }) {
           <div className="space-y-1">
             <p className="text-sm font-medium text-white">{item.title}</p>
             <p className="text-sm text-white/55">
-              {item.channel} · {item.scheduledFor}
+              {item.channel} · {formatUtcTimestampLabel(item.scheduledFor)}
             </p>
           </div>
           <StatusChip status={item.status} />
@@ -369,22 +472,13 @@ export function KpiStrip(props: { items: AriesKpi[] }) {
   return (
     <div className="grid gap-4 md:grid-cols-3">
       {props.items.map((item) => (
-        <div key={item.label} className="rounded-[1.35rem] border border-white/8 bg-white/[0.035] px-5 py-5">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{item.label}</p>
-          <p className="mt-3 text-3xl font-semibold text-white">{item.value}</p>
-          <p
-            className={clsx(
-              'mt-2 text-sm',
-              item.tone === 'good'
-                ? 'text-emerald-200'
-                : item.tone === 'watch'
-                  ? 'text-amber-100'
-                  : 'text-white/55',
-            )}
-          >
-            {item.delta}
-          </p>
-        </div>
+        <MetricCard
+          key={item.label}
+          label={item.label}
+          value={item.value}
+          detail={item.delta}
+          tone={item.tone === 'neutral' ? 'default' : item.tone}
+        />
       ))}
     </div>
   );
@@ -439,7 +533,7 @@ export function LoadingStateGrid() {
       {Array.from({ length: 3 }, (_, index) => (
         <div
           key={index}
-          className="h-36 animate-pulse rounded-[1.4rem] border border-white/8 bg-white/[0.035]"
+          className="h-36 animate-pulse rounded-[1.4rem] border border-white/8 bg-white/[0.055]"
         />
       ))}
     </div>
@@ -493,6 +587,46 @@ export function SectionLink(props: { href: string; label: string }) {
       {props.label}
       <ArrowRight className="h-4 w-4" />
     </Link>
+  );
+}
+
+export function SurfaceField(props: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block space-y-2.5">
+      <div className="space-y-1">
+        <span className="text-sm font-medium text-white/78">{props.label}</span>
+        {props.hint ? <p className="text-xs leading-5 text-white/45">{props.hint}</p> : null}
+      </div>
+      {props.children}
+    </label>
+  );
+}
+
+export function SurfaceInput(props: ComponentPropsWithoutRef<'input'>) {
+  return (
+    <input
+      {...props}
+      className={clsx(
+        'w-full rounded-[1.1rem] border border-white/10 bg-black/20 px-4 py-3 text-white placeholder:text-white/28 focus:border-white/20 focus:outline-none',
+        props.className,
+      )}
+    />
+  );
+}
+
+export function SurfaceSelect(props: ComponentPropsWithoutRef<'select'>) {
+  return (
+    <select
+      {...props}
+      className={clsx(
+        'w-full rounded-[1.1rem] border border-white/10 bg-black/20 px-4 py-3 text-white focus:border-white/20 focus:outline-none',
+        props.className,
+      )}
+    />
   );
 }
 

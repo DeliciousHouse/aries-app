@@ -1,4 +1,4 @@
-import { getTenantContext, type TenantContext } from '@/lib/tenant-context';
+import { getTenantContext, TenantContextError, type TenantContext } from '@/lib/tenant-context';
 
 export type TenantContextLoader = () => Promise<TenantContext>;
 
@@ -18,8 +18,9 @@ export async function loadTenantContextOrResponse(
     return { tenantContext: await tenantContextLoader() };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Authentication required.';
+    const tenantContextError = error instanceof TenantContextError ? error : null;
     const missingMembership =
-      message === 'No tenant membership found for authenticated user.'
+      tenantContextError?.reason === 'tenant_membership_missing'
         ? options.missingMembershipResponse
         : undefined;
 
@@ -27,8 +28,14 @@ export async function loadTenantContextOrResponse(
       response: new Response(
         JSON.stringify({
           status: 'error',
-          reason: missingMembership?.reason ?? 'tenant_context_required',
+          reason:
+            missingMembership?.reason ??
+            tenantContextError?.reason ??
+            'tenant_context_required',
           message: missingMembership?.message ?? message,
+          ...(tenantContextError?.missingClaims.length
+            ? { missing_claims: tenantContextError.missingClaims }
+            : {}),
         }),
         {
           status: missingMembership?.status ?? 403,

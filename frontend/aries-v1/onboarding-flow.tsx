@@ -1,11 +1,13 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import clsx from 'clsx';
 import { ArrowLeft, ArrowRight, Check, ShieldCheck } from 'lucide-react';
 
 import { createMarketingApi } from '@/lib/api/marketing';
+import { createAriesV1Api, type UrlPreviewResponse } from '@/lib/api/aries-v1';
+import { useBusinessProfile } from '@/hooks/use-business-profile';
 
 type StepKey = 'welcome' | 'business' | 'brand' | 'channels' | 'goal';
 
@@ -26,36 +28,102 @@ const goalOptions = [
 
 const channelOptions = ['Meta', 'Instagram', 'Google Business', 'LinkedIn'];
 
-function brandSummaryFromWebsite(websiteUrl: string, businessName: string) {
-  const cleaned = websiteUrl.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0] || 'yourbusiness.com';
-  const baseName = businessName.trim() || cleaned.split('.')[0]?.replace(/[-_]/g, ' ') || 'Your business';
-  return {
-    title: baseName,
-    domain: cleaned,
-    voice: 'Calm, confident, and easy to trust.',
-    audience: 'Busy local customers who want a simple next step.',
-    offer: 'A clear offer with one primary call to action.',
-  };
+function goalFromBusinessProfile(primaryGoal: string | null | undefined): string {
+  const normalized = primaryGoal?.trim().toLowerCase() || '';
+  if (!normalized) {
+    return goalOptions[0];
+  }
+  if (normalized.includes('appoint')) {
+    return 'Book more appointments';
+  }
+  if (normalized.includes('sale') || normalized.includes('revenue') || normalized.includes('purchase')) {
+    return 'Increase sales';
+  }
+  if (normalized.includes('visible') || normalized.includes('awareness') || normalized.includes('brand')) {
+    return 'Stay visible every week';
+  }
+  return 'Get more leads';
 }
 
 export default function AriesOnboardingFlow() {
   const router = useRouter();
+  const businessProfile = useBusinessProfile({ autoLoad: true });
+  const ariesApi = useMemo(() => createAriesV1Api(), []);
   const [stepIndex, setStepIndex] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [businessName, setBusinessName] = useState('Northstar Studio');
-  const [websiteUrl, setWebsiteUrl] = useState('https://northstarstudio.com');
-  const [businessType, setBusinessType] = useState('Wellness studio');
-  const [approverName, setApproverName] = useState('Morgan');
+  const [hydratedFromProfile, setHydratedFromProfile] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [urlPreview, setUrlPreview] = useState<UrlPreviewResponse | null>(null);
+  const [businessName, setBusinessName] = useState('');
+  const [websiteUrl, setWebsiteUrl] = useState('');
+  const [businessType, setBusinessType] = useState('');
+  const [approverName, setApproverName] = useState('');
   const [selectedChannels, setSelectedChannels] = useState<string[]>(['Meta', 'Instagram']);
-  const [goal, setGoal] = useState(goalOptions[1]);
-  const [offer, setOffer] = useState('Spring intro membership');
-  const [competitorUrl, setCompetitorUrl] = useState('https://localpilateshouse.com');
+  const [goal, setGoal] = useState(goalOptions[0]);
+  const [offer, setOffer] = useState('');
+  const [competitorUrl, setCompetitorUrl] = useState('');
+  const deferredWebsiteUrl = useDeferredValue(websiteUrl.trim());
 
-  const brandSummary = useMemo(
-    () => brandSummaryFromWebsite(websiteUrl, businessName),
-    [businessName, websiteUrl],
-  );
+  const profile = businessProfile.profile.data?.profile ?? null;
+
+  useEffect(() => {
+    if (!profile || hydratedFromProfile) {
+      return;
+    }
+
+    setBusinessName(profile.brandKit?.brand_name || profile.businessName || '');
+    setWebsiteUrl(profile.websiteUrl || profile.brandKit?.source_url || '');
+    setBusinessType(profile.businessType || '');
+    setApproverName(profile.launchApproverName || '');
+    setGoal(goalFromBusinessProfile(profile.primaryGoal));
+    setOffer(profile.offer || '');
+    setCompetitorUrl(profile.competitorUrl || '');
+    if (profile.channels.length > 0) {
+      setSelectedChannels(profile.channels);
+    }
+    setHydratedFromProfile(true);
+  }, [hydratedFromProfile, profile]);
+
+  useEffect(() => {
+    if (!deferredWebsiteUrl) {
+      setUrlPreview(null);
+      setPreviewError(null);
+      setPreviewLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setPreviewLoading(true);
+      setPreviewError(null);
+      try {
+        const preview = await ariesApi.getUrlPreview(deferredWebsiteUrl);
+        if (!cancelled) {
+          setUrlPreview(preview);
+        }
+      } catch (previewFetchError) {
+        if (!cancelled) {
+          setUrlPreview(null);
+          setPreviewError(
+            previewFetchError instanceof Error
+              ? previewFetchError.message
+              : 'Aries could not extract live brand data from this site.',
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setPreviewLoading(false);
+        }
+      }
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [ariesApi, deferredWebsiteUrl]);
 
   const currentStep = steps[stepIndex];
 
@@ -64,14 +132,36 @@ export default function AriesOnboardingFlow() {
     setError(null);
 
     try {
+      const savedProfile = await businessProfile.updateProfile({
+        businessName,
+        websiteUrl,
+        businessType,
+        primaryGoal: goal,
+        launchApproverName: approverName || null,
+        offer: offer || null,
+        competitorUrl: competitorUrl || null,
+        channels: selectedChannels,
+      });
+      if (!savedProfile) {
+        throw new Error('Unable to save the business profile before starting the campaign.');
+      }
+
+      const persistedProfile = savedProfile.profile;
+      const normalizedWebsiteUrl = persistedProfile.websiteUrl || websiteUrl.trim();
       const api = createMarketingApi();
       const result = await api.createJob({
         jobType: 'brand_campaign',
         payload: {
-          brandUrl: websiteUrl,
-          competitorUrl,
-          goal,
-          channels: selectedChannels,
+          brandUrl: normalizedWebsiteUrl,
+          websiteUrl: normalizedWebsiteUrl,
+          businessName: persistedProfile.businessName,
+          businessType: persistedProfile.businessType || businessType.trim(),
+          approverName: persistedProfile.launchApproverName || approverName.trim(),
+          competitorUrl: persistedProfile.competitorUrl || competitorUrl.trim(),
+          goal: persistedProfile.primaryGoal || goal,
+          offer: persistedProfile.offer || offer.trim(),
+          notes: persistedProfile.notes || '',
+          channels: persistedProfile.channels.length > 0 ? persistedProfile.channels : selectedChannels,
           mode: 'guided',
         },
       });
@@ -80,15 +170,14 @@ export default function AriesOnboardingFlow() {
         throw new Error(result.message || result.error || 'Unable to start the first campaign.');
       }
 
-      router.push(`/dashboard?campaignId=${encodeURIComponent(result.jobId)}&welcome=1`);
+      router.push(`/dashboard/campaigns/${encodeURIComponent(result.jobId)}?welcome=1`);
       return;
     } catch (submissionError) {
       const message =
         submissionError instanceof Error
           ? submissionError.message
-          : 'We could not reach the live runtime, so Aries opened the app with demo-ready data instead.';
+          : 'We could not reach the live runtime, so Aries kept you on setup with the real error.';
       setError(message);
-      router.push('/dashboard?campaignId=spring-membership-drive&welcome=1&mode=demo');
     } finally {
       setSubmitting(false);
     }
@@ -204,14 +293,58 @@ export default function AriesOnboardingFlow() {
             <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
               <div className="rounded-[1.8rem] border border-white/8 bg-black/15 p-5">
                 <p className="text-sm font-semibold uppercase tracking-[0.24em] text-white/35">Website import review</p>
-                <h2 className="mt-4 text-2xl font-semibold text-white">{brandSummary.title}</h2>
-                <p className="mt-2 text-sm text-white/55">{brandSummary.domain}</p>
+                {previewLoading ? (
+                  <p className="mt-4 text-sm text-white/60">Extracting live brand-kit data from the website…</p>
+                ) : previewError ? (
+                  <div className="mt-4 rounded-[1.25rem] border border-amber-300/20 bg-amber-300/10 px-4 py-4 text-sm text-amber-100">
+                    {previewError}
+                  </div>
+                ) : urlPreview?.brandKitPreview ? (
+                  <>
+                    <h2 className="mt-4 text-2xl font-semibold text-white">{urlPreview.brandKitPreview.brandName}</h2>
+                    <p className="mt-2 text-sm text-white/55">{urlPreview.domain}</p>
+                    {urlPreview.brandKitPreview.logoUrls.length > 0 ? (
+                      <div className="mt-5 space-y-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Logo / wordmark candidates</p>
+                        <div className="space-y-2 text-sm text-white/75">
+                          {urlPreview.brandKitPreview.logoUrls.map((logoUrl) => (
+                            <a
+                              key={logoUrl}
+                              href={logoUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="block break-all rounded-[1rem] border border-white/8 bg-white/[0.03] px-3 py-3 transition hover:border-white/16 hover:text-white"
+                            >
+                              {logoUrl}
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="mt-4 text-sm text-white/55">No logo or wordmark candidates were extracted from the live site yet.</p>
+                    )}
+                  </>
+                ) : (
+                  <p className="mt-4 text-sm text-white/55">Enter a live HTTPS website to review the extracted brand kit.</p>
+                )}
               </div>
               <div className="grid gap-4 md:grid-cols-2">
-                <SummaryTile label="Voice" value={brandSummary.voice} />
-                <SummaryTile label="Audience" value={brandSummary.audience} />
-                <SummaryTile label="Offer" value={brandSummary.offer} />
-                <SummaryTile label="Approval rule" value={`${approverName} must approve before launch`} />
+                <SummaryTile
+                  label="Palette"
+                  value={urlPreview?.brandKitPreview?.colors.palette.join('\n') || 'No live palette extracted yet.'}
+                />
+                <SummaryTile
+                  label="Fonts"
+                  value={urlPreview?.brandKitPreview?.fontFamilies.join('\n') || 'No live fonts extracted yet.'}
+                />
+                <SummaryTile
+                  label="Brand voice"
+                  value={urlPreview?.brandKitPreview?.brandVoiceSummary || 'No real brand voice summary was derived from the site yet.'}
+                />
+                <SummaryTile
+                  label="Offer summary"
+                  value={urlPreview?.brandKitPreview?.offerSummary || 'No real offer summary was derived from the site yet.'}
+                />
               </div>
             </div>
           ) : null}
@@ -350,7 +483,7 @@ function SummaryTile(props: { label: string; value: string }) {
   return (
     <div className="rounded-[1.5rem] border border-white/8 bg-black/15 p-5">
       <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.label}</p>
-      <p className="mt-3 text-sm leading-7 text-white/75">{props.value}</p>
+      <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-white/75">{props.value}</p>
     </div>
   );
 }

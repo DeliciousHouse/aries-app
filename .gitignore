@@ -54,10 +54,16 @@ lobster/tmp-debug-args.lobster
 lobster/bin/__pycache__/
 
 # Misc
+.artifacts/
 .cache/
 .eslintcache
 .stylelintcache
 .npm
+.tmp/
+.clawhub/
 SOUL.md
 USER.md
 IDENTITY.md
+
+
+tmp

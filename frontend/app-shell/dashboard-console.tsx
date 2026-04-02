@@ -184,7 +184,7 @@ export default function DashboardConsole(): JSX.Element {
                         )}
                         <div className="p-4">
                           <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-2">{preview.platformName}</p>
-                          <h4 className="font-semibold mb-1">{preview.headline || preview.summary}</h4>
+                          <h4 className="font-semibold mb-1">{preview.displayTitle || preview.summary}</h4>
                           <p className="text-sm text-white/55">{preview.summary}</p>
                         </div>
                       </Link>
@@ -224,6 +224,16 @@ export default function DashboardConsole(): JSX.Element {
                     <div>
                       <div className="font-semibold">{card.display_name}</div>
                       <div className="text-sm text-white/50">{card.connection_state.replace(/_/g, ' ')}</div>
+                      {card.connection_state !== 'connected' ? (
+                        <div className="mt-2 flex gap-2">
+                          <Link
+                            href={`/oauth/connect/${encodeURIComponent(card.platform)}?mode=${card.connection_state === 'reauth_required' ? 'reconnect' : 'connect'}${card.connection_id ? `&connection_id=${encodeURIComponent(card.connection_id)}` : ''}`}
+                            className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10 transition"
+                          >
+                            {card.connection_state === 'reauth_required' ? 'Reconnect' : 'Connect'}
+                          </Link>
+                        </div>
+                      ) : null}
                     </div>
                     <StatusBadge status={statusBadgeForConnectionState(card.connection_state)} />
                   </div>
@@ -254,10 +264,10 @@ export default function DashboardConsole(): JSX.Element {
                   Open approval checkpoint <Activity className="w-4 h-4" />
                 </Link>
               ) : null}
-              <Link href="/posts" className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2">
+              <Link href="/dashboard/posts" className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2">
                 Review post queue <Activity className="w-4 h-4" />
               </Link>
-              <Link href="/calendar" className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2">
+              <Link href="/dashboard/calendar" className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2">
                 Open calendar <Sparkles className="w-4 h-4" />
               </Link>
             </div>

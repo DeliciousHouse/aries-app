@@ -9,7 +9,7 @@ Generate professional image ad creatives for Meta/social campaigns using AI imag
 
 ## Model
 
-**Nano Banana** (`gemini-2.5-flash-image`)
+**Nano Banana** (`gemini-3-pro-image-preview`)
 - State-of-the-art image generation and editing
 - Good text rendering for ad copy
 - Supports multiple aspect ratios
@@ -240,7 +240,7 @@ This skill works with:
 
 Save images to:
 ```
-~/clawd/output/{project}-{ad-type}-v{N}.png
+~/aries-app/output/{project}-{ad-type}-v{N}.png
 ```
 
 Examples:
