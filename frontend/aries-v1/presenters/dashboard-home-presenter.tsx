@@ -121,8 +121,8 @@ export default function DashboardHomePresenter({
   const activeSurface = surfaces[activeIndex] || surfaces[0];
 
   return (
-    <div className="space-y-6 pb-12">
-      <section className="relative min-h-[430px] overflow-hidden rounded-[2rem] border border-white/10 bg-[radial-gradient(ellipse_at_bottom,rgba(123,97,255,0.16),transparent_45%),linear-gradient(180deg,#0a0a0f_0%,#050505_100%)] shadow-[0_24px_80px_rgba(0,0,0,0.42)]">
+    <div className="space-y-8 pb-12">
+      <section className="relative min-h-[min(88vh,820px)] overflow-hidden rounded-[2rem] border border-white/10 bg-[radial-gradient(ellipse_at_bottom,rgba(123,97,255,0.16),transparent_45%),linear-gradient(180deg,#0a0a0f_0%,#050505_100%)] shadow-[0_24px_80px_rgba(0,0,0,0.42)] md:min-h-[620px] lg:min-h-[550px]">
         <div className="absolute right-5 top-5 z-40 md:right-8 md:top-8">
           <div className="space-y-3">
             <div className="rounded-xl border border-white/10 bg-[#12121a] px-3 py-2 shadow-xl md:rounded-2xl md:px-6 md:py-4">
@@ -235,8 +235,8 @@ export default function DashboardHomePresenter({
           </div>
         </div>
 
-        <div className="relative z-40 grid h-full grid-cols-1 gap-4 p-5 md:p-6 lg:grid-cols-12 lg:gap-6">
-          <div className="space-y-4 lg:col-span-3">
+        <div className="absolute inset-0 z-40 grid grid-cols-1 items-end justify-items-center gap-3 p-4 pb-8 sm:gap-4 sm:p-5 sm:pb-10 md:grid-cols-2 md:items-end md:justify-items-stretch md:gap-3 md:gap-x-4 md:p-4 md:pb-8 lg:grid-cols-12 lg:gap-6 lg:p-6 lg:pb-6">
+          <div className="w-full max-w-[min(100%,22rem)] sm:max-w-md md:max-w-[13rem] md:justify-self-start lg:col-span-3 lg:max-w-none lg:w-full lg:justify-self-start lg:self-end">
             <HeroSideCard eyebrow="Next Action" title={model.nextAction.title} detail={model.nextAction.summary}>
               <Link
                 href={model.nextAction.href}
@@ -246,25 +246,11 @@ export default function DashboardHomePresenter({
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </HeroSideCard>
-
-            <HeroSideCard eyebrow="Schedule Window" title={model.schedule.title} detail={model.schedule.detail}>
-              {model.schedule.href ? (
-                <Link
-                  href={model.schedule.href}
-                  className="inline-flex items-center gap-2 text-sm font-medium text-white transition-colors hover:text-white/75"
-                >
-                  Open campaign schedule
-                  <ChevronRight className="h-4 w-4" />
-                </Link>
-              ) : (
-                <span className="text-sm text-white/45">Schedule signal will appear here once a launch is ready.</span>
-              )}
-            </HeroSideCard>
           </div>
 
           <div className="hidden lg:col-span-6 lg:block" />
 
-          <div className="space-y-4 lg:col-span-3 lg:self-end">
+          <div className="w-full max-w-[min(100%,22rem)] sm:max-w-md md:max-w-[13rem] md:justify-self-end lg:col-span-3 lg:max-w-none lg:w-full lg:justify-self-end lg:self-end">
             <HeroSideCard
               eyebrow="Campaign Focus"
               title={model.activeCampaign?.name || 'No active campaign yet'}
