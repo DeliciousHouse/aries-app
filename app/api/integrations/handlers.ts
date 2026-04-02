@@ -13,6 +13,23 @@ import { isMarketingPublicMode } from '@/lib/marketing-public-mode';
 
 const platforms = Object.keys(PROVIDER_REGISTRY) as Array<keyof typeof PROVIDER_REGISTRY>;
 
+type IntegrationPageCard = {
+  platform: string;
+  display_name: string;
+  description: string;
+  connection_state: string;
+  health: string;
+  available_actions: string[];
+  last_synced_at: string | null;
+  expires_at: string | null;
+  permissions: string[];
+  connection_id?: string;
+};
+
+function isDbTenantId(tenantId: string | null | undefined): tenantId is string {
+  return typeof tenantId === 'string' && /^[1-9]\d*$/.test(tenantId.trim());
+}
+
 function mapState(connectionStatus: string) {
   if (connectionStatus === 'connected') return 'connected';
   if (connectionStatus === 'pending_oauth') return 'connection_pending';
@@ -37,8 +54,39 @@ function mapHealth(connectionStatus: string, tokenExpiresAt?: string) {
   }
 }
 
+function buildDisconnectedIntegrationCard(platform: keyof typeof PROVIDER_REGISTRY): IntegrationPageCard {
+  return {
+    platform,
+    display_name: PROVIDER_REGISTRY[platform].display_name,
+    description: `Connect ${PROVIDER_REGISTRY[platform].display_name}`,
+    connection_state: 'not_connected',
+    health: 'unknown',
+    available_actions: ['connect', 'view_permissions'],
+    last_synced_at: null,
+    expires_at: null,
+    permissions: [],
+  };
+}
+
+function buildIntegrationsPagePayload(cards: IntegrationPageCard[]) {
+  const summary = {
+    total: platforms.length,
+    connected: cards.filter((c) => c.connection_state === 'connected').length,
+    not_connected: cards.filter((c) => c.connection_state === 'not_connected').length,
+    attention_required: cards.filter((c) =>
+      c.connection_state === 'connection_error' || c.connection_state === 'reauth_required'
+    ).length
+  };
+
+  return { status: 'ok', page_state: 'ready', supported_platforms: platforms, cards, summary };
+}
+
+function buildPublicIntegrationsPageData() {
+  return buildIntegrationsPagePayload(platforms.map((platform) => buildDisconnectedIntegrationCard(platform)));
+}
+
 export function buildIntegrationsPageData(tenantId: string) {
-  throw new Error('buildIntegrationsPageData is now async; use buildIntegrationsPageDataAsync');
+  return buildIntegrationsPageDataAsync(tenantId);
 }
 
 export async function buildIntegrationsPageDataAsync(tenantId: string) {
@@ -47,13 +95,10 @@ export async function buildIntegrationsPageDataAsync(tenantId: string) {
       const status = await oauthStatusAsync(platform, tenantId);
       if ('broker_status' in status) {
         return {
-          platform,
-          display_name: PROVIDER_REGISTRY[platform].display_name,
-          description: `Connect ${PROVIDER_REGISTRY[platform].display_name}`,
+          ...buildDisconnectedIntegrationCard(platform),
           connection_state: 'connection_error',
           health: 'error',
           available_actions: ['connect'],
-          permissions: [],
         };
       }
 
@@ -79,23 +124,19 @@ export async function buildIntegrationsPageDataAsync(tenantId: string) {
     }),
   );
 
-  const summary = {
-    total: platforms.length,
-    connected: cards.filter((c) => c.connection_state === 'connected').length,
-    not_connected: cards.filter((c) => c.connection_state === 'not_connected').length,
-    attention_required: cards.filter((c) =>
-      c.connection_state === 'connection_error' || c.connection_state === 'reauth_required'
-    ).length
-  };
-
-  return { status: 'ok', page_state: 'ready', supported_platforms: platforms, cards, summary };
+  return buildIntegrationsPagePayload(cards);
 }
 
 export async function handleIntegrationsGet(tenantContextLoader?: TenantContextLoader) {
   const tenantResult = await loadTenantContextOrResponse(tenantContextLoader);
   if ('response' in tenantResult) {
     if (isMarketingPublicMode()) {
-      return new Response(JSON.stringify(await buildIntegrationsPageDataAsync(findLatestMarketingTenantId() || 'public_empty')), {
+      const marketingTenantId = findLatestMarketingTenantId();
+      const pageData = isDbTenantId(marketingTenantId)
+        ? await buildIntegrationsPageDataAsync(marketingTenantId)
+        : buildPublicIntegrationsPageData();
+
+      return new Response(JSON.stringify(pageData), {
         status: 200,
         headers: { 'content-type': 'application/json' }
       });

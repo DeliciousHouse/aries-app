@@ -1,0 +1,273 @@
+{
+  "artifacts": {
+    "ad_creative_analysis": {
+      "artifacts": {
+        "creative_analysis_path": "/app/aries-app/output/meta-ads/competitor/ad-creative-analysis.json"
+      },
+      "competitor": "Competitor",
+      "creative_findings": [
+        {
+          "ad_id": "competitor-ad-01",
+          "recommended_iterations": [
+            "Open with the strongest proof point in the first sentence.",
+            "Shorten headline to a single outcome-focused claim."
+          ],
+          "score": 79,
+          "winning_pattern": "speed to value"
+        },
+        {
+          "ad_id": "competitor-ad-02",
+          "recommended_iterations": [
+            "Open with the strongest proof point in the first sentence.",
+            "Shorten headline to a single outcome-focused claim."
+          ],
+          "score": 76,
+          "winning_pattern": "efficiency"
+        },
+        {
+          "ad_id": "competitor-ad-03",
+          "recommended_iterations": [
+            "Open with the strongest proof point in the first sentence.",
+            "Shorten headline to a single outcome-focused claim."
+          ],
+          "score": 73,
+          "winning_pattern": "simplicity"
+        }
+      ],
+      "creative_summary": {
+        "priority": "Lead with proof and compress the message.",
+        "top_pattern": "speed to value"
+      },
+      "generated_at": "2026-03-24T08:57:29+00:00",
+      "mode": "live",
+      "run_id": "competitor-f495df0d",
+      "stub": false,
+      "type": "ad_creative_analysis"
+    },
+    "meta_ads_analysis": {
+      "analysed_ads": [
+        {
+          "ad_id": "competitor-ad-01",
+          "angles": [
+            "speed to value",
+            "risk reduction"
+          ],
+          "creative_strength_score": 79,
+          "funnel_stage": "awareness",
+          "headline": "Competitor Analysis Tool - Research Your Top Competition",
+          "landing_page_url": "",
+          "why_it_might_work": "Connects speed to value, risk reduction to a clear CTA."
+        },
+        {
+          "ad_id": "competitor-ad-02",
+          "angles": [
+            "efficiency",
+            "proof points"
+          ],
+          "creative_strength_score": 76,
+          "funnel_stage": "consideration",
+          "headline": "How Competitor removes manual busywork",
+          "landing_page_url": "",
+          "why_it_might_work": "Connects efficiency, proof points to a clear CTA."
+        },
+        {
+          "ad_id": "competitor-ad-03",
+          "angles": [
+            "simplicity",
+            "enterprise trust"
+          ],
+          "creative_strength_score": 73,
+          "funnel_stage": "awareness",
+          "headline": "Competitor makes enterprise rollout feel simple",
+          "landing_page_url": "",
+          "why_it_might_work": "Connects simplicity, enterprise trust to a clear CTA."
+        }
+      ],
+      "artifacts": {
+        "analysis_path": "/app/aries-app/output/meta-ads/competitor/meta-ads-analysis.json"
+      },
+      "competitor": "Competitor",
+      "generated_at": "2026-03-24T08:57:29+00:00",
+      "mode": "live",
+      "run_id": "competitor-f495df0d",
+      "stub": false,
+      "summary": {
+        "ad_count": 3,
+        "dominant_cta": "Learn More",
+        "format_mix": {
+          "carousel": 1,
+          "image": 2,
+          "square": 1,
+          "story": 1,
+          "video": 1
+        },
+        "top_hooks": [
+          "speed to value",
+          "risk reduction",
+          "efficiency",
+          "proof points"
+        ]
+      },
+      "type": "meta_ads_analysis"
+    },
+    "meta_ads_extract": {
+      "ads": [
+        {
+          "ad_id": "competitor-ad-01",
+          "brand": "Competitor",
+          "call_to_action": "Learn More",
+          "formats": [
+            "video",
+            "square"
+          ],
+          "headline": "Competitor Analysis Tool - Research Your Top Competition",
+          "hooks": [
+            "speed to value",
+            "risk reduction"
+          ],
+          "landing_page_url": "",
+          "platform": "meta",
+          "primary_text": "Track traffic from ChatGPT, Claude, Gemini, and 20+ AI platforms\u2014yours vs. competitors. Break down competitor traffic sources\u2014AI traffic, search, paid, referral, and more."
+        },
+        {
+          "ad_id": "competitor-ad-02",
+          "brand": "Competitor",
+          "call_to_action": "Book Demo",
+          "formats": [
+            "image",
+            "carousel"
+          ],
+          "headline": "How Competitor removes manual busywork",
+          "hooks": [
+            "efficiency",
+            "proof points"
+          ],
+          "landing_page_url": "",
+          "platform": "meta",
+          "primary_text": "Competitor leads with an operational efficiency angle and a proof-oriented CTA."
+        },
+        {
+          "ad_id": "competitor-ad-03",
+          "brand": "Competitor",
+          "call_to_action": "Get Started",
+          "formats": [
+            "image",
+            "story"
+          ],
+          "headline": "Competitor makes enterprise rollout feel simple",
+          "hooks": [
+            "simplicity",
+            "enterprise trust"
+          ],
+          "landing_page_url": "",
+          "platform": "meta",
+          "primary_text": "Competitor uses reassurance language for larger buyers with security and onboarding concerns."
+        }
+      ],
+      "artifacts": {
+        "extract_path": "/app/aries-app/output/meta-ads/competitor/meta-ads-extract.json",
+        "summary_markdown_path": "/app/aries-app/output/meta-ads/competitor/summary.md"
+      },
+      "competitor": "Competitor",
+      "competitor_facebook_url": "https://facebook.com/competitor",
+      "competitor_research_summary": [
+        "Based on the provided evidence, it is not possible to determine \"Competitor\"'s specific Meta ad angles. The evidence consists solely of articles and resources on how to *research* competitor Meta ads using tools like the Meta Ad Library, rather than actual ad content or campaigns from the specified competitor.",
+        "Therefore, we cannot infer their likely Meta ad angles."
+      ],
+      "generated_at": "2026-03-24T08:57:03+00:00",
+      "landing_pages": [],
+      "meta_config": {
+        "access_token_source": "app_credentials",
+        "has_access_token": true,
+        "has_app_id": true,
+        "has_app_secret": true,
+        "has_page_id": false
+      },
+      "mode": "live",
+      "notes": [
+        "Live data path executed for at least one source (web search, Meta Graph, or Gemini)."
+      ],
+      "research": {
+        "gemini": {
+          "error": "",
+          "live": true,
+          "model": "gemini-2.5-flash",
+          "provider": "gemini",
+          "text": "Based on the provided evidence, it is not possible to determine \"Competitor\"'s specific Meta ad angles. The evidence consists solely of articles and resources on how to *research* competitor Meta ads using tools like the Meta Ad Library, rather than actual ad content or campaigns from the specified competitor.\n\nTherefore, we cannot infer their likely Meta ad angles."
+        },
+        "meta_graph": {
+          "attempts": [
+            {
+              "error": "HTTPError: HTTP Error 400: Bad Request",
+              "live": false,
+              "object_id": "competitor"
+            }
+          ],
+          "live": false,
+          "objects": [],
+          "profile_id_from_url": "competitor"
+        },
+        "web_search": {
+          "error": "",
+          "live": true,
+          "provider": "duckduckgo-html",
+          "query": "competitor https://facebook.com/competitor competitor meta ads creative campaign positioning",
+          "results": [
+            {
+              "snippet": "Track traffic from ChatGPT, Claude, Gemini, and 20+ AI platforms\u2014yours vs. competitors. Break down competitor traffic sources\u2014AI traffic, search, paid, referral, and more.",
+              "title": "Competitor Analysis Tool - Research Your Top Competition",
+              "url": "//duckduckgo.com/l/?uddg=https://duckduckgo.com/y.js?ad_domain=semrush.com&ad_provider=bingv7aa&ad_type=txad&click_metadata=Wd7EZoG1Jlt4CqEn3mnt_6gxL3bzpsdALQpM9h5YipjTohYwjuNw1GTOTGFVLMiIsQwXIrOWu9iVkFFRp_U4Kpv9KujaoVCEvlpb_qhdeWR1ejjrRZ6fouyM9Nzl01C1p0Xo1kw7fGtAp3V0MdDnOzJ_TXBCVwZTxc_fuuUe6M0.GJkl80dH2t8M03yCcgxrRA&rut=2c2f69997c56289659214a2b6ab21d55e7d728c60efc44c4e4c22a017412f5d1&u3=https%3A%2F%2Fwww.bing.com%2Faclick%3Fld%3De8jnCZqH5Vlq3afzuO5DiNSTVUCUwoBrQeClEOnq3u1wdVHS11gXBZNXEOwfjnu8FasI4%2Dh5gqLch7q_Gxs%2DFR_C5y54A1GFua9k6a_r21fv8OvuBpJi8Nfs8f296j5zMDrxfQciIbYCDcX43W_p19Gffkwkr5mHNyZA4ZL2YQhbIjHm3bZD4h0s4anQQMQp_aOFa24hL2LLLlh_5W5NSwaiYawbM%26u%3DaHR0cHMlM2ElMmYlMmZ3d3cuc2VtcnVzaC5jb20lMmZscCUyZnByb2R1Y3QtY29tcGV0aXRpdmUtcmVzZWFyY2gtbmV3JTJmZW4lMmYlM2ZiX2FkZ3JvdXAlM2RjaGVjayUyNTIwY29tcGV0aXRvciUyNTIwc2l0ZSUyNmJfYWRncm91cGlkJTNkMTMwOTUxODc4NjI2MTQ2OSUyNmJfYWRpZCUzZDgxODQ1MDEzNDk5MjIzJTI2Yl9jYW1wYWlnbiUzZENvcmUxMl9TUkNIX0NvbXBldGl0b3JzX1Jlc2VhcmNoX0JJTkclMjZiX2NhbXBhaWduaWQlM2Q1NTQyMjI3NzMlMjZiX2lzcHJvZHVjdCUzZCUyNmJfcHJvZHVjdGlkJTNkJTI2Yl90ZXJtJTNkJTI1MkJjaGVjayUyNTIwJTI1MkJjb21wZXRpdG9ycyUyNTIwJTI1MkJ3ZWJzaXRlJTI2Yl90ZXJtaWQlM2Rrd2QtODE4NDUxNjQ0Njc1NDclM2Fsb2MtMTkwJTI2a3clM2QlMjUyQmNoZWNrJTI1MjAlMjUyQmNvbXBldGl0b3JzJTI1MjAlMjUyQndlYnNpdGUlMjZjbXAlM2RDb3JlMTJfU1JDSF9Db21wZXRpdG9yc19SZXNlYXJjaF9CSU5HJTI2bGFiZWwlM2Rjb21wZXRpdG9yc19yZXNlYXJjaCUyNk5ldHdvcmslM2RzJTI2RGV2aWNlJTNkYyUyNnV0bV9jb250ZW50JTNkJTI2a3dpZCUzZGt3ZC04MTg0NTE2NDQ2NzU0NyUzYWxvYy0xOTAlMjZjbXBpZCUzZDU1NDIyMjc3MyUyNmFncGlkJTNkMTMwOTUxODc4NjI2MTQ2OSUyNkJVJTNkTVIlMjZleHRpZCUzZCUyNmFkcG9zJTNkJTI2bWF0Y2h0eXBlJTNkcCUyNm1zY2xraWQlM2RhNjU1MDRiZWY1YzQxYjMxMzc0YzZkN2NhNDFmNjkwNCUyNnV0bV9zb3VyY2UlM2RiaW5nJTI2dXRtX21lZGl1bSUzZGNwYyUyNnV0bV9jYW1wYWlnbiUzZENvcmUxMl9TUkNIX0NvbXBldGl0b3JzX1Jlc2VhcmNoX0JJTkclMjZ1dG1fdGVybSUzZCUyNTJCY2hlY2slMjUyMCUyNTJCY29tcGV0aXRvcnMlMjUyMCUyNTJCd2Vic2l0ZQ%26rlid%3Da65504bef5c41b31374c6d7ca41f6904&vqd=4-245742444708962409809920853091340733737&iurl=%7B1%7DIG%3D0AD9C190EF7C471A9E44CAF9D9258FE9%26CID%3D01ED572DC902666A3511400BC84E67A2%26ID%3DDevEx%2C5039.1&amp;rut=b848a3a8ca79ff3183d06cd3e7489bb9b83c2bedd99d7ddf1576cfdc690292f7"
+            },
+            {
+              "snippet": "Monitor competitor Facebook ads with the Meta Ads Library and transform insights into actionable campaigns using Metricool.",
+              "title": "Monitor Competitor Facebook Ads: How to Use the Meta Ad Library",
+              "url": "//duckduckgo.com/l/?uddg=https://metricool.com/competitor-facebook-ads/&amp;rut=6d9dccad92f762dde9bc2ed8902285eed92639baf95a93884dcc3d6a09c5ea91"
+            },
+            {
+              "snippet": "Learn how to analyze competitor Facebook and Instagram ads using free tools, AI workflows, and proven shortcuts. Spot winning creatives, track patterns, and turn competitor insights into high-impact tests for your own Meta campaigns.",
+              "title": "How to Analyze Meta Ads Competitors Quickly and Accurately",
+              "url": "//duckduckgo.com/l/?uddg=https://pixis.ai/blog/how-to-analyze-meta-ads-competitors-quickly-and-accurately/&amp;rut=f8f42ab7b06ebf4cc464b751b380a8caa8c3e8c124c785860d2100d6ce1c04ed"
+            },
+            {
+              "snippet": "Studying competitors&#x27; ads isn&#x27;t about imitation\u2014it&#x27;s about gaining insights to strengthen your own strategy. By analyzing their creatives, messaging, and offers, you shorten your learning curve, avoid costly mistakes, and run smarter, more effective campaigns. Instead of guessing, use real-time competitor data to guide your decisions.",
+              "title": "How to Use the Meta Ad Library to See Your Competitors&#x27; Ads (and ...",
+              "url": "//duckduckgo.com/l/?uddg=https://vsslagency.com/resources/how-to-use-the-meta-ad-library-to-see-your-competitors-ads-and-improve-your-own/&amp;rut=76127220bc244be60e9c3a4d766a71fae9081b54b2aff39ebce7feba71a1d298"
+            },
+            {
+              "snippet": "The Meta Ad Library (formerly Facebook Ad Library) is one of those underrated gems that can transform how you approach competitor research, ad transparency, creative inspiration and campaign strategy as a whole.",
+              "title": "Using the Meta Ad Library for Competitor Research",
+              "url": "//duckduckgo.com/l/?uddg=https://commitagency.com/insights/using-the-meta-ad-library-for-competitor-research-and-creative-inspiration/&amp;rut=df50dde8309949fc42ea566ce71613e14be25e127de923b2123b0bc4b6710ca3"
+            }
+          ]
+        }
+      },
+      "research_model": "gemini/gemini-2.5-flash",
+      "run_id": "competitor-f495df0d",
+      "source": "local-stage1-wrapper",
+      "stub": false,
+      "type": "meta_ads_extract",
+      "web_search_required": true
+    }
+  },
+  "competitor": "Competitor",
+  "executive_summary": {
+    "campaign_takeaway": "Dominant campaign angle observed: speed to value.",
+    "creative_takeaway": "Best observed creative pattern: speed to value.",
+    "market_positioning": "Competitor is leaning on speed to value to create mid-funnel confidence."
+  },
+  "generated_at": "2026-03-24T08:57:29+00:00",
+  "inputs": {
+    "ads_seen": 3,
+    "campaign_angles_detected": 4,
+    "creative_findings": 3
+  },
+  "mode": "live",
+  "recommended_actions": [
+    "Test one proof-first creative against one speed-to-value creative.",
+    "Mirror the competitor's strongest hook with a differentiated proof claim.",
+    "Keep CTA language aligned with the winning campaign angle per ad variant."
+  ],
+  "run_id": "competitor-f495df0d",
+  "stub": false,
+  "type": "ads_analyst_compile"
+}

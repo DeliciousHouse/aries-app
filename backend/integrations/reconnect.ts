@@ -1,5 +1,5 @@
 import { brokerError, isAllowedProvider, type OAuthBrokerError } from './connect';
-import { buildProviderAuthorizationUrl } from './oauth-authorize-urls';
+import { buildProviderAuthorizationUrl, createCodeVerifier } from './oauth-authorize-urls';
 import { dbAuditEvent, dbGetConnectionById, dbInsertPendingState, dbUpsertConnection, type DbProvider } from './oauth-db';
 
 type OAuthReconnectRequest = {
@@ -78,6 +78,9 @@ export async function oauthReconnect(
   const state = randomStateToken();
   const expiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
   const scopes = normalizeScopes(payload.scopes, existingConnection.granted_scopes);
+  const codeVerifier = provider === 'x' && (process.env.X_CLIENT_ID?.trim() || '').length > 0
+    ? createCodeVerifier()
+    : undefined;
 
   await dbInsertPendingState({
     state,
@@ -86,6 +89,7 @@ export async function oauthReconnect(
     redirectUri,
     scopes,
     connectionId,
+    codeVerifier,
     expiresAt,
   });
 
@@ -111,6 +115,7 @@ export async function oauthReconnect(
     redirectUri,
     state,
     scopes,
+    codeVerifier,
   });
 
   return {

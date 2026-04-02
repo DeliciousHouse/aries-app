@@ -175,6 +175,7 @@ export async function oauthConnect(provider: string, payload: OAuthConnectReques
     redirectUri,
     scopes,
     connectionId: connection.id,
+    codeVerifier,
     expiresAt,
   });
 

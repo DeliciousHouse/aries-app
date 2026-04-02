@@ -28,6 +28,7 @@ export type DbPendingStateRow = {
   redirect_uri: string;
   scopes: string[];
   connection_id: string | null;
+  code_verifier: string | null;
   expires_at: string;
   created_at: string;
 };
@@ -201,6 +202,7 @@ export async function dbInsertPendingState(args: {
   redirectUri: string;
   scopes: string[];
   connectionId?: string | null;
+  codeVerifier?: string;
   expiresAt: string;
 }): Promise<DbPendingStateRow> {
   const tenantIdInt = toTenantIdInt(args.tenantId);
@@ -214,10 +216,11 @@ export async function dbInsertPendingState(args: {
         redirect_uri,
         scopes,
         connection_id,
+        code_verifier,
         expires_at,
         created_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
       RETURNING
         state,
         tenant_id::text,
@@ -225,10 +228,20 @@ export async function dbInsertPendingState(args: {
         redirect_uri,
         scopes,
         connection_id::text,
+        code_verifier,
         expires_at,
         created_at
     `,
-    [args.state, tenantIdInt, args.provider, args.redirectUri, scopes, args.connectionId ?? null, args.expiresAt],
+    [
+      args.state,
+      tenantIdInt,
+      args.provider,
+      args.redirectUri,
+      scopes,
+      args.connectionId ?? null,
+      args.codeVerifier ?? null,
+      args.expiresAt,
+    ],
   );
   return result.rows[0] as DbPendingStateRow;
 }
@@ -243,6 +256,7 @@ export async function dbGetPendingState(state: string): Promise<DbPendingStateRo
         redirect_uri,
         scopes,
         connection_id::text,
+        code_verifier,
         expires_at,
         created_at
       FROM oauth_pending_states
@@ -291,4 +305,3 @@ export async function dbAuditEvent(args: {
     ],
   );
 }
-

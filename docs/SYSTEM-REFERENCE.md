@@ -1,38 +1,9 @@
 # Aries System Reference
 
-Last refreshed Mar 31, 2026, 21:45 PDT.
+Last refreshed Apr 01, 2026, 21:45 PDT.
 
 ## What changed today
-- .env.example
-- app/login/page-client.tsx
-- auth.ts
-- docker-compose.local.yml
-- docker-compose.yml
-- docs/briefs/2026-03-31-brief.md
-- lib/auth-tenant-membership.ts
-- lib/tenant-context-http.ts
-- lib/tenant-context.ts
-- lobster/bin/_brand_tokens.py
-- lobster/bin/_marketing_profile_common.py
-- lobster/bin/_stage4_common.py
-- lobster/bin/ad-designer
-- lobster/bin/brand-kit-bootstrap.ts
-- lobster/bin/brand-profile-db-contract
-- lobster/bin/campaign-planner
-- lobster/bin/creative-director
-- lobster/bin/head-of-marketing
-- lobster/bin/launch-review-preview
-- lobster/bin/marketing-pipeline-compat
-- lobster/bin/meta-ads-extractor
-- lobster/bin/page-designer
-- lobster/bin/stage2-finalize-bridge
-- lobster/bin/stage3-finalize-bridge
-- lobster/bin/stage4-publish-compat
-- lobster/bin/veo-video-generator
-- lobster/bin/website-brand-analysis
-- lobster/marketing-pipeline.lobster
-- tests/auth/auth-tenant-membership.test.ts
-- tests/auth/tenant-context.test.ts
+- No git-tracked file changes detected since local midnight.
 
 ## Current architecture overview
 - Next.js App Router runtime serves the public site, authenticated operator shell, and browser-safe internal APIs.
@@ -41,8 +12,8 @@ Last refreshed Mar 31, 2026, 21:45 PDT.
 - Standalone Mission Control now lives outside the repo in /app/projects/aries-mission-control and reads /api/runtime/overview from its local runtime server.
 
 ## Module inventory
-- app/ 100 files
-- backend/ 62 files
+- app/ 104 files
+- backend/ 70 files
 - components/ 14 files
 - hooks/ 17 files
 - lib/ 17 files
@@ -72,7 +43,8 @@ Last refreshed Mar 31, 2026, 21:45 PDT.
 - validate:public-routes: tsx --test tests/runtime-pages.test.ts tests/public-marketing-pages.test.ts
 - validate:banned-patterns: node scripts/check-banned-patterns.mjs
 - validate:marketing-flow: APP_BASE_URL=https://aries.example.com tsx --test tests/marketing-job-flow.test.ts tests/onboarding-marketing-contracts.test.ts
-- validate:homepage-perf: mkdir -p .artifacts && npx --yes lighthouse http://127.0.0.1:3000 --only-categories=performance --preset=desktop --chrome-flags='--headless=new --no-sandbox --disable-dev-shm-usage' --output=json --output-path=.artifacts/lighthouse-homepage.json
+- validate:homepage-perf: mkdir -p .artifacts && CI=1 npx --yes lighthouse http://127.0.0.1:3000 --only-categories=performance --preset=desktop --no-enable-error-reporting --chrome-flags='--headless=new --no-sandbox --disable-dev-shm-usage' --output=json --output-path=.artifacts/lighthouse-homepage.json
+- validate:homepage-perf:mobile: mkdir -p .artifacts && CI=1 npx --yes lighthouse http://127.0.0.1:3000 --only-categories=performance --form-factor=mobile --screenEmulation.mobile=true --throttling-method=simulate --no-enable-error-reporting --chrome-flags='--headless=new --no-sandbox --disable-dev-shm-usage' --output=json --output-path=.artifacts/lighthouse-homepage-mobile.json
 - automation:backup: node scripts/automations/private-repo-backup.mjs
 - automation:self-improve: node scripts/automations/overnight-self-improve.mjs
 - automation:daily-brief: node scripts/automations/daily-brief.mjs
@@ -86,7 +58,26 @@ Last refreshed Mar 31, 2026, 21:45 PDT.
 - Mission Control standalone app is still a shell around runtime overview data and awaits richer live API adapters for actions/transcripts.
 
 ## Working tree snapshot
-- M Dockerfile
+- M  .env.example
+- M  .gitignore
+- M  AGENTS.md
+- M  Dockerfile
+- M  HEARTBEAT.md
+- M  IDENTITY.md
+- M  MEMORY.md
+- A  OPERATING_STRUCTURE.md
+- D  OVERNIGHT_LOG.md
+- A  PRIORITIES.md
+- M  README-runtime.md
+- M  README.md
+- M  ROADMAP.md
+- M  ROUTE_MANIFEST.md
+- M  SETUP.md
+- M  SOUL.md
+- M  USER.md
+- A  app/[...publicPath]/route.ts
+- M  app/api/business/profile/route.ts
+- M  app/api/integrations/handlers.ts
 
 ## Reference date
-- 2026-03-31
+- 2026-04-01

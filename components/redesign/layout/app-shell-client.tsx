@@ -398,7 +398,7 @@ export default function AppShellClient({
                     </motion.div>
                   ) : null}
                 </AnimatePresence>,
-                document.body
+                document.body,
               )
             : null
         ) : (
@@ -529,9 +529,9 @@ export default function AppShellClient({
                   transition={{ duration: 0.18, ease: 'easeOut' }}
                   className="absolute bottom-14 left-0 z-[90] w-[280px] overflow-hidden rounded-2xl border border-white/10 bg-white/[0.06] shadow-[0_28px_90px_rgba(0,0,0,0.38)] backdrop-blur-xl"
                 >
-                <div className="space-y-1 p-2">
-                  <Link
-                    href={getRouteById('businessProfile').href}
+                  <div className="space-y-1 p-2">
+                    <Link
+                      href={getRouteById('businessProfile').href}
                       className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white"
                       onClick={() => setIsAccountMenuOpen(false)}
                     >
@@ -630,7 +630,7 @@ export default function AppShellClient({
                     className="rounded-2xl border border-white/10 bg-white/5 p-2 text-white/80 transition-colors hover:bg-white/10 hover:text-white"
                     aria-label="Close menu"
                   >
-                    <span className="text-lg leading-none">×</span>
+                    <span className="text-lg leading-none">x</span>
                   </button>
                 </div>
 

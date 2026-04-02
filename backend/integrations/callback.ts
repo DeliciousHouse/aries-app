@@ -116,7 +116,13 @@ async function exchangeXCodeForToken(input: {
   code: string;
   redirectUri: string;
   codeVerifier?: string;
-}): Promise<{ accessToken: string; expiresIn?: number }> {
+}): Promise<{
+  accessToken: string;
+  expiresIn?: number;
+  refreshToken?: string;
+  scope?: string;
+  tokenType?: string;
+}> {
   const creds = xClientCredentials();
   if (!creds) {
     throw new Error('x_oauth_not_configured');
@@ -148,6 +154,9 @@ async function exchangeXCodeForToken(input: {
   return {
     accessToken: parsed.access_token,
     expiresIn: typeof parsed.expires_in === 'number' && parsed.expires_in > 0 ? parsed.expires_in : undefined,
+    refreshToken: typeof parsed.refresh_token === 'string' ? parsed.refresh_token : undefined,
+    scope: typeof parsed.scope === 'string' ? parsed.scope : undefined,
+    tokenType: typeof parsed.token_type === 'string' ? parsed.token_type : undefined,
   };
 }
 
@@ -265,61 +274,32 @@ export async function oauthCallback(provider: string, query: OAuthCallbackQuery)
   }
 
   const connectedAt = nowIso();
-  const connectionId = pending.connection_id || null;
   let accessTtlSeconds = parsePositiveInt(query.expires_in);
   const refreshTtlSeconds = parsePositiveInt(query.refresh_expires_in);
+  let externalAccountId: string | null = null;
+  let externalAccountName: string | null = null;
+  let xToken:
+    | {
+        accessToken: string;
+        expiresIn?: number;
+        refreshToken?: string;
+        scope?: string;
+        tokenType?: string;
+      }
+    | null = null;
 
   // Real X OAuth code exchange when credentials are configured.
   if (provider === 'x' && xClientCredentials()) {
     try {
-      const token = await exchangeXCodeForToken({
+      xToken = await exchangeXCodeForToken({
         code: query.code.trim(),
         redirectUri: pending.redirect_uri,
-        codeVerifier: pending.code_verifier,
+        codeVerifier: pending.code_verifier ?? undefined,
       });
-      accessTtlSeconds = token.expiresIn;
-      const profile = await fetchXProfile(token.accessToken);
-
-      const externalAccountId =
-        (profile && (profile.id ?? profile.data?.id)) ?? null;
-      const externalAccountName =
-        (profile && (profile.name ?? profile.data?.name ?? profile.username ?? profile.data?.username)) ?? null;
-
-      await dbUpsertConnection({
-        id: connectionId,
-        provider,
-        tenantId: pending.tenant_id,
-        connectedAt,
-        externalAccountId,
-        externalAccountName,
-      });
-
-      const accessExpiresAt =
-        typeof accessTtlSeconds === 'number'
-          ? new Date(Date.now() + accessTtlSeconds * 1000).toISOString()
-          : null;
-
-      const refreshTtlFromToken =
-        typeof (token as any).refreshExpiresIn === 'number'
-          ? (token as any).refreshExpiresIn
-          : refreshTtlSeconds;
-
-      const refreshExpiresAt =
-        typeof refreshTtlFromToken === 'number'
-          ? new Date(Date.now() + refreshTtlFromToken * 1000).toISOString()
-          : null;
-
-      await dbInsertOAuthToken({
-        connectionId,
-        provider,
-        accessToken: token.accessToken,
-        refreshToken: (token as any).refreshToken ?? null,
-        tokenType: (token as any).tokenType ?? null,
-        scope: (token as any).scope ?? null,
-        accessExpiresAt,
-        refreshExpiresAt,
-        createdAt: connectedAt,
-      });
+      accessTtlSeconds = xToken.expiresIn;
+      const profile = await fetchXProfile(xToken.accessToken);
+      externalAccountId = profile.id ?? null;
+      externalAccountName = profile.label ?? null;
     } catch (error) {
       await dbDeletePendingState(state);
       return brokerError('provider_callback_error', {
@@ -376,9 +356,24 @@ export async function oauthCallback(provider: string, query: OAuthCallbackQuery)
     refreshExpiresAt,
     connectedAt,
     disconnectedAt: null,
+    externalAccountId,
+    externalAccountName,
     lastErrorCode: null,
     lastErrorMessage: null,
   });
+
+  if (provider === 'x' && xToken) {
+    await dbInsertOAuthToken({
+      connectionId: connection.id,
+      accessToken: xToken.accessToken,
+      refreshToken: xToken.refreshToken ?? null,
+      tokenType: xToken.tokenType ?? null,
+      scope: xToken.scope ?? null,
+      expiresAt: tokenExpiresAt,
+      refreshExpiresAt,
+      issuedAt: connectedAt,
+    });
+  }
 
   if (provider === 'linkedin' && linkedInToken) {
     await dbInsertOAuthToken({
