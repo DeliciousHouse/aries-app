@@ -72,6 +72,7 @@ export default function AppShellClient({
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isReviewMenuOpen, setIsReviewMenuOpen] = useState(false);
   const [isMobileReviewMenuOpen, setIsMobileReviewMenuOpen] = useState(false);
+  const [isMobileAccountMenuOpen, setIsMobileAccountMenuOpen] = useState(false);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
@@ -117,6 +118,7 @@ export default function AppShellClient({
       if (mobileMenuRef.current && !mobileMenuRef.current.contains(event.target as Node)) {
         setIsMobileMenuOpen(false);
         setIsMobileReviewMenuOpen(false);
+        setIsMobileAccountMenuOpen(false);
       }
       if (accountMenuRef.current && !accountMenuRef.current.contains(event.target as Node)) {
         setIsAccountMenuOpen(false);
@@ -139,6 +141,7 @@ export default function AppShellClient({
     setIsMobileMenuOpen(false);
     setIsReviewMenuOpen(false);
     setIsMobileReviewMenuOpen(false);
+    setIsMobileAccountMenuOpen(false);
     setIsAccountMenuOpen(false);
     if (reviewCloseTimeoutRef.current) {
       clearTimeout(reviewCloseTimeoutRef.current);
@@ -184,7 +187,7 @@ export default function AppShellClient({
     const desktop = keepSidebarExpanded
       ? 'h-11 justify-start px-3.5'
       : 'h-11 justify-center px-0 group-hover/sidebar:justify-start group-hover/sidebar:px-3.5';
-    const mobile = 'h-12 justify-start px-4 text-base';
+    const mobile = 'min-h-[44px] justify-start px-4 py-3 text-base';
     const desktopLabelVisibility = keepSidebarExpanded
       ? 'w-auto translate-x-0 opacity-100'
       : 'pointer-events-none w-0 translate-x-2 overflow-hidden opacity-0 group-hover/sidebar:w-auto group-hover/sidebar:translate-x-0 group-hover/sidebar:opacity-100';
@@ -198,10 +201,11 @@ export default function AppShellClient({
         className={[
           base,
           isActive ? active : inactive,
-          props.variant === 'desktop' ? desktop : mobile,
+          props.variant === 'desktop' ? desktop : `${mobile} w-full text-left`,
           isActive ? 'bg-white/[0.07]' : 'hover:bg-white/[0.06]',
         ].join(' ')}
         aria-current={isActive ? 'page' : undefined}
+        onClick={props.variant === 'mobile' ? () => setIsMobileMenuOpen(false) : undefined}
       >
         {isActive ? (
           <motion.div
@@ -214,11 +218,15 @@ export default function AppShellClient({
 
         <span
           className={[
-            'relative z-10 flex w-full items-center gap-3',
-            keepSidebarExpanded ? 'justify-start' : 'justify-center group-hover/sidebar:justify-start',
+            'relative z-10 flex w-full min-w-0 items-center gap-3',
+            props.variant === 'mobile'
+              ? 'justify-start'
+              : keepSidebarExpanded
+                ? 'justify-start'
+                : 'justify-center group-hover/sidebar:justify-start',
           ].join(' ')}
         >
-          <Icon className="h-5 w-5 text-white/85" />
+          <Icon className="h-5 w-5 shrink-0 text-white/85" />
           <span
             className={[
               'relative z-10 whitespace-nowrap text-white/90',
@@ -251,6 +259,8 @@ export default function AppShellClient({
     const isOpen = props.variant === 'desktop' ? isReviewMenuOpen : isMobileReviewMenuOpen;
     const setIsOpen = props.variant === 'desktop' ? setIsReviewMenuOpen : setIsMobileReviewMenuOpen;
     const triggerRef = useRef<HTMLDivElement>(null);
+    const desktopMenuRef = useRef<HTMLDivElement>(null);
+    const outsideHoverCloseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [desktopMenuPosition, setDesktopMenuPosition] = useState<{ top: number; left: number } | null>(null);
 
     const buttonBase =
@@ -258,7 +268,7 @@ export default function AppShellClient({
     const desktop = keepSidebarExpanded
       ? 'h-11 justify-start px-3.5'
       : 'h-11 justify-center px-0 group-hover/sidebar:justify-start group-hover/sidebar:px-3.5';
-    const mobile = 'h-12 justify-start px-4 text-base';
+    const mobile = 'min-h-[44px] justify-start px-4 py-3 text-base';
     const desktopLabelVisibility = keepSidebarExpanded
       ? 'w-auto translate-x-0 opacity-100'
       : 'pointer-events-none w-0 translate-x-2 overflow-hidden opacity-0 group-hover/sidebar:w-auto group-hover/sidebar:translate-x-0 group-hover/sidebar:opacity-100';
@@ -271,21 +281,75 @@ export default function AppShellClient({
         return;
       }
 
+      let rafId: number | null = null;
+
       const updatePosition = () => {
-        const rect = triggerRef.current?.getBoundingClientRect();
+        const trigger = triggerRef.current;
+        const rect = trigger?.getBoundingClientRect();
         if (!rect) return;
+        const sidebarRect = trigger?.closest('aside')?.getBoundingClientRect();
+        const leftEdge = sidebarRect ? Math.max(rect.right, sidebarRect.right) : rect.right;
         setDesktopMenuPosition({
           top: rect.top,
-          left: rect.right + 12,
+          left: leftEdge + 12,
         });
       };
 
       updatePosition();
+
+      // Track position while the sidebar animates from collapsed -> expanded.
+      const animatePosition = (startTime: number) => {
+        updatePosition();
+        if (performance.now() - startTime < 520) {
+          rafId = window.requestAnimationFrame(() => animatePosition(startTime));
+        }
+      };
+      rafId = window.requestAnimationFrame(() => animatePosition(performance.now()));
+
       window.addEventListener('resize', updatePosition);
       window.addEventListener('scroll', updatePosition, true);
       return () => {
+        if (rafId !== null) {
+          window.cancelAnimationFrame(rafId);
+        }
         window.removeEventListener('resize', updatePosition);
         window.removeEventListener('scroll', updatePosition, true);
+      };
+    }, [isOpen, props.variant]);
+
+    useEffect(() => {
+      if (props.variant !== 'desktop' || !isOpen) {
+        return;
+      }
+
+      const handlePointerMove = (event: PointerEvent) => {
+        const target = event.target as Node | null;
+        if (!target) return;
+        const inTrigger = !!triggerRef.current?.contains(target);
+        const inMenu = !!desktopMenuRef.current?.contains(target);
+        if (inTrigger || inMenu) {
+          if (outsideHoverCloseTimeoutRef.current) {
+            clearTimeout(outsideHoverCloseTimeoutRef.current);
+            outsideHoverCloseTimeoutRef.current = null;
+          }
+          return;
+        }
+
+        if (!outsideHoverCloseTimeoutRef.current) {
+          outsideHoverCloseTimeoutRef.current = setTimeout(() => {
+            setIsReviewMenuOpen(false);
+            outsideHoverCloseTimeoutRef.current = null;
+          }, 180);
+        }
+      };
+
+      window.addEventListener('pointermove', handlePointerMove, { passive: true });
+      return () => {
+        if (outsideHoverCloseTimeoutRef.current) {
+          clearTimeout(outsideHoverCloseTimeoutRef.current);
+          outsideHoverCloseTimeoutRef.current = null;
+        }
+        window.removeEventListener('pointermove', handlePointerMove);
       };
     }, [isOpen, props.variant]);
 
@@ -307,11 +371,12 @@ export default function AppShellClient({
               }
               return;
             }
+            setIsMobileAccountMenuOpen(false);
             setIsOpen((open) => !open);
           }}
           className={[
             buttonBase,
-            props.variant === 'desktop' ? desktop : mobile,
+            props.variant === 'desktop' ? desktop : `${mobile} w-full text-left`,
             isReviewSectionActive ? 'text-white bg-white/[0.07]' : 'text-white/60 hover:text-white hover:bg-white/[0.06]',
           ].join(' ')}
           aria-expanded={isOpen}
@@ -323,14 +388,18 @@ export default function AppShellClient({
 
           <span
             className={[
-              'relative z-10 flex w-full items-center gap-3',
-              keepSidebarExpanded ? 'justify-start' : 'justify-center group-hover/sidebar:justify-start',
+              'relative z-10 flex w-full min-w-0 items-center gap-3',
+              props.variant === 'mobile'
+                ? 'justify-start'
+                : keepSidebarExpanded
+                  ? 'justify-start'
+                  : 'justify-center group-hover/sidebar:justify-start',
             ].join(' ')}
           >
-            <Layers3 className="h-5 w-5 text-white/85" />
+            <Layers3 className="h-5 w-5 shrink-0 text-white/85" />
             <span
               className={[
-                'whitespace-nowrap text-white/90',
+                'min-w-0 whitespace-nowrap text-white/90',
                 props.variant === 'desktop'
                   ? `transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktopLabelVisibility}`
                   : '',
@@ -342,7 +411,7 @@ export default function AppShellClient({
 
           <span
             className={[
-              'relative z-10 ml-auto',
+              'relative z-10 ml-auto shrink-0',
               props.variant === 'desktop'
                 ? `transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${desktopChevronVisibility}`
                 : '',
@@ -363,6 +432,7 @@ export default function AppShellClient({
                 <AnimatePresence>
                   {isOpen && desktopMenuPosition ? (
                     <motion.div
+                      ref={desktopMenuRef}
                       id="sidebar-review-menu"
                       initial={{ opacity: 0, y: 8, scale: 0.98 }}
                       animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -412,7 +482,7 @@ export default function AppShellClient({
                 transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
                 className="overflow-hidden"
               >
-                <div className="mt-2 space-y-1 pl-12 pr-4">
+                <div className="mt-2 space-y-1 border-l border-white/10 pl-3 ml-1">
                   {reviewChildren.map(({ routeId, route, Icon }) => {
                     const isActive = currentRouteId === routeId;
                     return (
@@ -420,12 +490,13 @@ export default function AppShellClient({
                         key={routeId}
                         href={route.href}
                         className={[
-                          'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
+                          'flex min-h-[44px] items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-colors',
                           isActive ? 'bg-white/[0.08] text-white' : 'text-white/70 hover:bg-white/[0.06] hover:text-white',
                         ].join(' ')}
                         aria-current={isActive ? 'page' : undefined}
+                        onClick={() => setIsMobileMenuOpen(false)}
                       >
-                        <Icon className="h-4 w-4 text-white/70" />
+                        <Icon className="h-4 w-4 shrink-0 text-white/70" />
                         {route.title}
                       </Link>
                     );
@@ -443,7 +514,8 @@ export default function AppShellClient({
     <div className="min-h-screen bg-[#050505] text-white selection:bg-primary/30">
       <div className="fixed inset-0 bg-[radial-gradient(circle_at_20%_18%,rgba(124,58,237,0.16),transparent_28%),radial-gradient(circle_at_82%_10%,rgba(255,255,255,0.08),transparent_18%),linear-gradient(180deg,#050505_0%,#090910_100%)]" />
 
-      <div className="relative z-10 flex min-h-screen">
+      {/* flex-col: mobile header must stack above main; default flex-row squeezed main beside the header */}
+      <div className="relative z-10 flex min-h-screen flex-col">
         {/* Desktop sidebar */}
         <aside
           className={[
@@ -577,7 +649,7 @@ export default function AppShellClient({
         </aside>
 
         {/* Mobile top bar */}
-        <header className="sticky top-0 z-[65] flex h-16 w-full items-center justify-between border-b border-white/[0.06] bg-[#050505]/70 px-4 backdrop-blur-xl lg:hidden">
+        <header className="sticky top-0 z-[65] flex h-16 w-full shrink-0 items-center justify-between border-b border-white/[0.06] bg-[#050505]/70 px-4 backdrop-blur-xl lg:hidden">
           <Link href="/dashboard" className="flex items-center gap-3">
             <AriesMark sizeClassName="h-9 w-9" />
             <div className="flex flex-col leading-none">
@@ -587,7 +659,16 @@ export default function AppShellClient({
           </Link>
           <button
             type="button"
-            onClick={() => setIsMobileMenuOpen((open) => !open)}
+            onClick={() => {
+              setIsMobileMenuOpen((wasOpen) => {
+                const next = !wasOpen;
+                if (next) {
+                  setIsMobileReviewMenuOpen(false);
+                  setIsMobileAccountMenuOpen(false);
+                }
+                return next;
+              });
+            }}
             className="rounded-2xl border border-white/10 bg-white/5 p-2.5 text-white transition-colors hover:bg-white/10"
             aria-expanded={isMobileMenuOpen}
             aria-controls="mobile-sidebar"
@@ -614,12 +695,12 @@ export default function AppShellClient({
                 animate={{ x: 0 }}
                 exit={{ x: '-100%' }}
                 transition={{ type: 'spring', damping: 28, stiffness: 240 }}
-                className="fixed left-0 top-0 bottom-0 z-[69] flex w-[86vw] max-w-[320px] flex-col border-r border-white/10 bg-[#07070b]/85 shadow-[0_28px_90px_rgba(0,0,0,0.45)] backdrop-blur-xl lg:hidden"
+                className="fixed left-0 top-0 bottom-0 z-[69] flex w-[86vw] max-w-[320px] flex-col items-stretch border-r border-white/10 bg-[#07070b]/85 shadow-[0_28px_90px_rgba(0,0,0,0.45)] backdrop-blur-xl lg:hidden"
               >
-                <div className="flex items-center justify-between px-5 pt-5 pb-4">
-                  <Link href="/dashboard" className="flex items-center gap-3" onClick={() => setIsMobileMenuOpen(false)}>
-                    <AriesMark sizeClassName="h-10 w-10" />
-                    <div className="flex flex-col leading-none">
+                <div className="flex items-center justify-between px-4 pt-4 pb-3">
+                  <Link href="/dashboard" className="flex min-w-0 items-center gap-3 text-left" onClick={() => setIsMobileMenuOpen(false)}>
+                    <AriesMark sizeClassName="h-10 w-10 shrink-0" />
+                    <div className="flex min-w-0 flex-col leading-none">
                       <span className="text-sm font-bold uppercase tracking-[0.15em] text-white">Aries AI</span>
                       <span className="mt-1 text-[10px] font-medium text-white/45">Marketing OS</span>
                     </div>
@@ -627,18 +708,18 @@ export default function AppShellClient({
                   <button
                     type="button"
                     onClick={() => setIsMobileMenuOpen(false)}
-                    className="rounded-2xl border border-white/10 bg-white/5 p-2 text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+                    className="shrink-0 rounded-2xl border border-white/10 bg-white/5 p-2.5 text-white/80 transition-colors hover:bg-white/10 hover:text-white"
                     aria-label="Close menu"
                   >
                     <span className="text-lg leading-none">×</span>
                   </button>
                 </div>
 
-                <div className="px-5 pb-3">
+                <div className="px-4 pb-3">
                   <div className="h-px bg-white/8" />
                 </div>
 
-                <nav className="flex flex-1 flex-col gap-1 overflow-auto px-3 pb-4">
+                <nav className="flex w-full min-w-0 flex-1 flex-col items-stretch gap-1 overflow-y-auto overflow-x-hidden px-4 pb-4 text-left">
                   {primaryItems.map((item) =>
                     item.type === 'link' ? (
                       <NavLink
@@ -652,7 +733,7 @@ export default function AppShellClient({
                     ),
                   )}
 
-                  <div className="my-3 px-2">
+                  <div className="my-3">
                     <div className="h-px bg-white/8" />
                   </div>
 
@@ -668,47 +749,107 @@ export default function AppShellClient({
                   )}
                 </nav>
 
-                <div className="border-t border-white/8 px-4 py-4">
-                  <Link
-                    href={getRouteById('businessProfile').href}
-                    className="mb-2 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-left text-sm font-semibold text-white/85 transition-colors hover:bg-white/10"
-                    onClick={() => setIsMobileMenuOpen(false)}
+                <div className="border-t border-white/8 px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMobileReviewMenuOpen(false);
+                      setIsMobileAccountMenuOpen((open) => !open);
+                    }}
+                    className="flex min-h-[44px] w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-2.5 text-left transition-colors hover:bg-white/[0.08]"
+                    aria-expanded={isMobileAccountMenuOpen}
+                    aria-controls="mobile-drawer-account-menu"
                   >
-                    <span className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-sm font-semibold text-white">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-sm font-semibold text-white">
                       {avatarLetter}
                     </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium text-white/90">{accountLabel}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[10px] font-semibold uppercase tracking-[0.2em] text-white/45">Account</span>
+                      <span className="mt-0.5 block truncate text-sm font-medium text-white/90">{accountLabel || 'Account'}</span>
                     </span>
-                  </Link>
+                    <ChevronDown
+                      className={`h-4 w-4 shrink-0 text-white/50 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                        isMobileAccountMenuOpen ? 'rotate-180' : 'rotate-0'
+                      }`}
+                      aria-hidden
+                    />
+                  </button>
 
-                  <div className="grid grid-cols-1 gap-2">
-                    <Link
-                      href={getRouteById('channelIntegrations').href}
-                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-white/75 transition-colors hover:bg-white/10 hover:text-white"
-                      onClick={() => setIsMobileMenuOpen(false)}
-                    >
-                      Channels
-                    </Link>
-                  </div>
-
-                  <form action={logoutAction} className="mt-3">
-                    <button
-                      type="submit"
-                      className="flex w-full items-center gap-3 rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-left text-sm font-semibold text-rose-100 transition-colors hover:bg-rose-500/15"
-                    >
-                      <LogOut className="h-5 w-5" />
-                      Logout
-                    </button>
-                  </form>
+                  <AnimatePresence initial={false}>
+                    {isMobileAccountMenuOpen ? (
+                      <motion.div
+                        id="mobile-drawer-account-menu"
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                        className="overflow-hidden"
+                      >
+                        <div className="mt-2 space-y-1 rounded-2xl border border-white/10 bg-white/[0.06] p-2 shadow-[0_12px_40px_rgba(0,0,0,0.25)] backdrop-blur-xl">
+                          <Link
+                            href={getRouteById('businessProfile').href}
+                            className="flex min-h-[44px] items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-white/80 transition-colors hover:bg-white/[0.06] hover:text-white"
+                            onClick={() => {
+                              setIsMobileMenuOpen(false);
+                              setIsMobileAccountMenuOpen(false);
+                            }}
+                          >
+                            <Settings className="h-4 w-4 shrink-0 text-white/60" />
+                            Business profile
+                          </Link>
+                          <Link
+                            href={getRouteById('channelIntegrations').href}
+                            className="flex min-h-[44px] items-center justify-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-white/80 transition-colors hover:bg-white/[0.06] hover:text-white"
+                            onClick={() => {
+                              setIsMobileMenuOpen(false);
+                              setIsMobileAccountMenuOpen(false);
+                            }}
+                          >
+                            <Rocket className="h-4 w-4 shrink-0 text-white/60" />
+                            Channel integrations
+                          </Link>
+                          <Link
+                            href={getRouteById('review').href}
+                            className="flex min-h-[44px] items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-white/80 transition-colors hover:bg-white/[0.06] hover:text-white"
+                            onClick={() => {
+                              setIsMobileMenuOpen(false);
+                              setIsMobileAccountMenuOpen(false);
+                            }}
+                          >
+                            <span className="flex items-center gap-3">
+                              <CheckCheck className="h-4 w-4 shrink-0 text-white/60" />
+                              Review queue
+                            </span>
+                            <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs font-semibold text-white/90">
+                              {reviewCount}
+                            </span>
+                          </Link>
+                          <div className="my-1 h-px bg-white/8" />
+                          <form action={logoutAction}>
+                            <button
+                              type="submit"
+                              className="flex min-h-[44px] w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-rose-200/90 transition-colors hover:bg-rose-500/10 hover:text-rose-100"
+                              onClick={() => {
+                                setIsMobileMenuOpen(false);
+                                setIsMobileAccountMenuOpen(false);
+                              }}
+                            >
+                              <LogOut className="h-4 w-4 shrink-0" />
+                              Logout
+                            </button>
+                          </form>
+                        </div>
+                      </motion.div>
+                    ) : null}
+                  </AnimatePresence>
                 </div>
               </motion.aside>
             </>
           ) : null}
         </AnimatePresence>
 
-        <main className="relative flex min-h-screen w-full flex-1 flex-col overflow-hidden lg:pl-[104px]">
-          <div className="flex flex-1 flex-col overflow-auto px-4 pb-4 pt-5 md:px-8 md:pb-8 md:pt-5 lg:pl-6">
+        <main className="relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden lg:min-h-screen lg:pl-[104px]">
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden px-4 pb-4 pt-5 md:px-8 md:pb-8 md:pt-5 lg:pl-6">
             <AnimatePresence mode="wait" initial={false}>
               <motion.div
                 key={`${pathname}:${currentRouteId ?? 'workspace'}`}
