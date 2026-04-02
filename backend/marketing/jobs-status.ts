@@ -170,6 +170,11 @@ export type MarketingJobStatusResponse = {
   repairStatus: string;
 };
 
+function shouldLogMarketingJobStatus(): boolean {
+  const raw = process.env.MARKETING_DEBUG_LOG_JOBS_STATUS?.trim().toLowerCase();
+  return raw === '1' || raw === 'true';
+}
+
 const STAGE_LABELS: Record<MarketingStage, string> = {
   research: 'Research',
   strategy: 'Strategy',
@@ -829,13 +834,15 @@ export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse
   const calendarEvents = buildCalendarEvents(runtimeDoc);
   const postCounts = buildPostCounts(runtimeDoc, reviewBundle, calendarEvents);
   const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id);
-  console.info('[marketing-hydration]', {
-    event: 'job-status',
-    jobId,
-    tenantId: runtimeDoc.tenant_id,
-    reviewBundleSource: publishReviewSource(runtimeDoc),
-    reviewBundleReason: reviewBundle ? 'hydrated' : 'no_real_publish_review_artifacts',
-  });
+  if (shouldLogMarketingJobStatus()) {
+    console.info('[marketing-hydration]', {
+      event: 'job-status',
+      jobId,
+      tenantId: runtimeDoc.tenant_id,
+      reviewBundleSource: publishReviewSource(runtimeDoc),
+      reviewBundleReason: reviewBundle ? 'hydrated' : 'no_real_publish_review_artifacts',
+    });
+  }
 
   return {
     jobId,

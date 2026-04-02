@@ -13,6 +13,7 @@ test('loadTenantContextForUser returns tenant context from Postgres membership r
         rows: [
           {
             user_id: '42',
+            organization_id: '7',
             tenant_id: '7',
             tenant_slug: 'acme-co',
             role: 'tenant_admin' as const,
@@ -42,5 +43,29 @@ test('loadTenantContextForUser throws when no tenant membership exists', async (
   await assert.rejects(
     () => loadTenantContextForUser(queryable, '42'),
     /tenant membership/i
+  );
+});
+
+test('loadTenantContextForUser throws a clear error when tenant claims are incomplete', async () => {
+  const queryable = {
+    async query() {
+      return {
+        rowCount: 1,
+        rows: [
+          {
+            user_id: '42',
+            organization_id: null,
+            tenant_id: null,
+            tenant_slug: null,
+            role: null,
+          },
+        ],
+      };
+    },
+  };
+
+  await assert.rejects(
+    () => loadTenantContextForUser(queryable, '42'),
+    /organization_id, tenant_id, tenant_slug, role/i
   );
 });

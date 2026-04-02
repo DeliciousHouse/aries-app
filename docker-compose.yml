@@ -13,6 +13,7 @@ services:
       PORT: ${PORT:-3000}
       CODE_ROOT: /app
       DATA_ROOT: /data
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
       OPENCLAW_GATEWAY_URL: ${OPENCLAW_GATEWAY_URL}
       OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
       OPENCLAW_SESSION_KEY: ${OPENCLAW_SESSION_KEY:-main}
@@ -38,12 +39,11 @@ services:
       MARKETING_STATUS_PUBLIC: ${MARKETING_STATUS_PUBLIC:-}
       NEXTAUTH_URL: ${NEXTAUTH_URL}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
-      OPENCLAW_LOBSTER_CWD: ${OPENCLAW_LOBSTER_CWD:-/app/aries-app/lobster}
-      OPENCLAW_GATEWAY_LOBSTER_CWD: ${OPENCLAW_GATEWAY_LOBSTER_CWD:-aries-app/lobster}
-      OPENCLAW_LOCAL_LOBSTER_CWD: ${OPENCLAW_LOCAL_LOBSTER_CWD:-/app/aries-app/lobster}
+      OPENCLAW_LOBSTER_CWD: ${OPENCLAW_LOBSTER_CWD:-/app/lobster}
+      OPENCLAW_GATEWAY_LOBSTER_CWD: ${OPENCLAW_GATEWAY_LOBSTER_CWD:-lobster}
+      OPENCLAW_LOCAL_LOBSTER_CWD: ${OPENCLAW_LOCAL_LOBSTER_CWD:-/app/lobster}
     volumes:
       - aries_runtime_data:/data
-      - ./:/app/aries-app
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
@@ -56,10 +56,12 @@ services:
 
   mission-control:
     image: node:24
+    user: "${ARIES_NODE_UID:-1004}:${ARIES_NODE_GID:-1004}"
     working_dir: /app/mission-control
     environment:
       HOME: /tmp
-    command: sh -lc "npm install && npm run build && npm run preview -- --host 0.0.0.0 --port 4174"
+      NPM_CONFIG_CACHE: /tmp/.npm
+    command: sh -lc "npm ci && npm run build && npm run preview -- --host 0.0.0.0 --port 4174"
     volumes:
       - /home/node/openclaw/projects/mission-control-builder/mission-control:/app/mission-control
       - /home/node/openclaw/aries-app:/app/aries-app:ro

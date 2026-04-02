@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync, readSync } from 'node:fs';
 import path from 'node:path';
 
 import { resolveCodeRoot, resolveDataRoot } from '@/lib/runtime-paths';
@@ -127,35 +127,43 @@ function uniqueStrings(values: Array<string | null | undefined>): string[] {
 
 function sniffImageContentType(filePath: string): string | null {
   try {
-    const buffer = readFileSync(filePath);
-    if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
-      return 'image/jpeg';
-    }
-    if (
-      buffer.length >= 8 &&
-      buffer[0] === 0x89 &&
-      buffer[1] === 0x50 &&
-      buffer[2] === 0x4e &&
-      buffer[3] === 0x47 &&
-      buffer[4] === 0x0d &&
-      buffer[5] === 0x0a &&
-      buffer[6] === 0x1a &&
-      buffer[7] === 0x0a
-    ) {
-      return 'image/png';
-    }
-    if (buffer.length >= 6) {
-      const signature = buffer.subarray(0, 6).toString('utf8');
-      if (signature === 'GIF87a' || signature === 'GIF89a') {
-        return 'image/gif';
+    const fd = openSync(filePath, 'r');
+    try {
+      const buffer = Buffer.alloc(12);
+      const bytesRead = readSync(fd, buffer, 0, buffer.length, 0);
+      const header = buffer.subarray(0, bytesRead);
+
+      if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) {
+        return 'image/jpeg';
       }
-    }
-    if (
-      buffer.length >= 12 &&
-      buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
-      buffer.subarray(8, 12).toString('ascii') === 'WEBP'
-    ) {
-      return 'image/webp';
+      if (
+        header.length >= 8 &&
+        header[0] === 0x89 &&
+        header[1] === 0x50 &&
+        header[2] === 0x4e &&
+        header[3] === 0x47 &&
+        header[4] === 0x0d &&
+        header[5] === 0x0a &&
+        header[6] === 0x1a &&
+        header[7] === 0x0a
+      ) {
+        return 'image/png';
+      }
+      if (header.length >= 6) {
+        const signature = header.subarray(0, 6).toString('utf8');
+        if (signature === 'GIF87a' || signature === 'GIF89a') {
+          return 'image/gif';
+        }
+      }
+      if (
+        header.length >= 12 &&
+        header.subarray(0, 4).toString('ascii') === 'RIFF' &&
+        header.subarray(8, 12).toString('ascii') === 'WEBP'
+      ) {
+        return 'image/webp';
+      }
+    } finally {
+      closeSync(fd);
     }
   } catch {}
 

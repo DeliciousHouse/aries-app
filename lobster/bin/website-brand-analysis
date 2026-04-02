@@ -2,11 +2,13 @@
 import argparse
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from _brand_tokens import build_brand_tokens
 from _marketing_profile_common import (
     extract_json_object,
     list_of_strings,
@@ -39,6 +41,39 @@ from _stage2_common import (
     summarize_with_gemini,
 )
 from _canonical_outputs import brand_output_paths, write_text
+
+
+def _tsx_command(repo_root: Path) -> list[str]:
+    local_tsx = repo_root / "node_modules" / ".bin" / "tsx"
+    if local_tsx.exists():
+        return [str(local_tsx)]
+    return ["npx", "tsx"]
+
+
+def _bootstrap_validated_brand_kit(tenant_id: str, website_url: str) -> dict:
+    repo_root = Path(__file__).resolve().parents[2]
+    command = [
+        *_tsx_command(repo_root),
+        str(Path(__file__).resolve().parent / "brand-kit-bootstrap.ts"),
+        "--tenant-id",
+        tenant_id,
+        "--brand-url",
+        website_url,
+    ]
+    proc = subprocess.run(
+        command,
+        text=True,
+        capture_output=True,
+        check=False,
+        cwd=repo_root,
+    )
+    if proc.returncode != 0:
+        message = proc.stderr.strip() or proc.stdout.strip() or "brand_kit_bootstrap_failed"
+        raise SystemExit(message)
+    try:
+        return json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"runtime_persistence_unavailable:brand_kit_bootstrap_invalid_json:{exc}") from exc
 
 
 def _extract_tag_text(html: str, tag_name: str) -> str:
@@ -171,6 +206,60 @@ def _validated_analysis_fields(parsed: dict, brand_name: str) -> dict:
     }
 
 
+def _structured_from_validated_analysis(existing_analysis: dict) -> dict:
+    return {
+        "audience": existing_analysis.get("audience") or existing_analysis.get("audience_summary"),
+        "positioning": existing_analysis.get("positioning") or existing_analysis.get("positioning_summary"),
+        "problem_statement": existing_analysis.get("problem_statement"),
+        "offer": existing_analysis.get("offer") or existing_analysis.get("offer_summary"),
+        "primary_cta": existing_analysis.get("primary_cta"),
+        "proof_points": existing_analysis.get("proof_points"),
+        "brand_voice": existing_analysis.get("brand_voice"),
+        "channel_specific_angles": existing_analysis.get("channel_specific_angles"),
+        "hooks": existing_analysis.get("hooks"),
+        "opening_lines": existing_analysis.get("opening_lines"),
+        "business_type": existing_analysis.get("business_type"),
+        "primary_goal": existing_analysis.get("primary_goal"),
+        "launch_approver_name": existing_analysis.get("launch_approver_name"),
+        "channels": existing_analysis.get("channels"),
+    }
+
+
+def _required_brand_token(brand_tokens: dict, section: str, key: str) -> str:
+    section_value = record_or_empty(brand_tokens.get(section))
+    value = normalize_space(section_value.get(key))
+    if not value:
+        raise RuntimeError(f"quality_gate_failed:brand_tokens_missing:{section}.{key}")
+    return value
+
+
+def _render_design_system_css(brand_tokens: dict) -> str:
+    return "\n".join(
+        [
+            ":root {",
+            f"  color-scheme: {_required_brand_token(brand_tokens, 'palette', 'theme_mode')};",
+            f"  --brand-primary: {_required_brand_token(brand_tokens, 'palette', 'primary')};",
+            f"  --brand-secondary: {_required_brand_token(brand_tokens, 'palette', 'secondary')};",
+            f"  --brand-accent: {_required_brand_token(brand_tokens, 'palette', 'accent')};",
+            f"  --brand-bg: {_required_brand_token(brand_tokens, 'palette', 'background')};",
+            f"  --brand-surface: {_required_brand_token(brand_tokens, 'palette', 'surface')};",
+            f"  --brand-text: {_required_brand_token(brand_tokens, 'palette', 'text')};",
+            f"  --brand-muted: {_required_brand_token(brand_tokens, 'palette', 'muted')};",
+            f"  --brand-outline: {_required_brand_token(brand_tokens, 'palette', 'outline')};",
+            f"  --brand-accent-contrast: {_required_brand_token(brand_tokens, 'palette', 'accent_contrast')};",
+            f"  --font-display: {_required_brand_token(brand_tokens, 'typography', 'display_stack')};",
+            f"  --font-body: {_required_brand_token(brand_tokens, 'typography', 'body_stack')};",
+            "}",
+            "",
+            "body {",
+            "  background: var(--brand-bg);",
+            "  color: var(--brand-text);",
+            "  font-family: var(--font-body);",
+            "}",
+        ]
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json", action="store_true")
@@ -206,10 +295,12 @@ def main() -> int:
     run_id = ensure_run_id(stage1_summary.get("run_id", ""), tenant_id, website_url)
     strict_mode = args.strict_mode.strip().lower() in {"1", "true", "yes", "y", "on"}
 
+    brand_kit_bootstrap = _bootstrap_validated_brand_kit(tenant_id, website_url)
     brand_kit_path = validated_document_path(tenant_id, "brand-kit.json")
     brand_kit = load_json_file(brand_kit_path)
     if not brand_kit:
         raise SystemExit("runtime_persistence_unavailable:brand_kit_missing")
+    brand_tokens = build_brand_tokens(brand_kit)
 
     try:
         website_html = fetch_text(website_url, timeout=20.0, headers={"User-Agent": "lobster-stage2/2.0"})
@@ -220,6 +311,8 @@ def main() -> int:
     h1 = _extract_tag_text(website_html, "h1")
     description = _extract_meta_content(website_html, "name", "description")
     brand_name = _canonical_brand_name(tenant_id, website_url, brand_kit, website_html)
+    existing_validated_website_analysis = load_json_file(validated_document_path(tenant_id, "website-analysis.json"))
+    existing_brand_analysis = record_or_empty(existing_validated_website_analysis.get("brand_analysis"))
     prompt = _structured_analysis_prompt(
         brand_name=brand_name,
         tenant_id=tenant_id,
@@ -234,10 +327,20 @@ def main() -> int:
         },
     )
     gemini = summarize_with_gemini(prompt=prompt, research_model=research_model)
-    if strict_mode and not gemini.get("live"):
-        raise SystemExit("stage2_live_strategy_input_required:gemini_analysis_unavailable")
-
-    structured = extract_json_object(gemini.get("text", ""))
+    reused_validated_analysis = False
+    if gemini.get("live"):
+        structured = extract_json_object(gemini.get("text", ""))
+        if not structured:
+            raise SystemExit("quality_gate_failed:website_analysis:invalid_json")
+    else:
+        existing_website_url = normalize_marketing_url(existing_brand_analysis.get("website_url") or existing_brand_analysis.get("canonical_url"))
+        if existing_brand_analysis and existing_website_url == website_url:
+            structured = _structured_from_validated_analysis(existing_brand_analysis)
+            reused_validated_analysis = True
+        elif strict_mode:
+            raise SystemExit("stage2_live_strategy_input_required:gemini_analysis_unavailable")
+        else:
+            structured = {}
     if not structured:
         raise SystemExit("quality_gate_failed:website_analysis:invalid_json")
 
@@ -277,6 +380,16 @@ def main() -> int:
         "launch_approver_name": validated_fields["launch_approver_name"],
         "channels": validated_fields["channels"],
         "competitor_url": competitor_url,
+        "brand_kit": {
+            "brand_name": brand_kit.get("brand_name"),
+            "source_url": brand_kit.get("source_url"),
+            "canonical_url": brand_kit.get("canonical_url"),
+            "colors": record_or_empty(brand_kit.get("colors")),
+            "font_families": list_of_strings(brand_kit.get("font_families")),
+            "logo_urls": list_of_strings(brand_kit.get("logo_urls")),
+            "extracted_at": string_or_none(brand_kit.get("extracted_at")),
+        },
+        "design_tokens": brand_tokens,
         "stage1_summary": {
             "competitor": stage1_summary.get("competitor", ""),
             "executive_summary": stage1_summary.get("executive_summary", {}),
@@ -324,25 +437,7 @@ def main() -> int:
             ],
         ]
     )
-    design_system_css = "\n".join(
-        [
-            ":root {",
-            "  --brand-bg: #0f1720;",
-            "  --brand-surface: #16212c;",
-            "  --brand-text: #f5f2eb;",
-            "  --brand-accent: #d4a94f;",
-            "  --brand-muted: #9fb1c1;",
-            "  --font-display: 'Inter', 'Helvetica Neue', Arial, sans-serif;",
-            "  --font-body: 'Inter', Arial, sans-serif;",
-            "}",
-            "",
-            "body {",
-            "  background: var(--brand-bg);",
-            "  color: var(--brand-text);",
-            "  font-family: var(--font-body);",
-            "}",
-        ]
-    )
+    design_system_css = _render_design_system_css(brand_tokens)
     brand_bible_path = write_text(paths["brand_bible_md"], brand_bible_md)
     design_system_path = write_text(paths["design_system_css"], design_system_css)
 
@@ -364,6 +459,11 @@ def main() -> int:
                 "error": "",
             },
             "gemini": gemini,
+            "brand_kit_bootstrap": brand_kit_bootstrap,
+            "validated_website_analysis_reuse": {
+                "used": reused_validated_analysis,
+                "path": str(validated_document_path(tenant_id, "website-analysis.json")) if reused_validated_analysis else "",
+            },
         },
     }
     validated_website_analysis_path = write_json_file(
@@ -387,11 +487,14 @@ def main() -> int:
         "artifacts": {
             "brand_bible_markdown_path": brand_bible_path,
             "design_system_css_path": design_system_path,
+            "design_token_source_path": str(brand_kit_path),
         },
         "persistence": {
             "backend": "runtime-validated-store",
             "validated_website_analysis_path": validated_website_analysis_path,
             "brand_kit_path": str(brand_kit_path),
+            "brand_kit_bootstrap_action": brand_kit_bootstrap.get("bootstrap_action", ""),
+            "design_token_source": "validated_brand_kit",
         },
     }
     save_step(run_id, "website_brand_analysis", payload)

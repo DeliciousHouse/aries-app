@@ -124,8 +124,17 @@ export default function DashboardHomePresenter({
     <div className="space-y-8 pb-12">
       <section className="relative min-h-[min(88vh,820px)] overflow-hidden rounded-[2rem] border border-white/10 bg-[radial-gradient(ellipse_at_bottom,rgba(123,97,255,0.16),transparent_45%),linear-gradient(180deg,#0a0a0f_0%,#050505_100%)] shadow-[0_24px_80px_rgba(0,0,0,0.42)] md:min-h-[620px] lg:min-h-[550px]">
         <div className="absolute right-5 top-5 z-40 md:right-8 md:top-8">
-          <div className="rounded-xl border border-white/10 bg-[#12121a]/90 px-2.5 py-1.5 shadow-xl md:rounded-2xl md:px-4 md:py-2.5">
-            <h2 className="text-xs font-bold tracking-tight text-white md:text-lg">{model.hero.title}</h2>
+          <div className="space-y-3">
+            <div className="rounded-xl border border-white/10 bg-[#12121a] px-3 py-2 shadow-xl md:rounded-2xl md:px-6 md:py-4">
+              <h2 className="text-sm font-bold tracking-tight text-white md:text-2xl">{model.hero.title}</h2>
+            </div>
+            <Link
+              href="/dashboard/campaigns/new"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-[#dcb58f]/30 bg-[#dcb58f] px-4 py-3 text-sm font-semibold text-[#11161c] shadow-[0_10px_30px_rgba(220,181,143,0.25)] transition hover:translate-y-[-1px] hover:shadow-[0_14px_36px_rgba(220,181,143,0.32)]"
+            >
+              New Campaign
+              <ArrowRight className="h-4 w-4" />
+            </Link>
           </div>
         </div>
 
@@ -136,7 +145,7 @@ export default function DashboardHomePresenter({
               initial={{ opacity: 0, filter: 'blur(4px)', y: 6 }}
               animate={{ opacity: 1, filter: 'blur(0px)', y: 0 }}
               transition={{ duration: 0.45 }}
-              className="text-3xl font-bold tracking-tight text-white md:text-4xl"
+              className="text-4xl font-bold tracking-tight text-white md:text-5xl"
             >
               {activeSurface.value}
             </motion.span>
@@ -254,6 +263,24 @@ export default function DashboardHomePresenter({
                 </div>
               ) : null}
             </HeroSideCard>
+
+            <HeroSideCard
+              eyebrow="Review Queue"
+              title={
+                model.reviews.count > 0
+                  ? `${model.reviews.count} item${model.reviews.count === 1 ? '' : 's'} waiting`
+                  : 'Approval queue is clear'
+              }
+              detail="Nothing goes live without an explicit human decision."
+            >
+              <Link
+                href="/review"
+                className="inline-flex items-center gap-2 text-sm font-medium text-white transition-colors hover:text-white/75"
+              >
+                Open review queue
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </HeroSideCard>
           </div>
         </div>
       </section>
@@ -263,7 +290,7 @@ export default function DashboardHomePresenter({
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.08 }}
-          className="overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0f0f16]"
+          className="overflow-hidden rounded-2xl border border-white/[0.05] bg-[#080808]"
         >
           <div className="flex items-start justify-between p-6 pb-5">
             <div>
@@ -286,7 +313,7 @@ export default function DashboardHomePresenter({
                   <Link
                     key={item.id}
                     href={item.href}
-                    className="flex items-center justify-between gap-4 rounded-2xl border border-white/[0.08] bg-[#231b31] p-5 transition-colors hover:bg-[#2b2142]"
+                    className="flex items-center justify-between gap-4 rounded-2xl border border-white/[0.05] bg-[#1B1524] p-5 transition-colors hover:bg-[#231a2f]"
                   >
                     <div>
                       <span className="mb-1 block text-[15px] font-medium text-white/90">{item.title}</span>
@@ -297,7 +324,7 @@ export default function DashboardHomePresenter({
                 ))}
               </div>
             ) : (
-              <div className="rounded-2xl border border-white/[0.08] bg-[#231b31] p-5">
+              <div className="rounded-2xl border border-white/[0.05] bg-[#1B1524] p-5">
                 <div className="flex items-start gap-4">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10">
                     <Sparkles className="h-5 w-5 text-white/90" />
@@ -325,7 +352,7 @@ export default function DashboardHomePresenter({
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.14 }}
-          className="overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0f0f16]"
+          className="overflow-hidden rounded-2xl border border-white/[0.05] bg-[#080808]"
         >
           <div className="flex items-start justify-between p-6 pb-5">
             <div>
@@ -349,7 +376,7 @@ export default function DashboardHomePresenter({
 
           <div className="space-y-4 p-6">
             {model.reviews.items.length === 0 ? (
-              <div className="rounded-2xl border border-white/[0.08] bg-[#231b31] p-5 text-sm leading-relaxed text-white/55">
+              <div className="rounded-2xl border border-white/[0.05] bg-[#1B1524] p-5 text-sm leading-relaxed text-white/55">
                 Nothing is waiting on approval right now. New review items will appear here when they are ready for a decision.
               </div>
             ) : (
@@ -357,7 +384,7 @@ export default function DashboardHomePresenter({
                 <Link
                   key={item.id}
                   href={item.href}
-                  className="flex items-center justify-between rounded-2xl border border-white/[0.08] bg-[#231b31] p-5 transition-colors hover:bg-[#2b2142]"
+                  className="flex items-center justify-between rounded-2xl border border-white/[0.05] bg-[#1B1524] p-5 transition-colors hover:bg-[#231a2f]"
                 >
                   <div>
                     <span className="mb-1 block text-[15px] font-medium text-white/90">{item.title}</span>
@@ -376,7 +403,7 @@ export default function DashboardHomePresenter({
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
-          className="overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0f0f16]"
+          className="overflow-hidden rounded-2xl border border-white/[0.05] bg-[#080808]"
         >
           <div className="p-6 pb-5">
             <h4 className="mb-2 text-[11px] font-bold uppercase tracking-[0.15em] text-white/40">Operational Readiness</h4>
@@ -386,7 +413,7 @@ export default function DashboardHomePresenter({
 
           <div className="space-y-4 p-6">
             {model.readiness.map((item) => (
-              <div key={item.label} className="flex items-start gap-4 rounded-2xl border border-white/[0.08] bg-[#231b31] p-5">
+              <div key={item.label} className="flex items-start gap-4 rounded-2xl border border-white/[0.05] bg-[#1B1524] p-5">
                 <div
                   className={`mt-1 h-10 w-10 shrink-0 rounded-full border ${
                     item.tone === 'good'
@@ -414,7 +441,7 @@ export default function DashboardHomePresenter({
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.26 }}
-          className="overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0f0f16]"
+          className="overflow-hidden rounded-2xl border border-white/[0.05] bg-[#080808]"
         >
           <div className="p-6 pb-5">
             <h4 className="mb-2 text-[11px] font-bold uppercase tracking-[0.15em] text-white/40">Connected Surfaces</h4>
@@ -425,19 +452,19 @@ export default function DashboardHomePresenter({
           <div className="space-y-4 p-6">
             {channelsState === 'loading' ? (
               Array.from({ length: 3 }, (_, index) => (
-                <div key={index} className="h-28 animate-pulse rounded-2xl border border-white/[0.08] bg-[#231b31]" />
+                <div key={index} className="h-28 animate-pulse rounded-2xl border border-white/[0.05] bg-[#1B1524]" />
               ))
             ) : channelsState === 'error' && model.channels.items.length === 0 ? (
               <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-5 text-sm text-red-100">
                 {channelsErrorMessage || 'Unable to load channel health.'}
               </div>
             ) : model.channels.items.length === 0 ? (
-              <div className="rounded-2xl border border-white/[0.08] bg-[#231b31] p-5 text-sm leading-relaxed text-white/55">
+              <div className="rounded-2xl border border-white/[0.05] bg-[#1B1524] p-5 text-sm leading-relaxed text-white/55">
                 No channel connections yet. Connect platforms in Settings when you are ready to schedule or monitor launches.
               </div>
             ) : (
-              model.channels.items.slice(0, 4).map((channel) => (
-                <div key={channel.id} className="rounded-2xl border border-white/[0.08] bg-[#231b31] p-5">
+              model.channels.items.map((channel) => (
+                <div key={channel.id} className="rounded-2xl border border-white/[0.05] bg-[#1B1524] p-5">
                   <div className="mb-1 flex items-center justify-between gap-3">
                     <span className="text-[15px] font-medium text-white/90">{channel.name}</span>
                     <div className="flex items-center gap-2 rounded-full bg-white/5 px-3 py-1.5">
@@ -461,6 +488,16 @@ export default function DashboardHomePresenter({
                   </div>
                   <span className="mb-4 block text-sm text-white/40">{channel.handle}</span>
                   <p className="pr-4 text-sm leading-relaxed text-white/50">{channel.detail}</p>
+                  {channel.health !== 'connected' ? (
+                    <div className="mt-4">
+                      <Link
+                        href={`/oauth/connect/${encodeURIComponent(channel.id)}?mode=${channel.health === 'attention' ? 'reconnect' : 'connect'}`}
+                        className="inline-flex items-center gap-2 rounded-full border border-white/[0.15] bg-white/5 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-white/10"
+                      >
+                        {channel.health === 'attention' ? 'Reconnect' : 'Connect'}
+                      </Link>
+                    </div>
+                  ) : null}
                 </div>
               ))
             )}
@@ -481,7 +518,7 @@ function HeroSideCard(props: {
     <motion.div
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
-      className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/[0.08] p-5 shadow-2xl backdrop-blur-xl transition-colors hover:bg-white/[0.1]"
+      className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-5 shadow-2xl backdrop-blur-xl transition-colors hover:bg-white/[0.07]"
     >
       <div className="pointer-events-none absolute -right-10 -top-10 h-28 w-28 rounded-full bg-primary/15 blur-[56px]" />
       <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.eyebrow}</p>

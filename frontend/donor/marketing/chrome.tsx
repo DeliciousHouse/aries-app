@@ -1,18 +1,12 @@
-'use client';
+import type { ReactNode } from 'react';
 
-import type { CSSProperties, ReactNode } from 'react';
-import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { ArrowRight, Menu } from 'lucide-react';
 
-import { usePathname } from 'next/navigation';
-import { AnimatePresence, motion } from 'motion/react';
-import { ArrowRight, Menu, X } from 'lucide-react';
-
-import { cn } from '../lib/utils';
 import { AriesMark, AriesWordmark } from '../ui';
 
 export interface DonorMarketingShellProps {
   children: ReactNode;
-  heroMode?: boolean;
 }
 
 const NAV_ITEMS = [
@@ -26,148 +20,81 @@ function normalizeForActive(href: string) {
   return href.replace(/#.*$/, '') || '/';
 }
 
-export function DonorNavbar({ heroMode = false }: { heroMode?: boolean }) {
-  const pathname = usePathname();
-  const [isScrolled, setIsScrolled] = useState(false);
-  const [headerOpacity, setHeaderOpacity] = useState(1);
-  const [showIcon, setShowIcon] = useState(true);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [scrollProgress, setScrollProgress] = useState(0);
-  const isHome = pathname === '/';
-  const headerOverlayStyle: CSSProperties = {
-    opacity: headerOpacity,
-    pointerEvents: headerOpacity === 0 ? 'none' : 'auto',
-  };
-
-  useEffect(() => {
-    const handleScroll = () => {
-      setIsScrolled(window.scrollY > 20);
-
-      const heroHeight = window.innerHeight * 2.5;
-      const progress = heroHeight > 0 ? window.scrollY / heroHeight : 0;
-      setScrollProgress(progress);
-
-      if (heroMode && isHome) {
-        setShowIcon(progress > 0.95);
-
-        if (progress < 0.1) {
-          setHeaderOpacity(1);
-        } else if (progress <= 0.15) {
-          setHeaderOpacity(1 - (progress - 0.1) / 0.05);
-        } else if (progress < 0.5) {
-          setHeaderOpacity(0);
-        } else if (progress <= 0.95) {
-          setHeaderOpacity((progress - 0.5) / 0.45);
-        } else {
-          setHeaderOpacity(1);
-        }
-      } else {
-        setShowIcon(true);
-        setHeaderOpacity(1);
-      }
-    };
-
-    handleScroll();
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, [heroMode, isHome]);
-
+export function DonorNavbar() {
   return (
-    <nav
-      className={cn(
-        'fixed top-0 left-0 right-0 z-50 transition-all duration-300 px-6',
-        isScrolled && (!heroMode || !isHome || scrollProgress > 0.95)
-          ? 'bg-black/50 backdrop-blur-md border-b border-white/10 py-3'
-          : 'bg-transparent py-4',
-      )}
-    >
-      <div className="max-w-7xl mx-auto flex items-center justify-between gap-6">
-        <a href="/" className="flex items-center gap-2">
-          <AriesMark className={cn('transition-opacity duration-300', showIcon ? 'opacity-100' : 'opacity-0')} />
-          <span className="text-xl font-bold tracking-tight text-white" style={{ opacity: headerOpacity }}>
-            Aries AI
-          </span>
+    <nav className="sticky top-0 z-50 border-b border-white/10 bg-black/80 px-6 py-4 backdrop-blur-xl">
+      <div className="mx-auto flex max-w-7xl items-center justify-between gap-6">
+        <Link href="/" className="flex items-center gap-3">
+          <AriesMark sizeClassName="h-10 w-10" sizes="40px" priority />
+          <span className="text-lg font-bold tracking-tight text-white">Aries AI</span>
           <span className="sr-only">Aries AI</span>
-        </a>
+        </Link>
 
-        <div className="hidden md:flex items-center gap-8" style={headerOverlayStyle}>
+        <div className="hidden items-center gap-8 md:flex">
           {NAV_ITEMS.map((link) => (
-            <a
+            <Link
               key={link.name}
               href={link.href}
-              className={cn(
-                'text-sm font-medium transition-colors',
-                normalizeForActive(link.href) === pathname ? 'text-white' : 'text-white/70 hover:text-white',
-              )}
+              className={
+                normalizeForActive(link.href) === '/'
+                  ? 'text-sm font-medium text-white/80 transition-colors hover:text-white'
+                  : 'text-sm font-medium text-white/70 transition-colors hover:text-white'
+              }
             >
               {link.name}
-            </a>
+            </Link>
           ))}
         </div>
 
-        <div className="hidden md:flex items-center gap-4" style={headerOverlayStyle}>
-          <a
+        <div className="hidden items-center gap-4 md:flex">
+          <Link
             href="/login"
-            className="px-5 py-2 rounded-full border border-white/12 bg-white/5 text-sm font-medium text-white/85 transition-all hover:bg-white/10"
+            className="rounded-full border border-white/12 bg-white/5 px-5 py-2 text-sm font-medium text-white/85 transition-colors hover:bg-white/10"
           >
             Log in
-          </a>
-          <a
+          </Link>
+          <Link
             href="/onboarding/start"
-            className="px-5 py-2 rounded-full bg-gradient-to-r from-primary to-secondary hover:opacity-90 text-sm font-medium transition-all shadow-lg shadow-primary/20 flex items-center gap-2 text-white"
+            className="flex items-center gap-2 rounded-full bg-gradient-to-r from-primary to-secondary px-5 py-2 text-sm font-medium text-white shadow-lg shadow-primary/20 transition-opacity hover:opacity-90"
           >
-            Start with your business <ArrowRight className="w-4 h-4" />
-          </a>
+            Start with your business <ArrowRight className="h-4 w-4" />
+          </Link>
         </div>
 
-        <button
-          type="button"
-          className="md:hidden text-white"
-          onClick={() => setIsMobileMenuOpen((value) => !value)}
-          style={headerOverlayStyle}
-          aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
-        >
-          {isMobileMenuOpen ? <X /> : <Menu />}
-        </button>
-      </div>
-
-      <AnimatePresence>
-        {isMobileMenuOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="absolute top-full left-0 right-0 bg-black/95 backdrop-blur-xl border-b border-white/10 p-6 flex flex-col gap-6 md:hidden"
+        <details className="relative md:hidden">
+          <summary
+            className="flex h-11 w-11 list-none items-center justify-center rounded-full border border-white/10 bg-white/5 text-white marker:hidden [&::-webkit-details-marker]:hidden"
+            aria-label="Toggle navigation"
           >
-            {NAV_ITEMS.map((link) => (
-              <a
-                key={link.name}
-                href={link.href}
-                className="text-lg font-medium text-white/70 hover:text-white"
-                onClick={() => setIsMobileMenuOpen(false)}
-              >
-                {link.name}
-              </a>
-            ))}
-            <div className="flex flex-col gap-4 pt-4 border-t border-white/10">
-              <a
+            <Menu className="h-5 w-5" />
+          </summary>
+
+          <div className="absolute right-0 top-full mt-3 w-[min(20rem,calc(100vw-3rem))] rounded-[1.75rem] border border-white/10 bg-black/95 p-5 shadow-2xl shadow-black/40">
+            <div className="flex flex-col gap-3">
+              {NAV_ITEMS.map((link) => (
+                <Link key={link.name} href={link.href} className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 text-sm font-medium text-white/80 transition-colors hover:text-white">
+                  {link.name}
+                </Link>
+              ))}
+            </div>
+
+            <div className="mt-4 grid gap-3 border-t border-white/10 pt-4">
+              <Link
                 href="/login"
-                className="w-full py-3 flex justify-center rounded-xl border border-white/12 bg-white/5 font-medium text-white"
-                onClick={() => setIsMobileMenuOpen(false)}
+                className="rounded-2xl border border-white/12 bg-white/5 px-4 py-3 text-center text-sm font-medium text-white"
               >
                 Log in
-              </a>
-              <a
+              </Link>
+              <Link
                 href="/onboarding/start"
-                className="w-full py-3 flex justify-center rounded-xl bg-gradient-to-r from-primary to-secondary font-medium text-white"
-                onClick={() => setIsMobileMenuOpen(false)}
+                className="rounded-2xl bg-gradient-to-r from-primary to-secondary px-4 py-3 text-center text-sm font-medium text-white"
               >
                 Start with your business
-              </a>
+              </Link>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </div>
+        </details>
+      </div>
     </nav>
   );
 }
@@ -235,18 +162,25 @@ export function DonorFooter() {
   );
 }
 
-export function DonorMarketingShell({ children, heroMode = false }: DonorMarketingShellProps) {
+export function DonorMarketingShell({ children }: DonorMarketingShellProps) {
   return (
-    <div className="relative min-h-screen bg-background selection:bg-primary/30">
+    <div className="relative min-h-screen overflow-x-clip bg-background selection:bg-primary/30">
       <div
-        className="fixed inset-0 z-0 pointer-events-none opacity-[0.03]"
+        className="pointer-events-none absolute inset-0 z-0 opacity-[0.03]"
         style={{
           backgroundImage:
             'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)',
           backgroundSize: '40px 40px',
         }}
       />
-      <DonorNavbar heroMode={heroMode} />
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[34rem]"
+        style={{
+          background:
+            'radial-gradient(circle at 20% 20%, rgba(124, 58, 237, 0.22), transparent 40%), radial-gradient(circle at 80% 0%, rgba(168, 85, 247, 0.16), transparent 35%), radial-gradient(circle at 50% 30%, rgba(192, 132, 252, 0.08), transparent 50%)',
+        }}
+      />
+      <DonorNavbar />
       <main className="relative z-10">{children}</main>
       <DonorFooter />
     </div>

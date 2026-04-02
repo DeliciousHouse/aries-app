@@ -28,7 +28,12 @@ ENV HOME=/home/node
 RUN set -eux; \
   apt-get update && apt-get install -y --no-install-recommends \
     python3 \
+    python3-pip \
+    python3-venv \
     ca-certificates \
+    chromium \
+    curl \
+    ripgrep \
     wget \
   && rm -rf /var/lib/apt/lists/*; \
   current_uid="$(id -u node)"; \

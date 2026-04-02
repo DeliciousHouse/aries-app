@@ -27,6 +27,9 @@ def main() -> int:
     hook = validate_copy_text("ad_designer.hook", record_or_empty(script_assets.get("meta_ad_script")).get("hook") or brief.get("core_message"), min_tokens=3)
     cta = validate_copy_text("ad_designer.cta", brief.get("primary_cta"), min_tokens=2)
     proof_points = validate_unique_copy_list("ad_designer.proof_points", brief.get("proof_points"), min_items=3, max_items=3, min_tokens=3)
+    design_tokens = record_or_empty(brief.get("design_tokens") or record_or_empty(brief.get("creative_handoff")).get("design_tokens"))
+    palette = record_or_empty(design_tokens.get("palette"))
+    typography = record_or_empty(design_tokens.get("typography"))
 
     ad_assets = {
         "creative_brief": {
@@ -46,8 +49,8 @@ def main() -> int:
                 },
             ],
             "design_system": {
-                "typography": "Bold headline plus compact proof text.",
-                "color_direction": "High contrast, brand-safe, proof-first layout.",
+                "typography": typography,
+                "color_direction": palette,
                 "cta_lockup": cta,
             },
         },
@@ -80,6 +83,7 @@ def main() -> int:
         "layout": {
             "aspect_ratio": "4:5",
         },
+        "brand_tokens": design_tokens,
     }
     story_contract = {
         "platform": "Meta Story",
@@ -92,6 +96,7 @@ def main() -> int:
         "layout": {
             "aspect_ratio": "9:16",
         },
+        "brand_tokens": design_tokens,
     }
     meta_feed_asset = render_static_publish_asset(meta_feed_contract, ad_images_dir, "meta-feed")
     meta_story_asset = render_static_publish_asset(story_contract, ad_images_dir, "meta-story")
@@ -115,6 +120,7 @@ def main() -> int:
             "meta_feed_image_generation": meta_feed_asset["nano_banana"],
             "meta_story_image_generation": meta_story_asset["nano_banana"],
             "honesty_note": "This local wrapper outputs creative specs and production-ready draft images in canonical artifact paths; final platform publish still belongs to stage 4.",
+            "design_tokens": design_tokens,
         },
     }
     save_step(run_id, "ad_designer", payload)

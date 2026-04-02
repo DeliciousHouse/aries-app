@@ -41,6 +41,17 @@ export default function AriesSettingsScreen() {
     });
   }
 
+  async function handleIntegrationAction(
+    action: 'connect' | 'reconnect' | 'disconnect',
+    platform: string
+  ) {
+    const card = integrationCards.find((item) => item.platform === platform);
+    if (!card) {
+      return;
+    }
+    await integrations.runAction(action, card);
+  }
+
   if (!ready || integrations.isLoading) {
     return <LoadingStateGrid />;
   }
@@ -88,6 +99,38 @@ export default function AriesSettingsScreen() {
                     <StatusChip status={card.connection_state === 'connected' ? 'approved' : card.connection_state === 'reauth_required' ? 'changes_requested' : 'draft'}>
                       {card.connection_state === 'connected' ? 'Healthy' : card.connection_state === 'reauth_required' ? 'Needs attention' : 'Not connected'}
                     </StatusChip>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {card.available_actions.includes('connect') ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleIntegrationAction('connect', card.platform)}
+                        disabled={integrations.busyAction === `${card.platform}:connect`}
+                        className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10 disabled:opacity-60"
+                      >
+                        {integrations.busyAction === `${card.platform}:connect` ? 'Connecting…' : 'Connect'}
+                      </button>
+                    ) : null}
+                    {card.available_actions.includes('reconnect') ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleIntegrationAction('reconnect', card.platform)}
+                        disabled={integrations.busyAction === `${card.platform}:reconnect`}
+                        className="inline-flex items-center gap-2 rounded-full border border-amber-300/25 bg-amber-300/10 px-3 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-300/20 disabled:opacity-60"
+                      >
+                        {integrations.busyAction === `${card.platform}:reconnect` ? 'Reconnecting…' : 'Reconnect'}
+                      </button>
+                    ) : null}
+                    {card.available_actions.includes('disconnect') ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleIntegrationAction('disconnect', card.platform)}
+                        disabled={integrations.busyAction === `${card.platform}:disconnect`}
+                        className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/20 px-3 py-1.5 text-xs font-semibold text-white/80 hover:bg-black/30 disabled:opacity-60"
+                      >
+                        {integrations.busyAction === `${card.platform}:disconnect` ? 'Disconnecting…' : 'Disconnect'}
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               ))}
