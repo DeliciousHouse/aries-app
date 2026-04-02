@@ -2,6 +2,7 @@ import { readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 import { loadCampaignWorkspaceRecord } from '@/backend/marketing/workspace-store';
+import { isMarketingPublicMode } from '@/lib/marketing-public-mode';
 import { resolveDataPath } from '@/lib/runtime-paths';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
@@ -10,11 +11,6 @@ const MARKETING_ONBOARDING_REQUIRED = {
   reason: 'onboarding_required',
   message: 'Complete tenant onboarding before viewing campaign workspace assets.',
 } as const;
-
-function statusPublic(): boolean {
-  const raw = process.env.MARKETING_STATUS_PUBLIC?.trim().toLowerCase();
-  return raw === '1' || raw === 'true';
-}
 
 function isWithinRoot(root: string, candidate: string): boolean {
   const relative = path.relative(root, candidate);
@@ -26,7 +22,7 @@ export async function handleGetMarketingWorkspaceAsset(
   assetId: string,
   tenantContextLoader?: TenantContextLoader,
 ) {
-  const publicMode = statusPublic();
+  const publicMode = isMarketingPublicMode();
   const tenantResult = publicMode
     ? null
     : await loadTenantContextOrResponse(tenantContextLoader, {

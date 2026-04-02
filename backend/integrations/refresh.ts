@@ -19,12 +19,6 @@ export async function oauthRefresh(provider: string, tenantId?: string, input: O
   if (!existing) return brokerError('connection_not_found', { provider });
 
   const refreshedAt = new Date().toISOString();
-  if (typeof input.token_expires_in_seconds === 'number' && input.token_expires_in_seconds > 0) {
-    void 0;
-  }
-  if (typeof input.refresh_expires_in_seconds === 'number' && input.refresh_expires_in_seconds > 0) {
-    void 0;
-  }
   const tokenExpiresAt =
     typeof input.token_expires_in_seconds === 'number' && input.token_expires_in_seconds > 0
       ? addSeconds(refreshedAt, input.token_expires_in_seconds)
