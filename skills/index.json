@@ -1,0 +1,46 @@
+{
+  "schema_version": "1.0",
+  "convention": "skills/<category>/<skill-name>/SKILL.md",
+  "visibility_control": "index-managed",
+  "skills": [
+    {
+      "name": "client-outreach",
+      "category": "outreach",
+      "path": "skills/outreach/client-outreach",
+      "owner": "brendan",
+      "status": "draft",
+      "last_updated": "2026-04-03",
+      "version": "0.1.0",
+      "visibility": {
+        "scope": "all",
+        "agents": []
+      }
+    },
+    {
+      "name": "proposal-generator",
+      "category": "proposals",
+      "path": "skills/proposals/proposal-generator",
+      "owner": "brendan",
+      "status": "draft",
+      "last_updated": "2026-04-03",
+      "version": "0.1.0",
+      "visibility": {
+        "scope": "all",
+        "agents": []
+      }
+    },
+    {
+      "name": "client-reporting",
+      "category": "reporting",
+      "path": "skills/reporting/client-reporting",
+      "owner": "brendan",
+      "status": "draft",
+      "last_updated": "2026-04-03",
+      "version": "0.1.0",
+      "visibility": {
+        "scope": "all",
+        "agents": []
+      }
+    }
+  ]
+}

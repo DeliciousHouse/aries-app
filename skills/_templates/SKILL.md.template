@@ -1,0 +1,75 @@
+---
+name: your-skill-name
+description: Short summary of what the skill does. Use when the user asks for this workflow, outcome, or repeated task.
+---
+
+# your-skill-name
+
+## Purpose
+
+State the job this skill exists to do in one or two direct bullets.
+
+- Primary outcome:
+- Business context:
+
+## Triggers
+
+List the requests, cues, or situations that should activate this skill.
+
+- Trigger phrase or situation:
+- Trigger phrase or situation:
+- Trigger phrase or situation:
+
+## Inputs
+
+List required and optional inputs.
+
+### Required
+
+- Input name:
+- Input name:
+
+### Optional
+
+- Input name:
+- Input name:
+
+## Outputs
+
+State the deliverables this skill should produce.
+
+- Output artifact:
+- Output artifact:
+
+## Guardrails
+
+Capture constraints, safety limits, and non-negotiables.
+
+- Do:
+- Do not:
+- Escalate when:
+
+## Failure Modes
+
+List the most likely ways the skill can fail or drift.
+
+- Missing input or unclear brief
+- Wrong owner or wrong trigger
+- Output does not match requested format
+- External dependency is unavailable
+
+## QA Steps
+
+Define a short verification checklist before calling the skill done.
+
+1. Confirm the trigger actually matches the skill.
+2. Confirm required inputs are present or clearly marked missing.
+3. Check the output against the requested format and objective.
+4. Check guardrails were followed.
+5. Update `skills/index.json` if ownership, status, version, or visibility changed.
+
+## Notes
+
+- Keep frontmatter limited to `name` and `description`.
+- Manage owner, status, version, and visibility from `skills/index.json`.
+- Prefer references or scripts when repeatable domain detail would bloat `SKILL.md`.

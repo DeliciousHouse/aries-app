@@ -26,6 +26,8 @@ export type MarketingReviewStatus =
   | 'changes_requested'
   | 'rejected';
 
+export type CampaignStageReviewEvidenceKind = 'upload_only' | 'real_artifacts';
+
 export type CampaignBriefAssetRecord = {
   id: string;
   name: string;
@@ -71,6 +73,7 @@ export type CampaignStageReviewState = {
   status: MarketingReviewStatus;
   latestNote: string | null;
   updatedAt: string | null;
+  evidenceKind: CampaignStageReviewEvidenceKind | null;
 };
 
 export type CampaignCreativeAssetReviewState = {
@@ -95,7 +98,7 @@ export type CampaignWorkspaceRecord = {
 };
 
 export type CampaignWorkflowSnapshot = {
-  brandReviewReady: boolean;
+  brandWorkflowReady: boolean;
   strategyReviewReady: boolean;
   creativeReviewReady: boolean;
   creativeAssetIds: string[];
@@ -175,6 +178,8 @@ function withBusinessProfileDefaults(
     ['primaryGoal', ['primaryGoal', 'goal']],
     ['approverName', ['approverName', 'launchApproverName']],
     ['offer', ['offer']],
+    ['brandVoice', ['brandVoice']],
+    ['styleVibe', ['styleVibe']],
     ['competitorUrl', ['competitorUrl']],
   ];
 
@@ -219,6 +224,16 @@ function emptyStageReviewState(): CampaignStageReviewState {
     status: 'not_ready',
     latestNote: null,
     updatedAt: null,
+    evidenceKind: null,
+  };
+}
+
+function normalizeStageReviewState(value: CampaignStageReviewState | null | undefined): CampaignStageReviewState {
+  return {
+    status: value?.status || 'not_ready',
+    latestNote: value?.latestNote ?? null,
+    updatedAt: value?.updatedAt ?? null,
+    evidenceKind: value?.evidenceKind ?? null,
   };
 }
 
@@ -299,6 +314,9 @@ export function loadCampaignWorkspaceRecord(jobId: string, tenantId?: string): C
       strategy: emptyStageReviewState(),
       creative: emptyStageReviewState(),
     };
+    parsed.stage_reviews.brand = normalizeStageReviewState(parsed.stage_reviews.brand);
+    parsed.stage_reviews.strategy = normalizeStageReviewState(parsed.stage_reviews.strategy);
+    parsed.stage_reviews.creative = normalizeStageReviewState(parsed.stage_reviews.creative);
     parsed.creative_asset_reviews ||= {};
     parsed.status_history ||= [];
     parsed.brief = normalizeCampaignBrief(parsed.brief as unknown as Record<string, unknown>, parsed.brief);
@@ -494,7 +512,7 @@ export function resolveCampaignWorkflowState(
   } else if (anyRequestedChanges(record, snapshot.creativeAssetIds)) {
     workflowState = 'revisions_requested';
     publishBlockedReason = 'Revisions were requested and must be resolved before publishing.';
-  } else if (snapshot.brandReviewReady && record.stage_reviews.brand.status !== 'approved') {
+  } else if (snapshot.brandWorkflowReady && record.stage_reviews.brand.status !== 'approved') {
     workflowState = 'brand_review_required';
     publishBlockedReason = 'Brand review must be approved before the campaign can move forward.';
   } else if (snapshot.strategyReviewReady && record.stage_reviews.strategy.status !== 'approved') {
@@ -506,7 +524,7 @@ export function resolveCampaignWorkflowState(
   } else if (snapshot.publishReadySignal) {
     workflowState = 'ready_to_publish';
   } else if (
-    snapshot.brandReviewReady &&
+    snapshot.brandWorkflowReady &&
     record.stage_reviews.brand.status === 'approved' &&
     (!snapshot.strategyReviewReady || record.stage_reviews.strategy.status === 'approved') &&
     (!snapshot.creativeReviewReady || creativeResolved)

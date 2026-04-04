@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import argparse
+import json
 import os
+import re
 import sys
 import urllib.parse
 from pathlib import Path
@@ -24,9 +26,33 @@ from _stage1_common import (
 from _canonical_outputs import competitor_output_paths, write_json, write_text
 
 
-def _is_meta_profile_url(url: str) -> bool:
-    lowered = (url or "").lower()
-    return any(domain in lowered for domain in ["facebook.com", "fb.com", "instagram.com"])
+COMPETITOR_URL_SOCIAL_ERROR = "competitor_url must be the competitor's website, not a Facebook or Ad Library URL"
+COMPETITOR_URL_INVALID_ERROR = "competitor_url must be a valid HTTPS website URL"
+META_HOST_SUFFIXES = ("facebook.com", "fb.com", "instagram.com")
+LOCAL_BLOCKLIST = ("localhost", "127.0.0.1", "0.0.0.0", "[::]", "[::1]")
+IPV4_HOST_PATTERN = re.compile(r"^(\d{1,3}\.){3}\d{1,3}$")
+TOKEN_STOPWORDS = {
+    "www",
+    "http",
+    "https",
+    "facebook",
+    "instagram",
+    "official",
+    "home",
+    "page",
+    "ads",
+    "library",
+    "meta",
+    "the",
+    "and",
+    "for",
+    "with",
+    "your",
+}
+
+
+def _log(event: str, **payload) -> None:
+    print(json.dumps({"event": event, **payload}, sort_keys=True), file=sys.stderr)
 
 
 def _normalize_url(url: str) -> str:
@@ -36,7 +62,7 @@ def _normalize_url(url: str) -> str:
     return ""
 
 
-def _normalize_competitor_url(value: str) -> str:
+def _normalize_competitor_candidate(value: str) -> str:
     cleaned = (value or "").strip()
     if not cleaned:
         return ""
@@ -47,16 +73,79 @@ def _normalize_competitor_url(value: str) -> str:
     return ""
 
 
-def _extract_html_title(html: str) -> str:
-    import re
+def _is_meta_host(hostname: str) -> bool:
+    normalized = (hostname or "").strip().lower()
+    return any(
+        normalized == suffix or normalized.endswith(f".{suffix}")
+        for suffix in META_HOST_SUFFIXES
+    )
 
+
+def _is_meta_profile_url(url: str) -> bool:
+    normalized = _normalize_url(url)
+    if not normalized:
+        return False
+    try:
+        parsed = urllib.parse.urlparse(normalized)
+    except Exception:
+        return False
+    return _is_meta_host(parsed.netloc.lower())
+
+
+def _is_ad_library_url(url: str) -> bool:
+    normalized = _normalize_url(url)
+    if not normalized:
+        return False
+    try:
+        parsed = urllib.parse.urlparse(normalized)
+    except Exception:
+        return False
+    return _is_meta_host(parsed.netloc.lower()) and "/ads/library" in parsed.path.lower()
+
+
+def _normalize_locator_url(url: str) -> str:
+    return _normalize_competitor_candidate(url)
+
+
+def _normalize_meta_page_id(value: str) -> str:
+    return (value or "").strip()
+
+
+def _validate_competitor_url(value: str) -> tuple[str, str | None]:
+    normalized = _normalize_competitor_candidate(value)
+    if not (value or "").strip():
+        return "", None
+    if not normalized:
+        return "", COMPETITOR_URL_INVALID_ERROR
+    try:
+        parsed = urllib.parse.urlparse(normalized)
+    except Exception:
+        return "", COMPETITOR_URL_INVALID_ERROR
+    hostname = (parsed.netloc or "").lower()
+    if parsed.scheme.lower() != "https":
+        return "", COMPETITOR_URL_INVALID_ERROR
+    if not hostname:
+        return "", COMPETITOR_URL_INVALID_ERROR
+    if hostname in LOCAL_BLOCKLIST or any(hostname.endswith(f".{blocked}") for blocked in LOCAL_BLOCKLIST):
+        return "", COMPETITOR_URL_INVALID_ERROR
+    if IPV4_HOST_PATTERN.match(hostname):
+        return "", COMPETITOR_URL_INVALID_ERROR
+    if _is_meta_profile_url(normalized) or _is_ad_library_url(normalized):
+        return "", COMPETITOR_URL_SOCIAL_ERROR
+    return normalized, None
+
+
+def _extract_html_title(html: str) -> str:
     match = re.search(r"<title[^>]*>(.*?)</title>", html, flags=re.IGNORECASE | re.DOTALL)
     return re.sub(r"<[^>]+>", "", match.group(1)).strip() if match else ""
 
 
-def _extract_meta_description(html: str) -> str:
-    import re
+def _extract_h1(html: str) -> str:
+    match = re.search(r"<h1[^>]*>(.*?)</h1>", html, flags=re.IGNORECASE | re.DOTALL)
+    return re.sub(r"<[^>]+>", "", match.group(1)).strip() if match else ""
 
+
+def _extract_meta_description(html: str) -> str:
     pattern = re.compile(r"<meta\b([^>]*)>", flags=re.IGNORECASE)
     for match in pattern.finditer(html):
         attrs = match.group(1) or ""
@@ -68,30 +157,60 @@ def _extract_meta_description(html: str) -> str:
     return ""
 
 
-def fetch_competitor_site_evidence(competitor_input_url: str) -> tuple[dict, bool]:
-    if not competitor_input_url:
-        return ({}, False)
-    try:
-        html = fetch_text(competitor_input_url, timeout=20.0, headers={"User-Agent": "lobster-stage1/1.0"})
-    except Exception as exc:
-        return (
-            {
-                "url": competitor_input_url,
-                "error": f"{type(exc).__name__}: {exc}",
-            },
-            False,
-        )
+def _extract_links(html: str, base_url: str) -> list[str]:
+    links: list[str] = []
+    for match in re.finditer(r'href\s*=\s*["\']([^"\']+)["\']', html, flags=re.IGNORECASE):
+        raw = (match.group(1) or "").strip()
+        if not raw:
+            continue
+        resolved = urllib.parse.urljoin(base_url, raw)
+        normalized = _normalize_locator_url(resolved)
+        if normalized:
+            links.append(normalized)
+    return list(dict.fromkeys(links))
 
-    title = _extract_html_title(html) or parse_domain(competitor_input_url)
-    description = _extract_meta_description(html) or f"Live competitor site evidence captured from {competitor_input_url}."
-    return (
-        {
-            "title": title[:160],
-            "url": competitor_input_url,
-            "snippet": description[:280],
-        },
-        True,
+
+def _parse_meta_page_id(url: str) -> str:
+    normalized = _normalize_locator_url(url)
+    if not normalized:
+        return ""
+    parsed = urllib.parse.urlparse(normalized)
+    query = urllib.parse.parse_qs(parsed.query)
+    for key in ("view_all_page_id", "page_id", "id"):
+        if query.get(key):
+            return query[key][0]
+    if _is_ad_library_url(normalized):
+        return ""
+    return parse_facebook_profile_id(normalized)
+
+
+def _normalize_token_text(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (value or "").lower()).strip()
+
+
+def _brand_tokens(brand_name: str, canonical_url: str, title: str, h1: str) -> list[str]:
+    token_source = " ".join(
+        part for part in [brand_name, title, h1, parse_domain(canonical_url).replace(".", " ")] if part
     )
+    tokens: list[str] = []
+    for token in _normalize_token_text(token_source).split():
+        if len(token) < 3 or token in TOKEN_STOPWORDS:
+            continue
+        if token not in tokens:
+            tokens.append(token)
+    return tokens[:8]
+
+
+def _brand_match_score(tokens: list[str], *values: str) -> int:
+    haystack = _normalize_token_text(" ".join(value for value in values if value))
+    if not haystack:
+        return 0
+    return sum(1 for token in tokens if token and token in haystack)
+
+
+def _domain_has_brand_token(domain: str, tokens: list[str]) -> bool:
+    cleaned = _normalize_token_text(domain.replace(".", " "))
+    return any(token in cleaned for token in tokens)
 
 
 def _base_domain(url_or_domain: str) -> str:
@@ -118,99 +237,319 @@ def _domains_match(expected_domain: str, candidate_url: str) -> bool:
 
 
 def _same_social_profile(candidate_url: str, competitor_facebook_url: str) -> bool:
-    normalized_candidate = _normalize_url(candidate_url)
-    normalized_reference = _normalize_url(competitor_facebook_url)
+    normalized_candidate = _normalize_locator_url(candidate_url)
+    normalized_reference = _normalize_locator_url(competitor_facebook_url)
     if not normalized_candidate or not normalized_reference:
         return False
     if normalized_candidate == normalized_reference:
         return True
-    candidate_profile_id = parse_facebook_profile_id(normalized_candidate)
-    reference_profile_id = parse_facebook_profile_id(normalized_reference)
+    candidate_profile_id = _parse_meta_page_id(normalized_candidate)
+    reference_profile_id = _parse_meta_page_id(normalized_reference)
     return bool(candidate_profile_id and reference_profile_id and candidate_profile_id == reference_profile_id)
 
 
-def _derive_competitor_from_facebook_url(url: str) -> str:
-    if not url:
+def _handle_from_social_url(url: str) -> str:
+    normalized = _normalize_locator_url(url)
+    if not normalized:
         return ""
-    parsed = urllib.parse.urlparse(url)
+    parsed = urllib.parse.urlparse(normalized)
+    query = urllib.parse.parse_qs(parsed.query)
+    if query.get("id"):
+        return ""
     path_bits = [bit for bit in parsed.path.split("/") if bit]
-    if path_bits and path_bits[-1] not in {"profile.php", "people"}:
-        handle = path_bits[-1].replace(".", " ").replace("-", " ").replace("_", " ").strip()
-        words = [part.capitalize() for part in handle.split() if part]
+    if not path_bits:
+        return ""
+    if path_bits[-1] in {"profile.php", "people", "library"}:
+        return ""
+    return path_bits[-1]
+
+
+def _locator_conflicts(tokens: list[str], facebook_page_url: str, ad_library_url: str, meta_object_name: str) -> list[str]:
+    conflicts: list[str] = []
+    for field_name, raw in (
+        ("facebookPageUrl", _handle_from_social_url(facebook_page_url)),
+        ("adLibraryUrl", _handle_from_social_url(ad_library_url)),
+    ):
+        if raw and _brand_match_score(tokens, raw) == 0:
+            conflicts.append(f"{field_name} conflicts with canonical competitor brand tokens")
+    if meta_object_name and _brand_match_score(tokens, meta_object_name) == 0:
+        conflicts.append("meta graph page name conflicts with canonical competitor brand tokens")
+    return conflicts
+
+
+def _discover_site_html(competitor_input_url: str) -> str:
+    fixture_html = os.environ.get("LOBSTER_STAGE1_SITE_HTML", "")
+    fixture_path = os.environ.get("LOBSTER_STAGE1_SITE_HTML_FIXTURE", "").strip()
+    if fixture_html:
+        return fixture_html
+    if fixture_path:
+        return Path(fixture_path).read_text(encoding="utf-8")
+    return fetch_text(competitor_input_url, timeout=20.0, headers={"User-Agent": "lobster-stage1/1.0"})
+
+
+def fetch_competitor_site_context(competitor_input_url: str) -> tuple[dict, bool, str, dict]:
+    if not competitor_input_url:
+        return ({}, False, "", {"facebookPageUrl": "", "adLibraryUrl": "", "metaPageId": ""})
+    try:
+        html = _discover_site_html(competitor_input_url)
+    except Exception as exc:
+        return (
+            {
+                "url": competitor_input_url,
+                "error": f"{type(exc).__name__}: {exc}",
+            },
+            False,
+            "",
+            {"facebookPageUrl": "", "adLibraryUrl": "", "metaPageId": ""},
+        )
+
+    title = _extract_html_title(html) or parse_domain(competitor_input_url)
+    description = _extract_meta_description(html) or f"Live competitor site evidence captured from {competitor_input_url}."
+    links = _extract_links(html, competitor_input_url)
+    facebook_page_url = next((link for link in links if _is_meta_profile_url(link) and not _is_ad_library_url(link)), "")
+    ad_library_url = next((link for link in links if _is_ad_library_url(link)), "")
+    return (
+        {
+            "title": title[:160],
+            "url": competitor_input_url,
+            "snippet": description[:280],
+        },
+        True,
+        html,
+        {
+            "facebookPageUrl": facebook_page_url,
+            "adLibraryUrl": ad_library_url,
+            "metaPageId": _parse_meta_page_id(ad_library_url) or _parse_meta_page_id(facebook_page_url),
+        },
+    )
+
+
+def _candidate_result_score(item: dict, tokens: list[str]) -> int:
+    url = _normalize_locator_url(item.get("url", ""))
+    return _brand_match_score(tokens, item.get("title", ""), item.get("snippet", ""), url)
+
+
+def discover_meta_locators(
+    search_results: list[dict],
+    site_locators: dict,
+    explicit_facebook_page_url: str,
+    explicit_ad_library_url: str,
+    explicit_meta_page_id: str,
+    brand_tokens: list[str],
+) -> tuple[dict, list[dict]]:
+    discovery_notes: list[dict] = []
+    facebook_page_url = explicit_facebook_page_url
+    ad_library_url = explicit_ad_library_url
+    meta_page_id = explicit_meta_page_id
+
+    if facebook_page_url:
+        discovery_notes.append({"field": "facebookPageUrl", "source": "input_override", "value": facebook_page_url})
+    if ad_library_url:
+        discovery_notes.append({"field": "adLibraryUrl", "source": "input_override", "value": ad_library_url})
+    if meta_page_id:
+        discovery_notes.append({"field": "metaPageId", "source": "input_override", "value": meta_page_id})
+
+    if not facebook_page_url and site_locators.get("facebookPageUrl"):
+        facebook_page_url = site_locators["facebookPageUrl"]
+        discovery_notes.append({"field": "facebookPageUrl", "source": "site_discovery", "value": facebook_page_url})
+    if not ad_library_url and site_locators.get("adLibraryUrl"):
+        ad_library_url = site_locators["adLibraryUrl"]
+        discovery_notes.append({"field": "adLibraryUrl", "source": "site_discovery", "value": ad_library_url})
+    if not meta_page_id and site_locators.get("metaPageId"):
+        meta_page_id = site_locators["metaPageId"]
+        discovery_notes.append({"field": "metaPageId", "source": "site_discovery", "value": meta_page_id})
+
+    scored_results = sorted(search_results, key=lambda item: _candidate_result_score(item, brand_tokens), reverse=True)
+    for item in scored_results:
+        url = _normalize_locator_url(item.get("url", ""))
+        if not url or _candidate_result_score(item, brand_tokens) <= 0:
+            continue
+        if not facebook_page_url and _is_meta_profile_url(url) and not _is_ad_library_url(url):
+            facebook_page_url = url
+            discovery_notes.append({"field": "facebookPageUrl", "source": "web_search", "value": facebook_page_url})
+        if not ad_library_url and _is_ad_library_url(url):
+            ad_library_url = url
+            discovery_notes.append({"field": "adLibraryUrl", "source": "web_search", "value": ad_library_url})
+        if not meta_page_id:
+            parsed_page_id = _parse_meta_page_id(url)
+            if parsed_page_id:
+                meta_page_id = parsed_page_id
+                discovery_notes.append({"field": "metaPageId", "source": "web_search", "value": meta_page_id})
+
+    if not meta_page_id:
+        meta_page_id = _parse_meta_page_id(ad_library_url) or _parse_meta_page_id(facebook_page_url)
+        if meta_page_id:
+            discovery_notes.append({"field": "metaPageId", "source": "locator_parse", "value": meta_page_id})
+
+    return (
+        {
+            "facebookPageUrl": facebook_page_url,
+            "adLibraryUrl": ad_library_url,
+            "metaPageId": meta_page_id,
+        },
+        discovery_notes,
+    )
+
+
+def _derive_brand_name(brand_override: str, canonical_url: str, site_title: str, site_h1: str, meta_objects: list[dict], locator_url: str) -> str:
+    cleaned_override = (brand_override or "").strip()
+    if cleaned_override:
+        return cleaned_override[:80]
+    if site_h1:
+        return site_h1[:80]
+    if site_title:
+        return site_title.split("|")[0].split("-")[0].strip()[:80]
+    if meta_objects and meta_objects[0].get("name"):
+        return str(meta_objects[0]["name"]).strip()[:80]
+    handle = _handle_from_social_url(locator_url)
+    if handle:
+        words = [part.capitalize() for part in re.split(r"[^a-z0-9]+", handle, flags=re.IGNORECASE) if part]
         if words:
             return " ".join(words)[:80]
-    return ""
-
-
-def resolve_competitor_name(competitor: str, live_meta_objects: list[dict], competitor_facebook_url: str) -> str:
-    cleaned_input = competitor.strip()
-    if cleaned_input and cleaned_input.lower() not in {"sample-competitor", "competitor"}:
-        return cleaned_input[:80]
-    if live_meta_objects and live_meta_objects[0].get("name"):
-        return str(live_meta_objects[0]["name"]).strip()[:80]
-    derived = _derive_competitor_from_facebook_url(competitor_facebook_url)
-    if derived:
-        return derived
+    domain = parse_domain(canonical_url)
+    if domain:
+        label = domain.split(".")[0].replace("-", " ").replace("_", " ").strip()
+        return " ".join(part.capitalize() for part in label.split() if part)[:80] or domain
     return "Competitor"
 
 
-def filter_trustworthy_evidence(
-    evidence: list[dict],
-    competitor_input_url: str,
-    competitor_facebook_url: str,
-) -> tuple[list[dict], list[dict], str]:
-    expected_domain = parse_domain(competitor_input_url)
-    trusted: list[dict] = []
-    rejected: list[dict] = []
-    for item in evidence:
-        candidate = dict(item)
-        url = _normalize_url(candidate.get("url", ""))
-        if not url:
-            candidate["rejection_reason"] = "blank_url"
-            rejected.append(candidate)
-            continue
-        if _is_meta_profile_url(url):
-            if competitor_facebook_url and _same_social_profile(url, competitor_facebook_url):
-                trusted.append(candidate)
-            else:
-                candidate["rejection_reason"] = "untrusted_meta_profile"
-                rejected.append(candidate)
-            continue
-        if expected_domain:
-            if _domains_match(expected_domain, url):
-                trusted.append(candidate)
-            else:
-                candidate["rejection_reason"] = f"domain_mismatch:{expected_domain}:{parse_domain(url)}"
-                rejected.append(candidate)
-            continue
-        trusted.append(candidate)
-    return trusted, rejected, expected_domain
-
-
-def candidate_ad_destinations(evidence: list[dict], meta_objects: list[dict]) -> list[str]:
-    destinations: list[str] = []
-    for item in evidence:
-        url = _normalize_url(item.get("url", ""))
-        if url and not _is_meta_profile_url(url):
-            destinations.append(url)
+def _meta_website_candidates(meta_objects: list[dict]) -> list[dict]:
+    candidates: list[dict] = []
     for obj in meta_objects:
-        website = _normalize_url(obj.get("website", ""))
+        website = _normalize_locator_url(obj.get("website", ""))
         if website and not _is_meta_profile_url(website):
-            destinations.append(website)
-    return list(dict.fromkeys(destinations))[:3]
+            candidates.append(
+                {
+                    "title": str(obj.get("name", "")).strip() or parse_domain(website),
+                    "url": website,
+                    "snippet": str(obj.get("about", "")).strip()[:280],
+                    "source": "meta_graph",
+                }
+            )
+    return candidates
 
 
-def build_ads(competitor: str, ad_destinations: list[str], evidence: list[dict]) -> list[dict]:
-    brand = competitor or "Competitor"
+def classify_trust(
+    evidence_items: list[dict],
+    meta_website_items: list[dict],
+    canonical_url: str,
+    brand_tokens: list[str],
+    explicit_override_supplied: bool,
+    locator_conflicts: list[str],
+    site_evidence_live: bool,
+    meta_objects: list[dict],
+) -> dict:
+    canonical_domain = parse_domain(canonical_url)
+    kept_evidence: list[dict] = []
+    rejected_evidence: list[dict] = []
+    cta_urls: list[str] = []
+    cta_domains: list[str] = []
+    alias_domains: list[str] = []
+    strong_evidence_sources: list[str] = []
+    reasons: list[str] = []
+
+    def add_strong_source(label: str) -> None:
+        if label not in strong_evidence_sources:
+            strong_evidence_sources.append(label)
+
+    non_social_items = [*evidence_items, *meta_website_items]
+    for item in non_social_items:
+        candidate = dict(item)
+        url = _normalize_locator_url(candidate.get("url", ""))
+        if not url or _is_meta_profile_url(url):
+            candidate["rejection_reason"] = "social_or_blank_url"
+            rejected_evidence.append(candidate)
+            continue
+        domain = parse_domain(url)
+        score = _brand_match_score(brand_tokens, candidate.get("title", ""), candidate.get("snippet", ""), url)
+        domain_has_brand = _domain_has_brand_token(domain, brand_tokens)
+        same_domain = bool(canonical_domain and _domains_match(canonical_domain, url))
+        alias_candidate = bool(domain and not same_domain and (score >= 2 or (score >= 1 and domain_has_brand)))
+
+        if same_domain:
+            candidate["trust"] = "same_domain"
+            kept_evidence.append(candidate)
+            cta_urls.append(url)
+            if domain and domain not in cta_domains:
+                cta_domains.append(domain)
+            add_strong_source(f"domain:{domain}")
+            continue
+
+        if alias_candidate:
+            candidate["trust"] = "alias_domain"
+            kept_evidence.append(candidate)
+            cta_urls.append(url)
+            if domain and domain not in cta_domains:
+                cta_domains.append(domain)
+            if domain and domain not in alias_domains:
+                alias_domains.append(domain)
+            add_strong_source(f"alias:{domain}")
+            continue
+
+        if score >= 2:
+            candidate["trust"] = "brand_match"
+            kept_evidence.append(candidate)
+            add_strong_source(f"brand:{slugify(candidate.get('title', '') or domain or url)}")
+            continue
+
+        candidate["rejection_reason"] = f"weak_brand_evidence:{domain or 'unknown'}"
+        rejected_evidence.append(candidate)
+
+    if site_evidence_live:
+        add_strong_source("site:canonical")
+    if meta_objects:
+        meta_name = str(meta_objects[0].get("name", "")).strip()
+        if _brand_match_score(brand_tokens, meta_name, str(meta_objects[0].get("website", ""))) > 0:
+            add_strong_source("meta_graph")
+
+    same_domain_hits = [item for item in kept_evidence if item.get("trust") == "same_domain"]
+    if explicit_override_supplied and locator_conflicts:
+        reasons.append("explicit Meta locator override conflicts with canonical competitor evidence")
+        reasons.extend(locator_conflicts)
+        classification = "untrusted"
+    elif same_domain_hits:
+        reasons.append(f"same-domain evidence found for {canonical_domain}")
+        classification = "trusted"
+    elif alias_domains:
+        reasons.append(f"approved alias domains found: {', '.join(alias_domains)}")
+        classification = "trusted"
+    elif len(strong_evidence_sources) >= 2 and not locator_conflicts:
+        reasons.append("multiple strong brand-evidence sources found without contradiction")
+        classification = "probable"
+    elif explicit_override_supplied and strong_evidence_sources and not locator_conflicts:
+        reasons.append("explicit Meta locator override accepted with corroborating brand evidence")
+        classification = "override"
+    else:
+        reasons.append("no trustworthy same-domain or approved-alias evidence")
+        if locator_conflicts:
+            reasons.extend(locator_conflicts)
+        classification = "untrusted"
+
+    return {
+        "classification": classification,
+        "reasons": reasons,
+        "conflicts": locator_conflicts,
+        "trustedEvidence": kept_evidence,
+        "rejectedEvidence": rejected_evidence,
+        "ctaUrls": list(dict.fromkeys(cta_urls)),
+        "ctaDomains": cta_domains,
+        "aliasDomains": alias_domains,
+        "strongEvidenceSources": strong_evidence_sources,
+    }
+
+
+def build_ads(brand_name: str, ad_destinations: list[str], evidence: list[dict], canonical_url: str) -> list[dict]:
+    brand = brand_name or "Competitor"
     slug = slugify(brand)
     evidence_headline = evidence[0]["title"] if evidence else f"{brand} consulting services"
     if "facebook profile" in evidence_headline.lower():
         evidence_headline = f"{brand} Meta campaign messaging snapshot"
     evidence_snippet = evidence[0]["snippet"] if evidence else f"{brand} promotes growth-oriented outcomes."
 
-    destination_1 = ad_destinations[0] if len(ad_destinations) > 0 else ""
-    destination_2 = ad_destinations[1] if len(ad_destinations) > 1 else destination_1
-    destination_3 = ad_destinations[2] if len(ad_destinations) > 2 else destination_2
+    fallback_destination = canonical_url or ""
+    destination_1 = ad_destinations[0] if len(ad_destinations) > 0 else fallback_destination
+    destination_2 = ad_destinations[1] if len(ad_destinations) > 1 else (destination_1 or fallback_destination)
+    destination_3 = ad_destinations[2] if len(ad_destinations) > 2 else (destination_2 or destination_1 or fallback_destination)
 
     return [
         {
@@ -249,124 +588,100 @@ def build_ads(competitor: str, ad_destinations: list[str], evidence: list[dict])
     ]
 
 
-def fallback_search_results(competitor: str, competitor_facebook_url: str) -> list[dict]:
-    profile_id = parse_facebook_profile_id(competitor_facebook_url)
-    brand = competitor or "Competitor"
-    fallback = [
-        {
-            "title": f"{brand} Facebook profile {profile_id}".strip(),
-            "url": competitor_facebook_url,
-            "snippet": f"Fallback evidence anchored to Facebook profile id {profile_id or 'unknown'} for {brand}.",
-        }
-    ]
-    return [item for item in fallback if item.get("url")]
-
-
-def _validate_meta_objects(meta_objects: list[dict], expected_domain: str) -> None:
-    if not expected_domain:
-        return
-    for obj in meta_objects:
-        website = _normalize_url(obj.get("website", ""))
-        if website and not _domains_match(expected_domain, website):
-            raise SystemExit(
-                f"stage1_competitor_domain_mismatch:meta_graph:{expected_domain}:{parse_domain(website)}:{website}"
-            )
-
-
-def _validate_competitor_payload_integrity(payload: dict, competitor_input_url: str, competitor_facebook_url: str) -> None:
-    expected_domain = parse_domain(competitor_input_url)
-    if not expected_domain:
-        return
-
-    research = payload.get("research", {}) if isinstance(payload.get("research"), dict) else {}
-    web_search_payload = research.get("web_search", {}) if isinstance(research.get("web_search"), dict) else {}
-    competitor_site_payload = research.get("competitor_site", {}) if isinstance(research.get("competitor_site"), dict) else {}
-    meta_graph_payload = research.get("meta_graph", {}) if isinstance(research.get("meta_graph"), dict) else {}
-
-    for item in web_search_payload.get("results", []):
-        url = _normalize_url((item or {}).get("url", ""))
-        if url and not _domains_match(expected_domain, url):
-            raise SystemExit(f"stage1_competitor_domain_mismatch:trusted_evidence:{expected_domain}:{parse_domain(url)}:{url}")
-
-    competitor_site_url = _normalize_url((competitor_site_payload.get("evidence") or {}).get("url", ""))
-    if competitor_site_url and not _domains_match(expected_domain, competitor_site_url):
-        raise SystemExit(
-            f"stage1_competitor_domain_mismatch:competitor_site:{expected_domain}:{parse_domain(competitor_site_url)}:{competitor_site_url}"
-        )
-
-    for landing_page in payload.get("landing_pages", []):
-        url = _normalize_url(landing_page)
-        if url and not _domains_match(expected_domain, url):
-            raise SystemExit(f"stage1_competitor_domain_mismatch:landing_page:{expected_domain}:{parse_domain(url)}:{url}")
-
-    for ad in payload.get("ads", []):
-        url = _normalize_url((ad or {}).get("landing_page_url", ""))
-        if url and not _domains_match(expected_domain, url):
-            raise SystemExit(f"stage1_competitor_domain_mismatch:ad_payload:{expected_domain}:{parse_domain(url)}:{url}")
-
-    for obj in meta_graph_payload.get("objects", []):
-        website = _normalize_url((obj or {}).get("website", ""))
-        if website and not _domains_match(expected_domain, website):
-            raise SystemExit(f"stage1_competitor_domain_mismatch:meta_payload:{expected_domain}:{parse_domain(website)}:{website}")
-
-    competitor_facebook = _normalize_url(competitor_facebook_url)
-    if competitor_facebook:
-        for item in web_search_payload.get("results", []):
-            url = _normalize_url((item or {}).get("url", ""))
-            if url and _is_meta_profile_url(url) and not _same_social_profile(url, competitor_facebook):
-                raise SystemExit(f"stage1_competitor_domain_mismatch:meta_profile:{competitor_facebook}:{url}")
+def _validate_payload_shape(payload: dict) -> None:
+    identity = payload.get("competitorIdentity", {}) if isinstance(payload.get("competitorIdentity"), dict) else {}
+    canonical_domain = identity.get("canonicalDomain", "")
+    if canonical_domain and _is_meta_host(str(canonical_domain)):
+        raise SystemExit("competitor trust classification: untrusted (canonical competitor domain resolved to a Meta host)")
+    trust = payload.get("trustValidation", {}) if isinstance(payload.get("trustValidation"), dict) else {}
+    classification = str(trust.get("classification", "")).strip()
+    if classification == "untrusted":
+        reasons = trust.get("reasons", []) if isinstance(trust.get("reasons"), list) else []
+        detail = "; ".join(str(reason) for reason in reasons if reason)
+        raise SystemExit(f"competitor trust classification: untrusted ({detail or 'no trustworthy evidence'})")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--competitor", default="")
+    parser.add_argument("--competitor-url", default="")
+    parser.add_argument("--competitor-brand", default="")
     parser.add_argument("--competitor-facebook-url", default="")
+    parser.add_argument("--facebook-page-url", default="")
+    parser.add_argument("--ad-library-url", default="")
+    parser.add_argument("--meta-page-id", default="")
     parser.add_argument("--research-model", default="gemini/gemini-2.5-flash")
     parser.add_argument("--strict-mode", default="true")
     args = parser.parse_args()
 
-    competitor = args.competitor.strip()
-    competitor_facebook_url = args.competitor_facebook_url.strip()
+    competitor_candidate = args.competitor_url.strip() or args.competitor.strip()
+    competitor_brand = args.competitor_brand.strip()
+    canonical_url, canonical_error = _validate_competitor_url(competitor_candidate)
+    if canonical_error and canonical_error == COMPETITOR_URL_SOCIAL_ERROR:
+        raise SystemExit(COMPETITOR_URL_SOCIAL_ERROR)
+    if canonical_error and args.competitor_url.strip():
+        raise SystemExit(canonical_error)
+    if canonical_error and not args.competitor_url.strip() and args.competitor.strip() and not canonical_url:
+        competitor_brand = competitor_brand or args.competitor.strip()
+
+    facebook_page_url = _normalize_locator_url(args.facebook_page_url.strip() or args.competitor_facebook_url.strip())
+    ad_library_url = _normalize_locator_url(args.ad_library_url.strip())
+    explicit_meta_page_id = _normalize_meta_page_id(args.meta_page_id.strip())
     research_model = normalize_research_model(args.research_model)
     strict_mode = args.strict_mode.strip().lower() in {"1", "true", "yes", "y", "on"}
-    run_id = make_run_id(competitor or parse_facebook_profile_id(competitor_facebook_url) or "competitor")
-    profile_id = parse_facebook_profile_id(competitor_facebook_url)
+    run_seed = canonical_url or competitor_brand or explicit_meta_page_id or "competitor"
+    run_id = make_run_id(run_seed)
+    canonical_domain = parse_domain(canonical_url)
+
+    _log(
+        "stage1_competitor_input",
+        competitor_url=canonical_url or "",
+        canonical_domain=canonical_domain,
+        competitor_brand=competitor_brand,
+        facebook_page_url=facebook_page_url,
+        ad_library_url=ad_library_url,
+        meta_page_id=explicit_meta_page_id,
+    )
+
+    site_evidence, site_live, site_html, site_locators = fetch_competitor_site_context(canonical_url)
+    site_title = site_evidence.get("title", "") if isinstance(site_evidence, dict) else ""
+    site_h1 = _extract_h1(site_html) if site_html else ""
+    provisional_brand = _derive_brand_name(competitor_brand, canonical_url, site_title, site_h1, [], facebook_page_url or ad_library_url)
+    brand_tokens = _brand_tokens(provisional_brand, canonical_url, site_title, site_h1)
 
     query = " ".join(
         bit
         for bit in [
-            competitor,
-            competitor_facebook_url,
-            profile_id,
+            provisional_brand,
+            canonical_domain,
+            canonical_url,
+            facebook_page_url,
+            ad_library_url,
             "meta ads creative campaign positioning",
         ]
         if bit
     )
-
-    competitor_input_url = _normalize_competitor_url(competitor)
-    search = web_search(query=query, max_results=5)
-    raw_evidence = (
-        search["results"]
-        if search.get("results")
-        else ([] if strict_mode else fallback_search_results(competitor, competitor_facebook_url))
+    search = web_search(query=query, max_results=6)
+    raw_search_results = search["results"] if search.get("results") else []
+    meta_locators, locator_discovery = discover_meta_locators(
+        raw_search_results,
+        site_locators,
+        facebook_page_url,
+        ad_library_url,
+        explicit_meta_page_id,
+        brand_tokens,
     )
-    competitor_site_evidence, competitor_site_live = fetch_competitor_site_evidence(competitor_input_url)
-    if competitor_site_live:
-        raw_evidence = [competitor_site_evidence, *raw_evidence]
-    evidence, rejected_evidence, expected_domain = filter_trustworthy_evidence(
-        raw_evidence,
-        competitor_input_url,
-        competitor_facebook_url,
-    )
-    web_search_live = bool(search.get("live") and search.get("results"))
+    facebook_page_url = meta_locators["facebookPageUrl"]
+    ad_library_url = meta_locators["adLibraryUrl"]
+    resolved_meta_page_id = meta_locators["metaPageId"]
 
     meta_access_token = os.environ.get("META_ACCESS_TOKEN", "").strip()
     meta_ad_account_id = os.environ.get("META_AD_ACCOUNT_ID", "").strip()
-    meta_page_id = os.environ.get("META_PAGE_ID", "").strip()
+    global_meta_page_id = os.environ.get("META_PAGE_ID", "").strip()
     meta_attempts = []
     live_meta_objects = []
-    object_ids = [profile_id] if profile_id else []
+    object_ids = [object_id for object_id in [resolved_meta_page_id] if object_id]
 
     if meta_access_token and object_ids:
         for object_id in object_ids:
@@ -383,33 +698,80 @@ def main() -> int:
     else:
         meta_attempts.append(
             {
-                "object_id": profile_id or "",
+                "object_id": resolved_meta_page_id or "",
                 "live": False,
-                "error": "No explicit competitor Meta object id available or no Meta access token source available",
+                "error": "No explicit or discovered competitor Meta object id available or no Meta access token source available",
             }
         )
 
-    _validate_meta_objects(live_meta_objects, expected_domain)
-    if expected_domain and not any(not _is_meta_profile_url(item.get("url", "")) for item in evidence):
-        raise SystemExit(f"stage1_competitor_domain_mismatch:no_trustworthy_same_domain_evidence:{expected_domain}")
+    resolved_brand = _derive_brand_name(
+        provisional_brand,
+        canonical_url,
+        site_title,
+        site_h1,
+        live_meta_objects,
+        facebook_page_url or ad_library_url,
+    )
+    brand_tokens = _brand_tokens(resolved_brand, canonical_url, site_title, site_h1)
+    locator_conflicts = _locator_conflicts(
+        brand_tokens,
+        facebook_page_url,
+        ad_library_url,
+        str(live_meta_objects[0].get("name", "")).strip() if live_meta_objects else "",
+    )
+    explicit_override_supplied = bool(
+        args.facebook_page_url.strip()
+        or args.competitor_facebook_url.strip()
+        or args.ad_library_url.strip()
+        or args.meta_page_id.strip()
+    )
 
-    resolved_competitor = resolve_competitor_name(competitor, live_meta_objects, competitor_facebook_url)
-    ad_destinations = candidate_ad_destinations(evidence, live_meta_objects)
-    if expected_domain:
-        for destination in ad_destinations:
-            if not _domains_match(expected_domain, destination):
-                raise SystemExit(
-                    f"stage1_competitor_domain_mismatch:ad_destination:{expected_domain}:{parse_domain(destination)}:{destination}"
-                )
-    ads = build_ads(resolved_competitor, ad_destinations, evidence)
+    search_evidence = list(raw_search_results)
+    if site_live:
+        search_evidence = [site_evidence, *search_evidence]
+    meta_website_items = _meta_website_candidates(live_meta_objects)
+    trust = classify_trust(
+        search_evidence,
+        meta_website_items,
+        canonical_url,
+        brand_tokens,
+        explicit_override_supplied,
+        locator_conflicts,
+        site_live,
+        live_meta_objects,
+    )
+
+    if trust["classification"] in {"trusted", "probable", "override"} and canonical_url:
+        if canonical_url not in trust["ctaUrls"]:
+            trust["ctaUrls"].insert(0, canonical_url)
+        if canonical_domain and canonical_domain not in trust["ctaDomains"]:
+            trust["ctaDomains"].insert(0, canonical_domain)
+
+    _log(
+        "stage1_competitor_resolution",
+        competitor_url=canonical_url,
+        canonical_domain=canonical_domain,
+        brand_tokens=brand_tokens,
+        facebook_page_url=facebook_page_url,
+        ad_library_url=ad_library_url,
+        meta_page_id=resolved_meta_page_id,
+        cta_domains=trust["ctaDomains"],
+        trust_classification=trust["classification"],
+        rejection_reason="; ".join(trust["reasons"]),
+    )
+
+    ads = build_ads(resolved_brand, trust["ctaUrls"], trust["trustedEvidence"], canonical_url)
+    landing_pages = sorted({ad["landing_page_url"] for ad in ads if ad.get("landing_page_url")})
 
     prompt = (
         "Summarize this competitor's likely Meta ad angles based on evidence.\n"
-        f"Competitor input: {resolved_competitor}\n"
-        f"Facebook URL: {competitor_facebook_url}\n"
-        f"Expected domain: {expected_domain}\n"
-        f"Ad destinations inferred from evidence: {ad_destinations}\n"
-        f"Evidence: {evidence}\n"
+        f"Competitor: {resolved_brand}\n"
+        f"Canonical competitor URL: {canonical_url or 'n/a'}\n"
+        f"Canonical competitor domain: {canonical_domain or 'n/a'}\n"
+        f"Meta locator: facebookPageUrl={facebook_page_url or 'n/a'} adLibraryUrl={ad_library_url or 'n/a'} metaPageId={resolved_meta_page_id or 'n/a'}\n"
+        f"Trust classification: {trust['classification']}\n"
+        f"Ad destinations inferred from evidence: {trust['ctaUrls']}\n"
+        f"Evidence: {trust['trustedEvidence']}\n"
         "Return 3 concise bullets."
     )
     gemini = summarize_with_gemini(prompt=prompt, research_model=research_model)
@@ -426,16 +788,15 @@ def main() -> int:
     meta_config = {
         "has_access_token": bool(meta_access_token),
         "has_ad_account_id": bool(meta_ad_account_id),
-        "has_page_id": bool(meta_page_id),
+        "has_page_id": bool(global_meta_page_id),
     }
-    live_mode = bool(live_meta_objects or web_search_live or gemini.get("live") or competitor_site_live)
+    web_search_live = bool(search.get("live") and raw_search_results)
+    live_mode = bool(live_meta_objects or web_search_live or gemini.get("live") or site_live)
     if strict_mode and not live_mode:
         raise SystemExit(
             "stage1_live_research_required: Stage 1 research could not access any live source "
-            "(web search, Meta Graph, or Gemini summarization)."
+            "(web search, competitor site, Meta Graph, or Gemini summarization)."
         )
-    if strict_mode and not evidence:
-        raise SystemExit("stage1_competitor_domain_mismatch:no_trustworthy_evidence")
 
     payload = {
         "type": "meta_ads_extract",
@@ -444,47 +805,75 @@ def main() -> int:
         "source": "local-stage1-wrapper",
         "generated_at": utc_now(),
         "run_id": run_id,
-        "competitor": resolved_competitor,
-        "competitor_facebook_url": competitor_facebook_url,
+        "competitor": resolved_brand,
+        "competitor_url": canonical_url or None,
+        "competitor_facebook_url": facebook_page_url or "",
         "research_model": research_model,
         "web_search_required": True,
         "meta_config": meta_config,
+        "competitorIdentity": {
+            "canonicalUrl": canonical_url or None,
+            "canonicalDomain": canonical_domain or "",
+            "brandName": resolved_brand,
+            "brandTokens": brand_tokens,
+            "trustClassification": trust["classification"],
+        },
+        "metaLocator": {
+            "facebookPageUrl": facebook_page_url or "",
+            "adLibraryUrl": ad_library_url or "",
+            "metaPageId": resolved_meta_page_id or "",
+        },
+        "evidence": {
+            "ctaUrls": trust["ctaUrls"],
+            "ctaDomains": trust["ctaDomains"],
+            "landingPages": landing_pages,
+            "aliasDomains": trust["aliasDomains"],
+            "notes": trust["reasons"],
+        },
+        "trustValidation": {
+            "classification": trust["classification"],
+            "reasons": trust["reasons"],
+            "conflicts": trust["conflicts"],
+            "approvedAliasDomains": trust["aliasDomains"],
+        },
         "research": {
             "web_search": {
                 "live": web_search_live,
                 "provider": search.get("provider", "none"),
                 "error": search.get("error", ""),
                 "query": query,
-                "results": evidence,
-                "rejected_results": rejected_evidence,
+                "results": trust["trustedEvidence"],
+                "rejected_results": trust["rejectedEvidence"],
             },
             "competitor_site": {
-                "live": competitor_site_live,
-                "input_url": competitor_input_url,
-                "evidence": competitor_site_evidence,
+                "live": site_live,
+                "input_url": canonical_url or "",
+                "evidence": site_evidence,
+                "links_discovered": site_locators,
             },
             "meta_graph": {
                 "live": bool(live_meta_objects),
-                "profile_id_from_url": profile_id,
-                "global_meta_page_id_ignored": bool(meta_page_id),
+                "locator_discovery": locator_discovery,
+                "global_meta_page_id_ignored": bool(global_meta_page_id),
                 "attempts": meta_attempts,
                 "objects": live_meta_objects,
             },
             "gemini": gemini,
         },
         "ads": ads,
-        "landing_pages": sorted({ad["landing_page_url"] for ad in ads if ad.get("landing_page_url")}),
+        "landing_pages": landing_pages,
         "competitor_research_summary": summary_bullets,
         "evidence_guardrails": {
-            "expected_domain": expected_domain,
-            "same_domain_required": bool(expected_domain),
-            "trusted_evidence_count": len(evidence),
-            "rejected_evidence_count": len(rejected_evidence),
+            "expected_domain": canonical_domain or "",
+            "same_domain_required": bool(canonical_domain),
+            "trusted_evidence_count": len(trust["trustedEvidence"]),
+            "rejected_evidence_count": len(trust["rejectedEvidence"]),
+            "trust_classification": trust["classification"],
         },
         "notes": (
             [
                 "Live data path executed for at least one source (competitor site, web search, Meta Graph, or Gemini).",
-                "Only explicit competitor Meta ids and trustworthy same-domain evidence were retained.",
+                "Canonical competitor identity was resolved from the competitor website. Meta URLs were treated as locators only.",
             ]
             if live_mode
             else [
@@ -492,20 +881,28 @@ def main() -> int:
             ]
         ),
     }
-    _validate_competitor_payload_integrity(payload, competitor_input_url, competitor_facebook_url)
-    competitor_paths = competitor_output_paths(resolved_competitor)
+    _validate_payload_shape(payload)
+
+    competitor_paths = competitor_output_paths(resolved_brand or canonical_domain or "competitor")
     extract_path = write_json(competitor_paths["extract_json"], payload)
     summary_path = write_text(
         competitor_paths["summary_md"],
         "\n".join(
             [
-                f"# {resolved_competitor} Meta Ads Extract",
+                f"# {resolved_brand} Meta Ads Extract",
                 "",
                 f"- Run ID: {run_id}",
                 f"- Mode: {payload['mode']}",
-                f"- Facebook URL: {competitor_facebook_url or 'n/a'}",
-                f"- Expected domain: {expected_domain or 'n/a'}",
+                f"- Canonical competitor URL: {canonical_url or 'n/a'}",
+                f"- Canonical domain: {canonical_domain or 'n/a'}",
+                f"- Facebook locator: {facebook_page_url or 'n/a'}",
+                f"- Ad Library locator: {ad_library_url or 'n/a'}",
+                f"- Meta page ID: {resolved_meta_page_id or 'n/a'}",
+                f"- Trust classification: {trust['classification']}",
                 f"- Landing pages: {len(payload['landing_pages'])}",
+                "",
+                "## Evidence",
+                *[f"- {line}" for line in trust["reasons"]],
                 "",
                 "## Competitor Research Summary",
                 *[f"- {line}" for line in summary_bullets],

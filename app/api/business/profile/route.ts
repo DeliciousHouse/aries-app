@@ -11,6 +11,10 @@ import {
   isMarketingPublicMode,
   normalizeMarketingWebsiteUrl,
 } from '@/lib/marketing-public-mode';
+import {
+  COMPETITOR_URL_INVALID_ERROR,
+  COMPETITOR_URL_SOCIAL_ERROR,
+} from '@/lib/marketing-competitor';
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -35,7 +39,12 @@ function stringArray(value: unknown): string[] {
 }
 
 function errorStatus(message: string): number {
-  if (message.startsWith('missing_required_fields:') || message === 'invalid_website_url') {
+  if (
+    message.startsWith('missing_required_fields:') ||
+    message === 'invalid_website_url' ||
+    message === COMPETITOR_URL_SOCIAL_ERROR ||
+    message === COMPETITOR_URL_INVALID_ERROR
+  ) {
     return 400;
   }
   if (message.startsWith('brand_kit_')) {
@@ -93,6 +102,8 @@ export async function PATCH(req: Request) {
     launchApproverUserId?: string | null;
     launchApproverName?: string | null;
     offer?: string | null;
+    brandVoice?: string | null;
+    styleVibe?: string | null;
     notes?: string | null;
     competitorUrl?: string | null;
     channels?: string[] | null;
@@ -132,6 +143,8 @@ export async function PATCH(req: Request) {
         launchApproverUserId: stringOrNull(payload.launchApproverUserId),
         launchApproverName: stringOrNull(payload.launchApproverName),
         offer: stringOrNull(payload.offer),
+        brandVoice: stringOrNull(payload.brandVoice),
+        styleVibe: stringOrNull(payload.styleVibe),
         notes: stringOrNull(payload.notes),
         competitorUrl: stringOrNull(payload.competitorUrl),
         channels: payload.channels === undefined ? undefined : stringArray(payload.channels),
@@ -181,6 +194,8 @@ export async function PATCH(req: Request) {
       launchApproverUserId: stringOrNull(payload.launchApproverUserId),
       launchApproverName: stringOrNull(payload.launchApproverName),
       offer: stringOrNull(payload.offer),
+      brandVoice: stringOrNull(payload.brandVoice),
+      styleVibe: stringOrNull(payload.styleVibe),
       notes: stringOrNull(payload.notes),
       competitorUrl: stringOrNull(payload.competitorUrl),
       channels: payload.channels === undefined ? undefined : stringArray(payload.channels),

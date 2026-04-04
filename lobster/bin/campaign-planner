@@ -16,8 +16,21 @@ def _as_list(value) -> list:
 def _stage1_context(creative_handoff: dict) -> dict:
     stage1_summary = record_or_empty(creative_handoff.get("stage1_summary"))
     executive_summary = record_or_empty(stage1_summary.get("executive_summary"))
+    competitor_identity = record_or_empty(stage1_summary.get("competitorIdentity"))
+    meta_locator = record_or_empty(stage1_summary.get("metaLocator"))
+    evidence = record_or_empty(stage1_summary.get("evidence"))
+    trust = record_or_empty(stage1_summary.get("trustValidation"))
     return {
-        "competitor": stage1_summary.get("competitor", ""),
+        "competitor": competitor_identity.get("brandName", "") or stage1_summary.get("competitor", ""),
+        "competitor_url": stage1_summary.get("competitor_url", "") or competitor_identity.get("canonicalUrl", ""),
+        "canonical_domain": competitor_identity.get("canonicalDomain", ""),
+        "trust_classification": trust.get("classification", "") or competitor_identity.get("trustClassification", ""),
+        "trust_reasons": _as_list(trust.get("reasons")),
+        "facebook_page_url": meta_locator.get("facebookPageUrl", ""),
+        "ad_library_url": meta_locator.get("adLibraryUrl", ""),
+        "meta_page_id": meta_locator.get("metaPageId", ""),
+        "cta_domains": _as_list(evidence.get("ctaDomains")),
+        "alias_domains": _as_list(evidence.get("aliasDomains")),
         "market_positioning": executive_summary.get("market_positioning", ""),
         "creative_takeaway": executive_summary.get("creative_takeaway", ""),
         "campaign_takeaway": executive_summary.get("campaign_takeaway", ""),

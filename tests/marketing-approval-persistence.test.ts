@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import { installBrandExampleFetchMock } from './helpers/brand-example-fetch';
 import { resolveProjectRoot } from './helpers/project-root';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
@@ -17,10 +18,12 @@ async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise
   process.env.CODE_ROOT = PROJECT_ROOT;
   process.env.DATA_ROOT = dataRoot;
   process.env.OPENCLAW_LOBSTER_CWD = path.join(PROJECT_ROOT, 'lobster');
+  const restoreFetch = installBrandExampleFetchMock();
 
   try {
     return await run(dataRoot);
   } finally {
+    restoreFetch();
     if (previousCodeRoot === undefined) {
       delete process.env.CODE_ROOT;
     } else {
@@ -211,7 +214,7 @@ test('duplicate approval clicks return already_resolved after the checkpoint is 
       jobType: 'brand_campaign',
       payload: {
         brandUrl: 'https://brand.example',
-        competitorUrl: 'https://facebook.com/competitor',
+        competitorUrl: 'https://betterup.com',
       },
     });
 
@@ -272,7 +275,7 @@ test('approving the paused-publish checkpoint clears the active approval while t
       jobType: 'brand_campaign',
       payload: {
         brandUrl: 'https://brand.example',
-        competitorUrl: 'https://facebook.com/competitor',
+        competitorUrl: 'https://betterup.com',
       },
     });
 
@@ -364,7 +367,7 @@ test('marketing pipeline persists every approval checkpoint through the paused-p
       jobType: 'brand_campaign',
       payload: {
         brandUrl: 'https://brand.example',
-        competitorUrl: 'https://facebook.com/competitor',
+        competitorUrl: 'https://betterup.com',
       },
     });
 
@@ -460,7 +463,7 @@ test('marketing workflow uses an extended gateway budget for long-running paused
       jobType: 'brand_campaign',
       payload: {
         brandUrl: 'https://brand.example',
-        competitorUrl: 'https://facebook.com/competitor',
+        competitorUrl: 'https://betterup.com',
       },
     });
 
@@ -559,7 +562,7 @@ test('denying a workflow checkpoint persists a denied approval record and clears
       jobType: 'brand_campaign',
       payload: {
         brandUrl: 'https://brand.example',
-        competitorUrl: 'https://facebook.com/competitor',
+        competitorUrl: 'https://betterup.com',
       },
     });
 

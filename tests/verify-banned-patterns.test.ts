@@ -17,6 +17,63 @@ function clearOpenClawTestInvoker(): void {
   delete (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__;
 }
 
+function createFetchResponse(body: string, contentType: string): Response {
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'content-type': contentType,
+    },
+  });
+}
+
+function installBrandExampleFetchMock(): () => void {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+
+    if (url === 'https://brand.example/' || url === 'https://brand.example') {
+      return createFetchResponse(
+        `<!doctype html>
+        <html>
+          <head>
+            <title>Brand Example</title>
+            <meta property="og:site_name" content="Brand Example" />
+            <meta name="description" content="Brand Example helps teams launch proof-led campaigns." />
+            <meta name="theme-color" content="#111111" />
+            <link rel="canonical" href="https://brand.example/" />
+            <link rel="icon" href="/assets/logo.svg" />
+            <link rel="stylesheet" href="/assets/site.css" />
+          </head>
+          <body>
+            <h1>Brand Example</h1>
+            <img src="/assets/wordmark.png" alt="Brand Example wordmark" />
+          </body>
+        </html>`,
+        'text/html; charset=utf-8',
+      );
+    }
+
+    if (url === 'https://brand.example/assets/site.css') {
+      return createFetchResponse(
+        `:root { --brand-primary: #111111; --brand-secondary: #f4f4f4; --brand-accent: #c24d2c; }
+         body { font-family: "Manrope", sans-serif; color: #111111; background: #f4f4f4; }`,
+        'text/css; charset=utf-8',
+      );
+    }
+
+    return new Response('not found', { status: 404 });
+  }) as typeof globalThis.fetch;
+
+  return () => {
+    globalThis.fetch = originalFetch;
+  };
+}
+
 async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise<T> {
   const previousCodeRoot = process.env.CODE_ROOT;
   const previousDataRoot = process.env.DATA_ROOT;
@@ -94,57 +151,63 @@ test('marketing job creation response omits banned runtime and tenant fields', a
   await withRuntimeEnv(async () => {
     const { handlePostMarketingJobs } = await import('../app/api/marketing/jobs/handler');
     let captured: Record<string, unknown> | null = null;
+    const restoreFetch = installBrandExampleFetchMock();
 
-    setOpenClawTestInvoker((payload) => {
-      captured = payload;
-      return {
-        ok: true,
-        status: 'ok',
-        output: [{ accepted: true, approval_preview: { status: 'pending_human_review' }, run_id: 'verify-run' }],
-        requiresApproval: { resumeToken: 'resume_verify_123' },
-      };
-    });
+    try {
+      setOpenClawTestInvoker((payload) => {
+        captured = payload;
+        return {
+          ok: true,
+          status: 'ok',
+          output: [{ accepted: true, approval_preview: { status: 'pending_human_review' }, run_id: 'verify-run' }],
+          requiresApproval: { resumeToken: 'resume_verify_123' },
+        };
+      });
 
-    const response = await handlePostMarketingJobs(
-      new Request('http://localhost/api/marketing/jobs', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          tenantId: 'forged_tenant',
-          jobType: 'brand_campaign',
-          payload: {
-            brandUrl: 'https://brand.example',
-            competitorUrl: 'https://facebook.com/competitor',
-          },
+      const response = await handlePostMarketingJobs(
+        new Request('http://localhost/api/marketing/jobs', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            tenantId: 'forged_tenant',
+            jobType: 'brand_campaign',
+            payload: {
+              brandUrl: 'https://brand.example',
+              competitorUrl: 'https://betterup.com',
+            },
+          }),
         }),
-      }),
-      async () => ({
-        userId: 'user_123',
-        tenantId: 'tenant_real',
-        tenantSlug: 'acme',
-        role: 'tenant_admin',
-      })
-    );
+        async () => ({
+          userId: 'user_123',
+          tenantId: 'tenant_real',
+          tenantSlug: 'acme',
+          role: 'tenant_admin',
+        })
+      );
 
-    const body = (await response.json()) as Record<string, unknown>;
-    const invokerPayload = captured as { args?: { pipeline?: string; argsJson?: string; action?: string } } | null;
-    assert.equal(invokerPayload?.args?.pipeline, 'marketing-pipeline.lobster');
-    const workflowArgs = JSON.parse(String(invokerPayload?.args?.argsJson ?? '{}')) as Record<string, unknown>;
+      const body = (await response.json()) as Record<string, unknown>;
+      const invokerPayload = captured as { args?: { pipeline?: string; argsJson?: string; action?: string } } | null;
+      assert.equal(invokerPayload?.args?.pipeline, 'marketing-pipeline.lobster');
+      const workflowArgs = JSON.parse(String(invokerPayload?.args?.argsJson ?? '{}')) as Record<string, unknown>;
 
-    assert.equal(response.status, 202);
-    assert.equal(body.marketing_job_status, 'accepted');
-    assert.equal(body.approvalRequired, true);
-    assert.equal('tenantId' in body, false);
-    assert.equal('wiring' in body, false);
-    assert.equal('runtimeArtifactPath' in body, false);
-    assert.equal('runtimePath' in body, false);
-    assert.equal('runtimePathDeprecated' in body, false);
-    // Tenant id must come from session context, not a forged top-level JSON field.
-    assert.equal(workflowArgs.brand_slug, 'tenant_real');
-    assert.notEqual(workflowArgs.brand_slug, 'forged_tenant');
-    assert.equal(workflowArgs.brand_url, 'https://brand.example');
-    assert.equal(workflowArgs.competitor, 'https://facebook.com/competitor');
-    assert.equal('tenant_id' in workflowArgs, false);
+      assert.equal(response.status, 202);
+      assert.equal(body.marketing_job_status, 'accepted');
+      assert.equal(body.approvalRequired, true);
+      assert.equal('tenantId' in body, false);
+      assert.equal('wiring' in body, false);
+      assert.equal('runtimeArtifactPath' in body, false);
+      assert.equal('runtimePath' in body, false);
+      assert.equal('runtimePathDeprecated' in body, false);
+      // Tenant id must come from session context, not a forged top-level JSON field.
+      assert.equal(workflowArgs.brand_slug, 'tenant_real');
+      assert.notEqual(workflowArgs.brand_slug, 'forged_tenant');
+      assert.equal(workflowArgs.brand_url, 'https://brand.example/');
+      assert.equal(workflowArgs.competitor_url, 'https://betterup.com/');
+      assert.equal(workflowArgs.competitor, 'https://betterup.com/');
+      assert.equal('tenant_id' in workflowArgs, false);
+    } finally {
+      restoreFetch();
+    }
   });
 });
 

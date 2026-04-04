@@ -41,6 +41,8 @@ function renderHealth(health: IntegrationHealth): string {
 }
 
 export function PlatformCard({ card, onAction, busyAction = null }: PlatformCardProps): JSX.Element {
+  const usesAriesOauth = card.connection_state !== 'disabled';
+
   return (
     <div data-platform={card.platform} className="glass rounded-[2rem] p-6 h-full">
       <div className="grid gap-5 h-full">
@@ -63,7 +65,7 @@ export function PlatformCard({ card, onAction, busyAction = null }: PlatformCard
                   ? 'completed'
                   : card.connection_state === 'reauth_required'
                     ? 'required'
-                    : card.connection_state === 'connection_error'
+                    : card.connection_state === 'connection_error' || card.connection_state === 'disabled'
                       ? 'error'
                       : 'accepted'
               }
@@ -123,9 +125,11 @@ export function PlatformCard({ card, onAction, busyAction = null }: PlatformCard
         <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-4 flex items-center gap-3">
           <AriesMark sizeClassName="w-8 h-8" />
           <div>
-            <div className="text-sm font-semibold">Aries OAuth handoff</div>
+            <div className="text-sm font-semibold">{usesAriesOauth ? 'Aries OAuth handoff' : 'External configuration'}</div>
             <div className="text-xs text-white/55">
-              Uses the internal Aries callback namespace for {card.display_name}.
+              {usesAriesOauth
+                ? `Uses the internal Aries callback namespace for ${card.display_name}.`
+                : `${card.display_name} is configured outside the Aries OAuth callback flow.`}
             </div>
           </div>
         </div>

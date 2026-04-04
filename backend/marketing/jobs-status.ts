@@ -361,7 +361,25 @@ function deriveState(
   };
 }
 
+function isApproveStage2Checkpoint(runtimeDoc: MarketingJobRuntimeDocument): boolean {
+  return runtimeDoc.approvals.current?.workflow_step_id === 'approve_stage_2';
+}
+
+function firstBrandAnalysisCheckpointCopy() {
+  return {
+    title: 'Research complete',
+    message: 'Research is complete. Continue to brand analysis.',
+    actionLabel: 'Continue to brand analysis',
+    artifactTitle: 'Brand analysis checkpoint',
+  };
+}
+
+function approvalReviewHref(jobId: string): string {
+  return `/review/${encodeURIComponent(`${jobId}::approval`)}`;
+}
+
 function buildSummary(
+  runtimeDoc: MarketingJobRuntimeDocument,
   state: ReturnType<typeof deriveState>
 ): MarketingSummary {
   if (state.status === 'completed') {
@@ -372,6 +390,12 @@ function buildSummary(
   }
 
   if (state.status === 'awaiting_approval') {
+    if (isApproveStage2Checkpoint(runtimeDoc)) {
+      return {
+        headline: 'Research complete',
+        subheadline: 'Research is complete. Continue to brand analysis.',
+      };
+    }
     const stageLabel = state.currentStage ? STAGE_LABELS[state.currentStage as MarketingStage] : 'Current';
     return {
       headline: `${stageLabel} stage is ready for approval`,
@@ -396,6 +420,8 @@ function buildStageCards(
   runtimeDoc: MarketingJobRuntimeDocument,
   stageStatus: Record<string, string>
 ): MarketingStageCard[] {
+  const firstBrandAnalysisGate = isApproveStage2Checkpoint(runtimeDoc);
+  const firstCheckpointCopy = firstBrandAnalysisCheckpointCopy();
   return (['research', 'strategy', 'production', 'publish'] as MarketingStage[]).map((stage) => {
     const stageRecord = runtimeDoc.stages[stage];
     switch (stage) {
@@ -412,7 +438,10 @@ function buildStageCards(
           stage,
           label: STAGE_LABELS[stage],
           status: stageStatus[stage],
-          summary: stageRecord.summary?.summary || 'Campaign strategy is ready.',
+          summary:
+            firstBrandAnalysisGate && runtimeDoc.approvals.current?.stage === 'strategy'
+              ? firstCheckpointCopy.message
+              : stageRecord.summary?.summary || 'Campaign strategy is ready.',
           highlight: stageRecord.summary?.highlight || undefined,
         };
       case 'production':
@@ -443,15 +472,20 @@ function buildApproval(
   if (!approval) {
     return null;
   }
+  const firstCheckpointCopy = firstBrandAnalysisCheckpointCopy();
+  const firstBrandAnalysisGate = approval.workflow_step_id === 'approve_stage_2';
   return {
     required: true,
     status: approval.status,
     approvalId: approval.approval_id ?? undefined,
     workflowStepId: approval.workflow_step_id ?? undefined,
-    title: approval.title,
-    message: approval.message,
-    actionLabel: 'Open approval dashboard',
-    actionHref: `/marketing/job-approve?jobId=${encodeURIComponent(jobId)}`,
+    title: firstBrandAnalysisGate ? firstCheckpointCopy.title : approval.title,
+    message: firstBrandAnalysisGate ? firstCheckpointCopy.message : approval.message,
+    actionLabel:
+      firstBrandAnalysisGate
+        ? firstCheckpointCopy.actionLabel
+        : (approval.action_label ?? 'Open approval dashboard'),
+    actionHref: approvalReviewHref(jobId),
   };
 }
 
@@ -463,15 +497,26 @@ function buildArtifacts(
   runtimeDoc: MarketingJobRuntimeDocument,
   approval: MarketingApprovalSummary | null
 ): MarketingArtifactCard[] {
+  const firstCheckpointCopy = firstBrandAnalysisCheckpointCopy();
   return Object.values(runtimeDoc.stages)
     .flatMap((stageRecord) =>
       stageRecord.artifacts.map((entry) => ({
         id: entry.id,
         stage: entry.stage,
-        title: entry.title,
+        title:
+          approval?.workflowStepId === 'approve_stage_2' &&
+          entry.stage === 'strategy' &&
+          entry.category === 'approval'
+            ? firstCheckpointCopy.artifactTitle
+            : entry.title,
         category: entry.category,
         status: entry.status,
-        summary: entry.summary,
+        summary:
+          approval?.workflowStepId === 'approve_stage_2' &&
+          entry.stage === 'strategy' &&
+          entry.category === 'approval'
+            ? firstCheckpointCopy.message
+            : entry.summary,
         details: entry.details,
         preview: readTextPreview(entry.preview_path ?? null) || undefined,
         actionLabel:
@@ -491,6 +536,7 @@ function buildTimeline(
   state: ReturnType<typeof deriveState>
 ): MarketingTimelineEntry[] {
   const timeline: MarketingTimelineEntry[] = [];
+  const firstCheckpointCopy = firstBrandAnalysisCheckpointCopy();
 
   if (runtimeDoc.created_at) {
     timeline.push({
@@ -513,14 +559,17 @@ function buildTimeline(
         description: record.summary?.summary || `${STAGE_LABELS[stage]} completed successfully.`,
       });
     } else if (record.status === 'awaiting_approval') {
+      const firstBrandAnalysisGate = stage === 'strategy' && isApproveStage2Checkpoint(runtimeDoc);
       timeline.push({
         id: `${stage}-approval`,
         at: runtimeDoc.approvals.current?.requested_at ?? record.started_at,
         tone: 'warning',
-        label: `${STAGE_LABELS[stage]} approval requested`,
+        label: firstBrandAnalysisGate ? 'Brand analysis checkpoint requested' : `${STAGE_LABELS[stage]} approval requested`,
         description:
-          runtimeDoc.approvals.current?.message ||
-          `${STAGE_LABELS[stage]} is waiting on explicit approval.`,
+          (firstBrandAnalysisGate
+            ? firstCheckpointCopy.message
+            : runtimeDoc.approvals.current?.message ||
+              `${STAGE_LABELS[stage]} is waiting on explicit approval.`),
       });
     } else if (record.failed_at) {
       timeline.push({
@@ -862,7 +911,7 @@ export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse
     updatedAt: runtimeDoc.updated_at,
     approvalRequired: !!runtimeDoc.approvals.current,
     needsAttention: state.needsAttention,
-    summary: buildSummary(state),
+    summary: buildSummary(runtimeDoc, state),
     stageCards: buildStageCards(runtimeDoc, stageStatus),
     artifacts: buildArtifacts(runtimeDoc, approval),
     timeline: buildTimeline(runtimeDoc, state),

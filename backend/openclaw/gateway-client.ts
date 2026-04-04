@@ -41,6 +41,7 @@ export type OpenClawWorkflowCallInput = {
   pipeline: string;
   argsJson?: string;
   cwd?: string;
+  localCwd?: string;
   timeoutMs?: number;
   maxStdoutBytes?: number;
 };
@@ -49,6 +50,7 @@ export type OpenClawResumeCallInput = {
   token: string;
   approve: boolean;
   cwd?: string;
+  localCwd?: string;
   timeoutMs?: number;
   maxStdoutBytes?: number;
 };
@@ -333,8 +335,8 @@ function asEnvelope(value: unknown): LobsterEnvelope {
   return candidate as unknown as LobsterEnvelope;
 }
 
-function resolveLocalLobsterCwd(configuredCwd: string): string {
-  const normalized = configuredCwd.trim();
+function resolveLocalLobsterCwd(configuredCwd: string, localCwd?: string): string {
+  const normalized = localCwd?.trim() || configuredCwd.trim();
   if (!normalized) {
     return resolveCodePath('lobster');
   }
@@ -370,8 +372,9 @@ async function invokeLocalLobster(
   metadata: Record<string, unknown>,
   timeoutMs: number,
   maxStdoutBytes: number,
+  localCwd?: string,
 ): Promise<LobsterEnvelope> {
-  const cwd = resolveLocalLobsterCwd(runtime.configuredCwd);
+  const cwd = resolveLocalLobsterCwd(runtime.configuredCwd, localCwd);
   console.warn('[openclaw-gateway]', {
     event: 'workflow-local-fallback',
     sessionKey: runtime.sessionKey,
@@ -542,6 +545,7 @@ export async function runOpenClawLobsterWorkflow(input: OpenClawWorkflowCallInpu
       },
       timeoutMs,
       maxStdoutBytes,
+      input.localCwd,
     );
   }
 }
@@ -617,6 +621,7 @@ export async function resumeOpenClawLobsterWorkflow(input: OpenClawResumeCallInp
           },
           timeoutMs,
           maxStdoutBytes,
+          input.localCwd,
         );
       }
       throw error;

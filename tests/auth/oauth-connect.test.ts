@@ -100,7 +100,8 @@ test('meta connect validates redirect_uri against configured Aries callback env'
       provider: 'facebook',
       redirect_uri: 'https://aries.example.com/api/integrations/meta/callback',
     });
-    assert.equal(ok.status, 'ok');
+    assert.equal(ok.status, 'error');
+    assert.equal(ok.reason, 'provider_unavailable');
 
     const bad = connectMeta({
       tenant_id: 'tenant_real',

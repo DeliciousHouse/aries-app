@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 
+import { sanitizeLegacyCompetitorUrl } from '@/lib/marketing-competitor';
 import { resolveDataPath } from '@/lib/runtime-paths';
 
 function stringValue(value: unknown): string | null {
@@ -268,9 +269,11 @@ export function loadValidatedMarketingProfileSnapshot(tenantId: string): Validat
       (doc) => doc.channels,
       (doc) => recordValue(doc.brand_analysis)?.channels,
     ]),
-    competitorUrl: firstString(orderedDocs, [
-      (doc) => doc.competitor_url,
-      (doc) => recordValue(doc.brand_analysis)?.competitor_url,
-    ]),
+    competitorUrl: sanitizeLegacyCompetitorUrl(
+      firstString(orderedDocs, [
+        (doc) => doc.competitor_url,
+        (doc) => recordValue(doc.brand_analysis)?.competitor_url,
+      ]),
+    ),
   };
 }

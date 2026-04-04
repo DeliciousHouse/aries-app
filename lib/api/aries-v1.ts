@@ -118,6 +118,8 @@ export type BusinessProfileView = {
   launchApproverUserId: string | null;
   launchApproverName: string | null;
   offer: string | null;
+  brandVoice: string | null;
+  styleVibe: string | null;
   notes: string | null;
   competitorUrl: string | null;
   channels: string[];
@@ -191,6 +193,8 @@ export type BusinessProfilePatch = {
   launchApproverUserId?: string | null;
   launchApproverName?: string | null;
   offer?: string | null;
+  brandVoice?: string | null;
+  styleVibe?: string | null;
   notes?: string | null;
   competitorUrl?: string | null;
   channels?: string[] | null;

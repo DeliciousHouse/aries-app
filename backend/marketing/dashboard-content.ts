@@ -1247,6 +1247,10 @@ function buildCampaignWindowSnapshot(runtimeDoc: MarketingJobRuntimeDocument): M
   return { start, end }
 }
 
+function approvalReviewHref(jobId: string): string {
+  return `/review/${encodeURIComponent(`${jobId}::approval`)}`
+}
+
 function buildStatusSnapshot(runtimeDoc: MarketingJobRuntimeDocument, proposal: ProposalPlan): DashboardStatusSnapshot {
   const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id)
   const reviewBundle = rawPublishReviewBundle(runtimeDoc)
@@ -1260,7 +1264,7 @@ function buildStatusSnapshot(runtimeDoc: MarketingJobRuntimeDocument, proposal: 
     stringValue(recordValue(reviewBundle?.summary)?.offer_summary) ||
     proposal.coreMessage ||
     'Campaign status is available for review.'
-  const approvalActionHref = runtimeDoc.approvals.current ? `/marketing/job-approve?jobId=${encodeURIComponent(runtimeDoc.job_id)}` : undefined
+  const approvalActionHref = runtimeDoc.approvals.current ? approvalReviewHref(runtimeDoc.job_id) : undefined
 
   return {
     tenantName: validatedProfile.brandName || runtimeDoc.brand_kit?.brand_name || null,

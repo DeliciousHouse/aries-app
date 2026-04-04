@@ -8,14 +8,14 @@
         "video",
         "square"
       ],
-      "headline": "BetterUp - Facebook",
+      "headline": "BetterUp | Human transformation at work",
       "hooks": [
         "speed to value",
         "risk reduction"
       ],
-      "landing_page_url": "",
+      "landing_page_url": "https://betterup.com",
       "platform": "meta",
-      "primary_text": "BetterUp is on Facebook. Join Facebook to connect with BetterUp and others you may know. Facebook gives people the power to share and makes the world more open and connected."
+      "primary_text": "BetterUp helps leaders and teams grow through coaching and performance support."
     },
     {
       "ad_id": "betterup-ad-02",
@@ -30,7 +30,7 @@
         "efficiency",
         "proof points"
       ],
-      "landing_page_url": "",
+      "landing_page_url": "https://betterup.com/leadership-coaching",
       "platform": "meta",
       "primary_text": "BetterUp leads with an operational efficiency angle and a proof-oriented CTA."
     },
@@ -47,89 +47,161 @@
         "simplicity",
         "enterprise trust"
       ],
-      "landing_page_url": "",
+      "landing_page_url": "https://betterup.com/leadership-coaching",
       "platform": "meta",
       "primary_text": "BetterUp uses reassurance language for larger buyers with security and onboarding concerns."
     }
   ],
   "competitor": "BetterUp",
-  "competitor_facebook_url": "https://www.facebook.com/betterupco?mibextid=wwXIfr&mibextid=wwXIfr",
+  "competitorIdentity": {
+    "brandName": "BetterUp",
+    "brandTokens": [
+      "betterup",
+      "human",
+      "transformation",
+      "work",
+      "com"
+    ],
+    "canonicalDomain": "betterup.com",
+    "canonicalUrl": "https://betterup.com",
+    "trustClassification": "trusted"
+  },
+  "competitor_facebook_url": "https://www.facebook.com/betterupco",
   "competitor_research_summary": [
-    "Based on the evidence, BetterUp's likely Meta ad angles are:",
-    "*   **Driving Measurable Business Performance:** Ads will likely focus on how BetterUp unlocks workforce potential and delivers quantifiable improvements in business outcomes through coaching.",
-    "*   **Unique AI + Human Coaching Methodology:** Emphasizing their proprietary blend of AI, human coaching, and behavioral science as a cutting-edge approach to talent development."
+    "Positions services around practical outcomes and proof of execution.",
+    "Uses low-friction CTAs to move prospects from awareness to discovery calls.",
+    "Frames delivery confidence and reduced risk as differentiators."
   ],
-  "generated_at": "2026-03-24T11:32:38+00:00",
-  "landing_pages": [],
+  "competitor_url": "https://betterup.com",
+  "evidence": {
+    "aliasDomains": [],
+    "ctaDomains": [
+      "betterup.com"
+    ],
+    "ctaUrls": [
+      "https://betterup.com",
+      "https://betterup.com/leadership-coaching"
+    ],
+    "landingPages": [
+      "https://betterup.com",
+      "https://betterup.com/leadership-coaching"
+    ],
+    "notes": [
+      "same-domain evidence found for betterup.com"
+    ]
+  },
+  "evidence_guardrails": {
+    "expected_domain": "betterup.com",
+    "rejected_evidence_count": 0,
+    "same_domain_required": true,
+    "trust_classification": "trusted",
+    "trusted_evidence_count": 2
+  },
+  "generated_at": "2026-04-03T01:34:50+00:00",
+  "landing_pages": [
+    "https://betterup.com",
+    "https://betterup.com/leadership-coaching"
+  ],
+  "metaLocator": {
+    "adLibraryUrl": "https://www.facebook.com/ads/library/?active_status=all&ad_type=all&country=US&media_type=all&search_type=page&view_all_page_id=118064144930466&category=all",
+    "facebookPageUrl": "https://www.facebook.com/betterupco",
+    "metaPageId": "betterupco"
+  },
   "meta_config": {
-    "access_token_source": "app_credentials",
-    "has_access_token": true,
-    "has_app_id": true,
-    "has_app_secret": true,
+    "has_access_token": false,
+    "has_ad_account_id": false,
     "has_page_id": false
   },
   "mode": "live",
   "notes": [
-    "Live data path executed for at least one source (web search, Meta Graph, or Gemini)."
+    "Live data path executed for at least one source (competitor site, web search, Meta Graph, or Gemini).",
+    "Canonical competitor identity was resolved from the competitor website. Meta URLs were treated as locators only."
   ],
   "research": {
+    "competitor_site": {
+      "evidence": {
+        "snippet": "BetterUp helps leaders and teams grow through coaching and performance support.",
+        "title": "BetterUp | Human transformation at work",
+        "url": "https://betterup.com"
+      },
+      "input_url": "https://betterup.com",
+      "links_discovered": {
+        "adLibraryUrl": "",
+        "facebookPageUrl": "https://www.facebook.com/betterupco",
+        "metaPageId": "betterupco"
+      },
+      "live": true
+    },
     "gemini": {
-      "error": "",
-      "live": true,
+      "error": "GEMINI_API_KEY not set",
+      "live": false,
       "model": "gemini-2.5-flash",
       "provider": "gemini",
-      "text": "Based on the evidence, BetterUp's likely Meta ad angles are:\n\n*   **Driving Measurable Business Performance:** Ads will likely focus on how BetterUp unlocks workforce potential and delivers quantifiable improvements in business outcomes through coaching.\n*   **Unique AI + Human Coaching Methodology:** Emphasizing their proprietary blend of AI, human coaching, and behavioral science as a cutting-edge approach to talent development.\n*   **Preparing Workforces for the AI Era:** Targeting businesses looking to future-proof their teams and enhance readiness for the evolving demands of the \"AI era.\""
+      "text": ""
     },
     "meta_graph": {
       "attempts": [
         {
-          "error": "HTTPError: HTTP Error 400: Bad Request",
+          "error": "No explicit or discovered competitor Meta object id available or no Meta access token source available",
           "live": false,
           "object_id": "betterupco"
         }
       ],
+      "global_meta_page_id_ignored": false,
       "live": false,
-      "objects": [],
-      "profile_id_from_url": "betterupco"
+      "locator_discovery": [
+        {
+          "field": "adLibraryUrl",
+          "source": "input_override",
+          "value": "https://www.facebook.com/ads/library/?active_status=all&ad_type=all&country=US&media_type=all&search_type=page&view_all_page_id=118064144930466&category=all"
+        },
+        {
+          "field": "facebookPageUrl",
+          "source": "site_discovery",
+          "value": "https://www.facebook.com/betterupco"
+        },
+        {
+          "field": "metaPageId",
+          "source": "site_discovery",
+          "value": "betterupco"
+        }
+      ],
+      "objects": []
     },
     "web_search": {
       "error": "",
       "live": true,
-      "provider": "duckduckgo-html",
-      "query": "BetterUp https://www.facebook.com/betterupco?mibextid=wwXIfr&mibextid=wwXIfr betterupco meta ads creative campaign positioning",
+      "provider": "command",
+      "query": "BetterUp betterup.com https://betterup.com https://www.facebook.com/ads/library/?active_status=all&ad_type=all&country=US&media_type=all&search_type=page&view_all_page_id=118064144930466&category=all meta ads creative campaign positioning",
+      "rejected_results": [],
       "results": [
         {
-          "snippet": "BetterUp is on Facebook. Join Facebook to connect with BetterUp and others you may know. Facebook gives people the power to share and makes the world more open and connected.",
-          "title": "BetterUp - Facebook",
-          "url": "//duckduckgo.com/l/?uddg=https://www.facebook.com/betterup.betterup/&amp;rut=0057058d9c6c428581fba7924ee5db90f4bfa49d1eeec7f09cc3351344e29b03"
+          "snippet": "BetterUp helps leaders and teams grow through coaching and performance support.",
+          "title": "BetterUp | Human transformation at work",
+          "trust": "same_domain",
+          "url": "https://betterup.com"
         },
         {
-          "snippet": "BetterUp Past events See more",
-          "title": "BetterUp - Facebook",
-          "url": "//duckduckgo.com/l/?uddg=https://www.facebook.com/betterupco/events/&amp;rut=2ba94b7733bdc224531e7d574127652087b05f6112c69e338cb2373bcd4d7d68"
-        },
-        {
-          "snippet": "Connect and share with friends, family, and the world on Facebook.",
-          "title": "Facebook",
-          "url": "//duckduckgo.com/l/?uddg=https://www.facebook.com/&amp;rut=03fc0e817e8c51e038eed6c2aa339ee5ae81f41a6589b08cf8e34dffc3b0aa3c"
-        },
-        {
-          "snippet": "Unlock workforce performance with BetterUp&amp;mdash;the only platform combining AI, coaching, and behavioral science to drive measurable business performance.",
-          "title": "Powering performance-ready workforces in the AI era | BetterUp",
-          "url": "//duckduckgo.com/l/?uddg=https://www.betterup.com/&amp;rut=eefc9647bdaa7fda4348f3915aebe727e765106767cd5de9d13c321cc715b419"
-        },
-        {
-          "snippet": "When this happens, it&#x27;s usually because the owner only shared it with a small group of people, changed who can see it or it&#x27;s been deleted.",
-          "title": "Facebook",
-          "url": "//duckduckgo.com/l/?uddg=https://www.facebook.com/betterupco/&amp;rut=ab4a86d5bddff6068a527e7641f9cb8c16f889bc98d23a8960325374480eabc2"
+          "snippet": "BetterUp leadership coaching helps teams improve performance.",
+          "title": "BetterUp leadership coaching",
+          "trust": "same_domain",
+          "url": "https://betterup.com/leadership-coaching"
         }
       ]
     }
   },
   "research_model": "gemini/gemini-2.5-flash",
-  "run_id": "betterup-47a431e6",
+  "run_id": "https-betterup-com-c43861a6",
   "source": "local-stage1-wrapper",
   "stub": false,
+  "trustValidation": {
+    "approvedAliasDomains": [],
+    "classification": "trusted",
+    "conflicts": [],
+    "reasons": [
+      "same-domain evidence found for betterup.com"
+    ]
+  },
   "type": "meta_ads_extract",
   "web_search_required": true
 }

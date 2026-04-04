@@ -38,8 +38,8 @@ test('runOpenClawLobsterWorkflow normalizes host-checkout absolute lobster cwd f
     });
 
     assert.equal(runtime.configuredCwd, path.join(PROJECT_ROOT, 'lobster'));
-    assert.equal(runtime.cwd, 'lobster');
-    assert.equal((captured[0]?.args as Record<string, unknown>)?.cwd, 'lobster');
+    assert.equal(runtime.cwd, 'aries-app/lobster');
+    assert.equal((captured[0]?.args as Record<string, unknown>)?.cwd, 'aries-app/lobster');
   } finally {
     delete (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__;
     if (previousCodeRoot === undefined) delete process.env.CODE_ROOT;
@@ -50,6 +50,38 @@ test('runOpenClawLobsterWorkflow normalizes host-checkout absolute lobster cwd f
     else process.env.OPENCLAW_GATEWAY_TOKEN = previousGatewayToken;
     if (previousGatewayLobsterCwd === undefined) delete process.env.OPENCLAW_GATEWAY_LOBSTER_CWD;
     else process.env.OPENCLAW_GATEWAY_LOBSTER_CWD = previousGatewayLobsterCwd;
+  }
+});
+
+test('resolveMarketingPipelineRuntimePaths keeps the gateway cwd and local pipeline path split in container mode', async () => {
+  const previousCodeRoot = process.env.CODE_ROOT;
+  const previousGatewayLobsterCwd = process.env.OPENCLAW_GATEWAY_LOBSTER_CWD;
+  const previousLocalLobsterCwd = process.env.OPENCLAW_LOCAL_LOBSTER_CWD;
+  const previousLobsterCwd = process.env.OPENCLAW_LOBSTER_CWD;
+
+  process.env.CODE_ROOT = '/app';
+  process.env.OPENCLAW_GATEWAY_LOBSTER_CWD = 'aries-app/lobster';
+  process.env.OPENCLAW_LOCAL_LOBSTER_CWD = '/app/lobster';
+  process.env.OPENCLAW_LOBSTER_CWD = '/app/lobster';
+
+  try {
+    const { resolveMarketingPipelineRuntimePaths } = await import('../backend/marketing/orchestrator');
+    const paths = resolveMarketingPipelineRuntimePaths();
+
+    assert.equal(paths.gatewayCwd, 'aries-app/lobster');
+    assert.equal(paths.localCwd, '/app/lobster');
+    assert.equal(paths.pipelinePath, '/app/lobster/marketing-pipeline.lobster');
+    assert.equal(paths.runtime.cwd, 'aries-app/lobster');
+    assert.equal(paths.runtime.configuredCwd, 'aries-app/lobster');
+  } finally {
+    if (previousCodeRoot === undefined) delete process.env.CODE_ROOT;
+    else process.env.CODE_ROOT = previousCodeRoot;
+    if (previousGatewayLobsterCwd === undefined) delete process.env.OPENCLAW_GATEWAY_LOBSTER_CWD;
+    else process.env.OPENCLAW_GATEWAY_LOBSTER_CWD = previousGatewayLobsterCwd;
+    if (previousLocalLobsterCwd === undefined) delete process.env.OPENCLAW_LOCAL_LOBSTER_CWD;
+    else process.env.OPENCLAW_LOCAL_LOBSTER_CWD = previousLocalLobsterCwd;
+    if (previousLobsterCwd === undefined) delete process.env.OPENCLAW_LOBSTER_CWD;
+    else process.env.OPENCLAW_LOBSTER_CWD = previousLobsterCwd;
   }
 });
 
@@ -97,13 +129,15 @@ test('runOpenClawLobsterWorkflow falls back to the local Lobster CLI when the ga
   const previousGatewayUrl = process.env.OPENCLAW_GATEWAY_URL;
   const previousGatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN;
   const previousGatewayLobsterCwd = process.env.OPENCLAW_GATEWAY_LOBSTER_CWD;
+  const previousLocalLobsterCwd = process.env.OPENCLAW_LOCAL_LOBSTER_CWD;
   const previousLobsterStateDir = process.env.LOBSTER_STATE_DIR;
   const stateDir = await mkdtemp(path.join(tmpdir(), 'aries-lobster-state-'));
 
   process.env.CODE_ROOT = PROJECT_ROOT;
   delete process.env.OPENCLAW_GATEWAY_URL;
   delete process.env.OPENCLAW_GATEWAY_TOKEN;
-  process.env.OPENCLAW_GATEWAY_LOBSTER_CWD = path.join(PROJECT_ROOT, 'lobster');
+  process.env.OPENCLAW_GATEWAY_LOBSTER_CWD = 'aries-app/lobster';
+  process.env.OPENCLAW_LOCAL_LOBSTER_CWD = path.join(PROJECT_ROOT, 'lobster');
   process.env.LOBSTER_STATE_DIR = stateDir;
 
   try {
@@ -111,10 +145,16 @@ test('runOpenClawLobsterWorkflow falls back to the local Lobster CLI when the ga
 
     const firstEnvelope = await runOpenClawLobsterWorkflow({
       pipeline: 'marketing-pipeline.lobster',
-      cwd: path.join(PROJECT_ROOT, 'lobster'),
+      cwd: 'aries-app/lobster',
+      localCwd: path.join(PROJECT_ROOT, 'lobster'),
       argsJson: JSON.stringify({
         brand_url: 'https://example.com',
+        competitor_url: 'https://example.com',
         competitor: 'https://example.com',
+        competitor_brand: '',
+        facebook_page_url: '',
+        ad_library_url: '',
+        meta_page_id: '',
         competitor_facebook_url: '',
         brand_slug: 'public_example',
         agent_id: 'main',
@@ -130,7 +170,8 @@ test('runOpenClawLobsterWorkflow falls back to the local Lobster CLI when the ga
     const secondEnvelope = await resumeOpenClawLobsterWorkflow({
       token: String(firstEnvelope.requiresApproval?.resumeToken),
       approve: true,
-      cwd: path.join(PROJECT_ROOT, 'lobster'),
+      cwd: 'aries-app/lobster',
+      localCwd: path.join(PROJECT_ROOT, 'lobster'),
       timeoutMs: 120000,
       maxStdoutBytes: 8 * 1024 * 1024,
     });
@@ -147,6 +188,8 @@ test('runOpenClawLobsterWorkflow falls back to the local Lobster CLI when the ga
     else process.env.OPENCLAW_GATEWAY_TOKEN = previousGatewayToken;
     if (previousGatewayLobsterCwd === undefined) delete process.env.OPENCLAW_GATEWAY_LOBSTER_CWD;
     else process.env.OPENCLAW_GATEWAY_LOBSTER_CWD = previousGatewayLobsterCwd;
+    if (previousLocalLobsterCwd === undefined) delete process.env.OPENCLAW_LOCAL_LOBSTER_CWD;
+    else process.env.OPENCLAW_LOCAL_LOBSTER_CWD = previousLocalLobsterCwd;
     if (previousLobsterStateDir === undefined) delete process.env.LOBSTER_STATE_DIR;
     else process.env.LOBSTER_STATE_DIR = previousLobsterStateDir;
     await rm(stateDir, { recursive: true, force: true });

@@ -1,11 +1,19 @@
-# BetterUp Competitor Research Summary
+# BetterUp Meta Ads Extract
 
-## Executive Summary
-- Market positioning: Competitor is leaning on speed to value to create mid-funnel confidence.
-- Creative takeaway: Best observed creative pattern: speed to value.
-- Campaign takeaway: Dominant campaign angle observed: speed to value.
+- Run ID: https-betterup-com-c43861a6
+- Mode: live
+- Canonical competitor URL: https://betterup.com
+- Canonical domain: betterup.com
+- Facebook locator: https://www.facebook.com/betterupco
+- Ad Library locator: https://www.facebook.com/ads/library/?active_status=all&ad_type=all&country=US&media_type=all&search_type=page&view_all_page_id=118064144930466&category=all
+- Meta page ID: betterupco
+- Trust classification: trusted
+- Landing pages: 2
 
-## Recommended Actions
-- Test one proof-first creative against one speed-to-value creative.
-- Mirror the competitor's strongest hook with a differentiated proof claim.
-- Keep CTA language aligned with the winning campaign angle per ad variant.
+## Evidence
+- same-domain evidence found for betterup.com
+
+## Competitor Research Summary
+- Positions services around practical outcomes and proof of execution.
+- Uses low-friction CTAs to move prospects from awareness to discovery calls.
+- Frames delivery confidence and reduced risk as differentiators.

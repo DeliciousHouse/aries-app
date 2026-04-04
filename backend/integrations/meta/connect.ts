@@ -1,5 +1,3 @@
-import { createTokenHandle } from '../token-store';
-
 type MetaProvider = 'facebook' | 'instagram';
 
 type ConnectRequest = {
@@ -19,7 +17,7 @@ type ConnectSuccess = {
 
 type ConnectError = {
   status: 'error';
-  reason: 'missing_required_fields' | 'invalid_provider' | 'validation_error' | 'internal_error';
+  reason: 'missing_required_fields' | 'invalid_provider' | 'validation_error' | 'provider_unavailable' | 'internal_error';
   message?: string;
 };
 
@@ -99,28 +97,10 @@ export function connectMeta(payload: ConnectRequest): ConnectSuccess | ConnectEr
       message: `redirect_uri must exactly match one of the configured callback URLs: ${configuredRedirectUris().join(', ')}`,
     };
   }
-
-  const state = createTokenHandle('csrf_token');
-  store().pending_by_state.set(state, {
-    tenant_id: payload.tenant_id,
-    provider: payload.provider,
-    redirect_uri: payload.redirect_uri,
-    created_at: new Date().toISOString()
-  });
-
-  const authUrl = new URL('https://www.facebook.com/v20.0/dialog/oauth');
-  authUrl.searchParams.set('client_id', 'meta_app_client_id');
-  authUrl.searchParams.set('redirect_uri', payload.redirect_uri);
-  authUrl.searchParams.set('state', state);
-  authUrl.searchParams.set('scope', payload.provider === 'facebook' ? 'pages_show_list,pages_read_engagement' : 'instagram_basic,instagram_content_publish');
-
   return {
-    status: 'ok',
-    tenant_id: payload.tenant_id,
-    provider: payload.provider,
-    connection_state: 'pending',
-    authorization_url: authUrl.toString(),
-    state
+    status: 'error',
+    reason: 'provider_unavailable',
+    message: 'Meta is configured outside Aries OAuth. Use META_PAGE_ID and META_ACCESS_TOKEN.',
   };
 }
 
@@ -138,6 +118,13 @@ export async function handleMetaConnectHttp(req: Request): Promise<Response> {
   let payload: ConnectRequest = {};
   try { payload = (await req.json()) as ConnectRequest; } catch {}
   const out = connectMeta(payload);
-  const status = out.status === 'ok' ? 200 : out.reason === 'invalid_provider' || out.reason === 'missing_required_fields' || out.reason === 'validation_error' ? 400 : 500;
+  const status =
+    out.status === 'ok'
+      ? 200
+      : out.reason === 'provider_unavailable'
+        ? 503
+        : out.reason === 'invalid_provider' || out.reason === 'missing_required_fields' || out.reason === 'validation_error'
+          ? 400
+          : 500;
   return new Response(JSON.stringify(out), { status, headers: { 'content-type': 'application/json' } });
 }

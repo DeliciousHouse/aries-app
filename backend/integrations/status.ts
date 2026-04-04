@@ -1,6 +1,7 @@
 import { isAllowedProvider } from './connect';
 import { resolveTokenHealth } from './connection-schema';
 import { dbGetConnection } from './oauth-db';
+import { getProviderOAuthAvailability } from './oauth-provider-runtime';
 
 type PlatformConnectionStatus =
   | 'disconnected'
@@ -52,6 +53,36 @@ function providerTenantKey(tenantId: string, provider: string): string {
   return `${tenantId}::${provider}`;
 }
 
+function buildMisconfiguredStatus(
+  provider: string,
+  tenantId: string,
+  updatedAt: string,
+  message: string,
+  missingEnv: string[]
+): PlatformConnectionStatusShape {
+  return {
+    schema_name: 'platform_connection_status_schema',
+    schema_version: '1.0.0',
+    tenant_id: tenantId,
+    integration_id: undefined,
+    platform: provider,
+    connection_status: 'misconfigured',
+    status_reason: 'provider_unavailable',
+    health: 'unhealthy',
+    last_error: {
+      code: 'provider_unavailable',
+      message,
+      retryable: false,
+      at: updatedAt,
+    },
+    capabilities: [],
+    metadata: {
+      missing_env: missingEnv.join(','),
+    },
+    updated_at: updatedAt,
+  };
+}
+
 function statusFromInternal(connection: {
   connection_status?: string;
   token_expires_at?: string;
@@ -92,6 +123,10 @@ export function oauthStatus(provider: string, tenantId?: string): PlatformConnec
   if (!tenantId || tenantId.trim().length === 0) {
     return { broker_status: 'error', reason: 'missing_required_fields', provider, message: 'missing_required_fields:tenant_id' };
   }
+  const availability = getProviderOAuthAvailability(provider);
+  if (!availability.available || !availability.connectable) {
+    return buildMisconfiguredStatus(provider, tenantId.trim(), now, availability.message, availability.missingEnv);
+  }
   return {
     schema_name: 'platform_connection_status_schema',
     schema_version: '1.0.0',
@@ -116,6 +151,11 @@ export async function oauthStatusAsync(provider: string, tenantId?: string): Pro
   }
 
   const normalizedTenantId = tenantId.trim();
+  const availability = getProviderOAuthAvailability(provider);
+  if (!availability.available || !availability.connectable) {
+    return buildMisconfiguredStatus(provider, normalizedTenantId, new Date().toISOString(), availability.message, availability.missingEnv);
+  }
+
   const row = await dbGetConnection({ tenantId: normalizedTenantId, provider });
   const connection = row
     ? {

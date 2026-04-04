@@ -4,7 +4,7 @@ export const automationJobs = [
     name: 'Aries private repo backup',
     cron: '15 */6 * * *',
     tz: 'America/Los_Angeles',
-    script: 'node scripts/automations/private-repo-backup.mjs',
+    skill: 'aries-private-repo-backup',
     purpose: 'Stage, commit, and push repo state to the configured private GitHub remote.',
   },
   {
@@ -12,7 +12,7 @@ export const automationJobs = [
     name: 'Aries overnight self-improvement',
     cron: '30 1 * * *',
     tz: 'America/Los_Angeles',
-    script: 'node scripts/automations/overnight-self-improve.mjs',
+    skill: 'aries-overnight-self-improve',
     purpose: 'Rotate a nightly audit, apply low-risk cleanup, and log results to memory/YYYY-MM-DD.md.',
   },
   {
@@ -20,7 +20,7 @@ export const automationJobs = [
     name: 'Aries daily brief',
     cron: '0 8 * * *',
     tz: 'America/Los_Angeles',
-    script: 'node scripts/automations/daily-brief.mjs',
+    skill: 'aries-daily-brief',
     purpose: 'Generate the morning priorities/overnight activity/pending actions brief.',
   },
   {
@@ -28,7 +28,7 @@ export const automationJobs = [
     name: 'Aries rolling system reference',
     cron: '45 21 * * *',
     tz: 'America/Los_Angeles',
-    script: 'node scripts/automations/rolling-system-reference.mjs',
+    skill: 'aries-rolling-system-reference',
     purpose: 'Update docs/SYSTEM-REFERENCE.md with architecture, inventory, cron jobs, and known issues.',
   },
 ]

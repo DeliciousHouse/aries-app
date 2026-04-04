@@ -1,5 +1,22 @@
 # Marketing Skills Pipeline
 
+## Custom Skill Foundation
+
+New custom skills should now use the categorized convention:
+
+```text
+skills/<category>/<skill-name>/SKILL.md
+```
+
+Foundation files:
+
+- index: `skills/index.json`
+- convention + governance: `skills/_meta/foundation.md`
+- reusable template: `skills/_templates/SKILL.md.template`
+
+Legacy flat skills can remain in place, but new custom skills should use the categorized layout.
+
+
 A complete AI-powered marketing workflow from competitor research to campaign launch.
 
 ## The Pipeline

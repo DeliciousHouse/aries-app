@@ -10,7 +10,7 @@
     "bootstrap_artifacts_redesigned": false,
     "notes": [
       "Meta lane is additive and scoped to Facebook + Instagram only.",
-      "One Meta app is used for both Facebook and Instagram.",
+      "Meta credentials are provided through runtime env values instead of the generic OAuth broker.",
       "Tokens are server-side only and never returned to frontend responses."
     ]
   },

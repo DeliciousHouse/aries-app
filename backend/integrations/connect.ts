@@ -1,5 +1,6 @@
 import { dbAuditEvent, dbGetConnection, dbInsertPendingState, dbUpsertConnection, type DbProvider } from './oauth-db';
 import { buildProviderAuthorizationUrl, createCodeVerifier } from './oauth-authorize-urls';
+import { getProviderOAuthAvailability, xClientId } from './oauth-provider-runtime';
 
 type Provider = DbProvider;
 
@@ -17,6 +18,7 @@ type OAuthBrokerErrorReason =
   | 'disconnect_failed'
   | 'reconnect_failed'
   | 'validation_error'
+  | 'provider_unavailable'
   | 'internal_error';
 
 export type OAuthBrokerError = {
@@ -110,13 +112,17 @@ export function brokerError(reason: OAuthBrokerErrorReason, extras?: Omit<OAuthB
   return { broker_status: 'error', reason, ...(extras || {}) };
 }
 
-function xClientId(): string {
-  return process.env.X_CLIENT_ID?.trim() || '';
-}
-
 export async function oauthConnect(provider: string, payload: OAuthConnectRequest): Promise<OAuthConnectSuccess | OAuthBrokerError> {
   if (!isAllowedProvider(provider)) {
     return brokerError('invalid_provider', { provider });
+  }
+
+  const availability = getProviderOAuthAvailability(provider);
+  if (!availability.available || !availability.connectable) {
+    return brokerError('provider_unavailable', {
+      provider,
+      message: availability.message,
+    });
   }
 
   const missing: string[] = [];
@@ -229,6 +235,8 @@ export async function handleOauthConnectHttp(req: Request, providerFromPath?: st
   const status =
     result.broker_status === 'ok'
       ? 200
+      : result.reason === 'provider_unavailable'
+        ? 503
       : result.reason === 'missing_required_fields' || result.reason === 'invalid_provider' || result.reason === 'validation_error'
         ? 400
         : result.reason === 'already_connected'

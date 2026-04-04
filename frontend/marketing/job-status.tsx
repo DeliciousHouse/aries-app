@@ -269,7 +269,7 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
                 {loading ? 'Refreshing…' : 'Refresh status'}
               </button>
               {successResult?.approval ? (
-                <Link href={`/marketing/job-approve?jobId=${encodeURIComponent(successResult.jobId)}`} className="px-6 py-3 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all">
+                <Link href={`/review/${encodeURIComponent(`${successResult.jobId}::approval`)}`} className="px-6 py-3 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all">
                   Review approval
                 </Link>
               ) : null}

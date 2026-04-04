@@ -24,6 +24,10 @@ type IntegrationPageCard = {
   expires_at: string | null;
   permissions: string[];
   connection_id?: string;
+  error?: {
+    code: string;
+    message: string;
+  };
 };
 
 function isDbTenantId(tenantId: string | null | undefined): tenantId is string {
@@ -33,6 +37,7 @@ function isDbTenantId(tenantId: string | null | undefined): tenantId is string {
 function mapState(connectionStatus: string) {
   if (connectionStatus === 'connected') return 'connected';
   if (connectionStatus === 'pending_oauth') return 'connection_pending';
+  if (connectionStatus === 'misconfigured') return 'disabled';
   if (connectionStatus === 'token_expired' || connectionStatus === 'revoked' || connectionStatus === 'permission_denied') {
     return 'reauth_required';
   }
@@ -40,6 +45,7 @@ function mapState(connectionStatus: string) {
 }
 
 function mapHealth(connectionStatus: string, tokenExpiresAt?: string) {
+  if (connectionStatus === 'misconfigured') return 'error';
   if (connectionStatus !== 'connected' && connectionStatus !== 'token_expired') return 'unknown';
 
   switch (resolveTokenHealth(tokenExpiresAt)) {
@@ -72,7 +78,7 @@ function buildIntegrationsPagePayload(cards: IntegrationPageCard[]) {
   const summary = {
     total: platforms.length,
     connected: cards.filter((c) => c.connection_state === 'connected').length,
-    not_connected: cards.filter((c) => c.connection_state === 'not_connected').length,
+    not_connected: cards.filter((c) => c.connection_state === 'not_connected' || c.connection_state === 'disabled').length,
     attention_required: cards.filter((c) =>
       c.connection_state === 'connection_error' || c.connection_state === 'reauth_required'
     ).length
@@ -102,6 +108,19 @@ export async function buildIntegrationsPageDataAsync(tenantId: string) {
         };
       }
 
+      if (status.connection_status === 'misconfigured') {
+        return {
+          ...buildDisconnectedIntegrationCard(platform),
+          connection_state: 'disabled',
+          health: 'error',
+          available_actions: [],
+          error: {
+            code: 'provider_unavailable',
+            message: status.last_error?.message || `${PROVIDER_REGISTRY[platform].display_name} OAuth is unavailable.`,
+          },
+        };
+      }
+
       return {
         platform,
         display_name: PROVIDER_REGISTRY[platform].display_name,
@@ -120,6 +139,13 @@ export async function buildIntegrationsPageDataAsync(tenantId: string) {
         last_synced_at: null,
         expires_at: status.token_expires_at || null,
         permissions: [],
+        error:
+          status.last_error?.message && status.connection_status !== 'connected'
+            ? {
+                code: status.last_error.code || 'provider_unavailable',
+                message: status.last_error.message,
+              }
+            : undefined,
       };
     }),
   );
@@ -166,6 +192,8 @@ export async function handleIntegrationsConnect(
   const status =
     result.broker_status === 'ok'
       ? 200
+      : result.reason === 'provider_unavailable'
+        ? 503
       : result.reason === 'already_connected'
         ? 409
         : 400;
@@ -241,6 +269,8 @@ export async function handleOauthReconnect(
   const responseStatus =
     result.broker_status === 'ok'
       ? 200
+      : result.reason === 'provider_unavailable'
+        ? 503
       : result.reason === 'missing_required_fields' || result.reason === 'invalid_provider' || result.reason === 'validation_error'
         ? 400
         : result.reason === 'connection_not_found'

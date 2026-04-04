@@ -167,6 +167,36 @@
             "string",
             "null"
           ]
+        },
+        "competitor_brand": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "facebook_page_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ad_library_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "meta_page_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "competitor_facebook_url": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     },

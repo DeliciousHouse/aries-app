@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type CSSProperties } from 'react';
 import Link from 'next/link';
 import { ArrowUpRight, CheckCircle2, MessageSquareText, XCircle } from 'lucide-react';
 
@@ -20,6 +20,12 @@ function chipStatus(value: string): 'draft' | 'in_review' | 'approved' | 'schedu
   if (value === 'changes_requested') return 'changes_requested';
   if (value === 'rejected') return 'rejected';
   return 'in_review';
+}
+
+function brandKitFontStyle(family: string): CSSProperties {
+  return {
+    fontFamily: `"${family}", ${family}, ui-sans-serif, system-ui, sans-serif`,
+  };
 }
 
 export default function AriesReviewItemScreen(props: { reviewId: string }) {
@@ -126,7 +132,58 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
         <div className="grid gap-4">
           {reviewItem.sections.map((section) => (
             <ShellPanel key={section.id} eyebrow="Content" title={section.title}>
-              <div className="whitespace-pre-wrap text-sm leading-7 text-white/68">{section.body}</div>
+              <div className="space-y-5">
+                <div className="whitespace-pre-wrap text-sm leading-7 text-white/68">{section.body}</div>
+
+                {section.brandKitVisuals ? (
+                  <div className="space-y-5 border-t border-white/8 pt-5">
+                    {section.brandKitVisuals.logos.length > 0 ? (
+                      <div className="space-y-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Logo</p>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {section.brandKitVisuals.logos.map((logoUrl, index) => (
+                            <div key={`${section.id}-logo-${index}`} className="overflow-hidden rounded-[1.1rem] border border-white/8 bg-white px-4 py-4">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={logoUrl} alt={`${section.title} logo ${index + 1}`} className="h-24 w-full object-contain" />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {section.brandKitVisuals.colors.length > 0 ? (
+                      <div className="space-y-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Colors</p>
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          {section.brandKitVisuals.colors.map((color) => (
+                            <div key={`${section.id}-${color.hex}`} className="rounded-[1.1rem] border border-white/8 bg-black/15 p-3">
+                              <div className="h-16 rounded-[0.9rem] border border-white/10" style={{ backgroundColor: color.hex }} />
+                              <p className="mt-3 text-sm font-medium text-white">{color.label}</p>
+                              <p className="text-xs uppercase tracking-[0.14em] text-white/55">{color.hex}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {section.brandKitVisuals.fonts.length > 0 ? (
+                      <div className="space-y-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Fonts</p>
+                        <div className="grid gap-3">
+                          {section.brandKitVisuals.fonts.map((font) => (
+                            <div key={`${section.id}-${font.family}`} className="rounded-[1.1rem] border border-white/8 bg-black/15 p-4">
+                              <p className="text-xs uppercase tracking-[0.14em] text-white/45">{font.label}</p>
+                              <p className="mt-3 text-2xl text-white" style={brandKitFontStyle(font.family)}>
+                                {font.sampleText}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
             </ShellPanel>
           ))}
         </div>

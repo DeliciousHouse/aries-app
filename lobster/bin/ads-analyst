@@ -17,6 +17,20 @@ def compile_report(creative_data: dict) -> dict:
     creative_findings = creative_data.get("creative_findings", [])
     top_creative = creative_findings[0]["winning_pattern"] if creative_findings else "proof-led messaging"
     top_hook = ((ad_analysis or {}).get("summary", {}).get("top_hooks") or ["outcome-focused proof"])[0]
+    extractor = extractor_data or {}
+    competitor_identity = extractor.get("competitorIdentity", {}) if isinstance(extractor.get("competitorIdentity"), dict) else {}
+    meta_locator = extractor.get("metaLocator", {}) if isinstance(extractor.get("metaLocator"), dict) else {}
+    evidence = extractor.get("evidence", {}) if isinstance(extractor.get("evidence"), dict) else {}
+    trust_validation = extractor.get("trustValidation", {}) if isinstance(extractor.get("trustValidation"), dict) else {}
+    stage1_summary = {
+        "competitor": creative_data.get("competitor") or extractor.get("competitor", ""),
+        "competitor_url": extractor.get("competitor_url"),
+        "competitor_facebook_url": extractor.get("competitor_facebook_url", ""),
+        "competitorIdentity": competitor_identity,
+        "metaLocator": meta_locator,
+        "evidence": evidence,
+        "trustValidation": trust_validation,
+    }
 
     payload = {
         "type": "ads_analyst_compile",
@@ -24,9 +38,15 @@ def compile_report(creative_data: dict) -> dict:
         "mode": creative_data.get("mode", "derived"),
         "generated_at": utc_now(),
         "run_id": run_id,
-        "competitor": creative_data.get("competitor") or (extractor_data or {}).get("competitor", ""),
+        "competitor": stage1_summary["competitor"],
+        "competitor_url": stage1_summary["competitor_url"],
+        "competitor_facebook_url": stage1_summary["competitor_facebook_url"],
+        "competitorIdentity": competitor_identity,
+        "metaLocator": meta_locator,
+        "evidence": evidence,
+        "trustValidation": trust_validation,
         "inputs": {
-            "ads_seen": len((extractor_data or {}).get("ads", [])),
+            "ads_seen": len(extractor.get("ads", [])),
             "creative_findings": len(creative_findings),
             "campaign_angles_detected": len((ad_analysis or {}).get("summary", {}).get("top_hooks", [])),
         },
@@ -40,6 +60,7 @@ def compile_report(creative_data: dict) -> dict:
             "Mirror the competitor's strongest hook with a differentiated proof claim.",
             "Keep CTA language aligned with the winning campaign angle per ad variant.",
         ],
+        "stage1_summary": stage1_summary,
         "artifacts": {
             "meta_ads_extract": extractor_data,
             "meta_ads_analysis": ad_analysis,

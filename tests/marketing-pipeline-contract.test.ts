@@ -12,6 +12,9 @@ test('marketing pipeline uses local deterministic stage executables instead of i
   const content = readFileSync(pipelinePath, 'utf8');
 
   assert.equal(content.includes('invoke_skill.py'), false);
+  assert.match(content, /competitor_url:/);
+  assert.match(content, /facebook_page_url:/);
+  assert.match(content, /--competitor-url/);
   assert.match(content, /meta-ads-extractor/);
   assert.match(content, /campaign-planner/);
   assert.match(content, /head-of-marketing/);
