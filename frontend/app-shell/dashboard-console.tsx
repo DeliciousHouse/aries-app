@@ -224,13 +224,13 @@ export default function DashboardConsole(): JSX.Element {
                     <div>
                       <div className="font-semibold">{card.display_name}</div>
                       <div className="text-sm text-white/50">{card.connection_state.replace(/_/g, ' ')}</div>
-                      {card.connection_state !== 'connected' ? (
+                      {card.available_actions.some((action) => action === 'connect' || action === 'reconnect') ? (
                         <div className="mt-2 flex gap-2">
                           <Link
-                            href={`/oauth/connect/${encodeURIComponent(card.platform)}?mode=${card.connection_state === 'reauth_required' ? 'reconnect' : 'connect'}${card.connection_id ? `&connection_id=${encodeURIComponent(card.connection_id)}` : ''}`}
+                            href={`/oauth/connect/${encodeURIComponent(card.platform)}?mode=${card.available_actions.includes('reconnect') ? 'reconnect' : 'connect'}${card.connection_id ? `&connection_id=${encodeURIComponent(card.connection_id)}` : ''}`}
                             className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10 transition"
                           >
-                            {card.connection_state === 'reauth_required' ? 'Reconnect' : 'Connect'}
+                            {card.available_actions.includes('reconnect') ? 'Reconnect' : 'Connect'}
                           </Link>
                         </div>
                       ) : null}

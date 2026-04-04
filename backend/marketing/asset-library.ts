@@ -4,7 +4,7 @@ import path from 'node:path';
 import { resolveCodeRoot, resolveDataRoot } from '@/lib/runtime-paths';
 
 import { listMarketingDashboardAssetsForJob } from './dashboard-content';
-import { collectStrategyReviewArtifacts } from './artifact-collector';
+import { collectResearchStageArtifacts, collectStrategyReviewArtifacts } from './artifact-collector';
 import { extractPublishReviewBundle } from './publish-review';
 import type { MarketingJobRuntimeDocument } from './runtime-state';
 import { loadValidatedMarketingProfileDocs, loadValidatedMarketingProfileSnapshot } from './validated-profile-store';
@@ -255,12 +255,18 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
   };
 
   const strategyOutputs = recordValue(runtimeDoc.stages.strategy.outputs);
+  const researchFallback = collectResearchStageArtifacts(
+    runtimeDoc.stages.research.primary_output || { run_id: runtimeDoc.stages.research.run_id },
+  );
   const validatedProfileDocs = loadValidatedMarketingProfileDocs(runtimeDoc.tenant_id);
   const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id);
   const strategyFallback = collectStrategyReviewArtifacts(
     runtimeDoc.stages.strategy.primary_output || { run_id: runtimeDoc.stages.strategy.run_id },
     runtimeDoc,
   );
+  const researchSummaryPath =
+    stringValue(researchFallback.outputs.compile_path) ||
+    null;
   const websiteAnalysisPath =
     validatedProfileDocs.paths.websiteAnalysis ||
     stringValue(strategyOutputs?.validated_website_analysis_path) ||
@@ -306,7 +312,14 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
     })(),
   ]);
 
+  addAsset('research-summary', researchSummaryPath, 'Competitor research summary');
   addAsset('strategy-website-analysis', websiteAnalysisPath, 'Website brand analysis');
+  addAsset(
+    'brand-kit-json',
+    runtimeDoc.brand_kit?.path || validatedProfileDocs.paths.brandKit,
+    'Extracted brand kit',
+    [validatedProfileDocs.paths.brandKit],
+  );
   addAsset('strategy-campaign-planner', plannerPath, 'Campaign planner');
   addAsset('strategy-review-preview', strategyReviewPath, 'Strategy review preview');
   addAsset(

@@ -109,7 +109,7 @@ async function main(): Promise<void> {
     jobType: "brand_campaign",
     payload: {
       brandUrl: "https://brand.example",
-      competitorUrl: "https://facebook.com/competitor"
+      competitorUrl: "https://betterup.com"
     }
   });
   phaseLog.push(`- created job: ${start.jobId}`);

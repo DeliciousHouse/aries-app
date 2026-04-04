@@ -1,6 +1,14 @@
 import { createHash, randomBytes } from 'node:crypto';
 
 import type { DbProvider } from './oauth-db';
+import {
+  googleClientId,
+  linkedInClientId,
+  metaAppId,
+  redditClientId,
+  tikTokClientKey,
+  xClientId,
+} from './oauth-provider-runtime';
 
 function base64Url(input: Buffer): string {
   return input.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
@@ -17,30 +25,6 @@ export function createCodeChallengeS256(verifier: string): string {
 function metaGraphVersion(): string {
   const raw = (process.env.META_GRAPH_API_VERSION || 'v21.0').trim();
   return raw.startsWith('v') ? raw : `v${raw}`;
-}
-
-function metaAppId(): string {
-  return process.env.META_APP_ID?.trim() || process.env.FACEBOOK_APP_ID?.trim() || '';
-}
-
-function googleClientId(): string {
-  return process.env.GOOGLE_CLIENT_ID?.trim() || process.env.YOUTUBE_CLIENT_ID?.trim() || '';
-}
-
-function redditClientId(): string {
-  return process.env.REDDIT_CLIENT_ID?.trim() || '';
-}
-
-function tiktokClientKey(): string {
-  return process.env.TIKTOK_CLIENT_KEY?.trim() || process.env.TIKTOK_CLIENT_ID?.trim() || '';
-}
-
-function linkedInClientId(): string {
-  return process.env.LINKEDIN_CLIENT_ID?.trim() || '';
-}
-
-function xClientId(): string {
-  return process.env.X_CLIENT_ID?.trim() || '';
 }
 
 export type BuildAuthorizeUrlInput = {
@@ -91,14 +75,13 @@ export function buildProviderAuthorizationUrl(input: BuildAuthorizeUrlInput): UR
       return url;
     }
 
-    case 'facebook':
-    case 'instagram': {
-      const appId = metaAppId();
-      if (!appId) {
+    case 'facebook': {
+      const clientId = metaAppId();
+      if (!clientId) {
         throw new Error('meta_oauth_not_configured');
       }
       const url = new URL(`https://www.facebook.com/${metaGraphVersion()}/dialog/oauth`);
-      url.searchParams.set('client_id', appId);
+      url.searchParams.set('client_id', clientId);
       url.searchParams.set('redirect_uri', redirectUri);
       url.searchParams.set('state', state);
       url.searchParams.set('response_type', 'code');
@@ -107,6 +90,9 @@ export function buildProviderAuthorizationUrl(input: BuildAuthorizeUrlInput): UR
       }
       return url;
     }
+
+    case 'instagram':
+      throw new Error('meta_oauth_not_supported');
 
     case 'youtube': {
       const clientId = googleClientId();
@@ -147,7 +133,7 @@ export function buildProviderAuthorizationUrl(input: BuildAuthorizeUrlInput): UR
     }
 
     case 'tiktok': {
-      const clientKey = tiktokClientKey();
+      const clientKey = tikTokClientKey();
       if (!clientKey) {
         throw new Error('tiktok_oauth_not_configured');
       }

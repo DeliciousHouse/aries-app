@@ -528,10 +528,10 @@ test('review decisions persist and can be reloaded from runtime-backed state', a
       const started = await startMarketingJob({
         tenantId: 'tenant_123',
         jobType: 'brand_campaign',
-        payload: {
-          brandUrl: 'https://brand.example',
-          competitorUrl: 'https://facebook.com/competitor',
-        },
+          payload: {
+            brandUrl: 'https://brand.example',
+            competitorUrl: 'https://betterup.com',
+          },
       });
 
       const reviewsBefore = await views.listMarketingReviewItemsForTenant('tenant_123');
@@ -579,10 +579,10 @@ test('approving a workflow approval review item resumes the marketing job', asyn
       const started = await startMarketingJob({
         tenantId: 'tenant_123',
         jobType: 'brand_campaign',
-        payload: {
-          brandUrl: 'https://brand.example',
-          competitorUrl: 'https://facebook.com/competitor',
-        },
+          payload: {
+            brandUrl: 'https://brand.example',
+            competitorUrl: 'https://betterup.com',
+          },
       });
 
       const reviewsBefore = await views.listMarketingReviewItemsForTenant('tenant_123');
@@ -611,6 +611,79 @@ test('approving a workflow approval review item resumes the marketing job', asyn
   });
 });
 
+test('approve_stage_2 workflow reviews include research, brief, brand-kit, and uploaded brand assets', async () => {
+  await withMarketingRuntimeEnv(async (dataRoot) => {
+    installMinimalMarketingInvoker();
+    const restoreFetch = installBrandExampleFetchMock();
+    const { startMarketingJob } = await import('../backend/marketing/orchestrator');
+    const views = await import('../backend/marketing/runtime-views');
+    const { ensureCampaignWorkspaceRecord, saveCampaignWorkspaceRecord } = await import('../backend/marketing/workspace-store');
+
+    try {
+      const payload = {
+        brandUrl: 'https://brand.example',
+        competitorUrl: 'https://betterup.com',
+        businessName: 'Brand Example',
+        businessType: 'B2B SaaS',
+        primaryGoal: 'Book walkthroughs',
+        offer: 'Proof-led launch audit',
+        brandVoice: 'Grounded and direct',
+        styleVibe: 'Minimal and editorial',
+        channels: ['meta-ads'],
+        visualReferences: ['https://example.com/reference'],
+        mustUseCopy: 'Book a walkthrough',
+        mustAvoidAesthetics: 'Generic stock imagery',
+        notes: 'Lead with proof points from recent launches.',
+      };
+      const started = await startMarketingJob({
+        tenantId: 'tenant_123',
+        jobType: 'brand_campaign',
+        payload,
+      });
+
+      const record = ensureCampaignWorkspaceRecord({
+        jobId: started.jobId,
+        tenantId: 'tenant_123',
+        payload,
+      });
+
+      const uploadPath = path.join(dataRoot, 'brand-moodboard.pdf');
+      await writeFile(uploadPath, 'brand moodboard', 'utf8');
+      record.brief.brandAssets.push({
+        id: 'brand-asset-1',
+        name: 'Brand moodboard',
+        fileName: 'brand-moodboard.pdf',
+        contentType: 'application/pdf',
+        filePath: uploadPath,
+        size: 15,
+        uploadedAt: '2026-04-04T00:00:00.000Z',
+      });
+      saveCampaignWorkspaceRecord(record);
+
+      const reviews = await views.listMarketingReviewItemsForTenant('tenant_123');
+      const approvalItem = reviews.find((item) => item.id === `${started.jobId}::approval`);
+      const campaigns = await views.listMarketingCampaignsForTenant('tenant_123');
+      const extractedBrandKitSection = approvalItem?.sections.find((section) => section.id === 'extracted-brand-kit');
+
+      assert.equal(approvalItem?.reviewType, 'workflow_approval');
+      assert.deepEqual(
+        approvalItem?.sections.map((section) => section.title),
+        ['Research summary', 'Campaign brief', 'Extracted brand kit', 'Uploaded brand assets'],
+      );
+      assert.equal(extractedBrandKitSection?.brandKitVisuals?.logos.length, 1);
+      assert.equal(extractedBrandKitSection?.brandKitVisuals?.colors.length, 3);
+      assert.equal(extractedBrandKitSection?.brandKitVisuals?.fonts.some((font) => font.family === 'Manrope'), true);
+      assert.equal(approvalItem?.attachments.some((attachment) => attachment.label === 'Extracted brand kit'), true);
+      assert.equal(approvalItem?.attachments.some((attachment) => attachment.label === 'Brand moodboard'), true);
+      assert.equal(approvalItem?.currentVersion.cta, 'Continue to brand analysis');
+      assert.equal(campaigns[0]?.approvalActionHref, `/review/${encodeURIComponent(`${started.jobId}::approval`)}`);
+    } finally {
+      restoreFetch();
+      clearOpenClawTestInvoker();
+    }
+  });
+});
+
 test('stale workflow approval ids do not advance a newer approval checkpoint', async () => {
   await withMarketingRuntimeEnv(async () => {
     installMinimalMarketingInvoker();
@@ -623,10 +696,10 @@ test('stale workflow approval ids do not advance a newer approval checkpoint', a
       const started = await startMarketingJob({
         tenantId: 'tenant_123',
         jobType: 'brand_campaign',
-        payload: {
-          brandUrl: 'https://brand.example',
-          competitorUrl: 'https://facebook.com/competitor',
-        },
+          payload: {
+            brandUrl: 'https://brand.example',
+            competitorUrl: 'https://betterup.com',
+          },
       });
 
       const reviewsBefore = await views.listMarketingReviewItemsForTenant('tenant_123');
@@ -844,4 +917,3 @@ test('publish approvals still surface a workflow review item when the bundle has
     assert.equal(workspace?.stage_reviews.creative.status, 'changes_requested');
   });
 });
-

@@ -20,6 +20,12 @@ import {
   normalizeMarketingWebsiteUrl,
   publicTenantSlug,
 } from '@/lib/marketing-public-mode';
+import {
+  COMPETITOR_URL_INVALID_ERROR,
+  COMPETITOR_URL_SOCIAL_ERROR,
+  sanitizeLegacyCompetitorUrl,
+  validateCanonicalCompetitorUrl,
+} from '@/lib/marketing-competitor';
 import { resolveDataPath } from '@/lib/runtime-paths';
 
 export type BusinessProfileRecord = {
@@ -32,6 +38,8 @@ export type BusinessProfileRecord = {
   launch_approver_user_id: string | null;
   launch_approver_name: string | null;
   offer: string | null;
+  brand_voice: string | null;
+  style_vibe: string | null;
   notes: string | null;
   competitor_url: string | null;
   channels: string[];
@@ -48,6 +56,8 @@ export type BusinessProfileView = {
   launchApproverUserId: string | null;
   launchApproverName: string | null;
   offer: string | null;
+  brandVoice: string | null;
+  styleVibe: string | null;
   notes: string | null;
   competitorUrl: string | null;
   channels: string[];
@@ -75,6 +85,8 @@ export type PersistedMarketingProfileDefaults = {
   launchApproverName?: string;
   approverName?: string;
   offer?: string;
+  brandVoice?: string;
+  styleVibe?: string;
   competitorUrl?: string;
   channels?: string[];
 };
@@ -88,9 +100,16 @@ type BusinessProfileUpdateInput = {
   launchApproverUserId?: string | null;
   launchApproverName?: string | null;
   offer?: string | null;
+  brandVoice?: string | null;
+  styleVibe?: string | null;
   notes?: string | null;
   competitorUrl?: string | null;
   channels?: string[] | null;
+};
+
+type WorkspaceBrandContext = {
+  brandVoice: string | null;
+  styleVibe: string | null;
 };
 
 type MarketingProfilePersistenceInput = {
@@ -227,10 +246,39 @@ function normalizeBusinessProfileRecord(
     launch_approver_user_id: stringOrNull(value.launch_approver_user_id),
     launch_approver_name: stringOrNull(value.launch_approver_name),
     offer: stringOrNull(value.offer),
+    brand_voice: stringOrNull(value.brand_voice),
+    style_vibe: stringOrNull(value.style_vibe),
     notes: stringOrNull(value.notes),
-    competitor_url: normalizeMarketingWebsiteUrl(stringOrNull(value.competitor_url)) || stringOrNull(value.competitor_url),
+    competitor_url: sanitizeLegacyCompetitorUrl(stringOrNull(value.competitor_url)),
     channels: stringArray(value.channels),
     updated_at: stringOrNull(value.updated_at) || nowIso(),
+  };
+}
+
+function mergePersistedCompetitorUrlField(
+  currentValue: string | null,
+  nextValue: string | null | undefined,
+): { value: string | null; changed: boolean } {
+  if (nextValue === undefined || nextValue === null) {
+    return { value: currentValue, changed: false };
+  }
+
+  const trimmed = nextValue.trim();
+  if (!trimmed) {
+    return { value: currentValue, changed: false };
+  }
+
+  const validation = validateCanonicalCompetitorUrl(trimmed);
+  if (validation.error === COMPETITOR_URL_SOCIAL_ERROR || validation.error === COMPETITOR_URL_INVALID_ERROR) {
+    throw new Error(validation.error);
+  }
+  if (!validation.normalized) {
+    return { value: currentValue, changed: false };
+  }
+
+  return {
+    value: validation.normalized,
+    changed: validation.normalized !== currentValue,
   };
 }
 
@@ -341,6 +389,43 @@ function incompleteProfile(input: {
   return !input.businessName.trim() || !input.websiteUrl || !input.businessType || !input.primaryGoal;
 }
 
+function workspaceBrandContextPath(jobId: string): string {
+  return resolveDataPath('generated', 'draft', 'marketing-workspaces', jobId, 'workspace.json');
+}
+
+function loadLatestWorkspaceBrandContext(latestJobId: string | null): WorkspaceBrandContext {
+  if (!latestJobId) {
+    return {
+      brandVoice: null,
+      styleVibe: null,
+    };
+  }
+
+  const filePath = workspaceBrandContextPath(latestJobId);
+  if (!existsSync(filePath)) {
+    return {
+      brandVoice: null,
+      styleVibe: null,
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as Record<string, unknown>;
+    const brief = parsed.brief && typeof parsed.brief === 'object' && !Array.isArray(parsed.brief)
+      ? (parsed.brief as Record<string, unknown>)
+      : null;
+    return {
+      brandVoice: stringOrNull(brief?.brandVoice),
+      styleVibe: stringOrNull(brief?.styleVibe),
+    };
+  } catch {
+    return {
+      brandVoice: null,
+      styleVibe: null,
+    };
+  }
+}
+
 function buildBusinessProfileView(input: {
   tenantId: string;
   businessName: string;
@@ -349,6 +434,7 @@ function buildBusinessProfileView(input: {
   brandKit: TenantBrandKit | null;
   approverName: string | null;
   validatedProfile: ValidatedMarketingProfileSnapshot;
+  workspaceBrandContext: WorkspaceBrandContext;
 }): BusinessProfileView {
   const websiteUrl =
     input.validatedProfile.websiteUrl ??
@@ -372,6 +458,16 @@ function buildBusinessProfileView(input: {
     launchApproverUserId: input.record?.launch_approver_user_id ?? null,
     launchApproverName: input.approverName,
     offer: input.validatedProfile.offer ?? input.record?.offer ?? null,
+    brandVoice:
+      input.record?.brand_voice ??
+      input.workspaceBrandContext.brandVoice ??
+      (input.validatedProfile.brandVoice.length > 0 ? input.validatedProfile.brandVoice.join('\n') : null) ??
+      input.brandKit?.brand_voice_summary ??
+      null,
+    styleVibe:
+      input.record?.style_vibe ??
+      input.workspaceBrandContext.styleVibe ??
+      null,
     notes: input.record?.notes ?? null,
     competitorUrl: input.validatedProfile.competitorUrl ?? input.record?.competitor_url ?? null,
     channels: input.validatedProfile.channels.length > 0 ? input.validatedProfile.channels : (input.record?.channels ?? []),
@@ -418,6 +514,7 @@ export async function getBusinessProfileWithDiagnostics(client: PoolClient, tena
   const record = loadBusinessProfileRecord(tenantId);
   const { brandKit, source, latestJobId } = resolveBusinessProfileBrandKit(tenantId);
   const validatedProfile = loadValidatedMarketingProfileSnapshot(tenantId);
+  const workspaceBrandContext = loadLatestWorkspaceBrandContext(latestJobId);
   const resolvedApproverName =
     (await launchApproverName(client, record?.launch_approver_user_id ?? null)) ||
     validatedProfile.launchApproverName ||
@@ -433,6 +530,7 @@ export async function getBusinessProfileWithDiagnostics(client: PoolClient, tena
       brandKit,
       approverName: resolvedApproverName,
       validatedProfile,
+      workspaceBrandContext,
     }),
     brandKitSource: source,
     latestJobId,
@@ -473,11 +571,12 @@ export async function updateBusinessProfileWithDiagnostics(
     input.launchApproverName,
   ).value;
   const nextOffer = mergePersistedStringField(current.profile.offer, input.offer).value;
+  const nextBrandVoice = mergePersistedStringField(current.profile.brandVoice, input.brandVoice).value;
+  const nextStyleVibe = mergePersistedStringField(current.profile.styleVibe, input.styleVibe).value;
   const nextNotes = mergePersistedStringField(current.profile.notes, input.notes).value;
-  const nextCompetitorUrl = mergePersistedStringField(
+  const nextCompetitorUrl = mergePersistedCompetitorUrlField(
     current.profile.competitorUrl,
     input.competitorUrl,
-    (value) => normalizeMarketingWebsiteUrl(value) || value,
   ).value;
   const nextChannels = mergePersistedStringArrayField(current.profile.channels, input.channels).value;
 
@@ -497,6 +596,8 @@ export async function updateBusinessProfileWithDiagnostics(
     launch_approver_user_id: nextApproverUserId,
     launch_approver_name: nextApproverName,
     offer: nextOffer,
+    brand_voice: nextBrandVoice,
+    style_vibe: nextStyleVibe,
     notes: nextNotes,
     competitor_url: nextCompetitorUrl,
     channels: nextChannels,
@@ -517,6 +618,7 @@ export function getPublicBusinessProfile(websiteUrl?: string | null): ResolvedBu
   const validatedProfile = loadValidatedMarketingProfileSnapshot(tenantId);
   const tenantSlug = record?.tenant_slug || publicTenantSlug(tenantId);
   const businessName = validatedProfile.businessName || record?.business_name || brandKit?.brand_name || '';
+  const workspaceBrandContext = loadLatestWorkspaceBrandContext(latestJobId);
 
   return {
     profile: buildBusinessProfileView({
@@ -527,6 +629,7 @@ export function getPublicBusinessProfile(websiteUrl?: string | null): ResolvedBu
       brandKit,
       approverName: validatedProfile.launchApproverName || record?.launch_approver_name || null,
       validatedProfile,
+      workspaceBrandContext,
     }),
     brandKitSource: source,
     latestJobId,
@@ -570,11 +673,12 @@ export async function updatePublicBusinessProfile(input: Omit<BusinessProfileUpd
       input.launchApproverName,
     ).value,
     offer: mergePersistedStringField(current.profile.offer, input.offer).value,
+    brand_voice: mergePersistedStringField(current.profile.brandVoice, input.brandVoice).value,
+    style_vibe: mergePersistedStringField(current.profile.styleVibe, input.styleVibe).value,
     notes: mergePersistedStringField(current.profile.notes, input.notes).value,
-    competitor_url: mergePersistedStringField(
+    competitor_url: mergePersistedCompetitorUrlField(
       current.profile.competitorUrl,
       input.competitorUrl,
-      (value) => normalizeMarketingWebsiteUrl(value) || value,
     ).value,
     channels: mergePersistedStringArrayField(current.profile.channels, input.channels).value,
     updated_at: nowIso(),
@@ -601,6 +705,8 @@ export function persistBusinessProfileFieldsFromMarketingPayload(
   const primaryGoalField = firstPresentStringField(input.payload, ['primaryGoal', 'goal']);
   const approverField = firstPresentStringField(input.payload, ['launchApproverName', 'approverName']);
   const offerField = firstPresentStringField(input.payload, ['offer']);
+  const brandVoiceField = firstPresentStringField(input.payload, ['brandVoice']);
+  const styleVibeField = firstPresentStringField(input.payload, ['styleVibe']);
   const competitorField = firstPresentStringField(input.payload, ['competitorUrl']);
   const channelsField = firstPresentStringArrayField(input.payload, ['channels']);
 
@@ -614,6 +720,8 @@ export function persistBusinessProfileFieldsFromMarketingPayload(
     launch_approver_user_id: current?.launch_approver_user_id ?? null,
     launch_approver_name: current?.launch_approver_name ?? null,
     offer: current?.offer ?? null,
+    brand_voice: current?.brand_voice ?? null,
+    style_vibe: current?.style_vibe ?? null,
     notes: current?.notes ?? null,
     competitor_url: current?.competitor_url ?? null,
     channels: current?.channels ?? [],
@@ -666,11 +774,26 @@ export function persistBusinessProfileFieldsFromMarketingPayload(
     }
   }
 
+  if (brandVoiceField.present) {
+    const brandVoiceMerge = mergePersistedStringField(nextRecord.brand_voice, brandVoiceField.value);
+    if (brandVoiceMerge.changed) {
+      nextRecord.brand_voice = brandVoiceMerge.value;
+      shouldPersist = true;
+    }
+  }
+
+  if (styleVibeField.present) {
+    const styleVibeMerge = mergePersistedStringField(nextRecord.style_vibe, styleVibeField.value);
+    if (styleVibeMerge.changed) {
+      nextRecord.style_vibe = styleVibeMerge.value;
+      shouldPersist = true;
+    }
+  }
+
   if (competitorField.present) {
-    const competitorMerge = mergePersistedStringField(
+    const competitorMerge = mergePersistedCompetitorUrlField(
       nextRecord.competitor_url,
       competitorField.value,
-      (value) => normalizeMarketingWebsiteUrl(value) || value,
     );
     if (competitorMerge.changed) {
       nextRecord.competitor_url = competitorMerge.value;
@@ -713,6 +836,8 @@ export function marketingPayloadDefaultsFromBusinessProfile(tenantId: string): P
     launchApproverName: record.launch_approver_name ?? undefined,
     approverName: record.launch_approver_name ?? undefined,
     offer: record.offer ?? undefined,
+    brandVoice: record.brand_voice ?? undefined,
+    styleVibe: record.style_vibe ?? undefined,
     competitorUrl: record.competitor_url ?? undefined,
     channels: record.channels.length > 0 ? [...record.channels] : undefined,
   };

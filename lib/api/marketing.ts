@@ -28,6 +28,11 @@ export interface MarketingBriefAssetUploadMetadata {
 export interface BrandCampaignPayload {
   brandUrl: string;
   competitorUrl?: string;
+  competitorBrand?: string;
+  facebookPageUrl?: string;
+  adLibraryUrl?: string;
+  metaPageId?: string;
+  competitorFacebookUrl?: string;
   businessName?: string;
   businessType?: string;
   approverName?: string;
@@ -225,6 +230,18 @@ export interface MarketingReviewSection {
   id: string;
   title: string;
   body: string;
+  brandKitVisuals?: {
+    logos: string[];
+    colors: Array<{
+      label: string;
+      hex: string;
+    }>;
+    fonts: Array<{
+      label: string;
+      family: string;
+      sampleText: string;
+    }>;
+  };
 }
 
 export interface MarketingReviewAttachment {

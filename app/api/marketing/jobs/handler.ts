@@ -16,6 +16,13 @@ import {
   isMarketingPublicMode,
   normalizeMarketingWebsiteUrl,
 } from '@/lib/marketing-public-mode';
+import {
+  COMPETITOR_URL_INVALID_ERROR,
+  COMPETITOR_URL_SOCIAL_ERROR,
+  normalizeMetaLocatorUrl,
+  normalizeMetaPageId,
+  validateCanonicalCompetitorUrl,
+} from '@/lib/marketing-competitor';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
 const MARKETING_ONBOARDING_REQUIRED = {
@@ -58,17 +65,6 @@ function parseStringListField(entries: FormDataEntryValue[]): string[] {
     .filter(Boolean);
 }
 
-function looksLikeWebsiteCandidate(value: string | null | undefined): boolean {
-  const trimmed = typeof value === 'string' ? value.trim() : '';
-  if (!trimmed) {
-    return false;
-  }
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
-    return true;
-  }
-  return /[./]/.test(trimmed);
-}
-
 function normalizeJobPayload(payload: Record<string, unknown>): Record<string, unknown> {
   const nextPayload = { ...payload };
   const normalizedBrandUrl = normalizeMarketingWebsiteUrl(
@@ -83,13 +79,50 @@ function normalizeJobPayload(payload: Record<string, unknown>): Record<string, u
     nextPayload.websiteUrl = normalizedBrandUrl;
   }
 
-  const normalizedCompetitorUrl = looksLikeWebsiteCandidate(
+  const competitorValidation = validateCanonicalCompetitorUrl(
     typeof payload.competitorUrl === 'string' ? payload.competitorUrl : null,
-  )
-    ? normalizeMarketingWebsiteUrl(typeof payload.competitorUrl === 'string' ? payload.competitorUrl : null)
-    : null;
-  if (normalizedCompetitorUrl) {
-    nextPayload.competitorUrl = normalizedCompetitorUrl;
+  );
+  if (competitorValidation.error) {
+    throw new Error(competitorValidation.error);
+  }
+  if (competitorValidation.normalized) {
+    nextPayload.competitorUrl = competitorValidation.normalized;
+  } else if (typeof payload.competitorUrl === 'string' && payload.competitorUrl.trim().length === 0) {
+    delete nextPayload.competitorUrl;
+  }
+
+  const normalizedCompetitorBrand =
+    typeof payload.competitorBrand === 'string' && payload.competitorBrand.trim().length > 0
+      ? payload.competitorBrand.trim()
+      : null;
+  if (normalizedCompetitorBrand) {
+    nextPayload.competitorBrand = normalizedCompetitorBrand;
+  }
+
+  const normalizedFacebookPageUrl = normalizeMetaLocatorUrl(
+    typeof payload.facebookPageUrl === 'string'
+      ? payload.facebookPageUrl
+      : typeof payload.competitorFacebookUrl === 'string'
+        ? payload.competitorFacebookUrl
+        : null,
+  );
+  if (normalizedFacebookPageUrl) {
+    nextPayload.facebookPageUrl = normalizedFacebookPageUrl;
+    nextPayload.competitorFacebookUrl = normalizedFacebookPageUrl;
+  }
+
+  const normalizedAdLibraryUrl = normalizeMetaLocatorUrl(
+    typeof payload.adLibraryUrl === 'string' ? payload.adLibraryUrl : null,
+  );
+  if (normalizedAdLibraryUrl) {
+    nextPayload.adLibraryUrl = normalizedAdLibraryUrl;
+  }
+
+  const normalizedMetaPageId = normalizeMetaPageId(
+    typeof payload.metaPageId === 'string' ? payload.metaPageId : null,
+  );
+  if (normalizedMetaPageId) {
+    nextPayload.metaPageId = normalizedMetaPageId;
   }
 
   const normalizedPrimaryGoal =
@@ -148,6 +181,8 @@ function enrichPayloadFromBusinessProfile(
   applyIfMissing('offer', defaults.offer);
   applyIfMissing('competitorUrl', defaults.competitorUrl);
   applyIfMissing('channels', defaults.channels);
+  applyIfMissing('brandVoice', defaults.brandVoice);
+  applyIfMissing('styleVibe', defaults.styleVibe);
 
   return nextPayload;
 }
@@ -180,6 +215,12 @@ async function parseCreateJobRequest(req: Request): Promise<{
       payload: {
         brandUrl: coerceFieldValue(formData.get('brandUrl')) || coerceFieldValue(formData.get('websiteUrl')),
         competitorUrl: coerceFieldValue(formData.get('competitorUrl')),
+        competitorBrand: coerceFieldValue(formData.get('competitorBrand')),
+        facebookPageUrl:
+          coerceFieldValue(formData.get('facebookPageUrl')) || coerceFieldValue(formData.get('competitorFacebookUrl')),
+        competitorFacebookUrl: coerceFieldValue(formData.get('competitorFacebookUrl')),
+        adLibraryUrl: coerceFieldValue(formData.get('adLibraryUrl')),
+        metaPageId: coerceFieldValue(formData.get('metaPageId')),
         businessName: coerceFieldValue(formData.get('businessName')),
         businessType: coerceFieldValue(formData.get('businessType')),
         launchApproverName: coerceFieldValue(formData.get('launchApproverName')) || coerceFieldValue(formData.get('approverName')),
@@ -219,7 +260,16 @@ export async function handlePostMarketingJobs(
   tenantContextLoader?: TenantContextLoader
 ) {
   const requestBody = await parseCreateJobRequest(req);
-  const normalizedPayload = normalizeJobPayload(requestBody.payload ?? {});
+  let normalizedPayload: Record<string, unknown>;
+  try {
+    normalizedPayload = normalizeJobPayload(requestBody.payload ?? {});
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message === COMPETITOR_URL_SOCIAL_ERROR || message === COMPETITOR_URL_INVALID_ERROR) {
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
+    throw error;
+  }
 
   const tenantResult = await loadTenantContextOrResponse(tenantContextLoader, {
     missingMembershipResponse: MARKETING_ONBOARDING_REQUIRED,
@@ -305,7 +355,12 @@ export async function handlePostMarketingJobs(
     if (message.startsWith('brand_kit_')) {
       return NextResponse.json({ error: message }, { status: 422 });
     }
-    if (message.startsWith('missing_required_fields:') || message.startsWith('unsupported_job_type:')) {
+    if (
+      message.startsWith('missing_required_fields:') ||
+      message.startsWith('unsupported_job_type:') ||
+      message === COMPETITOR_URL_SOCIAL_ERROR ||
+      message === COMPETITOR_URL_INVALID_ERROR
+    ) {
       return NextResponse.json({ error: message }, { status: 400 });
     }
 

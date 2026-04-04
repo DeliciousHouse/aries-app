@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
+import { normalizeMetaLocatorUrl, normalizeMetaPageId } from '@/lib/marketing-competitor';
 import { describeSpecResolution, resolveDataPath } from '@/lib/runtime-paths';
 import { loadTenantBrandKit, tenantBrandKitPath, type TenantBrandKit } from './brand-kit';
 
@@ -122,6 +123,10 @@ export type MarketingJobRuntimeDocument = {
     request: Record<string, unknown>;
     brand_url: string;
     competitor_url?: string | null;
+    competitor_brand?: string | null;
+    facebook_page_url?: string | null;
+    ad_library_url?: string | null;
+    meta_page_id?: string | null;
     competitor_facebook_url?: string | null;
   };
   summary?: {
@@ -210,7 +215,12 @@ export function createMarketingJobRuntimeDocument(input: {
       request: input.payload,
       brand_url: asString(input.payload.brandUrl) || '',
       competitor_url: asString(input.payload.competitorUrl) || asString(input.payload.brandUrl),
-      competitor_facebook_url: asString(input.payload.competitorFacebookUrl),
+      competitor_brand: asString(input.payload.competitorBrand),
+      facebook_page_url:
+        normalizeMetaLocatorUrl(asString(input.payload.facebookPageUrl) || asString(input.payload.competitorFacebookUrl)),
+      ad_library_url: normalizeMetaLocatorUrl(asString(input.payload.adLibraryUrl)),
+      meta_page_id: normalizeMetaPageId(asString(input.payload.metaPageId)),
+      competitor_facebook_url: normalizeMetaLocatorUrl(asString(input.payload.competitorFacebookUrl)),
     },
     errors: [],
     last_error: null,

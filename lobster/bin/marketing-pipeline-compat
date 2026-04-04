@@ -39,6 +39,11 @@ def pybin(script_path: Path) -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--competitor-url", default="")
+    parser.add_argument("--competitor-brand", default="")
+    parser.add_argument("--facebook-page-url", default="")
+    parser.add_argument("--ad-library-url", default="")
+    parser.add_argument("--meta-page-id", default="")
     parser.add_argument("--competitor", default="")
     parser.add_argument("--competitor-facebook-url", default="")
     parser.add_argument("--website-url", default="")
@@ -58,8 +63,18 @@ def main() -> int:
             [
                 *pybin(bin_dir / "meta-ads-extractor"),
                 "--json",
+                "--competitor-url",
+                args.competitor_url,
                 "--competitor",
                 args.competitor,
+                "--competitor-brand",
+                args.competitor_brand,
+                "--facebook-page-url",
+                args.facebook_page_url,
+                "--ad-library-url",
+                args.ad_library_url,
+                "--meta-page-id",
+                args.meta_page_id,
                 "--competitor-facebook-url",
                 args.competitor_facebook_url,
                 "--strict-mode",
@@ -156,7 +171,7 @@ def main() -> int:
         (tmp / "16-stage3-review.json").write_text(json.dumps(stage3_review), encoding="utf-8")
 
         stage3_final = run_json(
-            [*pybin(bin_dir / "creative-director"), "--json", "--mode", "finalize", "--brand-slug", args.brand_slug],
+            [*pybin(bin_dir / "stage3-finalize-bridge"), "--json", "--brand-slug", args.brand_slug],
             tmp / "16-stage3-review.json",
             cwd=workflow_root,
         )
@@ -201,9 +216,10 @@ def main() -> int:
             "ad-designer",
             "veo-video-generator",
             "production-review-preview",
-            "creative-director --mode finalize",
+            "stage3-finalize-bridge",
             "performance-marketer --mode preflight",
             "launch-review-preview",
+            "stage4-publish-compat",
         ]
 
         json.dump(stage4_review, sys.stdout, indent=2, sort_keys=True)

@@ -23,7 +23,7 @@ const ENDPOINTS = [
     path: '/api/marketing/jobs',
     desc: 'Create a new marketing campaign.',
     body:
-      '{ "jobType": "brand_campaign", "payload": { "brandUrl", "competitorUrl" } }',
+      '{ "jobType": "brand_campaign", "payload": { "brandUrl", "competitorUrl"?, "competitorBrand"?, "facebookPageUrl"?, "adLibraryUrl"?, "metaPageId"? } }',
     response:
       '{ "marketing_job_status": "accepted", "jobId": "...", "jobType": "brand_campaign", "marketing_stage": "strategy", "approvalRequired": true, "approval": { ... }, "jobStatusUrl": "/marketing/job-status?jobId=..." }',
   },

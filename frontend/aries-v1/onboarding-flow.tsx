@@ -7,6 +7,7 @@ import { ArrowLeft, ArrowRight, Check, ShieldCheck } from 'lucide-react';
 
 import { createMarketingApi } from '@/lib/api/marketing';
 import { createAriesV1Api, type UrlPreviewResponse } from '@/lib/api/aries-v1';
+import { validateCanonicalCompetitorUrl } from '@/lib/marketing-competitor';
 import { useBusinessProfile } from '@/hooks/use-business-profile';
 
 type StepKey = 'welcome' | 'business' | 'brand' | 'channels' | 'goal';
@@ -132,6 +133,14 @@ export default function AriesOnboardingFlow() {
     setError(null);
 
     try {
+      const trimmedCompetitorUrl = competitorUrl.trim();
+      if (trimmedCompetitorUrl) {
+        const competitorValidation = validateCanonicalCompetitorUrl(trimmedCompetitorUrl);
+        if (competitorValidation.error) {
+          throw new Error(competitorValidation.error);
+        }
+      }
+
       const savedProfile = await businessProfile.updateProfile({
         businessName,
         websiteUrl,
@@ -139,7 +148,7 @@ export default function AriesOnboardingFlow() {
         primaryGoal: goal,
         launchApproverName: approverName || null,
         offer: offer || null,
-        competitorUrl: competitorUrl || null,
+        competitorUrl: trimmedCompetitorUrl || null,
         channels: selectedChannels,
       });
       if (!savedProfile) {
@@ -415,12 +424,15 @@ export default function AriesOnboardingFlow() {
                     className="w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white outline-none transition focus:border-white/25"
                   />
                 </Field>
-                <Field label="Competitor or benchmark website">
+                <Field label="Competitor website URL">
                   <input
                     value={competitorUrl}
                     onChange={(event) => setCompetitorUrl(event.target.value)}
                     className="w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white outline-none transition focus:border-white/25"
                   />
+                  <p className="text-sm text-white/45">
+                    Use the competitor&apos;s website. Facebook pages and Meta Ad Library links belong in override fields, not here.
+                  </p>
                 </Field>
                 <div className="rounded-[1.5rem] border border-white/8 bg-black/15 px-4 py-4 text-sm text-white/65">
                   Aries will create your first campaign plan, then send you to Home with a clear next action.

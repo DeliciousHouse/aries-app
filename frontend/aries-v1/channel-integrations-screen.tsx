@@ -47,7 +47,9 @@ export default function AriesChannelIntegrationsScreen() {
                       ? 'Healthy'
                       : card.connection_state === 'reauth_required'
                         ? 'Needs attention'
-                        : 'Not connected'}
+                        : card.connection_state === 'disabled'
+                          ? 'Unavailable'
+                          : 'Not connected'}
                   </StatusChip>
                 </div>
               </div>
@@ -58,4 +60,3 @@ export default function AriesChannelIntegrationsScreen() {
     </div>
   );
 }
-

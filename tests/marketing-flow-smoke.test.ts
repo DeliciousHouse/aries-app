@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { installBrandExampleFetchMock } from './helpers/brand-example-fetch';
 import { resolveProjectRoot } from './helpers/project-root';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
@@ -26,10 +27,12 @@ async function withMarketingRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>)
   process.env.CODE_ROOT = PROJECT_ROOT;
   process.env.DATA_ROOT = dataRoot;
   process.env.OPENCLAW_LOBSTER_CWD = path.join(PROJECT_ROOT, 'lobster');
+  const restoreFetch = installBrandExampleFetchMock();
 
   try {
     return await run(dataRoot);
   } finally {
+    restoreFetch();
     clearOpenClawTestInvoker();
 
     if (previousCodeRoot === undefined) {
@@ -157,7 +160,7 @@ test('targeted marketing verification covers create, inspect, approve, and publi
       jobType: 'brand_campaign',
       payload: {
         brandUrl: 'https://brand.example',
-        competitorUrl: 'https://facebook.com/competitor',
+        competitorUrl: 'https://betterup.com',
       },
     });
 
@@ -165,7 +168,7 @@ test('targeted marketing verification covers create, inspect, approve, and publi
     assert.equal(startResult.approvalRequired, true);
     assert.equal((startPayload as any)?.args?.action, 'run');
     assert.equal((startPayload as any)?.args?.pipeline, 'marketing-pipeline.lobster');
-    assert.equal((startPayload as any)?.args?.cwd, 'lobster');
+    assert.equal((startPayload as any)?.args?.cwd, 'aries-app/lobster');
 
     const statusBeforeApproval = getMarketingJobStatus(startResult.jobId);
     assert.equal(statusBeforeApproval.state, 'approval_required');

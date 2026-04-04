@@ -34,7 +34,9 @@ function healthRank(health: IntegrationHealth): number {
 function applyFilter(cards: IntegrationCard[], filter: PlatformFilter): IntegrationCard[] {
   if (filter === 'all') return cards;
   if (filter === 'connected') return cards.filter((card) => card.connection_state === 'connected');
-  if (filter === 'not_connected') return cards.filter((card) => card.connection_state === 'not_connected');
+  if (filter === 'not_connected') {
+    return cards.filter((card) => card.connection_state === 'not_connected' || card.connection_state === 'disabled');
+  }
   return cards.filter((card) => ['connection_error', 'reauth_required'].includes(card.connection_state));
 }
 
@@ -150,7 +152,7 @@ export default function IntegrationsScreen({ baseUrl = '' }: IntegrationsScreenP
               Connect providers with the same Aries handoff flow across the product
             </h2>
             <p className="text-white/60">
-              TikTok, Reddit, Meta, and the rest of the platform set all move through the same branded Aries connect experience and callback namespace.
+              Facebook, LinkedIn, X, YouTube, TikTok, and Reddit use the Aries OAuth callback flow. Instagram stays on env-backed configuration.
             </p>
           </div>
           <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 min-w-[260px]">

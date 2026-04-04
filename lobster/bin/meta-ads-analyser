@@ -40,6 +40,12 @@ def main() -> int:
         "generated_at": utc_now(),
         "run_id": data.get("run_id"),
         "competitor": data.get("competitor", ""),
+        "competitor_url": data.get("competitor_url"),
+        "competitor_facebook_url": data.get("competitor_facebook_url", ""),
+        "competitorIdentity": data.get("competitorIdentity", {}),
+        "metaLocator": data.get("metaLocator", {}),
+        "evidence": data.get("evidence", {}),
+        "trustValidation": data.get("trustValidation", {}),
         "summary": {
             "ad_count": len(ads),
             "top_hooks": [hook for hook, _count in hooks.most_common(4)],

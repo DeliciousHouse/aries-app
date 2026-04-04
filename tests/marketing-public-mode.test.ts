@@ -126,7 +126,7 @@ test('/api/marketing/jobs allows public create when MARKETING_STATUS_PUBLIC is e
             jobType: 'brand_campaign',
             payload: {
               brandUrl: 'https://brand.example',
-              competitorUrl: 'https://facebook.com/competitor',
+              competitorUrl: 'https://betterup.com',
             },
           }),
         })
@@ -193,7 +193,7 @@ test('/api/marketing/jobs/:jobId/approve allows public approval when MARKETING_S
             jobType: 'brand_campaign',
             payload: {
               brandUrl: 'https://brand.example',
-              competitorUrl: 'https://facebook.com/competitor',
+              competitorUrl: 'https://betterup.com',
             },
           }),
         })
@@ -327,6 +327,8 @@ test('/api/business/profile persists public onboarding fields file-backed and hy
             primaryGoal: 'book more calls',
             launchApproverName: 'Avery Example',
             offer: 'Operator-led launch intensives',
+            brandVoice: 'Direct, proof-led, and human.',
+            styleVibe: 'Minimal editorial with confident gradients.',
             notes: 'Focus on proof-led messaging.',
             competitorUrl: 'https://competitor.example',
             channels: ['meta-ads', 'instagram'],
@@ -345,6 +347,8 @@ test('/api/business/profile persists public onboarding fields file-backed and hy
       assert.equal(patchedBody.profile.primaryGoal, 'book more calls');
       assert.equal(patchedBody.profile.launchApproverName, 'Avery Example');
       assert.equal(patchedBody.profile.offer, 'Operator-led launch intensives');
+      assert.equal(patchedBody.profile.brandVoice, 'Direct, proof-led, and human.');
+      assert.equal(patchedBody.profile.styleVibe, 'Minimal editorial with confident gradients.');
       assert.equal(patchedBody.profile.notes, 'Focus on proof-led messaging.');
       assert.equal(patchedBody.profile.competitorUrl, 'https://competitor.example/');
       assert.deepEqual(patchedBody.profile.channels, ['meta-ads', 'instagram']);
@@ -352,6 +356,8 @@ test('/api/business/profile persists public onboarding fields file-backed and hy
       assert.equal(persistedRecord.website_url, 'https://brand.example/');
       assert.equal(persistedRecord.launch_approver_name, 'Avery Example');
       assert.equal(persistedRecord.offer, 'Operator-led launch intensives');
+      assert.equal(persistedRecord.brand_voice, 'Direct, proof-led, and human.');
+      assert.equal(persistedRecord.style_vibe, 'Minimal editorial with confident gradients.');
       assert.equal(persistedRecord.competitor_url, 'https://competitor.example/');
       assert.deepEqual(persistedRecord.channels, ['meta-ads', 'instagram']);
 
@@ -365,6 +371,8 @@ test('/api/business/profile persists public onboarding fields file-backed and hy
       assert.equal(getBody.profile.brandKit.brand_name, 'Brand Example');
       assert.equal(getBody.profile.brandKit.source_url, 'https://brand.example/');
       assert.equal(getBody.profile.brandKit.colors.primary, '#111111');
+      assert.equal(getBody.profile.brandVoice, 'Direct, proof-led, and human.');
+      assert.equal(getBody.profile.styleVibe, 'Minimal editorial with confident gradients.');
       assert.deepEqual(getBody.profile.channels, ['meta-ads', 'instagram']);
     } finally {
       restoreFetch();
@@ -442,6 +450,8 @@ test('/api/marketing/jobs backfills missing onboarding fields from the persisted
             primaryGoal: 'book more calls',
             launchApproverName: 'Avery Example',
             offer: 'Operator-led launch intensives',
+            brandVoice: 'Direct, proof-led, and human.',
+            styleVibe: 'Minimal editorial with confident gradients.',
             competitorUrl: 'https://competitor.example',
             channels: ['meta-ads', 'instagram'],
           }),
@@ -485,12 +495,16 @@ test('/api/marketing/jobs backfills missing onboarding fields from the persisted
       assert.equal(runtimeDoc?.inputs.request.launchApproverName, 'Avery Example');
       assert.equal(runtimeDoc?.inputs.request.approverName, 'Avery Example');
       assert.equal(runtimeDoc?.inputs.request.offer, 'Operator-led launch intensives');
+      assert.equal(runtimeDoc?.inputs.request.brandVoice, 'Direct, proof-led, and human.');
+      assert.equal(runtimeDoc?.inputs.request.styleVibe, 'Minimal editorial with confident gradients.');
       assert.equal(runtimeDoc?.inputs.request.competitorUrl, 'https://competitor.example/');
       assert.deepEqual(runtimeDoc?.inputs.request.channels, ['meta-ads', 'instagram']);
       assert.equal(workspace?.brief.businessType, 'coaching');
       assert.equal(workspace?.brief.goal, 'book more calls');
       assert.equal(workspace?.brief.approverName, 'Avery Example');
       assert.equal(workspace?.brief.offer, 'Operator-led launch intensives');
+      assert.equal(workspace?.brief.brandVoice, 'Direct, proof-led, and human.');
+      assert.equal(workspace?.brief.styleVibe, 'Minimal editorial with confident gradients.');
       assert.equal(workspace?.brief.competitorUrl, 'https://competitor.example/');
       assert.deepEqual(workspace?.brief.channels, ['meta-ads', 'instagram']);
       assert.equal(getResponse.status, 200);
@@ -498,6 +512,8 @@ test('/api/marketing/jobs backfills missing onboarding fields from the persisted
       assert.equal(getBody.profile.primaryGoal, 'book more calls');
       assert.equal(getBody.profile.launchApproverName, 'Avery Example');
       assert.equal(getBody.profile.offer, 'Operator-led launch intensives');
+      assert.equal(getBody.profile.brandVoice, 'Direct, proof-led, and human.');
+      assert.equal(getBody.profile.styleVibe, 'Minimal editorial with confident gradients.');
       assert.equal(getBody.profile.competitorUrl, 'https://competitor.example/');
       assert.deepEqual(getBody.profile.channels, ['meta-ads', 'instagram']);
     } finally {

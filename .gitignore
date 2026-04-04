@@ -40,6 +40,9 @@ AGENTS.md
 .env.production.local
 .env.*.local
 
+# Private keys (never commit)
+*.key
+
 # Logs
 npm-debug.log*
 yarn-debug.log*
@@ -64,6 +67,16 @@ lobster/bin/__pycache__/
 SOUL.md
 USER.md
 IDENTITY.md
-
-
+MEMORY.md
+PURPOSE.md
+AGENTS.md
+HEARTBEAT.md
+TOOLS.md
+memory/*
 tmp
+
+.DS_Store
+.env
+**/*.key
+**/*.pem
+**/secrets*

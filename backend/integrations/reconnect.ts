@@ -1,6 +1,7 @@
 import { brokerError, isAllowedProvider, type OAuthBrokerError } from './connect';
 import { buildProviderAuthorizationUrl, createCodeVerifier } from './oauth-authorize-urls';
 import { dbAuditEvent, dbGetConnectionById, dbInsertPendingState, dbUpsertConnection, type DbProvider } from './oauth-db';
+import { getProviderOAuthAvailability, xClientId } from './oauth-provider-runtime';
 
 type OAuthReconnectRequest = {
   connection_id?: string;
@@ -56,6 +57,14 @@ export async function oauthReconnect(
     return brokerError('invalid_provider', { provider });
   }
 
+  const availability = getProviderOAuthAvailability(provider);
+  if (!availability.available || !availability.connectable) {
+    return brokerError('provider_unavailable', {
+      provider,
+      message: availability.message,
+    });
+  }
+
   if (!isNonEmptyString(payload.connection_id) || !isNonEmptyString(payload.redirect_uri)) {
     return brokerError('missing_required_fields', {
       provider,
@@ -78,7 +87,7 @@ export async function oauthReconnect(
   const state = randomStateToken();
   const expiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
   const scopes = normalizeScopes(payload.scopes, existingConnection.granted_scopes);
-  const codeVerifier = provider === 'x' && (process.env.X_CLIENT_ID?.trim() || '').length > 0
+  const codeVerifier = provider === 'x' && xClientId().length > 0
     ? createCodeVerifier()
     : undefined;
 
@@ -152,6 +161,8 @@ export async function handleOauthReconnectHttp(req: Request, providerFromPath?: 
   const status =
     result.broker_status === 'ok'
       ? 200
+      : result.reason === 'provider_unavailable'
+        ? 503
       : result.reason === 'missing_required_fields' || result.reason === 'invalid_provider' || result.reason === 'validation_error'
         ? 400
         : result.reason === 'connection_not_found'

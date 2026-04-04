@@ -368,8 +368,9 @@ test('/api/marketing/jobs resolves tenant context server-side and returns a fron
             jobType: 'brand_campaign',
             payload: {
               brandUrl: 'https://brand.example',
-              competitorUrl: 'CompetitorCo',
-              competitorFacebookUrl: 'https://facebook.com/competitor',
+              competitorUrl: 'https://betterup.com',
+              competitorBrand: 'BetterUp',
+              competitorFacebookUrl: 'https://facebook.com/betterupco',
             },
           }),
         }),
@@ -400,14 +401,47 @@ test('/api/marketing/jobs resolves tenant context server-side and returns a fron
       assert.equal(invokeArgs?.action, 'run');
       assert.equal(invokeArgs?.pipeline, 'marketing-pipeline.lobster');
       assert.equal(workflowArgs.brand_url, 'https://brand.example/');
-      assert.equal(workflowArgs.competitor, 'CompetitorCo');
-      assert.equal(workflowArgs.competitor_facebook_url, 'https://facebook.com/competitor');
+      assert.equal(workflowArgs.competitor_url, 'https://betterup.com/');
+      assert.equal(workflowArgs.competitor_brand, 'BetterUp');
+      assert.equal(workflowArgs.facebook_page_url, 'https://facebook.com/betterupco');
+      assert.equal(workflowArgs.competitor, 'https://betterup.com/');
+      assert.equal(workflowArgs.competitor_facebook_url, 'https://facebook.com/betterupco');
       assert.equal(workflowArgs.brand_slug, 'tenant_real');
       assert.equal(invokeArgs?.cwd, process.env.OPENCLAW_LOBSTER_CWD);
     } finally {
       restoreFetch();
       clearOpenClawTestInvoker();
     }
+  });
+});
+
+test('/api/marketing/jobs rejects Facebook URLs in competitorUrl with a precise validation error', async () => {
+  await withRuntimeEnv(async () => {
+    const { handlePostMarketingJobs } = await import('../app/api/marketing/jobs/handler');
+
+    const response = await handlePostMarketingJobs(
+      new Request('http://localhost/api/marketing/jobs', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jobType: 'brand_campaign',
+          payload: {
+            brandUrl: 'https://brand.example',
+            competitorUrl: 'https://www.facebook.com/betterupco',
+          },
+        }),
+      }),
+      async () => ({
+        userId: 'user_123',
+        tenantId: 'tenant_real',
+        tenantSlug: 'acme',
+        role: 'tenant_admin',
+      }),
+    );
+    const body = (await response.json()) as Record<string, unknown>;
+
+    assert.equal(response.status, 400);
+    assert.equal(body.error, "competitor_url must be the competitor's website, not a Facebook or Ad Library URL");
   });
 });
 
@@ -499,6 +533,7 @@ test('/api/marketing/jobs persists present onboarding setup fields into the auth
 
 test('/api/marketing/jobs returns onboarding_required when tenant context has not been established', async () => {
   const { handlePostMarketingJobs } = await import('../app/api/marketing/jobs/handler');
+  const { TenantContextError } = await import('../lib/tenant-context');
   const response = await handlePostMarketingJobs(
     new Request('http://localhost/api/marketing/jobs', {
       method: 'POST',
@@ -507,12 +542,15 @@ test('/api/marketing/jobs returns onboarding_required when tenant context has no
         jobType: 'brand_campaign',
         payload: {
           brandUrl: 'https://brand.example',
-          competitorUrl: 'https://facebook.com/competitor',
+          competitorUrl: 'https://betterup.com',
         },
       }),
     }),
     async () => {
-      throw new Error('No tenant membership found for authenticated user.');
+      throw new TenantContextError(
+        'tenant_membership_missing',
+        'No tenant membership found for authenticated user.',
+      );
     }
   );
   const body = (await response.json()) as Record<string, unknown>;
@@ -1683,12 +1721,14 @@ test('/api/marketing/jobs/:jobId hydrates brandReview and strategyReview from re
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
     const plannerPath = path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, stage2RunId, 'campaign_planner.json');
     const websiteAnalysisPath = path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, stage2RunId, 'website_brand_analysis.json');
+    const brandProfilePath = path.join(dataRoot, 'generated', 'validated', tenantId, 'brand-profile.json');
     const strategyReviewPath = path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, stage2RunId, 'strategy_review_preview.json');
     const proposalPath = path.join(process.env.OPENCLAW_LOBSTER_CWD!, 'output', 'public-sugarandleather-com-campaign-proposal.md');
 
     await mkdir(path.dirname(runtimeFile), { recursive: true });
     await mkdir(path.dirname(plannerPath), { recursive: true });
     await mkdir(path.dirname(proposalPath), { recursive: true });
+    await mkdir(path.dirname(brandProfilePath), { recursive: true });
     await writeFile(
       plannerPath,
       JSON.stringify({
@@ -1726,6 +1766,21 @@ test('/api/marketing/jobs/:jobId hydrates brandReview and strategyReview from re
           brand_voice: ['Grounded', 'Proof-led'],
           artifacts: {},
         },
+      }, null, 2),
+    );
+    await writeFile(
+      brandProfilePath,
+      JSON.stringify({
+        brand_name: 'Sugar & Leather',
+        audience: 'Founder-led teams',
+        positioning: 'Proof-led planning for founder-operators who need a sharper launch system.',
+        offer: 'Spring planning intensive',
+        primary_cta: 'Book a strategy call',
+        proof_points: [
+          'Launch plans shipped in 14 days.',
+          'Operator-led coaching with concrete milestones.',
+        ],
+        brand_voice: ['Grounded', 'Proof-led'],
       }, null, 2),
     );
     await writeFile(
@@ -1836,6 +1891,26 @@ test('/api/marketing/jobs/:jobId hydrates brandReview and strategyReview from re
     assert.notEqual(body.brandReview, null);
     assert.notEqual(body.strategyReview, null);
     assert.equal(body.brandReview.sections.some((section: { title: string }) => section.title === 'Extracted brand kit'), true);
+    assert.equal(
+      body.brandReview.sections.some(
+        (section: { title: string; body: string }) =>
+          section.title === 'Brand overview' &&
+          /Founder-led teams/.test(section.body) &&
+          /Proof-led planning for founder-operators/.test(section.body) &&
+          /Spring planning intensive/.test(section.body),
+      ),
+      true,
+    );
+    assert.equal(
+      body.brandReview.sections.some(
+        (section: { title: string; body: string }) =>
+          section.title === 'Voice and guardrails' &&
+          /Book a strategy call/.test(section.body) &&
+          /Launch plans shipped in 14 days\./.test(section.body) &&
+          /Operator-led coaching with concrete milestones\./.test(section.body),
+      ),
+      true,
+    );
     assert.equal(body.strategyReview.sections.some((section: { title: string; body: string }) => section.title === 'Full proposal' && /Proof-led coaching/.test(section.body)), true);
     assert.equal(body.strategyReview.sections.some((section: { title: string; body: string }) => section.title === 'Channel plan' && /meta-ads|instagram/i.test(section.body)), true);
     assert.equal(body.strategyReview.sections.some((section: { body: string }) => /No details yet\./.test(section.body)), false);
@@ -2017,6 +2092,202 @@ test('/api/marketing/jobs/:jobId returns brandReview null for legacy runtime doc
     assert.equal(body.brandReview, null);
     assert.equal(body.strategyReview, null);
     assert.equal(body.creativeReview, null);
+  });
+});
+
+test('/api/marketing/jobs/:jobId renders upload-only brandReview without advancing workflow', async () => {
+  await withRuntimeEnv(async () => {
+    const { handleGetMarketingJobStatus } = await import('../app/api/marketing/jobs/[jobId]/handler');
+    const { ensureCampaignWorkspaceRecord, saveCampaignWorkspaceAssets } = await import('../backend/marketing/workspace-store');
+    const jobId = 'mkt_upload_only_brand_review';
+    const tenantId = 'tenant_upload_only_brand_review';
+    const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
+
+    await mkdir(path.dirname(runtimeFile), { recursive: true });
+    await writeFile(
+      runtimeFile,
+      JSON.stringify({
+        schema_name: 'marketing_job_state_schema',
+        schema_version: '1.0.0',
+        job_id: jobId,
+        job_type: 'brand_campaign',
+        tenant_id: tenantId,
+        state: 'queued',
+        status: 'pending',
+        current_stage: 'research',
+        stage_order: ['research', 'strategy', 'production', 'publish'],
+        stages: {
+          research: { stage: 'research', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          strategy: { stage: 'strategy', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          production: { stage: 'production', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          publish: { stage: 'publish', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+        },
+        approvals: { current: null, history: [] },
+        publish_config: { platforms: ['meta-ads'], live_publish_platforms: [], video_render_platforms: [] },
+        inputs: {
+          request: {
+            brandUrl: 'https://upload-only.example',
+            businessName: 'Upload Only Co',
+            businessType: 'consulting',
+            goal: 'Drive consultation requests',
+            offer: 'Brand sprint',
+            brandVoice: 'Direct and proof-led',
+            styleVibe: 'Clean editorial',
+            visualReferences: ['https://example.com/reference-board'],
+            mustUseCopy: 'Book a brand sprint',
+            mustAvoidAesthetics: 'Neon gradients',
+            notes: 'Prefer simple layouts.',
+          },
+          brand_url: 'https://upload-only.example',
+          competitor_url: 'https://competitor.example',
+          competitor_facebook_url: null,
+        },
+        errors: [],
+        last_error: null,
+        history: [],
+        created_at: '2026-03-31T00:00:00.000Z',
+        updated_at: '2026-03-31T00:05:00.000Z',
+      }, null, 2),
+    );
+
+    const record = ensureCampaignWorkspaceRecord({
+      jobId,
+      tenantId,
+      payload: {
+        websiteUrl: 'https://upload-only.example',
+        businessName: 'Upload Only Co',
+        businessType: 'consulting',
+        goal: 'Drive consultation requests',
+        offer: 'Brand sprint',
+        brandVoice: 'Direct and proof-led',
+        styleVibe: 'Clean editorial',
+        visualReferences: ['https://example.com/reference-board'],
+        mustUseCopy: 'Book a brand sprint',
+        mustAvoidAesthetics: 'Neon gradients',
+        notes: 'Prefer simple layouts.',
+      },
+    });
+    saveCampaignWorkspaceAssets(record, [
+      {
+        name: 'brand-board.png',
+        contentType: 'image/png',
+        data: Buffer.from('brand-board'),
+      },
+    ]);
+
+    const response = await handleGetMarketingJobStatus(
+      jobId,
+      async () => ({
+        userId: 'user_upload_only',
+        tenantId,
+        tenantSlug: 'upload-only',
+        role: 'tenant_admin',
+      }),
+    );
+    const body = (await response.json()) as Record<string, any>;
+
+    assert.equal(response.status, 200);
+    assert.notEqual(body.brandReview, null);
+    assert.equal(body.workflowState, 'draft');
+    assert.equal(body.brandReview.status, 'pending_review');
+    assert.equal(body.brandReview.sections.some((section: { title: string }) => section.title === 'Intake constraints'), true);
+    assert.equal(body.brandReview.sections.some((section: { title: string }) => section.title === 'Uploaded brand assets'), true);
+    assert.equal(body.brandReview.sections.some((section: { title: string }) => section.title === 'Extracted brand kit'), false);
+    assert.equal(body.brandReview.attachments.some((attachment: { kind: string }) => attachment.kind === 'brand_asset'), true);
+  });
+});
+
+test('/api/marketing/jobs/:jobId hydrates brandReview from brand-profile.json without website-analysis.json', async () => {
+  await withRuntimeEnv(async (dataRoot) => {
+    const { handleGetMarketingJobStatus } = await import('../app/api/marketing/jobs/[jobId]/handler');
+    const jobId = 'mkt_brand_profile_only_review';
+    const tenantId = 'tenant_brand_profile_only_review';
+    const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
+    const brandProfilePath = path.join(dataRoot, 'generated', 'validated', tenantId, 'brand-profile.json');
+
+    await mkdir(path.dirname(runtimeFile), { recursive: true });
+    await mkdir(path.dirname(brandProfilePath), { recursive: true });
+    await writeFile(
+      brandProfilePath,
+      JSON.stringify({
+        brand_name: 'Brand Profile Only Co',
+        audience: 'Founder-led service businesses',
+        positioning: 'Operator-grade planning for launch teams that need a tighter offer.',
+        offer: 'Launch planning sprint',
+        primary_cta: 'Schedule a planning call',
+        proof_points: ['Built around real operator workflows.'],
+        brand_voice: ['Clear', 'Operator-first'],
+      }, null, 2),
+    );
+    await writeFile(
+      runtimeFile,
+      JSON.stringify({
+        schema_name: 'marketing_job_state_schema',
+        schema_version: '1.0.0',
+        job_id: jobId,
+        job_type: 'brand_campaign',
+        tenant_id: tenantId,
+        state: 'queued',
+        status: 'pending',
+        current_stage: 'research',
+        stage_order: ['research', 'strategy', 'production', 'publish'],
+        stages: {
+          research: { stage: 'research', status: 'completed', started_at: '2026-03-31T00:00:00.000Z', completed_at: '2026-03-31T00:05:00.000Z', failed_at: null, run_id: 'run-research', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          strategy: { stage: 'strategy', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          production: { stage: 'production', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          publish: { stage: 'publish', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+        },
+        approvals: { current: null, history: [] },
+        publish_config: { platforms: ['meta-ads'], live_publish_platforms: [], video_render_platforms: [] },
+        inputs: {
+          request: {
+            brandUrl: 'https://brand-profile-only.example',
+          },
+          brand_url: 'https://brand-profile-only.example',
+          competitor_url: 'https://competitor.example',
+          competitor_facebook_url: null,
+        },
+        errors: [],
+        last_error: null,
+        history: [],
+        created_at: '2026-03-31T00:00:00.000Z',
+        updated_at: '2026-03-31T00:05:00.000Z',
+      }, null, 2),
+    );
+
+    const response = await handleGetMarketingJobStatus(
+      jobId,
+      async () => ({
+        userId: 'user_brand_profile_only',
+        tenantId,
+        tenantSlug: 'brand-profile-only',
+        role: 'tenant_admin',
+      }),
+    );
+    const body = (await response.json()) as Record<string, any>;
+
+    assert.equal(response.status, 200);
+    assert.notEqual(body.brandReview, null);
+    assert.equal(
+      body.brandReview.sections.some(
+        (section: { title: string; body: string }) =>
+          section.title === 'Brand overview' &&
+          /Brand Profile Only Co/.test(section.body) &&
+          /Founder-led service businesses/.test(section.body) &&
+          /Operator-grade planning for launch teams/.test(section.body) &&
+          /Launch planning sprint/.test(section.body),
+      ),
+      true,
+    );
+    assert.equal(
+      body.brandReview.sections.some(
+        (section: { title: string; body: string }) =>
+          section.title === 'Voice and guardrails' &&
+          /Schedule a planning call/.test(section.body) &&
+          /Built around real operator workflows\./.test(section.body),
+      ),
+      true,
+    );
   });
 });
 
@@ -2356,6 +2627,7 @@ test('/api/marketing/jobs/:jobId resolves https-prefixed stage log run ids into 
     const tenantId = 'tenant_https_prefixed';
     const stageRunId = 'https-confidecoaching-com-1ca280f0';
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
+    const brandProfilePath = path.join(dataRoot, 'generated', 'validated', tenantId, 'brand-profile.json');
     const strategyLogPath = path.join(
       process.env.OPENCLAW_LOBSTER_CWD!,
       'output',
@@ -2380,12 +2652,25 @@ test('/api/marketing/jobs/:jobId resolves https-prefixed stage log run ids into 
     const videoScriptPath = path.join(campaignRoot, 'scripts', 'short-video-script.md');
 
     await mkdir(path.dirname(runtimeFile), { recursive: true });
+    await mkdir(path.dirname(brandProfilePath), { recursive: true });
     await mkdir(path.dirname(strategyLogPath), { recursive: true });
     await mkdir(path.dirname(productionReviewLogPath), { recursive: true });
     await mkdir(path.dirname(landingPagePath), { recursive: true });
     await mkdir(path.dirname(imagePath), { recursive: true });
     await mkdir(path.dirname(scriptPath), { recursive: true });
 
+    await writeFile(
+      brandProfilePath,
+      JSON.stringify({
+        brand_name: 'Sugar & Leather | Elite Coaching Network',
+        audience: 'Founder-led operators',
+        positioning: 'Proof-led coaching with operational rigor.',
+        offer: 'Founder intensives',
+        primary_cta: 'Book Demo',
+        proof_points: ['Operator-grade coaching systems.'],
+        brand_voice: ['Proof-led', 'Operator clarity'],
+      }, null, 2),
+    );
     await writeFile(
       strategyLogPath,
       JSON.stringify({
@@ -2937,14 +3222,184 @@ test('/api/marketing/jobs/:jobId does not leak an older Stage 4 launch review in
 
     assert.equal(response.status, 200);
     assert.equal(body.marketing_stage, 'strategy');
-    assert.equal(body.summary.headline, 'Strategy stage is ready for approval');
+    assert.equal(body.summary.headline, 'Research complete');
+    assert.equal(body.summary.subheadline, 'Research is complete. Continue to brand analysis.');
+    assert.equal(body.workflowState, 'draft');
+    assert.equal(body.brandReview, null);
+    assert.equal(body.approval.title, 'Research complete');
+    assert.equal(body.approval.message, 'Research is complete. Continue to brand analysis.');
+    assert.equal(body.approval.actionLabel, 'Continue to brand analysis');
+    assert.equal(body.approval.actionHref, `/review/${encodeURIComponent(`${jobId}::approval`)}`);
+    assert.equal(
+      body.stageCards.some(
+        (card: { stage: string; summary: string }) =>
+          card.stage === 'strategy' && card.summary === 'Research is complete. Continue to brand analysis.',
+      ),
+      true,
+    );
+    assert.equal(
+      body.timeline.some(
+        (entry: { label: string; description: string }) =>
+          entry.label === 'Brand analysis checkpoint requested' &&
+          entry.description === 'Research is complete. Continue to brand analysis.',
+      ),
+      true,
+    );
     assert.equal(body.reviewBundle, null);
     assert.equal(body.assetPreviewCards.length, 0);
     assert.equal(body.dashboard.campaign.name, 'Sugar & Leather | Elite Coaching Network');
+    assert.equal(body.dashboard.campaign.approvalActionHref, `/review/${encodeURIComponent(`${jobId}::approval`)}`);
     assert.equal(body.dashboard.assets.length, 0);
     assert.equal(body.dashboard.posts.length, 0);
     assert.equal(body.dashboard.publishItems.length, 0);
     assert.equal(body.dashboard.calendarEvents.length, 0);
+  });
+});
+
+test('buildCampaignWorkspaceView keeps upload-only brand review pending and reopens it when real brand artifacts arrive', async () => {
+  await withRuntimeEnv(async (dataRoot) => {
+    const { buildCampaignWorkspaceView } = await import('../backend/marketing/workspace-views');
+    const {
+      ensureCampaignWorkspaceRecord,
+      loadCampaignWorkspaceRecord,
+      saveCampaignWorkspaceAssets,
+      saveCampaignWorkspaceRecord,
+    } = await import('../backend/marketing/workspace-store');
+    const jobId = 'mkt_brand_review_auto_approval_guard';
+    const tenantId = 'tenant_brand_review_auto_approval_guard';
+    const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
+    const brandProfilePath = path.join(dataRoot, 'generated', 'validated', tenantId, 'brand-profile.json');
+
+    await mkdir(path.dirname(runtimeFile), { recursive: true });
+    await writeFile(
+      runtimeFile,
+      JSON.stringify({
+        schema_name: 'marketing_job_state_schema',
+        schema_version: '1.0.0',
+        job_id: jobId,
+        job_type: 'brand_campaign',
+        tenant_id: tenantId,
+        state: 'approval_required',
+        status: 'awaiting_approval',
+        current_stage: 'production',
+        stage_order: ['research', 'strategy', 'production', 'publish'],
+        stages: {
+          research: { stage: 'research', status: 'completed', started_at: '2026-03-31T00:00:00.000Z', completed_at: '2026-03-31T00:05:00.000Z', failed_at: null, run_id: 'run-research', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          strategy: { stage: 'strategy', status: 'completed', started_at: '2026-03-31T00:05:00.000Z', completed_at: '2026-03-31T00:10:00.000Z', failed_at: null, run_id: 'run-strategy', summary: null, primary_output: {}, outputs: { approval_id: 'mkta_strategy_auto_guard', workflow_step_id: 'approve_stage_2' }, artifacts: [], errors: [] },
+          production: { stage: 'production', status: 'awaiting_approval', started_at: '2026-03-31T00:10:00.000Z', completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: { approval_id: 'mkta_production_auto_guard', workflow_step_id: 'approve_stage_3' }, artifacts: [], errors: [] },
+          publish: { stage: 'publish', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+        },
+        approvals: {
+          current: {
+            stage: 'production',
+            status: 'awaiting_approval',
+            approval_id: 'mkta_production_auto_guard',
+            workflow_name: 'marketing-pipeline',
+            workflow_step_id: 'approve_stage_3',
+            title: 'Strategy review required',
+            message: 'Review the campaign proposal before production begins.',
+            requested_at: '2026-03-31T00:10:00.000Z',
+            resume_token: 'resume-production-auto-guard',
+            action_label: 'Review strategy',
+            publish_config: null,
+          },
+          history: [],
+        },
+        publish_config: { platforms: ['meta-ads'], live_publish_platforms: [], video_render_platforms: [] },
+        brand_kit: {
+          path: path.join(dataRoot, 'generated', 'validated', tenantId, 'brand-kit.json'),
+          source_url: 'https://auto-guard.example',
+          canonical_url: 'https://auto-guard.example',
+          brand_name: 'Auto Guard Co',
+          logo_urls: ['https://auto-guard.example/logo.png'],
+          colors: { primary: '#111111', secondary: '#f5f5f5', accent: '#c24d2c', palette: ['#111111', '#f5f5f5', '#c24d2c'] },
+          font_families: ['Manrope'],
+          external_links: [],
+          extracted_at: '2026-03-31T00:04:00.000Z',
+          brand_voice_summary: 'Direct and proof-led.',
+        },
+        inputs: {
+          request: {
+            brandUrl: 'https://auto-guard.example',
+            businessName: 'Auto Guard Co',
+            goal: 'Drive qualified calls',
+            offer: 'Planning sprint',
+            brandVoice: 'Direct and proof-led',
+          },
+          brand_url: 'https://auto-guard.example',
+          competitor_url: 'https://competitor.example',
+          competitor_facebook_url: null,
+        },
+        errors: [],
+        last_error: null,
+        history: [],
+        created_at: '2026-03-31T00:00:00.000Z',
+        updated_at: '2026-03-31T00:10:00.000Z',
+      }, null, 2),
+    );
+
+    const record = ensureCampaignWorkspaceRecord({
+      jobId,
+      tenantId,
+      payload: {
+        websiteUrl: 'https://auto-guard.example',
+        businessName: 'Auto Guard Co',
+        goal: 'Drive qualified calls',
+        offer: 'Planning sprint',
+        brandVoice: 'Direct and proof-led',
+      },
+    });
+    saveCampaignWorkspaceAssets(record, [
+      {
+        name: 'logo-lockup.png',
+        contentType: 'image/png',
+        data: Buffer.from('logo-lockup'),
+      },
+    ]);
+
+    const uploadOnlyView = buildCampaignWorkspaceView(jobId);
+    let savedRecord = loadCampaignWorkspaceRecord(jobId, tenantId);
+
+    assert.equal(uploadOnlyView.workflowState, 'draft');
+    assert.equal(uploadOnlyView.brandReview?.status, 'pending_review');
+    assert.equal(savedRecord?.stage_reviews.brand.status, 'pending_review');
+    assert.equal(savedRecord?.stage_reviews.brand.evidenceKind, 'upload_only');
+
+    savedRecord = {
+      ...savedRecord!,
+      stage_reviews: {
+        ...savedRecord!.stage_reviews,
+        brand: {
+          ...savedRecord!.stage_reviews.brand,
+          status: 'approved',
+          latestNote: 'Keep the uploaded logo lockup.',
+          evidenceKind: 'upload_only',
+        },
+      },
+    };
+    saveCampaignWorkspaceRecord(savedRecord);
+
+    await mkdir(path.dirname(brandProfilePath), { recursive: true });
+    await writeFile(
+      brandProfilePath,
+      JSON.stringify({
+        brand_name: 'Auto Guard Co',
+        audience: 'Founder-led teams',
+        positioning: 'Operator-led planning for launches that need sharper proof.',
+        offer: 'Planning sprint',
+        primary_cta: 'Book a planning call',
+        proof_points: ['Proof-driven operating plans.'],
+        brand_voice: ['Direct', 'Proof-led'],
+      }, null, 2),
+    );
+
+    const realArtifactView = buildCampaignWorkspaceView(jobId);
+    savedRecord = loadCampaignWorkspaceRecord(jobId, tenantId);
+
+    assert.equal(realArtifactView.brandReview?.status, 'pending_review');
+    assert.equal(savedRecord?.stage_reviews.brand.status, 'pending_review');
+    assert.equal(savedRecord?.stage_reviews.brand.evidenceKind, 'real_artifacts');
+    assert.equal(savedRecord?.stage_reviews.brand.latestNote, 'Keep the uploaded logo lockup.');
   });
 });
 
@@ -4006,7 +4461,7 @@ test('/api/marketing/jobs/:jobId/approve resolves tenant context server-side and
             jobType: 'brand_campaign',
             payload: {
               brandUrl: 'https://brand.example',
-              competitorUrl: 'https://facebook.com/competitor',
+              competitorUrl: 'https://betterup.com',
             },
           }),
         }),
@@ -4103,14 +4558,111 @@ test('/api/marketing/reviews/[reviewId] decodes encoded review ids before loadin
     const { handleGetMarketingReviewItem } = await import('../app/api/marketing/reviews/[reviewId]/route');
     const jobsRoot = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs');
     const jobId = 'mkt_review_encoded';
+    const runtimeDoc = makeApprovalReviewRuntimeDoc({
+      dataRoot,
+      jobId,
+      tenantId: 'tenant_review',
+    }) as Record<string, any>;
+
+    runtimeDoc.inputs.request = {
+      websiteUrl: 'https://tenant_review.example.com',
+      competitorUrl: 'https://betterup.com',
+      businessName: 'Brand Example',
+      businessType: 'B2B SaaS',
+      goal: 'Book walkthroughs',
+      offer: 'Proof-led launch audit',
+      brandVoice: 'Grounded and direct',
+      styleVibe: 'Minimal and editorial',
+      notes: 'Lead with concrete proof points.',
+    };
+    runtimeDoc.stages.research.summary = {
+      summary: 'Competitive research is complete.',
+      highlight: 'Proof-led hooks are winning.',
+    };
+    runtimeDoc.stages.research.artifacts = [
+      {
+        id: 'research-summary',
+        stage: 'research',
+        title: 'Competitor research summary',
+        category: 'analysis',
+        status: 'completed',
+        summary: 'BetterUp leans on proof-led executive outcomes.',
+        details: [
+          'Competitor: betterup.com',
+          'Ads reviewed: 6',
+          'Trust-building testimonials outperform abstract inspiration.',
+        ],
+        path: path.join(process.env.LOBSTER_STAGE1_CACHE_DIR!, 'run-research', 'ads_analyst_compile.json'),
+        preview_path: null,
+      },
+    ];
+    runtimeDoc.stages.research.primary_output = {
+      run_id: 'run-research',
+      executive_summary: {
+        market_positioning: 'Competitive research is complete.',
+        campaign_takeaway: 'Proof-led hooks are winning.',
+      },
+    };
+    runtimeDoc.stages.strategy.outputs = {
+      approval_id: 'mkta_review',
+      workflow_step_id: 'approve_stage_2',
+    };
+    runtimeDoc.approvals.current = {
+      ...runtimeDoc.approvals.current,
+      approval_id: 'mkta_review',
+      workflow_step_id: 'approve_stage_2',
+      title: 'Strategy approval required',
+      message: 'Stage 1 complete. Continue to Stage 2 and run head-of-marketing for the provided brand_url?',
+      action_label: 'Review strategy',
+    };
+    runtimeDoc.brand_kit = {
+      ...runtimeDoc.brand_kit,
+      logo_urls: ['https://tenant_review.example.com/assets/logo-wordmark.png'],
+      colors: {
+        primary: '#9c6b3e',
+        secondary: '#f3e9dd',
+        accent: '#3d2410',
+        palette: ['#9c6b3e', '#f3e9dd', '#3d2410'],
+      },
+      font_families: ['Manrope'],
+    };
+
     await mkdir(jobsRoot, { recursive: true });
+    await mkdir(path.join(process.env.LOBSTER_STAGE1_CACHE_DIR!, 'run-research'), { recursive: true });
+    await mkdir(path.dirname(runtimeDoc.brand_kit.path as string), { recursive: true });
+    await writeFile(
+      path.join(process.env.LOBSTER_STAGE1_CACHE_DIR!, 'run-research', 'ads_analyst_compile.json'),
+      JSON.stringify({
+        competitor: 'betterup.com',
+        inputs: {
+          ads_seen: 6,
+        },
+        executive_summary: {
+          market_positioning: 'BetterUp leans on proof-led executive outcomes.',
+          campaign_takeaway: 'Proof-led hooks are winning.',
+          creative_takeaway: 'Trust-building testimonials outperform abstract inspiration.',
+        },
+      }, null, 2),
+    );
+    await writeFile(
+      runtimeDoc.brand_kit.path as string,
+      JSON.stringify({
+        brand_name: 'Brand Example',
+        source_url: 'https://tenant_review.example.com',
+        canonical_url: 'https://tenant_review.example.com',
+        logo_urls: ['https://tenant_review.example.com/assets/logo-wordmark.png'],
+        colors: {
+          primary: '#9c6b3e',
+          secondary: '#f3e9dd',
+          accent: '#3d2410',
+          palette: ['#9c6b3e', '#f3e9dd', '#3d2410'],
+        },
+        font_families: ['Manrope'],
+      }, null, 2),
+    );
     await writeFile(
       path.join(jobsRoot, `${jobId}.json`),
-      JSON.stringify(makeApprovalReviewRuntimeDoc({
-        dataRoot,
-        jobId,
-        tenantId: 'tenant_review',
-      }), null, 2),
+      JSON.stringify(runtimeDoc, null, 2),
     );
 
     const response = await handleGetMarketingReviewItem(
@@ -4123,9 +4675,40 @@ test('/api/marketing/reviews/[reviewId] decodes encoded review ids before loadin
       }),
     );
     const body = (await response.json()) as Record<string, unknown>;
+    const review = body.review as {
+      id: string;
+      sections: Array<{
+        title: string;
+        body: string;
+        brandKitVisuals?: {
+          logos: string[];
+          colors: Array<{ label: string; hex: string }>;
+          fonts: Array<{ label: string; family: string; sampleText: string }>;
+        };
+      }>;
+      attachments: Array<{ label: string }>;
+    };
+    const researchSummarySection = review.sections.find((section) => section.title === 'Research summary');
+    const campaignBriefSection = review.sections.find((section) => section.title === 'Campaign brief');
+    const extractedBrandKitSection = review.sections.find((section) => section.title === 'Extracted brand kit');
 
     assert.equal(response.status, 200);
-    assert.equal((body.review as { id: string }).id, `${jobId}::approval`);
+    assert.equal(review.id, `${jobId}::approval`);
+    assert.deepEqual(review.sections.map((section) => section.title), [
+      'Research summary',
+      'Campaign brief',
+      'Extracted brand kit',
+    ]);
+    assert.equal(review.sections.some((section) => section.body.includes('Workflow checkpoint')), false);
+    assert.equal(researchSummarySection?.body.includes('BetterUp leans on proof-led executive outcomes.'), true);
+    assert.equal(researchSummarySection?.body.includes('Competitor: betterup.com'), true);
+    assert.equal(researchSummarySection?.body.includes('Ads reviewed: 6'), true);
+    assert.equal(campaignBriefSection?.body.includes('Website:'), false);
+    assert.equal(extractedBrandKitSection?.brandKitVisuals?.logos.length, 1);
+    assert.equal(extractedBrandKitSection?.brandKitVisuals?.colors.length, 3);
+    assert.equal(extractedBrandKitSection?.brandKitVisuals?.fonts[0]?.family, 'Manrope');
+    assert.equal(review.attachments.some((attachment) => attachment.label === 'Competitor research summary'), true);
+    assert.equal(review.attachments.some((attachment) => attachment.label === 'Extracted brand kit'), true);
   });
 });
 

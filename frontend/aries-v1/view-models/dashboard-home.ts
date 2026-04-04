@@ -151,7 +151,9 @@ function mapChannelConnection(card: IntegrationCard): AriesChannelConnection {
           ? 'Needs reconnection before the next launch.'
           : card.connection_state === 'connection_error'
             ? card.error?.message || 'Connection needs attention before the next launch.'
-            : 'Not connected yet.',
+            : card.connection_state === 'disabled'
+              ? card.error?.message || 'Configured outside Aries OAuth.'
+              : 'Not connected yet.',
   };
 }
 

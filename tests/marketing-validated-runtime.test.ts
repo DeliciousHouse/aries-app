@@ -128,7 +128,7 @@ test('brand-profile contract persists to validated runtime store and syncs prese
           brand_slug: 'public-sugarandleather-com',
           website_url: 'https://sugarandleather.com/',
           canonical_url: 'https://sugarandleather.com/',
-          competitor_url: 'https://www.facebook.com/betterupco/',
+          competitor_url: 'https://betterup.com/',
           audience: 'Women rebuilding self-trust after controlling relationships.',
           positioning: 'Private coaching that helps clients recover clarity and self-trust without performative wellness language.',
           problem_statement: 'When someone has spent years adapting to control, even basic decisions can feel unsafe.',
@@ -183,7 +183,7 @@ test('brand-profile contract persists to validated runtime store and syncs prese
     assert.deepEqual(persistedBrandProfile.proof_points.length, 3);
     assert.equal(persistedBusinessProfile.business_name, 'Sugar & Leather');
     assert.equal(persistedBusinessProfile.website_url, 'https://sugarandleather.com/');
-    assert.equal(persistedBusinessProfile.competitor_url, 'https://www.facebook.com/betterupco');
+    assert.equal(persistedBusinessProfile.competitor_url, 'https://betterup.com/');
     assert.equal(persistedBusinessProfile.offer, 'Book a private Sugar & Leather consult to rebuild self-trust with direct expert support.');
     assert.equal(persistedBusinessProfile.business_type, 'coaching');
     assert.equal(persistedBusinessProfile.primary_goal, 'Book more consults');

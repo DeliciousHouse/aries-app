@@ -37,6 +37,12 @@ def main() -> int:
         "generated_at": utc_now(),
         "run_id": data.get("run_id"),
         "competitor": data.get("competitor", ""),
+        "competitor_url": data.get("competitor_url"),
+        "competitor_facebook_url": data.get("competitor_facebook_url", ""),
+        "competitorIdentity": data.get("competitorIdentity", {}),
+        "metaLocator": data.get("metaLocator", {}),
+        "evidence": data.get("evidence", {}),
+        "trustValidation": data.get("trustValidation", {}),
         "creative_findings": creative_findings,
         "creative_summary": {
             "top_pattern": creative_findings[0]["winning_pattern"] if creative_findings else "clear offer",

@@ -11,9 +11,11 @@ import type {
 } from '@/lib/api/marketing';
 import { resolveDataPath } from '@/lib/runtime-paths';
 
+import { buildMarketingAssetLinks } from './asset-library';
+import { normalizeBrandKitSignals } from './brand-kit';
 import { approveMarketingJob } from './jobs-approve';
 import { denyMarketingJob } from './orchestrator';
-import { loadMarketingJobRuntime, listMarketingJobIdsForTenant, listMarketingTenantIds } from './runtime-state';
+import { loadMarketingJobRuntime, listMarketingJobIdsForTenant, listMarketingTenantIds, type MarketingJobRuntimeDocument } from './runtime-state';
 import {
   dashboardDateRangeText,
   type MarketingDashboardAsset,
@@ -209,6 +211,65 @@ function reviewIdParts(reviewId: string): { jobId: string; itemId: string } {
   return {
     jobId: reviewId.slice(0, separator),
     itemId: reviewId.slice(separator + 2),
+  };
+}
+
+function stringValue(value: unknown, fallback = ''): string {
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value.trim();
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  return fallback;
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function labeledBlock(entries: Array<[string, string | null | undefined]>): string {
+  return entries
+    .filter(([, value]) => typeof value === 'string' && value.trim().length > 0)
+    .map(([label, value]) => `${label}: ${value}`)
+    .join('\n');
+}
+
+function formatList(items: Array<string | null | undefined>, empty = 'None provided.'): string {
+  const values = items
+    .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    .map((item) => item.trim());
+  if (values.length === 0) {
+    return empty;
+  }
+  return values.map((item) => `- ${item}`).join('\n');
+}
+
+function isApproveStage2Checkpoint(status: MarketingJobStatusResponse): boolean {
+  return status.approval?.workflowStepId === 'approve_stage_2';
+}
+
+function firstCheckpointBrandKitVisuals(
+  status: MarketingJobStatusResponse,
+  runtimeDoc: MarketingJobRuntimeDocument,
+): NonNullable<MarketingReviewSection['brandKitVisuals']> {
+  const normalized = normalizeBrandKitSignals(runtimeDoc.brand_kit);
+  const colorEntries = [
+    normalized.colors.primary ? { label: 'Primary', hex: normalized.colors.primary } : null,
+    normalized.colors.secondary ? { label: 'Secondary', hex: normalized.colors.secondary } : null,
+    normalized.colors.accent ? { label: 'Accent', hex: normalized.colors.accent } : null,
+  ].filter((entry): entry is { label: string; hex: string } => !!entry);
+
+  return {
+    logos: normalized.logo_urls.slice(0, 1),
+    colors: colorEntries,
+    fonts: normalized.font_families.slice(0, 3).map((family) => ({
+      label: family,
+      family,
+      sampleText: status.tenantName || runtimeDoc.brand_kit?.brand_name || 'Brand sample',
+    })),
   };
 }
 
@@ -556,14 +617,182 @@ function publishPreviewReviewItems(
   });
 }
 
+function firstCheckpointSections(
+  status: MarketingJobStatusResponse,
+  view: CampaignWorkspaceView,
+  runtimeDoc: MarketingJobRuntimeDocument,
+): MarketingReviewSection[] {
+  const researchCard = status.stageCards.find((card) => card.stage === 'research');
+  const researchArtifacts = status.artifacts.filter((artifact) => artifact.stage === 'research');
+  const researchArtifact = researchArtifacts[0];
+  const researchPrimaryOutput = recordValue(runtimeDoc.stages.research.primary_output);
+  const researchExecutiveSummary = recordValue(researchPrimaryOutput?.executive_summary);
+  const brief = view.campaignBrief;
+  const brandKit = runtimeDoc.brand_kit;
+  const normalizedBrandKit = normalizeBrandKitSignals(brandKit);
+  const researchDetailLines = (researchArtifact?.details || []).filter((entry) => typeof entry === 'string' && entry.trim().length > 0);
+  const hasResearchCompetitorDetail = researchDetailLines.some((entry) => /^competitor:/i.test(entry));
+  const externalLinks = Array.isArray(brandKit?.external_links)
+    ? brandKit.external_links
+        .map((link) => {
+          const entry = recordValue(link);
+          const platform = stringValue(entry?.platform);
+          const url = stringValue(entry?.url);
+          if (!platform && !url) {
+            return null;
+          }
+          return platform ? `${platform}: ${url || 'Link available'}` : url;
+        })
+        .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    : [];
+  const researchBody = [
+    stringValue(
+      researchArtifact?.summary,
+      stringValue(
+        runtimeDoc.stages.research.summary?.summary,
+        stringValue(researchExecutiveSummary?.market_positioning, researchCard?.summary || status.summary.subheadline),
+      ),
+    ),
+    stringValue(
+      runtimeDoc.stages.research.summary?.highlight,
+      stringValue(researchExecutiveSummary?.campaign_takeaway, researchCard?.highlight || ''),
+    )
+      ? `Key takeaway: ${stringValue(
+          runtimeDoc.stages.research.summary?.highlight,
+          stringValue(researchExecutiveSummary?.campaign_takeaway, researchCard?.highlight || ''),
+        )}`
+      : '',
+    ...researchDetailLines,
+    !hasResearchCompetitorDetail
+      ? stringValue(
+          brief?.competitorUrl,
+          stringValue(runtimeDoc.inputs.competitor_url),
+        )
+          ? `Competitor: ${stringValue(
+              brief?.competitorUrl,
+              stringValue(runtimeDoc.inputs.competitor_url),
+            )}`
+          : ''
+      : '',
+  ].filter((entry) => typeof entry === 'string' && entry.trim().length > 0).join('\n');
+  const campaignBriefBody = labeledBlock([
+    ['Business name', stringValue(brief?.businessName)],
+    ['Business type', stringValue(brief?.businessType)],
+    ['Goal', stringValue(brief?.goal)],
+    ['Offer', stringValue(brief?.offer)],
+    ['Channels', formatList(brief?.channels || [], '')],
+    ['Brand voice', stringValue(brief?.brandVoice)],
+    ['Style / vibe', stringValue(brief?.styleVibe)],
+    ['Visual references', formatList(brief?.visualReferences || [], '')],
+    ['Must-use copy', stringValue(brief?.mustUseCopy)],
+    ['Must-avoid aesthetics', stringValue(brief?.mustAvoidAesthetics)],
+    ['Notes', stringValue(brief?.notes)],
+  ]);
+
+  const sections: MarketingReviewSection[] = [
+    {
+      id: 'research-summary',
+      title: 'Research summary',
+      body: researchBody,
+    },
+    {
+      id: 'extracted-brand-kit',
+      title: 'Extracted brand kit',
+      body: labeledBlock([
+        ['Brand', stringValue(brandKit?.brand_name, status.tenantName || '')],
+        ['Source URL', stringValue(brandKit?.source_url, status.brandWebsiteUrl || '')],
+        ['Canonical URL', stringValue(brandKit?.canonical_url)],
+        ['Logo count', normalizedBrandKit.logo_urls.length > 0 ? String(normalizedBrandKit.logo_urls.length) : 'None detected'],
+        ['Palette', normalizedBrandKit.colors.palette.length > 0 ? 'Swatches shown below.' : 'None detected'],
+        ['Fonts', normalizedBrandKit.font_families.length > 0 ? 'Preview samples shown below.' : 'None detected'],
+        ['External links', formatList(externalLinks, '')],
+      ]),
+      brandKitVisuals: firstCheckpointBrandKitVisuals(status, runtimeDoc),
+    },
+  ];
+
+  if (campaignBriefBody.trim().length > 0) {
+    sections.splice(1, 0, {
+      id: 'campaign-brief',
+      title: 'Campaign brief',
+      body: campaignBriefBody,
+    });
+  }
+
+  if ((brief?.brandAssets.length || 0) > 0) {
+    sections.push({
+      id: 'uploaded-brand-assets',
+      title: 'Uploaded brand assets',
+      body: formatList(brief?.brandAssets.map((asset) => asset.name) || []),
+    });
+  }
+
+  return sections.filter((section) => section.body.trim().length > 0);
+}
+
+function firstCheckpointAttachments(
+  view: CampaignWorkspaceView,
+  runtimeDoc: MarketingJobRuntimeDocument,
+): MarketingReviewAttachment[] {
+  const attachments: MarketingReviewAttachment[] = [];
+  const assetLinks = new Map(buildMarketingAssetLinks(runtimeDoc.job_id, runtimeDoc).map((asset) => [asset.id, asset] as const));
+  const researchSummary = assetLinks.get('research-summary');
+  const brandKit = assetLinks.get('brand-kit-json');
+
+  if (researchSummary) {
+    attachments.push({
+      id: researchSummary.id,
+      label: researchSummary.label,
+      url: researchSummary.url,
+      contentType: researchSummary.contentType,
+      kind: 'document',
+    });
+  }
+
+  if (brandKit) {
+    attachments.push({
+      id: brandKit.id,
+      label: brandKit.label,
+      url: brandKit.url,
+      contentType: brandKit.contentType,
+      kind: 'document',
+    });
+  }
+
+  for (const asset of view.campaignBrief?.brandAssets || []) {
+    attachments.push({
+      id: asset.id,
+      label: asset.name,
+      url: asset.url,
+      contentType: asset.contentType,
+      kind: 'brand_asset',
+    });
+  }
+
+  return attachments;
+}
+
 function workflowApprovalItem(
   status: MarketingJobStatusResponse,
   view: CampaignWorkspaceView,
+  runtimeDoc: MarketingJobRuntimeDocument,
   campaignNameValue: string,
 ): RuntimeReviewItem | null {
   if (!status.approval) {
     return null;
   }
+
+  const firstCheckpoint = isApproveStage2Checkpoint(status);
+  const sections = firstCheckpoint
+    ? firstCheckpointSections(status, view, runtimeDoc)
+    : [
+        {
+          id: 'workflow-approval',
+          title: 'Workflow checkpoint',
+          body: status.approval.message,
+        },
+      ];
+  const attachments = firstCheckpoint ? firstCheckpointAttachments(view, runtimeDoc) : [];
 
   return {
     id: `${status.jobId}::approval`,
@@ -584,20 +813,20 @@ function workflowApprovalItem(
       label: 'Current version',
       headline: status.approval.title,
       supportingText: status.approval.message,
-      cta: view.workflowState === 'revisions_requested' ? 'Resolve revisions' : 'Approve and resume',
-      notes: status.approval.workflowStepId ? [`Workflow step: ${status.approval.workflowStepId}`] : [],
+      cta:
+        view.workflowState === 'revisions_requested'
+          ? 'Resolve revisions'
+          : status.approval.actionLabel || 'Approve and resume',
+      notes:
+        sections.length > 0
+          ? sections.map((section) => section.title)
+          : (status.approval.workflowStepId ? [`Workflow step: ${status.approval.workflowStepId}`] : []),
     },
     previousVersion: undefined,
     lastDecision: null,
     notePlaceholder: 'Add workflow context for the next operator.',
-    sections: [
-      {
-        id: 'workflow-approval',
-        title: 'Workflow checkpoint',
-        body: status.approval.message,
-      },
-    ],
-    attachments: [],
+    sections,
+    attachments,
     history: [],
   };
 }
@@ -687,7 +916,7 @@ function buildReviewItemsForJob(jobId: string): RuntimeReviewItem[] {
   }
   items.push(...publishPreviewReviewItems(status, view, campaignNameValue));
 
-  const approvalItem = workflowApprovalItem(status, view, campaignNameValue);
+  const approvalItem = workflowApprovalItem(status, view, runtimeDoc, campaignNameValue);
   if (approvalItem) {
     items.push(approvalItem);
   }

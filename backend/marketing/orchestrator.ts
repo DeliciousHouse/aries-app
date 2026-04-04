@@ -3,6 +3,13 @@ import path from 'node:path';
 
 import { resolveCodePath, resolveCodeRoot } from '@/lib/runtime-paths';
 import {
+  COMPETITOR_URL_INVALID_ERROR,
+  COMPETITOR_URL_SOCIAL_ERROR,
+  normalizeMetaLocatorUrl,
+  normalizeMetaPageId,
+  validateCanonicalCompetitorUrl,
+} from '@/lib/marketing-competitor';
+import {
   OpenClawGatewayError,
   describeLobsterResumeToken,
   isOpenClawLobsterResumeStateMissing,
@@ -63,6 +70,10 @@ export type StartMarketingJobRequest = {
   payload: {
     brandUrl?: unknown;
     competitorUrl?: unknown;
+    competitorBrand?: unknown;
+    facebookPageUrl?: unknown;
+    adLibraryUrl?: unknown;
+    metaPageId?: unknown;
     competitorFacebookUrl?: unknown;
     [key: string]: unknown;
   };
@@ -170,13 +181,22 @@ function stringValue(value: unknown, fallback = ''): string {
 
 function ensureBrandCampaignInput(input: StartMarketingJobRequest): { brandUrl: string; competitorUrl: string } {
   const brandUrl = stringValue(input.payload?.brandUrl);
-  const competitorUrl = stringValue(input.payload?.competitorUrl, brandUrl);
   const missing: string[] = [];
   if (!brandUrl) missing.push('payload.brandUrl');
   if (missing.length > 0) {
     throw new Error(`missing_required_fields:${missing.join(',')}`);
   }
-  return { brandUrl, competitorUrl };
+
+  const competitorValidation = validateCanonicalCompetitorUrl(
+    typeof input.payload?.competitorUrl === 'string' ? input.payload.competitorUrl : null,
+  );
+  if (competitorValidation.error === COMPETITOR_URL_SOCIAL_ERROR || competitorValidation.error === COMPETITOR_URL_INVALID_ERROR) {
+    throw new Error(competitorValidation.error);
+  }
+  return {
+    brandUrl,
+    competitorUrl: competitorValidation.normalized || brandUrl,
+  };
 }
 
 const MARKETING_PIPELINE_FILE = 'marketing-pipeline.lobster';
@@ -198,26 +218,44 @@ function positiveIntegerEnv(key: string, fallback: number): number {
   return parsed;
 }
 
-function marketingPipelineCwd(): string {
-  const explicit = process.env.OPENCLAW_LOBSTER_CWD?.trim();
-  if (explicit) {
-    return explicit;
-  }
+function defaultMarketingPipelineGatewayCwd(): string {
   return resolveCodeRoot() === '/app' ? 'aries-app/lobster' : resolveCodePath('lobster');
 }
 
+function marketingPipelineGatewayCwd(): string {
+  return (
+    process.env.OPENCLAW_GATEWAY_LOBSTER_CWD?.trim() ||
+    process.env.OPENCLAW_LOBSTER_CWD?.trim() ||
+    defaultMarketingPipelineGatewayCwd()
+  );
+}
+
+function marketingPipelineLocalCwd(): string {
+  return (
+    process.env.OPENCLAW_LOCAL_LOBSTER_CWD?.trim() ||
+    process.env.OPENCLAW_LOBSTER_CWD?.trim() ||
+    resolveCodePath('lobster')
+  );
+}
+
 function marketingPipelineArgs(doc: MarketingJobRuntimeDocument): Record<string, unknown> {
+  const facebookPageUrl = doc.inputs.facebook_page_url ?? doc.inputs.competitor_facebook_url ?? '';
   return {
     brand_url: doc.inputs.brand_url ?? '',
+    competitor_url: doc.inputs.competitor_url ?? '',
+    competitor_brand: doc.inputs.competitor_brand ?? '',
+    facebook_page_url: facebookPageUrl,
+    ad_library_url: doc.inputs.ad_library_url ?? '',
+    meta_page_id: doc.inputs.meta_page_id ?? '',
     competitor: doc.inputs.competitor_url ?? '',
-    competitor_facebook_url: doc.inputs.competitor_facebook_url ?? '',
+    competitor_facebook_url: facebookPageUrl,
     brand_slug: doc.tenant_id,
     agent_id: process.env.OPENCLAW_SESSION_KEY?.trim() || 'main',
   };
 }
 
 function marketingPipelinePath(): string {
-  return path.join(marketingPipelineCwd(), MARKETING_PIPELINE_FILE);
+  return path.join(marketingPipelineLocalCwd(), MARKETING_PIPELINE_FILE);
 }
 
 function marketingWorkflowTimeoutMs(): number {
@@ -234,11 +272,23 @@ function marketingWorkflowMaxStdoutBytes(): number {
   );
 }
 
+export function resolveMarketingPipelineRuntimePaths() {
+  const gatewayCwd = marketingPipelineGatewayCwd();
+  const localCwd = marketingPipelineLocalCwd();
+  const runtime = resolveOpenClawLobsterRuntimeContext({ cwd: gatewayCwd });
+  return {
+    gatewayCwd,
+    localCwd,
+    pipelinePath: path.join(localCwd, MARKETING_PIPELINE_FILE),
+    runtime,
+  };
+}
+
 function marketingWorkflowRuntimeContext() {
-  const runtime = resolveOpenClawLobsterRuntimeContext({ cwd: marketingPipelineCwd() });
+  const { pipelinePath, runtime } = resolveMarketingPipelineRuntimePaths();
   return {
     workflowName: MARKETING_WORKFLOW_NAME,
-    pipelinePath: marketingPipelinePath(),
+    pipelinePath,
     runtime,
   };
 }
@@ -330,9 +380,11 @@ function summarizePublish(primaryOutput: Record<string, unknown>) {
 }
 
 async function runMarketingPipeline(doc: MarketingJobRuntimeDocument): Promise<LobsterEnvelope> {
+  const { gatewayCwd, localCwd } = resolveMarketingPipelineRuntimePaths();
   return runOpenClawLobsterWorkflow({
     pipeline: MARKETING_PIPELINE_FILE,
-    cwd: marketingPipelineCwd(),
+    cwd: gatewayCwd,
+    localCwd,
     argsJson: JSON.stringify(marketingPipelineArgs(doc)),
     timeoutMs: marketingWorkflowTimeoutMs(),
     maxStdoutBytes: marketingWorkflowMaxStdoutBytes(),
@@ -340,10 +392,12 @@ async function runMarketingPipeline(doc: MarketingJobRuntimeDocument): Promise<L
 }
 
 async function resumeMarketingPipeline(resumeToken: string, approve = true): Promise<LobsterEnvelope> {
+  const { gatewayCwd, localCwd } = resolveMarketingPipelineRuntimePaths();
   return resumeOpenClawLobsterWorkflow({
     token: resumeToken,
     approve,
-    cwd: marketingPipelineCwd(),
+    cwd: gatewayCwd,
+    localCwd,
     timeoutMs: marketingWorkflowTimeoutMs(),
     maxStdoutBytes: marketingWorkflowMaxStdoutBytes(),
   });
@@ -680,16 +734,16 @@ async function runResearchStage(doc: MarketingJobRuntimeDocument): Promise<void>
     throw new Error('marketing_pipeline_missing_resume_token:strategy');
   }
 
-  const approval = stageApprovalMessage(
-    'strategy',
-    approvalPrompt(envelope, 'Research is complete. Approve the strategy step to continue.')
-  );
+  const approval = {
+    title: 'Research complete',
+    message: approvalPrompt(envelope, 'Research is complete. Continue to brand analysis.'),
+  };
   createAndPersistApprovalCheckpoint(doc, {
     stage: 'strategy',
     workflowStepId: 'approve_stage_2',
     title: approval.title,
     message: approval.message,
-    actionLabel: 'Review strategy',
+    actionLabel: 'Continue to brand analysis',
     resumeToken: envelope.requiresApproval.resumeToken,
     envelope,
     runId,
@@ -699,7 +753,7 @@ async function runResearchStage(doc: MarketingJobRuntimeDocument): Promise<void>
       {
         id: 'strategy-review',
         stage: 'strategy',
-        title: 'Strategy approval checkpoint',
+        title: 'Brand analysis checkpoint',
         category: 'approval',
         status: 'awaiting_approval',
         summary: approval.message,

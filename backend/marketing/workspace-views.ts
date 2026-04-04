@@ -36,6 +36,7 @@ import {
   saveCampaignWorkspaceRecord,
   syncCampaignWorkflowState,
   type CampaignStatusHistoryEntry,
+  type CampaignStageReviewEvidenceKind,
   type CampaignWorkspaceRecord,
   type MarketingCampaignWorkflowState,
   type MarketingReviewStageKey,
@@ -58,6 +59,7 @@ export type CampaignWorkspaceView = {
 
 type StagePayloadBundle = {
   websiteAnalysis: Record<string, unknown> | null;
+  brandProfile: Record<string, unknown> | null;
   campaignPlanner: Record<string, unknown> | null;
   strategyPreview: Record<string, unknown> | null;
   productionPreview: Record<string, unknown> | null;
@@ -66,6 +68,7 @@ type StagePayloadBundle = {
   proposalMarkdown: string | null;
   sources: {
     websiteAnalysis: 'runtime' | 'artifact_fallback' | 'none';
+    brandProfile: 'runtime' | 'artifact_fallback' | 'none';
     campaignPlanner: 'runtime' | 'artifact_fallback' | 'none';
     strategyPreview: 'runtime' | 'artifact_fallback' | 'none';
     productionPreview: 'runtime' | 'artifact_fallback' | 'none';
@@ -378,11 +381,15 @@ function loadStagePayloadBundle(runtimeDoc: MarketingJobRuntimeDocument): StageP
   );
 
   const runtimeWebsiteAnalysisPath = stringValue(strategyOutputs.validated_website_analysis_path) || stringValue(strategyOutputs.website_brand_analysis_path);
+  const runtimeBrandProfilePath =
+    stringValue(strategyOutputs.validated_brand_profile_path) ||
+    stringValue(strategyOutputs.brand_profile_path);
   const runtimeCampaignPlannerPath = stringValue(strategyOutputs.campaign_planner_path);
   const runtimeStrategyPreviewPath = stringValue(strategyOutputs.strategy_review_path);
   const runtimeProductionPreviewPath = stringValue(productionOutputs.production_review_path);
 
   const fallbackWebsiteAnalysisPath = stringValue(strategyFallback.outputs.website_brand_analysis_path);
+  const fallbackBrandProfilePath = stringValue(strategyFallback.outputs.validated_brand_profile_path);
   const fallbackCampaignPlannerPath = stringValue(strategyFallback.outputs.campaign_planner_path);
   const fallbackStrategyPreviewPath = stringValue(strategyFallback.outputs.strategy_review_path);
   const fallbackProductionPreviewPath = stringValue(productionFallback.outputs.production_review_path);
@@ -390,6 +397,8 @@ function loadStagePayloadBundle(runtimeDoc: MarketingJobRuntimeDocument): StageP
   const runtimeWebsiteAnalysis = recordValue(strategyOutputs.website) ||
     validatedDocs.websiteAnalysis ||
     readJsonIfExists(runtimeWebsiteAnalysisPath);
+  const runtimeBrandProfile = recordValue(strategyOutputs.brand_profile) ||
+    readJsonIfExists(runtimeBrandProfilePath);
   const runtimeCampaignPlanner = recordValue(strategyOutputs.planner) ||
     readJsonIfExists(runtimeCampaignPlannerPath);
   const runtimeStrategyPreview = recordValue(strategyOutputs.review) ||
@@ -400,6 +409,10 @@ function loadStagePayloadBundle(runtimeDoc: MarketingJobRuntimeDocument): StageP
   const websiteAnalysis = runtimeWebsiteAnalysis ||
     readJsonIfExists(fallbackWebsiteAnalysisPath) ||
     recordValue(strategyFallback.outputs.website);
+  const brandProfile = runtimeBrandProfile ||
+    validatedDocs.brandProfile ||
+    readJsonIfExists(fallbackBrandProfilePath) ||
+    recordValue(strategyFallback.outputs.brand_profile);
   const campaignPlanner = runtimeCampaignPlanner ||
     readJsonIfExists(fallbackCampaignPlannerPath) ||
     recordValue(strategyFallback.outputs.planner);
@@ -416,6 +429,7 @@ function loadStagePayloadBundle(runtimeDoc: MarketingJobRuntimeDocument): StageP
 
   return {
     websiteAnalysis,
+    brandProfile,
     campaignPlanner,
     strategyPreview,
     productionPreview,
@@ -430,6 +444,11 @@ function loadStagePayloadBundle(runtimeDoc: MarketingJobRuntimeDocument): StageP
       websiteAnalysis: runtimeWebsiteAnalysis
         ? 'runtime'
         : websiteAnalysis
+          ? 'artifact_fallback'
+          : 'none',
+      brandProfile: runtimeBrandProfile
+        ? 'runtime'
+        : brandProfile
           ? 'artifact_fallback'
           : 'none',
       campaignPlanner: runtimeCampaignPlanner
@@ -452,6 +471,68 @@ function loadStagePayloadBundle(runtimeDoc: MarketingJobRuntimeDocument): StageP
       proposalMarkdown: proposalMarkdownAsset?.filePath ? 'asset' : 'none',
     },
   };
+}
+
+function hasRealBrandArtifacts(payloads: StagePayloadBundle): boolean {
+  return !!(
+    payloads.websiteAnalysis ||
+    payloads.brandProfile ||
+    payloads.brandBibleText ||
+    payloads.designSystemCss
+  );
+}
+
+function uploadedBrandAssets(record: CampaignWorkspaceRecord): boolean {
+  return record.brief.brandAssets.length > 0;
+}
+
+function syncBrandReviewEvidenceState(
+  record: CampaignWorkspaceRecord,
+  input: {
+    brandReviewRenderable: boolean;
+    hasRealBrandArtifacts: boolean;
+  },
+): { changed: boolean; resetToPending: boolean } {
+  if (!input.brandReviewRenderable) {
+    return { changed: false, resetToPending: false };
+  }
+
+  const current = record.stage_reviews.brand;
+  const nextEvidenceKind: CampaignStageReviewEvidenceKind = input.hasRealBrandArtifacts
+    ? 'real_artifacts'
+    : 'upload_only';
+  let changed = false;
+  let resetToPending = false;
+
+  if (input.hasRealBrandArtifacts && current.evidenceKind === 'upload_only') {
+    record.stage_reviews.brand = {
+      ...current,
+      status: 'pending_review',
+      updatedAt: null,
+      evidenceKind: 'real_artifacts',
+    };
+    return {
+      changed: true,
+      resetToPending: true,
+    };
+  }
+
+  if (current.status === 'not_ready') {
+    record.stage_reviews.brand = {
+      ...current,
+      status: 'pending_review',
+      evidenceKind: nextEvidenceKind,
+    };
+    changed = true;
+  } else if (current.evidenceKind !== nextEvidenceKind) {
+    record.stage_reviews.brand = {
+      ...current,
+      evidenceKind: nextEvidenceKind,
+    };
+    changed = true;
+  }
+
+  return { changed, resetToPending };
 }
 
 function marketingAttachment(
@@ -484,9 +565,16 @@ function buildBrandReview(
   record: CampaignWorkspaceRecord,
   payloads: StagePayloadBundle,
 ): MarketingStageReviewPayload | null {
+  const hasGeneratedBrandArtifacts = hasRealBrandArtifacts(payloads);
+  const hasUploadedBrandAssets = uploadedBrandAssets(record);
+  if (!hasGeneratedBrandArtifacts && !hasUploadedBrandAssets) {
+    return null;
+  }
+
   const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id);
+  const brandProfile = payloads.brandProfile;
+  const creativeHandoff = recordValue(brandProfile?.creative_handoff);
   const brandAnalysis = recordValue(payloads.websiteAnalysis?.brand_analysis);
-  const artifacts = recordValue(payloads.websiteAnalysis?.artifacts);
   const runtimeBrandKit = runtimeDoc.brand_kit;
   const runtimeBrandName = stringValue(validatedProfile.brandName, stringValue(runtimeBrandKit?.brand_name));
   const runtimeCanonicalUrl = stringValue(validatedProfile.canonicalUrl, stringValue(runtimeBrandKit?.canonical_url));
@@ -520,55 +608,103 @@ function buildBrandReview(
   const designSystem = assetLinks.get('brand-design-system');
   const websiteAnalysis = assetLinks.get('strategy-website-analysis');
 
-  if (websiteAnalysis) {
+  if (websiteAnalysis && hasGeneratedBrandArtifacts) {
     attachments.push(marketingAttachment(websiteAnalysis.id, websiteAnalysis.label, websiteAnalysis.url, websiteAnalysis.contentType, 'document'));
   }
-  if (brandBible) {
+  if (brandBible && hasGeneratedBrandArtifacts) {
     attachments.push(marketingAttachment(brandBible.id, brandBible.label, brandBible.url, brandBible.contentType, 'document'));
   }
-  if (designSystem) {
+  if (designSystem && hasGeneratedBrandArtifacts) {
     attachments.push(marketingAttachment(designSystem.id, designSystem.label, designSystem.url, designSystem.contentType, 'artifact'));
   }
 
-  const sections: MarketingReviewSection[] = [
-    {
-      id: 'brand-overview',
-      title: 'Brand overview',
-      body: labeledBlock([
-        ['Brand', stringValue(validatedProfile.brandName, stringValue(brandAnalysis?.brand_name, runtimeBrandName))],
-        ['Website', stringValue(validatedProfile.websiteUrl, stringValue(brandAnalysis?.website_url, record.brief.websiteUrl || runtimeDoc.inputs.brand_url))],
-        ['Canonical URL', runtimeCanonicalUrl],
-        ['Brand promise', validatedLandingHooks[0] || stringValue(brandAnalysis?.brand_promise)],
-        ['Audience summary', stringValue(validatedProfile.audience, stringValue(brandAnalysis?.audience_summary))],
-        ['Positioning summary', stringValue(validatedProfile.positioning, stringValue(brandAnalysis?.positioning_summary))],
-        ['Offer summary', stringValue(validatedProfile.offer, stringValue(brandAnalysis?.offer_summary, runtimeOfferSummary))],
-      ]),
-    },
-    {
-      id: 'voice-guardrails',
-      title: 'Voice and guardrails',
-      body: labeledBlock([
-        ['Brand voice', formatList(validatedProfile.brandVoice.length > 0 ? validatedProfile.brandVoice : stringArray(brandAnalysis?.brand_voice))],
-        ['Derived voice summary', runtimeVoiceSummary],
-        ['CTA preferences', formatList(validatedProfile.primaryCta ? [validatedProfile.primaryCta] : stringArray(brandAnalysis?.cta_preferences))],
-        ['Proof points', formatList(validatedProfile.proofPoints.length > 0 ? validatedProfile.proofPoints : stringArray(brandAnalysis?.proof_points))],
-        ['Must-use copy', record.brief.mustUseCopy || 'None provided.'],
-        ['Must-avoid aesthetics', record.brief.mustAvoidAesthetics || 'None provided.'],
-      ]),
-    },
-    {
-      id: 'brand-kit',
-      title: 'Extracted brand kit',
-      body: labeledBlock([
-        ['Logo / wordmark candidates', formatList(runtimeLogoUrls)],
-        ['Palette', formatList(runtimePalette)],
-        ['Fonts', formatList(runtimeFonts)],
-        ['External links', formatList(runtimeExternalLinks.map((link) => `${link.platform}: ${link.url}`))],
-      ]),
-    },
-  ];
+  const sections: MarketingReviewSection[] = hasGeneratedBrandArtifacts
+    ? [
+        {
+          id: 'brand-overview',
+          title: 'Brand overview',
+          body: labeledBlock([
+            ['Brand', stringValue(validatedProfile.brandName, stringValue(creativeHandoff?.brand_name, stringValue(brandAnalysis?.brand_name, runtimeBrandName)))],
+            ['Website', stringValue(validatedProfile.websiteUrl, stringValue(creativeHandoff?.website_url, stringValue(brandAnalysis?.website_url, record.brief.websiteUrl || runtimeDoc.inputs.brand_url)))],
+            ['Canonical URL', stringValue(validatedProfile.canonicalUrl, stringValue(brandAnalysis?.canonical_url, runtimeCanonicalUrl))],
+            ['Brand promise', validatedLandingHooks[0] || stringValue(brandAnalysis?.brand_promise)],
+            ['Audience summary', stringValue(validatedProfile.audience, stringValue(creativeHandoff?.audience, stringValue(brandAnalysis?.audience_summary, stringValue(brandAnalysis?.audience))))],
+            ['Positioning summary', stringValue(validatedProfile.positioning, stringValue(creativeHandoff?.positioning, stringValue(brandAnalysis?.positioning_summary, stringValue(brandAnalysis?.positioning))))],
+            ['Offer summary', stringValue(validatedProfile.offer, stringValue(creativeHandoff?.offer, stringValue(brandAnalysis?.offer_summary, runtimeOfferSummary)))],
+          ]),
+        },
+        {
+          id: 'voice-guardrails',
+          title: 'Voice and guardrails',
+          body: labeledBlock([
+            [
+              'Brand voice',
+              formatList(
+                validatedProfile.brandVoice.length > 0
+                  ? validatedProfile.brandVoice
+                  : (Array.isArray(creativeHandoff?.brand_voice) ? stringArray(creativeHandoff?.brand_voice) : stringArray(brandAnalysis?.brand_voice)),
+              ),
+            ],
+            ['Derived voice summary', runtimeVoiceSummary],
+            [
+              'CTA preferences',
+              formatList(
+                validatedProfile.primaryCta
+                  ? [validatedProfile.primaryCta]
+                  : (stringValue(creativeHandoff?.primary_cta)
+                      ? [stringValue(creativeHandoff?.primary_cta)]
+                      : stringArray(brandAnalysis?.cta_preferences)),
+              ),
+            ],
+            [
+              'Proof points',
+              formatList(
+                validatedProfile.proofPoints.length > 0
+                  ? validatedProfile.proofPoints
+                  : (Array.isArray(creativeHandoff?.proof_points) ? stringArray(creativeHandoff?.proof_points) : stringArray(brandAnalysis?.proof_points)),
+              ),
+            ],
+            ['Must-use copy', record.brief.mustUseCopy || 'None provided.'],
+            ['Must-avoid aesthetics', record.brief.mustAvoidAesthetics || 'None provided.'],
+          ]),
+        },
+        {
+          id: 'brand-kit',
+          title: 'Extracted brand kit',
+          body: labeledBlock([
+            ['Logo / wordmark candidates', formatList(runtimeLogoUrls)],
+            ['Palette', formatList(runtimePalette)],
+            ['Fonts', formatList(runtimeFonts)],
+            ['External links', formatList(runtimeExternalLinks.map((link) => `${link.platform}: ${link.url}`))],
+          ]),
+        },
+      ]
+    : [
+        {
+          id: 'intake-constraints',
+          title: 'Intake constraints',
+          body: labeledBlock([
+            ['Website', record.brief.websiteUrl || runtimeDoc.inputs.brand_url],
+            ['Business name', record.brief.businessName],
+            ['Business type', record.brief.businessType],
+            ['Goal', record.brief.goal],
+            ['Offer', record.brief.offer],
+            ['Brand voice', record.brief.brandVoice],
+            ['Style / vibe', record.brief.styleVibe],
+            ['Visual references', formatList(record.brief.visualReferences)],
+            ['Must-use copy', record.brief.mustUseCopy || 'None provided.'],
+            ['Must-avoid aesthetics', record.brief.mustAvoidAesthetics || 'None provided.'],
+            ['Notes', record.brief.notes || 'None provided.'],
+          ]),
+        },
+        {
+          id: 'uploaded-brand-assets',
+          title: 'Uploaded brand assets',
+          body: formatList(record.brief.brandAssets.map((asset) => asset.name)),
+        },
+      ];
 
-  if (payloads.brandBibleText) {
+  if (hasGeneratedBrandArtifacts && payloads.brandBibleText) {
     sections.push({
       id: 'brand-bible',
       title: 'Brand bible',
@@ -576,7 +712,7 @@ function buildBrandReview(
     });
   }
 
-  if (payloads.designSystemCss) {
+  if (hasGeneratedBrandArtifacts && payloads.designSystemCss) {
     sections.push({
       id: 'design-system',
       title: 'Design system',
@@ -593,7 +729,9 @@ function buildBrandReview(
     reviewType: 'brand',
     status: record.stage_reviews.brand.status,
     title: 'Brand Review',
-    summary: stringValue(brandAnalysis?.brand_promise, runtimeVoiceSummary),
+    summary: hasGeneratedBrandArtifacts
+      ? stringValue(validatedProfile.positioning, stringValue(brandAnalysis?.brand_promise, runtimeVoiceSummary))
+      : stringValue(record.brief.brandVoice, 'Uploaded brand assets and intake constraints are ready for operator review.'),
     notePlaceholder: 'Add brand-direction notes, copy edits, or visual guardrails.',
     sections: sections.filter((section) => section.body.trim().length > 0),
     attachments,
@@ -848,6 +986,10 @@ function syncWorkspaceReviewsFromRuntime(
   record: CampaignWorkspaceRecord,
   runtimeDoc: MarketingJobRuntimeDocument,
   creativeAssetIds: string[],
+  input: {
+    hasRealBrandArtifacts: boolean;
+    allowBrandAutoApproval: boolean;
+  },
 ): boolean {
   const updatedAt = new Date().toISOString();
   let changed = false;
@@ -884,7 +1026,7 @@ function syncWorkspaceReviewsFromRuntime(
     changed = true;
   };
 
-  maybeApproveStage('brand', brandProgressed);
+  maybeApproveStage('brand', input.hasRealBrandArtifacts && input.allowBrandAutoApproval && brandProgressed);
   maybeApproveStage('strategy', strategyProgressed);
   maybeApproveStage('creative', creativeProgressed && creativeAssetIds.length > 0);
 
@@ -938,12 +1080,10 @@ export function buildCampaignWorkspaceView(jobId: string): CampaignWorkspaceView
   });
   const rawDashboard = getMarketingDashboardCampaignContent(jobId);
   const payloads = loadStagePayloadBundle(runtimeDoc);
-  const brandReady =
-    !!runtimeDoc.brand_kit ||
-    !!payloads.websiteAnalysis ||
-    !!payloads.brandBibleText ||
-    !!payloads.designSystemCss ||
-    record.brief.brandAssets.length > 0;
+  const realBrandArtifactsReady = hasRealBrandArtifacts(payloads);
+  const hasUploadedBrandAssets = uploadedBrandAssets(record);
+  const brandReviewRenderable = realBrandArtifactsReady || hasUploadedBrandAssets;
+  const brandWorkflowReady = realBrandArtifactsReady;
   const strategyReady =
     !!payloads.campaignPlanner ||
     !!payloads.strategyPreview ||
@@ -957,8 +1097,14 @@ export function buildCampaignWorkspaceView(jobId: string): CampaignWorkspaceView
     .map((asset) => asset.id);
 
   let changed = false;
-  if (brandReady) {
-    changed = ensureReviewReadyState(record, 'brand') || changed;
+  let brandReviewResetToPending = false;
+  if (brandReviewRenderable) {
+    const brandReviewState = syncBrandReviewEvidenceState(record, {
+      brandReviewRenderable,
+      hasRealBrandArtifacts: realBrandArtifactsReady,
+    });
+    changed = brandReviewState.changed || changed;
+    brandReviewResetToPending = brandReviewState.resetToPending;
   }
   if (strategyReady) {
     changed = ensureReviewReadyState(record, 'strategy') || changed;
@@ -967,13 +1113,16 @@ export function buildCampaignWorkspaceView(jobId: string): CampaignWorkspaceView
     changed = ensureReviewReadyState(record, 'creative') || changed;
     changed = ensureCreativeAssetReadyState(record, creativeAssetIds) || changed;
   }
-  changed = syncWorkspaceReviewsFromRuntime(record, runtimeDoc, creativeAssetIds) || changed;
+  changed = syncWorkspaceReviewsFromRuntime(record, runtimeDoc, creativeAssetIds, {
+    hasRealBrandArtifacts: realBrandArtifactsReady,
+    allowBrandAutoApproval: !brandReviewResetToPending,
+  }) || changed;
   if (changed) {
     saveCampaignWorkspaceRecord(record);
   }
 
   const workflowResolution = syncCampaignWorkflowState(record, {
-    brandReviewReady: brandReady,
+    brandWorkflowReady,
     strategyReviewReady: strategyReady,
     creativeReviewReady: creativeAssetIds.length > 0,
     creativeAssetIds,
@@ -989,7 +1138,7 @@ export function buildCampaignWorkspaceView(jobId: string): CampaignWorkspaceView
   });
 
   const dashboard = withGatedDashboardStatus(rawDashboard, workflowResolution.workflowState);
-  const brandReview = brandReady ? buildBrandReview(runtimeDoc, record, payloads) : null;
+  const brandReview = brandReviewRenderable ? buildBrandReview(runtimeDoc, record, payloads) : null;
   const strategyReview = strategyReady ? buildStrategyReview(runtimeDoc, record, payloads) : null;
   const creativeReview = buildCreativeReview(
     runtimeDoc,
@@ -1010,14 +1159,18 @@ export function buildCampaignWorkspaceView(jobId: string): CampaignWorkspaceView
     tenantId: runtimeDoc.tenant_id,
     brandReviewSource: brandReview
       ? payloads.sources.websiteAnalysis !== 'none'
-        ? payloads.sources.websiteAnalysis
-        : runtimeDoc.brand_kit
-          ? 'runtime_brand_kit'
-          : record.brief.brandAssets.length > 0
+        ? 'websiteAnalysis'
+        : payloads.sources.brandProfile !== 'none'
+          ? 'brandProfile'
+          : hasUploadedBrandAssets
             ? 'brief_assets'
-            : 'asset_library'
+            : 'none'
       : 'none',
-    brandReviewReason: brandReview ? 'hydrated' : 'no_real_brand_artifacts',
+    brandReviewReason: brandReview
+      ? realBrandArtifactsReady
+        ? 'hydrated'
+        : 'upload_only'
+      : 'no_real_brand_artifacts',
     strategyReviewSource: strategyReview
       ? payloads.sources.strategyPreview !== 'none'
         ? payloads.sources.strategyPreview

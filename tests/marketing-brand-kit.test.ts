@@ -157,6 +157,65 @@ function installBrandSiteFetchMock(): () => void {
   };
 }
 
+function installRenderedColorBrandSiteFetchMock(capture?: { calls: number }): () => void {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    capture && (capture.calls += 1);
+    const url = typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+
+    if (url === 'https://sugarandleather.com/') {
+      return createFetchResponse(
+        `<!doctype html>
+        <html>
+          <head>
+            <title>Sugar &amp; Leather</title>
+            <meta content="Sugar & Leather" property="og:site_name" />
+            <link href="https://sugarandleather.com/" rel="canonical" />
+            <link href="/_next/static/chunks/site.css" rel="stylesheet" />
+          </head>
+          <body class="font-sans">
+            <header>
+              <img src="/_next/image?url=%2Fbranding%2FBrandLogo.webp&w=3840&q=75" alt="Sugar & Leather logo" />
+            </header>
+            <section>
+              <span class="text-transparent bg-clip-text bg-gradient-to-r from-[#F6339A] via-[#F6339A] via-[38%] to-[#A855F7]">Full Potential</span>
+              <a class="text-[#E60076]" href="https://instagram.com/sugarandleather">Instagram</a>
+            </section>
+          </body>
+        </html>`,
+        'text/html; charset=utf-8',
+      );
+    }
+
+    if (url === 'https://sugarandleather.com/_next/static/chunks/site.css') {
+      return createFetchResponse(
+        `:root {
+          --token-red: #fb2c36;
+          --token-orange: #fe6e00;
+          --token-green: #05df72;
+          --token-indigo: #625fff;
+          --token-purple: #a855f7;
+        }
+        body {
+          font-family: Inter, "Inter Fallback", sans-serif;
+        }`,
+        'text/css; charset=utf-8',
+      );
+    }
+
+    return new Response('not found', { status: 404 });
+  }) as typeof globalThis.fetch;
+
+  return () => {
+    globalThis.fetch = originalFetch;
+  };
+}
+
 test('extractBrandKitFromWebsite derives logo, palette, fonts, and social links from the canonical brand site', async () => {
   const restoreFetch = installBrandSiteFetchMock();
 
@@ -174,7 +233,6 @@ test('extractBrandKitFromWebsite derives logo, palette, fonts, and social links 
     assert.deepEqual(brandKit.logo_urls, [
       'https://sugarandleather.com/assets/wordmark.png',
       'https://sugarandleather.com/assets/logo-mark.svg',
-      'https://sugarandleather.com/assets/social-card.jpg',
     ]);
     assert.equal(brandKit.colors.primary, '#9c6b3e');
     assert.equal(brandKit.colors.secondary, '#f3e9dd');
@@ -206,7 +264,7 @@ test('startMarketingJob persists a reusable tenant brand kit and stores a runtim
         jobType: 'brand_campaign',
         payload: {
           brandUrl: 'https://sugarandleather.com',
-          competitorUrl: 'https://facebook.com/competitor',
+          competitorUrl: 'https://betterup.com',
         },
       });
 
@@ -274,6 +332,134 @@ test('extractAndSaveTenantBrandKit reuses a fresh tenant brand kit instead of re
     assert.equal(fetchCalls, 0);
     assert.equal(brandKit.brand_name, 'Stored Sugar & Leather');
     assert.deepEqual(brandKit.font_families, ['Stored Serif']);
+  });
+});
+
+test('extractAndSaveTenantBrandKit normalizes noisy persisted brand-kit signals before reuse', async () => {
+  await withRuntimeEnv(async () => {
+    const { extractAndSaveTenantBrandKit, tenantBrandKitPath } = await import('../backend/marketing/brand-kit');
+    const filePath = tenantBrandKitPath('2');
+    await mkdir(path.dirname(filePath), { recursive: true });
+    await writeFile(
+      filePath,
+      JSON.stringify({
+        tenant_id: '2',
+        source_url: 'https://sugarandleather.com/',
+        canonical_url: 'https://sugarandleather.com/',
+        brand_name: 'Sugar & Leather',
+        logo_urls: [
+          'https://sugarandleather.com/_next/image?url=%2Fbranding%2FBrandLogo.webp&w=3840&q=75',
+          'https://sugarandleather.com/_next/image?url=%2Fimages%2Ftroy.webp&w=3840&q=75',
+          'https://sugarandleather.com/_next/image?url=%2Fimages%2Faudrey-new.webp&w=3840&q=75',
+        ],
+        colors: {
+          primary: '#f6339a',
+          secondary: '#a855f7',
+          accent: '#e60076',
+          palette: ['#f6339a', '#a855f7', '#e60076', '#00000026', '#ffffff1a'],
+        },
+        font_families: [
+          'Inter',
+          'Inter Fallback',
+          'Apple Color Emoji',
+          'SFMono-Regular',
+          'monospace)',
+        ],
+        external_links: [],
+        extracted_at: new Date().toISOString(),
+        brand_voice_summary: null,
+        offer_summary: null,
+      }, null, 2),
+    );
+
+    let fetchCalls = 0;
+    const { brandKit } = await extractAndSaveTenantBrandKit({
+      tenantId: '2',
+      brandUrl: 'https://sugarandleather.com/',
+      fetchImpl: (async () => {
+        fetchCalls += 1;
+        return new Response('unexpected', { status: 500 });
+      }) as unknown as typeof fetch,
+    });
+    const persisted = JSON.parse(await readFile(filePath, 'utf8')) as {
+      logo_urls: string[];
+      colors: { palette: string[] };
+      font_families: string[];
+    };
+
+    assert.equal(fetchCalls, 0);
+    assert.deepEqual(brandKit.logo_urls, ['https://sugarandleather.com/_next/image?url=%2Fbranding%2FBrandLogo.webp&w=3840&q=75']);
+    assert.deepEqual(brandKit.font_families, ['Inter']);
+    assert.deepEqual(brandKit.colors.palette, ['#f6339a', '#a855f7', '#e60076']);
+    assert.deepEqual(persisted.logo_urls, brandKit.logo_urls);
+    assert.deepEqual(persisted.font_families, brandKit.font_families);
+    assert.deepEqual(persisted.colors.palette, brandKit.colors.palette);
+  });
+});
+
+test('extractBrandKitFromWebsite prefers rendered HTML brand colors over raw stylesheet token dumps', async () => {
+  const restoreFetch = installRenderedColorBrandSiteFetchMock();
+
+  try {
+    const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+    const brandKit = await extractBrandKitFromWebsite({
+      tenantId: '2',
+      brandUrl: 'https://sugarandleather.com/',
+    });
+
+    assert.deepEqual(brandKit.logo_urls, ['https://sugarandleather.com/_next/image?url=%2Fbranding%2FBrandLogo.webp&w=3840&q=75']);
+    assert.deepEqual(brandKit.colors.palette, ['#f6339a', '#a855f7', '#e60076']);
+    assert.equal(brandKit.colors.primary, '#f6339a');
+    assert.equal(brandKit.colors.secondary, '#a855f7');
+    assert.equal(brandKit.colors.accent, '#e60076');
+    assert.deepEqual(brandKit.font_families, ['Inter']);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test('extractAndSaveTenantBrandKit refreshes fresh low-quality rainbow palettes instead of reusing them', async () => {
+  await withRuntimeEnv(async () => {
+    const capture = { calls: 0 };
+    const restoreFetch = installRenderedColorBrandSiteFetchMock(capture);
+
+    try {
+      const { extractAndSaveTenantBrandKit, tenantBrandKitPath } = await import('../backend/marketing/brand-kit');
+      const filePath = tenantBrandKitPath('2');
+      await mkdir(path.dirname(filePath), { recursive: true });
+      await writeFile(
+        filePath,
+        JSON.stringify({
+          tenant_id: '2',
+          source_url: 'https://sugarandleather.com/',
+          canonical_url: 'https://sugarandleather.com/',
+          brand_name: 'Sugar & Leather',
+          logo_urls: ['https://sugarandleather.com/_next/image?url=%2Fbranding%2FBrandLogo.webp&w=3840&q=75'],
+          colors: {
+            primary: '#fb2c36',
+            secondary: '#fe6e00',
+            accent: '#05df72',
+            palette: ['#fb2c36', '#fe6e00', '#05df72', '#312c85', '#a855f7'],
+          },
+          font_families: ['Inter'],
+          external_links: [],
+          extracted_at: new Date().toISOString(),
+          brand_voice_summary: null,
+          offer_summary: null,
+        }, null, 2),
+      );
+
+      const { brandKit } = await extractAndSaveTenantBrandKit({
+        tenantId: '2',
+        brandUrl: 'https://sugarandleather.com/',
+      });
+
+      assert.equal(capture.calls > 0, true);
+      assert.deepEqual(brandKit.colors.palette, ['#f6339a', '#a855f7', '#e60076']);
+      assert.equal(brandKit.colors.primary, '#f6339a');
+    } finally {
+      restoreFetch();
+    }
   });
 });
 
@@ -366,10 +552,10 @@ test('saveMarketingJobRuntime rejects brand campaign runtime documents without a
     const validDoc = createMarketingJobRuntimeDocument({
       jobId: 'mkt_brandkit_guard',
       tenantId: 'sugarandleather',
-      payload: {
-        brandUrl: 'https://sugarandleather.com',
-        competitorUrl: 'https://facebook.com/competitor',
-      },
+        payload: {
+          brandUrl: 'https://sugarandleather.com',
+          competitorUrl: 'https://betterup.com',
+        },
       brandKit: {
         path: '/tmp/brand-kit.json',
         source_url: 'https://sugarandleather.com',

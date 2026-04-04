@@ -7,6 +7,7 @@ import { isValidElement } from 'react';
 
 import MarketingNewJobPage from '../app/marketing/new-job/page';
 import MarketingNewJobScreen from '../frontend/marketing/new-job';
+import { installBrandExampleFetchMock } from './helpers/brand-example-fetch';
 import { resolveProjectRoot } from './helpers/project-root';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
@@ -25,10 +26,12 @@ async function withMarketingRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>)
   process.env.CODE_ROOT = PROJECT_ROOT;
   process.env.DATA_ROOT = dataRoot;
   process.env.OPENCLAW_LOBSTER_CWD = path.join(PROJECT_ROOT, 'lobster');
+  const restoreFetch = installBrandExampleFetchMock();
 
   try {
     return await run(dataRoot);
   } finally {
+    restoreFetch();
     if (previousCodeRoot === undefined) {
       delete process.env.CODE_ROOT;
     } else {
@@ -179,10 +182,29 @@ test('startMarketingJob rejects brand_campaign requests without a brand URL', as
           tenantId: 'tenant_123',
           jobType: 'brand_campaign',
           payload: {
-            competitorUrl: 'https://facebook.com/competitor',
+            competitorUrl: 'https://betterup.com',
           },
         }),
       /missing_required_fields:.*brandUrl/i,
+    );
+  });
+});
+
+test('startMarketingJob rejects Facebook URLs in the canonical competitor field', async () => {
+  await withMarketingRuntimeEnv(async () => {
+    const startMarketingJob = await loadStartMarketingJob();
+
+    await assert.rejects(
+      () =>
+        startMarketingJob({
+          tenantId: 'tenant_123',
+          jobType: 'brand_campaign',
+          payload: {
+            brandUrl: 'https://brand.example',
+            competitorUrl: 'https://www.facebook.com/betterupco',
+          },
+        }),
+      /competitor_url must be the competitor's website, not a Facebook or Ad Library URL/,
     );
   });
 });
@@ -201,7 +223,7 @@ test('startMarketingJob uses repo-managed runtime without legacy workflow env', 
       jobType: 'brand_campaign',
       payload: {
         brandUrl: 'https://brand.example',
-        competitorUrl: 'https://facebook.com/competitor',
+        competitorUrl: 'https://betterup.com',
       },
     });
 
@@ -214,7 +236,7 @@ test('startMarketingJob uses repo-managed runtime without legacy workflow env', 
     const firstArgs = (tracking.firstRunPayload?.args as Record<string, unknown> | undefined) ?? {};
     assert.equal(firstArgs.action, 'run');
     assert.equal(firstArgs.pipeline, 'marketing-pipeline.lobster');
-    assert.equal(firstArgs.cwd, 'lobster');
+    assert.equal(firstArgs.cwd, 'aries-app/lobster');
 
     const runtimeFile = path.join(dataRoot, 'generated', 'draft', 'marketing-jobs', `${result.jobId}.json`);
     const runtimeDoc = JSON.parse(await readFile(runtimeFile, 'utf8')) as any;
@@ -222,7 +244,7 @@ test('startMarketingJob uses repo-managed runtime without legacy workflow env', 
     assert.equal(runtimeDoc.schema_name, 'marketing_job_state_schema');
     assert.equal(runtimeDoc.job_type, 'brand_campaign');
     assert.equal(runtimeDoc.inputs?.brand_url, 'https://brand.example');
-    assert.equal(runtimeDoc.inputs?.competitor_url, 'https://facebook.com/competitor');
+    assert.equal(runtimeDoc.inputs?.competitor_url, 'https://betterup.com');
     assert.equal(runtimeDoc.state, 'approval_required');
     assert.equal(runtimeDoc.status, 'awaiting_approval');
     assert.equal(runtimeDoc.current_stage, 'strategy');
@@ -311,7 +333,7 @@ test('approveMarketingJob advances strategy, production, and publish approvals t
       jobType: 'brand_campaign',
       payload: {
         brandUrl: 'https://brand.example',
-        competitorUrl: 'https://facebook.com/competitor',
+        competitorUrl: 'https://betterup.com',
       },
     });
     const jobId = started.jobId;
@@ -488,7 +510,7 @@ test('approveMarketingJob preserves the second publish-as-paused approval checkp
       jobType: 'brand_campaign',
       payload: {
         brandUrl: 'https://brand.example',
-        competitorUrl: 'https://facebook.com/competitor',
+        competitorUrl: 'https://betterup.com',
       },
     });
 
@@ -588,7 +610,7 @@ test('approveMarketingJob preserves the active approval checkpoint when resume f
       jobType: 'brand_campaign',
       payload: {
         brandUrl: 'https://brand.example',
-        competitorUrl: 'https://facebook.com/competitor',
+        competitorUrl: 'https://betterup.com',
       },
     });
 
@@ -701,7 +723,7 @@ test('approveMarketingJob reseeds a missing Lobster resume state and retries the
       jobType: 'brand_campaign',
       payload: {
         brandUrl: 'https://brand.example',
-        competitorUrl: 'https://facebook.com/competitor',
+        competitorUrl: 'https://betterup.com',
       },
     });
 
@@ -803,10 +825,10 @@ test('approveMarketingJob backfills a missing brand kit for legacy runtime docum
         inputs: {
           request: {
             brandUrl: 'https://brand.example',
-            competitorUrl: 'https://facebook.com/competitor',
+            competitorUrl: 'https://betterup.com',
           },
           brand_url: 'https://brand.example',
-          competitor_url: 'https://facebook.com/competitor',
+          competitor_url: 'https://betterup.com',
         },
         errors: [],
         last_error: null,

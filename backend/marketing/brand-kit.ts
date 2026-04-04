@@ -29,6 +29,12 @@ export type TenantBrandKit = {
   offer_summary: string | null;
 };
 
+export type BrandKitSignalsInput = {
+  logo_urls?: string[] | null;
+  colors?: Partial<TenantBrandColors> | null;
+  font_families?: string[] | null;
+};
+
 const SOCIAL_HOSTS: Array<[platform: string, hostname: string]> = [
   ['instagram', 'instagram.com'],
   ['facebook', 'facebook.com'],
@@ -127,13 +133,53 @@ function normalizeColor(value: string): string | null {
   if (!trimmed || trimmed === 'transparent') {
     return null;
   }
-  if (!/^#[0-9a-f]{3,8}$/.test(trimmed)) {
-    return null;
+  if (/^#[0-9a-f]{3}$/.test(trimmed)) {
+    return `#${trimmed.slice(1).split('').map((digit) => digit.repeat(2)).join('')}`;
   }
-  if ((trimmed.length === 5 && trimmed.endsWith('0')) || (trimmed.length === 9 && trimmed.endsWith('00'))) {
+  if (!/^#[0-9a-f]{6}$/.test(trimmed)) {
     return null;
   }
   return trimmed;
+}
+
+function hexChannels(value: string): [number, number, number] | null {
+  const normalized = normalizeColor(value);
+  if (!normalized) {
+    return null;
+  }
+  return [
+    Number.parseInt(normalized.slice(1, 3), 16),
+    Number.parseInt(normalized.slice(3, 5), 16),
+    Number.parseInt(normalized.slice(5, 7), 16),
+  ];
+}
+
+function colorSpread(value: string): number {
+  const channels = hexChannels(value);
+  if (!channels) {
+    return 0;
+  }
+  return Math.max(...channels) - Math.min(...channels);
+}
+
+function isNeutralColor(value: string): boolean {
+  return colorSpread(value) < 16;
+}
+
+function colorHueBucket(value: string): number | null {
+  const channels = hexChannels(value);
+  if (!channels || isNeutralColor(value)) {
+    return null;
+  }
+
+  const [red, green, blue] = channels;
+  if (red >= green && red >= blue) {
+    return green >= blue ? 0 : 5;
+  }
+  if (green >= red && green >= blue) {
+    return blue >= red ? 2 : 1;
+  }
+  return red >= green ? 4 : 3;
 }
 
 function websiteHostname(url: string): string {
@@ -273,7 +319,11 @@ function cleanSentenceCandidate(value: string | null | undefined, maxLength = 22
 }
 
 function normalizeFontFamilyCandidate(value: string): string | null {
-  const cleaned = value.trim().replace(/^['"]|['"]$/g, '');
+  const cleaned = value
+    .trim()
+    .replace(/^['"]|['"]$/g, '')
+    .replace(/[);]+$/g, '')
+    .trim();
   if (!cleaned) {
     return null;
   }
@@ -284,7 +334,17 @@ function normalizeFontFamilyCandidate(value: string): string | null {
     normalized.startsWith('--') ||
     normalized.includes('var(--') ||
     normalized.includes('!important') ||
-    normalized.includes('system')
+    normalized.includes('system') ||
+    normalized.includes('fallback') ||
+    normalized.includes('emoji') ||
+    normalized.includes('symbol') ||
+    normalized.includes('mono') ||
+    normalized.includes('courier') ||
+    normalized.includes('consolas') ||
+    normalized.includes('menlo') ||
+    normalized.includes('monaco') ||
+    normalized.includes('sfmono') ||
+    normalized.includes('liberation mono')
   ) {
     return null;
   }
@@ -310,16 +370,50 @@ function extractFontFamilies(cssBlocks: string[]): string[] {
   return unique(families);
 }
 
-function extractBrandColors(html: string, cssBlocks: string[]): TenantBrandColors {
-  const themeColor = normalizeColor(extractMetaContent(html, 'name', 'theme-color') || '');
-  const palette: string[] = [];
+function weightedHtmlColors(html: string): Array<[string, number]> {
+  const counts = new Map<string, number>();
+  const patterns: Array<[RegExp, number]> = [
+    [/from-\[#([0-9a-fA-F]{6,8})\]/g, 6],
+    [/via-\[#([0-9a-fA-F]{6,8})\]/g, 4],
+    [/to-\[#([0-9a-fA-F]{6,8})\]/g, 5],
+    [/(?:bg|text|border)-\[#([0-9a-fA-F]{6,8})\]/g, 2],
+    [/style=["'][^"']*#[0-9a-fA-F]{3,8}[^"']*["']/gi, 2],
+  ];
 
-  if (themeColor) {
+  for (const [pattern, weight] of patterns) {
+    for (const match of html.matchAll(pattern)) {
+      const raw = typeof match[1] === 'string'
+        ? match[1]
+        : (match[0].match(/#[0-9a-fA-F]{3,8}/)?.[0] || '');
+      const color = normalizeColor(raw.startsWith('#') ? raw : `#${raw}`);
+      if (!color) {
+        continue;
+      }
+      counts.set(color, (counts.get(color) || 0) + weight);
+    }
+  }
+
+  const entries = [...counts.entries()].sort((left, right) => right[1] - left[1]);
+  const colorful = entries.filter(([color]) => !isNeutralColor(color));
+  return (colorful.length > 0 ? colorful : entries).slice(0, 6);
+}
+
+function extractBrandColors(html: string, cssBlocks: string[]): TenantBrandColors {
+  const palette: string[] = [];
+  const htmlColors = weightedHtmlColors(html).map(([color]) => color);
+
+  if (htmlColors.length > 0) {
+    palette.push(...htmlColors);
+  }
+
+  const themeColor = normalizeColor(extractMetaContent(html, 'name', 'theme-color') || '');
+
+  if (themeColor && palette.length === 0) {
     palette.push(themeColor);
   }
 
   for (const css of cssBlocks) {
-    for (const match of css.matchAll(/--(?:brand|color|accent|primary|secondary)[\w-]*\s*:\s*([^;}{]+)/gi)) {
+    for (const match of css.matchAll(/--(?:(?:brand|color-brand)[\w-]*|primary|secondary|accent)\s*:\s*([^;}{]+)/gi)) {
       const color = normalizeColor(match[1] || '');
       if (color) {
         palette.push(color);
@@ -327,21 +421,34 @@ function extractBrandColors(html: string, cssBlocks: string[]): TenantBrandColor
     }
   }
 
-  for (const css of cssBlocks) {
-    for (const match of css.matchAll(/#[0-9a-fA-F]{3,8}\b/g)) {
-      const color = normalizeColor(match[0]);
-      if (color) {
-        palette.push(color);
+  if (palette.length === 0) {
+    for (const css of cssBlocks) {
+      for (const match of css.matchAll(/#[0-9a-fA-F]{3,6}\b/g)) {
+        const color = normalizeColor(match[0]);
+        if (color) {
+          palette.push(color);
+        }
+        if (unique(palette).length >= 6) {
+          break;
+        }
+      }
+      if (unique(palette).length >= 6) {
+        break;
       }
     }
   }
 
-  const dedupedPalette = unique(palette);
+  const dedupedPalette = unique(palette).slice(0, 6);
+  const colorfulPalette = dedupedPalette.filter((value) => !isNeutralColor(value));
+  const prioritizedPalette = colorfulPalette.length >= 2
+    ? [...colorfulPalette, ...dedupedPalette.filter((value) => isNeutralColor(value))]
+    : dedupedPalette;
+
   return {
-    primary: dedupedPalette[0] ?? null,
-    secondary: dedupedPalette[1] ?? null,
-    accent: dedupedPalette[2] ?? null,
-    palette: dedupedPalette,
+    primary: prioritizedPalette[0] ?? null,
+    secondary: prioritizedPalette[1] ?? null,
+    accent: prioritizedPalette[2] ?? null,
+    palette: prioritizedPalette,
   };
 }
 
@@ -441,14 +548,21 @@ function scoreLogoCandidate(input: {
 }): number {
   const lowerUrl = input.url.toLowerCase();
   const alt = normalizeWhitespace(input.alt || '').toLowerCase();
-  const explicitLogoSignal = /logo|wordmark|logotype|lockup|brand|mark/.test(lowerUrl) || /logo|wordmark|logotype|lockup|brand|mark/.test(alt);
+  const explicitLogoSignal =
+    /logo|wordmark|logotype|lockup|brandlogo|brand-logo|brandmark|logo-mark/.test(lowerUrl) ||
+    /logo|wordmark|logotype|lockup|brandlogo|brand-logo|brandmark|logo mark/.test(alt);
   let score = 0;
 
   if (input.source === 'img') score += 20;
   if (input.source === 'og') score += 8;
   if (input.source === 'link') score -= 20;
+  if (input.source === 'img' && !explicitLogoSignal) score -= 40;
+  if (input.source === 'og' && !explicitLogoSignal) score -= 20;
   if (explicitLogoSignal) {
     score += 80;
+  }
+  if (/social-card|socialcard|og-image|open-graph|hero|team|testimonial|avatar|profile|founder|portrait|headshot/.test(lowerUrl)) {
+    score -= 80;
   }
   if (/favicon|apple-touch-icon|mask-icon|mstile|android-chrome|icon-16|icon-32|icon-48/.test(lowerUrl)) {
     score -= 100;
@@ -497,12 +611,12 @@ function extractLogoUrls(html: string, baseUrl: string): string[] {
     });
   }
 
-  return unique(
-    candidates
-      .filter((candidate) => candidate.score >= 0)
-      .sort((left, right) => right.score - left.score)
-      .map((candidate) => candidate.url),
-  );
+  const sorted = candidates
+    .filter((candidate) => candidate.score >= 0)
+    .sort((left, right) => right.score - left.score);
+  const explicit = sorted.filter((candidate) => candidate.score >= 40);
+
+  return unique((explicit.length > 0 ? explicit : sorted).map((candidate) => candidate.url)).slice(0, explicit.length > 0 ? 2 : 1);
 }
 
 function likelyCtas(html: string): string[] {
@@ -600,20 +714,60 @@ async function fetchText(
   return response.text();
 }
 
+function normalizeLogoUrls(urls: string[]): string[] {
+  const candidates = urls
+    .map((url) => ({
+      url,
+      score: scoreLogoCandidate({ url, source: 'img' }),
+    }))
+    .filter((candidate) => candidate.score >= 0)
+    .sort((left, right) => right.score - left.score);
+  const explicit = candidates.filter((candidate) => candidate.score >= 40);
+  return unique((explicit.length > 0 ? explicit : candidates).map((candidate) => candidate.url)).slice(0, explicit.length > 0 ? 2 : 1);
+}
+
+function normalizeBrandColors(colors: Partial<TenantBrandColors> | null | undefined): TenantBrandColors {
+  const palette = unique([
+    normalizeColor(colors?.primary || '') || '',
+    normalizeColor(colors?.secondary || '') || '',
+    normalizeColor(colors?.accent || '') || '',
+    ...((colors?.palette || []).map((value) => normalizeColor(value) || '')),
+  ].filter(Boolean)).slice(0, 6);
+
+  return {
+    primary: palette[0] ?? null,
+    secondary: palette[1] ?? null,
+    accent: palette[2] ?? null,
+    palette,
+  };
+}
+
+function normalizeFontFamilies(families: string[]): string[] {
+  return unique(families.map((value) => normalizeFontFamilyCandidate(value) || '').filter(Boolean)).slice(0, 4);
+}
+
+export function normalizeBrandKitSignals(input: BrandKitSignalsInput | null | undefined): {
+  logo_urls: string[];
+  colors: TenantBrandColors;
+  font_families: string[];
+} {
+  return {
+    logo_urls: normalizeLogoUrls(input?.logo_urls || []),
+    colors: normalizeBrandColors(input?.colors),
+    font_families: normalizeFontFamilies(input?.font_families || []),
+  };
+}
+
 function normalizePersistedBrandKit(brandKit: TenantBrandKit): TenantBrandKit {
+  const normalizedSignals = normalizeBrandKitSignals(brandKit);
   return {
     tenant_id: brandKit.tenant_id,
     source_url: brandKit.source_url,
     canonical_url: brandKit.canonical_url ?? null,
     brand_name: brandKit.brand_name,
-    logo_urls: unique(brandKit.logo_urls || []),
-    colors: {
-      primary: normalizeColor(brandKit.colors?.primary || '') || null,
-      secondary: normalizeColor(brandKit.colors?.secondary || '') || null,
-      accent: normalizeColor(brandKit.colors?.accent || '') || null,
-      palette: unique((brandKit.colors?.palette || []).map((value) => normalizeColor(value) || '').filter(Boolean)),
-    },
-    font_families: unique((brandKit.font_families || []).map((value) => normalizeFontFamilyCandidate(value) || '').filter(Boolean)),
+    logo_urls: normalizedSignals.logo_urls,
+    colors: normalizedSignals.colors,
+    font_families: normalizedSignals.font_families,
     external_links: Array.isArray(brandKit.external_links) ? brandKit.external_links : [],
     extracted_at: brandKit.extracted_at,
     brand_voice_summary: cleanSentenceCandidate((brandKit as TenantBrandKit).brand_voice_summary || null),
@@ -633,10 +787,17 @@ function hasExtractedSignals(brandKit: TenantBrandKit): boolean {
 }
 
 function hasLowQualitySignals(brandKit: TenantBrandKit): boolean {
+  const hueBuckets = new Set(
+    brandKit.colors.palette
+      .map((value) => colorHueBucket(value))
+      .filter((value): value is number => Number.isInteger(value)),
+  );
+
   return (
     /[|•]/.test(brandKit.brand_name) ||
     brandKit.colors.palette.some((value) => !normalizeColor(value)) ||
-    brandKit.font_families.some((value) => !normalizeFontFamilyCandidate(value))
+    brandKit.font_families.some((value) => !normalizeFontFamilyCandidate(value)) ||
+    (brandKit.colors.palette.length >= 5 && hueBuckets.size >= 4)
   );
 }
 
@@ -713,8 +874,9 @@ export async function extractBrandKitFromWebsite(input: {
     offer_summary: deriveOfferSummary(html),
   };
 
-  assertTenantBrandKit(brandKit);
-  return brandKit;
+  const normalizedBrandKit = normalizePersistedBrandKit(brandKit);
+  assertTenantBrandKit(normalizedBrandKit);
+  return normalizedBrandKit;
 }
 
 export function tenantBrandKitPath(tenantId: string): string {
@@ -764,6 +926,7 @@ export async function extractAndSaveTenantBrandKit(input: {
 }): Promise<{ brandKit: TenantBrandKit; filePath: string }> {
   const existing = loadTenantBrandKit(input.tenantId);
   if (existing && isFreshBrandKit(existing, input.brandUrl)) {
+    saveTenantBrandKit(input.tenantId, existing);
     return {
       brandKit: existing,
       filePath: tenantBrandKitPath(input.tenantId),

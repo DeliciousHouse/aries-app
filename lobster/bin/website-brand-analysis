@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import os
 import json
 import re
 import subprocess
@@ -96,6 +97,59 @@ def _extract_meta_content(html: str, attribute_name: str, attribute_value: str) 
         if content_match:
             return normalize_space(content_match.group(1))
     return ""
+
+
+def _load_stage2_site_fixture() -> str:
+    inline_html = os.environ.get("LOBSTER_STAGE2_SITE_HTML", "").strip()
+    if inline_html:
+        return inline_html
+    fixture_path = os.environ.get("LOBSTER_STAGE2_SITE_HTML_FIXTURE", "").strip()
+    if fixture_path:
+        return Path(fixture_path).read_text(encoding="utf-8")
+    return ""
+
+
+def _stage1_competitor_summary(stage1_summary: dict) -> dict:
+    identity = record_or_empty(stage1_summary.get("competitorIdentity"))
+    locator = record_or_empty(stage1_summary.get("metaLocator"))
+    evidence = record_or_empty(stage1_summary.get("evidence"))
+    trust = record_or_empty(stage1_summary.get("trustValidation"))
+    competitor_url = normalize_marketing_url(
+        stage1_summary.get("competitor_url")
+        or identity.get("canonicalUrl")
+        or stage1_summary.get("competitor")
+    )
+    return {
+        "competitor": stage1_summary.get("competitor", ""),
+        "competitor_url": competitor_url,
+        "competitorIdentity": {
+            "canonicalUrl": competitor_url,
+            "canonicalDomain": normalize_space(identity.get("canonicalDomain")),
+            "brandName": normalize_space(identity.get("brandName") or stage1_summary.get("competitor")),
+            "brandTokens": list_of_strings(identity.get("brandTokens")),
+            "trustClassification": normalize_space(identity.get("trustClassification") or trust.get("classification")),
+        },
+        "metaLocator": {
+            "facebookPageUrl": normalize_space(locator.get("facebookPageUrl") or stage1_summary.get("competitor_facebook_url")),
+            "adLibraryUrl": normalize_space(locator.get("adLibraryUrl")),
+            "metaPageId": normalize_space(locator.get("metaPageId")),
+        },
+        "evidence": {
+            "ctaUrls": list_of_strings(evidence.get("ctaUrls")),
+            "ctaDomains": list_of_strings(evidence.get("ctaDomains")),
+            "landingPages": list_of_strings(evidence.get("landingPages")),
+            "aliasDomains": list_of_strings(evidence.get("aliasDomains")),
+            "notes": list_of_strings(evidence.get("notes")),
+        },
+        "trustValidation": {
+            "classification": normalize_space(trust.get("classification")),
+            "reasons": list_of_strings(trust.get("reasons")),
+            "conflicts": list_of_strings(trust.get("conflicts")),
+            "approvedAliasDomains": list_of_strings(trust.get("approvedAliasDomains")),
+        },
+        "executive_summary": record_or_empty(stage1_summary.get("executive_summary")),
+        "recommended_actions": list_of_strings(stage1_summary.get("recommended_actions")),
+    }
 
 
 def _canonical_brand_name(tenant_id: str, website_url: str, brand_kit: dict, website_html: str) -> str:
@@ -302,10 +356,12 @@ def main() -> int:
         raise SystemExit("runtime_persistence_unavailable:brand_kit_missing")
     brand_tokens = build_brand_tokens(brand_kit)
 
-    try:
-        website_html = fetch_text(website_url, timeout=20.0, headers={"User-Agent": "lobster-stage2/2.0"})
-    except Exception as exc:
-        raise SystemExit(f"stage2_live_strategy_input_required:website_fetch_failed:{type(exc).__name__}:{exc}") from exc
+    website_html = _load_stage2_site_fixture()
+    if not website_html:
+        try:
+            website_html = fetch_text(website_url, timeout=20.0, headers={"User-Agent": "lobster-stage2/2.0"})
+        except Exception as exc:
+            raise SystemExit(f"stage2_live_strategy_input_required:website_fetch_failed:{type(exc).__name__}:{exc}") from exc
 
     title = _extract_tag_text(website_html, "title")
     h1 = _extract_tag_text(website_html, "h1")
@@ -313,6 +369,7 @@ def main() -> int:
     brand_name = _canonical_brand_name(tenant_id, website_url, brand_kit, website_html)
     existing_validated_website_analysis = load_json_file(validated_document_path(tenant_id, "website-analysis.json"))
     existing_brand_analysis = record_or_empty(existing_validated_website_analysis.get("brand_analysis"))
+    stage1_competitor_summary = _stage1_competitor_summary(stage1_summary)
     prompt = _structured_analysis_prompt(
         brand_name=brand_name,
         tenant_id=tenant_id,
@@ -320,11 +377,7 @@ def main() -> int:
         title=title,
         h1=h1,
         description=description,
-        stage1_summary={
-            "competitor": stage1_summary.get("competitor", ""),
-            "executive_summary": stage1_summary.get("executive_summary", {}),
-            "recommended_actions": stage1_summary.get("recommended_actions", []),
-        },
+        stage1_summary=stage1_competitor_summary,
     )
     gemini = summarize_with_gemini(prompt=prompt, research_model=research_model)
     reused_validated_analysis = False
@@ -346,7 +399,7 @@ def main() -> int:
 
     validated_fields = _validated_analysis_fields(structured, brand_name)
     canonical_url = normalize_marketing_url(brand_kit.get("canonical_url") or website_url) or website_url
-    competitor_url = normalize_marketing_url(record_or_empty(stage1_summary).get("competitor")) or None
+    competitor_url = stage1_competitor_summary["competitor_url"] or None
 
     brand_analysis = {
         "tenant_id": tenant_id,
@@ -391,9 +444,7 @@ def main() -> int:
         },
         "design_tokens": brand_tokens,
         "stage1_summary": {
-            "competitor": stage1_summary.get("competitor", ""),
-            "executive_summary": stage1_summary.get("executive_summary", {}),
-            "recommended_actions": stage1_summary.get("recommended_actions", []),
+            **stage1_competitor_summary,
         },
     }
 

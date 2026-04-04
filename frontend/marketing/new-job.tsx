@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ArrowRight, FileUp, Rocket, Sparkles } from 'lucide-react';
 
 import type { MarketingApiError } from '@/lib/api/marketing';
+import { validateCanonicalCompetitorUrl } from '@/lib/marketing-competitor';
 import { useMarketingJobCreate, type UseMarketingJobCreateOptions } from '@/hooks/use-marketing-job-create';
 import StatusBadge from '../components/status-badge';
 
@@ -36,7 +37,7 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
   const [mustUseCopy, setMustUseCopy] = useState('');
   const [mustAvoidAesthetics, setMustAvoidAesthetics] = useState('');
   const [notes, setNotes] = useState('');
-  const [referenceUrl, setReferenceUrl] = useState('');
+  const [competitorUrl, setCompetitorUrl] = useState('');
   const [brandAssets, setBrandAssets] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -55,8 +56,14 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
     formData.set('jobType', 'brand_campaign');
     formData.set('brandUrl', trimmedWebsiteUrl);
     formData.set('websiteUrl', trimmedWebsiteUrl);
-    if (referenceUrl.trim()) {
-      formData.set('competitorUrl', referenceUrl.trim());
+    const trimmedCompetitorUrl = competitorUrl.trim();
+    if (trimmedCompetitorUrl) {
+      const validation = validateCanonicalCompetitorUrl(trimmedCompetitorUrl);
+      if (validation.error) {
+        setErrorText(validation.error);
+        return;
+      }
+      formData.set('competitorUrl', validation.normalized ?? trimmedCompetitorUrl);
     }
     if (brandVoice.trim()) {
       formData.set('brandVoice', brandVoice.trim());
@@ -233,13 +240,16 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
                 />
               </Field>
 
-              <Field label="Reference URL">
+              <Field label="Competitor website URL">
                 <input
-                  value={referenceUrl}
-                  onChange={(event) => setReferenceUrl(event.target.value)}
-                  placeholder="Optional competitor or inspiration URL"
+                  value={competitorUrl}
+                  onChange={(event) => setCompetitorUrl(event.target.value)}
+                  placeholder="Optional competitor website, e.g. https://betterup.com"
                   className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
                 />
+                <p className="mt-2 text-sm text-white/45">
+                  Enter the competitor&apos;s website. Do not paste a Facebook page or Meta Ad Library URL here.
+                </p>
               </Field>
 
               <button

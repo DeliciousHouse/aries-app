@@ -2,6 +2,10 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Globe, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import {
+  COMPETITOR_URL_INVALID_ERROR,
+  validateCanonicalCompetitorUrl,
+} from '@/lib/marketing-competitor';
 import type { UrlPreviewData } from '../types';
 
 interface UrlInputWithPreviewProps {
@@ -11,12 +15,17 @@ interface UrlInputWithPreviewProps {
   label: string;
   placeholder?: string;
   excludeUrl?: string;
+  validationMode?: 'website' | 'competitor_website';
 }
 
 const IP_REGEX = /^https?:\/\/(\d{1,3}\.){3}\d{1,3}/;
 const BLOCKLIST = ['localhost', '127.0.0.1', 'example.com', '0.0.0.0', '[::]', '[::1]'];
 
-function validateUrl(url: string, excludeUrl?: string): string | null {
+function validateUrl(
+  url: string,
+  excludeUrl?: string,
+  validationMode: 'website' | 'competitor_website' = 'website',
+): string | null {
   if (!url) return null;
 
   let parsed: URL;
@@ -51,6 +60,15 @@ function validateUrl(url: string, excludeUrl?: string): string | null {
     }
   }
 
+  if (validationMode === 'competitor_website') {
+    const validation = validateCanonicalCompetitorUrl(url);
+    if (validation.error) {
+      return validation.error === COMPETITOR_URL_INVALID_ERROR
+        ? 'Enter a valid HTTPS competitor website URL'
+        : validation.error;
+    }
+  }
+
   return null;
 }
 
@@ -61,6 +79,7 @@ export default function UrlInputWithPreview({
   label,
   placeholder = 'https://yourbrand.com',
   excludeUrl,
+  validationMode = 'website',
 }: UrlInputWithPreviewProps) {
   const [touched, setTouched] = useState(false);
   const [preview, setPreview] = useState<UrlPreviewData | null>(null);
@@ -68,8 +87,8 @@ export default function UrlInputWithPreview({
   const [previewError, setPreviewError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const validationError = touched ? validateUrl(value, excludeUrl) : null;
-  const isValidUrl = !validateUrl(value, excludeUrl) && value.length > 0;
+  const validationError = touched ? validateUrl(value, excludeUrl, validationMode) : null;
+  const isValidUrl = !validateUrl(value, excludeUrl, validationMode) && value.length > 0;
 
   useEffect(() => {
     if (!isValidUrl) {

@@ -97,7 +97,13 @@ export default function AriesSettingsScreen() {
                       <p className="text-sm text-white/45">{card.connected_account?.account_label || card.platform}</p>
                     </div>
                     <StatusChip status={card.connection_state === 'connected' ? 'approved' : card.connection_state === 'reauth_required' ? 'changes_requested' : 'draft'}>
-                      {card.connection_state === 'connected' ? 'Healthy' : card.connection_state === 'reauth_required' ? 'Needs attention' : 'Not connected'}
+                      {card.connection_state === 'connected'
+                        ? 'Healthy'
+                        : card.connection_state === 'reauth_required'
+                          ? 'Needs attention'
+                          : card.connection_state === 'disabled'
+                            ? 'Unavailable'
+                            : 'Not connected'}
                     </StatusChip>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">

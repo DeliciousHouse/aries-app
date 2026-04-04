@@ -1,6 +1,6 @@
 # Aries System Reference
 
-Last refreshed Apr 01, 2026, 21:45 PDT.
+Last refreshed Apr 03, 2026, 21:45 PDT.
 
 ## What changed today
 - No git-tracked file changes detected since local midnight.
@@ -13,12 +13,12 @@ Last refreshed Apr 01, 2026, 21:45 PDT.
 
 ## Module inventory
 - app/ 104 files
-- backend/ 70 files
+- backend/ 71 files
 - components/ 14 files
 - hooks/ 17 files
-- lib/ 17 files
+- lib/ 18 files
 - scripts/ 16 files
-- skills/ 29 files
+- skills/ 44 files
 - workflows/ 4 files
 
 ## Active cron jobs
@@ -61,23 +61,23 @@ Last refreshed Apr 01, 2026, 21:45 PDT.
 - M  .env.example
 - M  .gitignore
 - M  AGENTS.md
-- M  Dockerfile
 - M  HEARTBEAT.md
-- M  IDENTITY.md
 - M  MEMORY.md
-- A  OPERATING_STRUCTURE.md
-- D  OVERNIGHT_LOG.md
-- A  PRIORITIES.md
 - M  README-runtime.md
 - M  README.md
-- M  ROADMAP.md
-- M  ROUTE_MANIFEST.md
-- M  SETUP.md
+- A  RUNTIME.md
 - M  SOUL.md
+- M  TOOLS.md
 - M  USER.md
-- A  app/[...publicPath]/route.ts
-- M  app/api/business/profile/route.ts
+- M  app/api-docs/page.tsx
+- MM app/api/business/profile/route.ts
 - M  app/api/integrations/handlers.ts
+- MM app/api/marketing/jobs/handler.ts
+- M  backend/integrations/callback.ts
+- M  backend/integrations/connect.ts
+- M  backend/integrations/meta/connect.ts
+- M  backend/integrations/oauth-authorize-urls.ts
+- A  backend/integrations/oauth-provider-runtime.ts
 
 ## Reference date
-- 2026-04-01
+- 2026-04-03

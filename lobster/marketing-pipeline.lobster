@@ -2,6 +2,16 @@ name: marketing-pipeline
 args:
   agent_id:
     default: default
+  competitor_url:
+    default: ""
+  competitor_brand:
+    default: ""
+  facebook_page_url:
+    default: ""
+  ad_library_url:
+    default: ""
+  meta_page_id:
+    default: ""
   competitor:
     default: ""
   competitor_facebook_url:
@@ -15,9 +25,8 @@ args:
 steps:
   - id: validate_root_args
     env:
-      LOBSTER_ARG_COMPETITOR: "${competitor}"
       LOBSTER_ARG_BRAND_URL: "${brand_url}"
-    command: python3 ../bin/validate_args.py competitor brand_url
+    command: python3 ../bin/validate_args.py brand_url
   - id: requirements
     command: python3 ../bin/check_requirements.py --stage research
   - id: bootstrap
@@ -27,12 +36,30 @@ steps:
     command: |
       bash -lc '
         set -euo pipefail
-        cmd=(python3 ./bin/meta-ads-extractor --json --competitor "$1" --research-model "gemini/gemini-3-pro-image-preview" --strict-mode true)
+        cmd=(python3 ./bin/meta-ads-extractor --json --research-model "gemini/gemini-3-pro-image-preview" --strict-mode true)
+        if [ -n "$1" ]; then
+          cmd+=(--competitor-url "$1")
+        fi
         if [ -n "$2" ]; then
-          cmd+=(--competitor-facebook-url "$2")
+          cmd+=(--competitor "$2")
+        fi
+        if [ -n "$3" ]; then
+          cmd+=(--competitor-brand "$3")
+        fi
+        if [ -n "$4" ]; then
+          cmd+=(--facebook-page-url "$4")
+        fi
+        if [ -n "$5" ]; then
+          cmd+=(--ad-library-url "$5")
+        fi
+        if [ -n "$6" ]; then
+          cmd+=(--meta-page-id "$6")
+        fi
+        if [ -n "$7" ]; then
+          cmd+=(--competitor-facebook-url "$7")
         fi
         "${cmd[@]}"
-      ' -- "${competitor}" "${competitor_facebook_url}"
+      ' -- "${competitor_url}" "${competitor}" "${competitor_brand}" "${facebook_page_url}" "${ad_library_url}" "${meta_page_id}" "${competitor_facebook_url}"
 
   - id: stage_1_analyse
     command: python3 ./bin/meta-ads-analyser --json

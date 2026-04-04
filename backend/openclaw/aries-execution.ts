@@ -67,12 +67,32 @@ async function runLocalMarketingCompat(
   args: Record<string, unknown>,
 ): Promise<{ envelope: LobsterEnvelope; primaryOutput: Record<string, unknown> | null }> {
   const compatPath = path.join(configuredCwd, 'bin', 'marketing-pipeline-compat');
+  const facebookPageUrl =
+    typeof args.facebook_page_url === 'string'
+      ? args.facebook_page_url
+      : typeof args.competitor_facebook_url === 'string'
+        ? args.competitor_facebook_url
+        : '';
   const commandArgs = [
     '--json',
+    '--competitor-url',
+    typeof args.competitor_url === 'string'
+      ? args.competitor_url
+      : typeof args.competitor === 'string'
+        ? args.competitor
+        : '',
+    '--competitor-brand',
+    typeof args.competitor_brand === 'string' ? args.competitor_brand : '',
+    '--facebook-page-url',
+    facebookPageUrl,
+    '--ad-library-url',
+    typeof args.ad_library_url === 'string' ? args.ad_library_url : '',
+    '--meta-page-id',
+    typeof args.meta_page_id === 'string' ? args.meta_page_id : '',
     '--competitor',
     typeof args.competitor === 'string' ? args.competitor : '',
     '--competitor-facebook-url',
-    typeof args.competitor_facebook_url === 'string' ? args.competitor_facebook_url : '',
+    facebookPageUrl,
     '--website-url',
     typeof args.website_url === 'string' ? args.website_url : '',
     '--brand-slug',
