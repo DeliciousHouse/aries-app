@@ -16,7 +16,6 @@ Foundation files:
 
 Legacy flat skills can remain in place, but new custom skills should use the categorized layout.
 
-
 A complete AI-powered marketing workflow from competitor research to campaign launch.
 
 ## The Pipeline
