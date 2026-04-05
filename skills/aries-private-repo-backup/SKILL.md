@@ -1,11 +1,11 @@
 ---
 name: aries-private-repo-backup
-description: Run the Aries private GitHub backup automation and return only its concise operational summary. Use when asked to run the private repo backup manually or from cron.
+description: Run the Aries private GitHub backup automation and return only its concise operational summary. The automation stages current changes, commits them to a backup branch, and creates or updates a backup PR instead of pushing directly to the base branch.
 ---
 
 # Aries Private Repo Backup
 
-Use this skill when the Aries private backup should run on demand or from cron.
+Use this skill when the Aries private backup should run on demand or from cron. It now backs up current repo changes by creating or updating a backup PR instead of pushing directly to the base branch.
 
 ## Required procedure
 1. Work in `/app/aries-app`.
