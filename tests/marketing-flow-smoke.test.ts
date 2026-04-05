@@ -57,9 +57,14 @@ async function withMarketingRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>)
   }
 }
 
-test('targeted marketing verification covers create, inspect, approve, and publish-ready completion', async () => {
+test('canonical client-facing marketing smoke flow stays on the monolithic pipeline run/resume model', async () => {
   await withMarketingRuntimeEnv(async (dataRoot) => {
-    const { startMarketingJob } = await import('../backend/marketing/orchestrator');
+    const {
+      MARKETING_CLIENT_EXECUTION_MODEL,
+      MARKETING_PIPELINE_FILE,
+      MARKETING_WORKFLOW_NAME,
+      startMarketingJob,
+    } = await import('../backend/marketing/orchestrator');
     const { getMarketingJobStatus } = await import('../backend/marketing/jobs-status');
     const { approveMarketingJob } = await import('../backend/marketing/orchestrator');
     const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
@@ -166,8 +171,9 @@ test('targeted marketing verification covers create, inspect, approve, and publi
 
     assert.equal(startResult.status, 'accepted');
     assert.equal(startResult.approvalRequired, true);
+    assert.equal(MARKETING_CLIENT_EXECUTION_MODEL, 'marketing_pipeline_run_resume');
     assert.equal((startPayload as any)?.args?.action, 'run');
-    assert.equal((startPayload as any)?.args?.pipeline, 'marketing-pipeline.lobster');
+    assert.equal((startPayload as any)?.args?.pipeline, MARKETING_PIPELINE_FILE);
     assert.equal((startPayload as any)?.args?.cwd, 'aries-app/lobster');
 
     const statusBeforeApproval = getMarketingJobStatus(startResult.jobId);
@@ -177,37 +183,43 @@ test('targeted marketing verification covers create, inspect, approve, and publi
     assert.equal(statusBeforeApproval.stageStatus.strategy, 'awaiting_approval');
     assert.equal(statusBeforeApproval.approvalRequired, true);
     assert.equal(statusBeforeApproval.approval?.required, true);
+    const startedDoc = loadMarketingJobRuntime(startResult.jobId)!;
+    assert.equal(startedDoc.approvals.current?.workflow_name, MARKETING_WORKFLOW_NAME);
+    assert.equal(startedDoc.approvals.current?.workflow_step_id, 'approve_stage_2');
 
-    const doc1 = loadMarketingJobRuntime(startResult.jobId)!;
     const strategyApproval = await approveMarketingJob({
       jobId: startResult.jobId,
       tenantId: 'tenant_verify',
       approvedBy: 'verify-runner',
       approvedStages: ['strategy'],
-    }, doc1);
+    }, loadMarketingJobRuntime(startResult.jobId)!);
     assert.equal(strategyApproval.status, 'resumed');
     assert.equal(strategyApproval.resumedStage, 'production');
     assert.equal(strategyApproval.completed, false);
+    const afterStrategy = loadMarketingJobRuntime(startResult.jobId)!;
+    assert.equal(afterStrategy.approvals.current?.workflow_name, MARKETING_WORKFLOW_NAME);
+    assert.equal(afterStrategy.approvals.current?.workflow_step_id, 'approve_stage_3');
 
-    const doc2 = loadMarketingJobRuntime(startResult.jobId)!;
     const productionApproval = await approveMarketingJob({
       jobId: startResult.jobId,
       tenantId: 'tenant_verify',
       approvedBy: 'verify-runner',
       approvedStages: ['production'],
-    }, doc2);
+    }, loadMarketingJobRuntime(startResult.jobId)!);
     assert.equal(productionApproval.status, 'resumed');
     assert.equal(productionApproval.resumedStage, 'publish');
     assert.equal(productionApproval.completed, false);
+    const afterProduction = loadMarketingJobRuntime(startResult.jobId)!;
+    assert.equal(afterProduction.approvals.current?.workflow_name, MARKETING_WORKFLOW_NAME);
+    assert.equal(afterProduction.approvals.current?.workflow_step_id, 'approve_stage_4');
 
-    const doc3 = loadMarketingJobRuntime(startResult.jobId)!;
     const approvalResult = await approveMarketingJob({
       jobId: startResult.jobId,
       tenantId: 'tenant_verify',
       approvedBy: 'verify-runner',
       approvedStages: ['publish'],
       resumePublishIfNeeded: true,
-    }, doc3);
+    }, loadMarketingJobRuntime(startResult.jobId)!);
 
 
     assert.equal(approvalResult.status, 'resumed');

@@ -26,6 +26,21 @@ export type AriesOpenClawWorkflowDef = {
 
 const DEFAULT_CWD = resolveCodePath('lobster');
 
+/**
+ * Atomic marketing stage workflows are exposed through `/api/tenant/workflows/*`.
+ * Client-facing `/api/marketing/jobs*` stays on the monolithic
+ * `marketing-pipeline.lobster` orchestrator path.
+ */
+export const ARIES_ATOMIC_MARKETING_WORKFLOW_KEYS: AriesOpenClawWorkflowKey[] = [
+  'marketing_stage1_research',
+  'marketing_stage2_strategy_review',
+  'marketing_stage2_strategy_finalize',
+  'marketing_stage3_production_review',
+  'marketing_stage3_production_finalize',
+  'marketing_stage4_publish_review',
+  'marketing_stage4_publish_finalize',
+];
+
 export const ARIES_OPENCLAW_WORKFLOWS: Record<AriesOpenClawWorkflowKey, AriesOpenClawWorkflowDef> = {
   demo_start: {
     key: 'demo_start',

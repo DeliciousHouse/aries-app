@@ -823,22 +823,44 @@ export function persistBusinessProfileFieldsFromMarketingPayload(
 
 export function marketingPayloadDefaultsFromBusinessProfile(tenantId: string): PersistedMarketingProfileDefaults {
   const record = loadBusinessProfileRecord(tenantId);
-  if (!record) {
-    return {};
-  }
+  const { brandKit, latestJobId } = resolveBusinessProfileBrandKit(tenantId);
+  const validatedProfile = loadValidatedMarketingProfileSnapshot(tenantId);
+  const workspaceBrandContext = loadLatestWorkspaceBrandContext(latestJobId);
+
+  const businessName =
+    record?.business_name ??
+    validatedProfile.businessName ??
+    validatedProfile.brandName ??
+    brandKit?.brand_name ??
+    undefined;
+  const primaryGoal = record?.primary_goal ?? validatedProfile.primaryGoal ?? undefined;
+  const approverName = record?.launch_approver_name ?? validatedProfile.launchApproverName ?? undefined;
+  const offer = record?.offer ?? validatedProfile.offer ?? brandKit?.offer_summary ?? undefined;
+  const brandVoice =
+    record?.brand_voice ??
+    workspaceBrandContext.brandVoice ??
+    (validatedProfile.brandVoice.length > 0 ? validatedProfile.brandVoice.join('\n') : null) ??
+    brandKit?.brand_voice_summary ??
+    undefined;
+  const channels =
+    record?.channels && record.channels.length > 0
+      ? [...record.channels]
+      : validatedProfile.channels.length > 0
+        ? [...validatedProfile.channels]
+        : undefined;
 
   return {
-    websiteUrl: record.website_url ?? undefined,
-    businessName: record.business_name ?? undefined,
-    businessType: record.business_type ?? undefined,
-    primaryGoal: record.primary_goal ?? undefined,
-    goal: record.primary_goal ?? undefined,
-    launchApproverName: record.launch_approver_name ?? undefined,
-    approverName: record.launch_approver_name ?? undefined,
-    offer: record.offer ?? undefined,
-    brandVoice: record.brand_voice ?? undefined,
-    styleVibe: record.style_vibe ?? undefined,
-    competitorUrl: record.competitor_url ?? undefined,
-    channels: record.channels.length > 0 ? [...record.channels] : undefined,
+    websiteUrl: record?.website_url ?? validatedProfile.websiteUrl ?? brandKit?.source_url ?? undefined,
+    businessName,
+    businessType: record?.business_type ?? validatedProfile.businessType ?? undefined,
+    primaryGoal,
+    goal: primaryGoal,
+    launchApproverName: approverName,
+    approverName,
+    offer,
+    brandVoice,
+    styleVibe: record?.style_vibe ?? workspaceBrandContext.styleVibe ?? undefined,
+    competitorUrl: record?.competitor_url ?? validatedProfile.competitorUrl ?? undefined,
+    channels,
   };
 }

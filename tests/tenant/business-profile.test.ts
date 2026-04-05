@@ -152,3 +152,54 @@ test('getBusinessProfile falls back to the latest workspace brief for brand voic
     rmSync(tempDataRoot, { force: true, recursive: true });
   }
 });
+
+test('marketingPayloadDefaultsFromBusinessProfile derives defaults from validated brand analysis sources', async () => {
+  const previousDataRoot = process.env.DATA_ROOT;
+  const tempDataRoot = mkdtempSync(path.join(os.tmpdir(), 'aries-business-profile-defaults-'));
+  process.env.DATA_ROOT = tempDataRoot;
+
+  try {
+    const { marketingPayloadDefaultsFromBusinessProfile } = await import('../../backend/tenant/business-profile');
+    const validatedRoot = path.join(tempDataRoot, 'generated', 'validated', '11');
+    mkdirSync(validatedRoot, { recursive: true });
+    writeFileSync(
+      path.join(validatedRoot, 'brand-profile.json'),
+      JSON.stringify(
+        {
+          business_name: 'Sugar & Leather',
+          website_url: 'https://sugarandleather.com',
+          business_type: 'Executive coaching',
+          primary_goal: 'Book elite coaching calls',
+          launch_approver_name: 'Audrey',
+          offer: 'Elite coaching network',
+          brand_voice: ['Sophisticated', 'Provocative', 'Authoritative'],
+          competitor_url: 'https://betterup.com',
+          channels: ['meta-ads', 'landing-page'],
+        },
+        null,
+        2,
+      ),
+    );
+
+    const defaults = marketingPayloadDefaultsFromBusinessProfile('11');
+
+    assert.equal(defaults.websiteUrl, 'https://sugarandleather.com');
+    assert.equal(defaults.businessName, 'Sugar & Leather');
+    assert.equal(defaults.businessType, 'Executive coaching');
+    assert.equal(defaults.primaryGoal, 'Book elite coaching calls');
+    assert.equal(defaults.goal, 'Book elite coaching calls');
+    assert.equal(defaults.launchApproverName, 'Audrey');
+    assert.equal(defaults.approverName, 'Audrey');
+    assert.equal(defaults.offer, 'Elite coaching network');
+    assert.equal(defaults.brandVoice, 'Sophisticated\nProvocative\nAuthoritative');
+    assert.equal(defaults.competitorUrl, 'https://betterup.com/');
+    assert.deepEqual(defaults.channels, ['meta-ads', 'landing-page']);
+  } finally {
+    if (previousDataRoot === undefined) {
+      delete process.env.DATA_ROOT;
+    } else {
+      process.env.DATA_ROOT = previousDataRoot;
+    }
+    rmSync(tempDataRoot, { force: true, recursive: true });
+  }
+});
