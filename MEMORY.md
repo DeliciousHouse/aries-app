@@ -50,6 +50,9 @@ Unless Brendan explicitly reprioritizes, this remains the default top priority.
 - Default direct address: Brendan
 - Role: Head of Software Engineering
 - Timezone: America/Los_Angeles
+- GitHub username: DeliciousHouse
+- Git author name: Brendan Kam
+- Git author email: brendan3394@gmail.com
 
 ### Communication preference
 - direct

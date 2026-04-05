@@ -9,6 +9,7 @@ services:
     image: ${ARIES_APP_IMAGE:-aries-app:local}
     environment:
       HOME: /home/node
+      GH_CONFIG_DIR: /home/node/.config/gh
       NODE_ENV: production
       PORT: ${PORT:-3000}
       CODE_ROOT: /app
@@ -49,6 +50,7 @@ services:
       OPENCLAW_LOCAL_LOBSTER_CWD: ${OPENCLAW_LOCAL_LOBSTER_CWD:-/app/lobster}
     volumes:
       - aries_runtime_data:/data
+      - gh_config:/home/node/.config/gh
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
@@ -65,6 +67,7 @@ services:
     working_dir: /app/mission-control
     environment:
       HOME: /home/node
+      GH_CONFIG_DIR: /home/node/.config/gh
       NPM_CONFIG_CACHE: /home/node/.openclaw/.npm-cache
       NPM_CONFIG_PREFIX: /home/node/.openclaw/.npm-global
       OPENCLAW_GATEWAY_URL: http://openclaw-gateway:3456
@@ -75,6 +78,7 @@ services:
       - /home/node/openclaw/projects/mission-control-builder/mission-control:/app/mission-control
       - /home/node/openclaw/aries-app:/app/aries-app:ro
       - /home/node/.openclaw:/home/node/.openclaw
+      - gh_config:/home/node/.config/gh
     ports:
       - "4174:4174"
     restart: unless-stopped
@@ -89,3 +93,9 @@ networks:
 volumes:
   aries_runtime_data:
     name: aries-app_aries_runtime_data
+  gh_config:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /home/node/.config/gh

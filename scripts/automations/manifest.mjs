@@ -5,7 +5,7 @@ export const automationJobs = [
     cron: '15 */6 * * *',
     tz: 'America/Los_Angeles',
     skill: 'aries-private-repo-backup',
-    purpose: 'Stage, commit, and push repo state to the configured private GitHub remote.',
+    purpose: 'Stage current repo changes, commit them to a backup branch, and create or update a backup pull request on the configured private GitHub remote.',
   },
   {
     id: 'aries-overnight-self-improve',
