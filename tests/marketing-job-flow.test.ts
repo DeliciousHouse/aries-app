@@ -12,8 +12,12 @@ import { resolveProjectRoot } from './helpers/project-root';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
+async function loadMarketingOrchestrator() {
+  return import('../backend/marketing/orchestrator');
+}
+
 async function loadStartMarketingJob() {
-  const module = await import('../backend/marketing/orchestrator');
+  const module = await loadMarketingOrchestrator();
   return module.startMarketingJob;
 }
 
@@ -65,8 +69,8 @@ function clearOpenClawTestInvoker(): void {
 }
 
 /**
- * Production contract: one `marketing-pipeline.lobster` run, then `resume` with approval tokens
- * between human gates (see orchestrator.ts + gateway-client run/resume payloads).
+ * Canonical client-facing marketing contract: one `marketing-pipeline.lobster`
+ * run, then `resume` with approval tokens between human gates.
  */
 function installMarketingPipelineInvoker(
   tracking: { actions: string[]; resumeTokens: string[]; firstRunPayload: Record<string, unknown> | null },
@@ -209,7 +213,7 @@ test('startMarketingJob rejects Facebook URLs in the canonical competitor field'
   });
 });
 
-test('startMarketingJob uses repo-managed runtime without legacy workflow env', async () => {
+test('startMarketingJob keeps the client-facing marketing flow on the canonical monolithic pipeline contract', async () => {
   await withMarketingRuntimeEnv(async (dataRoot) => {
     const tracking = {
       actions: [] as string[],
@@ -217,7 +221,12 @@ test('startMarketingJob uses repo-managed runtime without legacy workflow env', 
       firstRunPayload: null as Record<string, unknown> | null,
     };
     installMarketingPipelineInvoker(tracking);
-    const startMarketingJob = await loadStartMarketingJob();
+    const {
+      MARKETING_CLIENT_EXECUTION_MODEL,
+      MARKETING_PIPELINE_FILE,
+      MARKETING_WORKFLOW_NAME,
+      startMarketingJob,
+    } = await loadMarketingOrchestrator();
     const result = await startMarketingJob({
       tenantId: 'tenant_123',
       jobType: 'brand_campaign',
@@ -230,12 +239,13 @@ test('startMarketingJob uses repo-managed runtime without legacy workflow env', 
     assert.equal(result.jobType, 'brand_campaign');
     assert.equal(result.jobId.includes('tenant_123'), false);
     assert.equal(result.approvalRequired, true);
+    assert.equal(MARKETING_CLIENT_EXECUTION_MODEL, 'marketing_pipeline_run_resume');
 
     assert.deepEqual(tracking.actions, ['run']);
     assert.deepEqual(tracking.resumeTokens, []);
     const firstArgs = (tracking.firstRunPayload?.args as Record<string, unknown> | undefined) ?? {};
     assert.equal(firstArgs.action, 'run');
-    assert.equal(firstArgs.pipeline, 'marketing-pipeline.lobster');
+    assert.equal(firstArgs.pipeline, MARKETING_PIPELINE_FILE);
     assert.equal(firstArgs.cwd, 'aries-app/lobster');
 
     const runtimeFile = path.join(dataRoot, 'generated', 'draft', 'marketing-jobs', `${result.jobId}.json`);
@@ -249,9 +259,12 @@ test('startMarketingJob uses repo-managed runtime without legacy workflow env', 
     assert.equal(runtimeDoc.status, 'awaiting_approval');
     assert.equal(runtimeDoc.current_stage, 'strategy');
     assert.equal(runtimeDoc.stages.research.status, 'completed');
+    assert.equal(runtimeDoc.stages.research.run_id, 'run-research');
     assert.equal(runtimeDoc.stages.strategy.status, 'awaiting_approval');
     assert.equal(runtimeDoc.stages.production.status, 'not_started');
     assert.equal(runtimeDoc.approvals.current.stage, 'strategy');
+    assert.equal(runtimeDoc.approvals.current.workflow_name, MARKETING_WORKFLOW_NAME);
+    assert.equal(runtimeDoc.approvals.current.workflow_step_id, 'approve_stage_2');
     assert.equal(runtimeDoc.approvals.current.resume_token, 'resume_strategy');
     clearOpenClawTestInvoker();
   });
@@ -322,6 +335,7 @@ test('approveMarketingJob advances strategy, production, and publish approvals t
   await withMarketingRuntimeEnv(async (dataRoot) => {
     const { approveMarketingJob } = await import('../backend/marketing/jobs-approve');
     const { startMarketingJob } = await import('../backend/marketing/jobs-start');
+    const { MARKETING_WORKFLOW_NAME } = await loadMarketingOrchestrator();
     const tracking = {
       actions: [] as string[],
       resumeTokens: [] as string[],
@@ -351,8 +365,11 @@ test('approveMarketingJob advances strategy, production, and publish approvals t
     assert.equal(strategyApproved.completed, false);
     assert.equal(runtimeDoc.current_stage, 'production');
     assert.equal(runtimeDoc.stages.strategy.status, 'completed');
+    assert.equal(runtimeDoc.stages.strategy.run_id, 'run-strategy');
     assert.equal(runtimeDoc.stages.production.status, 'awaiting_approval');
     assert.equal(runtimeDoc.approvals.current.stage, 'production');
+    assert.equal(runtimeDoc.approvals.current.workflow_name, MARKETING_WORKFLOW_NAME);
+    assert.equal(runtimeDoc.approvals.current.workflow_step_id, 'approve_stage_3');
 
     const productionApproved = await approveMarketingJob({
       jobId,
@@ -367,8 +384,11 @@ test('approveMarketingJob advances strategy, production, and publish approvals t
     assert.equal(productionApproved.completed, false);
     assert.equal(runtimeDoc.current_stage, 'publish');
     assert.equal(runtimeDoc.stages.production.status, 'completed');
+    assert.equal(runtimeDoc.stages.production.run_id, 'run-production');
     assert.equal(runtimeDoc.stages.publish.status, 'awaiting_approval');
     assert.equal(runtimeDoc.approvals.current.stage, 'publish');
+    assert.equal(runtimeDoc.approvals.current.workflow_name, MARKETING_WORKFLOW_NAME);
+    assert.equal(runtimeDoc.approvals.current.workflow_step_id, 'approve_stage_4');
 
     const publishApproved = await approveMarketingJob({
       jobId,
@@ -385,6 +405,7 @@ test('approveMarketingJob advances strategy, production, and publish approvals t
     assert.equal(runtimeDoc.state, 'completed');
     assert.equal(runtimeDoc.status, 'completed');
     assert.equal(runtimeDoc.stages.publish.status, 'completed');
+    assert.equal(runtimeDoc.stages.publish.run_id, 'run-publish');
     assert.deepEqual(tracking.actions, ['run', 'resume', 'resume', 'resume']);
     assert.deepEqual(tracking.resumeTokens, ['resume_strategy', 'resume_production', 'resume_publish']);
     assert.deepEqual(runtimeDoc.publish_config, {
@@ -400,6 +421,7 @@ test('approveMarketingJob preserves the second publish-as-paused approval checkp
   await withMarketingRuntimeEnv(async (dataRoot) => {
     const { approveMarketingJob } = await import('../backend/marketing/jobs-approve');
     const { startMarketingJob } = await import('../backend/marketing/jobs-start');
+    const { MARKETING_WORKFLOW_NAME } = await loadMarketingOrchestrator();
 
     setOpenClawTestInvoker((payload) => {
       const args = (payload.args as Record<string, unknown> | undefined) ?? {};
@@ -546,6 +568,8 @@ test('approveMarketingJob preserves the second publish-as-paused approval checkp
     assert.equal(runtimeDoc.status, 'awaiting_approval');
     assert.equal(runtimeDoc.current_stage, 'publish');
     assert.equal(runtimeDoc.approvals.current.stage, 'publish');
+    assert.equal(runtimeDoc.approvals.current.workflow_name, MARKETING_WORKFLOW_NAME);
+    assert.equal(runtimeDoc.approvals.current.workflow_step_id, 'approve_stage_4_publish');
     assert.equal(runtimeDoc.approvals.current.resume_token, 'resume_publish_paused');
     assert.deepEqual(
       runtimeDoc.stages.publish.artifacts.map((artifact: any) => artifact.id),

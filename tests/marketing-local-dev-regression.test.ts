@@ -10,6 +10,10 @@ import { resolveProjectRoot } from './helpers/project-root';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
+function hostCommandExists(command: string): boolean {
+  return spawnSync('bash', ['-lc', `command -v ${command} >/dev/null 2>&1`]).status === 0;
+}
+
 test('runOpenClawLobsterWorkflow normalizes host-checkout absolute lobster cwd for gateway calls', async () => {
   const previousCodeRoot = process.env.CODE_ROOT;
   const previousGatewayUrl = process.env.OPENCLAW_GATEWAY_URL;
@@ -120,8 +124,13 @@ test('assertMarketingRuntimeSchemas resolves the repo spec when CODE_ROOT assume
   }
 });
 
-test('runOpenClawLobsterWorkflow falls back to the local Lobster CLI when the gateway is unavailable', async () => {
-  if (spawnSync('bash', ['-lc', 'command -v lobster >/dev/null 2>&1']).status !== 0) {
+test('runOpenClawLobsterWorkflow host-mode local fallback only runs when host prerequisites exist', async (t) => {
+  const missing: string[] = [];
+  if (!hostCommandExists('lobster')) missing.push('lobster');
+  if (!hostCommandExists('openclaw')) missing.push('openclaw');
+  if (!process.env.GEMINI_API_KEY?.trim()) missing.push('GEMINI_API_KEY');
+  if (missing.length > 0) {
+    t.skip(`host-mode local fallback requires ${missing.join(', ')}`);
     return;
   }
 

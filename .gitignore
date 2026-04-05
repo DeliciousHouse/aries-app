@@ -30,7 +30,6 @@ publish/*.js.map
 .DS_Store
 
 # Local assistant / workspace notes
-AGENTS.md
 
 # Environment files
 .env
@@ -41,7 +40,6 @@ AGENTS.md
 .env.*.local
 
 # Private keys (never commit)
-*.key
 
 # Logs
 npm-debug.log*
@@ -72,6 +70,7 @@ PURPOSE.md
 AGENTS.md
 HEARTBEAT.md
 TOOLS.md
+PROTECTED_SYSTEMS.md
 memory/*
 tmp
 
@@ -80,3 +79,6 @@ tmp
 **/*.key
 **/*.pem
 **/secrets*
+*.pem
+*.key
+*.crt

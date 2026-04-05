@@ -199,8 +199,15 @@ function ensureBrandCampaignInput(input: StartMarketingJobRequest): { brandUrl: 
   };
 }
 
-const MARKETING_PIPELINE_FILE = 'marketing-pipeline.lobster';
-const MARKETING_WORKFLOW_NAME = 'marketing-pipeline';
+/**
+ * Client-facing marketing jobs intentionally stay on the monolithic
+ * `marketing-pipeline.lobster` run/resume contract. The atomic
+ * `marketing_stage*` workflows remain a separate adapter surface behind
+ * `/api/tenant/workflows/*`.
+ */
+export const MARKETING_CLIENT_EXECUTION_MODEL = 'marketing_pipeline_run_resume';
+export const MARKETING_PIPELINE_FILE = 'marketing-pipeline.lobster';
+export const MARKETING_WORKFLOW_NAME = 'marketing-pipeline';
 const DEFAULT_MARKETING_WORKFLOW_TIMEOUT_MS = 15 * 60 * 1000;
 const DEFAULT_MARKETING_WORKFLOW_MAX_STDOUT_BYTES = 8 * 1024 * 1024;
 

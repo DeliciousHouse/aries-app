@@ -9,7 +9,6 @@ services:
     image: ${ARIES_APP_IMAGE:-aries-app:local}
     environment:
       HOME: /home/node
-      GH_CONFIG_DIR: /home/node/.config/gh
       NODE_ENV: production
       PORT: ${PORT:-3000}
       CODE_ROOT: /app
@@ -51,6 +50,7 @@ services:
     volumes:
       - aries_runtime_data:/data
       - gh_config:/home/node/.config/gh
+      - git_config:/home/node/.gitconfig
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
@@ -67,7 +67,6 @@ services:
     working_dir: /app/mission-control
     environment:
       HOME: /home/node
-      GH_CONFIG_DIR: /home/node/.config/gh
       NPM_CONFIG_CACHE: /home/node/.openclaw/.npm-cache
       NPM_CONFIG_PREFIX: /home/node/.openclaw/.npm-global
       OPENCLAW_GATEWAY_URL: http://openclaw-gateway:3456
@@ -95,3 +94,5 @@ volumes:
     name: aries-app_aries_runtime_data
   gh_config:
     name: aries-app_gh_config
+  git_config:
+    name: aries-app_git_config

@@ -3403,6 +3403,106 @@ test('buildCampaignWorkspaceView keeps upload-only brand review pending and reop
   });
 });
 
+test('buildCampaignWorkspaceView backfills an empty campaign brief brand voice from validated brand analysis', async () => {
+  await withRuntimeEnv(async (dataRoot) => {
+    const { buildCampaignWorkspaceView } = await import('../backend/marketing/workspace-views');
+    const { loadCampaignWorkspaceRecord } = await import('../backend/marketing/workspace-store');
+    const jobId = 'mkt_brief_brand_voice_backfill';
+    const tenantId = 'tenant_brief_brand_voice_backfill';
+    const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
+    const brandProfilePath = path.join(dataRoot, 'generated', 'validated', tenantId, 'brand-profile.json');
+
+    await mkdir(path.dirname(runtimeFile), { recursive: true });
+    await writeFile(
+      runtimeFile,
+      JSON.stringify({
+        schema_name: 'marketing_job_state_schema',
+        schema_version: '1.0.0',
+        job_id: jobId,
+        job_type: 'brand_campaign',
+        tenant_id: tenantId,
+        state: 'approval_required',
+        status: 'awaiting_approval',
+        current_stage: 'strategy',
+        stage_order: ['research', 'strategy', 'production', 'publish'],
+        stages: {
+          research: { stage: 'research', status: 'completed', started_at: '2026-04-04T00:00:00.000Z', completed_at: '2026-04-04T00:05:00.000Z', failed_at: null, run_id: 'run-research', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          strategy: { stage: 'strategy', status: 'awaiting_approval', started_at: '2026-04-04T00:05:00.000Z', completed_at: null, failed_at: null, run_id: 'run-strategy', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          production: { stage: 'production', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          publish: { stage: 'publish', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+        },
+        approvals: {
+          current: {
+            stage: 'strategy',
+            status: 'awaiting_approval',
+            title: 'Brand review required',
+            message: 'Review the derived brand profile before strategy continues.',
+            requested_at: '2026-04-04T00:05:00.000Z',
+            resume_token: 'resume-strategy-brief-backfill',
+            action_label: 'Review brand analysis',
+            publish_config: null,
+          },
+          history: [],
+        },
+        publish_config: { platforms: ['meta-ads'], live_publish_platforms: [], video_render_platforms: [] },
+        brand_kit: {
+          path: path.join(dataRoot, 'generated', 'validated', tenantId, 'brand-kit.json'),
+          source_url: 'https://sugarandleather.com',
+          canonical_url: 'https://sugarandleather.com',
+          brand_name: 'Sugar & Leather',
+          logo_urls: [],
+          colors: {
+            primary: '#f6339a',
+            secondary: '#a855f7',
+            accent: '#e60076',
+            palette: ['#f6339a', '#a855f7', '#e60076'],
+          },
+          font_families: ['Inter'],
+          external_links: [],
+          extracted_at: '2026-04-04T00:04:00.000Z',
+          brand_voice_summary: 'Sophisticated, provocative, and authoritative.',
+          offer_summary: 'Elite coaching network',
+        },
+        inputs: {
+          request: {
+            brandUrl: 'https://sugarandleather.com',
+            websiteUrl: 'https://sugarandleather.com',
+          },
+          brand_url: 'https://sugarandleather.com',
+          competitor_url: null,
+          competitor_facebook_url: null,
+        },
+        errors: [],
+        last_error: null,
+        history: [],
+        created_at: '2026-04-04T00:00:00.000Z',
+        updated_at: '2026-04-04T00:05:00.000Z',
+      }, null, 2),
+    );
+
+    await mkdir(path.dirname(brandProfilePath), { recursive: true });
+    await writeFile(
+      brandProfilePath,
+      JSON.stringify({
+        brand_name: 'Sugar & Leather',
+        website_url: 'https://sugarandleather.com',
+        audience: 'High-performing executives',
+        positioning: 'Elite coaching for high-stakes operators.',
+        offer: 'Elite coaching network',
+        primary_cta: 'Apply for Elite Coaching',
+        proof_points: ['Elite practitioners', 'Bespoke coaching frameworks'],
+        brand_voice: ['Sophisticated', 'Provocative', 'Authoritative'],
+      }, null, 2),
+    );
+
+    const view = buildCampaignWorkspaceView(jobId);
+    const savedRecord = loadCampaignWorkspaceRecord(jobId, tenantId);
+
+    assert.equal(view.campaignBrief?.brandVoice, 'Sophisticated\nProvocative\nAuthoritative');
+    assert.equal(savedRecord?.brief.brandVoice, 'Sophisticated\nProvocative\nAuthoritative');
+  });
+});
+
 test('/api/marketing/jobs/:jobId does not surface creative-output posts before production has actually started', async () => {
   await withRuntimeEnv(async (dataRoot) => {
     const { handleGetMarketingJobStatus } = await import('../app/api/marketing/jobs/[jobId]/handler');
