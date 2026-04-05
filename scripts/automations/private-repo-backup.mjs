@@ -3,11 +3,14 @@ import { currentDateInfo, emitSummary, gitChangedFiles, parseArgs, retry, run } 
 const flags = parseArgs()
 const dryRun = flags.has('--dry-run')
 const remote = process.env.ARIES_BACKUP_REMOTE || 'origin'
-const baseBranch = run('git', ['rev-parse', '--abbrev-ref', 'HEAD']).stdout.trim() || 'main'
-const backupBranch = process.env.ARIES_BACKUP_BRANCH || `backup/${sanitizeBranch(baseBranch)}`
+const resolvedHead = run('git', ['rev-parse', '--abbrev-ref', 'HEAD']).stdout.trim()
+const configuredBaseBranch = process.env.ARIES_BACKUP_BASE_BRANCH?.trim() || ''
+const baseBranch = resolvedHead && resolvedHead !== 'HEAD' ? resolvedHead : configuredBaseBranch || ''
+const backupBranch = process.env.ARIES_BACKUP_BRANCH || (baseBranch ? `backup/${sanitizeBranch(baseBranch)}` : '')
 const remoteUrl = run('git', ['remote', 'get-url', remote])
 const restorePlan = {
   switched: false,
+  switchedBack: false,
   stashRef: null,
   restoreError: null,
 }
@@ -36,19 +39,32 @@ function restoreWorkspace() {
     const back = run('git', ['switch', baseBranch])
     if (!back.ok) {
       errors.push(`switch ${baseBranch} failed: ${back.stderr.trim() || back.stdout.trim() || 'unknown error'}`)
+    } else {
+      restorePlan.switchedBack = true
     }
   }
 
-  if (restorePlan.stashRef) {
+  if (restorePlan.stashRef && (!restorePlan.switched || restorePlan.switchedBack)) {
     const pop = run('git', ['stash', 'pop', '--index', restorePlan.stashRef])
     if (!pop.ok) {
       errors.push(`stash restore failed: ${pop.stderr.trim() || pop.stdout.trim() || 'unknown error'}`)
     }
+  } else if (restorePlan.stashRef && restorePlan.switched && !restorePlan.switchedBack) {
+    errors.push(`stash restore skipped because switch back to ${baseBranch} failed`)
   }
 
   if (errors.length > 0) {
     restorePlan.restoreError = errors.join(' | ')
   }
+}
+
+if (!baseBranch || !backupBranch) {
+  fail([
+    'BACKUP FAILED',
+    `- remote: ${remote}`,
+    `- reason: could not determine a usable base branch${resolvedHead === 'HEAD' ? ' (repository is in detached HEAD state)' : ''}`,
+    '- next: check out a branch or set ARIES_BACKUP_BASE_BRANCH before rerunning the backup',
+  ])
 }
 
 if (!remoteUrl.ok) {
@@ -132,7 +148,25 @@ if (!stash.ok) {
     `- stderr: ${stash.stderr.trim() || stash.stdout.trim() || 'none'}`,
   ])
 }
-restorePlan.stashRef = 'stash@{0}'
+
+const stashRefResult = run('git', ['stash', 'list', '-1', '--format=%gd%x09%s'])
+if (!stashRefResult.ok) {
+  fail([
+    'BACKUP FAILED',
+    '- reason: could not determine created stash reference',
+    `- stderr: ${stashRefResult.stderr.trim() || stashRefResult.stdout.trim() || 'none'}`,
+  ])
+}
+
+const [capturedStashRef, capturedStashMessage = ''] = stashRefResult.stdout.trim().split('\t')
+if (!capturedStashRef || !capturedStashMessage.includes(stashLabel)) {
+  fail([
+    'BACKUP FAILED',
+    '- reason: created stash reference could not be verified',
+    `- stderr: ${stashRefResult.stderr.trim() || stashRefResult.stdout.trim() || 'none'}`,
+  ])
+}
+restorePlan.stashRef = capturedStashRef
 
 const switchBranch = run('git', ['switch', '-C', backupBranch, baseBranch])
 if (!switchBranch.ok) {

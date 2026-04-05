@@ -51,8 +51,7 @@ Unless Brendan explicitly reprioritizes, this remains the default top priority.
 - Role: Head of Software Engineering
 - Timezone: America/Los_Angeles
 - GitHub username: DeliciousHouse
-- Git author name: Brendan Kam
-- Git author email: brendan3394@gmail.com
+- Git author identity is configured locally for automation use; do not store the author email in repo-tracked memory.
 
 ### Communication preference
 - direct

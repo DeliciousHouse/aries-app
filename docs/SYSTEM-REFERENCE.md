@@ -1,9 +1,15 @@
 # Aries System Reference
 
-Last refreshed Apr 03, 2026, 21:45 PDT.
+Last refreshed Apr 04, 2026, 21:45 PDT.
 
 ## What changed today
-- No git-tracked file changes detected since local midnight.
+- scripts/automations/manifest.mjs
+- scripts/automations/private-repo-backup.mjs
+- skills/aries-private-repo-backup/SKILL.md
+- MEMORY.md
+- docker-compose.yml
+- docs/briefs/2026-04-04-brief.md
+- skills/README.md
 
 ## Current architecture overview
 - Next.js App Router runtime serves the public site, authenticated operator shell, and browser-safe internal APIs.
@@ -22,7 +28,7 @@ Last refreshed Apr 03, 2026, 21:45 PDT.
 - workflows/ 4 files
 
 ## Active cron jobs
-- Aries private repo backup — 15 */6 * * * America/Los_Angeles — Stage, commit, and push repo state to the configured private GitHub remote.
+- Aries private repo backup — 15 */6 * * * America/Los_Angeles — Stage current repo changes, commit them to a backup branch, and create or update a backup pull request on the configured private GitHub remote.
 - Aries overnight self-improvement — 30 1 * * * America/Los_Angeles — Rotate a nightly audit, apply low-risk cleanup, and log results to memory/YYYY-MM-DD.md.
 - Aries daily brief — 0 8 * * * America/Los_Angeles — Generate the morning priorities/overnight activity/pending actions brief.
 - Aries rolling system reference — 45 21 * * * America/Los_Angeles — Update docs/SYSTEM-REFERENCE.md with architecture, inventory, cron jobs, and known issues.
@@ -58,26 +64,7 @@ Last refreshed Apr 03, 2026, 21:45 PDT.
 - Mission Control standalone app is still a shell around runtime overview data and awaits richer live API adapters for actions/transcripts.
 
 ## Working tree snapshot
-- M  .env.example
-- M  .gitignore
-- M  AGENTS.md
-- M  HEARTBEAT.md
-- M  MEMORY.md
-- M  README-runtime.md
-- M  README.md
-- A  RUNTIME.md
-- M  SOUL.md
-- M  TOOLS.md
-- M  USER.md
-- M  app/api-docs/page.tsx
-- MM app/api/business/profile/route.ts
-- M  app/api/integrations/handlers.ts
-- MM app/api/marketing/jobs/handler.ts
-- M  backend/integrations/callback.ts
-- M  backend/integrations/connect.ts
-- M  backend/integrations/meta/connect.ts
-- M  backend/integrations/oauth-authorize-urls.ts
-- A  backend/integrations/oauth-provider-runtime.ts
+- Working tree clean at refresh time.
 
 ## Reference date
-- 2026-04-03
+- 2026-04-04
