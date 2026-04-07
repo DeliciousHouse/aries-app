@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
 
 export default function OnboardingPage() {
-  redirect('/onboarding/start');
+  redirect('/onboarding/pipeline-intake');
 }

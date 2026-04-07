@@ -6,9 +6,11 @@ import type { PoolClient } from 'pg';
 import {
   extractAndSaveTenantBrandKit,
   loadTenantBrandKit,
+  sanitizeBrandKitSummaryText,
   tenantBrandKitPath,
   type TenantBrandKit,
 } from '@/backend/marketing/brand-kit';
+import type { MarketingBrandIdentity } from '@/lib/api/marketing';
 import {
   findLatestMarketingJobIdForTenant,
   findLatestMarketingTenantId,
@@ -61,6 +63,7 @@ export type BusinessProfileView = {
   notes: string | null;
   competitorUrl: string | null;
   channels: string[];
+  brandIdentity: MarketingBrandIdentity | null;
   brandKit: TenantBrandKit | null;
   incomplete: boolean;
 };
@@ -117,6 +120,8 @@ type MarketingProfilePersistenceInput = {
   payload: Record<string, unknown>;
   tenantSlug?: string | null;
 };
+
+const DEFAULT_MARKETING_CHANNELS = ['meta-ads', 'instagram'];
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -344,8 +349,8 @@ function runtimeBrandKitAsTenantBrandKit(tenantId: string): { brandKit: TenantBr
       font_families: [...runtimeBrandKit.font_families],
       external_links: [...runtimeBrandKit.external_links],
       extracted_at: runtimeBrandKit.extracted_at,
-      brand_voice_summary: runtimeBrandKit.brand_voice_summary ?? null,
-      offer_summary: runtimeBrandKit.offer_summary ?? null,
+      brand_voice_summary: sanitizeBrandKitSummaryText(runtimeBrandKit.brand_voice_summary ?? null),
+      offer_summary: sanitizeBrandKitSummaryText(runtimeBrandKit.offer_summary ?? null),
     },
   };
 }
@@ -387,6 +392,57 @@ function incompleteProfile(input: {
   primaryGoal: string | null;
 }): boolean {
   return !input.businessName.trim() || !input.websiteUrl || !input.businessType || !input.primaryGoal;
+}
+
+function joinedSourceText(values: Array<string | null | undefined>): string {
+  return values
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join(' ')
+    .toLowerCase();
+}
+
+function inferBusinessTypeFromSignals(values: Array<string | null | undefined>): string | null {
+  const text = joinedSourceText(values);
+  if (!text) {
+    return null;
+  }
+  if (/(coach|coaching)/.test(text) && /(network|membership|collective|community)/.test(text)) {
+    return 'Executive and transformational coaching network';
+  }
+  if (/(coach|coaching|transformational coaching|executive coaching)/.test(text)) {
+    return 'Executive and transformational coaching services';
+  }
+  if (/(consulting|consult|advisory|advisor)/.test(text)) {
+    return 'Consulting and advisory services';
+  }
+  return null;
+}
+
+function inferPrimaryGoalFromSignals(values: Array<string | null | undefined>): string | null {
+  const text = joinedSourceText(values);
+  if (!text) {
+    return null;
+  }
+  if (
+    /(book|schedule|reserve).{0,32}(call|consult|consultation|session|appointment)/.test(text) ||
+    /book a call|schedule a call|discovery call|consult/.test(text)
+  ) {
+    return 'Book more qualified calls';
+  }
+  if (/(sale|sales|purchase|buy|order|checkout|shop)/.test(text)) {
+    return 'Increase offer sales';
+  }
+  if (/(lead|enquir|inquiry|membership|join now|apply now)/.test(text)) {
+    return 'Generate more qualified leads';
+  }
+  if (/(visible|awareness|presence|stay in market)/.test(text)) {
+    return 'Stay visible every week';
+  }
+  return null;
+}
+
+function resolvedChannels(channels: string[]): string[] {
+  return channels.length > 0 ? channels : [...DEFAULT_MARKETING_CHANNELS];
 }
 
 function workspaceBrandContextPath(jobId: string): string {
@@ -447,36 +503,66 @@ function buildBusinessProfileView(input: {
     input.record?.business_name ||
     input.brandKit?.brand_name ||
     '';
+  const inferredBusinessType = inferBusinessTypeFromSignals([
+    input.validatedProfile.businessType,
+    input.validatedProfile.brandIdentity?.summary,
+    input.validatedProfile.brandIdentity?.offer,
+    input.validatedProfile.brandIdentity?.positioning,
+    input.validatedProfile.offer,
+    input.brandKit?.offer_summary,
+  ]);
+  const inferredPrimaryGoal = inferPrimaryGoalFromSignals([
+    input.validatedProfile.primaryGoal,
+    input.validatedProfile.brandIdentity?.ctaStyle,
+    input.validatedProfile.brandIdentity?.summary,
+    input.validatedProfile.offer,
+    input.brandKit?.offer_summary,
+    input.brandKit?.external_links.map((link) => link.platform).join(' '),
+  ]);
+  const effectiveBusinessType =
+    input.validatedProfile.businessType ??
+    input.record?.business_type ??
+    inferredBusinessType;
+  const effectivePrimaryGoal =
+    input.validatedProfile.primaryGoal ??
+    input.record?.primary_goal ??
+    inferredPrimaryGoal;
+  const effectiveChannels = resolvedChannels(
+    input.validatedProfile.channels.length > 0 ? input.validatedProfile.channels : (input.record?.channels ?? []),
+  );
 
   return {
     tenantId: input.tenantId,
     businessName,
     tenantSlug: input.tenantSlug,
     websiteUrl,
-    businessType: input.validatedProfile.businessType ?? input.record?.business_type ?? null,
-    primaryGoal: input.validatedProfile.primaryGoal ?? input.record?.primary_goal ?? null,
+    businessType: effectiveBusinessType,
+    primaryGoal: effectivePrimaryGoal,
     launchApproverUserId: input.record?.launch_approver_user_id ?? null,
     launchApproverName: input.approverName,
-    offer: input.validatedProfile.offer ?? input.record?.offer ?? null,
+    offer: input.validatedProfile.offer ?? input.record?.offer ?? input.brandKit?.offer_summary ?? null,
     brandVoice:
       input.record?.brand_voice ??
       input.workspaceBrandContext.brandVoice ??
+      input.validatedProfile.brandIdentity?.toneOfVoice ??
       (input.validatedProfile.brandVoice.length > 0 ? input.validatedProfile.brandVoice.join('\n') : null) ??
       input.brandKit?.brand_voice_summary ??
       null,
     styleVibe:
       input.record?.style_vibe ??
       input.workspaceBrandContext.styleVibe ??
+      input.validatedProfile.brandIdentity?.styleVibe ??
       null,
-    notes: input.record?.notes ?? null,
+    notes: input.record?.notes ?? input.validatedProfile.brandIdentity?.summary ?? null,
     competitorUrl: input.validatedProfile.competitorUrl ?? input.record?.competitor_url ?? null,
-    channels: input.validatedProfile.channels.length > 0 ? input.validatedProfile.channels : (input.record?.channels ?? []),
+    channels: effectiveChannels,
+    brandIdentity: input.validatedProfile.brandIdentity,
     brandKit: input.brandKit,
     incomplete: incompleteProfile({
       businessName,
       websiteUrl,
-      businessType: input.validatedProfile.businessType ?? input.record?.business_type ?? null,
-      primaryGoal: input.validatedProfile.primaryGoal ?? input.record?.primary_goal ?? null,
+      businessType: effectiveBusinessType,
+      primaryGoal: effectivePrimaryGoal,
     }),
   };
 }
@@ -513,7 +599,9 @@ export async function getBusinessProfileWithDiagnostics(client: PoolClient, tena
   const tenantRow = tenant.rows[0] as { id: number; name: string; slug: string };
   const record = loadBusinessProfileRecord(tenantId);
   const { brandKit, source, latestJobId } = resolveBusinessProfileBrandKit(tenantId);
-  const validatedProfile = loadValidatedMarketingProfileSnapshot(tenantId);
+  const validatedProfile = loadValidatedMarketingProfileSnapshot(tenantId, {
+    currentSourceUrl: record?.website_url ?? brandKit?.canonical_url ?? brandKit?.source_url ?? null,
+  });
   const workspaceBrandContext = loadLatestWorkspaceBrandContext(latestJobId);
   const resolvedApproverName =
     (await launchApproverName(client, record?.launch_approver_user_id ?? null)) ||
@@ -609,13 +697,16 @@ export async function updateBusinessProfileWithDiagnostics(
 }
 
 export function getPublicBusinessProfile(websiteUrl?: string | null): ResolvedBusinessProfile {
+  const normalizedWebsiteUrl = normalizeMarketingWebsiteUrl(websiteUrl);
   const tenantId =
-    derivePublicMarketingTenantId(websiteUrl) ||
+    derivePublicMarketingTenantId(normalizedWebsiteUrl) ||
     findLatestMarketingTenantId() ||
     'public_campaign';
   const record = loadBusinessProfileRecord(tenantId);
   const { brandKit, source, latestJobId } = resolveBusinessProfileBrandKit(tenantId);
-  const validatedProfile = loadValidatedMarketingProfileSnapshot(tenantId);
+  const validatedProfile = loadValidatedMarketingProfileSnapshot(tenantId, {
+    currentSourceUrl: normalizedWebsiteUrl || record?.website_url || brandKit?.canonical_url || brandKit?.source_url || null,
+  });
   const tenantSlug = record?.tenant_slug || publicTenantSlug(tenantId);
   const businessName = validatedProfile.businessName || record?.business_name || brandKit?.brand_name || '';
   const workspaceBrandContext = loadLatestWorkspaceBrandContext(latestJobId);
@@ -824,7 +915,9 @@ export function persistBusinessProfileFieldsFromMarketingPayload(
 export function marketingPayloadDefaultsFromBusinessProfile(tenantId: string): PersistedMarketingProfileDefaults {
   const record = loadBusinessProfileRecord(tenantId);
   const { brandKit, latestJobId } = resolveBusinessProfileBrandKit(tenantId);
-  const validatedProfile = loadValidatedMarketingProfileSnapshot(tenantId);
+  const validatedProfile = loadValidatedMarketingProfileSnapshot(tenantId, {
+    currentSourceUrl: record?.website_url ?? brandKit?.canonical_url ?? brandKit?.source_url ?? null,
+  });
   const workspaceBrandContext = loadLatestWorkspaceBrandContext(latestJobId);
 
   const businessName =
@@ -833,12 +926,22 @@ export function marketingPayloadDefaultsFromBusinessProfile(tenantId: string): P
     validatedProfile.brandName ??
     brandKit?.brand_name ??
     undefined;
-  const primaryGoal = record?.primary_goal ?? validatedProfile.primaryGoal ?? undefined;
+  const primaryGoal =
+    record?.primary_goal ??
+    validatedProfile.primaryGoal ??
+    inferPrimaryGoalFromSignals([
+      validatedProfile.brandIdentity?.ctaStyle,
+      validatedProfile.brandIdentity?.summary,
+      validatedProfile.offer,
+      brandKit?.offer_summary,
+    ]) ??
+    undefined;
   const approverName = record?.launch_approver_name ?? validatedProfile.launchApproverName ?? undefined;
   const offer = record?.offer ?? validatedProfile.offer ?? brandKit?.offer_summary ?? undefined;
   const brandVoice =
     record?.brand_voice ??
     workspaceBrandContext.brandVoice ??
+    validatedProfile.brandIdentity?.toneOfVoice ??
     (validatedProfile.brandVoice.length > 0 ? validatedProfile.brandVoice.join('\n') : null) ??
     brandKit?.brand_voice_summary ??
     undefined;
@@ -847,19 +950,28 @@ export function marketingPayloadDefaultsFromBusinessProfile(tenantId: string): P
       ? [...record.channels]
       : validatedProfile.channels.length > 0
         ? [...validatedProfile.channels]
-        : undefined;
+        : [...DEFAULT_MARKETING_CHANNELS];
 
   return {
     websiteUrl: record?.website_url ?? validatedProfile.websiteUrl ?? brandKit?.source_url ?? undefined,
     businessName,
-    businessType: record?.business_type ?? validatedProfile.businessType ?? undefined,
+    businessType:
+      record?.business_type ??
+      validatedProfile.businessType ??
+      inferBusinessTypeFromSignals([
+        validatedProfile.brandIdentity?.summary,
+        validatedProfile.brandIdentity?.offer,
+        validatedProfile.offer,
+        brandKit?.offer_summary,
+      ]) ??
+      undefined,
     primaryGoal,
     goal: primaryGoal,
     launchApproverName: approverName,
     approverName,
     offer,
     brandVoice,
-    styleVibe: record?.style_vibe ?? workspaceBrandContext.styleVibe ?? undefined,
+    styleVibe: record?.style_vibe ?? workspaceBrandContext.styleVibe ?? validatedProfile.brandIdentity?.styleVibe ?? undefined,
     competitorUrl: record?.competitor_url ?? validatedProfile.competitorUrl ?? undefined,
     channels,
   };

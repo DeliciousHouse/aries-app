@@ -30,7 +30,8 @@ This manifest lists the supported direct route contract for the current Aries ru
 
 | Route | Surface | Purpose |
 |---|---|---|
-| `/onboarding/start` | Workflow | Start tenant onboarding |
+| `/onboarding/pipeline-intake` | Workflow | Start the premium client marketing intake |
+| `/onboarding/start` | Workflow | Redirect public traffic to `/onboarding/pipeline-intake` |
 | `/onboarding/status` | Workflow | Read onboarding status |
 | `/marketing/new-job` | Workflow | Create a `brand_campaign` marketing job |
 | `/marketing/job-status` | Workflow | Inspect marketing job status |

@@ -23,9 +23,45 @@ function isActiveJobStatus(status: string): boolean {
 }
 
 function workflowStateLabel(value: string): string {
+  if (value === 'brand_review_required') return 'Brand review ready';
+  if (value === 'strategy_review_required') return 'Strategy review ready';
+  if (value === 'creative_review_required') return 'Creative review ready';
+  if (value === 'ready_to_publish') return 'Ready for launch';
+  if (value === 'published') return 'Published';
+  if (value === 'approved') return 'Approved';
+  if (value === 'revisions_requested') return 'Needs revisions';
   return value
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function reviewSurfaceLabel(reviewType: 'brand' | 'strategy'): string {
+  return reviewType === 'brand' ? 'Brand direction' : 'Campaign strategy';
+}
+
+function historyTypeLabel(value: MarketingCampaignStatusHistoryEntry['type']): string {
+  if (value === 'state_changed') return 'Stage updated';
+  if (value === 'stage_review') return 'Review updated';
+  if (value === 'creative_asset_review') return 'Creative review updated';
+  return 'Comment';
+}
+
+function stageReadyLabel(view: WorkspaceView): string {
+  if (view === 'brand') return 'Brand review';
+  if (view === 'strategy') return 'Strategy review';
+  if (view === 'creative') return 'Creative review';
+  return 'Launch status';
+}
+
+function visibleActorLabel(value: string | null | undefined): string | null {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (!normalized) {
+    return null;
+  }
+  if (['operator', 'system', 'workflow', 'automation'].includes(normalized.toLowerCase())) {
+    return null;
+  }
+  return normalized;
 }
 
 function workflowStateTone(value: string): string {
@@ -109,7 +145,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           action,
-          actedBy: 'operator',
+          actedBy: 'Client reviewer',
           note: notesByReviewId[reviewId] || '',
           approvalId,
         }),
@@ -160,7 +196,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
               {status.campaignWindow?.start && status.campaignWindow?.end ? `${status.campaignWindow.start} - ${status.campaignWindow.end}` : 'Dates not scheduled yet'}
             </span>
             <span className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-white/70">
-              {status.summary.headline}
+              {stageReadyLabel(activeView)}
             </span>
           </div>
           <p className="max-w-3xl text-sm leading-7 text-white/65">{status.summary.subheadline}</p>
@@ -178,7 +214,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
           ['brand', 'Brand Review'],
           ['strategy', 'Strategy Review'],
           ['creative', 'Creative Review'],
-          ['publish', 'Publish / Status'],
+          ['publish', 'Launch Status'],
         ] as Array<[WorkspaceView, string]>).map(([view, label]) => (
           <Link
             key={view}
@@ -200,7 +236,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
           <StageReviewSurface
             review={status.brandReview}
             emptyTitle="Brand review is not ready yet"
-            emptyDescription="Website analysis, brand bible output, and uploaded brand assets will appear here when available."
+            emptyDescription="The current-source brand package will appear here as soon as the website review and brand identity are ready."
             note={status.brandReview ? notesByReviewId[status.brandReview.reviewId] || '' : ''}
             onNoteChange={(value) =>
               status.brandReview
@@ -226,7 +262,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
         <StageReviewSurface
           review={status.strategyReview}
           emptyTitle="Strategy review is not ready yet"
-          emptyDescription="The campaign proposal and strategy packet will appear here when strategy output is available."
+          emptyDescription="The campaign strategy package will appear here as soon as the current plan is ready for approval."
           note={status.strategyReview ? notesByReviewId[status.strategyReview.reviewId] || '' : ''}
           onNoteChange={(value) =>
             status.strategyReview
@@ -266,7 +302,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
         />
       ) : null}
 
-      <ShellPanel eyebrow="Shortcuts" title="Navigate the workflow">
+      <ShellPanel eyebrow="Shortcuts" title="Next steps">
         <div className="flex flex-wrap gap-3">
           <SectionLink href="/dashboard/campaigns/new" label="New campaign" />
           <SectionLink href="/dashboard/brand-review" label="Brand review" />
@@ -358,10 +394,10 @@ function BrandBriefCard(props: {
   }
 
   return (
-    <ShellPanel eyebrow="Brief" title="Campaign intake">
+    <ShellPanel eyebrow="Brand brief" title="What Aries is using as the current source brief">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-2xl text-sm leading-7 text-white/65">
-          Update the brief in place when brand voice, references, must-use copy, or revision notes change.
+          Update the current source website, voice direction, references, or revision notes here when the campaign needs a clearer brief.
         </p>
         <div className="flex flex-wrap gap-3">
           {editing ? (
@@ -510,7 +546,7 @@ function StageReviewSurface(props: {
 
   return (
     <div className="space-y-4">
-      <ShellPanel eyebrow={props.review.reviewType === 'brand' ? 'Brand Review' : 'Strategy Review'} title={props.review.title}>
+      <ShellPanel eyebrow={reviewSurfaceLabel(props.review.reviewType)} title={props.review.title}>
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-3">
             <StatusChip status={chipStatus(props.review.status)} />
@@ -524,6 +560,19 @@ function StageReviewSurface(props: {
         </div>
       </ShellPanel>
 
+      {props.review.reviewType === 'brand' && props.review.brandIdentity ? (
+        <ShellPanel eyebrow="Brand identity" title="The core identity Aries will carry forward">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <BriefField label="Identity summary" value={props.review.brandIdentity.summary || 'Brand summary pending.'} />
+            <BriefField label="Positioning" value={props.review.brandIdentity.positioning || 'Positioning pending.'} />
+            <BriefField label="Audience" value={props.review.brandIdentity.audience || 'Audience summary pending.'} />
+            <BriefField label="Offer" value={props.review.brandIdentity.offer || 'Offer summary pending.'} />
+            <BriefField label="Brand voice" value={props.review.brandIdentity.toneOfVoice || 'Voice summary pending.'} />
+            <BriefField label="Style / vibe" value={props.review.brandIdentity.styleVibe || 'Style summary pending.'} />
+          </div>
+        </ShellPanel>
+      ) : null}
+
       <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
         <div className="space-y-4">
           {props.review.sections.map((section) => (
@@ -534,10 +583,8 @@ function StageReviewSurface(props: {
         </div>
 
         <div className="space-y-4">
-          <ShellPanel eyebrow="Attachments" title="Generated artifacts">
-            {props.review.attachments.length === 0 ? (
-              <p className="text-sm text-white/55">No attachments yet.</p>
-            ) : (
+          {props.review.attachments.length > 0 ? (
+            <ShellPanel eyebrow="Materials" title="Supporting materials">
               <div className="space-y-3">
                 {props.review.attachments.map((attachment) => (
                   <a key={attachment.id} href={attachment.url} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-4 rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4 text-sm text-white/80 transition hover:border-white/16 hover:text-white">
@@ -546,8 +593,8 @@ function StageReviewSurface(props: {
                   </a>
                 ))}
               </div>
-            )}
-          </ShellPanel>
+            </ShellPanel>
+          ) : null}
 
           <ReviewDecisionCard
             note={props.note}
@@ -656,14 +703,14 @@ function PublishStatusSurface(props: {
 }) {
   return (
     <div className="space-y-4">
-      <ShellPanel eyebrow="Publish / Status" title="Truthful readiness and gating">
+      <ShellPanel eyebrow="Launch status" title="What is ready now">
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-3">
             <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium tracking-[0.03em] ${workflowStateTone(props.workflowState)}`}>
               {workflowStateLabel(props.workflowState)}
             </span>
             <span className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-white/70">
-              Publish remains gated until approvals are complete
+              Launch stays paused until approvals are complete
             </span>
           </div>
           <p className="text-sm leading-7 text-white/65">
@@ -672,9 +719,9 @@ function PublishStatusSurface(props: {
         </div>
       </ShellPanel>
 
-      <ShellPanel eyebrow="Publish queue" title="Visible publish items">
+      <ShellPanel eyebrow="Publish queue" title="Launch-ready items">
         {props.publishItems.length === 0 ? (
-          <EmptyStatePanel compact title="No publish items yet" description="Publish packages and paused platform artifacts will appear here once the workflow reaches them." />
+          <EmptyStatePanel compact title="No launch items yet" description="Launch packages will appear here as soon as approvals and final preparation are complete." />
         ) : (
           <div className="space-y-3">
             {props.publishItems.map((item) => (
@@ -696,8 +743,8 @@ function PublishStatusSurface(props: {
         )}
       </ShellPanel>
 
-      <ShellPanel eyebrow="Status history" title="Workflow trail">
-        <ActivityFeed items={props.history.map((entry) => ({ id: entry.id, label: workflowStateLabel(entry.type), detail: entry.note || workflowStateLabel(entry.workflowState), at: formatDecisionTimestamp(entry.at) }))} />
+      <ShellPanel eyebrow="Status history" title="Recent decisions">
+        <ActivityFeed items={props.history.map((entry) => ({ id: entry.id, label: historyTypeLabel(entry.type), detail: entry.note || workflowStateLabel(entry.workflowState), at: formatDecisionTimestamp(entry.at) }))} />
       </ShellPanel>
     </div>
   );
@@ -713,12 +760,12 @@ function ReviewDecisionCard(props: {
   placeholder?: string;
 }) {
   return (
-    <ShellPanel eyebrow="Decision" title="Choose what happens next">
+    <ShellPanel eyebrow="Decision" title="Approve or request changes">
       <div className="space-y-4">
         <textarea
           value={props.note}
           onChange={(event) => props.onNoteChange(event.target.value.slice(0, 600))}
-          placeholder={props.placeholder || 'Add context for the team'}
+          placeholder={props.placeholder || 'Share any revision context for the team'}
           className="w-full rounded-[1.25rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-white placeholder:text-white/30"
         />
         <div className="flex flex-wrap gap-3">
@@ -763,7 +810,7 @@ function ReviewDecisionCard(props: {
 
 function HistoryCard(props: { history: MarketingCampaignStatusHistoryEntry[] }) {
   return (
-    <ShellPanel eyebrow="History" title="Status history">
+    <ShellPanel eyebrow="History" title="Decision history">
       {props.history.length === 0 ? (
         <p className="text-sm text-white/55">No decision history yet.</p>
       ) : (
@@ -775,9 +822,9 @@ function HistoryCard(props: { history: MarketingCampaignStatusHistoryEntry[] }) 
               <div key={entry.id} className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-sm font-medium text-white">{workflowStateLabel(entry.type)}</p>
+                    <p className="text-sm font-medium text-white">{historyTypeLabel(entry.type)}</p>
                     <p className="mt-1 text-sm text-white/50">
-                      {entry.actor} · {formatDecisionTimestamp(entry.at)}
+                      {[visibleActorLabel(entry.actor), formatDecisionTimestamp(entry.at)].filter(Boolean).join(' · ')}
                     </p>
                   </div>
                   <StatusChip status={chipStatus(entry.status || '')}>

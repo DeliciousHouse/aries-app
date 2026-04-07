@@ -24,6 +24,7 @@ from _marketing_profile_common import (
     validate_copy_text,
     validate_unique_copy_list,
 )
+from _brand_identity_common import build_brand_identity
 from _canonical_outputs import brand_output_paths, write_text
 
 
@@ -88,6 +89,23 @@ def _build_production_brief(strategy_handoff: dict, brand_slug: str) -> dict:
     website_url = normalize_marketing_url(creative_handoff.get("website_url"))
     if not website_url:
         raise SystemExit("quality_gate_failed:production_brief.website_url:invalid")
+    brand_identity = record_or_empty(strategy_handoff.get("brandIdentity")) or build_brand_identity(
+        {
+            "website_url": creative_handoff.get("website_url"),
+            "canonical_url": record_or_empty(strategy_handoff.get("brand_kit")).get("canonical_url")
+            or record_or_empty(creative_handoff.get("brand_kit")).get("canonical_url"),
+            "audience": creative_handoff.get("audience"),
+            "positioning": creative_handoff.get("positioning"),
+            "offer": creative_handoff.get("offer"),
+            "brand_promise": creative_handoff.get("brand_promise"),
+            "primary_cta": creative_handoff.get("primary_cta"),
+            "proof_points": creative_handoff.get("proof_points"),
+            "brand_voice": creative_handoff.get("brand_voice"),
+            "style_vibe": creative_handoff.get("style_vibe"),
+            "brand_kit": strategy_handoff.get("brand_kit") or creative_handoff.get("brand_kit"),
+            "hooks": creative_handoff.get("hooks"),
+        }
+    ) or {}
     return {
         "campaign_name": campaign_name,
         "brand_slug": brand_slug,
@@ -103,6 +121,7 @@ def _build_production_brief(strategy_handoff: dict, brand_slug: str) -> dict:
         "offer_summary": validate_copy_text("production_brief.offer_summary", creative_handoff.get("offer"), min_tokens=4),
         "proof_points": proof_points,
         "brand_voice": _as_list(creative_handoff.get("brand_voice")),
+        "brand_identity": brand_identity,
         "brand_kit": record_or_empty(strategy_handoff.get("brand_kit") or creative_handoff.get("brand_kit")),
         "design_tokens": record_or_empty(strategy_handoff.get("design_tokens") or creative_handoff.get("design_tokens")),
         "competitor_context": record_or_empty(strategy_handoff.get("competitor_context")),

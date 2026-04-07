@@ -9,6 +9,7 @@ import type {
   MarketingDashboardPost,
   MarketingDashboardPublishItem,
   MarketingReviewAttachment,
+  MarketingBrandIdentity,
   MarketingReviewSection,
   MarketingDashboardStatusSummary,
   MarketingWorkflowState,
@@ -123,6 +124,7 @@ export type BusinessProfileView = {
   notes: string | null;
   competitorUrl: string | null;
   channels: string[];
+  brandIdentity?: MarketingBrandIdentity | null;
   brandKit: {
     brand_name: string;
     source_url: string;

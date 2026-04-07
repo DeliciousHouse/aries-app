@@ -63,7 +63,8 @@ Browser
 
 ### Workflow pages
 
-- `/onboarding/start`
+- `/onboarding/pipeline-intake`
+- `/onboarding/start` (redirects to `/onboarding/pipeline-intake`)
 - `/onboarding/status`
 - `/marketing/new-job`
 - `/marketing/job-status`
@@ -170,7 +171,7 @@ npm run db:init
 
 ### 5) Start the dev server
 
-Use **Turbopack**. In this repo, that is required for Tailwind CSS v4 processing, and `next.config.ts` pins the app root so Next does not drift up to the parent workspace.
+Use **Turbopack**. In this repo, that is required for Tailwind CSS v4 processing, and `next.config.mjs` pins the app root so Next does not drift up to the parent workspace.
 
 ```bash
 npm run dev
@@ -269,9 +270,13 @@ Instagram remains env-managed with `META_PAGE_ID` and `META_ACCESS_TOKEN`.
 
 ## Supported product flows
 
+### Public marketing intake
+
+The public client intake begins at `/onboarding/pipeline-intake`. The legacy `/onboarding/start` path redirects there so public CTA traffic reaches the premium marketing flow rather than the raw tenant-onboarding surface.
+
 ### Tenant onboarding
 
-The onboarding flow begins at `/onboarding/start` and is exposed through `/api/onboarding/start`. Aries validates required fields like `tenant_id`, `tenant_type`, and `signup_event_id`, then delegates the onboarding workflow to OpenClaw. Status is later read through `/api/onboarding/status/[tenantId]` using runtime-safe summaries rather than raw file paths.
+The internal tenant-onboarding API remains exposed through `/api/onboarding/start`. Aries validates required fields like `tenant_id`, `tenant_type`, and `signup_event_id`, then delegates the onboarding workflow to OpenClaw. Status is later read through `/api/onboarding/status/[tenantId]` using runtime-safe summaries rather than raw file paths.
 
 ### Marketing job flow
 

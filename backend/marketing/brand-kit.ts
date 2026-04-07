@@ -101,6 +101,10 @@ const CTA_KEYWORDS = [
   'browse',
   'contact',
 ];
+const PREVIEW_ATTRIBUTE_PATTERN = /\b(?:class|className|style|id|href|src|data-[\w-]+)\s*=\s*["'][^"']*["']/gi;
+const PREVIEW_UTILITY_TOKEN_PATTERN =
+  /\b(?:bg|text|font|tracking|max-w|min-w|min-h|max-h|from|via|to|px|py|pt|pr|pb|pl|mx|my|mt|mr|mb|ml|grid|flex|gap|items|justify|rounded|shadow|ring|border|leading|sm:|md:|lg:|xl:|2xl:|hover:|focus:|before:|after:|group-hover:)[^\s,;)]*/gi;
+const PREVIEW_CSS_REMNANT_PATTERN = /(?:^|\s)(?:[#.][a-z0-9_-]+|::?[a-z-]+|@media|var\(--[^)]+\)|theme\([^)]+\)|calc\([^)]+\))/gi;
 
 function includesKeywordPhrase(value: string, keywords: string[]): boolean {
   const normalized = value.toLowerCase();
@@ -308,14 +312,34 @@ function htmlToText(html: string): string {
 }
 
 function cleanSentenceCandidate(value: string | null | undefined, maxLength = 220): string | null {
-  const normalized = normalizeWhitespace(value || '');
+  const normalized = normalizeWhitespace(
+    (value || '')
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, ' ')
+      .replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, ' ')
+      .replace(PREVIEW_ATTRIBUTE_PATTERN, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(PREVIEW_UTILITY_TOKEN_PATTERN, ' ')
+      .replace(PREVIEW_CSS_REMNANT_PATTERN, ' ')
+      .replace(/[`*_#>{}[\]|]/g, ' '),
+  );
   if (!normalized) {
+    return null;
+  }
+  if (
+    /(?:<|>|class=|classname=|bg-clip-text|bg-gradient|tracking-\[|from-\[#|via-\[#|to-\[#|var\(--|@media)/i.test(normalized)
+  ) {
     return null;
   }
   if (normalized.length <= maxLength) {
     return normalized;
   }
   return `${normalized.slice(0, maxLength).trimEnd()}...`;
+}
+
+export function sanitizeBrandKitSummaryText(value: string | null | undefined, maxLength = 220): string | null {
+  return cleanSentenceCandidate(value, maxLength);
 }
 
 function normalizeFontFamilyCandidate(value: string): string | null {

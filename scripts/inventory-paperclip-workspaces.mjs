@@ -3,7 +3,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { execFileSync } from 'node:child_process';
 
-const canonicalRoot = path.resolve(process.env.ARIES_CANONICAL_REPO_ROOT || '/home/bkam/docker-stack/aries-app');
+const canonicalRoot = path.resolve(process.env.ARIES_CANONICAL_REPO_ROOT || '/app/aries-app');
 const paperclipRoot = path.resolve(
   process.env.ARIES_PAPERCLIP_WORKSPACES_ROOT || '/home/bkam/.paperclip/instances/default/workspaces'
 );

@@ -186,6 +186,8 @@ test('canonical client-facing marketing smoke flow stays on the monolithic pipel
     const startedDoc = loadMarketingJobRuntime(startResult.jobId)!;
     assert.equal(startedDoc.approvals.current?.workflow_name, MARKETING_WORKFLOW_NAME);
     assert.equal(startedDoc.approvals.current?.workflow_step_id, 'approve_stage_2');
+    assert.equal(startedDoc.stages.research.run_id, 'verify-flow-run');
+    assert.equal(startedDoc.current_stage, 'strategy');
 
     const strategyApproval = await approveMarketingJob({
       jobId: startResult.jobId,
@@ -199,6 +201,8 @@ test('canonical client-facing marketing smoke flow stays on the monolithic pipel
     const afterStrategy = loadMarketingJobRuntime(startResult.jobId)!;
     assert.equal(afterStrategy.approvals.current?.workflow_name, MARKETING_WORKFLOW_NAME);
     assert.equal(afterStrategy.approvals.current?.workflow_step_id, 'approve_stage_3');
+    assert.equal(afterStrategy.stages.strategy.run_id, 'verify-flow-run');
+    assert.equal(afterStrategy.current_stage, 'production');
 
     const productionApproval = await approveMarketingJob({
       jobId: startResult.jobId,
@@ -212,6 +216,8 @@ test('canonical client-facing marketing smoke flow stays on the monolithic pipel
     const afterProduction = loadMarketingJobRuntime(startResult.jobId)!;
     assert.equal(afterProduction.approvals.current?.workflow_name, MARKETING_WORKFLOW_NAME);
     assert.equal(afterProduction.approvals.current?.workflow_step_id, 'approve_stage_4');
+    assert.equal(afterProduction.stages.production.run_id, 'verify-flow-run');
+    assert.equal(afterProduction.current_stage, 'publish');
 
     const approvalResult = await approveMarketingJob({
       jobId: startResult.jobId,
@@ -240,6 +246,7 @@ test('canonical client-facing marketing smoke flow stays on the monolithic pipel
     assert.equal(runtimeDoc.state, 'completed');
     assert.equal(runtimeDoc.status, 'completed');
     assert.equal(runtimeDoc.stages.publish.status, 'completed');
+    assert.equal(runtimeDoc.stages.publish.run_id, 'verify-flow-run');
     assert.equal(runtimeDoc.approvals.current, null);
   });
 });

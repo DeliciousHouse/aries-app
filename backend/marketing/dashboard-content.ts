@@ -724,7 +724,9 @@ function parseProposalPlan(runtimeDoc: MarketingJobRuntimeDocument): ProposalPla
   const planner = readStageStepPayload(runtimeDoc, 2, 'campaign_planner')
   const plan = recordValue(planner?.campaign_plan) ?? {}
   const brandProfiles = recordValue(planner?.brand_profiles_record) ?? {}
-  const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id)
+  const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
+    currentSourceUrl: runtimeDoc.inputs.brand_url || null,
+  })
   return {
     campaignName: stringValue(plan.campaign_name) || null,
     objective: stringValue(plan.objective) || null,
@@ -744,7 +746,9 @@ function extractCampaignName(runtimeDoc: MarketingJobRuntimeDocument, status: Da
     status.reviewCampaignName,
     proposal.campaignName,
     status.tenantName,
-    loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id).brandName,
+    loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
+      currentSourceUrl: runtimeDoc.inputs.brand_url || null,
+    }).brandName,
     runtimeDoc.brand_kit?.brand_name,
   ]
     .map((value) => stringValue(value))
@@ -1252,7 +1256,9 @@ function approvalReviewHref(jobId: string): string {
 }
 
 function buildStatusSnapshot(runtimeDoc: MarketingJobRuntimeDocument, proposal: ProposalPlan): DashboardStatusSnapshot {
-  const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id)
+  const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
+    currentSourceUrl: runtimeDoc.inputs.brand_url || null,
+  })
   const reviewBundle = rawPublishReviewBundle(runtimeDoc)
   const summaryHeadline =
     proposal.objective ||

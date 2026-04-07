@@ -199,7 +199,7 @@ function ReviewBundlePreview({ reviewBundle }: { reviewBundle: MarketingReviewBu
 
       {reviewBundle.reviewPacketAssets.length > 0 ? (
         <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5">
-          <strong className="block mb-3">Review packet and contract indexes</strong>
+          <strong className="block mb-3">Supporting materials</strong>
           <div className="flex flex-wrap gap-3">
             {reviewBundle.reviewPacketAssets.map((asset) => (
               <a
@@ -329,7 +329,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
   });
 
   const [jobId, setJobId] = useState(props.defaultJobId ?? '');
-  const [approvedBy, setApprovedBy] = useState(props.defaultApprovedBy ?? 'operator');
+  const [approvedBy, setApprovedBy] = useState(props.defaultApprovedBy ?? 'Client reviewer');
   const [resumePublishIfNeeded, setResumePublishIfNeeded] = useState(true);
   const [approvedStages, setApprovedStages] = useState<MarketingStage[]>([]);
   const [platforms, setPlatforms] = useState<string[]>([]);
@@ -462,9 +462,9 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
     <div className="min-h-screen bg-background px-6 py-10 md:px-8 lg:px-10">
       <div className="max-w-7xl mx-auto grid gap-6">
         <div className="glass rounded-[2.5rem] p-8 md:p-10">
-          <p className="text-xs uppercase tracking-[0.3em] text-primary mb-3">Aries workflow</p>
-          <h1 className="text-4xl font-bold mb-3">Campaign approval</h1>
-          <p className="text-white/60">Approve or resume paused launch stages through the Aries internal approval route.</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-primary mb-3">Campaign approval</p>
+          <h1 className="text-4xl font-bold mb-3">Approval package</h1>
+          <p className="text-white/60">Review the current package, confirm what is ready, and move the campaign into the next approved stage.</p>
         </div>
 
         <div className="grid xl:grid-cols-2 gap-6">
@@ -472,13 +472,13 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
         <div className="grid gap-5">
           <div>
             <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-3">Approval control</p>
-            <h1 className="text-3xl font-bold mb-3">Resume a paused marketing workflow</h1>
+            <h1 className="text-3xl font-bold mb-3">Confirm the current campaign package</h1>
             <p className="text-white/60">
-              Submit approval decisions through the internal Aries route and refresh live status without exposing workflow runner details.
+              Record the decision, keep the current package visible, and refresh the latest campaign status from the same screen.
             </p>
           </div>
 
-            <Field label="Job ID" hint="Required route key for /api/marketing/jobs/:jobId/approve">
+            <Field label="Job ID" hint="Use the current campaign identifier.">
               <input
                 value={jobId}
                 onChange={(event) => setJobId(event.target.value)}
@@ -491,7 +491,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
               <input
                 value={approvedBy}
                 onChange={(event) => setApprovedBy(event.target.value)}
-                placeholder="operator"
+                placeholder="Reviewer name"
                 className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
               />
             </Field>

@@ -1,0 +1,16 @@
+{
+  "sourceType": "standup",
+  "chiefId": "forge",
+  "chiefAgentId": "delivery-chief",
+  "reportStatus": "complete",
+  "boardPath": "/app/mission-control/server/data/execution-tasks.json",
+  "activeTaskId": "align-onboarding-and-integrations-screens-with-current-executable-contract-truth",
+  "currentStatus": "active",
+  "priorityBumps": [
+    {
+      "priority": "P1",
+      "requestedAction": "Raise onboarding contract task priority to P1 for Rohan",
+      "reason": "Rohan should work this frontend contract alignment next because it is now blocking route-truth cleanup."
+    }
+  ]
+}

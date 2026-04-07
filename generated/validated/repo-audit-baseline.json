@@ -1,0 +1,264 @@
+{
+  "repo_root": "/app/aries-app",
+  "current_truth": {
+    "framework_version": "Next.js 16.1.7",
+    "production_contract": [
+      "Application code is baked into the image and mounted at /app; writable runtime data belongs under /data.",
+      "Production runtime expects an external PostgreSQL instance; docker-compose.yml does not provision Postgres.",
+      "Production runtime expects an external OpenClaw Gateway; Aries delegates execution across that boundary.",
+      "Production Compose defaults the gateway Lobster cwd to aries-app/lobster and should not rely on source bind mounts for normal runtime."
+    ],
+    "local_contract": [
+      "Host local development uses NODE_ENV=development, PostgreSQL 16, DATA_ROOT=/tmp/aries-data, and localhost origins for APP_BASE_URL/NEXTAUTH_URL/AUTH_URL.",
+      "Host local workflow execution keeps a split between gateway cwd and local checkout paths; gateway-client normalizes absolute lobster paths to aries-app/lobster for gateway calls.",
+      "Docker local development publishes port 3000, bind-mounts the repo, and defaults OPENCLAW_GATEWAY_URL to http://host.docker.internal:18789.",
+      "The dev script already includes --turbopack via package.json, so npm run dev is now the canonical local dev command in both host and Docker-dev contexts."
+    ],
+    "local_host_contract": [
+      "Install with NODE_ENV=development npm ci.",
+      "Use local PostgreSQL 16 and run npm run db:init before first run.",
+      "Export CODE_ROOT to the checkout root, DATA_ROOT=/tmp/aries-data, and localhost auth/base URLs.",
+      "Use npm run dev for local Next.js + Turbopack."
+    ],
+    "local_docker_contract": [
+      "Use docker compose with docker-compose.yml plus docker-compose.local.yml.",
+      "Repo bind mounts are dev-only and the writable runtime mount remains /data.",
+      "Gateway access defaults to host.docker.internal for local Docker runs.",
+      "The aries-app-dev profile now inherits Turbopack through npm run dev."
+    ],
+    "supported_runtime_routes": {
+      "canonical_public_pages": [
+        "/",
+        "/features",
+        "/documentation",
+        "/api-docs",
+        "/contact"
+      ],
+      "canonical_operator_pages": [
+        "/dashboard",
+        "/dashboard/campaigns",
+        "/dashboard/campaigns/:campaignId",
+        "/dashboard/brand-review",
+        "/dashboard/strategy-review",
+        "/dashboard/creative-review",
+        "/dashboard/publish-status",
+        "/dashboard/calendar",
+        "/dashboard/posts",
+        "/dashboard/results",
+        "/dashboard/settings/business-profile",
+        "/dashboard/settings/channel-integrations",
+        "/review",
+        "/review/:reviewId"
+      ],
+      "workflow_pages": [
+        "/onboarding/start",
+        "/onboarding/pipeline-intake",
+        "/onboarding/status",
+        "/marketing/new-job",
+        "/marketing/job-status",
+        "/marketing/job-approve",
+        "/oauth/connect/:provider"
+      ],
+      "redirect_aliases_present_in_code": [
+        "/campaigns",
+        "/campaigns/:campaignId",
+        "/calendar",
+        "/posts",
+        "/results",
+        "/platforms",
+        "/settings"
+      ],
+      "ui_api_routes": [
+        "/api/onboarding/start",
+        "/api/onboarding/status/:tenantId",
+        "/api/marketing/jobs",
+        "/api/marketing/jobs/:jobId",
+        "/api/marketing/jobs/:jobId/approve",
+        "/api/marketing/jobs/latest",
+        "/api/marketing/jobs/:jobId/brief",
+        "/api/marketing/jobs/:jobId/assets/:assetId",
+        "/api/marketing/jobs/:jobId/workspace-assets/:assetId",
+        "/api/marketing/reviews",
+        "/api/marketing/reviews/:reviewId",
+        "/api/marketing/reviews/:reviewId/decision",
+        "/api/marketing/campaigns",
+        "/api/marketing/posts",
+        "/api/integrations",
+        "/api/integrations/connect",
+        "/api/integrations/disconnect",
+        "/api/integrations/sync",
+        "/api/platform-connections",
+        "/api/publish/dispatch",
+        "/api/publish/retry",
+        "/api/calendar/sync",
+        "/api/oauth/:provider/start",
+        "/api/oauth/:provider/callback",
+        "/api/oauth/:provider/disconnect",
+        "/api/oauth/:provider/refresh",
+        "/api/auth/[...nextauth]",
+        "/api/auth/oauth/:provider/connect",
+        "/api/auth/oauth/:provider/callback",
+        "/api/auth/oauth/:provider/disconnect",
+        "/api/auth/oauth/:provider/reconnect",
+        "/api/tenant/profiles",
+        "/api/tenant/profiles/:userId",
+        "/api/tenant/workflows",
+        "/api/tenant/workflows/:workflowId/runs",
+        "/api/tenant/approval-requests/:approvalRequestId/approve",
+        "/api/tenant/approval-requests/:approvalRequestId/reject",
+        "/api/business/profile",
+        "/api/internal/marketing/job-runtime",
+        "/api/pipeline/url-preview",
+        "/api/demo",
+        "/api/sandbox/launch",
+        "/api/contact"
+      ]
+    },
+    "real_workflow_targets": [
+      {
+        "route": "/api/marketing/jobs",
+        "target": "marketing-pipeline.lobster",
+        "mode": "real",
+        "notes": "Current executable contract is one marketing-pipeline.lobster run followed by resume tokens for strategy, production, launch review, and paused publish approvals."
+      },
+      {
+        "route": "/api/marketing/jobs/:jobId/approve",
+        "target": "marketing-pipeline.lobster resume",
+        "mode": "real",
+        "notes": "Approvals resume the same pipeline rather than jumping to separate stage-specific workflow files."
+      }
+    ],
+    "stub_workflow_targets": [
+      {
+        "route": "/api/onboarding/start",
+        "target": "parity/onboarding-start/workflow.lobster",
+        "mode": "stub"
+      },
+      {
+        "route": "/api/publish/dispatch",
+        "target": "parity/publish-dispatch/workflow.lobster",
+        "mode": "stub"
+      },
+      {
+        "route": "/api/publish/retry",
+        "target": "parity/publish-retry/workflow.lobster",
+        "mode": "stub"
+      },
+      {
+        "route": "/api/calendar/sync",
+        "target": "parity/calendar-sync/workflow.lobster",
+        "mode": "stub"
+      },
+      {
+        "route": "/api/integrations/sync",
+        "target": "parity/integrations-sync/workflow.lobster",
+        "mode": "stub"
+      },
+      {
+        "route": "/api/demo",
+        "target": "parity/demo-start/workflow.lobster",
+        "mode": "stub"
+      },
+      {
+        "route": "/api/sandbox/launch",
+        "target": "parity/sandbox-launch/workflow.lobster",
+        "mode": "stub"
+      }
+    ],
+    "validation_snapshot": {
+      "targeted_test_run": "44 passed / 1 failed",
+      "failing_test": "tests/marketing-local-dev-regression.test.ts :: runOpenClawLobsterWorkflow falls back to the local Lobster CLI when the gateway is unavailable",
+      "failing_reason": "Local fallback hit brand_kit_fetch_failed:fetch failed during marketing-pipeline execution."
+    }
+  },
+  "drifts": [
+    {
+      "id": "workflow-target-contract-drift",
+      "severity": "high",
+      "summary": "backend/openclaw/workflow-catalog.ts still advertises stage-2/3/4 nested workflow files, but the current executable marketing contract is marketing-pipeline.lobster plus resume tokens. Those nested workflow files are not present in lobster/.",
+      "files": [
+        "backend/openclaw/workflow-catalog.ts",
+        "backend/marketing/orchestrator.ts",
+        "tests/marketing-job-flow.test.ts",
+        "tests/marketing-pipeline-contract.test.ts",
+        "lobster/marketing-pipeline.lobster"
+      ]
+    },
+    {
+      "id": "stub-routes-still-in-supported-surface",
+      "severity": "high",
+      "summary": "Several UI-facing operational routes are still wired to parity stub workflows and return workflow_missing_for_route / not_implemented behavior instead of production workflows.",
+      "files": [
+        "EXECUTION_MANIFEST.md",
+        "backend/openclaw/workflow-catalog.ts",
+        "app/api/onboarding/start/route.ts",
+        "app/api/publish/dispatch/handler.ts",
+        "app/api/publish/retry/handler.ts",
+        "app/api/calendar/sync/handler.ts",
+        "app/api/integrations/handlers.ts",
+        "tests/auth/workflow-route-tenant-context.test.ts"
+      ]
+    },
+    {
+      "id": "route-contract-doc-drift",
+      "severity": "medium",
+      "summary": "The checked-in manifests and runtime docs describe a narrower route surface than the app and tests actually expose, including canonical dashboard review routes, redirect aliases, and the public contact page/API placeholder behavior.",
+      "files": [
+        "README.md",
+        "README-runtime.md",
+        "ROUTE_MANIFEST.md",
+        "app",
+        "tests/runtime-pages.test.ts",
+        "tests/public-marketing-pages.test.ts"
+      ]
+    },
+    {
+      "id": "framework-version-doc-drift",
+      "severity": "medium",
+      "summary": "README-runtime.md still describes Aries as a Next.js 15 runtime while package.json pins next 16.1.7 and README.md already calls out the newer version.",
+      "files": [
+        "README-runtime.md",
+        "package.json",
+        "README.md"
+      ]
+    },
+    {
+      "id": "docker-dev-command-doc-drift",
+      "severity": "low",
+      "summary": "README.md still warns that aries-app-dev uses npm run dev without --turbopack, but package.json now includes --turbopack in the dev script, so that caveat is stale.",
+      "files": [
+        "README.md",
+        "package.json",
+        "docker-compose.local.yml"
+      ]
+    },
+    {
+      "id": "local-lobster-fallback-regression",
+      "severity": "high",
+      "summary": "The targeted local-dev regression suite currently fails when gateway-less marketing-pipeline fallback resumes locally; the failure observed was brand_kit_fetch_failed:fetch failed.",
+      "files": [
+        "tests/marketing-local-dev-regression.test.ts",
+        "backend/openclaw/gateway-client.ts",
+        "backend/marketing/orchestrator.ts",
+        "lobster/marketing-pipeline.lobster"
+      ]
+    }
+  ],
+  "recommended_phase": 1,
+  "next_owner": "jarvis",
+  "next_execution_label": "aries-prod",
+  "next_agent": "jarvis",
+  "governance_note": "Execution labels like aries-prod are subordinate specialist/task labels only. Persistent owners remain Jarvis, Forge, Signal, or Ledger.",
+  "notes_for_prod": [
+    "Freeze the production contract around the real marketing pipeline: marketing-pipeline.lobster + resume-token approvals.",
+    "Decide which currently stubbed UI-facing routes must become real before ship versus which should be removed or explicitly demoted from the supported contract.",
+    "Reconcile route docs/manifests with the actual tested route surface so production handoff artifacts stop drifting from executable truth.",
+    "Keep production assumptions aligned with the repo: code baked into image, /data writable, external Postgres, external OpenClaw Gateway."
+  ],
+  "notes_for_local": [
+    "Derive local host and Docker settings only after the production contract is frozen.",
+    "Keep gateway cwd and local checkout paths split; gateway-client normalization already supports host absolute paths.",
+    "Treat npm run dev as the canonical Turbopack dev entrypoint now that package.json includes --turbopack.",
+    "Fix the local Lobster fallback regression before declaring local parity complete."
+  ]
+}

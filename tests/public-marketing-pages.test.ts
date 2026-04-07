@@ -11,6 +11,7 @@ import DocumentationPage from '../app/documentation/page';
 import ContactPage from '../app/contact/page';
 import ApiDocsPage from '../app/api-docs/page';
 import DonorHomePage from '../frontend/donor/marketing/home-page';
+import { DonorMarketingShell } from '../frontend/donor/marketing/chrome';
 import MarketingLayout from '../frontend/marketing/MarketingLayout';
 import { resolveProjectRoot } from './helpers/project-root';
 
@@ -66,12 +67,20 @@ test('public marketing pages return valid elements with expected route shells an
     assert.equal(homeElement.type, DonorHomePage);
 
     const homeSource = readRepoFile('frontend/donor/marketing/home-page.tsx');
+    const chromeSource = readRepoFile('frontend/donor/marketing/chrome.tsx');
     assert.match(homeSource, /Nothing goes live without your approval/);
     assert.match(homeSource, /Plan, create, approve, launch, and/);
     assert.match(homeSource, /Start with your business/);
+    assert.match(homeSource, /\/onboarding\/pipeline-intake/);
+    assert.doesNotMatch(homeSource, /href="\/onboarding\/start"/);
+    assert.match(chromeSource, /\/onboarding\/pipeline-intake/);
+    assert.doesNotMatch(chromeSource, /href="\/onboarding\/start"/);
     assert.doesNotMatch(homeSource, /Autonomous Growth Engine/);
     assert.doesNotMatch(homeSource, /Start Automating/);
     assert.doesNotMatch(homeSource, /See Runtime/);
+
+    const shellElement = DonorMarketingShell({ children: null });
+    assert.equal(isValidElement(shellElement), true);
 
     const featuresElement = FeaturesPage();
     assert.equal(isValidElement(featuresElement), true);
@@ -80,6 +89,9 @@ test('public marketing pages return valid elements with expected route shells an
     assert.match(featuresText, /market with confidence/);
     assert.match(featuresText, /Ready to see how it works\?/);
     assert.match(featuresText, /Start with your business/);
+    const featuresSource = readRepoFile('app/features/page.tsx');
+    assert.match(featuresSource, /\/onboarding\/pipeline-intake/);
+    assert.doesNotMatch(featuresSource, /\/onboarding\/start/);
 
     const documentationElement = DocumentationPage();
     assert.equal(isValidElement(documentationElement), true);
@@ -91,6 +103,9 @@ test('public marketing pages return valid elements with expected route shells an
     const contactText = normalizeWhitespace(collectText(contactElement.props.children));
     assert.match(contactText, /Contact intake is not available yet/);
     assert.match(contactText, /Start with your business/);
+    const contactSource = readRepoFile('app/contact/page.tsx');
+    assert.match(contactSource, /\/onboarding\/pipeline-intake/);
+    assert.doesNotMatch(contactSource, /\/onboarding\/start/);
 
     const apiDocsElement = ApiDocsPage();
     assert.equal(isValidElement(apiDocsElement), true);
