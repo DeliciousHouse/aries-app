@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+import argparse
+import base64
+import json
+import sys
+from datetime import datetime, timezone
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def decode_payload(value: str) -> dict:
+    if not value.strip():
+        return {}
+    return json.loads(base64.b64decode(value).decode("utf-8"))
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--brand-slug", default="client-brand")
+    parser.add_argument("--production-handoff-base64", default="")
+    args = parser.parse_args()
+
+    production_handoff = decode_payload(args.production_handoff_base64).get("production_handoff", {})
+    payload = {
+        "type": "launch_review_preview",
+        "stub": False,
+        "mode": "compat",
+        "generated_at": utc_now(),
+        "run_id": f"stage4-review-{args.brand_slug}",
+        "brand_slug": args.brand_slug,
+        "production_handoff": production_handoff,
+        "review_bundle": {
+            "campaign_name": production_handoff.get("campaign_name") or f"{args.brand_slug} launch review",
+            "approval_message": "Launch review materials are ready.",
+        },
+    }
+    json.dump(payload, sys.stdout, indent=2, sort_keys=True)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

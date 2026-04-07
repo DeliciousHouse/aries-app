@@ -10,9 +10,32 @@ import { useRuntimeReviewItem } from '@/hooks/use-runtime-review-item';
 import { EmptyStatePanel, ShellPanel, StatusChip } from './components';
 
 function workflowLabel(value: string): string {
+  if (value === 'workflow_approval') {
+    return 'Approval';
+  }
+  if (value === 'brand') {
+    return 'Brand direction';
+  }
+  if (value === 'strategy') {
+    return 'Campaign strategy';
+  }
+  if (value === 'creative') {
+    return 'Creative approval';
+  }
   return value
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function visibleActorLabel(value: string | null | undefined): string | null {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (!normalized) {
+    return null;
+  }
+  if (['operator', 'system', 'workflow', 'automation'].includes(normalized.toLowerCase())) {
+    return null;
+  }
+  return normalized;
 }
 
 function chipStatus(value: string): 'draft' | 'in_review' | 'approved' | 'scheduled' | 'live' | 'changes_requested' | 'rejected' {
@@ -36,7 +59,10 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
 
   const decisionSummary = useMemo(() => {
     if (!item?.lastDecision) return null;
-    return `${item.lastDecision.action.replace(/_/g, ' ')} by ${item.lastDecision.actedBy} at ${new Date(item.lastDecision.at).toLocaleString()}`;
+    const actor = visibleActorLabel(item.lastDecision.actedBy);
+    const action = item.lastDecision.action.replace(/_/g, ' ');
+    const timestamp = new Date(item.lastDecision.at).toLocaleString();
+    return actor ? `${action} by ${actor} at ${timestamp}` : `${action} at ${timestamp}`;
   }, [item]);
 
   if (review.isLoading) {
@@ -60,7 +86,7 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
         : undefined;
     await review.submitDecision({
       action,
-      actedBy: 'operator',
+      actedBy: 'Client reviewer',
       note,
       approvalId,
     });
@@ -70,25 +96,22 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
   return (
     <div className="space-y-5">
       <ShellPanel eyebrow={workflowLabel(reviewItem.reviewType)} title={reviewItem.title}>
-        <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-3">
-              <StatusChip status={reviewItem.status} />
-              <span className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-white/70">
+          <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <StatusChip status={reviewItem.status} />
+                <span className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-white/70">
                 {reviewItem.channel} · {reviewItem.placement}
-              </span>
-              <span className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-white/70">
-                {workflowLabel(reviewItem.workflowState)}
               </span>
             </div>
             <p className="text-sm leading-7 text-white/65">{reviewItem.summary}</p>
-          </div>
-          <div className="rounded-[1.5rem] border border-white/8 bg-black/15 px-5 py-5 text-sm leading-7 text-white/65">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Decision guidance</p>
+            </div>
+            <div className="rounded-[1.5rem] border border-white/8 bg-black/15 px-5 py-5 text-sm leading-7 text-white/65">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">What this decision does</p>
             <p className="mt-3">
               {reviewItem.reviewType === 'workflow_approval'
-                ? 'Approving resumes the underlying workflow. Request changes only records feedback. Rejecting explicitly denies the checkpoint.'
-                : 'Approving records this review as complete. Requesting changes keeps publish gated until a new revision is ready.'}
+                ? 'Approving this clears the current approval and opens the next prepared stage. Requesting changes keeps this package open for revision.'
+                : 'Approving this confirms the current package. Requesting changes keeps this stage open until revisions are ready.'}
             </p>
             {decisionSummary ? <p className="mt-3 text-white/55">Last decision: {decisionSummary}</p> : null}
           </div>
@@ -190,10 +213,8 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
       ) : null}
 
       <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
-        <ShellPanel eyebrow="Attachments" title="Supporting artifacts">
-          {reviewItem.attachments.length === 0 ? (
-            <p className="text-sm text-white/55">No supporting artifacts were attached to this review item.</p>
-          ) : (
+        {reviewItem.attachments.length > 0 ? (
+          <ShellPanel eyebrow="Materials" title="Supporting materials">
             <div className="space-y-3">
               {reviewItem.attachments.map((attachment) => (
                 <a key={attachment.id} href={attachment.url} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-4 rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4 text-sm text-white/80 transition hover:border-white/16 hover:text-white">
@@ -202,15 +223,15 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
                 </a>
               ))}
             </div>
-          )}
-        </ShellPanel>
+          </ShellPanel>
+        ) : null}
 
         <ShellPanel eyebrow="Decision" title="Choose what happens next">
           <div className="space-y-4">
             <textarea
               value={note}
               onChange={(event) => setNote(event.target.value.slice(0, 600))}
-              placeholder={reviewItem.notePlaceholder || 'Add context for the team'}
+              placeholder={reviewItem.notePlaceholder || 'Share any revision context for the team'}
               className="w-full rounded-[1.25rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-white placeholder:text-white/30"
             />
             <div className="flex flex-wrap gap-3">
@@ -221,7 +242,7 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
                 className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] disabled:opacity-60"
               >
                 <CheckCircle2 className="h-4 w-4" />
-                {busy ? 'Saving...' : reviewItem.reviewType === 'workflow_approval' ? 'Approve and resume' : 'Approve'}
+                {busy ? 'Saving...' : reviewItem.currentVersion.cta || 'Approve'}
               </button>
               <button
                 type="button"
@@ -246,7 +267,7 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
         </ShellPanel>
       </div>
 
-      <ShellPanel eyebrow="History" title="Decision trail">
+      <ShellPanel eyebrow="History" title="Decision history">
         {reviewItem.history.length === 0 ? (
           <p className="text-sm text-white/55">No decision history yet.</p>
         ) : (
@@ -258,11 +279,11 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
                 <div key={entry.id} className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-sm font-medium text-white">{workflowLabel(entry.type)}</p>
-                      <p className="mt-1 text-sm text-white/50">
-                        {entry.actor} · {new Date(entry.at).toLocaleString()}
-                      </p>
-                    </div>
+                    <p className="text-sm font-medium text-white">{workflowLabel(entry.type)}</p>
+                    <p className="mt-1 text-sm text-white/50">
+                        {[visibleActorLabel(entry.actor), new Date(entry.at).toLocaleString()].filter(Boolean).join(' · ')}
+                    </p>
+                  </div>
                     <StatusChip status={chipStatus(entry.status || '')}>
                       {entry.status ? workflowLabel(entry.status) : workflowLabel(entry.workflowState)}
                     </StatusChip>

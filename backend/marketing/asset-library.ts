@@ -258,8 +258,12 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
   const researchFallback = collectResearchStageArtifacts(
     runtimeDoc.stages.research.primary_output || { run_id: runtimeDoc.stages.research.run_id },
   );
-  const validatedProfileDocs = loadValidatedMarketingProfileDocs(runtimeDoc.tenant_id);
-  const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id);
+  const validatedProfileDocs = loadValidatedMarketingProfileDocs(runtimeDoc.tenant_id, {
+    currentSourceUrl: runtimeDoc.inputs.brand_url || null,
+  });
+  const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
+    currentSourceUrl: runtimeDoc.inputs.brand_url || null,
+  });
   const strategyFallback = collectStrategyReviewArtifacts(
     runtimeDoc.stages.strategy.primary_output || { run_id: runtimeDoc.stages.strategy.run_id },
     runtimeDoc,

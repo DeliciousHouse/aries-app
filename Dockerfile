@@ -48,20 +48,30 @@ RUN set -eux; \
   chown -R node:node /home/node /data /app
 
 COPY package*.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN npm ci --omit=dev \
+  && npm cache clean --force \
+  && chown -R node:node /home/node /app
 
 COPY --from=builder --chown=node:node /app/.next ./.next
 COPY --from=builder --chown=node:node /app/app ./app
+COPY --from=builder --chown=node:node /app/auth.ts ./auth.ts
 COPY --from=builder --chown=node:node /app/backend ./backend
+COPY --from=builder --chown=node:node /app/components ./components
 COPY --from=builder --chown=node:node /app/frontend ./frontend
+COPY --from=builder --chown=node:node /app/hooks ./hooks
 COPY --from=builder --chown=node:node /app/lib ./lib
 COPY --from=builder --chown=node:node /app/public ./public
+COPY --from=builder --chown=node:node /app/styles ./styles
 COPY --from=builder --chown=node:node /app/specs ./specs
 COPY --from=builder --chown=node:node /app/templates ./templates
+COPY --from=builder --chown=node:node /app/types ./types
 COPY --from=builder --chown=node:node /app/validators ./validators
 COPY --from=builder --chown=node:node /app/scripts ./scripts
 COPY --from=builder --chown=node:node /app/lobster ./lobster
 COPY --from=builder --chown=node:node /app/next-env.d.ts ./next-env.d.ts
+COPY --from=builder --chown=node:node /app/next.config.mjs ./next.config.mjs
+COPY --from=builder --chown=node:node /app/postcss.config.mjs ./postcss.config.mjs
+COPY --from=builder --chown=node:node /app/tailwind.config.ts ./tailwind.config.ts
 COPY --from=builder --chown=node:node /app/tsconfig.json ./tsconfig.json
 COPY --from=builder --chown=node:node /app/README-runtime.md ./README-runtime.md
 

@@ -1,8 +1,5 @@
-'use client';
-
-import React from 'react';
-import AriesOnboardingFlow from '@/frontend/aries-v1/onboarding-flow';
+import { redirect } from 'next/navigation';
 
 export default function OnboardingStartPage() {
-  return <AriesOnboardingFlow />;
+  redirect('/onboarding/pipeline-intake');
 }

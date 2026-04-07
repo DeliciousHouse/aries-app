@@ -882,7 +882,9 @@ export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse
   const assetPreviewCards = buildAssetPreviewCards(jobId, reviewBundle);
   const calendarEvents = buildCalendarEvents(runtimeDoc);
   const postCounts = buildPostCounts(runtimeDoc, reviewBundle, calendarEvents);
-  const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id);
+  const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
+    currentSourceUrl: runtimeDoc.inputs.brand_url || null,
+  });
   if (shouldLogMarketingJobStatus()) {
     console.info('[marketing-hydration]', {
       event: 'job-status',

@@ -74,6 +74,21 @@ PROTECTED_SYSTEMS.md
 memory/*
 tmp
 
+# Governance / agent-operating files that are canonical repo truth in this workspace
+!AGENTS.md
+!PROTECTED_SYSTEMS.md
+!MEMORY.md
+!HEARTBEAT.md
+!TOOLS.md
+!SOUL.md
+!USER.md
+!IDENTITY.md
+!team/DELEGATION-RULES.md
+!team/forge/*.md
+!team/signal/*.md
+!team/ledger/*.md
+!data/org-chart.json
+
 .DS_Store
 .env
 **/*.key

@@ -1,15 +1,9 @@
 # Aries System Reference
 
-Last refreshed Apr 04, 2026, 21:45 PDT.
+Last refreshed Apr 06, 2026, 21:45 PDT.
 
 ## What changed today
-- scripts/automations/manifest.mjs
-- scripts/automations/private-repo-backup.mjs
-- skills/aries-private-repo-backup/SKILL.md
-- MEMORY.md
-- docker-compose.yml
-- docs/briefs/2026-04-04-brief.md
-- skills/README.md
+- No git-tracked file changes detected since local midnight.
 
 ## Current architecture overview
 - Next.js App Router runtime serves the public site, authenticated operator shell, and browser-safe internal APIs.
@@ -19,12 +13,12 @@ Last refreshed Apr 04, 2026, 21:45 PDT.
 
 ## Module inventory
 - app/ 104 files
-- backend/ 71 files
+- backend/ 72 files
 - components/ 14 files
 - hooks/ 17 files
 - lib/ 18 files
 - scripts/ 16 files
-- skills/ 44 files
+- skills/ 49 files
 - workflows/ 4 files
 
 ## Active cron jobs
@@ -64,7 +58,26 @@ Last refreshed Apr 04, 2026, 21:45 PDT.
 - Mission Control standalone app is still a shell around runtime overview data and awaits richer live API adapters for actions/transcripts.
 
 ## Working tree snapshot
-- Working tree clean at refresh time.
+- M  .gitignore
+- A  AGENTS.md
+- M Dockerfile
+- A  HEARTBEAT.md
+- A  IDENTITY.md
+- A  MEMORY.md
+- M  PRIORITIES.md
+- A  PROTECTED_SYSTEMS.md
+- M README.md
+- M ROUTE_MANIFEST.md
+- A  SOUL.md
+- A  TOOLS.md
+- A  USER.md
+- M app/contact/page.tsx
+- M app/features/page.tsx
+- M app/onboarding/page.tsx
+- M app/onboarding/start/page.tsx
+- M backend/marketing/asset-library.ts
+- M backend/marketing/brand-kit.ts
+- M backend/marketing/dashboard-content.ts
 
 ## Reference date
-- 2026-04-04
+- 2026-04-06

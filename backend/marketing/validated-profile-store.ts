@@ -1,7 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 
+import type { MarketingBrandIdentity } from '@/lib/api/marketing';
 import { sanitizeLegacyCompetitorUrl } from '@/lib/marketing-competitor';
 import { resolveDataPath } from '@/lib/runtime-paths';
+import { buildMarketingBrandIdentity, recordMatchesCurrentSource } from './brand-identity';
 
 function stringValue(value: unknown): string | null {
   if (typeof value === 'string' && value.trim()) {
@@ -115,21 +117,36 @@ export type ValidatedMarketingProfileDocs = {
   };
 };
 
-export function loadValidatedMarketingProfileDocs(tenantId: string): ValidatedMarketingProfileDocs {
+export type ValidatedMarketingProfileLoadOptions = {
+  currentSourceUrl?: string | null;
+};
+
+export function loadValidatedMarketingProfileDocs(
+  tenantId: string,
+  options: ValidatedMarketingProfileLoadOptions = {},
+): ValidatedMarketingProfileDocs {
   const brandProfilePath = tenantBrandProfilePath(tenantId);
   const websiteAnalysisPath = tenantWebsiteAnalysisPath(tenantId);
   const businessProfilePath = tenantBusinessProfilePath(tenantId);
   const brandKitPath = tenantBrandKitPath(tenantId);
+  const rawBrandProfile = readJsonIfExists(brandProfilePath);
+  const rawWebsiteAnalysis = readJsonIfExists(websiteAnalysisPath);
+  const rawBusinessProfile = readJsonIfExists(businessProfilePath);
+  const rawBrandKit = readJsonIfExists(brandKitPath);
+  const brandProfile = recordMatchesCurrentSource(rawBrandProfile, options.currentSourceUrl) ? rawBrandProfile : null;
+  const websiteAnalysis = recordMatchesCurrentSource(rawWebsiteAnalysis, options.currentSourceUrl) ? rawWebsiteAnalysis : null;
+  const businessProfile = recordMatchesCurrentSource(rawBusinessProfile, options.currentSourceUrl) ? rawBusinessProfile : null;
+  const brandKit = recordMatchesCurrentSource(rawBrandKit, options.currentSourceUrl) ? rawBrandKit : null;
   return {
-    brandProfile: readJsonIfExists(brandProfilePath),
-    websiteAnalysis: readJsonIfExists(websiteAnalysisPath),
-    businessProfile: readJsonIfExists(businessProfilePath),
-    brandKit: readJsonIfExists(brandKitPath),
+    brandProfile,
+    websiteAnalysis,
+    businessProfile,
+    brandKit,
     paths: {
-      brandProfile: existsSync(brandProfilePath) ? brandProfilePath : null,
-      websiteAnalysis: existsSync(websiteAnalysisPath) ? websiteAnalysisPath : null,
-      businessProfile: existsSync(businessProfilePath) ? businessProfilePath : null,
-      brandKit: existsSync(brandKitPath) ? brandKitPath : null,
+      brandProfile: brandProfile && existsSync(brandProfilePath) ? brandProfilePath : null,
+      websiteAnalysis: websiteAnalysis && existsSync(websiteAnalysisPath) ? websiteAnalysisPath : null,
+      businessProfile: businessProfile && existsSync(businessProfilePath) ? businessProfilePath : null,
+      brandKit: brandKit && existsSync(brandKitPath) ? brandKitPath : null,
     },
   };
 }
@@ -156,16 +173,98 @@ export type ValidatedMarketingProfileSnapshot = {
   launchApproverName: string | null;
   channels: string[];
   competitorUrl: string | null;
+  brandIdentity: MarketingBrandIdentity | null;
 };
 
-export function loadValidatedMarketingProfileSnapshot(tenantId: string): ValidatedMarketingProfileSnapshot {
-  const docs = loadValidatedMarketingProfileDocs(tenantId);
+function landingHookFromDoc(doc: Record<string, unknown> | null): string | null {
+  const creativeHandoffHooks = recordValue(recordValue(doc?.creative_handoff)?.hooks)?.['landing-page'];
+  const analysisHooks = recordValue(recordValue(doc?.brand_analysis)?.hooks)?.['landing-page'];
+  return stringArray(creativeHandoffHooks)[0] || stringArray(analysisHooks)[0] || null;
+}
+
+export function loadValidatedMarketingProfileSnapshot(
+  tenantId: string,
+  options: ValidatedMarketingProfileLoadOptions = {},
+): ValidatedMarketingProfileSnapshot {
+  const docs = loadValidatedMarketingProfileDocs(tenantId, options);
   const brandProfile = docs.brandProfile;
   const websiteAnalysis = docs.websiteAnalysis;
   const websiteBrandAnalysis = recordValue(websiteAnalysis?.brand_analysis);
   const businessProfile = docs.businessProfile;
   const brandKit = docs.brandKit;
   const orderedDocs = [brandProfile, websiteAnalysis, businessProfile, brandKit];
+  const websiteUrl = firstString(orderedDocs, [
+    (doc) => doc.website_url,
+    (doc) => recordValue(doc.creative_handoff)?.website_url,
+    (doc) => recordValue(doc.brand_analysis)?.website_url,
+    (doc) => doc.source_url,
+  ]);
+  const canonicalUrl = firstString(orderedDocs, [
+    (doc) => doc.canonical_url,
+    (doc) => recordValue(doc.brand_analysis)?.canonical_url,
+    (doc) => doc.source_url,
+  ]);
+  const audience = firstString(orderedDocs, [
+    (doc) => doc.audience,
+    (doc) => recordValue(doc.creative_handoff)?.audience,
+    (doc) => recordValue(doc.brand_analysis)?.audience,
+    (doc) => recordValue(doc.brand_analysis)?.audience_summary,
+  ]);
+  const positioning = firstString(orderedDocs, [
+    (doc) => doc.positioning,
+    (doc) => recordValue(doc.creative_handoff)?.positioning,
+    (doc) => recordValue(doc.brand_analysis)?.positioning,
+    (doc) => recordValue(doc.brand_analysis)?.positioning_summary,
+  ]);
+  const offer = firstString(orderedDocs, [
+    (doc) => doc.offer,
+    (doc) => recordValue(doc.creative_handoff)?.offer,
+    (doc) => recordValue(doc.brand_analysis)?.offer,
+    (doc) => recordValue(doc.brand_analysis)?.offer_summary,
+    (doc) => doc.offer_summary,
+  ]);
+  const primaryCta = firstString(orderedDocs, [
+    (doc) => doc.primary_cta,
+    (doc) => recordValue(doc.creative_handoff)?.primary_cta,
+    (doc) => recordValue(doc.brand_analysis)?.primary_cta,
+    (doc) => stringArray(recordValue(doc.brand_analysis)?.cta_preferences)[0],
+  ]);
+  const proofPoints = firstStringArray(orderedDocs, [
+    (doc) => doc.proof_points,
+    (doc) => recordValue(doc.creative_handoff)?.proof_points,
+    (doc) => recordValue(doc.brand_analysis)?.proof_points,
+  ]);
+  const brandVoice = firstStringArray(orderedDocs, [
+    (doc) => doc.brand_voice,
+    (doc) => recordValue(doc.creative_handoff)?.brand_voice,
+    (doc) => recordValue(doc.brand_analysis)?.brand_voice,
+  ]);
+  const brandIdentity = buildMarketingBrandIdentity({
+    websiteUrl,
+    canonicalUrl,
+    audience,
+    positioning,
+    offer,
+    promise: firstString(orderedDocs, [
+      (doc) => doc.brand_promise,
+      (doc) => recordValue(doc.creative_handoff)?.brand_promise,
+      (doc) => recordValue(doc.brand_analysis)?.brand_promise,
+      (doc) => landingHookFromDoc(doc),
+    ]),
+    primaryCta,
+    proofPoints,
+    brandVoice,
+    styleVibe: firstString(orderedDocs, [
+      (doc) => doc.style_vibe,
+      (doc) => recordValue(doc.creative_handoff)?.style_vibe,
+      (doc) => recordValue(doc.brand_analysis)?.style_vibe,
+    ]),
+    brandKit,
+    hooks: firstRecord(orderedDocs, [
+      (doc) => recordValue(doc.creative_handoff)?.hooks,
+      (doc) => recordValue(doc.brand_analysis)?.hooks,
+    ]),
+  });
 
   return {
     docs,
@@ -181,57 +280,19 @@ export function loadValidatedMarketingProfileSnapshot(tenantId: string): Validat
       (doc) => recordValue(doc.brand_analysis)?.brand_slug,
       (doc) => doc.tenant_id,
     ]),
-    websiteUrl: firstString(orderedDocs, [
-      (doc) => doc.website_url,
-      (doc) => recordValue(doc.creative_handoff)?.website_url,
-      (doc) => recordValue(doc.brand_analysis)?.website_url,
-      (doc) => doc.source_url,
-    ]),
-    canonicalUrl: firstString(orderedDocs, [
-      (doc) => doc.canonical_url,
-      (doc) => recordValue(doc.brand_analysis)?.canonical_url,
-      (doc) => doc.source_url,
-    ]),
-    audience: firstString(orderedDocs, [
-      (doc) => doc.audience,
-      (doc) => recordValue(doc.creative_handoff)?.audience,
-      (doc) => recordValue(doc.brand_analysis)?.audience,
-      (doc) => recordValue(doc.brand_analysis)?.audience_summary,
-    ]),
-    positioning: firstString(orderedDocs, [
-      (doc) => doc.positioning,
-      (doc) => recordValue(doc.creative_handoff)?.positioning,
-      (doc) => recordValue(doc.brand_analysis)?.positioning,
-      (doc) => recordValue(doc.brand_analysis)?.positioning_summary,
-    ]),
+    websiteUrl,
+    canonicalUrl,
+    audience,
+    positioning,
     problemStatement: firstString(orderedDocs, [
       (doc) => doc.problem_statement,
       (doc) => recordValue(doc.creative_handoff)?.problem_statement,
       (doc) => recordValue(doc.brand_analysis)?.problem_statement,
     ]),
-    offer: firstString(orderedDocs, [
-      (doc) => doc.offer,
-      (doc) => recordValue(doc.creative_handoff)?.offer,
-      (doc) => recordValue(doc.brand_analysis)?.offer,
-      (doc) => recordValue(doc.brand_analysis)?.offer_summary,
-      (doc) => doc.offer_summary,
-    ]),
-    primaryCta: firstString(orderedDocs, [
-      (doc) => doc.primary_cta,
-      (doc) => recordValue(doc.creative_handoff)?.primary_cta,
-      (doc) => recordValue(doc.brand_analysis)?.primary_cta,
-      (doc) => stringArray(recordValue(doc.brand_analysis)?.cta_preferences)[0],
-    ]),
-    proofPoints: firstStringArray(orderedDocs, [
-      (doc) => doc.proof_points,
-      (doc) => recordValue(doc.creative_handoff)?.proof_points,
-      (doc) => recordValue(doc.brand_analysis)?.proof_points,
-    ]),
-    brandVoice: firstStringArray(orderedDocs, [
-      (doc) => doc.brand_voice,
-      (doc) => recordValue(doc.creative_handoff)?.brand_voice,
-      (doc) => recordValue(doc.brand_analysis)?.brand_voice,
-    ]),
+    offer,
+    primaryCta,
+    proofPoints,
+    brandVoice,
     channelSpecificAngles: firstRecord(orderedDocs, [
       (doc) => doc.channel_specific_angles,
       (doc) => recordValue(doc.creative_handoff)?.channel_specific_angles,
@@ -275,5 +336,6 @@ export function loadValidatedMarketingProfileSnapshot(tenantId: string): Validat
         (doc) => recordValue(doc.brand_analysis)?.competitor_url,
       ]),
     ),
+    brandIdentity,
   };
 }

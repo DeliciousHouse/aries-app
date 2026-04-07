@@ -251,6 +251,37 @@ function isApproveStage2Checkpoint(status: MarketingJobStatusResponse): boolean 
   return status.approval?.workflowStepId === 'approve_stage_2';
 }
 
+function approvalSurfaceSummary(status: MarketingJobStatusResponse): string {
+  const message = stringValue(status.approval?.message, status.summary.subheadline);
+  switch (status.approval?.workflowStepId) {
+    case 'approve_stage_2':
+      return 'Research is complete. Brand analysis is ready next once this direction is approved.';
+    case 'approve_stage_3':
+      return message || 'The campaign strategy is ready for approval before production begins.';
+    case 'approve_stage_4':
+      return message || 'Creative production is ready for approval before launch packaging begins.';
+    case 'approve_stage_4_publish':
+      return message || 'Launch packaging is ready for approval before publishing begins.';
+    default:
+      return message || 'The next campaign checkpoint is ready for review.';
+  }
+}
+
+function approvalSurfaceTitle(status: MarketingJobStatusResponse): string {
+  switch (status.approval?.workflowStepId) {
+    case 'approve_stage_2':
+      return 'Research complete';
+    case 'approve_stage_3':
+      return 'Campaign strategy';
+    case 'approve_stage_4':
+      return 'Creative review';
+    case 'approve_stage_4_publish':
+      return 'Publishing approval';
+    default:
+      return stringValue(status.approval?.title, 'Campaign approval');
+  }
+}
+
 function firstCheckpointBrandKitVisuals(
   status: MarketingJobStatusResponse,
   runtimeDoc: MarketingJobRuntimeDocument,
@@ -788,11 +819,16 @@ function workflowApprovalItem(
     : [
         {
           id: 'workflow-approval',
-          title: 'Workflow checkpoint',
-          body: status.approval.message,
+          title: 'What is ready now',
+          body: approvalSurfaceSummary(status),
         },
       ];
   const attachments = firstCheckpoint ? firstCheckpointAttachments(view, runtimeDoc) : [];
+  const summary = approvalSurfaceSummary(status);
+  const title = approvalSurfaceTitle(status);
+  const cta = view.workflowState === 'revisions_requested'
+    ? 'Resolve revisions'
+    : status.approval.actionLabel || 'Approve and continue';
 
   return {
     id: `${status.jobId}::approval`,
@@ -802,29 +838,26 @@ function workflowApprovalItem(
     reviewType: 'workflow_approval',
     workflowState: view.workflowState,
     workflowStage: status.currentStage || status.approval.workflowStepId || 'approval',
-    title: status.approval.title,
-    channel: 'Workflow',
-    placement: status.currentStage || 'approval checkpoint',
-    scheduledFor: 'Before workflow resume',
+    title,
+    channel: firstCheckpoint ? 'Research' : 'Campaign',
+    placement: firstCheckpoint ? 'Brand analysis next' : (status.currentStage || 'Current checkpoint'),
+    scheduledFor: firstCheckpoint ? 'Before brand analysis begins' : 'Before the next stage begins',
     status: 'in_review',
-    summary: status.approval.message,
+    summary,
     currentVersion: {
       id: status.approval.approvalId ? `approval:${status.approval.approvalId}` : 'approval',
       label: 'Current version',
-      headline: status.approval.title,
-      supportingText: status.approval.message,
-      cta:
-        view.workflowState === 'revisions_requested'
-          ? 'Resolve revisions'
-          : status.approval.actionLabel || 'Approve and resume',
+      headline: title,
+      supportingText: summary,
+      cta,
       notes:
         sections.length > 0
           ? sections.map((section) => section.title)
-          : (status.approval.workflowStepId ? [`Workflow step: ${status.approval.workflowStepId}`] : []),
+          : [],
     },
     previousVersion: undefined,
     lastDecision: null,
-    notePlaceholder: 'Add workflow context for the next operator.',
+    notePlaceholder: 'Add client-facing context for the next step.',
     sections,
     attachments,
     history: [],

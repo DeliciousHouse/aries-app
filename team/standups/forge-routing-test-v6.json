@@ -1,0 +1,24 @@
+{
+  "sourceType": "standup",
+  "chiefId": "forge",
+  "chiefAgentId": "delivery-chief",
+  "reportStatus": "complete",
+  "boardPath": "/app/mission-control/server/data/execution-tasks.json",
+  "activeTaskId": "tighten-aries-app-dashboard-owner-handoff-states",
+  "currentStatus": "ready",
+  "humanDependencies": [
+    {
+      "target": "brendan",
+      "summary": "Approve backend contract wording for the dashboard handoff state labels, test F.",
+      "requestedAction": "Confirm Brendan dependency for dashboard contract wording, test F",
+      "nextAction": "Await Brendan confirmation of backend contract wording for dashboard handoff labels, test F."
+    }
+  ],
+  "needsJarvisRouting": [
+    {
+      "summary": "Upstream blocker handling still needs Jarvis routing before Forge can close the handoff state pass, test F.",
+      "requestedAction": "Escalate dashboard handoff blocker handling to Jarvis, test F",
+      "nextAction": "Jarvis routes the upstream blocker once approved, test F."
+    }
+  ]
+}

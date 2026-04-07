@@ -142,6 +142,23 @@ export interface MarketingApprovalSummary {
   actionHref?: string;
 }
 
+export interface MarketingBrandIdentity {
+  summary: string | null;
+  positioning: string | null;
+  audience: string | null;
+  offer: string | null;
+  promise: string | null;
+  toneOfVoice: string | null;
+  styleVibe: string | null;
+  ctaStyle: string | null;
+  proofStyle: string | null;
+  provenance: {
+    source_url: string | null;
+    canonical_url: string | null;
+    source_fingerprint: string | null;
+  };
+}
+
 export interface MarketingReviewPreviewCard {
   id: string;
   platformSlug: string;
@@ -259,6 +276,7 @@ export interface MarketingStageReviewPayload {
   title: string;
   summary: string;
   notePlaceholder: string;
+  brandIdentity?: MarketingBrandIdentity | null;
   sections: MarketingReviewSection[];
   attachments: MarketingReviewAttachment[];
   history: MarketingCampaignStatusHistoryEntry[];

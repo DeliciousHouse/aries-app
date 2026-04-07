@@ -7,6 +7,31 @@ import { useRuntimeReviews } from '@/hooks/use-runtime-reviews';
 import { EmptyStatePanel, LoadingStateGrid, ShellPanel, StatusChip } from './components';
 
 function reviewTypeLabel(value: string): string {
+  if (value === 'workflow_approval') {
+    return 'Approval';
+  }
+  if (value === 'brand') {
+    return 'Brand direction';
+  }
+  if (value === 'strategy') {
+    return 'Campaign strategy';
+  }
+  if (value === 'creative') {
+    return 'Creative approval';
+  }
+  return value
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function workflowStateLabel(value: string): string {
+  if (value === 'brand_review_required') return 'Brand review ready';
+  if (value === 'strategy_review_required') return 'Strategy review ready';
+  if (value === 'creative_review_required') return 'Creative review ready';
+  if (value === 'ready_to_publish') return 'Ready for launch';
+  if (value === 'published') return 'Published';
+  if (value === 'approved') return 'Approved';
+  if (value === 'revisions_requested') return 'Needs revisions';
   return value
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -41,7 +66,7 @@ export default function AriesReviewQueueScreen() {
     <div className="space-y-5">
       <ShellPanel eyebrow="Review Queue" title="Everything that needs a decision">
         <p className="max-w-3xl text-sm leading-7 text-white/65">
-          This queue reflects the persisted campaign workflow. Brand review, strategy review, creative assets, and explicit workflow approvals all stay visible here until the decision is complete.
+          Review each brand, strategy, creative, and launch package from one calm queue. Only live items that still need a decision stay visible here.
         </p>
       </ShellPanel>
 
@@ -62,11 +87,11 @@ export default function AriesReviewQueueScreen() {
               </div>
               <div className="space-y-2 text-sm text-white/62">
                 <InfoRow label="Campaign" value={item.campaignName} />
-                <InfoRow label="Type" value={reviewTypeLabel(item.reviewType)} />
+                <InfoRow label="Review" value={reviewTypeLabel(item.reviewType)} />
                 <InfoRow label="Placement" value={`${item.channel} · ${item.placement}`} />
               </div>
               <div className="space-y-2 text-sm text-white/62">
-                <InfoRow label="Workflow state" value={reviewTypeLabel(item.workflowState)} />
+                <InfoRow label="Ready now" value={workflowStateLabel(item.workflowState)} />
                 <InfoRow label="Current version" value={item.currentVersion.label} />
                 <InfoRow label="Decision history" value={String(item.history.length)} />
               </div>

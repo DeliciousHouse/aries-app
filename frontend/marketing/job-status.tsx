@@ -233,9 +233,9 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
     <div className="min-h-screen bg-background px-6 py-10 md:px-8 lg:px-10">
       <div className="max-w-7xl mx-auto space-y-6">
         <div className="glass rounded-[2.5rem] p-8 md:p-10">
-          <p className="text-xs uppercase tracking-[0.3em] text-primary mb-3">Aries workflow</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-primary mb-3">Campaign status</p>
           <h1 className="text-4xl font-bold mb-3">Campaign status</h1>
-          <p className="text-white/60">Live donor-derived campaign workspace wired to the Aries internal status and approval routes.</p>
+          <p className="text-white/60">Track progress, review what is ready, and move the campaign forward when a decision is needed.</p>
         </div>
 
       <div className="grid xl:grid-cols-2 gap-6">
@@ -243,9 +243,9 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
           <div className="grid gap-5">
             <div>
               <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-3">Campaign status</p>
-              <h1 className="text-3xl font-bold mb-3">Operational campaign workspace</h1>
+              <h1 className="text-3xl font-bold mb-3">Live campaign overview</h1>
               <p className="text-white/60">
-                Monitor the brand campaign, refresh real stage progress, and jump to launch approval when needed.
+                Refresh the latest stage progress, review supporting materials, and open the current approval package when it is ready.
               </p>
             </div>
 

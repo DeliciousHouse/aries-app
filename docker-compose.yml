@@ -50,7 +50,6 @@ services:
     volumes:
       - aries_runtime_data:/data
       - gh_config:/home/node/.config/gh
-      - git_config:/home/node/.gitconfig
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
@@ -94,5 +93,5 @@ volumes:
     name: aries-app_aries_runtime_data
   gh_config:
     name: aries-app_gh_config
-  git_config:
-    name: aries-app_git_config
+    external: true
+    

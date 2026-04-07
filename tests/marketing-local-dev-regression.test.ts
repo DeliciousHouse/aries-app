@@ -124,6 +124,64 @@ test('assertMarketingRuntimeSchemas resolves the repo spec when CODE_ROOT assume
   }
 });
 
+test('runOpenClawLobsterWorkflow host-mode local fallback can run the nested stage-1 atomic marketing workflow file', async (t) => {
+  const missing: string[] = [];
+  if (!hostCommandExists('lobster')) missing.push('lobster');
+  if (!hostCommandExists('openclaw')) missing.push('openclaw');
+  if (!process.env.GEMINI_API_KEY?.trim()) missing.push('GEMINI_API_KEY');
+  if (missing.length > 0) {
+    t.skip(`host-mode local fallback requires ${missing.join(', ')}`);
+    return;
+  }
+
+  const previousCodeRoot = process.env.CODE_ROOT;
+  const previousGatewayUrl = process.env.OPENCLAW_GATEWAY_URL;
+  const previousGatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN;
+  const previousGatewayLobsterCwd = process.env.OPENCLAW_GATEWAY_LOBSTER_CWD;
+  const previousLocalLobsterCwd = process.env.OPENCLAW_LOCAL_LOBSTER_CWD;
+  const previousLobsterStateDir = process.env.LOBSTER_STATE_DIR;
+  const stateDir = await mkdtemp(path.join(tmpdir(), 'aries-stage1-lobster-state-'));
+
+  process.env.CODE_ROOT = PROJECT_ROOT;
+  delete process.env.OPENCLAW_GATEWAY_URL;
+  delete process.env.OPENCLAW_GATEWAY_TOKEN;
+  process.env.OPENCLAW_GATEWAY_LOBSTER_CWD = 'aries-app/lobster';
+  process.env.OPENCLAW_LOCAL_LOBSTER_CWD = path.join(PROJECT_ROOT, 'lobster');
+  process.env.LOBSTER_STATE_DIR = stateDir;
+
+  try {
+    const { runOpenClawLobsterWorkflow } = await import('../backend/openclaw/gateway-client');
+
+    const envelope = await runOpenClawLobsterWorkflow({
+      pipeline: 'stage-1-research/workflow.lobster',
+      cwd: 'aries-app/lobster',
+      localCwd: path.join(PROJECT_ROOT, 'lobster'),
+      argsJson: JSON.stringify({
+        competitor_url: 'https://betterup.com',
+      }),
+      timeoutMs: 120000,
+      maxStdoutBytes: 8 * 1024 * 1024,
+    });
+
+    assert.equal(envelope.ok, true);
+    assert.equal(typeof envelope.status, 'string');
+  } finally {
+    if (previousCodeRoot === undefined) delete process.env.CODE_ROOT;
+    else process.env.CODE_ROOT = previousCodeRoot;
+    if (previousGatewayUrl === undefined) delete process.env.OPENCLAW_GATEWAY_URL;
+    else process.env.OPENCLAW_GATEWAY_URL = previousGatewayUrl;
+    if (previousGatewayToken === undefined) delete process.env.OPENCLAW_GATEWAY_TOKEN;
+    else process.env.OPENCLAW_GATEWAY_TOKEN = previousGatewayToken;
+    if (previousGatewayLobsterCwd === undefined) delete process.env.OPENCLAW_GATEWAY_LOBSTER_CWD;
+    else process.env.OPENCLAW_GATEWAY_LOBSTER_CWD = previousGatewayLobsterCwd;
+    if (previousLocalLobsterCwd === undefined) delete process.env.OPENCLAW_LOCAL_LOBSTER_CWD;
+    else process.env.OPENCLAW_LOCAL_LOBSTER_CWD = previousLocalLobsterCwd;
+    if (previousLobsterStateDir === undefined) delete process.env.LOBSTER_STATE_DIR;
+    else process.env.LOBSTER_STATE_DIR = previousLobsterStateDir;
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
 test('runOpenClawLobsterWorkflow host-mode local fallback only runs when host prerequisites exist', async (t) => {
   const missing: string[] = [];
   if (!hostCommandExists('lobster')) missing.push('lobster');

@@ -666,15 +666,21 @@ test('approve_stage_2 workflow reviews include research, brief, brand-kit, and u
       const extractedBrandKitSection = approvalItem?.sections.find((section) => section.id === 'extracted-brand-kit');
 
       assert.equal(approvalItem?.reviewType, 'workflow_approval');
+      assert.equal(approvalItem?.title, 'Research complete');
+      assert.equal(approvalItem?.summary.includes('Brand analysis is ready next'), true);
+      assert.equal(approvalItem?.channel, 'Research');
+      assert.equal(approvalItem?.placement, 'Brand analysis next');
       assert.deepEqual(
         approvalItem?.sections.map((section) => section.title),
         ['Research summary', 'Campaign brief', 'Extracted brand kit', 'Uploaded brand assets'],
       );
+      assert.equal(approvalItem?.sections.some((section) => section.title === 'Workflow checkpoint'), false);
       assert.equal(extractedBrandKitSection?.brandKitVisuals?.logos.length, 1);
       assert.equal(extractedBrandKitSection?.brandKitVisuals?.colors.length, 3);
       assert.equal(extractedBrandKitSection?.brandKitVisuals?.fonts.some((font) => font.family === 'Manrope'), true);
       assert.equal(approvalItem?.attachments.some((attachment) => attachment.label === 'Extracted brand kit'), true);
       assert.equal(approvalItem?.attachments.some((attachment) => attachment.label === 'Brand moodboard'), true);
+      assert.equal(approvalItem?.attachments.every((attachment) => attachment.label.trim().length > 0 && attachment.url.trim().length > 0), true);
       assert.equal(approvalItem?.currentVersion.cta, 'Continue to brand analysis');
       assert.equal(campaigns[0]?.approvalActionHref, `/review/${encodeURIComponent(`${started.jobId}::approval`)}`);
     } finally {

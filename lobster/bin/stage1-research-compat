@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import sys
+from datetime import datetime, timezone
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--competitor-url", default="")
+    parser.add_argument("--competitor", default="")
+    parser.add_argument("--competitor-brand", default="")
+    parser.add_argument("--facebook-page-url", default="")
+    parser.add_argument("--competitor-facebook-url", default="")
+    parser.add_argument("--ad-library-url", default="")
+    parser.add_argument("--meta-page-id", default="")
+    parser.add_argument("--research-model", default="gemini/gemini-3-flash-preview")
+    args = parser.parse_args()
+
+    payload = {
+        "type": "ads_analyst_compile",
+        "stub": False,
+        "mode": "compat",
+        "generated_at": utc_now(),
+        "run_id": f"stage1-{abs(hash(args.competitor_url or 'competitor')) % 10_000_000}",
+        "competitor_url": args.competitor_url or None,
+        "competitor": args.competitor or args.competitor_url or None,
+        "competitor_brand": args.competitor_brand or args.competitor or None,
+        "facebook_page_url": args.facebook_page_url or None,
+        "competitor_facebook_url": args.competitor_facebook_url or args.facebook_page_url or None,
+        "ad_library_url": args.ad_library_url or None,
+        "meta_page_id": args.meta_page_id or None,
+        "research_model": args.research_model,
+        "executive_summary": {
+            "market_positioning": "Competitive research input was captured for Stage 1.",
+            "campaign_takeaway": "The review wrapper is ready to hand off research findings.",
+        },
+    }
+    json.dump(payload, sys.stdout, indent=2, sort_keys=True)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

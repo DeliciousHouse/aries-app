@@ -1,0 +1,59 @@
+{
+  "status": "needs_action",
+  "current_phase": 1,
+  "phase_name": "freeze-production-contract",
+  "recommended_next_owner": "jarvis",
+  "recommended_next_execution_label": "aries-prod",
+  "recommended_next_agent": "jarvis",
+  "governance_note": "Execution labels like aries-prod are subordinate specialist/task labels only. Persistent owners remain Jarvis, Forge, Signal, or Ledger.",
+  "baseline_artifacts": [
+    "generated/validated/repo-audit-baseline.json",
+    "generated/validated/repo-audit-summary.md",
+    "generated/validated/canonical-roadmap-baseline.md"
+  ],
+  "validation": {
+    "targeted_tests": {
+      "passed": 44,
+      "failed": 1,
+      "failing_tests": [
+        {
+          "file": "tests/marketing-local-dev-regression.test.ts",
+          "name": "runOpenClawLobsterWorkflow falls back to the local Lobster CLI when the gateway is unavailable",
+          "reason": "brand_kit_fetch_failed:fetch failed"
+        }
+      ]
+    }
+  },
+  "blockers": [
+    {
+      "id": "workflow-target-contract-drift",
+      "severity": "high",
+      "owner": "Jarvis",
+      "summary": "Workflow catalog mappings disagree with the tested marketing pipeline contract."
+    },
+    {
+      "id": "stub-routes-still-exposed",
+      "severity": "high",
+      "owner": "Jarvis",
+      "summary": "Operational routes for onboarding/publish/calendar/integrations are still parity stubs."
+    },
+    {
+      "id": "local-lobster-fallback-regression",
+      "severity": "high",
+      "owner": "Jarvis",
+      "summary": "Gateway-less local fallback regression fails during marketing-pipeline resume."
+    },
+    {
+      "id": "route-and-doc-drift",
+      "severity": "medium",
+      "owner": "Jarvis",
+      "summary": "Route manifests/runtime docs lag the actual app + tests."
+    }
+  ],
+  "next_actions": [
+    "Freeze the production workflow and route contract.",
+    "Resolve or demote stubbed UI-facing routes from the supported production surface.",
+    "Reconcile docs/manifests with executable truth.",
+    "After production freeze, derive local parity and fix the local Lobster fallback regression."
+  ]
+}

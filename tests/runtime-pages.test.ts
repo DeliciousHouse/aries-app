@@ -25,6 +25,7 @@ import PostsPage from '../app/posts/page';
 import FeaturesPage from '../app/features/page';
 import DocumentationPage from '../app/documentation/page';
 import ApiDocsPage from '../app/api-docs/page';
+import OnboardingPage from '../app/onboarding/page';
 import OnboardingStartPage from '../app/onboarding/start/page';
 import PipelineIntakePage from '../app/onboarding/pipeline-intake/page';
 import OnboardingStatusPage from '../app/onboarding/status/page';
@@ -46,6 +47,7 @@ import AriesSettingsScreen from '../frontend/aries-v1/settings-screen';
 import AriesPostsScreen from '../frontend/aries-v1/posts-screen';
 import AriesOnboardingFlow from '../frontend/aries-v1/onboarding-flow';
 import MarketingLayout from '../frontend/marketing/MarketingLayout';
+import OnboardingStartScreen from '../frontend/onboarding/start';
 import OnboardingStatusScreen from '../frontend/onboarding/status';
 import MarketingNewJobScreen from '../frontend/marketing/new-job';
 import MarketingJobStatusScreen from '../frontend/marketing/job-status';
@@ -295,11 +297,12 @@ test('/api-docs renders inside the marketing layout', () => {
   assert.equal(element.type, MarketingLayout);
 });
 
-test('/onboarding/start returns the onboarding start screen', () => {
-  const element = OnboardingStartPage();
+test('/onboarding redirects to the canonical premium intake route', () => {
+  expectRedirect(() => OnboardingPage(), '/onboarding/pipeline-intake');
+});
 
-  assert.equal(isValidElement(element), true);
-  assert.equal(element.type, AriesOnboardingFlow);
+test('/onboarding/start redirects to the canonical premium intake route rather than rendering the internal tenant onboarding form', () => {
+  expectRedirect(() => OnboardingStartPage(), '/onboarding/pipeline-intake');
 });
 
 test('/onboarding/pipeline-intake returns the guided intake workflow', () => {
@@ -307,6 +310,7 @@ test('/onboarding/pipeline-intake returns the guided intake workflow', () => {
 
   assert.equal(isValidElement(element), true);
   assert.equal(element.type, AriesOnboardingFlow);
+  assert.notEqual(element.type, OnboardingStartScreen);
 });
 
 test('/onboarding/status preserves tenant_id and signup_event_id from the route boundary', async () => {

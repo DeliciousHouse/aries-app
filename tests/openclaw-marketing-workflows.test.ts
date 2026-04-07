@@ -82,6 +82,83 @@ test('every marketing workflow-catalog pipeline path exists on disk', async () =
   }
 });
 
+test('runAriesOpenClawWorkflow dispatches every marketing workflow key to the exact catalog pipeline and cwd', async () => {
+  await withTempCacheRoot('LOBSTER_STAGE3_CACHE_DIR', async (stage3CacheRoot) => {
+    await writeCachedStepPayload(stage3CacheRoot, 'run-production-review', 'production_review_preview', {
+      type: 'production_review_preview',
+      run_id: 'run-production-review',
+      brand_slug: 'brand-example',
+    });
+    await writeCachedStepPayload(stage3CacheRoot, 'run-production-finalize', 'creative_director_finalize', {
+      type: 'creative_director_finalize',
+      run_id: 'run-production-finalize',
+      production_handoff: {
+        run_id: 'run-production-finalize',
+        brand_slug: 'brand-example',
+      },
+    });
+
+    for (const [key, workflow] of marketingWorkflows()) {
+      const captured: Array<Record<string, unknown>> = [];
+      installTestInvoker(captured);
+
+      try {
+        const baseStrategyHandoff = {
+          run_id: 'run-strategy',
+          brand_slug: 'brand-example',
+          core_message: 'Proof-led launch control.',
+          primary_cta: 'Book a walkthrough',
+        };
+        const baseProductionHandoff = {
+          run_id: 'run-production',
+          brand_slug: 'brand-example',
+          campaign_name: 'Brand Example Launch',
+        };
+        const inputsByKey: Record<string, Record<string, unknown>> = {
+          marketing_stage1_research: {
+            competitorUrl: 'https://betterup.com',
+          },
+          marketing_stage2_strategy_review: {
+            brandUrl: 'https://brand.example',
+            research_output: {
+              run_id: 'run-stage1',
+              competitor_url: 'https://betterup.com',
+            },
+          },
+          marketing_stage2_strategy_finalize: {
+            runId: 'run-stage2',
+          },
+          marketing_stage3_production_review: {
+            strategy_handoff: baseStrategyHandoff,
+          },
+          marketing_stage3_production_finalize: {
+            runId: 'run-production-review',
+          },
+          marketing_stage4_publish_review: {
+            production_handoff: baseProductionHandoff,
+          },
+          marketing_stage4_publish_finalize: {
+            runId: 'run-production-finalize',
+          },
+        };
+
+      const executed = await runAriesOpenClawWorkflow(key, {
+        inputs: inputsByKey[key],
+      });
+
+      assert.equal(executed.kind, 'ok');
+      assert.equal((captured[0]?.args as Record<string, unknown>)?.pipeline, workflow.pipeline);
+      assert.equal(
+        (captured[0]?.args as Record<string, unknown>)?.cwd,
+        path.relative(path.dirname(PROJECT_ROOT), String(workflow.cwd)),
+      );
+      } finally {
+        clearTestInvoker();
+      }
+    }
+  });
+});
+
 test('atomic marketing workflows remain scoped to the tenant workflow adapter surface', async () => {
   const { MARKETING_CLIENT_EXECUTION_MODEL, MARKETING_PIPELINE_FILE } = await import('../backend/marketing/orchestrator');
 

@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _marketing_profile_common import record_or_empty
+from _brand_identity_common import build_brand_identity
 from _stage2_common import emit_json, normalize_research_model, read_stdin_json, save_step, utc_now
 from _stage2_common import ensure_run_id
 from _canonical_outputs import brand_output_paths, write_text
@@ -47,6 +48,22 @@ def main() -> int:
         "design_tokens": creative_handoff.get("design_tokens", {}),
         "brand_kit": creative_handoff.get("brand_kit", {}),
     }
+    strategy_handoff["brandIdentity"] = build_brand_identity(
+        {
+            "website_url": creative_handoff.get("website_url") or record.get("website_url"),
+            "canonical_url": record.get("canonical_url"),
+            "audience": creative_handoff.get("audience") or strategy_handoff.get("audience_summary"),
+            "positioning": creative_handoff.get("positioning") or strategy_handoff.get("positioning"),
+            "offer": creative_handoff.get("offer") or strategy_handoff.get("offer_summary"),
+            "brand_promise": creative_handoff.get("brand_promise"),
+            "primary_cta": creative_handoff.get("primary_cta") or strategy_handoff.get("primary_cta"),
+            "proof_points": creative_handoff.get("proof_points") or strategy_handoff.get("proof_points"),
+            "brand_voice": creative_handoff.get("brand_voice"),
+            "style_vibe": creative_handoff.get("style_vibe"),
+            "brand_kit": creative_handoff.get("brand_kit", {}),
+            "hooks": creative_handoff.get("hooks", {}),
+        }
+    )
 
     payload = {
         "type": "head_of_marketing",
