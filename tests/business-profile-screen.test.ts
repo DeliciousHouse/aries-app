@@ -3,8 +3,12 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
+import { resolveProjectRoot } from './helpers/project-root';
+
+const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
+
 const source = readFileSync(
-  path.join('/home/node/openclaw/aries-app', 'frontend', 'aries-v1', 'business-profile-screen.tsx'),
+  path.join(PROJECT_ROOT, 'frontend', 'aries-v1', 'business-profile-screen.tsx'),
   'utf8',
 );
 
