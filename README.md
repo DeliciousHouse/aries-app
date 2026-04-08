@@ -183,6 +183,12 @@ npm run dev
 
 The repo includes `docker-compose.yml`, `docker-compose.local.yml`, and a production `Dockerfile`. These files run the Aries app container, but they do **not** provision PostgreSQL or OpenClaw for you, so `DB_*` and `OPENCLAW_*` values still need to point at working services.
 
+### Production release (VM deploy)
+
+Production deploy is triggered by pushing to `master`, but **only after** the GHCR image for that **exact commit SHA** is already published. The GitHub Actions Deploy workflow checks that `ghcr.io/<owner>/aries-app:<sha>` exists before SSH deploy; pushing `master` first without the image fails by design.
+
+Step-by-step commands and environment variables: see **`DOCKER.md`** → *Production release (GHCR image before `master`)*. A short operational summary also lives in **`docs/SYSTEM-REFERENCE.md`** → *Production release (operational)*.
+
 ### Production-style local container run
 
 1. Copy and fill in the environment file:

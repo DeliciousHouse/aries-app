@@ -54,6 +54,9 @@ lobster/output/
 lobster/tmp-debug-args.lobster
 lobster/bin/__pycache__/
 
+# Runtime session state (local only)
+state/
+
 # Misc
 .artifacts/
 .cache/

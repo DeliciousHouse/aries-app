@@ -1,5 +1,11 @@
 name: Deploy
 
+# Operational contract (documented in DOCKER.md and docs/SYSTEM-REFERENCE.md):
+# - Pushes to master trigger this workflow and deploy the pushed commit SHA.
+# - The workflow verifies ghcr.io/<owner>/aries-app:<sha> exists before deploy.
+# - Publish the image for that SHA first (scripts/release/publish-image.sh), then push master.
+# - Pushing master before the matching GHCR tag exists fails by design at GHCR verification.
+
 on:
   push:
     branches:
