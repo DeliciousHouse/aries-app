@@ -85,6 +85,16 @@ Last refreshed Apr 07, 2026, 21:45 PDT.
 - automation:install: node scripts/automations/install-openclaw-crons.mjs
 - automation:verify: node scripts/automations/verify-automations.mjs
 
+## Production release (operational)
+
+**Deploy trigger:** Push to `master` only **after** GHCR already has `ghcr.io/delicioushouse/aries-app:<exact-SHA>` for that commit.
+
+**Sequence:** (1) export publish env vars → (2) `bash scripts/release/publish-image.sh` on a clean tree at the release commit → (3) `git push origin master` for that same commit → (4) GitHub Actions deploys that SHA to the VM.
+
+**Failure mode:** Pushing `master` before the matching GHCR tag exists causes the Deploy workflow to fail by design (GHCR verification step).
+
+Full copy-paste commands and notes: `DOCKER.md` section **Production release (GHCR image before `master`)**.
+
 ## Known issues
 - Cron registration is prepared but not auto-enabled until backup remote/delivery targets are confirmed.
 - Daily brief and system reference depend on local markdown/task hygiene; the better the source docs, the sharper the briefs.

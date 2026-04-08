@@ -2,6 +2,12 @@
 
 This document provides the operational runbook and deployment checklist for the Aries AI platform.
 
+## GitHub Actions release (GHCR + `master`)
+
+VM deploy is driven by **pushing `master`**, but only **after** the container image for that **exact commit SHA** is already on GHCR. The Deploy workflow refuses to proceed if `ghcr.io/<owner>/aries-app:<sha>` is missing.
+
+Authoritative step-by-step commands (including the exact `export` block and `publish-image.sh` invocation): **`DOCKER.md`** → *Production release (GHCR image before `master`)*. Summary: **`docs/SYSTEM-REFERENCE.md`** → *Production release (operational)*.
+
 ## Deployment Checklist
 
 ### 1. Environment Configuration
