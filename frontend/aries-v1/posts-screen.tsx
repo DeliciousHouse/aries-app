@@ -12,6 +12,7 @@ import type {
   AriesItemStatus,
 } from '@/lib/api/aries-v1';
 
+import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { EmptyStatePanel, LoadingStateGrid, ShellPanel, StatusChip } from './components';
 
 type InventoryItem = {
@@ -157,7 +158,11 @@ export default function AriesPostsScreen() {
   }
 
   if (posts.error) {
-    return <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">{posts.error.message}</div>
+    return (
+      <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
+        {customerSafeUiErrorMessage(posts.error.message, 'The publish inventory is not available right now.')}
+      </div>
+    )
   }
 
   if (!data || (data.campaigns.length === 0 && data.posts.length === 0 && data.assets.length === 0 && data.publishItems.length === 0)) {

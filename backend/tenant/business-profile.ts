@@ -13,10 +13,13 @@ import {
 import type { MarketingBrandIdentity } from '@/lib/api/marketing';
 import {
   findLatestMarketingJobIdForTenant,
-  findLatestMarketingTenantId,
   loadMarketingJobRuntime,
 } from '@/backend/marketing/runtime-state';
-import { loadValidatedMarketingProfileSnapshot, type ValidatedMarketingProfileSnapshot } from '@/backend/marketing/validated-profile-store';
+import {
+  loadValidatedMarketingProfileDocs,
+  loadValidatedMarketingProfileSnapshot,
+  type ValidatedMarketingProfileSnapshot,
+} from '@/backend/marketing/validated-profile-store';
 import {
   derivePublicMarketingTenantId,
   normalizeMarketingWebsiteUrl,
@@ -696,11 +699,45 @@ export async function updateBusinessProfileWithDiagnostics(
   return getBusinessProfileWithDiagnostics(client, input.tenantId);
 }
 
+
+export function businessProfileWritePathForTenant(tenantId: string): string {
+  return businessProfilePath(tenantId);
+}
+
+export function tenantBrandKitWritePathForTenant(tenantId: string): string {
+  return tenantBrandKitPath(tenantId);
+}
+
+export function tenantHasStoredBusinessProfileState(tenantId: string): boolean {
+  const record = loadBusinessProfileRecord(tenantId);
+  if (
+    record &&
+    [
+      record.business_name,
+      record.website_url,
+      record.business_type,
+      record.primary_goal,
+      record.offer,
+      record.brand_voice,
+      record.style_vibe,
+      record.notes,
+      record.competitor_url,
+      ...(record.channels || []),
+    ].some((value) => typeof value === 'string' && value.trim().length > 0)
+  ) {
+    return true;
+  }
+
+  const docs = loadValidatedMarketingProfileDocs(tenantId);
+  return Boolean(docs.brandProfile || docs.websiteAnalysis || docs.businessProfile || docs.brandKit);
+}
+
+// Compatibility wrappers for older generated artifacts. The live public onboarding flow
+// no longer reads or writes customer business profiles through these helpers.
 export function getPublicBusinessProfile(websiteUrl?: string | null): ResolvedBusinessProfile {
   const normalizedWebsiteUrl = normalizeMarketingWebsiteUrl(websiteUrl);
   const tenantId =
     derivePublicMarketingTenantId(normalizedWebsiteUrl) ||
-    findLatestMarketingTenantId() ||
     'public_campaign';
   const record = loadBusinessProfileRecord(tenantId);
   const { brandKit, source, latestJobId } = resolveBusinessProfileBrandKit(tenantId);
@@ -777,14 +814,6 @@ export async function updatePublicBusinessProfile(input: Omit<BusinessProfileUpd
 
   await persistBrandKitIfNeeded(tenantId, normalizedWebsiteUrl, current.profile.websiteUrl);
   return getPublicBusinessProfile(normalizedWebsiteUrl);
-}
-
-export function businessProfileWritePathForTenant(tenantId: string): string {
-  return businessProfilePath(tenantId);
-}
-
-export function tenantBrandKitWritePathForTenant(tenantId: string): string {
-  return tenantBrandKitPath(tenantId);
 }
 
 export function persistBusinessProfileFieldsFromMarketingPayload(

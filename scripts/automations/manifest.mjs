@@ -24,6 +24,24 @@ export const automationJobs = [
     purpose: 'Generate the morning priorities/overnight activity/pending actions brief.',
   },
   {
+    id: 'aries-github-feedback-connector',
+    name: 'Aries GitHub feedback connector',
+    cron: '0 7 * * *',
+    tz: 'America/Los_Angeles',
+    message:
+      'Work in /app/aries-app. Run node scripts/automations/feedback-connector.mjs sync --json. For each pending bug, use the bug-triage skill. For each pending feature, use the feature-pipeline skill. Update data/feedback-processing-log.json after each item with node scripts/automations/feedback-connector.mjs mark --number <issue> --patch-json <json>. Return only: status, critical_alerts, bugs_processed, features_processed, batched_for_summary, errors.',
+    purpose: 'Sync GitHub issues, classify bug vs feature, route each pending item to the correct skill workflow, and update the processing log.',
+  },
+  {
+    id: 'aries-github-feedback-daily-summary',
+    name: 'Aries GitHub feedback daily summary',
+    cron: '0 18 * * *',
+    tz: 'America/Los_Angeles',
+    message:
+      'Work in /app/aries-app. Run node scripts/automations/feedback-daily-summary.mjs --mark-sent. Return only the emitted summary.',
+    purpose: 'Deliver the daily batch summary for non-critical GitHub feedback items that were processed and logged.',
+  },
+  {
     id: 'aries-system-reference-rollup',
     name: 'Aries rolling system reference',
     cron: '45 21 * * *',

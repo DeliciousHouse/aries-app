@@ -66,7 +66,9 @@ export default function DashboardHomePresenter({
         supporting:
           model.channels.attentionCount > 0
             ? `${model.channels.attentionCount} need attention`
-            : 'Publishing surfaces healthy',
+            : model.channels.connectedCount > 0
+              ? 'Connected and monitored'
+              : 'Not connected yet',
         icon: Globe2,
         glow: 'rgba(56,189,248,0.28)',
       },

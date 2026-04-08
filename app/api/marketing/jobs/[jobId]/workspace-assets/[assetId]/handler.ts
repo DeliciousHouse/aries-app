@@ -2,7 +2,6 @@ import { readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 import { loadCampaignWorkspaceRecord } from '@/backend/marketing/workspace-store';
-import { isMarketingPublicMode } from '@/lib/marketing-public-mode';
 import { resolveDataPath } from '@/lib/runtime-paths';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
@@ -22,14 +21,10 @@ export async function handleGetMarketingWorkspaceAsset(
   assetId: string,
   tenantContextLoader?: TenantContextLoader,
 ) {
-  const publicMode = isMarketingPublicMode();
-  const tenantResult = publicMode
-    ? null
-    : await loadTenantContextOrResponse(tenantContextLoader, {
-        missingMembershipResponse: MARKETING_ONBOARDING_REQUIRED,
-      });
-
-  if (tenantResult && 'response' in tenantResult) {
+  const tenantResult = await loadTenantContextOrResponse(tenantContextLoader, {
+    missingMembershipResponse: MARKETING_ONBOARDING_REQUIRED,
+  });
+  if ('response' in tenantResult) {
     return tenantResult.response;
   }
 
@@ -41,7 +36,7 @@ export async function handleGetMarketingWorkspaceAsset(
     });
   }
 
-  if (tenantResult && record.tenant_id !== tenantResult.tenantContext.tenantId) {
+  if (record.tenant_id !== tenantResult.tenantContext.tenantId) {
     return new Response(JSON.stringify({ error: 'Marketing asset not found.', reason: 'marketing_asset_not_found' }), {
       status: 404,
       headers: { 'content-type': 'application/json' },

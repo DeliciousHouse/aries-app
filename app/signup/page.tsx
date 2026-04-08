@@ -1,38 +1,20 @@
-"use client";
+import { Suspense } from 'react';
 
-import React from 'react';
 import AuthLayout from '../../frontend/auth/auth-layout';
-import SignUpForm from '../../frontend/auth/sign-up-form';
-import { signIn } from "next-auth/react";
+import SignUpPageClient from './page-client';
 
 export default function SignUpPage() {
-  const handleGoogleSuccess = () => {
-    signIn("google", { callbackUrl: "/dashboard" });
-  };
-
-  const handleNavigate = (view: string) => {
-    if (view === 'login') {
-      window.location.href = '/login';
-    }
-  };
-
-  const handleSubmit = (email: string, needsOnboarding: boolean) => {
-    console.log('Signup success:', email);
-    window.location.href = '/onboarding';
-  };
-
   return (
-    <AuthLayout>
-      <div className="flex justify-center w-full">
-        <SignUpForm 
-          onNavigate={handleNavigate} 
-          onSubmit={handleSubmit} 
-          onGoogleSuccess={handleGoogleSuccess} 
-          onSlackClick={() => console.log('Slack signup clicked')}
-          isLoading={false} 
-          authError={null} 
-        />
-      </div>
-    </AuthLayout>
+    <Suspense
+      fallback={
+        <AuthLayout>
+          <div className="mx-auto max-w-md rounded-2xl border border-white/10 bg-white/5 px-6 py-10 text-center text-white/70">
+            Loading sign-up…
+          </div>
+        </AuthLayout>
+      }
+    >
+      <SignUpPageClient />
+    </Suspense>
   );
 }

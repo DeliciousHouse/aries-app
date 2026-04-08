@@ -20,6 +20,7 @@ import {
 import { inferMarketingStageRunId, readMarketingStageStepPayload } from './stage-artifact-resolution';
 import type { MarketingJobRuntimeDocument } from './runtime-state';
 import { loadValidatedMarketingProfileDocs } from './validated-profile-store';
+import { recordMatchesCurrentSource, sourceFingerprintFromRecord } from './brand-identity';
 
 type StageCapture = {
   runId: string | null;
@@ -68,6 +69,47 @@ function stringValue(value: unknown, fallback = ''): string {
     return String(value);
   }
   return fallback;
+}
+
+function currentSourceUrl(runtimeDoc: MarketingJobRuntimeDocument | null | undefined): string | null {
+  if (!runtimeDoc) {
+    return null;
+  }
+
+  return (
+    asString(asRecord(runtimeDoc.inputs.request)?.websiteUrl) ||
+    asString(asRecord(runtimeDoc.inputs.request)?.brandUrl) ||
+    asString(runtimeDoc.inputs.brand_url) ||
+    null
+  );
+}
+
+function sourceMatchedRecord(
+  value: Record<string, unknown> | null,
+  sourceUrl: string | null,
+): Record<string, unknown> | null {
+  return recordMatchesCurrentSource(value, sourceUrl) ? value : null;
+}
+
+function strategyPayloadMatchesCurrentSource(
+  value: Record<string, unknown> | null,
+  sourceUrl: string | null,
+  runSourceEvidence: Record<string, unknown> | null,
+  hasRunSourceCandidate: boolean,
+): boolean {
+  if (!value) {
+    return false;
+  }
+  if (!recordMatchesCurrentSource(value, sourceUrl)) {
+    return false;
+  }
+  if (!sourceUrl) {
+    return true;
+  }
+  if (sourceFingerprintFromRecord(value) || runSourceEvidence) {
+    return true;
+  }
+  return !hasRunSourceCandidate;
 }
 
 function artifact(input: Omit<MarketingStageArtifact, 'details'> & { details?: string[] }): MarketingStageArtifact {
@@ -144,7 +186,10 @@ export function collectStrategyReviewArtifacts(
   primaryOutput: Record<string, unknown> | null,
   runtimeDoc?: MarketingJobRuntimeDocument | null,
 ): StageCapture {
-  const validatedDocs = runtimeDoc ? loadValidatedMarketingProfileDocs(runtimeDoc.tenant_id) : null;
+  const sourceUrl = currentSourceUrl(runtimeDoc);
+  const validatedDocs = runtimeDoc ? loadValidatedMarketingProfileDocs(runtimeDoc.tenant_id, {
+    currentSourceUrl: sourceUrl,
+  }) : null;
   const websiteStep = runtimeDoc ? readMarketingStageStepPayload(runtimeDoc, 2, 'website_brand_analysis') : null;
   const plannerStep = runtimeDoc ? readMarketingStageStepPayload(runtimeDoc, 2, 'campaign_planner') : null;
   const reviewStep = runtimeDoc ? readMarketingStageStepPayload(runtimeDoc, 2, 'strategy_review_preview') : null;
@@ -165,10 +210,20 @@ export function collectStrategyReviewArtifacts(
     null;
   const plannerPath = plannerStep?.path || (runId ? stepPayloadPath(2, runId, 'campaign_planner') : '');
   const reviewPath = reviewStep?.path || (runId ? stepPayloadPath(2, runId, 'strategy_review_preview') : '');
-  const website = websiteStep?.payload || validatedDocs?.websiteAnalysis || (websitePath ? readJsonIfExists(websitePath) : null);
-  const brandProfile = validatedDocs?.brandProfile || (brandProfilePath ? readJsonIfExists(brandProfilePath) : null);
-  const planner = plannerStep?.payload || (plannerPath ? readJsonIfExists(plannerPath) : null);
-  const review = reviewStep?.payload || (reviewPath ? readJsonIfExists(reviewPath) : null);
+  const rawRunWebsite = websiteStep?.payload || (websitePath ? readJsonIfExists(websitePath) : null);
+  const runWebsite = sourceMatchedRecord(
+    rawRunWebsite,
+    sourceUrl,
+  );
+  const website = runWebsite || validatedDocs?.websiteAnalysis || null;
+  const brandProfile = sourceMatchedRecord(
+    validatedDocs?.brandProfile || (brandProfilePath ? readJsonIfExists(brandProfilePath) : null),
+    sourceUrl,
+  );
+  const plannerCandidate = plannerStep?.payload || (plannerPath ? readJsonIfExists(plannerPath) : null);
+  const reviewCandidate = reviewStep?.payload || (reviewPath ? readJsonIfExists(reviewPath) : null);
+  const planner = strategyPayloadMatchesCurrentSource(plannerCandidate, sourceUrl, runWebsite, !!rawRunWebsite) ? plannerCandidate : null;
+  const review = strategyPayloadMatchesCurrentSource(reviewCandidate, sourceUrl, runWebsite, !!rawRunWebsite) ? reviewCandidate : null;
   const brandAnalysis = asRecord(website?.brand_analysis) ?? {};
   const plan = asRecord(planner?.campaign_plan) ?? {};
   const reviewPacket = asRecord(review?.review_packet) ?? {};

@@ -4,6 +4,7 @@ import Link from 'next/link';
 
 import { useRuntimeReviews } from '@/hooks/use-runtime-reviews';
 
+import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { EmptyStatePanel, LoadingStateGrid, ShellPanel, StatusChip } from './components';
 
 function reviewTypeLabel(value: string): string {
@@ -40,6 +41,7 @@ function workflowStateLabel(value: string): string {
 export default function AriesReviewQueueScreen() {
   const reviews = useRuntimeReviews({ autoLoad: true });
   const items = reviews.data?.reviews ?? [];
+  const archivedItems = reviews.data?.archivedReviews ?? [];
 
   if (reviews.isLoading) {
     return <LoadingStateGrid />;
@@ -48,7 +50,7 @@ export default function AriesReviewQueueScreen() {
   if (reviews.error) {
     return (
       <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
-        {reviews.error.message}
+        {customerSafeUiErrorMessage(reviews.error.message, 'The review queue is not available right now.')}
       </div>
     );
   }
@@ -99,6 +101,30 @@ export default function AriesReviewQueueScreen() {
           </Link>
         ))}
       </div>
+
+      {archivedItems.length > 0 ? (
+        <ShellPanel eyebrow="Earlier Versions" title="Older review items moved out of the active queue">
+          <div className="grid gap-3">
+            {archivedItems.map((item) => (
+              <Link
+                key={item.id}
+                href={`/review/${item.id}`}
+                className="rounded-[1.5rem] border border-white/8 bg-black/12 px-5 py-4 transition hover:border-white/14 hover:bg-black/18"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-white">{item.title}</p>
+                    <p className="mt-1 text-sm text-white/55">
+                      {item.campaignName} · {reviewTypeLabel(item.reviewType)} · {workflowStateLabel(item.workflowState)}
+                    </p>
+                  </div>
+                  <StatusChip status={item.status} />
+                </div>
+              </Link>
+            ))}
+          </div>
+        </ShellPanel>
+      ) : null}
     </div>
   );
 }

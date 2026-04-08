@@ -33,6 +33,19 @@ function authErrorMessage(errorCode: string | null, missingClaims: string | null
   }
 }
 
+function savedDraftMessage(draftSaved: string | null, businessName: string | null): string | null {
+  if (draftSaved !== '1') {
+    return null;
+  }
+
+  const trimmedBusinessName = businessName?.trim();
+  if (trimmedBusinessName) {
+    return `Your setup for ${trimmedBusinessName} is saved. Sign in to continue in the same workspace.`;
+  }
+
+  return 'Your setup is saved. Sign in to continue in the same workspace.';
+}
+
 export default function LoginPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -40,6 +53,28 @@ export default function LoginPageClient() {
   const [authError, setAuthError] = useState<string | null>(null);
   const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
   const defaultEmail = searchParams.get('email') || '';
+  const savedMessage = useMemo(
+    () => savedDraftMessage(searchParams.get('draftSaved'), searchParams.get('businessName')),
+    [searchParams],
+  );
+  const signupHref = useMemo(() => {
+    const params = new URLSearchParams();
+    if (callbackUrl) {
+      params.set('callbackUrl', callbackUrl);
+    }
+    if (searchParams.get('draftSaved') === '1') {
+      params.set('draftSaved', '1');
+    }
+    const businessName = searchParams.get('businessName');
+    if (businessName) {
+      params.set('businessName', businessName);
+    }
+    if (defaultEmail) {
+      params.set('email', defaultEmail);
+    }
+    const suffix = params.toString();
+    return suffix ? `/signup?${suffix}` : '/signup';
+  }, [callbackUrl, defaultEmail, searchParams]);
   const queryError = useMemo(
     () => authErrorMessage(searchParams.get('error'), searchParams.get('missing')),
     [searchParams],
@@ -97,6 +132,8 @@ export default function LoginPageClient() {
           onGoogleSuccess={handleGoogleSuccess}
           isLoading={isLoading}
           authError={authError || queryError}
+          savedStateMessage={savedMessage}
+          signupHref={signupHref}
         />
       </div>
     </AuthLayout>

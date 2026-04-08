@@ -130,6 +130,11 @@ export type RuntimeReviewItem = {
   history: MarketingCampaignStatusHistoryEntry[];
 };
 
+export type RuntimeReviewQueue = {
+  reviews: RuntimeReviewItem[];
+  archivedReviews: RuntimeReviewItem[];
+};
+
 export type RuntimeReviewStateFile = {
   schema_name: 'marketing_review_state';
   schema_version: '1.0.0';
@@ -450,6 +455,60 @@ function reviewItemSourceHash(item: RuntimeReviewItem): string {
     destinationUrl: item.destinationUrl,
     currentVersion: item.currentVersion,
   });
+}
+
+function reviewItemUpdatedAt(item: RuntimeReviewItem): number {
+  const timestamps = [
+    item.lastDecision?.at || '',
+    ...item.history.map((entry) => entry.at),
+  ]
+    .map((value) => Date.parse(value))
+    .filter((value) => Number.isFinite(value));
+
+  if (timestamps.length === 0) {
+    return 0;
+  }
+
+  return Math.max(...timestamps);
+}
+
+function compareReviewItems(left: RuntimeReviewItem, right: RuntimeReviewItem): number {
+  const timeDelta = reviewItemUpdatedAt(right) - reviewItemUpdatedAt(left);
+  if (timeDelta !== 0) {
+    return timeDelta;
+  }
+  return left.title.localeCompare(right.title);
+}
+
+function reviewQueueKey(item: RuntimeReviewItem): string {
+  if (item.reviewType === 'creative') {
+    return `creative:${item.jobId}:${item.assetId || item.currentVersion.id || item.id}`;
+  }
+  if (item.reviewType === 'workflow_approval') {
+    return `workflow:${item.jobId}:${item.workflowStage || item.workflowState}:${item.currentVersion.id || item.id}`;
+  }
+  return `stage:${item.jobId}:${item.reviewType}:${item.workflowStage || 'review'}`;
+}
+
+function buildRuntimeReviewQueue(items: RuntimeReviewItem[]): RuntimeReviewQueue {
+  const active: RuntimeReviewItem[] = [];
+  const archived: RuntimeReviewItem[] = [];
+  const seenKeys = new Set<string>();
+
+  for (const item of items.slice().sort(compareReviewItems)) {
+    const key = reviewQueueKey(item);
+    if (seenKeys.has(key)) {
+      archived.push(item);
+      continue;
+    }
+    seenKeys.add(key);
+    active.push(item);
+  }
+
+  return {
+    reviews: active,
+    archivedReviews: archived,
+  };
 }
 
 function isWorkflowApprovalItem(item: RuntimeReviewItem): boolean {
@@ -1194,8 +1253,15 @@ export async function listPublicMarketingPosts(): Promise<MarketingDashboardCont
 }
 
 export async function listMarketingReviewItemsForTenant(tenantId: string): Promise<RuntimeReviewItem[]> {
-  const items = listMarketingJobIdsForTenant(tenantId).flatMap((jobId) => buildReviewItemsForJob(jobId));
-  return items.filter((item) => item.status !== 'approved');
+  return (await listMarketingReviewQueueForTenant(tenantId)).reviews;
+}
+
+export async function listMarketingReviewQueueForTenant(tenantId: string): Promise<RuntimeReviewQueue> {
+  const items = listMarketingJobIdsForTenant(tenantId)
+    .flatMap((jobId) => buildReviewItemsForJob(jobId))
+    .filter((item) => item.status !== 'approved');
+
+  return buildRuntimeReviewQueue(items);
 }
 
 export async function listPublicMarketingReviewItems(): Promise<RuntimeReviewItem[]> {
@@ -1366,6 +1432,5 @@ export async function recordMarketingReviewDecision(input: {
 }
 
 export async function countPendingMarketingReviewItemsForTenant(tenantId: string): Promise<number> {
-  const reviews = await listMarketingReviewItemsForTenant(tenantId);
-  return reviews.length;
+  return (await listMarketingReviewQueueForTenant(tenantId)).reviews.length;
 }

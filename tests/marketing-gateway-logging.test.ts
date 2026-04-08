@@ -180,7 +180,7 @@ test('runOpenClawLobsterWorkflow defaults to gateway-relative lobster cwd in con
     });
 
     assert.equal(captured.length, 1);
-    assert.equal((captured[0]?.args as Record<string, unknown>)?.cwd, 'aries-app/lobster');
+    assert.equal((captured[0]?.args as Record<string, unknown>)?.cwd, 'lobster');
   } finally {
     delete (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__;
     if (previousCodeRoot === undefined) {
@@ -239,9 +239,9 @@ test('runOpenClawLobsterWorkflow normalizes the bind-mounted /app/aries-app lobs
     });
 
     assert.equal(runtime.configuredCwd, '/app/aries-app/lobster');
-    assert.equal(runtime.cwd, 'aries-app/lobster');
+    assert.equal(runtime.cwd, 'lobster');
     assert.equal(captured.length, 1);
-    assert.equal((captured[0]?.args as Record<string, unknown>)?.cwd, 'aries-app/lobster');
+    assert.equal((captured[0]?.args as Record<string, unknown>)?.cwd, 'lobster');
   } finally {
     delete (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__;
     if (previousCodeRoot === undefined) {
@@ -305,9 +305,9 @@ test('runOpenClawLobsterWorkflow keeps gateway cwd relative to the gateway root 
     });
 
     assert.equal(runtime.configuredCwd, path.join(appRoot, 'lobster'));
-    assert.equal(runtime.cwd, 'aries-app/lobster');
+    assert.equal(runtime.cwd, 'lobster');
     assert.equal(captured.length, 1);
-    assert.equal((captured[0]?.args as Record<string, unknown>)?.cwd, 'aries-app/lobster');
+    assert.equal((captured[0]?.args as Record<string, unknown>)?.cwd, 'lobster');
   } finally {
     delete (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__;
     await rm(fixtureRoot, { recursive: true, force: true });

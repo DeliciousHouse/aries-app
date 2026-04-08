@@ -11,11 +11,7 @@ import {
   marketingPayloadDefaultsFromBusinessProfile,
   persistBusinessProfileFieldsFromMarketingPayload,
 } from '@/backend/tenant/business-profile';
-import {
-  derivePublicMarketingTenantId,
-  isMarketingPublicMode,
-  normalizeMarketingWebsiteUrl,
-} from '@/lib/marketing-public-mode';
+import { normalizeMarketingWebsiteUrl } from '@/lib/marketing-public-mode';
 import {
   COMPETITOR_URL_INVALID_ERROR,
   COMPETITOR_URL_SOCIAL_ERROR,
@@ -274,41 +270,23 @@ export async function handlePostMarketingJobs(
   const tenantResult = await loadTenantContextOrResponse(tenantContextLoader, {
     missingMembershipResponse: MARKETING_ONBOARDING_REQUIRED,
   });
-  const resolvedTenantId =
-    'response' in tenantResult
-      ? isMarketingPublicMode() && normalizedPayload
-        ? derivePublicMarketingTenantId(typeof normalizedPayload.brandUrl === 'string' ? normalizedPayload.brandUrl : null)
-        : null
-      : tenantResult.tenantContext.tenantId;
-
-  if (!resolvedTenantId) {
-    if ('response' in tenantResult) {
-      return tenantResult.response;
-    }
-    return NextResponse.json(
-      {
-        status: 'error',
-        reason: 'tenant_context_required',
-        message: 'Authentication required.',
-      },
-      { status: 403 }
-    );
+  if ('response' in tenantResult) {
+    return tenantResult.response;
   }
+
+  const resolvedTenantId = tenantResult.tenantContext.tenantId;
 
   console.info('[marketing-job-create]', {
     event: 'tenant-resolution',
-    publicMode: isMarketingPublicMode(),
     normalizedBrandUrl: typeof normalizedPayload.brandUrl === 'string' ? normalizedPayload.brandUrl : null,
-    derivedTenantId: resolvedTenantId,
+    tenantId: resolvedTenantId,
   });
 
   try {
     persistBusinessProfileFieldsFromMarketingPayload({
       tenantId: resolvedTenantId,
       tenantSlug:
-        'response' in tenantResult
-          ? null
-          : tenantResult.tenantContext.tenantSlug,
+        tenantResult.tenantContext.tenantSlug,
       payload: normalizedPayload,
     });
     const hydratedPayload = enrichPayloadFromBusinessProfile(resolvedTenantId, normalizedPayload);

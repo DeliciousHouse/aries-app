@@ -1,15 +1,18 @@
 # Aries automation runbook
 
-This workspace now includes four automation scripts plus a ready-to-apply OpenClaw cron installer. The jobs are designed to run as **isolated cron agent turns** so each execution stays separate from the main conversation.
+This workspace now includes six automation scripts plus a ready-to-apply OpenClaw cron installer. The jobs are designed to run as **isolated cron agent turns** so each execution stays separate from the main conversation.
 
 ## Files added
 
 - `scripts/automations/manifest.mjs` — canonical job schedule + purpose list
 - `scripts/automations/install-openclaw-crons.mjs` — prints or applies `openclaw cron add` commands
-- `scripts/automations/verify-automations.mjs` — dry-run verification across all four jobs
+- `scripts/automations/verify-automations.mjs` — dry-run verification across the automation scripts
 - `scripts/automations/private-repo-backup.mjs`
 - `scripts/automations/overnight-self-improve.mjs`
 - `scripts/automations/daily-brief.mjs`
+- `scripts/automations/feedback-connector.mjs`
+- `scripts/automations/feedback-daily-summary.mjs`
+- `scripts/automations/staging-deploy.mjs`
 - `scripts/automations/rolling-system-reference.mjs`
 - `docs/SYSTEM-REFERENCE.md` — living architecture reference updated by automation 4
 - `docs/briefs/*.md` — morning brief outputs written by automation 3
@@ -45,6 +48,19 @@ This workspace now includes four automation scripts plus a ready-to-apply OpenCl
 - **Script:** `node scripts/automations/rolling-system-reference.mjs`
 - **What it does:** refreshes `docs/SYSTEM-REFERENCE.md` with same-day changes, architecture overview, module inventory, cron jobs, and known issues.
 
+### 5) GitHub feedback connector
+
+- **Schedule:** `0 7 * * *` `America/Los_Angeles`
+- **Script:** `node scripts/automations/feedback-connector.mjs sync`
+- **What it does:** pulls open GitHub issues, classifies each as bug or feature, and seeds the pending work queue in `data/feedback-processing-log.json`.
+- **Workflow routing:** pending bugs are handled by `skills/bug-triage/SKILL.md`; pending features are handled by `skills/feature-pipeline/SKILL.md`.
+
+### 6) GitHub feedback daily summary
+
+- **Schedule:** `0 18 * * *` `America/Los_Angeles`
+- **Script:** `node scripts/automations/feedback-daily-summary.mjs --mark-sent`
+- **What it does:** batches non-critical processed feedback items into a single delivery summary and clears their `summaryPending` flag.
+
 ## Install
 
 ### 1. Verify local prerequisites
@@ -70,13 +86,23 @@ export ARIES_CRON_CHANNEL=slack
 export ARIES_CRON_TARGET=channel:C1234567890
 ```
 
+GitHub feedback + staging:
+
+```bash
+export ARIES_GITHUB_REPO=DeliciousHouse/aries-app
+export ARIES_STAGING_DEPLOY_COMMAND='your staging deploy command here'
+export ARIES_STAGING_VERIFY_URL='https://your-staging-url'
+# optional
+export ARIES_STAGING_VERIFY_TEXT='expected staging marker'
+```
+
 ### 3. Review generated cron commands
 
 ```bash
 node scripts/automations/install-openclaw-crons.mjs
 ```
 
-This prints exact `openclaw cron add ... --session isolated ...` commands for all four jobs.
+This prints exact `openclaw cron add ... --session isolated ...` commands for all configured jobs.
 
 ### 4. Apply the jobs when ready
 
@@ -99,6 +125,8 @@ These are the schedules encoded in `scripts/automations/manifest.mjs`:
 - `15 */6 * * *` — private repo backup
 - `30 1 * * *` — overnight self-improvement
 - `0 8 * * *` — daily brief
+- `0 7 * * *` — GitHub feedback connector
+- `0 18 * * *` — GitHub feedback daily summary
 - `45 21 * * *` — rolling OS documentation
 
 ## Verification commands
@@ -109,7 +137,15 @@ Dry runs:
 node scripts/automations/private-repo-backup.mjs --dry-run
 node scripts/automations/overnight-self-improve.mjs --dry-run
 node scripts/automations/daily-brief.mjs --dry-run
+node scripts/automations/feedback-connector.mjs sync --dry-run
+node scripts/automations/feedback-daily-summary.mjs --dry-run
 node scripts/automations/rolling-system-reference.mjs --dry-run
+```
+
+Feedback loop validation plan:
+
+```bash
+cat docs/automations/feedback-loop-test-plan.md
 ```
 
 Cron visibility:
@@ -131,6 +167,8 @@ OpenClaw already retries transient cron failures with exponential backoff. These
 - **Backup:** retries `git push` up to 3 attempts inside the script and exits non-zero on failure.
 - **Self-improvement:** writes a concise audit summary and exits non-zero if the filesystem operation fails.
 - **Daily brief:** regenerates the markdown output every run; failure is isolated to the brief file.
+- **Feedback connector:** fails loudly if GitHub access is missing or if the feedback log cannot be updated.
+- **Feedback daily summary:** emits a no-op summary when there is nothing to send.
 - **System reference:** rewrites the living reference file from current repo state each run.
 
 ### Concise alert output

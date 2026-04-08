@@ -7,6 +7,7 @@ import { useBusinessProfile } from '@/hooks/use-business-profile';
 import { useRuntimeCampaigns } from '@/hooks/use-runtime-campaigns';
 import { useRuntimeReviews } from '@/hooks/use-runtime-reviews';
 
+import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { LoadingStateGrid } from './components';
 import DashboardHomePresenter from './presenters/dashboard-home-presenter';
 import { createDashboardHomeViewModel } from './view-models/dashboard-home';
@@ -44,7 +45,7 @@ export default function AriesHomeDashboard() {
   if (loadError) {
     return (
       <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
-        {loadError.message}
+        {customerSafeUiErrorMessage(loadError.message, 'Dashboard data is not available right now.')}
       </div>
     );
   }
@@ -53,7 +54,10 @@ export default function AriesHomeDashboard() {
     <DashboardHomePresenter
       model={model}
       channelsState={integrations.isLoading ? 'loading' : integrations.error ? 'error' : 'ready'}
-      channelsErrorMessage={integrations.error?.message ?? null}
+      channelsErrorMessage={customerSafeUiErrorMessage(
+        integrations.error?.message ?? null,
+        'Channel status is not available right now.',
+      )}
     />
   );
 }

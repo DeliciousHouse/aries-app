@@ -12,7 +12,9 @@ import {
 import {
   OpenClawGatewayError,
   describeLobsterResumeToken,
+  isOpenClawLobsterResumeStateInvalid,
   isOpenClawLobsterResumeStateMissing,
+  isOpenClawLobsterResumeStateRecoverable,
   resolveOpenClawLobsterRuntimeContext,
   resumeOpenClawLobsterWorkflow,
   runOpenClawLobsterWorkflow,
@@ -226,7 +228,7 @@ function positiveIntegerEnv(key: string, fallback: number): number {
 }
 
 function defaultMarketingPipelineGatewayCwd(): string {
-  return resolveCodeRoot() === '/app' ? 'aries-app/lobster' : resolveCodePath('lobster');
+  return resolveCodeRoot() === '/app' ? 'lobster' : resolveCodePath('lobster');
 }
 
 function marketingPipelineGatewayCwd(): string {
@@ -592,6 +594,7 @@ async function reseedMarketingApprovalResumeToken(
   doc: MarketingJobRuntimeDocument,
   checkpoint: MarketingApprovalCheckpoint,
   record: MarketingApprovalRecord,
+  reason: 'workflow_resume_state_missing' | 'workflow_resume_state_invalid' = 'workflow_resume_state_missing',
 ): Promise<string> {
   const workflowStepId = inferredWorkflowStepId(checkpoint);
   approvalLifecycleLog('approval-resume-requested', {
@@ -606,7 +609,7 @@ async function reseedMarketingApprovalResumeToken(
     traceId: record.trace_id,
     tokenFingerprint: record.lobster_resume_token_fingerprint,
     tokenStateKeys: record.lobster_resume_state_keys,
-    reason: 'workflow_resume_state_missing',
+    reason,
   });
 
   const freshResumeToken = await replayMarketingPipelineToApprovalCheckpoint(doc, workflowStepId);
@@ -1394,7 +1397,7 @@ async function resolveMarketingApproval(
       try {
         ({ resumedStage, completed } = await applyResolution(resumeToken));
       } catch (error) {
-        if (!isOpenClawLobsterResumeStateMissing(error)) {
+        if (!isOpenClawLobsterResumeStateRecoverable(error)) {
           throw error;
         }
 
@@ -1402,6 +1405,9 @@ async function resolveMarketingApproval(
           doc,
           checkpointSnapshot,
           currentRecord,
+          isOpenClawLobsterResumeStateInvalid(error)
+            ? 'workflow_resume_state_invalid'
+            : 'workflow_resume_state_missing',
         );
         checkpointSnapshot.resume_token = freshResumeToken;
         ({ resumedStage, completed } = await applyResolution(freshResumeToken));

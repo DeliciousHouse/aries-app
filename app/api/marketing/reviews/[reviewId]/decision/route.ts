@@ -1,9 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { RuntimeReviewDecisionError, recordMarketingReviewDecision } from '@/backend/marketing/runtime-views';
-import { loadMarketingJobRuntime } from '@/backend/marketing/runtime-state';
 import { OpenClawGatewayError } from '@/backend/openclaw/gateway-client';
-import { isMarketingPublicMode } from '@/lib/marketing-public-mode';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
 function decodeReviewIdParam(reviewId: string): string {
@@ -21,16 +19,11 @@ export async function handlePostMarketingReviewDecision(
 ) {
   const decodedReviewId = decodeReviewIdParam(reviewId);
   const tenantResult = await loadTenantContextOrResponse(tenantContextLoader);
-  const jobId = decodedReviewId.split('::')[0] || decodedReviewId;
   if ('response' in tenantResult) {
-    if (!isMarketingPublicMode()) {
-      return tenantResult.response;
-    }
+    return tenantResult.response;
   }
 
-  const tenantId = 'response' in tenantResult
-    ? loadMarketingJobRuntime(jobId)?.tenant_id ?? null
-    : tenantResult.tenantContext.tenantId;
+  const tenantId = tenantResult.tenantContext.tenantId;
 
   if (!tenantId) {
     return NextResponse.json({ error: 'review_not_found' }, { status: 404 });

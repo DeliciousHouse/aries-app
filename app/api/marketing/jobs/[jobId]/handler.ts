@@ -46,34 +46,24 @@ export async function handleGetMarketingJobStatus(
   jobId: string,
   tenantContextLoader?: TenantContextLoader
 ) {
-  // Dev/staging bypass: skip tenant auth when MARKETING_STATUS_PUBLIC is set
-  const statusPublic = process.env.MARKETING_STATUS_PUBLIC === '1' || process.env.MARKETING_STATUS_PUBLIC === 'true';
-
-  if (!statusPublic) {
-    const tenantResult = await loadTenantContextOrResponse(tenantContextLoader, {
-      missingMembershipResponse: MARKETING_ONBOARDING_REQUIRED,
-    });
-    if ('response' in tenantResult) {
-      return tenantResult.response;
-    }
+  const tenantResult = await loadTenantContextOrResponse(tenantContextLoader, {
+    missingMembershipResponse: MARKETING_ONBOARDING_REQUIRED,
+  });
+  if ('response' in tenantResult) {
+    return tenantResult.response;
   }
 
   try {
     const result = getMarketingJobStatus(jobId);
     const workspaceView = buildCampaignWorkspaceView(jobId);
-    if (!statusPublic && result.tenantId) {
-      const tenantResult = await loadTenantContextOrResponse(tenantContextLoader, {
-        missingMembershipResponse: MARKETING_ONBOARDING_REQUIRED,
-      });
-      if (!('response' in tenantResult) && result.tenantId !== tenantResult.tenantContext.tenantId) {
-        return NextResponse.json(
-          {
-            error: 'Marketing job not found.',
-            reason: 'marketing_job_not_found',
-          },
-          { status: 404 }
-        );
-      }
+    if (result.tenantId && result.tenantId !== tenantResult.tenantContext.tenantId) {
+      return NextResponse.json(
+        {
+          error: 'Marketing job not found.',
+          reason: 'marketing_job_not_found',
+        },
+        { status: 404 }
+      );
     }
 
     return NextResponse.json(

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "clickup": {
+      "baseUrl": "https://mcp.clickup.com/mcp",
+      "description": "Official ClickUp MCP",
+      "headers": {
+        "Authorization": "Bearer ${CLICKUP_TOKEN}"
+      }
+    }
+  }
+}

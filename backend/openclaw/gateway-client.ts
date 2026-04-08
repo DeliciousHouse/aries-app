@@ -151,7 +151,7 @@ function defaultSessionKey(): string {
 
 function defaultGatewayLobsterCwd(): string {
   const codeRoot = resolveCodeRoot();
-  return codeRoot === '/app' ? 'aries-app/lobster' : resolveCodePath('lobster');
+  return codeRoot === '/app' ? 'lobster' : resolveCodePath('lobster');
 }
 
 function defaultLobsterCwd(): string {
@@ -171,9 +171,11 @@ function normalizeGatewayCwd(cwd: string): string {
   const candidateRoots = Array.from(
     new Set(
       [
-        path.basename(codeRoot) === 'aries-app' ? path.dirname(codeRoot) : null,
         codeRoot,
+        codeRoot === '/app' ? path.join(codeRoot, 'aries-app') : null,
+        '/app/aries-app',
         '/app',
+        path.basename(codeRoot) === 'aries-app' ? path.dirname(codeRoot) : null,
       ].filter((candidate): candidate is string => Boolean(candidate))
     )
   );
@@ -284,6 +286,20 @@ export function isOpenClawLobsterResumeStateMissing(error: unknown): boolean {
     return false;
   }
   return /workflow resume state not found/i.test(error.message);
+}
+
+export function isOpenClawLobsterResumeStateInvalid(error: unknown): boolean {
+  if (!(error instanceof OpenClawGatewayError)) {
+    return false;
+  }
+  return /invalid pipeline resume state/i.test(error.message);
+}
+
+export function isOpenClawLobsterResumeStateRecoverable(error: unknown): boolean {
+  return (
+    isOpenClawLobsterResumeStateMissing(error) ||
+    isOpenClawLobsterResumeStateInvalid(error)
+  );
 }
 
 export function describeLobsterResumeToken(token: string): LobsterResumeTokenDescriptor {

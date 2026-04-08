@@ -4,6 +4,7 @@ import Link from 'next/link';
 
 import { useRuntimeCampaigns } from '@/hooks/use-runtime-campaigns';
 
+import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { EmptyStatePanel, LoadingStateGrid, ShellPanel, StatusChip } from './components';
 
 export default function AriesResultsScreen() {
@@ -15,7 +16,11 @@ export default function AriesResultsScreen() {
   }
 
   if (campaigns.error) {
-    return <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">{campaigns.error.message}</div>;
+    return (
+      <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
+        {customerSafeUiErrorMessage(campaigns.error.message, 'Results are not available right now.')}
+      </div>
+    );
   }
 
   if (liveCampaigns.length === 0) {

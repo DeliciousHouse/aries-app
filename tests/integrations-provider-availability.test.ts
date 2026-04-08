@@ -76,6 +76,7 @@ test('/api/integrations marks unconfigured providers as disabled and unavailable
     assert.equal(linkedin?.connection_state, 'disabled');
     assert.deepEqual(linkedin?.available_actions, []);
     assert.equal(linkedin?.error?.code, 'provider_unavailable');
-    assert.match(linkedin?.error?.message || '', /LINKEDIN_CLIENT_ID/);
+    assert.equal(linkedin?.error?.message, 'Publishing is not ready yet.');
+    assert.doesNotMatch(linkedin?.error?.message || '', /LINKEDIN_CLIENT_ID|META_APP_SECRET|OAUTH_TOKEN_ENCRYPTION_KEY/);
   });
 });

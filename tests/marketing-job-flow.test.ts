@@ -246,7 +246,7 @@ test('startMarketingJob keeps the client-facing marketing flow on the canonical 
     const firstArgs = (tracking.firstRunPayload?.args as Record<string, unknown> | undefined) ?? {};
     assert.equal(firstArgs.action, 'run');
     assert.equal(firstArgs.pipeline, MARKETING_PIPELINE_FILE);
-    assert.equal(firstArgs.cwd, 'aries-app/lobster');
+    assert.equal(firstArgs.cwd, 'lobster');
 
     const runtimeFile = path.join(dataRoot, 'generated', 'draft', 'marketing-jobs', `${result.jobId}.json`);
     const runtimeDoc = JSON.parse(await readFile(runtimeFile, 'utf8')) as any;
@@ -783,6 +783,122 @@ test('approveMarketingJob reseeds a missing Lobster resume state and retries the
       'resume:resume_strategy_reseeded',
     ]);
     clearOpenClawTestInvoker();
+  });
+});
+
+test('approveMarketingJob reseeds an invalid Lobster resume state and retries the approval once', async () => {
+  await withMarketingRuntimeEnv(async () => {
+    const { OpenClawGatewayError } = await import('../backend/openclaw/gateway-client');
+    const { approveMarketingJob } = await import('../backend/marketing/jobs-approve');
+    const { startMarketingJob } = await import('../backend/marketing/jobs-start');
+    const invocations: string[] = [];
+    let runCount = 0;
+
+    setOpenClawTestInvoker((payload) => {
+      const args = (payload.args as Record<string, unknown> | undefined) ?? {};
+      const action = String(args.action || '');
+      const token = String(args.token || '');
+      invocations.push(`${action}:${token || 'initial'}`);
+
+      if (action === 'run' && runCount === 0) {
+        runCount += 1;
+        return {
+          ok: true,
+          status: 'needs_approval',
+          output: [{
+            run_id: 'run-research',
+            executive_summary: {
+              market_positioning: 'Research complete.',
+              campaign_takeaway: 'Hooks validated.',
+            },
+          }],
+          requiresApproval: {
+            resumeToken: 'resume_strategy_invalid',
+            prompt: 'Research complete. Approve strategy to continue.',
+          },
+        };
+      }
+
+      if (action === 'resume' && token === 'resume_strategy_invalid') {
+        throw new OpenClawGatewayError(
+          'openclaw_gateway_server_error',
+          'Invalid pipeline resume state',
+          500,
+        );
+      }
+
+      if (action === 'run') {
+        runCount += 1;
+        return {
+          ok: true,
+          status: 'needs_approval',
+          output: [{
+            run_id: 'run-research-reseed',
+            executive_summary: {
+              market_positioning: 'Research replayed after invalid resume-state recovery.',
+              campaign_takeaway: 'Hooks validated.',
+            },
+          }],
+          requiresApproval: {
+            resumeToken: 'resume_strategy_reseeded_invalid',
+            prompt: 'Research complete. Approve strategy to continue.',
+          },
+        };
+      }
+
+      if (action === 'resume' && token === 'resume_strategy_reseeded_invalid') {
+        return {
+          ok: true,
+          status: 'needs_approval',
+          output: [{
+            run_id: 'run-strategy',
+            strategy_handoff: {
+              run_id: 'run-strategy',
+              core_message: 'Ship the approved strategy.',
+              primary_cta: 'Book a walkthrough',
+            },
+          }],
+          requiresApproval: {
+            resumeToken: 'resume_production_after_invalid',
+            prompt: 'Strategy complete. Approve production to continue.',
+          },
+        };
+      }
+
+      throw new Error(`Unexpected OpenClaw lobster invocation: action=${action} token=${token}`);
+    });
+
+    const started = await startMarketingJob({
+      tenantId: 'tenant-a',
+      jobType: 'brand_campaign',
+      payload: {
+        brandUrl: 'https://brand.example',
+        competitorUrl: 'https://betterup.com',
+      },
+    });
+
+    const result = await approveMarketingJob({
+      jobId: started.jobId,
+      tenantId: 'tenant-a',
+      approvedBy: 'operator',
+      approvedStages: ['strategy'],
+      approvalId: started.approval?.approval_id ?? undefined,
+    });
+
+    assert.equal(result.status, 'resumed');
+    assert.equal(result.resumedStage, 'production');
+    assert.equal(result.completed, false);
+
+    const { loadMarketingApprovalRecord } = await import('../backend/marketing/approval-store');
+    const refreshed = loadMarketingApprovalRecord(result.approvalId ?? '');
+    assert.ok(refreshed);
+    assert.equal(refreshed?.lobster_resume_token, 'resume_strategy_reseeded_invalid');
+    assert.deepEqual(invocations, [
+      'run:initial',
+      'resume:resume_strategy_invalid',
+      'run:initial',
+      'resume:resume_strategy_reseeded_invalid',
+    ]);
   });
 });
 
