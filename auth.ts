@@ -1,4 +1,4 @@
-import NextAuth from "next-auth";
+import NextAuth, { CredentialsSignin } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import bcrypt from "bcryptjs";
@@ -16,6 +16,15 @@ import {
 } from "./lib/auth-tenant-membership";
 
 const authRuntime = resolveAuthRuntimeConfig(process.env);
+const DATABASE_UNAVAILABLE_ERROR = "DatabaseUnavailable";
+
+class DatabaseUnavailableCredentialsError extends CredentialsSignin {
+  code = DATABASE_UNAVAILABLE_ERROR;
+}
+
+function buildLoginErrorUrl(error: string): string {
+  return `/login?error=${encodeURIComponent(error)}`;
+}
 
 if (authRuntime.authUrl) {
   process.env.NEXTAUTH_URL = process.env.NEXTAUTH_URL ?? authRuntime.authUrl;
@@ -32,6 +41,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
+        let client;
         const email =
           typeof credentials?.email === "string" ? credentials.email.trim().toLowerCase() : "";
         const password =
@@ -41,8 +51,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           return null;
         }
 
-        const client = await pool.connect();
         try {
+          client = await pool.connect();
           const result = await client.query(
             `
               SELECT id, email, full_name, password_hash
@@ -84,9 +94,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           };
         } catch (error) {
           console.error("Error during credentials authorization:", error);
-          return null;
+          throw new DatabaseUnavailableCredentialsError();
         } finally {
-          client.release();
+          client?.release();
         }
       },
     }),
@@ -105,8 +115,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (!email) return false;
       const normalizedEmail = normalizeEmail(email);
 
-      const client = await pool.connect();
+      let client;
       try {
+        client = await pool.connect();
         const existingUser = await client.query(
           "SELECT id, organization_id, role FROM users WHERE LOWER(email) = LOWER($1)",
           [normalizedEmail],
@@ -171,9 +182,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         return true;
       } catch (err) {
         console.error(`Error during ${account?.provider || "auth"} sign in:`, err);
-        return false;
+        return buildLoginErrorUrl(DATABASE_UNAVAILABLE_ERROR);
       } finally {
-        client.release();
+        client?.release();
       }
     },
     async jwt({ token, user }) {
@@ -234,5 +245,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   },
   pages: {
     signIn: "/login",
+    error: "/login",
   },
 });
