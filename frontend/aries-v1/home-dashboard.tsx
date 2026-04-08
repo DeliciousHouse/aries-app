@@ -6,6 +6,7 @@ import { useIntegrations } from '@/hooks/use-integrations';
 import { useBusinessProfile } from '@/hooks/use-business-profile';
 import { useRuntimeCampaigns } from '@/hooks/use-runtime-campaigns';
 import { useRuntimeReviews } from '@/hooks/use-runtime-reviews';
+import type { IntegrationPlatform } from '@/lib/api/integrations';
 
 import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { LoadingStateGrid } from './components';
@@ -58,6 +59,10 @@ export default function AriesHomeDashboard() {
         integrations.error?.message ?? null,
         'Channel status is not available right now.',
       )}
+      channelsBusyAction={integrations.busyAction}
+      onChannelDisconnect={(channelId) =>
+        void integrations.runAction('disconnect', { platform: channelId as IntegrationPlatform })
+      }
     />
   );
 }

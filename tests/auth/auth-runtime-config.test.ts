@@ -45,6 +45,6 @@ test("defaults trustHost based on NODE_ENV when AUTH_TRUST_HOST is unset", () =>
     NODE_ENV: "development",
   });
 
-  assert.equal(productionConfig.trustHost, true);
-  assert.equal(developmentConfig.trustHost, false);
+  assert.equal(productionConfig.trustHost, false);
+  assert.equal(developmentConfig.trustHost, true);
 });

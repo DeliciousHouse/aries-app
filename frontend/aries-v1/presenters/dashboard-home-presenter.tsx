@@ -21,6 +21,10 @@ export interface DashboardHomePresenterProps {
   model: DashboardHomeViewModel;
   channelsState?: 'loading' | 'ready' | 'error';
   channelsErrorMessage?: string | null;
+  /** When set, connected channels with `canDisconnect` show a Disconnect control. */
+  onChannelDisconnect?: (channelId: string) => void;
+  /** e.g. `instagram:disconnect` while a disconnect request is in flight */
+  channelsBusyAction?: string | null;
 }
 
 type OrbitSurface = {
@@ -35,6 +39,8 @@ export default function DashboardHomePresenter({
   model,
   channelsState = 'ready',
   channelsErrorMessage,
+  onChannelDisconnect,
+  channelsBusyAction,
 }: DashboardHomePresenterProps) {
   const surfaces = useMemo<OrbitSurface[]>(() => {
     const metricByLabel = (label: string) =>
@@ -416,71 +422,198 @@ export default function DashboardHomePresenter({
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.26 }}
-          className="overflow-hidden rounded-2xl border border-white/[0.05] bg-[#080808]"
+          className="overflow-hidden rounded-2xl border border-white/[0.06] bg-black"
         >
           <div className="p-6 pb-5">
             <h4 className="mb-2 text-[11px] font-bold uppercase tracking-[0.15em] text-white/40">Connected Surfaces</h4>
             <h3 className="text-xl font-semibold tracking-tight text-white">Publishing and monitoring health</h3>
           </div>
-          <div className="h-px w-full bg-white/10" />
+          <div className="h-px w-full bg-white/[0.08]" />
 
-          <div className="space-y-4 p-6">
+          <div className="p-6">
             {channelsState === 'loading' ? (
-              Array.from({ length: 3 }, (_, index) => (
-                <div key={index} className="h-28 animate-pulse rounded-2xl border border-white/[0.05] bg-[#1B1524]" />
-              ))
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {Array.from({ length: 6 }, (_, index) => (
+                  <div
+                    key={index}
+                    className="flex min-h-[132px] animate-pulse flex-col rounded-xl border border-white/[0.06] bg-[#1a1a24] p-3"
+                  >
+                    <div className="mb-2.5 flex justify-end">
+                      <div className="h-2 w-2 shrink-0 rounded-full bg-white/[0.08]" />
+                    </div>
+                    <div className="flex items-center gap-2.5">
+                      <div className="h-9 w-9 shrink-0 rounded-lg bg-white/[0.06]" />
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <div className="h-4 w-3/5 rounded bg-white/[0.06]" />
+                        <div className="h-3 w-2/5 rounded bg-white/[0.04]" />
+                      </div>
+                    </div>
+                    <div className="mt-auto flex-1" />
+                    <div className="mt-3 h-9 w-full rounded-lg bg-white/[0.06]" />
+                  </div>
+                ))}
+              </div>
             ) : channelsState === 'error' && model.channels.items.length === 0 ? (
               <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-5 text-sm text-red-100">
                 {channelsErrorMessage || 'Unable to load channel health.'}
               </div>
             ) : model.channels.items.length === 0 ? (
-              <div className="rounded-2xl border border-white/[0.05] bg-[#1B1524] p-5 text-sm leading-relaxed text-white/55">
+              <div className="rounded-2xl border border-white/[0.06] bg-[#1a1a24] p-5 text-sm leading-relaxed text-white/55">
                 No channel connections yet. Connect platforms in Settings when you are ready to schedule or monitor launches.
               </div>
             ) : (
-              model.channels.items.map((channel) => (
-                <div key={channel.id} className="rounded-2xl border border-white/[0.05] bg-[#1B1524] p-5">
-                  <div className="mb-1 flex items-center justify-between gap-3">
-                    <span className="text-[15px] font-medium text-white/90">{channel.name}</span>
-                    <div className="flex items-center gap-2 rounded-full bg-white/5 px-3 py-1.5">
-                      <div
-                        className={`h-2 w-2 rounded-full ${
-                          channel.health === 'connected'
-                            ? 'bg-emerald-400'
-                            : channel.health === 'attention'
-                              ? 'bg-[#e5c07b]'
-                              : 'bg-white/30'
-                        }`}
-                      />
-                      <span className="text-xs font-medium text-white/65">
-                        {channel.health === 'connected'
-                          ? 'Connected'
-                          : channel.health === 'attention'
-                            ? 'Needs attention'
-                            : 'Not connected'}
-                      </span>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {model.channels.items.map((channel) => {
+                  const statusDot =
+                    channel.health === 'connected'
+                      ? 'bg-[#4ade80]'
+                      : channel.health === 'attention'
+                        ? 'bg-amber-400'
+                        : 'bg-white/35';
+                  const statusLabel =
+                    channel.health === 'connected'
+                      ? 'Connected'
+                      : channel.health === 'attention'
+                        ? 'Needs attention'
+                        : 'Not connected';
+                  const statusText =
+                    channel.health === 'connected'
+                      ? 'text-[#4ade80]'
+                      : channel.health === 'attention'
+                        ? 'text-amber-300'
+                        : 'text-white/55';
+
+                  const disconnectBusy = channelsBusyAction === `${channel.id}:disconnect`;
+
+                  const showHandle =
+                    channel.handle.trim() !== '' &&
+                    channel.handle.trim().toLowerCase() !== channel.name.trim().toLowerCase();
+
+                  return (
+                    <div
+                      key={channel.id}
+                      className="group/channel-card flex min-h-[132px] flex-col rounded-xl border border-white/[0.08] bg-[#1a1a24] p-3"
+                    >
+                      <div className="mb-2.5 flex w-full justify-end" role="status" aria-label={statusLabel}>
+                        <div className="flex cursor-default items-center gap-1.5 rounded-full py-0.5 pl-0.5 pr-0 transition-[padding] duration-200 ease-out group-hover/channel-card:pr-1.5 group-focus-within/channel-card:pr-1.5">
+                          <span className={`h-2 w-2 shrink-0 rounded-full ${statusDot}`} aria-hidden />
+                          <span
+                            className={`max-w-0 overflow-hidden whitespace-nowrap text-xs font-medium leading-tight opacity-0 transition-[max-width,opacity] duration-200 ease-out ${statusText} group-hover/channel-card:max-w-[10rem] group-hover/channel-card:opacity-100 group-focus-within/channel-card:max-w-[10rem] group-focus-within/channel-card:opacity-100`}
+                          >
+                            {statusLabel}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2.5">
+                        {channelPlatformIcon(channel.id)}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[15px] font-semibold leading-snug text-white">{channel.name}</p>
+                          {showHandle ? (
+                            <p className="mt-0.5 truncate text-xs text-white/45">{channel.handle}</p>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="flex-1" aria-hidden />
+                      {channel.health !== 'connected' ? (
+                        <Link
+                          href={`/oauth/connect/${encodeURIComponent(channel.id)}?mode=${channel.health === 'attention' ? 'reconnect' : 'connect'}`}
+                          className="mt-3 box-border flex w-full min-h-[2.5rem] shrink-0 items-center justify-center rounded-lg border border-transparent bg-[#2a2a35] px-3 text-center text-[0.9rem] font-medium text-white transition-colors hover:bg-[#34343f]"
+                        >
+                          {channel.health === 'attention' ? 'Reconnect' : 'Connect'}
+                        </Link>
+                      ) : channel.canDisconnect && onChannelDisconnect ? (
+                        <button
+                          type="button"
+                          disabled={disconnectBusy}
+                          onClick={() => onChannelDisconnect(channel.id)}
+                          className="mt-3 box-border flex w-full min-h-[2.125rem] shrink-0 items-center justify-center rounded-lg border border-red-500/75 bg-transparent px-3 py-1.5 text-center text-[0.9rem] font-medium leading-tight text-red-200/95 transition-colors hover:border-red-400 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {disconnectBusy ? 'Disconnecting…' : 'Disconnect'}
+                        </button>
+                      ) : null}
                     </div>
-                  </div>
-                  <span className="mb-4 block text-sm text-white/40">{channel.handle}</span>
-                  <p className="pr-4 text-sm leading-relaxed text-white/50">{channel.detail}</p>
-                  {channel.health !== 'connected' ? (
-                    <div className="mt-4">
-                      <Link
-                        href={`/oauth/connect/${encodeURIComponent(channel.id)}?mode=${channel.health === 'attention' ? 'reconnect' : 'connect'}`}
-                        className="inline-flex items-center gap-2 rounded-full border border-white/[0.15] bg-white/5 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-white/10"
-                      >
-                        {channel.health === 'attention' ? 'Reconnect' : 'Connect'}
-                      </Link>
-                    </div>
-                  ) : null}
-                </div>
-              ))
+                  );
+                })}
+              </div>
             )}
           </div>
         </motion.section>
       </div>
     </div>
   );
+}
+
+function channelPlatformIcon(platformId: string) {
+  const id = platformId.toLowerCase();
+  const wrap = 'flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg';
+
+  switch (id) {
+    case 'facebook':
+      return (
+        <div className={`${wrap} bg-[#1877F2]`} aria-hidden>
+          <svg className="h-4 w-4 text-white" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
+          </svg>
+        </div>
+      );
+    case 'instagram':
+      return (
+        <div
+          className={`${wrap} bg-gradient-to-br from-[#833AB4] via-[#FD1D1D] to-[#F77737]`}
+          aria-hidden
+        >
+          <svg className="h-[18px] w-[18px] text-white" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z" />
+          </svg>
+        </div>
+      );
+    case 'linkedin':
+      return (
+        <div className={`${wrap} bg-[#0A66C2]`} aria-hidden>
+          <svg className="h-[18px] w-[18px] text-white" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
+          </svg>
+        </div>
+      );
+    case 'x':
+      return (
+        <div className={`${wrap} bg-black`} aria-hidden>
+          <svg className="h-4 w-4 text-white" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+          </svg>
+        </div>
+      );
+    case 'youtube':
+      return (
+        <div className={`${wrap} bg-[#FF0000]`} aria-hidden>
+          <svg className="h-[18px] w-[18px] text-white" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
+          </svg>
+        </div>
+      );
+    case 'tiktok':
+      return (
+        <div className={`${wrap} bg-black ring-1 ring-white/15`} aria-hidden>
+          <svg className="h-[18px] w-[18px] text-[#25F4EE]" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.81 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1-.1z" />
+          </svg>
+        </div>
+      );
+    case 'reddit':
+      return (
+        <div className={`${wrap} bg-[#FF4500]`} aria-hidden>
+          <svg className="h-[18px] w-[18px] text-white" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.872-7.004 4.872-3.874 0-7.004-2.178-7.004-4.872 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.486l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.922.916 2.156 1.41 3.474 1.41 1.318 0 2.55-.494 3.474-1.41a.361.361 0 0 0 .029-.463.33.33 0 0 0-.464 0c-.793.79-1.851 1.212-2.997 1.212-1.146 0-2.206-.422-2.998-1.212a.327.327 0 0 0-.24-.094z" />
+          </svg>
+        </div>
+      );
+    default:
+      return (
+        <div className={`${wrap} bg-white/10`} aria-hidden>
+          <Globe2 className="h-[18px] w-[18px] text-white/80" />
+        </div>
+      );
+  }
 }
 
 function HeroSideCard(props: {
