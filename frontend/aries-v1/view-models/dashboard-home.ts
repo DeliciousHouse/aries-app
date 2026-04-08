@@ -143,6 +143,7 @@ function mapChannelConnection(card: IntegrationCard): AriesChannelConnection {
     id: card.platform,
     name: card.display_name,
     handle: card.connected_account?.account_label || card.platform,
+    canDisconnect: card.available_actions.includes('disconnect'),
     health,
     detail:
       card.connection_state === 'connected'

@@ -17,6 +17,8 @@ function authErrorMessage(errorCode: string | null, missingClaims: string | null
       return 'Invalid email or password.';
     case 'AccessDenied':
       return 'Access was denied. Try a different sign-in method.';
+    case 'DatabaseUnavailable':
+      return 'Authentication cannot reach the Postgres database. Start Postgres or update the DB connection settings.';
     case 'TenantClaimsIncomplete':
       return missingClaims
         ? `Your account is authenticated but missing required tenant claims: ${missingClaims

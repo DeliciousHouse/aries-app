@@ -231,6 +231,8 @@ export type AriesChannelConnection = {
   handle: string;
   health: 'connected' | 'attention' | 'not_connected';
   detail: string;
+  /** When false, disconnect is not offered by the integration (UI hides Disconnect). */
+  canDisconnect: boolean;
 };
 export type AriesCampaign = RuntimeCampaignListItem & {
   plan: {

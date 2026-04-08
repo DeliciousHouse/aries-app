@@ -7,6 +7,8 @@ import { useBusinessProfile } from '@/hooks/use-business-profile';
 import { useRuntimeCampaigns } from '@/hooks/use-runtime-campaigns';
 import { useRuntimeReviews } from '@/hooks/use-runtime-reviews';
 
+import type { IntegrationPlatform } from '@/lib/api/integrations';
+
 import { LoadingStateGrid } from './components';
 import DashboardHomePresenter from './presenters/dashboard-home-presenter';
 import { createDashboardHomeViewModel } from './view-models/dashboard-home';
@@ -54,6 +56,10 @@ export default function AriesHomeDashboard() {
       model={model}
       channelsState={integrations.isLoading ? 'loading' : integrations.error ? 'error' : 'ready'}
       channelsErrorMessage={integrations.error?.message ?? null}
+      channelsBusyAction={integrations.busyAction}
+      onChannelDisconnect={(channelId) =>
+        void integrations.runAction('disconnect', { platform: channelId as IntegrationPlatform })
+      }
     />
   );
 }

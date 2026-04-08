@@ -30,7 +30,7 @@ export function resolveAuthRuntimeConfig(env: NodeJS.ProcessEnv): {
     normalizeEnvValue(env.APP_BASE_URL);
 
   const configuredTrustHost = parseBoolean(env.AUTH_TRUST_HOST);
-  const trustHost = configuredTrustHost ?? env.NODE_ENV === "production";
+  const trustHost = configuredTrustHost ?? (Boolean(authUrl) || env.NODE_ENV !== "production");
 
   return { authUrl, trustHost };
 }
