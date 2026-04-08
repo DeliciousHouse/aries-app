@@ -8,11 +8,13 @@ import { AriesMark } from '@/frontend/donor/ui';
 
 interface SignUpFormProps {
   onNavigate: (view: AuthView, email?: string) => void;
-  onSubmit: (email: string, needsOnboarding: boolean) => void;
+  onSubmit: (email: string, password: string, needsOnboarding: boolean) => void;
   onGoogleSuccess: () => void;
   onSlackClick: () => void;
   isLoading: boolean;
   authError?: string | null;
+  savedStateMessage?: string | null;
+  defaultEmail?: string;
 }
 
 
@@ -23,8 +25,10 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
   onSlackClick,
   isLoading,
   authError,
+  savedStateMessage,
+  defaultEmail,
 }) => {
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(defaultEmail || '');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [orgNameInput, setOrgNameInput] = useState('');
@@ -32,6 +36,11 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
   const [errorLocal, setErrorLocal] = useState<string | null>(null);
   const [invitationData, setInvitationData] = useState<Record<string, any> | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+
+
+  useEffect(() => {
+    setEmail(defaultEmail || '');
+  }, [defaultEmail]);
 
 
   useEffect(() => {
@@ -91,7 +100,8 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
         return;
       }
 
-      onSubmit(email, true);
+      await onSubmit(email, password, true);
+      setIsSubmitting(false);
     } catch (err: any) {
       setErrorLocal(err.message || "Signup failed.");
       setIsSubmitting(false);
@@ -118,8 +128,12 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
         </p>
       </div>
 
+      {savedStateMessage ? (
+        <div className="mb-6 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm text-emerald-100">
+          {savedStateMessage}
+        </div>
+      ) : null}
 
-      {/* Glassmorphic Form Card */}
       <div className="glass p-8 md:p-10 rounded-2xl border border-white/10 relative overflow-hidden">
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary via-secondary to-primary" />
         
@@ -266,7 +280,7 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
       <div className="text-center mt-8">
         <p className="text-sm text-white/60">
           Already have an account?{' '}
-          <button type="button" onClick={() => onNavigate('login')} className="font-bold text-white hover:text-primary transition-colors">Sign In</button>
+          <button type="button" onClick={() => onNavigate('login', email)} className="font-bold text-white hover:text-primary transition-colors">Sign In</button>
         </p>
       </div>
     </div>
@@ -275,6 +289,3 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
 
 
 export default SignUpForm;
-
-
-

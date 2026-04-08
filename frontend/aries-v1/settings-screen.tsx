@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { useIntegrations } from '@/hooks/use-integrations';
 import { useBusinessProfile } from '@/hooks/use-business-profile';
 
+import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { EmptyStatePanel, LoadingStateGrid, ShellPanel, StatusChip } from './components';
 
 export default function AriesSettingsScreen() {
@@ -57,7 +58,14 @@ export default function AriesSettingsScreen() {
   }
 
   if (business.profile.error || business.team.error) {
-    return <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">{business.profile.error?.message || business.team.error?.message}</div>;
+    return (
+      <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
+        {customerSafeUiErrorMessage(
+          business.profile.error?.message || business.team.error?.message,
+          'Settings are not available right now.',
+        )}
+      </div>
+    );
   }
 
   return (
@@ -84,7 +92,9 @@ export default function AriesSettingsScreen() {
       <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
         <ShellPanel eyebrow="Channels / Integrations" title="Where Aries can publish or monitor">
           {integrations.error ? (
-            <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">{integrations.error.message}</div>
+            <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
+              {customerSafeUiErrorMessage(integrations.error.message, 'Channel status is not available right now.')}
+            </div>
           ) : integrationCards.length === 0 ? (
             <EmptyStatePanel compact title="No integrations yet" description="Connect channels so Aries can publish, schedule, and monitor launches." />
           ) : (
@@ -94,15 +104,15 @@ export default function AriesSettingsScreen() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="space-y-1">
                       <p className="text-sm font-medium text-white">{card.display_name}</p>
-                      <p className="text-sm text-white/45">{card.connected_account?.account_label || card.platform}</p>
+                      <p className="text-sm text-white/45">{card.description}</p>
                     </div>
                     <StatusChip status={card.connection_state === 'connected' ? 'approved' : card.connection_state === 'reauth_required' ? 'changes_requested' : 'draft'}>
                       {card.connection_state === 'connected'
-                        ? 'Healthy'
+                        ? 'Connected'
                         : card.connection_state === 'reauth_required'
                           ? 'Needs attention'
                           : card.connection_state === 'disabled'
-                            ? 'Unavailable'
+                            ? 'Setup needed'
                             : 'Not connected'}
                     </StatusChip>
                   </div>

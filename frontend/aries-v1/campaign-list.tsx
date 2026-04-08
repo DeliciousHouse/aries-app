@@ -7,6 +7,7 @@ import MediaPreview from '@/frontend/components/media-preview';
 import { useRuntimeCampaigns } from '@/hooks/use-runtime-campaigns';
 import type { AriesDashboardAsset, AriesDashboardPost } from '@/lib/api/aries-v1';
 
+import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { EmptyStatePanel, LoadingStateGrid, ShellPanel, StatusChip } from './components';
 
 export default function AriesCampaignListScreen() {
@@ -18,7 +19,11 @@ export default function AriesCampaignListScreen() {
   }
 
   if (campaigns.error) {
-    return <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">{campaigns.error.message}</div>;
+    return (
+      <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
+        {customerSafeUiErrorMessage(campaigns.error.message, 'Campaigns are not available right now.')}
+      </div>
+    );
   }
 
   if (items.length === 0) {

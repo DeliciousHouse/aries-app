@@ -53,11 +53,23 @@ function callbackPathFor(provider: ProviderKey): string {
 }
 
 function buildMissingEnvMessage(provider: ProviderKey, missingEnv: string[]): string {
-  return `${displayNameFor(provider)} integration is unavailable. Missing env: ${missingEnv.join(', ')}.`;
+  if (provider === 'facebook') {
+    return 'Meta is not connected yet.';
+  }
+  if (provider === 'instagram') {
+    return 'Instagram publishing needs to be connected.';
+  }
+  if (missingEnv.includes(SHARED_TOKEN_ENV)) {
+    return 'Contact support to finish channel setup.';
+  }
+  return 'Publishing is not ready yet.';
 }
 
 function buildEnvManagedMessage(provider: ProviderKey): string {
-  return `${displayNameFor(provider)} is configured outside Aries OAuth. Use META_PAGE_ID and META_ACCESS_TOKEN.`;
+  if (provider === 'instagram') {
+    return 'Instagram publishing needs to be connected.';
+  }
+  return 'Contact support to finish channel setup.';
 }
 
 export function oauthTokenEncryptionKey(): string {

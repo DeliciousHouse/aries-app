@@ -177,8 +177,37 @@ export type UrlPreviewResponse = {
   brandKitPreview: UrlPreviewBrandKitPreview | null;
 };
 
+export type OnboardingDraftStatus =
+  | 'draft'
+  | 'ready_for_auth'
+  | 'materializing'
+  | 'materialized';
+
+export type OnboardingDraft = {
+  draftId: string;
+  status: OnboardingDraftStatus;
+  websiteUrl: string;
+  businessName: string;
+  businessType: string;
+  approverName: string;
+  channels: string[];
+  goal: string;
+  offer: string;
+  competitorUrl: string;
+  preview: UrlPreviewResponse | null;
+  provenance: {
+    source_url: string | null;
+    canonical_url: string | null;
+    source_fingerprint: string | null;
+  };
+  createdAt: string;
+  updatedAt: string;
+  materializedTenantId: string | null;
+  materializedJobId: string | null;
+};
+
 export type CampaignListResponse = { campaigns: RuntimeCampaignListItem[] };
-export type ReviewQueueResponse = { reviews: RuntimeReviewItem[] };
+export type ReviewQueueResponse = { reviews: RuntimeReviewItem[]; archivedReviews?: RuntimeReviewItem[] };
 export type ReviewItemResponse = { review: RuntimeReviewItem };
 export type ReviewDecisionRequest = {
   action: 'approve' | 'changes_requested' | 'reject';
@@ -187,6 +216,7 @@ export type ReviewDecisionRequest = {
   approvalId?: string;
 };
 export type BusinessProfileResponse = { profile: BusinessProfileView };
+export type OnboardingDraftResponse = { draft: OnboardingDraft };
 export type BusinessProfilePatch = {
   businessName?: string | null;
   websiteUrl?: string | null;
@@ -202,6 +232,25 @@ export type BusinessProfilePatch = {
   channels?: string[] | null;
 };
 export type TenantProfilesResponse = { profiles: TenantUserProfile[] };
+export type OnboardingDraftPatch = {
+  status?: OnboardingDraftStatus;
+  websiteUrl?: string | null;
+  businessName?: string | null;
+  businessType?: string | null;
+  approverName?: string | null;
+  channels?: string[] | null;
+  goal?: string | null;
+  offer?: string | null;
+  competitorUrl?: string | null;
+  preview?: UrlPreviewResponse | null;
+  provenance?: {
+    source_url?: string | null;
+    canonical_url?: string | null;
+    source_fingerprint?: string | null;
+  } | null;
+  materializedTenantId?: string | null;
+  materializedJobId?: string | null;
+};
 
 export type AriesAssetVersion = RuntimeReviewItem['currentVersion'];
 export type AriesRecommendation = {
@@ -303,8 +352,26 @@ export function createAriesV1Api(options: ApiClientOptions = {}) {
         body: JSON.stringify(body),
       }, options);
     },
-    getUrlPreview(url: string) {
-      return requestJson<UrlPreviewResponse>(`/api/pipeline/url-preview?url=${encodeURIComponent(url)}`, { method: 'GET' }, options);
+    createOnboardingDraft() {
+      return requestJson<OnboardingDraftResponse>('/api/onboarding/draft', { method: 'POST' }, options);
+    },
+    getOnboardingDraft(draftId: string) {
+      return requestJson<OnboardingDraftResponse>(`/api/onboarding/draft?draft=${encodeURIComponent(draftId)}`, {
+        method: 'GET',
+      }, options);
+    },
+    updateOnboardingDraft(draftId: string, body: OnboardingDraftPatch) {
+      return requestJson<OnboardingDraftResponse>(`/api/onboarding/draft?draft=${encodeURIComponent(draftId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }, options);
+    },
+    getUrlPreview(url: string, draftId: string) {
+      return requestJson<UrlPreviewResponse>(
+        `/api/pipeline/url-preview?url=${encodeURIComponent(url)}&draft=${encodeURIComponent(draftId)}`,
+        { method: 'GET' },
+        options,
+      );
     },
     getTenantProfiles() {
       return requestJson<TenantProfilesResponse>('/api/tenant/profiles', { method: 'GET' }, options);

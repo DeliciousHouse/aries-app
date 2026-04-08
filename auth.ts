@@ -224,7 +224,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.userId = token.sub;
       }
 
-      if (token.userId && (!token.tenantId || !token.tenantSlug || !token.tenantRole)) {
+      if (token.userId) {
         await hydrateTenantClaimsByUserId(String(token.userId));
       }
 

@@ -12,6 +12,7 @@ import type {
   MarketingStageReviewPayload,
 } from '@/lib/api/marketing';
 
+import { customerSafeActionErrorMessage, customerSafeUiErrorMessage } from './customer-safe-copy';
 import { ActivityFeed, EmptyStatePanel, SectionLink, ShellPanel, StatusChip } from './components';
 
 type WorkspaceView = 'brand' | 'strategy' | 'creative' | 'publish';
@@ -122,7 +123,11 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
   }
 
   if (job.error) {
-    return <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">{job.error.message}</div>;
+    return (
+      <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
+        {customerSafeUiErrorMessage(job.error.message, 'This campaign workspace is not available right now.')}
+      </div>
+    );
   }
 
   if (!status) {
@@ -157,7 +162,12 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
       setNotesByReviewId((current) => ({ ...current, [reviewId]: '' }));
       await job.load(props.campaignId, { quiet: false });
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Failed to save review decision.');
+      window.alert(
+        customerSafeActionErrorMessage(
+          error instanceof Error ? error.message : null,
+          'The review decision could not be saved right now.',
+        ),
+      );
     } finally {
       setBusyByReviewId((current) => ({ ...current, [reviewId]: false }));
     }
@@ -175,7 +185,9 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
 
       if (!response.ok) {
         const payload = (await response.json().catch(() => ({}))) as { error?: string };
-        throw new Error(payload.error || 'Failed to update campaign brief.');
+        throw new Error(
+          customerSafeActionErrorMessage(payload.error || null, 'The campaign brief could not be updated right now.'),
+        );
       }
 
       await job.load(props.campaignId, { quiet: false });

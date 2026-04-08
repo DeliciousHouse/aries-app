@@ -11,6 +11,8 @@ interface LoginFormProps {
   onSlackClick?: () => void;
   isLoading: boolean;
   authError?: string | null;
+  savedStateMessage?: string | null;
+  signupHref?: string;
 }
 
 const LoginForm: React.FC<LoginFormProps> = ({
@@ -20,6 +22,8 @@ const LoginForm: React.FC<LoginFormProps> = ({
   onSlackClick,
   isLoading,
   authError,
+  savedStateMessage,
+  signupHref,
 }) => {
   const [email, setEmail] = useState(defaultEmail || '');
   const [password, setPassword] = useState('');
@@ -47,6 +51,12 @@ const LoginForm: React.FC<LoginFormProps> = ({
           <h1 className="text-3xl font-bold mb-2">Welcome Back</h1>
           <p className="text-white/60">Sign in to your Aries AI account</p>
         </div>
+
+        {savedStateMessage ? (
+          <div className="mb-6 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm text-emerald-100">
+            {savedStateMessage}
+          </div>
+        ) : null}
 
         <form
           className="space-y-5"
@@ -170,7 +180,7 @@ const LoginForm: React.FC<LoginFormProps> = ({
 
         <p className="mt-8 text-center text-sm text-white/60">
           Don't have an account?{' '}
-          <Link href="/signup" className="font-bold text-white hover:text-primary transition-colors">
+          <Link href={signupHref || '/signup'} className="font-bold text-white hover:text-primary transition-colors">
             create one
           </Link>
         </p>

@@ -11,11 +11,6 @@ const MARKETING_ONBOARDING_REQUIRED = {
   message: 'Complete tenant onboarding before approving brand campaigns.',
 } as const;
 
-function marketingStatusPublic(): boolean {
-  const raw = process.env.MARKETING_STATUS_PUBLIC?.trim().toLowerCase();
-  return raw === '1' || raw === 'true';
-}
-
 export async function handleApproveMarketingJob(
   jobId: string,
   req: Request,
@@ -52,25 +47,10 @@ export async function handleApproveMarketingJob(
     const tenantResult = await loadTenantContextOrResponse(tenantContextLoader, {
       missingMembershipResponse: MARKETING_ONBOARDING_REQUIRED,
     });
-    const resolvedTenantId =
-      'response' in tenantResult
-        ? marketingStatusPublic()
-          ? doc.tenant_id
-          : null
-        : tenantResult.tenantContext.tenantId;
-    if (!resolvedTenantId) {
-      if ('response' in tenantResult) {
-        return tenantResult.response;
-      }
-      return NextResponse.json(
-        {
-          status: 'error',
-          reason: 'tenant_context_required',
-          message: 'Authentication required.',
-        },
-        { status: 403 }
-      );
+    if ('response' in tenantResult) {
+      return tenantResult.response;
     }
+    const resolvedTenantId = tenantResult.tenantContext.tenantId;
     const result = await approveMarketingJob({
       jobId,
       tenantId: resolvedTenantId,

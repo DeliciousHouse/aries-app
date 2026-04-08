@@ -1,15 +1,19 @@
 # OpenClaw governance cleanup proposal
 
 **Date:** April 6, 2026
-**Status:** proposal only, not applied
+**Status:** applied on April 7, 2026 via Brendan-authorized narrow OpenClaw convergence patch
 **Scope:** approval-ready OpenClaw cleanup plan to align configured first-class agents and chief heartbeat models with current repo governance
 
-## Explicit non-application note
+## Execution status note
 
-This document is proposal-only.
+This proposal was applied on Tuesday, April 7, 2026 under Brendan's explicit narrow OpenClaw authorization for live convergence only.
 
-No OpenClaw config, agent registration, model setting, scheduler state, or runtime behavior was changed in this pass.
-Any OpenClaw write remains Brendan-gated.
+Applied live result:
+- removed `aries-main`, `aries-prod`, `aries-local`, and `aries-validator` from live `agents.list`
+- added explicit `heartbeat.model: openai-codex/gpt-5.4` to `delivery-chief`, `runtime-chief`, and `knowledge-chief`
+- left `main` requester/backbone behavior intact
+
+No broader governance rewrite or unrelated OpenClaw config change was part of this live patch.
 
 ## Why this proposal exists
 

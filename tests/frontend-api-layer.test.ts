@@ -1909,6 +1909,191 @@ test('/api/marketing/jobs/:jobId hydrates brandReview and strategyReview from re
   });
 });
 
+test('/api/marketing/jobs/:jobId does not leak stale strategy review content from a different source on the same tenant', async () => {
+  await withRuntimeEnv(async () => {
+    const { handleGetMarketingJobStatus } = await import('../app/api/marketing/jobs/[jobId]/handler');
+    const jobId = 'mkt_strategy_review_source_guard';
+    const tenantId = 'tenant_shared_source_guard';
+    const staleRunId = 'run-stale-sugar';
+    const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
+    const validatedRoot = path.join(process.env.DATA_ROOT!, 'generated', 'validated', tenantId);
+    const plannerPath = path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, staleRunId, 'campaign_planner.json');
+    const websiteAnalysisPath = path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, staleRunId, 'website_brand_analysis.json');
+    const strategyReviewPath = path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, staleRunId, 'strategy_review_preview.json');
+    const proposalPath = path.join(process.env.OPENCLAW_LOBSTER_CWD!, 'output', 'sugarandleather-com-campaign-proposal.md');
+
+    await mkdir(path.dirname(runtimeFile), { recursive: true });
+    await mkdir(validatedRoot, { recursive: true });
+    await mkdir(path.dirname(plannerPath), { recursive: true });
+    await mkdir(path.dirname(proposalPath), { recursive: true });
+    await writeFile(
+      path.join(validatedRoot, 'brand-profile.json'),
+      JSON.stringify({
+        brand_name: 'Sugar & Leather',
+        website_url: 'https://sugarandleather.com',
+        canonical_url: 'https://sugarandleather.com',
+        audience: 'Coaching clients rebuilding self-trust.',
+        positioning: 'Luxury coaching with intimacy-first positioning.',
+        offer: 'Elite coaching network',
+        primary_cta: 'Book a call',
+      }, null, 2),
+    );
+    await writeFile(
+      path.join(validatedRoot, 'website-analysis.json'),
+      JSON.stringify({
+        brand_analysis: {
+          brand_name: 'Sugar & Leather',
+          website_url: 'https://sugarandleather.com',
+          canonical_url: 'https://sugarandleather.com',
+          brand_promise: 'Rebuild self-trust with intimate coaching.',
+          audience_summary: 'Coaching clients rebuilding self-trust.',
+        },
+      }, null, 2),
+    );
+    await writeFile(
+      websiteAnalysisPath,
+      JSON.stringify({
+        brand_analysis: {
+          brand_name: 'Sugar & Leather',
+          website_url: 'https://sugarandleather.com',
+          canonical_url: 'https://sugarandleather.com',
+          brand_promise: 'Rebuild self-trust with intimate coaching.',
+        },
+      }, null, 2),
+    );
+    await writeFile(
+      plannerPath,
+      JSON.stringify({
+        campaign_plan: {
+          campaign_name: 'Sugar & Leather Spring Launch',
+          objective: 'Book more coaching calls',
+          core_message: 'Rebuild self-trust with proof-led coaching.',
+          audience: 'Women rebuilding self-trust',
+          offer: 'Elite coaching network',
+          primary_cta: 'Book a call',
+        },
+      }, null, 2),
+    );
+    await writeFile(
+      strategyReviewPath,
+      JSON.stringify({
+        review_packet: {
+          campaign_name: 'Sugar & Leather Spring Launch',
+          objective: 'Book more coaching calls',
+          core_message: 'Rebuild self-trust with proof-led coaching.',
+          channels_in_scope: ['meta-ads', 'instagram'],
+        },
+      }, null, 2),
+    );
+    await writeFile(
+      proposalPath,
+      '# Sugar & Leather\n\nRebuild self-trust with proof-led coaching.\n',
+      'utf8',
+    );
+    await writeFile(
+      runtimeFile,
+      JSON.stringify({
+        schema_name: 'marketing_job_state_schema',
+        schema_version: '1.0.0',
+        job_id: jobId,
+        job_type: 'brand_campaign',
+        tenant_id: tenantId,
+        state: 'approval_required',
+        status: 'awaiting_approval',
+        current_stage: 'production',
+        stage_order: ['research', 'strategy', 'production', 'publish'],
+        stages: {
+          research: { stage: 'research', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-research', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          strategy: {
+            stage: 'strategy',
+            status: 'completed',
+            started_at: null,
+            completed_at: null,
+            failed_at: null,
+            run_id: staleRunId,
+            summary: null,
+            primary_output: { run_id: staleRunId },
+            outputs: {},
+            artifacts: [],
+            errors: [],
+          },
+          production: {
+            stage: 'production',
+            status: 'awaiting_approval',
+            started_at: null,
+            completed_at: null,
+            failed_at: null,
+            run_id: null,
+            summary: null,
+            primary_output: null,
+            outputs: { approval_id: 'mkta_source_guard', workflow_step_id: 'approve_stage_3' },
+            artifacts: [],
+            errors: [],
+          },
+          publish: { stage: 'publish', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+        },
+        approvals: {
+          current: {
+            stage: 'production',
+            status: 'awaiting_approval',
+            approval_id: 'mkta_source_guard',
+            workflow_name: 'marketing-pipeline',
+            workflow_step_id: 'approve_stage_3',
+            title: 'Strategy review required',
+            message: 'Review the campaign proposal before production begins.',
+            requested_at: '2026-04-07T00:00:00.000Z',
+            resume_token: 'resume-source-guard',
+            action_label: 'Review strategy',
+            publish_config: null,
+          },
+          history: [],
+        },
+        publish_config: { platforms: ['meta-ads'], live_publish_platforms: [], video_render_platforms: [] },
+        brand_kit: null,
+        inputs: {
+          request: {
+            brandUrl: 'https://theframex.com',
+            businessName: 'The Framex',
+          },
+          brand_url: 'https://theframex.com',
+          competitor_url: 'https://competitor.example',
+          competitor_facebook_url: null,
+        },
+        errors: [],
+        last_error: null,
+        history: [],
+        created_at: '2026-04-07T00:00:00.000Z',
+        updated_at: '2026-04-07T00:05:00.000Z',
+      }, null, 2),
+    );
+
+    const response = await handleGetMarketingJobStatus(
+      jobId,
+      async () => ({
+        userId: 'user_guard',
+        tenantId,
+        tenantSlug: 'source-guard',
+        role: 'tenant_admin',
+      }),
+    );
+    const body = (await response.json()) as Record<string, any>;
+    const visibleSurfaceSummary = JSON.stringify({
+      tenantName: body.tenantName,
+      brandWebsiteUrl: body.brandWebsiteUrl,
+      brandReview: body.brandReview,
+      strategyReview: body.strategyReview,
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(body.brandReview, null);
+    assert.equal(body.strategyReview, null);
+    assert.equal(body.brandWebsiteUrl, 'https://theframex.com');
+    assert.equal(visibleSurfaceSummary.includes('Sugar & Leather'), false);
+    assert.equal(visibleSurfaceSummary.includes('sugarandleather.com'), false);
+    assert.equal(visibleSurfaceSummary.includes('Rebuild self-trust'), false);
+  });
+});
+
 test('/api/marketing/jobs/:jobId tolerates legacy runtime docs without brand_kit when real brand artifacts exist', async () => {
   await withRuntimeEnv(async () => {
     const { handleGetMarketingJobStatus } = await import('../app/api/marketing/jobs/[jobId]/handler');

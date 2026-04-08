@@ -97,3 +97,14 @@ tmp
 *.pem
 *.key
 *.crt
+*.png
+*.jpeg
+*.jpg
+*.gif
+*.bmp
+*.pdf
+*.doc
+*.docx
+*.xls
+*.xlsx
+output/

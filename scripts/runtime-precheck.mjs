@@ -9,6 +9,7 @@ const required = [
   'tsconfig.json',
   '.env.example',
   'README-runtime.md',
+  'auth.ts',
   'app/layout.tsx',
   'app/page.tsx',
   'app/onboarding/start/page.tsx',
@@ -20,7 +21,14 @@ const required = [
   'app/api/onboarding/status/[tenantId]/route.ts',
   'app/api/marketing/jobs/route.ts',
   'app/api/marketing/jobs/[jobId]/route.ts',
-  'app/api/marketing/jobs/[jobId]/approve/route.ts'
+  'app/api/marketing/jobs/[jobId]/approve/route.ts',
+  'components',
+  'hooks',
+  'styles',
+  'types',
+  'next.config.mjs',
+  'postcss.config.mjs',
+  'tailwind.config.ts',
 ];
 
 const missing = required.filter((p) => !fs.existsSync(path.join(root, p)));

@@ -23,6 +23,8 @@
     "automation:backup": "node scripts/automations/private-repo-backup.mjs",
     "automation:self-improve": "node scripts/automations/overnight-self-improve.mjs",
     "automation:daily-brief": "node scripts/automations/daily-brief.mjs",
+    "automation:feedback-connector": "node scripts/automations/feedback-connector.mjs sync",
+    "automation:feedback-summary": "node scripts/automations/feedback-daily-summary.mjs",
     "automation:system-reference": "node scripts/automations/rolling-system-reference.mjs",
     "automation:install": "node scripts/automations/install-openclaw-crons.mjs",
     "automation:verify": "node scripts/automations/verify-automations.mjs"
