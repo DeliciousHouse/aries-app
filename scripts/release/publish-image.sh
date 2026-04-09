@@ -17,8 +17,12 @@ fi
 
 if [[ -z "${GHCR_IMAGE:-}" ]]; then
   : "${GHCR_OWNER:?Set GHCR_OWNER or GHCR_IMAGE before publishing.}"
-  GHCR_IMAGE="ghcr.io/${GHCR_OWNER}/aries-app"
+  owner_lc="${GHCR_OWNER,,}"
+  GHCR_IMAGE="ghcr.io/${owner_lc}/aries-app"
 fi
+
+# GHCR requires lowercase registry paths; normalize so GitHub org casing does not break pushes.
+GHCR_IMAGE="${GHCR_IMAGE,,}"
 
 : "${OCI_SOURCE_REPO:?Set OCI_SOURCE_REPO=owner/aries-app before publishing.}"
 
@@ -30,11 +34,14 @@ fi
 
 if [[ -n "${GHCR_TOKEN:-}" ]]; then
   GHCR_USERNAME="${GHCR_USERNAME:-${GHCR_OWNER:-}}"
+  GHCR_USERNAME="${GHCR_USERNAME,,}"
   if [[ -z "${GHCR_USERNAME}" ]]; then
     echo "ERROR: GHCR_USERNAME is required when GHCR_TOKEN is provided." >&2
     exit 1
   fi
-  printf '%s' "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin >/dev/null
+  auth="$(printf '%s:%s' "${GHCR_USERNAME}" "${GHCR_TOKEN}" | openssl base64 -A)"
+  export DOCKER_AUTH_CONFIG
+  DOCKER_AUTH_CONFIG="$(printf '{"auths":{"ghcr.io":{"auth":"%s"}}}' "${auth}")"
 fi
 
 GIT_SHA="$(git rev-parse HEAD)"

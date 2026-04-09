@@ -25,7 +25,6 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_OWNER: ${{ github.repository_owner }}
   IMAGE_NAME: aries-app
   STATIC_PUSH_BRANCH: master
   DEFAULT_BRANCH: ${{ vars.DEFAULT_BRANCH }}
@@ -64,8 +63,12 @@ jobs:
           INPUT_IMAGE_TAG: ${{ inputs.image_tag }}
           INPUT_GIT_REF: ${{ inputs.git_ref }}
           CURRENT_SHA: ${{ github.sha }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
+
+          # GHCR image paths must be lowercase; github.repository_owner preserves org casing (e.g. DeliciousHouse).
+          owner_lc="${GITHUB_REPOSITORY_OWNER,,}"
 
           if [[ "${EVENT_NAME}" == "push" ]]; then
             image_tag="${CURRENT_SHA}"
@@ -86,7 +89,7 @@ jobs:
             fi
           fi
 
-          image_ref="${REGISTRY}/${IMAGE_OWNER}/${IMAGE_NAME}:${image_tag}"
+          image_ref="${REGISTRY}/${owner_lc}/${IMAGE_NAME}:${image_tag}"
           echo "image_tag=${image_tag}" >> "${GITHUB_OUTPUT}"
           echo "checkout_ref=${checkout_ref}" >> "${GITHUB_OUTPUT}"
           echo "image_ref=${image_ref}" >> "${GITHUB_OUTPUT}"
@@ -100,21 +103,39 @@ jobs:
         run: |
           set -euo pipefail
 
-          login() {
-            local token="$1"
-            printf '%s' "${token}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin >/dev/null
+          # Use DOCKER_AUTH_CONFIG instead of docker login so credentials are not written to
+          # ~/.docker/config.json (avoids "stored unencrypted" warnings on runners).
+          docker_auth_json() {
+            local user="$1"
+            local token="$2"
+            local auth
+            auth="$(printf '%s:%s' "${user}" "${token}" | openssl base64 -A)"
+            printf '{"auths":{"ghcr.io":{"auth":"%s"}}}' "${auth}"
           }
 
-          login "${GITHUB_TOKEN}"
-          if ! docker buildx imagetools inspect "${IMAGE_REF}" >/dev/null 2>&1; then
-            if [[ -n "${GHCR_WORKFLOW_TOKEN}" ]]; then
-              login "${GHCR_WORKFLOW_TOKEN}"
-              docker buildx imagetools inspect "${IMAGE_REF}" >/dev/null
-            else
-              echo "ERROR: GHCR tag ${IMAGE_REF} is missing or inaccessible with GITHUB_TOKEN." >&2
-              exit 1
+          try_inspect() {
+            docker buildx imagetools inspect "${IMAGE_REF}" >/dev/null 2>&1
+          }
+
+          actor_lc="${GITHUB_ACTOR,,}"
+
+          export DOCKER_AUTH_CONFIG
+          DOCKER_AUTH_CONFIG="$(docker_auth_json "${actor_lc}" "${GITHUB_TOKEN}")"
+          if try_inspect; then
+            exit 0
+          fi
+
+          if [[ -n "${GHCR_WORKFLOW_TOKEN}" ]]; then
+            DOCKER_AUTH_CONFIG="$(docker_auth_json "${actor_lc}" "${GHCR_WORKFLOW_TOKEN}")"
+            export DOCKER_AUTH_CONFIG
+            if try_inspect; then
+              exit 0
             fi
           fi
+
+          echo "ERROR: GHCR tag ${IMAGE_REF} is missing or inaccessible (tried GITHUB_TOKEN" \
+            "${GHCR_WORKFLOW_TOKEN:+and GHCR_WORKFLOW_TOKEN})." >&2
+          exit 1
 
       - name: Configure SSH
         env:
