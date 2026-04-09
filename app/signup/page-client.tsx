@@ -70,7 +70,7 @@ export default function SignUpPageClient() {
     }
   };
 
-  const handleSubmit = async (email: string, password: string) => {
+  const handleSubmit = async (email: string, password: string): Promise<{ success: boolean }> => {
     setIsLoading(true);
     setAuthError(null);
 
@@ -86,14 +86,16 @@ export default function SignUpPageClient() {
         const target = new URL(loginHref, window.location.origin);
         target.searchParams.set('email', email);
         window.location.href = `${target.pathname}${target.search}`;
-        return;
+        return { success: false };
       }
 
       router.push(result.url || callbackUrl);
       router.refresh();
+      return { success: true };
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'Unable to create your account right now.');
       setIsLoading(false);
+      return { success: false };
     }
   };
 
