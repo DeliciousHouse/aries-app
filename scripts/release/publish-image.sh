@@ -4,6 +4,17 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
+# Load .env so GHCR_OWNER, GHCR_IMAGE, etc. are available without manual export.
+# Strip CRLF for Windows-edited files; relax nounset while sourcing.
+if [[ -f "${REPO_ROOT}/.env" ]]; then
+  set +u
+  set -a
+  # shellcheck disable=SC1091
+  source <(sed 's/\r$//' "${REPO_ROOT}/.env")
+  set +a
+  set -u
+fi
+
 if [[ "${ALLOW_DIRTY:-0}" != "1" ]] && [[ -n "$(git status --porcelain)" ]]; then
   echo "ERROR: Working tree is dirty. Commit or stash changes before publishing." >&2
   exit 1
