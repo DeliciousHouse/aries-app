@@ -201,14 +201,21 @@ jobs:
             exit 1
           }
 
+          stashed=0
           if [[ -n "$(git -C "${repo_path}" status --porcelain --untracked-files=no)" ]]; then
-            echo "ERROR: ${repo_path} has tracked local changes. Refusing deploy." >&2
-            exit 1
+            echo "VM has tracked local changes — stashing before deploy."
+            git -C "${repo_path}" stash push -m "auto-stash: deploy ${TARGET_CHECKOUT_REF}" --quiet
+            stashed=1
           fi
 
           git -C "${repo_path}" fetch --prune --tags origin
           checkout_target="$(resolve_checkout_target "${TARGET_CHECKOUT_REF}")"
           git -C "${repo_path}" checkout --detach "${checkout_target}"
+
+          if [[ "${stashed}" == "1" ]]; then
+            echo "Restoring stashed local changes."
+            git -C "${repo_path}" stash pop --quiet || echo "WARN: stash pop had conflicts; stash preserved." >&2
+          fi
 
           cd "${repo_path}"
           ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose pull "${SERVICE_NAME}"
