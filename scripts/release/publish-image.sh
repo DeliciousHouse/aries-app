@@ -24,8 +24,6 @@ fi
 # GHCR requires lowercase registry paths; normalize so GitHub org casing does not break pushes.
 GHCR_IMAGE="${GHCR_IMAGE,,}"
 
-: "${OCI_SOURCE_REPO:?Set OCI_SOURCE_REPO=owner/aries-app before publishing.}"
-
 IMAGE_DESCRIPTION="${IMAGE_DESCRIPTION:-$(node -p "const pkg = require('./package.json'); pkg.description || ''")}"
 if [[ -z "${IMAGE_DESCRIPTION}" ]]; then
   echo "ERROR: IMAGE_DESCRIPTION is required." >&2
@@ -50,7 +48,7 @@ PLATFORMS="${PLATFORMS:-linux/amd64,linux/arm64}"
 docker buildx build \
   --platform "${PLATFORMS}" \
   --push \
-  --label "org.opencontainers.image.source=https://github.com/${OCI_SOURCE_REPO}" \
+  --label "org.opencontainers.image.source=https://github.com/DeliciousHouse/aries-app" \
   --label "org.opencontainers.image.revision=${GIT_SHA}" \
   --annotation "index:org.opencontainers.image.description=${IMAGE_DESCRIPTION}" \
   -t "${GHCR_IMAGE}:${GIT_SHA}" \

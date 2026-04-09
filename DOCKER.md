@@ -12,6 +12,54 @@
 - Production/parity runtime uses Docker named volumes for `/data` (no source bind mount required).
 - Source bind mounts are dev-only (`aries-app-dev` profile) and must not be required for normal runtime.
 
+## Production release (GHCR image before `master`)
+
+**Rule:** For `aries-app`, merging or pushing to `master` is the deploy trigger, but **only after** the GHCR image for **that exact commit SHA** is already published and pullable.
+
+The GitHub Actions **Deploy** workflow runs on every push to `master`. It resolves the image as `ghcr.io/delicioushouse/aries-app:<github.sha>` and **verifies the tag exists in GHCR** before SSH deploy. If the image is missing, the workflow fails by design.
+
+### Release sequence
+
+1. Export the required publish environment variables (see exact block below). Ensure you are on the commit you intend to ship; `scripts/release/publish-image.sh` tags the image with `git rev-parse HEAD`.
+2. Run `scripts/release/publish-image.sh` from a clean working tree so GHCR receives `:SHA` and `:<DEFAULT_BRANCH>` tags for that commit.
+3. Push **the same commit** to `origin master` (for example `git push origin master`). This triggers auto-deploy of that SHA to the VM.
+4. GitHub Actions completes SSH deploy using the verified image ref.
+
+### Publish commands (exact)
+
+Use a machine with Docker Buildx and permission to push to `ghcr.io/delicioushouse/aries-app`. Set `GHCR_TOKEN` (and optionally `GHCR_USERNAME`) if `docker login ghcr.io` is not already satisfied.
+
+```bash
+export BUILDX_BUILDER="multiarch"
+export GHCR_OWNER="delicioushouse"
+export GHCR_IMAGE="ghcr.io/delicioushouse/aries-app"
+export IMAGE_DESCRIPTION="Aries app runtime image"
+export DEFAULT_BRANCH="master"
+
+cd ~/docker-stack/aries-app
+bash scripts/release/publish-image.sh
+git push origin master
+```
+
+Notes:
+
+- `BUILDX_BUILDER` is the Buildx builder name your environment uses for multi-platform pushes; create or select it with `docker buildx` before running the script if needed.
+- The `cd` path is the operator’s canonical checkout on the publish host; adjust only if your layout differs.
+- `git push origin master` must advance `master` to the **same** `HEAD` that was just published (no extra local commits after publish without re-running the script).
+
+### GHCR package permissions for deploy
+
+The deploy workflow first checks GHCR with `GITHUB_TOKEN`. For that to work reliably:
+
+1. Ensure package `ghcr.io/delicioushouse/aries-app` is linked to repository `DeliciousHouse/aries-app`.
+2. Ensure the package inherits repository permissions, **or** explicitly grant GitHub Actions/repository access in package settings.
+
+If linkage/permissions are not yet correct, set `GHCR_WORKFLOW_TOKEN` (PAT with package read access) in repo secrets; deploy workflow uses it as the fallback token when `GITHUB_TOKEN` cannot read the package.
+
+### Failure mode
+
+If application code is pushed to `master` **before** the matching GHCR image `ghcr.io/delicioushouse/aries-app:<that-commit-sha>` exists (or is inaccessible to the workflow), **deploy fails by design** at the “Verify GHCR tag exists” step.
+
 ## Build
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.local.yml build

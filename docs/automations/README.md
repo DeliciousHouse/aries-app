@@ -2,6 +2,8 @@
 
 This workspace now includes six automation scripts plus a ready-to-apply OpenClaw cron installer. The jobs are designed to run as **isolated cron agent turns** so each execution stays separate from the main conversation.
 
+**Production VM release** (GHCR image publish, then `master` push, GitHub Actions deploy) is **not** part of this cron runbook. See repository **`DOCKER.md`** (*Production release*) and **`docs/SYSTEM-REFERENCE.md`** (*Production release (operational)*).
+
 ## Files added
 
 - `scripts/automations/manifest.mjs` — canonical job schedule + purpose list

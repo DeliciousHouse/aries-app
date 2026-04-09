@@ -1,38 +1,38 @@
 # Aries System Reference
 
-Last refreshed Apr 07, 2026, 21:45 PDT.
+Last refreshed Apr 08, 2026, 21:45 PDT.
 
 ## What changed today
-- team/forge/BACKLOG.md
-- team/ledger/BACKLOG.md
-- team/signal/BACKLOG.md
-- tests/business-profile-screen.test.ts
-- tests/onboarding-flow-public.test.ts
+- .github/workflows/deploy.yml
 - .gitignore
-- AGENTS.md
-- Dockerfile
-- HEARTBEAT.md
-- IDENTITY.md
-- MEMORY.md
-- PRIORITIES.md
-- PROTECTED_SYSTEMS.md
+- DOCKER.md
+- PRODUCTION_HANDOFF.md
 - README.md
-- ROUTE_MANIFEST.md
-- SOUL.md
-- TOOLS.md
-- USER.md
-- app/contact/page.tsx
-- app/features/page.tsx
-- app/onboarding/page.tsx
-- app/onboarding/start/page.tsx
-- backend/marketing/asset-library.ts
-- backend/marketing/brand-identity.ts
-- backend/marketing/brand-kit.ts
-- backend/marketing/dashboard-content.ts
-- backend/marketing/jobs-status.ts
-- backend/marketing/runtime-views.ts
-- backend/marketing/validated-profile-store.ts
-- backend/marketing/workspace-views.ts
+- docker-compose.yml
+- docs/SYSTEM-REFERENCE.md
+- docs/automations/README.md
+- docs/briefs/2026-04-08-brief.md
+- package.json
+- tailwind.config.ts
+- CLAUDE.md
+- app/api/business/profile/route.ts
+- app/api/integrations/handlers.ts
+- app/api/marketing/campaigns/route.ts
+- app/api/marketing/jobs/[jobId]/approve/handler.ts
+- app/api/marketing/jobs/[jobId]/assets/[assetId]/handler.ts
+- app/api/marketing/jobs/[jobId]/brief/route.ts
+- app/api/marketing/jobs/[jobId]/handler.ts
+- app/api/marketing/jobs/[jobId]/workspace-assets/[assetId]/handler.ts
+- app/api/marketing/jobs/handler.ts
+- app/api/marketing/jobs/latest/handler.ts
+- app/api/marketing/posts/route.ts
+- app/api/marketing/reviews/[reviewId]/decision/route.ts
+- app/api/marketing/reviews/[reviewId]/route.ts
+- app/api/marketing/reviews/route.ts
+- app/api/onboarding/draft/route.ts
+- app/api/pipeline/url-preview/route.ts
+- app/login/page-client.tsx
+- app/onboarding/pipeline-intake/page.tsx
 
 ## Current architecture overview
 - Next.js App Router runtime serves the public site, authenticated operator shell, and browser-safe internal APIs.
@@ -45,8 +45,8 @@ Last refreshed Apr 07, 2026, 21:45 PDT.
 - backend/ 73 files
 - components/ 14 files
 - hooks/ 17 files
-- lib/ 18 files
-- scripts/ 21 files
+- lib/ 19 files
+- scripts/ 24 files
 - skills/ 58 files
 - workflows/ 4 files
 
@@ -91,26 +91,26 @@ Last refreshed Apr 07, 2026, 21:45 PDT.
 - Mission Control standalone app is still a shell around runtime overview data and awaits richer live API adapters for actions/transcripts.
 
 ## Working tree snapshot
-- M app/api/business/profile/route.ts
-- M app/api/integrations/handlers.ts
-- M app/api/marketing/campaigns/route.ts
-- M app/api/marketing/jobs/[jobId]/approve/handler.ts
-- M app/api/marketing/jobs/[jobId]/assets/[assetId]/handler.ts
-- M app/api/marketing/jobs/[jobId]/brief/route.ts
-- M app/api/marketing/jobs/[jobId]/handler.ts
-- M app/api/marketing/jobs/[jobId]/workspace-assets/[assetId]/handler.ts
-- M app/api/marketing/jobs/handler.ts
-- M app/api/marketing/jobs/latest/handler.ts
-- M app/api/marketing/posts/route.ts
-- M app/api/marketing/reviews/[reviewId]/decision/route.ts
-- M app/api/marketing/reviews/[reviewId]/route.ts
-- M app/api/marketing/reviews/route.ts
-- M app/api/pipeline/url-preview/route.ts
-- M app/login/page-client.tsx
-- M app/onboarding/pipeline-intake/page.tsx
-- M app/signup/page.tsx
-- M auth.ts
-- M backend/integrations/oauth-provider-runtime.ts
+- M .github/workflows/deploy.yml
+- M .gitignore
+- M AGENTS.md
+- M DOCKER.md
+- M MEMORY.md
+- M PRIORITIES.md
+- M SOUL.md
+- M TOOLS.md
+- M USER.md
+- M docs/SYSTEM-REFERENCE.md
+- M docs/briefs/2026-04-08-brief.md
+- M next-env.d.ts
+- M scripts/release/publish-image.sh
+- D team/DELEGATION-RULES.md
+- D team/forge/AGENTS.md
+- D team/forge/BACKLOG.md
+- D team/forge/HEARTBEAT.md
+- D team/forge/IDENTITY.md
+- D team/forge/MEMORY.md
+- D team/forge/SOUL.md
 
 ## Reference date
-- 2026-04-07
+- 2026-04-08

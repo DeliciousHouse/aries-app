@@ -4,6 +4,8 @@ import { redirect } from 'next/navigation';
 import { auth, signOut } from '@/auth';
 import { countPendingMarketingReviewItemsForTenant } from '@/backend/marketing/runtime-views';
 import { getRouteById, type AppRouteId } from '@/frontend/app-shell/routes';
+import pool from '@/lib/db';
+import { shouldRequireOnboarding, getUserJourneyRow, isTenantOnboardingComplete } from '@/lib/auth-user-journey';
 
 import AppShellClient from './app-shell-client';
 
@@ -25,6 +27,34 @@ export default async function RedesignAppShell({
   const session = await auth();
   if (!session?.user) {
     redirect('/login');
+  }
+
+  const client = await pool.connect();
+  let shouldRedirectToOnboarding = false;
+  try {
+    const row = await getUserJourneyRow(client, session.user.id);
+    const onboardingCompleted = await isTenantOnboardingComplete(
+      client,
+      session.user.tenantId
+        ? String(session.user.tenantId)
+        : row?.organization_id !== null && row?.organization_id !== undefined
+          ? String(row.organization_id)
+          : null,
+    );
+
+    if (row) {
+      shouldRedirectToOnboarding = shouldRequireOnboarding({
+        onboardingRequired: row.onboarding_required,
+        onboardingCompletedAt: row.onboarding_completed_at,
+        onboardingCompleted,
+      });
+    }
+  } finally {
+    client.release();
+  }
+
+  if (shouldRedirectToOnboarding) {
+    redirect('/onboarding/pipeline-intake');
   }
 
   const currentRoute = currentRouteId ? getRouteById(currentRouteId) : null;

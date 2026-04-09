@@ -37,6 +37,12 @@ async function initDb() {
 
       ALTER TABLE users
         ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'tenant_admin';
+
+      ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS onboarding_required BOOLEAN NOT NULL DEFAULT FALSE;
+
+      ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS onboarding_completed_at TIMESTAMPTZ;
     `);
 
     await client.query(`

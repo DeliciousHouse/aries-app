@@ -1,5 +1,12 @@
 name: Deploy
 
+# Operational contract (documented in DOCKER.md and docs/SYSTEM-REFERENCE.md):
+# - Pushes to master trigger this workflow and deploy the pushed commit SHA.
+# - The workflow verifies ghcr.io/delicioushouse/aries-app:<sha> exists before deploy.
+# - Publish the image for that SHA first (scripts/release/publish-image.sh), then push master.
+# - Pushing master before the matching GHCR tag exists fails by design at GHCR verification.
+# - If package linkage/permissions are not ready for GITHUB_TOKEN, set GHCR_WORKFLOW_TOKEN.
+
 on:
   push:
     branches:
@@ -135,6 +142,7 @@ jobs:
 
           echo "ERROR: GHCR tag ${IMAGE_REF} is missing or inaccessible (tried GITHUB_TOKEN" \
             "${GHCR_WORKFLOW_TOKEN:+and GHCR_WORKFLOW_TOKEN})." >&2
+          echo "If the GHCR package is not linked to DeliciousHouse/aries-app (or does not inherit repository permissions), set GHCR_WORKFLOW_TOKEN for deploy workflows." >&2
           exit 1
 
       - name: Configure SSH
