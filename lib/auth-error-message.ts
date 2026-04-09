@@ -1,7 +1,15 @@
+export const EMAIL_DOES_NOT_EXIST_ERROR = "EmailDoesNotExist";
+export const DATABASE_UNAVAILABLE_ERROR = "DatabaseUnavailable";
+export const GOOGLE_SIGN_IN_REQUIRED_ERROR = "GoogleSignInRequired";
+
 const AUTH_ERROR_MESSAGES: Record<string, string> = {
+  CredentialsSignin: "Invalid email or password.",
+  [EMAIL_DOES_NOT_EXIST_ERROR]: "Email doesn't exist. Please sign up.",
+  [GOOGLE_SIGN_IN_REQUIRED_ERROR]:
+    "This account uses Google sign-in. Continue with Google to access it.",
   AccessDenied:
     "Google sign-in failed during account setup. Check the server logs, database connection, and Google OAuth callback configuration.",
-  DatabaseUnavailable:
+  [DATABASE_UNAVAILABLE_ERROR]:
     "Authentication cannot reach the Postgres database. Start Postgres or update the DB connection settings.",
   Configuration:
     "Authentication is misconfigured. Check AUTH_SECRET, AUTH_URL or NEXTAUTH_URL, AUTH_TRUST_HOST, and Google OAuth environment variables.",

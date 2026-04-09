@@ -4,6 +4,12 @@ import Google from "next-auth/providers/google";
 import bcrypt from "bcryptjs";
 import pool from "./lib/db";
 import { resolveAuthRuntimeConfig } from "./lib/auth-runtime-config";
+import {
+  DATABASE_UNAVAILABLE_ERROR,
+  EMAIL_DOES_NOT_EXIST_ERROR,
+  GOOGLE_SIGN_IN_REQUIRED_ERROR,
+} from "./lib/auth-error-message";
+import { ensureUserJourneySchema } from "./lib/auth-user-journey";
 import type { TenantRole } from "./lib/tenant-context";
 import {
   ensureTenantAccessForUser,
@@ -16,10 +22,17 @@ import {
 } from "./lib/auth-tenant-membership";
 
 const authRuntime = resolveAuthRuntimeConfig(process.env);
-const DATABASE_UNAVAILABLE_ERROR = "DatabaseUnavailable";
 
 class DatabaseUnavailableCredentialsError extends CredentialsSignin {
   code = DATABASE_UNAVAILABLE_ERROR;
+}
+
+class EmailDoesNotExistCredentialsError extends CredentialsSignin {
+  code = EMAIL_DOES_NOT_EXIST_ERROR;
+}
+
+class GoogleSignInRequiredCredentialsError extends CredentialsSignin {
+  code = GOOGLE_SIGN_IN_REQUIRED_ERROR;
 }
 
 function buildLoginErrorUrl(error: string): string {
@@ -64,7 +77,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           );
 
           if ((result.rowCount ?? 0) === 0) {
-            return null;
+            throw new EmailDoesNotExistCredentialsError();
           }
 
           const row = result.rows[0] as {
@@ -74,11 +87,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             password_hash: string;
           };
 
-          if (
-            !row.password_hash ||
-            row.password_hash === "oauth_managed" ||
-            !row.password_hash.startsWith("$2")
-          ) {
+          if (!row.password_hash) {
+            return null;
+          }
+
+          if (row.password_hash === "oauth_managed") {
+            throw new GoogleSignInRequiredCredentialsError();
+          }
+
+          if (!row.password_hash.startsWith("$2")) {
             return null;
           }
 
@@ -93,6 +110,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             name: row.full_name || row.email,
           };
         } catch (error) {
+          if (error instanceof CredentialsSignin) {
+            throw error;
+          }
           console.error("Error during credentials authorization:", error);
           throw new DatabaseUnavailableCredentialsError();
         } finally {
@@ -118,6 +138,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       let client;
       try {
         client = await pool.connect();
+        await ensureUserJourneySchema(client);
         const existingUser = await client.query(
           "SELECT id, organization_id, role FROM users WHERE LOWER(email) = LOWER($1)",
           [normalizedEmail],
@@ -136,8 +157,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           if ((existingUser.rowCount ?? 0) === 0) {
             const inserted = await client.query(
               `
-                INSERT INTO users (email, full_name, password_hash)
-                VALUES ($1, $2, $3)
+                INSERT INTO users (
+                  email,
+                  full_name,
+                  password_hash,
+                  onboarding_required,
+                  onboarding_completed_at
+                )
+                VALUES ($1, $2, $3, TRUE, NULL)
                 RETURNING id, organization_id, role
               `,
               [normalizedEmail, user.name || "", "oauth_managed"],

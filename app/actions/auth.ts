@@ -2,11 +2,13 @@
 
 import pool from '@/lib/db';
 import bcrypt from 'bcryptjs';
+import { ensureUserJourneySchema } from '@/lib/auth-user-journey';
 
 export async function userExists(email: string): Promise<boolean> {
   const client = await pool.connect();
 
   try {
+    await ensureUserJourneySchema(client);
     const result = await client.query(
       'SELECT 1 FROM users WHERE email = $1 LIMIT 1',
       [email]
@@ -24,6 +26,7 @@ export async function registerUserAction(formData: any) {
   let client;
   try {
     client = await pool.connect();
+    await ensureUserJourneySchema(client);
     
     // 1. Check if user already exists
     const existingUser = await client.query('SELECT 1 FROM users WHERE email = $1', [email]);
@@ -46,7 +49,18 @@ export async function registerUserAction(formData: any) {
 
     // 4. Create user
     const userResult = await client.query(
-      'INSERT INTO users (email, password_hash, full_name, organization_id) VALUES ($1, $2, $3, $4) RETURNING id',
+      `
+        INSERT INTO users (
+          email,
+          password_hash,
+          full_name,
+          organization_id,
+          onboarding_required,
+          onboarding_completed_at
+        )
+        VALUES ($1, $2, $3, $4, TRUE, NULL)
+        RETURNING id
+      `,
       [email, hashedPassword, fullName, orgId]
     );
 
