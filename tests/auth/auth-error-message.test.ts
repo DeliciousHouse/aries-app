@@ -11,6 +11,8 @@ test("returns null when there is no auth error", () => {
 test("maps known auth errors to user-facing guidance", () => {
   assert.match(getAuthErrorMessage("AccessDenied") ?? "", /database connection/i);
   assert.match(getAuthErrorMessage("DatabaseUnavailable") ?? "", /Postgres database/i);
+  assert.match(getAuthErrorMessage("EmailDoesNotExist") ?? "", /please sign up/i);
+  assert.match(getAuthErrorMessage("GoogleSignInRequired") ?? "", /continue with google/i);
   assert.match(getAuthErrorMessage("Configuration") ?? "", /AUTH_SECRET/i);
   assert.match(getAuthErrorMessage("UntrustedHost") ?? "", /AUTH_TRUST_HOST=true/i);
 });
