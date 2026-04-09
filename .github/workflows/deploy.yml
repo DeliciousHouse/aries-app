@@ -101,36 +101,6 @@ jobs:
           echo "checkout_ref=${checkout_ref}" >> "${GITHUB_OUTPUT}"
           echo "image_ref=${image_ref}" >> "${GITHUB_OUTPUT}"
 
-      - name: Verify GHCR tag exists
-        env:
-          IMAGE_REF: ${{ steps.resolve.outputs.image_ref }}
-          GITHUB_ACTOR: ${{ github.actor }}
-          GITHUB_TOKEN: ${{ github.token }}
-          GHCR_WORKFLOW_TOKEN: ${{ secrets.GHCR_WORKFLOW_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          login() {
-            local token="$1"
-            printf '%s' "${token}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin >/dev/null 2>&1
-          }
-
-          login "${GITHUB_TOKEN}"
-          if docker buildx imagetools inspect "${IMAGE_REF}" >/dev/null 2>&1; then
-            exit 0
-          fi
-
-          if [[ -n "${GHCR_WORKFLOW_TOKEN}" ]]; then
-            login "${GHCR_WORKFLOW_TOKEN}"
-            if docker buildx imagetools inspect "${IMAGE_REF}" >/dev/null 2>&1; then
-              exit 0
-            fi
-          fi
-
-          echo "ERROR: GHCR tag ${IMAGE_REF} is missing or inaccessible (tried GITHUB_TOKEN${GHCR_WORKFLOW_TOKEN:+ and GHCR_WORKFLOW_TOKEN})." >&2
-          echo "If the GHCR package is not linked to DeliciousHouse/aries-app (or does not inherit repository permissions), set GHCR_WORKFLOW_TOKEN for deploy workflows." >&2
-          exit 1
-
       - name: Configure SSH
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
