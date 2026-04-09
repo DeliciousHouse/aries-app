@@ -2,9 +2,10 @@ name: Deploy
 
 # Operational contract (documented in DOCKER.md and docs/SYSTEM-REFERENCE.md):
 # - Pushes to master trigger this workflow and deploy the pushed commit SHA.
-# - The workflow verifies ghcr.io/<owner>/aries-app:<sha> exists before deploy.
+# - The workflow verifies ghcr.io/delicioushouse/aries-app:<sha> exists before deploy.
 # - Publish the image for that SHA first (scripts/release/publish-image.sh), then push master.
 # - Pushing master before the matching GHCR tag exists fails by design at GHCR verification.
+# - If package linkage/permissions are not ready for GITHUB_TOKEN, set GHCR_WORKFLOW_TOKEN.
 
 on:
   push:
@@ -31,8 +32,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_OWNER: ${{ github.repository_owner }}
-  IMAGE_NAME: aries-app
+  IMAGE_REPOSITORY: ghcr.io/delicioushouse/aries-app
   STATIC_PUSH_BRANCH: master
   DEFAULT_BRANCH: ${{ vars.DEFAULT_BRANCH }}
   DEPLOY_PATH: /home/node/openclaw/aries-app
@@ -92,7 +92,7 @@ jobs:
             fi
           fi
 
-          image_ref="${REGISTRY}/${IMAGE_OWNER}/${IMAGE_NAME}:${image_tag}"
+          image_ref="${IMAGE_REPOSITORY}:${image_tag}"
           echo "image_tag=${image_tag}" >> "${GITHUB_OUTPUT}"
           echo "checkout_ref=${checkout_ref}" >> "${GITHUB_OUTPUT}"
           echo "image_ref=${image_ref}" >> "${GITHUB_OUTPUT}"
@@ -118,6 +118,7 @@ jobs:
               docker buildx imagetools inspect "${IMAGE_REF}" >/dev/null
             else
               echo "ERROR: GHCR tag ${IMAGE_REF} is missing or inaccessible with GITHUB_TOKEN." >&2
+              echo "If the GHCR package is not linked to DeliciousHouse/aries-app (or does not inherit repository permissions), set GHCR_WORKFLOW_TOKEN for deploy workflows." >&2
               exit 1
             fi
           fi

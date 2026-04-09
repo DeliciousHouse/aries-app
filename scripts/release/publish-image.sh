@@ -17,10 +17,10 @@ fi
 
 if [[ -z "${GHCR_IMAGE:-}" ]]; then
   : "${GHCR_OWNER:?Set GHCR_OWNER or GHCR_IMAGE before publishing.}"
-  GHCR_IMAGE="ghcr.io/${GHCR_OWNER}/aries-app"
+  GHCR_IMAGE="ghcr.io/${GHCR_OWNER,,}/aries-app"
 fi
 
-: "${OCI_SOURCE_REPO:?Set OCI_SOURCE_REPO=owner/aries-app before publishing.}"
+GHCR_IMAGE="${GHCR_IMAGE,,}"
 
 IMAGE_DESCRIPTION="${IMAGE_DESCRIPTION:-$(node -p "const pkg = require('./package.json'); pkg.description || ''")}"
 if [[ -z "${IMAGE_DESCRIPTION}" ]]; then
@@ -43,7 +43,7 @@ PLATFORMS="${PLATFORMS:-linux/amd64,linux/arm64}"
 docker buildx build \
   --platform "${PLATFORMS}" \
   --push \
-  --label "org.opencontainers.image.source=https://github.com/${OCI_SOURCE_REPO}" \
+  --label "org.opencontainers.image.source=https://github.com/DeliciousHouse/aries-app" \
   --label "org.opencontainers.image.revision=${GIT_SHA}" \
   --annotation "index:org.opencontainers.image.description=${IMAGE_DESCRIPTION}" \
   -t "${GHCR_IMAGE}:${GIT_SHA}" \

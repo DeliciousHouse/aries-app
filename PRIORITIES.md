@@ -19,7 +19,7 @@ Use these sources in this order when reconciling priority truth:
 - `data/org-chart.json` for board actor ids and assignee validation
 - `AGENTS.md`
 - `PROTECTED_SYSTEMS.md`
-- `team/DELEGATION-RULES.md`
+- `DELEGATION-RULES.md`
 
 ## Current operating state
 
@@ -124,7 +124,7 @@ Required operating rule now:
 3. Reconcile route/manifests/docs with executable truth.
 4. After the production contract freeze, repair the local Lobster fallback regression.
 5. Verify a real Lobster history source before expanding Mission Control runtime history.
-6. Keep `PRIORITIES.md`, `AGENTS.md`, `PROTECTED_SYSTEMS.md`, `team/DELEGATION-RULES.md`, and `data/org-chart.json` aligned.
+6. Keep `PRIORITIES.md`, `AGENTS.md`, `PROTECTED_SYSTEMS.md`, `DELEGATION-RULES.md`, and `data/org-chart.json` aligned.
 
 ## Standing escalation list
 
