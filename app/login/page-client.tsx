@@ -47,6 +47,12 @@ export default function LoginPageClient() {
     [searchParams],
   );
 
+  const savedMessage = useMemo(
+    () => savedDraftMessage(searchParams.get('draft_saved'), searchParams.get('business_name')),
+    [searchParams],
+  );
+  const signupHref = '/signup';
+
   useEffect(() => {
     if (queryErrorCode !== EMAIL_DOES_NOT_EXIST_ERROR) {
       return;
