@@ -34,6 +34,81 @@ export function slugFromIdentity(name: string | null | undefined, email: string)
   return slug || "user";
 }
 
+function trimOrganizationName(name: string | null | undefined, email: string): string {
+  return name?.trim() || email;
+}
+
+async function organizationSlugExists(client: QueryClient, slug: string): Promise<boolean> {
+  const result = await client.query(
+    `
+      SELECT 1
+      FROM organizations
+      WHERE slug = $1
+      LIMIT 1
+    `,
+    [slug],
+  );
+
+  return (result.rowCount ?? 0) > 0;
+}
+
+export async function createOrganizationWithUniqueSlug(
+  client: QueryClient,
+  input: {
+    name: string;
+    slugBase: string;
+  },
+): Promise<{ id: number; slug: string }> {
+  const normalizedName = input.name.trim() || 'Organization';
+  const baseSlug = input.slugBase.trim().replace(/^-+|-+$/g, '').slice(0, 54) || 'org';
+
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const suffix = attempt === 0 ? '' : `-${attempt + 1}`;
+    const slug = `${baseSlug}${suffix}`;
+    if (await organizationSlugExists(client, slug)) {
+      continue;
+    }
+
+    const inserted = await client.query(
+      `
+        INSERT INTO organizations (name, slug)
+        VALUES ($1, $2)
+        RETURNING id, slug
+      `,
+      [normalizedName, slug],
+    );
+
+    const row = inserted.rows[0] as { id: number | string; slug: string };
+    return {
+      id: Number(row.id),
+      slug: row.slug,
+    };
+  }
+
+  throw new Error('organization_slug_generation_failed');
+}
+
+export async function assignUserToOrganization(
+  client: QueryClient,
+  input: {
+    userId: number | string;
+    organizationId: number | string;
+    role?: TenantRole | null;
+  },
+): Promise<void> {
+  await client.query("UPDATE users SET organization_id = $1 WHERE id = $2", [
+    Number(input.organizationId),
+    Number(input.userId),
+  ]);
+
+  if (input.role) {
+    await client.query("UPDATE users SET role = $1 WHERE id = $2", [
+      input.role,
+      Number(input.userId),
+    ]);
+  }
+}
+
 export function missingTenantClaims(row: TenantClaimsRow | null | undefined): string[] {
   if (!row) {
     return ["user"];
@@ -80,22 +155,15 @@ export async function ensureOrganizationForUser(
   name: string | null | undefined,
   email: string,
 ): Promise<number> {
-  const slug = slugFromIdentity(name, email);
-  const orgResult = await client.query(
-    `
-      INSERT INTO organizations (name, slug)
-      VALUES ($1, $2)
-      ON CONFLICT (slug) DO UPDATE
-      SET name = CASE
-        WHEN organizations.name IS NULL OR organizations.name = '' THEN EXCLUDED.name
-        ELSE organizations.name
-      END
-      RETURNING id
-    `,
-    [name?.trim() || email, slug],
-  );
-  const orgId = Number(orgResult.rows[0].id);
-  await client.query("UPDATE users SET organization_id = $1 WHERE id = $2", [orgId, userId]);
+  const created = await createOrganizationWithUniqueSlug(client, {
+    name: trimOrganizationName(name, email),
+    slugBase: slugFromIdentity(name, email),
+  });
+  await assignUserToOrganization(client, {
+    userId,
+    organizationId: created.id,
+  });
+  const orgId = created.id;
   return orgId;
 }
 

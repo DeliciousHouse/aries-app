@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
-import { access, readFile } from 'node:fs/promises';
+import { access } from 'node:fs/promises';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -42,8 +42,8 @@ test('runOpenClawLobsterWorkflow normalizes host-checkout absolute lobster cwd f
     });
 
     assert.equal(runtime.configuredCwd, path.join(PROJECT_ROOT, 'lobster'));
-    assert.equal(runtime.cwd, 'aries-app/lobster');
-    assert.equal((captured[0]?.args as Record<string, unknown>)?.cwd, 'aries-app/lobster');
+    assert.equal(runtime.cwd, 'lobster');
+    assert.equal((captured[0]?.args as Record<string, unknown>)?.cwd, 'lobster');
   } finally {
     delete (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__;
     if (previousCodeRoot === undefined) delete process.env.CODE_ROOT;
@@ -64,7 +64,7 @@ test('resolveMarketingPipelineRuntimePaths keeps the gateway cwd and local pipel
   const previousLobsterCwd = process.env.OPENCLAW_LOBSTER_CWD;
 
   process.env.CODE_ROOT = '/app';
-  process.env.OPENCLAW_GATEWAY_LOBSTER_CWD = 'aries-app/lobster';
+  process.env.OPENCLAW_GATEWAY_LOBSTER_CWD = 'lobster';
   process.env.OPENCLAW_LOCAL_LOBSTER_CWD = '/app/lobster';
   process.env.OPENCLAW_LOBSTER_CWD = '/app/lobster';
 
@@ -72,11 +72,11 @@ test('resolveMarketingPipelineRuntimePaths keeps the gateway cwd and local pipel
     const { resolveMarketingPipelineRuntimePaths } = await import('../backend/marketing/orchestrator');
     const paths = resolveMarketingPipelineRuntimePaths();
 
-    assert.equal(paths.gatewayCwd, 'aries-app/lobster');
+    assert.equal(paths.gatewayCwd, 'lobster');
     assert.equal(paths.localCwd, '/app/lobster');
     assert.equal(paths.pipelinePath, '/app/lobster/marketing-pipeline.lobster');
-    assert.equal(paths.runtime.cwd, 'aries-app/lobster');
-    assert.equal(paths.runtime.configuredCwd, 'aries-app/lobster');
+    assert.equal(paths.runtime.cwd, 'lobster');
+    assert.equal(paths.runtime.configuredCwd, 'lobster');
   } finally {
     if (previousCodeRoot === undefined) delete process.env.CODE_ROOT;
     else process.env.CODE_ROOT = previousCodeRoot;
@@ -89,15 +89,25 @@ test('resolveMarketingPipelineRuntimePaths keeps the gateway cwd and local pipel
   }
 });
 
-test('marketing-pipeline-compat references bridge executables that exist in the repo', async () => {
-  const compatPath = path.join(PROJECT_ROOT, 'lobster', 'bin', 'marketing-pipeline-compat');
-  const compatSource = await readFile(compatPath, 'utf8');
+test('deleted legacy marketing workflow helpers and obsolete top-level workflow files stay removed', async () => {
+  const removedPaths = [
+    path.join(PROJECT_ROOT, 'bin', 'validate_args.py'),
+    path.join(PROJECT_ROOT, 'bin', 'check_requirements.py'),
+    path.join(PROJECT_ROOT, 'bin', 'bootstrap_marketing_workspace.sh'),
+    path.join(PROJECT_ROOT, 'bin', 'invoke_skill.py'),
+    path.join(PROJECT_ROOT, 'lobster', 'bin', 'marketing-pipeline-compat'),
+    path.join(PROJECT_ROOT, 'lobster', 'bin', 'render_image_queue.py'),
+    path.join(PROJECT_ROOT, 'lobster', 'bin', 'verify_image_jobs.py'),
+    path.join(PROJECT_ROOT, 'lobster', 'stage-1-research.lobster'),
+    path.join(PROJECT_ROOT, 'lobster', 'stage-2-strategy.lobster'),
+    path.join(PROJECT_ROOT, 'lobster', 'stage-3-production.lobster'),
+    path.join(PROJECT_ROOT, 'lobster', 'stage-3b-render-images.lobster'),
+    path.join(PROJECT_ROOT, 'lobster', 'stage-4-publish-optimize.lobster'),
+  ];
 
-  assert.match(compatSource, /stage3-finalize-bridge/);
-  assert.match(compatSource, /stage4-publish-compat/);
-
-  await access(path.join(PROJECT_ROOT, 'lobster', 'bin', 'stage3-finalize-bridge'));
-  await access(path.join(PROJECT_ROOT, 'lobster', 'bin', 'stage4-publish-compat'));
+  for (const removedPath of removedPaths) {
+    await assert.rejects(access(removedPath));
+  }
 });
 
 test('assertMarketingRuntimeSchemas resolves the repo spec when CODE_ROOT assumes the container root', async () => {
@@ -145,7 +155,7 @@ test('runOpenClawLobsterWorkflow host-mode local fallback can run the nested sta
   process.env.CODE_ROOT = PROJECT_ROOT;
   delete process.env.OPENCLAW_GATEWAY_URL;
   delete process.env.OPENCLAW_GATEWAY_TOKEN;
-  process.env.OPENCLAW_GATEWAY_LOBSTER_CWD = 'aries-app/lobster';
+  process.env.OPENCLAW_GATEWAY_LOBSTER_CWD = 'lobster';
   process.env.OPENCLAW_LOCAL_LOBSTER_CWD = path.join(PROJECT_ROOT, 'lobster');
   process.env.LOBSTER_STATE_DIR = stateDir;
 
@@ -154,7 +164,7 @@ test('runOpenClawLobsterWorkflow host-mode local fallback can run the nested sta
 
     const envelope = await runOpenClawLobsterWorkflow({
       pipeline: 'stage-1-research/workflow.lobster',
-      cwd: 'aries-app/lobster',
+      cwd: 'lobster',
       localCwd: path.join(PROJECT_ROOT, 'lobster'),
       argsJson: JSON.stringify({
         competitor_url: 'https://betterup.com',
@@ -203,7 +213,7 @@ test('runOpenClawLobsterWorkflow host-mode local fallback only runs when host pr
   process.env.CODE_ROOT = PROJECT_ROOT;
   delete process.env.OPENCLAW_GATEWAY_URL;
   delete process.env.OPENCLAW_GATEWAY_TOKEN;
-  process.env.OPENCLAW_GATEWAY_LOBSTER_CWD = 'aries-app/lobster';
+  process.env.OPENCLAW_GATEWAY_LOBSTER_CWD = 'lobster';
   process.env.OPENCLAW_LOCAL_LOBSTER_CWD = path.join(PROJECT_ROOT, 'lobster');
   process.env.LOBSTER_STATE_DIR = stateDir;
 
@@ -212,7 +222,7 @@ test('runOpenClawLobsterWorkflow host-mode local fallback only runs when host pr
 
     const firstEnvelope = await runOpenClawLobsterWorkflow({
       pipeline: 'marketing-pipeline.lobster',
-      cwd: 'aries-app/lobster',
+      cwd: 'lobster',
       localCwd: path.join(PROJECT_ROOT, 'lobster'),
       argsJson: JSON.stringify({
         brand_url: 'https://example.com',
@@ -237,7 +247,7 @@ test('runOpenClawLobsterWorkflow host-mode local fallback only runs when host pr
     const secondEnvelope = await resumeOpenClawLobsterWorkflow({
       token: String(firstEnvelope.requiresApproval?.resumeToken),
       approve: true,
-      cwd: 'aries-app/lobster',
+      cwd: 'lobster',
       localCwd: path.join(PROJECT_ROOT, 'lobster'),
       timeoutMs: 120000,
       maxStdoutBytes: 8 * 1024 * 1024,

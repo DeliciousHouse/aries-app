@@ -2,15 +2,9 @@ import pool from '@/lib/db';
 import { getTenantContext } from '@/lib/tenant-context';
 import {
   getBusinessProfileWithDiagnostics,
-  getPublicBusinessProfile,
   updateBusinessProfileWithDiagnostics,
-  updatePublicBusinessProfile,
 } from '@/backend/tenant/business-profile';
-import {
-  derivePublicMarketingTenantId,
-  isMarketingPublicMode,
-  normalizeMarketingWebsiteUrl,
-} from '@/lib/marketing-public-mode';
+import { normalizeMarketingWebsiteUrl } from '@/lib/marketing-public-mode';
 import {
   COMPETITOR_URL_INVALID_ERROR,
   COMPETITOR_URL_SOCIAL_ERROR,
@@ -58,19 +52,6 @@ export async function GET(req: Request) {
   try {
     tenantContext = await getTenantContext();
   } catch (error) {
-    if (isMarketingPublicMode()) {
-      const websiteUrl = normalizeMarketingWebsiteUrl(new URL(req.url).searchParams.get('websiteUrl'));
-      const resolved = getPublicBusinessProfile(websiteUrl);
-      console.info('[business-profile]', {
-        event: 'read',
-        mode: 'public',
-        tenantId: resolved.profile.tenantId,
-        websiteUrl,
-        brandKitSource: resolved.brandKitSource,
-        latestJobId: resolved.latestJobId,
-      });
-      return json({ profile: resolved.profile });
-    }
     return json({ error: error instanceof Error ? error.message : 'Authentication required.' }, 403);
   }
 
@@ -122,54 +103,7 @@ export async function PATCH(req: Request) {
   try {
     tenantContext = await getTenantContext();
   } catch (error) {
-    if (!isMarketingPublicMode()) {
-      return json({ error: error instanceof Error ? error.message : 'Authentication required.' }, 403);
-    }
-
-    const publicTenantId = derivePublicMarketingTenantId(normalizedWebsiteUrl || payload.websiteUrl || null);
-    console.info('[business-profile]', {
-      event: 'write',
-      mode: 'public_file_only',
-      normalizedWebsiteUrl,
-      derivedTenantId: publicTenantId,
-    });
-
-    try {
-      const resolved = await updatePublicBusinessProfile({
-        businessName: stringOrNull(payload.businessName),
-        websiteUrl: normalizedWebsiteUrl || payload.websiteUrl || null,
-        businessType: stringOrNull(payload.businessType),
-        primaryGoal: stringOrNull(payload.primaryGoal),
-        launchApproverUserId: stringOrNull(payload.launchApproverUserId),
-        launchApproverName: stringOrNull(payload.launchApproverName),
-        offer: stringOrNull(payload.offer),
-        brandVoice: stringOrNull(payload.brandVoice),
-        styleVibe: stringOrNull(payload.styleVibe),
-        notes: stringOrNull(payload.notes),
-        competitorUrl: stringOrNull(payload.competitorUrl),
-        channels: payload.channels === undefined ? undefined : stringArray(payload.channels),
-      });
-      console.info('[business-profile]', {
-        event: 'write-complete',
-        mode: 'public_file_only',
-        normalizedWebsiteUrl: resolved.profile.websiteUrl,
-        derivedTenantId: resolved.profile.tenantId,
-        brandKitSource: resolved.brandKitSource,
-        latestJobId: resolved.latestJobId,
-      });
-      return json({ profile: resolved.profile });
-    } catch (updateError) {
-      const message = updateError instanceof Error ? updateError.message : String(updateError);
-      console.error('[business-profile]', {
-        event: 'write-failed',
-        mode: 'public_file_only',
-        normalizedWebsiteUrl,
-        derivedTenantId: publicTenantId,
-        error: message,
-        stack: updateError instanceof Error ? updateError.stack : undefined,
-      });
-      return json({ error: message }, errorStatus(message));
-    }
+    return json({ error: error instanceof Error ? error.message : 'Authentication required.' }, 403);
   }
 
   if (tenantContext.role !== 'tenant_admin') {

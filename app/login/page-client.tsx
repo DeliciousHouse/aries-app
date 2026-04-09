@@ -13,6 +13,19 @@ import {
   shouldRedirectLoginToSignup,
 } from '@/lib/login-auth-error';
 
+function savedDraftMessage(draftSaved: string | null, businessName: string | null): string | null {
+  if (draftSaved !== '1') {
+    return null;
+  }
+
+  const trimmedBusinessName = businessName?.trim();
+  if (trimmedBusinessName) {
+    return `Your setup for ${trimmedBusinessName} is saved. Sign in to continue in the same workspace.`;
+  }
+
+  return 'Your setup is saved. Sign in to continue in the same workspace.';
+}
+
 export default function LoginPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -111,6 +124,8 @@ export default function LoginPageClient() {
           onGoogleSuccess={handleGoogleSuccess}
           isLoading={isLoading}
           authError={authError || queryError}
+          savedStateMessage={savedMessage}
+          signupHref={signupHref}
         />
       </div>
     </AuthLayout>

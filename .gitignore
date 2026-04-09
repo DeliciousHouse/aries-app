@@ -54,6 +54,9 @@ lobster/output/
 lobster/tmp-debug-args.lobster
 lobster/bin/__pycache__/
 
+# Runtime session state (local only)
+state/
+
 # Misc
 .artifacts/
 .cache/
@@ -97,3 +100,14 @@ tmp
 *.pem
 *.key
 *.crt
+*.png
+*.jpeg
+*.jpg
+*.gif
+*.bmp
+*.pdf
+*.doc
+*.docx
+*.xls
+*.xlsx
+output/

@@ -22,15 +22,38 @@ args:
     default: ""
   brand_slug:
     default: client-brand
+cwd: aries-app/lobster
 steps:
   - id: validate_root_args
     env:
-      LOBSTER_ARG_BRAND_URL: "${brand_url}"
-    command: python3 ../bin/validate_args.py brand_url
+      BRAND_URL: "${brand_url}"
+    command: |
+      python3 - <<'PY'
+      import os
+      import sys
+      import urllib.parse
+
+      value = (os.environ.get("BRAND_URL") or "").strip()
+      if not value:
+          raise SystemExit("brand_url is required")
+      parsed = urllib.parse.urlparse(value)
+      if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+          raise SystemExit("brand_url must be a valid http(s) URL")
+      sys.stdout.write(value + "\n")
+      PY
   - id: requirements
-    command: python3 ../bin/check_requirements.py --stage research
+    command: |
+      bash -lc '
+        set -euo pipefail
+        command -v python3 >/dev/null
+        command -v bash >/dev/null
+      '
   - id: bootstrap
-    command: bash ../bin/bootstrap_marketing_workspace.sh
+    command: |
+      bash -lc '
+        set -euo pipefail
+        mkdir -p ./output
+      '
 
   - id: stage_1_extract
     command: |
@@ -80,7 +103,7 @@ steps:
 
   - id: stage_2_brand_kit
     command: >
-      ./../node_modules/.bin/tsx ./bin/brand-kit-bootstrap.ts
+      ../node_modules/.bin/tsx ./bin/brand-kit-bootstrap.ts
       --tenant-id "${brand_slug}"
       --brand-url "${brand_url}"
     when: $approve_stage_2.approved

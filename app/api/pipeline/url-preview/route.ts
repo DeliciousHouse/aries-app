@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { extractAndSaveTenantBrandKit, extractBrandKitFromWebsite, loadTenantBrandKit } from '@/backend/marketing/brand-kit';
-import { derivePublicMarketingTenantId, normalizeMarketingWebsiteUrl } from '@/lib/marketing-public-mode';
+import { draftTenantId, updateOnboardingDraft } from '@/backend/onboarding/draft-store';
+import { normalizeMarketingWebsiteUrl } from '@/lib/marketing-public-mode';
 
 const IP_REGEX = /^(\d{1,3}\.){3}\d{1,3}$/;
 const BLOCKLIST = ['localhost', '127.0.0.1', 'example.com', '0.0.0.0'];
@@ -31,8 +32,12 @@ function validateUrl(url: string): string | null {
 
 export async function GET(req: NextRequest) {
   const url = req.nextUrl.searchParams.get('url');
+  const draftId = req.nextUrl.searchParams.get('draft');
   if (!url) {
     return NextResponse.json({ error: 'Missing url parameter' }, { status: 400 });
+  }
+  if (!draftId?.trim()) {
+    return NextResponse.json({ error: 'Missing draft parameter' }, { status: 400 });
   }
 
   const normalizedUrl = normalizeMarketingWebsiteUrl(decodeURIComponent(url));
@@ -45,10 +50,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: validationError }, { status: 400 });
   }
 
-  const tenantId = derivePublicMarketingTenantId(normalizedUrl);
-  if (!tenantId) {
-    return NextResponse.json({ error: 'Invalid URL' }, { status: 400 });
-  }
+  const tenantId = draftTenantId(draftId);
 
   try {
     const storedBrandKit = loadTenantBrandKit(tenantId);
@@ -61,7 +63,7 @@ export async function GET(req: NextRequest) {
       ? (await extractAndSaveTenantBrandKit({ tenantId, brandUrl: normalizedUrl })).brandKit
       : await extractBrandKitFromWebsite({ tenantId, brandUrl: normalizedUrl });
 
-    return NextResponse.json({
+    const response = {
       title: brandKit.brand_name,
       favicon: brandKit.logo_urls[0] || '',
       domain: new URL(normalizedUrl).hostname,
@@ -78,7 +80,19 @@ export async function GET(req: NextRequest) {
         brandVoiceSummary: brandKit.brand_voice_summary,
         offerSummary: brandKit.offer_summary,
       },
+    };
+
+    await updateOnboardingDraft(draftId, {
+      websiteUrl: normalizedUrl,
+      preview: response,
+      provenance: {
+        source_url: normalizedUrl,
+        canonical_url: brandKit.canonical_url,
+        source_fingerprint: brandKit.canonical_url || normalizedUrl,
+      },
     });
+
+    return NextResponse.json(response);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: message.startsWith('brand_kit_') ? 422 : 502 });

@@ -36,6 +36,8 @@ export function normalizeMarketingWebsiteUrl(value: string | null | undefined): 
   }
 }
 
+// Compatibility exports for older generated artifacts only. The live customer onboarding
+// path no longer uses website-derived public tenant identity.
 export function derivePublicMarketingTenantId(websiteUrl: string | null | undefined): string | null {
   const normalized = normalizeMarketingWebsiteUrl(websiteUrl);
   if (!normalized) {

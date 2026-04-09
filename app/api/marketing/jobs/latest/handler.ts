@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server';
 
 import { getMarketingJobStatus } from '@/backend/marketing/jobs-status';
-import { findLatestMarketingJobIdForTenant, findLatestMarketingTenantId } from '@/backend/marketing/runtime-state';
+import { findLatestMarketingJobIdForTenant } from '@/backend/marketing/runtime-state';
 import { buildCampaignWorkspaceView } from '@/backend/marketing/workspace-views';
-import { isMarketingPublicMode } from '@/lib/marketing-public-mode';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
 const MARKETING_ONBOARDING_REQUIRED = {
@@ -47,20 +46,13 @@ function alignNextStepWithWorkspace(
 export async function handleGetLatestMarketingJobStatus(
   tenantContextLoader?: TenantContextLoader
 ) {
-  const statusPublic = isMarketingPublicMode();
-  let tenantId: string | null = null;
-
-  if (statusPublic) {
-    tenantId = findLatestMarketingTenantId();
-  } else {
-    const tenantResult = await loadTenantContextOrResponse(tenantContextLoader, {
-      missingMembershipResponse: MARKETING_ONBOARDING_REQUIRED,
-    });
-    if ('response' in tenantResult) {
-      return tenantResult.response;
-    }
-    tenantId = tenantResult.tenantContext.tenantId;
+  const tenantResult = await loadTenantContextOrResponse(tenantContextLoader, {
+    missingMembershipResponse: MARKETING_ONBOARDING_REQUIRED,
+  });
+  if ('response' in tenantResult) {
+    return tenantResult.response;
   }
+  const tenantId = tenantResult.tenantContext.tenantId;
 
   if (!tenantId) {
     return NextResponse.json(

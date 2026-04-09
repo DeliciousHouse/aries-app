@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 import { isValidElement } from 'react';
 
@@ -53,6 +55,9 @@ import MarketingNewJobScreen from '../frontend/marketing/new-job';
 import MarketingJobStatusScreen from '../frontend/marketing/job-status';
 import MarketingJobApproveScreen from '../frontend/marketing/job-approve';
 import AppShellLayout from '../frontend/app-shell/layout';
+import { resolveProjectRoot } from './helpers/project-root';
+
+const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
 function expectRedirect(callable: () => unknown, location: string) {
   assert.throws(callable, (error: unknown) => {
@@ -305,12 +310,16 @@ test('/onboarding/start redirects to the canonical premium intake route rather t
   expectRedirect(() => OnboardingStartPage(), '/onboarding/pipeline-intake');
 });
 
-test('/onboarding/pipeline-intake returns the guided intake workflow', () => {
-  const element = PipelineIntakePage();
+test('/onboarding/pipeline-intake wires the guided intake workflow behind auth-aware server rendering', () => {
+  const source = readFileSync(
+    path.join(PROJECT_ROOT, 'app', 'onboarding', 'pipeline-intake', 'page.tsx'),
+    'utf8',
+  );
 
-  assert.equal(isValidElement(element), true);
-  assert.equal(element.type, AriesOnboardingFlow);
-  assert.notEqual(element.type, OnboardingStartScreen);
+  assert.match(source, /auth\(\)/);
+  assert.match(source, /<AriesOnboardingFlow initialAuthenticated=\{Boolean\(session\?\.user\?\.id\)\} \/>/);
+  assert.notEqual(PipelineIntakePage, OnboardingStartScreen);
+  assert.notEqual(AriesOnboardingFlow, OnboardingStartScreen);
 });
 
 test('/onboarding/status preserves tenant_id and signup_event_id from the route boundary', async () => {

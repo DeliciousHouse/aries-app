@@ -14,7 +14,6 @@ import {
 import { useBusinessProfile } from '@/hooks/use-business-profile';
 import { createAriesV1Api, type UrlPreviewBrandKitPreview, type UrlPreviewResponse } from '@/lib/api/aries-v1';
 import { validateCanonicalCompetitorUrl } from '@/lib/marketing-competitor';
-import { createMarketingApi } from '@/lib/api/marketing';
 
 type StepKey = 'business' | 'website' | 'brand' | 'channels' | 'goal';
 
@@ -111,12 +110,10 @@ const GOAL_OPTIONS: GoalOption[] = [
   },
 ];
 
-const DEFAULT_CHANNEL_IDS = ['meta-ads', 'instagram'];
-
 function goalFromBusinessProfile(primaryGoal: string | null | undefined): string {
   const normalized = primaryGoal?.trim().toLowerCase() || '';
   if (!normalized) {
-    return GOAL_OPTIONS[0].label;
+    return '';
   }
   if (normalized.includes('appoint') || normalized.includes('call') || normalized.includes('consult')) {
     return 'Book more qualified calls';
@@ -135,7 +132,7 @@ function goalFromBusinessProfile(primaryGoal: string | null | undefined): string
   if (normalized.includes('visible') || normalized.includes('awareness') || normalized.includes('brand')) {
     return 'Stay visible every week';
   }
-  return GOAL_OPTIONS[0].label;
+  return '';
 }
 
 function isValidHttpsUrl(value: string): boolean {
@@ -190,14 +187,11 @@ function brandPreviewSummary(
   );
 }
 
-function channelOptionById(channelId: string): ChannelOption | undefined {
-  return CHANNEL_OPTIONS.find((option) => option.id === channelId);
-}
-
 function stepReady(stepKey: StepKey, values: {
   businessName: string;
   businessType: string;
   websiteUrl: string;
+  selectedChannels: string[];
   goal: string;
 }): boolean {
   if (stepKey === 'business') {
@@ -205,6 +199,9 @@ function stepReady(stepKey: StepKey, values: {
   }
   if (stepKey === 'website' || stepKey === 'brand') {
     return isValidHttpsUrl(values.websiteUrl);
+  }
+  if (stepKey === 'channels') {
+    return values.selectedChannels.length > 0;
   }
   if (stepKey === 'goal') {
     return values.goal.trim().length > 0;
@@ -222,39 +219,67 @@ function stepValidationMessage(stepKey: StepKey): string {
   if (stepKey === 'brand') {
     return 'Enter a valid HTTPS website before reviewing the brand snapshot.';
   }
+  if (stepKey === 'channels') {
+    return 'Select at least one channel before continuing.';
+  }
   if (stepKey === 'goal') {
     return 'Choose the primary goal for the first campaign.';
   }
   return 'Complete the current step before continuing.';
 }
 
-export default function AriesOnboardingFlow() {
+function authRedirectHref(input: { draftId: string; businessName: string }): string {
+  const callbackUrl = `/onboarding/resume?draft=${encodeURIComponent(input.draftId)}`;
+  const params = new URLSearchParams({
+    callbackUrl,
+    draftSaved: '1',
+  });
+  if (input.businessName.trim()) {
+    params.set('businessName', input.businessName.trim());
+  }
+  return `/login?${params.toString()}`;
+}
+
+export default function AriesOnboardingFlow(props: { initialAuthenticated?: boolean }) {
   const router = useRouter();
-  const businessProfile = useBusinessProfile({ autoLoad: true });
+  const searchParams = useSearchParams();
   const ariesApi = useMemo(() => createAriesV1Api(), []);
+  const draftParam = searchParams.get('draft')?.trim() || '';
+  const {
+    load: loadBusinessProfile,
+    profile: businessProfileState,
+  } = useBusinessProfile({ autoLoad: false });
 
   const [stepIndex, setStepIndex] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hydratedFromProfile, setHydratedFromProfile] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [urlPreview, setUrlPreview] = useState<UrlPreviewResponse | null>(null);
+  const [draftId, setDraftId] = useState(draftParam);
+  const [creatingDraft, setCreatingDraft] = useState(false);
+  const [loadedDraftId, setLoadedDraftId] = useState<string | null>(null);
+  const [profileHydrated, setProfileHydrated] = useState(false);
   const [businessName, setBusinessName] = useState('');
   const [websiteUrl, setWebsiteUrl] = useState('');
   const [businessType, setBusinessType] = useState('');
   const [approverName, setApproverName] = useState('');
-  const [selectedChannels, setSelectedChannels] = useState<string[]>(DEFAULT_CHANNEL_IDS);
-  const [goal, setGoal] = useState(GOAL_OPTIONS[0].label);
+  const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
+  const [goal, setGoal] = useState('');
   const [offer, setOffer] = useState('');
   const [competitorUrl, setCompetitorUrl] = useState('');
   const deferredWebsiteUrl = useDeferredValue(websiteUrl.trim());
 
-  const profile = businessProfile.profile.data?.profile ?? null;
+  const profile = businessProfileState.data?.profile ?? null;
   const currentStep = STEP_DEFINITIONS[stepIndex];
   const preview = urlPreview?.brandKitPreview ?? null;
   const previewBrandName =
-    firstPresent(preview?.brandName, businessName, profile?.businessName, hostnameFromUrl(websiteUrl)) || 'Brand preview';
+    firstPresent(
+      preview?.brandName,
+      businessName,
+      props.initialAuthenticated && !draftId ? profile?.businessName : null,
+      hostnameFromUrl(websiteUrl),
+    ) || 'Brand preview';
   const previewDomain = hostnameFromUrl(preview?.canonicalUrl || websiteUrl) || urlPreview?.domain || 'Website preview';
   const previewColors = Array.from(new Set(preview?.colors.palette.filter(Boolean) || []));
   const previewFonts = preview?.fontFamilies.filter(Boolean) || [];
@@ -263,6 +288,7 @@ export default function AriesOnboardingFlow() {
       businessName,
       businessType,
       websiteUrl,
+      selectedChannels,
       goal,
     }),
   );
@@ -270,23 +296,157 @@ export default function AriesOnboardingFlow() {
     'w-full rounded-[1rem] border border-white/12 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] px-4 py-3 text-white outline-none transition duration-200 placeholder:text-white/24 focus:border-[#b36cff] focus:shadow-[0_0_0_1px_rgba(179,108,255,0.24),0_0_24px_rgba(179,108,255,0.14)]';
 
   useEffect(() => {
-    if (!profile || hydratedFromProfile) {
+    setDraftId(draftParam);
+  }, [draftParam]);
+
+  useEffect(() => {
+    if (draftId || creatingDraft) {
       return;
     }
 
-    setBusinessName(profile.businessName || profile.brandKit?.brand_name || '');
-    setWebsiteUrl(profile.websiteUrl || profile.brandKit?.source_url || '');
-    setBusinessType(profile.businessType || '');
-    setApproverName(profile.launchApproverName || '');
-    setGoal(goalFromBusinessProfile(profile.primaryGoal));
-    setOffer(profile.offer || profile.brandIdentity?.offer || profile.brandKit?.offer_summary || '');
-    setCompetitorUrl(profile.competitorUrl || '');
-    setSelectedChannels(profile.channels.length > 0 ? profile.channels : DEFAULT_CHANNEL_IDS);
-    setHydratedFromProfile(true);
-  }, [hydratedFromProfile, profile]);
+    let cancelled = false;
+    setCreatingDraft(true);
+
+    void ariesApi.createOnboardingDraft()
+      .then((response) => {
+        if (cancelled) {
+          return;
+        }
+        const nextDraftId = response.draft.draftId;
+        setDraftId(nextDraftId);
+        router.replace(`/onboarding/pipeline-intake?draft=${encodeURIComponent(nextDraftId)}`);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError('We could not prepare a saved onboarding session right now.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setCreatingDraft(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ariesApi, creatingDraft, draftId, router]);
 
   useEffect(() => {
-    if (!deferredWebsiteUrl || !isValidHttpsUrl(deferredWebsiteUrl)) {
+    if (!draftId || loadedDraftId === draftId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void ariesApi.getOnboardingDraft(draftId)
+      .then((response) => {
+        if (cancelled) {
+          return;
+        }
+
+        const draft = response.draft;
+        setBusinessName(draft.businessName);
+        setWebsiteUrl(draft.websiteUrl);
+        setBusinessType(draft.businessType);
+        setApproverName(draft.approverName);
+        setSelectedChannels(draft.channels);
+        setGoal(draft.goal);
+        setOffer(draft.offer);
+        setCompetitorUrl(draft.competitorUrl);
+        setUrlPreview(draft.preview);
+        setPreviewError(null);
+        setLoadedDraftId(draft.draftId);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError('We could not restore the saved onboarding draft.');
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ariesApi, draftId, loadedDraftId]);
+
+  useEffect(() => {
+    if (!props.initialAuthenticated || draftId || profileHydrated) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void loadBusinessProfile()
+      .then((result) => {
+        if (cancelled || !result?.profileResponse.profile) {
+          return;
+        }
+
+        const nextProfile = result.profileResponse.profile;
+        setBusinessName(nextProfile.businessName || nextProfile.brandKit?.brand_name || '');
+        setWebsiteUrl(nextProfile.websiteUrl || nextProfile.brandKit?.source_url || '');
+        setBusinessType(nextProfile.businessType || '');
+        setApproverName(nextProfile.launchApproverName || '');
+        setGoal(goalFromBusinessProfile(nextProfile.primaryGoal));
+        setOffer(nextProfile.offer || nextProfile.brandIdentity?.offer || nextProfile.brandKit?.offer_summary || '');
+        setCompetitorUrl(nextProfile.competitorUrl || '');
+        setSelectedChannels(nextProfile.channels.length > 0 ? nextProfile.channels : []);
+        setProfileHydrated(true);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setProfileHydrated(true);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [draftId, loadBusinessProfile, profileHydrated, props.initialAuthenticated]);
+
+  useEffect(() => {
+    if (!draftId) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void ariesApi.updateOnboardingDraft(draftId, {
+        websiteUrl,
+        businessName,
+        businessType,
+        approverName,
+        channels: selectedChannels,
+        goal,
+        offer,
+        competitorUrl,
+        preview: urlPreview,
+        provenance: {
+          source_url: websiteUrl,
+          canonical_url: urlPreview?.canonicalUrl || null,
+          source_fingerprint: urlPreview?.canonicalUrl || websiteUrl || null,
+        },
+      }).catch(() => {});
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    approverName,
+    ariesApi,
+    businessName,
+    businessType,
+    competitorUrl,
+    draftId,
+    goal,
+    offer,
+    selectedChannels,
+    urlPreview,
+    websiteUrl,
+  ]);
+
+  useEffect(() => {
+    if (!draftId || !deferredWebsiteUrl || !isValidHttpsUrl(deferredWebsiteUrl)) {
       setUrlPreview(null);
       setPreviewError(null);
       setPreviewLoading(false);
@@ -298,7 +458,7 @@ export default function AriesOnboardingFlow() {
       setPreviewLoading(true);
       setPreviewError(null);
       try {
-        const nextPreview = await ariesApi.getUrlPreview(deferredWebsiteUrl);
+        const nextPreview = await ariesApi.getUrlPreview(deferredWebsiteUrl, draftId);
         if (!cancelled) {
           setUrlPreview(nextPreview);
         }
@@ -318,7 +478,7 @@ export default function AriesOnboardingFlow() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [ariesApi, deferredWebsiteUrl]);
+  }, [ariesApi, deferredWebsiteUrl, draftId]);
 
   function toggleChannel(channelId: string) {
     setSelectedChannels((current) =>
@@ -329,7 +489,7 @@ export default function AriesOnboardingFlow() {
   }
 
   function handleContinue() {
-    if (!stepReady(currentStep.key, { businessName, businessType, websiteUrl, goal })) {
+    if (!stepReady(currentStep.key, { businessName, businessType, websiteUrl, selectedChannels, goal })) {
       setError(stepValidationMessage(currentStep.key));
       return;
     }
@@ -340,6 +500,11 @@ export default function AriesOnboardingFlow() {
   async function handleFinish() {
     if (!canFinish) {
       setError(stepValidationMessage(currentStep.key));
+      return;
+    }
+
+    if (!draftId) {
+      setError('We could not find the saved onboarding draft for this setup.');
       return;
     }
 
@@ -355,52 +520,40 @@ export default function AriesOnboardingFlow() {
         }
       }
 
-      const savedProfile = await businessProfile.updateProfile({
-        businessName,
+      await ariesApi.updateOnboardingDraft(draftId, {
+        status: 'ready_for_auth',
         websiteUrl,
+        businessName,
         businessType,
-        primaryGoal: goal,
-        launchApproverName: approverName || null,
-        offer: offer || null,
-        competitorUrl: trimmedCompetitorUrl || null,
+        approverName,
         channels: selectedChannels,
-      });
-
-      if (!savedProfile) {
-        throw new Error('Unable to save the business profile before starting the campaign.');
-      }
-
-      const persistedProfile = savedProfile.profile;
-      const normalizedWebsiteUrl = persistedProfile.websiteUrl || websiteUrl.trim();
-      const api = createMarketingApi();
-      const result = await api.createJob({
-        jobType: 'brand_campaign',
-        payload: {
-          brandUrl: normalizedWebsiteUrl,
-          websiteUrl: normalizedWebsiteUrl,
-          businessName: persistedProfile.businessName,
-          businessType: persistedProfile.businessType || businessType.trim(),
-          approverName: persistedProfile.launchApproverName || approverName.trim(),
-          competitorUrl: persistedProfile.competitorUrl || competitorUrl.trim(),
-          goal: persistedProfile.primaryGoal || goal,
-          offer: persistedProfile.offer || offer.trim(),
-          notes: persistedProfile.notes || urlPreview?.description || '',
-          channels: persistedProfile.channels.length > 0 ? persistedProfile.channels : selectedChannels,
-          mode: 'guided',
+        goal,
+        offer,
+        competitorUrl: trimmedCompetitorUrl || null,
+        preview: urlPreview,
+        provenance: {
+          source_url: websiteUrl,
+          canonical_url: urlPreview?.canonicalUrl || null,
+          source_fingerprint: urlPreview?.canonicalUrl || websiteUrl || null,
         },
       });
 
-      if ('error' in result) {
-        throw new Error(result.message || result.error || 'Unable to start the first campaign.');
+      if (props.initialAuthenticated) {
+        router.push(`/onboarding/resume?draft=${encodeURIComponent(draftId)}`);
+        return;
       }
 
-      router.push(`/dashboard/campaigns/${encodeURIComponent(result.jobId)}?welcome=1`);
-      return;
+      router.push(
+        authRedirectHref({
+          draftId,
+          businessName: businessName || hostnameFromUrl(websiteUrl) || 'your business',
+        }),
+      );
     } catch (submissionError) {
       setError(
         submissionError instanceof Error
           ? submissionError.message
-          : 'We could not complete setup for the first campaign.',
+          : 'We could not save setup for the first campaign.',
       );
     } finally {
       setSubmitting(false);
@@ -554,7 +707,7 @@ export default function AriesOnboardingFlow() {
                     <EditorialList
                       title="What Aries will prepare next"
                       items={[
-                        'A cleaned source review built from the website.',
+                        'A current-source review built from the live website.',
                         'A brand identity snapshot the client can actually approve.',
                         'A first campaign plan aligned to the selected goal and channels.',
                       ]}
@@ -614,8 +767,8 @@ export default function AriesOnboardingFlow() {
                       <div className="mt-6 grid gap-4 sm:grid-cols-2">
                         <PreviewStat label="Brand voice" value={preview.brandVoiceSummary || 'Aries will refine the brand voice after the source review.'} />
                         <PreviewStat label="Offer" value={preview.offerSummary || 'Aries will refine the offer summary after the source review.'} />
-                        <PreviewStat label="Palette" value={previewColors.length > 0 ? joinedLineList(previewColors) : 'Palette cues will appear here when available.'} />
-                        <PreviewStat label="Fonts" value={previewFonts.length > 0 ? joinedLineList(previewFonts) : 'Typography cues will appear here when available.'} />
+                        <PreviewStat label="Current source" value={firstPresent(preview.canonicalUrl, websiteUrl, 'No source set yet.') || ''} />
+                        <PreviewStat label="Visible summary" value={brandPreviewSummary(preview, urlPreview)} />
                       </div>
                     ) : (
                       <div className="mt-6 rounded-[1.25rem] border border-white/10 bg-white/[0.04] px-4 py-4 text-sm text-white/58">
@@ -635,7 +788,7 @@ export default function AriesOnboardingFlow() {
                         <div>
                           <h3 className="text-3xl font-semibold tracking-[-0.03em] text-white">{previewBrandName}</h3>
                           <p className="mt-2 text-sm text-white/50">
-                            {firstPresent(preview?.canonicalUrl, websiteUrl, profile?.websiteUrl, 'No current source yet')}
+                            {firstPresent(preview?.canonicalUrl, websiteUrl, props.initialAuthenticated && !draftId ? profile?.websiteUrl : null, 'No current source yet')}
                           </p>
                         </div>
                         <p className="max-w-2xl text-sm leading-7 text-white/70">
@@ -644,11 +797,11 @@ export default function AriesOnboardingFlow() {
                         <div className="grid gap-4 sm:grid-cols-2">
                           <PreviewStat
                             label="Brand voice"
-                            value={preview?.brandVoiceSummary || profile?.brandVoice || 'Aries will refine the voice as soon as the source review is complete.'}
+                            value={preview?.brandVoiceSummary || (props.initialAuthenticated && !draftId ? profile?.brandVoice : null) || 'Aries will refine the voice as soon as the source review is complete.'}
                           />
                           <PreviewStat
                             label="Offer summary"
-                            value={preview?.offerSummary || offer || profile?.offer || 'The offer summary will appear here once the website provides enough signal.'}
+                            value={preview?.offerSummary || offer || (props.initialAuthenticated && !draftId ? profile?.offer : null) || 'The offer summary will appear here once the website provides enough signal.'}
                           />
                         </div>
                       </div>
@@ -809,7 +962,11 @@ export default function AriesOnboardingFlow() {
                     disabled={submitting || !canFinish}
                     className="inline-flex items-center gap-2 rounded-full border border-[#a96cff]/40 bg-[linear-gradient(90deg,#5c2e96,#7a41c2,#a96cff)] px-6 py-3 text-sm font-semibold text-white shadow-[0_0_24px_rgba(169,108,255,0.2)] transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {submitting ? 'Starting your workspace...' : 'Start your first campaign'}
+                    {submitting
+                      ? 'Saving setup...'
+                      : props.initialAuthenticated
+                        ? 'Continue to workspace'
+                        : 'Save and continue'}
                     <ArrowRight className="h-4 w-4" />
                   </button>
                 )}
@@ -901,7 +1058,7 @@ function VisualBoard(props: {
             ))}
           </div>
         ) : (
-          <p className="mt-4 text-sm text-white/55">Logo candidates will appear here when the website exposes them clearly.</p>
+          <p className="mt-4 text-sm text-white/55">Logo and mark references will appear here when the site exposes them clearly.</p>
         )}
       </div>
 
@@ -909,11 +1066,10 @@ function VisualBoard(props: {
         <div className="rounded-[1.5rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-5">
           <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/54">Palette</p>
           {props.colors.length > 0 ? (
-            <div className="mt-4 grid gap-3 grid-cols-3">
-              {props.colors.map((color) => (
-                <div key={color} className="space-y-2">
+            <div className="mt-4 grid grid-cols-3 gap-3">
+              {props.colors.map((color, index) => (
+                <div key={`${color}-${index}`} className="space-y-2">
                   <div className="h-14 rounded-[0.9rem] border border-white/10" style={{ backgroundColor: color }} />
-                  <p className="text-[11px] uppercase tracking-[0.14em] text-white/55">{color}</p>
                 </div>
               ))}
             </div>
@@ -928,9 +1084,8 @@ function VisualBoard(props: {
             <div className="mt-4 space-y-3">
               {props.fontFamilies.map((font) => (
                 <div key={font} className="rounded-[1rem] border border-white/8 bg-white/[0.03] px-4 py-4">
-                  <p className="text-xs uppercase tracking-[0.14em] text-white/45">{font}</p>
                   <p
-                    className="mt-3 text-2xl text-white"
+                    className="text-2xl text-white"
                     style={{ fontFamily: `"${font}", ${font}, ui-sans-serif, system-ui, sans-serif` }}
                   >
                     {props.brandName}
@@ -939,7 +1094,7 @@ function VisualBoard(props: {
               ))}
             </div>
           ) : (
-            <p className="mt-4 text-sm text-white/55">Typography cues will appear here once the website review is ready.</p>
+            <p className="mt-4 text-sm text-white/55">Type direction will appear here once the website review is ready.</p>
           )}
         </div>
       </div>

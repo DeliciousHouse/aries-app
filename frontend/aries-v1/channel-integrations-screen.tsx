@@ -2,6 +2,7 @@
 
 import { useIntegrations } from '@/hooks/use-integrations';
 
+import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { EmptyStatePanel, LoadingStateGrid, ShellPanel, StatusChip } from './components';
 
 export default function AriesChannelIntegrationsScreen() {
@@ -17,7 +18,7 @@ export default function AriesChannelIntegrationsScreen() {
       <ShellPanel eyebrow="Channels / Integrations" title="Where Aries can publish or monitor">
         {integrations.error ? (
           <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
-            {integrations.error.message}
+            {customerSafeUiErrorMessage(integrations.error.message, 'Channel status is not available right now.')}
           </div>
         ) : integrationCards.length === 0 ? (
           <EmptyStatePanel
@@ -32,7 +33,7 @@ export default function AriesChannelIntegrationsScreen() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
                     <p className="text-sm font-medium text-white">{card.display_name}</p>
-                    <p className="text-sm text-white/45">{card.connected_account?.account_label || card.platform}</p>
+                    <p className="text-sm text-white/45">{card.description}</p>
                   </div>
                   <StatusChip
                     status={
@@ -44,11 +45,11 @@ export default function AriesChannelIntegrationsScreen() {
                     }
                   >
                     {card.connection_state === 'connected'
-                      ? 'Healthy'
+                      ? 'Connected'
                       : card.connection_state === 'reauth_required'
                         ? 'Needs attention'
                         : card.connection_state === 'disabled'
-                          ? 'Unavailable'
+                          ? 'Setup needed'
                           : 'Not connected'}
                   </StatusChip>
                 </div>
