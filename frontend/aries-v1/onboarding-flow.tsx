@@ -1,9 +1,15 @@
 'use client';
 
 import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import clsx from 'clsx';
-import { ArrowLeft, ArrowRight, Check, ShieldCheck } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  ShieldCheck,
+} from 'lucide-react';
 
 import { useBusinessProfile } from '@/hooks/use-business-profile';
 import { createAriesV1Api, type UrlPreviewBrandKitPreview, type UrlPreviewResponse } from '@/lib/api/aries-v1';
@@ -260,6 +266,8 @@ export default function AriesOnboardingFlow() {
       goal,
     }),
   );
+  const fieldInputClassName =
+    'w-full rounded-[1rem] border border-white/12 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] px-4 py-3 text-white outline-none transition duration-200 placeholder:text-white/24 focus:border-[#b36cff] focus:shadow-[0_0_0_1px_rgba(179,108,255,0.24),0_0_24px_rgba(179,108,255,0.14)]';
 
   useEffect(() => {
     if (!profile || hydratedFromProfile) {
@@ -400,28 +408,45 @@ export default function AriesOnboardingFlow() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0f15] text-white">
-      <div className="mx-auto max-w-7xl px-6 py-10 lg:px-10">
-        <div className="grid gap-6 xl:grid-cols-[0.84fr_1.16fr]">
-          <aside className="rounded-[2.5rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(220,181,143,0.18),transparent_32%),linear-gradient(160deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-7 shadow-[0_32px_96px_rgba(0,0,0,0.34)] xl:sticky xl:top-8 xl:h-fit">
-            <div className="space-y-6">
-              <div className="space-y-3">
-                <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#dcb58f]">Aries intake</p>
-                <h1 className="text-4xl font-semibold tracking-[-0.04em] text-white">Set the business once. Launch from it every time.</h1>
-                <p className="max-w-xl text-sm leading-7 text-white/68">
+    <div className="min-h-screen overflow-hidden bg-[#07080d] text-white">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute left-[-8%] top-0 h-[26rem] w-[26rem] rounded-full bg-[radial-gradient(circle,rgba(127,76,255,0.18),transparent_72%)] blur-3xl" />
+      </div>
+
+      <div className="relative mx-auto mt-10 max-w-[1320px] px-4 py-5 sm:mt-12 sm:px-6 lg:mt-14 lg:px-8">
+        <div className="pointer-events-none absolute left-[-5.5rem] top-[-6rem] hidden h-[17rem] w-[17rem] lg:block">
+          <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,rgba(146,88,255,0.14),transparent_68%)] blur-3xl" />
+          <Image
+            src="/ariesai-logo.webp"
+            alt=""
+            width={320}
+            height={320}
+            aria-hidden="true"
+            className="absolute inset-0 h-[17rem] w-[17rem] scale-[1.02] opacity-[0.28] brightness-[2.25] contrast-130 mix-blend-screen"
+          />
+        </div>
+
+        <div className="relative z-10">
+          <div className="relative overflow-hidden rounded-[2rem] border border-white/14 bg-[linear-gradient(180deg,rgba(28,24,39,0.5),rgba(14,12,20,0.26))] shadow-[0_34px_110px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.22)] backdrop-blur-[30px] backdrop-saturate-150">
+            <div className="pointer-events-none absolute inset-0 rounded-[2rem] bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.17),transparent_18%),radial-gradient(circle_at_left_14%,rgba(171,108,255,0.2),transparent_24%),radial-gradient(circle_at_top_right,rgba(176,106,255,0.16),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.04),transparent_32%,rgba(255,255,255,0.02))]" />
+            <div className="pointer-events-none absolute inset-[1px] rounded-[calc(2rem-1px)] border border-white/10" />
+            <div className="pointer-events-none absolute left-0 right-0 top-0 h-24 bg-[linear-gradient(180deg,rgba(255,255,255,0.12),transparent)] opacity-50" />
+
+            <div className="relative z-10 border-b border-white/8 px-6 pb-6 pt-7 sm:px-8 lg:px-10">
+              <div className="grid gap-5 lg:grid-cols-[55%_45%] lg:items-start lg:gap-10">
+                <h1 className="max-w-none text-[2rem] font-light tracking-[0.0025em] text-white sm:text-[2rem] sm:leading-[1]">
+                  Set the business once.
+                  <br />
+                  Launch from it every time.
+                </h1>
+                <p className="w-full max-w-none text-base leading-8 text-white/68 lg:pr-6 lg:pt-2 lg:text-[1.05rem]">
                   Aries uses this intake to prepare the first campaign, shape the review package, and keep approvals visible from the start.
                 </p>
               </div>
+            </div>
 
-              <div className="rounded-[1.7rem] border border-white/10 bg-black/25 p-5">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">
-                  Step {stepIndex + 1} of {STEP_DEFINITIONS.length}
-                </p>
-                <h2 className="mt-3 text-2xl font-semibold text-white">{currentStep.title}</h2>
-                <p className="mt-3 text-sm leading-7 text-white/62">{currentStep.description}</p>
-              </div>
-
-              <div className="space-y-3">
+            <div className="relative z-10 px-6 pb-6 pt-5 sm:px-8 lg:px-10">
+              <div className="flex flex-wrap gap-3 border-b border-white/8 pb-5">
                 {STEP_DEFINITIONS.map((step, index) => {
                   const active = index === stepIndex;
                   const complete = index < stepIndex;
@@ -429,71 +454,51 @@ export default function AriesOnboardingFlow() {
                     <div
                       key={step.key}
                       className={clsx(
-                        'rounded-[1.35rem] border px-4 py-4 transition',
+                        'flex min-w-[126px] flex-1 items-center gap-2 rounded-full border px-3 py-2.5 text-[1.1rem] transition duration-300',
                         active
-                          ? 'border-white/18 bg-white/[0.08]'
-                          : complete
-                            ? 'border-emerald-400/22 bg-emerald-400/10'
-                            : 'border-white/8 bg-black/20',
+                          ? 'border-[#a96cff]/45 bg-[linear-gradient(90deg,rgba(151,93,255,0.22),rgba(151,93,255,0.05))] text-white shadow-[inset_0_-1px_0_rgba(169,108,255,0.9),0_0_20px_rgba(169,108,255,0.15)]'
+                          : 'border-white/8 bg-white/[0.02] text-white/50',
                       )}
                     >
-                      <div className="flex items-center gap-3">
-                        <span
-                          className={clsx(
-                            'flex h-8 w-8 items-center justify-center rounded-full border text-xs font-semibold',
-                            active
-                              ? 'border-white/22 bg-white/[0.08] text-white'
-                              : complete
-                                ? 'border-emerald-300/25 bg-emerald-300/12 text-emerald-100'
-                                : 'border-white/12 text-white/45',
-                          )}
-                        >
-                          {complete ? <Check className="h-4 w-4" /> : `0${index + 1}`}
-                        </span>
-                        <div>
-                          <p className={clsx('text-sm font-medium', active || complete ? 'text-white' : 'text-white/55')}>
-                            {step.label}
-                          </p>
-                          <p className="text-xs uppercase tracking-[0.2em] text-white/35">
-                            {step.key === 'brand' ? 'Preview' : step.key}
-                          </p>
-                        </div>
-                      </div>
+                      <span
+                        className={clsx(
+                          'flex h-6 w-6 items-center justify-center rounded-full border text-[11px] font-semibold',
+                          active
+                            ? 'border-[#a96cff]/50 bg-[#8a52ff]/20 text-[#dec6ff]'
+                            : complete
+                              ? 'border-white/20 bg-white/[0.08] text-white/80'
+                              : 'border-white/10 text-white/40',
+                        )}
+                      >
+                        {complete ? <Check className="h-3 w-3" /> : `0${index + 1}`}
+                      </span>
+                      <span className="whitespace-nowrap">{step.label}</span>
                     </div>
                   );
                 })}
               </div>
 
-              <div className="rounded-[1.7rem] border border-emerald-400/18 bg-emerald-400/10 p-5 text-sm leading-7 text-emerald-50/90">
-                <div className="flex items-center gap-3 text-emerald-100">
-                  <ShieldCheck className="h-4 w-4" />
-                  <span className="font-medium">Approval stays visible from the first plan through launch.</span>
-                </div>
-                <p className="mt-3 text-emerald-50/75">
-                  Nothing goes live without a clear review step. The source website stays attached to the campaign so stale brand material does not leak forward.
-                </p>
-              </div>
-            </div>
-          </aside>
-
-          <section className="rounded-[2.5rem] border border-white/10 bg-white/[0.05] p-6 shadow-[0_32px_96px_rgba(0,0,0,0.34)] backdrop-blur-xl md:p-8">
-            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-white/8 pb-6">
+              <div className="mt-7">
+                <section className="relative rounded-[1.8rem] border border-white/16 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.018))] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.14)] backdrop-blur-[22px] backdrop-saturate-150 md:p-8">
+            <div className="pointer-events-none absolute inset-0 rounded-[1.8rem] bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.1),transparent_20%),radial-gradient(circle_at_top,rgba(171,108,255,0.12),transparent_35%)]" />
+            <div className="pointer-events-none absolute inset-[1px] rounded-[calc(1.8rem-1px)] border border-white/8" />
+            <div className="relative z-10 flex flex-wrap items-start justify-between gap-4 border-b border-white/8 pb-6">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#ba8cff]">
                   {currentStep.label}
                 </p>
-                <h2 className="mt-3 text-3xl font-semibold tracking-[-0.03em] text-white">{currentStep.title}</h2>
-                <p className="mt-3 max-w-3xl text-sm leading-7 text-white/63">{currentStep.description}</p>
+                <h2 className="mt-3 text-3xl font-normal tracking-[-0.03em] text-white">{currentStep.title}</h2>
+                <p className="mt-3 max-w-3xl text-sm leading-8 text-white/66">{currentStep.description}</p>
               </div>
 
               {preview || websiteUrl.trim() ? (
-                <div className="rounded-full border border-white/10 bg-black/25 px-4 py-2 text-xs font-medium text-white/68">
+                <div className="rounded-full border border-[#a96cff]/25 bg-[rgba(118,67,190,0.14)] px-4 py-2 text-xs font-medium text-white/72">
                   {previewDomain}
                 </div>
               ) : null}
             </div>
 
-            <div className="mt-8 space-y-8">
+            <div className="relative z-10 mt-8 space-y-8">
               {currentStep.key === 'business' ? (
                 <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
                   <div className="grid gap-5 md:grid-cols-2">
@@ -504,7 +509,7 @@ export default function AriesOnboardingFlow() {
                       <input
                         value={businessName}
                         onChange={(event) => setBusinessName(event.target.value)}
-                        className="w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white outline-none transition focus:border-white/22"
+                        className={fieldInputClassName}
                         placeholder="Sugar & Leather"
                       />
                     </Field>
@@ -515,7 +520,7 @@ export default function AriesOnboardingFlow() {
                       <input
                         value={businessType}
                         onChange={(event) => setBusinessType(event.target.value)}
-                        className="w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white outline-none transition focus:border-white/22"
+                        className={fieldInputClassName}
                         placeholder="Executive and transformational coaching network"
                       />
                     </Field>
@@ -526,7 +531,7 @@ export default function AriesOnboardingFlow() {
                       <input
                         value={approverName}
                         onChange={(event) => setApproverName(event.target.value)}
-                        className="w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white outline-none transition focus:border-white/22"
+                        className={fieldInputClassName}
                         placeholder="Audrey"
                       />
                     </Field>
@@ -534,13 +539,13 @@ export default function AriesOnboardingFlow() {
                       label="Current source"
                       hint="Aries will keep the website attached to the current campaign source."
                     >
-                      <div className="rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-sm text-white/72">
+                      <div className="rounded-[1rem] border border-white/12 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] px-4 py-3 text-sm text-white/72">
                         {hostnameFromUrl(websiteUrl) || 'Add the website in the next step.'}
                       </div>
                     </Field>
                   </div>
 
-                  <div className="grid gap-4">
+                  <div className="grid gap-4 lg:mt-6">
                     <EditorialPanel
                       eyebrow="What this powers"
                       title="One intake feeds the full campaign flow."
@@ -568,30 +573,30 @@ export default function AriesOnboardingFlow() {
                       <input
                         value={websiteUrl}
                         onChange={(event) => setWebsiteUrl(event.target.value)}
-                        className="w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white outline-none transition focus:border-white/22"
+                        className={fieldInputClassName}
                         placeholder="https://sugarandleather.com"
                       />
                     </Field>
 
-                    <div className="rounded-[1.5rem] border border-white/8 bg-black/15 p-5">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">What Aries reviews</p>
+                    <div className="rounded-[1.5rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-5">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#ba8cff]">What Aries reviews</p>
                       <div className="mt-4 grid gap-3 text-sm text-white/68">
-                        <div className="rounded-[1rem] border border-white/8 bg-white/[0.03] px-4 py-4">
+                        <div className="rounded-[1rem] border border-white/10 bg-white/[0.03] px-4 py-4">
                           Brand name, promise, voice, and offer language
                         </div>
-                        <div className="rounded-[1rem] border border-white/8 bg-white/[0.03] px-4 py-4">
+                        <div className="rounded-[1rem] border border-white/10 bg-white/[0.03] px-4 py-4">
                           Visual identity cues like logos, palette, and typography
                         </div>
-                        <div className="rounded-[1rem] border border-white/8 bg-white/[0.03] px-4 py-4">
+                        <div className="rounded-[1rem] border border-white/10 bg-white/[0.03] px-4 py-4">
                           The current source URL that must stay attached to the campaign
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  <div className="rounded-[1.7rem] border border-white/8 bg-black/18 p-6">
+                  <div className="rounded-[1.7rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-6">
                     <div className="space-y-3">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Website review</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#ba8cff]">Website review</p>
                       <h3 className="text-2xl font-semibold text-white">{previewBrandName}</h3>
                       <p className="text-sm text-white/50">{previewDomain}</p>
                       <p className="text-sm leading-7 text-white/68">{brandPreviewSummary(preview, urlPreview)}</p>
@@ -623,10 +628,10 @@ export default function AriesOnboardingFlow() {
 
               {currentStep.key === 'brand' ? (
                 <div className="space-y-6">
-                  <div className="rounded-[2rem] border border-white/8 bg-[radial-gradient(circle_at_top_left,rgba(220,181,143,0.14),transparent_32%),linear-gradient(160deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] p-6">
+                  <div className="rounded-[2rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(151,93,255,0.12),transparent_28%),linear-gradient(160deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] p-6">
                     <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
                       <div className="space-y-4">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Brand identity preview</p>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#ba8cff]">Brand identity preview</p>
                         <div>
                           <h3 className="text-3xl font-semibold tracking-[-0.03em] text-white">{previewBrandName}</h3>
                           <p className="mt-2 text-sm text-white/50">
@@ -660,8 +665,8 @@ export default function AriesOnboardingFlow() {
                   </div>
 
                   {preview?.externalLinks && preview.externalLinks.length > 0 ? (
-                    <div className="rounded-[1.6rem] border border-white/8 bg-black/18 p-5">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Visible brand links</p>
+                    <div className="rounded-[1.6rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-5">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#ba8cff]">Visible brand links</p>
                       <div className="mt-4 flex flex-wrap gap-3">
                         {preview.externalLinks.map((link) => (
                           <a
@@ -669,7 +674,7 @@ export default function AriesOnboardingFlow() {
                             href={link.url}
                             target="_blank"
                             rel="noreferrer"
-                            className="rounded-full border border-white/12 px-4 py-2 text-sm text-white/76 transition hover:border-white/20 hover:text-white"
+                            className="rounded-full border border-white/12 bg-white/[0.03] px-4 py-2 text-sm text-white/76 transition hover:border-[#a96cff]/30 hover:text-white"
                           >
                             {link.platform}
                           </a>
@@ -696,8 +701,8 @@ export default function AriesOnboardingFlow() {
                           className={clsx(
                             'rounded-[1.5rem] border px-5 py-5 text-left transition',
                             selected
-                              ? 'border-white/20 bg-white/[0.08] text-white'
-                              : 'border-white/8 bg-black/18 text-white/62 hover:border-white/16 hover:text-white',
+                              ? 'border-[#a96cff]/40 bg-[linear-gradient(180deg,rgba(151,93,255,0.16),rgba(151,93,255,0.05))] text-white shadow-[0_0_18px_rgba(169,108,255,0.12)]'
+                              : 'border-white/10 bg-white/[0.03] text-white/62 hover:border-white/16 hover:bg-white/[0.04] hover:text-white',
                           )}
                         >
                           <div className="flex items-start justify-between gap-3">
@@ -705,7 +710,7 @@ export default function AriesOnboardingFlow() {
                               <p className="text-base font-semibold">{channel.label}</p>
                               <p className="mt-2 text-sm leading-7 text-white/58">{channel.description}</p>
                             </div>
-                            {selected ? <Check className="mt-1 h-4 w-4 text-emerald-300" /> : null}
+                            {selected ? <Check className="mt-1 h-4 w-4 text-[#d6b8ff]" /> : null}
                           </div>
                         </button>
                       );
@@ -727,8 +732,8 @@ export default function AriesOnboardingFlow() {
                           className={clsx(
                             'rounded-[1.35rem] border px-4 py-4 text-left transition',
                             goal === option.label
-                              ? 'border-white/20 bg-white/[0.08] text-white'
-                              : 'border-white/8 bg-black/18 text-white/62 hover:border-white/16 hover:text-white',
+                              ? 'border-[#a96cff]/40 bg-[linear-gradient(180deg,rgba(151,93,255,0.16),rgba(151,93,255,0.05))] text-white shadow-[0_0_18px_rgba(169,108,255,0.12)]'
+                              : 'border-white/10 bg-white/[0.03] text-white/62 hover:border-white/16 hover:bg-white/[0.04] hover:text-white',
                           )}
                         >
                           <p className="font-medium">{option.label}</p>
@@ -746,7 +751,7 @@ export default function AriesOnboardingFlow() {
                       <input
                         value={offer}
                         onChange={(event) => setOffer(event.target.value)}
-                        className="w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white outline-none transition focus:border-white/22"
+                        className={fieldInputClassName}
                         placeholder="Private coaching, memberships, or the next flagship offer"
                       />
                     </Field>
@@ -758,20 +763,21 @@ export default function AriesOnboardingFlow() {
                       <input
                         value={competitorUrl}
                         onChange={(event) => setCompetitorUrl(event.target.value)}
-                        className="w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white outline-none transition focus:border-white/22"
+                        className={fieldInputClassName}
                         placeholder="https://betterup.com"
                       />
                     </Field>
 
-                    <div className="rounded-[1.5rem] border border-white/8 bg-black/18 p-5 text-sm leading-7 text-white/65">
+                    <div className="rounded-[1.5rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-5 text-sm leading-7 text-white/65">
                       Aries will save this operating profile, open the first campaign workspace, and carry the same brand identity through review instead of rebuilding it from scratch.
                     </div>
+
                   </div>
                 </div>
               ) : null}
             </div>
 
-            <div className="mt-8 flex flex-wrap items-center justify-between gap-4 border-t border-white/8 pt-6">
+            <div className="relative z-10 mt-8 flex flex-wrap items-center justify-between gap-4 border-t border-white/8 pt-6">
               <button
                 type="button"
                 onClick={() => {
@@ -779,9 +785,9 @@ export default function AriesOnboardingFlow() {
                   setStepIndex((index) => Math.max(index - 1, 0));
                 }}
                 disabled={stepIndex === 0 || submitting}
-                className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2.5 text-sm font-medium text-white/70 transition disabled:cursor-not-allowed disabled:opacity-40 hover:border-white/20 hover:text-white"
+                className="inline-flex items-center gap-2 rounded-full border border-[#fff] bg-white/[0.03] px-4 py-2.5 text-sm font-medium text-[#fff] transition disabled:cursor-not-allowed disabled:opacity-40 hover:border-[#fff] hover:text-[#fff]"
               >
-                <ArrowLeft className="h-4 w-4" />
+                <ArrowLeft className="h-4 w-4 text-[#fff]" />
                 Back
               </button>
 
@@ -791,7 +797,7 @@ export default function AriesOnboardingFlow() {
                   <button
                     type="button"
                     onClick={handleContinue}
-                    className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] transition hover:translate-y-[-1px]"
+                    className="inline-flex items-center gap-2 rounded-full border border-[#a96cff]/40 bg-[linear-gradient(90deg,#5c2e96,#7a41c2,#a96cff)] px-6 py-3 text-sm font-semibold text-white shadow-[0_0_24px_rgba(169,108,255,0.2)] transition hover:translate-y-[-1px]"
                   >
                     Continue
                     <ArrowRight className="h-4 w-4" />
@@ -801,7 +807,7 @@ export default function AriesOnboardingFlow() {
                     type="button"
                     onClick={() => void handleFinish()}
                     disabled={submitting || !canFinish}
-                    className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex items-center gap-2 rounded-full border border-[#a96cff]/40 bg-[linear-gradient(90deg,#5c2e96,#7a41c2,#a96cff)] px-6 py-3 text-sm font-semibold text-white shadow-[0_0_24px_rgba(169,108,255,0.2)] transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {submitting ? 'Starting your workspace...' : 'Start your first campaign'}
                     <ArrowRight className="h-4 w-4" />
@@ -809,7 +815,20 @@ export default function AriesOnboardingFlow() {
                 )}
               </div>
             </div>
-          </section>
+
+            <div className="relative z-10 mt-4 rounded-[1.7rem] border border-white/10 bg-[linear-gradient(160deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-5 text-sm leading-7 text-white/78 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+              <div className="flex items-center gap-3 text-[#e8d8ff]">
+                <ShieldCheck className="h-4 w-4" />
+                <span className="font-medium">Approval stays visible from the first plan through launch.</span>
+              </div>
+              <p className="mt-3 text-white/62">
+                Nothing goes live without a clear review step. The source website stays attached to the campaign so stale brand material does not leak forward.
+              </p>
+            </div>
+                </section>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -819,30 +838,30 @@ export default function AriesOnboardingFlow() {
 function Field(props: { label: string; hint?: string; children: ReactNode }) {
   return (
     <label className="space-y-2">
-      <span className="text-sm font-medium text-white/78">{props.label}</span>
+      <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/72">{props.label}</span>
       {props.children}
-      {props.hint ? <p className="text-sm leading-6 text-white/45">{props.hint}</p> : null}
+      {props.hint ? <p className="text-sm leading-7 text-white/46">{props.hint}</p> : null}
     </label>
   );
 }
 
 function EditorialPanel(props: { eyebrow: string; title: string; description: string }) {
   return (
-    <div className="rounded-[1.6rem] border border-white/8 bg-black/18 p-5">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.eyebrow}</p>
-      <h3 className="mt-3 text-xl font-semibold text-white">{props.title}</h3>
-      <p className="mt-3 text-sm leading-7 text-white/64">{props.description}</p>
+    <div className="relative overflow-hidden rounded-[1.65rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-5 shadow-[0_20px_50px_rgba(0,0,0,0.18)]">
+      <p className="relative text-[11px] font-semibold uppercase tracking-[0.24em] text-[#ba8cff]">{props.eyebrow}</p>
+      <h3 className="relative mt-3 text-2xl font-semibold tracking-[-0.03em] text-white">{props.title}</h3>
+      <p className="relative mt-3 text-sm leading-7 text-white/66">{props.description}</p>
     </div>
   );
 }
 
 function EditorialList(props: { title: string; items: string[] }) {
   return (
-    <div className="rounded-[1.6rem] border border-white/8 bg-black/18 p-5">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.title}</p>
+    <div className="rounded-[1.6rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-5">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/54">{props.title}</p>
       <div className="mt-4 space-y-3">
         {props.items.map((item) => (
-          <div key={item} className="rounded-[1rem] border border-white/8 bg-white/[0.03] px-4 py-4 text-sm leading-7 text-white/68">
+          <div key={item} className="rounded-[1rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02))] px-4 py-4 text-sm leading-7 text-white/72">
             {item}
           </div>
         ))}
@@ -853,9 +872,9 @@ function EditorialList(props: { title: string; items: string[] }) {
 
 function PreviewStat(props: { label: string; value: string }) {
   return (
-    <div className="rounded-[1.3rem] border border-white/8 bg-black/20 p-4">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.label}</p>
-      <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-white/74">{props.value}</p>
+    <div className="rounded-[1.2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-4">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/54">{props.label}</p>
+      <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-white/72">{props.value}</p>
     </div>
   );
 }
@@ -870,8 +889,8 @@ function VisualBoard(props: {
 
   return (
     <div className="grid gap-4">
-      <div className="rounded-[1.5rem] border border-white/8 bg-black/18 p-5">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Logo candidates</p>
+      <div className="rounded-[1.5rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-5">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/54">Logo candidates</p>
         {logoUrls.length > 0 ? (
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {logoUrls.map((logoUrl, index) => (
@@ -887,8 +906,8 @@ function VisualBoard(props: {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <div className="rounded-[1.5rem] border border-white/8 bg-black/18 p-5">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Palette</p>
+        <div className="rounded-[1.5rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-5">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/54">Palette</p>
           {props.colors.length > 0 ? (
             <div className="mt-4 grid gap-3 grid-cols-3">
               {props.colors.map((color) => (
@@ -903,8 +922,8 @@ function VisualBoard(props: {
           )}
         </div>
 
-        <div className="rounded-[1.5rem] border border-white/8 bg-black/18 p-5">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Fonts</p>
+        <div className="rounded-[1.5rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-5">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/54">Fonts</p>
           {props.fontFamilies.length > 0 ? (
             <div className="mt-4 space-y-3">
               {props.fontFamilies.map((font) => (

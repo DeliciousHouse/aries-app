@@ -8,7 +8,7 @@ import { AriesMark } from '@/frontend/donor/ui';
 
 interface SignUpFormProps {
   onNavigate: (view: AuthView, email?: string) => void;
-  onSubmit: (email: string, needsOnboarding: boolean) => void;
+  onSubmit: (email: string, password: string) => Promise<{ success: boolean }> | { success: boolean };
   onGoogleSuccess: () => void;
   onSlackClick: () => void;
   isLoading: boolean;
@@ -37,6 +37,7 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const token = params.get('invite');
+    const emailParam = params.get('email');
     if (token) {
       getInvitationByToken(token).then(data => {
         if (data) {
@@ -50,6 +51,11 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
           setFullName(firstName.charAt(0).toUpperCase() + firstName.slice(1));
         }
       });
+      return;
+    }
+
+    if (emailParam) {
+      setEmail(emailParam);
     }
   }, []);
 
@@ -91,7 +97,10 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
         return;
       }
 
-      onSubmit(email, true);
+      const submitResult = await onSubmit(email, password);
+      if (!submitResult.success) {
+        setIsSubmitting(false);
+      }
     } catch (err: any) {
       setErrorLocal(err.message || "Signup failed.");
       setIsSubmitting(false);
@@ -275,6 +284,5 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
 
 
 export default SignUpForm;
-
 
 

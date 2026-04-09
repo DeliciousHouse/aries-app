@@ -1,51 +1,50 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 
 import AuthLayout from '../../frontend/auth/auth-layout';
 import LoginForm from '../../frontend/auth/login-form';
-
-function authErrorMessage(errorCode: string | null, missingClaims: string | null): string | null {
-  if (!errorCode) {
-    return null;
-  }
-
-  switch (errorCode) {
-    case 'CredentialsSignin':
-      return 'Invalid email or password.';
-    case 'AccessDenied':
-      return 'Access was denied. Try a different sign-in method.';
-    case 'DatabaseUnavailable':
-      return 'Authentication cannot reach the Postgres database. Start Postgres or update the DB connection settings.';
-    case 'TenantClaimsIncomplete':
-      return missingClaims
-        ? `Your account is authenticated but missing required tenant claims: ${missingClaims
-            .split(',')
-            .filter(Boolean)
-            .join(', ')}.`
-        : 'Your account is authenticated but missing required tenant claims.';
-    case 'OAuthAccountNotLinked':
-      return 'This email is already linked to a different sign-in method.';
-    case 'CallbackRouteError':
-      return 'Unable to complete sign-in right now.';
-    default:
-      return 'Unable to sign in right now.';
-  }
-}
+import { EMAIL_DOES_NOT_EXIST_ERROR } from '@/lib/auth-error-message';
+import {
+  getLoginAuthErrorMessage,
+  resolveLoginErrorCode,
+  shouldRedirectLoginToSignup,
+} from '@/lib/login-auth-error';
 
 export default function LoginPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isLoading, setIsLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
+  const callbackUrl = '/auth/post-login';
   const defaultEmail = searchParams.get('email') || '';
-  const queryError = useMemo(
-    () => authErrorMessage(searchParams.get('error'), searchParams.get('missing')),
+  const queryErrorCode = useMemo(
+    () => resolveLoginErrorCode(searchParams.get('error'), searchParams.get('code')),
     [searchParams],
   );
+  const queryError = useMemo(
+    () =>
+      getLoginAuthErrorMessage(
+        searchParams.get('error'),
+        searchParams.get('code'),
+        searchParams.get('missing'),
+      ),
+    [searchParams],
+  );
+
+  useEffect(() => {
+    if (queryErrorCode !== EMAIL_DOES_NOT_EXIST_ERROR) {
+      return;
+    }
+
+    const email = searchParams.get('email') || '';
+    if (typeof window !== 'undefined') {
+      window.alert("Email doesn't exist. Please sign up.");
+    }
+    router.replace(`/signup?email=${encodeURIComponent(email)}&notice=${EMAIL_DOES_NOT_EXIST_ERROR}`);
+  }, [queryErrorCode, router, searchParams]);
 
   const handleGoogleSuccess = () => {
     setIsLoading(true);
@@ -75,8 +74,21 @@ export default function LoginPageClient() {
       }
 
       if (result.error) {
+        if (shouldRedirectLoginToSignup(result.error, result.code)) {
+          if (typeof window !== 'undefined') {
+            window.alert("Email doesn't exist. Please sign up.");
+          }
+          router.push(`/signup?email=${encodeURIComponent(email)}&notice=${EMAIL_DOES_NOT_EXIST_ERROR}`);
+          router.refresh();
+          return;
+        }
+
         setAuthError(
-          authErrorMessage(result.error, searchParams.get('missing')) || 'Invalid email or password.',
+          getLoginAuthErrorMessage(
+            result.error,
+            result.code,
+            searchParams.get('missing'),
+          ) || 'Invalid email or password.',
         );
         setIsLoading(false);
         return;
