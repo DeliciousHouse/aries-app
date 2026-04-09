@@ -19,6 +19,7 @@ function marketingWorkflows() {
 
 function nestedWorkflowPaths(): string[] {
   return [
+    path.join(PROJECT_ROOT, 'lobster', 'marketing-pipeline.lobster'),
     path.join(PROJECT_ROOT, 'lobster', 'stage-1-research', 'workflow.lobster'),
     path.join(PROJECT_ROOT, 'lobster', 'stage-2-strategy', 'review-workflow.lobster'),
     path.join(PROJECT_ROOT, 'lobster', 'stage-2-strategy', 'finalize-workflow.lobster'),
@@ -31,7 +32,8 @@ function nestedWorkflowPaths(): string[] {
 
 function decodeBase64Json(value: unknown): Record<string, unknown> {
   assert.equal(typeof value, 'string');
-  return JSON.parse(Buffer.from(value, 'base64').toString('utf8')) as Record<string, unknown>;
+  const encoded = value as string;
+  return JSON.parse(Buffer.from(encoded, 'base64').toString('utf8')) as Record<string, unknown>;
 }
 
 function installTestInvoker(
@@ -148,10 +150,7 @@ test('runAriesOpenClawWorkflow dispatches every marketing workflow key to the ex
 
       assert.equal(executed.kind, 'ok');
       assert.equal((captured[0]?.args as Record<string, unknown>)?.pipeline, workflow.pipeline);
-      assert.equal(
-        (captured[0]?.args as Record<string, unknown>)?.cwd,
-        path.relative(path.dirname(PROJECT_ROOT), String(workflow.cwd)),
-      );
+      assert.equal((captured[0]?.args as Record<string, unknown>)?.cwd, 'lobster');
       } finally {
         clearTestInvoker();
       }
@@ -452,10 +451,12 @@ test('aries execution no longer uses the stage1-only marketing compat fallback f
 
 test('nested marketing workflows do not reference legacy missing-helper commands', async () => {
   const forbidden = [
+    '../bin/',
     'validate_args.py',
     'check_requirements.py',
     'bootstrap_marketing_workspace.sh',
     'invoke_skill.py',
+    'marketing-pipeline-compat',
   ];
 
   for (const workflowPath of nestedWorkflowPaths()) {

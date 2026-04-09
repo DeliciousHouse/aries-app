@@ -5,6 +5,8 @@ const scripts = [
   'scripts/automations/private-repo-backup.mjs',
   'scripts/automations/overnight-self-improve.mjs',
   'scripts/automations/daily-brief.mjs',
+  'scripts/automations/feedback-connector.mjs',
+  'scripts/automations/feedback-daily-summary.mjs',
   'scripts/automations/rolling-system-reference.mjs',
 ]
 

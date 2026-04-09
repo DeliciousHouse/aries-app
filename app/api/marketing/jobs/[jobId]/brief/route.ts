@@ -8,7 +8,6 @@ import {
   type CampaignWorkspaceAssetUpload,
 } from '@/backend/marketing/workspace-store';
 import { loadMarketingJobRuntime, saveMarketingJobRuntime } from '@/backend/marketing/runtime-state';
-import { isMarketingPublicMode } from '@/lib/marketing-public-mode';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
 function coerceFieldValue(value: FormDataEntryValue | null): string {
@@ -88,17 +87,10 @@ export async function handlePatchMarketingJobBrief(
   tenantContextLoader?: TenantContextLoader,
 ) {
   const tenantResult = await loadTenantContextOrResponse(tenantContextLoader);
-  const tenantId = 'response' in tenantResult
-    ? isMarketingPublicMode()
-      ? loadMarketingJobRuntime(jobId)?.tenant_id ?? null
-      : null
-    : tenantResult.tenantContext.tenantId;
-
-  if (!tenantId) {
-    return 'response' in tenantResult
-      ? tenantResult.response
-      : NextResponse.json({ error: 'Authentication required.' }, { status: 403 });
+  if ('response' in tenantResult) {
+    return tenantResult.response;
   }
+  const tenantId = tenantResult.tenantContext.tenantId;
 
   const runtimeDoc = loadMarketingJobRuntime(jobId);
   if (!runtimeDoc || runtimeDoc.tenant_id !== tenantId) {

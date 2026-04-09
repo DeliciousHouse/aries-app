@@ -8,8 +8,6 @@ import { mapOpenClawGatewayError, runAriesOpenClawWorkflow } from '../../../back
 import { PROVIDER_REGISTRY } from '../../../backend/integrations/provider-registry';
 import { buildOauthConnectInput } from '@/lib/oauth-connect-input';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
-import { findLatestMarketingTenantId } from '@/backend/marketing/runtime-state';
-import { isMarketingPublicMode } from '@/lib/marketing-public-mode';
 
 const platforms = Object.keys(PROVIDER_REGISTRY) as Array<keyof typeof PROVIDER_REGISTRY>;
 
@@ -30,8 +28,56 @@ type IntegrationPageCard = {
   };
 };
 
-function isDbTenantId(tenantId: string | null | undefined): tenantId is string {
-  return typeof tenantId === 'string' && /^[1-9]\d*$/.test(tenantId.trim());
+function customerSafePlatformLabel(platform: keyof typeof PROVIDER_REGISTRY): string {
+  if (platform === 'facebook') {
+    return 'Meta';
+  }
+  if (platform === 'instagram') {
+    return 'Instagram publishing';
+  }
+  return PROVIDER_REGISTRY[platform].display_name;
+}
+
+function customerSafeStatusMessage(
+  platform: keyof typeof PROVIDER_REGISTRY,
+  connectionState: IntegrationPageCard['connection_state'],
+): string {
+  if (platform === 'facebook') {
+    if (connectionState === 'connected') {
+      return 'Meta is connected and ready.';
+    }
+    if (connectionState === 'reauth_required' || connectionState === 'connection_error') {
+      return 'Meta is not connected yet.';
+    }
+    if (connectionState === 'disabled') {
+      return 'Contact support to finish channel setup.';
+    }
+    return 'Meta is not connected yet.';
+  }
+
+  if (platform === 'instagram') {
+    if (connectionState === 'connected') {
+      return 'Instagram publishing is connected and ready.';
+    }
+    if (connectionState === 'disabled') {
+      return 'Instagram publishing needs to be connected.';
+    }
+    if (connectionState === 'reauth_required' || connectionState === 'connection_error') {
+      return 'Instagram publishing needs attention before posts can go live.';
+    }
+    return 'Instagram publishing needs to be connected.';
+  }
+
+  if (connectionState === 'connected') {
+    return `${customerSafePlatformLabel(platform)} is connected and ready.`;
+  }
+  if (connectionState === 'disabled') {
+    return 'Publishing is not ready yet.';
+  }
+  if (connectionState === 'reauth_required' || connectionState === 'connection_error') {
+    return 'Contact support to finish channel setup.';
+  }
+  return `${customerSafePlatformLabel(platform)} is not connected yet.`;
 }
 
 function mapState(connectionStatus: string) {
@@ -63,8 +109,8 @@ function mapHealth(connectionStatus: string, tokenExpiresAt?: string) {
 function buildDisconnectedIntegrationCard(platform: keyof typeof PROVIDER_REGISTRY): IntegrationPageCard {
   return {
     platform,
-    display_name: PROVIDER_REGISTRY[platform].display_name,
-    description: `Connect ${PROVIDER_REGISTRY[platform].display_name}`,
+    display_name: customerSafePlatformLabel(platform),
+    description: customerSafeStatusMessage(platform, 'not_connected'),
     connection_state: 'not_connected',
     health: 'unknown',
     available_actions: ['connect', 'view_permissions'],
@@ -87,10 +133,6 @@ function buildIntegrationsPagePayload(cards: IntegrationPageCard[]) {
   return { status: 'ok', page_state: 'ready', supported_platforms: platforms, cards, summary };
 }
 
-function buildPublicIntegrationsPageData() {
-  return buildIntegrationsPagePayload(platforms.map((platform) => buildDisconnectedIntegrationCard(platform)));
-}
-
 export function buildIntegrationsPageData(tenantId: string) {
   return buildIntegrationsPageDataAsync(tenantId);
 }
@@ -105,6 +147,10 @@ export async function buildIntegrationsPageDataAsync(tenantId: string) {
           connection_state: 'connection_error',
           health: 'error',
           available_actions: ['connect'],
+          error: {
+            code: 'provider_unavailable',
+            message: customerSafeStatusMessage(platform, 'connection_error'),
+          },
         };
       }
 
@@ -116,15 +162,15 @@ export async function buildIntegrationsPageDataAsync(tenantId: string) {
           available_actions: [],
           error: {
             code: 'provider_unavailable',
-            message: status.last_error?.message || `${PROVIDER_REGISTRY[platform].display_name} OAuth is unavailable.`,
+            message: customerSafeStatusMessage(platform, 'disabled'),
           },
         };
       }
 
       return {
         platform,
-        display_name: PROVIDER_REGISTRY[platform].display_name,
-        description: `Connect ${PROVIDER_REGISTRY[platform].display_name}`,
+        display_name: customerSafePlatformLabel(platform),
+        description: customerSafeStatusMessage(platform, mapState(status.connection_status)),
         connection_id: status.integration_id,
         connection_state: mapState(status.connection_status),
         health: mapHealth(status.connection_status, status.token_expires_at),
@@ -143,7 +189,7 @@ export async function buildIntegrationsPageDataAsync(tenantId: string) {
           status.last_error?.message && status.connection_status !== 'connected'
             ? {
                 code: status.last_error.code || 'provider_unavailable',
-                message: status.last_error.message,
+                message: customerSafeStatusMessage(platform, mapState(status.connection_status)),
               }
             : undefined,
       };
@@ -156,17 +202,6 @@ export async function buildIntegrationsPageDataAsync(tenantId: string) {
 export async function handleIntegrationsGet(tenantContextLoader?: TenantContextLoader) {
   const tenantResult = await loadTenantContextOrResponse(tenantContextLoader);
   if ('response' in tenantResult) {
-    if (isMarketingPublicMode()) {
-      const marketingTenantId = findLatestMarketingTenantId();
-      const pageData = isDbTenantId(marketingTenantId)
-        ? await buildIntegrationsPageDataAsync(marketingTenantId)
-        : buildPublicIntegrationsPageData();
-
-      return new Response(JSON.stringify(pageData), {
-        status: 200,
-        headers: { 'content-type': 'application/json' }
-      });
-    }
     return tenantResult.response;
   }
 

@@ -1,12 +1,6 @@
 services:
   aries-app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        ARIES_NODE_UID: 1004
-        ARIES_NODE_GID: 1004
-    image: ${ARIES_APP_IMAGE:-aries-app:local}
+    image: ${ARIES_APP_IMAGE:?Set ARIES_APP_IMAGE to a root-built Aries image tag}
     environment:
       HOME: /home/node
       GH_CONFIG_DIR: /home/node/.config/gh
@@ -40,13 +34,13 @@ services:
       MARKETING_STATUS_PUBLIC: ${MARKETING_STATUS_PUBLIC:-}
       NEXTAUTH_URL: ${NEXTAUTH_URL}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
-      OPENCLAW_LOBSTER_CWD: ${OPENCLAW_LOBSTER_CWD:-/app/aries-app/lobster}
+      OAUTH_TOKEN_ENCRYPTION_KEY: ${OAUTH_TOKEN_ENCRYPTION_KEY:-}
+      OPENCLAW_LOBSTER_CWD: ${OPENCLAW_LOBSTER_CWD:-/app/lobster}
       OPENCLAW_GATEWAY_LOBSTER_CWD: ${OPENCLAW_GATEWAY_LOBSTER_CWD:-aries-app/lobster}
-      OPENCLAW_LOCAL_LOBSTER_CWD: ${OPENCLAW_LOCAL_LOBSTER_CWD:-/app/aries-app/lobster}
+      OPENCLAW_LOCAL_LOBSTER_CWD: ${OPENCLAW_LOCAL_LOBSTER_CWD:-/app/lobster}
     volumes:
       - aries_runtime_data:/data
       - gh_config:/home/node/.config/gh
-      - ./:/app/aries-app
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]

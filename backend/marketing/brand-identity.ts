@@ -97,14 +97,33 @@ export function sourceFingerprintFromRecord(record: Record<string, unknown> | nu
 
   const nestedBrandAnalysis = recordValue(record.brand_analysis);
   const nestedCreativeHandoff = recordValue(record.creative_handoff);
+  const nestedCampaignPlan = recordValue(record.campaign_plan);
+  const nestedReviewPacket = recordValue(record.review_packet);
+  const nestedBrandProfilesRecord = recordValue(record.brand_profiles_record);
+  const nestedProductionBrief = recordValue(record.production_brief);
+  const nestedBrandIdentity = recordValue(record.brandIdentity || nestedProductionBrief?.brand_identity);
+  const nestedProvenance = recordValue(nestedBrandIdentity?.provenance);
 
   return (
     normalizeSourceFingerprint(record.canonical_url) ||
     normalizeSourceFingerprint(record.source_url) ||
     normalizeSourceFingerprint(record.website_url) ||
+    normalizeSourceFingerprint(record.brand_url) ||
     normalizeSourceFingerprint(nestedBrandAnalysis?.canonical_url) ||
     normalizeSourceFingerprint(nestedBrandAnalysis?.website_url) ||
-    normalizeSourceFingerprint(nestedCreativeHandoff?.website_url)
+    normalizeSourceFingerprint(nestedCreativeHandoff?.website_url) ||
+    normalizeSourceFingerprint(nestedCampaignPlan?.canonical_url) ||
+    normalizeSourceFingerprint(nestedCampaignPlan?.website_url) ||
+    normalizeSourceFingerprint(nestedCampaignPlan?.brand_url) ||
+    normalizeSourceFingerprint(nestedReviewPacket?.canonical_url) ||
+    normalizeSourceFingerprint(nestedReviewPacket?.website_url) ||
+    normalizeSourceFingerprint(nestedReviewPacket?.brand_url) ||
+    normalizeSourceFingerprint(nestedBrandProfilesRecord?.canonical_url) ||
+    normalizeSourceFingerprint(nestedBrandProfilesRecord?.website_url) ||
+    normalizeSourceFingerprint(nestedBrandProfilesRecord?.brand_url) ||
+    normalizeSourceFingerprint(nestedProvenance?.canonical_url) ||
+    normalizeSourceFingerprint(nestedProvenance?.source_url) ||
+    normalizeSourceFingerprint(nestedProvenance?.source_fingerprint)
   );
 }
 

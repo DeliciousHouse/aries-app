@@ -7,6 +7,7 @@ import { ArrowUpRight, CheckCircle2, MessageSquareText, XCircle } from 'lucide-r
 import MediaPreview from '@/frontend/components/media-preview';
 import { useRuntimeReviewItem } from '@/hooks/use-runtime-review-item';
 
+import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { EmptyStatePanel, ShellPanel, StatusChip } from './components';
 
 function workflowLabel(value: string): string {
@@ -70,7 +71,11 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
   }
 
   if (review.error) {
-    return <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">{review.error.message}</div>;
+    return (
+      <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
+        {customerSafeUiErrorMessage(review.error.message, 'This review item is not available right now.')}
+      </div>
+    );
   }
 
   if (!item) {
@@ -162,7 +167,7 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
                   <div className="space-y-5 border-t border-white/8 pt-5">
                     {section.brandKitVisuals.logos.length > 0 ? (
                       <div className="space-y-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Logo</p>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Visible marks</p>
                         <div className="grid gap-3 sm:grid-cols-2">
                           {section.brandKitVisuals.logos.map((logoUrl, index) => (
                             <div key={`${section.id}-logo-${index}`} className="overflow-hidden rounded-[1.1rem] border border-white/8 bg-white px-4 py-4">
@@ -176,7 +181,7 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
 
                     {section.brandKitVisuals.colors.length > 0 ? (
                       <div className="space-y-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Colors</p>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Palette cues</p>
                         <div className="grid gap-3 sm:grid-cols-3">
                           {section.brandKitVisuals.colors.map((color) => (
                             <div key={`${section.id}-${color.hex}`} className="rounded-[1.1rem] border border-white/8 bg-black/15 p-3">
@@ -191,7 +196,7 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
 
                     {section.brandKitVisuals.fonts.length > 0 ? (
                       <div className="space-y-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Fonts</p>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Typography cues</p>
                         <div className="grid gap-3">
                           {section.brandKitVisuals.fonts.map((font) => (
                             <div key={`${section.id}-${font.family}`} className="rounded-[1.1rem] border border-white/8 bg-black/15 p-4">

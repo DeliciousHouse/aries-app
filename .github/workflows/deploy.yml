@@ -1,0 +1,221 @@
+name: Deploy
+
+# Operational contract (documented in DOCKER.md and docs/SYSTEM-REFERENCE.md):
+# - Pushes to master trigger this workflow and deploy the pushed commit SHA.
+# - The workflow verifies ghcr.io/<owner>/aries-app:<sha> exists before deploy.
+# - Publish the image for that SHA first (scripts/release/publish-image.sh), then push master.
+# - Pushing master before the matching GHCR tag exists fails by design at GHCR verification.
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: GHCR image tag to deploy
+        required: true
+        type: string
+      git_ref:
+        description: Optional git ref to check out on the VM
+        required: false
+        type: string
+
+concurrency:
+  group: deploy-${{ github.repository }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_OWNER: ${{ github.repository_owner }}
+  IMAGE_NAME: aries-app
+  STATIC_PUSH_BRANCH: master
+  DEFAULT_BRANCH: ${{ vars.DEFAULT_BRANCH }}
+  DEPLOY_PATH: /home/node/openclaw/aries-app
+  SERVICE_NAME: aries-app
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Validate branch wiring
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${DEFAULT_BRANCH}" ]]; then
+            echo "ERROR: Repository variable DEFAULT_BRANCH must be set." >&2
+            exit 1
+          fi
+          if [[ "${EVENT_NAME}" == "push" ]]; then
+            if [[ "${STATIC_PUSH_BRANCH}" != "${DEFAULT_BRANCH}" ]]; then
+              echo "ERROR: Workflow push branch (${STATIC_PUSH_BRANCH}) does not match DEFAULT_BRANCH (${DEFAULT_BRANCH})." >&2
+              exit 1
+            fi
+            if [[ "${REF_NAME}" != "${DEFAULT_BRANCH}" ]]; then
+              echo "ERROR: Push deploy received ${REF_NAME}, expected ${DEFAULT_BRANCH}." >&2
+              exit 1
+            fi
+          fi
+
+      - name: Resolve deploy target
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_IMAGE_TAG: ${{ inputs.image_tag }}
+          INPUT_GIT_REF: ${{ inputs.git_ref }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${EVENT_NAME}" == "push" ]]; then
+            image_tag="${CURRENT_SHA}"
+            checkout_ref="${CURRENT_SHA}"
+          else
+            image_tag="${INPUT_IMAGE_TAG}"
+            if [[ -z "${image_tag}" ]]; then
+              echo "ERROR: image_tag is required for manual deploys." >&2
+              exit 1
+            fi
+            if [[ -n "${INPUT_GIT_REF}" ]]; then
+              checkout_ref="${INPUT_GIT_REF}"
+            elif [[ "${image_tag}" =~ ^[0-9a-f]{40}$ ]]; then
+              checkout_ref="${image_tag}"
+            else
+              echo "ERROR: Manual deploys require git_ref unless image_tag is a full commit SHA." >&2
+              exit 1
+            fi
+          fi
+
+          image_ref="${REGISTRY}/${IMAGE_OWNER}/${IMAGE_NAME}:${image_tag}"
+          echo "image_tag=${image_tag}" >> "${GITHUB_OUTPUT}"
+          echo "checkout_ref=${checkout_ref}" >> "${GITHUB_OUTPUT}"
+          echo "image_ref=${image_ref}" >> "${GITHUB_OUTPUT}"
+
+      - name: Verify GHCR tag exists
+        env:
+          IMAGE_REF: ${{ steps.resolve.outputs.image_ref }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GHCR_WORKFLOW_TOKEN: ${{ secrets.GHCR_WORKFLOW_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          login() {
+            local token="$1"
+            printf '%s' "${token}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin >/dev/null
+          }
+
+          login "${GITHUB_TOKEN}"
+          if ! docker buildx imagetools inspect "${IMAGE_REF}" >/dev/null 2>&1; then
+            if [[ -n "${GHCR_WORKFLOW_TOKEN}" ]]; then
+              login "${GHCR_WORKFLOW_TOKEN}"
+              docker buildx imagetools inspect "${IMAGE_REF}" >/dev/null
+            else
+              echo "ERROR: GHCR tag ${IMAGE_REF} is missing or inaccessible with GITHUB_TOKEN." >&2
+              exit 1
+            fi
+          fi
+
+      - name: Configure SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          deploy_port="${DEPLOY_PORT:-22}"
+          if [[ -z "${DEPLOY_HOST}" || -z "${DEPLOY_SSH_PRIVATE_KEY}" ]]; then
+            echo "ERROR: DEPLOY_HOST and DEPLOY_SSH_PRIVATE_KEY secrets are required." >&2
+            exit 1
+          fi
+          install -m 700 -d "${HOME}/.ssh"
+          printf '%s\n' "${DEPLOY_SSH_PRIVATE_KEY}" > "${HOME}/.ssh/id_ed25519"
+          chmod 600 "${HOME}/.ssh/id_ed25519"
+          ssh-keyscan -p "${deploy_port}" "${DEPLOY_HOST}" >> "${HOME}/.ssh/known_hosts"
+          chmod 600 "${HOME}/.ssh/known_hosts"
+
+      - name: Deploy to VM
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          TARGET_IMAGE: ${{ steps.resolve.outputs.image_ref }}
+          TARGET_CHECKOUT_REF: ${{ steps.resolve.outputs.checkout_ref }}
+        run: |
+          set -euo pipefail
+          deploy_port="${DEPLOY_PORT:-22}"
+          if [[ -z "${DEPLOY_USER}" ]]; then
+            echo "ERROR: DEPLOY_USER secret is required." >&2
+            exit 1
+          fi
+
+          ssh -p "${deploy_port}" "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            TARGET_IMAGE="${TARGET_IMAGE}" \
+            TARGET_CHECKOUT_REF="${TARGET_CHECKOUT_REF}" \
+            REPO_PATH="${DEPLOY_PATH}" \
+            SERVICE_NAME="${SERVICE_NAME}" \
+            'bash -s' <<'EOF'
+          set -euo pipefail
+
+          repo_path="${REPO_PATH}"
+
+          resolve_checkout_target() {
+            local requested="$1"
+            case "${requested}" in
+              refs/heads/*)
+                echo "origin/${requested#refs/heads/}"
+                return 0
+                ;;
+              refs/tags/*)
+                echo "${requested#refs/tags/}"
+                return 0
+                ;;
+            esac
+
+            if git -C "${repo_path}" rev-parse --verify --quiet "origin/${requested}^{commit}" >/dev/null; then
+              echo "origin/${requested}"
+              return 0
+            fi
+
+            if git -C "${repo_path}" rev-parse --verify --quiet "${requested}^{commit}" >/dev/null; then
+              echo "${requested}"
+              return 0
+            fi
+
+            echo "ERROR: Unable to resolve checkout ref ${requested}" >&2
+            exit 1
+          }
+
+          if [[ -n "$(git -C "${repo_path}" status --porcelain --untracked-files=no)" ]]; then
+            echo "ERROR: ${repo_path} has tracked local changes. Refusing deploy." >&2
+            exit 1
+          fi
+
+          git -C "${repo_path}" fetch --prune --tags origin
+          checkout_target="$(resolve_checkout_target "${TARGET_CHECKOUT_REF}")"
+          git -C "${repo_path}" checkout --detach "${checkout_target}"
+
+          cd "${repo_path}"
+          ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose pull "${SERVICE_NAME}"
+          ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps "${SERVICE_NAME}"
+
+          healthy=0
+          for attempt in $(seq 1 30); do
+            if docker compose exec -T "${SERVICE_NAME}" wget -qO- http://127.0.0.1:3000/ >/dev/null 2>&1; then
+              healthy=1
+              break
+            fi
+            sleep 5
+          done
+
+          if [[ "${healthy}" != "1" ]]; then
+            echo "ERROR: Aries app health check failed after deploy." >&2
+            exit 1
+          fi
+          EOF

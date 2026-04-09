@@ -7,19 +7,38 @@ import { resolveProjectRoot } from './helpers/project-root';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
-const source = readFileSync(
+const onboardingSource = readFileSync(
   path.join(PROJECT_ROOT, 'frontend', 'aries-v1', 'onboarding-flow.tsx'),
   'utf8',
 );
+const startPageSource = readFileSync(
+  path.join(PROJECT_ROOT, 'app', 'onboarding', 'start', 'page.tsx'),
+  'utf8',
+);
+const startScreenSource = readFileSync(
+  path.join(PROJECT_ROOT, 'frontend', 'onboarding', 'start.tsx'),
+  'utf8',
+);
+
+test('public onboarding boundary redirects to premium intake and removes the raw tenant-onboarding copy', () => {
+  assert.match(startPageSource, /redirect\('\/onboarding\/pipeline-intake'\)/);
+  assert.doesNotMatch(startScreenSource, /Start Onboarding/);
+  assert.doesNotMatch(startScreenSource, /Collect required onboarding start fields/);
+  assert.doesNotMatch(startScreenSource, /Tenant ID/);
+  assert.doesNotMatch(startScreenSource, /Proposed Slug/);
+  assert.doesNotMatch(startScreenSource, /Tenant Type/);
+  assert.doesNotMatch(startScreenSource, /Signup Event ID/);
+  assert.match(startScreenSource, /Tenant onboarding tooling moved off the public path/);
+});
 
 test('onboarding flow keeps the live client-facing step order and removes the old welcome-first intake', () => {
-  const businessIndex = source.indexOf("label: 'Business'");
-  const websiteIndex = source.indexOf("label: 'Website'");
-  const brandIndex = source.indexOf("label: 'Brand identity'");
-  const channelsIndex = source.indexOf("label: 'Channels'");
-  const goalIndex = source.indexOf("label: 'Goal'");
+  const businessIndex = onboardingSource.indexOf("label: 'Business'");
+  const websiteIndex = onboardingSource.indexOf("label: 'Website'");
+  const brandIndex = onboardingSource.indexOf("label: 'Brand identity'");
+  const channelsIndex = onboardingSource.indexOf("label: 'Channels'");
+  const goalIndex = onboardingSource.indexOf("label: 'Goal'");
 
-  assert.equal(source.includes("label: 'Welcome'"), false);
+  assert.equal(onboardingSource.includes("label: 'Welcome'"), false);
   assert.equal(businessIndex >= 0, true);
   assert.equal(websiteIndex > businessIndex, true);
   assert.equal(brandIndex > websiteIndex, true);
@@ -27,24 +46,23 @@ test('onboarding flow keeps the live client-facing step order and removes the ol
   assert.equal(goalIndex > channelsIndex, true);
 });
 
-test('onboarding flow keeps the website and brand preview client-facing', () => {
-  assert.equal(source.includes('Website review'), true);
-  assert.equal(source.includes('Brand identity preview'), true);
-  assert.equal(source.includes('Logo candidates'), true);
-  assert.equal(source.includes('Palette'), true);
-  assert.equal(source.includes('Fonts'), true);
-  assert.equal(source.includes('Start your first campaign'), true);
-  assert.equal(source.includes('POST /api/'), false);
-  assert.equal(source.includes('/api/marketing/jobs'), false);
-  assert.equal(source.includes('Tenant ID'), false);
-  assert.equal(source.includes('Proposed Slug'), false);
-  assert.equal(source.includes('Tenant Type'), false);
-  assert.equal(source.includes('Signup Event ID'), false);
+test('onboarding flow keeps website and brand preview customer-facing without exposing internal onboarding fields', () => {
+  assert.equal(onboardingSource.includes('Website review'), true);
+  assert.equal(onboardingSource.includes('Brand identity preview'), true);
+  assert.equal(onboardingSource.includes('POST /api/'), false);
+  assert.equal(onboardingSource.includes('/api/marketing/jobs'), false);
+  assert.equal(onboardingSource.includes('/api/business/profile'), false);
+  assert.equal(onboardingSource.includes('Tenant ID'), false);
+  assert.equal(onboardingSource.includes('Proposed Slug'), false);
+  assert.equal(onboardingSource.includes('Tenant Type'), false);
+  assert.equal(onboardingSource.includes('Signup Event ID'), false);
 });
 
-test('onboarding flow avoids raw extraction phrasing and stale operational copy', () => {
-  assert.equal(source.includes('Extracting live brand-kit data from the website'), false);
-  assert.equal(source.includes('No logo or wordmark candidates were extracted from the live site yet.'), false);
-  assert.equal(source.includes('Open Aries'), false);
-  assert.equal(source.includes('live runtime'), false);
+test('first-run onboarding requires explicit channel and goal confirmation', () => {
+  assert.match(onboardingSource, /const \[selectedChannels, setSelectedChannels\] = useState<string\[\]>\(\[\]\)/);
+  assert.match(onboardingSource, /const \[goal, setGoal\] = useState\(''\)/);
+  assert.match(onboardingSource, /selectedChannels\.length > 0/);
+  assert.match(onboardingSource, /goal\.trim\(\)\.length > 0/);
+  assert.match(onboardingSource, /Select at least one channel before continuing\./);
+  assert.match(onboardingSource, /Choose the primary goal for the first campaign\./);
 });

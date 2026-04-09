@@ -147,13 +147,13 @@ function mapChannelConnection(card: IntegrationCard): AriesChannelConnection {
     health,
     detail:
       card.connection_state === 'connected'
-        ? 'Connected and ready for scheduling.'
+        ? 'Connected and ready for publishing.'
         : card.connection_state === 'reauth_required'
-          ? 'Needs reconnection before the next launch.'
+          ? 'Needs reconnection before publishing can continue.'
           : card.connection_state === 'connection_error'
-            ? card.error?.message || 'Connection needs attention before the next launch.'
+            ? card.error?.message || 'Channel setup needs attention before publishing can continue.'
             : card.connection_state === 'disabled'
-              ? card.error?.message || 'Configured outside Aries OAuth.'
+              ? card.error?.message || 'Publishing is not ready yet.'
               : 'Not connected yet.',
   };
 }
@@ -293,7 +293,7 @@ export function createDashboardHomeViewModel(args: {
               activeCampaign !== null
                 ? 'Aries will summarize launch momentum and next actions here as soon as a campaign is live.'
                 : 'Create a campaign and Aries will start grounding this surface in live runtime data.',
-            href: activeCampaign !== null ? campaignHref(activeCampaign.id) : '/onboarding/start',
+            href: activeCampaign !== null ? campaignHref(activeCampaign.id) : '/dashboard/campaigns/new',
             label: activeCampaign !== null ? 'Open campaign' : 'Create campaign',
             items: [],
           };
@@ -339,7 +339,7 @@ export function createDashboardHomeViewModel(args: {
             : channelItems.length > 0
               ? `${channelItems.length} total publishing surfaces configured.`
               : 'No channels connected yet.',
-          tone: args.integrationsPending || connectedCount > 0 ? 'good' : 'watch',
+          tone: args.integrationsPending ? 'default' : connectedCount > 0 ? 'good' : 'watch',
         },
         {
           label: 'Profile status',
@@ -369,9 +369,11 @@ export function createDashboardHomeViewModel(args: {
         value: args.integrationsPending ? 'Loading' : `${connectedCount} ready`,
         detail: args.integrationsPending
           ? 'Checking publishing connections.'
-          : attentionCount > 0
+          : connectedCount === 0
+            ? 'Publishing is not ready yet because no channels are connected.'
+            : attentionCount > 0
             ? `${attentionCount} channel${attentionCount === 1 ? '' : 's'} need attention.`
-            : 'Publishing connections are healthy.',
+            : `${connectedCount} channel${connectedCount === 1 ? '' : 's'} connected and ready to publish.`,
         tone: args.integrationsPending ? 'default' : attentionCount > 0 ? 'watch' : 'good',
       },
       {

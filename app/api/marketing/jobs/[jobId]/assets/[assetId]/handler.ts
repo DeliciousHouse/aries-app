@@ -131,17 +131,11 @@ export async function handleGetMarketingJobAsset(
   assetId: string,
   tenantContextLoader?: TenantContextLoader
 ) {
-  const statusPublic = process.env.MARKETING_STATUS_PUBLIC === '1' || process.env.MARKETING_STATUS_PUBLIC === 'true';
-  const tenantResult = statusPublic
-    ? null
-    : await loadTenantContextOrResponse(tenantContextLoader, {
-        missingMembershipResponse: MARKETING_ONBOARDING_REQUIRED,
-      });
-
-  if (tenantResult) {
-    if ('response' in tenantResult) {
-      return tenantResult.response;
-    }
+  const tenantResult = await loadTenantContextOrResponse(tenantContextLoader, {
+    missingMembershipResponse: MARKETING_ONBOARDING_REQUIRED,
+  });
+  if ('response' in tenantResult) {
+    return tenantResult.response;
   }
 
   const runtimeDoc = loadMarketingJobRuntime(jobId);
@@ -152,7 +146,7 @@ export async function handleGetMarketingJobAsset(
     });
   }
 
-  if (tenantResult && runtimeDoc.tenant_id !== tenantResult.tenantContext.tenantId) {
+  if (runtimeDoc.tenant_id !== tenantResult.tenantContext.tenantId) {
     return new Response(JSON.stringify({ error: 'Marketing asset not found.', reason: 'marketing_asset_not_found' }), {
       status: 404,
       headers: { 'content-type': 'application/json' },

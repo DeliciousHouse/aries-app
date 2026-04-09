@@ -174,7 +174,7 @@ test('canonical client-facing marketing smoke flow stays on the monolithic pipel
     assert.equal(MARKETING_CLIENT_EXECUTION_MODEL, 'marketing_pipeline_run_resume');
     assert.equal((startPayload as any)?.args?.action, 'run');
     assert.equal((startPayload as any)?.args?.pipeline, MARKETING_PIPELINE_FILE);
-    assert.equal((startPayload as any)?.args?.cwd, 'aries-app/lobster');
+    assert.equal((startPayload as any)?.args?.cwd, 'lobster');
 
     const statusBeforeApproval = getMarketingJobStatus(startResult.jobId);
     assert.equal(statusBeforeApproval.state, 'approval_required');

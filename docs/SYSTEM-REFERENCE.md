@@ -1,9 +1,38 @@
 # Aries System Reference
 
-Last refreshed Apr 06, 2026, 21:45 PDT.
+Last refreshed Apr 07, 2026, 21:45 PDT.
 
 ## What changed today
-- No git-tracked file changes detected since local midnight.
+- team/forge/BACKLOG.md
+- team/ledger/BACKLOG.md
+- team/signal/BACKLOG.md
+- tests/business-profile-screen.test.ts
+- tests/onboarding-flow-public.test.ts
+- .gitignore
+- AGENTS.md
+- Dockerfile
+- HEARTBEAT.md
+- IDENTITY.md
+- MEMORY.md
+- PRIORITIES.md
+- PROTECTED_SYSTEMS.md
+- README.md
+- ROUTE_MANIFEST.md
+- SOUL.md
+- TOOLS.md
+- USER.md
+- app/contact/page.tsx
+- app/features/page.tsx
+- app/onboarding/page.tsx
+- app/onboarding/start/page.tsx
+- backend/marketing/asset-library.ts
+- backend/marketing/brand-identity.ts
+- backend/marketing/brand-kit.ts
+- backend/marketing/dashboard-content.ts
+- backend/marketing/jobs-status.ts
+- backend/marketing/runtime-views.ts
+- backend/marketing/validated-profile-store.ts
+- backend/marketing/workspace-views.ts
 
 ## Current architecture overview
 - Next.js App Router runtime serves the public site, authenticated operator shell, and browser-safe internal APIs.
@@ -12,19 +41,21 @@ Last refreshed Apr 06, 2026, 21:45 PDT.
 - Standalone Mission Control now lives outside the repo in /app/projects/aries-mission-control and reads /api/runtime/overview from its local runtime server.
 
 ## Module inventory
-- app/ 104 files
-- backend/ 72 files
+- app/ 107 files
+- backend/ 73 files
 - components/ 14 files
 - hooks/ 17 files
 - lib/ 18 files
-- scripts/ 16 files
-- skills/ 49 files
+- scripts/ 21 files
+- skills/ 58 files
 - workflows/ 4 files
 
 ## Active cron jobs
 - Aries private repo backup — 15 */6 * * * America/Los_Angeles — Stage current repo changes, commit them to a backup branch, and create or update a backup pull request on the configured private GitHub remote.
 - Aries overnight self-improvement — 30 1 * * * America/Los_Angeles — Rotate a nightly audit, apply low-risk cleanup, and log results to memory/YYYY-MM-DD.md.
 - Aries daily brief — 0 8 * * * America/Los_Angeles — Generate the morning priorities/overnight activity/pending actions brief.
+- Aries GitHub feedback connector — 0 7 * * * America/Los_Angeles — Sync GitHub issues, classify bug vs feature, route each pending item to the correct skill workflow, and update the processing log.
+- Aries GitHub feedback daily summary — 0 18 * * * America/Los_Angeles — Deliver the daily batch summary for non-critical GitHub feedback items that were processed and logged.
 - Aries rolling system reference — 45 21 * * * America/Los_Angeles — Update docs/SYSTEM-REFERENCE.md with architecture, inventory, cron jobs, and known issues.
 
 ## Runtime scripts
@@ -48,9 +79,21 @@ Last refreshed Apr 06, 2026, 21:45 PDT.
 - automation:backup: node scripts/automations/private-repo-backup.mjs
 - automation:self-improve: node scripts/automations/overnight-self-improve.mjs
 - automation:daily-brief: node scripts/automations/daily-brief.mjs
+- automation:feedback-connector: node scripts/automations/feedback-connector.mjs sync
+- automation:feedback-summary: node scripts/automations/feedback-daily-summary.mjs
 - automation:system-reference: node scripts/automations/rolling-system-reference.mjs
 - automation:install: node scripts/automations/install-openclaw-crons.mjs
 - automation:verify: node scripts/automations/verify-automations.mjs
+
+## Production release (operational)
+
+**Deploy trigger:** Push to `master` only **after** GHCR already has `ghcr.io/delicioushouse/aries-app:<exact-SHA>` for that commit.
+
+**Sequence:** (1) export publish env vars → (2) `bash scripts/release/publish-image.sh` on a clean tree at the release commit → (3) `git push origin master` for that same commit → (4) GitHub Actions deploys that SHA to the VM.
+
+**Failure mode:** Pushing `master` before the matching GHCR tag exists causes the Deploy workflow to fail by design (GHCR verification step).
+
+Full copy-paste commands and notes: `DOCKER.md` section **Production release (GHCR image before `master`)**.
 
 ## Known issues
 - Cron registration is prepared but not auto-enabled until backup remote/delivery targets are confirmed.
@@ -58,26 +101,26 @@ Last refreshed Apr 06, 2026, 21:45 PDT.
 - Mission Control standalone app is still a shell around runtime overview data and awaits richer live API adapters for actions/transcripts.
 
 ## Working tree snapshot
-- M  .gitignore
-- A  AGENTS.md
-- M Dockerfile
-- A  HEARTBEAT.md
-- A  IDENTITY.md
-- A  MEMORY.md
-- M  PRIORITIES.md
-- A  PROTECTED_SYSTEMS.md
-- M README.md
-- M ROUTE_MANIFEST.md
-- A  SOUL.md
-- A  TOOLS.md
-- A  USER.md
-- M app/contact/page.tsx
-- M app/features/page.tsx
-- M app/onboarding/page.tsx
-- M app/onboarding/start/page.tsx
-- M backend/marketing/asset-library.ts
-- M backend/marketing/brand-kit.ts
-- M backend/marketing/dashboard-content.ts
+- M app/api/business/profile/route.ts
+- M app/api/integrations/handlers.ts
+- M app/api/marketing/campaigns/route.ts
+- M app/api/marketing/jobs/[jobId]/approve/handler.ts
+- M app/api/marketing/jobs/[jobId]/assets/[assetId]/handler.ts
+- M app/api/marketing/jobs/[jobId]/brief/route.ts
+- M app/api/marketing/jobs/[jobId]/handler.ts
+- M app/api/marketing/jobs/[jobId]/workspace-assets/[assetId]/handler.ts
+- M app/api/marketing/jobs/handler.ts
+- M app/api/marketing/jobs/latest/handler.ts
+- M app/api/marketing/posts/route.ts
+- M app/api/marketing/reviews/[reviewId]/decision/route.ts
+- M app/api/marketing/reviews/[reviewId]/route.ts
+- M app/api/marketing/reviews/route.ts
+- M app/api/pipeline/url-preview/route.ts
+- M app/login/page-client.tsx
+- M app/onboarding/pipeline-intake/page.tsx
+- M app/signup/page.tsx
+- M auth.ts
+- M backend/integrations/oauth-provider-runtime.ts
 
 ## Reference date
-- 2026-04-06
+- 2026-04-07

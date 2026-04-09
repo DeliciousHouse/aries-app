@@ -23,6 +23,8 @@
     "automation:backup": "node scripts/automations/private-repo-backup.mjs",
     "automation:self-improve": "node scripts/automations/overnight-self-improve.mjs",
     "automation:daily-brief": "node scripts/automations/daily-brief.mjs",
+    "automation:feedback-connector": "node scripts/automations/feedback-connector.mjs sync",
+    "automation:feedback-summary": "node scripts/automations/feedback-daily-summary.mjs",
     "automation:system-reference": "node scripts/automations/rolling-system-reference.mjs",
     "automation:install": "node scripts/automations/install-openclaw-crons.mjs",
     "automation:verify": "node scripts/automations/verify-automations.mjs"
@@ -30,9 +32,6 @@
   "dependencies": {
     "@react-three/drei": "^9.122.0",
     "@react-three/fiber": "^8.18.0",
-    "@types/bcryptjs": "^2.4.6",
-    "@types/pg": "^8.18.0",
-    "@types/three": "^0.183.1",
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
     "codex": "^0.2.3",
@@ -52,7 +51,10 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.1",
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "22.13.10",
+    "@types/pg": "^8.18.0",
+    "@types/three": "^0.183.1",
     "@types/react": "18.3.12",
     "@types/react-dom": "18.3.1",
     "@types/react-test-renderer": "18.3.1",

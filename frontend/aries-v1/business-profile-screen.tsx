@@ -5,6 +5,7 @@ import Link from 'next/link';
 
 import { useBusinessProfile } from '@/hooks/use-business-profile';
 
+import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { DashboardHero, EmptyStatePanel, LoadingStateGrid, ShellPanel } from './components';
 
 type ChannelOption = {
@@ -126,7 +127,10 @@ export default function AriesBusinessProfileScreen() {
   if (business.profile.error || business.team.error) {
     return (
       <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
-        {business.profile.error?.message || business.team.error?.message}
+        {customerSafeUiErrorMessage(
+          business.profile.error?.message || business.team.error?.message,
+          'The business profile is not available right now.',
+        )}
       </div>
     );
   }
@@ -396,7 +400,7 @@ export default function AriesBusinessProfileScreen() {
         </ShellPanel>
       </div>
 
-      <ShellPanel eyebrow="Visual identity" title="Current-source logos, palette, and typography">
+      <ShellPanel eyebrow="Visual identity" title="Current-source marks, palette, and typography">
         {profile.brandKit ? (
           <div className="space-y-6">
             <div className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4">
@@ -408,7 +412,7 @@ export default function AriesBusinessProfileScreen() {
 
             {profile.brandKit.logo_urls.length > 0 ? (
               <div className="space-y-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Logo candidates</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Visible marks</p>
                 <div className="grid gap-3 md:grid-cols-2">
                   {profile.brandKit.logo_urls.map((logoUrl, index) => (
                     <div key={`${logoUrl}-${index}`} className="overflow-hidden rounded-[1.1rem] border border-white/8 bg-white px-4 py-4">
@@ -419,12 +423,12 @@ export default function AriesBusinessProfileScreen() {
                 </div>
               </div>
             ) : (
-              <InfoEmptyState message="Logo candidates will appear here once the website or uploaded assets expose them clearly." />
+              <InfoEmptyState message="No clear mark was detected from the current source yet." />
             )}
 
             <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
               <div className="space-y-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Palette</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Palette cues</p>
                 {previewColors.length > 0 ? (
                   <div className="grid gap-3 sm:grid-cols-3">
                     {previewColors.map((color) => (
@@ -435,12 +439,12 @@ export default function AriesBusinessProfileScreen() {
                     ))}
                   </div>
                 ) : (
-                  <InfoEmptyState message="Palette cues will appear here when the current source exposes them clearly." />
+                  <InfoEmptyState message="No strong palette cues were detected from the current source yet." />
                 )}
               </div>
 
               <div className="space-y-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Fonts</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Typography cues</p>
                 {previewFonts.length > 0 ? (
                   <div className="grid gap-3">
                     {previewFonts.map((font) => (
@@ -453,7 +457,7 @@ export default function AriesBusinessProfileScreen() {
                     ))}
                   </div>
                 ) : (
-                  <InfoEmptyState message="Typography cues will appear here when the current source exposes them clearly." />
+                  <InfoEmptyState message="No clear typography cues were detected from the current source yet." />
                 )}
               </div>
             </div>
