@@ -16,7 +16,7 @@
 
 **Rule:** For `aries-app`, merging or pushing to `master` is the deploy trigger, but **only after** the GHCR image for **that exact commit SHA** is already published and pullable.
 
-The GitHub Actions **Deploy** workflow runs on every push to `master`. It resolves the image as `ghcr.io/<repository_owner>/aries-app:<github.sha>` and **verifies the tag exists in GHCR** before SSH deploy. If the image is missing, the workflow fails by design.
+The GitHub Actions **Deploy** workflow runs on every push to `master`. It resolves the image as `ghcr.io/delicioushouse/aries-app:<github.sha>` and **verifies the tag exists in GHCR** before SSH deploy. If the image is missing, the workflow fails by design.
 
 ### Release sequence
 
@@ -33,7 +33,6 @@ Use a machine with Docker Buildx and permission to push to `ghcr.io/delicioushou
 export BUILDX_BUILDER="multiarch"
 export GHCR_OWNER="delicioushouse"
 export GHCR_IMAGE="ghcr.io/delicioushouse/aries-app"
-export OCI_SOURCE_REPO="DeliciousHouse/aries-app"
 export IMAGE_DESCRIPTION="Aries app runtime image"
 export DEFAULT_BRANCH="master"
 
@@ -47,6 +46,15 @@ Notes:
 - `BUILDX_BUILDER` is the Buildx builder name your environment uses for multi-platform pushes; create or select it with `docker buildx` before running the script if needed.
 - The `cd` path is the operator’s canonical checkout on the publish host; adjust only if your layout differs.
 - `git push origin master` must advance `master` to the **same** `HEAD` that was just published (no extra local commits after publish without re-running the script).
+
+### GHCR package permissions for deploy
+
+The deploy workflow first checks GHCR with `GITHUB_TOKEN`. For that to work reliably:
+
+1. Ensure package `ghcr.io/delicioushouse/aries-app` is linked to repository `DeliciousHouse/aries-app`.
+2. Ensure the package inherits repository permissions, **or** explicitly grant GitHub Actions/repository access in package settings.
+
+If linkage/permissions are not yet correct, set `GHCR_WORKFLOW_TOKEN` (PAT with package read access) in repo secrets; deploy workflow uses it as the fallback token when `GITHUB_TOKEN` cannot read the package.
 
 ### Failure mode
 

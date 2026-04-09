@@ -86,10 +86,7 @@ tmp
 !SOUL.md
 !USER.md
 !IDENTITY.md
-!team/DELEGATION-RULES.md
-!team/forge/*.md
-!team/signal/*.md
-!team/ledger/*.md
+!DELEGATION-RULES.md
 !data/org-chart.json
 
 .DS_Store
@@ -111,3 +108,12 @@ tmp
 *.xls
 *.xlsx
 output/
+
+/memory/
+.agent/*.json
+!.agent/workflows/
+/local/
+package-lock.json
+.claude/
+.agent/
+skills-lock.json
