@@ -110,6 +110,46 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_oauth_pending_states_expires ON oauth_pending_states (expires_at);
       CREATE INDEX IF NOT EXISTS idx_oauth_audit_tenant_time ON oauth_audit_events (tenant_id, occurred_at DESC);
     `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS onboarding_drafts (
+        draft_id TEXT PRIMARY KEY,
+        status TEXT NOT NULL DEFAULT 'draft',
+        website_url TEXT NOT NULL DEFAULT '',
+        business_name TEXT NOT NULL DEFAULT '',
+        business_type TEXT NOT NULL DEFAULT '',
+        approver_name TEXT NOT NULL DEFAULT '',
+        channels TEXT[] NOT NULL DEFAULT '{}',
+        goal TEXT NOT NULL DEFAULT '',
+        offer TEXT NOT NULL DEFAULT '',
+        competitor_url TEXT NOT NULL DEFAULT '',
+        preview JSONB,
+        provenance JSONB NOT NULL DEFAULT '{}'::jsonb,
+        materialized_tenant_id TEXT,
+        materialized_job_id TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS business_profiles (
+        tenant_id INTEGER PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+        business_name TEXT,
+        tenant_slug TEXT,
+        website_url TEXT,
+        business_type TEXT,
+        primary_goal TEXT,
+        launch_approver_user_id TEXT,
+        launch_approver_name TEXT,
+        offer TEXT,
+        brand_voice TEXT,
+        style_vibe TEXT,
+        notes TEXT,
+        competitor_url TEXT,
+        channels TEXT[] NOT NULL DEFAULT '{}',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
     
     console.log('Database initialized successfully.');
   } catch (err) {
