@@ -17,9 +17,8 @@ export interface DonorMarketingShellProps {
 
 const NAV_ITEMS = [
   { name: 'How it works', href: '/#how-it-works' },
-  { name: 'Safety', href: '/#safety' },
-  { name: 'Results', href: '/#results' },
-  { name: 'Start', href: '/onboarding/pipeline-intake' },
+  { name: 'Features', href: '/#features' },
+  { name: 'Documentation', href: '/documentation' },
 ] as const;
 
 function normalizeForActive(href: string) {
@@ -96,7 +95,7 @@ export function DonorNavbar({ heroMode = false }: { heroMode?: boolean }) {
               key={link.name}
               href={link.href}
               className={cn(
-                'text-sm font-medium transition-colors',
+                'text-base font-medium transition-colors',
                 normalizeForActive(link.href) === pathname ? 'text-white' : 'text-white/70 hover:text-white',
               )}
             >
@@ -143,7 +142,7 @@ export function DonorNavbar({ heroMode = false }: { heroMode?: boolean }) {
               <a
                 key={link.name}
                 href={link.href}
-                className="text-lg font-medium text-white/70 hover:text-white"
+                className="text-2xl font-medium text-white/70 hover:text-white"
                 onClick={() => setIsMobileMenuOpen(false)}
               >
                 {link.name}
@@ -184,8 +183,8 @@ export function DonorFooter() {
             </p>
             <div className="flex gap-4 text-sm text-white/60">
               <a href="/#how-it-works" className="hover:text-white transition-colors">How it works</a>
-              <a href="/#safety" className="hover:text-white transition-colors">Safety</a>
-              <a href="/#results" className="hover:text-white transition-colors">Results</a>
+              <a href="/#features" className="hover:text-white transition-colors">Features</a>
+              <a href="/documentation" className="hover:text-white transition-colors">Documentation</a>
             </div>
           </div>
 

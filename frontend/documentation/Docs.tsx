@@ -235,6 +235,117 @@ npm run dev --turbopack`}
                   </p>
                 </div>
               </section>
+
+              {/* Campaigns Section */}
+              <section
+                id="campaigns"
+                ref={(el) => { sectionRefs.current['campaigns'] = el; }}
+                className="scroll-mt-24 pt-12 border-t border-white/5"
+              >
+                <div className="flex items-center gap-4 mb-8">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center border border-white/10">
+                    <GitBranch className="w-6 h-6 text-primary" />
+                  </div>
+                  <h2 className="text-3xl font-bold tracking-tight">Campaigns</h2>
+                </div>
+
+                <div className="prose prose-invert prose-p:text-white/70 prose-p:leading-relaxed prose-p:text-lg max-w-none">
+                  <p>
+                    Campaigns begin from the business profile and attached website source. Aries uses that context to prepare strategy, creative direction, review checkpoints, and launch-ready assets.
+                  </p>
+                  <p className="mt-4">
+                    Every campaign keeps approval visible. Strategy, production, and publishing steps can require human approval before the workflow moves forward.
+                  </p>
+                </div>
+
+                <div className="mt-8 grid gap-4 md:grid-cols-3">
+                  {[
+                    ['Strategy', 'Review the offer, audience, positioning, and campaign plan before production begins.'],
+                    ['Creative', 'Inspect generated copy, visuals, and channel-specific assets before anything goes live.'],
+                    ['Launch', 'Approve publishing only after the campaign is aligned with the business source and goal.'],
+                  ].map(([title, description]) => (
+                    <div key={title} className="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+                      <h3 className="font-bold text-white">{title}</h3>
+                      <p className="mt-3 text-sm leading-7 text-white/60">{description}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              {/* Integrations Section */}
+              <section
+                id="integrations"
+                ref={(el) => { sectionRefs.current['integrations'] = el; }}
+                className="scroll-mt-24 pt-12 border-t border-white/5"
+              >
+                <div className="flex items-center gap-4 mb-8">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center border border-white/10">
+                    <Plug className="w-6 h-6 text-primary" />
+                  </div>
+                  <h2 className="text-3xl font-bold tracking-tight">Integrations</h2>
+                </div>
+
+                <div className="prose prose-invert prose-p:text-white/70 prose-p:leading-relaxed prose-p:text-lg max-w-none">
+                  <p>
+                    Aries connects to channel providers through server-side integration routes. The browser starts the connection flow, but provider tokens and runtime checks remain behind backend boundaries.
+                  </p>
+                  <p className="mt-4">
+                    Integration status is surfaced inside the app so teams can see whether a channel is connected, disconnected, or needs reauthorization before launch.
+                  </p>
+                </div>
+
+                <div className="mt-8 rounded-2xl border border-white/10 bg-[#0D0D0D] p-6">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {[
+                      ['Connection status', 'Read connected channel health before scheduling or dispatching a campaign.'],
+                      ['OAuth callbacks', 'Complete provider authorization through backend callback handlers.'],
+                      ['Publishing safety', 'Dispatch only approved campaign content to connected channels.'],
+                      ['Reauthorization', 'Detect channels that need a fresh provider connection before use.'],
+                    ].map(([title, description]) => (
+                      <div key={title} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                        <h3 className="font-semibold text-white">{title}</h3>
+                        <p className="mt-2 text-sm leading-6 text-white/60">{description}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+
+              {/* Security Section */}
+              <section
+                id="security"
+                ref={(el) => { sectionRefs.current['security'] = el; }}
+                className="scroll-mt-24 pt-12 border-t border-white/5"
+              >
+                <div className="flex items-center gap-4 mb-8">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center border border-white/10">
+                    <ShieldCheck className="w-6 h-6 text-primary" />
+                  </div>
+                  <h2 className="text-3xl font-bold tracking-tight">Security</h2>
+                </div>
+
+                <div className="prose prose-invert prose-p:text-white/70 prose-p:leading-relaxed prose-p:text-lg max-w-none">
+                  <p>
+                    Aries keeps authentication, tenant context, and provider credentials on server-controlled boundaries. Users must be signed in before accessing protected workspaces.
+                  </p>
+                  <p className="mt-4">
+                    New users complete onboarding before dashboard access, and existing users are routed according to their tenant and onboarding state.
+                  </p>
+                </div>
+
+                <div className="mt-8 space-y-4">
+                  {[
+                    ['Tenant-aware access', 'Protected routes resolve tenant claims before showing campaign or dashboard data.'],
+                    ['Approval gates', 'Campaign stages can require explicit review before launch or publishing actions.'],
+                    ['Environment isolation', 'Secrets, OAuth credentials, and database connection settings stay in environment configuration.'],
+                  ].map(([title, description]) => (
+                    <div key={title} className="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+                      <h3 className="font-bold text-white">{title}</h3>
+                      <p className="mt-2 text-sm leading-7 text-white/60">{description}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
             </div>
           </div>
         </div>
