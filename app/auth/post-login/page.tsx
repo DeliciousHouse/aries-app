@@ -13,7 +13,7 @@ export default async function PostLoginPage() {
   }
 
   const client = await pool.connect();
-  let destination: string = '/onboarding/pipeline-intake';
+  let destination: string = '/onboarding/start';
 
   try {
     destination = await resolvePostLoginDestinationForUser(client, session.user.id);

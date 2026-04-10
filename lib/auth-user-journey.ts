@@ -2,7 +2,7 @@ import type { PoolClient } from 'pg';
 
 import { getBusinessProfileWithDiagnostics } from '@/backend/tenant/business-profile';
 
-export type PostLoginDestination = '/onboarding/pipeline-intake' | '/dashboard';
+export type PostLoginDestination = '/onboarding/start' | '/dashboard';
 
 type Queryable = Pick<PoolClient, 'query'>;
 
@@ -91,7 +91,7 @@ export function shouldRequireOnboarding(args: {
 }
 
 export function resolvePostLoginDestination(needsOnboarding: boolean): PostLoginDestination {
-  return needsOnboarding ? '/onboarding/pipeline-intake' : '/dashboard';
+  return needsOnboarding ? '/onboarding/start' : '/dashboard';
 }
 
 export async function resolvePostLoginDestinationForUser(

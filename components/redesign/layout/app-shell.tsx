@@ -54,7 +54,7 @@ export default async function RedesignAppShell({
   }
 
   if (shouldRedirectToOnboarding) {
-    redirect('/onboarding/pipeline-intake');
+    redirect('/onboarding/start');
   }
 
   const currentRoute = currentRouteId ? getRouteById(currentRouteId) : null;

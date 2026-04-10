@@ -63,8 +63,8 @@ Browser
 
 ### Workflow pages
 
-- `/onboarding/pipeline-intake`
-- `/onboarding/start` (redirects to `/onboarding/pipeline-intake`)
+- `/onboarding/start`
+- `/onboarding/pipeline-intake` (legacy redirect to `/onboarding/start`)
 - `/onboarding/status`
 - `/marketing/new-job`
 - `/marketing/job-status`
@@ -278,7 +278,7 @@ Instagram remains env-managed with `META_PAGE_ID` and `META_ACCESS_TOKEN`.
 
 ### Public marketing intake
 
-The public client intake begins at `/onboarding/pipeline-intake`. The legacy `/onboarding/start` path redirects there so public CTA traffic reaches the premium marketing flow rather than the raw tenant-onboarding surface.
+The public client intake begins at `/onboarding/start`. The legacy `/onboarding/pipeline-intake` path redirects there for backwards compatibility.
 
 ### Tenant onboarding
 

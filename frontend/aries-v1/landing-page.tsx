@@ -74,7 +74,7 @@ export default function AriesLandingPage() {
                 Sign in
               </Link>
               <Link
-                href="/onboarding/pipeline-intake"
+                href="/onboarding/start"
                 className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-semibold text-[#11161c] transition hover:translate-y-[-1px]"
               >
                 Start with your business
@@ -103,7 +103,7 @@ export default function AriesLandingPage() {
               </div>
               <div className="flex flex-wrap items-center gap-4">
                 <Link
-                  href="/onboarding/pipeline-intake"
+                  href="/onboarding/start"
                   className="inline-flex items-center gap-2 rounded-full bg-[#f4efe6] px-6 py-3.5 text-sm font-semibold text-[#11161c] transition hover:translate-y-[-1px]"
                 >
                   Start with your business

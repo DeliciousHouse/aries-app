@@ -30,7 +30,7 @@ export default function OnboardingStartScreen(): JSX.Element {
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <Link
-              href="/onboarding/pipeline-intake"
+              href="/onboarding/start"
               className="inline-flex items-center rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c]"
             >
               Open premium intake

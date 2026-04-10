@@ -170,7 +170,17 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
                         <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Visible marks</p>
                         <div className="grid gap-3 sm:grid-cols-2">
                           {section.brandKitVisuals.logos.map((logoUrl, index) => (
-                            <div key={`${section.id}-logo-${index}`} className="overflow-hidden rounded-[1.1rem] border border-white/8 bg-white px-4 py-4">
+                            <div
+                              key={`${section.id}-logo-${index}`}
+                              className="overflow-hidden rounded-[1.1rem] border border-white/8 px-4 py-4"
+                              style={{
+                                backgroundColor: '#2a2a2a',
+                                backgroundImage:
+                                  'linear-gradient(45deg, #222 25%, transparent 25%), linear-gradient(-45deg, #222 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #222 75%), linear-gradient(-45deg, transparent 75%, #222 75%)',
+                                backgroundSize: '20px 20px',
+                                backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
+                              }}
+                            >
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img src={logoUrl} alt={`${section.title} logo ${index + 1}`} className="h-24 w-full object-contain" />
                             </div>

@@ -32,7 +32,7 @@ Last refreshed Apr 08, 2026, 21:45 PDT.
 - app/api/onboarding/draft/route.ts
 - app/api/pipeline/url-preview/route.ts
 - app/login/page-client.tsx
-- app/onboarding/pipeline-intake/page.tsx
+- app/onboarding/start/page.tsx
 
 ## Current architecture overview
 - Next.js App Router runtime serves the public site, authenticated operator shell, and browser-safe internal APIs.

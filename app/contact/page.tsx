@@ -20,7 +20,7 @@ export default function ContactPage() {
 
             <div className="flex flex-col sm:flex-row gap-4">
               <Link
-                href="/onboarding/pipeline-intake"
+                href="/onboarding/start"
                 className="px-8 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20"
               >
                 Start with your business

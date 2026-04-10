@@ -112,7 +112,7 @@ export function DonorNavbar({ heroMode = false }: { heroMode?: boolean }) {
             Log in
           </a>
           <a
-            href="/onboarding/pipeline-intake"
+            href="/onboarding/start"
             className="px-5 py-2 rounded-full bg-gradient-to-r from-primary to-secondary hover:opacity-90 text-sm font-medium transition-all shadow-lg shadow-primary/20 flex items-center gap-2 text-white"
           >
             Start with your business <ArrowRight className="w-4 h-4" />
@@ -157,7 +157,7 @@ export function DonorNavbar({ heroMode = false }: { heroMode?: boolean }) {
                 Log in
               </a>
               <a
-                href="/onboarding/pipeline-intake"
+                href="/onboarding/start"
                 className="w-full py-3 flex justify-center rounded-xl bg-gradient-to-r from-primary to-secondary font-medium text-white"
                 onClick={() => setIsMobileMenuOpen(false)}
               >
@@ -203,7 +203,7 @@ export function DonorFooter() {
           <div>
             <h4 className="font-bold mb-6">Get started</h4>
             <ul className="space-y-4 text-white/50 text-sm">
-              <li><a href="/onboarding/pipeline-intake" className="hover:text-white transition-colors">Set up your business</a></li>
+              <li><a href="/onboarding/start" className="hover:text-white transition-colors">Set up your business</a></li>
               <li><a href="/login" className="hover:text-white transition-colors">Sign in</a></li>
               <li><a href="/calendar" className="hover:text-white transition-colors">Calendar</a></li>
               <li><a href="/results" className="hover:text-white transition-colors">Results</a></li>

@@ -379,7 +379,7 @@ function Hero() {
             className="flex flex-col sm:flex-row items-center justify-center gap-4"
           >
             <a
-              href="/onboarding/pipeline-intake"
+              href="/onboarding/start"
               className="w-full sm:w-auto px-8 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 hover:scale-105 transition-transform flex items-center justify-center gap-2"
             >
               Start with your business <ArrowRight className="w-5 h-5" />
@@ -1399,7 +1399,7 @@ function Pricing() {
                 </div>
 
                 <a
-                  href={plan.price === 'Custom' ? '/onboarding/pipeline-intake' : '/onboarding/pipeline-intake'}
+                  href={plan.price === 'Custom' ? '/onboarding/start' : '/onboarding/start'}
                   className={cn(
                     'w-full py-4 rounded-2xl font-bold transition-all text-center',
                     plan.highlight
@@ -1498,7 +1498,7 @@ function FinalCTA() {
                 className="flex flex-wrap items-center gap-4"
               >
                 <a
-                  href="/onboarding/pipeline-intake"
+                  href="/onboarding/start"
                   className="px-8 py-4 rounded-full border border-white/20 hover:border-white/40 text-white font-bold transition-all backdrop-blur-md text-sm"
                 >
                   Start with your business

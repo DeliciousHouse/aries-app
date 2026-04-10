@@ -71,10 +71,10 @@ test('public marketing pages return valid elements with expected route shells an
     assert.match(homeSource, /Nothing goes live without your approval/);
     assert.match(homeSource, /Plan, create, approve, launch, and/);
     assert.match(homeSource, /Start with your business/);
-    assert.match(homeSource, /\/onboarding\/pipeline-intake/);
-    assert.doesNotMatch(homeSource, /href="\/onboarding\/start"/);
-    assert.match(chromeSource, /\/onboarding\/pipeline-intake/);
-    assert.doesNotMatch(chromeSource, /href="\/onboarding\/start"/);
+    assert.match(homeSource, /\/onboarding\/start/);
+    assert.doesNotMatch(homeSource, /\/onboarding\/pipeline-intake/);
+    assert.match(chromeSource, /\/onboarding\/start/);
+    assert.doesNotMatch(chromeSource, /\/onboarding\/pipeline-intake/);
     assert.doesNotMatch(homeSource, /Autonomous Growth Engine/);
     assert.doesNotMatch(homeSource, /Start Automating/);
     assert.doesNotMatch(homeSource, /See Runtime/);
@@ -90,8 +90,8 @@ test('public marketing pages return valid elements with expected route shells an
     assert.match(featuresText, /Ready to see how it works\?/);
     assert.match(featuresText, /Start with your business/);
     const featuresSource = readRepoFile('app/features/page.tsx');
-    assert.match(featuresSource, /\/onboarding\/pipeline-intake/);
-    assert.doesNotMatch(featuresSource, /\/onboarding\/start/);
+    assert.match(featuresSource, /\/onboarding\/start/);
+    assert.doesNotMatch(featuresSource, /\/onboarding\/pipeline-intake/);
 
     const documentationElement = DocumentationPage();
     assert.equal(isValidElement(documentationElement), true);
@@ -104,8 +104,8 @@ test('public marketing pages return valid elements with expected route shells an
     assert.match(contactText, /Contact intake is not available yet/);
     assert.match(contactText, /Start with your business/);
     const contactSource = readRepoFile('app/contact/page.tsx');
-    assert.match(contactSource, /\/onboarding\/pipeline-intake/);
-    assert.doesNotMatch(contactSource, /\/onboarding\/start/);
+    assert.match(contactSource, /\/onboarding\/start/);
+    assert.doesNotMatch(contactSource, /\/onboarding\/pipeline-intake/);
 
     const apiDocsElement = ApiDocsPage();
     assert.equal(isValidElement(apiDocsElement), true);

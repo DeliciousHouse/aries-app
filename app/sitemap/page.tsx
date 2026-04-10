@@ -17,7 +17,7 @@ const ROUTE_GROUPS: Array<{ title: string; routes: Array<{ href: string; label: 
       { href: '/marketing/new-job', label: 'New campaign' },
       { href: '/marketing/job-status', label: 'Campaign status' },
       { href: '/marketing/job-approve', label: 'Campaign approval' },
-      { href: '/onboarding/pipeline-intake', label: 'Brand and competitor research intake' },
+      { href: '/onboarding/start', label: 'Brand and competitor research intake' },
     ],
   },
   {

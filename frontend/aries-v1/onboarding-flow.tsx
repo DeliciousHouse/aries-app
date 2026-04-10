@@ -330,7 +330,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         }
         const nextDraftId = response.draft.draftId;
         setDraftId(nextDraftId);
-        router.replace(`/onboarding/pipeline-intake?draft=${encodeURIComponent(nextDraftId)}`);
+        router.replace(`/onboarding/start?draft=${encodeURIComponent(nextDraftId)}`);
       })
       .catch(() => {
         if (!cancelled) {
@@ -535,7 +535,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         const response = await ariesApi.createOnboardingDraft();
         activeDraftId = response.draft.draftId;
         setDraftId(activeDraftId);
-        router.replace(`/onboarding/pipeline-intake?draft=${encodeURIComponent(activeDraftId)}`);
+        router.replace(`/onboarding/start?draft=${encodeURIComponent(activeDraftId)}`);
       } catch {
         setError('We could not create an onboarding session. Please reload and try again.');
         setSubmitting(false);

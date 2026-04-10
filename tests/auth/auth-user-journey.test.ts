@@ -40,7 +40,7 @@ test('stops requiring onboarding after completion is recorded', () => {
 });
 
 test('redirects users who still need onboarding back to onboarding', () => {
-  assert.equal(resolvePostLoginDestination(true), '/onboarding/pipeline-intake');
+  assert.equal(resolvePostLoginDestination(true), '/onboarding/start');
 });
 
 test('redirects users who do not need onboarding to the dashboard', () => {

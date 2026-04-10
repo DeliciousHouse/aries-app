@@ -30,6 +30,7 @@ import ApiDocsPage from '../app/api-docs/page';
 import OnboardingPage from '../app/onboarding/page';
 import OnboardingStartPage from '../app/onboarding/start/page';
 import PipelineIntakePage from '../app/onboarding/pipeline-intake/page';
+// NOTE: /onboarding/start is now the canonical intake route; pipeline-intake redirects there.
 import OnboardingStatusPage from '../app/onboarding/status/page';
 import MarketingNewJobPage from '../app/marketing/new-job/page';
 import MarketingJobStatusPage from '../app/marketing/job-status/page';
@@ -303,23 +304,23 @@ test('/api-docs renders inside the marketing layout', () => {
 });
 
 test('/onboarding redirects to the canonical premium intake route', () => {
-  expectRedirect(() => OnboardingPage(), '/onboarding/pipeline-intake');
+  expectRedirect(() => OnboardingPage(), '/onboarding/start');
 });
 
-test('/onboarding/start redirects to the canonical premium intake route rather than rendering the internal tenant onboarding form', () => {
-  expectRedirect(() => OnboardingStartPage(), '/onboarding/pipeline-intake');
-});
-
-test('/onboarding/pipeline-intake wires the guided intake workflow behind auth-aware server rendering', () => {
+test('/onboarding/start wires the guided intake workflow behind auth-aware server rendering', () => {
   const source = readFileSync(
-    path.join(PROJECT_ROOT, 'app', 'onboarding', 'pipeline-intake', 'page.tsx'),
+    path.join(PROJECT_ROOT, 'app', 'onboarding', 'start', 'page.tsx'),
     'utf8',
   );
 
   assert.match(source, /auth\(\)/);
   assert.match(source, /<AriesOnboardingFlow initialAuthenticated=\{Boolean\(session\?\.user\?\.id\)\} \/>/);
-  assert.notEqual(PipelineIntakePage, OnboardingStartScreen);
+  assert.notEqual(OnboardingStartPage, OnboardingStartScreen);
   assert.notEqual(AriesOnboardingFlow, OnboardingStartScreen);
+});
+
+test('/onboarding/pipeline-intake redirects to /onboarding/start for backwards compatibility', () => {
+  expectRedirect(() => PipelineIntakePage(), '/onboarding/start');
 });
 
 test('/onboarding/status preserves tenant_id and signup_event_id from the route boundary', async () => {
