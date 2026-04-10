@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent, type SVGProps } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ComponentType, type FormEvent, type SVGProps } from 'react';
 
 import {
   ArrowRight,
@@ -122,7 +122,7 @@ function NetworkBackground() {
 }
 
 type PlatformOrbit = {
-  icon: (props: SVGProps<SVGSVGElement>) => JSX.Element;
+  icon: ComponentType<SVGProps<SVGSVGElement>>;
   angle: number;
   radius: number;
 };
@@ -1272,7 +1272,7 @@ function EarlyAccessSignup() {
                   ['03', ['Priority', 'setup']],
                 ].map(([count, labelLines]) => (
                   <div
-                    key={count}
+                    key={count as string}
                     className="group min-h-28 rounded-[1.25rem] border border-white/10 bg-black/35 p-5 transition-colors hover:border-primary/35 hover:bg-primary/10"
                   >
                     <div className="text-3xl font-light leading-none tracking-[0.08em] text-white">{count}</div>
