@@ -3,11 +3,11 @@ import path from 'node:path';
 
 import type { PoolClient } from 'pg';
 
+import pool from '@/lib/db';
 import {
   extractAndSaveTenantBrandKit,
   loadTenantBrandKit,
   sanitizeBrandKitSummaryText,
-  tenantBrandKitPath,
   type TenantBrandKit,
 } from '@/backend/marketing/brand-kit';
 import type { MarketingBrandIdentity } from '@/lib/api/marketing';
@@ -304,11 +304,49 @@ function loadBusinessProfileRecord(tenantId: string): BusinessProfileRecord | nu
   }
 }
 
-function saveBusinessProfileRecord(record: BusinessProfileRecord): string {
+function saveBusinessProfileRecordToFile(record: BusinessProfileRecord): void {
   const filePath = businessProfilePath(record.tenant_id);
   mkdirSync(path.dirname(filePath), { recursive: true });
   writeFileSync(filePath, JSON.stringify({ ...record, updated_at: nowIso() }, null, 2));
-  return filePath;
+}
+
+function saveBusinessProfileRecordToDb(record: BusinessProfileRecord): void {
+  pool.query(
+    `INSERT INTO business_profiles (
+      tenant_id, business_name, tenant_slug, website_url, business_type,
+      primary_goal, launch_approver_user_id, launch_approver_name, offer,
+      brand_voice, style_vibe, notes, competitor_url, channels, updated_at
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,now())
+    ON CONFLICT (tenant_id) DO UPDATE SET
+      business_name = EXCLUDED.business_name,
+      tenant_slug = EXCLUDED.tenant_slug,
+      website_url = EXCLUDED.website_url,
+      business_type = EXCLUDED.business_type,
+      primary_goal = EXCLUDED.primary_goal,
+      launch_approver_user_id = EXCLUDED.launch_approver_user_id,
+      launch_approver_name = EXCLUDED.launch_approver_name,
+      offer = EXCLUDED.offer,
+      brand_voice = EXCLUDED.brand_voice,
+      style_vibe = EXCLUDED.style_vibe,
+      notes = EXCLUDED.notes,
+      competitor_url = EXCLUDED.competitor_url,
+      channels = EXCLUDED.channels,
+      updated_at = now()`,
+    [
+      Number(record.tenant_id), record.business_name, record.tenant_slug,
+      record.website_url, record.business_type, record.primary_goal,
+      record.launch_approver_user_id, record.launch_approver_name, record.offer,
+      record.brand_voice, record.style_vibe, record.notes,
+      record.competitor_url, record.channels,
+    ],
+  ).catch((err) => {
+    console.error('[business-profile] Failed to persist to database:', err);
+  });
+}
+
+function saveBusinessProfileRecord(record: BusinessProfileRecord): void {
+  saveBusinessProfileRecordToFile(record);
+  saveBusinessProfileRecordToDb(record);
 }
 
 async function launchApproverName(client: PoolClient, approverUserId: string | null): Promise<string | null> {
@@ -699,15 +737,6 @@ export async function updateBusinessProfileWithDiagnostics(
   return getBusinessProfileWithDiagnostics(client, input.tenantId);
 }
 
-
-export function businessProfileWritePathForTenant(tenantId: string): string {
-  return businessProfilePath(tenantId);
-}
-
-export function tenantBrandKitWritePathForTenant(tenantId: string): string {
-  return tenantBrandKitPath(tenantId);
-}
-
 export function tenantHasStoredBusinessProfileState(tenantId: string): boolean {
   const record = loadBusinessProfileRecord(tenantId);
   if (
@@ -732,8 +761,6 @@ export function tenantHasStoredBusinessProfileState(tenantId: string): boolean {
   return Boolean(docs.brandProfile || docs.websiteAnalysis || docs.businessProfile || docs.brandKit);
 }
 
-// Compatibility wrappers for older generated artifacts. The live public onboarding flow
-// no longer reads or writes customer business profiles through these helpers.
 export function getPublicBusinessProfile(websiteUrl?: string | null): ResolvedBusinessProfile {
   const normalizedWebsiteUrl = normalizeMarketingWebsiteUrl(websiteUrl);
   const tenantId =

@@ -1,9 +1,7 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import crypto from 'node:crypto';
-import path from 'node:path';
 
+import pool from '@/lib/db';
 import { normalizeMarketingWebsiteUrl } from '@/lib/marketing-public-mode';
-import { resolveDataPath } from '@/lib/runtime-paths';
 
 export type OnboardingDraftStatus =
   | 'draft'
@@ -81,10 +79,6 @@ type OnboardingDraftMutation = Partial<{
 
 const DRAFT_ID_PATTERN = /^[a-f0-9-]{16,}$/i;
 
-function nowIso(): string {
-  return new Date().toISOString();
-}
-
 function stringValue(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -120,16 +114,8 @@ function normalizeDraftId(draftId: string): string {
   return normalized;
 }
 
-function draftDirectoryPath(): string {
-  return resolveDataPath('generated', 'draft', 'onboarding-drafts');
-}
-
-function draftPath(draftId: string): string {
-  return path.join(draftDirectoryPath(), `${normalizeDraftId(draftId)}.json`);
-}
-
 function emptyDraft(input?: Partial<OnboardingDraft>): OnboardingDraft {
-  const timestamp = nowIso();
+  const timestamp = new Date().toISOString();
   const draftId = input?.draftId || crypto.randomUUID();
 
   return {
@@ -154,16 +140,6 @@ function emptyDraft(input?: Partial<OnboardingDraft>): OnboardingDraft {
     materializedTenantId: input?.materializedTenantId || null,
     materializedJobId: input?.materializedJobId || null,
   };
-}
-
-async function writeDraft(draft: OnboardingDraft): Promise<OnboardingDraft> {
-  await mkdir(draftDirectoryPath(), { recursive: true });
-  const nextDraft = {
-    ...draft,
-    updatedAt: nowIso(),
-  };
-  await writeFile(draftPath(draft.draftId), JSON.stringify(nextDraft, null, 2));
-  return nextDraft;
 }
 
 function sanitizePreview(value: unknown): OnboardingDraftPreview | null {
@@ -286,21 +262,102 @@ function applyDraftMutation(draft: OnboardingDraft, mutation: OnboardingDraftMut
   };
 }
 
+type DraftRow = {
+  draft_id: string;
+  status: string;
+  website_url: string;
+  business_name: string;
+  business_type: string;
+  approver_name: string;
+  channels: string[];
+  goal: string;
+  offer: string;
+  competitor_url: string;
+  preview: OnboardingDraftPreview | null;
+  provenance: OnboardingDraftProvenance;
+  materialized_tenant_id: string | null;
+  materialized_job_id: string | null;
+  created_at: Date;
+  updated_at: Date;
+};
+
+function rowToDraft(row: DraftRow): OnboardingDraft {
+  return emptyDraft({
+    draftId: row.draft_id,
+    status: row.status as OnboardingDraftStatus,
+    websiteUrl: row.website_url,
+    businessName: row.business_name,
+    businessType: row.business_type,
+    approverName: row.approver_name,
+    channels: row.channels,
+    goal: row.goal,
+    offer: row.offer,
+    competitorUrl: row.competitor_url,
+    preview: row.preview,
+    provenance: row.provenance,
+    materializedTenantId: row.materialized_tenant_id,
+    materializedJobId: row.materialized_job_id,
+    createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
+  });
+}
+
+function draftToRow(draft: OnboardingDraft) {
+  return {
+    draft_id: draft.draftId,
+    status: draft.status,
+    website_url: draft.websiteUrl,
+    business_name: draft.businessName,
+    business_type: draft.businessType,
+    approver_name: draft.approverName,
+    channels: draft.channels,
+    goal: draft.goal,
+    offer: draft.offer,
+    competitor_url: draft.competitorUrl,
+    preview: draft.preview ? JSON.stringify(draft.preview) : null,
+    provenance: JSON.stringify(draft.provenance),
+    materialized_tenant_id: draft.materializedTenantId,
+    materialized_job_id: draft.materializedJobId,
+  };
+}
+
 export function draftTenantId(draftId: string): string {
   return `draft_${normalizeDraftId(draftId).replace(/-/g, '')}`;
 }
 
 export async function createOnboardingDraft(initial?: Partial<OnboardingDraft>): Promise<OnboardingDraft> {
-  return writeDraft(emptyDraft(initial));
+  const draft = emptyDraft(initial);
+  const row = draftToRow(draft);
+
+  const result = await pool.query<DraftRow>(
+    `INSERT INTO onboarding_drafts (
+      draft_id, status, website_url, business_name, business_type,
+      approver_name, channels, goal, offer, competitor_url,
+      preview, provenance, materialized_tenant_id, materialized_job_id
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+    RETURNING *`,
+    [
+      row.draft_id, row.status, row.website_url, row.business_name, row.business_type,
+      row.approver_name, row.channels, row.goal, row.offer, row.competitor_url,
+      row.preview, row.provenance, row.materialized_tenant_id, row.materialized_job_id,
+    ],
+  );
+
+  return rowToDraft(result.rows[0]);
 }
 
 export async function getOnboardingDraft(draftId: string): Promise<OnboardingDraft | null> {
-  try {
-    const parsed = JSON.parse(await readFile(draftPath(draftId), 'utf8')) as Partial<OnboardingDraft>;
-    return emptyDraft(parsed);
-  } catch {
+  const normalized = normalizeDraftId(draftId);
+  const result = await pool.query<DraftRow>(
+    'SELECT * FROM onboarding_drafts WHERE draft_id = $1',
+    [normalized],
+  );
+
+  if (result.rowCount === 0) {
     return null;
   }
+
+  return rowToDraft(result.rows[0]);
 }
 
 export async function requireOnboardingDraft(draftId: string): Promise<OnboardingDraft> {
@@ -316,5 +373,23 @@ export async function updateOnboardingDraft(
   mutation: OnboardingDraftMutation,
 ): Promise<OnboardingDraft> {
   const current = await requireOnboardingDraft(draftId);
-  return writeDraft(applyDraftMutation(current, mutation));
+  const next = applyDraftMutation(current, mutation);
+  const row = draftToRow(next);
+
+  const result = await pool.query<DraftRow>(
+    `UPDATE onboarding_drafts SET
+      status = $2, website_url = $3, business_name = $4, business_type = $5,
+      approver_name = $6, channels = $7, goal = $8, offer = $9, competitor_url = $10,
+      preview = $11, provenance = $12, materialized_tenant_id = $13,
+      materialized_job_id = $14, updated_at = now()
+    WHERE draft_id = $1
+    RETURNING *`,
+    [
+      row.draft_id, row.status, row.website_url, row.business_name, row.business_type,
+      row.approver_name, row.channels, row.goal, row.offer, row.competitor_url,
+      row.preview, row.provenance, row.materialized_tenant_id, row.materialized_job_id,
+    ],
+  );
+
+  return rowToDraft(result.rows[0]);
 }
