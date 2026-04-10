@@ -277,9 +277,14 @@ type DraftRow = {
   provenance: OnboardingDraftProvenance;
   materialized_tenant_id: string | null;
   materialized_job_id: string | null;
-  created_at: Date;
-  updated_at: Date;
+  created_at: string | Date;
+  updated_at: string | Date;
 };
+
+function toIsoString(value: string | Date): string {
+  if (value instanceof Date) return value.toISOString();
+  return new Date(value).toISOString();
+}
 
 function rowToDraft(row: DraftRow): OnboardingDraft {
   return emptyDraft({
@@ -297,8 +302,8 @@ function rowToDraft(row: DraftRow): OnboardingDraft {
     provenance: row.provenance,
     materializedTenantId: row.materialized_tenant_id,
     materializedJobId: row.materialized_job_id,
-    createdAt: row.created_at.toISOString(),
-    updatedAt: row.updated_at.toISOString(),
+    createdAt: toIsoString(row.created_at),
+    updatedAt: toIsoString(row.updated_at),
   });
 }
 
@@ -347,7 +352,13 @@ export async function createOnboardingDraft(initial?: Partial<OnboardingDraft>):
 }
 
 export async function getOnboardingDraft(draftId: string): Promise<OnboardingDraft | null> {
-  const normalized = normalizeDraftId(draftId);
+  let normalized: string;
+  try {
+    normalized = normalizeDraftId(draftId);
+  } catch {
+    return null;
+  }
+
   const result = await pool.query<DraftRow>(
     'SELECT * FROM onboarding_drafts WHERE draft_id = $1',
     [normalized],
