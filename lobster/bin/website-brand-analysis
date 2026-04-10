@@ -192,6 +192,7 @@ def _structured_analysis_prompt(
             "- No analysis narration in any field.",
             "- Use finished customer-facing copy for hooks and opening lines.",
             "- Keep proof points specific and non-repeating.",
+            "- style_vibe: a short phrase (3-8 words) describing the brand's visual and tonal style derived from the website's color palette, typography, imagery style, layout density, and overall brand personality. Examples: 'Bold and disruptive streetwear energy', 'Warm artisanal with earthy textures', 'Clinical precision with tech-forward optimism'.",
             "- Return this schema exactly:",
             json.dumps(
                 {
@@ -217,6 +218,7 @@ def _structured_analysis_prompt(
                         "landing-page": ["string"],
                         "video": ["string", "string"],
                     },
+                    "style_vibe": "string",
                     "business_type": "string or empty",
                     "primary_goal": "string or empty",
                     "launch_approver_name": "string or empty",
@@ -238,6 +240,7 @@ def _validated_analysis_fields(parsed: dict, brand_name: str) -> dict:
     brand_voice = unique_strings([validate_short_text("brand_voice", item) for item in list_of_strings(parsed.get("brand_voice"))])[:5]
     if len(brand_voice) < 2:
       raise RuntimeError("quality_gate_failed:brand_voice:too_few_items")
+    style_vibe = validate_optional_copy_text("style_vibe", parsed.get("style_vibe"), min_tokens=2)
     channel_specific_angles = validate_channel_angles(parsed.get("channel_specific_angles"))
     hooks = validate_line_options(parsed.get("hooks"), "hooks")
     opening_lines = validate_line_options(parsed.get("opening_lines"), "opening_lines")
@@ -253,6 +256,7 @@ def _validated_analysis_fields(parsed: dict, brand_name: str) -> dict:
         "channel_specific_angles": channel_specific_angles,
         "hooks": hooks,
         "opening_lines": opening_lines,
+        "style_vibe": style_vibe,
         "business_type": validate_optional_copy_text("business_type", parsed.get("business_type"), min_tokens=1),
         "primary_goal": validate_optional_copy_text("primary_goal", parsed.get("primary_goal"), min_tokens=2),
         "launch_approver_name": validate_optional_copy_text("launch_approver_name", parsed.get("launch_approver_name"), min_tokens=1),
@@ -272,6 +276,7 @@ def _structured_from_validated_analysis(existing_analysis: dict) -> dict:
         "channel_specific_angles": existing_analysis.get("channel_specific_angles"),
         "hooks": existing_analysis.get("hooks"),
         "opening_lines": existing_analysis.get("opening_lines"),
+        "style_vibe": existing_analysis.get("style_vibe"),
         "business_type": existing_analysis.get("business_type"),
         "primary_goal": existing_analysis.get("primary_goal"),
         "launch_approver_name": existing_analysis.get("launch_approver_name"),
@@ -432,6 +437,7 @@ def main() -> int:
         "primary_goal": validated_fields["primary_goal"],
         "launch_approver_name": validated_fields["launch_approver_name"],
         "channels": validated_fields["channels"],
+        "style_vibe": validated_fields.get("style_vibe"),
         "competitor_url": competitor_url,
         "brand_kit": {
             "brand_name": brand_kit.get("brand_name"),
