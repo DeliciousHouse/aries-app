@@ -6,6 +6,7 @@ import { signIn } from 'next-auth/react';
 
 import AuthLayout from '../../frontend/auth/auth-layout';
 import SignUpForm from '../../frontend/auth/sign-up-form';
+import { getAuthErrorMessage } from '@/lib/auth-error-message';
 
 function savedDraftMessage(draftSaved: string | null, businessName: string | null): string | null {
   if (draftSaved !== '1') {
@@ -26,8 +27,16 @@ export default function SignUpPageClient() {
   const [isLoading, setIsLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
+  const callbackUrl = searchParams.get('callbackUrl') || '/auth/post-login';
   const defaultEmail = searchParams.get('email') || '';
+  const redirectedNotice = searchParams.get('notice');
+  const defaultAuthError = useMemo(() => {
+    if (!redirectedNotice) {
+      return null;
+    }
+
+    return getAuthErrorMessage(redirectedNotice);
+  }, [redirectedNotice]);
   const savedMessage = useMemo(
     () => savedDraftMessage(searchParams.get('draftSaved'), searchParams.get('businessName')),
     [searchParams],
@@ -108,7 +117,7 @@ export default function SignUpPageClient() {
           onGoogleSuccess={handleGoogleSuccess}
           onSlackClick={() => {}}
           isLoading={isLoading}
-          authError={authError}
+          authError={authError || defaultAuthError}
           savedStateMessage={savedMessage}
           defaultEmail={defaultEmail}
         />

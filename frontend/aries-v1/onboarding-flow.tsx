@@ -761,7 +761,11 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                     >
                       <input
                         value={websiteUrl}
-                        onChange={(event) => setWebsiteUrl(event.target.value)}
+                        onChange={(event) => {
+                          setWebsiteUrl(event.target.value);
+                          setUrlPreview(null);
+                          setPreviewError(null);
+                        }}
                         className={fieldInputClassName}
                         placeholder="https://sugarandleather.com"
                       />
@@ -1009,7 +1013,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                   <button
                     type="button"
                     onClick={() => void handleFinish()}
-                    disabled={submitting || !canFinish}
+                    disabled={submitting || !canFinish || creatingDraft}
                     className="inline-flex items-center gap-2 rounded-full border border-[#a96cff]/40 bg-[linear-gradient(90deg,#5c2e96,#7a41c2,#a96cff)] px-6 py-3 text-sm font-semibold text-white shadow-[0_0_24px_rgba(169,108,255,0.2)] transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {submitting

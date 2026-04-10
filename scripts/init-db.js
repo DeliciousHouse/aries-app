@@ -43,6 +43,15 @@ async function initDb() {
 
       ALTER TABLE users
         ADD COLUMN IF NOT EXISTS onboarding_completed_at TIMESTAMPTZ;
+
+      CREATE TABLE IF NOT EXISTS early_access_signups (
+        id BIGSERIAL PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        source TEXT NOT NULL DEFAULT 'website',
+        user_agent TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
     `);
 
     await client.query(`

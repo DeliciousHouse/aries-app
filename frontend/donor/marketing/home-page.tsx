@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent, type SVGProps } from 'react';
 
 import {
   ArrowRight,
@@ -14,7 +14,6 @@ import {
   Layers,
   Lightbulb,
   Linkedin,
-  MessageCircle,
   MoreHorizontal,
   PenTool,
   Play,
@@ -24,7 +23,6 @@ import {
   Share2,
   Sparkles,
   TrendingDown,
-  Twitter,
   Youtube,
   Zap,
   AlertCircle,
@@ -124,18 +122,52 @@ function NetworkBackground() {
 }
 
 type PlatformOrbit = {
-  icon: typeof Twitter;
+  icon: (props: SVGProps<SVGSVGElement>) => JSX.Element;
   angle: number;
   radius: number;
 };
 
+function XTwitterLogo(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...props}>
+      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+    </svg>
+  );
+}
+
+function RedditLogo(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...props}>
+      <path d="M20.18 11.08c-.72 0-1.34.4-1.66.98-1.42-.86-3.34-1.41-5.47-1.47l.93-4.39 3.04.65a1.5 1.5 0 1 0 .17-.8l-3.47-.74a.41.41 0 0 0-.49.32l-1.05 4.95c-2.18.04-4.15.59-5.6 1.47a1.9 1.9 0 1 0-2.1 2.99 3.73 3.73 0 0 0-.05.61c0 2.8 3.4 5.08 7.6 5.08s7.6-2.27 7.6-5.08c0-.2-.02-.4-.05-.59a1.9 1.9 0 0 0 .6-3.98ZM7.75 14.9a1.25 1.25 0 1 1 2.5 0 1.25 1.25 0 0 1-2.5 0Zm7.25 3.2c-.83.83-2.42.9-2.95.9-.53 0-2.13-.07-2.95-.9a.4.4 0 0 1 .56-.56c.52.52 1.6.66 2.39.66.78 0 1.87-.14 2.39-.66a.4.4 0 1 1 .56.56Zm-.77-1.95a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5Z" />
+    </svg>
+  );
+}
+
+function PinterestLogo(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...props}>
+      <path d="M12.02 2C6.49 2 2.5 5.96 2.5 11.24c0 3.93 2.2 6.24 3.48 6.24.53 0 .83-1.48.83-1.9 0-.5-1.27-1.56-1.27-3.63 0-4.29 3.26-7.33 7.49-7.33 3.63 0 6.31 2.06 6.31 5.85 0 2.83-1.14 8.15-4.82 8.15-1.33 0-2.46-.96-2.46-2.34 0-2.02 1.41-3.98 1.41-6.06 0-3.53-5.01-2.89-5.01 1.38 0 .9.11 1.9.51 2.72-.74 3.16-2.25 7.86-2.25 11.1 0 1 .14 1.98.24 2.97.17.19.08.17.34.08 2.68-3.67 2.58-4.39 3.8-9.19.66 1.25 2.35 1.92 3.7 1.92 5.68 0 8.23-5.53 8.23-10.52C23.03 5.38 18.38 2 12.02 2Z" />
+    </svg>
+  );
+}
+
+function WikipediaLogo(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...props}>
+      <path d="M2.2 5.2h5.1v.7c-.72.05-1.2.16-1.44.32-.24.16-.36.4-.36.72 0 .2.05.47.16.8l3.1 8.93 2.05-5.12-1.35-3.8c-.22-.64-.49-1.09-.82-1.34-.33-.25-.83-.42-1.5-.5v-.7h5.37v.7c-.73.04-1.22.13-1.47.28-.24.15-.36.4-.36.75 0 .2.05.46.16.78l.66 1.93.65-1.65c.18-.47.27-.83.27-1.08 0-.34-.13-.58-.4-.74-.27-.16-.73-.25-1.38-.28v-.7h4.8v.7c-.67.1-1.18.29-1.52.58-.34.29-.67.84-.99 1.65l-1.04 2.64 2.08 5.89 2.95-8.5c.13-.38.2-.72.2-1.02 0-.38-.15-.67-.45-.86-.3-.2-.82-.32-1.56-.37v-.7h4.73v.7c-.61.08-1.05.25-1.33.51-.28.26-.56.78-.84 1.55L14.1 21.3h-.76l-2.2-6.2-2.5 6.2h-.77L3.28 7.7c-.23-.69-.48-1.15-.75-1.38-.27-.23-.71-.37-1.33-.42v-.7Z" />
+    </svg>
+  );
+}
+
 const PLATFORM_ORBITS: PlatformOrbit[] = [
-  { icon: Twitter, angle: 180, radius: 180 },
-  { icon: Instagram, angle: 60, radius: 300 },
-  { icon: Linkedin, angle: 240, radius: 300 },
-  { icon: Facebook, angle: 0, radius: 420 },
-  { icon: Youtube, angle: 120, radius: 420 },
-  { icon: MessageCircle, angle: 300, radius: 420 },
+  { icon: XTwitterLogo, angle: 12, radius: 180 },
+  { icon: Instagram, angle: 145, radius: 300 },
+  { icon: Linkedin, angle: 35, radius: 300 },
+  { icon: RedditLogo, angle: 275, radius: 300 },
+  { icon: Facebook, angle: 205, radius: 420 },
+  { icon: Youtube, angle: 115, radius: 420 },
+  { icon: PinterestLogo, angle: 335, radius: 420 },
+  { icon: WikipediaLogo, angle: 255, radius: 420 },
 ];
 
 function OrbitLine({
@@ -725,15 +757,17 @@ function HowItWorks() {
 const CONTENT_CALENDAR_SCHEDULE = [
   {
     day: 'Mon',
-    date: '16',
+    date: '6',
     posts: [
       { title: 'AI Marketing Trends 2026 Strategy', platform: 'LinkedIn', time: '09:00', status: 'Published' },
-      { title: 'Aries AI Feature Reveal Today', platform: 'X / Twitter', time: '14:00', status: 'Published' },
+      { title: 'Aries AI Feature Reveal Thread', platform: 'X / Twitter', time: '14:00', status: 'Published' },
+      { title: 'Reddit: Founder AMA Recap', platform: 'Reddit', time: '17:30', status: 'Published' },
+      { title: 'Pinterest: Weekly Creative Board', platform: 'Pinterest', time: '20:00', status: 'Published' },
     ],
   },
   {
     day: 'Tue',
-    date: '17',
+    date: '7',
     posts: [
       { title: 'The Power of GEO Optimization', platform: 'Instagram', time: '10:30', status: 'Published' },
       { title: 'Market Intelligence 101 Guide', platform: 'YouTube', time: '16:00', status: 'Published' },
@@ -741,81 +775,121 @@ const CONTENT_CALENDAR_SCHEDULE = [
   },
   {
     day: 'Wed',
-    date: '18',
+    date: '8',
     posts: [
       { title: 'Spring Campaign Case Study', platform: 'LinkedIn', time: '11:00', status: 'Published' },
       { title: 'Facebook Ads Mastery Course', platform: 'Facebook', time: '15:30', status: 'Published' },
+      { title: 'Pinterest: Campaign Moodboard', platform: 'Pinterest', time: '18:00', status: 'Published' },
+      { title: 'YouTube: Campaign Review Short', platform: 'YouTube', time: '21:00', status: 'Published' },
     ],
   },
   {
     day: 'Thu',
-    date: '19',
+    date: '9',
     posts: [
       { title: 'Why AEO is the new SEO', platform: 'X / Twitter', time: '09:30', status: 'Published' },
       { title: 'Weekly AI Wrap-up Content', platform: 'Instagram', time: '15:00', status: 'Published' },
+      { title: 'LinkedIn: Marketing Ops Lessons', platform: 'LinkedIn', time: '18:30', status: 'Published' },
     ],
   },
   {
     day: 'Fri',
-    date: '20',
-    posts: [{ title: 'Aries AI v2.0 Launch Event', platform: 'LinkedIn', time: '10:00', status: 'Scheduled' }],
+    date: '10',
+    posts: [
+      { title: 'Aries AI v2.0 Launch Event', platform: 'LinkedIn', time: '10:00', status: 'Published' },
+      { title: 'Wikipedia: Tech Innovation Notes', platform: 'Wikipedia', time: '22:30', status: 'Published' },
+    ],
   },
   {
     day: 'Sat',
-    date: '21',
-    posts: [],
+    date: '11',
+    posts: [
+      { title: 'Weekend Founder Story Carousel', platform: 'Instagram', time: '11:00', status: 'Scheduled' },
+      { title: 'Reddit: Community Questions', platform: 'Reddit', time: '16:30', status: 'Scheduled' },
+    ],
   },
   {
     day: 'Sun',
-    date: '22',
-    posts: [],
+    date: '12',
+    posts: [
+      { title: 'Sunday Strategy Newsletter Clip', platform: 'LinkedIn', time: '12:00', status: 'Scheduled' },
+      { title: 'Pinterest: Weekly Ideas Board', platform: 'Pinterest', time: '18:15', status: 'Scheduled' },
+    ],
   },
   {
     day: 'Mon',
-    date: '23',
+    date: '13',
     posts: [
       { title: 'Next-Gen Automation Primer', platform: 'X / Twitter', time: '09:30', status: 'Scheduled' },
+      { title: 'LinkedIn: Founder Workflow Breakdown', platform: 'LinkedIn', time: '12:00', status: 'Scheduled' },
       { title: 'Brand Identity Deep-dive', platform: 'Instagram', time: '15:00', status: 'Scheduled' },
+      { title: 'Pinterest: Launch Visual Board', platform: 'Pinterest', time: '18:45', status: 'Scheduled' },
     ],
   },
   {
     day: 'Tue',
-    date: '24',
-    posts: [{ title: 'Future of SaaS Marketing', platform: 'LinkedIn', time: '10:00', status: 'Scheduled' }],
+    date: '14',
+    posts: [
+      { title: 'Future of SaaS Marketing', platform: 'LinkedIn', time: '10:00', status: 'Scheduled' },
+      { title: 'Reddit: SaaS Growth Checklist', platform: 'Reddit', time: '13:30', status: 'Scheduled' },
+      { title: 'YouTube: Workflow Walkthrough', platform: 'YouTube', time: '17:00', status: 'Scheduled' },
+    ],
   },
   {
     day: 'Wed',
-    date: '25',
-    posts: [{ title: 'Social Media Strategy Session', platform: 'Facebook', time: '13:00', status: 'Scheduled' }],
+    date: '15',
+    posts: [
+      { title: 'Instagram: Client Results Reel', platform: 'Instagram', time: '09:45', status: 'Scheduled' },
+      { title: 'Social Media Strategy Session', platform: 'Facebook', time: '13:00', status: 'Scheduled' },
+      { title: 'Wikipedia: Marketing Systems Note', platform: 'Wikipedia', time: '16:15', status: 'Scheduled' },
+      { title: 'Reddit: Automation Playbook', platform: 'Reddit', time: '19:00', status: 'Scheduled' },
+    ],
   },
   {
     day: 'Thu',
-    date: '26',
-    posts: [{ title: 'Content Performance Review', platform: 'Instagram', time: '11:30', status: 'Scheduled' }],
+    date: '16',
+    posts: [
+      { title: 'Content Performance Review', platform: 'Instagram', time: '11:30', status: 'Scheduled' },
+      { title: 'Facebook: Proof Point Carousel', platform: 'Facebook', time: '15:15', status: 'Scheduled' },
+      { title: 'Wikipedia: Brand Glossary Update', platform: 'Wikipedia', time: '20:00', status: 'Scheduled' },
+    ],
   },
   {
     day: 'Fri',
-    date: '27',
-    posts: [{ title: 'Quarterly Growth Planning', platform: 'LinkedIn', time: '09:00', status: 'Scheduled' }],
+    date: '17',
+    posts: [
+      { title: 'Quarterly Growth Planning', platform: 'LinkedIn', time: '09:00', status: 'Scheduled' },
+      { title: 'X Thread: Campaign Lessons', platform: 'X / Twitter', time: '14:30', status: 'Scheduled' },
+      { title: 'Pinterest: Strategy Template Pin', platform: 'Pinterest', time: '18:45', status: 'Scheduled' },
+    ],
   },
   {
     day: 'Sat',
-    date: '28',
-    posts: [],
+    date: '18',
+    posts: [
+      { title: 'Pinterest: Offer Inspiration Board', platform: 'Pinterest', time: '11:15', status: 'Scheduled' },
+      { title: 'Facebook: Weekend Promo Reminder', platform: 'Facebook', time: '15:45', status: 'Scheduled' },
+    ],
   },
   {
     day: 'Sun',
-    date: '29',
-    posts: [],
+    date: '19',
+    posts: [
+      { title: 'YouTube Shorts Weekly Recap', platform: 'YouTube', time: '10:30', status: 'Scheduled' },
+      { title: 'Reddit: Customer Story Thread', platform: 'Reddit', time: '18:00', status: 'Scheduled' },
+    ],
   },
 ] as const;
 
 const PLATFORM_CALENDAR_STYLE = {
   LinkedIn: { Icon: Linkedin, border: 'border-blue-600/30', iconClass: 'text-blue-400' },
   YouTube: { Icon: Youtube, border: 'border-red-500/30', iconClass: 'text-red-400' },
-  'X / Twitter': { Icon: Twitter, border: 'border-white/20', iconClass: 'text-white/80' },
+  'X / Twitter': { Icon: XTwitterLogo, border: 'border-white/20', iconClass: 'text-white/80' },
   Instagram: { Icon: Instagram, border: 'border-pink-500/30', iconClass: 'text-pink-400' },
   Facebook: { Icon: Facebook, border: 'border-blue-700/30', iconClass: 'text-blue-600' },
+  Reddit: { Icon: RedditLogo, border: 'border-orange-500/30', iconClass: 'text-orange-400' },
+  Pinterest: { Icon: PinterestLogo, border: 'border-red-600/30', iconClass: 'text-red-500' },
+  Wikipedia: { Icon: WikipediaLogo, border: 'border-white/20', iconClass: 'text-white/75' },
 } as const;
 
 function platformCalendarMeta(platform: string) {
@@ -839,7 +913,7 @@ function calendarPlatformBorder(platform: string) {
 }
 
 function ContentCalendar() {
-  const [activeDate, setActiveDate] = useState('20');
+  const [activeDate, setActiveDate] = useState('10');
   const [currentWeek, setCurrentWeek] = useState<'current' | 'next'>('current');
   const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
 
@@ -849,6 +923,9 @@ function ContentCalendar() {
     { name: 'Instagram' },
     { name: 'YouTube' },
     { name: 'Facebook' },
+    { name: 'Reddit' },
+    { name: 'Pinterest' },
+    { name: 'Wikipedia' },
   ];
 
   const truncateTitle = (title: string, wordCount = 3) => {
@@ -856,14 +933,14 @@ function ContentCalendar() {
     return words.length <= wordCount ? title : `${words.slice(0, wordCount).join(' ')}...`;
   };
 
-  const monthDays = Array.from({ length: 31 }, (_, i) => i + 1);
+  const monthDays = Array.from({ length: 30 }, (_, i) => i + 1);
   const getPostsForDate = (date: string) =>
     CONTENT_CALENDAR_SCHEDULE.find((entry) => entry.date === date)?.posts || [];
 
   const displayedSchedule = useMemo(() => {
     return currentWeek === 'current'
-      ? CONTENT_CALENDAR_SCHEDULE.filter((item) => ['16', '17', '18', '19', '20', '21', '22'].includes(item.date))
-      : CONTENT_CALENDAR_SCHEDULE.filter((item) => ['23', '24', '25', '26', '27', '28', '29'].includes(item.date));
+      ? CONTENT_CALENDAR_SCHEDULE.filter((item) => ['6', '7', '8', '9', '10', '11', '12'].includes(item.date))
+      : CONTENT_CALENDAR_SCHEDULE.filter((item) => ['13', '14', '15', '16', '17', '18', '19'].includes(item.date));
   }, [currentWeek]);
 
   return (
@@ -950,7 +1027,7 @@ function ContentCalendar() {
           <div className="flex-1 flex flex-col">
             <div className="p-8 border-b border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-6">
               <div className="flex items-center gap-6">
-                <h3 className="text-2xl font-light">March 2026</h3>
+                <h3 className="text-2xl font-light">April 2026</h3>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -966,7 +1043,7 @@ function ContentCalendar() {
                   <button
                     type="button"
                     onClick={() => {
-                      setActiveDate('20');
+                      setActiveDate('10');
                       setCurrentWeek('current');
                     }}
                     className="px-4 py-2 hover:bg-white/5 rounded-lg border border-white/10 text-sm font-medium transition-colors"
@@ -1114,6 +1191,142 @@ function ContentCalendar() {
                 </div>
               )}
             </div>
+          </div>
+        </motion.div>
+      </div>
+    </section>
+  );
+}
+
+function EarlyAccessSignup() {
+  const [email, setEmail] = useState('');
+  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setStatus('error');
+      setMessage('Enter your email to request early access.');
+      return;
+    }
+
+    setStatus('loading');
+    setMessage(null);
+
+    try {
+      const response = await fetch('/api/early-access', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: trimmedEmail,
+          source: 'marketing-homepage',
+        }),
+      });
+      const result = (await response.json()) as { message?: string };
+
+      if (!response.ok) {
+        throw new Error(result.message || 'We could not save your email right now.');
+      }
+
+      setStatus('success');
+      setMessage(result.message || "You're on the early access list.");
+      setEmail('');
+    } catch (error) {
+      setStatus('error');
+      setMessage(error instanceof Error ? error.message : 'We could not save your email right now.');
+    }
+  }
+
+  return (
+    <section id="early-access" className="relative overflow-hidden border-y border-white/10 bg-black/35 py-24">
+      <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[size:64px_64px] opacity-35" />
+      <div className="absolute right-0 top-0 h-96 w-1/2 bg-[radial-gradient(circle_at_top_right,rgba(124,58,237,0.25),transparent_58%)]" />
+      <div className="w-full">
+        <motion.div
+          initial={{ opacity: 0, y: 24 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          className="relative w-full overflow-hidden"
+        >
+          <div className="container relative z-10 mx-auto grid gap-10 px-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-start">
+            <div>
+              <span className="inline-flex rounded-full border border-primary/20 bg-primary/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.2em] text-primary">
+                Early access
+              </span>
+              <h2 className="mt-6 text-4xl font-light leading-tight md:text-[52px]">
+                Sign in to get <span className="text-gradient">early access</span>
+              </h2>
+              <p className="mt-6 max-w-2xl text-lg leading-8 text-white/62">
+                Join the first group of businesses getting Aries for campaign planning, approval-safe creative, launch scheduling, and clear weekly results.
+              </p>
+
+              <div className="mt-[50px] grid w-full gap-4 sm:grid-cols-3">
+                {[
+                  ['01', ['Beta invite']],
+                  ['02', ['Workspace', 'preview']],
+                  ['03', ['Priority', 'setup']],
+                ].map(([count, labelLines]) => (
+                  <div
+                    key={count}
+                    className="group min-h-28 rounded-[1.25rem] border border-white/10 bg-black/35 p-5 transition-colors hover:border-primary/35 hover:bg-primary/10"
+                  >
+                    <div className="text-3xl font-light leading-none tracking-[0.08em] text-white">{count}</div>
+                    <div className="mt-5 text-[10px] font-semibold uppercase leading-5 tracking-[0.3em] text-white/45">
+                      {(labelLines as string[]).map((line) => (
+                        <span key={line} className="block">
+                          {line}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <form onSubmit={handleSubmit} className="flex min-h-[390px] flex-col justify-center rounded-[2rem] border border-white/10 bg-black/25 p-5 shadow-2xl shadow-black/20">
+              <label className="block text-sm font-semibold text-white/80" htmlFor="early-access-email">
+                Work email
+              </label>
+              <div className="mt-3 flex flex-col gap-3 sm:flex-row lg:flex-col xl:flex-row">
+                <input
+                  id="early-access-email"
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="you@company.com"
+                  className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-white outline-none transition placeholder:text-white/30 focus:border-primary/50"
+                  disabled={status === 'loading'}
+                />
+                <button
+                  type="submit"
+                  disabled={status === 'loading'}
+                  className="rounded-2xl bg-gradient-to-r from-primary to-secondary px-5 py-3 text-sm font-bold text-white shadow-lg shadow-primary/20 transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {status === 'loading' ? 'Saving...' : 'Request access'}
+                </button>
+              </div>
+              {message ? (
+                <p
+                  className={cn(
+                    'mt-4 rounded-xl border px-4 py-3 text-sm',
+                    status === 'success'
+                      ? 'border-primary/25 bg-primary/10 text-white'
+                      : 'border-red-400/20 bg-red-400/10 text-red-100',
+                  )}
+                >
+                  {message}
+                </p>
+              ) : (
+                <p className="mt-4 text-sm leading-6 text-white/42">
+                  We will only use this email to contact you about Aries early access.
+                </p>
+              )}
+            </form>
           </div>
         </motion.div>
       </div>
@@ -1356,7 +1569,7 @@ export default function DonorHomePage() {
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
-            className="max-w-6xl mx-auto"
+            className="max-w-7xl mx-auto"
           >
             <div className="max-w-4xl mx-auto">
               <h2 className="text-4xl md:text-[48px] leading-tight font-bold mb-8">Meet Aries</h2>
@@ -1365,13 +1578,13 @@ export default function DonorHomePage() {
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center justify-center gap-4 md:gap-6 w-full pb-4">
+            <div className="mx-auto flex flex-wrap items-center justify-center gap-4 pb-4 lg:grid lg:w-fit lg:grid-cols-[12rem_1.25rem_12rem_1.25rem_12rem_1.25rem_12rem_1.25rem_12rem] lg:gap-3 xl:grid-cols-[13rem_2rem_13rem_2rem_13rem_2rem_13rem_2rem_13rem]">
               {['Set up your business', 'See the plan', 'Review the creative', 'Launch safely', 'See what worked'].map((step, index) => (
                 <Fragment key={step}>
-                  <div className="glass px-8 py-4 rounded-full text-sm font-semibold border-primary/20 whitespace-nowrap cursor-pointer hover-gradient-border">
-                    {step}
+                  <div className="glass inline-flex w-full items-center justify-center rounded-full border-primary/20 px-8 py-4 text-center text-sm font-semibold whitespace-nowrap cursor-pointer hover-gradient-border lg:px-4">
+                    <span className="relative z-10 block w-full text-center">{step}</span>
                   </div>
-                  {index < 4 ? <div className="hidden md:block w-8 md:w-12 h-px bg-white/20" /> : null}
+                  {index < 4 ? <div className="hidden h-px w-full bg-white/20 lg:block" /> : null}
                 </Fragment>
               ))}
             </div>
@@ -1381,9 +1594,8 @@ export default function DonorHomePage() {
 
       <Features />
       <HowItWorks />
-      <ContentCalendar />
       <FeatureShowcaseFallback />
-      <Pricing />
+      <EarlyAccessSignup />
       <FinalCTA />
     </DonorMarketingShell>
   );

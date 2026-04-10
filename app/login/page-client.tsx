@@ -37,6 +37,28 @@ export default function LoginPageClient() {
     () => resolveLoginErrorCode(searchParams.get('error'), searchParams.get('code')),
     [searchParams],
   );
+  const savedMessage = useMemo(
+    () => savedDraftMessage(searchParams.get('draftSaved'), searchParams.get('businessName')),
+    [searchParams],
+  );
+  const signupHref = useMemo(() => {
+    const params = new URLSearchParams();
+    if (callbackUrl) {
+      params.set('callbackUrl', callbackUrl);
+    }
+    if (searchParams.get('draftSaved') === '1') {
+      params.set('draftSaved', '1');
+    }
+    const businessName = searchParams.get('businessName');
+    if (businessName) {
+      params.set('businessName', businessName);
+    }
+    if (defaultEmail) {
+      params.set('email', defaultEmail);
+    }
+    const suffix = params.toString();
+    return suffix ? `/signup?${suffix}` : '/signup';
+  }, [callbackUrl, defaultEmail, searchParams]);
   const queryError = useMemo(
     () =>
       getLoginAuthErrorMessage(
@@ -46,12 +68,6 @@ export default function LoginPageClient() {
       ),
     [searchParams],
   );
-
-  const savedMessage = useMemo(
-    () => savedDraftMessage(searchParams.get('draft_saved'), searchParams.get('business_name')),
-    [searchParams],
-  );
-  const signupHref = '/signup';
 
   useEffect(() => {
     if (queryErrorCode !== EMAIL_DOES_NOT_EXIST_ERROR) {
