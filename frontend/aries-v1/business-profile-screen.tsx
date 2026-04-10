@@ -269,7 +269,7 @@ export default function AriesBusinessProfileScreen() {
               </EditableField>
               <EditableField
                 label="Primary goal"
-                hint="The business outcome Aries should optimize first."
+                hint="The business outcome that matters most right now."
               >
                 <input
                   value={primaryGoal}
@@ -278,8 +278,8 @@ export default function AriesBusinessProfileScreen() {
                 />
               </EditableField>
               <EditableField
-                label="Offer"
-                hint="The clearest service, program, or package to put in market first."
+                label="Core offering"
+                hint="The core product, service, or program Aries should focus campaigns around."
               >
                 <input
                   value={offer}

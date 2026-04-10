@@ -63,8 +63,8 @@ const STEP_DEFINITIONS: StepDefinition[] = [
   {
     key: 'goal',
     label: 'Goal',
-    title: 'Set the conversion goal for the first campaign.',
-    description: 'Give Aries the clearest business target so the strategy, creative, and approvals point at one outcome.',
+    title: 'What outcome matters most right now?',
+    description: 'Tell Aries what your business needs so the first campaign is built around a real objective.',
   },
 ];
 
@@ -93,20 +93,24 @@ const CHANNEL_OPTIONS: ChannelOption[] = [
 
 const GOAL_OPTIONS: GoalOption[] = [
   {
-    label: 'Book more qualified calls',
-    description: 'Drive discovery calls, consults, and booked conversations.',
+    label: 'Get leads',
+    description: 'Collect contact info, sign-ups, consultation requests, or quote inquiries.',
   },
   {
-    label: 'Generate more qualified leads',
-    description: 'Turn attention into hand-raisers the team can convert.',
+    label: 'Sell a product or service',
+    description: 'Drive direct purchases, bookings, or paid sign-ups.',
   },
   {
-    label: 'Increase offer sales',
-    description: 'Focus the first campaign on direct offer revenue.',
+    label: 'Increase social media presence',
+    description: 'Grow followers, engagement, and brand visibility across platforms.',
   },
   {
-    label: 'Stay visible every week',
-    description: 'Build a steady campaign rhythm that keeps the brand in market.',
+    label: 'Gather information',
+    description: 'Run quizzes, surveys, or polls to learn about your audience.',
+  },
+  {
+    label: 'Other',
+    description: 'Define a custom business outcome.',
   },
 ];
 
@@ -115,24 +119,30 @@ function goalFromBusinessProfile(primaryGoal: string | null | undefined): string
   if (!normalized) {
     return '';
   }
-  if (normalized.includes('appoint') || normalized.includes('call') || normalized.includes('consult')) {
-    return 'Book more qualified calls';
-  }
-  if (normalized.includes('lead') || normalized.includes('enquir')) {
-    return 'Generate more qualified leads';
+  if (normalized.includes('lead') || normalized.includes('enquir') || normalized.includes('sign-up') || normalized.includes('contact')) {
+    return 'Get leads';
   }
   if (
+    normalized.includes('sell') ||
     normalized.includes('sale') ||
     normalized.includes('revenue') ||
     normalized.includes('purchase') ||
-    normalized.includes('buy')
+    normalized.includes('buy') ||
+    normalized.includes('book')
   ) {
-    return 'Increase offer sales';
+    return 'Sell a product or service';
   }
-  if (normalized.includes('visible') || normalized.includes('awareness') || normalized.includes('brand')) {
-    return 'Stay visible every week';
+  if (normalized.includes('social') || normalized.includes('follower') || normalized.includes('visible') || normalized.includes('awareness') || normalized.includes('brand') || normalized.includes('engag')) {
+    return 'Increase social media presence';
   }
-  return '';
+  if (normalized.includes('quiz') || normalized.includes('survey') || normalized.includes('poll') || normalized.includes('gather') || normalized.includes('research')) {
+    return 'Gather information';
+  }
+  const knownLabels = GOAL_OPTIONS.map((option) => option.label);
+  if (knownLabels.includes(primaryGoal?.trim() || '')) {
+    return primaryGoal!.trim();
+  }
+  return primaryGoal?.trim() || '';
 }
 
 function isValidHttpsUrl(value: string): boolean {
@@ -193,6 +203,7 @@ function stepReady(stepKey: StepKey, values: {
   websiteUrl: string;
   selectedChannels: string[];
   goal: string;
+  customGoal: string;
 }): boolean {
   if (stepKey === 'business') {
     return values.businessName.trim().length > 0 && values.businessType.trim().length > 0;
@@ -204,6 +215,9 @@ function stepReady(stepKey: StepKey, values: {
     return values.selectedChannels.length > 0;
   }
   if (stepKey === 'goal') {
+    if (values.goal === 'Other') {
+      return values.customGoal.trim().length > 0;
+    }
     return values.goal.trim().length > 0;
   }
   return true;
@@ -223,7 +237,7 @@ function stepValidationMessage(stepKey: StepKey): string {
     return 'Select at least one channel before continuing.';
   }
   if (stepKey === 'goal') {
-    return 'Choose the primary goal for the first campaign.';
+    return 'Choose a business outcome before continuing.';
   }
   return 'Complete the current step before continuing.';
 }
@@ -266,6 +280,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   const [approverName, setApproverName] = useState('');
   const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
   const [goal, setGoal] = useState('');
+  const [customGoal, setCustomGoal] = useState('');
   const [offer, setOffer] = useState('');
   const [competitorUrl, setCompetitorUrl] = useState('');
   const deferredWebsiteUrl = useDeferredValue(websiteUrl.trim());
@@ -290,6 +305,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
       websiteUrl,
       selectedChannels,
       goal,
+      customGoal,
     }),
   );
   const fieldInputClassName =
@@ -351,7 +367,14 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         setBusinessType(draft.businessType);
         setApproverName(draft.approverName);
         setSelectedChannels(draft.channels);
-        setGoal(draft.goal);
+        const knownGoalLabels = GOAL_OPTIONS.map((o) => o.label);
+        if (draft.goal && !knownGoalLabels.includes(draft.goal)) {
+          setGoal('Other');
+          setCustomGoal(draft.goal);
+        } else {
+          setGoal(draft.goal);
+          setCustomGoal('');
+        }
         setOffer(draft.offer);
         setCompetitorUrl(draft.competitorUrl);
         setUrlPreview(draft.preview);
@@ -489,7 +512,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   }
 
   function handleContinue() {
-    if (!stepReady(currentStep.key, { businessName, businessType, websiteUrl, selectedChannels, goal })) {
+    if (!stepReady(currentStep.key, { businessName, businessType, websiteUrl, selectedChannels, goal, customGoal })) {
       setError(stepValidationMessage(currentStep.key));
       return;
     }
@@ -503,13 +526,22 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
       return;
     }
 
-    if (!draftId) {
-      setError('We could not find the saved onboarding draft for this setup.');
-      return;
-    }
-
     setSubmitting(true);
     setError(null);
+
+    let activeDraftId = draftId;
+    if (!activeDraftId) {
+      try {
+        const response = await ariesApi.createOnboardingDraft();
+        activeDraftId = response.draft.draftId;
+        setDraftId(activeDraftId);
+        router.replace(`/onboarding/pipeline-intake?draft=${encodeURIComponent(activeDraftId)}`);
+      } catch {
+        setError('We could not create an onboarding session. Please reload and try again.');
+        setSubmitting(false);
+        return;
+      }
+    }
 
     try {
       const trimmedCompetitorUrl = competitorUrl.trim();
@@ -520,14 +552,15 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         }
       }
 
-      await ariesApi.updateOnboardingDraft(draftId, {
+      const resolvedGoal = goal === 'Other' ? customGoal.trim() : goal;
+      await ariesApi.updateOnboardingDraft(activeDraftId, {
         status: 'ready_for_auth',
         websiteUrl,
         businessName,
         businessType,
         approverName,
         channels: selectedChannels,
-        goal,
+        goal: resolvedGoal,
         offer,
         competitorUrl: trimmedCompetitorUrl || null,
         preview: urlPreview,
@@ -539,13 +572,13 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
       });
 
       if (props.initialAuthenticated) {
-        router.push(`/onboarding/resume?draft=${encodeURIComponent(draftId)}`);
+        router.push(`/onboarding/resume?draft=${encodeURIComponent(activeDraftId)}`);
         return;
       }
 
       router.push(
         authRedirectHref({
-          draftId,
+          draftId: activeDraftId,
           businessName: businessName || hostnameFromUrl(websiteUrl) || 'your business',
         }),
       );
@@ -878,13 +911,18 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
               {currentStep.key === 'goal' ? (
                 <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
                   <div className="space-y-4">
-                    <p className="text-sm leading-7 text-white/65">Choose the business outcome Aries should optimize first.</p>
+                    <p className="text-sm leading-7 text-white/65">What should Aries help your business achieve first?</p>
                     <div className="grid gap-3">
                       {GOAL_OPTIONS.map((option) => (
                         <button
                           key={option.label}
                           type="button"
-                          onClick={() => setGoal(option.label)}
+                          onClick={() => {
+                            setGoal(option.label);
+                            if (option.label !== 'Other') {
+                              setCustomGoal('');
+                            }
+                          }}
                           className={clsx(
                             'rounded-[1.35rem] border px-4 py-4 text-left transition',
                             goal === option.label
@@ -896,19 +934,28 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                           <p className="mt-2 text-sm leading-7 text-white/58">{option.description}</p>
                         </button>
                       ))}
+                      {goal === 'Other' ? (
+                        <input
+                          value={customGoal}
+                          onChange={(event) => setCustomGoal(event.target.value)}
+                          className={fieldInputClassName}
+                          placeholder="Describe your business outcome goal"
+                          autoFocus
+                        />
+                      ) : null}
                     </div>
                   </div>
 
                   <div className="grid gap-5">
                     <Field
-                      label="What are you promoting first?"
-                      hint="Use the clearest offer, program, or service Aries should put in market."
+                      label="What does your business offer?"
+                      hint="The core product, service, or program Aries should focus the first campaign around."
                     >
                       <input
                         value={offer}
                         onChange={(event) => setOffer(event.target.value)}
                         className={fieldInputClassName}
-                        placeholder="Private coaching, memberships, or the next flagship offer"
+                        placeholder="e.g. Private coaching, SaaS subscriptions, handmade jewelry"
                       />
                     </Field>
 
