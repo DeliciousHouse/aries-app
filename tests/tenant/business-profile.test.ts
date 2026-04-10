@@ -302,7 +302,7 @@ test('getBusinessProfile fills inferable client-facing fields with polished curr
     assert.equal(profile.offer, 'Custom framing and installation packages for modern interiors.');
     assert.deepEqual(profile.channels, ['meta-ads', 'landing-page']);
     assert.equal(profile.brandVoice, 'Direct, Modern, and Assured.');
-    assert.equal(profile.styleVibe, 'Minimal and editorial.');
+    assert.equal(profile.styleVibe, 'Grounded and approachable with warm tones.');
     assert.equal(typeof profile.notes, 'string');
     assert.equal(profile.notes?.includes('Custom framing with modern installation support for fast-moving interiors.'), true);
     assert.equal(profile.notes?.includes('Custom framing and installation packages for modern interiors.'), true);

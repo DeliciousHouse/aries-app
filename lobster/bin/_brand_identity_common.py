@@ -68,6 +68,78 @@ def _landing_hook(value: dict) -> str | None:
     return normalize_identity_text(_string_list(hooks.get("landing-page"))[0] if _string_list(hooks.get("landing-page")) else None)
 
 
+def _parse_hex_luminance(hex_color: str) -> float | None:
+    clean = hex_color.lstrip("#")
+    if len(clean) == 3:
+        clean = "".join(c * 2 for c in clean)
+    if len(clean) != 6:
+        return None
+    try:
+        r, g, b = int(clean[0:2], 16), int(clean[2:4], 16), int(clean[4:6], 16)
+    except ValueError:
+        return None
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255
+
+
+def _parse_hex_hue(hex_color: str) -> float | None:
+    clean = hex_color.lstrip("#")
+    if len(clean) == 3:
+        clean = "".join(c * 2 for c in clean)
+    if len(clean) != 6:
+        return None
+    try:
+        r, g, b = int(clean[0:2], 16) / 255, int(clean[2:4], 16) / 255, int(clean[4:6], 16) / 255
+    except ValueError:
+        return None
+    mx, mn = max(r, g, b), min(r, g, b)
+    if mx - mn < 0.05:
+        return None
+    d = mx - mn
+    if mx == r:
+        h = ((g - b) / d + (6 if g < b else 0)) / 6
+    elif mx == g:
+        h = ((b - r) / d + 2) / 6
+    else:
+        h = ((r - g) / d + 4) / 6
+    return h * 360
+
+
+def _color_mood(palette: list[str]) -> str:
+    luminances = [v for v in (_parse_hex_luminance(c) for c in palette) if v is not None]
+    hues = [v for v in (_parse_hex_hue(c) for c in palette) if v is not None]
+    avg_lum = sum(luminances) / len(luminances) if luminances else 0.5
+    warm_count = sum(1 for h in hues if h < 60 or h > 300)
+    cool_count = sum(1 for h in hues if 150 <= h <= 270)
+    is_warm = warm_count > cool_count
+    is_dark = avg_lum < 0.4
+    is_bright = avg_lum > 0.65
+
+    if is_dark and is_warm:
+        return "Bold and warm with high-contrast depth"
+    if is_dark and not is_warm:
+        return "Sleek and modern with cool undertones"
+    if is_bright and is_warm:
+        return "Light and inviting with warm energy"
+    if is_bright and not is_warm:
+        return "Bright and clean with a cool edge"
+    if is_warm:
+        return "Grounded and approachable with warm tones"
+    return "Balanced and professional with neutral clarity"
+
+
+def _font_mood(fonts: list[str]) -> str | None:
+    lower = " ".join(fonts).lower()
+    if re.search(r"serif(?!.*sans)", lower) and "sans" not in lower:
+        return "editorial typography"
+    if re.search(r"mono|code|courier", lower):
+        return "technical precision"
+    if re.search(r"handwrit|script|cursive|brush", lower):
+        return "handcrafted character"
+    if re.search(r"display|playfair|dm\s?serif|lora|merriweather", lower):
+        return "refined editorial type"
+    return None
+
+
 def _derive_style_vibe(explicit_style_vibe, brand_kit: dict) -> str | None:
     explicit = normalize_identity_text(explicit_style_vibe)
     if explicit:
@@ -76,11 +148,14 @@ def _derive_style_vibe(explicit_style_vibe, brand_kit: dict) -> str | None:
     palette = _string_list(colors.get("palette"))
     fonts = _string_list(brand_kit.get("font_families"))
     if palette and fonts:
-        return "Minimal and editorial."
+        cm = _color_mood(palette)
+        fm = _font_mood(fonts)
+        return f"{cm} and {fm}." if fm else f"{cm}."
     if palette:
-        return "Clean and contemporary."
+        return f"{_color_mood(palette)}."
     if fonts:
-        return "Typographic and refined."
+        fm = _font_mood(fonts)
+        return f"Typographic focus with {fm}." if fm else "Typographic and refined."
     return None
 
 

@@ -155,6 +155,62 @@ type BuildBrandIdentityInput = {
   hooks?: Record<string, unknown> | null;
 };
 
+function parseHexLuminance(hex: string): number | null {
+  const clean = hex.replace(/^#/, '');
+  if (clean.length !== 3 && clean.length !== 6) return null;
+  const full = clean.length === 3 ? clean.split('').map((c) => c + c).join('') : clean;
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+  if ([r, g, b].some((v) => Number.isNaN(v))) return null;
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+}
+
+function parseHexHue(hex: string): number | null {
+  const clean = hex.replace(/^#/, '');
+  const full = clean.length === 3 ? clean.split('').map((c) => c + c).join('') : clean;
+  const r = parseInt(full.slice(0, 2), 16) / 255;
+  const g = parseInt(full.slice(2, 4), 16) / 255;
+  const b = parseInt(full.slice(4, 6), 16) / 255;
+  if ([r, g, b].some((v) => Number.isNaN(v))) return null;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  if (max - min < 0.05) return null; // achromatic
+  let h = 0;
+  const d = max - min;
+  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+  else if (max === g) h = ((b - r) / d + 2) / 6;
+  else h = ((r - g) / d + 4) / 6;
+  return h * 360;
+}
+
+function colorMood(palette: string[]): string {
+  const luminances = palette.map(parseHexLuminance).filter((v): v is number => v !== null);
+  const hues = palette.map(parseHexHue).filter((v): v is number => v !== null);
+  const avgLum = luminances.length > 0 ? luminances.reduce((a, b) => a + b, 0) / luminances.length : 0.5;
+  const warmCount = hues.filter((h) => h < 60 || h > 300).length;
+  const coolCount = hues.filter((h) => h >= 150 && h <= 270).length;
+  const isWarm = warmCount > coolCount;
+  const isDark = avgLum < 0.4;
+  const isBright = avgLum > 0.65;
+
+  if (isDark && isWarm) return 'Bold and warm with high-contrast depth';
+  if (isDark && !isWarm) return 'Sleek and modern with cool undertones';
+  if (isBright && isWarm) return 'Light and inviting with warm energy';
+  if (isBright && !isWarm) return 'Bright and clean with a cool edge';
+  if (isWarm) return 'Grounded and approachable with warm tones';
+  return 'Balanced and professional with neutral clarity';
+}
+
+function fontMood(fonts: string[]): string | null {
+  const lower = fonts.map((f) => f.toLowerCase()).join(' ');
+  if (/serif(?!.*sans)/i.test(lower) && !/sans/i.test(lower)) return 'editorial typography';
+  if (/mono|code|courier/i.test(lower)) return 'technical precision';
+  if (/handwrit|script|cursive|brush/i.test(lower)) return 'handcrafted character';
+  if (/display|playfair|dm\s?serif|lora|merriweather/i.test(lower)) return 'refined editorial type';
+  return null;
+}
+
 function deriveStyleVibe(
   explicitStyleVibe: unknown,
   brandKit: Record<string, unknown> | null,
@@ -169,15 +225,18 @@ function deriveStyleVibe(
   const fonts = stringArray(brandKit?.font_families);
 
   if (palette.length > 0 && fonts.length > 0) {
-    return 'Minimal and editorial.';
+    const cm = colorMood(palette);
+    const fm = fontMood(fonts);
+    return fm ? `${cm} and ${fm}.` : `${cm}.`;
   }
 
   if (palette.length > 0) {
-    return 'Clean and contemporary.';
+    return `${colorMood(palette)}.`;
   }
 
   if (fonts.length > 0) {
-    return 'Typographic and refined.';
+    const fm = fontMood(fonts);
+    return fm ? `Typographic focus with ${fm}.` : 'Typographic and refined.';
   }
 
   return null;
