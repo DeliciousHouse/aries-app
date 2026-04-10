@@ -690,11 +690,14 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                     </Field>
                     <Field
                       label="Current source"
-                      hint="Aries will keep the website attached to the current campaign source."
+                      hint="Enter the website Aries should treat as the active brand source for this campaign."
                     >
-                      <div className="rounded-[1rem] border border-white/12 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] px-4 py-3 text-sm text-white/72">
-                        {hostnameFromUrl(websiteUrl) || 'Add the website in the next step.'}
-                      </div>
+                      <input
+                        value={websiteUrl}
+                        onChange={(event) => setWebsiteUrl(event.target.value)}
+                        className={fieldInputClassName}
+                        placeholder="https://aries.sugarandleather.com"
+                      />
                     </Field>
                   </div>
 

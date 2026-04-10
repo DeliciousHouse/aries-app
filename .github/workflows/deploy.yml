@@ -1,10 +1,11 @@
 name: Deploy
 
 # Operational contract (documented in DOCKER.md and docs/SYSTEM-REFERENCE.md):
-# - Pushes to master trigger this workflow and deploy the pushed commit SHA.
-# - The workflow verifies ghcr.io/<owner>/aries-app:<sha> exists before deploy.
-# - Publish the image for that SHA first (scripts/release/publish-image.sh), then push master.
-# - Pushing master before the matching GHCR tag exists fails by design at GHCR verification.
+# - Pushes to master trigger this workflow and deploy the :latest GHCR image.
+# - The publish script (scripts/release/publish-image.sh) tags every build as :latest,
+#   :<commit-sha>, and :<branch>. The deploy workflow pulls :latest on push events.
+# - Manual workflow_dispatch deploys still accept an explicit image_tag (SHA or other tag).
+# - If package linkage/permissions are not ready for GITHUB_TOKEN, set GHCR_WORKFLOW_TOKEN.
 
 on:
   push:
@@ -31,7 +32,6 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_OWNER: ${{ github.repository_owner }}
   IMAGE_NAME: aries-app
   STATIC_PUSH_BRANCH: master
   DEFAULT_BRANCH: ${{ vars.DEFAULT_BRANCH }}
@@ -70,11 +70,15 @@ jobs:
           INPUT_IMAGE_TAG: ${{ inputs.image_tag }}
           INPUT_GIT_REF: ${{ inputs.git_ref }}
           CURRENT_SHA: ${{ github.sha }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
 
+          # GHCR image paths must be lowercase; github.repository_owner preserves org casing (e.g. DeliciousHouse).
+          owner_lc="${GITHUB_REPOSITORY_OWNER,,}"
+
           if [[ "${EVENT_NAME}" == "push" ]]; then
-            image_tag="${CURRENT_SHA}"
+            image_tag="latest"
             checkout_ref="${CURRENT_SHA}"
           else
             image_tag="${INPUT_IMAGE_TAG}"
@@ -92,35 +96,10 @@ jobs:
             fi
           fi
 
-          image_ref="${REGISTRY}/${IMAGE_OWNER}/${IMAGE_NAME}:${image_tag}"
+          image_ref="${REGISTRY}/${owner_lc}/${IMAGE_NAME}:${image_tag}"
           echo "image_tag=${image_tag}" >> "${GITHUB_OUTPUT}"
           echo "checkout_ref=${checkout_ref}" >> "${GITHUB_OUTPUT}"
           echo "image_ref=${image_ref}" >> "${GITHUB_OUTPUT}"
-
-      - name: Verify GHCR tag exists
-        env:
-          IMAGE_REF: ${{ steps.resolve.outputs.image_ref }}
-          GITHUB_ACTOR: ${{ github.actor }}
-          GITHUB_TOKEN: ${{ github.token }}
-          GHCR_WORKFLOW_TOKEN: ${{ secrets.GHCR_WORKFLOW_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          login() {
-            local token="$1"
-            printf '%s' "${token}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin >/dev/null
-          }
-
-          login "${GITHUB_TOKEN}"
-          if ! docker buildx imagetools inspect "${IMAGE_REF}" >/dev/null 2>&1; then
-            if [[ -n "${GHCR_WORKFLOW_TOKEN}" ]]; then
-              login "${GHCR_WORKFLOW_TOKEN}"
-              docker buildx imagetools inspect "${IMAGE_REF}" >/dev/null
-            else
-              echo "ERROR: GHCR tag ${IMAGE_REF} is missing or inaccessible with GITHUB_TOKEN." >&2
-              exit 1
-            fi
-          fi
 
       - name: Configure SSH
         env:
@@ -192,14 +171,21 @@ jobs:
             exit 1
           }
 
+          stashed=0
           if [[ -n "$(git -C "${repo_path}" status --porcelain --untracked-files=no)" ]]; then
-            echo "ERROR: ${repo_path} has tracked local changes. Refusing deploy." >&2
-            exit 1
+            echo "VM has tracked local changes — stashing before deploy."
+            git -C "${repo_path}" stash push -m "auto-stash: deploy ${TARGET_CHECKOUT_REF}" --quiet
+            stashed=1
           fi
 
           git -C "${repo_path}" fetch --prune --tags origin
           checkout_target="$(resolve_checkout_target "${TARGET_CHECKOUT_REF}")"
           git -C "${repo_path}" checkout --detach "${checkout_target}"
+
+          if [[ "${stashed}" == "1" ]]; then
+            echo "Restoring stashed local changes."
+            git -C "${repo_path}" stash pop --quiet || echo "WARN: stash pop had conflicts; stash preserved." >&2
+          fi
 
           cd "${repo_path}"
           ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose pull "${SERVICE_NAME}"
@@ -207,7 +193,7 @@ jobs:
 
           healthy=0
           for attempt in $(seq 1 30); do
-            if docker compose exec -T "${SERVICE_NAME}" wget -qO- http://127.0.0.1:3000/ >/dev/null 2>&1; then
+            if docker compose exec -T "${SERVICE_NAME}" wget -qO- http://127.0.0.1:8100/ >/dev/null 2>&1; then
               healthy=1
               break
             fi

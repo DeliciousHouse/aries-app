@@ -1,0 +1,33 @@
+{
+  "sourceType": "standup",
+  "reportId": "daily-standup-2026-04-09:signal",
+  "standupId": "daily-standup-2026-04-09",
+  "standupTitle": "Daily Standup — 2026-04-09",
+  "generatedAt": "2026-04-09T15:33:00Z",
+  "chiefId": "signal",
+  "chiefAgentId": "runtime-chief",
+  "reportStatus": "partial",
+  "boardPath": "/app/mission-control/server/data/execution-tasks.json",
+  "activeTaskId": "surface-missed-scheduler-runs-in-mission-control-runtime-health",
+  "currentStatus": "active",
+  "humanDependencies": [
+    {
+      "target": "brendan",
+      "summary": "Review a proposal-only OpenClaw config or security fix if one is needed to restore safe read-only runtime visibility.",
+      "requestedAction": "Review proposal-only OpenClaw visibility fix if needed",
+      "nextAction": "Await Brendan review only if a proposal-only OpenClaw config or security fix is needed to restore safe read-only runtime visibility."
+    }
+  ],
+  "needsJarvisRouting": [
+    {
+      "summary": "Decide whether to keep this as a board-definition pass only or open a Jarvis-routed implementation slice for runtime-health surfacing.",
+      "requestedAction": "Decide board-definition versus implementation slice for runtime-health surfacing",
+      "nextAction": "Jarvis decides whether Signal stays in board-definition mode or gets a routed implementation slice for runtime-health surfacing."
+    },
+    {
+      "summary": "Decide whether the blocked read-only runtime probe should become a proposal-only Brendan review item.",
+      "requestedAction": "Decide whether the blocked read-only runtime probe becomes a proposal-only Brendan review item",
+      "nextAction": "Jarvis decides whether to escalate the blocked read-only runtime probe into a proposal-only Brendan review item."
+    }
+  ]
+}

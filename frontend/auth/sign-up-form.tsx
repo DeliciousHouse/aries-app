@@ -1,3 +1,5 @@
+"use client";
+
 import React, { useState, useEffect } from 'react';
 import { AuthView } from '../types';
 import { registerUserAction } from '@/app/actions/auth';

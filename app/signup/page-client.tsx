@@ -92,8 +92,9 @@ export default function SignUpPageClient() {
       });
 
       if (!result || result.error) {
-        setAuthError('Account created, but automatic sign-in failed. Please sign in to continue.');
-        setIsLoading(false);
+        const target = new URL(loginHref, window.location.origin);
+        target.searchParams.set('email', email);
+        window.location.href = `${target.pathname}${target.search}`;
         return { success: false };
       }
 

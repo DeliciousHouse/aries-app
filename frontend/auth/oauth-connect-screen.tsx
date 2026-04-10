@@ -23,7 +23,7 @@ export interface OAuthConnectScreenProps {
 
 function callbackUrlFor(provider: string): string {
   if (typeof window === 'undefined') {
-    return `http://localhost:3000/api/auth/oauth/${provider}/callback`;
+    return `http://localhost:8100/api/auth/oauth/${provider}/callback`;
   }
 
   return `${window.location.origin}/api/auth/oauth/${provider}/callback`;

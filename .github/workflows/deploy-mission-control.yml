@@ -1,0 +1,210 @@
+name: Deploy Mission Control
+
+# Operational contract:
+# - Mission Control deploys from an immutable container image, not a host bind mount.
+# - The Mission Control CI pipeline should publish the image first, then trigger this workflow.
+# - Trigger options:
+#   1) workflow_dispatch with image_ref
+#   2) repository_dispatch type=mission-control-image-ready with client_payload.image_ref
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_ref:
+        description: Immutable Mission Control image ref to deploy
+        required: true
+        type: string
+      git_ref:
+        description: Optional Aries repo ref to check out on the VM before deploy
+        required: false
+        type: string
+  repository_dispatch:
+    types:
+      - mission-control-image-ready
+
+concurrency:
+  group: deploy-mission-control-${{ github.repository }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  DEFAULT_BRANCH: ${{ vars.DEFAULT_BRANCH }}
+  DEPLOY_PATH: /home/node/openclaw/aries-app
+  SERVICE_NAME: mission-control
+  MISSION_CONTROL_PORT: 43174
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Resolve deploy target
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_IMAGE_REF: ${{ inputs.image_ref }}
+          INPUT_GIT_REF: ${{ inputs.git_ref }}
+          PAYLOAD_IMAGE_REF: ${{ github.event.client_payload.image_ref }}
+          PAYLOAD_GIT_REF: ${{ github.event.client_payload.git_ref }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${DEFAULT_BRANCH}" ]]; then
+            echo "ERROR: Repository variable DEFAULT_BRANCH must be set." >&2
+            exit 1
+          fi
+
+          image_ref=""
+          checkout_ref="${DEFAULT_BRANCH}"
+
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            image_ref="${INPUT_IMAGE_REF}"
+            if [[ -n "${INPUT_GIT_REF}" ]]; then
+              checkout_ref="${INPUT_GIT_REF}"
+            fi
+          elif [[ "${EVENT_NAME}" == "repository_dispatch" ]]; then
+            image_ref="${PAYLOAD_IMAGE_REF}"
+            if [[ -n "${PAYLOAD_GIT_REF}" ]]; then
+              checkout_ref="${PAYLOAD_GIT_REF}"
+            fi
+          fi
+
+          if [[ -z "${image_ref}" ]]; then
+            echo "ERROR: Mission Control deploy requires image_ref." >&2
+            exit 1
+          fi
+
+          echo "image_ref=${image_ref}" >> "${GITHUB_OUTPUT}"
+          echo "checkout_ref=${checkout_ref}" >> "${GITHUB_OUTPUT}"
+
+      - name: Verify image exists
+        env:
+          IMAGE_REF: ${{ steps.resolve.outputs.image_ref }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GHCR_WORKFLOW_TOKEN: ${{ secrets.GHCR_WORKFLOW_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${IMAGE_REF}" == ghcr.io/* ]]; then
+            login() {
+              local token="$1"
+              printf '%s' "${token}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin >/dev/null
+            }
+
+            login "${GITHUB_TOKEN}"
+            if ! docker buildx imagetools inspect "${IMAGE_REF}" >/dev/null 2>&1; then
+              if [[ -n "${GHCR_WORKFLOW_TOKEN}" ]]; then
+                login "${GHCR_WORKFLOW_TOKEN}"
+                docker buildx imagetools inspect "${IMAGE_REF}" >/dev/null
+              else
+                echo "ERROR: GHCR image ${IMAGE_REF} is missing or inaccessible with GITHUB_TOKEN." >&2
+                exit 1
+              fi
+            fi
+          else
+            docker buildx imagetools inspect "${IMAGE_REF}" >/dev/null
+          fi
+
+      - name: Configure SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          deploy_port="${DEPLOY_PORT:-22}"
+          if [[ -z "${DEPLOY_HOST}" || -z "${DEPLOY_SSH_PRIVATE_KEY}" ]]; then
+            echo "ERROR: DEPLOY_HOST and DEPLOY_SSH_PRIVATE_KEY secrets are required." >&2
+            exit 1
+          fi
+          install -m 700 -d "${HOME}/.ssh"
+          printf '%s\n' "${DEPLOY_SSH_PRIVATE_KEY}" > "${HOME}/.ssh/id_ed25519"
+          chmod 600 "${HOME}/.ssh/id_ed25519"
+          ssh-keyscan -p "${deploy_port}" "${DEPLOY_HOST}" >> "${HOME}/.ssh/known_hosts"
+          chmod 600 "${HOME}/.ssh/known_hosts"
+
+      - name: Deploy Mission Control to VM
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          TARGET_IMAGE: ${{ steps.resolve.outputs.image_ref }}
+          TARGET_CHECKOUT_REF: ${{ steps.resolve.outputs.checkout_ref }}
+        run: |
+          set -euo pipefail
+          deploy_port="${DEPLOY_PORT:-22}"
+          if [[ -z "${DEPLOY_USER}" ]]; then
+            echo "ERROR: DEPLOY_USER secret is required." >&2
+            exit 1
+          fi
+
+          ssh -p "${deploy_port}" "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            TARGET_IMAGE="${TARGET_IMAGE}" \
+            TARGET_CHECKOUT_REF="${TARGET_CHECKOUT_REF}" \
+            REPO_PATH="${DEPLOY_PATH}" \
+            SERVICE_NAME="${SERVICE_NAME}" \
+            MISSION_CONTROL_PORT="${MISSION_CONTROL_PORT}" \
+            'bash -s' <<'EOF'
+          set -euo pipefail
+
+          repo_path="${REPO_PATH}"
+
+          resolve_checkout_target() {
+            local requested="$1"
+            case "${requested}" in
+              refs/heads/*)
+                echo "origin/${requested#refs/heads/}"
+                return 0
+                ;;
+              refs/tags/*)
+                echo "${requested#refs/tags/}"
+                return 0
+                ;;
+            esac
+
+            if git -C "${repo_path}" rev-parse --verify --quiet "origin/${requested}^{commit}" >/dev/null; then
+              echo "origin/${requested}"
+              return 0
+            fi
+
+            if git -C "${repo_path}" rev-parse --verify --quiet "${requested}^{commit}" >/dev/null; then
+              echo "${requested}"
+              return 0
+            fi
+
+            echo "ERROR: Unable to resolve checkout ref ${requested}" >&2
+            exit 1
+          }
+
+          if [[ -n "$(git -C "${repo_path}" status --porcelain --untracked-files=no)" ]]; then
+            echo "ERROR: ${repo_path} has tracked local changes. Refusing deploy." >&2
+            exit 1
+          fi
+
+          git -C "${repo_path}" fetch --prune --tags origin
+          checkout_target="$(resolve_checkout_target "${TARGET_CHECKOUT_REF}")"
+          git -C "${repo_path}" checkout --detach "${checkout_target}"
+
+          cd "${repo_path}"
+          MISSION_CONTROL_IMAGE="${TARGET_IMAGE}" docker compose pull "${SERVICE_NAME}"
+          MISSION_CONTROL_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps "${SERVICE_NAME}"
+
+          healthy=0
+          for attempt in $(seq 1 30); do
+            if curl -fsS "http://127.0.0.1:${MISSION_CONTROL_PORT}/" >/dev/null 2>&1; then
+              healthy=1
+              break
+            fi
+            sleep 5
+          done
+
+          if [[ "${healthy}" != "1" ]]; then
+            docker compose ps "${SERVICE_NAME}" || true
+            docker compose logs --tail=100 "${SERVICE_NAME}" || true
+            echo "ERROR: Mission Control health check failed after deploy." >&2
+            exit 1
+          fi
+          EOF
