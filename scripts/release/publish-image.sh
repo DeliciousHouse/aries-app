@@ -64,8 +64,10 @@ docker buildx build \
   --annotation "index:org.opencontainers.image.description=${IMAGE_DESCRIPTION}" \
   -t "${GHCR_IMAGE}:${GIT_SHA}" \
   -t "${GHCR_IMAGE}:${DEFAULT_BRANCH}" \
+  -t "${GHCR_IMAGE}:latest" \
   -f Dockerfile \
   .
 
 echo "Published ${GHCR_IMAGE}:${GIT_SHA}"
 echo "Published ${GHCR_IMAGE}:${DEFAULT_BRANCH}"
+echo "Published ${GHCR_IMAGE}:latest"
