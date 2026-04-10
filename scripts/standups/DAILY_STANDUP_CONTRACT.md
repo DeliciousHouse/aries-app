@@ -11,7 +11,7 @@ Canonical routing path for chief standups:
 2. Post it with:
 
 ```bash
-node team/standups/post-chief-routing-report.mjs path/to/report.json
+node scripts/standups/post-chief-routing-report.mjs /home/node/.openclaw/projects/shared/team/standups/YYYY-MM-DD/report.json
 ```
 
 Default endpoint:
@@ -77,4 +77,4 @@ Auto-apply allowed only for low-risk non-human-confirmation updates.
 
 ## Fallback
 
-If structured post fails, save the transcript as normal. Mission Control can still parse transcript sections as fallback, but that is not the primary path.
+If structured post fails, save the transcript as normal under `/home/node/.openclaw/projects/shared/team/meetings`. Mission Control can still parse transcript sections as fallback, but that is not the primary path.

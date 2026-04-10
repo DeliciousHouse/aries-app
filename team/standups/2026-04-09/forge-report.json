@@ -1,0 +1,28 @@
+{
+  "sourceType": "standup",
+  "reportId": "daily-standup-2026-04-09:forge",
+  "standupId": "daily-standup-2026-04-09",
+  "standupTitle": "Daily Standup — 2026-04-09",
+  "generatedAt": "2026-04-09T15:33:00Z",
+  "chiefId": "forge",
+  "chiefAgentId": "delivery-chief",
+  "reportStatus": "complete",
+  "boardPath": "/app/mission-control/server/data/execution-tasks.json",
+  "activeTaskId": "tighten-aries-app-dashboard-owner-handoff-states",
+  "currentStatus": "review",
+  "humanDependencies": [
+    {
+      "target": "brendan",
+      "summary": "Confirm backend contract wording for dashboard handoff labels, test H.",
+      "requestedAction": "Confirm Brendan dependency for dashboard handoff labels, test H",
+      "nextAction": "Await Brendan decision on backend contract wording for dashboard handoff labels, test H."
+    }
+  ],
+  "needsJarvisRouting": [
+    {
+      "summary": "Route the open blocker on tighten-aries-app-dashboard-owner-handoff-states so Forge can either close review or return the task to active with a precise correction.",
+      "requestedAction": "Route the open blocker on tighten-aries-app-dashboard-owner-handoff-states",
+      "nextAction": "Jarvis routes the blocker so Forge can either close review or return the task to active with a precise correction."
+    }
+  ]
+}

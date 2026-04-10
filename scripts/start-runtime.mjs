@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 
-const defaultPort = 3000;
+const defaultPort = 8100;
 const rawPort = process.env.PORT?.trim();
 const parsedPort = rawPort ? Number(rawPort) : defaultPort;
 const isValidPort = Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535;

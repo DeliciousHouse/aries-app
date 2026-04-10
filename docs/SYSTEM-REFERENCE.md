@@ -38,7 +38,7 @@ Last refreshed Apr 08, 2026, 21:45 PDT.
 - Next.js App Router runtime serves the public site, authenticated operator shell, and browser-safe internal APIs.
 - Backend domain logic lives under backend/* and routes long-running execution through OpenClaw Gateway rather than direct browser workflow exposure.
 - Local runtime state and typed adapters live across lib/*, hooks/*, specs/*, and workflows/* to preserve contract boundaries.
-- Standalone Mission Control now lives outside the repo in /app/projects/aries-mission-control and reads /api/runtime/overview from its local runtime server.
+- Standalone Mission Control deploys as a separate image and reads /api/runtime/overview from its local runtime server.
 
 ## Module inventory
 - app/ 107 files
@@ -59,7 +59,7 @@ Last refreshed Apr 08, 2026, 21:45 PDT.
 - Aries rolling system reference — 45 21 * * * America/Los_Angeles — Update docs/SYSTEM-REFERENCE.md with architecture, inventory, cron jobs, and known issues.
 
 ## Runtime scripts
-- dev: next dev -p 3000 --turbopack
+- dev: next dev -p 8100 --turbopack
 - build: next build
 - start: node scripts/start-runtime.mjs
 - precheck: node scripts/runtime-precheck.mjs
@@ -74,8 +74,8 @@ Last refreshed Apr 08, 2026, 21:45 PDT.
 - validate:public-routes: tsx --test tests/runtime-pages.test.ts tests/public-marketing-pages.test.ts
 - validate:banned-patterns: node scripts/check-banned-patterns.mjs
 - validate:marketing-flow: APP_BASE_URL=https://aries.example.com tsx --test tests/marketing-job-flow.test.ts tests/onboarding-marketing-contracts.test.ts
-- validate:homepage-perf: mkdir -p .artifacts && CI=1 npx --yes lighthouse http://127.0.0.1:3000 --only-categories=performance --preset=desktop --no-enable-error-reporting --chrome-flags='--headless=new --no-sandbox --disable-dev-shm-usage' --output=json --output-path=.artifacts/lighthouse-homepage.json
-- validate:homepage-perf:mobile: mkdir -p .artifacts && CI=1 npx --yes lighthouse http://127.0.0.1:3000 --only-categories=performance --form-factor=mobile --screenEmulation.mobile=true --throttling-method=simulate --no-enable-error-reporting --chrome-flags='--headless=new --no-sandbox --disable-dev-shm-usage' --output=json --output-path=.artifacts/lighthouse-homepage-mobile.json
+- validate:homepage-perf: mkdir -p .artifacts && CI=1 npx --yes lighthouse http://127.0.0.1:8100 --only-categories=performance --preset=desktop --no-enable-error-reporting --chrome-flags='--headless=new --no-sandbox --disable-dev-shm-usage' --output=json --output-path=.artifacts/lighthouse-homepage.json
+- validate:homepage-perf:mobile: mkdir -p .artifacts && CI=1 npx --yes lighthouse http://127.0.0.1:8100 --only-categories=performance --form-factor=mobile --screenEmulation.mobile=true --throttling-method=simulate --no-enable-error-reporting --chrome-flags='--headless=new --no-sandbox --disable-dev-shm-usage' --output=json --output-path=.artifacts/lighthouse-homepage-mobile.json
 - automation:backup: node scripts/automations/private-repo-backup.mjs
 - automation:self-improve: node scripts/automations/overnight-self-improve.mjs
 - automation:daily-brief: node scripts/automations/daily-brief.mjs

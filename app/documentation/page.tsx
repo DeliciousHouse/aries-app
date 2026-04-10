@@ -8,7 +8,7 @@ export default function DocumentationPage() {
       <Docs />
       <div className="hidden sr-only">
         Direct architecture. Execution boundary.
-        npx next dev -p 3000 --turbopack
+        npx next dev -p 8100 --turbopack
         Commands engineers should run before shipping docs changes.
       </div>
     </MarketingLayout>

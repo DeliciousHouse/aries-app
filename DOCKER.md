@@ -18,6 +18,18 @@
 
 The GitHub Actions **Deploy** workflow runs on every push to `master`. It resolves the image as `ghcr.io/delicioushouse/aries-app:<github.sha>` and **verifies the tag exists in GHCR** before SSH deploy. If the image is missing, the workflow fails by design.
 
+## Mission Control release contract
+
+- Mission Control must deploy from an **immutable container image**, not from a host bind mount.
+- `docker-compose.yml` consumes `MISSION_CONTROL_IMAGE` and expects the image itself to contain the built artifacts and startup command.
+- The Mission Control CI pipeline should:
+  1. build and push a tagged image, ideally an immutable SHA tag
+  2. trigger `.github/workflows/deploy-mission-control.yml` with that image ref
+- `deploy-mission-control.yml` verifies the image exists, SSHes to the VM, and recreates only the `mission-control` service with `MISSION_CONTROL_IMAGE=<image-ref>`.
+- The current production Mission Control host port is `43174`.
+
+This removes the old failure mode where a container restart depended on host-side `node_modules/` and `dist/` artifacts still being present.
+
 ### Release sequence
 
 1. Export the required publish environment variables (see exact block below). Ensure you are on the commit you intend to ship; `scripts/release/publish-image.sh` tags the image with `git rev-parse HEAD`.
@@ -95,6 +107,12 @@ ARIES_APP_IMAGE=ghcr.io/<owner-or-org>/aries-app:<tag> \
 docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
 ```
 
+To pin Mission Control to a specific image ref:
+```bash
+MISSION_CONTROL_IMAGE=ghcr.io/<owner-or-org>/mission-control:<tag> \
+docker compose -f docker-compose.yml up -d mission-control
+```
+
 App will be available at `http://localhost:3000`.
 
 ## External Postgres schema
@@ -124,6 +142,7 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml down
 - Builds Next.js app with `npm run build` and runs with `npm run start`.
 - Production-oriented runtime mounts only `/data` for persistent artifacts (`/data/generated/...`).
 - Production should not bind mount the repository into `/app`.
+- Mission Control production should not bind mount its source checkout into the container.
 - Keep real secrets out of git; inject via environment at deploy time.
 - The app runtime contract remains `CODE_ROOT=/app` and `DATA_ROOT=/data`.
 - Aries now delegates workflow execution to OpenClaw Gateway; the app image itself should not be the authoritative workflow execution root.
