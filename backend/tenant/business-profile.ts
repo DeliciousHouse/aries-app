@@ -311,6 +311,11 @@ function saveBusinessProfileRecordToFile(record: BusinessProfileRecord): void {
 }
 
 function saveBusinessProfileRecordToDb(record: BusinessProfileRecord): void {
+  const numericId = Number(record.tenant_id);
+  if (!Number.isFinite(numericId) || numericId <= 0) {
+    return;
+  }
+
   pool.query(
     `INSERT INTO business_profiles (
       tenant_id, business_name, tenant_slug, website_url, business_type,
@@ -333,7 +338,7 @@ function saveBusinessProfileRecordToDb(record: BusinessProfileRecord): void {
       channels = EXCLUDED.channels,
       updated_at = now()`,
     [
-      Number(record.tenant_id), record.business_name, record.tenant_slug,
+      numericId, record.business_name, record.tenant_slug,
       record.website_url, record.business_type, record.primary_goal,
       record.launch_approver_user_id, record.launch_approver_name, record.offer,
       record.brand_voice, record.style_vibe, record.notes,

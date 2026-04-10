@@ -123,7 +123,7 @@ async function initDb() {
     await client.query(`
       CREATE TABLE IF NOT EXISTS onboarding_drafts (
         draft_id TEXT PRIMARY KEY,
-        status TEXT NOT NULL DEFAULT 'draft',
+        status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','ready_for_auth','materializing','materialized')),
         website_url TEXT NOT NULL DEFAULT '',
         business_name TEXT NOT NULL DEFAULT '',
         business_type TEXT NOT NULL DEFAULT '',
