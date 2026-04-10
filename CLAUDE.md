@@ -13,7 +13,7 @@ Browser
   -> Next.js pages (app/*)
   -> Next.js route handlers (app/api/*)
       -> Aries backend services (backend/*, lib/*)
-          -> OpenClaw Gateway for workflow execution
+          -> OpenClaw Gateway for workflow execution (via CLI subprocess)
           -> PostgreSQL + runtime files under DATA_ROOT for state and read models
 ```
 
@@ -26,6 +26,24 @@ Browser
 **Path alias:** `@/*` maps to the repo root (configured in tsconfig.json).
 
 **Runtime paths:** `lib/runtime-paths.ts` resolves `CODE_ROOT` (repo checkout) and `DATA_ROOT` (generated runtime artifacts) with fallback logic for container vs local environments. Generated data lives under `DATA_ROOT/generated/` with `draft/` and `validated/` subdirectories.
+
+### Gateway Client Pattern
+
+`backend/openclaw/gateway-client.ts` is the bridge to OpenClaw. It invokes the gateway via `execFile` (CLI subprocess), not HTTP. Key types: `LobsterEnvelope` (workflow result with optional `requiresApproval`), `OpenClawWorkflowCallInput` (run a pipeline), `OpenClawResumeCallInput` (resume after approval). The gateway can return an approval-request pause state that the orchestrator must handle.
+
+### Marketing Pipeline (4-Stage Lobster Workflow)
+
+The core domain flow is a 4-stage marketing pipeline defined in `lobster/marketing-pipeline.lobster`:
+1. **Research** (`stage-1-research`) — competitor analysis, ad library scraping
+2. **Strategy** (`stage-2-strategy`) — campaign strategy from research
+3. **Production** (`stage-3-production`) — creative/content generation
+4. **Publish & Optimize** (`stage-4-publish-optimize`) — publishing and performance tracking
+
+Each stage can pause for human approval. `backend/marketing/orchestrator.ts` drives the pipeline: starts stages via the gateway client, collects artifacts, manages approval checkpoints, and records state transitions. Approval records are persisted via `backend/marketing/approval-store.ts`.
+
+### Auth & Tenant Model
+
+Auth uses next-auth v5 (`auth.ts` at repo root) with Credentials + Google providers. Sessions are enriched with tenant claims (`tenantId`, `tenantSlug`, `role`) via JWT callbacks. `lib/tenant-context.ts` provides `getTenantContext()` which first checks session claims, then falls back to a DB lookup. Tenant roles: `tenant_admin`, `tenant_analyst`, `tenant_viewer`. All authenticated API routes should resolve tenant context server-side.
 
 ## Build and Dev Commands
 
@@ -82,8 +100,8 @@ npm run precheck
 - `scripts/` — Startup, verification, DB init, automation scripts
 - `tests/` — Regression tests covering routes, API contracts, tenant isolation, marketing flows, OAuth, banned patterns
 - `specs/` — Specification files resolved via `lib/runtime-paths.ts`
-- `skills/` — Repository-specific skill documentation
-- `/home/node/.openclaw/projects/shared/team/` — shared standup transcripts and chief reports mounted outside the repo workspace
+- `skills/` — Agent skill definitions for marketing AI agents (campaign-planner, creative-director, research, etc.)
+- `scripts/automations/` — Cron-driven automations (backup, self-improve, daily brief, feedback sync); installed via `npm run automation:install`
 
 ## Tech Stack
 
