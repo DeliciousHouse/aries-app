@@ -55,7 +55,7 @@ const markdown = [
   '- Next.js App Router runtime serves the public site, authenticated operator shell, and browser-safe internal APIs.',
   '- Backend domain logic lives under backend/* and routes long-running execution through OpenClaw Gateway rather than direct browser workflow exposure.',
   '- Local runtime state and typed adapters live across lib/*, hooks/*, specs/*, and workflows/* to preserve contract boundaries.',
-  '- Standalone Mission Control now lives outside the repo in /app/projects/aries-mission-control and reads /api/runtime/overview from its local runtime server.',
+  '- Standalone Mission Control deploys as a separate image and reads /api/runtime/overview from its local runtime server.',
   '',
   '## Module inventory',
   ...moduleInventory.map(([label, count]) => `- ${label} ${count} files`),

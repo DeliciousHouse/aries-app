@@ -10,7 +10,7 @@ services:
     environment:
       HOME: /home/node
       NODE_ENV: production
-      PORT: ${PORT:-3000}
+      PORT: ${PORT:-8100}
       CODE_ROOT: /app
       DATA_ROOT: /data
       GEMINI_API_KEY: ${GEMINI_API_KEY}
@@ -53,34 +53,11 @@ services:
       - gh_config:/home/node/.config/gh
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8100/"]
       interval: 30s
       timeout: 5s
       retries: 5
       start_period: 30s
-    networks:
-      - docker_stack
-
-  mission-control:
-    image: node:24
-    user: "${ARIES_NODE_UID:-1004}:${ARIES_NODE_GID:-1004}"
-    working_dir: /app/mission-control
-    environment:
-      HOME: /home/node
-      NPM_CONFIG_CACHE: /home/node/.openclaw/.npm-cache
-      NPM_CONFIG_PREFIX: /home/node/.openclaw/.npm-global
-      OPENCLAW_GATEWAY_URL: http://openclaw-gateway:3456
-      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
-      OPENCLAW_ALLOW_INSECURE_PRIVATE_WS: "1"
-    command: sh -lc "test -f dist/index.html && test -x node_modules/.bin/vite || { echo 'Mission Control build artifacts missing. Run npm ci && npm run build before recreate.' >&2; exit 1; }; npm run preview -- --host 0.0.0.0 --port 4174"
-    volumes:
-      - /home/node/openclaw/projects/mission-control-builder/mission-control:/app/mission-control
-      - /home/node/openclaw/aries-app:/app/aries-app:ro
-      - /home/node/.openclaw:/home/node/.openclaw
-      - gh_config:/home/node/.config/gh
-    ports:
-      - "4174:4174"
-    restart: unless-stopped
     networks:
       - docker_stack
 

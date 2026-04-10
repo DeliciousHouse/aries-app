@@ -5,7 +5,7 @@ const inputPath = process.argv[2];
 const endpoint = process.env.MISSION_CONTROL_ROUTING_ENDPOINT || 'http://127.0.0.1:4174/api/routing-requests/from-chief-report';
 
 if (!inputPath) {
-  console.error('Usage: node team/standups/post-chief-routing-report.mjs <report.json>');
+  console.error('Usage: node scripts/standups/post-chief-routing-report.mjs </home/node/.openclaw/projects/shared/team/standups/YYYY-MM-DD/report.json>');
   process.exit(1);
 }
 

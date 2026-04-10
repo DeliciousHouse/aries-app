@@ -8,6 +8,8 @@ VM deploy is driven by **pushing `master`**, but only **after** the container im
 
 Authoritative step-by-step commands (including the exact `export` block and `publish-image.sh` invocation): **`DOCKER.md`** → *Production release (GHCR image before `master`)*. Summary: **`docs/SYSTEM-REFERENCE.md`** → *Production release (operational)*.
 
+Mission Control follows a separate image-based path. Its CI pipeline must publish an immutable image first, then trigger `.github/workflows/deploy-mission-control.yml` with the image ref so the VM recreates only the `mission-control` service from that image.
+
 ## Deployment Checklist
 
 ### 1. Environment Configuration

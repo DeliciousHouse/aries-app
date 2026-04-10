@@ -1,10 +1,5 @@
-import AppShellLayout from '../../frontend/app-shell/layout';
-import AriesHomeDashboard from '@/frontend/aries-v1/home-dashboard';
+import AriesOsPage from '@/frontend/aries-os/page';
 
 export default function DashboardPage() {
-  return (
-    <AppShellLayout currentRouteId="home">
-      <AriesHomeDashboard />
-    </AppShellLayout>
-  );
+  return <AriesOsPage />;
 }

@@ -1,16 +1,18 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --font-display: var(--font-manrope), var(--font-inter), ui-sans-serif, sans-serif;
-  --color-background: #050505;
-  --color-primary: #7c3aed;
-  --color-secondary: #a855f7;
-  --color-accent: #c084fc;
+  --font-sans: var(--font-ubuntu-body), 'Ubuntu Mono', 'SFMono-Regular', monospace;
+  --font-display: var(--font-ubuntu-title), 'Ubuntu', 'Segoe UI', sans-serif;
+  --color-background: #08111b;
+  --color-primary: #f6b94c;
+  --color-secondary: #66b8ff;
+  --color-accent: #59f28c;
 }
 
 :root {
   color-scheme: dark;
+  --font-title: var(--font-ubuntu-title), 'Ubuntu', 'Segoe UI', sans-serif;
+  --font-body: var(--font-ubuntu-body), 'Ubuntu Mono', 'SFMono-Regular', monospace;
 }
 
 html {
@@ -31,12 +33,12 @@ body {
   overflow-x: clip;
   background: var(--color-background);
   color: #fff;
-  font-family: var(--font-sans);
+  font-family: var(--font-body);
   line-height: 1.6;
 }
 
 body ::selection {
-  background-color: rgba(124, 58, 237, 0.3);
+  background-color: rgba(102, 184, 255, 0.26);
 }
 
 *,

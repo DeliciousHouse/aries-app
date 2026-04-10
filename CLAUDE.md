@@ -83,7 +83,7 @@ npm run precheck
 - `tests/` — Regression tests covering routes, API contracts, tenant isolation, marketing flows, OAuth, banned patterns
 - `specs/` — Specification files resolved via `lib/runtime-paths.ts`
 - `skills/` — Repository-specific skill documentation
-- `team/` — Delegation rules and team operating docs
+- `/home/node/.openclaw/projects/shared/team/` — shared standup transcripts and chief reports mounted outside the repo workspace
 
 ## Tech Stack
 

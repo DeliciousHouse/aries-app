@@ -1,29 +1,29 @@
-name: Deploy
+name: Deploy Mission Control
 
-# Operational contract (documented in DOCKER.md and docs/SYSTEM-REFERENCE.md):
-# - Pushes to master trigger this workflow and deploy the pushed commit SHA.
-# - The workflow verifies ghcr.io/delicioushouse/aries-app:<sha> exists before deploy.
-# - Publish the image for that SHA first (scripts/release/publish-image.sh), then push master.
-# - Pushing master before the matching GHCR tag exists fails by design at GHCR verification.
-# - If package linkage/permissions are not ready for GITHUB_TOKEN, set GHCR_WORKFLOW_TOKEN.
+# Operational contract:
+# - Mission Control deploys from an immutable container image, not a host bind mount.
+# - The Mission Control CI pipeline should publish the image first, then trigger this workflow.
+# - Trigger options:
+#   1) workflow_dispatch with image_ref
+#   2) repository_dispatch type=mission-control-image-ready with client_payload.image_ref
 
 on:
-  push:
-    branches:
-      - master
   workflow_dispatch:
     inputs:
-      image_tag:
-        description: GHCR image tag to deploy
+      image_ref:
+        description: Immutable Mission Control image ref to deploy
         required: true
         type: string
       git_ref:
-        description: Optional git ref to check out on the VM
+        description: Optional Aries repo ref to check out on the VM before deploy
         required: false
         type: string
+  repository_dispatch:
+    types:
+      - mission-control-image-ready
 
 concurrency:
-  group: deploy-${{ github.repository }}
+  group: deploy-mission-control-${{ github.repository }}
   cancel-in-progress: false
 
 permissions:
@@ -31,75 +31,82 @@ permissions:
   packages: read
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: aries-app
-  STATIC_PUSH_BRANCH: master
   DEFAULT_BRANCH: ${{ vars.DEFAULT_BRANCH }}
   DEPLOY_PATH: /home/node/openclaw/aries-app
-  SERVICE_NAME: aries-app
+  SERVICE_NAME: mission-control
+  MISSION_CONTROL_PORT: 43174
 
 jobs:
   deploy:
     runs-on: ubuntu-24.04
     steps:
-      - name: Validate branch wiring
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          REF_NAME: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          if [[ -z "${DEFAULT_BRANCH}" ]]; then
-            echo "ERROR: Repository variable DEFAULT_BRANCH must be set." >&2
-            exit 1
-          fi
-          if [[ "${EVENT_NAME}" == "push" ]]; then
-            if [[ "${STATIC_PUSH_BRANCH}" != "${DEFAULT_BRANCH}" ]]; then
-              echo "ERROR: Workflow push branch (${STATIC_PUSH_BRANCH}) does not match DEFAULT_BRANCH (${DEFAULT_BRANCH})." >&2
-              exit 1
-            fi
-            if [[ "${REF_NAME}" != "${DEFAULT_BRANCH}" ]]; then
-              echo "ERROR: Push deploy received ${REF_NAME}, expected ${DEFAULT_BRANCH}." >&2
-              exit 1
-            fi
-          fi
-
       - name: Resolve deploy target
         id: resolve
         env:
           EVENT_NAME: ${{ github.event_name }}
-          INPUT_IMAGE_TAG: ${{ inputs.image_tag }}
+          INPUT_IMAGE_REF: ${{ inputs.image_ref }}
           INPUT_GIT_REF: ${{ inputs.git_ref }}
-          CURRENT_SHA: ${{ github.sha }}
-          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          PAYLOAD_IMAGE_REF: ${{ github.event.client_payload.image_ref }}
+          PAYLOAD_GIT_REF: ${{ github.event.client_payload.git_ref }}
         run: |
           set -euo pipefail
 
-          # GHCR image paths must be lowercase; github.repository_owner preserves org casing (e.g. DeliciousHouse).
-          owner_lc="${GITHUB_REPOSITORY_OWNER,,}"
+          if [[ -z "${DEFAULT_BRANCH}" ]]; then
+            echo "ERROR: Repository variable DEFAULT_BRANCH must be set." >&2
+            exit 1
+          fi
 
-          if [[ "${EVENT_NAME}" == "push" ]]; then
-            image_tag="${CURRENT_SHA}"
-            checkout_ref="${CURRENT_SHA}"
-          else
-            image_tag="${INPUT_IMAGE_TAG}"
-            if [[ -z "${image_tag}" ]]; then
-              echo "ERROR: image_tag is required for manual deploys." >&2
-              exit 1
-            fi
+          image_ref=""
+          checkout_ref="${DEFAULT_BRANCH}"
+
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            image_ref="${INPUT_IMAGE_REF}"
             if [[ -n "${INPUT_GIT_REF}" ]]; then
               checkout_ref="${INPUT_GIT_REF}"
-            elif [[ "${image_tag}" =~ ^[0-9a-f]{40}$ ]]; then
-              checkout_ref="${image_tag}"
-            else
-              echo "ERROR: Manual deploys require git_ref unless image_tag is a full commit SHA." >&2
-              exit 1
+            fi
+          elif [[ "${EVENT_NAME}" == "repository_dispatch" ]]; then
+            image_ref="${PAYLOAD_IMAGE_REF}"
+            if [[ -n "${PAYLOAD_GIT_REF}" ]]; then
+              checkout_ref="${PAYLOAD_GIT_REF}"
             fi
           fi
 
-          image_ref="${REGISTRY}/${owner_lc}/${IMAGE_NAME}:${image_tag}"
-          echo "image_tag=${image_tag}" >> "${GITHUB_OUTPUT}"
-          echo "checkout_ref=${checkout_ref}" >> "${GITHUB_OUTPUT}"
+          if [[ -z "${image_ref}" ]]; then
+            echo "ERROR: Mission Control deploy requires image_ref." >&2
+            exit 1
+          fi
+
           echo "image_ref=${image_ref}" >> "${GITHUB_OUTPUT}"
+          echo "checkout_ref=${checkout_ref}" >> "${GITHUB_OUTPUT}"
+
+      - name: Verify image exists
+        env:
+          IMAGE_REF: ${{ steps.resolve.outputs.image_ref }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GHCR_WORKFLOW_TOKEN: ${{ secrets.GHCR_WORKFLOW_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${IMAGE_REF}" == ghcr.io/* ]]; then
+            login() {
+              local token="$1"
+              printf '%s' "${token}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin >/dev/null
+            }
+
+            login "${GITHUB_TOKEN}"
+            if ! docker buildx imagetools inspect "${IMAGE_REF}" >/dev/null 2>&1; then
+              if [[ -n "${GHCR_WORKFLOW_TOKEN}" ]]; then
+                login "${GHCR_WORKFLOW_TOKEN}"
+                docker buildx imagetools inspect "${IMAGE_REF}" >/dev/null
+              else
+                echo "ERROR: GHCR image ${IMAGE_REF} is missing or inaccessible with GITHUB_TOKEN." >&2
+                exit 1
+              fi
+            fi
+          else
+            docker buildx imagetools inspect "${IMAGE_REF}" >/dev/null
+          fi
 
       - name: Configure SSH
         env:
@@ -119,7 +126,7 @@ jobs:
           ssh-keyscan -p "${deploy_port}" "${DEPLOY_HOST}" >> "${HOME}/.ssh/known_hosts"
           chmod 600 "${HOME}/.ssh/known_hosts"
 
-      - name: Deploy to VM
+      - name: Deploy Mission Control to VM
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
@@ -139,6 +146,7 @@ jobs:
             TARGET_CHECKOUT_REF="${TARGET_CHECKOUT_REF}" \
             REPO_PATH="${DEPLOY_PATH}" \
             SERVICE_NAME="${SERVICE_NAME}" \
+            MISSION_CONTROL_PORT="${MISSION_CONTROL_PORT}" \
             'bash -s' <<'EOF'
           set -euo pipefail
 
@@ -171,29 +179,22 @@ jobs:
             exit 1
           }
 
-          stashed=0
           if [[ -n "$(git -C "${repo_path}" status --porcelain --untracked-files=no)" ]]; then
-            echo "VM has tracked local changes — stashing before deploy."
-            git -C "${repo_path}" stash push -m "auto-stash: deploy ${TARGET_CHECKOUT_REF}" --quiet
-            stashed=1
+            echo "ERROR: ${repo_path} has tracked local changes. Refusing deploy." >&2
+            exit 1
           fi
 
           git -C "${repo_path}" fetch --prune --tags origin
           checkout_target="$(resolve_checkout_target "${TARGET_CHECKOUT_REF}")"
           git -C "${repo_path}" checkout --detach "${checkout_target}"
 
-          if [[ "${stashed}" == "1" ]]; then
-            echo "Restoring stashed local changes."
-            git -C "${repo_path}" stash pop --quiet || echo "WARN: stash pop had conflicts; stash preserved." >&2
-          fi
-
           cd "${repo_path}"
-          ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose pull "${SERVICE_NAME}"
-          ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps "${SERVICE_NAME}"
+          MISSION_CONTROL_IMAGE="${TARGET_IMAGE}" docker compose pull "${SERVICE_NAME}"
+          MISSION_CONTROL_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps "${SERVICE_NAME}"
 
           healthy=0
           for attempt in $(seq 1 30); do
-            if docker compose exec -T "${SERVICE_NAME}" wget -qO- http://127.0.0.1:8100/ >/dev/null 2>&1; then
+            if curl -fsS "http://127.0.0.1:${MISSION_CONTROL_PORT}/" >/dev/null 2>&1; then
               healthy=1
               break
             fi
@@ -201,7 +202,9 @@ jobs:
           done
 
           if [[ "${healthy}" != "1" ]]; then
-            echo "ERROR: Aries app health check failed after deploy." >&2
+            docker compose ps "${SERVICE_NAME}" || true
+            docker compose logs --tail=100 "${SERVICE_NAME}" || true
+            echo "ERROR: Mission Control health check failed after deploy." >&2
             exit 1
           fi
           EOF
