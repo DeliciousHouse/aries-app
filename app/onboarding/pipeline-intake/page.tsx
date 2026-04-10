@@ -1,8 +1,5 @@
-import { auth } from '@/auth';
-import AriesOnboardingFlow from '@/frontend/aries-v1/onboarding-flow';
+import { redirect } from 'next/navigation';
 
-export default async function PipelineIntakePage() {
-  const session = await auth();
-
-  return <AriesOnboardingFlow initialAuthenticated={Boolean(session?.user?.id)} />;
+export default function PipelineIntakePage() {
+  redirect('/onboarding/start');
 }

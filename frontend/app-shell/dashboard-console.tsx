@@ -253,7 +253,7 @@ export default function DashboardConsole(): JSX.Element {
               </div>
             </div>
             <div className="flex flex-col gap-3">
-              <Link href="/onboarding/pipeline-intake" className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2">
+              <Link href="/onboarding/start" className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2">
                 Start brand + competitor research <ArrowRight className="w-4 h-4" />
               </Link>
               <Link href={campaign ? `/marketing/job-status?jobId=${encodeURIComponent(campaign.jobId)}` : '/marketing/new-job'} className="px-6 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 flex items-center justify-center gap-2">

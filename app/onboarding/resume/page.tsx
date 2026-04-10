@@ -88,7 +88,7 @@ export default async function OnboardingResumePage(
   const draftId = resolvedSearchParams.draft?.trim() || '';
 
   if (!draftId) {
-    redirect('/onboarding/pipeline-intake');
+    redirect('/onboarding/start');
   }
 
   if (!session?.user?.id || !session.user.email) {

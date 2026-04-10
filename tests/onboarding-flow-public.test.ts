@@ -20,8 +20,9 @@ const startScreenSource = readFileSync(
   'utf8',
 );
 
-test('public onboarding boundary redirects to premium intake and removes the raw tenant-onboarding copy', () => {
-  assert.match(startPageSource, /redirect\('\/onboarding\/pipeline-intake'\)/);
+test('public onboarding boundary serves the premium intake at /onboarding/start and removes the raw tenant-onboarding copy', () => {
+  assert.doesNotMatch(startPageSource, /redirect\('\/onboarding\/pipeline-intake'\)/);
+  assert.match(startPageSource, /AriesOnboardingFlow/);
   assert.doesNotMatch(startScreenSource, /Start Onboarding/);
   assert.doesNotMatch(startScreenSource, /Collect required onboarding start fields/);
   assert.doesNotMatch(startScreenSource, /Tenant ID/);
@@ -64,5 +65,5 @@ test('first-run onboarding requires explicit channel and goal confirmation', () 
   assert.match(onboardingSource, /selectedChannels\.length > 0/);
   assert.match(onboardingSource, /goal\.trim\(\)\.length > 0/);
   assert.match(onboardingSource, /Select at least one channel before continuing\./);
-  assert.match(onboardingSource, /Choose the primary goal for the first campaign\./);
+  assert.match(onboardingSource, /Choose a business outcome before continuing\./);
 });
