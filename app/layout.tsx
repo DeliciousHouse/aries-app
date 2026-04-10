@@ -1,27 +1,26 @@
 import type { Metadata } from 'next';
-import { Ubuntu, Ubuntu_Mono } from 'next/font/google';
+import { Inter, Manrope } from 'next/font/google';
 import type { ReactNode } from 'react';
-
 import './globals.css';
 import { ARIES_FAVICON_ICO_PATH, ARIES_FAVICON_PNG_PATH, ARIES_LOGO_WEBP_PATH } from '@/lib/brand';
 
-const ubuntu = Ubuntu({
+const inter = Inter({
   subsets: ['latin'],
-  weight: ['400', '500', '700'],
+  weight: ['400', '500', '600', '700', '800'],
   display: 'swap',
-  variable: '--font-ubuntu-title',
+  variable: '--font-inter',
 });
 
-const ubuntuMono = Ubuntu_Mono({
+const manrope = Manrope({
   subsets: ['latin'],
-  weight: ['400', '700'],
+  weight: ['600', '700', '800'],
   display: 'swap',
-  variable: '--font-ubuntu-body',
+  variable: '--font-manrope',
 });
 
 export const metadata: Metadata = {
-  title: 'Aries OS',
-  description: 'Aries OS unifies Ops, Brain, and Lab inside a truthful production shell backed by local filesystem contracts.',
+  title: 'Aries AI - Marketing Operating System',
+  description: 'A premium, approval-safe marketing operating system for small businesses. Plan campaigns, approve creative, launch safely, and see what worked.',
   icons: {
     icon: [
       { url: ARIES_FAVICON_ICO_PATH, type: 'image/x-icon' },
@@ -36,7 +35,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body className={`${ubuntu.variable} ${ubuntuMono.variable}`}>{children}</body>
+      <body className={`${inter.variable} ${manrope.variable}`}>{children}</body>
     </html>
   );
 }

@@ -1,5 +1,6 @@
-import AriesOsPage from '@/frontend/aries-os/page';
+import React from 'react';
+import DonorHomePage from '@/frontend/donor/marketing/home-page';
 
 export default function HomePage() {
-  return <AriesOsPage />;
+  return <DonorHomePage />;
 }
