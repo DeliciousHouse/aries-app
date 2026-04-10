@@ -1,51 +1,11 @@
-# Session: 2026-04-10 02:04:13 UTC
+# Session artifact removed
 
-- **Session Key**: agent:main:heartbeat
-- **Session ID**: e8419690-7dd8-4a24-b433-fe46edc12d28
-- **Source**: webchat
+This file previously contained a raw generated session log with internal runtime metadata,
+execution traces, and conversational history.
 
-## Conversation Summary
-
-user: System: [2026-04-05 03:19:55 PDT] Exec completed (vivid-da, code 0) :: /app/mission-control/src/components/CommandPage.tsx /app/mission-control/server/data/execution-tasks.json
-System: [2026-04-05 03:19:55 PDT] Exec completed (nova-pin, code 0) :: /app/mission-control/src/types.ts /app/mission-control/src/lib/api.ts /app/mission-control/src/App.tsx
-System: [2026-04-05 03:37:01 PDT] Exec completed (warm-orb, code 0) :: trol@0.1.0 build > ./node_modules/.bin/tsc -b && ./node_modules/.bin/vite build vite v5.4.21 building for production... transforming... ✓ 43 modules transformed. rendering chunks.…
-System: [2026-04-05 03:39:08 PDT] Exec failed (mild-har, signal SIGTERM) :: > aries-ai-mission-control@0.1.0 preview > node server/index.mjs Mission Control server listening on http://0.0.0.0:4174
-System: [2026-04-05 03:40:03 PDT] Exec completed (warm-gul, code 0) :: tsx v4.21.0 node v24.14.0
-System: [2026-04-05 03:40:19 PDT] Exec completed (tender-r, code 1) :: node:internal/modules/run_main:107 triggerUncaughtException( ^ [TypeError: fetch failed] { [cause]: Error: connect ECONNREFUSED 127.0.0.1:4174 at TCPConnectWrap.afterConnect [as o…
-System: [2026-04-05 03:40:43 PDT] Exec completed (calm-bre, code 0) :: { "Project board": true, "Single operational source of truth": true, "🔥 Forge": true, "📡 Signal": true, "📚 Ledger": true, "Tighten aries-app dashboard owner handoff states": tr…
-System: [2026-04-05 03:41:24 PDT] Exec failed (fresh-mi, signal SIGTERM) :: > aries-ai-mission-control@0.1.0 preview > node server/index.mjs Mission Control server listening on http://0.0.0.0:4174
-
-Sender (untrusted metadata):
-```json
-{
-  "label": "openclaw-control-ui",
-  "id": "openclaw-control-ui"
-}
-```
-
-[Sun 2026-04-05 04:15 PDT] Act as my OpenClaw implementation partner.
-
-Build the multi-agent daily standup system for my internal engineering operating system.
-
-This is the integration test for the entire multi-agent setup.
-
-CONTEXT:
-- I am Brendan.
-- Jarvis is my main orchestrator agent.
-- The current mission is shipping `aries-app`, operating Mission Control at `control.sugarandleather.com`, and making runtime visibility trustworthy.
-- This is not an agency workflow.
-- This is not for client delivery, sales, content, or CRM operations.
-- This is for internal engineering execution, cross-chief coordination, and daily operational visibility.
-- The persistent chiefs are:
- 1. Engineering Delivery
- 2. Runtime & Automation
- 3. Operations & Knowledge
-- Existing human collaborators:
- - Rohan = frontend owner
- - Roy = backend owner
- - Somwya = manual / human-required / non-coding execution
-- The current board from Episodes 2–3 is the operational source of truth for active work. Use its canonical path/API instead of inventing a second board system.
-
+The sensitive log content has been intentionally removed from version control.
+If session artifacts are needed locally for debugging, keep them out of the repository
+and store only sanitized summaries in committed Markdown files.
 CRITICAL PROTECTED-SYSTEM RULES:
 - Mission Control is AI-only.
 - No human team member works on Mission Control.
