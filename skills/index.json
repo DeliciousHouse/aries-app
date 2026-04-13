@@ -54,6 +54,123 @@
         "scope": "all",
         "agents": []
       }
+    },
+    {
+      "name": "aries-private-repo-backup",
+      "category": "automations",
+      "path": "skills/aries-private-repo-backup",
+      "owner": "jarvis",
+      "status": "active",
+      "last_updated": "2026-04-11",
+      "version": "1.0.0",
+      "visibility": {
+        "scope": "all",
+        "agents": []
+      }
+    },
+    {
+      "name": "aries-overnight-self-improve",
+      "category": "automations",
+      "path": "skills/aries-overnight-self-improve",
+      "owner": "jarvis",
+      "status": "active",
+      "last_updated": "2026-04-11",
+      "version": "1.1.0",
+      "visibility": {
+        "scope": "all",
+        "agents": []
+      }
+    },
+    {
+      "name": "aries-daily-brief",
+      "category": "automations",
+      "path": "skills/aries-daily-brief",
+      "owner": "jarvis",
+      "status": "active",
+      "last_updated": "2026-04-11",
+      "version": "1.0.0",
+      "visibility": {
+        "scope": "all",
+        "agents": []
+      }
+    },
+    {
+      "name": "aries-rolling-system-reference",
+      "category": "automations",
+      "path": "skills/aries-rolling-system-reference",
+      "owner": "jarvis",
+      "status": "active",
+      "last_updated": "2026-04-11",
+      "version": "1.0.0",
+      "visibility": {
+        "scope": "all",
+        "agents": []
+      }
+    },
+    {
+      "name": "aries-github-feedback-connector",
+      "category": "automations",
+      "path": "skills/aries-github-feedback-connector",
+      "owner": "jarvis",
+      "status": "active",
+      "last_updated": "2026-04-11",
+      "version": "1.0.0",
+      "visibility": {
+        "scope": "all",
+        "agents": []
+      }
+    },
+    {
+      "name": "aries-github-feedback-daily-summary",
+      "category": "automations",
+      "path": "skills/aries-github-feedback-daily-summary",
+      "owner": "jarvis",
+      "status": "active",
+      "last_updated": "2026-04-11",
+      "version": "1.0.0",
+      "visibility": {
+        "scope": "all",
+        "agents": []
+      }
+    },
+    {
+      "name": "aries-daily-standup",
+      "category": "automations",
+      "path": "skills/aries-daily-standup",
+      "owner": "jarvis",
+      "status": "active",
+      "last_updated": "2026-04-11",
+      "version": "1.0.0",
+      "visibility": {
+        "scope": "all",
+        "agents": []
+      }
+    },
+    {
+      "name": "aries-cron-builder",
+      "category": "automations",
+      "path": "skills/aries-cron-builder",
+      "owner": "jarvis",
+      "status": "active",
+      "last_updated": "2026-04-11",
+      "version": "1.0.0",
+      "visibility": {
+        "scope": "all",
+        "agents": []
+      }
+    },
+    {
+      "name": "aries-weekly-review",
+      "category": "automations",
+      "path": "skills/aries-weekly-review",
+      "owner": "jarvis",
+      "status": "active",
+      "last_updated": "2026-04-11",
+      "version": "1.0.0",
+      "visibility": {
+        "scope": "all",
+        "agents": []
+      }
     }
   ]
 }

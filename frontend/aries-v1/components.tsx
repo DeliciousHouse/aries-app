@@ -529,10 +529,12 @@ export function EmptyStatePanel(props: {
 
 export function LoadingStateGrid() {
   return (
-    <div className="grid gap-4 md:grid-cols-3">
+    <div role="status" aria-label="Loading" className="grid gap-4 md:grid-cols-3">
+      <span className="sr-only">Loading…</span>
       {Array.from({ length: 3 }, (_, index) => (
         <div
           key={index}
+          aria-hidden
           className="h-36 animate-pulse rounded-[1.4rem] border border-white/8 bg-white/[0.055]"
         />
       ))}

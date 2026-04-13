@@ -215,8 +215,21 @@ def normalize_marketing_url(value: Any) -> str | None:
 
 
 def data_root() -> Path:
-    raw = normalize_space(os.environ.get("DATA_ROOT")) or "/data"
+    candidates = [
+        normalize_space(os.environ.get("DATA_ROOT")),
+        normalize_space(os.environ.get("ARIES_SHARED_DATA_ROOT")),
+        "/home/node/data",
+        "/tmp/aries-data",
+        "/data",
+    ]
+    raw = next((candidate for candidate in candidates if candidate), "/home/node/data")
     root = Path(raw).resolve()
+    if not root.exists() or not root.is_dir():
+        fallback = next(
+            (Path(candidate).resolve() for candidate in candidates if candidate and Path(candidate).exists() and Path(candidate).is_dir()),
+            root,
+        )
+        root = fallback
     allow_tmp = normalize_space(os.environ.get("ALLOW_TMP_RUNTIME_PERSISTENCE")).lower() in {"1", "true", "yes", "on"}
     if not allow_tmp and (str(root) == "/tmp" or str(root).startswith("/tmp/")):
         raise RuntimeError("runtime_persistence_unavailable:data_root_tmp")

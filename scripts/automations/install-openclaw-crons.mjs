@@ -9,18 +9,18 @@ const agent = process.env.ARIES_CRON_AGENT || 'default'
 const channel = process.env.ARIES_CRON_CHANNEL || ''
 const target = process.env.ARIES_CRON_TARGET || ''
 
-function buildSkillPrompt(skill) {
-  return [
-    'Work in /app/aries-app.',
-    `Use the ${skill} skill.`,
-    'Follow the skill exactly.',
-    'Return only the concise operational summary defined by the skill.',
-  ].join(' ')
-}
-
 function buildPrompt(job) {
-  if (job.message) return job.message
-  return buildSkillPrompt(job.skill)
+  const contextLines = [
+    `- Project: ${repoRoot}`,
+    ...(Array.isArray(job.context) ? job.context : []),
+  ]
+
+  return [
+    `Read and follow: ${repoRoot}/skills/${job.skill}/SKILL.md`,
+    '',
+    'Context:',
+    ...contextLines,
+  ].join('\n')
 }
 
 function listExistingJobs() {

@@ -1,0 +1,14 @@
+{
+  "name": "pingpage",
+  "version": "0.1.0",
+  "description": "Dead-simple self-hostable status page with built-in uptime monitoring",
+  "main": "server.mjs",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node --watch server.mjs"
+  },
+  "dependencies": {
+    "express": "^4.21.0"
+  }
+}

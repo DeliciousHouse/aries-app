@@ -69,7 +69,7 @@ Rules:
 
 ## Board linkage rule
 
-Use `/app/mission-control/server/data/execution-tasks.json` as the execution board.
+Use `/home/node/.openclaw/projects/shared/team/execution-tasks.json` as the execution board.
 Do not create a second board system.
 
 Rules:

@@ -1,0 +1,21 @@
+# Cron Prompt Template
+
+Use this template when writing the `--message` argument for `openclaw cron add` or when defining `message` in `manifest.mjs`.
+
+```
+Read and follow: ~/skills/[your-skill-name]/SKILL.md
+
+Context:
+- Project: ~/projects/[your-project]/
+- Service: systemctl --user restart [service-name]
+- Notify: [telegram-id or email]
+- Data: ~/data/[relevant-file].json
+```
+
+## Rules
+
+- First line is always the `Read and follow:` directive pointing to the skill file.
+- Context block provides runtime-specific values the skill needs but doesn't hardcode.
+- Only include Context lines that the skill actually uses. Omit irrelevant ones.
+- Total prompt must be under 20 lines. If it's longer, you're duplicating the skill.
+- Never include workflow steps, logic, or conditionals in the cron prompt.
