@@ -10,10 +10,18 @@ export const automationJobs = [
   {
     id: 'aries-overnight-self-improve',
     name: 'Aries overnight self-improvement',
-    cron: '30 1 * * *',
+    cron: '0 4 * * *',
     tz: 'America/Los_Angeles',
     skill: 'aries-overnight-self-improve',
-    purpose: 'Rotate a nightly audit, apply low-risk cleanup, and log results to memory/YYYY-MM-DD.md.',
+    purpose: 'Pick one small additive nightly improvement, validate it, and log the shipped result to the nightly build log plus daily memory.',
+    context: [
+      '- Board: /home/node/.openclaw/projects/shared/team/execution-tasks.json',
+      '- Feedback: data/feedback-processing-log.json',
+      '- Build log: data/nightly-build-log.json',
+      '- Design skill: skills/superdesign/SKILL.md',
+      '- Build: npm run build',
+      '- Runtime check: docker compose ps',
+    ],
   },
   {
     id: 'aries-daily-brief',
@@ -28,8 +36,7 @@ export const automationJobs = [
     name: 'Aries GitHub feedback connector',
     cron: '0 7 * * *',
     tz: 'America/Los_Angeles',
-    message:
-      'Work in /app/aries-app. Run node scripts/automations/feedback-connector.mjs sync --json. For each pending bug, use the bug-triage skill. For each pending feature, use the feature-pipeline skill. Update data/feedback-processing-log.json after each item with node scripts/automations/feedback-connector.mjs mark --number <issue> --patch-json <json>. Return only: status, critical_alerts, bugs_processed, features_processed, batched_for_summary, errors.',
+    skill: 'aries-github-feedback-connector',
     purpose: 'Sync GitHub issues, classify bug vs feature, route each pending item to the correct skill workflow, and update the processing log.',
   },
   {
@@ -37,8 +44,7 @@ export const automationJobs = [
     name: 'Aries GitHub feedback daily summary',
     cron: '0 18 * * *',
     tz: 'America/Los_Angeles',
-    message:
-      'Work in /app/aries-app. Run node scripts/automations/feedback-daily-summary.mjs --mark-sent. Return only the emitted summary.',
+    skill: 'aries-github-feedback-daily-summary',
     purpose: 'Deliver the daily batch summary for non-critical GitHub feedback items that were processed and logged.',
   },
   {
@@ -48,5 +54,27 @@ export const automationJobs = [
     tz: 'America/Los_Angeles',
     skill: 'aries-rolling-system-reference',
     purpose: 'Update docs/SYSTEM-REFERENCE.md with architecture, inventory, cron jobs, and known issues.',
+  },
+  {
+    id: 'aries-daily-standup',
+    name: 'Aries daily standup',
+    cron: '0 9 * * 1-5',
+    tz: 'America/Los_Angeles',
+    skill: 'aries-daily-standup',
+    purpose: 'Generate a board-based daily standup transcript with per-lane chief reports, workspace verification, and blocker visibility.',
+  },
+  {
+    id: 'aries-weekly-review',
+    name: 'Aries weekly review',
+    cron: '0 14 * * 5',
+    tz: 'America/Los_Angeles',
+    skill: 'aries-weekly-review',
+    purpose: 'Generate the Friday weekly review from live board, git, cron, backlog, and service-health truth, save it under memory/reviews, and optionally email the HTML version.',
+    context: [
+      '- Board: /home/node/.openclaw/projects/shared/team/execution-tasks.json',
+      '- Reviews: memory/reviews/',
+      '- Email env: ARIES_WEEKLY_REVIEW_EMAIL + ARIES_WEEKLY_REVIEW_EMAIL_SCRIPT',
+      '- Summary delivery: cron announce target',
+    ],
   },
 ]

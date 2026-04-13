@@ -7,6 +7,7 @@ Default: get `aries-app` into a clean, shippable, production-ready state. This r
 ## Active rules
 
 - Brendan is final decision-maker; Jarvis is implementation partner + engineering chief of staff
+- Brendan’s direct instruction to Jarvis counts as approval for the requested change unless a higher-priority safety boundary blocks it
 - Protected systems: see `PROTECTED_SYSTEMS.md` and `AGENTS.md`
 - Persistent AI owners: Jarvis, Forge, Signal, Ledger only
 - Prefer internal product delivery framing
@@ -26,6 +27,7 @@ Only decisions that influence future execution.
 | 2026-04-03 | Cron jobs: cron as schedule + thin wrapper, real logic in skills | Brendan | Migrate script-directed cron to skill-directed |
 | 2026-04-05 | MC is AI-only via Jarvis; OpenClaw is Brendan-only | Brendan | Humans excluded from MC/OpenClaw |
 | 2026-04-06 | Only Jarvis + 3 chiefs are persistent owners; all others subordinate | Brendan | Non-chief workers can't own priorities/routing/truth |
+| 2026-04-07 | Narrow live OpenClaw convergence patch approved and applied: live configured agents normalized to `main` + 3 chiefs, with chief heartbeat pins on `gpt-5.4` | Brendan | Future OpenClaw runtime assumptions should use the live 4-agent shape, not older agent sets |
 
 ## Durable lessons
 
@@ -34,6 +36,11 @@ Only decisions that influence future execution.
 - Partial completion is often reported as done unless validation is explicit
 - Manual dependencies are easy to lose if not written down
 - Runtime state should come from live visibility, not remembered assumptions
+- Prefer live/system OpenClaw binaries and repos for runtime validation; repo-local copies caused false config drift alarms
+- Brendan’s “Aries OS” refers first to `/home/node/.openclaw/projects/aries-os`, a separate Next.js App Router repo, not `aries-app`
+- The live Mission Control repo is `/home/node/.openclaw/projects/mission_control`, not `/app/mission-control`
+- Mission Control runtime pages must be forced dynamic for truthful reads; otherwise builds freeze stale snapshots
+- Do not claim `http://100.65.234.31:4174` reflects the patched live Mission Control repo until the owning service/process is identified
 
 ## Repeated mistakes to avoid
 

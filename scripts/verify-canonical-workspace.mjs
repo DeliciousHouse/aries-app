@@ -1,9 +1,10 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
-const expectedRoot = process.env.ARIES_CANONICAL_REPO_ROOT || '/app/aries-app';
+const expectedRoot = process.env.ARIES_CANONICAL_REPO_ROOT || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requiredMarkers = ['package.json', 'README-runtime.md', 'app', 'backend', 'tests'];
 
 function fail(message) {

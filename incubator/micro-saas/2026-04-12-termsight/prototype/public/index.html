@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TermSight — Policy Change Monitor</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface-hover: #222633;
+      --border: #2a2e3b;
+      --text: #e4e6ed;
+      --text-dim: #8b8fa3;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --green: #22c55e;
+      --red: #ef4444;
+      --yellow: #eab308;
+      --orange: #f97316;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+    .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 20px 0; border-bottom: 1px solid var(--border); margin-bottom: 32px;
+    }
+    .logo { display: flex; align-items: center; gap: 12px; }
+    .logo-icon {
+      width: 36px; height: 36px; background: var(--accent); border-radius: 8px;
+      display: flex; align-items: center; justify-content: center; font-size: 18px;
+    }
+    .logo h1 { font-size: 22px; font-weight: 700; }
+    .logo span { color: var(--text-dim); font-size: 13px; font-weight: 400; }
+
+    .tabs {
+      display: flex; gap: 4px; background: var(--surface); border-radius: 8px; padding: 4px;
+    }
+    .tab {
+      padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px;
+      color: var(--text-dim); border: none; background: none; transition: all 0.15s;
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active { background: var(--accent); color: white; }
+
+    .stats {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px; margin-bottom: 32px;
+    }
+    .stat-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+      padding: 20px;
+    }
+    .stat-card .label { font-size: 13px; color: var(--text-dim); margin-bottom: 4px; }
+    .stat-card .value { font-size: 28px; font-weight: 700; }
+    .stat-card .value.green { color: var(--green); }
+    .stat-card .value.red { color: var(--red); }
+    .stat-card .value.yellow { color: var(--yellow); }
+
+    .section-header {
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;
+    }
+    .section-header h2 { font-size: 18px; font-weight: 600; }
+
+    .btn {
+      padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer;
+      font-size: 14px; font-weight: 500; transition: all 0.15s;
+    }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+    .btn-secondary:hover { background: var(--surface-hover); }
+    .btn-danger { background: transparent; color: var(--red); border: 1px solid var(--red); }
+    .btn-danger:hover { background: rgba(239, 68, 68, 0.1); }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+
+    .policy-list { display: flex; flex-direction: column; gap: 12px; }
+
+    .policy-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+      padding: 20px; transition: border-color 0.15s;
+    }
+    .policy-card:hover { border-color: var(--accent); }
+    .policy-card .top { display: flex; justify-content: space-between; align-items: start; }
+    .policy-card .name { font-size: 16px; font-weight: 600; }
+    .policy-card .url { font-size: 13px; color: var(--text-dim); word-break: break-all; margin-top: 4px; }
+    .policy-card .meta { display: flex; gap: 16px; margin-top: 12px; font-size: 13px; color: var(--text-dim); }
+    .policy-card .actions { display: flex; gap: 8px; margin-top: 12px; }
+
+    .status-badge {
+      display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
+      border-radius: 12px; font-size: 12px; font-weight: 500;
+    }
+    .status-badge.ok { background: rgba(34, 197, 94, 0.15); color: var(--green); }
+    .status-badge.changed { background: rgba(249, 115, 22, 0.15); color: var(--orange); }
+    .status-badge.new { background: rgba(99, 102, 241, 0.15); color: var(--accent); }
+    .status-badge.error { background: rgba(239, 68, 68, 0.15); color: var(--red); }
+
+    .risk-tag {
+      display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px;
+      font-weight: 600; margin: 2px;
+    }
+    .risk-tag.ai_training { background: rgba(239, 68, 68, 0.2); color: var(--red); }
+    .risk-tag.data_sharing { background: rgba(249, 115, 22, 0.2); color: var(--orange); }
+    .risk-tag.liability { background: rgba(234, 179, 8, 0.2); color: var(--yellow); }
+    .risk-tag.pricing { background: rgba(99, 102, 241, 0.2); color: var(--accent); }
+    .risk-tag.cancellation { background: rgba(168, 85, 247, 0.2); color: #a855f7; }
+    .risk-tag.jurisdiction { background: rgba(14, 165, 233, 0.2); color: #0ea5e9; }
+    .risk-tag.data_retention { background: rgba(236, 72, 153, 0.2); color: #ec4899; }
+    .risk-tag.consent { background: rgba(20, 184, 166, 0.2); color: #14b8a6; }
+
+    .change-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+      padding: 20px; margin-bottom: 12px;
+    }
+    .change-card .change-header { display: flex; justify-content: space-between; align-items: start; }
+    .change-card .policy-name { font-weight: 600; }
+    .change-card .detected { font-size: 13px; color: var(--text-dim); }
+    .change-card .summary { margin-top: 12px; font-size: 14px; line-height: 1.7; color: var(--text-dim); white-space: pre-line; }
+    .change-card .risk-tags { margin-top: 10px; }
+
+    .diff-view {
+      background: #0d0f14; border: 1px solid var(--border); border-radius: 8px;
+      padding: 16px; margin-top: 12px; font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 13px; line-height: 1.8; overflow-x: auto; max-height: 400px; overflow-y: auto;
+    }
+    .diff-view .added { color: var(--green); }
+    .diff-view .removed { color: var(--red); text-decoration: line-through; }
+    .diff-view .context { color: var(--text-dim); }
+
+    .modal-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+      z-index: 100; justify-content: center; align-items: center;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      padding: 28px; width: 90%; max-width: 520px;
+    }
+    .modal h3 { margin-bottom: 20px; font-size: 18px; }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-size: 13px; color: var(--text-dim); margin-bottom: 6px; }
+    .form-group input, .form-group select, .form-group textarea {
+      width: 100%; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text); font-size: 14px; font-family: inherit;
+    }
+    .form-group textarea { min-height: 120px; resize: vertical; }
+    .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+      outline: none; border-color: var(--accent);
+    }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+
+    .empty-state {
+      text-align: center; padding: 60px 20px; color: var(--text-dim);
+    }
+    .empty-state .icon { font-size: 48px; margin-bottom: 16px; }
+    .empty-state h3 { color: var(--text); margin-bottom: 8px; }
+
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid transparent;
+      border-top-color: currentColor; border-radius: 50%; animation: spin 0.6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .toast {
+      position: fixed; bottom: 24px; right: 24px; padding: 12px 20px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      font-size: 14px; z-index: 200; transform: translateY(100px); opacity: 0;
+      transition: all 0.3s;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+
+    #view-policies, #view-changes { display: none; }
+    #view-policies.active, #view-changes.active { display: block; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo">
+        <div class="logo-icon">TS</div>
+        <div>
+          <h1>TermSight</h1>
+          <span>Vendor Policy Monitor</span>
+        </div>
+      </div>
+      <div class="tabs">
+        <button class="tab active" data-view="policies" onclick="switchView('policies')">Policies</button>
+        <button class="tab" data-view="changes" onclick="switchView('changes')">Changes</button>
+      </div>
+    </header>
+
+    <div class="stats" id="stats"></div>
+
+    <div id="view-policies" class="active">
+      <div class="section-header">
+        <h2>Monitored Policies</h2>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-secondary" onclick="checkAll()">Check All Now</button>
+          <button class="btn btn-primary" onclick="openAddModal()">+ Add Policy</button>
+        </div>
+      </div>
+      <div class="policy-list" id="policy-list"></div>
+    </div>
+
+    <div id="view-changes">
+      <div class="section-header">
+        <h2>Detected Changes</h2>
+      </div>
+      <div id="changes-list"></div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="add-modal">
+    <div class="modal">
+      <h3>Add Policy to Monitor</h3>
+      <div class="form-group">
+        <label>Policy Name</label>
+        <input id="policy-name" placeholder="e.g., OpenAI Terms of Use" />
+      </div>
+      <div class="form-group">
+        <label>Policy URL</label>
+        <input id="policy-url" placeholder="https://openai.com/policies/terms-of-use" />
+      </div>
+      <div class="form-group">
+        <label>Check Frequency</label>
+        <select id="policy-freq">
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="hourly">Hourly</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeAddModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="addPolicy()">Add Policy</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="paste-modal">
+    <div class="modal">
+      <h3>Paste Policy Text</h3>
+      <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px">
+        If the URL can't be scraped, paste the policy text manually.
+      </p>
+      <div class="form-group">
+        <label>Policy Text</label>
+        <textarea id="paste-content" placeholder="Paste the full policy text here..."></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closePasteModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitPaste()">Save Snapshot</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    let policies = [];
+    let changes = [];
+    let pasteTargetId = null;
+
+    async function api(path, opts = {}) {
+      const res = await fetch(`/api${path}`, {
+        headers: { 'Content-Type': 'application/json' },
+        ...opts,
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+      });
+      return res.json();
+    }
+
+    function toast(msg, duration = 3000) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      setTimeout(() => el.classList.remove('show'), duration);
+    }
+
+    function switchView(view) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === view));
+      document.getElementById('view-policies').classList.toggle('active', view === 'policies');
+      document.getElementById('view-changes').classList.toggle('active', view === 'changes');
+      if (view === 'changes') loadChanges();
+    }
+
+    function renderStats() {
+      const total = policies.length;
+      const changed = policies.filter(p => p.last_changed_at).length;
+      const checked = policies.filter(p => p.last_checked_at).length;
+      document.getElementById('stats').innerHTML = `
+        <div class="stat-card"><div class="label">Monitored Policies</div><div class="value">${total}</div></div>
+        <div class="stat-card"><div class="label">Changes Detected</div><div class="value yellow">${changed}</div></div>
+        <div class="stat-card"><div class="label">Last Checked</div><div class="value green">${checked}</div></div>
+      `;
+    }
+
+    function renderPolicies() {
+      const list = document.getElementById('policy-list');
+      if (policies.length === 0) {
+        list.innerHTML = `
+          <div class="empty-state">
+            <div class="icon">&#128270;</div>
+            <h3>No policies monitored yet</h3>
+            <p>Add a Terms of Service or Privacy Policy URL to start monitoring for changes.</p>
+          </div>`;
+        return;
+      }
+      list.innerHTML = policies.map(p => `
+        <div class="policy-card">
+          <div class="top">
+            <div>
+              <div class="name">${esc(p.name)}</div>
+              <div class="url">${esc(p.url)}</div>
+            </div>
+            ${p.last_changed_at
+              ? '<span class="status-badge changed">Changes Detected</span>'
+              : p.last_checked_at
+                ? '<span class="status-badge ok">No Changes</span>'
+                : '<span class="status-badge new">Not Checked</span>'}
+          </div>
+          <div class="meta">
+            <span>Frequency: ${p.check_frequency}</span>
+            ${p.last_checked_at ? `<span>Last checked: ${fmtDate(p.last_checked_at)}</span>` : ''}
+            ${p.last_changed_at ? `<span>Last changed: ${fmtDate(p.last_changed_at)}</span>` : ''}
+          </div>
+          <div class="actions">
+            <button class="btn btn-secondary btn-sm" onclick="checkPolicy(${p.id})" id="check-btn-${p.id}">Check Now</button>
+            <button class="btn btn-secondary btn-sm" onclick="openPasteModal(${p.id})">Paste Text</button>
+            <button class="btn btn-secondary btn-sm" onclick="viewChanges(${p.id})">View Changes</button>
+            <button class="btn btn-danger btn-sm" onclick="removePolicy(${p.id})">Remove</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function loadPolicies() {
+      policies = await api('/policies');
+      renderStats();
+      renderPolicies();
+    }
+
+    async function loadChanges() {
+      changes = await api('/changes');
+      renderChanges();
+    }
+
+    function renderChanges() {
+      const list = document.getElementById('changes-list');
+      if (changes.length === 0) {
+        list.innerHTML = `
+          <div class="empty-state">
+            <div class="icon">&#9989;</div>
+            <h3>No changes detected yet</h3>
+            <p>Changes will appear here when a monitored policy is updated.</p>
+          </div>`;
+        return;
+      }
+      list.innerHTML = changes.map(c => `
+        <div class="change-card">
+          <div class="change-header">
+            <span class="policy-name">${esc(c.policy_name)}</span>
+            <span class="detected">${fmtDate(c.detected_at)}</span>
+          </div>
+          <div class="risk-tags">
+            ${(c.risk_flags || []).map(f => `<span class="risk-tag ${f.category}">${f.label}</span>`).join('')}
+          </div>
+          <div class="summary">${esc(c.ai_summary || 'No summary available')}</div>
+          <div style="margin-top:12px">
+            <button class="btn btn-secondary btn-sm" onclick="toggleDiff(this, ${c.id})">Show Diff</button>
+          </div>
+          <div class="diff-view" id="diff-${c.id}" style="display:none"></div>
+        </div>
+      `).join('');
+    }
+
+    async function toggleDiff(btn, changeId) {
+      const el = document.getElementById(`diff-${changeId}`);
+      if (el.style.display !== 'none') {
+        el.style.display = 'none';
+        btn.textContent = 'Show Diff';
+        return;
+      }
+      btn.innerHTML = '<span class="spinner"></span> Loading...';
+      try {
+        const data = await api(`/changes/${changeId}/diff`);
+        el.innerHTML = data.diff_text.split('\n').map(line => {
+          if (line.startsWith('+')) return `<div class="added">${esc(line)}</div>`;
+          if (line.startsWith('-')) return `<div class="removed">${esc(line)}</div>`;
+          return `<div class="context">${esc(line)}</div>`;
+        }).join('');
+        el.style.display = 'block';
+        btn.textContent = 'Hide Diff';
+      } catch {
+        toast('Failed to load diff');
+        btn.textContent = 'Show Diff';
+      }
+    }
+
+    function openAddModal() { document.getElementById('add-modal').classList.add('open'); }
+    function closeAddModal() { document.getElementById('add-modal').classList.remove('open'); }
+
+    function openPasteModal(id) { pasteTargetId = id; document.getElementById('paste-modal').classList.add('open'); }
+    function closePasteModal() { pasteTargetId = null; document.getElementById('paste-modal').classList.remove('open'); }
+
+    async function addPolicy() {
+      const name = document.getElementById('policy-name').value.trim();
+      const url = document.getElementById('policy-url').value.trim();
+      const freq = document.getElementById('policy-freq').value;
+      if (!name || !url) return toast('Name and URL are required');
+
+      await api('/policies', { method: 'POST', body: { name, url, check_frequency: freq } });
+      closeAddModal();
+      document.getElementById('policy-name').value = '';
+      document.getElementById('policy-url').value = '';
+      toast('Policy added');
+      loadPolicies();
+    }
+
+    async function removePolicy(id) {
+      if (!confirm('Remove this policy and all its snapshots?')) return;
+      await api(`/policies/${id}`, { method: 'DELETE' });
+      toast('Policy removed');
+      loadPolicies();
+    }
+
+    async function checkPolicy(id) {
+      const btn = document.getElementById(`check-btn-${id}`);
+      btn.innerHTML = '<span class="spinner"></span> Checking...';
+      btn.disabled = true;
+      try {
+        const result = await api(`/policies/${id}/check`, { method: 'POST' });
+        toast(result.message || result.error || 'Done');
+      } catch {
+        toast('Check failed');
+      }
+      btn.textContent = 'Check Now';
+      btn.disabled = false;
+      loadPolicies();
+    }
+
+    async function submitPaste() {
+      const content = document.getElementById('paste-content').value.trim();
+      if (!content) return toast('Paste the policy text first');
+      const result = await api(`/policies/${pasteTargetId}/paste`, { method: 'POST', body: { content } });
+      toast(result.message || 'Saved');
+      closePasteModal();
+      document.getElementById('paste-content').value = '';
+      loadPolicies();
+    }
+
+    async function checkAll() {
+      toast('Checking all policies...');
+      const results = await api('/check-all', { method: 'POST' });
+      const changed = results.filter(r => r.status === 'changed').length;
+      const errors = results.filter(r => r.status === 'error').length;
+      toast(`Done: ${changed} changed, ${errors} errors`);
+      loadPolicies();
+    }
+
+    async function viewChanges(policyId) {
+      switchView('changes');
+      changes = await api(`/policies/${policyId}/changes`);
+      const policy = policies.find(p => p.id === policyId);
+      changes = changes.map(c => ({ ...c, policy_name: policy?.name || 'Unknown' }));
+      renderChanges();
+    }
+
+    function esc(s) {
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    function fmtDate(d) {
+      if (!d) return '';
+      return new Date(d + 'Z').toLocaleDateString('en-US', {
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+      });
+    }
+
+    document.querySelectorAll('.modal-overlay').forEach(m => {
+      m.addEventListener('click', e => { if (e.target === m) m.classList.remove('open'); });
+    });
+
+    loadPolicies();
+  </script>
+</body>
+</html>

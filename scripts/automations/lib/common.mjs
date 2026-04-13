@@ -38,9 +38,136 @@ export function appendText(filePath, content) {
   appendFileSync(filePath, content)
 }
 
+function pathEntries() {
+  return String(process.env.PATH || '')
+    .split(path.delimiter)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+}
+
+function executableCandidates(command, cwd) {
+  const candidates = []
+  const upper = command.toUpperCase().replace(/[^A-Z0-9]+/g, '_')
+  const envOverride = process.env[`${upper}_BIN`]
+  if (envOverride) candidates.push(envOverride)
+
+  if (command === 'node') {
+    candidates.push(process.execPath)
+  }
+
+  const sibling = path.join(path.dirname(process.execPath), command)
+  candidates.push(sibling)
+
+  if (cwd) {
+    candidates.push(path.join(cwd, 'node_modules', '.bin', command))
+  }
+
+  for (const entry of pathEntries()) {
+    candidates.push(path.join(entry, command))
+  }
+
+  return [...new Set(candidates)]
+}
+
+export function resolveBinary(command, { cwd = repoRoot } = {}) {
+  for (const candidate of executableCandidates(command, cwd)) {
+    if (existsSync(candidate)) {
+      return candidate
+    }
+  }
+  return null
+}
+
+export function checkPreflight({ cwd = repoRoot, binaries = [], paths = [] } = {}) {
+  const resolvedBinaries = {}
+  const missingBinaries = []
+
+  for (const entry of binaries) {
+    const spec = typeof entry === 'string' ? { command: entry } : entry
+    const command = spec.command
+    const resolved = resolveBinary(command, { cwd: spec.cwd || cwd })
+    if (!resolved) {
+      missingBinaries.push(spec)
+      continue
+    }
+    resolvedBinaries[command] = resolved
+  }
+
+  const pathChecks = paths.map((entry) => {
+    const spec = typeof entry === 'string' ? { path: entry, type: 'file' } : entry
+    const target = spec.path
+    const kind = spec.type || 'file'
+    const present = existsSync(target)
+    if (!present) {
+      return { ...spec, ok: false, reason: 'missing' }
+    }
+
+    if (kind === 'file') {
+      const ok = statSync(target).isFile()
+      return { ...spec, ok, reason: ok ? 'ok' : 'not-file' }
+    }
+
+    if (kind === 'dir') {
+      const ok = statSync(target).isDirectory()
+      return { ...spec, ok, reason: ok ? 'ok' : 'not-dir' }
+    }
+
+    return { ...spec, ok: true, reason: 'ok' }
+  })
+
+  const missingPaths = pathChecks.filter((entry) => !entry.ok)
+
+  return {
+    ok: missingBinaries.length === 0 && missingPaths.length === 0,
+    cwd,
+    resolvedBinaries,
+    missingBinaries,
+    pathChecks,
+    missingPaths,
+  }
+}
+
+export function preflightLines(label, result) {
+  const lines = [
+    `${label} PREFLIGHT ${result.ok ? 'OK' : 'FAILED'}`,
+    `- cwd: ${result.cwd}`,
+  ]
+
+  const binaryEntries = Object.entries(result.resolvedBinaries)
+  lines.push(`- binaries: ${binaryEntries.length}`)
+  for (const [command, resolved] of binaryEntries) {
+    lines.push(`  - ${command}: ${resolved}`)
+  }
+  for (const spec of result.missingBinaries) {
+    lines.push(`  - missing binary: ${spec.command}`)
+  }
+
+  if (result.pathChecks.length > 0) {
+    lines.push(`- paths: ${result.pathChecks.length}`)
+    for (const check of result.pathChecks) {
+      lines.push(`  - ${check.label || check.path}: ${check.ok ? 'ok' : check.reason} (${check.path})`)
+    }
+  }
+
+  return lines
+}
+
+export function preflightOrExit(label, config, { preflightOnly = false } = {}) {
+  const result = checkPreflight(config)
+  if (!result.ok || preflightOnly) {
+    emitSummary(preflightLines(label, result))
+  }
+  if (!result.ok) {
+    process.exit(1)
+  }
+  return result
+}
+
 export function run(command, args = [], options = {}) {
-  const result = spawnSync(command, args, {
-    cwd: repoRoot,
+  const cwd = options.cwd || repoRoot
+  const resolvedCommand = resolveBinary(command, { cwd }) || command
+  const result = spawnSync(resolvedCommand, args, {
+    cwd,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
     ...options,
@@ -51,6 +178,7 @@ export function run(command, args = [], options = {}) {
     code: result.status ?? 1,
     stdout: result.stdout || '',
     stderr: result.stderr || '',
+    command: resolvedCommand,
   }
 }
 

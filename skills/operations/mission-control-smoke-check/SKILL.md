@@ -5,7 +5,7 @@ description: Build and smoke test the Mission Control app, then return only a co
 
 # Mission Control Smoke Check
 
-Use this skill to run a fast, truthful smoke check against the live Mission Control app at `/app/mission-control`.
+Use this skill to run a fast, truthful smoke check against the live Mission Control app. The current canonical host path is `/home/node/.openclaw/projects/mission_control`; `MISSION_CONTROL_ROOT` can override it when needed.
 
 ## What this skill does
 

@@ -6,6 +6,7 @@ import {
   emitSummary,
   gitChangedFiles,
   parseArgs,
+  preflightOrExit,
   readText,
   repoRoot,
   run,
@@ -14,6 +15,20 @@ import {
 
 const flags = parseArgs()
 const dryRun = flags.has('--dry-run')
+const preflightOnly = flags.has('--preflight')
+
+preflightOrExit('DAILY BRIEF', {
+  binaries: ['git'],
+  paths: [
+    { label: 'repo root', path: repoRoot, type: 'dir' },
+    { label: 'docs dir', path: path.join(repoRoot, 'docs'), type: 'dir' },
+    { label: 'memory dir', path: path.join(repoRoot, 'memory'), type: 'dir' },
+  ],
+}, { preflightOnly })
+
+if (preflightOnly) {
+  process.exit(0)
+}
 const { date, stamp } = currentDateInfo()
 
 const priorities = collectUncheckedBoxes(readText(path.join(repoRoot, 'PRIORITIES.md'))).slice(0, 5)

@@ -15,7 +15,7 @@ Jarvis owns keeping it current.
 Use these sources in this order when reconciling priority truth:
 - live runtime / validation evidence when available
 - `generated/validated/project-progress.json`
-- `/app/mission-control/server/data/execution-tasks.json` for live board task state
+- `/home/node/.openclaw/projects/shared/team/execution-tasks.json` for live board task state
 - `data/org-chart.json` for board actor ids and assignee validation
 - `AGENTS.md`
 - `PROTECTED_SYSTEMS.md`
@@ -37,6 +37,7 @@ Use these sources in this order when reconciling priority truth:
 4. Recover local Lobster fallback integrity after the production contract is frozen.
 5. Improve Lobster history visibility only after a real source is verified.
 6. Keep execution-governance aligned across repo truth, board truth, and runtime behavior.
+7. Recover the timed-out cron summary jobs so automation reliability matches the stated priority stack.
 
 ## Active blocker focus order
 
@@ -107,6 +108,20 @@ Use these sources in this order when reconciling priority truth:
   - no fabricated Lobster history
   - no runtime panel may imply connected history when the source is still missing or empty-by-unknown-cause
 
+### 6) `cron-summary-timeouts`
+- **Why it matters:** Automation reliability is already a top-three priority, but key summary jobs are currently failing on timeouts. That hides state, weakens daily operating rhythm, and leaves backlog visibility stale.
+- **System affected:** daily brief, daily standup, GitHub feedback daily summary, cron reliability
+- **Assigned persistent owner:** Signal
+- **Category:** automation blocker
+- **Reality observed:** as of 2026-04-11, live cron state shows timeout failures on `Aries daily brief`, `Aries daily standup`, and `Aries GitHub feedback daily summary`
+- **Done means:**
+  - the timed-out summary jobs complete successfully within bounded runtimes
+  - timeout causes are understood and documented
+  - the repaired jobs resume delivering usable summaries on schedule
+- **Must not regress:**
+  - summary jobs must not silently fail for multiple runs in a row
+  - backlog/briefing surfaces must not imply healthy automation when cron state is timing out
+
 ## Governance correction focus
 
 The current governance correction is part of active execution, not a side note.
@@ -125,6 +140,7 @@ Required operating rule now:
 4. After the production contract freeze, repair the local Lobster fallback regression.
 5. Verify a real Lobster history source before expanding Mission Control runtime history.
 6. Keep `PRIORITIES.md`, `AGENTS.md`, `PROTECTED_SYSTEMS.md`, `DELEGATION-RULES.md`, and `data/org-chart.json` aligned.
+7. Recover the timed-out summary cron jobs and verify they complete within their configured windows.
 
 ## Standing escalation list
 

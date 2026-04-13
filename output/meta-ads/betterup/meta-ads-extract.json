@@ -97,7 +97,7 @@
     "trust_classification": "trusted",
     "trusted_evidence_count": 2
   },
-  "generated_at": "2026-04-07T08:00:48+00:00",
+  "generated_at": "2026-04-10T19:41:54+00:00",
   "landing_pages": [
     "https://betterup.com",
     "https://betterup.com/leadership-coaching"
@@ -191,7 +191,7 @@
     }
   },
   "research_model": "gemini/gemini-2.5-flash",
-  "run_id": "https-betterup-com-35e7b58b",
+  "run_id": "https-betterup-com-add60af6",
   "source": "local-stage1-wrapper",
   "stub": false,
   "trustValidation": {

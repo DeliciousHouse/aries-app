@@ -1,0 +1,15 @@
+{
+  "name": "termsight-prototype",
+  "version": "0.1.0",
+  "description": "AI-powered vendor ToS and Privacy Policy change monitor",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node --watch server.mjs"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "diff": "^7.0.0",
+    "express": "^4.21.0"
+  }
+}

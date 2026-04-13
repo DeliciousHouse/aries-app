@@ -1,38 +1,9 @@
 # Aries System Reference
 
-Last refreshed Apr 08, 2026, 21:45 PDT.
+Last refreshed Apr 12, 2026, 19:26 PDT.
 
 ## What changed today
-- .github/workflows/deploy.yml
-- .gitignore
-- DOCKER.md
-- PRODUCTION_HANDOFF.md
-- README.md
-- docker-compose.yml
-- docs/SYSTEM-REFERENCE.md
-- docs/automations/README.md
-- docs/briefs/2026-04-08-brief.md
-- package.json
-- tailwind.config.ts
-- CLAUDE.md
-- app/api/business/profile/route.ts
-- app/api/integrations/handlers.ts
-- app/api/marketing/campaigns/route.ts
-- app/api/marketing/jobs/[jobId]/approve/handler.ts
-- app/api/marketing/jobs/[jobId]/assets/[assetId]/handler.ts
-- app/api/marketing/jobs/[jobId]/brief/route.ts
-- app/api/marketing/jobs/[jobId]/handler.ts
-- app/api/marketing/jobs/[jobId]/workspace-assets/[assetId]/handler.ts
-- app/api/marketing/jobs/handler.ts
-- app/api/marketing/jobs/latest/handler.ts
-- app/api/marketing/posts/route.ts
-- app/api/marketing/reviews/[reviewId]/decision/route.ts
-- app/api/marketing/reviews/[reviewId]/route.ts
-- app/api/marketing/reviews/route.ts
-- app/api/onboarding/draft/route.ts
-- app/api/pipeline/url-preview/route.ts
-- app/login/page-client.tsx
-- app/onboarding/start/page.tsx
+- No git-tracked file changes detected since local midnight.
 
 ## Current architecture overview
 - Next.js App Router runtime serves the public site, authenticated operator shell, and browser-safe internal APIs.
@@ -41,22 +12,24 @@ Last refreshed Apr 08, 2026, 21:45 PDT.
 - Standalone Mission Control deploys as a separate image and reads /api/runtime/overview from its local runtime server.
 
 ## Module inventory
-- app/ 107 files
+- app/ 108 files
 - backend/ 73 files
 - components/ 14 files
 - hooks/ 17 files
-- lib/ 19 files
-- scripts/ 24 files
-- skills/ 58 files
+- lib/ 21 files
+- scripts/ 26 files
+- skills/ 82 files
 - workflows/ 4 files
 
 ## Active cron jobs
 - Aries private repo backup — 15 */6 * * * America/Los_Angeles — Stage current repo changes, commit them to a backup branch, and create or update a backup pull request on the configured private GitHub remote.
-- Aries overnight self-improvement — 30 1 * * * America/Los_Angeles — Rotate a nightly audit, apply low-risk cleanup, and log results to memory/YYYY-MM-DD.md.
+- Aries overnight self-improvement — 0 4 * * * America/Los_Angeles — Pick one small additive nightly improvement, validate it, and log the shipped result to the nightly build log plus daily memory.
 - Aries daily brief — 0 8 * * * America/Los_Angeles — Generate the morning priorities/overnight activity/pending actions brief.
 - Aries GitHub feedback connector — 0 7 * * * America/Los_Angeles — Sync GitHub issues, classify bug vs feature, route each pending item to the correct skill workflow, and update the processing log.
 - Aries GitHub feedback daily summary — 0 18 * * * America/Los_Angeles — Deliver the daily batch summary for non-critical GitHub feedback items that were processed and logged.
 - Aries rolling system reference — 45 21 * * * America/Los_Angeles — Update docs/SYSTEM-REFERENCE.md with architecture, inventory, cron jobs, and known issues.
+- Aries daily standup — 0 9 * * 1-5 America/Los_Angeles — Generate a board-based daily standup transcript with per-lane chief reports, workspace verification, and blocker visibility.
+- Aries weekly review — 0 14 * * 5 America/Los_Angeles — Generate the Friday weekly review from live board, git, cron, backlog, and service-health truth, save it under memory/reviews, and optionally email the HTML version.
 
 ## Runtime scripts
 - dev: next dev -p 8100 --turbopack
@@ -91,26 +64,26 @@ Last refreshed Apr 08, 2026, 21:45 PDT.
 - Mission Control standalone app is still a shell around runtime overview data and awaits richer live API adapters for actions/transcripts.
 
 ## Working tree snapshot
-- M .github/workflows/deploy.yml
-- M .gitignore
-- M AGENTS.md
-- M DOCKER.md
-- M MEMORY.md
-- M PRIORITIES.md
-- M SOUL.md
-- M TOOLS.md
-- M USER.md
-- M docs/SYSTEM-REFERENCE.md
-- M docs/briefs/2026-04-08-brief.md
-- M next-env.d.ts
-- M scripts/release/publish-image.sh
-- D team/DELEGATION-RULES.md
-- D team/forge/AGENTS.md
-- D team/forge/BACKLOG.md
-- D team/forge/HEARTBEAT.md
-- D team/forge/IDENTITY.md
-- D team/forge/MEMORY.md
-- D team/forge/SOUL.md
+- M  .env.example
+- M DELEGATION-RULES.md
+- M  IDENTITY.md
+- M  MEMORY.md
+- MM PRIORITIES.md
+- M  SOUL.md
+- MM data/feedback-processing-log.json
+- AM data/nightly-build-log.json
+- M  docker-compose.yml
+- M  docs/SYSTEM-REFERENCE.md
+- M docs/briefs/2026-03-29-brief.md
+- M docs/briefs/2026-04-04-brief.md
+- A  docs/briefs/2026-04-10-brief.md
+- A  docs/briefs/2026-04-11-brief.md
+- M frontend/aries-v1/components.tsx
+- M  frontend/aries-v1/presenters/calendar-presenter.tsx
+- A  incubator/micro-saas/2026-04-11-pingpage/brief.md
+- A  incubator/micro-saas/2026-04-11-pingpage/prototype/package.json
+- A  incubator/micro-saas/2026-04-11-pingpage/prototype/pingpage.config.json
+- A  incubator/micro-saas/2026-04-11-pingpage/prototype/server.mjs
 
 ## Reference date
-- 2026-04-08
+- 2026-04-12

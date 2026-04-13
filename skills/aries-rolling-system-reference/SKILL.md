@@ -1,19 +1,60 @@
 ---
 name: aries-rolling-system-reference
-description: Refresh the Aries rolling system reference and return only its concise operational summary. Use when asked to run the rolling system reference update manually or from cron.
+description: Refresh docs/SYSTEM-REFERENCE.md with current architecture, module inventory, cron jobs, runtime scripts, and known issues.
 ---
 
 # Aries Rolling System Reference
 
-Use this skill when the Aries rolling system reference should run on demand or from cron.
+Nightly refresh of the system reference document that captures architecture, file inventory, cron schedules, and known issues.
 
-## Required procedure
-1. Work in `/app/aries-app`.
-2. Run:
-   - `node scripts/automations/rolling-system-reference.mjs`
-3. Do not add extra narration around the result.
-4. If the script succeeds, return only the concise summary emitted by the script.
-5. If the script fails, return only the failure summary plus the next corrective action reported by the script.
+## Prerequisites
+- `package.json` exists (source for runtime scripts)
+- `scripts/automations/manifest.mjs` importable (source for cron job listing)
+- Git history available for today's changes
 
-## Output rule
+## Steps
+
+### Step 1: Capture today's changes
+1. Run `git log --since=midnight --name-only` to list files changed today.
+2. Deduplicate and take up to 30 file paths.
+
+### Step 2: Build module inventory
+1. Count files in each major directory: `app/`, `backend/`, `components/`, `hooks/`, `lib/`, `scripts/`, `skills/`, `workflows/`.
+2. Report file count per directory.
+
+### Step 3: Document active cron jobs
+1. Import `automationJobs` from `manifest.mjs`.
+2. List each job with name, cron schedule, timezone, and purpose.
+
+### Step 4: Document runtime scripts
+1. Parse `package.json` scripts section.
+2. List each script name and command.
+
+### Step 5: Append known issues
+1. Include the hardcoded known-issues list (cron registration status, doc quality dependency, Mission Control shell status).
+
+### Step 6: Capture working tree snapshot
+1. Run `git status --short` and include up to 20 lines.
+
+### Step 7: Write the reference document
+1. Assemble all sections into `docs/SYSTEM-REFERENCE.md`.
+2. Include generation timestamp and reference date.
+
+## Validate
+- [ ] `docs/SYSTEM-REFERENCE.md` was written
+- [ ] Module inventory reflects current directory structure
+- [ ] Cron jobs section matches `manifest.mjs`
+- [ ] Summary includes: file path, changed files count, cron jobs documented
+
+## Error Handling
+- If `package.json` is missing: scripts section shows empty
+- If no git activity today: changes section shows "No git-tracked file changes detected"
+- If working tree is clean: snapshot shows "Working tree clean at refresh time"
+
+## Output Rule
 Return only the script-produced operational summary. Do not wrap it in extra commentary.
+
+## Script
+```bash
+node scripts/automations/rolling-system-reference.mjs
+```

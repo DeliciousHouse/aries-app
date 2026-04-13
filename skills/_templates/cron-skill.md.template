@@ -1,0 +1,52 @@
+# Cron Skill Template
+
+Use this template when creating a SKILL.md for any cron-scheduled workflow.
+
+```markdown
+---
+name: [skill-name]
+description: [one-line what this does]
+---
+
+# [Skill Name]
+
+[What this skill does and when it runs.]
+
+## Prerequisites
+- [What must exist before this runs]
+- [Required files, services, APIs]
+
+## Steps
+
+### Step 1: [Gather / Check / Prepare]
+[Detailed instructions]
+
+### Step 2: [Execute / Build / Generate]
+[The main work]
+
+### Step 3: [Validate]
+[Quality gates: what MUST be true before done]
+
+### Step 4: [Deliver / Deploy / Notify]
+[Where to send the output]
+
+## Error Handling
+- If [X] fails: [do Y]
+- If [A] is missing: [do B]
+
+## Output Rule
+Return only the script-produced operational summary. Do not wrap it in extra commentary.
+
+## Script
+\`\`\`bash
+node scripts/automations/[your-script].mjs
+\`\`\`
+```
+
+## Notes
+
+- Every cron job MUST have a corresponding skill file.
+- The skill file owns all workflow logic. The cron prompt only references it.
+- Add a `## Script` section when the skill wraps a single script invocation.
+- Add a `## Validate` section with checkboxes for quality gates.
+- Register the skill in `skills/index.json` under category `automations`.

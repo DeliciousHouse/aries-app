@@ -6,6 +6,7 @@ import {
   gitChangedFiles,
   listFiles,
   parseArgs,
+  preflightOrExit,
   readText,
   repoRoot,
   run,
@@ -14,6 +15,19 @@ import {
 
 const flags = parseArgs()
 const dryRun = flags.has('--dry-run')
+const preflightOnly = flags.has('--preflight')
+
+preflightOrExit('SYSTEM REFERENCE', {
+  binaries: ['git'],
+  paths: [
+    { label: 'repo root', path: repoRoot, type: 'dir' },
+    { label: 'docs dir', path: path.join(repoRoot, 'docs'), type: 'dir' },
+  ],
+}, { preflightOnly })
+
+if (preflightOnly) {
+  process.exit(0)
+}
 const { date, stamp } = currentDateInfo()
 
 const packageJson = JSON.parse(readText(path.join(repoRoot, 'package.json'), '{}'))
