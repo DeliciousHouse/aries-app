@@ -5,13 +5,13 @@ description: Build and smoke test the Mission Control app, then return only a co
 
 # Mission Control Smoke Check
 
-Use this skill to run a fast, truthful smoke check against the live Mission Control app at `/app/mission-control`.
+Use this skill to run a fast, truthful smoke check against the live Mission Control app at `/home/node/.openclaw/projects/mission_control`.
 
 ## What this skill does
 
 - builds the Mission Control app
 - starts the app server on a temporary local port
-- probes the main Mission Control API surfaces
+- probes the main Mission Control page routes
 - summarizes what is connected, disconnected, or degraded
 - returns only a concise operational summary suitable for cron delivery or chat
 
@@ -43,16 +43,15 @@ This skill validates:
 
 - build success
 - local server startup
-- `/api/app/command`
-- `/api/app/briefing`
-- `/api/app/build-lab`
-- `/api/cron-health`
-- `/api/org`
-- `/api/app/runtime`
+- `/`
+- `/ops`
+- `/brain`
+- `/lab`
+- `/skills`
 
 ## Notes
 
-- The smoke check must use the existing Mission Control app and real endpoints.
-- Do not silently ignore disconnected sources. Report them.
-- `tasks` or `flows` on the fast runtime path may be intentionally disconnected; reflect that truthfully.
+- The smoke check must use the existing Mission Control app and real page routes.
+- Do not silently ignore missing routes. Report them.
+- This standalone shell is page-driven; validate the current route contract instead of older removed `/api/*` surfaces.
 - Clean up the temporary server process before returning.

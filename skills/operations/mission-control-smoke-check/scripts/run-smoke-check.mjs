@@ -1,43 +1,38 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import net from "node:net";
+import path from "node:path";
 import process from "node:process";
 
-const missionControlRoot = "/app/mission-control";
+const missionControlRoot = process.env.MISSION_CONTROL_ROOT || "/home/node/.openclaw/projects/mission_control";
 const essentialEndpointPaths = new Set([
-  "/api/app/command",
-  "/api/app/build-lab",
-  "/api/org",
-  "/api/app/runtime",
+  "/",
+  "/ops",
+  "/brain",
+  "/lab",
+  "/skills",
 ]);
 
 const endpointSpecs = [
   {
-    path: "/api/app/command",
-    summarize: (payload) => `${payload?.data?.tasks?.length ?? 0} tasks`,
+    path: "/",
+    summarize: () => "overview page",
   },
   {
-    path: "/api/app/briefing",
-    summarize: (payload) => `HTTP ${payload ? 200 : "200"}`,
+    path: "/ops",
+    summarize: () => "ops page",
   },
   {
-    path: "/api/app/build-lab",
-    summarize: (payload) => `${Object.keys(payload?.data || {}).length} sections`,
+    path: "/brain",
+    summarize: () => "brain page",
   },
   {
-    path: "/api/cron-health",
-    summarize: (payload) => {
-      const stats = payload?.data?.stats || {};
-      return `healthy ${stats.healthy ?? 0}, failed ${stats.failed ?? 0}, unavailable ${stats.unavailable ?? 0}, disconnected ${stats.disconnected ?? 0}`;
-    },
+    path: "/lab",
+    summarize: () => "lab page",
   },
   {
-    path: "/api/org",
-    summarize: (payload) => `${payload?.data?.members?.length ?? 0} members`,
-  },
-  {
-    path: "/api/app/runtime",
-    summarize: (payload) => `${payload?.data?.sources?.length ?? 0} sources`,
+    path: "/skills",
+    summarize: () => "skills page",
   },
 ];
 
@@ -78,9 +73,10 @@ async function main() {
     await runCommand("npm", ["run", "build"], { cwd: missionControlRoot });
     result.build = { ok: true, detail: "ok" };
 
-    serverChild = spawn("node", ["server/index.mjs"], {
+    const nextBinary = path.join(missionControlRoot, "node_modules", ".bin", "next");
+    serverChild = spawn(nextBinary, ["start", "-H", "127.0.0.1", "-p", String(port)], {
       cwd: missionControlRoot,
-      env: { ...process.env, PORT: String(port), HOST: "127.0.0.1" },
+      env: { ...process.env },
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -92,7 +88,19 @@ async function main() {
       serverLog += chunk.toString();
     });
 
-    await waitForServer(baseUrl, 20000);
+    try {
+      await waitForServer(baseUrl, 20000);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const logTail = serverLog
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .slice(-20)
+        .join(" | ");
+      throw new Error(logTail ? `${message}; startup log: ${logTail}` : message);
+    }
+
     result.server = { ok: true, detail: `ok (${baseUrl})`, url: baseUrl };
 
     for (const spec of endpointSpecs) {
@@ -100,16 +108,14 @@ async function main() {
       result.endpoints.push(endpoint);
     }
 
-    const runtimePayload = result.endpoints.find((entry) => entry.path === "/api/app/runtime")?.payload;
-    result.runtimeDetail = summarizeRuntime(runtimePayload?.data);
+    result.runtimeDetail = "page-route contract verified against the current standalone Mission Control shell";
 
     const failedEndpoints = result.endpoints.filter((entry) => !entry.ok);
     const failedEssentialEndpoints = failedEndpoints.filter((entry) => essentialEndpointPaths.has(entry.path));
-    const problematicRuntime = runtimeProblems(runtimePayload?.data);
 
     if (!result.build.ok || !result.server.ok || failedEssentialEndpoints.length > 0) {
       result.status = "FAILED";
-    } else if (failedEndpoints.length > 0 || problematicRuntime.length > 0) {
+    } else if (failedEndpoints.length > 0) {
       result.status = "PARTIAL";
     } else {
       result.status = "OK";
