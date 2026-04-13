@@ -18,7 +18,7 @@ export const automationJobs = [
       '- Board: /home/node/.openclaw/projects/shared/team/execution-tasks.json',
       '- Feedback: data/feedback-processing-log.json',
       '- Build log: data/nightly-build-log.json',
-      '- Design skill: /home/node/openclaw/aries-app/skills/superdesign/SKILL.md',
+      '- Design skill: skills/superdesign/SKILL.md',
       '- Build: npm run build',
       '- Runtime check: docker compose ps',
     ],
