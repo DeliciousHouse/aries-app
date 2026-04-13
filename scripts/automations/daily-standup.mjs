@@ -188,8 +188,16 @@ const ledger = laneReport({
   extraBlockers: !workspaceVerify.ok ? [`Workspace verification failed: ${workspaceVerifyStatus}.`] : [],
 })
 
+function blockedLaneTasks(tasks, laneLabel) {
+  return tasks
+    .filter((task) => task.blocked)
+    .map((task) => `${laneLabel} lane blocked: \`${task.id}\` remains blocked on the board.`)
+}
+
 const primaryBlockers = [
-  ...forgeTasks.filter((task) => task.blocked).map((task) => `Delivery lane blocked: \`${task.id}\` remains blocked on the board.`),
+  ...blockedLaneTasks(forgeTasks, 'Delivery'),
+  ...blockedLaneTasks(signalTasks, 'Runtime'),
+  ...blockedLaneTasks(ledgerTasks, 'Operations'),
   'Runtime lane remains partial because this automation does not claim live scheduler truth without a direct runtime probe.',
   ...(!workspaceVerify.ok ? [`Workspace verification failed: ${workspaceVerifyStatus}.`] : []),
 ]
