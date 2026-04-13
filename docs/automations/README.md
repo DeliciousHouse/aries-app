@@ -1,101 +1,83 @@
 # Aries automation runbook
 
-This workspace now includes six automation scripts plus a ready-to-apply OpenClaw cron installer. The jobs are designed to run as **isolated cron agent turns** so each execution stays separate from the main conversation.
+This runbook documents the cron automation surface under `scripts/automations/` and the installer in `scripts/automations/install-openclaw-crons.mjs`.
 
-**Production VM release** (GHCR image publish, then `master` push, GitHub Actions deploy) is **not** part of this cron runbook. See repository **`DOCKER.md`** (*Production release*) and **`docs/SYSTEM-REFERENCE.md`** (*Production release (operational)*).
+Cron jobs are registered as OpenClaw **isolated sessions** and point to skill prompts generated from `scripts/automations/manifest.mjs`.
 
-## Files added
+Production VM release flow is out of scope for this page. See `DOCKER.md` and `docs/SYSTEM-REFERENCE.md`.
 
-- `scripts/automations/manifest.mjs` — canonical job schedule + purpose list
-- `scripts/automations/install-openclaw-crons.mjs` — prints or applies `openclaw cron add` commands
-- `scripts/automations/verify-automations.mjs` — dry-run verification across the automation scripts
-- `scripts/automations/private-repo-backup.mjs`
-- `scripts/automations/overnight-self-improve.mjs`
-- `scripts/automations/daily-brief.mjs`
-- `scripts/automations/feedback-connector.mjs`
-- `scripts/automations/feedback-daily-summary.mjs`
-- `scripts/automations/staging-deploy.mjs`
-- `scripts/automations/rolling-system-reference.mjs`
-- `docs/SYSTEM-REFERENCE.md` — living architecture reference updated by automation 4
-- `docs/briefs/*.md` — morning brief outputs written by automation 3
+## Canonical sources
 
-## Automation inventory
+- `scripts/automations/manifest.mjs` is the source of truth for job IDs, schedules, and purposes.
+- `scripts/automations/install-openclaw-crons.mjs` prints or applies `openclaw cron add/edit` commands from that manifest.
+- `scripts/automations/verify-automations.mjs` runs preflight checks for all automation scripts and dry runs for the safe subset.
 
-### 1) Private repo backup
+## Cron job inventory
 
-- **Schedule:** `15 */6 * * *` `America/Los_Angeles`
-- **Script:** `node scripts/automations/private-repo-backup.mjs`
-- **What it does:** stages changes, creates a timestamped backup commit message, pushes to the configured GitHub remote, and fails loudly if the push cannot complete.
-- **Required config:**
-  - `ARIES_BACKUP_REMOTE` (defaults to `origin`)
-  - `ARIES_BACKUP_BRANCH` (defaults to current branch)
-  - Git credentials already configured for a **private GitHub repo**
+All jobs below use timezone `America/Los_Angeles`.
 
-### 2) Overnight self-improvement
+| Job ID | Schedule | Skill | Script surface | Output / side effects |
+| --- | --- | --- | --- | --- |
+| `aries-private-repo-backup` | `15 */6 * * *` | `aries-private-repo-backup` | `scripts/automations/private-repo-backup.mjs` | Creates/updates backup branch + backup PR on GitHub, restores original workspace branch |
+| `aries-overnight-self-improve` | `0 4 * * *` | `aries-overnight-self-improve` | `scripts/automations/overnight-self-improve.mjs` | Emits nightly context summary from build log, feedback log, and board |
+| `aries-daily-brief` | `0 8 * * *` | `aries-daily-brief` | `scripts/automations/daily-brief.mjs` | Writes `docs/briefs/YYYY-MM-DD-brief.md` |
+| `aries-github-feedback-connector` | `0 7 * * *` | `aries-github-feedback-connector` | `scripts/automations/feedback-connector.mjs sync` | Syncs/classifies GitHub issues into `data/feedback-processing-log.json` |
+| `aries-github-feedback-daily-summary` | `0 18 * * *` | `aries-github-feedback-daily-summary` | `scripts/automations/feedback-daily-summary.mjs --mark-sent` | Builds daily feedback summary, optionally marks items sent |
+| `aries-system-reference-rollup` | `45 21 * * *` | `aries-rolling-system-reference` | `scripts/automations/rolling-system-reference.mjs` | Rewrites `docs/SYSTEM-REFERENCE.md` |
+| `aries-daily-standup` | `0 9 * * 1-5` | `aries-daily-standup` | `scripts/automations/daily-standup.mjs` | Writes board-derived standup transcript to shared meetings path |
+| `aries-weekly-review` | `0 14 * * 5` | `aries-weekly-review` | `scripts/automations/weekly-review.mjs` | Writes weekly Markdown + HTML review under `memory/reviews/`; optional email delivery |
 
-- **Schedule:** `30 1 * * *` `America/Los_Angeles`
-- **Script:** `node scripts/automations/overnight-self-improve.mjs`
-- **What it does:** rotates across docs drift, backlog hygiene, broken links, stale files, and weak prompts; applies low-risk markdown whitespace cleanup; appends results to `memory/YYYY-MM-DD.md`.
+## Setup and install
 
-### 3) Daily brief
-
-- **Schedule:** `0 8 * * *` `America/Los_Angeles`
-- **Script:** `node scripts/automations/daily-brief.mjs`
-- **What it does:** writes `docs/briefs/YYYY-MM-DD-brief.md` with priorities, overnight activity, pending actions, and needs-attention items.
-- **Optional delivery:** install cron with `--announce` plus `ARIES_CRON_CHANNEL` / `ARIES_CRON_TARGET` to deliver the brief summary to a messaging channel.
-
-### 4) Rolling OS documentation
-
-- **Schedule:** `45 21 * * *` `America/Los_Angeles`
-- **Script:** `node scripts/automations/rolling-system-reference.mjs`
-- **What it does:** refreshes `docs/SYSTEM-REFERENCE.md` with same-day changes, architecture overview, module inventory, cron jobs, and known issues.
-
-### 5) GitHub feedback connector
-
-- **Schedule:** `0 7 * * *` `America/Los_Angeles`
-- **Script:** `node scripts/automations/feedback-connector.mjs sync`
-- **What it does:** pulls open GitHub issues, classifies each as bug or feature, and seeds the pending work queue in `data/feedback-processing-log.json`.
-- **Workflow routing:** pending bugs are handled by `skills/bug-triage/SKILL.md`; pending features are handled by `skills/feature-pipeline/SKILL.md`.
-
-### 6) GitHub feedback daily summary
-
-- **Schedule:** `0 18 * * *` `America/Los_Angeles`
-- **Script:** `node scripts/automations/feedback-daily-summary.mjs --mark-sent`
-- **What it does:** batches non-critical processed feedback items into a single delivery summary and clears their `summaryPending` flag.
-
-## Install
-
-### 1. Verify local prerequisites
+### 1. Verify prerequisites
 
 ```bash
 cd /app/aries-app
 node scripts/automations/verify-automations.mjs
 ```
 
+`verify-automations` executes:
+
+- `--preflight` for all automation scripts (including backup and overnight self-improve).
+- `--dry-run` for: `daily-brief`, `daily-standup`, `feedback-connector`, `feedback-daily-summary`, `rolling-system-reference`, and `weekly-review`.
+- Mission Control smoke check JSON output via `skills/operations/mission-control-smoke-check/scripts/run-smoke-check.mjs --json`.
+
 ### 2. Configure environment
 
-Minimum for backup:
+Baseline:
+
+```bash
+export ARIES_CRON_AGENT=default
+```
+
+Backup job:
 
 ```bash
 export ARIES_BACKUP_REMOTE=origin
-export ARIES_BACKUP_BRANCH=main
+# optional if running from detached HEAD
+export ARIES_BACKUP_BASE_BRANCH=master
+# optional override; default is backup/<base-branch>
+export ARIES_BACKUP_BRANCH=backup/master
 ```
 
-Optional message delivery for cron announce mode:
+Feedback jobs:
+
+```bash
+export ARIES_GITHUB_REPO=DeliciousHouse/aries-app
+```
+
+Weekly review optional email:
+
+```bash
+export ARIES_WEEKLY_REVIEW_EMAIL='team@example.com'
+export ARIES_WEEKLY_REVIEW_EMAIL_SCRIPT="$HOME/scripts/gmail-send.py"
+```
+
+Optional announce delivery for cron messages:
 
 ```bash
 export ARIES_CRON_CHANNEL=slack
 export ARIES_CRON_TARGET=channel:C1234567890
-```
-
-GitHub feedback + staging:
-
-```bash
-export ARIES_GITHUB_REPO=DeliciousHouse/aries-app
-export ARIES_STAGING_DEPLOY_COMMAND='your staging deploy command here'
-export ARIES_STAGING_VERIFY_URL='https://your-staging-url'
-# optional
-export ARIES_STAGING_VERIFY_TEXT='expected staging marker'
 ```
 
 ### 3. Review generated cron commands
@@ -104,53 +86,33 @@ export ARIES_STAGING_VERIFY_TEXT='expected staging marker'
 node scripts/automations/install-openclaw-crons.mjs
 ```
 
-This prints exact `openclaw cron add ... --session isolated ...` commands for all configured jobs.
-
-### 4. Apply the jobs when ready
-
-No delivery:
+### 4. Apply cron jobs
 
 ```bash
 node scripts/automations/install-openclaw-crons.mjs --apply
 ```
 
-With announce delivery to a configured channel target:
+With announce delivery:
 
 ```bash
 node scripts/automations/install-openclaw-crons.mjs --apply --announce
 ```
 
-## Example cron specs
+## Verification and troubleshooting
 
-These are the schedules encoded in `scripts/automations/manifest.mjs`:
-
-- `15 */6 * * *` — private repo backup
-- `30 1 * * *` — overnight self-improvement
-- `0 8 * * *` — daily brief
-- `0 7 * * *` — GitHub feedback connector
-- `0 18 * * *` — GitHub feedback daily summary
-- `45 21 * * *` — rolling OS documentation
-
-## Verification commands
-
-Dry runs:
+Useful dry runs:
 
 ```bash
 node scripts/automations/private-repo-backup.mjs --dry-run
-node scripts/automations/overnight-self-improve.mjs --dry-run
 node scripts/automations/daily-brief.mjs --dry-run
+node scripts/automations/daily-standup.mjs --dry-run
 node scripts/automations/feedback-connector.mjs sync --dry-run
 node scripts/automations/feedback-daily-summary.mjs --dry-run
 node scripts/automations/rolling-system-reference.mjs --dry-run
+node scripts/automations/weekly-review.mjs --dry-run
 ```
 
-Feedback loop validation plan:
-
-```bash
-cat docs/automations/feedback-loop-test-plan.md
-```
-
-Cron visibility:
+Cron runtime inspection:
 
 ```bash
 openclaw cron list
@@ -158,41 +120,23 @@ openclaw cron runs --id <job-id>
 openclaw cron run <job-id>
 ```
 
-## Failure and retry behavior
+Feedback loop test plan:
 
-### Cron-level retries
+```bash
+less docs/automations/feedback-loop-test-plan.md
+```
 
-OpenClaw already retries transient cron failures with exponential backoff. These jobs are intentionally configured for **isolated** execution so retries stay out of the main session.
+## Behavior and constraints
 
-### Script-level failure behavior
-
-- **Backup:** retries `git push` up to 3 attempts inside the script and exits non-zero on failure.
-- **Self-improvement:** writes a concise audit summary and exits non-zero if the filesystem operation fails.
-- **Daily brief:** regenerates the markdown output every run; failure is isolated to the brief file.
-- **Feedback connector:** fails loudly if GitHub access is missing or if the feedback log cannot be updated.
-- **Feedback daily summary:** emits a no-op summary when there is nothing to send.
-- **System reference:** rewrites the living reference file from current repo state each run.
-
-### Concise alert output
-
-Each script prints a short final summary like:
-
-- `BACKUP OK`
-- `SELF-IMPROVE OK`
-- `DAILY BRIEF OK`
-- `SYSTEM REFERENCE OK`
-
-That summary is what the isolated cron session should return if `--announce` delivery is enabled.
+- Backup automation only accepts GitHub remotes and requires both `git` and `gh`.
+- Backup pushes with `--force-with-lease`, retries push attempts internally up to 3 times, and updates or creates one open backup PR per backup branch.
+- Daily standup is explicitly board-derived and may report `partial` when live runtime truth is unavailable.
+- Weekly review pulls from board + git + cron + compose runtime surfaces and writes both Markdown and HTML artifacts.
+- System reference rollup rebuilds `docs/SYSTEM-REFERENCE.md` from current repo/runtime state each run.
 
 ## Rollback / recovery
 
-### Undo a bad backup commit
-
-```bash
-git reset --soft HEAD~1
-```
-
-### Remove or disable cron jobs
+Disable or remove cron jobs:
 
 ```bash
 openclaw cron list
@@ -200,26 +144,15 @@ openclaw cron edit <job-id> --disable
 openclaw cron remove <job-id>
 ```
 
-### Revert automation-generated docs
+Revert generated documentation:
 
 ```bash
-git checkout -- docs/SYSTEM-REFERENCE.md docs/briefs
+git checkout -- docs/SYSTEM-REFERENCE.md docs/briefs memory/reviews
 ```
 
-### Recover from a bad overnight cleanup
-
-Review the diff first, then revert specific files:
+Recover from a problematic run:
 
 ```bash
 git diff
-# then restore targeted files
 git checkout -- <file>
 ```
-
-## Pending user configuration
-
-These jobs are prepared but **not auto-registered** by default because safe activation still depends on user-specific runtime configuration:
-
-- backup remote + credentials must point at a private GitHub repo
-- optional announce delivery needs a real channel/target
-- if you want a dedicated cron agent, set `ARIES_CRON_AGENT`
