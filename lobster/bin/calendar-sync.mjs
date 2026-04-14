@@ -2,6 +2,10 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
+const HOST_CODE_ROOT = '/home/node/openclaw/aries-app'
+const HOST_SHARED_DATA_ROOT = '/home/node/data'
+const HOST_TEMP_DATA_ROOT = '/tmp/aries-data'
+
 function parseArgs(argv) {
   const out = { tenantId: '', windowStart: '', windowEnd: '' }
   for (let i = 2; i < argv.length; i += 1) {
@@ -15,15 +19,19 @@ function parseArgs(argv) {
 }
 
 function codeRoot() {
-  return process.env.CODE_ROOT?.trim() || '/app'
+  const explicit = process.env.CODE_ROOT?.trim()
+  if (explicit) return explicit
+  if (existsSync(path.join(HOST_CODE_ROOT, 'package.json'))) return HOST_CODE_ROOT
+  return '/app'
 }
 
 function dataRoot() {
   const explicit = process.env.DATA_ROOT?.trim()
   if (explicit) return explicit
+  if (existsSync(HOST_SHARED_DATA_ROOT)) return HOST_SHARED_DATA_ROOT
+  if (existsSync(HOST_TEMP_DATA_ROOT)) return HOST_TEMP_DATA_ROOT
   if (existsSync('/data')) return '/data'
-  if (existsSync('/tmp/aries-data')) return '/tmp/aries-data'
-  return '/data'
+  return HOST_SHARED_DATA_ROOT
 }
 
 function marketingJobsRoot() {

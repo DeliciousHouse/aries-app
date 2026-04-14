@@ -1,8 +1,18 @@
-import { currentDateInfo, emitSummary, gitChangedFiles, parseArgs, retry, run } from './lib/common.mjs'
+import process from 'node:process'
+import { currentDateInfo, emitSummary, gitChangedFiles, parseArgs, preflightOrExit, retry, run } from './lib/common.mjs'
 
 const flags = parseArgs()
 const dryRun = flags.has('--dry-run')
+const preflightOnly = flags.has('--preflight')
 const remote = process.env.ARIES_BACKUP_REMOTE || 'origin'
+
+preflightOrExit('PRIVATE REPO BACKUP', {
+  binaries: ['git', 'gh'],
+}, { preflightOnly })
+
+if (preflightOnly) {
+  process.exit(0)
+}
 const resolvedHead = run('git', ['rev-parse', '--abbrev-ref', 'HEAD']).stdout.trim()
 const configuredBaseBranch = process.env.ARIES_BACKUP_BASE_BRANCH?.trim() || ''
 const baseBranch = resolvedHead && resolvedHead !== 'HEAD' ? resolvedHead : configuredBaseBranch || ''

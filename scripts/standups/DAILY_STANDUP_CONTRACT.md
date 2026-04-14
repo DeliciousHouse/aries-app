@@ -1,80 +1,26 @@
 # Daily Standup Contract
 
-Canonical routing path for chief standups:
-- produce the standup in structured JSON
-- post it immediately to Mission Control routing ingestion
-- transcript parsing is fallback only
+Canonical standup path:
+- produce the standup transcript in markdown
+- archive it under `/home/node/.openclaw/projects/shared/team/meetings`
+- let Mission Control read the transcript directly from the shared meetings folder
 
-## Required flow
+## Current flow
 
-1. Create a structured chief report JSON file.
-2. Post it with:
+1. Generate the standup transcript.
+2. Save it at:
 
 ```bash
-node scripts/standups/post-chief-routing-report.mjs /home/node/.openclaw/projects/shared/team/standups/YYYY-MM-DD/report.json
+/home/node/.openclaw/projects/shared/team/meetings/YYYY-MM-DD-daily-standup.md
 ```
 
-Default endpoint:
-- `http://127.0.0.1:4174/api/routing-requests/from-chief-report`
+3. Mission Control reads the transcript from the shared meetings folder.
 
-Override with:
-- `MISSION_CONTROL_ROUTING_ENDPOINT`
+## Deprecated path
 
-## Minimum JSON shape
+The older per-chief JSON routing report flow under `/home/node/.openclaw/projects/shared/team/standups` is deprecated and should not be used for new standups.
 
-```json
-{
-  "sourceType": "standup",
-  "chiefId": "forge",
-  "chiefAgentId": "delivery-chief",
-  "reportStatus": "complete",
-  "boardPath": "/app/mission-control/server/data/execution-tasks.json",
-  "activeTaskId": "task-id",
-  "currentStatus": "ready",
-  "humanDependencies": [
-    {
-      "target": "brendan",
-      "summary": "Decision needed",
-      "requestedAction": "Confirm dependency",
-      "nextAction": "Await Brendan decision"
-    }
-  ],
-  "needsJarvisRouting": [
-    {
-      "summary": "Routing help needed",
-      "requestedAction": "Escalate blocker handling to Jarvis",
-      "nextAction": "Jarvis routes blocker after approval"
-    }
-  ],
-  "reassignmentProposals": [
-    {
-      "assigneeId": "rohan",
-      "requestedAction": "Reassign task to Rohan",
-      "reason": "Frontend owner should pick up the next slice"
-    }
-  ],
-  "priorityBumps": [
-    {
-      "priority": "P1",
-      "requestedAction": "Raise priority to P1",
-      "reason": "Blocking current delivery"
-    }
-  ]
-}
-```
+## Notes
 
-## Approval policy
-
-Approval required:
-- reassignment to a human
-- status changes with material downstream effect
-- blocker escalation
-- Brendan dependency requests
-- Jarvis routing requests
-- force actions
-
-Auto-apply allowed only for low-risk non-human-confirmation updates.
-
-## Fallback
-
-If structured post fails, save the transcript as normal under `/home/node/.openclaw/projects/shared/team/meetings`. Mission Control can still parse transcript sections as fallback, but that is not the primary path.
+- `meetings/` is the canonical home for human-readable standup transcripts.
+- `standups/` should be treated as legacy data only.

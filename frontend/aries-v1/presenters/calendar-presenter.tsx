@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'motion/react';
 import {
@@ -49,6 +49,15 @@ export default function CalendarPresenter({ model }: CalendarPresenterProps) {
   }, [model.events]);
 
   const selectedEvent = model.events.find((event) => event.id === selectedEventId) || null;
+
+  useEffect(() => {
+    if (!selectedEvent) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setSelectedEventId(null);
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [selectedEvent]);
 
   function previousPeriod() {
     setCurrentDate((current) => (view === 'month' ? shiftMonths(current, -1) : shiftDays(current, -7)));

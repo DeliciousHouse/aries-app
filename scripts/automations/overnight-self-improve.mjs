@@ -1,109 +1,87 @@
+import process from 'node:process'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import {
-  appendText,
-  collectUncheckedBoxes,
   currentDateInfo,
   emitSummary,
-  listFiles,
-  memoryDir,
-  normalizeMarkdownWhitespace,
-  parseArgs,
-  readText,
-  relative,
+  preflightOrExit,
   repoRoot,
-  writeText,
 } from './lib/common.mjs'
 
-const flags = parseArgs()
-const dryRun = flags.has('--dry-run')
-const audits = ['docs-drift', 'backlog-hygiene', 'broken-links', 'stale-files', 'weak-prompts']
-const { date, stamp } = currentDateInfo()
-const dayNumber = Number(date.replace(/-/g, ''))
-const focus = audits[dayNumber % audits.length]
-const markdownFiles = listFiles(repoRoot, (file) => file.endsWith('.md'))
+const preflightOnly = process.argv.includes('--preflight')
+const boardPath = process.env.EXECUTION_TASKS_PATH || '/home/node/.openclaw/projects/shared/team/execution-tasks.json'
+const feedbackPath = path.join(repoRoot, 'data', 'feedback-processing-log.json')
+const buildLogPath = path.join(repoRoot, 'data', 'nightly-build-log.json')
 
-function findBrokenLinks() {
-  const failures = []
-  for (const file of markdownFiles) {
-    const content = readText(file)
-    for (const match of content.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)) {
-      const target = match[1]
-      if (!target || target.startsWith('http://') || target.startsWith('https://') || target.startsWith('#')) continue
-      const cleanTarget = target.split('#')[0]
-      const resolved = path.resolve(path.dirname(file), cleanTarget)
-      if (!cleanTarget || resolved.includes('mailto:')) continue
-      if (!readText(resolved, null) && !readText(`${resolved}.md`, null)) {
-        failures.push(`${relative(file)} -> ${target}`)
-      }
-    }
+preflightOrExit('OVERNIGHT SELF-IMPROVE', {
+  paths: [
+    { label: 'board path', path: boardPath, type: 'file' },
+    { label: 'feedback log', path: feedbackPath, type: 'file' },
+    { label: 'nightly build log', path: buildLogPath, type: 'file' },
+  ],
+}, { preflightOnly })
+
+if (preflightOnly) {
+  process.exit(0)
+}
+const { date } = currentDateInfo()
+
+function readJson(filePath, fallback) {
+  try {
+    return JSON.parse(readFileSync(filePath, 'utf8'))
+  } catch {
+    return fallback
   }
-  return failures
 }
 
-function findWeakPrompts() {
-  const hits = []
-  for (const file of listFiles(repoRoot, (candidate) => /\.(md|ts|tsx|mjs|json)$/i.test(candidate))) {
-    const content = readText(file)
-    if (/\b(TODO|TBD|placeholder|lorem ipsum|fill me in)\b/i.test(content)) {
-      hits.push(relative(file))
-    }
-  }
-  return hits.slice(0, 12)
+function listRecentBuilds() {
+  const log = readJson(buildLogPath, { builds: [] })
+  const builds = Array.isArray(log.builds) ? log.builds : []
+  return builds.slice(-5).reverse()
 }
 
-function findStaleFiles() {
-  return listFiles(repoRoot, (file) => /\.(md|ts|tsx|mjs)$/i.test(file))
-    .filter((file) => {
-      const content = readText(file)
-      return content.trim().length === 0 || content.includes('TODO')
+function listFeedbackBugs() {
+  const data = readJson(feedbackPath, { items: [] })
+  const items = Array.isArray(data.items) ? data.items : []
+  return items
+    .filter((item) => item && item.type === 'bug' && item.summaryPending !== false)
+    .slice(0, 5)
+}
+
+function listReadyBoardItems() {
+  const data = readJson(boardPath, { tasks: [] })
+  const tasks = Array.isArray(data.tasks) ? data.tasks : []
+  const priorityRank = { P0: 0, P1: 1, P2: 2, P3: 3 }
+
+  return tasks
+    .filter((task) => task && task.status === 'ready' && !task.blocked)
+    .sort((a, b) => {
+      const pa = priorityRank[a.priority] ?? 9
+      const pb = priorityRank[b.priority] ?? 9
+      if (pa !== pb) return pa - pb
+      return new Date(a.updatedAt || a.createdAt || 0).getTime() - new Date(b.updatedAt || b.createdAt || 0).getTime()
     })
-    .map(relative)
-    .slice(0, 12)
+    .slice(0, 5)
 }
 
-function backlogItems() {
-  return ['PRIORITIES.md', 'ROADMAP.md', 'HEARTBEAT.md']
-    .flatMap((file) => collectUncheckedBoxes(readText(path.join(repoRoot, file))))
-    .slice(0, 12)
-}
-
-const findings = {
-  'docs-drift': markdownFiles.filter((file) => /README|SETUP|HANDOFF|MANIFEST/.test(path.basename(file))).map(relative).slice(0, 12),
-  'backlog-hygiene': backlogItems(),
-  'broken-links': findBrokenLinks(),
-  'stale-files': findStaleFiles(),
-  'weak-prompts': findWeakPrompts(),
-}[focus]
-
-const normalized = markdownFiles
-  .filter((file) => /^(README|SETUP|ROADMAP|PRIORITIES|HEARTBEAT|MEMORY|OPERATING_STRUCTURE|SOUL|AGENTS|USER|IDENTITY|docs\/.*|skills\/.*)/.test(relative(file)))
-  .slice(0, 40)
-
-let fixCount = 0
-if (!dryRun) {
-  for (const file of normalized) {
-    if (normalizeMarkdownWhitespace(file)) fixCount += 1
-  }
-}
-
-const logBlock = [
-  `## Overnight self-improvement — ${stamp}`,
-  `- focus: ${focus}`,
-  `- findings: ${findings.length}`,
-  `- low-risk fixes applied: ${dryRun ? 'dry-run only' : fixCount}`,
-  findings.length ? `- examples: ${findings.slice(0, 5).join(' | ')}` : '- examples: none',
-  '',
-].join('\n')
-
-if (!dryRun) {
-  appendText(path.join(memoryDir, `${date}.md`), logBlock)
-}
+const recentBuilds = listRecentBuilds()
+const feedbackBugs = listFeedbackBugs()
+const readyItems = listReadyBoardItems()
 
 emitSummary([
-  dryRun ? 'SELF-IMPROVE DRY RUN' : 'SELF-IMPROVE OK',
-  `- focus: ${focus}`,
-  `- findings: ${findings.length}`,
-  `- low-risk fixes: ${dryRun ? 0 : fixCount}`,
-  `- memory log: memory/${date}.md`,
-  findings.length ? `- examples: ${findings.slice(0, 3).join('; ')}` : '- examples: none',
+  'NIGHTLY BUILD CONTEXT',
+  `- date: ${date}`,
+  `- build_log: ${existsSync(buildLogPath) ? 'present' : 'missing'} (${path.relative(repoRoot, buildLogPath)})`,
+  `- recent_builds: ${recentBuilds.length}`,
+  ...(recentBuilds.length
+    ? recentBuilds.map((entry, index) => `  ${index + 1}. ${entry.date || 'unknown'} :: ${entry.title || 'untitled'} :: ${entry.status || 'unknown'}`)
+    : ['  none logged yet']),
+  `- feedback_bug_candidates: ${feedbackBugs.length}`,
+  ...(feedbackBugs.length
+    ? feedbackBugs.map((item) => `  - #${item.number || '?'} ${item.title || 'untitled bug'}`)
+    : ['  - none']),
+  `- ready_board_candidates: ${readyItems.length}`,
+  ...(readyItems.length
+    ? readyItems.map((task) => `  - ${task.id} :: ${task.title} (${task.priority || 'unknown'})`)
+    : ['  - none']),
 ])

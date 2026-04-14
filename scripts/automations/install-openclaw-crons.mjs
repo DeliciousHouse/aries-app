@@ -19,8 +19,26 @@ function buildSkillPrompt(skill) {
 }
 
 function buildPrompt(job) {
-  if (job.message) return job.message
-  return buildSkillPrompt(job.skill)
+  const MAX_PROMPT_LINES = 20
+  const contextLines = [
+    `- Project: ${repoRoot}`,
+    ...(Array.isArray(job.context) ? job.context : []),
+  ]
+  const promptLines = [
+    `Read and follow: ${repoRoot}/skills/${job.skill}/SKILL.md`,
+    '',
+    'Context:',
+    ...contextLines,
+  ]
+
+  if (promptLines.length > MAX_PROMPT_LINES) {
+    throw new Error(
+      `Prompt for cron job "${job.name}" exceeds ${MAX_PROMPT_LINES} lines (${promptLines.length}). ` +
+        'Reduce job.context so the generated prompt complies with skills/_templates/cron-rules.md.'
+    )
+  }
+
+  return promptLines.join('\n')
 }
 
 function listExistingJobs() {

@@ -6,6 +6,8 @@ const CONTAINER_CODE_ROOT = "/app";
 const CONTAINER_APP_CODE_ROOT = "/app/aries-app";
 const CONTAINER_DATA_ROOT = "/data";
 const MODULE_CODE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const HOST_SHARED_DATA_ROOT = "/home/node/data";
+const HOST_TEMP_DATA_ROOT = "/tmp/aries-data";
 
 function normalizeRoot(p: string): string {
   return path.resolve(p);
@@ -64,7 +66,11 @@ export function resolveCodeRoot(): string {
 export function resolveDataRoot(): string {
   const explicitDataRoot = process.env.DATA_ROOT?.trim();
   if (explicitDataRoot) return normalizeRoot(explicitDataRoot);
-  return CONTAINER_DATA_ROOT;
+
+  const candidates = [HOST_SHARED_DATA_ROOT, HOST_TEMP_DATA_ROOT, CONTAINER_DATA_ROOT]
+    .map((candidate) => normalizeRoot(candidate));
+
+  return candidates.find((candidate) => existsSync(candidate)) || normalizeRoot(HOST_SHARED_DATA_ROOT);
 }
 
 export function resolveCodePath(...segments: string[]): string {

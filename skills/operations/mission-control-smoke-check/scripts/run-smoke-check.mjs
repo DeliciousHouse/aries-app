@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import process from "node:process";
+import { preflightOrExit, resolveBinary } from "../../../../scripts/automations/lib/common.mjs";
 
 const missionControlRoot = process.env.MISSION_CONTROL_ROOT || "/home/node/.openclaw/projects/mission_control";
 const essentialEndpointPaths = new Set([
@@ -65,12 +67,12 @@ async function main() {
     build: { ok: false, detail: null },
     server: { ok: false, detail: null, url: baseUrl },
     endpoints: [],
-    runtimeDetail: null,
+    runtimeDetail: `root ${missionControlRoot}`,
     startedAt,
   };
 
   try {
-    await runCommand("npm", ["run", "build"], { cwd: missionControlRoot });
+    await runCommand(npmCommand, ["run", "build"], { cwd: missionControlRoot });
     result.build = { ok: true, detail: "ok" };
 
     const nextBinary = path.join(missionControlRoot, "node_modules", ".bin", "next");
@@ -86,6 +88,11 @@ async function main() {
     });
     serverChild.stderr.on("data", (chunk) => {
       serverLog += chunk.toString();
+    });
+    serverChild.on("exit", (code) => {
+      if (!result.server.ok && code !== 0) {
+        result.server.detail = (serverLog || `next exited with ${code}`).trim();
+      }
     });
 
     try {
@@ -166,8 +173,8 @@ async function main() {
   process.exit(result.status === "FAILED" ? 1 : 0);
 }
 
-async function probeEndpoint(baseUrl, path, summarize) {
-  const response = await fetch(`${baseUrl}${path}`);
+async function probeEndpoint(baseUrl, routePath, summarize) {
+  const response = await fetch(`${baseUrl}${routePath}`);
   const text = await response.text();
   let payload = null;
   try {
@@ -177,7 +184,7 @@ async function probeEndpoint(baseUrl, path, summarize) {
   }
 
   return {
-    path,
+    path: routePath,
     ok: response.ok,
     statusCode: response.status,
     summary: response.ok ? summarize(payload) : text.slice(0, 240).replace(/\s+/g, " ").trim(),
@@ -185,62 +192,18 @@ async function probeEndpoint(baseUrl, path, summarize) {
   };
 }
 
-function summarizeRuntime(runtime) {
-  if (!runtime) return "runtime payload unavailable";
-  const parts = [];
+function resolveMissionControlRoot() {
+  const candidates = [
+    process.env.MISSION_CONTROL_ROOT,
+    "/home/node/.openclaw/projects/mission_control",
+    "/home/node/openclaw/projects/mission-control-builder/mission-control",
+  ].filter(Boolean);
 
-  if (runtime.sessions?.state) parts.push(`sessions are ${runtime.sessions.state}`);
-  if (runtime.health?.state) parts.push(`health is ${runtime.health.state}`);
-  if (runtime.modelUsage?.state) parts.push(`models are ${runtime.modelUsage.state}`);
-
-  if (runtime.tasks?.state === "disconnected") {
-    if (/intentional|fast runtime path|fast initial runtime path/i.test(runtime.tasks?.detail || "")) {
-      parts.push("tasks are intentionally disconnected on the fast path");
-    } else {
-      parts.push(`tasks are disconnected${runtime.tasks?.detail ? ` because ${runtime.tasks.detail}` : ""}`);
-    }
-  } else if (runtime.tasks?.state) {
-    parts.push(`tasks are ${runtime.tasks.state}`);
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
   }
 
-  if (runtime.flows?.state === "disconnected") {
-    if (/intentional|fast runtime path|fast initial runtime path/i.test(runtime.flows?.detail || "")) {
-      parts.push("flows are intentionally disconnected on the fast path");
-    } else {
-      parts.push(`flows are disconnected${runtime.flows?.detail ? ` because ${runtime.flows.detail}` : ""}`);
-    }
-  } else if (runtime.flows?.state) {
-    parts.push(`flows are ${runtime.flows.state}`);
-  }
-
-  if (runtime.cron?.state === "disconnected") {
-    parts.push(`cron-list is disconnected${runtime.cron?.detail ? ` because ${runtime.cron.detail}` : ""}`);
-  } else if (runtime.cron?.state) {
-    parts.push(`cron-list is ${runtime.cron.state}`);
-  }
-
-  return parts.join("; ");
-}
-
-function runtimeProblems(runtime) {
-  if (!runtime) return ["runtime payload unavailable"];
-  const problems = [];
-
-  const check = (label, state, detail, allowIntentional = false) => {
-    if (!state) return;
-    if (state === "connected" || state === "empty") return;
-    if (allowIntentional && state === "disconnected" && /intentional|fast runtime path|fast initial runtime path/i.test(detail || "")) return;
-    problems.push(`${label}:${state}`);
-  };
-
-  check("sessions", runtime.sessions?.state, runtime.sessions?.detail);
-  check("health", runtime.health?.state, runtime.health?.detail);
-  check("models", runtime.modelUsage?.state, runtime.modelUsage?.detail);
-  check("tasks", runtime.tasks?.state, runtime.tasks?.detail, true);
-  check("flows", runtime.flows?.state, runtime.flows?.detail, true);
-  check("cron", runtime.cron?.state, runtime.cron?.detail);
-
-  return problems;
+  return candidates[0];
 }
 
 async function runCommand(command, args, options) {
