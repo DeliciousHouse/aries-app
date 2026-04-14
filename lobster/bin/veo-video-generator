@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -487,8 +489,15 @@ def main() -> int:
             bucket_key = _veo_aspect_to_flag(platform_config["aspect_ratio"])
             aspect_groups.setdefault(bucket_key, []).append(platform_config)
 
-        # Render one Veo video per (aspect_ratio, family) pair, mirrored to
-        # every platform sharing that aspect ratio, tagged with family_id.
+        # Build the full (aspect_ratio, family) render job list up front,
+        # then dispatch them via ThreadPoolExecutor. Veo 3.x's
+        # predictLongRunning endpoint creates a server-side job counted
+        # against concurrent render quota — preview models typically allow
+        # 2-5 concurrent jobs. Default LOBSTER_VIDEO_PARALLELISM=2 is
+        # conservative; tune via env if Google's project quota allows more.
+        # run_veo_render already retries 429/503 with exponential backoff, so
+        # transient quota overshoot is handled inline.
+        render_jobs: list[dict] = []
         for aspect_ratio, platforms in aspect_groups.items():
             representative = platforms[0]
             canonical_slug = representative["platform_slug"]
@@ -496,55 +505,108 @@ def main() -> int:
             canonical_dir.mkdir(parents=True, exist_ok=True)
             for family_index, family in enumerate(selected_families):
                 family_id = slugify(str(family.get("family_id") or f"family-{family_index}"), f"family-{family_index}")
-                family_name = _string(family.get("family_name")) or family_id
-                funnel_stage = _string(family.get("funnel_stage")) or "cold"
-                source_video_path = canonical_dir / f"{canonical_slug}-{family_id}.mp4"
-                render_result = run_veo_render(
-                    _build_family_prompt(family),
-                    source_video_path,
-                    aspect_ratio,
-                    representative.get("target_duration_seconds", 8),
-                    model=args.video_model,
-                )
-                source_bytes = source_video_path.read_bytes()
-                mirror_entries: list[dict] = []
-                for platform_config in platforms:
-                    platform_slug = platform_config["platform_slug"]
-                    target_dir = output_root / "rendered" / platform_slug
-                    target_dir.mkdir(parents=True, exist_ok=True)
-                    tagged_target = target_dir / f"{platform_slug}-{family_id}.mp4"
-                    if tagged_target != source_video_path:
-                        tagged_target.write_bytes(source_bytes)
-                    # Back-compat: first family also written to the
-                    # un-tagged canonical path so older consumers that read
-                    # `{platform_slug}.mp4` still find a valid mp4.
-                    if family_index == 0:
-                        legacy_target = target_dir / f"{platform_slug}.mp4"
-                        if legacy_target != source_video_path:
-                            legacy_target.write_bytes(source_bytes)
-                    mirror_entries.append(
-                        {
-                            "platform": platform_config["platform"],
-                            "platform_slug": platform_slug,
-                            "aspect_ratio": aspect_ratio,
-                            "family_id": family_id,
-                            "video_path": str(tagged_target),
-                            "source_video_path": str(source_video_path),
-                            "duration_seconds": platform_config.get("target_duration_seconds"),
-                        }
-                    )
-                rendered_videos.append(
+                render_jobs.append(
                     {
                         "aspect_ratio": aspect_ratio,
+                        "platforms": platforms,
+                        "representative": representative,
+                        "canonical_slug": canonical_slug,
+                        "canonical_dir": canonical_dir,
+                        "family_index": family_index,
+                        "family": family,
                         "family_id": family_id,
-                        "family_name": family_name,
-                        "funnel_stage": funnel_stage,
-                        "canonical_platform_slug": canonical_slug,
-                        "source_video_path": str(source_video_path),
-                        "render_result": render_result,
-                        "platforms": mirror_entries,
+                        "family_name": _string(family.get("family_name")) or family_id,
+                        "funnel_stage": _string(family.get("funnel_stage")) or "cold",
+                        "source_video_path": canonical_dir / f"{canonical_slug}-{family_id}.mp4",
                     }
                 )
+
+        def _run_render_job(job: dict) -> dict:
+            render_result = run_veo_render(
+                _build_family_prompt(job["family"]),
+                job["source_video_path"],
+                job["aspect_ratio"],
+                job["representative"].get("target_duration_seconds", 8),
+                model=args.video_model,
+            )
+            return {"job": job, "render_result": render_result}
+
+        video_parallelism_cap = int(os.environ.get("LOBSTER_VIDEO_PARALLELISM", "2") or "2")
+        video_parallelism = max(1, min(video_parallelism_cap, len(render_jobs) or 1))
+
+        render_outcomes: list[dict] = []
+        first_video_failure: Exception | None = None
+        if render_jobs:
+            sys.stderr.write(
+                f"[veo] dispatching {len(render_jobs)} veo renders with parallelism={video_parallelism}\n"
+            )
+            sys.stderr.flush()
+            with ThreadPoolExecutor(max_workers=video_parallelism) as executor:
+                future_to_job = {executor.submit(_run_render_job, job): job for job in render_jobs}
+                for future in as_completed(future_to_job):
+                    job = future_to_job[future]
+                    try:
+                        render_outcomes.append(future.result())
+                    except Exception as exc:  # noqa: BLE001
+                        if first_video_failure is None:
+                            first_video_failure = exc
+                        sys.stderr.write(
+                            f"[veo] render failed aspect={job['aspect_ratio']} family={job['family_id']} error={type(exc).__name__}: {exc}\n"
+                        )
+                        sys.stderr.flush()
+        if first_video_failure is not None:
+            raise first_video_failure
+
+        # Post-process: mirror each rendered mp4 to all platforms sharing its
+        # aspect ratio, tagged with family_id. Done sequentially after all
+        # renders succeed so we never mirror a partial file. Order the
+        # outcomes by (aspect_ratio, family_index) so rendered_videos follows
+        # the same order as the original nested-loop output — downstream
+        # consumers that assumed cold-before-warm ordering still see it.
+        render_outcomes.sort(key=lambda o: (o["job"]["aspect_ratio"], o["job"]["family_index"]))
+        for outcome in render_outcomes:
+            job = outcome["job"]
+            render_result = outcome["render_result"]
+            family_index = job["family_index"]
+            source_bytes = job["source_video_path"].read_bytes()
+            mirror_entries: list[dict] = []
+            for platform_config in job["platforms"]:
+                platform_slug = platform_config["platform_slug"]
+                target_dir = output_root / "rendered" / platform_slug
+                target_dir.mkdir(parents=True, exist_ok=True)
+                tagged_target = target_dir / f"{platform_slug}-{job['family_id']}.mp4"
+                if tagged_target != job["source_video_path"]:
+                    tagged_target.write_bytes(source_bytes)
+                # Back-compat: first family also written to the un-tagged
+                # canonical path so older consumers that read
+                # `{platform_slug}.mp4` still find a valid mp4.
+                if family_index == 0:
+                    legacy_target = target_dir / f"{platform_slug}.mp4"
+                    if legacy_target != job["source_video_path"]:
+                        legacy_target.write_bytes(source_bytes)
+                mirror_entries.append(
+                    {
+                        "platform": platform_config["platform"],
+                        "platform_slug": platform_slug,
+                        "aspect_ratio": job["aspect_ratio"],
+                        "family_id": job["family_id"],
+                        "video_path": str(tagged_target),
+                        "source_video_path": str(job["source_video_path"]),
+                        "duration_seconds": platform_config.get("target_duration_seconds"),
+                    }
+                )
+            rendered_videos.append(
+                {
+                    "aspect_ratio": job["aspect_ratio"],
+                    "family_id": job["family_id"],
+                    "family_name": job["family_name"],
+                    "funnel_stage": job["funnel_stage"],
+                    "canonical_platform_slug": job["canonical_slug"],
+                    "source_video_path": str(job["source_video_path"]),
+                    "render_result": render_result,
+                    "platforms": mirror_entries,
+                }
+            )
 
         # Attach all rendered variants to each platform_contract so
         # downstream consumers see both `rendered_video_path` (legacy, first
