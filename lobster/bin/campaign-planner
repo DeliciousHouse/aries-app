@@ -82,13 +82,37 @@ def _family_templates(channel: str, creative_handoff: dict, stage1_context: dict
         or stage1_context.get("creative_takeaway")
         or "competitor proof-led angle"
     )
+
+    # Each of the 4 creative families needs its own distinct hook and
+    # opening line. Upstream validate_line_options enforces min_items=4, so
+    # the LLM should have produced 4 unique slots. _pick() still falls back
+    # gracefully if an older campaign cached only 1-3 hooks — but the
+    # fallback chain is rotated per family so no two families collapse onto
+    # hooks[0] unless the upstream truly returned only 1 entry.
+    def _pick(collection: list[str], primary: int, *fallbacks: int) -> str:
+        candidate_indices = [primary, *fallbacks]
+        seen: set[str] = set()
+        for idx in candidate_indices:
+            if 0 <= idx < len(collection):
+                value = collection[idx]
+                if value and value not in seen:
+                    return value
+                seen.add(value)
+        # Final fallback: first non-empty item in the list. Only hits when
+        # the collection has duplicates or is shorter than the highest
+        # requested index.
+        for value in collection:
+            if value:
+                return value
+        return ""
+
     return [
         {
             "family_id": f"{channel}-outcome-proof",
             "family_name": "Outcome proof",
             "funnel_stage": "cold",
-            "primary_hook": hooks[0],
-            "opening_line": opening_lines[0],
+            "primary_hook": _pick(hooks, 0, 1, 2, 3),
+            "opening_line": _pick(opening_lines, 0, 1, 2, 3),
             "angle": validate_copy_text(
                 f"campaign_plan.{channel}.family.outcome_proof.angle",
                 f"{hooks[0]} Anchor the message in {proof_points[0].lower()} and keep the CTA attached to the promised outcome.",
@@ -116,8 +140,8 @@ def _family_templates(channel: str, creative_handoff: dict, stage1_context: dict
             "family_id": f"{channel}-problem-to-promise",
             "family_name": "Problem to promise",
             "funnel_stage": "cold",
-            "primary_hook": hooks[1] if len(hooks) > 1 else hooks[0],
-            "opening_line": opening_lines[0],
+            "primary_hook": _pick(hooks, 1, 2, 3, 0),
+            "opening_line": _pick(opening_lines, 1, 2, 3, 0),
             "angle": validate_copy_text(
                 f"campaign_plan.{channel}.family.problem_to_promise.angle",
                 f"Start with {creative_handoff['problem_statement'].lower()} and move straight into {channel_angle.lower()} without softening the stakes.",
@@ -145,8 +169,8 @@ def _family_templates(channel: str, creative_handoff: dict, stage1_context: dict
             "family_id": f"{channel}-offer-clarity",
             "family_name": "Offer clarity",
             "funnel_stage": "warm",
-            "primary_hook": hooks[0],
-            "opening_line": opening_lines[1] if len(opening_lines) > 1 else opening_lines[0],
+            "primary_hook": _pick(hooks, 2, 3, 1, 0),
+            "opening_line": _pick(opening_lines, 2, 3, 1, 0),
             "angle": validate_copy_text(
                 f"campaign_plan.{channel}.family.offer_clarity.angle",
                 f"Use warm-funnel messaging to explain {creative_handoff['offer'].lower()} with tighter proof and less introduction copy.",
@@ -174,8 +198,8 @@ def _family_templates(channel: str, creative_handoff: dict, stage1_context: dict
             "family_id": f"{channel}-differentiated-proof",
             "family_name": "Differentiated proof",
             "funnel_stage": "warm",
-            "primary_hook": hooks[2] if len(hooks) > 2 else hooks[0],
-            "opening_line": opening_lines[-1],
+            "primary_hook": _pick(hooks, 3, 2, 1, 0),
+            "opening_line": _pick(opening_lines, 3, 2, 1, 0),
             "angle": validate_copy_text(
                 f"campaign_plan.{channel}.family.differentiated_proof.angle",
                 f"Use {creative_handoff['positioning'].lower()} to separate the brand from the competitor pattern around {competitor_takeaway.lower()}.",

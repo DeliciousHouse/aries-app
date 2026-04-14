@@ -146,6 +146,15 @@ def validate_channel_angles(value: Any) -> dict[str, str]:
 
 
 def validate_line_options(value: Any, label: str) -> dict[str, list[str]]:
+    # Each channel must return at least 4 distinct hook/line variants so the
+    # downstream campaign-planner can assign a unique primary_hook and
+    # opening_line to each of its 4 creative families (Outcome proof,
+    # Problem to promise, Offer clarity, Differentiated proof). Historically
+    # this gate required only min_items=1, which let the LLM ship a single
+    # hook per channel — campaign-planner then collapsed all 4 families onto
+    # hooks[0] and the entire campaign surfaced the same headline across
+    # every platform preview. Tightening to min_items=4 forces the LLM to
+    # emit real variety up front.
     record = record_or_empty(value)
     required = ("meta", "landing-page", "video")
     normalized: dict[str, list[str]] = {}
@@ -153,8 +162,8 @@ def validate_line_options(value: Any, label: str) -> dict[str, list[str]]:
         normalized[channel] = validate_unique_copy_list(
             f"{label}.{channel}",
             record.get(channel),
-            min_items=1,
-            max_items=3,
+            min_items=4,
+            max_items=6,
             min_tokens=3,
         )
     return normalized
