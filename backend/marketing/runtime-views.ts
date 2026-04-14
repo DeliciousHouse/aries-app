@@ -1310,6 +1310,19 @@ export async function recordMarketingReviewDecision(input: {
 
     if (input.action === 'approve') {
       const checkpoint = runtimeDoc.approvals.current;
+      // Idempotency guard: if the client POSTs with a stale approvalId that
+      // doesn't match the current checkpoint, treat it as a no-op instead of
+      // advancing whatever gate happens to be open. Without this guard, a
+      // duplicate POST from a flaky network/double-click could advance TWO
+      // checkpoints in a row (Bug A) and skip past the launch-review surface.
+      if (
+        input.approvalId &&
+        checkpoint?.approval_id &&
+        input.approvalId !== checkpoint.approval_id
+      ) {
+        const refreshedStale = resolveRuntimeReviewItem(jobId, item.id) || resolveRuntimeReviewItem(jobId, input.reviewId);
+        return refreshedStale ?? item;
+      }
       const approvalResult = await approveMarketingJob({
         jobId,
         tenantId: input.tenantId,

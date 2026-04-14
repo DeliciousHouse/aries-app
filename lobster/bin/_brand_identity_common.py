@@ -34,8 +34,12 @@ def normalize_identity_text(value) -> str | None:
     text = re.sub(r"<style[\s\S]*?</style>", " ", text, flags=re.IGNORECASE)
     text = re.sub(r"\b(?:class|className|style|id|href|src|data-[\w-]+)\s*=\s*['\"][^'\"]*['\"]", " ", text, flags=re.IGNORECASE)
     text = re.sub(r"</?[a-z][^>]*>", " ", text, flags=re.IGNORECASE)
+    # Only strip utility classes that have bracketed arbitrary values (e.g. text-[14px], bg-[#fff]),
+    # or that are preceded/followed by a responsive prefix. The previous catch-all
+    # pattern `\b(text|font|from|to|via|...)` chewed up natural English words like
+    # "text-first", "end-to-end", "from-scratch", producing holes in brand copy.
     text = re.sub(
-        r"\b(?:bg|text|font|tracking|max-w|min-w|min-h|max-h|from|via|to|px|py|pt|pr|pb|pl|mx|my|mt|mr|mb|ml|grid|flex|gap|items|justify|rounded|shadow|ring|border|leading|sm:|md:|lg:|xl:|2xl:|hover:|focus:|before:|after:|group-hover:)[^\s,;)]*",
+        r"\b(?:bg|text|font|tracking|max-w|min-w|min-h|max-h|from|via|to|px|py|pt|pr|pb|pl|mx|my|mt|mr|mb|ml|grid|flex|gap|items|justify|rounded|shadow|ring|border|leading)-\[[^\]\s]+\]",
         " ",
         text,
         flags=re.IGNORECASE,
@@ -53,14 +57,37 @@ def normalize_identity_text(value) -> str | None:
     return text
 
 
+def _clean_join_item(value: str) -> str:
+    # Clean up LLM joinder artifacts: items that start with "and "/"or "/leading
+    # conjunctions, or end with dangling conjunctions/punctuation. Without this,
+    # feeding ["Authoritative and", "Systematic and organized", "and innovative"]
+    # into _join_readable produces "... and and innovative" holes.
+    cleaned = re.sub(r"^\s*(?:and|or|but|yet)\s+", "", value, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+(?:and|or|but|yet)\s*$", "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip().rstrip(",.;:")
+
+
 def _join_readable(items: list[str]) -> str | None:
-    if not items:
+    cleaned_items: list[str] = []
+    seen: set[str] = set()
+    for entry in items:
+        if not isinstance(entry, str):
+            continue
+        cleaned = _clean_join_item(entry)
+        if not cleaned:
+            continue
+        key = cleaned.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned_items.append(cleaned)
+    if not cleaned_items:
         return None
-    if len(items) == 1:
-        return items[0]
-    if len(items) == 2:
-        return f"{items[0]} and {items[1]}"
-    return f"{', '.join(items[:-1])}, and {items[-1]}"
+    if len(cleaned_items) == 1:
+        return cleaned_items[0]
+    if len(cleaned_items) == 2:
+        return f"{cleaned_items[0]} and {cleaned_items[1]}"
+    return f"{', '.join(cleaned_items[:-1])}, and {cleaned_items[-1]}"
 
 
 def _landing_hook(value: dict) -> str | None:

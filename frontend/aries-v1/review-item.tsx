@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useMemo, useRef, useState, type CSSProperties } from 'react';
 import Link from 'next/link';
 import { ArrowUpRight, CheckCircle2, MessageSquareText, XCircle } from 'lucide-react';
 
@@ -57,6 +57,12 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
   const item = review.data?.review ?? null;
   const [note, setNote] = useState('');
   const busy = review.decision.isLoading;
+  // Synchronous double-submit lock. `busy` / `disabled` aren't enough because
+  // React state updates are async — a fast second click or effect re-invocation
+  // can fire before `setLoading()` flips `busy`. We hit this during live testing
+  // where a single user click produced two approval POSTs and the pipeline
+  // advanced two gates at once, skipping the launch-review surface entirely.
+  const submittingRef = useRef(false);
 
   const decisionSummary = useMemo(() => {
     if (!item?.lastDecision) return null;
@@ -85,17 +91,23 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
   const reviewItem = item;
 
   async function applyDecision(action: 'approve' | 'changes_requested' | 'reject') {
-    const approvalId =
-      reviewItem.reviewType === 'workflow_approval' && reviewItem.currentVersion.id.startsWith('approval:')
-        ? reviewItem.currentVersion.id.slice('approval:'.length)
-        : undefined;
-    await review.submitDecision({
-      action,
-      actedBy: 'Client reviewer',
-      note,
-      approvalId,
-    });
-    setNote('');
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    try {
+      const approvalId =
+        reviewItem.reviewType === 'workflow_approval' && reviewItem.currentVersion.id.startsWith('approval:')
+          ? reviewItem.currentVersion.id.slice('approval:'.length)
+          : undefined;
+      await review.submitDecision({
+        action,
+        actedBy: 'Client reviewer',
+        note,
+        approvalId,
+      });
+      setNote('');
+    } finally {
+      submittingRef.current = false;
+    }
   }
 
   return (

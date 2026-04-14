@@ -62,8 +62,6 @@ services:
       start_period: 30s
     networks:
       - docker_stack
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 
 networks:
   docker_stack:

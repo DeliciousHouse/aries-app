@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -609,6 +610,39 @@ def video_poster_prompt(contract: dict) -> str:
     )
 
 
+_NANO_BANANA_TRANSIENT_STATUS_CODES = {408, 429, 500, 502, 503, 504}
+_NANO_BANANA_TRANSIENT_MARKERS = (
+    "unavailable",
+    "deadline",
+    "timeout",
+    "timed out",
+    "temporarily",
+    "rate limit",
+    "overloaded",
+    "resource_exhausted",
+    "internal error",
+)
+_NANO_BANANA_MAX_ATTEMPTS = 3
+_NANO_BANANA_BACKOFF_SECONDS = (15, 30, 60)
+
+
+def _is_transient_nano_failure(nano_result: dict) -> bool:
+    returncode = nano_result.get("returncode")
+    if isinstance(returncode, int) and returncode in _NANO_BANANA_TRANSIENT_STATUS_CODES:
+        return True
+    status = str(nano_result.get("status") or "").lower()
+    stderr_blob = str(nano_result.get("stderr") or "").lower()
+    stdout_blob = str(nano_result.get("stdout") or "").lower()
+    if status in {"timeout", "timeoutexpired", "httperror"}:
+        # HTTPError alone isn't enough — inspect body for transient markers.
+        if status == "httperror" and not any(
+            marker in stderr_blob or marker in stdout_blob for marker in _NANO_BANANA_TRANSIENT_MARKERS
+        ):
+            return False
+        return True
+    return any(marker in stderr_blob or marker in stdout_blob for marker in _NANO_BANANA_TRANSIENT_MARKERS)
+
+
 def render_static_publish_asset(contract: dict, destination_root: Path, filename_stem: str) -> dict:
     destination_root.mkdir(parents=True, exist_ok=True)
     png_path = destination_root / f"{filename_stem}.png"
@@ -616,26 +650,36 @@ def render_static_publish_asset(contract: dict, destination_root: Path, filename
         raise RuntimeError(
             f"image_generation_unavailable:GEMINI_API_KEY_missing:{filename_stem}"
         )
-    # Progress log — surfaced in the gateway journalctl so aries can tail it to
-    # drive an in-flight "generating N of M images" indicator until a dedicated
-    # progress channel lands on the UI.
-    sys.stderr.write(
-        f"[nano_banana_pro] starting render stem={filename_stem} aspect={contract.get('layout', {}).get('aspect_ratio', '4:5')}\n"
-    )
-    sys.stderr.flush()
-    nano_result = run_nano_banana(
-        static_image_prompt(contract),
-        png_path,
-        contract.get("layout", {}).get("aspect_ratio", "4:5"),
-    )
-    if nano_result.get("status") != "ok" or not png_path.exists():
+    aspect_ratio = contract.get("layout", {}).get("aspect_ratio", "4:5")
+    prompt = static_image_prompt(contract)
+    nano_result: dict = {}
+    # Gemini image-preview models return 503 UNAVAILABLE / deadline-expired errors
+    # intermittently. Retry transient failures with exponential backoff before we
+    # hard-fail the stage. No SVG fallback — either Nano Banana Pro succeeds or the
+    # stage fails loudly.
+    for attempt in range(1, _NANO_BANANA_MAX_ATTEMPTS + 1):
         sys.stderr.write(
-            f"[nano_banana_pro] FAILED stem={filename_stem} status={nano_result.get('status')} stderr={nano_result.get('stderr', '')[:500]}\n"
+            f"[nano_banana_pro] starting render stem={filename_stem} aspect={aspect_ratio} attempt={attempt}/{_NANO_BANANA_MAX_ATTEMPTS}\n"
         )
         sys.stderr.flush()
-        raise RuntimeError(
-            f"image_generation_failed:{filename_stem}:{nano_result.get('status', 'unknown')}:{(nano_result.get('stderr') or '')[:200]}"
+        nano_result = run_nano_banana(prompt, png_path, aspect_ratio)
+        if nano_result.get("status") == "ok" and png_path.exists():
+            break
+        transient = _is_transient_nano_failure(nano_result)
+        sys.stderr.write(
+            f"[nano_banana_pro] FAILED stem={filename_stem} attempt={attempt} transient={transient} status={nano_result.get('status')} stderr={str(nano_result.get('stderr') or '')[:500]}\n"
         )
+        sys.stderr.flush()
+        if not transient or attempt == _NANO_BANANA_MAX_ATTEMPTS:
+            raise RuntimeError(
+                f"image_generation_failed:{filename_stem}:{nano_result.get('status', 'unknown')}:{(nano_result.get('stderr') or '')[:200]}"
+            )
+        delay = _NANO_BANANA_BACKOFF_SECONDS[min(attempt - 1, len(_NANO_BANANA_BACKOFF_SECONDS) - 1)]
+        sys.stderr.write(
+            f"[nano_banana_pro] retry stem={filename_stem} sleeping={delay}s before attempt={attempt + 1}\n"
+        )
+        sys.stderr.flush()
+        time.sleep(delay)
     sys.stderr.write(
         f"[nano_banana_pro] ok stem={filename_stem} bytes={png_path.stat().st_size} provider={nano_result.get('provider')}\n"
     )

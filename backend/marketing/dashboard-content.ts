@@ -1725,9 +1725,20 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
     ? path.join(context.outputRoots[0], 'video-contracts', context.externalCampaignId)
     : null
 
-  const productionFinalize = canUseProductionArtifacts
+  // Primary read path: logged step payload on disk. Container fallback: the
+  // orchestrator mirrors the last stage step's output into
+  // `stages.production.primary_output` via the approval bridge, so when the
+  // aries-app container can't see the host-side lobster cache files, we can
+  // still recover production_handoff from the runtime doc itself.
+  const productionFinalizeOnDisk = canUseProductionArtifacts
     ? readStageStepPayload(context.runtimeDoc, 3, 'creative_director_finalize')
     : null
+  const productionPrimaryOutput = recordValue(context.runtimeDoc.stages.production.primary_output)
+  const productionFinalize =
+    productionFinalizeOnDisk ||
+    (productionPrimaryOutput && recordValue(productionPrimaryOutput.production_handoff)
+      ? productionPrimaryOutput
+      : null)
   const productionHandoff = recordValue(productionFinalize?.production_handoff) ?? {}
   const contractHandoffs = recordValue(productionHandoff.contract_handoffs) ?? {}
   const staticPaths = canUseProductionArtifacts

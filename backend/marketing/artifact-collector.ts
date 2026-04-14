@@ -145,7 +145,12 @@ export function collectResearchStageArtifacts(primaryOutput: Record<string, unkn
   const compile = compilePath ? readJsonIfExists(compilePath) : null;
   const extractor = extractorPath ? readJsonIfExists(extractorPath) : null;
   const executive = asRecord(compile?.executive_summary) ?? {};
-  const competitor = stringValue(compile?.competitor || extractor?.competitor, 'Competitor');
+  // Only treat the competitor as real if the upstream produced a non-generic value.
+  // ads-analyst defaults to the literal string "competitor" when no brand was set,
+  // which previously surfaced as "Competitor: Competitor" in the UI.
+  const competitorRaw = stringValue(compile?.competitor || extractor?.competitor);
+  const hasRealCompetitor = !!competitorRaw && competitorRaw.toLowerCase() !== 'competitor';
+  const adsSeenRaw = stringValue(asRecord(compile?.inputs)?.ads_seen);
   const summary: MarketingStageSummary | null = {
     summary:
       stringValue(executive.market_positioning) ||
@@ -166,15 +171,15 @@ export function collectResearchStageArtifacts(primaryOutput: Record<string, unkn
       artifact({
         id: 'research-summary',
         stage: 'research',
-        title: 'Competitor research summary',
+        title: hasRealCompetitor ? `${competitorRaw} research summary` : 'Competitor research summary',
         category: 'analysis',
         status: 'completed',
         summary: summary.summary,
         details: [
-          `Competitor: ${competitor}`,
-          `Ads reviewed: ${stringValue(asRecord(compile?.inputs)?.ads_seen, '0')}`,
+          hasRealCompetitor ? `Competitor: ${competitorRaw}` : null,
+          adsSeenRaw && adsSeenRaw !== '0' ? `Ads reviewed: ${adsSeenRaw}` : null,
           stringValue(executive.creative_takeaway),
-        ].filter(Boolean),
+        ].filter((entry): entry is string => !!entry),
         path: compilePath || null,
         preview_path: null,
       }),

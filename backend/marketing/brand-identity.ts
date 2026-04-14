@@ -25,24 +25,47 @@ function recordValue(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+function cleanJoinItem(value: string): string {
+  // Strip LLM joinder artifacts (leading/trailing conjunctions, trailing punctuation).
+  return value
+    .replace(/^\s*(?:and|or|but|yet)\s+/i, '')
+    .replace(/\s+(?:and|or|but|yet)\s*$/i, '')
+    .trim()
+    .replace(/[,.;:]+$/, '');
+}
+
 function joinReadableList(items: string[]): string | null {
-  if (items.length === 0) {
+  const seen = new Set<string>();
+  const cleaned: string[] = [];
+  for (const entry of items) {
+    if (typeof entry !== 'string') continue;
+    const value = cleanJoinItem(entry);
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    cleaned.push(value);
+  }
+  if (cleaned.length === 0) {
     return null;
   }
-  if (items.length === 1) {
-    return items[0];
+  if (cleaned.length === 1) {
+    return cleaned[0];
   }
-  if (items.length === 2) {
-    return `${items[0]} and ${items[1]}`;
+  if (cleaned.length === 2) {
+    return `${cleaned[0]} and ${cleaned[1]}`;
   }
-  return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
+  return `${cleaned.slice(0, -1).join(', ')}, and ${cleaned[cleaned.length - 1]}`;
 }
 
 const HTML_FRAGMENT_PATTERN = /<\/?[a-z][^>]*>/gi;
 const HTML_ENTITY_PATTERN = /&(?:nbsp|amp|lt|gt|quot|apos);/gi;
 const ATTRIBUTE_PATTERN = /\b(?:class|className|style|id|href|src|data-[\w-]+)\s*=\s*["'][^"']*["']/gi;
+// Only match utility classes with bracketed arbitrary values. The previous
+// broad pattern matched natural English compounds like "text-first" and
+// "end-to-end", producing holes in brand copy.
 const UTILITY_TOKEN_PATTERN =
-  /\b(?:bg|text|font|tracking|max-w|min-w|min-h|max-h|from|via|to|px|py|pt|pr|pb|pl|mx|my|mt|mr|mb|ml|grid|flex|gap|items|justify|rounded|shadow|ring|border|leading|sm:|md:|lg:|xl:|2xl:|hover:|focus:|before:|after:|group-hover:)[^\s,;)]*/gi;
+  /\b(?:bg|text|font|tracking|max-w|min-w|min-h|max-h|from|via|to|px|py|pt|pr|pb|pl|mx|my|mt|mr|mb|ml|grid|flex|gap|items|justify|rounded|shadow|ring|border|leading)-\[[^\]\s]+\]/gi;
 const CSS_REMNANT_PATTERN = /(?:^|\s)(?:[#.][a-z0-9_-]+|::?[a-z-]+|@media|var\(--[^)]+\)|theme\([^)]+\)|calc\([^)]+\))/gi;
 
 export function normalizeBrandIdentityText(value: unknown): string | null {
