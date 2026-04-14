@@ -124,8 +124,23 @@ export function oauthStatus(provider: string, tenantId?: string): PlatformConnec
     return { broker_status: 'error', reason: 'missing_required_fields', provider, message: 'missing_required_fields:tenant_id' };
   }
   const availability = getProviderOAuthAvailability(provider);
-  if (!availability.available || !availability.connectable) {
+  if (!availability.available) {
     return buildMisconfiguredStatus(provider, tenantId.trim(), now, availability.message, availability.missingEnv);
+  }
+  if (!availability.connectable) {
+    return {
+      schema_name: 'platform_connection_status_schema',
+      schema_version: '1.0.0',
+      tenant_id: tenantId.trim(),
+      integration_id: undefined,
+      platform: provider,
+      connection_status: 'connected',
+      status_reason: 'env_managed',
+      health: 'unknown',
+      updated_at: now,
+      capabilities: [],
+      metadata: {},
+    };
   }
   return {
     schema_name: 'platform_connection_status_schema',
@@ -152,8 +167,23 @@ export async function oauthStatusAsync(provider: string, tenantId?: string): Pro
 
   const normalizedTenantId = tenantId.trim();
   const availability = getProviderOAuthAvailability(provider);
-  if (!availability.available || !availability.connectable) {
+  if (!availability.available) {
     return buildMisconfiguredStatus(provider, normalizedTenantId, new Date().toISOString(), availability.message, availability.missingEnv);
+  }
+  if (!availability.connectable) {
+    return {
+      schema_name: 'platform_connection_status_schema',
+      schema_version: '1.0.0',
+      tenant_id: normalizedTenantId,
+      integration_id: undefined,
+      platform: provider,
+      connection_status: 'connected',
+      status_reason: 'env_managed',
+      health: 'unknown',
+      updated_at: new Date().toISOString(),
+      capabilities: [],
+      metadata: {},
+    };
   }
 
   const row = await dbGetConnection({ tenantId: normalizedTenantId, provider });

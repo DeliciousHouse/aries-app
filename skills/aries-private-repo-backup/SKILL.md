@@ -7,11 +7,13 @@ description: Stage current repo changes, commit to a backup branch, and create o
 
 Automated backup of the current workspace to a private GitHub repository via a backup branch and PR.
 
-## Prerequisites
-- `gh` CLI authenticated (`gh auth status` succeeds)
-- Git remote configured (default: `origin`, override with `ARIES_BACKUP_REMOTE`)
-- Remote must be a GitHub URL
-- Current branch must be resolvable (not detached HEAD, or `ARIES_BACKUP_BASE_BRANCH` set)
+## Required procedure
+1. Work in `/home/node/openclaw/aries-app`.
+2. Run:
+   - `node scripts/automations/private-repo-backup.mjs`
+3. Do not add extra narration around the result.
+4. If the script succeeds, return only the concise summary emitted by the script.
+5. If the script fails, return only the failure summary plus the next corrective action reported by the script.
 
 ## Steps
 

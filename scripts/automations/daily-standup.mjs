@@ -5,29 +5,17 @@ import {
   currentDateInfo,
   emitSummary,
   parseArgs,
-  preflightOrExit,
   run,
   writeText,
 } from './lib/common.mjs'
 
 const flags = parseArgs()
 const dryRun = flags.has('--dry-run')
-const preflightOnly = flags.has('--preflight')
 const MISSION_CONTROL_ROOT = process.env.MISSION_CONTROL_ROOT || '/home/node/.openclaw/projects/mission_control'
 const FALLBACK_BOARD_PATH = process.env.EXECUTION_TASKS_PATH || '/home/node/.openclaw/projects/shared/team/execution-tasks.json'
-
-preflightOrExit('DAILY STANDUP', {
-  binaries: ['npm'],
-  paths: [
-    { label: 'fallback board', path: FALLBACK_BOARD_PATH, type: 'file' },
-    { label: 'mission control root', path: MISSION_CONTROL_ROOT, type: 'dir' },
-    { label: 'shared meetings dir', path: '/home/node/.openclaw/projects/shared/team/meetings', type: 'dir' },
-  ],
-}, { preflightOnly })
-
-if (preflightOnly) {
-  process.exit(0)
-}
+const SHARED_TEAMS_ROOT = process.env.ARIES_SHARED_TEAMS_ROOT || '/home/node/.openclaw/projects/shared/teams'
+const SHARED_MEETINGS_DIR = path.join(SHARED_TEAMS_ROOT, 'meetings')
+const SHARED_STANDUPS_DIR = path.join(SHARED_TEAMS_ROOT, 'standups')
 
 async function loadProjectBoardPayload() {
   const modulePath = path.join(MISSION_CONTROL_ROOT, 'server', 'lib', 'project-board.mjs')
@@ -47,9 +35,6 @@ async function loadProjectBoardPayload() {
     },
   }
 }
-
-const { date, stamp } = currentDateInfo()
-const sharedTranscriptPath = path.join('/home/node/.openclaw/projects/shared/team/meetings', `${date}-daily-standup.md`)
 
 const priorityRank = { P0: 0, P1: 1, P2: 2, P3: 3 }
 const statusRank = { active: 0, review: 1, ready: 2, 'follow-up': 3, intake: 4, shipped: 5 }
@@ -82,13 +67,11 @@ function countByStatus(tasks) {
 
 function formatCounts(counts) {
   const ordered = ['active', 'review', 'ready', 'follow-up', 'intake', 'shipped']
-  const lines = ordered
-    .filter((status) => counts[status])
-    .map((status) => `${status} ${counts[status]}`)
+  const lines = ordered.filter((status) => counts[status]).map((status) => `${status} ${counts[status]}`)
   return lines.length ? lines.join(', ') : 'no tracked items'
 }
 
-function bulletize(items, fallback) {
+function bulletize(items, fallback = 'None.') {
   return items.length ? items.map((item) => `- ${item}`) : [`- ${fallback}`]
 }
 
@@ -102,17 +85,50 @@ function summarizeVerify(result) {
   return line || `failed with exit ${result.code}`
 }
 
-function laneReport({ chiefId, chiefAgentId, title, tasks, extraCurrent = [], extraBlockers = [], reportStatus = 'complete' }) {
+function laneReport({ chiefId, chiefAgentId, title, tasks, standupId, extraCurrent = [], extraBlockers = [], reportStatus = 'complete' }) {
   const activeTasks = tasks.filter((task) => task.status !== 'shipped')
   const topTask = chooseTopTask(activeTasks.length ? activeTasks : tasks)
   const blockedTasks = tasks.filter((task) => task.blocked)
   const counts = countByStatus(tasks)
 
-  return {
+  const report = {
+    sourceType: 'standup',
+    reportId: `${standupId}:${chiefId}`,
+    standupId,
+    standupTitle: `Daily Standup — ${standupId.replace('daily-standup-', '')}`,
     chiefId,
     chiefAgentId,
-    title,
     reportStatus,
+    activeTaskId: topTask?.id || null,
+    currentStatus: topTask?.status || 'unknown',
+    boardSummary: {
+      trackedItems: tasks.length,
+      statusCounts: counts,
+    },
+    blockers: [
+      ...blockedTasks.map((task) => ({ taskId: task.id, status: task.status, priority: task.priority || 'unknown' })),
+      ...extraBlockers.map((summary) => ({ summary })),
+    ],
+    humanDependencies: [],
+    needsJarvisRouting: blockedTasks.length
+      ? [
+          {
+            summary: `Reconcile blocked ${chiefId} lane items before claiming closure.`,
+            requestedAction: 'Review blocked lane items and stale board status.',
+            nextAction: 'Update or reroute the blocked lane item.',
+          },
+        ]
+      : [],
+    notes: [
+      topTask ? `Board truth: top lane task is ${topTask.id} in ${topTask.status}.` : 'No current lane task is visible on the board.',
+      `Lane snapshot: ${tasks.length} tracked item(s), ${formatCounts(counts)}.`,
+      ...extraCurrent,
+    ],
+  }
+
+  return {
+    ...report,
+    title,
     topTask,
     markdown: [
       `### ${title}`,
@@ -123,27 +139,30 @@ function laneReport({ chiefId, chiefAgentId, title, tasks, extraCurrent = [], ex
       `- Current status: ${topTask?.status || 'unknown'}`,
       '',
       '#### Current Status',
-      ...bulletize([
-        topTask ? `Board truth: top lane task is \`${topTask.id}\` in \`${topTask.status}\` with priority ${topTask.priority || 'unknown'}.` : 'No current lane task is visible on the board.',
-        `Lane snapshot: ${tasks.length} tracked item(s), ${formatCounts(counts)}.`,
-        ...extraCurrent,
-      ].filter(Boolean), 'No current status notes.'),
+      ...bulletize(report.notes.filter(Boolean), 'No current status notes.'),
       '',
       '#### Blockers',
-      ...bulletize([
-        ...blockedTasks.map((task) => `Blocked board item: \`${task.id}\` (${task.status}, ${task.priority || 'unknown'}).`),
-        ...extraBlockers,
-      ].filter(Boolean), 'No blockers are flagged in board truth for this lane.'),
+      ...bulletize(report.blockers.map((item) => item.summary || `Blocked board item: \`${item.taskId}\` (${item.status}, ${item.priority}).`), 'No blockers are flagged in board truth for this lane.'),
       '',
       '#### Human Dependencies',
       ...bulletize([], 'No explicit human dependency is encoded in this automation beyond what board truth already shows.'),
       '',
       '#### Needs Jarvis Routing',
-      ...bulletize(blockedTasks.length ? ['Jarvis should reconcile blocked lane items and any stale board status before claiming closure.'] : [], 'No Jarvis routing request is required from current board truth.'),
+      ...bulletize(report.needsJarvisRouting.map((item) => item.summary), 'No Jarvis routing request is required from current board truth.'),
       '',
     ].join('\n'),
   }
 }
+
+function writeJson(filePath, value) {
+  writeText(filePath, `${JSON.stringify(value, null, 2)}\n`)
+}
+
+const { date } = currentDateInfo()
+const standupId = `daily-standup-${date}`
+const standupTitle = `Daily Standup — ${date}`
+const sharedTranscriptPath = path.join(SHARED_MEETINGS_DIR, `${date}-daily-standup.md`)
+const sharedStandupDir = path.join(SHARED_STANDUPS_DIR, date)
 
 const board = await loadProjectBoardPayload()
 const tasks = Array.isArray(board.tasks) ? board.tasks : []
@@ -159,6 +178,7 @@ const forge = laneReport({
   chiefAgentId: 'delivery-chief',
   title: 'Forge — Engineering Delivery',
   tasks: forgeTasks,
+  standupId,
   extraCurrent: [workspaceVerify.ok ? `Fresh workspace verification passed on ${date}.` : `Workspace verification is unavailable right now: ${workspaceVerifyStatus}.`],
   extraBlockers: !workspaceVerify.ok ? [`Workspace verification failed: ${workspaceVerifyStatus}.`] : [],
 })
@@ -168,6 +188,7 @@ const signal = laneReport({
   chiefAgentId: 'runtime-chief',
   title: 'Signal — Runtime & Automation',
   tasks: signalTasks,
+  standupId,
   reportStatus: 'partial',
   extraCurrent: [
     'Live runtime truth is not re-verified by this board-based standup automation, so runtime detail remains limited to board truth.',
@@ -184,37 +205,39 @@ const ledger = laneReport({
   chiefAgentId: 'knowledge-chief',
   title: 'Ledger — Operations & Knowledge',
   tasks: ledgerTasks,
+  standupId,
   extraCurrent: [workspaceVerify.ok ? `Fresh workspace verification passed on ${date}.` : `Workspace verification is unavailable right now: ${workspaceVerifyStatus}.`],
   extraBlockers: !workspaceVerify.ok ? [`Workspace verification failed: ${workspaceVerifyStatus}.`] : [],
 })
 
-function blockedLaneTasks(tasks, laneLabel) {
-  return tasks
-    .filter((task) => task.blocked)
-    .map((task) => `${laneLabel} lane blocked: \`${task.id}\` remains blocked on the board.`)
+function blockedLaneTasks(items, laneLabel) {
+  return items.filter((task) => task.blocked).map((task) => `${laneLabel} lane blocked: \`${task.id}\` remains blocked on the board.`)
 }
 
 const primaryBlockers = [
   ...blockedLaneTasks(forgeTasks, 'Delivery'),
   ...blockedLaneTasks(signalTasks, 'Runtime'),
   ...blockedLaneTasks(ledgerTasks, 'Operations'),
-  'Runtime lane remains partial because this automation does not claim live scheduler truth without a direct runtime probe.',
   ...(!workspaceVerify.ok ? [`Workspace verification failed: ${workspaceVerifyStatus}.`] : []),
+]
+
+const automationCaveats = [
+  'Runtime lane remains partial because this automation does not claim live scheduler truth without a direct runtime probe.',
 ]
 
 const overallStatus = primaryBlockers.length ? 'partial' : 'complete'
 const transcript = [
   '---',
-  `standup_id: daily-standup-${date}`,
-  `title: Daily Standup — ${date}`,
+  `standup_id: ${standupId}`,
+  `title: ${standupTitle}`,
   `date: ${date}`,
   `generated_at: ${new Date().toISOString()}`,
   `status: ${overallStatus}`,
   'delivery: cron:auto',
-  `board_path: ${board.source?.path || '/home/node/.openclaw/projects/shared/team/execution-tasks.json'}`,
+  `board_path: ${board.source?.path || FALLBACK_BOARD_PATH}`,
   '---',
   '',
-  `# Daily Standup — ${date}`,
+  `# ${standupTitle}`,
   '',
   '## Top Summary',
   `- Overall status: ${overallStatus}.`,
@@ -229,6 +252,8 @@ const transcript = [
   `- workspace_verify: ${workspaceVerify.ok ? 'passed' : 'failed'}`,
   '- primary_blockers:',
   ...bulletize(primaryBlockers, 'No primary blockers.'),
+  '- automation_caveats:',
+  ...bulletize(automationCaveats),
   '',
   '## Chief Reports',
   '',
@@ -237,17 +262,22 @@ const transcript = [
   ledger.markdown,
   '## Delivery Notes',
   `- Standup transcript archived at \`${sharedTranscriptPath}\`.`,
+  `- Structured chief reports archived at \`${sharedStandupDir}\`.`,
   '- This cron run is board-derived and truthful about unavailable live runtime detail.',
   '',
 ].join('\n')
 
 if (!dryRun) {
   writeText(sharedTranscriptPath, transcript)
+  writeJson(path.join(sharedStandupDir, 'forge-report.json'), forge)
+  writeJson(path.join(sharedStandupDir, 'signal-report.json'), signal)
+  writeJson(path.join(sharedStandupDir, 'ledger-report.json'), ledger)
 }
 
 emitSummary([
   dryRun ? 'DAILY STANDUP DRY RUN' : overallStatus === 'complete' ? 'DAILY STANDUP OK' : 'DAILY STANDUP PARTIAL',
   `- transcript: ${sharedTranscriptPath}`,
+  `- reports: ${sharedStandupDir}`,
   `- workspace verify: ${workspaceVerify.ok ? 'passed' : `failed (${workspaceVerifyStatus})`}`,
   `- forge: ${forge.topTask ? `${forge.topTask.status} / ${forge.topTask.id}` : 'no visible task'}`,
   `- signal: ${signal.topTask ? `${signal.topTask.status} / ${signal.topTask.id}` : 'no visible task'}`,

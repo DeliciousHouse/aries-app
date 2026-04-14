@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+"""Approval-gate bridge for the marketing pipeline.
+
+Lobster's `extractApprovalRequest` reads a step's JSON output and pulls
+`prompt` + `items[]` out of it to populate the pause envelope. Plain
+`printf` approval steps only emit a prompt, so the upstream stage's full
+output never reaches the orchestrator. This bridge wraps that gap: it
+reads the previous step's JSON from stdin, emits an approval prompt, and
+embeds the previous payload as the first item so the orchestrator can
+hydrate the runtime doc from `envelope.requiresApproval.items[0]`.
+"""
+import argparse
+import json
+import sys
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--prompt", required=True, help="Prompt text shown at the approval gate.")
+    parser.add_argument("--action-label", default="", help="Optional action label echoed back to the UI.")
+    parser.add_argument("--stage", default="", help="Optional stage tag used for telemetry only.")
+    args = parser.parse_args()
+
+    raw = sys.stdin.read().strip()
+    payload = {}
+    if raw:
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            payload = {"raw_stdin_preview": raw[:2000]}
+
+    envelope = {
+        "prompt": args.prompt,
+        "items": [payload],
+    }
+    if args.action_label:
+        envelope["action_label"] = args.action_label
+    if args.stage:
+        envelope["stage"] = args.stage
+
+    json.dump(envelope, sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

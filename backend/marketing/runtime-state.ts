@@ -4,6 +4,7 @@ import path from 'node:path';
 import { normalizeMetaLocatorUrl, normalizeMetaPageId } from '@/lib/marketing-competitor';
 import { describeSpecResolution, resolveDataPath } from '@/lib/runtime-paths';
 import { loadTenantBrandKit, tenantBrandKitPath, type TenantBrandKit } from './brand-kit';
+import { recordMarketingFailureRuntimeIncident } from './runtime-error-bridge';
 
 const REQUIRED_SCHEMA_FILES = [
   'marketing_job_state_schema.v1.json',
@@ -778,6 +779,16 @@ export function recordStageFailure(
   doc.current_stage = stage;
   doc.last_error = normalized;
   doc.errors.push(normalized);
+  recordMarketingFailureRuntimeIncident({
+    jobId: doc.job_id,
+    tenantId: doc.tenant_id,
+    runtimePath: marketingRuntimePath(doc.job_id),
+    state: doc.state,
+    status: doc.status,
+    currentStage: doc.current_stage,
+    updatedAt: doc.updated_at,
+    error: normalized,
+  });
   return normalized;
 }
 

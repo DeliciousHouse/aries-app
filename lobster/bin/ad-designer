@@ -11,6 +11,70 @@ from _canonical_outputs import brand_output_paths, write_text
 from _marketing_profile_common import record_or_empty, validate_copy_text, validate_unique_copy_list
 
 
+def _as_list(value) -> list:
+    return value if isinstance(value, list) else []
+
+
+def _meta_families(brief: dict) -> list[dict]:
+    """Yield meta-channel families from the planner's testing matrix in funnel order.
+
+    Families are cold (TOFU) first, then warm (MOFU), so the first family is always a
+    cold-funnel entry — used as the back-compat meta_feed/meta_story image path.
+    """
+    testing_matrix = record_or_empty(brief.get("testing_matrix"))
+    meta_matrix = record_or_empty(testing_matrix.get("meta"))
+    families: list[dict] = []
+    for funnel_key in ("cold_funnel", "warm_funnel"):
+        for family in _as_list(meta_matrix.get(funnel_key)):
+            if isinstance(family, dict):
+                families.append(family)
+    return families
+
+
+def _family_contract(
+    family: dict,
+    cta: str,
+    proof_points: list,
+    design_tokens: dict,
+    aspect_ratio: str,
+    platform_label: str,
+) -> dict:
+    """Build a per-family static contract. The headline is the family's primary_hook;
+    the body lines describe the family's angle and opening line; proof points prefer
+    the family's proof_variants and fall back to the brief's global proof list."""
+    family_id = str(family.get("family_id") or family.get("family_name") or "unknown")
+    hook = validate_copy_text(
+        f"ad_designer.family.{family_id}.hook",
+        family.get("primary_hook") or family.get("angle") or family.get("family_name"),
+        min_tokens=3,
+    )
+    opening = str(family.get("opening_line") or "").strip()
+    angle = str(family.get("angle") or "").strip()
+    body_lines = [line for line in (opening, angle) if line][:2]
+    family_proof = [p for p in _as_list(family.get("proof_variants")) if isinstance(p, str) and p.strip()][:2]
+    merged_proof: list[str] = []
+    for point in (*family_proof, *proof_points):
+        if point and point not in merged_proof:
+            merged_proof.append(point)
+        if len(merged_proof) >= 3:
+            break
+    return {
+        "platform": platform_label,
+        "family_id": family_id,
+        "family_name": str(family.get("family_name") or family_id),
+        "funnel_stage": str(family.get("funnel_stage") or "cold"),
+        "creative": {
+            "headline": hook,
+            "body_lines": body_lines,
+            "proof_points": merged_proof,
+            "primary_cta": cta,
+            "family_id": family_id,
+        },
+        "layout": {"aspect_ratio": aspect_ratio},
+        "brand_tokens": design_tokens,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json", action="store_true")
@@ -31,10 +95,70 @@ def main() -> int:
     palette = record_or_empty(design_tokens.get("palette"))
     typography = record_or_empty(design_tokens.get("typography"))
 
+    paths = brand_output_paths(brand_slug)
+    ad_images_dir = paths["ad_images_dir"]
+
+    families = _meta_families(brief)
+
+    # Feed (4:5) image per family — these are the per-concept Nano Banana Pro renders.
+    family_images: list[dict] = []
+    for index, family in enumerate(families):
+        raw_family_id = str(family.get("family_id") or family.get("family_name") or f"family-{index + 1}")
+        family_slug = slugify(raw_family_id) if raw_family_id.startswith(("meta-", "meta_")) else slugify(f"meta-{raw_family_id}")
+        feed_contract = _family_contract(family, cta, proof_points, design_tokens, "4:5", "Meta Feed")
+        feed_asset = render_static_publish_asset(feed_contract, ad_images_dir, family_slug)
+        family_images.append(
+            {
+                "family_id": family.get("family_id", family_slug),
+                "family_name": family.get("family_name", ""),
+                "funnel_stage": family.get("funnel_stage", "cold"),
+                "platform_slug": "meta-ads",
+                "aspect_ratio": "4:5",
+                "image_path": feed_asset["image_path"],
+                "image_kind": feed_asset["image_kind"],
+                "nano_banana": feed_asset["nano_banana"],
+                "hook": family.get("primary_hook", ""),
+                "angle": family.get("angle", ""),
+                "opening_line": family.get("opening_line", ""),
+                "hypothesis": family.get("hypothesis", ""),
+                "contract": feed_contract,
+            }
+        )
+
+    if not family_images:
+        raise SystemExit(
+            "quality_gate_failed:ad_designer:no_families_generated "
+            "(campaign-planner emitted no testing_matrix.meta families; "
+            "ad-designer will not ship placeholder art)"
+        )
+    # Back-compat: downstream readers (launch-review-preview, dashboard schemas)
+    # still inspect meta_feed_image_path / meta_story_image_path. Point them at
+    # the first family's render so the old shape keeps resolving while the
+    # family_images list drives the real per-concept UI.
+    legacy_feed_path = family_images[0]["image_path"]
+    legacy_story_path = family_images[0]["image_path"]
+    legacy_feed_gen = family_images[0]["nano_banana"]
+    legacy_story_gen = family_images[0]["nano_banana"]
+
     ad_assets = {
         "creative_brief": {
             "primary_hook": hook,
             "concepts": [
+                {
+                    "name": entry.get("family_name") or entry.get("family_id"),
+                    "format": "static",
+                    "headline": entry.get("hook") or hook,
+                    "body": [
+                        line
+                        for line in (entry.get("opening_line"), entry.get("angle"))
+                        if line
+                    ],
+                    "funnel_stage": entry.get("funnel_stage", "cold"),
+                    "image_path": entry["image_path"],
+                }
+                for entry in family_images
+            ]
+            or [
                 {
                     "name": "Proof Card",
                     "format": "static",
@@ -60,46 +184,22 @@ def main() -> int:
         ],
     }
 
-    spec_text = "\n".join(
-        [
-            f"Primary hook: {hook}",
-            f"CTA: {cta}",
-            "Placements:",
-            *[f"- {item['placement']}: {item['size']} ({item['format']})" for item in ad_assets["asset_specs"]],
-        ]
-    )
+    spec_lines = [
+        f"Primary hook: {hook}",
+        f"CTA: {cta}",
+        "Placements:",
+        *[f"- {item['placement']}: {item['size']} ({item['format']})" for item in ad_assets["asset_specs"]],
+    ]
+    if family_images:
+        spec_lines.append("")
+        spec_lines.append("Per-family renders (Nano Banana Pro):")
+        for entry in family_images:
+            spec_lines.append(
+                f"- [{entry.get('funnel_stage', 'cold')}] {entry.get('family_name') or entry.get('family_id')}: {entry['image_path']}"
+            )
+    spec_text = "\n".join(spec_lines)
     spec_path = save_artifact_text(run_id, "ad-designer/ad-specs.txt", spec_text)
-    paths = brand_output_paths(brand_slug)
-    ad_images_dir = paths["ad_images_dir"]
     spec_md_path = write_text(ad_images_dir / "ad-specs.md", spec_text)
-    meta_feed_contract = {
-        "platform": "Meta Feed",
-        "creative": {
-            "headline": hook,
-            "body_lines": record_or_empty(script_assets.get("meta_ad_script")).get("body", []),
-            "proof_points": proof_points,
-            "primary_cta": cta,
-        },
-        "layout": {
-            "aspect_ratio": "4:5",
-        },
-        "brand_tokens": design_tokens,
-    }
-    story_contract = {
-        "platform": "Meta Story",
-        "creative": {
-            "headline": hook,
-            "body_lines": record_or_empty(script_assets.get("short_video_script")).get("beats", []),
-            "proof_points": proof_points,
-            "primary_cta": cta,
-        },
-        "layout": {
-            "aspect_ratio": "9:16",
-        },
-        "brand_tokens": design_tokens,
-    }
-    meta_feed_asset = render_static_publish_asset(meta_feed_contract, ad_images_dir, "meta-feed")
-    meta_story_asset = render_static_publish_asset(story_contract, ad_images_dir, "meta-story")
 
     payload = {
         "type": "ad_designer",
@@ -115,11 +215,12 @@ def main() -> int:
         "artifacts": {
             "spec_path": spec_path,
             "canonical_spec_path": spec_md_path,
-            "meta_feed_image_path": meta_feed_asset["image_path"],
-            "meta_story_image_path": meta_story_asset["image_path"],
-            "meta_feed_image_generation": meta_feed_asset["nano_banana"],
-            "meta_story_image_generation": meta_story_asset["nano_banana"],
-            "honesty_note": "This local wrapper outputs creative specs and production-ready draft images in canonical artifact paths; final platform publish still belongs to stage 4.",
+            "meta_feed_image_path": legacy_feed_path,
+            "meta_story_image_path": legacy_story_path,
+            "meta_feed_image_generation": legacy_feed_gen,
+            "meta_story_image_generation": legacy_story_gen,
+            "family_images": family_images,
+            "honesty_note": "Local wrapper loops over campaign-planner families and renders one Nano Banana Pro image per family; the legacy meta_feed/story paths point at the first family for back-compat.",
             "design_tokens": design_tokens,
         },
     }

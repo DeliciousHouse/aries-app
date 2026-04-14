@@ -46,7 +46,7 @@ services:
       NEXTAUTH_URL: ${NEXTAUTH_URL}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
       OPENCLAW_LOBSTER_CWD: ${OPENCLAW_LOBSTER_CWD:-/app/lobster}
-      OPENCLAW_GATEWAY_LOBSTER_CWD: ${OPENCLAW_GATEWAY_LOBSTER_CWD:-aries-app/lobster}
+      OPENCLAW_GATEWAY_LOBSTER_CWD: ${OPENCLAW_GATEWAY_LOBSTER_CWD:-lobster}
       OPENCLAW_LOCAL_LOBSTER_CWD: ${OPENCLAW_LOCAL_LOBSTER_CWD:-/app/lobster}
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -62,6 +62,8 @@ services:
       start_period: 30s
     networks:
       - docker_stack
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 networks:
   docker_stack:

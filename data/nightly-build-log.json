@@ -26,6 +26,21 @@
       ],
       "verification": "npm run build passed with no errors. Runtime verification unavailable (no running dev server).",
       "notes": "Bucket 3 (small UX improvement). Board candidate assigned to Rohan (human). Feedback log empty. This accessibility fix is bounded, additive, affects all loading screens globally, and follows WAI-ARIA live region patterns."
+<<<<<<< Updated upstream
+=======
+    },
+    {
+      "title": "Add character count indicator to review decision textarea",
+      "description": "The review item decision textarea silently enforced a 600-character limit via JS slice with no visual feedback. Added a live character counter (e.g. '142 / 600') below the textarea that turns amber when approaching the limit (550+), plus a maxLength attribute and aria-describedby for accessibility.",
+      "status": "deployed",
+      "date": "2026-04-12",
+      "track": "aries-app",
+      "files": [
+        "frontend/aries-v1/review-item.tsx"
+      ],
+      "verification": "npm run build passed with no errors. Runtime verification unavailable (no running dev server).",
+      "notes": "Bucket 3 (small UX improvement). Board candidate assigned to Rohan (human). Feedback log empty. Last two builds were a11y fixes; this is a functional UX improvement (user feedback for a hidden constraint). Bounded to one file, additive, no behavior change to existing logic."
+>>>>>>> Stashed changes
     }
   ]
 }

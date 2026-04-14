@@ -7,15 +7,13 @@ description: Pick one small additive improvement each night, ship it safely, val
 
 Nightly self-improvement build for `aries-app`. This automation should ship one small, production-safe improvement per night without inventing scope, drifting the UI, or touching protected/high-risk surfaces.
 
-## Prerequisites
-- Live candidate surfaces are available:
-  - Project board: `/home/node/.openclaw/projects/shared/team/execution-tasks.json`
-  - Feedback log: `data/feedback-processing-log.json`
-  - Nightly build log: `data/nightly-build-log.json`
-- Design skill exists at `skills/superdesign/SKILL.md`
-- Build command is `npm run build`
-- Runtime verification can use the currently running local stack if present; do not invent a restart target
-- `memory/<YYYY-MM-DD>.md` is available for nightly logging
+## Required procedure
+1. Work in `/home/node/openclaw/aries-app`.
+2. Run:
+   - `node scripts/automations/overnight-self-improve.mjs`
+3. Do not add extra narration around the result.
+4. If the script succeeds, return only the concise summary emitted by the script.
+5. If the script fails, return only the failure summary plus the next corrective action reported by the script.
 
 ## Steps
 

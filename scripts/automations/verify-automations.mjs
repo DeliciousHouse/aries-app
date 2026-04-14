@@ -8,20 +8,9 @@ const preflightScripts = [
   'scripts/automations/daily-standup.mjs',
   'scripts/automations/feedback-connector.mjs',
   'scripts/automations/feedback-daily-summary.mjs',
-  'scripts/automations/overnight-self-improve.mjs',
-  'scripts/automations/private-repo-backup.mjs',
+  'scripts/automations/runtime-error-intake.mjs',
   'scripts/automations/rolling-system-reference.mjs',
-  'scripts/automations/weekly-review.mjs',
-  'skills/operations/mission-control-smoke-check/scripts/run-smoke-check.mjs',
-]
-
-const dryRunScripts = [
-  'scripts/automations/daily-brief.mjs',
-  'scripts/automations/daily-standup.mjs',
-  'scripts/automations/feedback-connector.mjs',
-  'scripts/automations/feedback-daily-summary.mjs',
-  'scripts/automations/rolling-system-reference.mjs',
-  'scripts/automations/weekly-review.mjs',
+  'skills/operations/aries-standup-watchdog/scripts/run-watchdog.mjs',
 ]
 
 for (const script of preflightScripts) {

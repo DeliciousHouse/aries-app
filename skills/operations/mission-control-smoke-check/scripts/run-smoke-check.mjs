@@ -2,53 +2,39 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import net from "node:net";
+import path from "node:path";
 import process from "node:process";
 import { preflightOrExit, resolveBinary } from "../../../../scripts/automations/lib/common.mjs";
 
-const preflightOnly = process.argv.includes("--preflight");
-const missionControlRoot = resolveMissionControlRoot();
-const npmCommand = resolveBinary("npm", { cwd: missionControlRoot }) || "npm";
-const nextCommand = resolveBinary("next", { cwd: missionControlRoot }) || "next";
-
-preflightOrExit("MISSION CONTROL SMOKE CHECK", {
-  cwd: missionControlRoot,
-  binaries: ["npm", "next"],
-  paths: [
-    { label: "mission control root", path: missionControlRoot, type: "dir" },
-    { label: "package.json", path: `${missionControlRoot}/package.json`, type: "file" },
-  ],
-}, { preflightOnly });
-
-if (preflightOnly) {
-  process.exit(0);
-}
+const missionControlRoot = process.env.MISSION_CONTROL_ROOT || "/home/node/.openclaw/projects/mission_control";
 const essentialEndpointPaths = new Set([
   "/",
   "/ops",
   "/brain",
   "/lab",
+  "/skills",
 ]);
 
 const endpointSpecs = [
   {
     path: "/",
-    summarize: () => "overview route",
+    summarize: () => "overview page",
   },
   {
     path: "/ops",
-    summarize: () => "ops route",
+    summarize: () => "ops page",
   },
   {
     path: "/brain",
-    summarize: () => "brain route",
+    summarize: () => "brain page",
   },
   {
     path: "/lab",
-    summarize: () => "lab route",
+    summarize: () => "lab page",
   },
   {
     path: "/skills",
-    summarize: () => "skills route",
+    summarize: () => "skills page",
   },
 ];
 
@@ -89,9 +75,10 @@ async function main() {
     await runCommand(npmCommand, ["run", "build"], { cwd: missionControlRoot });
     result.build = { ok: true, detail: "ok" };
 
-    serverChild = spawn(nextCommand, ["start", "-H", "127.0.0.1", "-p", String(port)], {
+    const nextBinary = path.join(missionControlRoot, "node_modules", ".bin", "next");
+    serverChild = spawn(nextBinary, ["start", "-H", "127.0.0.1", "-p", String(port)], {
       cwd: missionControlRoot,
-      env: { ...process.env, PORT: String(port), HOST: "127.0.0.1" },
+      env: { ...process.env },
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -108,13 +95,27 @@ async function main() {
       }
     });
 
-    await waitForServer(baseUrl, 20000);
+    try {
+      await waitForServer(baseUrl, 20000);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const logTail = serverLog
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .slice(-20)
+        .join(" | ");
+      throw new Error(logTail ? `${message}; startup log: ${logTail}` : message);
+    }
+
     result.server = { ok: true, detail: `ok (${baseUrl})`, url: baseUrl };
 
     for (const spec of endpointSpecs) {
       const endpoint = await probeEndpoint(baseUrl, spec.path, spec.summarize);
       result.endpoints.push(endpoint);
     }
+
+    result.runtimeDetail = "page-route contract verified against the current standalone Mission Control shell";
 
     const failedEndpoints = result.endpoints.filter((entry) => !entry.ok);
     const failedEssentialEndpoints = failedEndpoints.filter((entry) => essentialEndpointPaths.has(entry.path));

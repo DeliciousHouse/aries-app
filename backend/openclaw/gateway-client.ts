@@ -44,6 +44,7 @@ export type OpenClawWorkflowCallInput = {
   localCwd?: string;
   timeoutMs?: number;
   maxStdoutBytes?: number;
+  allowLocalFallback?: boolean;
 };
 
 export type OpenClawResumeCallInput = {
@@ -53,6 +54,7 @@ export type OpenClawResumeCallInput = {
   localCwd?: string;
   timeoutMs?: number;
   maxStdoutBytes?: number;
+  allowLocalFallback?: boolean;
 };
 
 export type OpenClawLobsterRuntimeContext = {
@@ -547,7 +549,7 @@ export async function runOpenClawLobsterWorkflow(input: OpenClawWorkflowCallInpu
       },
     });
   } catch (error) {
-    if (!shouldFallbackToLocalLobster(error)) {
+    if (input.allowLocalFallback === false || !shouldFallbackToLocalLobster(error)) {
       throw error;
     }
 
@@ -625,7 +627,7 @@ export async function resumeOpenClawLobsterWorkflow(input: OpenClawResumeCallInp
       if (canRetry) {
         continue;
       }
-      if (shouldFallbackToLocalLobster(error)) {
+      if (input.allowLocalFallback !== false && shouldFallbackToLocalLobster(error)) {
         return invokeLocalLobster(
           runtime,
           ['resume', '--mode', 'tool', '--token', candidate, '--approve', input.approve ? 'yes' : 'no'],

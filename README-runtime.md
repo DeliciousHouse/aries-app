@@ -114,22 +114,19 @@ Optional but commonly used:
 - `LOG_LEVEL`
 - `OAUTH_TOKEN_ENCRYPTION_KEY`
 - OAuth client credentials:
-  `META_APP_ID`, `META_APP_SECRET`,
   `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`,
   `X_CLIENT_ID`, `X_CLIENT_SECRET`,
   `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`
-- Instagram runtime values: `META_PAGE_ID` and `META_ACCESS_TOKEN`
+- Meta runtime values: `META_PAGE_ID` and `META_ACCESS_TOKEN`
 
-OAuth callbacks are generated from `APP_BASE_URL` using:
-- `${APP_BASE_URL}/api/auth/oauth/facebook/callback`
+OAuth callbacks are generated from `APP_BASE_URL` for non-Meta providers:
 - `${APP_BASE_URL}/api/auth/oauth/linkedin/callback`
 - `${APP_BASE_URL}/api/auth/oauth/reddit/callback`
 - `${APP_BASE_URL}/api/auth/oauth/tiktok/callback`
 - `${APP_BASE_URL}/api/auth/oauth/x/callback`
 - `${APP_BASE_URL}/api/auth/oauth/youtube/callback`
 
-Facebook uses the generic OAuth broker with `META_APP_ID` and `META_APP_SECRET`.
-Instagram remains env-managed with `META_PAGE_ID` and `META_ACCESS_TOKEN`.
+Meta publishing remains env-managed with `META_PAGE_ID` and `META_ACCESS_TOKEN`.
 
 ## Validation
 
