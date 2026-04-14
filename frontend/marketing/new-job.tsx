@@ -91,7 +91,9 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
     try {
       const response = await marketingCreate.createJob(formData);
       if (!response) {
-        setErrorText('Failed to create marketing job');
+        setErrorText(
+          marketingCreate.error?.message || 'Failed to create marketing job'
+        );
         return;
       }
 

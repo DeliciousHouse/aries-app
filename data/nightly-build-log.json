@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "track": "aries-app",
+  "description": "Nightly self-improvement build log for additive overnight changes shipped by automation.",
+  "builds": [
+    {
+      "title": "Add Escape key dismiss to calendar event detail modal",
+      "description": "The calendar event detail modal could only be closed by clicking the backdrop or the X button. Added a keydown listener for the Escape key so the modal dismisses on Escape press, matching standard modal accessibility expectations.",
+      "status": "deployed",
+      "date": "2026-04-11",
+      "track": "aries-app",
+      "files": [
+        "frontend/aries-v1/presenters/calendar-presenter.tsx"
+      ],
+      "verification": "npm run build passed with no errors. Runtime verification unavailable (no running dev server).",
+      "notes": "Bucket 3 (small UX improvement). The only board candidate was assigned to a human (Rohan) and required product judgment about route visibility. Feedback log was empty. This keyboard accessibility fix is bounded, additive, and follows standard modal UX patterns."
+    },
+    {
+      "title": "Add accessible loading indicator to LoadingStateGrid component",
+      "description": "The LoadingStateGrid component (used across dashboard, review queue, posts, and all loading states) rendered pulsing placeholder divs with no screen reader affordance. Added role=\"status\", aria-label=\"Loading\", a visually-hidden \"Loading…\" text, and aria-hidden on decorative skeleton elements so assistive technology users get a clear loading announcement.",
+      "status": "deployed",
+      "date": "2026-04-12",
+      "track": "aries-app",
+      "files": [
+        "frontend/aries-v1/components.tsx"
+      ],
+      "verification": "npm run build passed with no errors. Runtime verification unavailable (no running dev server).",
+      "notes": "Bucket 3 (small UX improvement). Board candidate assigned to Rohan (human). Feedback log empty. This accessibility fix is bounded, additive, affects all loading screens globally, and follows WAI-ARIA live region patterns."
+<<<<<<< Updated upstream
+=======
+    },
+    {
+      "title": "Add character count indicator to review decision textarea",
+      "description": "The review item decision textarea silently enforced a 600-character limit via JS slice with no visual feedback. Added a live character counter (e.g. '142 / 600') below the textarea that turns amber when approaching the limit (550+), plus a maxLength attribute and aria-describedby for accessibility.",
+      "status": "deployed",
+      "date": "2026-04-12",
+      "track": "aries-app",
+      "files": [
+        "frontend/aries-v1/review-item.tsx"
+      ],
+      "verification": "npm run build passed with no errors. Runtime verification unavailable (no running dev server).",
+      "notes": "Bucket 3 (small UX improvement). Board candidate assigned to Rohan (human). Feedback log empty. Last two builds were a11y fixes; this is a functional UX improvement (user feedback for a hidden constraint). Bounded to one file, additive, no behavior change to existing logic."
+>>>>>>> Stashed changes
+    }
+  ]
+}

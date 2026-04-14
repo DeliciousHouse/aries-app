@@ -494,25 +494,98 @@ def assert_generated_image_text_safe(image_path: Path) -> list[str]:
     return lines
 
 
+FAMILY_VISUAL_DIRECTIONS: dict[str, dict[str, str]] = {
+    "outcome-proof": {
+        "concept": "Bold numeric proof card",
+        "scene": (
+            "A dramatic editorial photograph or poster-style composition that centers on a single proof statistic "
+            "rendered in oversized display typography. Think Apple keynote meets modern fintech launch: deep negative space, "
+            "studio lighting, one striking hero subject photographed from a flattering angle."
+        ),
+        "style": "Cinematic studio photography, high contrast, premium magazine cover aesthetic.",
+    },
+    "problem-to-promise": {
+        "concept": "Native organic handwritten note",
+        "scene": (
+            "A close-up overhead photograph of a cream lined notebook page with the headline handwritten in black ink pen, "
+            "a single hand-drawn red circle around one key word, warm natural side-lighting, a coffee cup or pen resting at the edge of frame. "
+            "Looks like an authentic user-generated post, not an ad."
+        ),
+        "style": "Intimate documentary photography, warm daylight, shallow depth of field, un-styled and authentic.",
+    },
+    "offer-clarity": {
+        "concept": "Clean product demo mockup",
+        "scene": (
+            "A polished product demo composition showing a device mockup (laptop, phone, tablet) floating in crisp 3D space "
+            "with soft gradient lighting. The headline appears as a single short line below the device. No buttons, no UI elements, no callouts. "
+            "Feels like an Apple product landing page."
+        ),
+        "style": "Modern minimalist product photography, soft shadows, pastel or neutral background, premium tech launch energy.",
+    },
+    "differentiated-proof": {
+        "concept": "Split comparison anchor",
+        "scene": (
+            "A clean side-by-side split composition: left side shows the old/competitor approach in muted desaturated tones, "
+            "right side shows the brand's differentiated approach in full color and focus. A single bold headline sits across the top. "
+            "No labels, no arrows, no captions — the contrast does the talking."
+        ),
+        "style": "Editorial comparison layout, magazine-quality photography, high visual contrast between the two halves.",
+    },
+}
+
+
+def _visual_direction_for_family(family_id: str) -> dict[str, str]:
+    """Resolve the visual concept for a creative family.
+
+    Matches by normalized id suffix so `meta-outcome-proof`, `instagram-outcome-proof`,
+    etc. all map to the same underlying concept.
+    """
+    normalized = (family_id or "").lower().strip()
+    for key, direction in FAMILY_VISUAL_DIRECTIONS.items():
+        if normalized.endswith(key) or key in normalized:
+            return direction
+    # Default to the "outcome proof" concept so we never ship a totally generic prompt.
+    return FAMILY_VISUAL_DIRECTIONS["outcome-proof"]
+
+
 def static_image_prompt(contract: dict) -> str:
     creative = contract.get("creative", {})
-    platform = contract.get("platform", "marketing creative")
-    proof_points = list_or_empty(creative.get("proof_points"))[:3]
-    body_lines = [line for line in list_or_empty(creative.get("body_lines"))[:3] if line]
+    aspect_ratio = contract.get("layout", {}).get("aspect_ratio", "4:5")
     brand_tokens = require_contract_brand_tokens(contract)
+    headline = normalize_space(str(creative.get("headline", "")))
+    cta = normalize_space(str(creative.get("primary_cta", "")))
+    family_id = str(contract.get("family_id") or creative.get("family_id") or "")
+    visual = _visual_direction_for_family(family_id)
+
+    # Aspect ratio hint kept at the very top so the model doesn't default to square.
+    # The headline is passed as EXACT text the model should render, nothing else.
+    # Body/support/proof lines are intentionally omitted from the image — a good ad
+    # image carries ONE message, the rest lives in the caption on Meta.
     return "\n".join(
         [
-            f"Create a finished marketing image for {platform} using only the validated brand system in this contract.",
-            "Use readable text in the image.",
-            f"Headline: {creative.get('headline', '')}",
-            *(f"Support line: {line}" for line in body_lines),
-            *(f"Proof point: {line}" for line in proof_points),
-            f"CTA button text: {creative.get('primary_cta', '')}",
-            f"Aspect ratio: {contract.get('layout', {}).get('aspect_ratio', '4:5')}",
-            *contract_brand_voice_lines(contract),
+            f"Generate a single finished {aspect_ratio} marketing photograph. Not a template, not an infographic, not a flyer.",
+            "",
+            f"Concept: {visual['concept']}",
+            f"Scene: {visual['scene']}",
+            f"Style: {visual['style']}",
+            "",
+            "Text rendering rules:",
+            f'- The ONLY readable text in the image must be exactly: "{headline}"',
+            "- Render the headline in clean display typography that fits the brand palette.",
+            "- Do NOT add body copy, bullet points, proof points, or supporting lines.",
+            f"- Do NOT include a CTA button, the CTA \"{cta}\" lives in the Meta caption, not on the image.",
+            "- NO logos, NO brand names, NO watermarks, NO company marks, NO URLs, NO hashtags, NO emojis.",
+            "",
             *brand_direction_lines(brand_tokens),
-            "Design direction: keep clear hierarchy and legible contrast, but do not introduce off-palette colors, substitute fonts, or generic template styling.",
-            "Output a single finished marketing image.",
+            "",
+            "Execution rules:",
+            "- Photographic realism or studio-grade 3D, NEVER a vector/template look.",
+            "- Premium magazine-cover or launch-announcement polish, not a stock marketing template.",
+            "- Strong composition, intentional negative space, publishable-quality lighting.",
+            "- No decorative borders, frames, ribbons, starbursts, or corporate clipart.",
+            "- Respect the brand color palette from the direction above as accent colors only, do not flood the image in a single brand color.",
+            "",
+            "Deliver ONE final polished marketing image. Do not return a sketch, a grid, a mockup wireframe, or multiple options.",
         ]
     )
 
@@ -538,30 +611,43 @@ def video_poster_prompt(contract: dict) -> str:
 
 def render_static_publish_asset(contract: dict, destination_root: Path, filename_stem: str) -> dict:
     destination_root.mkdir(parents=True, exist_ok=True)
-    svg_path = destination_root / f"{filename_stem}.svg"
-    render_static_svg(contract, svg_path)
     png_path = destination_root / f"{filename_stem}.png"
-    nano_result = {
-        "executed": False,
-        "status": "not_configured",
-        "output_path": str(png_path),
-    }
-    final_image_path = str(svg_path)
-    final_image_kind = "svg_fallback"
-    if nano_banana_enabled():
-        nano_result = run_nano_banana(
-            static_image_prompt(contract),
-            png_path,
-            contract.get("layout", {}).get("aspect_ratio", "4:5"),
+    if not nano_banana_enabled():
+        raise RuntimeError(
+            f"image_generation_unavailable:GEMINI_API_KEY_missing:{filename_stem}"
         )
-        if nano_result.get("status") == "ok" and png_path.exists():
-            final_image_path = str(png_path)
-            final_image_kind = "nano_banana_png"
-    extracted_text = assert_generated_image_text_safe(Path(final_image_path))
+    # Progress log — surfaced in the gateway journalctl so aries can tail it to
+    # drive an in-flight "generating N of M images" indicator until a dedicated
+    # progress channel lands on the UI.
+    sys.stderr.write(
+        f"[nano_banana_pro] starting render stem={filename_stem} aspect={contract.get('layout', {}).get('aspect_ratio', '4:5')}\n"
+    )
+    sys.stderr.flush()
+    nano_result = run_nano_banana(
+        static_image_prompt(contract),
+        png_path,
+        contract.get("layout", {}).get("aspect_ratio", "4:5"),
+    )
+    if nano_result.get("status") != "ok" or not png_path.exists():
+        sys.stderr.write(
+            f"[nano_banana_pro] FAILED stem={filename_stem} status={nano_result.get('status')} stderr={nano_result.get('stderr', '')[:500]}\n"
+        )
+        sys.stderr.flush()
+        raise RuntimeError(
+            f"image_generation_failed:{filename_stem}:{nano_result.get('status', 'unknown')}:{(nano_result.get('stderr') or '')[:200]}"
+        )
+    sys.stderr.write(
+        f"[nano_banana_pro] ok stem={filename_stem} bytes={png_path.stat().st_size} provider={nano_result.get('provider')}\n"
+    )
+    sys.stderr.flush()
+    extracted_text = assert_generated_image_text_safe(png_path)
     return {
-        "image_path": final_image_path,
-        "image_kind": final_image_kind,
-        "fallback_svg_path": str(svg_path),
+        "image_path": str(png_path),
+        "image_kind": "nano_banana_png",
+        # Back-compat: some publishers still read `fallback_svg_path` from the
+        # result. It is intentionally empty now — no SVG template art should
+        # ever ship through the pipeline.
+        "fallback_svg_path": "",
         "nano_banana": nano_result,
         "text_qa": {
             "status": "passed",

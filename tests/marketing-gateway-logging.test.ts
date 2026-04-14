@@ -48,6 +48,43 @@ test('runOpenClawLobsterWorkflow logs missing gateway configuration before attem
   }
 });
 
+test('runOpenClawLobsterWorkflow can disable PATH-based local fallback', async () => {
+  const previousGatewayUrl = process.env.OPENCLAW_GATEWAY_URL;
+  const previousGatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN;
+
+  delete process.env.OPENCLAW_GATEWAY_URL;
+  process.env.OPENCLAW_GATEWAY_TOKEN = 'debug-token';
+
+  try {
+    const { OpenClawGatewayError, runOpenClawLobsterWorkflow } = await import('../backend/openclaw/gateway-client');
+
+    await assert.rejects(
+      () =>
+        runOpenClawLobsterWorkflow({
+          pipeline: 'stage-1-research/workflow.lobster',
+          cwd: 'lobster',
+          argsJson: '{}',
+          allowLocalFallback: false,
+        }),
+      (error: unknown) =>
+        error instanceof OpenClawGatewayError &&
+        error.code === 'openclaw_gateway_not_configured' &&
+        /missing required openclaw environment variable: OPENCLAW_GATEWAY_URL/i.test(error.message),
+    );
+  } finally {
+    if (previousGatewayUrl === undefined) {
+      delete process.env.OPENCLAW_GATEWAY_URL;
+    } else {
+      process.env.OPENCLAW_GATEWAY_URL = previousGatewayUrl;
+    }
+    if (previousGatewayToken === undefined) {
+      delete process.env.OPENCLAW_GATEWAY_TOKEN;
+    } else {
+      process.env.OPENCLAW_GATEWAY_TOKEN = previousGatewayToken;
+    }
+  }
+});
+
 test('resumeOpenClawLobsterWorkflow preserves detailed gateway failure messages from error.details', async () => {
   const previousGatewayUrl = process.env.OPENCLAW_GATEWAY_URL;
   const previousGatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN;

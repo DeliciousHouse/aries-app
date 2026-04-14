@@ -8,7 +8,7 @@ description: Generate the Aries daily brief and return only its concise operatio
 Use this skill when the Aries daily brief should run on demand or from cron.
 
 ## Required procedure
-1. Work in `/app/aries-app`.
+1. Work in `/home/node/openclaw/aries-app`.
 2. Run:
    - `node scripts/automations/daily-brief.mjs`
 3. Do not add extra narration around the result.

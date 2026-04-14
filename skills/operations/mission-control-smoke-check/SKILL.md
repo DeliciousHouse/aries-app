@@ -17,7 +17,7 @@ Use this skill to run a fast, truthful smoke check against the live Mission Cont
 
 ## Required execution pattern
 
-From the repo root `/app/aries-app`, run:
+From the repo root `/home/node/openclaw/aries-app`, run:
 
 ```bash
 node skills/operations/mission-control-smoke-check/scripts/run-smoke-check.mjs

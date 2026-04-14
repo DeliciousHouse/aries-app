@@ -3,7 +3,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { execFileSync } from 'node:child_process';
 
-const expectedRoot = process.env.ARIES_CANONICAL_REPO_ROOT || '/app/aries-app';
+const expectedRoot = process.env.ARIES_CANONICAL_REPO_ROOT || '/home/node/openclaw/aries-app';
 const requiredMarkers = ['package.json', 'README-runtime.md', 'app', 'backend', 'tests'];
 
 function fail(message) {

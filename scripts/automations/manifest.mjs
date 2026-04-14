@@ -24,12 +24,28 @@ export const automationJobs = [
     purpose: 'Generate the morning priorities/overnight activity/pending actions brief.',
   },
   {
+    id: 'aries-daily-standup',
+    name: 'Aries daily standup',
+    cron: '30 8,13,17 * * 1-5',
+    tz: 'America/Los_Angeles',
+    skill: 'aries-daily-standup-orchestrator',
+    purpose: 'Generate the board-derived Aries chief standup, write the transcript and per-chief reports to /home/node/.openclaw/projects/shared/teams, and announce the concise operational summary.',
+  },
+  {
+    id: 'aries-standup-watchdog',
+    name: 'Aries standup watchdog',
+    cron: '50 8,13,17 * * 1-5',
+    tz: 'America/Los_Angeles',
+    skill: 'aries-standup-watchdog',
+    purpose: 'Verify that the current standup transcript and per-chief reports exist in /home/node/.openclaw/projects/shared/teams and that no forbidden local standup artifacts were recreated.',
+  },
+  {
     id: 'aries-github-feedback-connector',
     name: 'Aries GitHub feedback connector',
     cron: '0 7 * * *',
     tz: 'America/Los_Angeles',
     message:
-      'Work in /app/aries-app. Run node scripts/automations/feedback-connector.mjs sync --json. For each pending bug, use the bug-triage skill. For each pending feature, use the feature-pipeline skill. Update data/feedback-processing-log.json after each item with node scripts/automations/feedback-connector.mjs mark --number <issue> --patch-json <json>. Return only: status, critical_alerts, bugs_processed, features_processed, batched_for_summary, errors.',
+      'Work in /home/node/openclaw/aries-app. Run node scripts/automations/feedback-connector.mjs sync --json. For each pending bug, use the bug-triage skill. For each pending feature, use the feature-pipeline skill. Update data/feedback-processing-log.json after each item with node scripts/automations/feedback-connector.mjs mark --number <issue> --patch-json <json>. Return only: status, critical_alerts, bugs_processed, features_processed, batched_for_summary, errors.',
     purpose: 'Sync GitHub issues, classify bug vs feature, route each pending item to the correct skill workflow, and update the processing log.',
   },
   {
@@ -38,8 +54,26 @@ export const automationJobs = [
     cron: '0 18 * * *',
     tz: 'America/Los_Angeles',
     message:
-      'Work in /app/aries-app. Run node scripts/automations/feedback-daily-summary.mjs --mark-sent. Return only the emitted summary.',
+      'Work in /home/node/openclaw/aries-app. Run node scripts/automations/feedback-daily-summary.mjs --mark-sent. Return only the emitted summary.',
     purpose: 'Deliver the daily batch summary for non-critical GitHub feedback items that were processed and logged.',
+  },
+  {
+    id: 'aries-runtime-error-intake',
+    name: 'Aries runtime error intake',
+    cron: '5,35 * * * *',
+    tz: 'America/Los_Angeles',
+    message:
+      'Read and follow: /home/node/openclaw/aries-app/skills/aries-runtime-error-intake/SKILL.md\n\nContext:\n- Project: /home/node/openclaw/aries-app\n- Incident log: /home/node/openclaw/aries-app/data/runtime-error-incidents.json\n- Delivery lane: Discord #ai-engineering with Telegram fallback handled by the cron delivery config.',
+    purpose: 'Scan Aries runtime and automation health, normalize failures into the runtime incident log, and announce the concise detection/resolution summary.',
+  },
+  {
+    id: 'aries-runtime-error-repair-loop',
+    name: 'Aries runtime error repair loop',
+    cron: '10,40 * * * *',
+    tz: 'America/Los_Angeles',
+    message:
+      'Read and follow: /home/node/openclaw/aries-app/skills/aries-runtime-error-repair-loop/SKILL.md\n\nContext:\n- Project: /home/node/openclaw/aries-app\n- Incident log: /home/node/openclaw/aries-app/data/runtime-error-incidents.json\n- Delivery lane: Discord #ai-engineering with Telegram fallback handled by the cron delivery config.',
+    purpose: 'Work the highest-priority repairable runtime incident with a bounded fix loop, validate the result, and announce the concise resolution or escalation summary.',
   },
   {
     id: 'aries-system-reference-rollup',

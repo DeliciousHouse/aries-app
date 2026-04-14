@@ -19,7 +19,7 @@ export type ProviderOAuthAvailability = {
 const SHARED_TOKEN_ENV = 'OAUTH_TOKEN_ENCRYPTION_KEY';
 
 const PROVIDER_ENV_CONTRACT: Record<ProviderKey, ProviderEnvContract> = {
-  facebook: { authEnv: ['META_APP_ID', 'META_APP_SECRET'], connectionMode: 'oauth' },
+  facebook: { authEnv: ['META_PAGE_ID', 'META_ACCESS_TOKEN'], connectionMode: 'env_managed' },
   instagram: { authEnv: ['META_PAGE_ID', 'META_ACCESS_TOKEN'], connectionMode: 'env_managed' },
   linkedin: { authEnv: ['LINKEDIN_CLIENT_ID', 'LINKEDIN_CLIENT_SECRET'], connectionMode: 'oauth' },
   x: { authEnv: ['X_CLIENT_ID', 'X_CLIENT_SECRET'], connectionMode: 'oauth' },
@@ -53,11 +53,8 @@ function callbackPathFor(provider: ProviderKey): string {
 }
 
 function buildMissingEnvMessage(provider: ProviderKey, missingEnv: string[]): string {
-  if (provider === 'facebook') {
-    return 'Meta is not connected yet.';
-  }
-  if (provider === 'instagram') {
-    return 'Instagram publishing needs to be connected.';
+  if (provider === 'facebook' || provider === 'instagram') {
+    return 'Meta publishing needs META_PAGE_ID and META_ACCESS_TOKEN.';
   }
   if (missingEnv.includes(SHARED_TOKEN_ENV)) {
     return 'Contact support to finish channel setup.';
@@ -66,8 +63,8 @@ function buildMissingEnvMessage(provider: ProviderKey, missingEnv: string[]): st
 }
 
 function buildEnvManagedMessage(provider: ProviderKey): string {
-  if (provider === 'instagram') {
-    return 'Instagram publishing needs to be connected.';
+  if (provider === 'facebook' || provider === 'instagram') {
+    return 'Meta is configured outside Aries OAuth. Use META_PAGE_ID and META_ACCESS_TOKEN.';
   }
   return 'Contact support to finish channel setup.';
 }

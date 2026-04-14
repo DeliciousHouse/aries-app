@@ -8,7 +8,7 @@ description: Refresh the Aries rolling system reference and return only its conc
 Use this skill when the Aries rolling system reference should run on demand or from cron.
 
 ## Required procedure
-1. Work in `/app/aries-app`.
+1. Work in `/home/node/openclaw/aries-app`.
 2. Run:
    - `node scripts/automations/rolling-system-reference.mjs`
 3. Do not add extra narration around the result.

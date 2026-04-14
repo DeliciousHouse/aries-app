@@ -11,7 +11,7 @@ const target = process.env.ARIES_CRON_TARGET || ''
 
 function buildSkillPrompt(skill) {
   return [
-    'Work in /app/aries-app.',
+    `Work in ${repoRoot}.`,
     `Use the ${skill} skill.`,
     'Follow the skill exactly.',
     'Return only the concise operational summary defined by the skill.',
