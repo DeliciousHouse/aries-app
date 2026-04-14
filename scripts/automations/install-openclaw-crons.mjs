@@ -9,6 +9,15 @@ const agent = process.env.ARIES_CRON_AGENT || 'default'
 const channel = process.env.ARIES_CRON_CHANNEL || ''
 const target = process.env.ARIES_CRON_TARGET || ''
 
+function buildSkillPrompt(skill) {
+  return [
+    `Work in ${repoRoot}.`,
+    `Use the ${skill} skill.`,
+    'Follow the skill exactly.',
+    'Return only the concise operational summary defined by the skill.',
+  ].join(' ')
+}
+
 function buildPrompt(job) {
   const MAX_PROMPT_LINES = 20
   const contextLines = [

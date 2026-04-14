@@ -4,7 +4,6 @@ import {
   currentDateInfo,
   emitSummary,
   parseArgs,
-  preflightOrExit,
   run,
   writeText,
 } from './lib/common.mjs'
@@ -72,13 +71,11 @@ function countByStatus(tasks) {
 
 function formatCounts(counts) {
   const ordered = ['active', 'review', 'ready', 'follow-up', 'intake', 'shipped']
-  const lines = ordered
-    .filter((status) => counts[status])
-    .map((status) => `${status} ${counts[status]}`)
+  const lines = ordered.filter((status) => counts[status]).map((status) => `${status} ${counts[status]}`)
   return lines.length ? lines.join(', ') : 'no tracked items'
 }
 
-function bulletize(items, fallback) {
+function bulletize(items, fallback = 'None.') {
   return items.length ? items.map((item) => `- ${item}`) : [`- ${fallback}`]
 }
 
@@ -102,6 +99,36 @@ function laneReport({ laneId, laneLabel, title, tasks, extraCurrent = [], extraB
     laneId,
     title,
     reportStatus,
+    activeTaskId: topTask?.id || null,
+    currentStatus: topTask?.status || 'unknown',
+    boardSummary: {
+      trackedItems: tasks.length,
+      statusCounts: counts,
+    },
+    blockers: [
+      ...blockedTasks.map((task) => ({ taskId: task.id, status: task.status, priority: task.priority || 'unknown' })),
+      ...extraBlockers.map((summary) => ({ summary })),
+    ],
+    humanDependencies: [],
+    needsJarvisRouting: blockedTasks.length
+      ? [
+          {
+            summary: `Reconcile blocked ${chiefId} lane items before claiming closure.`,
+            requestedAction: 'Review blocked lane items and stale board status.',
+            nextAction: 'Update or reroute the blocked lane item.',
+          },
+        ]
+      : [],
+    notes: [
+      topTask ? `Board truth: top lane task is ${topTask.id} in ${topTask.status}.` : 'No current lane task is visible on the board.',
+      `Lane snapshot: ${tasks.length} tracked item(s), ${formatCounts(counts)}.`,
+      ...extraCurrent,
+    ],
+  }
+
+  return {
+    ...report,
+    title,
     topTask,
     markdown: [
       `### ${title}`,
@@ -111,17 +138,10 @@ function laneReport({ laneId, laneLabel, title, tasks, extraCurrent = [], extraB
       `- Current status: ${topTask?.status || 'unknown'}`,
       '',
       '#### Current Status',
-      ...bulletize([
-        topTask ? `Board truth: top lane task is \`${topTask.id}\` in \`${topTask.status}\` with priority ${topTask.priority || 'unknown'}.` : 'No current lane task is visible on the board.',
-        `Lane snapshot: ${tasks.length} tracked item(s), ${formatCounts(counts)}.`,
-        ...extraCurrent,
-      ].filter(Boolean), 'No current status notes.'),
+      ...bulletize(report.notes.filter(Boolean), 'No current status notes.'),
       '',
       '#### Blockers',
-      ...bulletize([
-        ...blockedTasks.map((task) => `Blocked board item: \`${task.id}\` (${task.status}, ${task.priority || 'unknown'}).`),
-        ...extraBlockers,
-      ].filter(Boolean), 'No blockers are flagged in board truth for this lane.'),
+      ...bulletize(report.blockers.map((item) => item.summary || `Blocked board item: \`${item.taskId}\` (${item.status}, ${item.priority}).`), 'No blockers are flagged in board truth for this lane.'),
       '',
       '#### Next Actions',
       ...bulletize(blockedTasks.length ? ['Review blocked board items before claiming closure.'] : [], 'No additional routing request is required from current board truth.'),
@@ -173,10 +193,8 @@ const operations = laneReport({
   extraBlockers: !workspaceVerify.ok ? [`Workspace verification failed: ${workspaceVerifyStatus}.`] : [],
 })
 
-function blockedLaneTasks(tasks, laneLabel) {
-  return tasks
-    .filter((task) => task.blocked)
-    .map((task) => `${laneLabel} lane blocked: \`${task.id}\` remains blocked on the board.`)
+function blockedLaneTasks(items, laneLabel) {
+  return items.filter((task) => task.blocked).map((task) => `${laneLabel} lane blocked: \`${task.id}\` remains blocked on the board.`)
 }
 
 const primaryBlockers = [
@@ -187,11 +205,15 @@ const primaryBlockers = [
   ...(!workspaceVerify.ok ? [`Workspace verification failed: ${workspaceVerifyStatus}.`] : []),
 ]
 
+const automationCaveats = [
+  'Runtime lane remains partial because this automation does not claim live scheduler truth without a direct runtime probe.',
+]
+
 const overallStatus = primaryBlockers.length ? 'partial' : 'complete'
 const transcript = [
   '---',
-  `standup_id: daily-standup-${date}`,
-  `title: Daily Standup — ${date}`,
+  `standup_id: ${standupId}`,
+  `title: ${standupTitle}`,
   `date: ${date}`,
   `generated_at: ${new Date().toISOString()}`,
   `status: ${overallStatus}`,
@@ -199,7 +221,7 @@ const transcript = [
   `board_path: ${board.source?.path || BOARD_PATH}`,
   '---',
   '',
-  `# Daily Standup — ${date}`,
+  `# ${standupTitle}`,
   '',
   '## Top Summary',
   `- Overall status: ${overallStatus}.`,
@@ -214,6 +236,8 @@ const transcript = [
   `- workspace_verify: ${workspaceVerify.ok ? 'passed' : 'failed'}`,
   '- primary_blockers:',
   ...bulletize(primaryBlockers, 'No primary blockers.'),
+  '- automation_caveats:',
+  ...bulletize(automationCaveats),
   '',
   '## Lane Reports',
   '',
@@ -222,17 +246,22 @@ const transcript = [
   operations.markdown,
   '## Delivery Notes',
   `- Standup transcript archived at \`${sharedTranscriptPath}\`.`,
+  `- Structured chief reports archived at \`${sharedStandupDir}\`.`,
   '- This cron run is board-derived and truthful about unavailable live runtime detail.',
   '',
 ].join('\n')
 
 if (!dryRun) {
   writeText(sharedTranscriptPath, transcript)
+  writeJson(path.join(sharedStandupDir, 'forge-report.json'), forge)
+  writeJson(path.join(sharedStandupDir, 'signal-report.json'), signal)
+  writeJson(path.join(sharedStandupDir, 'ledger-report.json'), ledger)
 }
 
 emitSummary([
   dryRun ? 'DAILY STANDUP DRY RUN' : overallStatus === 'complete' ? 'DAILY STANDUP OK' : 'DAILY STANDUP PARTIAL',
   `- transcript: ${sharedTranscriptPath}`,
+  `- reports: ${sharedStandupDir}`,
   `- workspace verify: ${workspaceVerify.ok ? 'passed' : `failed (${workspaceVerifyStatus})`}`,
   `- delivery: ${delivery.topTask ? `${delivery.topTask.status} / ${delivery.topTask.id}` : 'no visible task'}`,
   `- runtime: ${runtime.topTask ? `${runtime.topTask.status} / ${runtime.topTask.id}` : 'no visible task'}`,

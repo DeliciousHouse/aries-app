@@ -2,7 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const explicitCodeRoot = process.env.CODE_ROOT?.trim();
-const root = explicitCodeRoot ? path.resolve(explicitCodeRoot) : process.cwd();
+const candidateRoot = explicitCodeRoot ? path.resolve(explicitCodeRoot) : null;
+const root =
+  candidateRoot && fs.existsSync(path.join(candidateRoot, 'package.json'))
+    ? candidateRoot
+    : process.cwd();
 
 const required = [
   'package.json',
@@ -49,7 +53,7 @@ if (missingScripts.length > 0) {
 }
 
 const providerEnv = {
-  facebook: ['META_APP_ID', 'META_APP_SECRET'],
+  facebook: ['META_PAGE_ID', 'META_ACCESS_TOKEN'],
   instagram: ['META_PAGE_ID', 'META_ACCESS_TOKEN'],
   linkedin: ['LINKEDIN_CLIENT_ID', 'LINKEDIN_CLIENT_SECRET'],
   reddit: ['REDDIT_CLIENT_ID', 'REDDIT_CLIENT_SECRET'],
@@ -69,7 +73,7 @@ const providerMisconfigurations = Object.entries(providerEnv).flatMap(([provider
     return [];
   }
 
-  const needsTokenEncryption = provider !== 'instagram';
+  const needsTokenEncryption = provider !== 'instagram' && provider !== 'facebook';
   const missingEnv =
     missingProviderEnv.length > 0
       ? missingProviderEnv
@@ -92,7 +96,7 @@ if (providerMisconfigurations.length > 0) {
 const configuredProviders = Object.entries(providerEnv)
   .filter(([provider, names]) =>
     names.every((name) => envSet(name)) &&
-    (provider === 'instagram' || envSet('OAUTH_TOKEN_ENCRYPTION_KEY'))
+    (provider === 'instagram' || provider === 'facebook' || envSet('OAUTH_TOKEN_ENCRYPTION_KEY'))
   )
   .map(([provider]) => provider);
 

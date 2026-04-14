@@ -7,11 +7,13 @@ description: Generate the morning daily brief with priorities, overnight git act
 
 Morning briefing document that aggregates priorities, overnight activity, pending actions, and workspace state into a single markdown file.
 
-## Prerequisites
-- `PRIORITIES.md` exists (source for today's priorities)
-- `ROADMAP.md` and `HEARTBEAT.md` exist (source for pending action items)
-- Git history available for last 24 hours
-- `memory/` directory may contain overnight automation notes
+## Required procedure
+1. Work in `/home/node/openclaw/aries-app`.
+2. Run:
+   - `node scripts/automations/daily-brief.mjs`
+3. Do not add extra narration around the result.
+4. If the script succeeds, return only the concise summary emitted by the script.
+5. If the script fails, return only the failure summary plus the next corrective action reported by the script.
 
 ## Steps
 

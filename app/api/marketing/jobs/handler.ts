@@ -342,6 +342,10 @@ export async function handlePostMarketingJobs(
       return NextResponse.json({ error: message }, { status: 400 });
     }
 
+    console.error('[marketing-job-create] unhandled error', {
+      message,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     return NextResponse.json(
       {
         error: message,

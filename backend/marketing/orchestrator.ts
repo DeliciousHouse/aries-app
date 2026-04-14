@@ -407,6 +407,7 @@ async function runMarketingPipeline(doc: MarketingJobRuntimeDocument): Promise<L
     argsJson: JSON.stringify(marketingPipelineArgs(doc)),
     timeoutMs: marketingWorkflowTimeoutMs(),
     maxStdoutBytes: marketingWorkflowMaxStdoutBytes(),
+    allowLocalFallback: false,
   });
 }
 
@@ -419,6 +420,7 @@ async function resumeMarketingPipeline(resumeToken: string, approve = true): Pro
     localCwd,
     timeoutMs: marketingWorkflowTimeoutMs(),
     maxStdoutBytes: marketingWorkflowMaxStdoutBytes(),
+    allowLocalFallback: false,
   });
 }
 

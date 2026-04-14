@@ -243,12 +243,19 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
 
         <ShellPanel eyebrow="Decision" title="Choose what happens next">
           <div className="space-y-4">
-            <textarea
-              value={note}
-              onChange={(event) => setNote(event.target.value.slice(0, 600))}
-              placeholder={reviewItem.notePlaceholder || 'Share any revision context for the team'}
-              className="w-full rounded-[1.25rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-white placeholder:text-white/30"
-            />
+            <div>
+              <textarea
+                value={note}
+                onChange={(event) => setNote(event.target.value.slice(0, 600))}
+                placeholder={reviewItem.notePlaceholder || 'Share any revision context for the team'}
+                className="w-full rounded-[1.25rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-white placeholder:text-white/30"
+                maxLength={600}
+                aria-describedby="note-char-count"
+              />
+              <p id="note-char-count" className={`mt-1.5 text-right text-xs tabular-nums ${note.length >= 550 ? 'text-amber-400/70' : 'text-white/30'}`}>
+                {note.length} / 600
+              </p>
+            </div>
             <div className="flex flex-wrap gap-3">
               <button
                 type="button"

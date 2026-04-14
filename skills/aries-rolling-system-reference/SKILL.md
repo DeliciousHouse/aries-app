@@ -7,10 +7,13 @@ description: Refresh docs/SYSTEM-REFERENCE.md with current architecture, module 
 
 Nightly refresh of the system reference document that captures architecture, file inventory, cron schedules, and known issues.
 
-## Prerequisites
-- `package.json` exists (source for runtime scripts)
-- `scripts/automations/manifest.mjs` importable (source for cron job listing)
-- Git history available for today's changes
+## Required procedure
+1. Work in `/home/node/openclaw/aries-app`.
+2. Run:
+   - `node scripts/automations/rolling-system-reference.mjs`
+3. Do not add extra narration around the result.
+4. If the script succeeds, return only the concise summary emitted by the script.
+5. If the script fails, return only the failure summary plus the next corrective action reported by the script.
 
 ## Steps
 

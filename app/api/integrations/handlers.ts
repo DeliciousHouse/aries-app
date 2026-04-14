@@ -176,7 +176,9 @@ export async function buildIntegrationsPageDataAsync(tenantId: string) {
         health: mapHealth(status.connection_status, status.token_expires_at),
         available_actions:
           status.connection_status === 'connected'
-            ? ['sync_now', 'disconnect', 'view_permissions']
+            ? status.status_reason === 'env_managed'
+              ? ['view_permissions']
+              : ['sync_now', 'disconnect', 'view_permissions']
             : status.connection_status === 'token_expired' ||
                 status.connection_status === 'revoked' ||
                 status.connection_status === 'permission_denied'
