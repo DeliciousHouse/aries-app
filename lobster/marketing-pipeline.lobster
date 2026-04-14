@@ -209,22 +209,17 @@ steps:
     stdin: $stage_3_review_preview.json
     when: $approve_stage_3.approved
 
-  - id: approve_stage_4
-    command: >
-      python3 ./bin/_approval_bridge
-      --prompt "Stage 3 complete. Approve the creative assets and continue to Stage 4 publishing?"
-      --stage stage-3
-      --action-label "Approve production"
-    stdin: $stage_3_finalize.json
-    approval: required
-
+  # Stage 4 preflight + launch review now run BEFORE the approve_stage_4 gate so the
+  # user sees real platform previews and the 30-day funnel-weighted content calendar
+  # at the approval surface. Without this reorder, the gate asks for approval on a
+  # creative package the UI cannot yet display (launch-review-preview hasn't run).
   - id: stage_4_preflight
     command: >
       python3 ./bin/performance-marketer --json
       --mode preflight
       --brand-slug "${brand_slug}"
     stdin: $stage_3_finalize.json
-    when: $approve_stage_4.approved
+    when: $approve_stage_3.approved
 
   - id: stage_4_launch_review
     command: >
@@ -233,12 +228,21 @@ steps:
       --launch-approved false
       --notify-chat false
     stdin: $stage_4_preflight.json
-    when: $approve_stage_4.approved
+    when: $approve_stage_3.approved
+
+  - id: approve_stage_4
+    command: >
+      python3 ./bin/_approval_bridge
+      --prompt "Stage 3 creative and the 30-day launch calendar are ready. Approve the package to continue to publish?"
+      --stage stage-4-launch-review
+      --action-label "Approve production"
+    stdin: $stage_4_launch_review.json
+    approval: required
 
   - id: approve_stage_4_publish
     command: >
       python3 ./bin/_approval_bridge
-      --prompt "Stage 4 pre-flight complete. Approve creation of the Meta campaigns, ad sets, and ads as PAUSED?"
+      --prompt "Approve creation of the Meta campaigns, ad sets, and ads as PAUSED?"
       --stage stage-4-launch-review
       --action-label "Approve launch"
     stdin: $stage_4_launch_review.json

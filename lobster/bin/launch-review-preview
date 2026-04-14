@@ -680,6 +680,13 @@ def main() -> int:
             "message": approval_message,
         },
         "review_bundle": review_bundle,
+        # Pass through the production handoff from upstream (stage_4_preflight reads it
+        # from stage_3_finalize) so that when this payload is forwarded as
+        # `requiresApproval.items[0]` at the approve_stage_4 gate, the aries
+        # orchestrator's finalizeProductionAndRunPublishReview can still extract
+        # `primaryOutput.production_handoff` and persist it to
+        # `stages.production.outputs.production_handoff` on the runtime doc.
+        "production_handoff": data.get("production_handoff"),
         "artifacts": {
             "preview_path": preview_path,
         },
