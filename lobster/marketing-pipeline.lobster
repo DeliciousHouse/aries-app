@@ -22,7 +22,7 @@ args:
     default: ""
   brand_slug:
     default: client-brand
-cwd: aries-app/lobster
+cwd: lobster
 steps:
   - id: validate_root_args
     env:
@@ -98,7 +98,11 @@ steps:
 
   - id: approve_stage_2
     command: >
-      printf '%s\n' '{"prompt":"Stage 1 complete. Continue to Stage 2 and run head-of-marketing for the provided brand_url?"}'
+      python3 ./bin/_approval_bridge
+      --prompt "Stage 1 complete. Continue to Stage 2 and run head-of-marketing for the provided brand_url?"
+      --stage stage-1
+      --action-label "Approve research"
+    stdin: $stage_1_compile.json
     approval: required
 
   - id: stage_2_brand_kit
@@ -147,7 +151,11 @@ steps:
 
   - id: approve_stage_3
     command: >
-      printf '%s\n' '{"prompt":"Stage 2 complete. Approve the campaign proposal and continue to Stage 3 production?"}'
+      python3 ./bin/_approval_bridge
+      --prompt "Stage 2 complete. Approve the campaign proposal and continue to Stage 3 production?"
+      --stage stage-2
+      --action-label "Approve strategy"
+    stdin: $stage_2_finalize.json
     approval: required
 
   - id: stage_3_preflight
@@ -203,7 +211,11 @@ steps:
 
   - id: approve_stage_4
     command: >
-      printf '%s\n' '{"prompt":"Stage 3 complete. Approve the creative assets and continue to Stage 4 publishing?"}'
+      python3 ./bin/_approval_bridge
+      --prompt "Stage 3 complete. Approve the creative assets and continue to Stage 4 publishing?"
+      --stage stage-3
+      --action-label "Approve production"
+    stdin: $stage_3_finalize.json
     approval: required
 
   - id: stage_4_preflight
@@ -225,7 +237,11 @@ steps:
 
   - id: approve_stage_4_publish
     command: >
-      printf '%s\n' '{"prompt":"Stage 4 pre-flight complete. Approve creation of the Meta campaigns, ad sets, and ads as PAUSED?"}'
+      python3 ./bin/_approval_bridge
+      --prompt "Stage 4 pre-flight complete. Approve creation of the Meta campaigns, ad sets, and ads as PAUSED?"
+      --stage stage-4-launch-review
+      --action-label "Approve launch"
+    stdin: $stage_4_launch_review.json
     approval: required
     when: $approve_stage_4.approved
 

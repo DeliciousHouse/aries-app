@@ -2,6 +2,7 @@
 import argparse
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -87,6 +88,101 @@ def _preview_state(actual_media_paths: list[str]) -> str:
     return "generated_preview" if actual_media_paths else "contract_only"
 
 
+CAMPAIGN_WINDOW_DAYS = 30
+CAMPAIGN_COLD_WINDOW_DAYS = 14  # cold/TOFU content lands in weeks 1-2
+CAMPAIGN_POST_HOUR_UTC = 14     # 14:00 UTC default posting time
+
+
+def _iso_z(dt) -> str:
+    """Serialize a datetime as the UTC Z-suffix format the UI expects."""
+    return dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+def _schedule_event_time(start_day_dt, day_offset: int):
+    return start_day_dt.replace(hour=CAMPAIGN_POST_HOUR_UTC, minute=0, second=0, microsecond=0) + timedelta(days=day_offset)
+
+
+def _funnel_weighted_offsets(count: int, window_days: int) -> list[int]:
+    """Return day offsets for `count` events spread evenly across `window_days`.
+    Uses the open-interval midpoint spacing so events avoid day 0 and the final day."""
+    if count <= 0 or window_days <= 0:
+        return []
+    step = window_days / (count + 1)
+    offsets = [min(window_days - 1, max(0, round(step * (index + 1)))) for index in range(count)]
+    # Deduplicate while preserving order; pad by nudging forward when two events land on the same day.
+    used: set[int] = set()
+    result: list[int] = []
+    for offset in offsets:
+        actual = offset
+        while actual in used and actual < window_days:
+            actual += 1
+        used.add(actual)
+        result.append(min(actual, window_days - 1))
+    return result
+
+
+def _build_content_calendar(platform_previews: list[dict], approved_at) -> dict:
+    """Distribute platform_previews across a 30-day funnel-weighted campaign window.
+
+    - Cold / TOFU previews get scheduled in days 0..CAMPAIGN_COLD_WINDOW_DAYS
+    - Warm / MOFU / BOFU previews get scheduled in days CAMPAIGN_COLD_WINDOW_DAYS..CAMPAIGN_WINDOW_DAYS
+    - Within each bucket, events are spread evenly at CAMPAIGN_POST_HOUR_UTC
+    """
+    start_of_day = approved_at.replace(hour=0, minute=0, second=0, microsecond=0)
+    cold_previews: list[dict] = []
+    warm_previews: list[dict] = []
+    for preview in platform_previews:
+        funnel = str(_as_dict(preview).get("funnel_stage") or "cold").lower()
+        (cold_previews if funnel in {"cold", "tofu"} else warm_previews).append(_as_dict(preview))
+
+    events: list[dict] = []
+    cold_window = CAMPAIGN_COLD_WINDOW_DAYS
+    warm_window = CAMPAIGN_WINDOW_DAYS - CAMPAIGN_COLD_WINDOW_DAYS
+
+    for preview, offset in zip(cold_previews, _funnel_weighted_offsets(len(cold_previews), cold_window)):
+        starts_at_dt = _schedule_event_time(start_of_day, offset)
+        family_id = _as_str(preview.get("family_id"), _as_str(preview.get("platform_slug"), "preview"))
+        events.append(
+            {
+                "id": f"evt-{_as_str(preview.get('platform_slug'), 'platform')}-{family_id}",
+                "starts_at": _iso_z(starts_at_dt),
+                "ends_at": None,
+                "platform": _as_str(preview.get("platform_slug"), "unknown"),
+                "platform_name": _as_str(preview.get("platform_name"), _as_str(preview.get("platform_slug"), "Platform")),
+                "title": _as_str(preview.get("family_name"), _as_str(preview.get("headline"), "Scheduled campaign post")),
+                "status": "planned",
+                "funnel_stage": "cold",
+                "asset_preview_id": _as_str(preview.get("asset_preview_id")) or None,
+            }
+        )
+
+    for preview, offset in zip(warm_previews, _funnel_weighted_offsets(len(warm_previews), warm_window)):
+        starts_at_dt = _schedule_event_time(start_of_day, CAMPAIGN_COLD_WINDOW_DAYS + offset)
+        family_id = _as_str(preview.get("family_id"), _as_str(preview.get("platform_slug"), "preview"))
+        events.append(
+            {
+                "id": f"evt-{_as_str(preview.get('platform_slug'), 'platform')}-{family_id}",
+                "starts_at": _iso_z(starts_at_dt),
+                "ends_at": None,
+                "platform": _as_str(preview.get("platform_slug"), "unknown"),
+                "platform_name": _as_str(preview.get("platform_name"), _as_str(preview.get("platform_slug"), "Platform")),
+                "title": _as_str(preview.get("family_name"), _as_str(preview.get("headline"), "Scheduled campaign post")),
+                "status": "planned",
+                "funnel_stage": "warm",
+                "asset_preview_id": _as_str(preview.get("asset_preview_id")) or None,
+            }
+        )
+
+    events.sort(key=lambda event: event.get("starts_at") or "")
+    return {
+        "window_start": _iso_z(start_of_day),
+        "window_end": _iso_z(start_of_day + timedelta(days=CAMPAIGN_WINDOW_DAYS)),
+        "window_days": CAMPAIGN_WINDOW_DAYS,
+        "cadence": "funnel-weighted",
+        "events": events,
+    }
+
+
 def _stage3_static_asset_previews(production_handoff: dict) -> list[dict]:
     artifacts = _as_dict(_as_dict(production_handoff.get("artifacts")).get("ad_designer"))
     production_brief = _as_dict(artifacts.get("production_brief"))
@@ -94,6 +190,75 @@ def _stage3_static_asset_previews(production_handoff: dict) -> list[dict]:
     ad_artifacts = _as_dict(artifacts.get("artifacts"))
     hook = _as_str(_as_dict(script_assets.get("meta_ad_script")).get("hook"), _as_str(_as_dict(production_brief).get("core_message")))
     cta = _as_str(_as_dict(production_brief).get("primary_cta"))
+    brief_proof_points = [
+        line
+        for line in _as_list(_as_dict(production_brief).get("proof_points"))
+        if isinstance(line, str) and line.strip()
+    ][:3]
+    script_body = [
+        line
+        for line in _as_list(_as_dict(script_assets.get("meta_ad_script")).get("body"))
+        if isinstance(line, str) and line.strip()
+    ]
+
+    family_images = _as_list(ad_artifacts.get("family_images"))
+    if family_images:
+        # One preview per family — this is the per-concept surface the dashboard
+        # iterates to build the calendar tiles and the review UI cards.
+        previews: list[dict] = []
+        for index, family in enumerate(family_images):
+            family_entry = _as_dict(family)
+            image_path = _as_str(family_entry.get("image_path"))
+            fallback_path = _as_str(family_entry.get("fallback_svg_path"))
+            actual_media_paths = _existing_file_paths([image_path, fallback_path])
+            if not actual_media_paths:
+                continue
+            family_hook = _as_str(family_entry.get("hook"), hook)
+            family_angle = _as_str(family_entry.get("angle"))
+            family_name = _as_str(family_entry.get("family_name"), _as_str(family_entry.get("family_id"), f"Family {index + 1}"))
+            funnel_stage = _as_str(family_entry.get("funnel_stage"), "cold")
+            family_id = _as_str(family_entry.get("family_id"), f"family-{index + 1}")
+            caption_text = "\n".join([line for line in (family_angle, *script_body) if line])
+            previews.append(
+                {
+                    "platform_slug": "meta-ads",
+                    "platform_name": "Meta Feed",
+                    "channel_type": "static",
+                    "asset_preview_id": f"platform-preview-meta-ads-{family_id}",
+                    "family_id": family_id,
+                    "family_name": family_name,
+                    "funnel_stage": funnel_stage,
+                    "summary": f"{family_name} — Meta Feed concept ready for launch review.",
+                    "headline": family_hook,
+                    "caption_text": caption_text,
+                    "cta": cta,
+                    "hook": family_hook,
+                    "proof_points": brief_proof_points,
+                    "media_paths": actual_media_paths,
+                    "expected_output_paths": [],
+                    "preview_status": _preview_state(actual_media_paths),
+                    "asset_paths": {
+                        "spec_path": _as_str(ad_artifacts.get("canonical_spec_path"), _as_str(ad_artifacts.get("spec_path"))),
+                        "generation_log_path": _as_str(_as_dict(family_entry.get("nano_banana")).get("output_path")),
+                    },
+                    "preview_text": "\n".join(
+                        [
+                            f"Family: {family_name} ({funnel_stage})",
+                            f"Headline: {family_hook or 'n/a'}",
+                            f"CTA: {cta or 'n/a'}",
+                            *(f"Preview asset: {path}" for path in actual_media_paths[:2]),
+                        ]
+                    ),
+                    "format": {
+                        "aspect_ratio": _as_str(family_entry.get("aspect_ratio"), "4:5"),
+                        "target_size": "1080x1350",
+                    },
+                }
+            )
+        if previews:
+            return previews
+        # Fall through to legacy behaviour when no family image actually rendered on disk.
+
     entries = [
         {
             "platform_slug": "meta-feed",
@@ -136,22 +301,13 @@ def _stage3_static_asset_previews(production_handoff: dict) -> list[dict]:
                 "platform_slug": entry["platform_slug"],
                 "platform_name": entry["platform_name"],
                 "channel_type": "static",
+                "asset_preview_id": f"platform-preview-{entry['platform_slug']}",
                 "summary": entry["summary"],
                 "headline": hook,
-                "caption_text": "\n".join(
-                    [
-                        line
-                        for line in _as_list(_as_dict(script_assets.get("meta_ad_script")).get("body"))
-                        if isinstance(line, str) and line.strip()
-                    ]
-                ),
+                "caption_text": "\n".join(script_body),
                 "cta": cta,
                 "hook": hook,
-                "proof_points": [
-                    line
-                    for line in _as_list(_as_dict(production_brief).get("proof_points"))
-                    if isinstance(line, str) and line.strip()
-                ][:3],
+                "proof_points": brief_proof_points,
                 "media_paths": actual_media_paths,
                 "expected_output_paths": [],
                 "preview_status": _preview_state(actual_media_paths),
@@ -334,6 +490,9 @@ def _build_review_bundle(data: dict, preview_path: str, approval_message: str, l
         *_build_static_platform_previews(handoff),
         *_build_video_platform_previews(handoff),
     ]
+    approved_at = datetime.now(timezone.utc)
+    content_calendar = _build_content_calendar(platform_previews, approved_at)
+    generated_post_count = len([p for p in platform_previews if _as_list(_as_dict(p).get("media_paths"))])
     return {
         "schema_version": "2026-03-20.launch-review-bundle.v1",
         "campaign_name": _as_str(handoff.get("campaign_name"), _as_str(data.get("campaign_name"))),
@@ -346,7 +505,15 @@ def _build_review_bundle(data: dict, preview_path: str, approval_message: str, l
             "static_contract_count": len(_as_list(static_handoff.get("platform_contract_paths"))),
             "video_contract_count": len(_as_list(video_handoff.get("platform_contract_paths"))),
             "launch_readiness_status": _as_str(_as_dict(handoff.get("launch_readiness")).get("status")),
+            "planned_posts": len(content_calendar.get("events", [])),
+            "created_posts": generated_post_count,
+            "campaign_window": {
+                "start": content_calendar.get("window_start"),
+                "end": content_calendar.get("window_end"),
+                "duration_days": content_calendar.get("window_days"),
+            },
         },
+        "content_calendar": content_calendar,
         "landing_page_preview": {
             "slug": _as_str(landing_page.get("slug")),
             "headline": _as_str(landing_page.get("hero_headline")),

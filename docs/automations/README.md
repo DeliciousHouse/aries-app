@@ -1,6 +1,6 @@
 # Aries automation runbook
 
-This workspace now includes six automation scripts plus a ready-to-apply OpenClaw cron installer. The jobs are designed to run as **isolated cron agent turns** so each execution stays separate from the main conversation.
+This workspace now includes runtime-error intake/repair automation alongside the other repo automations plus a ready-to-apply OpenClaw cron installer. The jobs are designed to run as **isolated cron agent turns** so each execution stays separate from the main conversation.
 
 **Production VM release** (GHCR image publish, then `master` push, GitHub Actions deploy) is **not** part of this cron runbook. See repository **`DOCKER.md`** (*Production release*) and **`docs/SYSTEM-REFERENCE.md`** (*Production release (operational)*).
 
@@ -14,10 +14,13 @@ This workspace now includes six automation scripts plus a ready-to-apply OpenCla
 - `scripts/automations/daily-brief.mjs`
 - `scripts/automations/feedback-connector.mjs`
 - `scripts/automations/feedback-daily-summary.mjs`
+- `scripts/automations/runtime-error-intake.mjs`
+- `scripts/automations/lib/runtime-errors.mjs`
 - `scripts/automations/staging-deploy.mjs`
 - `scripts/automations/rolling-system-reference.mjs`
 - `docs/SYSTEM-REFERENCE.md` — living architecture reference updated by automation 4
 - `docs/briefs/*.md` — morning brief outputs written by automation 3
+- `data/runtime-error-incidents.json` — normalized runtime incident log used by the intake and repair loop
 
 ## Automation inventory
 
@@ -63,12 +66,24 @@ This workspace now includes six automation scripts plus a ready-to-apply OpenCla
 - **Script:** `node scripts/automations/feedback-daily-summary.mjs --mark-sent`
 - **What it does:** batches non-critical processed feedback items into a single delivery summary and clears their `summaryPending` flag.
 
+### 7) Runtime error intake
+
+- **Schedule:** `5,35 * * * *` `America/Los_Angeles`
+- **Script:** `node scripts/automations/runtime-error-intake.mjs scan`
+- **What it does:** runs bounded health checks, opens or reopens runtime incidents in `data/runtime-error-incidents.json`, auto-resolves incidents that no longer reproduce, and emits a concise incident summary for announce delivery.
+
+### 8) Runtime error repair loop
+
+- **Schedule:** `10,40 * * * *` `America/Los_Angeles`
+- **Skill:** `skills/aries-runtime-error-repair-loop/SKILL.md`
+- **What it does:** pulls the highest-priority repairable incident from `data/runtime-error-incidents.json`, records a repair plan, applies a bounded fix, validates the result, refreshes the incident log, and emits a concise resolved/retryable/escalated summary.
+
 ## Install
 
 ### 1. Verify local prerequisites
 
 ```bash
-cd /app/aries-app
+cd /home/node/openclaw/aries-app
 node scripts/automations/verify-automations.mjs
 ```
 
@@ -129,6 +144,8 @@ These are the schedules encoded in `scripts/automations/manifest.mjs`:
 - `0 8 * * *` — daily brief
 - `0 7 * * *` — GitHub feedback connector
 - `0 18 * * *` — GitHub feedback daily summary
+- `5,35 * * * *` — runtime error intake
+- `10,40 * * * *` — runtime error repair loop
 - `45 21 * * *` — rolling OS documentation
 
 ## Verification commands
@@ -141,6 +158,7 @@ node scripts/automations/overnight-self-improve.mjs --dry-run
 node scripts/automations/daily-brief.mjs --dry-run
 node scripts/automations/feedback-connector.mjs sync --dry-run
 node scripts/automations/feedback-daily-summary.mjs --dry-run
+node scripts/automations/runtime-error-intake.mjs scan --dry-run
 node scripts/automations/rolling-system-reference.mjs --dry-run
 ```
 

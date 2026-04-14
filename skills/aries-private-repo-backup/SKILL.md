@@ -8,7 +8,7 @@ description: Run the Aries private GitHub backup automation and return only its 
 Use this skill when the Aries private backup should run on demand or from cron. It now backs up current repo changes by creating or updating a backup PR instead of pushing directly to the base branch.
 
 ## Required procedure
-1. Work in `/app/aries-app`.
+1. Work in `/home/node/openclaw/aries-app`.
 2. Run:
    - `node scripts/automations/private-repo-backup.mjs`
 3. Do not add extra narration around the result.

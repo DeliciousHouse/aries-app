@@ -8,7 +8,7 @@ description: Run the Aries overnight self-improvement automation and return only
 Use this skill when the Aries overnight self-improvement pass should run on demand or from cron.
 
 ## Required procedure
-1. Work in `/app/aries-app`.
+1. Work in `/home/node/openclaw/aries-app`.
 2. Run:
    - `node scripts/automations/overnight-self-improve.mjs`
 3. Do not add extra narration around the result.

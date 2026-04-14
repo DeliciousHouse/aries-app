@@ -6,6 +6,7 @@ import { motion } from 'motion/react';
 import {
   ArrowRight,
   CheckCheck,
+  ChevronDown,
   ChevronRight,
   Globe2,
   Layers3,
@@ -14,11 +15,13 @@ import {
   Zap,
 } from 'lucide-react';
 
-import { StatusChip } from '@/frontend/aries-v1/components';
+import { EmptyStatePanel, ShellPanel, StatusChip } from '@/frontend/aries-v1/components';
 import type { DashboardHomeViewModel } from '@/frontend/aries-v1/view-models/dashboard-home';
+import type { PmBoardStandupSnapshot } from '@/lib/pm-board-standup';
 
 export interface DashboardHomePresenterProps {
   model: DashboardHomeViewModel;
+  latestStandup?: PmBoardStandupSnapshot | null;
   channelsState?: 'loading' | 'ready' | 'error';
   channelsErrorMessage?: string | null;
   /** When set, connected channels with `canDisconnect` show a Disconnect control. */
@@ -37,6 +40,7 @@ type OrbitSurface = {
 
 export default function DashboardHomePresenter({
   model,
+  latestStandup = null,
   channelsState = 'ready',
   channelsErrorMessage,
   onChannelDisconnect,
@@ -538,7 +542,91 @@ export default function DashboardHomePresenter({
             )}
           </div>
         </motion.section>
+
+        <motion.section
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.32 }}
+          className="md:col-span-2"
+        >
+          <ShellPanel eyebrow="PM Board Standup" title={latestStandup ? latestStandup.title : 'Latest standup not available yet'}>
+            {latestStandup ? (
+              <div className="space-y-5">
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs font-medium uppercase tracking-[0.18em] text-white/70">
+                    {latestStandup.date}
+                  </span>
+                  <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium uppercase tracking-[0.18em] ${latestStandup.status === 'complete' ? 'border-emerald-400/25 bg-emerald-400/10 text-emerald-100' : latestStandup.status === 'failed' ? 'border-rose-400/25 bg-rose-400/10 text-rose-100' : 'border-amber-400/25 bg-amber-400/10 text-amber-100'}`}>
+                    {latestStandup.status}
+                  </span>
+                  <span className="text-sm text-white/45">PM Board is the work-state source of truth. This panel surfaces the latest persisted standup artifact.</span>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-3">
+                  <StandupInfoCard label="Board path" value={latestStandup.boardPath || 'Not recorded'} />
+                  <StandupInfoCard label="Transcript" value={latestStandup.transcriptPath} />
+                  <StandupInfoCard label="Chief reports" value={latestStandup.reportDirectory || 'Not recorded'} />
+                </div>
+
+                <div className="rounded-[1.5rem] border border-white/[0.08] bg-black/20 p-5">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Top summary</p>
+                  <p className="mt-3 text-sm leading-7 text-white/70">{latestStandup.preview}</p>
+                </div>
+
+                <details className="rounded-[1.5rem] border border-white/[0.08] bg-white/[0.04]">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-left">
+                    <div>
+                      <p className="text-sm font-semibold text-white">Read full standup</p>
+                      <p className="mt-1 text-sm text-white/50">Expand to read the actual persisted standup transcript in the dashboard.</p>
+                    </div>
+                    <span className="inline-flex items-center gap-2 text-sm text-white/60">
+                      Expand
+                      <ChevronDown className="h-4 w-4" />
+                    </span>
+                  </summary>
+                  <div className="border-t border-white/[0.08] px-5 py-5">
+                    <pre className="max-h-[34rem] overflow-auto whitespace-pre-wrap break-words rounded-[1rem] border border-white/[0.08] bg-black/25 p-4 text-sm leading-7 text-white/72">{latestStandup.transcriptBody}</pre>
+                  </div>
+                </details>
+
+                <div className="grid gap-3 md:grid-cols-3">
+                  {latestStandup.chiefs.map((chief) => (
+                    <div key={chief.chiefId} className="rounded-[1.5rem] border border-white/[0.08] bg-white/[0.04] p-5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-white">{chief.title}</p>
+                          <p className="mt-1 text-xs uppercase tracking-[0.22em] text-white/35">{chief.reportStatus}</p>
+                        </div>
+                        <span className="text-xs text-white/45">{chief.currentStatus}</span>
+                      </div>
+                      <div className="mt-4 space-y-2 text-sm text-white/60">
+                        <p><span className="text-white/35">Task:</span> {chief.activeTaskId || 'None recorded'}</p>
+                        <p><span className="text-white/35">Blockers:</span> {chief.blockedCount}</p>
+                        <p><span className="text-white/35">Routing:</span> {chief.needsRouting ? 'Needed' : 'Clear'}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <EmptyStatePanel
+                compact
+                title="No standup artifacts found"
+                description="No persisted standup transcript was found in /home/node/.openclaw/projects/shared/teams/meetings."
+              />
+            )}
+          </ShellPanel>
+        </motion.section>
       </div>
+    </div>
+  );
+}
+
+function StandupInfoCard(props: { label: string; value: string }) {
+  return (
+    <div className="rounded-[1.25rem] border border-white/[0.08] bg-white/[0.04] p-4">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/35">{props.label}</p>
+      <p className="mt-2 break-all text-sm leading-6 text-white/70">{props.value}</p>
     </div>
   );
 }

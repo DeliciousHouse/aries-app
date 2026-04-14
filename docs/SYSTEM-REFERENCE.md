@@ -1,48 +1,37 @@
 # Aries System Reference
 
-Last refreshed Apr 13, 2026, 00:00 PDT.
+Last refreshed Apr 14, 2026, 00:03 PDT.
 
-## What changed since last refresh
-- Backup snapshot committed (68c7cdd) with 84 files including .env.example, DELEGATION-RULES.md, IDENTITY.md, MEMORY.md, SOUL.md, PRIORITIES.md updates.
-- Automation scripts updated: daily-standup.mjs, install-openclaw-crons.mjs, manifest.mjs.
-- Next.js bumped from 16.1.7 to 16.2.3 (npm_and_yarn dependabot, #83).
-- Onboarding postgres migration review fixes landed (#82).
-- Onboarding draft/business-profile persistence to PostgreSQL shipped (#81).
-- Frontend website changes merged (#80) including marketing hero orbit sync, docs/chrome updates, init-db tweak.
-- Working tree has merge conflicts in data/feedback-processing-log.json, scripts/automations/install-openclaw-crons.mjs, scripts/automations/manifest.mjs (UU state).
-- Incubator micro-SaaS projects moved out of `aries-app` into standalone repos under `/home/node/.openclaw/projects/incubator/`.
+## What changed today
+- No git-tracked file changes detected since local midnight.
 
 ## Current architecture overview
-- Next.js 16 App Router runtime serves the public marketing site, authenticated operator shell, and browser-safe internal APIs on port 8100.
-- Backend domain logic lives under backend/* and routes long-running execution through OpenClaw Gateway (CLI subprocess, not HTTP).
-- 4-stage Lobster marketing pipeline (research, strategy, production, publish-optimize) with approval checkpoints driven by backend/marketing/orchestrator.ts.
-- Auth via next-auth v5 with Credentials + Google providers; tenant-aware RBAC with roles: tenant_admin, tenant_analyst, tenant_viewer.
-- Local runtime state and typed adapters live across lib/*, hooks/*, specs/*, and workflows/*.
-- Standalone Mission Control deploys as a separate image and reads /api/runtime/overview.
-- PostgreSQL for persistent state; runtime files under DATA_ROOT for generated artifacts.
+- Next.js App Router runtime serves the public site, authenticated operator shell, and browser-safe internal APIs.
+- Backend domain logic lives under backend/* and routes long-running execution through OpenClaw Gateway rather than direct browser workflow exposure.
+- Local runtime state and typed adapters live across lib/*, hooks/*, specs/*, and workflows/* to preserve contract boundaries.
+- Standalone Mission Control deploys as a separate image and reads /api/runtime/overview from its local runtime server.
 
 ## Module inventory
-- app/ 107 files (routes, API handlers, layouts)
-- backend/ 73 files (domain logic, integrations, auth, marketing, onboarding, tenant, video)
-- frontend/ 88 files (UI components, presenters, services, types)
-- components/ 14 files (shared React components)
-- hooks/ 17 files (React hooks)
-- lib/ 21 files (runtime paths, tenant context, utilities)
-- scripts/ 26 files (automation, build, verification)
-- tests/ 56 test files
-- skills/ 49 skill directories
+- app/ 108 files
+- backend/ 74 files
+- components/ 14 files
+- hooks/ 17 files
+- lib/ 22 files
+- scripts/ 26 files
+- skills/ 74 files
 - workflows/ 4 files
-- lobster/ marketing pipeline definitions
 
 ## Active cron jobs
-- Aries private repo backup — 15 */6 * * * America/Los_Angeles
-- Aries overnight self-improvement — 0 4 * * * America/Los_Angeles
-- Aries daily brief — 0 8 * * * America/Los_Angeles
-- Aries GitHub feedback connector — 0 7 * * * America/Los_Angeles
-- Aries GitHub feedback daily summary — 0 18 * * * America/Los_Angeles
-- Aries rolling system reference — 45 21 * * * America/Los_Angeles
-- Aries daily standup — 0 9 * * 1-5 America/Los_Angeles
-- Aries weekly review — 0 14 * * 5 America/Los_Angeles
+- Aries private repo backup — 15 */6 * * * America/Los_Angeles — Stage current repo changes, commit them to a backup branch, and create or update a backup pull request on the configured private GitHub remote.
+- Aries overnight self-improvement — 30 1 * * * America/Los_Angeles — Rotate a nightly audit, apply low-risk cleanup, and log results to memory/YYYY-MM-DD.md.
+- Aries daily brief — 0 8 * * * America/Los_Angeles — Generate the morning priorities/overnight activity/pending actions brief.
+- Aries daily standup — 30 8,13,17 * * 1-5 America/Los_Angeles — Generate the board-derived Aries chief standup, write the transcript and per-chief reports to /home/node/.openclaw/projects/shared/teams, and announce the concise operational summary.
+- Aries standup watchdog — 50 8,13,17 * * 1-5 America/Los_Angeles — Verify that the current standup transcript and per-chief reports exist in /home/node/.openclaw/projects/shared/teams and that no forbidden local standup artifacts were recreated.
+- Aries GitHub feedback connector — 0 7 * * * America/Los_Angeles — Sync GitHub issues, classify bug vs feature, route each pending item to the correct skill workflow, and update the processing log.
+- Aries GitHub feedback daily summary — 0 18 * * * America/Los_Angeles — Deliver the daily batch summary for non-critical GitHub feedback items that were processed and logged.
+- Aries runtime error intake — 5,35 * * * * America/Los_Angeles — Scan Aries runtime and automation health, normalize failures into the runtime incident log, and announce the concise detection/resolution summary.
+- Aries runtime error repair loop — 10,40 * * * * America/Los_Angeles — Work the highest-priority repairable runtime incident with a bounded fix loop, validate the result, and announce the concise resolution or escalation summary.
+- Aries rolling system reference — 45 21 * * * America/Los_Angeles — Update docs/SYSTEM-REFERENCE.md with architecture, inventory, cron jobs, and known issues.
 
 ## Runtime scripts
 - dev: next dev -p 8100 --turbopack
@@ -50,40 +39,54 @@ Last refreshed Apr 13, 2026, 00:00 PDT.
 - start: node scripts/start-runtime.mjs
 - precheck: node scripts/runtime-precheck.mjs
 - workspace:verify: node scripts/verify-canonical-workspace.mjs
+- workspace:inventory: node scripts/inventory-paperclip-workspaces.mjs
 - typecheck: tsc --noEmit
 - lint: tsc --noEmit && node scripts/check-banned-patterns.mjs
 - test: tsx --test tests/*.test.ts tests/**/*.test.ts
-- test:e2e: tsx --test (6 e2e test files)
+- test:e2e: tsx --test tests/frontend-api-layer.test.ts tests/marketing-flow-smoke.test.ts tests/onboarding-runtime-cutover.test.ts tests/public-marketing-pages.test.ts tests/runtime-api-truth.test.ts tests/runtime-pages.test.ts
 - db:init: node scripts/init-db.js
 - verify: node scripts/verify-regression-suite.mjs
 - validate:public-routes: tsx --test tests/runtime-pages.test.ts tests/public-marketing-pages.test.ts
 - validate:banned-patterns: node scripts/check-banned-patterns.mjs
 - validate:marketing-flow: APP_BASE_URL=https://aries.example.com tsx --test tests/marketing-job-flow.test.ts tests/onboarding-marketing-contracts.test.ts
+- validate:homepage-perf: mkdir -p .artifacts && CI=1 npx --yes lighthouse http://127.0.0.1:8100 --only-categories=performance --preset=desktop --no-enable-error-reporting --chrome-flags='--headless=new --no-sandbox --disable-dev-shm-usage' --output=json --output-path=.artifacts/lighthouse-homepage.json
+- validate:homepage-perf:mobile: mkdir -p .artifacts && CI=1 npx --yes lighthouse http://127.0.0.1:8100 --only-categories=performance --form-factor=mobile --screenEmulation.mobile=true --throttling-method=simulate --no-enable-error-reporting --chrome-flags='--headless=new --no-sandbox --disable-dev-shm-usage' --output=json --output-path=.artifacts/lighthouse-homepage-mobile.json
+- automation:backup: node scripts/automations/private-repo-backup.mjs
+- automation:self-improve: node scripts/automations/overnight-self-improve.mjs
+- automation:daily-brief: node scripts/automations/daily-brief.mjs
+- automation:feedback-connector: node scripts/automations/feedback-connector.mjs sync
+- automation:feedback-summary: node scripts/automations/feedback-daily-summary.mjs
+- automation:runtime-error-intake: node scripts/automations/runtime-error-intake.mjs scan
+- automation:system-reference: node scripts/automations/rolling-system-reference.mjs
 - automation:install: node scripts/automations/install-openclaw-crons.mjs
 - automation:verify: node scripts/automations/verify-automations.mjs
 
-## Priority blockers (from PRIORITIES.md)
-1. workflow-target-contract-drift — workflow catalog vs tested marketing pipeline contract disagree
-2. stub-routes-still-exposed — UI-facing stub routes make supported surface look broader than reality
-3. route-and-doc-drift — route manifests and runtime docs lag the executable app
-
 ## Known issues
-- Merge conflicts in working tree: data/feedback-processing-log.json, scripts/automations/install-openclaw-crons.mjs, scripts/automations/manifest.mjs (UU state — need resolution).
-- Daily brief and system reference depend on local markdown/task hygiene.
-- Mission Control standalone app awaits richer live API adapters.
-- Current phase: freeze-production-contract.
+- Cron registration is prepared but not auto-enabled until backup remote/delivery targets are confirmed.
+- Daily brief and system reference depend on local markdown/task hygiene; the better the source docs, the sharper the briefs.
+- Mission Control standalone app is still a shell around runtime overview data and awaits richer live API adapters for actions/transcripts.
 
 ## Working tree snapshot
-- M app/api/marketing/jobs/handler.ts
-- UU data/feedback-processing-log.json
-- AA data/nightly-build-log.json
-- AA docs/briefs/2026-04-12-brief.md
-- M frontend/aries-v1/review-item.tsx
-- M frontend/marketing/new-job.tsx
-- AA scripts/automations/daily-standup.mjs
-- UU scripts/automations/install-openclaw-crons.mjs
-- UU scripts/automations/manifest.mjs
-- Incubator micro-SaaS source now lives outside this repo at `/home/node/.openclaw/projects/incubator/`.
+- M .env.example
+- M README-runtime.md
+- M README.md
+- M app/api/integrations/handlers.ts
+- M  app/api/marketing/jobs/handler.ts
+- M app/dashboard/page.tsx
+- M backend/integrations/oauth-provider-runtime.ts
+- M backend/integrations/status.ts
+- M backend/marketing/artifact-collector.ts
+- M backend/marketing/dashboard-content.ts
+- M backend/marketing/orchestrator.ts
+- M backend/marketing/runtime-state.ts
+- M backend/openclaw/aries-execution.ts
+- M backend/openclaw/gateway-client.ts
+- M  data/feedback-processing-log.json
+- A  data/nightly-build-log.json
+- AM data/runtime-error-incidents.json
+- M docker-compose.local.yml
+- M docker-compose.yml
+- M  docs/automations/README.md
 
 ## Reference date
-- 2026-04-13
+- 2026-04-14

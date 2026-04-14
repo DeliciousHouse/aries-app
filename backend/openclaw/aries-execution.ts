@@ -493,6 +493,7 @@ export async function runAriesOpenClawWorkflow(
       pipeline: workflow.pipeline,
       cwd: gatewayCwd,
       argsJson: JSON.stringify(executionArgs),
+      allowLocalFallback: !isMarketingWorkflowKey(key),
     });
     const primaryOutput = primaryOutputRecord(envelope);
     const parityStub = asParityStubPayload(primaryOutput);
