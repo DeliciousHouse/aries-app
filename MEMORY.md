@@ -1,19 +1,17 @@
-# MEMORY.md — Persistent Mission Control Memory
+# MEMORY.md — Persistent Aries App Memory
 
 ## Core mission
 
-Default: get `aries-app` into a clean, shippable, production-ready state. This remains top priority unless Brendan explicitly reprioritizes.
+Default: get `aries-app` into a clean, shippable, production-ready state.
 
 ## Active rules
 
-- Brendan is final decision-maker; Jarvis is implementation partner + engineering chief of staff
-- Brendan’s direct instruction to Jarvis counts as approval for the requested change unless a higher-priority safety boundary blocks it
-- Protected systems: see `PROTECTED_SYSTEMS.md` and `AGENTS.md`
-- Persistent AI owners: Jarvis, Forge, Signal, Ledger only
-- Prefer internal product delivery framing
+- Brendan is the final decision-maker
+- Keep work scoped to `aries-app`
+- Do not let sibling-project context bleed into this repo
 - No mock data in shipped work without approval
 - No assumptions presented as runtime facts
-- Escalate before deploys, destructive changes, auth, schema, spending, publishing, or irreversible actions
+- Escalate before destructive, irreversible, or scope-changing actions
 
 ## Decision history
 
@@ -21,43 +19,16 @@ Only decisions that influence future execution.
 
 | Date | Decision | By | Impact |
 |------|----------|-----|--------|
-| 2026-04-03 | Jarvis operates as MC implementation partner and engineering chief of staff | Brendan | Prioritize execution oversight, delegation, blocker visibility |
-| 2026-04-03 | Rohan=frontend, Roy=backend, Somwya=manual | Brendan | Route work into explicit role lanes |
-| 2026-04-03 | `aries-app` is top priority | Brendan | Default planning centers on production readiness |
-| 2026-04-03 | Cron jobs: cron as schedule + thin wrapper, real logic in skills | Brendan | Migrate script-directed cron to skill-directed |
-| 2026-04-05 | MC is AI-only via Jarvis; OpenClaw is Brendan-only | Brendan | Humans excluded from MC/OpenClaw |
-| 2026-04-06 | Only Jarvis + 3 chiefs are persistent owners; all others subordinate | Brendan | Non-chief workers can't own priorities/routing/truth |
-| 2026-04-07 | Narrow live OpenClaw convergence patch approved and applied: live configured agents normalized to `main` + 3 chiefs, with chief heartbeat pins on `gpt-5.4` | Brendan | Future OpenClaw runtime assumptions should use the live 4-agent shape, not older agent sets |
+| 2026-04-14 | Tighten repo boundary so `aries-app` excludes sibling-project code and identity drift | Brendan | Future work must stay scoped and boundary checks should fail fast |
 
 ## Durable lessons
 
-- Ownership drift causes rework; always make owner lanes explicit
-- Tutorial material is input, not production truth
-- Partial completion is often reported as done unless validation is explicit
-- Manual dependencies are easy to lose if not written down
-- Runtime state should come from live visibility, not remembered assumptions
-- Prefer live/system OpenClaw binaries and repos for runtime validation; repo-local copies caused false config drift alarms
-- Brendan’s “Aries OS” refers first to `/home/node/.openclaw/projects/aries-os`, a separate Next.js App Router repo, not `aries-app`
-- The live Mission Control repo is `/home/node/.openclaw/projects/mission_control`, not `/app/mission-control`
-- Mission Control runtime pages must be forced dynamic for truthful reads; otherwise builds freeze stale snapshots
-- Do not claim `http://100.65.234.31:4174` reflects the patched live Mission Control repo until the owning service/process is identified
+- Boundary drift compounds quickly when identity files are wrong
+- A small automated guard is cheaper than another cleanup pass
+- Repo context should come from current files, not remembered adjacent projects
 
 ## Repeated mistakes to avoid
 
-- Accepting vague "done" states
-- Shared ownership with no single accountable owner
-- Treating inferred runtime as observed truth
-- Copying tutorial patterns without adaptation
-- Losing blockers across sessions
-- Assuming a path/target is live without verification
-
-## Durable open loops
-
-- MC runtime observability needs truthful wiring for live operational state
-- Bootcamp-driven implementation should be translated into durable owner-based tasking
-
-## Memory maintenance rules
-
-Persist: stable preferences, team roles, priority rules, major decisions, durable blockers, recurring constraints, failure patterns, useful lesson-to-product mappings.
-
-Do not persist: chat noise, temporary exploration, speculative runtime guesses, stale status, one-session debugging detail.
+- Copying sibling-project language into repo-facing docs or prompts
+- Treating unrelated paths, services, or dashboards as part of `aries-app`
+- Accepting "temporary" cross-project notes in source-of-truth files

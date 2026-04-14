@@ -1,6 +1,5 @@
 import path from 'node:path'
-import process from 'node:process'
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import {
   currentDateInfo,
   emitSummary,
@@ -11,30 +10,35 @@ import {
 
 const flags = parseArgs()
 const dryRun = flags.has('--dry-run')
-const MISSION_CONTROL_ROOT = process.env.MISSION_CONTROL_ROOT || '/home/node/.openclaw/projects/mission_control'
-const FALLBACK_BOARD_PATH = process.env.EXECUTION_TASKS_PATH || '/home/node/.openclaw/projects/shared/team/execution-tasks.json'
-const SHARED_TEAMS_ROOT = process.env.ARIES_SHARED_TEAMS_ROOT || '/home/node/.openclaw/projects/shared/teams'
-const SHARED_MEETINGS_DIR = path.join(SHARED_TEAMS_ROOT, 'meetings')
-const SHARED_STANDUPS_DIR = path.join(SHARED_TEAMS_ROOT, 'standups')
+const preflightOnly = flags.has('--preflight')
+const BOARD_PATH = process.env.EXECUTION_TASKS_PATH || '/home/node/.openclaw/projects/shared/team/execution-tasks.json'
+const MEETINGS_DIR = '/home/node/.openclaw/projects/shared/team/meetings'
 
-async function loadProjectBoardPayload() {
-  const modulePath = path.join(MISSION_CONTROL_ROOT, 'server', 'lib', 'project-board.mjs')
-  if (existsSync(modulePath)) {
-    const module = await import(`file://${modulePath}`)
-    if (typeof module.loadProjectBoardPayload === 'function') {
-      return module.loadProjectBoardPayload()
-    }
-  }
+preflightOrExit('DAILY STANDUP', {
+  binaries: ['npm'],
+  paths: [
+    { label: 'execution board', path: BOARD_PATH, type: 'file' },
+    { label: 'shared meetings dir', path: MEETINGS_DIR, type: 'dir' },
+  ],
+}, { preflightOnly })
 
-  const raw = JSON.parse(readFileSync(FALLBACK_BOARD_PATH, 'utf8'))
+if (preflightOnly) {
+  process.exit(0)
+}
+
+function loadBoardPayload() {
+  const raw = JSON.parse(readFileSync(BOARD_PATH, 'utf8'))
   return {
     ...raw,
     source: {
-      path: FALLBACK_BOARD_PATH,
-      mode: 'fallback_file',
+      path: BOARD_PATH,
+      mode: 'shared_board_file',
     },
   }
 }
+
+const { date } = currentDateInfo()
+const sharedTranscriptPath = path.join(MEETINGS_DIR, `${date}-daily-standup.md`)
 
 const priorityRank = { P0: 0, P1: 1, P2: 2, P3: 3 }
 const statusRank = { active: 0, review: 1, ready: 2, 'follow-up': 3, intake: 4, shipped: 5 }
@@ -85,19 +89,15 @@ function summarizeVerify(result) {
   return line || `failed with exit ${result.code}`
 }
 
-function laneReport({ chiefId, chiefAgentId, title, tasks, standupId, extraCurrent = [], extraBlockers = [], reportStatus = 'complete' }) {
+function laneReport({ laneId, laneLabel, title, tasks, extraCurrent = [], extraBlockers = [], reportStatus = 'complete' }) {
   const activeTasks = tasks.filter((task) => task.status !== 'shipped')
   const topTask = chooseTopTask(activeTasks.length ? activeTasks : tasks)
   const blockedTasks = tasks.filter((task) => task.blocked)
   const counts = countByStatus(tasks)
 
-  const report = {
-    sourceType: 'standup',
-    reportId: `${standupId}:${chiefId}`,
-    standupId,
-    standupTitle: `Daily Standup — ${standupId.replace('daily-standup-', '')}`,
-    chiefId,
-    chiefAgentId,
+  return {
+    laneId,
+    title,
     reportStatus,
     activeTaskId: topTask?.id || null,
     currentStatus: topTask?.status || 'unknown',
@@ -132,8 +132,7 @@ function laneReport({ chiefId, chiefAgentId, title, tasks, standupId, extraCurre
     topTask,
     markdown: [
       `### ${title}`,
-      `- chief_id: ${chiefId}`,
-      `- chief_agent_id: ${chiefAgentId}`,
+      `- lane_id: ${laneId}`,
       `- report_status: ${reportStatus}`,
       `- Active task: ${topTask ? `\`${topTask.id}\`` : 'none visible on board'}`,
       `- Current status: ${topTask?.status || 'unknown'}`,
@@ -144,51 +143,36 @@ function laneReport({ chiefId, chiefAgentId, title, tasks, standupId, extraCurre
       '#### Blockers',
       ...bulletize(report.blockers.map((item) => item.summary || `Blocked board item: \`${item.taskId}\` (${item.status}, ${item.priority}).`), 'No blockers are flagged in board truth for this lane.'),
       '',
-      '#### Human Dependencies',
-      ...bulletize([], 'No explicit human dependency is encoded in this automation beyond what board truth already shows.'),
-      '',
-      '#### Needs Jarvis Routing',
-      ...bulletize(report.needsJarvisRouting.map((item) => item.summary), 'No Jarvis routing request is required from current board truth.'),
+      '#### Next Actions',
+      ...bulletize(blockedTasks.length ? ['Review blocked board items before claiming closure.'] : [], 'No additional routing request is required from current board truth.'),
       '',
     ].join('\n'),
   }
 }
 
-function writeJson(filePath, value) {
-  writeText(filePath, `${JSON.stringify(value, null, 2)}\n`)
-}
-
-const { date } = currentDateInfo()
-const standupId = `daily-standup-${date}`
-const standupTitle = `Daily Standup — ${date}`
-const sharedTranscriptPath = path.join(SHARED_MEETINGS_DIR, `${date}-daily-standup.md`)
-const sharedStandupDir = path.join(SHARED_STANDUPS_DIR, date)
-
-const board = await loadProjectBoardPayload()
+const board = loadBoardPayload()
 const tasks = Array.isArray(board.tasks) ? board.tasks : []
 const workspaceVerify = run('npm', ['run', 'workspace:verify'], { timeout: 120000 })
 const workspaceVerifyStatus = summarizeVerify(workspaceVerify)
 
-const forgeTasks = tasks.filter((task) => ['frontend', 'backend'].includes(task.taskDomain))
-const signalTasks = tasks.filter((task) => task.taskDomain === 'runtime-automation')
-const ledgerTasks = tasks.filter((task) => task.taskDomain === 'operations-knowledge')
+const deliveryTasks = tasks.filter((task) => ['frontend', 'backend'].includes(task.taskDomain))
+const runtimeTasks = tasks.filter((task) => task.taskDomain === 'runtime-automation')
+const operationsTasks = tasks.filter((task) => task.taskDomain === 'operations-knowledge')
 
-const forge = laneReport({
-  chiefId: 'forge',
-  chiefAgentId: 'delivery-chief',
-  title: 'Forge — Engineering Delivery',
-  tasks: forgeTasks,
-  standupId,
+const delivery = laneReport({
+  laneId: 'delivery',
+  laneLabel: 'Delivery',
+  title: 'Delivery',
+  tasks: deliveryTasks,
   extraCurrent: [workspaceVerify.ok ? `Fresh workspace verification passed on ${date}.` : `Workspace verification is unavailable right now: ${workspaceVerifyStatus}.`],
   extraBlockers: !workspaceVerify.ok ? [`Workspace verification failed: ${workspaceVerifyStatus}.`] : [],
 })
 
-const signal = laneReport({
-  chiefId: 'signal',
-  chiefAgentId: 'runtime-chief',
-  title: 'Signal — Runtime & Automation',
-  tasks: signalTasks,
-  standupId,
+const runtime = laneReport({
+  laneId: 'runtime',
+  laneLabel: 'Runtime',
+  title: 'Runtime & Automation',
+  tasks: runtimeTasks,
   reportStatus: 'partial',
   extraCurrent: [
     'Live runtime truth is not re-verified by this board-based standup automation, so runtime detail remains limited to board truth.',
@@ -200,12 +184,11 @@ const signal = laneReport({
   ],
 })
 
-const ledger = laneReport({
-  chiefId: 'ledger',
-  chiefAgentId: 'knowledge-chief',
-  title: 'Ledger — Operations & Knowledge',
-  tasks: ledgerTasks,
-  standupId,
+const operations = laneReport({
+  laneId: 'operations',
+  laneLabel: 'Operations',
+  title: 'Operations & Knowledge',
+  tasks: operationsTasks,
   extraCurrent: [workspaceVerify.ok ? `Fresh workspace verification passed on ${date}.` : `Workspace verification is unavailable right now: ${workspaceVerifyStatus}.`],
   extraBlockers: !workspaceVerify.ok ? [`Workspace verification failed: ${workspaceVerifyStatus}.`] : [],
 })
@@ -215,9 +198,10 @@ function blockedLaneTasks(items, laneLabel) {
 }
 
 const primaryBlockers = [
-  ...blockedLaneTasks(forgeTasks, 'Delivery'),
-  ...blockedLaneTasks(signalTasks, 'Runtime'),
-  ...blockedLaneTasks(ledgerTasks, 'Operations'),
+  ...blockedLaneTasks(deliveryTasks, 'Delivery'),
+  ...blockedLaneTasks(runtimeTasks, 'Runtime'),
+  ...blockedLaneTasks(operationsTasks, 'Operations'),
+  'Runtime lane remains partial because this automation does not claim live scheduler truth without a direct runtime probe.',
   ...(!workspaceVerify.ok ? [`Workspace verification failed: ${workspaceVerifyStatus}.`] : []),
 ]
 
@@ -234,7 +218,7 @@ const transcript = [
   `generated_at: ${new Date().toISOString()}`,
   `status: ${overallStatus}`,
   'delivery: cron:auto',
-  `board_path: ${board.source?.path || FALLBACK_BOARD_PATH}`,
+  `board_path: ${board.source?.path || BOARD_PATH}`,
   '---',
   '',
   `# ${standupTitle}`,
@@ -242,24 +226,24 @@ const transcript = [
   '## Top Summary',
   `- Overall status: ${overallStatus}.`,
   `- Workspace verification: ${workspaceVerify.ok ? 'passed' : `failed (${workspaceVerifyStatus})`}.`,
-  forge.topTask ? `- Forge lane focus: \`${forge.topTask.id}\` is ${forge.topTask.status}.` : '- Forge lane focus: no tracked task visible.',
-  signal.topTask ? `- Signal lane focus: \`${signal.topTask.id}\` is ${signal.topTask.status}, but live runtime truth was not re-verified in this automation.` : '- Signal lane focus: no tracked task visible.',
-  ledger.topTask ? `- Ledger lane focus: \`${ledger.topTask.id}\` is ${ledger.topTask.status}.` : '- Ledger lane focus: no tracked task visible.',
+  delivery.topTask ? `- Delivery lane focus: \`${delivery.topTask.id}\` is ${delivery.topTask.status}.` : '- Delivery lane focus: no tracked task visible.',
+  runtime.topTask ? `- Runtime lane focus: \`${runtime.topTask.id}\` is ${runtime.topTask.status}, but live runtime truth was not re-verified in this automation.` : '- Runtime lane focus: no tracked task visible.',
+  operations.topTask ? `- Operations lane focus: \`${operations.topTask.id}\` is ${operations.topTask.status}.` : '- Operations lane focus: no tracked task visible.',
   '',
   '## Standup Health',
   `- overall_status: ${overallStatus}`,
-  '- responding_chiefs: 3/3 (board-derived)',
+  '- responding_lanes: 3/3 (board-derived)',
   `- workspace_verify: ${workspaceVerify.ok ? 'passed' : 'failed'}`,
   '- primary_blockers:',
   ...bulletize(primaryBlockers, 'No primary blockers.'),
   '- automation_caveats:',
   ...bulletize(automationCaveats),
   '',
-  '## Chief Reports',
+  '## Lane Reports',
   '',
-  forge.markdown,
-  signal.markdown,
-  ledger.markdown,
+  delivery.markdown,
+  runtime.markdown,
+  operations.markdown,
   '## Delivery Notes',
   `- Standup transcript archived at \`${sharedTranscriptPath}\`.`,
   `- Structured chief reports archived at \`${sharedStandupDir}\`.`,
@@ -279,7 +263,7 @@ emitSummary([
   `- transcript: ${sharedTranscriptPath}`,
   `- reports: ${sharedStandupDir}`,
   `- workspace verify: ${workspaceVerify.ok ? 'passed' : `failed (${workspaceVerifyStatus})`}`,
-  `- forge: ${forge.topTask ? `${forge.topTask.status} / ${forge.topTask.id}` : 'no visible task'}`,
-  `- signal: ${signal.topTask ? `${signal.topTask.status} / ${signal.topTask.id}` : 'no visible task'}`,
-  `- ledger: ${ledger.topTask ? `${ledger.topTask.status} / ${ledger.topTask.id}` : 'no visible task'}`,
+  `- delivery: ${delivery.topTask ? `${delivery.topTask.status} / ${delivery.topTask.id}` : 'no visible task'}`,
+  `- runtime: ${runtime.topTask ? `${runtime.topTask.status} / ${runtime.topTask.id}` : 'no visible task'}`,
+  `- operations: ${operations.topTask ? `${operations.topTask.status} / ${operations.topTask.id}` : 'no visible task'}`,
 ])

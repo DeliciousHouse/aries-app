@@ -3,7 +3,7 @@
 Canonical standup path:
 - produce the standup transcript in markdown
 - archive it under `/home/node/.openclaw/projects/shared/team/meetings`
-- let Mission Control read the transcript directly from the shared meetings folder
+- let downstream consumers read the transcript from the shared meetings folder
 
 ## Current flow
 
@@ -14,7 +14,7 @@ Canonical standup path:
 /home/node/.openclaw/projects/shared/team/meetings/YYYY-MM-DD-daily-standup.md
 ```
 
-3. Mission Control reads the transcript from the shared meetings folder.
+3. Downstream automations read the transcript from the shared meetings folder.
 
 ## Deprecated path
 

@@ -34,7 +34,7 @@ Nightly refresh of the system reference document that captures architecture, fil
 2. List each script name and command.
 
 ### Step 5: Append known issues
-1. Include the hardcoded known-issues list (cron registration status, doc quality dependency, Mission Control shell status).
+1. Include the hardcoded known-issues list maintained by the script.
 
 ### Step 6: Capture working tree snapshot
 1. Run `git status --short` and include up to 20 lines.
@@ -48,11 +48,6 @@ Nightly refresh of the system reference document that captures architecture, fil
 - [ ] Module inventory reflects current directory structure
 - [ ] Cron jobs section matches `manifest.mjs`
 - [ ] Summary includes: file path, changed files count, cron jobs documented
-
-## Error Handling
-- If `package.json` is missing: scripts section shows empty
-- If no git activity today: changes section shows "No git-tracked file changes detected"
-- If working tree is clean: snapshot shows "Working tree clean at refresh time"
 
 ## Output Rule
 Return only the script-produced operational summary. Do not wrap it in extra commentary.

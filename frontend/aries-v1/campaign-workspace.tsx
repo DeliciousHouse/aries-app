@@ -12,10 +12,17 @@ import type {
   MarketingStageReviewPayload,
 } from '@/lib/api/marketing';
 
+import {
+  deriveGateFallbackState,
+  derivePublishSurfaceState,
+  deriveWorkspaceHeaderState,
+  type GateFallbackState,
+  type PublishSurfaceState,
+  type WorkspaceAction,
+  type WorkspaceView,
+} from './campaign-workspace-state';
 import { customerSafeActionErrorMessage, customerSafeUiErrorMessage } from './customer-safe-copy';
 import { ActivityFeed, EmptyStatePanel, SectionLink, ShellPanel, StatusChip } from './components';
-
-type WorkspaceView = 'brand' | 'strategy' | 'creative' | 'publish';
 
 function isActiveJobStatus(status: string): boolean {
   return ['accepted', 'running', 'in_progress', 'ready', 'awaiting_approval', 'resumed', 'pending'].includes(
@@ -134,9 +141,14 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
     return <EmptyStatePanel title="Campaign not found" description="This campaign could not be loaded from the current runtime state." />;
   }
 
-  const campaignName = status.dashboard.campaign?.name || status.reviewBundle?.campaignName || status.tenantName || `Campaign ${status.jobId}`;
   const workflowState = status.workflowState;
   const currentHistory = status.statusHistory || [];
+  const publishBlockedReason = status.creativeReview?.publishBlockedReason || null;
+  const headerState = deriveWorkspaceHeaderState(status);
+  const brandFallback = deriveGateFallbackState(status, 'brand', props.campaignId, publishBlockedReason);
+  const strategyFallback = deriveGateFallbackState(status, 'strategy', props.campaignId, publishBlockedReason);
+  const creativeFallback = deriveGateFallbackState(status, 'creative', props.campaignId, publishBlockedReason);
+  const publishState = derivePublishSurfaceState(status, props.campaignId, publishBlockedReason);
 
   async function submitReviewDecision(
     reviewId: string,
@@ -198,12 +210,17 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
 
   return (
     <div className="space-y-6">
-      <ShellPanel eyebrow="Campaign" title={campaignName}>
+      <ShellPanel eyebrow="Campaign" title={headerState.title}>
         <div className="space-y-5">
           <div className="flex flex-wrap items-center gap-3">
             <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium tracking-[0.03em] ${workflowStateTone(workflowState)}`}>
               {workflowStateLabel(workflowState)}
             </span>
+            {headerState.sourceDomain ? (
+              <span className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-white/70">
+                Current source · {headerState.sourceDomain}
+              </span>
+            ) : null}
             <span className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-white/70">
               {status.campaignWindow?.start && status.campaignWindow?.end ? `${status.campaignWindow.start} - ${status.campaignWindow.end}` : 'Dates not scheduled yet'}
             </span>
@@ -211,6 +228,17 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
               {stageReadyLabel(activeView)}
             </span>
           </div>
+          {headerState.sourceUrl ? (
+            <a
+              href={headerState.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 text-sm text-white/58 transition hover:text-white/78"
+            >
+              Source website: {headerState.sourceUrl}
+              <ArrowUpRight className="h-4 w-4" />
+            </a>
+          ) : null}
           <p className="max-w-3xl text-sm leading-7 text-white/65">{status.summary.subheadline}</p>
           <div className="grid gap-4 md:grid-cols-4">
             <MetricCard label="Brand assets" value={String(status.campaignBrief?.brandAssets.length || 0)} />
@@ -247,8 +275,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
           {status.campaignBrief ? <BrandBriefCard brief={status.campaignBrief} saving={briefSaving} onSave={submitBriefUpdate} /> : null}
           <StageReviewSurface
             review={status.brandReview}
-            emptyTitle="Brand review is not ready yet"
-            emptyDescription="The current-source brand package will appear here as soon as the website review and brand identity are ready."
+            fallback={brandFallback}
             note={status.brandReview ? notesByReviewId[status.brandReview.reviewId] || '' : ''}
             onNoteChange={(value) =>
               status.brandReview
@@ -273,8 +300,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
       {activeView === 'strategy' ? (
         <StageReviewSurface
           review={status.strategyReview}
-          emptyTitle="Strategy review is not ready yet"
-          emptyDescription="The campaign strategy package will appear here as soon as the current plan is ready for approval."
+          fallback={strategyFallback}
           note={status.strategyReview ? notesByReviewId[status.strategyReview.reviewId] || '' : ''}
           onNoteChange={(value) =>
             status.strategyReview
@@ -298,6 +324,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
       {activeView === 'creative' ? (
         <CreativeReviewSurface
           review={status.creativeReview}
+          fallback={creativeFallback}
           notesByReviewId={notesByReviewId}
           busyByReviewId={busyByReviewId}
           setNote={(reviewId, value) => setNotesByReviewId((current) => ({ ...current, [reviewId]: value }))}
@@ -308,9 +335,9 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
       {activeView === 'publish' ? (
         <PublishStatusSurface
           workflowState={status.workflowState}
-          publishBlockedReason={status.creativeReview?.publishBlockedReason || null}
           publishItems={status.dashboard.publishItems}
           history={currentHistory}
+          overview={publishState}
         />
       ) : null}
 
@@ -542,10 +569,39 @@ function BriefField(props: { label: string; value: string }) {
   );
 }
 
+function WorkspaceActionLink(props: { action: WorkspaceAction }) {
+  return (
+    <Link
+      href={props.action.href}
+      className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-semibold text-[#11161c] transition hover:translate-y-[-1px]"
+    >
+      {props.action.label}
+      <ArrowUpRight className="h-4 w-4" />
+    </Link>
+  );
+}
+
+function GateFallbackPanel(props: {
+  eyebrow: string;
+  fallback: GateFallbackState;
+}) {
+  return (
+    <ShellPanel
+      eyebrow={props.eyebrow}
+      title={props.fallback.title}
+      action={props.fallback.action ? <WorkspaceActionLink action={props.fallback.action} /> : undefined}
+    >
+      <div className="space-y-3">
+        <p className="text-sm leading-7 text-white/65">{props.fallback.description}</p>
+        {props.fallback.detail ? <p className="text-sm leading-7 text-white/48">{props.fallback.detail}</p> : null}
+      </div>
+    </ShellPanel>
+  );
+}
+
 function StageReviewSurface(props: {
   review: MarketingStageReviewPayload | null;
-  emptyTitle: string;
-  emptyDescription: string;
+  fallback: GateFallbackState;
   note: string;
   onNoteChange: (value: string) => void | null;
   busy: boolean;
@@ -553,7 +609,7 @@ function StageReviewSurface(props: {
   onChangesRequested?: () => void;
 }) {
   if (!props.review) {
-    return <EmptyStatePanel title={props.emptyTitle} description={props.emptyDescription} />;
+    return <GateFallbackPanel eyebrow="Checkpoint" fallback={props.fallback} />;
   }
 
   return (
@@ -626,18 +682,14 @@ function StageReviewSurface(props: {
 
 function CreativeReviewSurface(props: {
   review: { approvalComplete: boolean; approvedCount: number; pendingCount: number; rejectedCount: number; publishBlockedReason: string | null; assets: MarketingCreativeAssetReviewPayload[]; history: MarketingCampaignStatusHistoryEntry[] } | null;
+  fallback: GateFallbackState;
   notesByReviewId: Record<string, string>;
   busyByReviewId: Record<string, boolean>;
   setNote: (reviewId: string, value: string) => void;
   onDecision: (reviewId: string, action: 'approve' | 'changes_requested' | 'reject') => void;
 }) {
   if (!props.review) {
-    return (
-      <EmptyStatePanel
-        title="Creative review is not ready yet"
-        description="Reviewable assets will appear here when production outputs are available."
-      />
-    );
+    return <GateFallbackPanel eyebrow="Creative Review" fallback={props.fallback} />;
   }
 
   return (
@@ -709,31 +761,30 @@ function CreativeReviewSurface(props: {
 
 function PublishStatusSurface(props: {
   workflowState: string;
-  publishBlockedReason: string | null;
   publishItems: Array<{ id: string; title: string; summary: string; status: string; platformLabel: string; destinationUrl: string | null }>;
   history: MarketingCampaignStatusHistoryEntry[];
+  overview: PublishSurfaceState;
 }) {
   return (
     <div className="space-y-4">
-      <ShellPanel eyebrow="Launch status" title="What is ready now">
+      <ShellPanel
+        eyebrow="Launch status"
+        title={props.overview.title}
+        action={props.overview.action ? <WorkspaceActionLink action={props.overview.action} /> : undefined}
+      >
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-3">
             <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium tracking-[0.03em] ${workflowStateTone(props.workflowState)}`}>
               {workflowStateLabel(props.workflowState)}
             </span>
-            <span className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-white/70">
-              Launch stays paused until approvals are complete
-            </span>
           </div>
-          <p className="text-sm leading-7 text-white/65">
-            {props.publishBlockedReason || 'All required approvals are complete. Publish-ready items can now move forward.'}
-          </p>
+          <p className="text-sm leading-7 text-white/65">{props.overview.description}</p>
         </div>
       </ShellPanel>
 
       <ShellPanel eyebrow="Publish queue" title="Launch-ready items">
         {props.publishItems.length === 0 ? (
-          <EmptyStatePanel compact title="No launch items yet" description="Launch packages will appear here as soon as approvals and final preparation are complete." />
+          <EmptyStatePanel compact title={props.overview.emptyTitle} description={props.overview.emptyDescription} />
         ) : (
           <div className="space-y-3">
             {props.publishItems.map((item) => (

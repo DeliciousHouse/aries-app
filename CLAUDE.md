@@ -119,7 +119,6 @@ npm run precheck
 ## Protected Systems
 
 - **OpenClaw** is Brendan-only for writes. Agents may read/inspect/analyze but not modify gateway config, cron/scheduler, agent registration, or runtime config without explicit approval.
-- **Mission Control** is AI-only (Jarvis + chiefs). No human team members work on it.
 
 ## Environment Variables
 

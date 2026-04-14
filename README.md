@@ -325,6 +325,7 @@ This runs the repo's fast regression suite with deterministic environment overri
 ```bash
 npm run precheck
 npm run typecheck
+npm run validate:repo-boundary
 APP_BASE_URL=https://aries.example.com ./node_modules/.bin/tsx --test tests/**/*.test.ts
 ./node_modules/.bin/tsx --test tests/runtime-pages.test.ts
 node scripts/check-banned-patterns.mjs
@@ -336,6 +337,10 @@ APP_BASE_URL=https://aries.example.com ./node_modules/.bin/tsx --test tests/mark
 - The environment may inject `APP_BASE_URL`, `NODE_ENV`, and database variables globally.
 - OAuth tests rely on `APP_BASE_URL=https://aries.example.com`.
 - Local dependency installation should force `NODE_ENV=development` so devDependencies are present.
+
+### Repo boundary guard
+
+`npm run validate:repo-boundary` fails if protected `aries-app` surfaces pick up sibling-project names in file paths or file contents. It is there to catch cross-project drift before it spreads through source, docs, or agent context files.
 
 ## Working conventions
 

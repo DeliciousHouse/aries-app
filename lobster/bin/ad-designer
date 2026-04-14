@@ -157,20 +157,6 @@ def main() -> int:
                     "image_path": entry["image_path"],
                 }
                 for entry in family_images
-            ]
-            or [
-                {
-                    "name": "Proof Card",
-                    "format": "static",
-                    "headline": hook,
-                    "body": record_or_empty(script_assets.get("meta_ad_script")).get("body", []),
-                },
-                {
-                    "name": "Problem / Solution Reel",
-                    "format": "short-video",
-                    "headline": hook,
-                    "body": record_or_empty(script_assets.get("short_video_script")).get("beats", []),
-                },
             ],
             "design_system": {
                 "typography": typography,
@@ -189,14 +175,13 @@ def main() -> int:
         f"CTA: {cta}",
         "Placements:",
         *[f"- {item['placement']}: {item['size']} ({item['format']})" for item in ad_assets["asset_specs"]],
+        "",
+        "Per-family renders (Nano Banana Pro):",
+        *[
+            f"- [{entry.get('funnel_stage', 'cold')}] {entry.get('family_name') or entry.get('family_id')}: {entry['image_path']}"
+            for entry in family_images
+        ],
     ]
-    if family_images:
-        spec_lines.append("")
-        spec_lines.append("Per-family renders (Nano Banana Pro):")
-        for entry in family_images:
-            spec_lines.append(
-                f"- [{entry.get('funnel_stage', 'cold')}] {entry.get('family_name') or entry.get('family_id')}: {entry['image_path']}"
-            )
     spec_text = "\n".join(spec_lines)
     spec_path = save_artifact_text(run_id, "ad-designer/ad-specs.txt", spec_text)
     spec_md_path = write_text(ad_images_dir / "ad-specs.md", spec_text)

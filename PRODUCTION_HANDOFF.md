@@ -1,57 +1,36 @@
-# Aries AI — Production Deployment Handoff
+# Aries App — Production Deployment Handoff
 
-This document provides the operational runbook and deployment checklist for the Aries AI platform.
+This document is the concise production runbook for `aries-app`.
 
-## GitHub Actions release (GHCR + `master`)
+## Release flow
 
-VM deploy is driven by **pushing `master`**, but only **after** the container image for that **exact commit SHA** is already on GHCR. The Deploy workflow refuses to proceed if `ghcr.io/<owner>/aries-app:<sha>` is missing.
+1. Publish the container image for the exact commit SHA to GHCR.
+2. Push that same commit to `master`.
+3. Let the GitHub Actions deploy workflow pull the verified image and restart the `aries-app` service.
 
-Authoritative step-by-step commands (including the exact `export` block and `publish-image.sh` invocation): **`DOCKER.md`** → *Production release (GHCR image before `master`)*. Summary: **`docs/SYSTEM-REFERENCE.md`** → *Production release (operational)*.
+## Deployment checklist
 
-Mission Control follows a separate image-based path. Its CI pipeline must publish an immutable image first, then trigger `.github/workflows/deploy-mission-control.yml` with the image ref so the VM recreates only the `mission-control` service from that image.
+### Environment
+- [ ] Provision PostgreSQL.
+- [ ] Provision OpenClaw Gateway access.
+- [ ] Configure required environment variables.
+- [ ] Ensure `NODE_ENV=production`.
 
-## Deployment Checklist
+### Database
+- [ ] Export `DB_*` variables.
+- [ ] Run `npm run db:init` once against the target database.
 
-### 1. Environment Configuration
-- [ ] Provision a PostgreSQL 16 instance.
-- [ ] Provision an OpenClaw Gateway instance.
-- [ ] Configure all required environment variables (see `SETUP.md`).
-- [ ] Ensure `NODE_ENV=production` for the production build.
+### Application
+- [ ] Run `npm ci`.
+- [ ] Run `npm run build`.
+- [ ] Confirm the image for the target SHA is available in GHCR.
 
-### 2. Database Initialization
-- [ ] Export `DB_*` environment variables.
-- [ ] Run `npm run db:init` to create the schema.
+### Validation
+- [ ] Verify core public routes respond.
+- [ ] Run `npm run verify` in staging or equivalent validation environment.
+- [ ] Check logs for runtime errors after deploy.
 
-### 3. Application Build
-- [ ] Run `npm ci` (ensure `NODE_ENV=production` is set if devDependencies are not needed).
-- [ ] Run `npm run build` to create the Next.js production bundle.
-
-### 4. OpenClaw Workflow Sync
-- [ ] Ensure Lobster workflows in `./lobster` are synchronized with the OpenClaw Gateway.
-- [ ] Verify that `LOBSTER_STAGE*` cache directories are writable by the application process.
-
-## Operational Runbook
-
-### Starting the Platform
-```bash
-npm run start
-```
-The application will be available at the origin defined in `APP_BASE_URL`.
-
-### Monitoring and Health Checks
-- **Public Routes:** Verify `/`, `/features`, `/documentation`, and `/api-docs` are responding with 200 OK.
-- **Internal APIs:** Use `npm run verify` to run the regression suite against the live (or staging) environment.
-- **Logs:** Monitor standard output for runtime errors.
-
-### Troubleshooting
-- **Database Connection Issues:** Verify `DB_HOST`, `DB_PORT`, and credentials.
-- **Workflow Failures:** Check `OPENCLAW_GATEWAY_URL` connectivity and ensure the gateway has the correct `OPENCLAW_GATEWAY_TOKEN`.
-- **UI Drift:** Run `npm run typecheck` to ensure the frontend models still match the backend contracts.
-
-## Validation Evidence
-The current repository state has been validated against 73 regression tests covering:
-- Route rendering and layout integrity.
-- Frontend-to-backend API contract alignment.
-- Tenant isolation and security boundaries.
-- Multi-stage marketing job orchestration.
-- Onboarding flow success paths.
+## Troubleshooting
+- Database issues: verify `DB_*` settings.
+- Workflow issues: verify `OPENCLAW_GATEWAY_URL` and `OPENCLAW_GATEWAY_TOKEN`.
+- UI drift: run `npm run typecheck` and `npm run verify`.

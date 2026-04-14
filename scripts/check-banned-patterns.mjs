@@ -1,7 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const root = path.resolve(process.env.CODE_ROOT?.trim() || process.cwd());
+const explicitCodeRoot = process.env.CODE_ROOT?.trim();
+const candidateRoot = explicitCodeRoot ? path.resolve(explicitCodeRoot) : null;
+const root =
+  candidateRoot && fs.existsSync(path.join(candidateRoot, 'package.json'))
+    ? candidateRoot
+    : process.cwd();
 const files = [
   'README-runtime.md',
   'SETUP.md',

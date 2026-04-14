@@ -109,7 +109,6 @@ def _funnel_weighted_offsets(count: int, window_days: int) -> list[int]:
         return []
     step = window_days / (count + 1)
     offsets = [min(window_days - 1, max(0, round(step * (index + 1)))) for index in range(count)]
-    # Deduplicate while preserving order; pad by nudging forward when two events land on the same day.
     used: set[int] = set()
     result: list[int] = []
     for offset in offsets:

@@ -8,7 +8,7 @@ import MediaPreview from '@/frontend/components/media-preview';
 import { useRuntimeReviewItem } from '@/hooks/use-runtime-review-item';
 
 import { customerSafeUiErrorMessage } from './customer-safe-copy';
-import { EmptyStatePanel, ShellPanel, StatusChip } from './components';
+import { EmptyStatePanel, LoadingStateGrid, ShellPanel, StatusChip } from './components';
 
 function workflowLabel(value: string): string {
   if (value === 'workflow_approval') {
@@ -67,7 +67,7 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
   }, [item]);
 
   if (review.isLoading) {
-    return <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-8 text-white/60">Loading review item...</div>;
+    return <LoadingStateGrid />;
   }
 
   if (review.error) {
