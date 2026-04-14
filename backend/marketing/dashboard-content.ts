@@ -1996,9 +1996,15 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
     const assetPaths = recordValue(preview.asset_paths) ?? {}
     const mediaPaths = asStringArray(preview.media_paths)
     const assetIds: string[] = []
+    // Each platform_preview is a distinct creative concept (e.g., per-family Nano Banana Pro
+    // render). Including the preview index in the asset id keeps every concept addressable
+    // even when several previews share the same platform_slug.
+    const previewAssetPrefix = stringValue(preview.asset_preview_id) || `platform-preview-${platform}-${index + 1}`
 
     mediaPaths.forEach((filePath, mediaIndex) => {
-      const assetId = `platform-preview-${platform}-media-${mediaIndex + 1}`
+      const assetId = mediaIndex === 0 && stringValue(preview.asset_preview_id)
+        ? previewAssetPrefix
+        : `${previewAssetPrefix}-media-${mediaIndex + 1}`
       const addedAsset = addAsset({
         id: assetId,
         campaignId,
@@ -2041,7 +2047,7 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
         return
       }
       const suffix = label === 'contract' ? 'contract' : label === 'brief' ? 'brief' : 'landing-page'
-      const assetId = `platform-preview-${platform}-asset-${suffix}`
+      const assetId = `${previewAssetPrefix}-asset-${suffix}`
       const addedAsset = addAsset({
         id: assetId,
         campaignId,

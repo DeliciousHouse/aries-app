@@ -319,10 +319,20 @@ function approvalLifecycleLog(
 }
 
 function primaryOutputRecord(envelope: LobsterEnvelope): Record<string, unknown> {
-  const first = Array.isArray(envelope.output) ? envelope.output[0] : null;
-  return first && typeof first === 'object' && !Array.isArray(first)
-    ? (first as Record<string, unknown>)
-    : {};
+  const fromOutput = Array.isArray(envelope.output) ? envelope.output[0] : null;
+  if (fromOutput && typeof fromOutput === 'object' && !Array.isArray(fromOutput)) {
+    return fromOutput as Record<string, unknown>;
+  }
+  // Paused workflows return an empty `output[]`; the per-stage handoff is forwarded
+  // through the approval bridge as the first item so the orchestrator can hydrate
+  // strategy/production/publish stage state from the runtime doc instead of dropping it.
+  const fromItems = Array.isArray(envelope.requiresApproval?.items)
+    ? envelope.requiresApproval.items[0]
+    : null;
+  if (fromItems && typeof fromItems === 'object' && !Array.isArray(fromItems)) {
+    return fromItems as Record<string, unknown>;
+  }
+  return {};
 }
 
 function stringArray(value: unknown): string[] {

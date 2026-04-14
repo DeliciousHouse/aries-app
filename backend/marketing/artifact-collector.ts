@@ -415,7 +415,17 @@ export function collectPublishReviewArtifacts(
   const reviewPath = reviewStep?.path || (runId ? stepPayloadPath(4, runId, 'launch_review_preview') : '');
   const preflight = preflightStep?.payload || (preflightPath ? readJsonIfExists(preflightPath) : null);
   const resolvedPublishReview = runtimeDoc ? resolvePublishReviewBundle(runtimeDoc) : { reviewPayload: null, reviewBundle: null };
-  const review = resolvedPublishReview.reviewPayload || reviewStep?.payload || (reviewPath ? readJsonIfExists(reviewPath) : null);
+  // In docker setups, the lobster step cache lives on the gateway host (a different
+  // filesystem) so reviewStep/reviewPath both come back null. Fall back to the
+  // primaryOutput passed in by the orchestrator — that's the launch_review_preview
+  // payload forwarded through the approval bridge as `requiresApproval.items[0]`.
+  const review =
+    resolvedPublishReview.reviewPayload ||
+    reviewStep?.payload ||
+    (reviewPath ? readJsonIfExists(reviewPath) : null) ||
+    (primaryOutput && stringValue((primaryOutput as Record<string, unknown>).type) === 'launch_review_preview'
+      ? (primaryOutput as Record<string, unknown>)
+      : null);
   const publishPlan = asRecord(preflight?.publish_plan) ?? {};
   const approvalPreview = asRecord(review?.approval_preview) ?? asRecord(primaryOutput?.approval_preview) ?? {};
   const reviewBundle = resolvedPublishReview.reviewBundle ?? asRecord(review?.review_bundle) ?? asRecord(primaryOutput?.review_bundle) ?? {};
