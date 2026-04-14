@@ -1,6 +1,5 @@
 import path from 'node:path'
-import process from 'node:process'
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import {
   currentDateInfo,
   emitSummary,
@@ -13,15 +12,14 @@ import {
 const flags = parseArgs()
 const dryRun = flags.has('--dry-run')
 const preflightOnly = flags.has('--preflight')
-const MISSION_CONTROL_ROOT = process.env.MISSION_CONTROL_ROOT || '/home/node/.openclaw/projects/mission_control'
-const FALLBACK_BOARD_PATH = process.env.EXECUTION_TASKS_PATH || '/home/node/.openclaw/projects/shared/team/execution-tasks.json'
+const BOARD_PATH = process.env.EXECUTION_TASKS_PATH || '/home/node/.openclaw/projects/shared/team/execution-tasks.json'
+const MEETINGS_DIR = '/home/node/.openclaw/projects/shared/team/meetings'
 
 preflightOrExit('DAILY STANDUP', {
   binaries: ['npm'],
   paths: [
-    { label: 'fallback board', path: FALLBACK_BOARD_PATH, type: 'file' },
-    { label: 'mission control root', path: MISSION_CONTROL_ROOT, type: 'dir' },
-    { label: 'shared meetings dir', path: '/home/node/.openclaw/projects/shared/team/meetings', type: 'dir' },
+    { label: 'execution board', path: BOARD_PATH, type: 'file' },
+    { label: 'shared meetings dir', path: MEETINGS_DIR, type: 'dir' },
   ],
 }, { preflightOnly })
 
@@ -29,27 +27,19 @@ if (preflightOnly) {
   process.exit(0)
 }
 
-async function loadProjectBoardPayload() {
-  const modulePath = path.join(MISSION_CONTROL_ROOT, 'server', 'lib', 'project-board.mjs')
-  if (existsSync(modulePath)) {
-    const module = await import(`file://${modulePath}`)
-    if (typeof module.loadProjectBoardPayload === 'function') {
-      return module.loadProjectBoardPayload()
-    }
-  }
-
-  const raw = JSON.parse(readFileSync(FALLBACK_BOARD_PATH, 'utf8'))
+function loadBoardPayload() {
+  const raw = JSON.parse(readFileSync(BOARD_PATH, 'utf8'))
   return {
     ...raw,
     source: {
-      path: FALLBACK_BOARD_PATH,
-      mode: 'fallback_file',
+      path: BOARD_PATH,
+      mode: 'shared_board_file',
     },
   }
 }
 
-const { date, stamp } = currentDateInfo()
-const sharedTranscriptPath = path.join('/home/node/.openclaw/projects/shared/team/meetings', `${date}-daily-standup.md`)
+const { date } = currentDateInfo()
+const sharedTranscriptPath = path.join(MEETINGS_DIR, `${date}-daily-standup.md`)
 
 const priorityRank = { P0: 0, P1: 1, P2: 2, P3: 3 }
 const statusRank = { active: 0, review: 1, ready: 2, 'follow-up': 3, intake: 4, shipped: 5 }
@@ -102,22 +92,20 @@ function summarizeVerify(result) {
   return line || `failed with exit ${result.code}`
 }
 
-function laneReport({ chiefId, chiefAgentId, title, tasks, extraCurrent = [], extraBlockers = [], reportStatus = 'complete' }) {
+function laneReport({ laneId, laneLabel, title, tasks, extraCurrent = [], extraBlockers = [], reportStatus = 'complete' }) {
   const activeTasks = tasks.filter((task) => task.status !== 'shipped')
   const topTask = chooseTopTask(activeTasks.length ? activeTasks : tasks)
   const blockedTasks = tasks.filter((task) => task.blocked)
   const counts = countByStatus(tasks)
 
   return {
-    chiefId,
-    chiefAgentId,
+    laneId,
     title,
     reportStatus,
     topTask,
     markdown: [
       `### ${title}`,
-      `- chief_id: ${chiefId}`,
-      `- chief_agent_id: ${chiefAgentId}`,
+      `- lane_id: ${laneId}`,
       `- report_status: ${reportStatus}`,
       `- Active task: ${topTask ? `\`${topTask.id}\`` : 'none visible on board'}`,
       `- Current status: ${topTask?.status || 'unknown'}`,
@@ -135,39 +123,36 @@ function laneReport({ chiefId, chiefAgentId, title, tasks, extraCurrent = [], ex
         ...extraBlockers,
       ].filter(Boolean), 'No blockers are flagged in board truth for this lane.'),
       '',
-      '#### Human Dependencies',
-      ...bulletize([], 'No explicit human dependency is encoded in this automation beyond what board truth already shows.'),
-      '',
-      '#### Needs Jarvis Routing',
-      ...bulletize(blockedTasks.length ? ['Jarvis should reconcile blocked lane items and any stale board status before claiming closure.'] : [], 'No Jarvis routing request is required from current board truth.'),
+      '#### Next Actions',
+      ...bulletize(blockedTasks.length ? ['Review blocked board items before claiming closure.'] : [], 'No additional routing request is required from current board truth.'),
       '',
     ].join('\n'),
   }
 }
 
-const board = await loadProjectBoardPayload()
+const board = loadBoardPayload()
 const tasks = Array.isArray(board.tasks) ? board.tasks : []
 const workspaceVerify = run('npm', ['run', 'workspace:verify'], { timeout: 120000 })
 const workspaceVerifyStatus = summarizeVerify(workspaceVerify)
 
-const forgeTasks = tasks.filter((task) => ['frontend', 'backend'].includes(task.taskDomain))
-const signalTasks = tasks.filter((task) => task.taskDomain === 'runtime-automation')
-const ledgerTasks = tasks.filter((task) => task.taskDomain === 'operations-knowledge')
+const deliveryTasks = tasks.filter((task) => ['frontend', 'backend'].includes(task.taskDomain))
+const runtimeTasks = tasks.filter((task) => task.taskDomain === 'runtime-automation')
+const operationsTasks = tasks.filter((task) => task.taskDomain === 'operations-knowledge')
 
-const forge = laneReport({
-  chiefId: 'forge',
-  chiefAgentId: 'delivery-chief',
-  title: 'Forge — Engineering Delivery',
-  tasks: forgeTasks,
+const delivery = laneReport({
+  laneId: 'delivery',
+  laneLabel: 'Delivery',
+  title: 'Delivery',
+  tasks: deliveryTasks,
   extraCurrent: [workspaceVerify.ok ? `Fresh workspace verification passed on ${date}.` : `Workspace verification is unavailable right now: ${workspaceVerifyStatus}.`],
   extraBlockers: !workspaceVerify.ok ? [`Workspace verification failed: ${workspaceVerifyStatus}.`] : [],
 })
 
-const signal = laneReport({
-  chiefId: 'signal',
-  chiefAgentId: 'runtime-chief',
-  title: 'Signal — Runtime & Automation',
-  tasks: signalTasks,
+const runtime = laneReport({
+  laneId: 'runtime',
+  laneLabel: 'Runtime',
+  title: 'Runtime & Automation',
+  tasks: runtimeTasks,
   reportStatus: 'partial',
   extraCurrent: [
     'Live runtime truth is not re-verified by this board-based standup automation, so runtime detail remains limited to board truth.',
@@ -179,11 +164,11 @@ const signal = laneReport({
   ],
 })
 
-const ledger = laneReport({
-  chiefId: 'ledger',
-  chiefAgentId: 'knowledge-chief',
-  title: 'Ledger — Operations & Knowledge',
-  tasks: ledgerTasks,
+const operations = laneReport({
+  laneId: 'operations',
+  laneLabel: 'Operations',
+  title: 'Operations & Knowledge',
+  tasks: operationsTasks,
   extraCurrent: [workspaceVerify.ok ? `Fresh workspace verification passed on ${date}.` : `Workspace verification is unavailable right now: ${workspaceVerifyStatus}.`],
   extraBlockers: !workspaceVerify.ok ? [`Workspace verification failed: ${workspaceVerifyStatus}.`] : [],
 })
@@ -195,9 +180,9 @@ function blockedLaneTasks(tasks, laneLabel) {
 }
 
 const primaryBlockers = [
-  ...blockedLaneTasks(forgeTasks, 'Delivery'),
-  ...blockedLaneTasks(signalTasks, 'Runtime'),
-  ...blockedLaneTasks(ledgerTasks, 'Operations'),
+  ...blockedLaneTasks(deliveryTasks, 'Delivery'),
+  ...blockedLaneTasks(runtimeTasks, 'Runtime'),
+  ...blockedLaneTasks(operationsTasks, 'Operations'),
   'Runtime lane remains partial because this automation does not claim live scheduler truth without a direct runtime probe.',
   ...(!workspaceVerify.ok ? [`Workspace verification failed: ${workspaceVerifyStatus}.`] : []),
 ]
@@ -211,7 +196,7 @@ const transcript = [
   `generated_at: ${new Date().toISOString()}`,
   `status: ${overallStatus}`,
   'delivery: cron:auto',
-  `board_path: ${board.source?.path || '/home/node/.openclaw/projects/shared/team/execution-tasks.json'}`,
+  `board_path: ${board.source?.path || BOARD_PATH}`,
   '---',
   '',
   `# Daily Standup — ${date}`,
@@ -219,22 +204,22 @@ const transcript = [
   '## Top Summary',
   `- Overall status: ${overallStatus}.`,
   `- Workspace verification: ${workspaceVerify.ok ? 'passed' : `failed (${workspaceVerifyStatus})`}.`,
-  forge.topTask ? `- Forge lane focus: \`${forge.topTask.id}\` is ${forge.topTask.status}.` : '- Forge lane focus: no tracked task visible.',
-  signal.topTask ? `- Signal lane focus: \`${signal.topTask.id}\` is ${signal.topTask.status}, but live runtime truth was not re-verified in this automation.` : '- Signal lane focus: no tracked task visible.',
-  ledger.topTask ? `- Ledger lane focus: \`${ledger.topTask.id}\` is ${ledger.topTask.status}.` : '- Ledger lane focus: no tracked task visible.',
+  delivery.topTask ? `- Delivery lane focus: \`${delivery.topTask.id}\` is ${delivery.topTask.status}.` : '- Delivery lane focus: no tracked task visible.',
+  runtime.topTask ? `- Runtime lane focus: \`${runtime.topTask.id}\` is ${runtime.topTask.status}, but live runtime truth was not re-verified in this automation.` : '- Runtime lane focus: no tracked task visible.',
+  operations.topTask ? `- Operations lane focus: \`${operations.topTask.id}\` is ${operations.topTask.status}.` : '- Operations lane focus: no tracked task visible.',
   '',
   '## Standup Health',
   `- overall_status: ${overallStatus}`,
-  '- responding_chiefs: 3/3 (board-derived)',
+  '- responding_lanes: 3/3 (board-derived)',
   `- workspace_verify: ${workspaceVerify.ok ? 'passed' : 'failed'}`,
   '- primary_blockers:',
   ...bulletize(primaryBlockers, 'No primary blockers.'),
   '',
-  '## Chief Reports',
+  '## Lane Reports',
   '',
-  forge.markdown,
-  signal.markdown,
-  ledger.markdown,
+  delivery.markdown,
+  runtime.markdown,
+  operations.markdown,
   '## Delivery Notes',
   `- Standup transcript archived at \`${sharedTranscriptPath}\`.`,
   '- This cron run is board-derived and truthful about unavailable live runtime detail.',
@@ -249,7 +234,7 @@ emitSummary([
   dryRun ? 'DAILY STANDUP DRY RUN' : overallStatus === 'complete' ? 'DAILY STANDUP OK' : 'DAILY STANDUP PARTIAL',
   `- transcript: ${sharedTranscriptPath}`,
   `- workspace verify: ${workspaceVerify.ok ? 'passed' : `failed (${workspaceVerifyStatus})`}`,
-  `- forge: ${forge.topTask ? `${forge.topTask.status} / ${forge.topTask.id}` : 'no visible task'}`,
-  `- signal: ${signal.topTask ? `${signal.topTask.status} / ${signal.topTask.id}` : 'no visible task'}`,
-  `- ledger: ${ledger.topTask ? `${ledger.topTask.status} / ${ledger.topTask.id}` : 'no visible task'}`,
+  `- delivery: ${delivery.topTask ? `${delivery.topTask.status} / ${delivery.topTask.id}` : 'no visible task'}`,
+  `- runtime: ${runtime.topTask ? `${runtime.topTask.status} / ${runtime.topTask.id}` : 'no visible task'}`,
+  `- operations: ${operations.topTask ? `${operations.topTask.status} / ${operations.topTask.id}` : 'no visible task'}`,
 ])

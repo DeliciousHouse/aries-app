@@ -1,7 +1,13 @@
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 
-const repoRoot = path.resolve(process.env.CODE_ROOT?.trim() || process.cwd());
+const explicitCodeRoot = process.env.CODE_ROOT?.trim();
+const candidateRoot = explicitCodeRoot ? path.resolve(explicitCodeRoot) : null;
+const repoRoot =
+  candidateRoot && fs.existsSync(path.join(candidateRoot, 'package.json'))
+    ? candidateRoot
+    : process.cwd();
 const tsxBin = path.join(repoRoot, 'node_modules', '.bin', 'tsx');
 
 const baseEnv = {
@@ -22,6 +28,10 @@ const steps = [
   {
     name: 'banned-pattern assertions',
     args: ['--test', 'tests/verify-banned-patterns.test.ts'],
+  },
+  {
+    name: 'repo-boundary guard',
+    args: ['--test', 'tests/repo-boundary-guard.test.ts'],
   },
   {
     name: 'targeted marketing-flow smoke tests',

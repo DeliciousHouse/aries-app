@@ -135,7 +135,7 @@ Instagram remains env-managed with `META_PAGE_ID` and `META_ACCESS_TOKEN`.
 
 Run these commands from the repo root after `npm ci`.
 
-Prefer `npm run verify` for a single fast regression gate; it executes the first three checks with deterministic environment overrides.
+Prefer `npm run verify` for a single fast regression gate; it executes the current targeted checks with deterministic environment overrides.
 
 ### Public-route smoke checks
 ```bash
@@ -145,6 +145,11 @@ Prefer `npm run verify` for a single fast regression gate; it executes the first
 ### Banned-pattern check
 ```bash
 node scripts/check-banned-patterns.mjs
+```
+
+### Repo-boundary check
+```bash
+npm run validate:repo-boundary
 ```
 
 ### Marketing-flow smoke path

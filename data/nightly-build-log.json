@@ -26,6 +26,18 @@
       ],
       "verification": "npm run build passed with no errors. Runtime verification unavailable (no running dev server).",
       "notes": "Bucket 3 (small UX improvement). Board candidate assigned to Rohan (human). Feedback log empty. This accessibility fix is bounded, additive, affects all loading screens globally, and follows WAI-ARIA live region patterns."
+    },
+    {
+      "title": "Use shared LoadingStateGrid in review item detail screen",
+      "description": "The review item detail screen (/review/:reviewId) used a plain text 'Loading review item...' div for its loading state, while every other screen in the app used the shared LoadingStateGrid component with accessible ARIA attributes. Replaced the inline loading div with LoadingStateGrid to ensure consistent loading UX and screen reader announcements across all surfaces.",
+      "status": "deployed",
+      "date": "2026-04-14",
+      "track": "aries-app",
+      "files": [
+        "frontend/aries-v1/review-item.tsx"
+      ],
+      "verification": "npm run build passed with no errors. Runtime verification unavailable (no running dev server).",
+      "notes": "Bucket 3 (small UX improvement). Board candidate assigned to Rohan (human) and requires product judgment. Feedback log empty. This consistency fix is bounded and additive — the review item detail was the only screen not using the shared accessible loading component."
     }
   ]
 }

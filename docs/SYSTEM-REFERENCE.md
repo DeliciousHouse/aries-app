@@ -1,15 +1,24 @@
 # Aries System Reference
 
-Last refreshed Apr 12, 2026, 19:26 PDT.
+Last refreshed Apr 14, 2026, 03:53 PDT.
 
 ## What changed today
-- No git-tracked file changes detected since local midnight.
+- backend/marketing/artifact-collector.ts
+- backend/marketing/dashboard-content.ts
+- backend/marketing/orchestrator.ts
+- docker-compose.local.yml
+- docker-compose.yml
+- lobster/bin/_approval_bridge
+- lobster/bin/_stage4_common.py
+- lobster/bin/ad-designer
+- lobster/bin/launch-review-preview
+- lobster/marketing-pipeline.lobster
 
 ## Current architecture overview
 - Next.js App Router runtime serves the public site, authenticated operator shell, and browser-safe internal APIs.
-- Backend domain logic lives under backend/* and routes long-running execution through OpenClaw Gateway rather than direct browser workflow exposure.
-- Local runtime state and typed adapters live across lib/*, hooks/*, specs/*, and workflows/* to preserve contract boundaries.
-- Standalone Mission Control deploys as a separate image and reads /api/runtime/overview from its local runtime server.
+- Backend domain logic lives under `backend/*` and routes long-running execution through OpenClaw Gateway.
+- Local runtime state and typed adapters live across `lib/*`, `hooks/*`, `specs/*`, and `workflows/*` to preserve contract boundaries.
+- Repo context and automation output should stay scoped to `aries-app` only.
 
 ## Module inventory
 - app/ 108 files
@@ -17,8 +26,8 @@ Last refreshed Apr 12, 2026, 19:26 PDT.
 - components/ 14 files
 - hooks/ 17 files
 - lib/ 21 files
-- scripts/ 26 files
-- skills/ 82 files
+- scripts/ 27 files
+- skills/ 79 files
 - workflows/ 4 files
 
 ## Active cron jobs
@@ -39,7 +48,7 @@ Last refreshed Apr 12, 2026, 19:26 PDT.
 - workspace:verify: node scripts/verify-canonical-workspace.mjs
 - workspace:inventory: node scripts/inventory-paperclip-workspaces.mjs
 - typecheck: tsc --noEmit
-- lint: tsc --noEmit && node scripts/check-banned-patterns.mjs
+- lint: tsc --noEmit && node scripts/check-banned-patterns.mjs && node scripts/check-repo-boundary.mjs
 - test: tsx --test tests/*.test.ts tests/**/*.test.ts
 - test:e2e: tsx --test tests/frontend-api-layer.test.ts tests/marketing-flow-smoke.test.ts tests/onboarding-runtime-cutover.test.ts tests/public-marketing-pages.test.ts tests/runtime-api-truth.test.ts tests/runtime-pages.test.ts
 - db:init: node scripts/init-db.js
@@ -47,6 +56,7 @@ Last refreshed Apr 12, 2026, 19:26 PDT.
 - validate:public-routes: tsx --test tests/runtime-pages.test.ts tests/public-marketing-pages.test.ts
 - validate:banned-patterns: node scripts/check-banned-patterns.mjs
 - validate:marketing-flow: APP_BASE_URL=https://aries.example.com tsx --test tests/marketing-job-flow.test.ts tests/onboarding-marketing-contracts.test.ts
+- validate:repo-boundary: node scripts/check-repo-boundary.mjs
 - validate:homepage-perf: mkdir -p .artifacts && CI=1 npx --yes lighthouse http://127.0.0.1:8100 --only-categories=performance --preset=desktop --no-enable-error-reporting --chrome-flags='--headless=new --no-sandbox --disable-dev-shm-usage' --output=json --output-path=.artifacts/lighthouse-homepage.json
 - validate:homepage-perf:mobile: mkdir -p .artifacts && CI=1 npx --yes lighthouse http://127.0.0.1:8100 --only-categories=performance --form-factor=mobile --screenEmulation.mobile=true --throttling-method=simulate --no-enable-error-reporting --chrome-flags='--headless=new --no-sandbox --disable-dev-shm-usage' --output=json --output-path=.artifacts/lighthouse-homepage-mobile.json
 - automation:backup: node scripts/automations/private-repo-backup.mjs
@@ -59,31 +69,31 @@ Last refreshed Apr 12, 2026, 19:26 PDT.
 - automation:verify: node scripts/automations/verify-automations.mjs
 
 ## Known issues
-- Cron registration is prepared but not auto-enabled until backup remote/delivery targets are confirmed.
-- Daily brief and system reference depend on local markdown/task hygiene; the better the source docs, the sharper the briefs.
-- Mission Control standalone app is still a shell around runtime overview data and awaits richer live API adapters for actions/transcripts.
+- Cron registration is prepared but not auto-enabled until backup remote and delivery targets are confirmed.
+- Daily brief and system reference quality depends on current repo docs and task hygiene.
+- Cross-project drift should be treated as a regression and removed instead of archived into active repo context.
 
 ## Working tree snapshot
-- M  .env.example
+- M .env.example
+- M AGENTS.md
+- M CLAUDE.md
 - M DELEGATION-RULES.md
-- M  IDENTITY.md
-- M  MEMORY.md
-- MM PRIORITIES.md
-- M  SOUL.md
-- MM data/feedback-processing-log.json
-- AM data/nightly-build-log.json
-- M  docker-compose.yml
-- M  docs/SYSTEM-REFERENCE.md
-- M docs/briefs/2026-03-29-brief.md
-- M docs/briefs/2026-04-04-brief.md
-- A  docs/briefs/2026-04-10-brief.md
-- A  docs/briefs/2026-04-11-brief.md
-- M frontend/aries-v1/components.tsx
-- M  frontend/aries-v1/presenters/calendar-presenter.tsx
-- A  incubator/micro-saas/2026-04-11-pingpage/brief.md
-- A  incubator/micro-saas/2026-04-11-pingpage/prototype/package.json
-- A  incubator/micro-saas/2026-04-11-pingpage/prototype/pingpage.config.json
-- A  incubator/micro-saas/2026-04-11-pingpage/prototype/server.mjs
+- M DOCKER.md
+- M IDENTITY.md
+- M MEMORY.md
+- M PRIORITIES.md
+- M PRODUCTION_HANDOFF.md
+- M PROTECTED_SYSTEMS.md
+- M README-runtime.md
+- M README.md
+- M RUNTIME.md
+- M SOUL.md
+- M TOOLS.md
+- D data/org-chart.json
+- D docs/briefs/2026-03-29-brief.md
+- D docs/briefs/2026-04-04-brief.md
+- D docs/briefs/2026-04-07-brief.md
+- D docs/briefs/2026-04-09-brief.md
 
 ## Reference date
-- 2026-04-12
+- 2026-04-14

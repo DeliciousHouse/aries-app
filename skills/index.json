@@ -43,19 +43,6 @@
       }
     },
     {
-      "name": "mission-control-smoke-check",
-      "category": "operations",
-      "path": "skills/operations/mission-control-smoke-check",
-      "owner": "brendan",
-      "status": "active",
-      "last_updated": "2026-04-06",
-      "version": "0.1.0",
-      "visibility": {
-        "scope": "all",
-        "agents": []
-      }
-    },
-    {
       "name": "aries-private-repo-backup",
       "category": "automations",
       "path": "skills/aries-private-repo-backup",

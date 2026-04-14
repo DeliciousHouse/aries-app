@@ -1,35 +1,30 @@
-# TOOLS.md — Environment Notes
+# TOOLS.md — Aries App Environment Notes
 
 ## Workspace
 
-- Primary repo: `/app/aries-app`
-- Build/dev commands, env vars, and DB defaults: see `CLAUDE.md`
+- Primary repo: `/home/node/openclaw/aries-app`
+- Main docs: `README.md`, `README-runtime.md`, `SETUP.md`, `ROUTE_MANIFEST.md`
 
-## Mission Control paths
+## Boundary reminder
 
-Remembered path for standalone MC deployment:
-- `/home/node/openclaw/projects/mission-control-builder/mission-control`
-- Status: remembered context, not freshly verified
+Treat this checkout as `aries-app` only.
 
-## Documentation sources
-
-- Local docs: `/app/aries-app/docs`, `README.md`, `README-runtime.md`, `SETUP.md`
-- Delegation rules: `DELEGATION-RULES.md`
-- OpenClaw docs: `https://docs.openclaw.ai`
-- OpenClaw source: `https://github.com/openclaw/openclaw`
-
-## Environment variable notes
-
-System-level env vars may override `.env`. Known examples: `NODE_ENV=production`, `DB_HOST`, `APP_BASE_URL`.
-
-Use `NODE_ENV=development npm ci` for installs (system may have `NODE_ENV=production` which skips devDependencies).
+- Do not reuse sibling-project paths, prompts, or deployment notes here.
+- If a task depends on another repo, call that out explicitly instead of folding it into `aries-app`.
 
 ## Runtime truth rules
 
-When describing environment behavior, distinguish between: verified current state, repo/config default, remembered prior context, and inference. Do not upgrade a likely default into runtime fact without checking.
+When describing environment behavior, distinguish between:
 
-## Human verification needed
+- verified current state
+- repo or config default
+- remembered prior context
+- inference
 
-Expect human verification for: live deployment targets, account/dashboard states, external service credentials, manual steps outside repo visibility, anything Somwya owns, final deploy approval.
+Do not upgrade remembered context into current repo truth without checking.
 
-When needed, state: what must be verified, who verifies, what evidence confirms it, what can proceed meanwhile.
+## Validation shortcuts
+
+- `npm run validate:repo-boundary`
+- `npm run validate:banned-patterns`
+- `npm run verify`

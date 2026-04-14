@@ -47,7 +47,7 @@ Prefer tools such as:
 Prefer skills such as:
 - the most task-specific repo/domain skill available
 - `coding-agent` when delegation to a coding harness is part of the plan
-- `frontend-design`, `mission-control-design`, or other domain skills when relevant
+- `frontend-design` or other domain skills when relevant
 
 ### For research tasks with `openai-codex/gpt-5.4`
 Prefer tools such as:

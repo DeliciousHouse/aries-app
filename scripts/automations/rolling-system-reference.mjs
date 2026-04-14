@@ -52,9 +52,9 @@ const moduleInventory = [
 ]
 
 const knownIssues = [
-  'Cron registration is prepared but not auto-enabled until backup remote/delivery targets are confirmed.',
-  'Daily brief and system reference depend on local markdown/task hygiene; the better the source docs, the sharper the briefs.',
-  'Mission Control standalone app is still a shell around runtime overview data and awaits richer live API adapters for actions/transcripts.',
+  'Cron registration is prepared but not auto-enabled until backup remote and delivery targets are confirmed.',
+  'Daily brief and system reference quality depends on current repo docs and task hygiene.',
+  'Cross-project drift should be treated as a regression and removed instead of archived into active repo context.',
 ]
 
 const markdown = [
@@ -67,9 +67,9 @@ const markdown = [
   '',
   '## Current architecture overview',
   '- Next.js App Router runtime serves the public site, authenticated operator shell, and browser-safe internal APIs.',
-  '- Backend domain logic lives under backend/* and routes long-running execution through OpenClaw Gateway rather than direct browser workflow exposure.',
-  '- Local runtime state and typed adapters live across lib/*, hooks/*, specs/*, and workflows/* to preserve contract boundaries.',
-  '- Standalone Mission Control deploys as a separate image and reads /api/runtime/overview from its local runtime server.',
+  '- Backend domain logic lives under `backend/*` and routes long-running execution through OpenClaw Gateway.',
+  '- Local runtime state and typed adapters live across `lib/*`, `hooks/*`, `specs/*`, and `workflows/*` to preserve contract boundaries.',
+  '- Repo context and automation output should stay scoped to `aries-app` only.',
   '',
   '## Module inventory',
   ...moduleInventory.map(([label, count]) => `- ${label} ${count} files`),
@@ -83,12 +83,12 @@ const markdown = [
   '## Known issues',
   ...knownIssues.map((item) => `- ${item}`),
   '',
-  `## Working tree snapshot`,
+  '## Working tree snapshot',
   ...(gitChangedFiles(['status', '--short']).length
     ? gitChangedFiles(['status', '--short']).slice(0, 20).map((line) => `- ${line}`)
     : ['- Working tree clean at refresh time.']),
   '',
-  `## Reference date`,
+  '## Reference date',
   `- ${date}`,
   '',
 ].join('\n')
