@@ -862,6 +862,127 @@ function firstCheckpointAttachments(
   return attachments;
 }
 
+// Read the stage_4_launch_review bundle straight from the runtime doc and
+// turn it into rich approval sections (summary, 30-day content calendar,
+// platform-by-platform preview list). This is what the user sees at the
+// approve_stage_4 gate — without it the screen would only show the generic
+// approval prompt and the whole point of the Fix B pipeline reorder would be
+// invisible to reviewers.
+function launchReviewApprovalSections(runtimeDoc: MarketingJobRuntimeDocument): MarketingReviewSection[] {
+  const publishPrimary = recordValue(runtimeDoc.stages.publish?.primary_output);
+  const bundle = recordValue(publishPrimary?.review_bundle);
+  if (!bundle) {
+    return [];
+  }
+
+  const summary = recordValue(bundle.summary) ?? {};
+  const calendar = recordValue(bundle.content_calendar) ?? {};
+  const previews = Array.isArray(bundle.platform_previews) ? bundle.platform_previews : [];
+  const campaignWindow = recordValue(summary.campaign_window);
+
+  const formatDate = (value: unknown): string => {
+    const raw = stringValue(value);
+    if (!raw) return '';
+    const parsed = new Date(raw);
+    return Number.isNaN(parsed.getTime()) ? raw : parsed.toISOString().slice(0, 10);
+  };
+
+  const formatEventTime = (value: unknown): string => {
+    const raw = stringValue(value);
+    if (!raw) return '';
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return raw;
+    const date = parsed.toISOString().slice(0, 10);
+    const hours = parsed.getUTCHours().toString().padStart(2, '0');
+    const minutes = parsed.getUTCMinutes().toString().padStart(2, '0');
+    return `${date} ${hours}:${minutes} UTC`;
+  };
+
+  const sections: MarketingReviewSection[] = [];
+
+  const summaryBlock = labeledBlock([
+    ['Campaign window', campaignWindow
+      ? `${formatDate(campaignWindow.start)} → ${formatDate(campaignWindow.end)} (${stringValue(campaignWindow.duration_days, '30')} days)`
+      : ''],
+    ['Cadence', stringValue(calendar.cadence, 'funnel-weighted')],
+    ['Planned posts', stringValue(summary.planned_posts)],
+    ['Created posts', stringValue(summary.created_posts)],
+    ['Static contracts', stringValue(summary.static_contract_count)],
+    ['Video contracts', stringValue(summary.video_contract_count)],
+    ['Core message', stringValue(summary.core_message)],
+    ['Primary CTA', stringValue(summary.primary_cta)],
+    ['Offer', stringValue(summary.offer_summary)],
+    ['Launch readiness', stringValue(summary.launch_readiness_status)],
+  ]);
+  if (summaryBlock) {
+    sections.push({
+      id: 'launch-review-summary',
+      title: 'Launch review summary',
+      body: summaryBlock,
+    });
+  }
+
+  const events = Array.isArray(calendar.events) ? calendar.events : [];
+  if (events.length > 0) {
+    const cold: string[] = [];
+    const warm: string[] = [];
+    for (const rawEvent of events) {
+      const event = recordValue(rawEvent);
+      if (!event) continue;
+      const time = formatEventTime(event.starts_at);
+      const platform = stringValue(event.platform_name, stringValue(event.platform));
+      const title = stringValue(event.title);
+      const funnel = stringValue(event.funnel_stage).toLowerCase();
+      const line = [time, platform, title].filter((part) => part.length > 0).join(' · ');
+      if (!line) continue;
+      (funnel === 'warm' ? warm : cold).push(`• ${line}`);
+    }
+    const calendarBody = [
+      cold.length > 0 ? `Cold phase (discovery)\n${cold.join('\n')}` : '',
+      warm.length > 0 ? `\nWarm phase (consideration)\n${warm.join('\n')}` : '',
+    ]
+      .filter((chunk) => chunk.trim().length > 0)
+      .join('\n');
+    if (calendarBody.trim().length > 0) {
+      sections.push({
+        id: 'launch-review-calendar',
+        title: '30-day content calendar',
+        body: calendarBody,
+      });
+    }
+  }
+
+  if (previews.length > 0) {
+    const previewLines: string[] = [];
+    for (const rawPreview of previews) {
+      const preview = recordValue(rawPreview);
+      if (!preview) continue;
+      const platform = stringValue(preview.platform_name, stringValue(preview.platform_slug));
+      const family = stringValue(preview.family_name, stringValue(preview.family_id));
+      const headline = stringValue(preview.headline, stringValue(preview.hook));
+      const cta = stringValue(preview.cta);
+      const funnel = stringValue(preview.funnel_stage);
+      const parts: string[] = [];
+      if (family) parts.push(family);
+      if (funnel) parts.push(`(${funnel})`);
+      const identity = parts.join(' ').trim();
+      const heading = identity ? `${platform} — ${identity}` : platform;
+      const lineParts = [heading, headline ? `  Headline: ${headline}` : '', cta ? `  CTA: ${cta}` : '']
+        .filter((part) => part.length > 0);
+      previewLines.push(lineParts.join('\n'));
+    }
+    if (previewLines.length > 0) {
+      sections.push({
+        id: 'launch-review-platform-previews',
+        title: `Platform previews (${previewLines.length})`,
+        body: previewLines.join('\n\n'),
+      });
+    }
+  }
+
+  return sections;
+}
+
 function workflowApprovalItem(
   status: MarketingJobStatusResponse,
   view: CampaignWorkspaceView,
@@ -873,15 +994,22 @@ function workflowApprovalItem(
   }
 
   const firstCheckpoint = isApproveStage2Checkpoint(status);
+  const workflowStepId = stringValue(status.approval?.workflowStepId);
+  const isLaunchReviewCheckpoint = workflowStepId === 'approve_stage_4';
+  const launchReviewSections = isLaunchReviewCheckpoint
+    ? launchReviewApprovalSections(runtimeDoc)
+    : [];
   const sections = firstCheckpoint
     ? firstCheckpointSections(status, view, runtimeDoc)
-    : [
-        {
-          id: 'workflow-approval',
-          title: 'What is ready now',
-          body: approvalSurfaceSummary(status),
-        },
-      ];
+    : launchReviewSections.length > 0
+      ? launchReviewSections
+      : [
+          {
+            id: 'workflow-approval',
+            title: 'What is ready now',
+            body: approvalSurfaceSummary(status),
+          },
+        ];
   const attachments = firstCheckpoint ? firstCheckpointAttachments(view, runtimeDoc) : [];
   const summary = approvalSurfaceSummary(status);
   const title = approvalSurfaceTitle(status);
