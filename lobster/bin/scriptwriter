@@ -42,6 +42,84 @@ def main() -> int:
         min_tokens=3,
     )
 
+    # Per-family script variants. Upstream campaign-planner emits
+    # testing_matrix.{meta,video}.{cold_funnel,warm_funnel} with 2 families
+    # each (4 total per channel) — every family carries its own primary_hook,
+    # opening_line, angle, proof_variants, offer_variants. Scriptwriter
+    # previously only read [0] from the shared hooks list and collapsed all
+    # 4 families to one hook; downstream preview + ad-designer consumers
+    # then repeated that single hook across 18 platforms. Emit per-family
+    # script bundles here so consumers can read per-family copy directly.
+    # Legacy meta_ad_script / short_video_script fields stay populated from
+    # the first family (or brief fallback) for back-compat.
+    testing_matrix = record_or_empty(brief.get("testing_matrix"))
+
+    def _iter_families(channel_key: str) -> list[dict]:
+        channel_matrix = record_or_empty(testing_matrix.get(channel_key))
+        families: list[dict] = []
+        for funnel_key in ("cold_funnel", "warm_funnel"):
+            raw = channel_matrix.get(funnel_key)
+            if isinstance(raw, list):
+                for entry in raw:
+                    if isinstance(entry, dict):
+                        families.append(entry)
+        return families
+
+    def _family_str(value) -> str:
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped:
+                return stripped
+        return ""
+
+    def _family_list(value) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+
+    meta_ad_scripts_by_family: dict[str, dict] = {}
+    for family in _iter_families("meta"):
+        family_id = _family_str(family.get("family_id"))
+        family_hook = _family_str(family.get("primary_hook"))
+        family_opening = _family_str(family.get("opening_line"))
+        if not family_id or not family_hook or not family_opening:
+            continue
+        family_angle = _family_str(family.get("angle")) or problem_statement
+        offer_variants = _family_list(family.get("offer_variants"))
+        family_offer = offer_variants[0] if offer_variants else offer_summary
+        family_proofs = _family_list(family.get("proof_variants")) or proof_points[:2]
+        meta_ad_scripts_by_family[family_id] = {
+            "family_id": family_id,
+            "family_name": _family_str(family.get("family_name")) or family_id,
+            "funnel_stage": _family_str(family.get("funnel_stage")) or "cold",
+            "hook": family_hook,
+            "body": [family_opening, family_angle, family_offer],
+            "proof_points": family_proofs,
+            "primary_cta": primary_cta,
+        }
+
+    short_video_scripts_by_family: dict[str, dict] = {}
+    for family in _iter_families("video"):
+        family_id = _family_str(family.get("family_id"))
+        family_hook = _family_str(family.get("primary_hook"))
+        family_opening = _family_str(family.get("opening_line"))
+        if not family_id or not family_hook or not family_opening:
+            continue
+        family_angle = _family_str(family.get("angle")) or problem_statement
+        offer_variants = _family_list(family.get("offer_variants"))
+        family_offer = offer_variants[0] if offer_variants else offer_summary
+        family_proofs = _family_list(family.get("proof_variants"))
+        proof_line = family_proofs[0] if family_proofs else proof_points[0]
+        short_video_scripts_by_family[family_id] = {
+            "family_id": family_id,
+            "family_name": _family_str(family.get("family_name")) or family_id,
+            "funnel_stage": _family_str(family.get("funnel_stage")) or "cold",
+            "opening_line": family_opening,
+            "voiceover_lines": [family_hook, family_opening, family_angle],
+            "beats": [family_angle, proof_line, family_offer, f"{primary_cta}."],
+            "duration_seconds": 30,
+        }
+
     script_assets = {
         "meta_ad_script": {
             "hook": meta_hook,
@@ -67,6 +145,8 @@ def main() -> int:
             f"{video_opening_line} {offer_summary}",
         ],
         "proof_points": proof_points,
+        "meta_ad_scripts_by_family": meta_ad_scripts_by_family,
+        "short_video_scripts_by_family": short_video_scripts_by_family,
     }
 
     preview_text = "\n".join(

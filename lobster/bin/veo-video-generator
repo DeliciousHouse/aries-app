@@ -406,10 +406,12 @@ def main() -> int:
     platform_index_path.write_text(json.dumps(platform_index, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     # Veo render pass — only runs when LOBSTER_VIDEO_RENDER_ENABLED=1 AND
-    # GEMINI_API_KEY is set. Renders one video per unique aspect ratio, then
-    # reuses the mp4 across platforms that share that ratio. Keeps Veo cost
-    # manageable (Veo 3 charges per generation) while still producing real
-    # mp4 assets for each platform variant.
+    # GEMINI_API_KEY is set. Renders TWO videos per aspect ratio (one per
+    # family from testing_matrix.video cold/warm funnels), then mirrors each
+    # rendered mp4 to all platforms sharing that aspect ratio. Each platform
+    # ends up with 2 distinct video variants tagged by family_id.
+    # Total Veo calls per campaign with full matrix: 4 (2 families × 2 aspect
+    # ratios). Fallback to 2 calls if only one family is available.
     rendered_videos: list[dict] = []
     render_enabled = veo_render_enabled()
     render_mode = "contract_generation_only"
@@ -419,92 +421,155 @@ def main() -> int:
 
         render_mode = "contract_and_render"
         render_status = "rendered"
-        # Veo 3.1 only supports 9:16 and 16:9. Map every platform to the
-        # closest supported ratio and group — two API calls total cover all
-        # 8 platform variants. Square/portrait platforms (1:1, 4:5) reuse
-        # the 9:16 render for now; non-ideal framing, improves later when
-        # Veo exposes more ratios or we add per-platform crop.
+
+        def _string(value) -> str:
+            if isinstance(value, str):
+                stripped = value.strip()
+                if stripped:
+                    return stripped
+            return ""
+
+        # Family selection from testing_matrix.video. Prefer 1 cold + 1 warm
+        # for funnel variety. Fall back to 2 cold, then 2 warm, then a single
+        # default family grounded in master_contract.creative if the matrix
+        # is missing entirely (back-compat with older campaigns).
+        video_matrix = record_or_empty(brief.get("testing_matrix", {}).get("video", {}) if isinstance(brief, dict) else {})
+        raw_cold = [fam for fam in list_or_empty(video_matrix.get("cold_funnel")) if isinstance(fam, dict) and _string(fam.get("primary_hook"))]
+        raw_warm = [fam for fam in list_or_empty(video_matrix.get("warm_funnel")) if isinstance(fam, dict) and _string(fam.get("primary_hook"))]
+        if raw_cold and raw_warm:
+            selected_families = [raw_cold[0], raw_warm[0]]
+        elif raw_cold:
+            selected_families = raw_cold[:2]
+        elif raw_warm:
+            selected_families = raw_warm[:2]
+        else:
+            selected_families = [
+                {
+                    "family_id": "default",
+                    "family_name": "Default",
+                    "funnel_stage": "cold",
+                    "primary_hook": master_contract["creative"]["opening_line"],
+                    "opening_line": master_contract["creative"]["opening_line"],
+                    "angle": master_contract["creative"]["summary"],
+                    "proof_variants": [],
+                    "offer_variants": [],
+                }
+            ]
+
+        def _build_family_prompt(family: dict) -> str:
+            family_name = _string(family.get("family_name")) or _string(family.get("family_id")) or "Default"
+            funnel_stage = _string(family.get("funnel_stage")) or "cold"
+            hook = _string(family.get("primary_hook")) or master_contract["creative"]["opening_line"]
+            opening = _string(family.get("opening_line")) or hook
+            angle = _string(family.get("angle")) or master_contract["creative"]["summary"]
+            proofs = [p for p in (family.get("proof_variants") or []) if isinstance(p, str) and p.strip()]
+            offer_variants = [o for o in (family.get("offer_variants") or []) if isinstance(o, str) and o.strip()]
+            offer_line = offer_variants[0] if offer_variants else _string(brief.get("offer_summary"))
+            primary_cta = _string(brief.get("primary_cta")) or master_contract["creative"]["primary_cta"]
+            lines = [
+                f"Create a marketing video for {brand_slug}.",
+                f"Family: {family_name} ({funnel_stage})",
+                f"Core hook: {hook}",
+                f"Opening line: {opening}",
+                f"Creative angle: {angle}",
+            ]
+            if proofs:
+                proof_line = ", ".join(proofs[:2])
+                lines.append(f"Proof points: {proof_line}")
+            if offer_line:
+                lines.append(f"Offer emphasis: {offer_line}")
+            lines.append(f"Primary call to action at the end: {primary_cta}")
+            lines.append("Visual style: polished marketing, brand-forward, on-brand color palette, no text overlays.")
+            return "\n".join(lines)
+
         aspect_groups: dict[str, list[dict]] = {}
         for platform_config in PLATFORM_DEFAULTS:
             bucket_key = _veo_aspect_to_flag(platform_config["aspect_ratio"])
             aspect_groups.setdefault(bucket_key, []).append(platform_config)
 
-        veo_prompt_lines = [
-            f"Create a marketing video for {brand_slug}.",
-            f"Core message: {master_contract['creative']['summary']}",
-            f"Opening hook: {master_contract['creative']['opening_line']}",
-        ]
-        for beat in master_contract["creative"]["story_beats"][:3]:
-            label = beat.get("label") or ""
-            description = beat.get("description") or ""
-            veo_prompt_lines.append(f"Beat — {label}: {description}")
-        voiceover = master_contract["creative"].get("voiceover_lines") or []
-        if voiceover:
-            veo_prompt_lines.append("Voiceover-style narration: " + " / ".join(voiceover[:3]))
-        veo_prompt_lines.append(
-            f"Primary call to action at the end: {master_contract['creative']['primary_cta']}"
-        )
-        veo_prompt_lines.append(
-            "Visual style: polished marketing, brand-forward, on-brand color palette, no text overlays."
-        )
-        veo_prompt = "\n".join(veo_prompt_lines)
-
+        # Render one Veo video per (aspect_ratio, family) pair, mirrored to
+        # every platform sharing that aspect ratio, tagged with family_id.
         for aspect_ratio, platforms in aspect_groups.items():
             representative = platforms[0]
             canonical_slug = representative["platform_slug"]
-            rendered_dir = output_root / "rendered" / canonical_slug
-            rendered_dir.mkdir(parents=True, exist_ok=True)
-            video_path = rendered_dir / f"{canonical_slug}.mp4"
-            render_result = run_veo_render(
-                veo_prompt,
-                video_path,
-                aspect_ratio,
-                representative.get("target_duration_seconds", 8),
-                model=args.video_model,
-            )
-            # Mirror the rendered mp4 into every platform bucket that shares
-            # the same aspect ratio so the downstream publisher sees a file
-            # at the expected path per platform.
-            mirror_entries: list[dict] = []
-            for platform_config in platforms:
-                platform_slug = platform_config["platform_slug"]
-                target_path = output_root / "rendered" / platform_slug / f"{platform_slug}.mp4"
-                target_path.parent.mkdir(parents=True, exist_ok=True)
-                if platform_slug != canonical_slug:
-                    target_path.write_bytes(video_path.read_bytes())
-                mirror_entries.append(
+            canonical_dir = output_root / "rendered" / canonical_slug
+            canonical_dir.mkdir(parents=True, exist_ok=True)
+            for family_index, family in enumerate(selected_families):
+                family_id = slugify(str(family.get("family_id") or f"family-{family_index}"), f"family-{family_index}")
+                family_name = _string(family.get("family_name")) or family_id
+                funnel_stage = _string(family.get("funnel_stage")) or "cold"
+                source_video_path = canonical_dir / f"{canonical_slug}-{family_id}.mp4"
+                render_result = run_veo_render(
+                    _build_family_prompt(family),
+                    source_video_path,
+                    aspect_ratio,
+                    representative.get("target_duration_seconds", 8),
+                    model=args.video_model,
+                )
+                source_bytes = source_video_path.read_bytes()
+                mirror_entries: list[dict] = []
+                for platform_config in platforms:
+                    platform_slug = platform_config["platform_slug"]
+                    target_dir = output_root / "rendered" / platform_slug
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                    tagged_target = target_dir / f"{platform_slug}-{family_id}.mp4"
+                    if tagged_target != source_video_path:
+                        tagged_target.write_bytes(source_bytes)
+                    # Back-compat: first family also written to the
+                    # un-tagged canonical path so older consumers that read
+                    # `{platform_slug}.mp4` still find a valid mp4.
+                    if family_index == 0:
+                        legacy_target = target_dir / f"{platform_slug}.mp4"
+                        if legacy_target != source_video_path:
+                            legacy_target.write_bytes(source_bytes)
+                    mirror_entries.append(
+                        {
+                            "platform": platform_config["platform"],
+                            "platform_slug": platform_slug,
+                            "aspect_ratio": aspect_ratio,
+                            "family_id": family_id,
+                            "video_path": str(tagged_target),
+                            "source_video_path": str(source_video_path),
+                            "duration_seconds": platform_config.get("target_duration_seconds"),
+                        }
+                    )
+                rendered_videos.append(
                     {
-                        "platform": platform_config["platform"],
-                        "platform_slug": platform_slug,
                         "aspect_ratio": aspect_ratio,
-                        "video_path": str(target_path),
-                        "duration_seconds": platform_config.get("target_duration_seconds"),
-                        "source_video_path": str(video_path),
+                        "family_id": family_id,
+                        "family_name": family_name,
+                        "funnel_stage": funnel_stage,
+                        "canonical_platform_slug": canonical_slug,
+                        "source_video_path": str(source_video_path),
+                        "render_result": render_result,
+                        "platforms": mirror_entries,
                     }
                 )
-            rendered_videos.append(
-                {
-                    "aspect_ratio": aspect_ratio,
-                    "canonical_platform_slug": canonical_slug,
-                    "source_video_path": str(video_path),
-                    "render_result": render_result,
-                    "platforms": mirror_entries,
-                }
-            )
+
+        # Attach all rendered variants to each platform_contract so
+        # downstream consumers see both `rendered_video_path` (legacy, first
+        # family) and `rendered_video_paths_by_family` (new, all families).
         for platform_contract in platform_contracts:
-            # Find the rendered video for this platform's aspect ratio.
-            matched = next(
-                (
-                    item
-                    for bucket in rendered_videos
-                    for item in bucket["platforms"]
-                    if item["platform_slug"] == platform_contract["platform_slug"]
-                ),
-                None,
-            )
-            if matched:
+            target_slug = platform_contract["platform_slug"]
+            variants: dict[str, str] = {}
+            ordered_variants: list[dict] = []
+            for bucket in rendered_videos:
+                for item in bucket["platforms"]:
+                    if item["platform_slug"] == target_slug:
+                        variants[item["family_id"]] = item["video_path"]
+                        ordered_variants.append(
+                            {
+                                "family_id": item["family_id"],
+                                "aspect_ratio": item["aspect_ratio"],
+                                "video_path": item["video_path"],
+                                "source_video_path": item["source_video_path"],
+                            }
+                        )
+            if variants:
                 platform_contract["render_status"] = "rendered"
-                platform_contract["rendered_video_path"] = matched["video_path"]
+                platform_contract["rendered_video_path"] = ordered_variants[0]["video_path"]
+                platform_contract["rendered_video_paths_by_family"] = variants
+                platform_contract["rendered_video_variants"] = ordered_variants
 
     summary_text = "\n".join(
         [

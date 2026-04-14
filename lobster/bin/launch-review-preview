@@ -340,8 +340,45 @@ def _stage3_static_asset_previews(production_handoff: dict) -> list[dict]:
     return previews
 
 
-def _build_static_platform_previews(production_handoff: dict) -> list[dict]:
+def _select_family_pair(testing_matrix: dict, channel_key: str) -> list[dict]:
+    """Pick 2 distinct families from a channel's cold + warm funnels.
+
+    Prefers 1 cold + 1 warm for funnel variety. Falls back to 2 cold, then
+    2 warm, then single-family, then empty list if testing_matrix lacks the
+    channel entirely. Callers that receive an empty list should degrade to
+    contract-only preview generation so the review bundle stays valid.
+    """
+    channel_matrix = _as_dict(testing_matrix.get(channel_key)) if testing_matrix else {}
+    cold = [entry for entry in _as_list(channel_matrix.get("cold_funnel")) if isinstance(entry, dict) and _as_str(entry.get("primary_hook"))]
+    warm = [entry for entry in _as_list(channel_matrix.get("warm_funnel")) if isinstance(entry, dict) and _as_str(entry.get("primary_hook"))]
+    if cold and warm:
+        return [cold[0], warm[0]]
+    if cold:
+        return cold[:2]
+    if warm:
+        return warm[:2]
+    return []
+
+
+def _compose_family_caption(family: dict, primary_cta: str) -> str:
+    parts: list[str] = []
+    opening = _as_str(family.get("opening_line"))
+    angle = _as_str(family.get("angle"))
+    proofs = [item for item in _as_list(family.get("proof_variants")) if isinstance(item, str) and item.strip()]
+    if opening:
+        parts.append(opening)
+    if angle:
+        parts.append(angle)
+    if proofs:
+        parts.append(proofs[0])
+    if primary_cta:
+        parts.append(f"{primary_cta}.")
+    return "\n".join(parts)
+
+
+def _build_static_platform_previews(production_handoff: dict, production_brief: dict) -> list[dict]:
     static_handoff = _as_dict(_as_dict(production_handoff.get("contract_handoffs")).get("static"))
+    testing_matrix = _as_dict(production_brief.get("testing_matrix")) if production_brief else {}
     previews = []
     for platform_entry in _as_list(static_handoff.get("platforms")):
         entry = _as_dict(platform_entry)
@@ -366,51 +403,85 @@ def _build_static_platform_previews(production_handoff: dict) -> list[dict]:
             if path
         ]
         preview_status = _preview_state(actual_media_paths)
-        summary = (
-            f"{_as_str(contract.get('platform'), _as_str(entry.get('platform'), 'Platform'))} static preview is backed by generated files."
-            if actual_media_paths
-            else f"{_as_str(contract.get('platform'), _as_str(entry.get('platform'), 'Platform'))} static contract is ready for review; render outputs are still expected only."
-        )
-        previews.append(
-            {
-                "platform_slug": _as_str(contract.get("platform_slug"), _as_str(entry.get("platform_slug"), "static-platform")),
-                "platform_name": _as_str(contract.get("platform"), _as_str(entry.get("platform"), "Static platform")),
-                "channel_type": "static",
-                "summary": summary,
-                "headline": _as_str(creative.get("headline")),
-                "caption_text": "\n".join(body_lines),
-                "cta": _as_str(creative.get("primary_cta")),
-                "hook": _as_str(creative.get("headline")),
-                "proof_points": proof_points,
-                "media_paths": actual_media_paths,
-                "expected_output_paths": expected_output_paths,
-                "preview_status": preview_status,
-                "asset_paths": {
-                    "contract_path": _as_str(entry.get("contract_path")),
-                    "brief_path": _as_str(entry.get("brief_path")),
-                    "landing_page_path": _as_str(landing_page.get("slug")),
-                },
-                "preview_text": "\n".join(
-                    [
-                        "Status: generated preview." if actual_media_paths else "Status: contract-only; no rendered preview file exists.",
-                        f"Headline: {_as_str(creative.get('headline'), 'n/a')}",
-                        *(f"- {line}" for line in body_lines[:3]),
-                        f"CTA: {_as_str(creative.get('primary_cta'), 'n/a')}",
-                        *(f"Proof: {point}" for point in proof_points[:3]),
-                        *(f"Preview asset: {path}" for path in actual_media_paths[:2]),
-                    ]
-                ),
-                "format": {
-                    "aspect_ratio": _as_str(_as_dict(contract.get("layout")).get("aspect_ratio")),
-                    "target_size": _as_str(_as_dict(contract.get("layout")).get("target_size")),
-                },
-            }
-        )
+        platform_slug = _as_str(contract.get("platform_slug"), _as_str(entry.get("platform_slug"), "static-platform"))
+        platform_name = _as_str(contract.get("platform"), _as_str(entry.get("platform"), "Static platform"))
+        contract_cta = _as_str(creative.get("primary_cta")) or _as_str(production_brief.get("primary_cta"))
+
+        # Family loop: 2 previews per platform (cold + warm), each with
+        # per-family copy from testing_matrix. Falls back to single
+        # contract-only preview when testing_matrix is missing.
+        families = _select_family_pair(testing_matrix, "meta")
+        if not families:
+            families = [None]  # sentinel → emit one legacy preview from contract
+        for family in families:
+            if family is None:
+                headline = _as_str(creative.get("headline"))
+                hook = _as_str(creative.get("headline"))
+                caption_text = "\n".join(body_lines)
+                family_id = None
+                family_name = None
+                funnel_stage = None
+                family_proof = proof_points
+            else:
+                headline = _as_str(family.get("primary_hook")) or _as_str(creative.get("headline"))
+                hook = headline
+                caption_text = _compose_family_caption(family, contract_cta) or "\n".join(body_lines)
+                family_id = _as_str(family.get("family_id"))
+                family_name = _as_str(family.get("family_name")) or family_id
+                funnel_stage = _as_str(family.get("funnel_stage")) or "cold"
+                family_proof = [item for item in _as_list(family.get("proof_variants")) if isinstance(item, str) and item.strip()] or proof_points
+            suffix = f"-{family_id}" if family_id else ""
+            summary = (
+                f"{platform_name}{' — ' + family_name if family_name else ''} static preview is backed by generated files."
+                if actual_media_paths
+                else f"{platform_name}{' — ' + family_name if family_name else ''} static contract is ready for review; render outputs are still expected only."
+            )
+            previews.append(
+                {
+                    "platform_slug": platform_slug,
+                    "platform_name": platform_name,
+                    "channel_type": "static",
+                    "family_id": family_id,
+                    "family_name": family_name,
+                    "funnel_stage": funnel_stage,
+                    "summary": summary,
+                    "headline": headline,
+                    "caption_text": caption_text,
+                    "cta": contract_cta,
+                    "hook": hook,
+                    "proof_points": family_proof,
+                    "media_paths": actual_media_paths,
+                    "expected_output_paths": expected_output_paths,
+                    "preview_status": preview_status,
+                    "asset_preview_id": f"platform-preview-{platform_slug}{suffix}",
+                    "asset_paths": {
+                        "contract_path": _as_str(entry.get("contract_path")),
+                        "brief_path": _as_str(entry.get("brief_path")),
+                        "landing_page_path": _as_str(landing_page.get("slug")),
+                    },
+                    "preview_text": "\n".join(
+                        [
+                            (f"Family: {family_name} ({funnel_stage})" if family_name else "Family: (generic contract)"),
+                            "Status: generated preview." if actual_media_paths else "Status: contract-only; no rendered preview file exists.",
+                            f"Headline: {headline or 'n/a'}",
+                            *(f"- {line}" for line in (caption_text.split("\n") if caption_text else [])[:3]),
+                            f"CTA: {contract_cta or 'n/a'}",
+                            *(f"Proof: {point}" for point in family_proof[:3]),
+                            *(f"Preview asset: {path}" for path in actual_media_paths[:2]),
+                        ]
+                    ),
+                    "format": {
+                        "aspect_ratio": _as_str(_as_dict(contract.get("layout")).get("aspect_ratio")),
+                        "target_size": _as_str(_as_dict(contract.get("layout")).get("target_size")),
+                    },
+                }
+            )
     return previews
 
 
-def _build_video_platform_previews(production_handoff: dict) -> list[dict]:
+def _build_video_platform_previews(production_handoff: dict, production_brief: dict) -> list[dict]:
     video_handoff = _as_dict(_as_dict(production_handoff.get("contract_handoffs")).get("video"))
+    testing_matrix = _as_dict(production_brief.get("testing_matrix")) if production_brief else {}
     previews = []
     for platform_entry in _as_list(video_handoff.get("platforms")):
         entry = _as_dict(platform_entry)
@@ -441,45 +512,76 @@ def _build_video_platform_previews(production_handoff: dict) -> list[dict]:
             if _as_str(_as_dict(beat).get("description"))
         ]
         voiceover_lines = [line for line in _as_list(creative.get("voiceover_lines")) if isinstance(line, str) and line.strip()]
-        previews.append(
-            {
-                "platform_slug": _as_str(contract.get("platform_slug"), _as_str(entry.get("platform_slug"), "video-platform")),
-                "platform_name": _as_str(contract.get("platform"), _as_str(entry.get("platform"), "Video platform")),
-                "channel_type": "video",
-                "summary": (
-                    f"{_as_str(contract.get('platform'), _as_str(entry.get('platform'), 'Platform'))} video preview is backed by generated files."
-                    if actual_media_paths
-                    else f"{_as_str(contract.get('platform'), _as_str(entry.get('platform'), 'Platform'))} video contract is ready for review; no rendered poster or video exists yet."
-                ),
-                "headline": _as_str(creative.get("summary")),
-                "caption_text": "\n".join(voiceover_lines),
-                "cta": _as_str(creative.get("primary_cta")),
-                "hook": _as_str(creative.get("opening_line")),
-                "proof_points": story_beats,
-                "media_paths": actual_media_paths,
-                "expected_output_paths": expected_output_paths,
-                "preview_status": _preview_state(actual_media_paths),
-                "asset_paths": {
-                    "contract_path": _as_str(entry.get("contract_path")),
-                    "brief_path": _as_str(entry.get("brief_path")),
-                },
-                "preview_text": "\n".join(
-                    [
-                        "Status: generated preview." if actual_media_paths else "Status: contract-only; no rendered poster or video file exists.",
-                        f"Opening line: {_as_str(creative.get('opening_line'), 'n/a')}",
-                        *(f"- {line}" for line in voiceover_lines[:4]),
-                        f"CTA: {_as_str(creative.get('primary_cta'), 'n/a')}",
-                        *(f"Beat: {beat}" for beat in story_beats[:4]),
-                        *(f"Preview asset: {path}" for path in actual_media_paths[:2]),
-                    ]
-                ),
-                "format": {
-                    "aspect_ratio": _as_str(requirements.get("aspect_ratio")),
-                    "target_duration_seconds": _as_str(requirements.get("target_duration_seconds")),
-                    "max_duration_seconds": _as_str(requirements.get("max_duration_seconds")),
-                },
-            }
-        )
+        platform_slug = _as_str(contract.get("platform_slug"), _as_str(entry.get("platform_slug"), "video-platform"))
+        platform_name = _as_str(contract.get("platform"), _as_str(entry.get("platform"), "Video platform"))
+        contract_cta = _as_str(creative.get("primary_cta")) or _as_str(production_brief.get("primary_cta"))
+
+        families = _select_family_pair(testing_matrix, "video")
+        if not families:
+            families = [None]
+        for family in families:
+            if family is None:
+                headline = _as_str(creative.get("summary"))
+                hook = _as_str(creative.get("opening_line"))
+                caption_text = "\n".join(voiceover_lines)
+                family_id = None
+                family_name = None
+                funnel_stage = None
+                family_proof = story_beats
+            else:
+                headline = _as_str(family.get("primary_hook")) or _as_str(creative.get("summary"))
+                hook = _as_str(family.get("opening_line")) or headline
+                caption_text = _compose_family_caption(family, contract_cta) or "\n".join(voiceover_lines)
+                family_id = _as_str(family.get("family_id"))
+                family_name = _as_str(family.get("family_name")) or family_id
+                funnel_stage = _as_str(family.get("funnel_stage")) or "cold"
+                family_proof = [item for item in _as_list(family.get("proof_variants")) if isinstance(item, str) and item.strip()] or story_beats
+            suffix = f"-{family_id}" if family_id else ""
+            summary = (
+                f"{platform_name}{' — ' + family_name if family_name else ''} video preview is backed by generated files."
+                if actual_media_paths
+                else f"{platform_name}{' — ' + family_name if family_name else ''} video contract is ready for review; no rendered poster or video exists yet."
+            )
+            previews.append(
+                {
+                    "platform_slug": platform_slug,
+                    "platform_name": platform_name,
+                    "channel_type": "video",
+                    "family_id": family_id,
+                    "family_name": family_name,
+                    "funnel_stage": funnel_stage,
+                    "summary": summary,
+                    "headline": headline,
+                    "caption_text": caption_text,
+                    "cta": contract_cta,
+                    "hook": hook,
+                    "proof_points": family_proof,
+                    "media_paths": actual_media_paths,
+                    "expected_output_paths": expected_output_paths,
+                    "preview_status": _preview_state(actual_media_paths),
+                    "asset_preview_id": f"platform-preview-{platform_slug}{suffix}",
+                    "asset_paths": {
+                        "contract_path": _as_str(entry.get("contract_path")),
+                        "brief_path": _as_str(entry.get("brief_path")),
+                    },
+                    "preview_text": "\n".join(
+                        [
+                            (f"Family: {family_name} ({funnel_stage})" if family_name else "Family: (generic contract)"),
+                            "Status: generated preview." if actual_media_paths else "Status: contract-only; no rendered poster or video file exists.",
+                            f"Opening line: {hook or 'n/a'}",
+                            *(f"- {line}" for line in (caption_text.split("\n") if caption_text else [])[:4]),
+                            f"CTA: {contract_cta or 'n/a'}",
+                            *(f"Beat: {beat}" for beat in family_proof[:4]),
+                            *(f"Preview asset: {path}" for path in actual_media_paths[:2]),
+                        ]
+                    ),
+                    "format": {
+                        "aspect_ratio": _as_str(requirements.get("aspect_ratio")),
+                        "target_duration_seconds": _as_str(requirements.get("target_duration_seconds")),
+                        "max_duration_seconds": _as_str(requirements.get("max_duration_seconds")),
+                    },
+                }
+            )
     return previews
 
 
@@ -499,8 +601,8 @@ def _build_review_bundle(data: dict, preview_path: str, approval_message: str, l
     video_handoff = _as_dict(_as_dict(handoff.get("contract_handoffs")).get("video"))
     platform_previews = [
         *_stage3_static_asset_previews(handoff),
-        *_build_static_platform_previews(handoff),
-        *_build_video_platform_previews(handoff),
+        *_build_static_platform_previews(handoff, production_brief),
+        *_build_video_platform_previews(handoff, production_brief),
     ]
     approved_at = datetime.now(timezone.utc)
     content_calendar = _build_content_calendar(platform_previews, approved_at)
