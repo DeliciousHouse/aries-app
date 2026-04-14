@@ -414,6 +414,212 @@ def run_nano_banana(prompt: str, destination: Path, aspect_ratio: str) -> dict:
         }
 
 
+VEO_MODEL_DEFAULT = "veo-3.1-generate-preview"
+VEO_POLL_INTERVAL_SECONDS = 10
+VEO_POLL_TIMEOUT_SECONDS = 600
+VEO_MAX_ATTEMPTS = 2
+
+
+def veo_render_enabled() -> bool:
+    if not os.environ.get("GEMINI_API_KEY", "").strip():
+        return False
+    return os.environ.get("LOBSTER_VIDEO_RENDER_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _veo_aspect_to_flag(aspect_ratio: str) -> str:
+    aspect = (aspect_ratio or "").strip()
+    # Veo only officially supports 16:9 and 9:16 today. Map everything else
+    # to the closest supported ratio so the render still completes.
+    if aspect in {"9:16", "1:1", "4:5"}:
+        return "9:16"
+    return "16:9"
+
+
+def _veo_duration_for(target_seconds: int) -> int:
+    # Veo 3.x currently exposes 4s, 6s, and 8s duration buckets.
+    if target_seconds <= 4:
+        return 4
+    if target_seconds <= 6:
+        return 6
+    return 8
+
+
+def _veo_request_video(prompt: str, aspect_ratio: str, duration_seconds: int, model: str) -> dict:
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("veo_render_unavailable:gemini_api_key_missing")
+    start_endpoint = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:predictLongRunning"
+    )
+    payload = {
+        "instances": [
+            {
+                "prompt": prompt,
+            }
+        ],
+        "parameters": {
+            "aspectRatio": _veo_aspect_to_flag(aspect_ratio),
+            "durationSeconds": _veo_duration_for(duration_seconds),
+            # Veo 3.1 preview only supports allow_all / dont_allow today.
+            "personGeneration": "allow_all",
+        },
+    }
+    request = urllib.request.Request(
+        start_endpoint,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "x-goog-api-key": api_key,
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=120) as response:
+        body = json.loads(response.read().decode("utf-8"))
+    operation_name = body.get("name")
+    if not operation_name:
+        raise RuntimeError(f"veo_render_failed:missing_operation_name:{json.dumps(body)[:200]}")
+    return {"operation_name": operation_name, "start_body": body}
+
+
+def _veo_poll_operation(operation_name: str) -> dict:
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    poll_url = f"https://generativelanguage.googleapis.com/v1beta/{operation_name}"
+    deadline = time.time() + VEO_POLL_TIMEOUT_SECONDS
+    last_body: dict = {}
+    while time.time() < deadline:
+        request = urllib.request.Request(
+            poll_url,
+            headers={"x-goog-api-key": api_key},
+            method="GET",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                last_body = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            raise RuntimeError(
+                f"veo_render_poll_failed:{exc.code}:{exc.read().decode('utf-8', 'ignore')[:200]}"
+            ) from exc
+        if last_body.get("done"):
+            return last_body
+        time.sleep(VEO_POLL_INTERVAL_SECONDS)
+    raise RuntimeError(f"veo_render_timeout:{operation_name}")
+
+
+def _veo_extract_video_uri(poll_body: dict) -> str | None:
+    response = poll_body.get("response") or {}
+    gen_response = response.get("generateVideoResponse") or response.get("generate_video_response") or {}
+    samples = gen_response.get("generatedSamples") or gen_response.get("generated_samples") or []
+    for sample in samples:
+        if not isinstance(sample, dict):
+            continue
+        video = sample.get("video") or {}
+        uri = video.get("uri") or video.get("downloadUri") or video.get("download_uri")
+        if isinstance(uri, str) and uri.strip():
+            return uri.strip()
+    # Also tolerate older response shapes that inline bytes.
+    for sample in samples:
+        if not isinstance(sample, dict):
+            continue
+        video = sample.get("video") or {}
+        inline = video.get("bytesBase64Encoded") or video.get("bytes_base64_encoded")
+        if isinstance(inline, str) and inline.strip():
+            return f"data:base64:{inline.strip()}"
+    return None
+
+
+def _veo_download_video(uri: str, destination: Path) -> int:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if uri.startswith("data:base64:"):
+        data = base64.b64decode(uri[len("data:base64:"):])
+        destination.write_bytes(data)
+        return len(data)
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    request = urllib.request.Request(uri, headers={"x-goog-api-key": api_key}, method="GET")
+    with urllib.request.urlopen(request, timeout=300) as response:
+        data = response.read()
+    destination.write_bytes(data)
+    return len(data)
+
+
+def run_veo_render(
+    prompt: str,
+    destination: Path,
+    aspect_ratio: str,
+    duration_seconds: int,
+    model: str | None = None,
+) -> dict:
+    """Call Veo 3 predictLongRunning + poll + download to a local mp4.
+
+    Returns a status dict shaped like run_nano_banana so it can be handled
+    alongside image renders. Raises RuntimeError on persistent failure; no
+    silent fallback.
+    """
+    resolved_model = (model or os.environ.get("LOBSTER_VIDEO_MODEL") or VEO_MODEL_DEFAULT).strip() or VEO_MODEL_DEFAULT
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    last_error: dict | None = None
+    for attempt in range(1, VEO_MAX_ATTEMPTS + 1):
+        sys.stderr.write(
+            f"[veo] starting render stem={destination.stem} aspect={aspect_ratio} duration={duration_seconds}s model={resolved_model} attempt={attempt}/{VEO_MAX_ATTEMPTS}\n"
+        )
+        sys.stderr.flush()
+        try:
+            start = _veo_request_video(prompt, aspect_ratio, duration_seconds, resolved_model)
+            operation_name = start["operation_name"]
+            sys.stderr.write(f"[veo] operation accepted name={operation_name}\n")
+            sys.stderr.flush()
+            poll_body = _veo_poll_operation(operation_name)
+            uri = _veo_extract_video_uri(poll_body)
+            if not uri:
+                raise RuntimeError(
+                    f"veo_render_failed:no_video_uri_in_response:{json.dumps(poll_body)[:400]}"
+                )
+            bytes_written = _veo_download_video(uri, destination)
+            sys.stderr.write(
+                f"[veo] ok stem={destination.stem} bytes={bytes_written} operation={operation_name}\n"
+            )
+            sys.stderr.flush()
+            return {
+                "executed": True,
+                "status": "ok",
+                "stdout": "",
+                "stderr": "",
+                "returncode": 0,
+                "command": [resolved_model],
+                "output_path": str(destination),
+                "provider": "veo_direct",
+                "operation_name": operation_name,
+            }
+        except Exception as exc:  # noqa: BLE001
+            message = str(exc)
+            sys.stderr.write(
+                f"[veo] FAILED stem={destination.stem} attempt={attempt} error={type(exc).__name__}:{message[:300]}\n"
+            )
+            sys.stderr.flush()
+            last_error = {
+                "executed": False,
+                "status": type(exc).__name__,
+                "stdout": "",
+                "stderr": message,
+                "returncode": None,
+                "command": [resolved_model],
+                "output_path": str(destination),
+                "provider": "veo_direct",
+            }
+            transient = any(
+                marker in message.lower()
+                for marker in ("unavailable", "deadline", "timeout", "429", "500", "502", "503", "504")
+            )
+            if not transient or attempt == VEO_MAX_ATTEMPTS:
+                raise RuntimeError(
+                    f"video_generation_failed:{destination.stem}:{type(exc).__name__}:{message[:200]}"
+                ) from exc
+            time.sleep(30)
+    # Unreachable — the loop either returns a success or raises.
+    raise RuntimeError(
+        f"video_generation_failed:{destination.stem}:exhausted:{(last_error or {}).get('stderr', '')[:200]}"
+    )
+
+
 def image_mime_type(image_path: Path) -> str:
     suffix = image_path.suffix.lower()
     if suffix == ".png":

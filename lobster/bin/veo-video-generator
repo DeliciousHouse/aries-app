@@ -17,6 +17,7 @@ from _stage3_common import (
     slugify,
     utc_now,
 )
+from _stage4_common import run_veo_render, veo_render_enabled
 from _marketing_profile_common import record_or_empty, validate_copy_text, validate_unique_copy_list
 
 
@@ -404,11 +405,114 @@ def main() -> int:
     platform_index_path = output_root / "platform-index.json"
     platform_index_path.write_text(json.dumps(platform_index, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
+    # Veo render pass — only runs when LOBSTER_VIDEO_RENDER_ENABLED=1 AND
+    # GEMINI_API_KEY is set. Renders one video per unique aspect ratio, then
+    # reuses the mp4 across platforms that share that ratio. Keeps Veo cost
+    # manageable (Veo 3 charges per generation) while still producing real
+    # mp4 assets for each platform variant.
+    rendered_videos: list[dict] = []
+    render_enabled = veo_render_enabled()
+    render_mode = "contract_generation_only"
+    render_status = "not_requested"
+    if render_enabled:
+        from _stage4_common import _veo_aspect_to_flag
+
+        render_mode = "contract_and_render"
+        render_status = "rendered"
+        # Veo 3.1 only supports 9:16 and 16:9. Map every platform to the
+        # closest supported ratio and group — two API calls total cover all
+        # 8 platform variants. Square/portrait platforms (1:1, 4:5) reuse
+        # the 9:16 render for now; non-ideal framing, improves later when
+        # Veo exposes more ratios or we add per-platform crop.
+        aspect_groups: dict[str, list[dict]] = {}
+        for platform_config in PLATFORM_DEFAULTS:
+            bucket_key = _veo_aspect_to_flag(platform_config["aspect_ratio"])
+            aspect_groups.setdefault(bucket_key, []).append(platform_config)
+
+        veo_prompt_lines = [
+            f"Create a marketing video for {brand_slug}.",
+            f"Core message: {master_contract['creative']['summary']}",
+            f"Opening hook: {master_contract['creative']['opening_line']}",
+        ]
+        for beat in master_contract["creative"]["story_beats"][:3]:
+            label = beat.get("label") or ""
+            description = beat.get("description") or ""
+            veo_prompt_lines.append(f"Beat — {label}: {description}")
+        voiceover = master_contract["creative"].get("voiceover_lines") or []
+        if voiceover:
+            veo_prompt_lines.append("Voiceover-style narration: " + " / ".join(voiceover[:3]))
+        veo_prompt_lines.append(
+            f"Primary call to action at the end: {master_contract['creative']['primary_cta']}"
+        )
+        veo_prompt_lines.append(
+            "Visual style: polished marketing, brand-forward, on-brand color palette, no text overlays."
+        )
+        veo_prompt = "\n".join(veo_prompt_lines)
+
+        for aspect_ratio, platforms in aspect_groups.items():
+            representative = platforms[0]
+            canonical_slug = representative["platform_slug"]
+            rendered_dir = output_root / "rendered" / canonical_slug
+            rendered_dir.mkdir(parents=True, exist_ok=True)
+            video_path = rendered_dir / f"{canonical_slug}.mp4"
+            render_result = run_veo_render(
+                veo_prompt,
+                video_path,
+                aspect_ratio,
+                representative.get("target_duration_seconds", 8),
+                model=args.video_model,
+            )
+            # Mirror the rendered mp4 into every platform bucket that shares
+            # the same aspect ratio so the downstream publisher sees a file
+            # at the expected path per platform.
+            mirror_entries: list[dict] = []
+            for platform_config in platforms:
+                platform_slug = platform_config["platform_slug"]
+                target_path = output_root / "rendered" / platform_slug / f"{platform_slug}.mp4"
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                if platform_slug != canonical_slug:
+                    target_path.write_bytes(video_path.read_bytes())
+                mirror_entries.append(
+                    {
+                        "platform": platform_config["platform"],
+                        "platform_slug": platform_slug,
+                        "aspect_ratio": aspect_ratio,
+                        "video_path": str(target_path),
+                        "duration_seconds": platform_config.get("target_duration_seconds"),
+                        "source_video_path": str(video_path),
+                    }
+                )
+            rendered_videos.append(
+                {
+                    "aspect_ratio": aspect_ratio,
+                    "canonical_platform_slug": canonical_slug,
+                    "source_video_path": str(video_path),
+                    "render_result": render_result,
+                    "platforms": mirror_entries,
+                }
+            )
+        for platform_contract in platform_contracts:
+            # Find the rendered video for this platform's aspect ratio.
+            matched = next(
+                (
+                    item
+                    for bucket in rendered_videos
+                    for item in bucket["platforms"]
+                    if item["platform_slug"] == platform_contract["platform_slug"]
+                ),
+                None,
+            )
+            if matched:
+                platform_contract["render_status"] = "rendered"
+                platform_contract["rendered_video_path"] = matched["video_path"]
+
     summary_text = "\n".join(
         [
             f"Campaign ID: {campaign_id}",
             f"Concept ID: {concept_id}",
-            "Mode: contract_generation_only",
+            f"Mode: {render_mode}",
+            f"Render status: {render_status}",
+            f"Rendered videos: {sum(len(bucket['platforms']) for bucket in rendered_videos)}",
             "Generated contracts:",
             *[f"- {item['contract_path']}" for item in platform_contracts],
         ]
@@ -420,7 +524,7 @@ def main() -> int:
     payload = {
         "type": "veo_video_generator",
         "stub": False,
-        "mode": "contract_generation_only",
+        "mode": render_mode,
         "generated_at": master_contract["generated_at"],
         "run_id": run_id,
         "research_model": research_model,
@@ -433,8 +537,9 @@ def main() -> int:
             "master_video_contract": master_contract,
             "platform_index": platform_index,
             "platform_contracts": platform_contracts,
-            "render_requested": False,
-            "render_status": "not_requested",
+            "render_requested": render_enabled,
+            "render_status": render_status,
+            "rendered_videos": rendered_videos,
         },
         "handoff": {
             "type": "video_contract_handoff",
