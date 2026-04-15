@@ -66,6 +66,16 @@ export const automationJobs = [
     purpose: 'Deliver the daily batch summary for non-critical GitHub feedback items that were processed and logged.',
   },
   {
+    id: 'aries-ci-watcher-dispatch',
+    name: 'Aries CI watcher dispatcher',
+    cron: '*/15 * * * *',
+    tz: 'America/Los_Angeles',
+    message:
+      'Work in /home/node/openclaw/aries-app. Run node scripts/automations/ci-watcher-dispatch.mjs. For every open GitHub issue labeled ci-watcher that has no matching ao session, this spawns an ao worker (ao spawn <issue>). Dedup is by issueId so the same issue never double-spawns. Return only the concise dispatcher summary.',
+    purpose:
+      'Auto-spawn ao worker sessions for open ci-watcher issues filed by the remote CI watcher trigger, deduplicating against existing ao sessions by issue number.',
+  },
+  {
     id: 'aries-runtime-error-intake',
     name: 'Aries runtime error intake',
     cron: '5,35 * * * *',

@@ -93,6 +93,8 @@ data/generated/
 data/runtime/
 data/validated/
 data/draft/
+# ci-watcher-dispatch automation runtime log — appended every run, local-only.
+data/ci-watcher-dispatch-log.json
 
 # Runtime session state (local only)
 state/
