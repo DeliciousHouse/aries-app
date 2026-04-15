@@ -174,9 +174,10 @@ def _structured_analysis_prompt(
     h1: str,
     description: str,
     stage1_summary: dict,
+    *,
+    retry_hardening_note: str = "",
 ) -> str:
-    return "\n".join(
-        [
+    lines = [
             "Analyze the brand website and return one strict JSON object only.",
             f"Brand name: {brand_name}",
             f"Tenant id: {tenant_id}",
@@ -191,6 +192,11 @@ def _structured_analysis_prompt(
             "- No placeholder framing.",
             "- No analysis narration in any field.",
             "- Use finished customer-facing copy for hooks and opening lines.",
+            # Every hook / opening_line / proof_point / CTA must be a complete
+            # finished thought. The downstream validator rejects strings that
+            # end with a preposition or partial-phrase punctuation because
+            # those read as mid-sentence fragments when rendered in an ad.
+            "- Every hook, opening_line, proof_point, and primary_cta MUST be a complete, finished sentence or phrase. Do NOT end any string with a preposition or conjunction (no trailing 'and', 'or', 'with', 'for', 'to', 'by', 'of', 'at', 'on', 'in', 'as', 'but', 'so'). Do NOT end any string with a colon, dash, slash, open parenthesis, or ellipsis. Every string must read as a finished thought; if your draft ends with one of the forbidden tokens, rewrite it to end with a concrete noun, verb, or complete clause.",
             "- Keep proof points specific and non-repeating.",
             "- Each channel's hooks and opening_lines array MUST contain 4 DISTINCT variants — not reworded versions of the same message. Each variant should lead with a different creative angle: one outcome-focused, one problem-to-promise, one offer-clarity, one differentiated-proof / competitor-contrast. The 4 slots feed 4 parallel creative families in downstream testing — if any two slots share the same angle, those families will run duplicate ads.",
             "- Within a channel, no two hooks may share the same opening 3-word phrase. Same rule for opening_lines. Enforce variety aggressively.",
@@ -228,8 +234,18 @@ def _structured_analysis_prompt(
                 },
                 ensure_ascii=True,
             ),
-        ]
-    )
+    ]
+    if retry_hardening_note:
+        lines.append("")
+        lines.append("ATTENTION — retry:")
+        lines.append(retry_hardening_note)
+        lines.append(
+            "Rewrite the failing field so it no longer ends with a "
+            "preposition, conjunction, colon, dash, slash, ellipsis, or "
+            "open parenthesis. Re-emit the FULL JSON object following all "
+            "rules above; do not return a partial patch."
+        )
+    return "\n".join(lines)
 
 
 def _validated_analysis_fields(parsed: dict, brand_name: str) -> dict:
@@ -377,18 +393,23 @@ def main() -> int:
     existing_validated_website_analysis = load_json_file(validated_document_path(tenant_id, "website-analysis.json"))
     existing_brand_analysis = record_or_empty(existing_validated_website_analysis.get("brand_analysis"))
     stage1_competitor_summary = _stage1_competitor_summary(stage1_summary)
-    prompt = _structured_analysis_prompt(
-        brand_name=brand_name,
-        tenant_id=tenant_id,
-        website_url=website_url,
-        title=title,
-        h1=h1,
-        description=description,
-        stage1_summary=stage1_competitor_summary,
-    )
+    def _build_prompt(*, retry_hardening_note: str = "") -> str:
+        return _structured_analysis_prompt(
+            brand_name=brand_name,
+            tenant_id=tenant_id,
+            website_url=website_url,
+            title=title,
+            h1=h1,
+            description=description,
+            stage1_summary=stage1_competitor_summary,
+            retry_hardening_note=retry_hardening_note,
+        )
+
+    prompt = _build_prompt()
     gemini = summarize_with_gemini(prompt=prompt, research_model=research_model)
     reused_validated_analysis = False
-    if gemini.get("live"):
+    live_first_attempt = bool(gemini.get("live"))
+    if live_first_attempt:
         structured = extract_json_object(gemini.get("text", ""))
         if not structured:
             raise SystemExit("quality_gate_failed:website_analysis:invalid_json")
@@ -404,7 +425,45 @@ def main() -> int:
     if not structured:
         raise SystemExit("quality_gate_failed:website_analysis:invalid_json")
 
-    validated_fields = _validated_analysis_fields(structured, brand_name)
+    # Bounded 1-retry loop: quality-gate failures on the live LLM output are
+    # almost always one bad string (truncated phrase, trailing preposition,
+    # duplicate hook). Re-prompt Gemini once with the exact error message and
+    # the rejected JSON so it can fix the specific field, then re-validate.
+    # If validation still fails, surface the ORIGINAL error (not the retry
+    # error) so the traceback stays actionable. Only retry when the first
+    # attempt was a live Gemini call — if we fell through to a cached
+    # website-analysis.json, there is nothing to re-prompt.
+    try:
+        validated_fields = _validated_analysis_fields(structured, brand_name)
+    except RuntimeError as exc:
+        error_msg = str(exc)
+        if not live_first_attempt or not error_msg.startswith("quality_gate_failed:"):
+            raise
+        sys.stderr.write(
+            f"[website-brand-analysis] first validation pass failed: {error_msg}; "
+            f"re-prompting Gemini once with hardening note\n"
+        )
+        sys.stderr.flush()
+        rejected_json_excerpt = json.dumps(structured, ensure_ascii=True)[:2000]
+        retry_hardening_note = (
+            f"Your previous response was rejected by the downstream quality gate.\n"
+            f"Failure: {error_msg}\n"
+            f"Rejected JSON (truncated to 2000 chars): {rejected_json_excerpt}"
+        )
+        retry_prompt = _build_prompt(retry_hardening_note=retry_hardening_note)
+        retry_gemini = summarize_with_gemini(prompt=retry_prompt, research_model=research_model)
+        if not retry_gemini.get("live"):
+            raise
+        retry_structured = extract_json_object(retry_gemini.get("text", ""))
+        if not retry_structured:
+            raise
+        try:
+            validated_fields = _validated_analysis_fields(retry_structured, brand_name)
+            structured = retry_structured
+        except RuntimeError:
+            # Second attempt also failed — raise the ORIGINAL error so the
+            # operator sees the actual quality-gate name, not a retry artefact.
+            raise exc from None
     canonical_url = normalize_marketing_url(brand_kit.get("canonical_url") or website_url) or website_url
     competitor_url = stage1_competitor_summary["competitor_url"] or None
 
