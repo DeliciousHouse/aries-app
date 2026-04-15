@@ -200,24 +200,38 @@ def _stage3_static_asset_previews(production_handoff: dict) -> list[dict]:
         if isinstance(line, str) and line.strip()
     ]
 
+    _PLATFORM_NAMES = {
+        "meta-ads": "Meta Feed",
+        "instagram": "Instagram Feed",
+        "linkedin": "LinkedIn",
+        "landing-page": "Landing Page",
+    }
+    _PLATFORM_TARGET_SIZES = {
+        "meta-ads": "1080x1350",
+        "instagram": "1080x1080",
+        "linkedin": "1200x1200",
+        "landing-page": "1920x1080",
+    }
+
     family_images = _as_list(ad_artifacts.get("family_images"))
     if family_images:
-        # One preview per family — this is the per-concept surface the dashboard
-        # iterates to build the calendar tiles and the review UI cards.
         previews: list[dict] = []
         for index, family in enumerate(family_images):
             family_entry = _as_dict(family)
             image_path = _as_str(family_entry.get("image_path"))
             image_kind = _as_str(family_entry.get("image_kind"))
-            # SVG fallback is not an acceptable deliverable — only emit previews
-            # backed by a real Nano Banana Pro PNG render. If ad-designer emitted
-            # an SVG, it means Nano Banana failed and the family should be skipped
-            # so the stage surfaces the error instead of showing placeholder art.
             if image_kind != "nano_banana_png" or not image_path.lower().endswith(".png"):
                 continue
             actual_media_paths = _existing_file_paths([image_path])
             if not actual_media_paths:
                 continue
+            platform_slug = _as_str(family_entry.get("platform_slug"), "meta-ads")
+            platform_name = _as_str(
+                family_entry.get("platform_label"),
+                _PLATFORM_NAMES.get(platform_slug, platform_slug.replace("-", " ").title()),
+            )
+            aspect_ratio = _as_str(family_entry.get("aspect_ratio"), "4:5")
+            target_size = _PLATFORM_TARGET_SIZES.get(platform_slug, "")
             family_hook = _as_str(family_entry.get("hook"), hook)
             family_angle = _as_str(family_entry.get("angle"))
             family_name = _as_str(family_entry.get("family_name"), _as_str(family_entry.get("family_id"), f"Family {index + 1}"))
@@ -226,14 +240,14 @@ def _stage3_static_asset_previews(production_handoff: dict) -> list[dict]:
             caption_text = "\n".join([line for line in (family_angle, *script_body) if line])
             previews.append(
                 {
-                    "platform_slug": "meta-ads",
-                    "platform_name": "Meta Feed",
+                    "platform_slug": platform_slug,
+                    "platform_name": platform_name,
                     "channel_type": "static",
-                    "asset_preview_id": f"platform-preview-meta-ads-{family_id}",
+                    "asset_preview_id": f"platform-preview-{platform_slug}-{family_id}",
                     "family_id": family_id,
                     "family_name": family_name,
                     "funnel_stage": funnel_stage,
-                    "summary": f"{family_name} — Meta Feed concept ready for launch review.",
+                    "summary": f"{family_name} — {platform_name} concept ready for launch review.",
                     "headline": family_hook,
                     "caption_text": caption_text,
                     "cta": cta,
@@ -249,25 +263,23 @@ def _stage3_static_asset_previews(production_handoff: dict) -> list[dict]:
                     "preview_text": "\n".join(
                         [
                             f"Family: {family_name} ({funnel_stage})",
+                            f"Platform: {platform_name} [{platform_slug}] {aspect_ratio}",
                             f"Headline: {family_hook or 'n/a'}",
                             f"CTA: {cta or 'n/a'}",
                             *(f"Preview asset: {path}" for path in actual_media_paths[:2]),
                         ]
                     ),
                     "format": {
-                        "aspect_ratio": _as_str(family_entry.get("aspect_ratio"), "4:5"),
-                        "target_size": "1080x1350",
+                        "aspect_ratio": aspect_ratio,
+                        "target_size": target_size or "1080x1350",
                     },
                 }
             )
         if previews:
             return previews
-        # Every family_images entry was filtered out (missing PNG / SVG fallback).
-        # That means ad-designer could not ship a single real Nano Banana Pro render.
-        # Raise loudly so the stage fails instead of showing placeholder art.
         raise SystemExit(
             f"quality_gate_failed:launch_review:no_nano_banana_previews "
-            f"(ad_designer produced {len(family_images)} families but none resolved to a "
+            f"(ad_designer produced {len(family_images)} (family, platform) rows but none resolved to a "
             "Nano Banana Pro PNG on disk — check GEMINI_API_KEY and gateway logs for [nano_banana_pro] entries)"
         )
 

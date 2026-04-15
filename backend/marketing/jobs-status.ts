@@ -416,6 +416,24 @@ function buildSummary(
   };
 }
 
+function buildProductionContractHighlightFallback(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  productionStageStatus: string,
+): string | undefined {
+  if (productionStageStatus !== 'in_progress' && productionStageStatus !== 'awaiting_approval') {
+    return undefined;
+  }
+  const videoPlatforms = runtimeDoc.publish_config?.video_render_platforms || [];
+  const allPlatforms = runtimeDoc.publish_config?.platforms || [];
+  const videoSet = new Set(videoPlatforms.map((slug) => slug.toLowerCase()));
+  const staticCount = allPlatforms.filter((slug) => !videoSet.has(slug.toLowerCase())).length;
+  const videoCount = videoPlatforms.length;
+  if (staticCount === 0 && videoCount === 0) {
+    return undefined;
+  }
+  return `Static contracts: ${staticCount}, Video contracts: ${videoCount}`;
+}
+
 function buildStageCards(
   runtimeDoc: MarketingJobRuntimeDocument,
   stageStatus: Record<string, string>
@@ -450,7 +468,10 @@ function buildStageCards(
           label: STAGE_LABELS[stage],
           status: stageStatus[stage],
           summary: stageRecord.summary?.summary || 'Production assets are ready.',
-          highlight: stageRecord.summary?.highlight || undefined,
+          highlight:
+            stageRecord.summary?.highlight ||
+            buildProductionContractHighlightFallback(runtimeDoc, stageStatus[stage]) ||
+            undefined,
         };
       case 'publish':
         return {

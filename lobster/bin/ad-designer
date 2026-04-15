@@ -18,11 +18,6 @@ def _as_list(value) -> list:
 
 
 def _meta_families(brief: dict) -> list[dict]:
-    """Yield meta-channel families from the planner's testing matrix in funnel order.
-
-    Families are cold (TOFU) first, then warm (MOFU), so the first family is always a
-    cold-funnel entry — used as the back-compat meta_feed/meta_story image path.
-    """
     testing_matrix = record_or_empty(brief.get("testing_matrix"))
     meta_matrix = record_or_empty(testing_matrix.get("meta"))
     families: list[dict] = []
@@ -41,9 +36,6 @@ def _family_contract(
     aspect_ratio: str,
     platform_label: str,
 ) -> dict:
-    """Build a per-family static contract. The headline is the family's primary_hook;
-    the body lines describe the family's angle and opening line; proof points prefer
-    the family's proof_variants and fall back to the brief's global proof list."""
     family_id = str(family.get("family_id") or family.get("family_name") or "unknown")
     hook = validate_copy_text(
         f"ad_designer.family.{family_id}.hook",
@@ -102,76 +94,117 @@ def main() -> int:
 
     families = _meta_families(brief)
 
-    # Feed (4:5) image per family — these are the per-concept Nano Banana Pro renders.
-    # Runs up to LOBSTER_IMAGE_PARALLELISM concurrent renders (default 4) via a
-    # ThreadPoolExecutor. Each thread calls the existing synchronous
-    # render_static_publish_asset, so retries/backoff/quality-gates are unchanged.
-    # Nano Banana Pro's rate limits are per-minute, not per-concurrent-connection —
-    # 4 parallel starts is well within typical preview-model quotas. Tune via env.
-    def _prepare_family(index: int, family: dict) -> tuple[int, dict, str, dict]:
-        raw_family_id = str(family.get("family_id") or family.get("family_name") or f"family-{index + 1}")
-        family_slug = slugify(raw_family_id) if raw_family_id.startswith(("meta-", "meta_")) else slugify(f"meta-{raw_family_id}")
-        feed_contract = _family_contract(family, cta, proof_points, design_tokens, "4:5", "Meta Feed")
-        return index, family, family_slug, feed_contract
+    PLATFORM_IMAGE_MATRIX = [
+        {"platform_slug": "meta-ads",      "platform_label": "Meta Feed",       "aspect_ratio": "4:5"},
+        {"platform_slug": "instagram",     "platform_label": "Instagram Feed",  "aspect_ratio": "1:1"},
+        {"platform_slug": "linkedin",      "platform_label": "LinkedIn",        "aspect_ratio": "1:1"},
+        {"platform_slug": "landing-page",  "platform_label": "Landing Page",    "aspect_ratio": "16:9"},
+    ]
 
-    def _render_family(task: tuple[int, dict, str, dict]) -> dict:
-        index, family, family_slug, feed_contract = task
-        feed_asset = render_static_publish_asset(feed_contract, ad_images_dir, family_slug)
+    def _family_slug_for(index: int, family: dict) -> str:
+        raw_family_id = str(family.get("family_id") or family.get("family_name") or f"family-{index + 1}")
+        slug = slugify(raw_family_id)
+        if slug.startswith("meta-"):
+            slug = slug[len("meta-"):]
+        elif slug.startswith("meta_"):
+            slug = slug[len("meta_"):]
+        return slug or f"family-{index + 1}"
+
+    def _build_task(index: int, family: dict, platform: dict) -> dict:
+        family_slug = _family_slug_for(index, family)
+        platform_slug = platform["platform_slug"]
+        contract = _family_contract(
+            family,
+            cta,
+            proof_points,
+            design_tokens,
+            platform["aspect_ratio"],
+            platform["platform_label"],
+        )
         return {
-            "index": index,
-            "family_id": family.get("family_id", family_slug),
-            "family_name": family.get("family_name", ""),
-            "funnel_stage": family.get("funnel_stage", "cold"),
-            "platform_slug": "meta-ads",
-            "aspect_ratio": "4:5",
-            "image_path": feed_asset["image_path"],
-            "image_kind": feed_asset["image_kind"],
-            "nano_banana": feed_asset["nano_banana"],
-            "hook": family.get("primary_hook", ""),
-            "angle": family.get("angle", ""),
-            "opening_line": family.get("opening_line", ""),
-            "hypothesis": family.get("hypothesis", ""),
-            "contract": feed_contract,
+            "family_index": index,
+            "platform_slug": platform_slug,
+            "platform_label": platform["platform_label"],
+            "aspect_ratio": platform["aspect_ratio"],
+            "family": family,
+            "family_id": str(family.get("family_id") or family.get("family_name") or f"family-{index + 1}"),
+            "family_name": str(family.get("family_name") or family.get("family_id") or f"Family {index + 1}"),
+            "funnel_stage": str(family.get("funnel_stage") or "cold"),
+            "family_slug": family_slug,
+            "output_stem": f"{platform_slug}-{family_slug}",
+            "contract": contract,
         }
 
-    family_tasks = [_prepare_family(i, f) for i, f in enumerate(families)]
-    parallelism_cap = int(os.environ.get("LOBSTER_IMAGE_PARALLELISM", "4") or "4")
-    parallelism = max(1, min(parallelism_cap, len(family_tasks) or 1))
+    def _render_task(task: dict) -> dict:
+        asset = render_static_publish_asset(
+            task["contract"], ad_images_dir, task["output_stem"]
+        )
+        return {
+            "family_index": task["family_index"],
+            "platform_slug": task["platform_slug"],
+            "platform_label": task["platform_label"],
+            "aspect_ratio": task["aspect_ratio"],
+            "family_id": task["family"].get("family_id", task["family_slug"]),
+            "family_name": task["family"].get("family_name", task["family_name"]),
+            "funnel_stage": task["family"].get("funnel_stage", "cold"),
+            "image_path": asset["image_path"],
+            "image_kind": asset["image_kind"],
+            "nano_banana": asset["nano_banana"],
+            "hook": task["family"].get("primary_hook", ""),
+            "angle": task["family"].get("angle", ""),
+            "opening_line": task["family"].get("opening_line", ""),
+            "hypothesis": task["family"].get("hypothesis", ""),
+            "contract": task["contract"],
+        }
 
-    family_results: dict[int, dict] = {}
+    all_tasks: list[dict] = []
+    for family_index, family in enumerate(families):
+        for platform in PLATFORM_IMAGE_MATRIX:
+            all_tasks.append(_build_task(family_index, family, platform))
+
+    parallelism_cap = int(os.environ.get("LOBSTER_IMAGE_PARALLELISM", "6") or "6")
+    parallelism = max(1, min(parallelism_cap, len(all_tasks) or 1))
+
+    task_results: list[dict] = []
     first_failure: Exception | None = None
-    if family_tasks:
+    if all_tasks:
         sys.stderr.write(
-            f"[ad_designer] dispatching {len(family_tasks)} nano_banana renders with parallelism={parallelism}\n"
+            f"[ad_designer] dispatching {len(all_tasks)} nano_banana renders "
+            f"({len(families)} families x {len(PLATFORM_IMAGE_MATRIX)} platforms) "
+            f"with parallelism={parallelism}\n"
         )
         sys.stderr.flush()
+        indexed_results: dict[int, dict] = {}
         with ThreadPoolExecutor(max_workers=parallelism) as executor:
-            future_to_task = {executor.submit(_render_family, task): task for task in family_tasks}
+            future_to_task = {
+                executor.submit(_render_task, task): (pos, task)
+                for pos, task in enumerate(all_tasks)
+            }
             for future in as_completed(future_to_task):
-                task = future_to_task[future]
+                pos, task = future_to_task[future]
                 try:
                     result = future.result()
-                    family_results[result["index"]] = result
+                    indexed_results[pos] = result
                 except Exception as exc:  # noqa: BLE001
                     if first_failure is None:
                         first_failure = exc
                     sys.stderr.write(
-                        f"[ad_designer] family render failed index={task[0]} family_slug={task[2]} error={type(exc).__name__}: {exc}\n"
+                        f"[ad_designer] render failed pos={pos} "
+                        f"family_slug={task['family_slug']} "
+                        f"platform={task['platform_slug']} "
+                        f"stem={task['output_stem']} "
+                        f"error={type(exc).__name__}: {exc}\n"
                     )
                     sys.stderr.flush()
+        task_results = [indexed_results[pos] for pos in sorted(indexed_results.keys())]
+
     if first_failure is not None:
-        # Re-raise the first failure after the executor has drained so other
-        # in-flight renders have already finished writing their mp4 / png
-        # artifacts to disk. Downstream stage_3_finalize quality gates still
-        # catch the missing family and halt the pipeline cleanly.
         raise first_failure
 
-    # Preserve the original family order so downstream consumers (testing
-    # matrix index alignment, launch-review-preview cold-before-warm
-    # expectation) see results in the same order as the planner's families.
-    family_images: list[dict] = [family_results[i] for i in sorted(family_results.keys())]
-    for entry in family_images:
-        entry.pop("index", None)
+    family_images: list[dict] = []
+    for entry in task_results:
+        entry.pop("family_index", None)
+        family_images.append(entry)
 
     if not family_images:
         raise SystemExit(
@@ -179,33 +212,56 @@ def main() -> int:
             "(campaign-planner emitted no testing_matrix.meta families; "
             "ad-designer will not ship placeholder art)"
         )
-    # Back-compat: downstream readers (launch-review-preview, dashboard schemas)
-    # still inspect meta_feed_image_path / meta_story_image_path. Point them at
-    # the first family's render so the old shape keeps resolving while the
-    # family_images list drives the real per-concept UI.
-    legacy_feed_path = family_images[0]["image_path"]
-    legacy_story_path = family_images[0]["image_path"]
-    legacy_feed_gen = family_images[0]["nano_banana"]
-    legacy_story_gen = family_images[0]["nano_banana"]
 
+    _first_meta = next(
+        (entry for entry in family_images if entry.get("platform_slug") == "meta-ads"),
+        family_images[0],
+    )
+    legacy_feed_path = _first_meta["image_path"]
+    legacy_story_path = _first_meta["image_path"]
+    legacy_feed_gen = _first_meta["nano_banana"]
+    legacy_story_gen = _first_meta["nano_banana"]
+
+    concepts: list[dict] = []
+    for family_index in range(len(families)):
+        family_rows = [
+            entry for entry in family_images
+            if entry.get("family_id") == str(
+                families[family_index].get("family_id")
+                or families[family_index].get("family_name")
+                or f"family-{family_index + 1}"
+            )
+        ]
+        if not family_rows:
+            continue
+        primary = family_rows[0]
+        concepts.append(
+            {
+                "name": primary.get("family_name") or primary.get("family_id"),
+                "format": "static",
+                "headline": primary.get("hook") or hook,
+                "body": [
+                    line
+                    for line in (primary.get("opening_line"), primary.get("angle"))
+                    if line
+                ],
+                "funnel_stage": primary.get("funnel_stage", "cold"),
+                "image_path": primary["image_path"],
+                "platform_renders": [
+                    {
+                        "platform_slug": row["platform_slug"],
+                        "platform_label": row["platform_label"],
+                        "aspect_ratio": row["aspect_ratio"],
+                        "image_path": row["image_path"],
+                    }
+                    for row in family_rows
+                ],
+            }
+        )
     ad_assets = {
         "creative_brief": {
             "primary_hook": hook,
-            "concepts": [
-                {
-                    "name": entry.get("family_name") or entry.get("family_id"),
-                    "format": "static",
-                    "headline": entry.get("hook") or hook,
-                    "body": [
-                        line
-                        for line in (entry.get("opening_line"), entry.get("angle"))
-                        if line
-                    ],
-                    "funnel_stage": entry.get("funnel_stage", "cold"),
-                    "image_path": entry["image_path"],
-                }
-                for entry in family_images
-            ],
+            "concepts": concepts,
             "design_system": {
                 "typography": typography,
                 "color_direction": palette,
@@ -213,8 +269,10 @@ def main() -> int:
             },
         },
         "asset_specs": [
-            {"placement": "meta_feed", "size": "1080x1350", "format": "png or mp4"},
-            {"placement": "meta_story", "size": "1080x1920", "format": "png or mp4"},
+            {"placement": "meta_feed",       "size": "1080x1350", "format": "png"},
+            {"placement": "instagram_feed",  "size": "1080x1080", "format": "png"},
+            {"placement": "linkedin_feed",   "size": "1200x1200", "format": "png"},
+            {"placement": "landing_page",    "size": "1920x1080", "format": "png"},
         ],
     }
 
@@ -224,9 +282,12 @@ def main() -> int:
         "Placements:",
         *[f"- {item['placement']}: {item['size']} ({item['format']})" for item in ad_assets["asset_specs"]],
         "",
-        "Per-family renders (Nano Banana Pro):",
+        "Per-(family, platform) renders (Nano Banana Pro):",
         *[
-            f"- [{entry.get('funnel_stage', 'cold')}] {entry.get('family_name') or entry.get('family_id')}: {entry['image_path']}"
+            f"- [{entry.get('funnel_stage', 'cold')}] "
+            f"{entry.get('family_name') or entry.get('family_id')} "
+            f"/ {entry['platform_label']} ({entry['aspect_ratio']}): "
+            f"{entry['image_path']}"
             for entry in family_images
         ],
     ]
@@ -253,7 +314,7 @@ def main() -> int:
             "meta_feed_image_generation": legacy_feed_gen,
             "meta_story_image_generation": legacy_story_gen,
             "family_images": family_images,
-            "honesty_note": "Local wrapper loops over campaign-planner families and renders one Nano Banana Pro image per family; the legacy meta_feed/story paths point at the first family for back-compat.",
+            "honesty_note": "Local wrapper loops over (family x platform) and renders one Nano Banana Pro image per pair (Meta 4:5, Instagram 1:1, LinkedIn 1:1, Landing Page 16:9); the legacy meta_feed/story paths point at the first meta-ads render for back-compat.",
             "design_tokens": design_tokens,
         },
     }
