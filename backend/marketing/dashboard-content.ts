@@ -1002,7 +1002,8 @@ function extractSummaryFromCopyPayload(filePath: string | null | undefined): str
 }
 
 function extractDestinationUrl(runtimeDoc: MarketingJobRuntimeDocument, contractPayload: Record<string, unknown> | null): string | null {
-  const slug = stringValue(recordValue(contractPayload?.landing_page)?.slug)
+  const rawSlug = stringValue(recordValue(contractPayload?.landing_page)?.slug)
+  const slug = rawSlug ? rawSlug.replace(/^\/\d+\/?/, '/') : rawSlug
   const brandUrl = stringValue(runtimeDoc.inputs.brand_url || runtimeDoc.brand_kit?.source_url)
   if (slug && brandUrl) {
     try {

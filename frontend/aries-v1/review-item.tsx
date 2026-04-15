@@ -63,6 +63,7 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
   // where a single user click produced two approval POSTs and the pipeline
   // advanced two gates at once, skipping the launch-review surface entirely.
   const submittingRef = useRef(false);
+  const lastSubmitAt = useRef(0);
 
   const decisionSummary = useMemo(() => {
     if (!item?.lastDecision) return null;
@@ -91,8 +92,15 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
   const reviewItem = item;
 
   async function applyDecision(action: 'approve' | 'changes_requested' | 'reject') {
-    if (submittingRef.current) return;
+    // Bug A hardening: the ref lock alone doesn't catch a second click that
+    // fires after the first POST resolves but before the component re-renders
+    // (observed on approve_stage_4_publish where the first POST returns 200
+    // and a duplicate follow-up hits the gateway lock for ~4s). A 1s floor
+    // between submits at the same call site is a cheap belt-and-suspenders.
+    const now = Date.now();
+    if (submittingRef.current || now - lastSubmitAt.current < 1000) return;
     submittingRef.current = true;
+    lastSubmitAt.current = now;
     try {
       const approvalId =
         reviewItem.reviewType === 'workflow_approval' && reviewItem.currentVersion.id.startsWith('approval:')

@@ -66,7 +66,7 @@ def main() -> int:
 
     page_assets = {
         "landing_page": {
-            "slug": f"/{brand_slug}/campaign",
+            "slug": "/",
             "hero_headline": hero_headline,
             "hero_subheadline": hero_subheadline,
             "problem_statement": problem_statement,

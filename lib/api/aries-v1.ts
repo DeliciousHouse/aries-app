@@ -1,4 +1,4 @@
-import { requestJson, type ApiClientOptions } from './http';
+import { requestJson, requestJsonWithRetry, type ApiClientOptions } from './http';
 import type {
   MarketingCampaignStatusHistoryEntry,
   MarketingDashboardAsset,
@@ -338,10 +338,15 @@ export function createAriesV1Api(options: ApiClientOptions = {}) {
       return requestJson<ReviewItemResponse>(`/api/marketing/reviews/${encodeURIComponent(reviewId)}`, { method: 'GET' }, options);
     },
     decideReview(reviewId: string, body: ReviewDecisionRequest) {
-      return requestJson<ReviewItemResponse>(`/api/marketing/reviews/${encodeURIComponent(reviewId)}/decision`, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      }, options);
+      return requestJsonWithRetry<ReviewItemResponse>(
+        `/api/marketing/reviews/${encodeURIComponent(reviewId)}/decision`,
+        {
+          method: 'POST',
+          body: JSON.stringify(body),
+        },
+        { retryOn: [502, 503, 504], maxAttempts: 2, backoffMs: 500 },
+        options,
+      );
     },
     getBusinessProfile() {
       return requestJson<BusinessProfileResponse>('/api/business/profile', { method: 'GET' }, options);
