@@ -32,6 +32,7 @@ import {
   readLandingPageArtifactDetails,
   readScriptArtifactDetails,
 } from './real-artifacts';
+import { readMarketingStageStepPayload } from './stage-artifact-resolution';
 import {
   ensureCampaignWorkspaceRecord,
   marketingWorkspaceAssetUrl,
@@ -133,6 +134,15 @@ function readTextIfExists(filePath: string | null | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+function familyIdFromImagePath(filePath: string | null): string | null {
+  if (!filePath) {
+    return null;
+  }
+  const basename = path.basename(filePath);
+  const match = /^(meta-[a-z0-9-]+)\.(png|jpe?g|webp)$/i.exec(basename);
+  return match ? match[1] : null;
 }
 
 function currentSourceUrl(runtimeDoc: MarketingJobRuntimeDocument): string | null {
@@ -950,6 +960,20 @@ function buildCreativeAssets(
   const fallbackLanding = readLandingPageArtifactDetails({ runtimeDoc });
   const fallbackScripts = readScriptArtifactDetails({ runtimeDoc });
 
+  const scriptwriterPayload = readMarketingStageStepPayload(runtimeDoc, 3, 'scriptwriter').payload;
+  const metaAdScriptsByFamily = recordValue(
+    recordValue(scriptwriterPayload?.script_assets)?.meta_ad_scripts_by_family,
+  );
+
+  function perFamilyHook(filePath: string | null): string | null {
+    const familyId = familyIdFromImagePath(filePath);
+    if (!familyId || !metaAdScriptsByFamily) {
+      return null;
+    }
+    const entry = recordValue(metaAdScriptsByFamily[familyId]);
+    return stringValue(entry?.hook) || null;
+  }
+
   return creativeAssets.map((asset) => {
     const reviewState = record.creative_asset_reviews[asset.id];
     const resolvedAsset = findMarketingAsset(runtimeDoc.job_id, runtimeDoc, asset.id);
@@ -968,7 +992,8 @@ function buildCreativeAssets(
           normalizeArtifactText(landingDetails.subheadline) ||
           normalizeArtifactText(stringValue(assetPreviews?.landing_page_headline))
         : asset.type === 'image_ad'
-          ? normalizeArtifactText(scriptDetails.metaAdHook) ||
+          ? normalizeArtifactText(perFamilyHook(resolvedAsset?.filePath || null)) ||
+            normalizeArtifactText(scriptDetails.metaAdHook) ||
             normalizeArtifactText(fallbackScripts.metaAdHook) ||
             normalizeArtifactText(stringValue(assetPreviews?.meta_ad_hook))
           : isVideoScript
@@ -993,7 +1018,7 @@ function buildCreativeAssets(
         detailLines.push(`Slug: ${landingDetails.slug}`);
       }
     } else if (asset.type === 'image_ad') {
-      detailLines.push(`Ad hook: ${scriptDetails.metaAdHook || fallbackScripts.metaAdHook || normalizeArtifactText(stringValue(assetPreviews?.meta_ad_hook)) || ARTIFACT_UNAVAILABLE_TEXT}`);
+      detailLines.push(`Ad hook: ${perFamilyHook(resolvedAsset?.filePath || null) || scriptDetails.metaAdHook || fallbackScripts.metaAdHook || normalizeArtifactText(stringValue(assetPreviews?.meta_ad_hook)) || ARTIFACT_UNAVAILABLE_TEXT}`);
     } else if (isVideoScript) {
       detailLines.push(`Opening line: ${scriptDetails.shortVideoOpeningLine || fallbackScripts.shortVideoOpeningLine || normalizeArtifactText(stringValue(assetPreviews?.video_opening_line)) || ARTIFACT_UNAVAILABLE_TEXT}`);
       if ((scriptDetails.shortVideoBeats[0] || fallbackScripts.shortVideoBeats[0])) {
