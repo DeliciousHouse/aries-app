@@ -44,6 +44,12 @@ publish/*.js.map
 agent-orchestrator.local.yaml
 agent-orchestrator.local.yml
 
+# Deploy-time collision backups — written by .github/workflows/deploy.yml
+# when VM-local untracked files would collide with the target ref. Growing
+# this under the repo root on every deploy would slow subsequent ls-files
+# scans; keep the dir local-only and out of git.
+.deploy-backups/
+
 # Private keys (never commit)
 
 # Logs

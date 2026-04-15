@@ -187,16 +187,35 @@ jobs:
           # rather than losing them to a failed `git checkout`.
           backup_dir="${repo_path}/.deploy-backups/$(date -u +%Y%m%dT%H%M%SZ)"
           backed_up_any=0
-          while IFS= read -r untracked_file; do
+          # Scope the scan to exclude .deploy-backups/ so prior runs' backups
+          # do not pile up in the ls-files output on subsequent deploys.
+          # Use -z so filenames with special characters or embedded newlines
+          # are parsed safely, and force core.quotepath=false so git never
+          # C-escapes high-byte characters in the emitted path stream.
+          while IFS= read -r -d '' untracked_file; do
             [[ -z "${untracked_file}" ]] && continue
             if git -C "${repo_path}" cat-file -e "${checkout_target}:${untracked_file}" 2>/dev/null; then
+              src="${repo_path}/${untracked_file}"
               dest="${backup_dir}/${untracked_file}"
+              # Under `set -e`, a concurrent writer removing the file between
+              # ls-files and mv would abort the deploy. Guard the source and
+              # demote any mv failure to a warning so deploys remain robust.
+              # Also back up broken symlinks (-L) — they still exist in the
+              # working tree and still block `git checkout` as an untracked-
+              # path collision, even though `-e` returns false on them.
+              if [[ ! -e "${src}" && ! -L "${src}" ]]; then
+                echo "WARN: skipped backup for VM-local untracked file that no longer exists: ${untracked_file}" >&2
+                continue
+              fi
               mkdir -p "$(dirname "${dest}")"
-              mv "${repo_path}/${untracked_file}" "${dest}"
-              echo "WARN: preserved VM-local untracked file that collides with ${checkout_target}: ${untracked_file} -> ${dest}" >&2
-              backed_up_any=1
+              if mv "${src}" "${dest}"; then
+                echo "WARN: preserved VM-local untracked file that collides with ${checkout_target}: ${untracked_file} -> ${dest}" >&2
+                backed_up_any=1
+              else
+                echo "WARN: failed to back up VM-local untracked file; continuing deploy: ${untracked_file}" >&2
+              fi
             fi
-          done < <(git -C "${repo_path}" ls-files --others --exclude-standard)
+          done < <(git -c core.quotepath=false -C "${repo_path}" ls-files --others --exclude-standard --exclude=.deploy-backups/ -z)
 
           git -C "${repo_path}" checkout --detach "${checkout_target}"
 
