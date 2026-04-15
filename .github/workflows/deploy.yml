@@ -180,11 +180,33 @@ jobs:
 
           git -C "${repo_path}" fetch --prune --tags origin
           checkout_target="$(resolve_checkout_target "${TARGET_CHECKOUT_REF}")"
+
+          # Preserve VM-local untracked files that would collide with tracked paths in
+          # the target ref. Remote-side work (e.g. daily-brief automation) is authoritative
+          # per the Aries publishing model, so we move collisions aside into a backup dir
+          # rather than losing them to a failed `git checkout`.
+          backup_dir="${repo_path}/.deploy-backups/$(date -u +%Y%m%dT%H%M%SZ)"
+          backed_up_any=0
+          while IFS= read -r untracked_file; do
+            [[ -z "${untracked_file}" ]] && continue
+            if git -C "${repo_path}" cat-file -e "${checkout_target}:${untracked_file}" 2>/dev/null; then
+              dest="${backup_dir}/${untracked_file}"
+              mkdir -p "$(dirname "${dest}")"
+              mv "${repo_path}/${untracked_file}" "${dest}"
+              echo "WARN: preserved VM-local untracked file that collides with ${checkout_target}: ${untracked_file} -> ${dest}" >&2
+              backed_up_any=1
+            fi
+          done < <(git -C "${repo_path}" ls-files --others --exclude-standard)
+
           git -C "${repo_path}" checkout --detach "${checkout_target}"
 
           if [[ "${stashed}" == "1" ]]; then
             echo "Restoring stashed local changes."
             git -C "${repo_path}" stash pop --quiet || echo "WARN: stash pop had conflicts; stash preserved." >&2
+          fi
+
+          if [[ "${backed_up_any}" == "1" ]]; then
+            echo "WARN: one or more VM-local untracked files were backed up under ${backup_dir}; reconcile manually." >&2
           fi
 
           cd "${repo_path}"
