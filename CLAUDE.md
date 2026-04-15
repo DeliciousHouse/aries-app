@@ -29,7 +29,7 @@ Browser
 
 ### Gateway Client Pattern
 
-`backend/openclaw/gateway-client.ts` is the bridge to OpenClaw. It invokes the gateway via `execFile` (CLI subprocess), not HTTP. Key types: `LobsterEnvelope` (workflow result with optional `requiresApproval`), `OpenClawWorkflowCallInput` (run a pipeline), `OpenClawResumeCallInput` (resume after approval). The gateway can return an approval-request pause state that the orchestrator must handle.
+`backend/openclaw/gateway-client.ts` is the bridge to OpenClaw. It invokes the gateway via `execFile` (CLI subprocess), not HTTP. Key types: `LobsterEnvelope` (workflow result with optional `requiresApproval`), `OpenClawWorkflowCallInput` (run a pipeline), `OpenClawResumeCallInput` (resume after approval). When a stage returns `requiresApproval`, the orchestrator persists the paused envelope via `approval-store.ts` and later calls the gateway again with `OpenClawResumeCallInput` carrying the approval decision — callers should never assume a workflow ran to completion on a single invocation.
 
 ### Marketing Pipeline (4-Stage Lobster Workflow)
 
@@ -47,11 +47,15 @@ Auth uses next-auth v5 (`auth.ts` at repo root) with Credentials + Google provid
 
 ## Build and Dev Commands
 
+> **Turbopack is required.** `npm run dev` passes `--turbo`; running `next dev` without it silently breaks Tailwind v4 styling. Same applies to `next build`.
+
+> **Pre-push gate:** `npm run verify` is the canonical fast regression suite and bakes in the env overrides tests need. Run it before pushing any change that touches routes, backend, or lib.
+
 ```bash
 # Install (force dev mode — system may have NODE_ENV=production)
 NODE_ENV=development npm ci
 
-# Dev server (Turbopack is REQUIRED for Tailwind CSS v4)
+# Dev server
 npm run dev
 
 # Type check
@@ -89,28 +93,23 @@ npm run precheck
 
 ## Key Directories
 
-- `app/` — Next.js pages, layouts, and route handlers
-- `app/api/` — API route handlers (auth, marketing, integrations, onboarding, tenant, oauth, publish, calendar)
-- `backend/` — Server-side domain logic (marketing orchestration, onboarding, auth, integrations, OpenClaw gateway client)
-- `lib/` — Shared runtime helpers: DB pool (`lib/db.ts`), auth helpers, tenant context, runtime path resolution
-- `frontend/` — UI screen components organized by domain (`aries-v1/`, `marketing/`, `onboarding/`, `donor/`, `admin/`)
-- `components/` — Shared UI primitives
-- `lobster/` — Lobster workflow definitions (marketing pipeline stages)
-- `workflows/` — OpenClaw workflow configs
-- `scripts/` — Startup, verification, DB init, automation scripts
-- `tests/` — Regression tests covering routes, API contracts, tenant isolation, marketing flows, OAuth, banned patterns
-- `specs/` — Specification files resolved via `lib/runtime-paths.ts`
-- `skills/` — Agent skill definitions for marketing AI agents (campaign-planner, creative-director, research, etc.)
-- `scripts/automations/` — Cron-driven automations (backup, self-improve, daily brief, feedback sync); installed via `npm run automation:install`
+Non-obvious layout notes (the rest is discoverable by browsing):
 
-## Tech Stack
+- `backend/` vs `lib/` — `backend/` holds domain logic (marketing orchestrator, onboarding, gateway client, approval store); `lib/` is for shared runtime helpers consumed by both `app/` and `backend/` (DB pool, auth, tenant context, runtime path resolution). Route handlers should import domain code from `backend/`, not inline it.
+- `frontend/` vs `components/` — `frontend/` is screen-level components grouped by domain (`marketing/`, `onboarding/`, `donor/`, `admin/`, `aries-v1/`); `components/` is shared primitives.
+- `lobster/` vs `workflows/` — `lobster/` holds `.lobster` workflow definitions consumed by the gateway (e.g. `marketing-pipeline.lobster`); `workflows/` holds OpenClaw workflow configs that wire those definitions into the gateway.
+- `specs/` — resolved via `lib/runtime-paths.ts`, not imported directly by path.
+- `skills/` — marketing agent skill definitions (campaign-planner, creative-director, research, etc.) executed by the gateway, not TypeScript modules.
+- `scripts/automations/` — cron-driven jobs installed via `npm run automation:install`.
 
-- **Framework:** Next.js 16.1.7 with App Router and Turbopack
-- **UI:** React 18, Tailwind CSS v4, motion (Framer Motion), Three.js/R3F, Recharts, Lucide icons
-- **Auth:** next-auth v5 beta with Credentials + Google providers, tenant-aware JWT/session callbacks
-- **Database:** PostgreSQL via `pg` pool (`lib/db.ts`)
-- **Execution:** OpenClaw Gateway + Lobster workflows
-- **TypeScript:** Strict mode, ES2022 target, bundler module resolution
+## Tech Stack Notes
+
+Most of the stack (React, Tailwind, Recharts, etc.) is discoverable from `package.json`. The non-obvious constraints:
+
+- **Next.js 16** App Router with **Turbopack required** (Tailwind v4 breaks under webpack).
+- **next-auth v5 beta** — session is enriched with tenant claims in JWT callbacks; do not read user info without going through `getTenantContext()`.
+- **PostgreSQL** via `pg` pool in `lib/db.ts` — no ORM.
+- **Imports use `@/*`** rooted at the repo (e.g. `@/backend/...`, `@/lib/...`).
 
 ## Banned Patterns
 

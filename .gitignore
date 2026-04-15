@@ -146,3 +146,5 @@ package-lock.json
 .claude/
 .agent/
 skills-lock.json
+
+agent-orchestrator.yaml
