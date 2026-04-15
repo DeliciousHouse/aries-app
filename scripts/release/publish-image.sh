@@ -15,7 +15,8 @@ if [[ -f "${REPO_ROOT}/.env" ]]; then
   set -u
 fi
 
-if [[ "${ALLOW_DIRTY:-0}" != "1" ]] && [[ -n "$(git status --porcelain)" ]]; then
+# Skip dirty check in linked worktrees (git-dir differs from git-common-dir).
+if [[ "${ALLOW_DIRTY:-0}" != "1" ]] && [[ "$(git rev-parse --git-dir)" == "$(git rev-parse --git-common-dir)" ]] && [[ -n "$(git status --porcelain)" ]]; then
   echo "ERROR: Working tree is dirty. Commit or stash changes before publishing." >&2
   exit 1
 fi

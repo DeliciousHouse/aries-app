@@ -39,6 +39,17 @@ publish/*.js.map
 .env.production.local
 .env.*.local
 
+# Local ao orchestrator config (holds secrets like notifier webhooks).
+# Loaded via AO_CONFIG_PATH env var; never commit.
+agent-orchestrator.local.yaml
+agent-orchestrator.local.yml
+
+# Deploy-time collision backups — written by .github/workflows/deploy.yml
+# when VM-local untracked files would collide with the target ref. Growing
+# this under the repo root on every deploy would slow subsequent ls-files
+# scans; keep the dir local-only and out of git.
+.deploy-backups/
+
 # Private keys (never commit)
 
 # Logs
@@ -149,3 +160,12 @@ skills-lock.json
 
 agent-orchestrator.yaml
 agent-orchestrator.local.yaml
+
+# Generated daily artifacts — committing these pollutes diffs and leaks
+# per-session context into repo history. The generator scripts stay tracked;
+# their output lives locally only.
+docs/briefs/
+docs/superpowers/
+default/memory/*-daily-standup.md
+default/memory/*-standup.md
+default/memory/*-standup-*.md

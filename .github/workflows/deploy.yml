@@ -180,11 +180,52 @@ jobs:
 
           git -C "${repo_path}" fetch --prune --tags origin
           checkout_target="$(resolve_checkout_target "${TARGET_CHECKOUT_REF}")"
+
+          # Preserve VM-local untracked files that would collide with tracked paths in
+          # the target ref. Remote-side work (e.g. daily-brief automation) is authoritative
+          # per the Aries publishing model, so we move collisions aside into a backup dir
+          # rather than losing them to a failed `git checkout`.
+          backup_dir="${repo_path}/.deploy-backups/$(date -u +%Y%m%dT%H%M%SZ)"
+          backed_up_any=0
+          # Scope the scan to exclude .deploy-backups/ so prior runs' backups
+          # do not pile up in the ls-files output on subsequent deploys.
+          # Use -z so filenames with special characters or embedded newlines
+          # are parsed safely, and force core.quotepath=false so git never
+          # C-escapes high-byte characters in the emitted path stream.
+          while IFS= read -r -d '' untracked_file; do
+            [[ -z "${untracked_file}" ]] && continue
+            if git -C "${repo_path}" cat-file -e "${checkout_target}:${untracked_file}" 2>/dev/null; then
+              src="${repo_path}/${untracked_file}"
+              dest="${backup_dir}/${untracked_file}"
+              # Under `set -e`, a concurrent writer removing the file between
+              # ls-files and mv would abort the deploy. Guard the source and
+              # demote any mv failure to a warning so deploys remain robust.
+              # Also back up broken symlinks (-L) — they still exist in the
+              # working tree and still block `git checkout` as an untracked-
+              # path collision, even though `-e` returns false on them.
+              if [[ ! -e "${src}" && ! -L "${src}" ]]; then
+                echo "WARN: skipped backup for VM-local untracked file that no longer exists: ${untracked_file}" >&2
+                continue
+              fi
+              mkdir -p "$(dirname "${dest}")"
+              if mv "${src}" "${dest}"; then
+                echo "WARN: preserved VM-local untracked file that collides with ${checkout_target}: ${untracked_file} -> ${dest}" >&2
+                backed_up_any=1
+              else
+                echo "WARN: failed to back up VM-local untracked file; continuing deploy: ${untracked_file}" >&2
+              fi
+            fi
+          done < <(git -c core.quotepath=false -C "${repo_path}" ls-files --others --exclude-standard --exclude=.deploy-backups/ -z)
+
           git -C "${repo_path}" checkout --detach "${checkout_target}"
 
           if [[ "${stashed}" == "1" ]]; then
             echo "Restoring stashed local changes."
             git -C "${repo_path}" stash pop --quiet || echo "WARN: stash pop had conflicts; stash preserved." >&2
+          fi
+
+          if [[ "${backed_up_any}" == "1" ]]; then
+            echo "WARN: one or more VM-local untracked files were backed up under ${backup_dir}; reconcile manually." >&2
           fi
 
           cd "${repo_path}"
