@@ -175,5 +175,7 @@ export async function requestJsonWithRetry<TResponse>(
       await sleep(delay);
     }
   }
-  throw lastError;
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`requestJsonWithRetry: unexpected fallthrough after ${attempts} attempts`);
 }

@@ -135,79 +135,81 @@ test('approve_stage_4_publish: duplicate recordMarketingReviewDecision does not 
       return response;
     });
 
-    const { startMarketingJob } = await import('../backend/marketing/jobs-start');
-    const { approveMarketingJob } = await import('../backend/marketing/jobs-approve');
-    const { listMarketingApprovalRecordsForJob } = await import('../backend/marketing/approval-store');
-    const { recordMarketingReviewDecision } = await import('../backend/marketing/runtime-views');
+    try {
+      const { startMarketingJob } = await import('../backend/marketing/jobs-start');
+      const { approveMarketingJob } = await import('../backend/marketing/jobs-approve');
+      const { listMarketingApprovalRecordsForJob } = await import('../backend/marketing/approval-store');
+      const { recordMarketingReviewDecision } = await import('../backend/marketing/runtime-views');
 
-    const tenantId = 'tenant-bug-a-publish';
-    const started = await startMarketingJob({
-      tenantId,
-      jobType: 'brand_campaign',
-      payload: { brandUrl: 'https://brand.example', competitorUrl: 'https://betterup.com' },
-    });
-
-    const advance = async (stepId: string, stage: 'strategy' | 'production' | 'publish') => {
-      const records = listMarketingApprovalRecordsForJob(started.jobId);
-      const approvalId = records.find((record) => record.workflow_step_id === stepId)?.approval_id;
-      assert.equal(typeof approvalId, 'string', `missing approval record for ${stepId}`);
-      const result = await approveMarketingJob({
-        jobId: started.jobId,
+      const tenantId = 'tenant-bug-a-publish';
+      const started = await startMarketingJob({
         tenantId,
-        approvedBy: 'operator',
-        approvedStages: [stage],
-        approvalId,
+        jobType: 'brand_campaign',
+        payload: { brandUrl: 'https://brand.example', competitorUrl: 'https://betterup.com' },
       });
-      assert.equal(result.status, 'resumed', `${stepId} did not resume: ${result.reason}`);
-    };
 
-    await advance('approve_stage_2', 'strategy');
-    await advance('approve_stage_3', 'production');
-    await advance('approve_stage_4', 'publish');
+      const advance = async (stepId: string, stage: 'strategy' | 'production' | 'publish') => {
+        const records = listMarketingApprovalRecordsForJob(started.jobId);
+        const approvalId = records.find((record) => record.workflow_step_id === stepId)?.approval_id;
+        assert.equal(typeof approvalId, 'string', `missing approval record for ${stepId}`);
+        const result = await approveMarketingJob({
+          jobId: started.jobId,
+          tenantId,
+          approvedBy: 'operator',
+          approvedStages: [stage],
+          approvalId,
+        });
+        assert.equal(result.status, 'resumed', `${stepId} did not resume: ${result.reason}`);
+      };
 
-    const records = listMarketingApprovalRecordsForJob(started.jobId);
-    const pausedPublishId = records.find((record) => record.workflow_step_id === 'approve_stage_4_publish')?.approval_id;
-    assert.equal(typeof pausedPublishId, 'string', 'expected approve_stage_4_publish checkpoint to exist');
+      await advance('approve_stage_2', 'strategy');
+      await advance('approve_stage_3', 'production');
+      await advance('approve_stage_4', 'publish');
 
-    const countResumeToken = (token: string) =>
-      calls.filter((entry) => entry.action === 'resume' && entry.token === token).length;
-    assert.equal(countResumeToken('resume_publish_paused'), 0, 'resume_publish_paused should not have run yet');
+      const records = listMarketingApprovalRecordsForJob(started.jobId);
+      const pausedPublishId = records.find((record) => record.workflow_step_id === 'approve_stage_4_publish')?.approval_id;
+      assert.equal(typeof pausedPublishId, 'string', 'expected approve_stage_4_publish checkpoint to exist');
 
-    const reviewId = `${started.jobId}::approval`;
-    const firstDecision = await recordMarketingReviewDecision({
-      tenantId,
-      reviewId,
-      action: 'approve',
-      actedBy: 'Client reviewer',
-      note: '',
-      approvalId: pausedPublishId,
-    });
-    assert.ok(firstDecision, 'first decision should return a review item');
+      const countResumeToken = (token: string) =>
+        calls.filter((entry) => entry.action === 'resume' && entry.token === token).length;
+      assert.equal(countResumeToken('resume_publish_paused'), 0, 'resume_publish_paused should not have run yet');
 
-    const secondDecision = await recordMarketingReviewDecision({
-      tenantId,
-      reviewId,
-      action: 'approve',
-      actedBy: 'Client reviewer',
-      note: '',
-      approvalId: pausedPublishId,
-    });
-    assert.ok(secondDecision, 'duplicate decision should still return a review item, not null');
+      const reviewId = `${started.jobId}::approval`;
+      const firstDecision = await recordMarketingReviewDecision({
+        tenantId,
+        reviewId,
+        action: 'approve',
+        actedBy: 'Client reviewer',
+        note: '',
+        approvalId: pausedPublishId,
+      });
+      assert.ok(firstDecision, 'first decision should return a review item');
 
-    assert.equal(
-      countResumeToken('resume_publish_paused'),
-      1,
-      'duplicate recordMarketingReviewDecision must not re-invoke the paused-publish resume',
-    );
+      const secondDecision = await recordMarketingReviewDecision({
+        tenantId,
+        reviewId,
+        action: 'approve',
+        actedBy: 'Client reviewer',
+        note: '',
+        approvalId: pausedPublishId,
+      });
+      assert.ok(secondDecision, 'duplicate decision should still return a review item, not null');
 
-    const finalRecords = listMarketingApprovalRecordsForJob(started.jobId);
-    const finalPausedPublish = finalRecords.find((record) => record.approval_id === pausedPublishId);
-    assert.ok(finalPausedPublish, 'paused-publish record should still exist');
-    assert.ok(
-      finalPausedPublish.status === 'approved' || finalPausedPublish.status === 'consumed',
-      `expected terminal status, got ${finalPausedPublish.status}`,
-    );
+      assert.equal(
+        countResumeToken('resume_publish_paused'),
+        1,
+        'duplicate recordMarketingReviewDecision must not re-invoke the paused-publish resume',
+      );
 
-    clearInvoker();
+      const finalRecords = listMarketingApprovalRecordsForJob(started.jobId);
+      const finalPausedPublish = finalRecords.find((record) => record.approval_id === pausedPublishId);
+      assert.ok(finalPausedPublish, 'paused-publish record should still exist');
+      assert.ok(
+        finalPausedPublish.status === 'approved' || finalPausedPublish.status === 'consumed',
+        `expected terminal status, got ${finalPausedPublish.status}`,
+      );
+    } finally {
+      clearInvoker();
+    }
   });
 });
