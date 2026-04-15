@@ -336,8 +336,8 @@ export function deriveWorkspaceHeaderState(
     title:
       status.reviewBundle?.campaignName?.trim() ||
       sourceDomain ||
-      status.dashboard.campaign?.name ||
       status.tenantName ||
+      status.dashboard.campaign?.name ||
       `Campaign ${status.jobId}`,
     sourceDomain,
     sourceUrl,
