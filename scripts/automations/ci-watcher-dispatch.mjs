@@ -34,9 +34,10 @@ if (preflightOnly) {
 }
 
 function logLine(event) {
-  const { action, issue, reason, detail } = event
+  const { action, issue, stage, reason, detail } = event
   const parts = [`- ${action}`]
   if (typeof issue === 'number') parts.push(`issue=#${issue}`)
+  if (stage) parts.push(`stage=${stage}`)
   if (reason) parts.push(`reason=${reason}`)
   if (detail) parts.push(`detail=${detail}`)
   return parts.join(' ')

@@ -77,7 +77,7 @@ This workspace now includes runtime-error intake/repair automation alongside the
 - **Schedule:** `*/15 * * * *` `America/Los_Angeles`
 - **Script:** `node scripts/automations/ci-watcher-dispatch.mjs`
 - **What it does:** queries open GitHub issues labeled `ci-watcher` in `DeliciousHouse/aries-app`, inspects existing `ao` sessions for the `aries-app` project, and runs `ao spawn <issue-number>` for every ci-watcher issue that does **not** already have a matching session. Every action (spawned / skipped / errored) is appended to `data/ci-watcher-dispatch-log.json`.
-- **De-duplication:** matches by issue number against `session.issueId` across **all** sessions returned by `ao session ls --json`, regardless of status. Once `ao session cleanup` removes a terminal session the issue becomes eligible to spawn again (e.g. when CI is reopened after a merge).
+- **De-duplication:** matches by issue number against `session.issueId` across **all** sessions returned by `ao session ls -p aries-app --json`, regardless of status. Once `ao session cleanup` removes a terminal session the issue becomes eligible to spawn again (e.g. when CI is reopened after a merge).
 - **Fail-safe:** `gh` or `ao` errors are logged and the script exits `0` so the cron never gets taken down by transient API blips.
 - **Complementary to the remote CI watcher trigger:** the remote trigger files ci-watcher issues; this dispatcher is the local side that assigns an ao worker to each one.
 

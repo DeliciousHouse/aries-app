@@ -19,6 +19,7 @@ const dryRunScripts = [
   'scripts/automations/daily-standup.mjs',
   'scripts/automations/feedback-connector.mjs',
   'scripts/automations/feedback-daily-summary.mjs',
+  'scripts/automations/ci-watcher-dispatch.mjs',
   'scripts/automations/rolling-system-reference.mjs',
   'scripts/automations/weekly-review.mjs',
 ]
