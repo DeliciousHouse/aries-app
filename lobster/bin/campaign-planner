@@ -352,7 +352,20 @@ def main() -> int:
     research_model = normalize_research_model(args.research_model or data.get("research_model", ""))
     primary_cta = creative_handoff.get("primary_cta", "")
     proof_points = creative_handoff.get("proof_points", [])[:3]
-    campaign_name = f"{record.get('brand_slug', args.brand_slug)}-stage2-plan"
+    # Use the real brand name for the user-facing campaign title. The old
+    # f"{brand_slug}-stage2-plan" fallback leaked the internal stage slug
+    # into the workspace header (deriveWorkspaceHeaderState puts
+    # reviewBundle.campaignName first in its fallback chain) so users saw
+    # "7-stage2-plan" instead of "Linear". brand_name is already required by
+    # the upstream brand analysis step, so prefer it; fall back to a
+    # prettified brand_slug only when brand_name is missing.
+    brand_name_raw = str(record.get("brand_name") or "").strip()
+    if brand_name_raw:
+        campaign_name = f"{brand_name_raw} Growth Testing Plan"
+    else:
+        slug_base = str(record.get("brand_slug") or args.brand_slug or "Campaign")
+        slug_title = slug_base.replace("-", " ").replace("_", " ").strip().title() or "Campaign"
+        campaign_name = f"{slug_title} Growth Testing Plan"
     stage1_context = _stage1_context(creative_handoff)
     testing_matrix = {
         "meta": _channel_matrix("meta", creative_handoff, stage1_context, 45),

@@ -260,3 +260,55 @@ test('deriveWorkspaceHeaderState prefers the source domain over contaminated das
   assert.equal(header.sourceDomain, 'glossier.com');
   assert.equal(header.sourceUrl, 'https://www.glossier.com/');
 });
+
+test('deriveWorkspaceHeaderState rejects synthetic stage-slug review campaign names and falls back', () => {
+  // Regression for a historic lobster/bin/campaign-planner bug that emitted
+  // f"{brand_slug}-stage2-plan" as the campaign name, which leaked into
+  // reviewBundle.campaignName and won the fallback chain because it is the
+  // highest-priority slot. Frontend now rejects anything matching
+  // /-stage\d+-plan$/i before using it as the header title.
+  const numericSlugHeader = deriveWorkspaceHeaderState(
+    makeStatus({
+      brandWebsiteUrl: 'https://linear.app/',
+      reviewBundle: {
+        campaignName: '7-stage2-plan',
+      },
+      tenantName: 'Linear',
+    }) as any,
+  );
+  assert.equal(numericSlugHeader.title, 'linear.app');
+
+  const slugifiedSlugHeader = deriveWorkspaceHeaderState(
+    makeStatus({
+      brandWebsiteUrl: 'https://linear.app/',
+      reviewBundle: {
+        campaignName: 'linear-app-stage2-plan',
+      },
+      tenantName: 'Linear',
+    }) as any,
+  );
+  assert.equal(slugifiedSlugHeader.title, 'linear.app');
+
+  const stage3SlugHeader = deriveWorkspaceHeaderState(
+    makeStatus({
+      brandWebsiteUrl: 'https://linear.app/',
+      reviewBundle: {
+        campaignName: 'linear-app-stage3-plan',
+      },
+      tenantName: 'Linear',
+    }) as any,
+  );
+  assert.equal(stage3SlugHeader.title, 'linear.app');
+
+  // A non-synthetic campaign name should still win.
+  const realNameHeader = deriveWorkspaceHeaderState(
+    makeStatus({
+      brandWebsiteUrl: 'https://linear.app/',
+      reviewBundle: {
+        campaignName: 'Linear Growth Testing Plan',
+      },
+      tenantName: 'Linear',
+    }) as any,
+  );
+  assert.equal(realNameHeader.title, 'Linear Growth Testing Plan');
+});
