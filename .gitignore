@@ -49,10 +49,39 @@ logs/
 *.log
 
 # Lobster generated output / local temp files
+# Every campaign run writes per-brand artifacts under these paths. Nothing
+# here is ever committed — treat it as pure runtime scratch space. Fresh
+# campaigns re-create whatever they need on first run.
 output/
 lobster/output/
 lobster/tmp-debug-args.lobster
 lobster/bin/__pycache__/
+
+# Per-brand / per-campaign generated assets (anywhere in the tree)
+*-campaign/
+ad-images/
+landing-pages/
+rendered/
+meta-ads/framex/
+meta-ads/betterup/
+meta-ads/acme/
+meta-ads/competitor/
+
+# Generated media outputs — never commit heavyweight binary artifacts
+*.mp4
+*.webm
+*.mov
+*.m4v
+!public/**/*.mp4
+!public/**/*.webm
+
+# Runtime state / cached business profiles / cached campaigns
+# DATA_ROOT lives outside the repo by default, but add explicit patterns
+# so a misconfigured DATA_ROOT pointed inside the repo never commits.
+data/generated/
+data/runtime/
+data/validated/
+data/draft/
 
 # Runtime session state (local only)
 state/
