@@ -960,17 +960,32 @@ function buildCreativeAssets(
   const fallbackLanding = readLandingPageArtifactDetails({ runtimeDoc });
   const fallbackScripts = readScriptArtifactDetails({ runtimeDoc });
 
-  const scriptwriterPayload = readMarketingStageStepPayload(runtimeDoc, 3, 'scriptwriter').payload;
-  const metaAdScriptsByFamily = recordValue(
-    recordValue(scriptwriterPayload?.script_assets)?.meta_ad_scripts_by_family,
-  );
+  let metaAdScriptsByFamily:
+    | Record<string, unknown>
+    | null
+    | undefined;
+
+  function getMetaAdScriptsByFamily(): Record<string, unknown> | null {
+    if (metaAdScriptsByFamily !== undefined) {
+      return metaAdScriptsByFamily;
+    }
+    const scriptwriterPayload = readMarketingStageStepPayload(runtimeDoc, 3, 'scriptwriter').payload;
+    metaAdScriptsByFamily = recordValue(
+      recordValue(scriptwriterPayload?.script_assets)?.meta_ad_scripts_by_family,
+    );
+    return metaAdScriptsByFamily;
+  }
 
   function perFamilyHook(filePath: string | null): string | null {
     const familyId = familyIdFromImagePath(filePath);
-    if (!familyId || !metaAdScriptsByFamily) {
+    if (!familyId) {
       return null;
     }
-    const entry = recordValue(metaAdScriptsByFamily[familyId]);
+    const scriptsByFamily = getMetaAdScriptsByFamily();
+    if (!scriptsByFamily) {
+      return null;
+    }
+    const entry = recordValue(scriptsByFamily[familyId]);
     return stringValue(entry?.hook) || null;
   }
 
