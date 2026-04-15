@@ -155,7 +155,10 @@ export async function requestJsonWithRetry<TResponse>(
   policy: RequestJsonRetryPolicy,
   clientOptions: ApiClientOptions = {}
 ): Promise<TResponse> {
-  const attempts = Math.max(1, policy.maxAttempts);
+  const normalizedMaxAttempts = Number.isFinite(policy.maxAttempts)
+    ? Math.trunc(policy.maxAttempts)
+    : 1;
+  const attempts = Math.max(1, normalizedMaxAttempts);
   let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
