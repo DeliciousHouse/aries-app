@@ -136,3 +136,41 @@ export async function requestJson<TResponse>(
 
   return body as TResponse;
 }
+
+export interface RequestJsonRetryPolicy {
+  retryOn: number[];
+  maxAttempts: number;
+  backoffMs: number;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+export async function requestJsonWithRetry<TResponse>(
+  path: string,
+  options: RequestJsonOptions = {},
+  policy: RequestJsonRetryPolicy,
+  clientOptions: ApiClientOptions = {}
+): Promise<TResponse> {
+  const attempts = Math.max(1, policy.maxAttempts);
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await requestJson<TResponse>(path, options, clientOptions);
+    } catch (error) {
+      lastError = error;
+      const isRetryable =
+        error instanceof ApiRequestError && policy.retryOn.includes(error.status);
+      const hasMoreAttempts = attempt < attempts - 1;
+      if (!isRetryable || !hasMoreAttempts) {
+        throw error;
+      }
+      const delay = policy.backoffMs * 2 ** attempt;
+      await sleep(delay);
+    }
+  }
+  throw lastError;
+}
