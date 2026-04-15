@@ -14,9 +14,11 @@ import type {
 
 import {
   deriveGateFallbackState,
+  deriveGenerationProgressState,
   derivePublishSurfaceState,
   deriveWorkspaceHeaderState,
   type GateFallbackState,
+  type GenerationProgressState,
   type PublishSurfaceState,
   type WorkspaceAction,
   type WorkspaceView,
@@ -125,6 +127,17 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
     return () => window.clearInterval(timer);
   }, [job.load, props.campaignId, status]);
 
+  const progressActive = !!(status && deriveGenerationProgressState(status)?.isComplete === false);
+  useEffect(() => {
+    if (!progressActive) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      void job.load(props.campaignId, { quiet: true });
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [job.load, props.campaignId, progressActive]);
+
   if (job.isLoading) {
     return <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-8 text-white/60">Loading campaign...</div>;
   }
@@ -149,6 +162,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
   const strategyFallback = deriveGateFallbackState(status, 'strategy', props.campaignId, publishBlockedReason);
   const creativeFallback = deriveGateFallbackState(status, 'creative', props.campaignId, publishBlockedReason);
   const publishState = derivePublishSurfaceState(status, props.campaignId, publishBlockedReason);
+  const generationProgress = deriveGenerationProgressState(status);
 
   async function submitReviewDecision(
     reviewId: string,
@@ -322,14 +336,19 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
       ) : null}
 
       {activeView === 'creative' ? (
-        <CreativeReviewSurface
-          review={status.creativeReview}
-          fallback={creativeFallback}
-          notesByReviewId={notesByReviewId}
-          busyByReviewId={busyByReviewId}
-          setNote={(reviewId, value) => setNotesByReviewId((current) => ({ ...current, [reviewId]: value }))}
-          onDecision={(reviewId, action) => void submitReviewDecision(reviewId, action, status.approval?.approvalId)}
-        />
+        <div className="space-y-4">
+          {generationProgress && !generationProgress.isComplete ? (
+            <GenerationProgressBar progress={generationProgress} />
+          ) : null}
+          <CreativeReviewSurface
+            review={status.creativeReview}
+            fallback={creativeFallback}
+            notesByReviewId={notesByReviewId}
+            busyByReviewId={busyByReviewId}
+            setNote={(reviewId, value) => setNotesByReviewId((current) => ({ ...current, [reviewId]: value }))}
+            onDecision={(reviewId, action) => void submitReviewDecision(reviewId, action, status.approval?.approvalId)}
+          />
+        </div>
       ) : null}
 
       {activeView === 'publish' ? (
@@ -350,6 +369,42 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
           <SectionLink href="/dashboard/publish-status" label="Publish / status" />
         </div>
       </ShellPanel>
+    </div>
+  );
+}
+
+function GenerationProgressBar(props: { progress: GenerationProgressState }) {
+  const { progress } = props;
+  const pct = Math.round(Math.max(0, Math.min(1, progress.percentComplete)) * 100);
+  return (
+    <div className="rounded-[1.25rem] border border-white/10 bg-white/[0.04] px-5 py-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-sm font-semibold text-white/85">{progress.title}</p>
+        <p className="text-xs font-medium uppercase tracking-[0.18em] text-white/55">
+          {progress.currentLabel}
+        </p>
+      </div>
+      <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/[0.08]">
+        <div
+          className="h-full rounded-full bg-emerald-400/70 transition-[width] duration-500 ease-out"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <p className="mt-3 text-xs leading-5 text-white/60">{progress.description}</p>
+      {(progress.imageCount !== null || progress.videoCount !== null) ? (
+        <div className="mt-3 flex flex-wrap gap-3 text-[11px] font-medium uppercase tracking-[0.18em] text-white/45">
+          {progress.imageCount !== null ? (
+            <span className="rounded-full border border-white/10 bg-black/15 px-3 py-1">
+              {progress.completedImageCount}/{progress.imageCount} images
+            </span>
+          ) : null}
+          {progress.videoCount !== null ? (
+            <span className="rounded-full border border-white/10 bg-black/15 px-3 py-1">
+              {progress.completedVideoCount}/{progress.videoCount} videos
+            </span>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

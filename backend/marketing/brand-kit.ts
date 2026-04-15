@@ -559,6 +559,81 @@ function chooseBrandName(candidates: Array<string | null | undefined>, url: stri
     ?.candidate || null;
 }
 
+const THIRD_PARTY_LOGO_HOSTS: string[] = [
+  'vercel.com',
+  'vercel.app',
+  'assets.vercel.com',
+  'cdn.vercel-insights.com',
+  'nextjs.org',
+  'netlify.com',
+  'app.netlify.com',
+  'cloudflare.com',
+  'gstatic.com',
+  'google.com',
+  'googletagmanager.com',
+  'facebook.com',
+  'fbcdn.net',
+  'twitter.com',
+  'linkedin.com',
+  'licdn.com',
+];
+
+const THIRD_PARTY_LOGO_PATTERNS: RegExp[] = [
+  /vercel-logotype/i,
+  /powered-by-vercel/i,
+  /next-logo/i,
+  /netlify-.*-badge/i,
+  /cf-logo/i,
+];
+
+export function isLikelyFirstPartyLogo(candidateUrl: string, brandUrl: string): boolean {
+  const trimmed = candidateUrl.trim();
+
+  if (!trimmed.includes('://')) {
+    return true;
+  }
+
+  let candidateHostname: string;
+  let candidatePath: string;
+  try {
+    const parsed = new URL(trimmed);
+    candidateHostname = parsed.hostname.toLowerCase();
+    candidatePath = parsed.pathname + parsed.search;
+  } catch {
+    return true;
+  }
+
+  let brandHostname: string;
+  try {
+    brandHostname = new URL(brandUrl).hostname.toLowerCase().replace(/^www\./, '');
+  } catch {
+    brandHostname = '';
+  }
+
+  const normalizedCandidateHost = candidateHostname.replace(/^www\./, '');
+
+  if (
+    brandHostname &&
+    (normalizedCandidateHost === brandHostname || normalizedCandidateHost.endsWith(`.${brandHostname}`))
+  ) {
+    return true;
+  }
+
+  for (const pattern of THIRD_PARTY_LOGO_PATTERNS) {
+    if (pattern.test(candidatePath)) {
+      return false;
+    }
+  }
+
+  for (const blockedHost of THIRD_PARTY_LOGO_HOSTS) {
+    if (normalizedCandidateHost === blockedHost || normalizedCandidateHost.endsWith(`.${blockedHost}`)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 type LogoCandidate = {
   url: string;
   score: number;
@@ -618,6 +693,9 @@ function extractLogoUrls(html: string, baseUrl: string): string[] {
     if (!href) {
       continue;
     }
+    if (!isLikelyFirstPartyLogo(href, baseUrl)) {
+      continue;
+    }
     candidates.push({
       url: href,
       score: scoreLogoCandidate({ url: href, rel: attributes.rel, source: 'link' }),
@@ -627,6 +705,9 @@ function extractLogoUrls(html: string, baseUrl: string): string[] {
   for (const image of extractImageCandidates(html)) {
     const href = resolveAbsoluteUrl(baseUrl, image.url);
     if (!href) {
+      continue;
+    }
+    if (!isLikelyFirstPartyLogo(href, baseUrl)) {
       continue;
     }
     candidates.push({
