@@ -39,6 +39,11 @@ publish/*.js.map
 .env.production.local
 .env.*.local
 
+# Local ao orchestrator config (holds secrets like notifier webhooks).
+# Loaded via AO_CONFIG_PATH env var; never commit.
+agent-orchestrator.local.yaml
+agent-orchestrator.local.yml
+
 # Private keys (never commit)
 
 # Logs
