@@ -588,9 +588,20 @@ const THIRD_PARTY_LOGO_PATTERNS: RegExp[] = [
 
 export function isLikelyFirstPartyLogo(candidateUrl: string, brandUrl: string): boolean {
   const trimmed = candidateUrl.trim();
+  if (!trimmed) {
+    return false;
+  }
 
-  if (!trimmed.includes('://')) {
+  // Detect URL scheme. Relative URLs (no scheme) are first-party by definition.
+  // Non-http(s) schemes (javascript:, data:, mailto:, file:, tel:, etc.) must
+  // be rejected outright — we never want to surface those as brand logos.
+  const schemeMatch = /^([a-z][a-z0-9+.-]*):/i.exec(trimmed);
+  if (!schemeMatch) {
     return true;
+  }
+  const scheme = schemeMatch[1].toLowerCase();
+  if (scheme !== 'http' && scheme !== 'https') {
+    return false;
   }
 
   let candidateHostname: string;
@@ -600,7 +611,7 @@ export function isLikelyFirstPartyLogo(candidateUrl: string, brandUrl: string): 
     candidateHostname = parsed.hostname.toLowerCase();
     candidatePath = parsed.pathname + parsed.search;
   } catch {
-    return true;
+    return false;
   }
 
   let brandHostname: string;

@@ -82,3 +82,43 @@ test('isLikelyFirstPartyLogo: facebook CDN is rejected', async () => {
     false,
   );
 });
+
+test('isLikelyFirstPartyLogo: javascript: scheme is rejected', async () => {
+  const { isLikelyFirstPartyLogo } = await import('../backend/marketing/brand-kit');
+  assert.equal(
+    isLikelyFirstPartyLogo('javascript:alert(1)', BRAND_URL),
+    false,
+  );
+});
+
+test('isLikelyFirstPartyLogo: data: URL is rejected', async () => {
+  const { isLikelyFirstPartyLogo } = await import('../backend/marketing/brand-kit');
+  assert.equal(
+    isLikelyFirstPartyLogo('data:image/png;base64,AAAA', BRAND_URL),
+    false,
+  );
+});
+
+test('isLikelyFirstPartyLogo: mailto: scheme is rejected', async () => {
+  const { isLikelyFirstPartyLogo } = await import('../backend/marketing/brand-kit');
+  assert.equal(
+    isLikelyFirstPartyLogo('mailto:support@example.com', BRAND_URL),
+    false,
+  );
+});
+
+test('isLikelyFirstPartyLogo: file: scheme is rejected', async () => {
+  const { isLikelyFirstPartyLogo } = await import('../backend/marketing/brand-kit');
+  assert.equal(
+    isLikelyFirstPartyLogo('file:///etc/passwd', BRAND_URL),
+    false,
+  );
+});
+
+test('isLikelyFirstPartyLogo: empty string is rejected', async () => {
+  const { isLikelyFirstPartyLogo } = await import('../backend/marketing/brand-kit');
+  assert.equal(
+    isLikelyFirstPartyLogo('', BRAND_URL),
+    false,
+  );
+});

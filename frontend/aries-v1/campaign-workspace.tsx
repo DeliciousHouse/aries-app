@@ -115,8 +115,13 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
   const status = job.data && !('error' in job.data) ? job.data : null;
   const activeView = props.initialView || 'brand';
 
+  const progressActive = !!(status && deriveGenerationProgressState(status)?.isComplete === false);
+
   useEffect(() => {
     if (!status || !isActiveJobStatus(status.marketing_job_status)) {
+      return;
+    }
+    if (progressActive) {
       return;
     }
 
@@ -125,9 +130,8 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
     }, 5000);
 
     return () => window.clearInterval(timer);
-  }, [job.load, props.campaignId, status]);
+  }, [job.load, props.campaignId, status, progressActive]);
 
-  const progressActive = !!(status && deriveGenerationProgressState(status)?.isComplete === false);
   useEffect(() => {
     if (!progressActive) {
       return;
