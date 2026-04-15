@@ -148,3 +148,4 @@ package-lock.json
 skills-lock.json
 
 agent-orchestrator.yaml
+agent-orchestrator.local.yaml
