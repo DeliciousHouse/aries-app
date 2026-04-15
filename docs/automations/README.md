@@ -72,7 +72,16 @@ This workspace now includes runtime-error intake/repair automation alongside the
 - **Script:** `node scripts/automations/runtime-error-intake.mjs scan`
 - **What it does:** runs bounded health checks, opens or reopens runtime incidents in `data/runtime-error-incidents.json`, auto-resolves incidents that no longer reproduce, and emits a concise incident summary for announce delivery.
 
-### 8) Runtime error repair loop
+### 8) CI watcher dispatcher
+
+- **Schedule:** `*/15 * * * *` `America/Los_Angeles`
+- **Script:** `node scripts/automations/ci-watcher-dispatch.mjs`
+- **What it does:** queries open GitHub issues labeled `ci-watcher` in `DeliciousHouse/aries-app`, inspects existing `ao` sessions for the `aries-app` project, and runs `ao spawn <issue-number>` for every ci-watcher issue that does **not** already have a matching session. Every action (spawned / skipped / errored) is appended to `data/ci-watcher-dispatch-log.json`.
+- **De-duplication:** matches by issue number against `session.issueId` across **all** sessions returned by `ao session ls --json`, regardless of status. Once `ao session cleanup` removes a terminal session the issue becomes eligible to spawn again (e.g. when CI is reopened after a merge).
+- **Fail-safe:** `gh` or `ao` errors are logged and the script exits `0` so the cron never gets taken down by transient API blips.
+- **Complementary to the remote CI watcher trigger:** the remote trigger files ci-watcher issues; this dispatcher is the local side that assigns an ao worker to each one.
+
+### 9) Runtime error repair loop
 
 - **Schedule:** `10,40 * * * *` `America/Los_Angeles`
 - **Skill:** `skills/aries-runtime-error-repair-loop/SKILL.md`
@@ -146,6 +155,7 @@ These are the schedules encoded in `scripts/automations/manifest.mjs`:
 - `0 18 * * *` — GitHub feedback daily summary
 - `5,35 * * * *` — runtime error intake
 - `10,40 * * * *` — runtime error repair loop
+- `*/15 * * * *` — ci watcher dispatcher
 - `45 21 * * *` — rolling OS documentation
 
 ## Verification commands
@@ -159,6 +169,7 @@ node scripts/automations/daily-brief.mjs --dry-run
 node scripts/automations/feedback-connector.mjs sync --dry-run
 node scripts/automations/feedback-daily-summary.mjs --dry-run
 node scripts/automations/runtime-error-intake.mjs scan --dry-run
+node scripts/automations/ci-watcher-dispatch.mjs --dry-run
 node scripts/automations/rolling-system-reference.mjs --dry-run
 ```
 

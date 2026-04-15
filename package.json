@@ -27,6 +27,7 @@
     "automation:feedback-connector": "node scripts/automations/feedback-connector.mjs sync",
     "automation:feedback-summary": "node scripts/automations/feedback-daily-summary.mjs",
     "automation:runtime-error-intake": "node scripts/automations/runtime-error-intake.mjs scan",
+    "automation:ci-watcher-dispatch": "node scripts/automations/ci-watcher-dispatch.mjs",
     "automation:system-reference": "node scripts/automations/rolling-system-reference.mjs",
     "automation:install": "node scripts/automations/install-openclaw-crons.mjs",
     "automation:verify": "node scripts/automations/verify-automations.mjs"
