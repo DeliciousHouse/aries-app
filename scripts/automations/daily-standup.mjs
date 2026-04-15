@@ -4,6 +4,7 @@ import {
   currentDateInfo,
   emitSummary,
   parseArgs,
+  preflightOrExit,
   run,
   writeText,
 } from './lib/common.mjs'
@@ -13,6 +14,10 @@ const dryRun = flags.has('--dry-run')
 const preflightOnly = flags.has('--preflight')
 const BOARD_PATH = process.env.EXECUTION_TASKS_PATH || '/home/node/.openclaw/projects/shared/team/execution-tasks.json'
 const MEETINGS_DIR = '/home/node/.openclaw/projects/shared/team/meetings'
+
+function writeJson(filePath, value) {
+  writeText(filePath, `${JSON.stringify(value, null, 2)}\n`)
+}
 
 preflightOrExit('DAILY STANDUP', {
   binaries: ['npm'],
@@ -38,7 +43,10 @@ function loadBoardPayload() {
 }
 
 const { date } = currentDateInfo()
+const standupId = `${date}-daily-standup`
+const standupTitle = `Aries Daily Standup - ${date}`
 const sharedTranscriptPath = path.join(MEETINGS_DIR, `${date}-daily-standup.md`)
+const sharedStandupDir = path.join(MEETINGS_DIR, `${date}-daily-standup-reports`)
 
 const priorityRank = { P0: 0, P1: 1, P2: 2, P3: 3 }
 const statusRank = { active: 0, review: 1, ready: 2, 'follow-up': 3, intake: 4, shipped: 5 }
@@ -95,10 +103,11 @@ function laneReport({ laneId, laneLabel, title, tasks, extraCurrent = [], extraB
   const blockedTasks = tasks.filter((task) => task.blocked)
   const counts = countByStatus(tasks)
 
-  return {
+  const report = {
     laneId,
     title,
     reportStatus,
+    topTask,
     activeTaskId: topTask?.id || null,
     currentStatus: topTask?.status || 'unknown',
     boardSummary: {
@@ -113,7 +122,7 @@ function laneReport({ laneId, laneLabel, title, tasks, extraCurrent = [], extraB
     needsJarvisRouting: blockedTasks.length
       ? [
           {
-            summary: `Reconcile blocked ${chiefId} lane items before claiming closure.`,
+            summary: `Reconcile blocked ${laneLabel.toLowerCase()} lane items before claiming closure.`,
             requestedAction: 'Review blocked lane items and stale board status.',
             nextAction: 'Update or reroute the blocked lane item.',
           },
@@ -128,8 +137,6 @@ function laneReport({ laneId, laneLabel, title, tasks, extraCurrent = [], extraB
 
   return {
     ...report,
-    title,
-    topTask,
     markdown: [
       `### ${title}`,
       `- lane_id: ${laneId}`,
@@ -192,6 +199,10 @@ const operations = laneReport({
   extraCurrent: [workspaceVerify.ok ? `Fresh workspace verification passed on ${date}.` : `Workspace verification is unavailable right now: ${workspaceVerifyStatus}.`],
   extraBlockers: !workspaceVerify.ok ? [`Workspace verification failed: ${workspaceVerifyStatus}.`] : [],
 })
+
+const forge = delivery
+const signal = runtime
+const ledger = operations
 
 function blockedLaneTasks(items, laneLabel) {
   return items.filter((task) => task.blocked).map((task) => `${laneLabel} lane blocked: \`${task.id}\` remains blocked on the board.`)

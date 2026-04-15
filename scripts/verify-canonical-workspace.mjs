@@ -22,7 +22,25 @@ try {
   fail(`unable to resolve git root from ${process.cwd()}: ${error instanceof Error ? error.message : String(error)}`);
 }
 
-const normalizedExpected = path.resolve(expectedRoot);
+function hasRequiredMarkers(candidateRoot) {
+  return requiredMarkers.every((marker) => existsSync(path.join(candidateRoot, marker)));
+}
+
+function resolveCanonicalRoot() {
+  const explicitRoot = process.env.ARIES_CANONICAL_REPO_ROOT?.trim();
+  if (explicitRoot) {
+    return path.resolve(explicitRoot);
+  }
+
+  const defaultRoot = path.resolve(expectedRoot);
+  if (hasRequiredMarkers(defaultRoot)) {
+    return defaultRoot;
+  }
+
+  return path.resolve(gitRoot);
+}
+
+const normalizedExpected = resolveCanonicalRoot();
 const normalizedGitRoot = path.resolve(gitRoot);
 const normalizedCwd = path.resolve(process.cwd());
 
