@@ -148,3 +148,12 @@ package-lock.json
 skills-lock.json
 
 agent-orchestrator.yaml
+
+# Generated daily artifacts — committing these pollutes diffs and leaks
+# per-session context into repo history. The generator scripts stay tracked;
+# their output lives locally only.
+docs/briefs/
+docs/superpowers/
+default/memory/*-daily-standup.md
+default/memory/*-standup.md
+default/memory/*-standup-*.md
