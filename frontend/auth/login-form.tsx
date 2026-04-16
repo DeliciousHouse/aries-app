@@ -84,7 +84,9 @@ const LoginForm: React.FC<LoginFormProps> = ({
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="block text-sm font-medium text-white/80">Password</label>
-              <span className="text-sm text-white/40">Password reset is not self-serve yet</span>
+              <Link href="/forgot-password" className="text-sm text-white/60 hover:text-white transition-colors">
+                Forgot password?
+              </Link>
             </div>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
