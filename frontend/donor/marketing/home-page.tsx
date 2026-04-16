@@ -1239,9 +1239,13 @@ function EarlyAccessSignup() {
       setStatus('success');
       setMessage(result.message || "You're on the early access list.");
       setEmail('');
-    } catch {
+    } catch (error) {
       setStatus('error');
-      setMessage('We could not save your email right now. Please try again in a moment.');
+      setMessage(
+        error instanceof Error && error.message
+          ? error.message
+          : 'We could not save your email right now. Please try again in a moment.',
+      );
     }
   }
 
@@ -1303,6 +1307,7 @@ function EarlyAccessSignup() {
               <div className="mt-3 flex flex-col gap-3 sm:flex-row lg:flex-col xl:flex-row">
                 <input
                   id="early-access-email"
+                  name="email"
                   type="email"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}

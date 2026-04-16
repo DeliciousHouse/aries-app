@@ -258,7 +258,7 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
                 type="submit"
                 disabled={submitting || !websiteUrl.trim()}
                 className="w-full rounded-full bg-gradient-to-r from-primary to-secondary px-6 py-4 text-white font-semibold shadow-xl shadow-primary/20 disabled:opacity-60 disabled:cursor-not-allowed"
-                aria-describedby={!websiteUrl.trim() ? 'start-campaign-hint' : undefined}
+                aria-describedby={!websiteUrl.trim() && !submitting ? 'start-campaign-hint' : undefined}
               >
                 {submitting ? 'Starting campaign...' : 'Start campaign'}
               </button>
