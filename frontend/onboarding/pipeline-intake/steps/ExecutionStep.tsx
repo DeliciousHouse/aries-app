@@ -47,6 +47,7 @@ export default function ExecutionStep({
   return (
     <StepContainer
       stepNumber={5}
+      totalSteps={5}
       title="Execution Mode"
       subtitle="Choose how far the pipeline runs. You can always upgrade later."
       canProceed={!!mode && !isSubmitting}
