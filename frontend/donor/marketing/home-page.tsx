@@ -368,7 +368,7 @@ function Hero() {
             }}
             className="max-w-2xl mx-auto text-[1rem] text-white/60 mb-12"
           >
-            Plan campaigns, approve creative, launch safely. Nothing goes live without your approval — and you always know what is running, what needs your sign-off, and what is working.
+            Plan campaigns, approve creative, launch safely. Nothing goes live without your approval — and you always know what is running, what needs your sign-off, and how your campaigns are performing.
           </motion.p>
 
           <motion.div
@@ -550,7 +550,7 @@ function Problem() {
     {
       icon: <Clock className="w-6 h-6 text-yellow-400" />,
       title: 'Scattered results',
-      description: 'Checking five different dashboards to answer one question: is this working?',
+      description: 'Checking five different dashboards to answer one question: \u2018are my campaigns delivering results?\u2019',
     },
     {
       icon: <Layers className="w-6 h-6 text-blue-400" />,
@@ -634,7 +634,7 @@ function Features() {
     {
       icon: <BarChart3 className="w-6 h-6" />,
       title: 'Results clarity',
-      description: 'Business-readable reporting that answers one question: is this working?',
+      description: 'Business-readable reporting that answers one question: \u2018which efforts are performing best?\u2019',
       color: 'from-green-500/20 to-green-600/20',
     },
     {
@@ -709,7 +709,7 @@ function HowItWorks() {
     },
     {
       icon: <BarChart3 className="w-6 h-6 text-green-400" />,
-      title: 'See what worked',
+      title: 'See what delivered results',
       description: 'Business-readable results with one clear recommendation for what to do next.',
     },
   ];
@@ -1585,12 +1585,12 @@ export default function DonorHomePage() {
             <div className="max-w-4xl mx-auto">
               <h2 className="text-4xl md:text-[48px] leading-tight font-bold mb-8">Meet Aries</h2>
               <p className="text-xl text-white/60 mb-12 leading-relaxed">
-                A calm workspace where you plan campaigns, approve creative, launch safely, and see what worked &mdash; without learning marketing software.
+                A calm workspace where you plan campaigns, approve creative, launch safely, and see what delivered results &mdash; without learning marketing software.
               </p>
             </div>
 
             <div className="mx-auto flex flex-wrap items-center justify-center gap-4 pb-4 lg:grid lg:w-fit lg:grid-cols-[12rem_1.25rem_12rem_1.25rem_12rem_1.25rem_12rem_1.25rem_12rem] lg:gap-3 xl:grid-cols-[13rem_2rem_13rem_2rem_13rem_2rem_13rem_2rem_13rem]">
-              {['Set up your business', 'See the plan', 'Review the creative', 'Launch safely', 'See what worked'].map((step, index) => (
+              {['Set up your business', 'See the plan', 'Review the creative', 'Launch safely', 'See what delivered results'].map((step, index) => (
                 <Fragment key={step}>
                   <div className="glass inline-flex w-full items-center justify-center rounded-full border-primary/20 px-8 py-4 text-center text-sm font-semibold whitespace-nowrap cursor-pointer hover-gradient-border lg:px-4">
                     <span className="relative z-10 block w-full text-center">{step}</span>
