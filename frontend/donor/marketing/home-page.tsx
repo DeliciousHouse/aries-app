@@ -1626,6 +1626,54 @@ function FeatureShowcaseFallback() {
 }
 
 function FinalCTA() {
+  // Spline is a WebGL embed that can stall the GPU on low-end hardware (and in
+  // demo environments like LinkedIn Live). Defer the iframe until the section
+  // is actually in the viewport, and gate it behind `requestIdleCallback` so it
+  // never competes with the initial paint of the page.
+  const splineContainerRef = useRef<HTMLDivElement | null>(null);
+  const [mountSpline, setMountSpline] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const node = splineContainerRef.current;
+    if (!node || typeof IntersectionObserver === 'undefined') {
+      setMountSpline(true);
+      return;
+    }
+
+    const idle = (cb: () => void) => {
+      const ric = (window as typeof window & {
+        requestIdleCallback?: (cb: () => void, opts?: { timeout?: number }) => number;
+      }).requestIdleCallback;
+      if (typeof ric === 'function') {
+        ric(cb, { timeout: 1500 });
+      } else {
+        window.setTimeout(cb, 200);
+      }
+    };
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            idle(() => setMountSpline(true));
+            observer.disconnect();
+            break;
+          }
+        }
+      },
+      { rootMargin: '200px' },
+    );
+    observer.observe(node);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
   return (
     <section className="py-24 relative overflow-hidden">
       <div className="container mx-auto px-6">
@@ -1664,17 +1712,25 @@ function FinalCTA() {
             </div>
           </div>
 
-          {/* Spline 3D Integration */}
-          <div className="w-full h-full relative z-10 overflow-hidden">
-            <iframe
-              src="https://my.spline.design/boxeshover-1S9fbn10HLJkYTmxyOt88Ycb/"
-              frameBorder="0"
-              width="100%"
-              height="100%"
-              className="absolute -top-[50px] left-0 w-full md:w-[calc(100%+100px)] lg:w-[calc(100%+200px)] h-[calc(100%+100px)] max-w-none"
-              title="Interactive 3D Boxes"
-              sandbox="allow-scripts allow-same-origin"
-            ></iframe>
+          {/* Spline 3D Integration (deferred until in view to avoid WebGL GPU stalls) */}
+          <div ref={splineContainerRef} className="w-full h-full relative z-10 overflow-hidden">
+            {mountSpline ? (
+              <iframe
+                src="https://my.spline.design/boxeshover-1S9fbn10HLJkYTmxyOt88Ycb/"
+                frameBorder="0"
+                width="100%"
+                height="100%"
+                loading="lazy"
+                className="absolute -top-[50px] left-0 w-full md:w-[calc(100%+100px)] lg:w-[calc(100%+200px)] h-[calc(100%+100px)] max-w-none"
+                title="Interactive 3D Boxes"
+                sandbox="allow-scripts allow-same-origin"
+              ></iframe>
+            ) : (
+              <div
+                aria-hidden="true"
+                className="absolute -top-[50px] left-0 w-full md:w-[calc(100%+100px)] lg:w-[calc(100%+200px)] h-[calc(100%+100px)] max-w-none bg-[radial-gradient(circle_at_top_right,rgba(124,58,237,0.35),transparent_58%)]"
+              />
+            )}
           </div>
         </motion.div>
       </div>

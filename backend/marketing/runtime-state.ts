@@ -155,6 +155,45 @@ export function defaultPublishConfig(input: Partial<MarketingPublishConfig> = {}
   };
 }
 
+/**
+ * Map onboarding/business-profile channel ids (e.g. `meta-ads`, `instagram`,
+ * `email`, `google-business`, `linkedin`) into a publish config. Channels that
+ * do not correspond to a publish platform (e.g. `email`, `google-business`)
+ * are retained in `platforms` so downstream surfaces can display them, but
+ * only platforms we actually publish to are wired into `live_publish_platforms`
+ * and `video_render_platforms`.
+ */
+export function publishConfigFromChannels(
+  channels: string[] | null | undefined,
+  fallback: Partial<MarketingPublishConfig> = {},
+): MarketingPublishConfig {
+  if (!Array.isArray(channels) || channels.length === 0) {
+    return defaultPublishConfig(fallback);
+  }
+
+  const normalized = Array.from(
+    new Set(
+      channels
+        .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+        .map((entry) => entry.trim().toLowerCase())
+        .map((entry) => (entry === 'facebook' || entry === 'meta' ? 'meta-ads' : entry)),
+    ),
+  );
+
+  if (normalized.length === 0) {
+    return defaultPublishConfig(fallback);
+  }
+
+  const videoPlatforms = new Set(['tiktok', 'youtube']);
+  const livePublishPlatforms = new Set(['meta-ads', 'instagram', 'linkedin', 'x', 'tiktok', 'youtube']);
+
+  return {
+    platforms: normalized,
+    live_publish_platforms: normalized.filter((platform) => livePublishPlatforms.has(platform)),
+    video_render_platforms: normalized.filter((platform) => videoPlatforms.has(platform)),
+  };
+}
+
 function normalizePlatformList(value: unknown, fallback: string[] = []): string[] {
   const items = Array.isArray(value) ? value : fallback;
   return Array.from(
@@ -190,6 +229,14 @@ export function createMarketingJobRuntimeDocument(input: {
   publishConfig?: Partial<MarketingPublishConfig>;
 }): MarketingJobRuntimeDocument {
   const ts = nowIso();
+  const payloadChannels = Array.isArray(input.payload?.channels)
+    ? (input.payload.channels as unknown[]).filter(
+        (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0,
+      )
+    : [];
+  const resolvedPublishConfig = input.publishConfig
+    ? defaultPublishConfig(input.publishConfig)
+    : publishConfigFromChannels(payloadChannels);
   return {
     schema_name: MARKETING_RUNTIME_SCHEMA_NAME,
     schema_version: MARKETING_RUNTIME_SCHEMA_VERSION,
@@ -210,7 +257,7 @@ export function createMarketingJobRuntimeDocument(input: {
       current: null,
       history: [],
     },
-    publish_config: defaultPublishConfig(input.publishConfig),
+    publish_config: resolvedPublishConfig,
     brand_kit: input.brandKit,
     inputs: {
       request: input.payload,

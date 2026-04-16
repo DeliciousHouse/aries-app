@@ -17,7 +17,7 @@ export default async function ReviewItemPage({
   const { reviewId } = await params;
 
   return (
-    <AppShellLayout currentRouteId="review">
+    <AppShellLayout currentRouteId="review" skipOnboardingGate>
       <AriesReviewItemScreen reviewId={decodeReviewIdParam(reviewId)} />
     </AppShellLayout>
   );

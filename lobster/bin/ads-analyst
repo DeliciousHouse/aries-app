@@ -56,7 +56,7 @@ def compile_report(creative_data: dict) -> dict:
             "campaign_takeaway": f"Dominant campaign angle observed: {top_hook}.",
         },
         "recommended_actions": [
-            "Test one proof-first creative against one speed-to-value creative.",
+            "Test one proof-first creative against one differentiation-led creative.",
             "Mirror the competitor's strongest hook with a differentiated proof claim.",
             "Keep CTA language aligned with the winning campaign angle per ad variant.",
         ],
