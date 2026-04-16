@@ -1,10 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { ArrowRight, ExternalLink, FileImage, FileText, Globe, PauseCircle, Send } from 'lucide-react';
+import { ArrowRight, ExternalLink, FileImage, Globe, PauseCircle, Play, Send } from 'lucide-react';
 
 import MediaPreview from '@/frontend/components/media-preview';
 import { useRuntimePosts } from '@/hooks/use-runtime-posts';
+import { safeHref } from '@/lib/safe-href';
 import type {
   AriesDashboardAsset,
   AriesDashboardPost,
@@ -137,14 +138,18 @@ function publishToInventory(item: AriesDashboardPublishItem, assetsById: Map<str
 }
 
 function previewCard(item: InventoryItem) {
+  // Fall back to destinationUrl only if previewUrl is absent OR fails scheme
+  // validation — keeps clickability while rejecting javascript:/data:/etc.
+  const openHref = safeHref(item.previewUrl) || safeHref(item.destinationUrl)
   return (
     <MediaPreview
       src={item.previewUrl}
       alt={item.title}
       contentType={item.previewContentType}
+      href={openHref}
       className="h-28 overflow-hidden rounded-[1.2rem] border border-white/8 bg-black/20"
       emptyLabel={item.kind === 'asset' ? 'Preview pending' : item.kind === 'publish' ? 'Publish preview pending' : 'Post preview pending'}
-      nonImageLabel={item.kind === 'asset' ? 'Asset preview available' : item.kind === 'publish' ? 'Publish package available' : 'Post preview available'}
+      nonImageLabel={item.kind === 'asset' ? 'Open asset preview' : item.kind === 'publish' ? 'Open publish package' : 'Open post preview'}
     />
   )
 }
@@ -242,42 +247,79 @@ export default function AriesPostsScreen() {
       {grouped.map((group) => (
         <ShellPanel key={group.status} eyebrow="Inventory" title={statusSectionTitle(group.status)}>
           <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
-            {group.items.map((item) => (
-              <article key={item.id} className="overflow-hidden rounded-[1.6rem] border border-white/10 bg-white/[0.04]">
-                <div className="p-4">
-                  {previewCard(item)}
-                </div>
-                <div className="space-y-4 border-t border-white/8 px-5 py-5">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="space-y-1">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{item.typeLabel}</p>
-                      <h3 className="text-lg font-semibold text-white">{item.title}</h3>
-                      <p className="text-sm text-white/55">{item.campaignName} · {item.platformLabel}</p>
+            {group.items.map((item) => {
+              // Validate hrefs once per item so the conditional rendering and
+              // the anchor `href=` agree, and unsafe schemes are never rendered.
+              const safePreviewHref = safeHref(item.previewUrl)
+              const safeDestinationHref = safeHref(item.destinationUrl)
+              return (
+                <article key={item.id} className="overflow-hidden rounded-[1.6rem] border border-white/10 bg-white/[0.04]">
+                  <div className="p-4">
+                    {previewCard(item)}
+                  </div>
+                  <div className="space-y-4 border-t border-white/8 px-5 py-5">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{item.typeLabel}</p>
+                        <h3 className="text-lg font-semibold text-white">{item.title}</h3>
+                        <p className="text-sm text-white/55">{item.campaignName} · {item.platformLabel}</p>
+                      </div>
+                      <StatusChip status={item.status} />
                     </div>
-                    <StatusChip status={item.status} />
-                  </div>
 
-                  <p className="text-sm leading-6 text-white/60">{item.summary}</p>
+                    <p className="text-sm leading-6 text-white/60">{item.summary}</p>
 
-                  <div className="space-y-2 text-sm text-white/55">
-                    <div>{item.funnelLabel}</div>
-                    <div>{item.provenanceLabel}</div>
-                    {item.destinationUrl ? (
-                      <a href={item.destinationUrl} className="inline-flex items-center gap-2 text-white transition hover:text-white/75">
-                        <Globe className="h-4 w-4 text-white/50" />
-                        <span className="truncate">{item.destinationUrl}</span>
-                        <ExternalLink className="h-4 w-4" />
-                      </a>
-                    ) : (
-                      <span className="inline-flex items-center gap-2">
-                        {item.status === 'published_to_meta_paused' ? <PauseCircle className="h-4 w-4 text-white/50" /> : <Send className="h-4 w-4 text-white/50" />}
-                        No destination URL
-                      </span>
-                    )}
+                    <div className="space-y-2 text-sm text-white/55">
+                      <div>{item.funnelLabel}</div>
+                      <div>{item.provenanceLabel}</div>
+                      {safePreviewHref ? (
+                        <a
+                          href={safePreviewHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 text-primary transition hover:text-primary/80"
+                        >
+                          {item.previewContentType === 'text/html' ? (
+                            <Globe className="h-4 w-4" />
+                          ) : item.previewContentType?.startsWith('video/') ? (
+                            <Play className="h-4 w-4" />
+                          ) : (
+                            <FileImage className="h-4 w-4" />
+                          )}
+                          <span>
+                            {item.kind === 'publish'
+                              ? 'Open publish package'
+                              : item.previewContentType?.startsWith('video/')
+                                ? 'Open video preview'
+                                : item.previewContentType === 'text/html'
+                                  ? 'Open landing page'
+                                  : 'Open asset preview'}
+                          </span>
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      ) : null}
+                      {safeDestinationHref ? (
+                        <a
+                          href={safeDestinationHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 text-white transition hover:text-white/75"
+                        >
+                          <Globe className="h-4 w-4 text-white/50" />
+                          <span className="truncate">{safeDestinationHref}</span>
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      ) : !safePreviewHref ? (
+                        <span className="inline-flex items-center gap-2">
+                          {item.status === 'published_to_meta_paused' ? <PauseCircle className="h-4 w-4 text-white/50" /> : <Send className="h-4 w-4 text-white/50" />}
+                          No preview or destination yet
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
-              </article>
-            ))}
+                </article>
+              )
+            })}
           </div>
         </ShellPanel>
       ))}

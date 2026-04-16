@@ -34,7 +34,7 @@ export default function AriesCampaignListScreen() {
         action={
           <Link
             href="/dashboard/campaigns/new"
-            className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold !text-[#11161c] transition-colors hover:!text-[#11161c]"
+            className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] transition-colors"
           >
             Create first campaign
             <ArrowRight className="h-4 w-4" />
@@ -52,7 +52,7 @@ export default function AriesCampaignListScreen() {
         action={
           <Link
             href="/dashboard/campaigns/new"
-            className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-semibold !text-[#11161c] transition-colors hover:!text-[#11161c]"
+            className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-semibold text-[#11161c] transition-colors"
           >
             <Plus className="h-4 w-4" />
             New campaign
