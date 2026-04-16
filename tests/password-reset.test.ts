@@ -37,6 +37,7 @@ type PasswordResetRow = {
   code_hash: string;
   expires_at: Date;
   used_at: Date | null;
+  attempts: number;
   created_at: Date;
 };
 
@@ -92,6 +93,7 @@ function createState(options: {
         code_hash: codeHash,
         expires_at: new Date(Date.now() + 15 * 60 * 1000),
         used_at: null,
+        attempts: 0,
         created_at: new Date(),
       };
       resets.push(row);
@@ -100,13 +102,37 @@ function createState(options: {
 
     if (text.startsWith('SELECT id, user_id, code_hash')) {
       const email = String(params[0] ?? '');
+      const maxAttempts = Number(params[1] ?? Number.MAX_SAFE_INTEGER);
       const now = Date.now();
       const rows = resets
-        .filter((row) => row.email === email && row.used_at === null && row.expires_at.getTime() > now)
+        .filter(
+          (row) =>
+            row.email === email &&
+            row.used_at === null &&
+            row.expires_at.getTime() > now &&
+            row.attempts < maxAttempts,
+        )
         .sort((a, b) => b.created_at.getTime() - a.created_at.getTime())
         .slice(0, 5)
-        .map((row) => ({ id: row.id, user_id: row.user_id, code_hash: row.code_hash }));
+        .map((row) => ({
+          id: row.id,
+          user_id: row.user_id,
+          code_hash: row.code_hash,
+          attempts: row.attempts,
+        }));
       return { rows, rowCount: rows.length };
+    }
+
+    if (text.startsWith('UPDATE password_resets SET attempts = attempts + 1')) {
+      const ids = (params[0] as number[]) ?? [];
+      let count = 0;
+      for (const row of resets) {
+        if (ids.includes(row.id)) {
+          row.attempts += 1;
+          count += 1;
+        }
+      }
+      return { rows: [], rowCount: count };
     }
 
     if (text.startsWith('UPDATE users SET password_hash')) {
@@ -219,7 +245,8 @@ test('forgot-password: 4th request within an hour is rate-limited silently', asy
       id: i,
       user_id: 7,
       email,
-      code_hash: hashCode(String(100000 + i)),
+      attempts: 0,
+        code_hash: hashCode(String(100000 + i)),
       expires_at: new Date(now + 15 * 60 * 1000),
       used_at: null,
       created_at: new Date(now - i * 60 * 1000),
@@ -251,6 +278,7 @@ test('reset-password: correct code updates password, marks code used, and invali
         id: 1,
         user_id: 55,
         email,
+        attempts: 0,
         code_hash: hashCode(code),
         expires_at: new Date(Date.now() + 10 * 60 * 1000),
         used_at: null,
@@ -260,6 +288,7 @@ test('reset-password: correct code updates password, marks code used, and invali
         id: 2,
         user_id: 55,
         email,
+        attempts: 0,
         code_hash: hashCode('111111'),
         expires_at: new Date(Date.now() + 10 * 60 * 1000),
         used_at: null,
@@ -299,6 +328,7 @@ test('reset-password: wrong code returns 400 and leaves password untouched', asy
         id: 1,
         user_id: 77,
         email,
+        attempts: 0,
         code_hash: hashCode('222222'),
         expires_at: new Date(Date.now() + 10 * 60 * 1000),
         used_at: null,
@@ -335,6 +365,7 @@ test('reset-password: expired code returns 400', async (t) => {
         id: 1,
         user_id: 81,
         email,
+        attempts: 0,
         code_hash: hashCode(code),
         expires_at: new Date(Date.now() - 60 * 1000),
         used_at: null,
@@ -368,6 +399,7 @@ test('reset-password: already-used code returns 400', async (t) => {
         id: 1,
         user_id: 91,
         email,
+        attempts: 0,
         code_hash: hashCode(code),
         expires_at: new Date(Date.now() + 10 * 60 * 1000),
         used_at: new Date(),
@@ -389,4 +421,55 @@ test('reset-password: already-used code returns 400', async (t) => {
 
   assert.equal(response.status, 400);
   assert.match(body.error ?? '', /invalid or expired/i);
+});
+
+test('reset-password: failed attempts accumulate and lock the row after MAX_ATTEMPTS', async (t) => {
+  const email = 'locktest@example.com';
+  const realCode = '424242';
+  const state = createState({
+    users: [{ id: 101, email, password_hash: '$2a$12$old' }],
+    resets: [
+      {
+        id: 7001,
+        user_id: 101,
+        email,
+        attempts: 0,
+        code_hash: hashCode(realCode),
+        expires_at: new Date(Date.now() + 10 * 60 * 1000),
+        used_at: null,
+        created_at: new Date(),
+      },
+    ],
+  });
+  installDbMock(t, state.handler);
+
+  const route = await import('../app/api/auth/reset-password/route');
+
+  // Fire 5 wrong guesses — row attempts should increment each time.
+  for (let i = 0; i < 5; i += 1) {
+    const response = await route.POST(
+      jsonRequest('http://localhost/api/auth/reset-password', {
+        email,
+        code: '000000',
+        password: 'NewPass!1',
+      }),
+    );
+    assert.equal(response.status, 400);
+  }
+  assert.equal(state.resets[0].attempts, 5, 'row should have 5 failed attempts recorded');
+
+  // Now the correct code should ALSO be rejected — row is locked because
+  // attempts >= MAX_ATTEMPTS_PER_ROW (5). User must request a new code.
+  const lockedResponse = await route.POST(
+    jsonRequest('http://localhost/api/auth/reset-password', {
+      email,
+      code: realCode,
+      password: 'NewPass!1',
+    }),
+  );
+  const lockedBody = (await lockedResponse.json()) as { error?: string };
+  assert.equal(lockedResponse.status, 400);
+  assert.match(lockedBody.error ?? '', /invalid or expired/i);
+  // User password must NOT have been updated.
+  assert.equal(state.users[0].password_hash, '$2a$12$old');
 });

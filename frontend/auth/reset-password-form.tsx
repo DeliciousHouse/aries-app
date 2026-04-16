@@ -81,7 +81,7 @@ const ResetPasswordForm: React.FC<ResetPasswordFormProps> = ({ email, otpCode, o
               type="text"
               inputMode="numeric"
               autoComplete="one-time-code"
-              pattern="\d{6}"
+              pattern="[0-9]{6}"
               maxLength={6}
               required
               className="auth-input tracking-[0.4em] text-center"

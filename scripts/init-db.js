@@ -168,8 +168,15 @@ async function initDb() {
         code_hash TEXT NOT NULL,
         expires_at TIMESTAMPTZ NOT NULL,
         used_at TIMESTAMPTZ,
+        attempts INT NOT NULL DEFAULT 0,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
+
+      -- Add attempts column to existing deployments that predate brute-force
+      -- protection. ADD COLUMN IF NOT EXISTS is a no-op when the column
+      -- already exists, so this is safe to re-run.
+      ALTER TABLE password_resets
+        ADD COLUMN IF NOT EXISTS attempts INT NOT NULL DEFAULT 0;
 
       CREATE INDEX IF NOT EXISTS idx_password_resets_email_created
         ON password_resets (email, created_at DESC);

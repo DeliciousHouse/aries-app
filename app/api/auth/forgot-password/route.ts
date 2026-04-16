@@ -65,7 +65,10 @@ export async function POST(req: Request) {
       return successResponse();
     }
 
-    const code = crypto.randomInt(100000, 999999).toString();
+    // crypto.randomInt(min, max) uses an EXCLUSIVE upper bound. Using 999999
+    // would never actually produce 999999. Keep the inclusive 100000..999999
+    // six-digit range by passing 1000000 as the exclusive max.
+    const code = crypto.randomInt(100000, 1000000).toString();
     const codeHash = crypto.createHash('sha256').update(code).digest('hex');
 
     await client.query(

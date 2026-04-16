@@ -69,19 +69,31 @@ export async function POST(req: Request) {
   try {
     client = await pool.connect();
 
+    // Brute-force protection: only consider rows that are unused, unexpired,
+    // AND have fewer than MAX_ATTEMPTS_PER_ROW failed verification attempts.
+    // On every mismatch below we increment the attempts counter, so a given
+    // reset row can be guessed at most MAX_ATTEMPTS_PER_ROW times before it
+    // is effectively locked. Combined with the 3-per-hour rate limit in
+    // forgot-password, an attacker gets at most ~15 guesses per email per hour
+    // against a 10^6 keyspace.
+    const MAX_ATTEMPTS_PER_ROW = 5;
+
     const rows = await client.query(
-      `SELECT id, user_id, code_hash
+      `SELECT id, user_id, code_hash, attempts
          FROM password_resets
         WHERE email = $1
           AND used_at IS NULL
           AND expires_at > now()
+          AND attempts < $2
         ORDER BY created_at DESC
         LIMIT 5`,
-      [email],
+      [email, MAX_ATTEMPTS_PER_ROW],
     );
 
     let match: { id: number; user_id: number } | null = null;
-    for (const row of rows.rows as Array<{ id: number; user_id: number; code_hash: string }>) {
+    const candidateIds: number[] = [];
+    for (const row of rows.rows as Array<{ id: number; user_id: number; code_hash: string; attempts: number }>) {
+      candidateIds.push(row.id);
       if (timingSafeHexEqual(hashedSubmitted, row.code_hash)) {
         match = { id: row.id, user_id: row.user_id };
         break;
@@ -89,6 +101,17 @@ export async function POST(req: Request) {
     }
 
     if (!match) {
+      // Increment the failed-attempts counter on every candidate row we
+      // checked. A row that hits MAX_ATTEMPTS_PER_ROW is excluded from
+      // future candidate queries above — effectively locking it without
+      // marking it used_at (so we keep the used_at column meaning "a real
+      // reset consumed this row" rather than "got brute-forced away").
+      if (candidateIds.length > 0) {
+        await client.query(
+          `UPDATE password_resets SET attempts = attempts + 1 WHERE id = ANY($1::bigint[])`,
+          [candidateIds],
+        );
+      }
       return errorResponse('Invalid or expired code');
     }
 
