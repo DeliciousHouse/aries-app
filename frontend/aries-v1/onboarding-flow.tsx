@@ -270,6 +270,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [urlPreview, setUrlPreview] = useState<UrlPreviewResponse | null>(null);
+  const [previewRefreshCounter, setPreviewRefreshCounter] = useState(0);
   const [draftId, setDraftId] = useState(draftParam);
   const [creatingDraft, setCreatingDraft] = useState(false);
   const [loadedDraftId, setLoadedDraftId] = useState<string | null>(null);
@@ -501,7 +502,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [ariesApi, deferredWebsiteUrl, draftId]);
+  }, [ariesApi, deferredWebsiteUrl, draftId, previewRefreshCounter]);
 
   function toggleChannel(channelId: string) {
     setSelectedChannels((current) =>
@@ -853,10 +854,11 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                         onClick={() => {
                           setUrlPreview(null);
                           setPreviewError(null);
-                          // Re-trigger fetch by resetting and restoring the website URL
-                          const url = websiteUrl;
-                          setWebsiteUrl('');
-                          setTimeout(() => setWebsiteUrl(url), 0);
+                          // Bump the refresh counter — the preview useEffect
+                          // lists it in deps, so incrementing is enough to
+                          // re-run the fetch without churning websiteUrl (and
+                          // without the fragile setTimeout batching trick).
+                          setPreviewRefreshCounter((n) => n + 1);
                         }}
                         className="inline-flex items-center gap-2 rounded-full border border-amber-400/30 bg-amber-400/10 px-4 py-2 text-sm font-medium text-amber-200 transition hover:bg-amber-400/20"
                       >

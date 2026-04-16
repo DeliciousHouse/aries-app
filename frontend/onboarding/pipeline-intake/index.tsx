@@ -41,7 +41,7 @@ export default function PipelineIntake() {
     if (!competitorUrl) { setSubmitError('Enter a competitor URL on Step 2 before launching.'); return; }
     if (!goal) { setSubmitError('Select a campaign goal on Step 3 before launching.'); return; }
     if (channels.length === 0) { setSubmitError('Select at least one channel on Step 4 before launching.'); return; }
-    if (!mode) { setSubmitError('Select an execution mode before launching.'); return; }
+    if (!mode) { setSubmitError('Select an execution mode on Step 5 before launching.'); return; }
 
     const payload: PipelineInput = {
       brand_url: brandUrl,
