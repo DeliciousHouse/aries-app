@@ -1,6 +1,6 @@
 'use client';
 
-import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import clsx from 'clsx';
@@ -70,14 +70,19 @@ const STEP_DEFINITIONS: StepDefinition[] = [
 
 const CHANNEL_OPTIONS: ChannelOption[] = [
   {
+    id: 'email',
+    label: 'Email',
+    description: 'Newsletters, drip sequences, and promotional emails for retention and direct revenue.',
+  },
+  {
     id: 'meta-ads',
-    label: 'Meta',
-    description: 'Paid social for demand capture, retargeting, and direct-response offers.',
+    label: 'Meta Ads',
+    description: 'Paid ads on Facebook and Instagram for demand capture, retargeting, and direct-response offers.',
   },
   {
     id: 'instagram',
-    label: 'Instagram',
-    description: 'High-visibility social touchpoints for brand presence, proof, and offer awareness.',
+    label: 'Instagram Organic',
+    description: 'Organic posts and stories for brand presence, proof, and audience engagement.',
   },
   {
     id: 'google-business',
@@ -223,9 +228,17 @@ function stepReady(stepKey: StepKey, values: {
   return true;
 }
 
-function stepValidationMessage(stepKey: StepKey): string {
+function stepValidationMessage(stepKey: StepKey, values?: { businessName: string; businessType: string }): string {
   if (stepKey === 'business') {
-    return 'Add the business name and business type before continuing.';
+    const hasName = (values?.businessName.trim().length ?? 0) > 0;
+    const hasType = (values?.businessType.trim().length ?? 0) > 0;
+    if (!hasName && !hasType) {
+      return 'Add the business name and business type before continuing.';
+    }
+    if (!hasName) {
+      return 'Add the business name before continuing.';
+    }
+    return 'Add the business type before continuing.';
   }
   if (stepKey === 'website') {
     return 'Enter a valid HTTPS website before continuing.';
@@ -272,6 +285,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   const [urlPreview, setUrlPreview] = useState<UrlPreviewResponse | null>(null);
   const [draftId, setDraftId] = useState(draftParam);
   const [creatingDraft, setCreatingDraft] = useState(false);
+  const creatingDraftRef = useRef(false);
   const [loadedDraftId, setLoadedDraftId] = useState<string | null>(null);
   const [profileHydrated, setProfileHydrated] = useState(false);
   const [businessName, setBusinessName] = useState('');
@@ -316,37 +330,27 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   }, [draftParam]);
 
   useEffect(() => {
-    if (draftId || creatingDraft) {
+    if (draftId || creatingDraftRef.current) {
       return;
     }
 
-    let cancelled = false;
+    creatingDraftRef.current = true;
     setCreatingDraft(true);
 
     void ariesApi.createOnboardingDraft()
       .then((response) => {
-        if (cancelled) {
-          return;
-        }
         const nextDraftId = response.draft.draftId;
         setDraftId(nextDraftId);
         router.replace(`/onboarding/start?draft=${encodeURIComponent(nextDraftId)}`);
       })
       .catch(() => {
-        if (!cancelled) {
-          setError('We could not prepare a saved onboarding session right now.');
-        }
+        setError('We could not prepare a saved onboarding session right now.');
       })
       .finally(() => {
-        if (!cancelled) {
-          setCreatingDraft(false);
-        }
+        creatingDraftRef.current = false;
+        setCreatingDraft(false);
       });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [ariesApi, creatingDraft, draftId, router]);
+  }, [ariesApi, draftId, router]);
 
   useEffect(() => {
     if (!draftId || loadedDraftId === draftId) {
@@ -513,7 +517,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
 
   function handleContinue() {
     if (!stepReady(currentStep.key, { businessName, businessType, websiteUrl, selectedChannels, goal, customGoal })) {
-      setError(stepValidationMessage(currentStep.key));
+      setError(stepValidationMessage(currentStep.key, { businessName, businessType }));
       return;
     }
     setError(null);
@@ -522,7 +526,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
 
   async function handleFinish() {
     if (!canFinish) {
-      setError(stepValidationMessage(currentStep.key));
+      setError(stepValidationMessage(currentStep.key, { businessName, businessType }));
       return;
     }
 
@@ -696,7 +700,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                         value={businessName}
                         onChange={(event) => setBusinessName(event.target.value)}
                         className={fieldInputClassName}
-                        placeholder="Sugar & Leather"
+                        placeholder="e.g. Bloom Floral Studio"
                       />
                     </Field>
                     <Field
@@ -711,7 +715,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                       />
                     </Field>
                     <Field
-                      label="Launch approver"
+                      label={<>Launch approver <span className="text-white/40 font-normal normal-case tracking-normal">(optional)</span></>}
                       hint="Who should have the final say before anything goes live?"
                     >
                       <input
@@ -729,7 +733,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                         value={websiteUrl}
                         onChange={(event) => setWebsiteUrl(event.target.value)}
                         className={fieldInputClassName}
-                        placeholder="https://aries.sugarandleather.com"
+                        placeholder="https://yourbusiness.com"
                       />
                     </Field>
                   </div>
@@ -767,7 +771,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                           setPreviewError(null);
                         }}
                         className={fieldInputClassName}
-                        placeholder="https://sugarandleather.com"
+                        placeholder="https://yourbusiness.com"
                       />
                     </Field>
 
@@ -822,6 +826,49 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
               {currentStep.key === 'brand' ? (
                 <div className="space-y-6">
                   <div className="rounded-[2rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(151,93,255,0.12),transparent_28%),linear-gradient(160deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] p-6">
+                    {previewLoading ? (
+                      <div className="space-y-6">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#ba8cff]">Brand identity preview</p>
+                        <p className="text-sm leading-7 text-white/60">Building your brand snapshot...</p>
+                        <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+                          <div className="space-y-4">
+                            <div className="animate-pulse rounded-[1.2rem] border border-white/10 bg-white/[0.04] p-4">
+                              <div className="h-3 w-24 rounded bg-white/10" />
+                              <div className="mt-3 h-4 w-full rounded bg-white/8" />
+                              <div className="mt-2 h-4 w-3/4 rounded bg-white/8" />
+                            </div>
+                            <div className="animate-pulse rounded-[1.2rem] border border-white/10 bg-white/[0.04] p-4">
+                              <div className="h-3 w-20 rounded bg-white/10" />
+                              <div className="mt-3 h-4 w-full rounded bg-white/8" />
+                              <div className="mt-2 h-4 w-2/3 rounded bg-white/8" />
+                            </div>
+                          </div>
+                          <div className="space-y-4">
+                            <div className="animate-pulse rounded-[1.5rem] border border-white/10 bg-white/[0.04] p-5">
+                              <div className="h-3 w-28 rounded bg-white/10" />
+                              <div className="mt-4 grid grid-cols-2 gap-3">
+                                <div className="h-20 rounded-[1rem] bg-white/6" />
+                                <div className="h-20 rounded-[1rem] bg-white/6" />
+                              </div>
+                            </div>
+                            <div className="animate-pulse grid grid-cols-2 gap-4">
+                              <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.04] p-5">
+                                <div className="h-3 w-16 rounded bg-white/10" />
+                                <div className="mt-4 grid grid-cols-3 gap-3">
+                                  <div className="h-14 rounded-[0.9rem] bg-white/6" />
+                                  <div className="h-14 rounded-[0.9rem] bg-white/6" />
+                                  <div className="h-14 rounded-[0.9rem] bg-white/6" />
+                                </div>
+                              </div>
+                              <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.04] p-5">
+                                <div className="h-3 w-14 rounded bg-white/10" />
+                                <div className="mt-4 h-10 rounded-[1rem] bg-white/6" />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
                     <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
                       <div className="space-y-4">
                         <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#ba8cff]">Brand identity preview</p>
@@ -855,6 +902,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                         />
                       </div>
                     </div>
+                    )}
                   </div>
 
                   {preview?.externalLinks && preview.externalLinks.length > 0 ? (
@@ -952,7 +1000,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
 
                   <div className="grid gap-5">
                     <Field
-                      label="What does your business offer?"
+                      label={<>What does your business offer? <span className="text-white/40 font-normal normal-case tracking-normal">(optional)</span></>}
                       hint="The core product, service, or program Aries should focus the first campaign around."
                     >
                       <input
@@ -964,14 +1012,14 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                     </Field>
 
                     <Field
-                      label="Competitor website"
+                      label={<>Competitor website <span className="text-white/40 font-normal normal-case tracking-normal">(optional)</span></>}
                       hint="Optional. Add one strong comparison site if you want Aries to account for market positioning."
                     >
                       <input
                         value={competitorUrl}
                         onChange={(event) => setCompetitorUrl(event.target.value)}
                         className={fieldInputClassName}
-                        placeholder="https://betterup.com"
+                        placeholder="https://competitor.com"
                       />
                     </Field>
 
@@ -985,18 +1033,22 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
             </div>
 
             <div className="relative z-10 mt-8 flex flex-wrap items-center justify-between gap-4 border-t border-white/8 pt-6">
-              <button
-                type="button"
-                onClick={() => {
-                  setError(null);
-                  setStepIndex((index) => Math.max(index - 1, 0));
-                }}
-                disabled={stepIndex === 0 || submitting}
-                className="inline-flex items-center gap-2 rounded-full border border-[#fff] bg-white/[0.03] px-4 py-2.5 text-sm font-medium text-[#fff] transition disabled:cursor-not-allowed disabled:opacity-40 hover:border-[#fff] hover:text-[#fff]"
-              >
-                <ArrowLeft className="h-4 w-4 text-[#fff]" />
-                Back
-              </button>
+              {stepIndex === 0 ? (
+                <div className="px-4 py-2.5" aria-hidden="true" />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setError(null);
+                    setStepIndex((index) => Math.max(index - 1, 0));
+                  }}
+                  disabled={submitting}
+                  className="inline-flex items-center gap-2 rounded-full border border-[#fff] bg-white/[0.03] px-4 py-2.5 text-sm font-medium text-[#fff] transition disabled:cursor-not-allowed disabled:opacity-40 hover:border-[#fff] hover:text-[#fff]"
+                >
+                  <ArrowLeft className="h-4 w-4 text-[#fff]" />
+                  Back
+                </button>
+              )}
 
               <div className="flex flex-wrap items-center gap-3">
                 {error ? <p className="text-sm text-amber-200">{error}</p> : null}
@@ -1013,7 +1065,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                   <button
                     type="button"
                     onClick={() => void handleFinish()}
-                    disabled={submitting || !canFinish || creatingDraft}
+                    disabled={submitting || creatingDraft}
                     className="inline-flex items-center gap-2 rounded-full border border-[#a96cff]/40 bg-[linear-gradient(90deg,#5c2e96,#7a41c2,#a96cff)] px-6 py-3 text-sm font-semibold text-white shadow-[0_0_24px_rgba(169,108,255,0.2)] transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {submitting
@@ -1046,7 +1098,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   );
 }
 
-function Field(props: { label: string; hint?: string; children: ReactNode }) {
+function Field(props: { label: ReactNode; hint?: string; children: ReactNode }) {
   return (
     <label className="space-y-2">
       <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/72">{props.label}</span>

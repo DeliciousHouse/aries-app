@@ -1,7 +1,13 @@
+import type { Metadata } from 'next';
 import { Suspense } from 'react';
 
 import AuthLayout from '../../frontend/auth/auth-layout';
 import LoginPageClient from './page-client';
+
+export const metadata: Metadata = {
+  title: 'Sign in · Aries',
+  description: 'Sign in to your Aries marketing workspace.',
+};
 
 export default function LoginPage() {
   return (

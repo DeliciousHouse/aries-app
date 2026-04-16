@@ -1267,10 +1267,10 @@ function EarlyAccessSignup() {
 
               <div className="mt-[50px] grid w-full gap-4 sm:grid-cols-3">
                 {[
-                  ['01', ['Beta invite']],
-                  ['02', ['Workspace', 'preview']],
-                  ['03', ['Priority', 'setup']],
-                ].map(([count, labelLines]) => (
+                  ['01', ['Beta invite'], 'We send you a personal invite within 48 hours.'],
+                  ['02', ['Workspace', 'preview'], 'See your first campaign workspace before going live.'],
+                  ['03', ['Priority', 'setup'], 'Our team helps you launch your first campaign.'],
+                ].map(([count, labelLines, description]) => (
                   <div
                     key={count as string}
                     className="group min-h-28 rounded-[1.25rem] border border-white/10 bg-black/35 p-5 transition-colors hover:border-primary/35 hover:bg-primary/10"
@@ -1283,6 +1283,9 @@ function EarlyAccessSignup() {
                         </span>
                       ))}
                     </div>
+                    <p className="mt-2 text-[9px] font-normal normal-case tracking-normal leading-4 text-white/35">
+                      {description as string}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -1475,6 +1478,54 @@ function FeatureShowcaseFallback() {
 }
 
 function FinalCTA() {
+  // Spline is a WebGL embed that can stall the GPU on low-end hardware (and in
+  // demo environments like LinkedIn Live). Defer the iframe until the section
+  // is actually in the viewport, and gate it behind `requestIdleCallback` so it
+  // never competes with the initial paint of the page.
+  const splineContainerRef = useRef<HTMLDivElement | null>(null);
+  const [mountSpline, setMountSpline] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const node = splineContainerRef.current;
+    if (!node || typeof IntersectionObserver === 'undefined') {
+      setMountSpline(true);
+      return;
+    }
+
+    const idle = (cb: () => void) => {
+      const ric = (window as typeof window & {
+        requestIdleCallback?: (cb: () => void, opts?: { timeout?: number }) => number;
+      }).requestIdleCallback;
+      if (typeof ric === 'function') {
+        ric(cb, { timeout: 1500 });
+      } else {
+        window.setTimeout(cb, 200);
+      }
+    };
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            idle(() => setMountSpline(true));
+            observer.disconnect();
+            break;
+          }
+        }
+      },
+      { rootMargin: '200px' },
+    );
+    observer.observe(node);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
   return (
     <section className="py-24 relative overflow-hidden">
       <div className="container mx-auto px-6">
@@ -1513,17 +1564,25 @@ function FinalCTA() {
             </div>
           </div>
 
-          {/* Spline 3D Integration */}
-          <div className="w-full h-full relative z-10 overflow-hidden">
-            <iframe
-              src="https://my.spline.design/boxeshover-1S9fbn10HLJkYTmxyOt88Ycb/"
-              frameBorder="0"
-              width="100%"
-              height="100%"
-              className="absolute -top-[50px] left-0 w-full md:w-[calc(100%+100px)] lg:w-[calc(100%+200px)] h-[calc(100%+100px)] max-w-none"
-              title="Interactive 3D Boxes"
-              sandbox="allow-scripts allow-same-origin"
-            ></iframe>
+          {/* Spline 3D Integration (deferred until in view to avoid WebGL GPU stalls) */}
+          <div ref={splineContainerRef} className="w-full h-full relative z-10 overflow-hidden">
+            {mountSpline ? (
+              <iframe
+                src="https://my.spline.design/boxeshover-1S9fbn10HLJkYTmxyOt88Ycb/"
+                frameBorder="0"
+                width="100%"
+                height="100%"
+                loading="lazy"
+                className="absolute -top-[50px] left-0 w-full md:w-[calc(100%+100px)] lg:w-[calc(100%+200px)] h-[calc(100%+100px)] max-w-none"
+                title="Interactive 3D Boxes"
+                sandbox="allow-scripts allow-same-origin"
+              ></iframe>
+            ) : (
+              <div
+                aria-hidden="true"
+                className="absolute -top-[50px] left-0 w-full md:w-[calc(100%+100px)] lg:w-[calc(100%+200px)] h-[calc(100%+100px)] max-w-none bg-[radial-gradient(circle_at_top_right,rgba(124,58,237,0.35),transparent_58%)]"
+              />
+            )}
           </div>
         </motion.div>
       </div>
@@ -1550,13 +1609,19 @@ export default function DonorHomePage() {
 
       <section className="py-12 border-y border-white/5 bg-black/50 overflow-hidden">
         <div className="container mx-auto px-6">
-          <p className="text-center text-white/30 text-sm font-medium uppercase tracking-widest mb-8">
-            Trusted by industry leaders
-          </p>
-          <div className="flex flex-wrap justify-center items-center gap-12 md:gap-24 opacity-40 grayscale hover:grayscale-0 transition-all duration-500">
-            {['NEXUS', 'VELOCITY', 'QUANTUM', 'ELEVATE', 'ORBIT'].map((label) => (
-              <span key={label} className="text-2xl font-bold">{label}</span>
-            ))}
+          <div className="max-w-3xl mx-auto text-center">
+            <blockquote className="text-lg md:text-xl text-white/80 italic leading-relaxed">
+              &ldquo;Aries helped me go from scattered social posts to an actual campaign plan in one afternoon. I finally know what to do next.&rdquo;
+            </blockquote>
+            <div className="mt-6 flex items-center justify-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/40 to-secondary/40 flex items-center justify-center text-sm font-bold text-white">
+                S
+              </div>
+              <div className="text-left">
+                <p className="text-sm font-semibold text-white/80">Sarah M.</p>
+                <p className="text-xs text-white/40">Floral studio owner, early access</p>
+              </div>
+            </div>
           </div>
         </div>
       </section>

@@ -541,10 +541,10 @@ def classify_trust(
 def build_ads(brand_name: str, ad_destinations: list[str], evidence: list[dict], canonical_url: str) -> list[dict]:
     brand = brand_name or "Competitor"
     slug = slugify(brand)
-    evidence_headline = evidence[0]["title"] if evidence else f"{brand} consulting services"
+    evidence_headline = evidence[0]["title"] if evidence else f"{brand} brand positioning"
     if "facebook profile" in evidence_headline.lower():
         evidence_headline = f"{brand} Meta campaign messaging snapshot"
-    evidence_snippet = evidence[0]["snippet"] if evidence else f"{brand} promotes growth-oriented outcomes."
+    evidence_snippet = evidence[0]["snippet"] if evidence else f"{brand} promotes its flagship offer and brand story."
 
     fallback_destination = canonical_url or ""
     destination_1 = ad_destinations[0] if len(ad_destinations) > 0 else fallback_destination
@@ -561,29 +561,29 @@ def build_ads(brand_name: str, ad_destinations: list[str], evidence: list[dict],
             "call_to_action": "Learn More",
             "landing_page_url": destination_1,
             "formats": ["video", "square"],
-            "hooks": ["speed to value", "risk reduction"],
+            "hooks": ["brand story", "product showcase"],
         },
         {
             "ad_id": f"{slug}-ad-02",
             "platform": "meta",
             "brand": brand,
-            "headline": f"How {brand} removes manual busywork",
-            "primary_text": f"{brand} leads with an operational efficiency angle and a proof-oriented CTA.",
-            "call_to_action": "Book Demo",
+            "headline": f"What makes {brand} different",
+            "primary_text": f"{brand} leads with a differentiation angle and a proof-oriented CTA.",
+            "call_to_action": "Shop Now",
             "landing_page_url": destination_2,
             "formats": ["image", "carousel"],
-            "hooks": ["efficiency", "proof points"],
+            "hooks": ["differentiation", "proof points"],
         },
         {
             "ad_id": f"{slug}-ad-03",
             "platform": "meta",
             "brand": brand,
-            "headline": f"{brand} makes enterprise rollout feel simple",
-            "primary_text": f"{brand} uses reassurance language for larger buyers with security and onboarding concerns.",
+            "headline": f"{brand} shows up for first-time buyers",
+            "primary_text": f"{brand} uses reassurance language for new buyers weighing trust, fit, and quality.",
             "call_to_action": "Get Started",
             "landing_page_url": destination_3,
             "formats": ["image", "story"],
-            "hooks": ["simplicity", "enterprise trust"],
+            "hooks": ["trust", "quality"],
         },
     ]
 

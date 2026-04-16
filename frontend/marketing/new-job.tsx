@@ -246,7 +246,7 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
                 <input
                   value={competitorUrl}
                   onChange={(event) => setCompetitorUrl(event.target.value)}
-                  placeholder="Optional competitor website, e.g. https://betterup.com"
+                  placeholder="Optional competitor website, e.g. https://competitorbrand.com"
                   className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
                 />
                 <p className="mt-2 text-sm text-white/45">

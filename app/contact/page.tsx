@@ -1,6 +1,12 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 
 import MarketingLayout from '../../frontend/marketing/MarketingLayout';
+
+export const metadata: Metadata = {
+  title: 'Contact · Aries',
+  description: 'Get in touch with the Aries team.',
+};
 
 export default function ContactPage() {
   return (

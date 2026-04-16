@@ -1,5 +1,11 @@
+import type { Metadata } from 'next';
 import React from 'react';
 import MarketingLayout from '../../frontend/marketing/MarketingLayout';
+
+export const metadata: Metadata = {
+  title: 'API docs · Aries',
+  description: 'Browser-safe API reference for the Aries runtime.',
+};
 
 const ENDPOINTS = [
   {

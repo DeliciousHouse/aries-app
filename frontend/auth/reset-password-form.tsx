@@ -40,9 +40,12 @@ const ResetPasswordForm: React.FC<ResetPasswordFormProps> = ({ email, otpCode, o
       return;
     }
     
-    const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/;
-    if (!passwordRegex.test(password)) {
-      setError("Password must be at least 8 characters long and include an uppercase letter, a number, and a special character.");
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters long.");
+      return;
+    }
+    if (!/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+      setError("Password must include at least one letter and one number.");
       return;
     }
 
