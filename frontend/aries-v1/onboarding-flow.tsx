@@ -80,11 +80,6 @@ const CHANNEL_OPTIONS: ChannelOption[] = [
     description: 'Organic posts, stories, and reels on Instagram.',
   },
   {
-    id: 'email',
-    label: 'Email Marketing',
-    description: 'Automated email campaigns and sequences.',
-  },
-  {
     id: 'google-business',
     label: 'Google Business',
     description: 'Local presence, reviews, and Google Maps visibility.',
@@ -93,16 +88,6 @@ const CHANNEL_OPTIONS: ChannelOption[] = [
     id: 'linkedin',
     label: 'LinkedIn',
     description: 'Professional network for B2B reach and thought leadership.',
-  },
-  {
-    id: 'tiktok',
-    label: 'TikTok',
-    description: 'Short-form video ads and organic content.',
-  },
-  {
-    id: 'youtube',
-    label: 'YouTube',
-    description: 'Video ads, shorts, and channel content.',
   },
 ];
 
