@@ -90,6 +90,21 @@ const CHANNEL_OPTIONS: ChannelOption[] = [
     description: 'Organic posts, stories, and reels on Instagram.',
   },
   {
+    id: 'email',
+    label: 'Email Marketing',
+    description: 'Automated email campaigns and sequences.',
+  },
+  {
+    id: 'tiktok',
+    label: 'TikTok',
+    description: 'Short-form video ads and organic content.',
+  },
+  {
+    id: 'youtube',
+    label: 'YouTube',
+    description: 'Video ads, shorts, and channel content.',
+  },
+  {
     id: 'google-business',
     label: 'Google Business',
     description: 'Local presence, reviews, and Google Maps visibility.',
@@ -195,21 +210,21 @@ function urlChipFromValue(value: string): UrlChipState {
 function recommendedChannelsForBusinessType(businessType: string): string[] {
   const normalized = businessType.trim().toLowerCase();
   if (!normalized) {
-    return ['meta-ads', 'instagram-organic'];
+    return ['meta-ads', 'instagram'];
   }
   const localKeywords = ['local', 'restaurant', 'retail', 'service', 'salon', 'clinic', 'store', 'shop'];
   const saasKeywords = ['saas', 'software', 'b2b', 'agency', 'platform', 'technology', 'tech'];
   const ecomKeywords = ['ecommerce', 'e-commerce', 'commerce', 'dtc', 'direct-to-consumer', 'online store', 'brand'];
   if (localKeywords.some((kw) => normalized.includes(kw))) {
-    return ['meta-ads', 'instagram-organic', 'google-business'];
+    return ['meta-ads', 'instagram', 'google-business'];
   }
   if (saasKeywords.some((kw) => normalized.includes(kw))) {
     return ['linkedin', 'meta-ads', 'email'];
   }
   if (ecomKeywords.some((kw) => normalized.includes(kw))) {
-    return ['meta-ads', 'instagram-organic', 'email', 'tiktok'];
+    return ['meta-ads', 'instagram', 'email', 'tiktok'];
   }
-  return ['meta-ads', 'instagram-organic'];
+  return ['meta-ads', 'instagram'];
 }
 
 function firstPresent(...values: Array<string | null | undefined>): string | null {
@@ -1327,7 +1342,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                         onChange={(event) => setApproverName(event.target.value)}
                         onBlur={() => markTouched('approverName')}
                         className={fieldInputClassName}
-                        placeholder="Audrey"
+                        placeholder="Your name"
                       />
                     </Field>
                     <Field

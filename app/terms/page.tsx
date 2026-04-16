@@ -32,7 +32,7 @@ export default function TermsPage() {
             <p className="text-xs uppercase tracking-[0.3em] text-primary mb-3">Legal</p>
             <h1 className="text-4xl font-bold mb-3">Terms of Service</h1>
             <p className="text-white/60">
-              A plain-language summary of what Aries does for you and what we expect from you.
+              A plain-language summary of what you can expect from Aries and what we expect from you.
             </p>
           </div>
           <div className="grid gap-4">

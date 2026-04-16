@@ -4,7 +4,6 @@ import test from "node:test";
 import {
   getLoginAuthErrorMessage,
   resolveLoginErrorCode,
-  shouldRedirectLoginToSignup,
 } from "../../lib/login-auth-error";
 
 test("uses the credentials code when Auth.js returns a custom credentials error", () => {
@@ -22,9 +21,14 @@ test("falls back to CredentialsSignin when Auth.js returns the default credentia
   assert.equal(resolveLoginErrorCode("CredentialsSignin", undefined), "CredentialsSignin");
 });
 
-test("flags unknown-email credentials failures for signup redirect", () => {
-  assert.equal(shouldRedirectLoginToSignup("CredentialsSignin", "EmailDoesNotExist"), true);
-  assert.equal(shouldRedirectLoginToSignup("CredentialsSignin", "credentials"), false);
+test("does not expose an 'email doesn't exist' user-facing message (enumeration protection)", () => {
+  // Even if some stale client still has the old code in the query string, we
+  // render the generic credentials-invalid message — the server side of this
+  // fix (auth.ts authorize()) no longer emits this code at all.
+  assert.equal(
+    getLoginAuthErrorMessage("CredentialsSignin", "EmailDoesNotExist", null),
+    "Invalid email or password.",
+  );
 });
 
 test("shows a Google-specific message for Google-managed accounts", () => {
