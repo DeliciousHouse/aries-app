@@ -3,6 +3,8 @@
 import { useMemo, useState } from 'react';
 import { FileImage, FileText, Globe } from 'lucide-react';
 
+import { safeHref } from '@/lib/safe-href';
+
 type MediaPreviewProps = {
   src?: string | null;
   alt: string;
@@ -61,10 +63,14 @@ export default function MediaPreview(props: MediaPreviewProps) {
     </div>
   );
 
-  if (props.href) {
+  // Guard against `javascript:` / `data:` / other non-http(s) schemes leaking
+  // in via tenant-provided or pipeline-generated URLs; fall back to the
+  // non-link rendering if the href is not safe to navigate to.
+  const validatedHref = safeHref(props.href);
+  if (validatedHref) {
     return (
       <a
-        href={props.href}
+        href={validatedHref}
         target="_blank"
         rel="noopener noreferrer"
         aria-label={props.alt}
