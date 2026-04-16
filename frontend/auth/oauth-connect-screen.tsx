@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import Link from 'next/link';
-import { ArrowLeft, ArrowRight, CheckCircle2, Chrome, LoaderCircle, ShieldAlert, Sparkles } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle2, Chrome, LoaderCircle, ShieldAlert } from 'lucide-react';
 
 import { createIntegrationsApi, isOauthErrorResult } from '@/lib/api/integrations';
 import { AriesMark } from '@/frontend/donor/ui';
@@ -130,11 +130,8 @@ export default function OAuthConnectScreen({
           <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary via-secondary to-primary" />
 
           <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 mb-4">
-              <Sparkles className="w-6 h-6 text-primary" />
-            </div>
             <div className="inline-flex items-center gap-3 mb-3">
-              <AriesMark sizeClassName="w-10 h-10" />
+              <AriesMark sizeClassName="w-16 h-16" />
               <span className="text-2xl font-bold tracking-tight">Aries AI</span>
             </div>
             <h1 className="text-3xl font-bold mb-2">{heading}</h1>

@@ -521,12 +521,12 @@ export default function DashboardHomePresenter({
                         >
                           {channel.health === 'attention' ? 'Reconnect' : 'Connect'}
                         </Link>
-                      ) : channel.canDisconnect && onChannelDisconnect ? (
+                      ) : onChannelDisconnect ? (
                         <button
                           type="button"
                           disabled={disconnectBusy}
                           onClick={() => onChannelDisconnect(channel.id)}
-                          className="mt-3 box-border flex w-full min-h-[2.125rem] shrink-0 items-center justify-center rounded-lg border border-red-500/75 bg-transparent px-3 py-1.5 text-center text-[0.9rem] font-medium leading-tight text-red-200/95 transition-colors hover:border-red-400 disabled:cursor-not-allowed disabled:opacity-60"
+                          className="mt-3 box-border flex w-full min-h-[2.125rem] shrink-0 items-center justify-center rounded-lg border border-red-500/85 bg-white/[0.03] px-3 py-1.5 text-center text-[0.9rem] font-medium leading-tight text-white transition-colors hover:border-red-400 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {disconnectBusy ? 'Disconnecting…' : 'Disconnect'}
                         </button>

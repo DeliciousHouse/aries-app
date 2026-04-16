@@ -2,103 +2,94 @@ import { NextResponse } from 'next/server';
 
 import pool from '@/lib/db';
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const MAX_SOURCE_LENGTH = 100;
-const MAX_USER_AGENT_LENGTH = 500;
+type EarlyAccessRequestBody = {
+  email?: unknown;
+  source?: unknown;
+};
 
 function normalizeEmail(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim().toLowerCase();
-  if (!trimmed || trimmed.length > 255) return null;
-  return EMAIL_RE.test(trimmed) ? trimmed : null;
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const email = value.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return null;
+  }
+
+  return email;
 }
 
 function normalizeSource(value: unknown): string {
-  if (typeof value !== 'string') return 'website';
-  const trimmed = value.trim().slice(0, MAX_SOURCE_LENGTH);
-  return trimmed || 'website';
+  if (typeof value !== 'string') {
+    return 'website';
+  }
+
+  return value.trim().slice(0, 80) || 'website';
 }
 
-async function readBody(req: Request): Promise<{ email: unknown; source: unknown }> {
-  const contentType = req.headers.get('content-type') || '';
-
-  if (contentType.includes('application/json')) {
-    try {
-      const parsed = (await req.json()) as Record<string, unknown>;
-      return { email: parsed.email, source: parsed.source };
-    } catch {
-      return { email: null, source: null };
-    }
-  }
-
-  if (
-    contentType.includes('application/x-www-form-urlencoded') ||
-    contentType.includes('multipart/form-data')
-  ) {
-    try {
-      const form = await req.formData();
-      return { email: form.get('email'), source: form.get('source') };
-    } catch {
-      return { email: null, source: null };
-    }
-  }
-
-  return { email: null, source: null };
+async function ensureEarlyAccessTable(): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS early_access_signups (
+      id BIGSERIAL PRIMARY KEY,
+      email TEXT UNIQUE NOT NULL,
+      source TEXT NOT NULL DEFAULT 'website',
+      user_agent TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
 }
 
 export async function POST(req: Request) {
-  const { email: rawEmail, source: rawSource } = await readBody(req);
-  const email = normalizeEmail(rawEmail);
-  const source = normalizeSource(rawSource);
-  const userAgent = (req.headers.get('user-agent') || '').slice(0, MAX_USER_AGENT_LENGTH);
+  let body: EarlyAccessRequestBody = {};
 
-  const contentType = req.headers.get('content-type') || '';
-  const isFormSubmit =
-    contentType.includes('application/x-www-form-urlencoded') ||
-    contentType.includes('multipart/form-data');
+  try {
+    body = (await req.json()) as EarlyAccessRequestBody;
+  } catch {
+    body = {};
+  }
 
+  const email = normalizeEmail(body.email);
   if (!email) {
-    if (isFormSubmit) {
-      return NextResponse.redirect(new URL('/?early-access=invalid', req.url), { status: 303 });
-    }
     return NextResponse.json(
-      { error: 'invalid_email', message: 'Enter a valid email to request early access.' },
+      {
+        status: 'error',
+        reason: 'invalid_email',
+        message: 'Enter a valid email address.',
+      },
       { status: 400 },
     );
   }
 
-  let client;
   try {
-    client = await pool.connect();
-
-    await client.query(
-      `INSERT INTO early_access_signups (email, source, user_agent)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (email) DO UPDATE SET
-         source = EXCLUDED.source,
-         user_agent = EXCLUDED.user_agent,
-         updated_at = now()`,
-      [email, source, userAgent || null],
+    await ensureEarlyAccessTable();
+    await pool.query(
+      `
+        INSERT INTO early_access_signups (email, source, user_agent)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (email)
+        DO UPDATE SET
+          source = EXCLUDED.source,
+          user_agent = EXCLUDED.user_agent,
+          updated_at = now()
+      `,
+      [email, normalizeSource(body.source), req.headers.get('user-agent')],
     );
-  } catch (error) {
-    // Log the infra error, then still return success so the public form
-    // doesn't leak database state to the internet. If the table is missing
-    // (migration not yet applied), the user-facing response is still graceful
-    // and we'll see the error in server logs.
-    console.error('[early-access] failed to persist signup', {
-      error: error instanceof Error ? error.message : String(error),
-      emailHash: email ? email.slice(0, 2) + '***' : null,
+
+    return NextResponse.json({
+      status: 'ok',
+      message: "You're on the early access list.",
     });
-  } finally {
-    client?.release();
+  } catch (error) {
+    console.error('Unable to capture early access signup:', error);
+    return NextResponse.json(
+      {
+        status: 'error',
+        reason: 'database_unavailable',
+        message: 'We could not save your email right now. Please try again.',
+      },
+      { status: 503 },
+    );
   }
-
-  if (isFormSubmit) {
-    return NextResponse.redirect(new URL('/?early-access=success', req.url), { status: 303 });
-  }
-
-  return NextResponse.json({
-    success: true,
-    message: "You're on the early access list. We'll be in touch.",
-  });
 }
