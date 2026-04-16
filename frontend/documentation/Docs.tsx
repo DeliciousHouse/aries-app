@@ -4,24 +4,18 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   BookOpen,
-  ChevronRight,
   Terminal,
   Layout,
   GitBranch,
   Plug,
   ShieldCheck,
-  Copy,
-  Check,
-  Search,
   Book,
-  Code,
-  Sparkles
 } from 'lucide-react';
 
 const sections = [
   { id: 'overview', title: 'Overview', icon: BookOpen },
-  { id: 'quick-start', title: 'Quick Start', icon: Terminal },
-  { id: 'architecture', title: 'Architecture', icon: Layout },
+  { id: 'quick-start', title: 'Getting Started', icon: Terminal },
+  { id: 'architecture', title: 'How It Works', icon: Layout },
   { id: 'campaigns', title: 'Campaigns', icon: GitBranch },
   { id: 'integrations', title: 'Integrations', icon: Plug },
   { id: 'security', title: 'Security', icon: ShieldCheck },
@@ -29,14 +23,7 @@ const sections = [
 
 export default function Docs() {
   const [activeSection, setActiveSection] = useState('overview');
-  const [copied, setCopied] = useState(false);
   const sectionRefs = useRef<{ [key: string]: HTMLElement | null }>({});
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -99,7 +86,7 @@ export default function Docs() {
               transition={{ delay: 0.2 }}
               className="text-lg md:text-xl text-white/60 max-w-3xl mx-auto font-sans"
             >
-              Everything you need to deploy, configure, and operate the Aries platform.
+              Everything you need to get started, run campaigns, and get results with Aries.
             </motion.p>
           </div>
 
@@ -178,38 +165,22 @@ export default function Docs() {
                   <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center border border-white/10">
                     <Terminal className="w-6 h-6 text-primary" />
                   </div>
-                  <h2 className="text-3xl font-bold tracking-tight">Quick Start</h2>
+                  <h2 className="text-3xl font-bold tracking-tight">Getting Started</h2>
                 </div>
 
-                <div className="space-y-12">
-                  <div>
-                    <h3 className="text-2xl font-bold mb-6 flex items-center gap-3">
-                      <ChevronRight className="w-5 h-5 text-primary" />
-                      Environment Setup
-                    </h3>
-                    <div className="relative group">
-                      <button
-                        onClick={() => copyToClipboard('git clone <repo-url> && cd aries-app\nnpm install\ncp .env.example .env')}
-                        className="absolute right-4 top-4 p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors opacity-0 group-hover:opacity-100"
-                      >
-                        {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
-                      </button>
-                      <pre className="bg-[#0D0D0D] border border-white/10 rounded-2xl p-6 overflow-x-auto font-mono text-sm leading-relaxed text-indigo-300 shadow-2xl">
-                        <code>
-                          {`# Clone and install
-git clone <repo-url> && cd aries-app
-npm install
-
-# Configure environment
-cp .env.example .env
-# Edit .env with your N8N_BASE_URL and N8N_API_KEY
-
-# Start development server
-npm run dev --turbopack`}
-                        </code>
-                      </pre>
-                    </div>
-                  </div>
+                <div className="prose prose-invert prose-p:text-white/70 prose-p:leading-relaxed prose-p:text-lg max-w-none space-y-6">
+                  <p>
+                    <strong className="text-white">Create your first campaign from the dashboard.</strong> Once you're signed in, head to the Campaigns section and click "New Campaign." You'll be guided through naming it, describing your offer, and setting your goal. Aries uses this context to prepare a full strategy and creative plan for your review.
+                  </p>
+                  <p>
+                    <strong className="text-white">Connect your Meta and Instagram accounts.</strong> Go to Settings and open the Integrations tab. From there you can connect your Facebook Page and Instagram Business account. Aries will show the connection status before any campaign is published, so you always know what's live and what isn't.
+                  </p>
+                  <p>
+                    <strong className="text-white">Review and approve creative before anything goes live.</strong> Every campaign passes through a review step before it publishes. You'll see the generated copy, images, and channel-specific assets in a single approval view. Nothing is dispatched until you explicitly approve it.
+                  </p>
+                  <p>
+                    <strong className="text-white">Monitor performance in the results dashboard.</strong> After a campaign launches, results appear in the Results section of your workspace. You can see reach, engagement, and spend at a glance — no marketing software experience required.
+                  </p>
                 </div>
               </section>
 
@@ -223,15 +194,15 @@ npm run dev --turbopack`}
                   <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center border border-white/10">
                     <Layout className="w-6 h-6 text-primary" />
                   </div>
-                  <h2 className="text-3xl font-bold tracking-tight">Architecture</h2>
+                  <h2 className="text-3xl font-bold tracking-tight">How It Works</h2>
                 </div>
 
                 <div className="prose prose-invert prose-p:text-white/70 prose-p:leading-relaxed prose-p:text-lg max-w-none">
                   <p>
-                    Aries follows a layered architecture with clear boundaries, ensuring scalability and maintainability across both frontend components and backend services.
+                    Aries follows a four-stage workflow designed around human approval at every step: Research, Strategy, Creative, and Publish.
                   </p>
                   <p className="mt-4">
-                    The direct architecture ensures that the execution boundary is respected between the Next.js app and the backend services.
+                    In the <strong className="text-white">Research</strong> stage, Aries reviews your business profile and any website content you've connected to understand your offer, audience, and goals. In the <strong className="text-white">Strategy</strong> stage, it produces a campaign plan — positioning, channel selection, and messaging direction — which you review before anything moves forward. The <strong className="text-white">Creative</strong> stage generates copy and visual assets for each channel. Finally, in the <strong className="text-white">Publish</strong> stage, approved content is dispatched to your connected channels on the schedule you've set. You stay in control at every handoff.
                   </p>
                 </div>
               </section>
@@ -287,20 +258,20 @@ npm run dev --turbopack`}
 
                 <div className="prose prose-invert prose-p:text-white/70 prose-p:leading-relaxed prose-p:text-lg max-w-none">
                   <p>
-                    Aries connects to channel providers through server-side integration routes. The browser starts the connection flow, but provider tokens and runtime checks remain behind backend boundaries.
+                    Aries connects to the channels where your audience lives. You authorize each connection from the Settings page, and Aries handles the rest securely on your behalf.
                   </p>
                   <p className="mt-4">
-                    Integration status is surfaced inside the app so teams can see whether a channel is connected, disconnected, or needs reauthorization before launch.
+                    Integration status is always visible inside the app so you can see whether a channel is connected, disconnected, or needs to be reconnected before a campaign goes live.
                   </p>
                 </div>
 
                 <div className="mt-8 rounded-2xl border border-white/10 bg-[#0D0D0D] p-6">
                   <div className="grid gap-4 md:grid-cols-2">
                     {[
-                      ['Connection status', 'Read connected channel health before scheduling or dispatching a campaign.'],
-                      ['OAuth callbacks', 'Complete provider authorization through backend callback handlers.'],
-                      ['Publishing safety', 'Dispatch only approved campaign content to connected channels.'],
-                      ['Reauthorization', 'Detect channels that need a fresh provider connection before use.'],
+                      ['Connection status', 'See which channels are connected and ready before scheduling a campaign.'],
+                      ['One-click authorization', 'Connect your accounts in a few clicks from the Settings page.'],
+                      ['Publishing safety', 'Only approved campaign content is ever sent to your connected channels.'],
+                      ['Reconnect reminders', 'Aries alerts you if a channel needs to be reconnected before use.'],
                     ].map(([title, description]) => (
                       <div key={title} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
                         <h3 className="font-semibold text-white">{title}</h3>
@@ -326,18 +297,18 @@ npm run dev --turbopack`}
 
                 <div className="prose prose-invert prose-p:text-white/70 prose-p:leading-relaxed prose-p:text-lg max-w-none">
                   <p>
-                    Aries keeps authentication, tenant context, and provider credentials on server-controlled boundaries. Users must be signed in before accessing protected workspaces.
+                    Aries is designed to keep your account, your campaigns, and your channel connections secure. You must be signed in to access your workspace, and every action that affects a live channel requires your explicit approval.
                   </p>
                   <p className="mt-4">
-                    New users complete onboarding before dashboard access, and existing users are routed according to their tenant and onboarding state.
+                    New users complete a short onboarding before reaching the dashboard. Your workspace is private to your account and any team members you invite.
                   </p>
                 </div>
 
                 <div className="mt-8 space-y-4">
                   {[
-                    ['Tenant-aware access', 'Protected routes resolve tenant claims before showing campaign or dashboard data.'],
-                    ['Approval gates', 'Campaign stages can require explicit review before launch or publishing actions.'],
-                    ['Environment isolation', 'Secrets, OAuth credentials, and database connection settings stay in environment configuration.'],
+                    ['Protected workspaces', 'Your campaigns and dashboard are only accessible when you are signed in.'],
+                    ['Approval gates', 'Each campaign stage requires your review and approval before moving forward.'],
+                    ['Secure channel connections', 'Your connected accounts are authorized securely and never shared across workspaces.'],
                   ].map(([title, description]) => (
                     <div key={title} className="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
                       <h3 className="font-bold text-white">{title}</h3>

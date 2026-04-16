@@ -82,22 +82,22 @@ const CHANNEL_OPTIONS: ChannelOption[] = [
   {
     id: 'meta-ads',
     label: 'Meta (Facebook + Instagram Ads)',
-    description: 'Paid social for demand capture, retargeting, and direct-response offers.',
+    description: 'Paid ads on Facebook and Instagram via Meta Business Suite.',
   },
   {
     id: 'instagram',
     label: 'Instagram (Organic)',
-    description: 'High-visibility social touchpoints for brand presence, proof, and offer awareness.',
+    description: 'Organic posts, stories, and reels on Instagram.',
   },
   {
     id: 'google-business',
     label: 'Google Business',
-    description: 'Local discovery and intent capture for service-led businesses that need qualified traffic.',
+    description: 'Local presence, reviews, and Google Maps visibility.',
   },
   {
     id: 'linkedin',
     label: 'LinkedIn',
-    description: 'Professional reach for higher-trust offers, partnerships, and longer consideration cycles.',
+    description: 'Professional network for B2B reach and thought leadership.',
   },
 ];
 
@@ -270,9 +270,21 @@ function stepReady(stepKey: StepKey, values: {
   return true;
 }
 
-function stepValidationMessage(stepKey: StepKey): string {
+function stepValidationMessage(stepKey: StepKey, values?: {
+  businessName: string;
+  businessType: string;
+}): string | null {
   if (stepKey === 'business') {
-    return 'Add the business name and business type before continuing.';
+    if (values) {
+      if (!values.businessName.trim()) {
+        return 'Add a business name before continuing.';
+      }
+      if (!values.businessType.trim()) {
+        return 'Select a business type before continuing.';
+      }
+      return null;
+    }
+    return 'Add a business name before continuing.';
   }
   if (stepKey === 'website') {
     return 'Enter a valid HTTPS website before continuing.';
@@ -459,6 +471,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [urlPreview, setUrlPreview] = useState<UrlPreviewResponse | null>(null);
+  const [previewRefreshCounter, setPreviewRefreshCounter] = useState(0);
   const [draftId, setDraftId] = useState(draftParam);
   const [creatingDraft, setCreatingDraft] = useState(false);
   const [loadedDraftId, setLoadedDraftId] = useState<string | null>(null);
@@ -473,7 +486,14 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   const [offer, setOffer] = useState('');
   const [competitorUrl, setCompetitorUrl] = useState('');
   const [websiteChip, setWebsiteChip] = useState<UrlChipState>({ kind: 'idle' });
-  const [channelsRecommendationApplied, setChannelsRecommendationApplied] = useState(false);
+  // Two separate flags: `locked` prevents the recommendation from re-firing
+  // (set when the user or a loaded draft already has channels). `shown`
+  // controls whether the "Recommended for {businessType}" subtitle actually
+  // appears — only true when the auto-recommendation was the source of the
+  // current selection. The old single-flag implementation conflated these
+  // two concerns and showed the subtitle for draft-loaded selections too.
+  const [channelsRecommendationLocked, setChannelsRecommendationLocked] = useState(false);
+  const [channelsRecommendationShown, setChannelsRecommendationShown] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'local-saved'>('idle');
   const [touched, setTouched] = useState<TouchedFields>({
     businessName: false,
@@ -491,6 +511,8 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   const draftApiFailedRef = useRef(false);
   const localSaveTimerRef = useRef<number | null>(null);
   const savedIndicatorTimerRef = useRef<number | null>(null);
+  const transitionTimerRef = useRef<number | null>(null);
+  const submittingRef = useRef(false);
   const deferredWebsiteUrl = useDeferredValue(websiteUrl.trim());
 
   const markTouched = useCallback((field: keyof TouchedFields) => {
@@ -629,7 +651,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         }
 
         const nextProfile = result.profileResponse.profile;
-        setBusinessName(nextProfile.businessName || nextProfile.brandKit?.brand_name || '');
+        setBusinessName(nextProfile.businessName?.trim() ? nextProfile.businessName.trim() : '');
         setWebsiteUrl(nextProfile.websiteUrl || nextProfile.brandKit?.source_url || '');
         setBusinessType(nextProfile.businessType || '');
         setApproverName(nextProfile.launchApproverName || '');
@@ -652,6 +674,13 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
 
   useEffect(() => {
     if (!draftId) {
+      return;
+    }
+    // Don't autosave until the draft has been hydrated from the server (or
+    // freshly created locally). Without this guard, landing on
+    // /onboarding/start?draft=XXX would fire this effect immediately with
+    // the initial empty field values and overwrite the server draft.
+    if (loadedDraftId !== draftId) {
       return;
     }
 
@@ -700,18 +729,23 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     selectedChannels,
     urlPreview,
     websiteUrl,
+    loadedDraftId,
     markSaved,
   ]);
 
   // localStorage fallback: always write a debounced snapshot so unauthenticated
   // users (no draftId yet) and users where the draft API failed don't lose
-  // their inputs on refresh.
+  // their inputs on refresh. Skips the write for empty drafts so we don't
+  // leave an empty key around (and so a recently cleared draft doesn't get
+  // re-created by a trailing debounced tick). Also suppressed while submitting
+  // / transitioning so clearLocalDraft() sticks.
   useEffect(() => {
+    if (submittingRef.current) return;
     if (localSaveTimerRef.current) {
       window.clearTimeout(localSaveTimerRef.current);
     }
     localSaveTimerRef.current = window.setTimeout(() => {
-      writeLocalDraft({
+      const snapshot = {
         businessName,
         businessType,
         websiteUrl,
@@ -721,9 +755,24 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         customGoal,
         offer,
         competitorUrl,
-      });
-      if (!draftId || draftApiFailedRef.current) {
-        markSaved('local-saved');
+      };
+      const hasContent =
+        snapshot.businessName.trim() ||
+        snapshot.businessType.trim() ||
+        snapshot.websiteUrl.trim() ||
+        snapshot.approverName.trim() ||
+        snapshot.selectedChannels.length > 0 ||
+        snapshot.goal.trim() ||
+        snapshot.customGoal.trim() ||
+        snapshot.offer.trim() ||
+        snapshot.competitorUrl.trim();
+      if (hasContent) {
+        writeLocalDraft(snapshot);
+        if (!draftId || draftApiFailedRef.current) {
+          markSaved('local-saved');
+        }
+      } else {
+        clearLocalDraft();
       }
       localSaveTimerRef.current = null;
     }, 500);
@@ -746,6 +795,15 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     websiteUrl,
     markSaved,
   ]);
+
+  useEffect(() => {
+    return () => {
+      if (transitionTimerRef.current) {
+        window.clearTimeout(transitionTimerRef.current);
+        transitionTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // Check for local draft on mount and offer to restore.
   useEffect(() => {
@@ -787,25 +845,37 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     if (currentStep.key !== 'channels') {
       return;
     }
-    if (channelsRecommendationApplied) {
+    if (channelsRecommendationLocked) {
       return;
     }
     if (selectedChannels.length > 0) {
-      // User (or a loaded draft) already has channels — mark as applied so
-      // unchecking back down to zero doesn't trigger a surprise re-select.
-      setChannelsRecommendationApplied(true);
+      // User (or a loaded draft) already has channels — lock the recommender
+      // so unchecking back down to zero doesn't trigger a surprise re-select,
+      // but leave `shown` false so the "Recommended for {businessType}"
+      // subtitle doesn't appear for user-selected or draft-loaded channels.
+      setChannelsRecommendationLocked(true);
       return;
     }
     if (!businessType.trim()) {
       return;
     }
-    const recommended = recommendedChannelsForBusinessType(businessType);
+    // Filter the recommendation against the actual rendered CHANNEL_OPTIONS
+    // so we never pre-select an id that doesn't appear in the UI. Without
+    // this filter a user could be pre-selected to e.g. `email` or
+    // `instagram-organic` that aren't rendered in this flow's option list,
+    // pass the channels step's canProceed check (selectedChannels.length > 0),
+    // and send unsupported ids downstream with no visible selection.
+    const availableIds = new Set(CHANNEL_OPTIONS.map((option) => option.id));
+    const recommended = recommendedChannelsForBusinessType(businessType).filter(
+      (id) => availableIds.has(id),
+    );
     if (recommended.length === 0) {
       return;
     }
     setSelectedChannels(recommended);
-    setChannelsRecommendationApplied(true);
-  }, [currentStep.key, selectedChannels.length, channelsRecommendationApplied, businessType]);
+    setChannelsRecommendationLocked(true);
+    setChannelsRecommendationShown(true);
+  }, [currentStep.key, selectedChannels.length, channelsRecommendationLocked, businessType]);
 
   useEffect(() => {
     if (!draftId || !deferredWebsiteUrl || !isValidHttpsUrl(deferredWebsiteUrl)) {
@@ -840,7 +910,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [ariesApi, deferredWebsiteUrl, draftId]);
+  }, [ariesApi, deferredWebsiteUrl, draftId, previewRefreshCounter]);
 
   function toggleChannel(channelId: string) {
     setSelectedChannels((current) =>
@@ -872,12 +942,16 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   function handleDismissResume() {
     setResumePromptOpen(false);
     setPendingLocalDraft(null);
+    if (localSaveTimerRef.current) {
+      window.clearTimeout(localSaveTimerRef.current);
+      localSaveTimerRef.current = null;
+    }
     clearLocalDraft();
   }
 
   function handleContinue() {
     if (!stepReady(currentStep.key, { businessName, businessType, websiteUrl, selectedChannels, goal, customGoal })) {
-      setError(stepValidationMessage(currentStep.key));
+      setError(stepValidationMessage(currentStep.key, { businessName, businessType }) ?? 'Complete the current step before continuing.');
       return;
     }
     setError(null);
@@ -886,7 +960,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
 
   async function handleFinish() {
     if (!canFinish) {
-      setError(stepValidationMessage(currentStep.key));
+      setError(stepValidationMessage(currentStep.key, { businessName, businessType }) ?? 'Complete the current step before continuing.');
       return;
     }
 
@@ -935,17 +1009,23 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         },
       });
 
-      // Clear the localStorage fallback on successful submission so a
-      // refresh later doesn't re-offer the same inputs.
+      // Freeze autosave and cancel any pending debounced write so the draft
+      // doesn't get re-written between clearLocalDraft() and navigation.
+      submittingRef.current = true;
+      if (localSaveTimerRef.current) {
+        window.clearTimeout(localSaveTimerRef.current);
+        localSaveTimerRef.current = null;
+      }
       clearLocalDraft();
 
       if (props.initialAuthenticated) {
         // Full-screen transition for ~1.8s before redirecting so the user
         // sees a clear "we've got it, building your campaign" state instead
         // of a blank screen while the server-side resume page materializes
-        // the campaign.
+        // the campaign. Timer is tracked in a ref so unmount can cancel it.
         setShowTransition(true);
-        window.setTimeout(() => {
+        transitionTimerRef.current = window.setTimeout(() => {
+          transitionTimerRef.current = null;
           router.push(`/onboarding/resume?draft=${encodeURIComponent(activeDraftId)}`);
         }, 1800);
         return;
@@ -1047,7 +1127,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
               className="h-16 w-16 opacity-90"
             />
             <div className="flex items-center gap-3">
-              <Loader2 className="h-5 w-5 animate-spin text-[#c8a6ff]" />
+              <Loader2 aria-hidden="true" className="h-5 w-5 animate-spin text-[#c8a6ff]" />
               <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#ba8cff]">
                 Building your first campaign plan
               </p>
@@ -1067,23 +1147,36 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   return (
     <div className="min-h-screen overflow-hidden bg-[#07080d] text-white">
       {resumePromptOpen && pendingLocalDraft ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="resume-prompt-title"
+          aria-describedby="resume-prompt-body"
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              handleDismissResume();
+            }
+          }}
+        >
           <div className="w-full max-w-md rounded-[1.5rem] border border-white/14 bg-[linear-gradient(180deg,rgba(28,24,39,0.9),rgba(14,12,20,0.85))] p-6 shadow-[0_34px_110px_rgba(0,0,0,0.55)]">
             <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#ba8cff]">
               Welcome back
             </p>
-            <h3 className="mt-2 text-xl font-semibold text-white">Resume where you left off?</h3>
-            <p className="mt-3 text-sm leading-7 text-white/66">
+            <h3 id="resume-prompt-title" className="mt-2 text-xl font-semibold text-white">Resume where you left off?</h3>
+            <p id="resume-prompt-body" className="mt-3 text-sm leading-7 text-white/66">
               We saved your onboarding inputs in this browser. Continue from your last session, or start over.
             </p>
             <div className="mt-5 flex flex-wrap gap-3">
               <button
                 type="button"
                 onClick={handleResumeLocalDraft}
+                autoFocus
                 className="inline-flex items-center gap-2 rounded-full border border-[#a96cff]/40 bg-[linear-gradient(90deg,#5c2e96,#7a41c2,#a96cff)] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_0_24px_rgba(169,108,255,0.2)] transition hover:translate-y-[-1px]"
               >
                 Continue
-                <ArrowRight className="h-4 w-4" />
+                <ArrowRight aria-hidden="true" className="h-4 w-4" />
               </button>
               <button
                 type="button"
@@ -1357,6 +1450,50 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
 
               {currentStep.key === 'brand' ? (
                 <div className="space-y-6">
+                  {previewLoading ? (
+                    <div className="rounded-[2rem] border border-white/10 bg-[linear-gradient(160deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] p-6 animate-pulse">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#ba8cff] mb-4">Analyzing your site...</p>
+                      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+                        <div className="space-y-4">
+                          <div className="h-8 w-48 rounded-[0.75rem] bg-white/10" />
+                          <div className="h-4 w-64 rounded-[0.5rem] bg-white/[0.06]" />
+                          <div className="space-y-2">
+                            <div className="h-3 w-full rounded-[0.5rem] bg-white/[0.06]" />
+                            <div className="h-3 w-5/6 rounded-[0.5rem] bg-white/[0.06]" />
+                            <div className="h-3 w-4/6 rounded-[0.5rem] bg-white/[0.06]" />
+                          </div>
+                          <div className="grid gap-4 sm:grid-cols-2">
+                            <div className="h-20 rounded-[1rem] bg-white/[0.05]" />
+                            <div className="h-20 rounded-[1rem] bg-white/[0.05]" />
+                          </div>
+                        </div>
+                        <div className="grid gap-4">
+                          <div className="h-32 rounded-[1.5rem] bg-white/[0.05]" />
+                          <div className="h-20 rounded-[1.5rem] bg-white/[0.05]" />
+                        </div>
+                      </div>
+                    </div>
+                  ) : previewError ? (
+                    <div className="rounded-[2rem] border border-amber-400/20 bg-amber-400/[0.06] p-6">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-amber-300 mb-3">Brand analysis failed</p>
+                      <p className="text-sm leading-7 text-amber-100/80 mb-4">{previewError}</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUrlPreview(null);
+                          setPreviewError(null);
+                          // Bump the refresh counter — the preview useEffect
+                          // lists it in deps, so incrementing is enough to
+                          // re-run the fetch without churning websiteUrl (and
+                          // without the fragile setTimeout batching trick).
+                          setPreviewRefreshCounter((n) => n + 1);
+                        }}
+                        className="inline-flex items-center gap-2 rounded-full border border-amber-400/30 bg-amber-400/10 px-4 py-2 text-sm font-medium text-amber-200 transition hover:bg-amber-400/20"
+                      >
+                        Retry analysis
+                      </button>
+                    </div>
+                  ) : (
                   <div className="rounded-[2rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(151,93,255,0.12),transparent_28%),linear-gradient(160deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] p-6">
                     <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
                       <div className="space-y-4">
@@ -1392,6 +1529,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                       </div>
                     </div>
                   </div>
+                  )}
 
                   {preview?.externalLinks && preview.externalLinks.length > 0 ? (
                     <div className="rounded-[1.6rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-5">
@@ -1419,7 +1557,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                   <p className="max-w-3xl text-sm leading-7 text-white/65">
                     Choose the channels Aries should prioritize first. The initial set stays lightweight so the first campaign is easy to approve and launch.
                   </p>
-                  {channelsRecommendationApplied && businessType.trim() ? (
+                  {channelsRecommendationShown && businessType.trim() ? (
                     <p className="max-w-3xl text-xs font-medium uppercase tracking-[0.22em] text-[#ba8cff]">
                       Recommended for {businessType.trim()}
                     </p>
@@ -1568,7 +1706,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                         onChange={(event) => setCompetitorUrl(event.target.value)}
                         onBlur={() => markTouched('competitorUrl')}
                         className={inputClassForValidity(competitorUrlValidity)}
-                        placeholder="https://betterup.com"
+                        placeholder="https://competitor.com"
                       />
                     </Field>
 

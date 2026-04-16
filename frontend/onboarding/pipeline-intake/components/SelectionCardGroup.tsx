@@ -15,7 +15,7 @@ interface SelectionCardGroupProps {
   selected: string | string[];
   onChange: (value: string | string[]) => void;
   multi?: boolean;
-  ariaLabel?: string;
+  ariaLabel: string;
 }
 
 export default function SelectionCardGroup({
@@ -50,11 +50,10 @@ export default function SelectionCardGroup({
     }
   };
 
-  const groupRole = multi ? 'group' : 'radiogroup';
   const itemRole = multi ? 'checkbox' : 'radio';
 
   return (
-    <div className="grid gap-3" role={groupRole} aria-label={ariaLabel}>
+    <div className="grid gap-3" role="group" aria-label={ariaLabel}>
       {options.map((opt) => {
         const active = isSelected(opt.value);
         return (

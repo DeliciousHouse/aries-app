@@ -11,19 +11,19 @@ export default function ForgotPasswordPage() {
     }
   };
 
-  const handleSubmit = (email: string, code: string) => {
-    // Navigate to reset password or show success
-    console.log('Recovery code sent to:', email);
+  const handleSubmit = (email: string) => {
+    // The API always returns success (no email-enumeration oracle); send the
+    // user to the next step where they'll enter the code delivered via email.
     window.location.href = `/reset-password?email=${encodeURIComponent(email)}`;
   };
 
   return (
     <AuthLayout>
       <div className="flex justify-center w-full">
-        <ForgotPasswordForm 
-          onNavigate={handleNavigate} 
-          onSubmit={handleSubmit} 
-          isLoading={false} 
+        <ForgotPasswordForm
+          onNavigate={handleNavigate}
+          onSubmit={handleSubmit}
+          isLoading={false}
         />
       </div>
     </AuthLayout>

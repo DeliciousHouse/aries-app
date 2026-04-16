@@ -2,14 +2,12 @@
 
 import React, { useState } from 'react';
 import { AuthView } from '../types';
-import { recordPasswordResetRequest } from '../services/supabase';
-import { sendOTPEmail } from '../services/emailService';
 import { AriesMark } from '@/frontend/donor/ui';
 
 
 interface ForgotPasswordFormProps {
   onNavigate: (view: AuthView) => void;
-  onSubmit: (email: string, code: string) => void;
+  onSubmit: (email: string) => void;
   isLoading: boolean;
 }
 
@@ -30,18 +28,20 @@ const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({ onNavigate, onS
 
 
     try {
-      const code = Math.floor(100000 + Math.random() * 900000).toString();
-      await recordPasswordResetRequest(email, code);
-      const result = await sendOTPEmail(email, code, 'reset');
+      const response = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
 
-
-      if (result.success) {
-        onSubmit(email, code);
-      } else {
-        setError(result.error || "Delivery failed. Please ensure the email is correct.");
+      // The API always returns success to prevent email enumeration.
+      // Surface transport failures as a generic error, otherwise proceed.
+      if (!response.ok) {
+        setError('Unable to send recovery code right now. Please try again.');
+        return;
       }
 
-
+      onSubmit(email);
     } catch (err: any) {
       setError("An unexpected error occurred. Please try again.");
     } finally {
@@ -76,7 +76,7 @@ const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({ onNavigate, onS
       {/* Glassmorphic Form Card */}
       <div className="glass p-8 md:p-10 rounded-2xl border border-white/10 relative overflow-hidden">
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary via-secondary to-primary" />
-        
+
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
             <label className="block text-sm font-medium text-white/80 mb-1.5">Account Email</label>
@@ -103,7 +103,7 @@ const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({ onNavigate, onS
             disabled={isLoading || parentLoading || !email}
             className="w-full py-3 px-4 bg-gradient-to-r from-primary to-secondary hover:opacity-90 text-white font-medium rounded-xl transition-all shadow-[0_0_20px_rgba(124,58,237,0.3)] hover:shadow-[0_0_30px_rgba(124,58,237,0.5)] flex items-center justify-center gap-2 disabled:opacity-60"
           >
-            {isLoading || parentLoading ? 'Locating Account...' : 'Send Recovery Code'}
+            {isLoading || parentLoading ? 'Sending Code...' : 'Send Recovery Code'}
           </button>
         </form>
       </div>
