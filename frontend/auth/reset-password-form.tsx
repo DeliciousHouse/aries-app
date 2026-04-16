@@ -1,19 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { AuthView } from '../types';
-import { updateLoginPassword, markResetCodeUsed } from '../services/supabase';
 import { BrandLogo } from '@/components/redesign/brand/logo';
 
 
 interface ResetPasswordFormProps {
   email: string;
-  otpCode: string;
+  otpCode?: string;
   onNavigate: (view: AuthView) => void;
-  onSubmit: () => void;
+  onSubmit: (email: string, code: string, password: string) => void | Promise<void>;
   isLoading: boolean;
 }
 
 
 const ResetPasswordForm: React.FC<ResetPasswordFormProps> = ({ email, otpCode, onNavigate, onSubmit, isLoading }) => {
+  const [code, setCode] = useState(otpCode ?? '');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -35,11 +35,16 @@ const ResetPasswordForm: React.FC<ResetPasswordFormProps> = ({ email, otpCode, o
     setError(null);
 
 
+    if (!/^\d{6}$/.test(code.trim())) {
+      setError("Enter the 6-digit code from your email.");
+      return;
+    }
+
     if (password !== confirmPassword) {
       setError("Passwords do not match.");
       return;
     }
-    
+
     const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/;
     if (!passwordRegex.test(password)) {
       setError("Password must be at least 8 characters long and include an uppercase letter, a number, and a special character.");
@@ -47,18 +52,12 @@ const ResetPasswordForm: React.FC<ResetPasswordFormProps> = ({ email, otpCode, o
     }
 
 
-
     try {
-      await updateLoginPassword(email, password);
-      await markResetCodeUsed(email, otpCode);
-      onSubmit();
+      await onSubmit(email, code.trim(), password);
     } catch (err: any) {
-      setError(err.message || "Failed to update password. Try again.");
+      setError(err?.message || "Failed to update password. Try again.");
     }
   };
-
-
-  const inputStyle = "w-full px-[16px] py-[10px] rounded-xl border border-white/20 bg-black/10 text-white placeholder-[#851028] placeholder:font-medium placeholder:text-[15px] focus:outline-none focus:border-white/40 transition-all text-[15px]";
 
 
   return (
@@ -77,6 +76,21 @@ const ResetPasswordForm: React.FC<ResetPasswordFormProps> = ({ email, otpCode, o
       <div className="auth-card animate-in fade-in zoom-in-95 duration-500">
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
+            <label className="auth-label">Recovery Code</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="[0-9]{6}"
+              maxLength={6}
+              required
+              className="auth-input tracking-[0.4em] text-center"
+              placeholder="123456"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            />
+          </div>
+          <div className="space-y-2">
             <label className="auth-label">New Password</label>
             <input type="password" required className="auth-input" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} />
           </div>
@@ -87,9 +101,9 @@ const ResetPasswordForm: React.FC<ResetPasswordFormProps> = ({ email, otpCode, o
 
 
           {error && (
-            <div className="rounded-xl border border-red-500/20 bg-gradient-to-r from-red-500/15 via-red-500/5 to-transparent backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] flex items-center gap-3 animate-in fade-in slide-in-from-top-3 duration-500" 
-                 style={{ 
-                   padding: '16px', 
+            <div className="rounded-xl border border-red-500/20 bg-gradient-to-r from-red-500/15 via-red-500/5 to-transparent backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.3)] flex items-center gap-3 animate-in fade-in slide-in-from-top-3 duration-500"
+                 style={{
+                   padding: '16px',
                    marginBottom: '32px',
                    borderLeft: '4px solid #EF4444'
                  }}>
@@ -99,9 +113,9 @@ const ResetPasswordForm: React.FC<ResetPasswordFormProps> = ({ email, otpCode, o
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
               </div>
-              <span className="text-red-100/90 font-bold tracking-normal leading-snug" 
-                    style={{ 
-                      fontSize: '10px', 
+              <span className="text-red-100/90 font-bold tracking-normal leading-snug"
+                    style={{
+                      fontSize: '10px',
                       textTransform: 'capitalize',
                       letterSpacing: '0.02em'
                     }}>
@@ -113,7 +127,7 @@ const ResetPasswordForm: React.FC<ResetPasswordFormProps> = ({ email, otpCode, o
 
           <button
             type="submit"
-            disabled={isLoading || !password}
+            disabled={isLoading || !password || !code}
             className="auth-primary-button"
           >
             {isLoading ? 'Updating...' : 'UPDATE PASSWORD'}

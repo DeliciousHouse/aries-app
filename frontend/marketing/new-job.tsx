@@ -246,7 +246,7 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
                 <input
                   value={competitorUrl}
                   onChange={(event) => setCompetitorUrl(event.target.value)}
-                  placeholder="Optional competitor website, e.g. https://betterup.com"
+                  placeholder="Optional competitor website, e.g. https://competitor.com"
                   className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
                 />
                 <p className="mt-2 text-sm text-white/45">
@@ -256,11 +256,17 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
 
               <button
                 type="submit"
-                disabled={submitting}
-                className="w-full rounded-full bg-gradient-to-r from-primary to-secondary px-6 py-4 text-white font-semibold shadow-xl shadow-primary/20 disabled:opacity-60"
+                disabled={submitting || !websiteUrl.trim()}
+                className="w-full rounded-full bg-gradient-to-r from-primary to-secondary px-6 py-4 text-white font-semibold shadow-xl shadow-primary/20 disabled:opacity-60 disabled:cursor-not-allowed"
+                aria-describedby={!websiteUrl.trim() && !submitting ? 'start-campaign-hint' : undefined}
               >
                 {submitting ? 'Starting campaign...' : 'Start campaign'}
               </button>
+              {!websiteUrl.trim() && !submitting && (
+                <p id="start-campaign-hint" className="mt-2 text-center text-xs text-white/45">
+                  Enter a website URL to start the campaign.
+                </p>
+              )}
 
               {errorText ? (
                 <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-red-100">{errorText}</div>

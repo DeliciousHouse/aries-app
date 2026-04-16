@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Check, Loader2 } from 'lucide-react';
 import ProgressIndicator from './components/ProgressIndicator';
 import BrandStep from './steps/BrandStep';
 import CompetitorStep from './steps/CompetitorStep';
@@ -11,6 +12,89 @@ import ExecutionStep from './steps/ExecutionStep';
 import type { Channel, ExecutionMode, Goal, PipelineInput } from './types';
 
 type StepIndex = 0 | 1 | 2 | 3 | 4;
+
+const LOCAL_DRAFT_KEY = 'aries:pipeline-intake-draft';
+const LOCAL_DRAFT_VERSION = 1;
+
+const VALID_GOALS: readonly Goal[] = ['lead_generation', 'content_growth', 'product_sales', 'brand_awareness'];
+const VALID_CHANNELS: readonly Channel[] = ['tiktok', 'instagram', 'youtube', 'linkedin', 'x', 'meta-ads', 'email'];
+const VALID_MODES: readonly ExecutionMode[] = ['strategy_only', 'strategy_plus_assets', 'full_pipeline'];
+
+function isGoal(value: unknown): value is Goal {
+  return typeof value === 'string' && (VALID_GOALS as readonly string[]).includes(value);
+}
+
+function isChannel(value: unknown): value is Channel {
+  return typeof value === 'string' && (VALID_CHANNELS as readonly string[]).includes(value);
+}
+
+function isExecutionMode(value: unknown): value is ExecutionMode {
+  return typeof value === 'string' && (VALID_MODES as readonly string[]).includes(value);
+}
+
+type LocalDraft = {
+  version: number;
+  brandUrl: string;
+  competitorUrl: string;
+  goal: Goal | null;
+  channels: Channel[];
+  mode: ExecutionMode | null;
+};
+
+function readLocalDraft(): LocalDraft | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(LOCAL_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<LocalDraft> | null;
+    if (!parsed || parsed.version !== LOCAL_DRAFT_VERSION) return null;
+    const channels = Array.isArray(parsed.channels)
+      ? (parsed.channels as unknown[]).filter(isChannel)
+      : [];
+    return {
+      version: LOCAL_DRAFT_VERSION,
+      brandUrl: typeof parsed.brandUrl === 'string' ? parsed.brandUrl : '',
+      competitorUrl: typeof parsed.competitorUrl === 'string' ? parsed.competitorUrl : '',
+      goal: isGoal(parsed.goal) ? parsed.goal : null,
+      channels,
+      mode: isExecutionMode(parsed.mode) ? parsed.mode : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function clearLocalDraft() {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(LOCAL_DRAFT_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+function writeLocalDraft(draft: Omit<LocalDraft, 'version'>) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(
+      LOCAL_DRAFT_KEY,
+      JSON.stringify({ version: LOCAL_DRAFT_VERSION, ...draft }),
+    );
+  } catch {
+    // ignore
+  }
+}
+
+function hasDraftContent(draft: LocalDraft | null): boolean {
+  if (!draft) return false;
+  return Boolean(
+    draft.brandUrl.trim() ||
+      draft.competitorUrl.trim() ||
+      draft.goal ||
+      (draft.channels && draft.channels.length > 0) ||
+      draft.mode,
+  );
+}
 
 export default function PipelineIntake() {
   const router = useRouter();
@@ -25,6 +109,85 @@ export default function PipelineIntake() {
   const [mode, setMode] = useState<ExecutionMode | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [draftHydrated, setDraftHydrated] = useState(false);
+  const [draftRestored, setDraftRestored] = useState(false);
+  const [showTransition, setShowTransition] = useState(false);
+  const draftSaveTimer = useRef<number | null>(null);
+  const restoredIndicatorTimer = useRef<number | null>(null);
+  const transitionTimer = useRef<number | null>(null);
+  const submittingRef = useRef(false);
+
+  // Restore draft from localStorage on mount
+  useEffect(() => {
+    const snapshot = readLocalDraft();
+    if (hasDraftContent(snapshot) && snapshot) {
+      setBrandUrl(snapshot.brandUrl);
+      setCompetitorUrl(snapshot.competitorUrl);
+      setGoal(snapshot.goal);
+      setChannels(snapshot.channels);
+      setMode(snapshot.mode);
+      setDraftRestored(true);
+      if (restoredIndicatorTimer.current) {
+        window.clearTimeout(restoredIndicatorTimer.current);
+      }
+      restoredIndicatorTimer.current = window.setTimeout(() => {
+        setDraftRestored(false);
+        restoredIndicatorTimer.current = null;
+      }, 4000);
+    }
+    setDraftHydrated(true);
+    return () => {
+      if (restoredIndicatorTimer.current) {
+        window.clearTimeout(restoredIndicatorTimer.current);
+      }
+    };
+  }, []);
+
+  // Debounced localStorage save on any state change. Skips the write entirely
+  // for empty drafts so we don't leave an empty key around (and so a recently
+  // cleared draft doesn't get re-created by a trailing debounced tick). Also
+  // suppressed while submitting/transitioning so clearLocalDraft() sticks.
+  useEffect(() => {
+    if (!draftHydrated) return;
+    if (submittingRef.current) return;
+    if (draftSaveTimer.current) {
+      window.clearTimeout(draftSaveTimer.current);
+    }
+    draftSaveTimer.current = window.setTimeout(() => {
+      const snapshot = { brandUrl, competitorUrl, goal, channels, mode };
+      if (hasDraftContent({ version: LOCAL_DRAFT_VERSION, ...snapshot })) {
+        writeLocalDraft(snapshot);
+      } else {
+        clearLocalDraft();
+      }
+      draftSaveTimer.current = null;
+    }, 500);
+    return () => {
+      if (draftSaveTimer.current) {
+        window.clearTimeout(draftSaveTimer.current);
+        draftSaveTimer.current = null;
+      }
+    };
+  }, [brandUrl, competitorUrl, goal, channels, mode, draftHydrated]);
+
+  // Unmount cleanup — clears any pending redirect timer so the user doesn't
+  // get pushed to a job-status URL after navigating away during transition.
+  useEffect(() => {
+    return () => {
+      if (transitionTimer.current) {
+        window.clearTimeout(transitionTimer.current);
+        transitionTimer.current = null;
+      }
+    };
+  }, []);
+
+  const dismissRestored = useCallback(() => {
+    setDraftRestored(false);
+    if (restoredIndicatorTimer.current) {
+      window.clearTimeout(restoredIndicatorTimer.current);
+      restoredIndicatorTimer.current = null;
+    }
+  }, []);
 
   const goNext = () => {
     setDirection('forward');
@@ -37,7 +200,26 @@ export default function PipelineIntake() {
   };
 
   const handleSubmit = async () => {
-    if (!goal || !mode || channels.length === 0 || !brandUrl || !competitorUrl) return;
+    if (!goal) {
+      setSubmitError('Select a campaign goal on Step 1 before launching.');
+      return;
+    }
+    if (!brandUrl) {
+      setSubmitError('Enter your brand URL on Step 2 before launching.');
+      return;
+    }
+    if (!competitorUrl) {
+      setSubmitError('Enter a competitor URL on Step 3 before launching.');
+      return;
+    }
+    if (channels.length === 0) {
+      setSubmitError('Select at least one channel on Step 4 before launching.');
+      return;
+    }
+    if (!mode) {
+      setSubmitError('Pick an execution mode on Step 5 before launching.');
+      return;
+    }
 
     const payload: PipelineInput = {
       brand_url: brandUrl,
@@ -81,12 +263,52 @@ export default function PipelineIntake() {
       if (!body.jobId?.trim()) {
         throw new Error('Marketing job response missing jobId');
       }
-      router.push(nextUrl);
+      // Freeze autosave and cancel any pending debounced write so the draft
+      // doesn't get re-written between clearLocalDraft() and navigation.
+      submittingRef.current = true;
+      if (draftSaveTimer.current) {
+        window.clearTimeout(draftSaveTimer.current);
+        draftSaveTimer.current = null;
+      }
+      clearLocalDraft();
+      // Show a brief transition screen so the user sees a clear "we've got
+      // it, building your first campaign" state before the redirect. Timer
+      // is tracked in a ref so unmount can cancel it.
+      setShowTransition(true);
+      transitionTimer.current = window.setTimeout(() => {
+        transitionTimer.current = null;
+        router.push(nextUrl);
+      }, 1800);
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : 'Something went wrong');
       setIsSubmitting(false);
     }
   };
+
+  if (showTransition) {
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center px-4"
+        style={{ backgroundColor: '#0a0a0f' }}
+      >
+        <div className="w-full max-w-md rounded-2xl border border-[#1e1e2e] bg-[#0f0f17] px-8 py-10 text-center">
+          <p className="text-[11px] uppercase tracking-[0.28em] text-aries-crimson font-medium mb-3">Aries</p>
+          <div className="flex items-center justify-center gap-3 mb-5">
+            <Loader2 aria-hidden="true" className="w-5 h-5 text-aries-crimson animate-spin" />
+            <p className="text-xs uppercase tracking-[0.2em] text-[#888] font-medium">
+              Building your first campaign
+            </p>
+          </div>
+          <h2 className="text-xl font-semibold text-white mb-3">
+            All set — we&apos;ll take it from here.
+          </h2>
+          <p className="text-sm text-[#888] leading-relaxed">
+            This usually takes 10–30 seconds. We&apos;ll open the workspace as soon as it&apos;s ready.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -98,6 +320,25 @@ export default function PipelineIntake() {
         <p className="text-xs uppercase tracking-[0.3em] text-aries-crimson font-medium mb-1">Aries</p>
         <h1 className="text-xl font-bold text-white">Pipeline Setup</h1>
       </div>
+
+      {/* Draft restored indicator */}
+      {draftRestored && (
+        <div
+          className="mb-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-medium"
+          role="status"
+        >
+          <Check aria-hidden="true" className="w-3.5 h-3.5" />
+          Draft restored
+          <button
+            type="button"
+            onClick={dismissRestored}
+            aria-label="Dismiss draft restored notice"
+            className="ml-1 text-emerald-400/70 hover:text-emerald-300"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {/* Progress */}
       <ProgressIndicator currentStep={step} />
@@ -113,9 +354,17 @@ export default function PipelineIntake() {
         }}
       >
         {step === 0 && (
-          <BrandStep brandUrl={brandUrl} onBrandUrlChange={setBrandUrl} onNext={goNext} />
+          <GoalStep goal={goal} onGoalChange={setGoal} onNext={goNext} />
         )}
         {step === 1 && (
+          <BrandStep
+            brandUrl={brandUrl}
+            onBrandUrlChange={setBrandUrl}
+            onNext={goNext}
+            onBack={goBack}
+          />
+        )}
+        {step === 2 && (
           <CompetitorStep
             competitorUrl={competitorUrl}
             brandUrl={brandUrl}
@@ -123,9 +372,6 @@ export default function PipelineIntake() {
             onNext={goNext}
             onBack={goBack}
           />
-        )}
-        {step === 2 && (
-          <GoalStep goal={goal} onGoalChange={setGoal} onNext={goNext} onBack={goBack} />
         )}
         {step === 3 && (
           <ChannelsStep

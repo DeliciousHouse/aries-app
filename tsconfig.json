@@ -41,6 +41,7 @@
     "node_modules",
     "dist",
     "recovery",
-    "references/AriesAI-Frontend"
+    "references/AriesAI-Frontend",
+    "demo-recorder"
   ]
 }

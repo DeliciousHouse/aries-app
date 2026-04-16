@@ -3,6 +3,10 @@ import { Suspense } from 'react';
 import AuthLayout from '../../frontend/auth/auth-layout';
 import LoginPageClient from './page-client';
 
+export const metadata = {
+  title: 'Sign in — Aries AI',
+};
+
 export default function LoginPage() {
   return (
     <Suspense

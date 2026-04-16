@@ -1,7 +1,4 @@
-import {
-  getAuthErrorMessage,
-  EMAIL_DOES_NOT_EXIST_ERROR,
-} from "./auth-error-message";
+import { getAuthErrorMessage } from "./auth-error-message";
 
 export function resolveLoginErrorCode(
   error: string | null | undefined,
@@ -20,13 +17,6 @@ export function resolveLoginErrorCode(
   }
 
   return code;
-}
-
-export function shouldRedirectLoginToSignup(
-  error: string | null | undefined,
-  code: string | null | undefined,
-): boolean {
-  return resolveLoginErrorCode(error, code) === EMAIL_DOES_NOT_EXIST_ERROR;
 }
 
 export function getLoginAuthErrorMessage(

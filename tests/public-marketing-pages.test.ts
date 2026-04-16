@@ -69,7 +69,7 @@ test('public marketing pages return valid elements with expected route shells an
     const homeSource = readRepoFile('frontend/donor/marketing/home-page.tsx');
     const chromeSource = readRepoFile('frontend/donor/marketing/chrome.tsx');
     assert.match(homeSource, /Nothing goes live without your approval/);
-    assert.match(homeSource, /Plan, create, approve, launch, and/);
+    assert.match(homeSource, /Plan campaigns, approve creative, launch safely/);
     assert.match(homeSource, /Start with your business/);
     assert.match(homeSource, /\/onboarding\/start/);
     assert.doesNotMatch(homeSource, /\/onboarding\/pipeline-intake/);

@@ -12,7 +12,6 @@ interface SignUpFormProps {
   onNavigate: (view: AuthView, email?: string) => void;
   onSubmit: (email: string, password: string) => Promise<{ success: boolean }> | { success: boolean };
   onGoogleSuccess: () => void;
-  onSlackClick: () => void;
   isLoading: boolean;
   authError?: string | null;
   savedStateMessage?: string | null;
@@ -24,7 +23,6 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
   onNavigate,
   onSubmit,
   onGoogleSuccess,
-  onSlackClick,
   isLoading,
   authError,
   savedStateMessage,
@@ -134,7 +132,7 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
           {invitationData ? `Joining ${invitationData.organizations.name}` : "Create Account"}
         </h1>
         <p className="text-white/60">
-          Get started with your autonomous marketing workspace
+          Plan, approve, and launch campaigns from one workspace.
         </p>
       </div>
 
@@ -236,7 +234,7 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
             disabled={isLoading || isSubmitting}
             className="w-full py-3 px-4 bg-gradient-to-r from-primary to-secondary hover:opacity-90 text-white font-medium rounded-xl transition-all shadow-[0_0_20px_rgba(124,58,237,0.3)] hover:shadow-[0_0_30px_rgba(124,58,237,0.5)] flex items-center justify-center gap-2 disabled:opacity-60"
           >
-            {isSubmitting ? 'Registering...' : 'REGISTER'}
+            {isSubmitting ? 'Creating account…' : 'Create account'}
           </button>
         </form>
 
@@ -253,12 +251,12 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
             </div>
 
 
-            <div className="mt-6 grid grid-cols-2 gap-3">
+            <div className="mt-6">
               <button
                 type="button"
                 onClick={onGoogleSuccess}
                 disabled={isLoading}
-                className="group flex items-center justify-center gap-2 py-2.5 px-4 bg-white/5 border border-white/10 rounded-xl text-sm font-medium hover:bg-white/10 transition-all"
+                className="group w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-white/5 border border-white/10 rounded-xl text-sm font-medium hover:bg-white/10 transition-all"
               >
                 <svg className="w-4 h-4 grayscale group-hover:grayscale-0 transition-all duration-300" viewBox="0 0 24 24">
                   <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -267,19 +265,6 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
                   <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                 </svg>
                 <span className="text-white/80 group-hover:text-white">Google</span>
-              </button>
-              <button
-                type="button"
-                onClick={onSlackClick}
-                className="group flex items-center justify-center gap-2 py-2.5 px-4 bg-white/5 border border-white/10 rounded-xl text-sm font-medium hover:bg-white/10 transition-all"
-              >
-                <svg className="w-4 h-4 grayscale group-hover:grayscale-0 transition-all duration-300" viewBox="0 0 122.8 122.8">
-                  <path fill="#E01E5A" d="M25.8 77.6c0 7.1-5.8 12.9-12.9 12.9S0 84.7 0 77.6s5.8-12.9 12.9-12.9h12.9v12.9zm6.4 0c0-7.1 5.8-12.9 12.9-12.9s12.9 5.8 12.9 12.9v32.3c0 7.1-5.8 12.9-12.9 12.9s-12.9-5.8-12.9-12.9V77.6z"/>
-                  <path fill="#36C5F0" d="M45.1 25.8c-7.1 0-12.9-5.8-12.9-12.9S38 0 45.1 0s12.9 5.8 12.9 12.9v12.9H45.1zm0 6.4c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9H12.9C5.8 58 0 52.2 0 45.1s5.8-12.9 12.9-12.9h32.2z"/>
-                  <path fill="#2EB67D" d="M97 45.1c0-7.1 5.8-12.9 12.9-12.9s12.9 5.8 12.9 12.9-5.8 12.9-12.9 12.9H97V45.1zm-6.4 0c0 7.1-5.8 12.9-12.9 12.9s-12.9-5.8-12.9-12.9V12.9C77.7 5.8 83.5 0 90.6 0s12.9 5.8 12.9 12.9v32.2z"/>
-                  <path fill="#ECB22E" d="M77.7 97c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9-12.9-5.8-12.9-12.9V97h12.9zm0-6.4c-7.1 0-12.9-5.8-12.9-12.9s5.8-12.9 12.9-12.9h32.3c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9H77.7z"/>
-                </svg>
-                <span className="text-white/80 group-hover:text-white">Slack</span>
               </button>
             </div>
           </div>

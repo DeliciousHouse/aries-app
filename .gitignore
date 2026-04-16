@@ -93,6 +93,17 @@ data/generated/
 data/runtime/
 data/validated/
 data/draft/
+# ci-watcher-dispatch automation runtime log — appended every run, local-only.
+data/ci-watcher-dispatch-log.json
+
+# Cron-written runtime state that was historically tracked. These files are
+# now owned by on-VM automations (runtime-error-intake, feedback-daily-summary,
+# overnight-self-improve) and must not appear in git status or the deploy
+# workflow's dirty-tree guard would block every deploy. The automations
+# recreate them on first run if absent.
+data/runtime-error-incidents.json
+data/feedback-processing-log.json
+data/nightly-build-log.json
 
 # Runtime session state (local only)
 state/
@@ -159,6 +170,7 @@ package-lock.json
 skills-lock.json
 
 agent-orchestrator.yaml
+agent-orchestrator.local.yaml
 
 # Generated daily artifacts — committing these pollutes diffs and leaks
 # per-session context into repo history. The generator scripts stay tracked;

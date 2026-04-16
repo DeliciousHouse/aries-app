@@ -2,6 +2,10 @@ import React from 'react';
 import MarketingLayout from '../../frontend/marketing/MarketingLayout';
 import Link from 'next/link';
 
+export const metadata = {
+  title: 'Features — Aries AI',
+};
+
 const FEATURES = [
   {
     icon: '◈',

@@ -66,6 +66,8 @@ const CHANNEL_LABELS: Record<Channel, string> = {
   youtube: 'YouTube',
   linkedin: 'LinkedIn',
   x: 'X (Twitter)',
+  'meta-ads': 'Meta Ads',
+  email: 'Email',
 };
 
 export default function SystemPreviewPanel({ channels, mode }: SystemPreviewPanelProps) {
