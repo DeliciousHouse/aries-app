@@ -14,7 +14,7 @@ const CHANNEL_OPTIONS: SelectionOption[] = [
   },
   {
     value: 'instagram',
-    label: 'Instagram',
+    label: 'Instagram (Organic + Reels)',
     description: 'Reels, stories, carousel — visual-first audience',
     icon: <span className="text-base">📸</span>,
   },
