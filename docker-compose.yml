@@ -50,8 +50,6 @@ services:
       OPENCLAW_LOBSTER_CWD: ${OPENCLAW_LOBSTER_CWD:-/app/lobster}
       OPENCLAW_GATEWAY_LOBSTER_CWD: ${OPENCLAW_GATEWAY_LOBSTER_CWD:-lobster}
       OPENCLAW_LOCAL_LOBSTER_CWD: ${OPENCLAW_LOCAL_LOBSTER_CWD:-/app/lobster}
-      RESEND_API_KEY: ${RESEND_API_KEY:-}
-      EMAIL_FROM: ${EMAIL_FROM:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
