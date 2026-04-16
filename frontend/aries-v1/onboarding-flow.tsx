@@ -75,7 +75,7 @@ const CHANNEL_OPTIONS: ChannelOption[] = [
     description: 'Paid ads on Facebook and Instagram via Meta Business Suite.',
   },
   {
-    id: 'instagram-organic',
+    id: 'instagram',
     label: 'Instagram (Organic)',
     description: 'Organic posts, stories, and reels on Instagram.',
   },
