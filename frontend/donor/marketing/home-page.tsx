@@ -526,7 +526,7 @@ function Hero() {
                 </div>
                 <span className="font-bold text-white">Scheduled</span>
               </div>
-              <p className="text-sm font-medium text-white/50 tracking-tight">Thu, Apr 2 at 8:30 AM</p>
+              <p className="text-sm font-medium text-white/50 tracking-tight">Next Thu at 8:30 AM</p>
             </motion.div>
           </div>
         </div>
@@ -1227,18 +1227,21 @@ function EarlyAccessSignup() {
           source: 'marketing-homepage',
         }),
       });
-      const result = (await response.json()) as { message?: string };
+
+      // Parse defensively — an empty body, HTML error page, or CDN 502 would
+      // otherwise surface as a raw "Unexpected end of JSON input" to the user.
+      const result = (await response.json().catch(() => ({}))) as { message?: string };
 
       if (!response.ok) {
-        throw new Error(result.message || 'We could not save your email right now.');
+        throw new Error(result.message || 'We could not save your email right now. Please try again in a moment.');
       }
 
       setStatus('success');
       setMessage(result.message || "You're on the early access list.");
       setEmail('');
-    } catch (error) {
+    } catch {
       setStatus('error');
-      setMessage(error instanceof Error ? error.message : 'We could not save your email right now.');
+      setMessage('We could not save your email right now. Please try again in a moment.');
     }
   }
 
@@ -1259,7 +1262,7 @@ function EarlyAccessSignup() {
                 Early access
               </span>
               <h2 className="mt-6 text-4xl font-light leading-tight md:text-[52px]">
-                Sign in to get <span className="text-gradient">early access</span>
+                Request <span className="text-gradient">early access</span>
               </h2>
               <p className="mt-6 max-w-2xl text-lg leading-8 text-white/62">
                 Join the first group of businesses getting Aries for campaign planning, approval-safe creative, launch scheduling, and clear weekly results.
@@ -1288,7 +1291,12 @@ function EarlyAccessSignup() {
               </div>
             </div>
 
-            <form onSubmit={handleSubmit} className="flex min-h-[390px] flex-col justify-center rounded-[2rem] border border-white/10 bg-black/25 p-5 shadow-2xl shadow-black/20">
+            <form
+              method="post"
+              action="/api/early-access"
+              onSubmit={handleSubmit}
+              className="flex min-h-[390px] flex-col justify-center rounded-[2rem] border border-white/10 bg-black/25 p-5 shadow-2xl shadow-black/20"
+            >
               <label className="block text-sm font-semibold text-white/80" htmlFor="early-access-email">
                 Work email
               </label>

@@ -12,9 +12,8 @@ import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { LoadingStateGrid } from './components';
 import DashboardHomePresenter from './presenters/dashboard-home-presenter';
 import { createDashboardHomeViewModel } from './view-models/dashboard-home';
-import type { PmBoardStandupSnapshot } from '@/lib/pm-board-standup';
 
-export default function AriesHomeDashboard({ latestStandup = null }: { latestStandup?: PmBoardStandupSnapshot | null }) {
+export default function AriesHomeDashboard() {
   const campaigns = useRuntimeCampaigns({ autoLoad: true });
   const reviews = useRuntimeReviews({ autoLoad: true });
   const profile = useBusinessProfile({ autoLoad: true });
@@ -55,7 +54,6 @@ export default function AriesHomeDashboard({ latestStandup = null }: { latestSta
   return (
     <DashboardHomePresenter
       model={model}
-      latestStandup={latestStandup}
       channelsState={integrations.isLoading ? 'loading' : integrations.error ? 'error' : 'ready'}
       channelsErrorMessage={customerSafeUiErrorMessage(
         integrations.error?.message ?? null,

@@ -81,12 +81,14 @@ export function DonorNavbar({ heroMode = false }: { heroMode?: boolean }) {
       )}
     >
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-6">
-        <a href="/" className="flex items-center gap-2">
-          <AriesMark className={cn('transition-opacity duration-300', showIcon ? 'opacity-100' : 'opacity-0')} />
-          <span className="text-xl font-bold tracking-tight text-white" style={{ opacity: headerOpacity }}>
+        <a href="/" className="flex items-center gap-2" aria-label="Aries AI — home">
+          <AriesMark
+            className={cn('transition-opacity duration-300', showIcon ? 'opacity-100' : 'opacity-0')}
+            decorative
+          />
+          <span className="text-xl font-bold tracking-tight text-white" aria-hidden="true" style={{ opacity: headerOpacity }}>
             Aries AI
           </span>
-          <span className="sr-only">Aries AI</span>
         </a>
 
         <div className="hidden md:flex items-center gap-8" style={headerOverlayStyle}>

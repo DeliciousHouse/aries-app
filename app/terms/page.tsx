@@ -1,21 +1,25 @@
 import MarketingLayout from '@/frontend/marketing/MarketingLayout';
 
+export const metadata = {
+  title: 'Terms of Service — Aries AI',
+};
+
 const SECTIONS = [
   {
-    title: 'Service scope',
-    body: 'Aries provides campaign orchestration, marketing workflow automation, and related analytics surfaces for tenant-authorized operators.',
+    title: 'What Aries does',
+    body: 'Aries plans, creates, and helps you launch marketing campaigns. You can review every piece of work before anything goes live.',
   },
   {
     title: 'Acceptable use',
-    body: 'You agree to use the service for lawful business activity and avoid content that violates platform rules, intellectual property rights, or privacy obligations.',
+    body: 'You agree to use Aries for lawful business activity and to follow each ad platform\u2019s own rules. Don\u2019t use Aries to create content that infringes copyright, violates privacy, or misleads people.',
   },
   {
-    title: 'Data handling',
-    body: 'Campaign inputs and generated artifacts are processed for workflow execution and status reporting. Tenant boundaries and route authorization controls apply.',
+    title: 'Your data',
+    body: 'We use the information you provide to generate campaigns and show you the status of your work. We don\u2019t share your campaign data with other customers, and we don\u2019t sell it.',
   },
   {
-    title: 'Operational changes',
-    body: 'The service may evolve over time. Material updates to these terms should be reviewed periodically by account owners and operators.',
+    title: 'Changes to these terms',
+    body: 'We may update these terms as the product evolves. When we make material changes, we\u2019ll notify account owners so you have time to review.',
   },
 ] as const;
 
@@ -28,7 +32,7 @@ export default function TermsPage() {
             <p className="text-xs uppercase tracking-[0.3em] text-primary mb-3">Legal</p>
             <h1 className="text-4xl font-bold mb-3">Terms of Service</h1>
             <p className="text-white/60">
-              These terms summarize the service boundary for Aries runtime and campaign operations.
+              A plain-language summary of what Aries does for you and what we expect from you.
             </p>
           </div>
           <div className="grid gap-4">

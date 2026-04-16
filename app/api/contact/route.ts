@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     {
       status: 'error',
       reason: 'contact_not_configured',
-      message: 'Contact intake is not configured in this Aries runtime yet.',
+      message: 'The contact form is not available right now. Please try again later.',
       request: {
         name: safeString(body.name),
         email: safeString(body.email),
