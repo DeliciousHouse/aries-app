@@ -36,7 +36,7 @@ export default function CompetitorStep({
         onChange={onCompetitorUrlChange}
         onPreviewLoaded={setPreview}
         label="Competitor website URL"
-        placeholder="https://betterup.com"
+        placeholder="https://competitor.com"
         excludeUrl={brandUrl}
         validationMode="competitor_website"
       />
