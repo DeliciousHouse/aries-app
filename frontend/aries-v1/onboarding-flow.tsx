@@ -71,23 +71,23 @@ const STEP_DEFINITIONS: StepDefinition[] = [
 const CHANNEL_OPTIONS: ChannelOption[] = [
   {
     id: 'meta-ads',
-    label: 'Meta',
-    description: 'Paid social for demand capture, retargeting, and direct-response offers.',
+    label: 'Meta (Facebook + Instagram Ads)',
+    description: 'Paid ads on Facebook and Instagram via Meta Business Suite.',
   },
   {
     id: 'instagram',
-    label: 'Instagram',
-    description: 'High-visibility social touchpoints for brand presence, proof, and offer awareness.',
+    label: 'Instagram (Organic)',
+    description: 'Organic posts, stories, and reels on Instagram.',
   },
   {
     id: 'google-business',
     label: 'Google Business',
-    description: 'Local discovery and intent capture for service-led businesses that need qualified traffic.',
+    description: 'Local presence, reviews, and Google Maps visibility.',
   },
   {
     id: 'linkedin',
     label: 'LinkedIn',
-    description: 'Professional reach for higher-trust offers, partnerships, and longer consideration cycles.',
+    description: 'Professional network for B2B reach and thought leadership.',
   },
 ];
 
@@ -260,9 +260,21 @@ function stepReady(stepKey: StepKey, values: {
   return true;
 }
 
-function stepValidationMessage(stepKey: StepKey): string {
+function stepValidationMessage(stepKey: StepKey, values?: {
+  businessName: string;
+  businessType: string;
+}): string | null {
   if (stepKey === 'business') {
-    return 'Add the business name and business type before continuing.';
+    if (values) {
+      if (!values.businessName.trim()) {
+        return 'Add a business name before continuing.';
+      }
+      if (!values.businessType.trim()) {
+        return 'Select a business type before continuing.';
+      }
+      return null;
+    }
+    return 'Add a business name before continuing.';
   }
   if (stepKey === 'website') {
     return 'Enter a valid HTTPS website before continuing.';
@@ -307,6 +319,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [urlPreview, setUrlPreview] = useState<UrlPreviewResponse | null>(null);
+  const [previewRefreshCounter, setPreviewRefreshCounter] = useState(0);
   const [draftId, setDraftId] = useState(draftParam);
   const [creatingDraft, setCreatingDraft] = useState(false);
   const [loadedDraftId, setLoadedDraftId] = useState<string | null>(null);
@@ -452,7 +465,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         }
 
         const nextProfile = result.profileResponse.profile;
-        setBusinessName(nextProfile.businessName || nextProfile.brandKit?.brand_name || '');
+        setBusinessName(nextProfile.businessName?.trim() ? nextProfile.businessName.trim() : '');
         setWebsiteUrl(nextProfile.websiteUrl || nextProfile.brandKit?.source_url || '');
         setBusinessType(nextProfile.businessType || '');
         setApproverName(nextProfile.launchApproverName || '');
@@ -597,7 +610,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [ariesApi, deferredWebsiteUrl, draftId]);
+  }, [ariesApi, deferredWebsiteUrl, draftId, previewRefreshCounter]);
 
   function toggleChannel(channelId: string) {
     setSelectedChannels((current) =>
@@ -609,7 +622,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
 
   function handleContinue() {
     if (!stepReady(currentStep.key, { businessName, businessType, websiteUrl, selectedChannels, goal, customGoal })) {
-      setError(stepValidationMessage(currentStep.key));
+      setError(stepValidationMessage(currentStep.key, { businessName, businessType }) ?? 'Complete the current step before continuing.');
       return;
     }
     setError(null);
@@ -618,7 +631,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
 
   async function handleFinish() {
     if (!canFinish) {
-      setError(stepValidationMessage(currentStep.key));
+      setError(stepValidationMessage(currentStep.key, { businessName, businessType }) ?? 'Complete the current step before continuing.');
       return;
     }
 
@@ -932,6 +945,50 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
 
               {currentStep.key === 'brand' ? (
                 <div className="space-y-6">
+                  {previewLoading ? (
+                    <div className="rounded-[2rem] border border-white/10 bg-[linear-gradient(160deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] p-6 animate-pulse">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#ba8cff] mb-4">Analyzing your site...</p>
+                      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+                        <div className="space-y-4">
+                          <div className="h-8 w-48 rounded-[0.75rem] bg-white/10" />
+                          <div className="h-4 w-64 rounded-[0.5rem] bg-white/[0.06]" />
+                          <div className="space-y-2">
+                            <div className="h-3 w-full rounded-[0.5rem] bg-white/[0.06]" />
+                            <div className="h-3 w-5/6 rounded-[0.5rem] bg-white/[0.06]" />
+                            <div className="h-3 w-4/6 rounded-[0.5rem] bg-white/[0.06]" />
+                          </div>
+                          <div className="grid gap-4 sm:grid-cols-2">
+                            <div className="h-20 rounded-[1rem] bg-white/[0.05]" />
+                            <div className="h-20 rounded-[1rem] bg-white/[0.05]" />
+                          </div>
+                        </div>
+                        <div className="grid gap-4">
+                          <div className="h-32 rounded-[1.5rem] bg-white/[0.05]" />
+                          <div className="h-20 rounded-[1.5rem] bg-white/[0.05]" />
+                        </div>
+                      </div>
+                    </div>
+                  ) : previewError ? (
+                    <div className="rounded-[2rem] border border-amber-400/20 bg-amber-400/[0.06] p-6">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-amber-300 mb-3">Brand analysis failed</p>
+                      <p className="text-sm leading-7 text-amber-100/80 mb-4">{previewError}</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUrlPreview(null);
+                          setPreviewError(null);
+                          // Bump the refresh counter — the preview useEffect
+                          // lists it in deps, so incrementing is enough to
+                          // re-run the fetch without churning websiteUrl (and
+                          // without the fragile setTimeout batching trick).
+                          setPreviewRefreshCounter((n) => n + 1);
+                        }}
+                        className="inline-flex items-center gap-2 rounded-full border border-amber-400/30 bg-amber-400/10 px-4 py-2 text-sm font-medium text-amber-200 transition hover:bg-amber-400/20"
+                      >
+                        Retry analysis
+                      </button>
+                    </div>
+                  ) : (
                   <div className="rounded-[2rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(151,93,255,0.12),transparent_28%),linear-gradient(160deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] p-6">
                     <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
                       <div className="space-y-4">
@@ -967,6 +1024,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                       </div>
                     </div>
                   </div>
+                  )}
 
                   {preview?.externalLinks && preview.externalLinks.length > 0 ? (
                     <div className="rounded-[1.6rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-5">
@@ -1087,7 +1145,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                         value={competitorUrl}
                         onChange={(event) => setCompetitorUrl(event.target.value)}
                         className={fieldInputClassName}
-                        placeholder="https://betterup.com"
+                        placeholder="https://competitor.com"
                       />
                     </Field>
 

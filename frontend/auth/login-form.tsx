@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, ArrowRight, Chrome, Lock, Mail } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Lock, Mail } from 'lucide-react';
 
 import { AriesMark } from '@/frontend/donor/ui';
 
@@ -8,7 +8,6 @@ interface LoginFormProps {
   defaultEmail?: string;
   onCredentialsSubmit: (email: string, password: string) => void;
   onGoogleSuccess: () => void;
-  onSlackClick?: () => void;
   isLoading: boolean;
   authError?: string | null;
   savedStateMessage?: string | null;
@@ -19,7 +18,6 @@ const LoginForm: React.FC<LoginFormProps> = ({
   defaultEmail,
   onCredentialsSubmit,
   onGoogleSuccess,
-  onSlackClick,
   isLoading,
   authError,
   savedStateMessage,
@@ -86,7 +84,9 @@ const LoginForm: React.FC<LoginFormProps> = ({
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="block text-sm font-medium text-white/80">Password</label>
-              <span className="text-sm text-white/40">Password reset is not self-serve yet</span>
+              <Link href="/forgot-password" className="text-sm text-white/60 hover:text-white transition-colors">
+                Forgot password?
+              </Link>
             </div>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -128,16 +128,16 @@ const LoginForm: React.FC<LoginFormProps> = ({
               <div className="w-full border-t border-white/10" />
             </div>
             <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-background/80 backdrop-blur-sm text-white/40 uppercase tracking-wider">or continue with Google</span>
+              <span className="px-2 bg-background/80 backdrop-blur-sm text-white/40 uppercase tracking-wider">or continue with</span>
             </div>
           </div>
 
-          <div className="mt-6 grid grid-cols-2 gap-3">
+          <div className="mt-6">
             <button
               type="button"
               onClick={onGoogleSuccess}
               disabled={isLoading}
-              className="group flex items-center justify-center gap-2 py-2.5 px-4 bg-white/5 border border-white/10 rounded-xl text-sm font-medium hover:bg-white/10 transition-all"
+              className="group w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-white/5 border border-white/10 rounded-xl text-sm font-medium hover:bg-white/10 transition-all"
             >
               <svg className="w-4 h-4 grayscale group-hover:grayscale-0 transition-all duration-300" viewBox="0 0 24 24">
                 <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -147,24 +147,11 @@ const LoginForm: React.FC<LoginFormProps> = ({
               </svg>
               Google
             </button>
-            <button
-              type="button"
-              onClick={onSlackClick}
-              className="group flex items-center justify-center gap-2 py-2.5 px-4 bg-white/5 border border-white/10 rounded-xl text-sm font-medium hover:bg-white/10 transition-all"
-            >
-              <svg className="w-4 h-4 grayscale group-hover:grayscale-0 transition-all duration-300" viewBox="0 0 122.8 122.8">
-                <path fill="#E01E5A" d="M25.8 77.6c0 7.1-5.8 12.9-12.9 12.9S0 84.7 0 77.6s5.8-12.9 12.9-12.9h12.9v12.9zm6.4 0c0-7.1 5.8-12.9 12.9-12.9s12.9 5.8 12.9 12.9v32.3c0 7.1-5.8 12.9-12.9 12.9s-12.9-5.8-12.9-12.9V77.6z"/>
-                <path fill="#36C5F0" d="M45.1 25.8c-7.1 0-12.9-5.8-12.9-12.9S38 0 45.1 0s12.9 5.8 12.9 12.9v12.9H45.1zm0 6.4c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9H12.9C5.8 58 0 52.2 0 45.1s5.8-12.9 12.9-12.9h32.2z"/>
-                <path fill="#2EB67D" d="M97 45.1c0-7.1 5.8-12.9 12.9-12.9s12.9 5.8 12.9 12.9-5.8 12.9-12.9 12.9H97V45.1zm-6.4 0c0 7.1-5.8 12.9-12.9 12.9s-12.9-5.8-12.9-12.9V12.9C77.7 5.8 83.5 0 90.6 0s12.9 5.8 12.9 12.9v32.2z"/>
-                <path fill="#ECB22E" d="M77.7 97c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9-12.9-5.8-12.9-12.9V97h12.9zm0-6.4c-7.1 0-12.9-5.8-12.9-12.9s5.8-12.9 12.9-12.9h32.3c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9H77.7z"/>
-              </svg>
-              Slack
-            </button>
           </div>
         </div>
 
         <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-4 text-center text-sm text-white/75">
-          Use your Postgres-backed email and password, or continue with Google if your account is managed there.
+          Sign in with your email and password, or use Google if that's how your account was created.
         </div>
 
         {authError ? (

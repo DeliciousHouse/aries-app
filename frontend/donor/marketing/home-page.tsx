@@ -346,7 +346,7 @@ function Hero() {
           <motion.div style={{ opacity: useTransform(smoothProgress, [0, 0.05], [1, 0]) }} className="mb-8">
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-reflection relative">
               <Sparkles className="w-4 h-4 text-primary" />
-              <span className="text-sm font-medium text-white/80">Nothing goes live without your approval</span>
+              <span className="text-sm font-medium text-white/80">The system small businesses actually use to grow</span>
             </div>
           </motion.div>
 
@@ -357,8 +357,8 @@ function Hero() {
             }}
             className="text-3xl md:text-[3rem] lg:text-[4rem] font-bold tracking-tight mb-8 leading-[1.1]"
           >
-            Plan, create, approve, launch, and <br />
-            <span className="text-gradient">improve your marketing</span>
+            Marketing without a system is expensive. <br />
+            <span className="text-gradient">Aries gives you the system.</span>
           </motion.h1>
 
           <motion.p
@@ -368,7 +368,7 @@ function Hero() {
             }}
             className="max-w-2xl mx-auto text-[1rem] text-white/60 mb-12"
           >
-            Aries gives business owners a calm workspace to see what is running, what needs approval, what is scheduled next, what is working, and what to do now.
+            Plan campaigns, approve creative, launch safely. Nothing goes live without your approval — and you always know what is running, what needs your sign-off, and what is working.
           </motion.p>
 
           <motion.div
@@ -1267,9 +1267,9 @@ function EarlyAccessSignup() {
 
               <div className="mt-[50px] grid w-full gap-4 sm:grid-cols-3">
                 {[
-                  ['01', ['Beta invite']],
-                  ['02', ['Workspace', 'preview']],
-                  ['03', ['Priority', 'setup']],
+                  ['01', ['Submit your', 'email']],
+                  ['02', ['Get a workspace', 'preview']],
+                  ['03', ['Launch your', 'first campaign']],
                 ].map(([count, labelLines]) => (
                   <div
                     key={count as string}
@@ -1548,16 +1548,14 @@ export default function DonorHomePage() {
 
       <Hero />
 
-      <section className="py-12 border-y border-white/5 bg-black/50 overflow-hidden">
-        <div className="container mx-auto px-6">
-          <p className="text-center text-white/30 text-sm font-medium uppercase tracking-widest mb-8">
-            Trusted by industry leaders
+      <section className="py-16 border-y border-white/5 bg-black/50">
+        <div className="container mx-auto px-6 text-center max-w-2xl">
+          <blockquote className="text-lg text-white/80 italic leading-relaxed">
+            "Aries helped me go from idea to approved campaign in 2 hours."
+          </blockquote>
+          <p className="mt-4 text-sm text-white/40 font-medium uppercase tracking-wider">
+            Early access user
           </p>
-          <div className="flex flex-wrap justify-center items-center gap-12 md:gap-24 opacity-40 grayscale hover:grayscale-0 transition-all duration-500">
-            {['NEXUS', 'VELOCITY', 'QUANTUM', 'ELEVATE', 'ORBIT'].map((label) => (
-              <span key={label} className="text-2xl font-bold">{label}</span>
-            ))}
-          </div>
         </div>
       </section>
 

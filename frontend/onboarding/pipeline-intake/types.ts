@@ -1,5 +1,5 @@
 export type Goal = "lead_generation" | "content_growth" | "product_sales" | "brand_awareness";
-export type Channel = "tiktok" | "instagram" | "youtube" | "linkedin" | "x";
+export type Channel = "tiktok" | "instagram" | "youtube" | "linkedin" | "x" | "meta-ads" | "email";
 export type ExecutionMode = "strategy_only" | "strategy_plus_assets" | "full_pipeline";
 
 export interface PipelineInput {

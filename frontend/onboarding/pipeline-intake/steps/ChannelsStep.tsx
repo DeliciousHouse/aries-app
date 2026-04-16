@@ -7,6 +7,12 @@ import type { Channel } from '../types';
 // Simple text icons since we don't have brand SVGs
 const CHANNEL_OPTIONS: SelectionOption[] = [
   {
+    value: 'meta-ads',
+    label: 'Meta (Facebook + Instagram Ads)',
+    description: 'Paid ads on Facebook and Instagram via Meta Business Suite.',
+    icon: <span className="text-base">📣</span>,
+  },
+  {
     value: 'tiktok',
     label: 'TikTok',
     description: 'Short-form video — massive reach, high engagement',
@@ -14,7 +20,7 @@ const CHANNEL_OPTIONS: SelectionOption[] = [
   },
   {
     value: 'instagram',
-    label: 'Instagram',
+    label: 'Instagram (Organic + Reels)',
     description: 'Reels, stories, carousel — visual-first audience',
     icon: <span className="text-base">📸</span>,
   },
@@ -35,6 +41,12 @@ const CHANNEL_OPTIONS: SelectionOption[] = [
     label: 'X (Twitter)',
     description: 'Real-time conversation — trending topics and brand voice',
     icon: <span className="text-base">✖️</span>,
+  },
+  {
+    value: 'email',
+    label: 'Email Marketing',
+    description: 'Automated email campaigns and sequences.',
+    icon: <span className="text-base">✉️</span>,
   },
 ];
 
