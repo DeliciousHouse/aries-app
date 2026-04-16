@@ -61,6 +61,7 @@ export default function ExecutionStep({
           selected={mode ?? ''}
           onChange={(val) => onModeChange(val as ExecutionMode)}
           multi={false}
+          ariaLabel="Execution mode"
         />
 
         <SystemPreviewPanel channels={channels} mode={mode} />

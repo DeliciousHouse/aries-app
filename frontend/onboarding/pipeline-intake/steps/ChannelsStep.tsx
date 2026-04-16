@@ -78,6 +78,7 @@ export default function ChannelsStep({
         selected={channels}
         onChange={(val) => onChannelsChange(val as Channel[])}
         multi={true}
+        ariaLabel="Target channels"
       />
 
       {channels.length === 0 && (

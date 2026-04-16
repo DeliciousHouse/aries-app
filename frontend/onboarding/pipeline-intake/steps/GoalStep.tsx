@@ -55,6 +55,7 @@ export default function GoalStep({ goal, onGoalChange, onNext, onBack }: GoalSte
         selected={goal ?? ''}
         onChange={(val) => onGoalChange(val as Goal)}
         multi={false}
+        ariaLabel="Campaign goal"
       />
     </StepContainer>
   );
