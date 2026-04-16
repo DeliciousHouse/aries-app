@@ -1,84 +1,95 @@
 import { NextResponse } from 'next/server';
 
-type EarlyAccessBody = {
+import pool from '@/lib/db';
+
+type EarlyAccessRequestBody = {
   email?: unknown;
   source?: unknown;
-  name?: unknown;
 };
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-function safeString(value: unknown): string | null {
+function normalizeEmail(value: unknown): string | null {
   if (typeof value !== 'string') {
     return null;
   }
-  const normalized = value.trim();
-  return normalized ? normalized : null;
+
+  const email = value.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return null;
+  }
+
+  return email;
+}
+
+function normalizeSource(value: unknown): string {
+  if (typeof value !== 'string') {
+    return 'website';
+  }
+
+  return value.trim().slice(0, 80) || 'website';
+}
+
+async function ensureEarlyAccessTable(): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS early_access_signups (
+      id BIGSERIAL PRIMARY KEY,
+      email TEXT UNIQUE NOT NULL,
+      source TEXT NOT NULL DEFAULT 'website',
+      user_agent TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
 }
 
 export async function POST(req: Request) {
-  let body: EarlyAccessBody;
+  let body: EarlyAccessRequestBody = {};
+
   try {
-    body = (await req.json()) as EarlyAccessBody;
+    body = (await req.json()) as EarlyAccessRequestBody;
   } catch {
+    body = {};
+  }
+
+  const email = normalizeEmail(body.email);
+  if (!email) {
     return NextResponse.json(
-      { status: 'error', message: 'Request body must be valid JSON.' },
+      {
+        status: 'error',
+        reason: 'invalid_email',
+        message: 'Enter a valid email address.',
+      },
       { status: 400 },
     );
   }
 
-  const email = safeString(body.email);
-  if (!email || !EMAIL_PATTERN.test(email)) {
-    return NextResponse.json(
-      { status: 'error', message: 'Enter a valid email to request early access.' },
-      { status: 400 },
+  try {
+    await ensureEarlyAccessTable();
+    await pool.query(
+      `
+        INSERT INTO early_access_signups (email, source, user_agent)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (email)
+        DO UPDATE SET
+          source = EXCLUDED.source,
+          user_agent = EXCLUDED.user_agent,
+          updated_at = now()
+      `,
+      [email, normalizeSource(body.source), req.headers.get('user-agent')],
     );
-  }
 
-  const source = safeString(body.source);
-  const name = safeString(body.name);
-
-  // Forward to a configured external waitlist provider (Formspree / ConvertKit /
-  // custom endpoint) when available. If no forwarder is configured, accept the
-  // submission and log it on the server so the form never appears broken.
-  const forwardUrl = process.env.EARLY_ACCESS_FORWARD_URL;
-  if (forwardUrl) {
-    try {
-      const forwardResponse = await fetch(forwardUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, source, name }),
-      });
-
-      if (!forwardResponse.ok) {
-        console.error('[early-access] forwarder returned non-OK status', forwardResponse.status);
-        return NextResponse.json(
-          {
-            status: 'error',
-            message: 'We could not save your email right now. Please try again shortly.',
-          },
-          { status: 502 },
-        );
-      }
-    } catch (error) {
-      console.error('[early-access] forwarder failed', error);
-      return NextResponse.json(
-        {
-          status: 'error',
-          message: 'We could not save your email right now. Please try again shortly.',
-        },
-        { status: 502 },
-      );
-    }
-  } else {
-    console.info('[early-access] captured (no forwarder configured)', { email, source, name });
-  }
-
-  return NextResponse.json(
-    {
+    return NextResponse.json({
       status: 'ok',
-      message: "You're on the early access list. We'll be in touch soon.",
-    },
-    { status: 201 },
-  );
+      message: "You're on the early access list.",
+    });
+  } catch (error) {
+    console.error('Unable to capture early access signup:', error);
+    return NextResponse.json(
+      {
+        status: 'error',
+        reason: 'database_unavailable',
+        message: 'We could not save your email right now. Please try again.',
+      },
+      { status: 503 },
+    );
+  }
 }

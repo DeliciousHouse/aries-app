@@ -1,12 +1,33 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+
+function resolveGitRoot() {
+  try {
+    return execFileSync('git', ['rev-parse', '--show-toplevel'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+    }).trim();
+  } catch {
+    return process.cwd();
+  }
+}
+
+function looksLikeRepoRoot(candidate) {
+  if (!candidate) {
+    return false;
+  }
+
+  const resolved = path.resolve(candidate);
+  return fs.existsSync(path.join(resolved, 'package.json')) && fs.existsSync(path.join(resolved, 'app'));
+}
 
 const explicitCodeRoot = process.env.CODE_ROOT?.trim();
-const candidateRoot = explicitCodeRoot ? path.resolve(explicitCodeRoot) : null;
-const root =
-  candidateRoot && fs.existsSync(path.join(candidateRoot, 'package.json'))
-    ? candidateRoot
-    : process.cwd();
+const root = looksLikeRepoRoot(explicitCodeRoot)
+  ? path.resolve(explicitCodeRoot)
+  : looksLikeRepoRoot(process.cwd())
+    ? process.cwd()
+    : resolveGitRoot();
 
 const required = [
   'package.json',

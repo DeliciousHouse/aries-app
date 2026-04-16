@@ -4,7 +4,11 @@ export const GOOGLE_SIGN_IN_REQUIRED_ERROR = "GoogleSignInRequired";
 
 const AUTH_ERROR_MESSAGES: Record<string, string> = {
   CredentialsSignin: "Invalid email or password.",
-  [EMAIL_DOES_NOT_EXIST_ERROR]: "Email doesn't exist. Please sign up.",
+  // Kept for defense-in-depth so any lingering surface that still emits this
+  // code shows the same generic response as wrong-password (no enumeration).
+  // The server no longer emits it — see auth.ts authorize() — but a stale
+  // client referencing the old query param still renders the safe string.
+  [EMAIL_DOES_NOT_EXIST_ERROR]: "Invalid email or password.",
   [GOOGLE_SIGN_IN_REQUIRED_ERROR]:
     "This account uses Google sign-in. Continue with Google to access it.",
   AccessDenied:

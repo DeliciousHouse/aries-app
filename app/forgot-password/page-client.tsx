@@ -11,7 +11,9 @@ export default function ForgotPasswordPageClient() {
     }
   };
 
-  const handleSubmit = (email: string, _code: string) => {
+  const handleSubmit = (email: string) => {
+    // The API always returns success (no email-enumeration oracle); send the
+    // user to the next step where they'll enter the code delivered via email.
     window.location.href = `/reset-password?email=${encodeURIComponent(email)}`;
   };
 

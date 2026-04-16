@@ -1,12 +1,24 @@
-import type { Metadata } from 'next';
+import { Suspense } from 'react';
 
+import AuthLayout from '../../frontend/auth/auth-layout';
 import ResetPasswordPageClient from './page-client';
 
-export const metadata: Metadata = {
-  title: 'Reset password · Aries',
-  description: 'Set a new password for your Aries account.',
+export const metadata = {
+  title: 'Set a new password — Aries AI',
 };
 
 export default function ResetPasswordPage() {
-  return <ResetPasswordPageClient />;
+  return (
+    <Suspense
+      fallback={
+        <AuthLayout>
+          <div className="mx-auto max-w-md rounded-2xl border border-white/10 bg-white/5 px-6 py-10 text-center text-white/70">
+            Loading password reset…
+          </div>
+        </AuthLayout>
+      }
+    >
+      <ResetPasswordPageClient />
+    </Suspense>
+  );
 }

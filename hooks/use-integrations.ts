@@ -102,11 +102,18 @@ export function useIntegrations(options: UseIntegrationsOptions = {}) {
         }
 
         if (action === 'disconnect') {
-          await api.oauthDisconnect(card.platform, {
+          const result = await api.oauthDisconnect(card.platform, {
             connection_id: `current_${card.platform}`,
           });
+          if (isOauthErrorResult(result)) {
+            throw createActionError(
+              result.message || 'Unable to disconnect platform.',
+              result.reason,
+              result
+            );
+          }
           await refresh();
-          return null;
+          return result;
         }
 
         if (action === 'sync_now') {

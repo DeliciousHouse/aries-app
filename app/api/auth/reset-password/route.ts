@@ -1,96 +1,153 @@
 import { NextResponse } from 'next/server';
+import crypto from 'node:crypto';
+import bcrypt from 'bcryptjs';
+
+import pool from '@/lib/db';
 
 type ResetPasswordBody = {
   email?: unknown;
-  otpCode?: unknown;
+  code?: unknown;
   password?: unknown;
 };
 
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 0;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const CODE_RE = /^\d{6}$/;
+// Matches the existing password policy in frontend/auth/reset-password-form.tsx:
+// 8+ chars, at least one uppercase, one digit, one special character.
+const PASSWORD_RE = /^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/;
+
+function errorResponse(message: string, status = 400) {
+  return NextResponse.json({ error: message }, { status });
 }
 
-// Accept any password at least 8 characters with at least one letter and one
-// number. Previous regex required a character from a narrow special-char class,
-// which rejected valid passwords like `GoodPass22` outright.
-const PASSWORD_POLICY = {
-  minLength: 8,
-  hasLetter: (value: string) => /[A-Za-z]/.test(value),
-  hasDigit: (value: string) => /\d/.test(value),
-};
+function normalizeEmail(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().toLowerCase();
+  return trimmed.length > 0 ? trimmed : null;
+}
 
-function validatePassword(password: string): string | null {
-  if (password.length < PASSWORD_POLICY.minLength) {
-    return `Password must be at least ${PASSWORD_POLICY.minLength} characters.`;
+function timingSafeHexEqual(a: string, b: string): boolean {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  if (a.length !== b.length) return false;
+  try {
+    const bufA = Buffer.from(a, 'hex');
+    const bufB = Buffer.from(b, 'hex');
+    if (bufA.length !== bufB.length || bufA.length === 0) return false;
+    return crypto.timingSafeEqual(bufA, bufB);
+  } catch {
+    return false;
   }
-  if (!PASSWORD_POLICY.hasLetter(password)) {
-    return 'Password must include at least one letter.';
-  }
-  if (!PASSWORD_POLICY.hasDigit(password)) {
-    return 'Password must include at least one number.';
-  }
-  return null;
 }
 
 export async function POST(req: Request) {
-  let payload: ResetPasswordBody;
+  let body: ResetPasswordBody = {};
   try {
-    payload = (await req.json()) as ResetPasswordBody;
+    body = (await req.json()) as ResetPasswordBody;
   } catch {
-    return NextResponse.json(
-      { error: 'invalid_json', message: 'Request body must be valid JSON.' },
-      { status: 400 },
+    body = {};
+  }
+
+  const email = normalizeEmail(body.email);
+  const code = typeof body.code === 'string' ? body.code.trim() : '';
+  const password = typeof body.password === 'string' ? body.password : '';
+
+  if (!email || !EMAIL_RE.test(email)) {
+    return errorResponse('Invalid or expired code');
+  }
+  if (!CODE_RE.test(code)) {
+    return errorResponse('Invalid or expired code');
+  }
+  if (!PASSWORD_RE.test(password)) {
+    return errorResponse(
+      'Password must be at least 8 characters and include an uppercase letter, a number, and a special character.',
     );
   }
 
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    return NextResponse.json(
-      { error: 'invalid_payload', message: 'Request body must be a JSON object.' },
-      { status: 400 },
+  const hashedSubmitted = crypto.createHash('sha256').update(code).digest('hex');
+
+  let client;
+  try {
+    client = await pool.connect();
+
+    // Brute-force protection: only consider rows that are unused, unexpired,
+    // AND have fewer than MAX_ATTEMPTS_PER_ROW failed verification attempts.
+    // On every mismatch below we increment the attempts counter, so a given
+    // reset row can be guessed at most MAX_ATTEMPTS_PER_ROW times before it
+    // is effectively locked. Combined with the 3-per-hour rate limit in
+    // forgot-password, an attacker gets at most ~15 guesses per email per hour
+    // against a 10^6 keyspace.
+    const MAX_ATTEMPTS_PER_ROW = 5;
+
+    const rows = await client.query(
+      `SELECT id, user_id, code_hash, attempts
+         FROM password_resets
+        WHERE email = $1
+          AND used_at IS NULL
+          AND expires_at > now()
+          AND attempts < $2
+        ORDER BY created_at DESC
+        LIMIT 5`,
+      [email, MAX_ATTEMPTS_PER_ROW],
     );
+
+    let match: { id: number; user_id: number } | null = null;
+    const candidateIds: number[] = [];
+    for (const row of rows.rows as Array<{ id: number; user_id: number; code_hash: string; attempts: number }>) {
+      candidateIds.push(row.id);
+      if (timingSafeHexEqual(hashedSubmitted, row.code_hash)) {
+        match = { id: row.id, user_id: row.user_id };
+        break;
+      }
+    }
+
+    if (!match) {
+      // Increment the failed-attempts counter on every candidate row we
+      // checked. A row that hits MAX_ATTEMPTS_PER_ROW is excluded from
+      // future candidate queries above — effectively locking it without
+      // marking it used_at (so we keep the used_at column meaning "a real
+      // reset consumed this row" rather than "got brute-forced away").
+      if (candidateIds.length > 0) {
+        await client.query(
+          `UPDATE password_resets SET attempts = attempts + 1 WHERE id = ANY($1::bigint[])`,
+          [candidateIds],
+        );
+      }
+      return errorResponse('Invalid or expired code');
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `UPDATE users SET password_hash = $1 WHERE id = $2`,
+        [passwordHash, match.user_id],
+      );
+      await client.query(
+        `UPDATE password_resets SET used_at = now() WHERE id = $1`,
+        [match.id],
+      );
+      await client.query(
+        `UPDATE password_resets SET used_at = now() WHERE email = $1 AND used_at IS NULL`,
+        [email],
+      );
+      await client.query('COMMIT');
+    } catch (txError) {
+      try {
+        await client.query('ROLLBACK');
+      } catch {
+        // ignore rollback errors
+      }
+      throw txError;
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('[reset-password] unexpected error', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return errorResponse('Unable to reset password right now.', 500);
+  } finally {
+    client?.release();
   }
-
-  const { email, otpCode, password } = payload;
-
-  if (!isNonEmptyString(email)) {
-    return NextResponse.json(
-      { error: 'invalid_email', message: 'A valid email is required.' },
-      { status: 400 },
-    );
-  }
-
-  if (!isNonEmptyString(otpCode)) {
-    return NextResponse.json(
-      { error: 'invalid_otp_code', message: 'A recovery code is required.' },
-      { status: 400 },
-    );
-  }
-
-  if (!isNonEmptyString(password)) {
-    return NextResponse.json(
-      { error: 'invalid_password', message: 'A password is required.' },
-      { status: 400 },
-    );
-  }
-
-  const passwordError = validatePassword(password);
-  if (passwordError) {
-    return NextResponse.json(
-      { error: 'weak_password', message: passwordError },
-      { status: 400 },
-    );
-  }
-
-  // Reset-password transport is not wired up in this runtime yet. Return a
-  // predictable 501 so the client can render a graceful message instead of a
-  // generic 500. When the backend is ready, replace this with the actual
-  // password update + OTP consumption calls.
-  return NextResponse.json(
-    {
-      status: 'error',
-      reason: 'reset_password_not_configured',
-      message: 'Password reset is not wired up in this Aries runtime yet.',
-    },
-    { status: 501 },
-  );
 }

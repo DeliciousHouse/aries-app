@@ -81,12 +81,14 @@ export function DonorNavbar({ heroMode = false }: { heroMode?: boolean }) {
       )}
     >
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-6">
-        <a href="/" className="flex items-center gap-2">
-          <AriesMark className={cn('transition-opacity duration-300', showIcon ? 'opacity-100' : 'opacity-0')} />
-          <span className="text-xl font-bold tracking-tight text-white" style={{ opacity: headerOpacity }}>
+        <a href="/" className="flex items-center gap-2" aria-label="Aries AI — home">
+          <AriesMark
+            className={cn('transition-opacity duration-300', showIcon ? 'opacity-100' : 'opacity-0')}
+            decorative
+          />
+          <span className="text-xl font-bold tracking-tight text-white" aria-hidden="true" style={{ opacity: headerOpacity }}>
             Aries AI
           </span>
-          <span className="sr-only">Aries AI</span>
         </a>
 
         <div className="hidden md:flex items-center gap-8" style={headerOverlayStyle}>
@@ -107,12 +109,6 @@ export function DonorNavbar({ heroMode = false }: { heroMode?: boolean }) {
         <div className="hidden md:flex items-center gap-4" style={headerOverlayStyle}>
           <a
             href="/login"
-            className="px-5 py-2 rounded-full border border-white/12 bg-white/5 text-sm font-medium text-white/85 transition-all hover:bg-white/10"
-          >
-            Log in
-          </a>
-          <a
-            href="/onboarding/start"
             className="px-5 py-2 rounded-full bg-gradient-to-r from-primary to-secondary hover:opacity-90 text-sm font-medium transition-all shadow-lg shadow-primary/20 flex items-center gap-2 text-white"
           >
             Start with your business <ArrowRight className="w-4 h-4" />
@@ -151,13 +147,6 @@ export function DonorNavbar({ heroMode = false }: { heroMode?: boolean }) {
             <div className="flex flex-col gap-4 pt-4 border-t border-white/10">
               <a
                 href="/login"
-                className="w-full py-3 flex justify-center rounded-xl border border-white/12 bg-white/5 font-medium text-white"
-                onClick={() => setIsMobileMenuOpen(false)}
-              >
-                Log in
-              </a>
-              <a
-                href="/onboarding/start"
                 className="w-full py-3 flex justify-center rounded-xl bg-gradient-to-r from-primary to-secondary font-medium text-white"
                 onClick={() => setIsMobileMenuOpen(false)}
               >

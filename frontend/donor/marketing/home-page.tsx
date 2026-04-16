@@ -3,7 +3,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ComponentType, type FormEvent, type SVGProps } from 'react';
 
 import {
-  ArrowRight,
   BarChart3,
   Check,
   ChevronLeft,
@@ -16,7 +15,6 @@ import {
   Linkedin,
   MoreHorizontal,
   PenTool,
-  Play,
   Plus,
   RefreshCw,
   Search,
@@ -32,6 +30,195 @@ import { motion, useScroll, useSpring, useTransform, type MotionValue } from 'mo
 import { cn } from '../lib/utils';
 import { AriesMark } from '../ui';
 import { DonorMarketingShell } from './chrome';
+
+const EARLY_ACCESS_STEPS = [
+  ['01', ['Beta invite']],
+  ['02', ['Workspace', 'preview']],
+  ['03', ['Priority', 'setup']],
+] as const;
+
+function EarlyAccessCopy({
+  titleId,
+  headingTag = 'h2',
+}: {
+  titleId?: string;
+  headingTag?: 'h2' | 'h3';
+}) {
+  const HeadingTag = headingTag;
+
+  return (
+    <div>
+      <span className="inline-flex rounded-full border border-primary/20 bg-primary/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.2em] text-primary">
+        Early access
+      </span>
+      <HeadingTag id={titleId} className="mt-6 text-4xl font-light leading-tight md:text-[52px]">
+        Sign in to get <span className="text-gradient">early access</span>
+      </HeadingTag>
+      <p className="mt-6 max-w-2xl text-lg leading-8 text-white/62">
+        Join the first group of businesses getting Aries for campaign planning, approval-safe creative, launch scheduling, and clear weekly results.
+      </p>
+
+      <div className="mt-[50px] grid w-full gap-4 sm:grid-cols-3">
+        {EARLY_ACCESS_STEPS.map(([count, labelLines]) => (
+          <div
+            key={count}
+            className="group min-h-28 rounded-[1.25rem] border border-white/10 bg-black/35 p-5 transition-colors hover:border-primary/35 hover:bg-primary/10"
+          >
+            <div className="text-3xl font-light leading-none tracking-[0.08em] text-white">{count}</div>
+            <div className="mt-5 text-[10px] font-semibold uppercase leading-5 tracking-[0.3em] text-white/45">
+              {labelLines.map((line) => (
+                <span key={line} className="block">
+                  {line}
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function EarlyAccessForm({
+  source,
+  emailInputId,
+  className,
+  variant = 'default',
+  buttonLabel = 'Request access',
+}: {
+  source: string;
+  emailInputId: string;
+  className?: string;
+  variant?: 'default' | 'hero';
+  buttonLabel?: string;
+}) {
+  const [email, setEmail] = useState('');
+  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (variant !== 'hero' || status !== 'success' || !message) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setMessage(null);
+      setStatus('idle');
+    }, 3000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [message, status, variant]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setStatus('error');
+      setMessage('Enter your email to request early access.');
+      return;
+    }
+
+    setStatus('loading');
+    setMessage(null);
+
+    try {
+      const response = await fetch('/api/early-access', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: trimmedEmail,
+          source,
+        }),
+      });
+      const result = (await response.json()) as { message?: string };
+
+      if (!response.ok) {
+        throw new Error(result.message || 'We could not save your email right now.');
+      }
+
+      setStatus('success');
+      setMessage(result.message || "You're on the early access list.");
+      setEmail('');
+    } catch (error) {
+      setStatus('error');
+      setMessage(error instanceof Error ? error.message : 'We could not save your email right now.');
+    }
+  }
+
+  const isHeroVariant = variant === 'hero';
+
+  return (
+    <form onSubmit={handleSubmit} className={cn(className, isHeroVariant ? 'mx-auto flex flex-col items-center' : '')}>
+      <label
+        className={cn('block text-sm font-semibold text-white/80', isHeroVariant ? 'sr-only' : '')}
+        htmlFor={emailInputId}
+      >
+        {isHeroVariant ? 'Email address' : 'Work email'}
+      </label>
+      <div
+        className={cn(
+          'mt-3',
+          isHeroVariant ? 'flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-center' : 'flex flex-col gap-3 sm:flex-row lg:flex-col xl:flex-row',
+        )}
+      >
+        {isHeroVariant ? (
+          <input
+            id={emailInputId}
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="Enter email address"
+            className="w-full sm:w-[300px] md:w-[340px] rounded-full bg-white/6 px-6 py-4 text-base text-white outline-none transition placeholder:text-white/30 focus:border-primary/50 shadow-xl shadow-black/20"
+            style={{ border: '1px solid #fff3' }}
+            disabled={status === 'loading'}
+          />
+        ) : (
+          <input
+            id={emailInputId}
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="you@company.com"
+            className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-white outline-none transition placeholder:text-white/30 focus:border-primary/50"
+            disabled={status === 'loading'}
+          />
+        )}
+        <button
+          type="submit"
+          disabled={status === 'loading'}
+          className={cn(
+            'bg-gradient-to-r from-primary to-secondary font-bold text-white shadow-lg shadow-primary/20 transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60',
+            isHeroVariant
+              ? 'rounded-full px-8 py-4 text-base sm:flex-none'
+              : 'rounded-2xl px-5 py-3 text-sm',
+          )}
+        >
+          {status === 'loading' ? 'Saving...' : buttonLabel}
+        </button>
+      </div>
+      {message ? (
+        <p
+          className={cn(
+            'mt-4 rounded-xl border px-4 py-3 text-sm',
+            isHeroVariant ? 'text-center' : '',
+            status === 'success'
+              ? 'border-primary/25 bg-primary/10 text-white'
+              : 'border-red-400/20 bg-red-400/10 text-red-100',
+          )}
+        >
+          {message}
+        </p>
+      ) : isHeroVariant ? null : (
+        <p className="mt-4 text-sm leading-6 text-white/42">
+          We will only use this email to contact you about Aries early access.
+        </p>
+      )}
+    </form>
+  );
+}
 
 function NetworkBackground() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -170,21 +357,41 @@ const PLATFORM_ORBITS: PlatformOrbit[] = [
   { icon: WikipediaLogo, angle: 255, radius: 420 },
 ];
 
+const MOBILE_PLATFORM_LAYOUT: Array<{
+  icon: PlatformOrbit['icon'];
+  angle: number;
+  ringScale: number;
+}> = [
+  { icon: WikipediaLogo, angle: 282, ringScale: 1 },
+  { icon: PinterestLogo, angle: 338, ringScale: 0.84 },
+  { icon: Linkedin, angle: 22, ringScale: 0.84 },
+  { icon: Youtube, angle: 92, ringScale: 1 },
+  { icon: Instagram, angle: 150, ringScale: 0.84 },
+  { icon: Facebook, angle: 212, ringScale: 1 },
+  { icon: RedditLogo, angle: 128, ringScale: 0.62 },
+  { icon: XTwitterLogo, angle: 236, ringScale: 0.5 },
+];
+
+const DESKTOP_RING_SCALES = [0.5, 0.76, 1] as const;
+
 function OrbitLine({
   angle,
   radius,
   rotation,
   progress,
   index,
+  startRadius,
+  endPadding,
 }: {
   angle: number;
   radius: number;
   rotation: MotionValue<number>;
   progress: MotionValue<number>;
   index: number;
+  startRadius: number;
+  endPadding: number;
 }) {
-  const startRadius = 25;
-  const lineTargetRadius = Math.max(startRadius, radius - 40);
+  const lineTargetRadius = Math.max(startRadius, radius - endPadding);
   const lineStart = 0.3 + index * 0.015;
   const lineEnd = 0.35 + index * 0.015;
   const lineCurrentRadius = useTransform(progress, [lineStart, lineEnd, 0.5, 0.6], [startRadius, lineTargetRadius, lineTargetRadius, startRadius]);
@@ -217,11 +424,15 @@ function OrbitPlatform({
   rotation,
   progress,
   index,
+  platformSize,
+  iconSize,
 }: {
   platform: PlatformOrbit;
   rotation: MotionValue<number>;
   progress: MotionValue<number>;
   index: number;
+  platformSize: number;
+  iconSize: number;
 }) {
   const platformRadius = useTransform(progress, [0, 0.05, 0.15, 0.5, 0.6], [0, 0, platform.radius, platform.radius, 0]);
   const x = useTransform([platformRadius, rotation], ([r, rot]) => Math.cos(((platform.angle + (rot as number)) * Math.PI) / 180) * (r as number));
@@ -238,8 +449,11 @@ function OrbitPlatform({
       }}
       className="relative"
     >
-      <div className="w-20 h-20 rounded-full bg-white/5 border border-white/10 backdrop-blur-md flex items-center justify-center shadow-2xl shadow-white/5 relative z-10">
-        <Icon className="w-10 h-10 text-white" />
+      <div
+        className="rounded-full bg-white/5 border border-white/10 backdrop-blur-md flex items-center justify-center shadow-2xl shadow-white/5 relative z-10"
+        style={{ width: platformSize, height: platformSize }}
+      >
+        <Icon className="text-white" style={{ width: iconSize, height: iconSize }} />
       </div>
       <motion.div
         className="absolute inset-0 rounded-full border-2 border-secondary/30"
@@ -298,10 +512,58 @@ function Hero() {
   const navbarLogoY = 56;
   const startX = navbarLogoX - windowSize.width / 2;
   const startY = navbarLogoY - windowSize.height / 2;
+  const isMobile = windowSize.width < 640;
+  const isTablet = windowSize.width < 1024;
+  const platformSize = isMobile ? 48 : isTablet ? 64 : windowSize.width < 1280 ? 72 : 80;
+  const iconSize = isMobile ? 24 : isTablet ? 32 : windowSize.width < 1280 ? 36 : 40;
+  const centerOuterSize = isMobile ? 82 : isTablet ? 128 : 160;
+  const centerInnerSize = isMobile ? 56 : isTablet ? 88 : 112;
+  const logoSize = isMobile ? 40 : isTablet ? 62 : 80;
+  const logoScaleFactor = isMobile ? 1.2 : isTablet ? 1.32 : 1.5625;
+  const orbitLineStartRadius = isMobile ? 18 : isTablet ? 22 : 25;
+  const orbitLineEndPadding = Math.max(24, platformSize / 2 + 12);
+  const viewportPadding = isMobile ? 20 : isTablet ? 32 : 12;
+  const availableOrbitRadius = Math.max(
+    140,
+    Math.min(
+      (windowSize.width - viewportPadding * 2 - platformSize) / 2,
+      (windowSize.height - viewportPadding * 2 - platformSize) / 2,
+    ),
+  );
+  const mobileRingRadius = Math.max(132, Math.round(availableOrbitRadius));
+  const desktopOuterRadius = Math.round(availableOrbitRadius);
+  const orbitRadii = isMobile
+    ? [0.42, 0.72, 1].map((scale) => Math.round(mobileRingRadius * scale))
+    : isTablet
+      ? [180, 300, 420].map((radius) => Math.round(radius * Math.min(1, availableOrbitRadius / 420)))
+      : DESKTOP_RING_SCALES.map((scale) => Math.round(desktopOuterRadius * scale));
+  const scaledPlatforms = isMobile
+    ? MOBILE_PLATFORM_LAYOUT.map((platform) => ({
+        icon: platform.icon,
+        angle: platform.angle,
+        radius: Math.round(mobileRingRadius * platform.ringScale),
+      }))
+    : isTablet
+      ? PLATFORM_ORBITS.map((platform) => ({
+          ...platform,
+          radius: Math.round(platform.radius * Math.min(1, availableOrbitRadius / 420)),
+        }))
+      : PLATFORM_ORBITS.map((platform) => ({
+          ...platform,
+          radius:
+            platform.radius === 180
+              ? Math.round(desktopOuterRadius * DESKTOP_RING_SCALES[0])
+              : platform.radius === 300
+                ? Math.round(desktopOuterRadius * DESKTOP_RING_SCALES[1])
+                : desktopOuterRadius,
+        }));
+  const maxOrbitRadius = Math.max(...orbitRadii, 0);
+  const orbitExtent = maxOrbitRadius + platformSize;
+  const orbitCanvasSize = orbitExtent * 2;
 
   const logoX = useTransform(smoothProgress, [0, 0.15, 0.3, 0.5, 0.95, 1], [startX, startX, 0, 0, startX, startX]);
   const logoY = useTransform(smoothProgress, [0, 0.15, 0.3, 0.5, 0.95, 1], [startY, startY, 0, 0, startY, startY]);
-  const logoScale = useTransform(smoothProgress, [0, 0.15, 0.3, 0.5, 0.95, 1], [1, 1, 1.5625, 1.5625, 1, 1]);
+  const logoScale = useTransform(smoothProgress, [0, 0.15, 0.3, 0.5, 0.95, 1], [1, 1, logoScaleFactor, logoScaleFactor, 1, 1]);
   const logoOpacity = useTransform(smoothProgress, [0, 0.95, 1], [1, 1, 0]);
   const centralCircleOpacity = useTransform(smoothProgress, [0, 0.05, 0.15, 0.5, 0.6], [0, 0, 1, 1, 0]);
   const centralCircleScale = useTransform(smoothProgress, [0, 0.05, 0.15, 0.5, 0.6], [0.5, 0.5, 1, 1, 0.5]);
@@ -346,7 +608,7 @@ function Hero() {
           <motion.div style={{ opacity: useTransform(smoothProgress, [0, 0.05], [1, 0]) }} className="mb-8">
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-reflection relative">
               <Sparkles className="w-4 h-4 text-primary" />
-              <span className="text-sm font-medium text-white/80">Nothing goes live without your approval</span>
+              <span className="text-sm font-medium text-white/80">The system small businesses actually use to grow</span>
             </div>
           </motion.div>
 
@@ -357,8 +619,8 @@ function Hero() {
             }}
             className="text-3xl md:text-[3rem] lg:text-[4rem] font-bold tracking-tight mb-8 leading-[1.1]"
           >
-            Plan, create, approve, launch, and <br />
-            <span className="text-gradient">improve your marketing</span>
+            Marketing without a system is expensive. <br />
+            <span className="text-gradient">Aries gives you the system.</span>
           </motion.h1>
 
           <motion.p
@@ -368,7 +630,7 @@ function Hero() {
             }}
             className="max-w-2xl mx-auto text-[1rem] text-white/60 mb-12"
           >
-            Aries gives business owners a calm workspace to see what is running, what needs approval, what is scheduled next, what is working, and what to do now.
+            Plan campaigns, approve creative, launch safely. Nothing goes live without your approval — and you always know what is running, what needs your sign-off, and how your campaigns are performing.
           </motion.p>
 
           <motion.div
@@ -376,47 +638,40 @@ function Hero() {
               opacity: useTransform(smoothProgress, [0, 0.05], [1, 0]),
               y: useTransform(smoothProgress, [0, 0.05], [0, -20]),
             }}
-            className="flex flex-col sm:flex-row items-center justify-center gap-4"
+            className="mx-auto w-full max-w-3xl"
           >
-            <a
-              href="/onboarding/start"
-              className="w-full sm:w-auto px-8 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 hover:scale-105 transition-transform flex items-center justify-center gap-2"
-            >
-              Start with your business <ArrowRight className="w-5 h-5" />
-            </a>
-            <a
-              href="/login"
-              className="w-full sm:w-auto px-8 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2"
-            >
-              Log in
-            </a>
-            <a
-              href="/#how-it-works"
-              className="w-full sm:w-auto px-8 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2"
-            >
-              <Play className="w-5 h-5 fill-current" /> See how it works
-            </a>
+            <EarlyAccessForm
+              source="marketing-hero"
+              emailInputId="hero-early-access-email"
+              variant="hero"
+              buttonLabel="Get early access"
+            />
           </motion.div>
 
           <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
             <motion.div style={{ opacity: platformsOpacity }} className="absolute inset-0 flex items-center justify-center">
-              {[180, 300, 420].map((radius) => (
+              {orbitRadii.map((radius) => (
                 <div key={radius} className="absolute rounded-full border border-white/5" style={{ width: radius * 2, height: radius * 2 }} />
               ))}
             </motion.div>
 
             <motion.div
-              style={{ opacity: centralCircleOpacity, scale: centralCircleScale }}
-              className="w-40 h-40 rounded-full border border-white/10 bg-white/5 backdrop-blur-sm flex items-center justify-center"
+              style={{
+                opacity: centralCircleOpacity,
+                scale: centralCircleScale,
+                width: centerOuterSize,
+                height: centerOuterSize,
+              }}
+              className="rounded-full border border-white/10 bg-white/5 backdrop-blur-sm flex items-center justify-center"
             >
-              <div className="w-28 h-28 rounded-full border border-primary/20 animate-pulse" />
+              <div className="rounded-full border border-primary/20 animate-pulse" style={{ width: centerInnerSize, height: centerInnerSize }} />
             </motion.div>
 
             <svg
               className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none overflow-visible"
-              width="1000"
-              height="1000"
-              viewBox="-500 -500 1000 1000"
+              width={orbitCanvasSize}
+              height={orbitCanvasSize}
+              viewBox={`${-orbitExtent} ${-orbitExtent} ${orbitCanvasSize} ${orbitCanvasSize}`}
             >
               <defs>
                 <linearGradient id="line-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -432,7 +687,7 @@ function Hero() {
                   </feMerge>
                 </filter>
               </defs>
-              {isMounted && PLATFORM_ORBITS.map((platform, index) => (
+              {isMounted && scaledPlatforms.map((platform, index) => (
                 <OrbitLine
                   key={`${platform.angle}-${platform.radius}`}
                   angle={platform.angle}
@@ -440,18 +695,22 @@ function Hero() {
                   rotation={platformsRotate}
                   progress={smoothProgress}
                   index={index}
+                  startRadius={orbitLineStartRadius}
+                  endPadding={orbitLineEndPadding}
                 />
               ))}
             </svg>
 
             <motion.div style={{ opacity: platformsOpacity }} className="absolute w-full h-full flex items-center justify-center">
-              {PLATFORM_ORBITS.map((platform, index) => (
+              {scaledPlatforms.map((platform, index) => (
                 <OrbitPlatform
                   key={`${platform.angle}-${platform.radius}`}
                   platform={platform}
                   rotation={platformsRotate}
                   progress={smoothProgress}
                   index={index}
+                  platformSize={platformSize}
+                  iconSize={iconSize}
                 />
               ))}
             </motion.div>
@@ -465,13 +724,15 @@ function Hero() {
                 position: 'fixed',
                 top: '50%',
                 left: '50%',
-                marginTop: '-40px',
-                marginLeft: '-40px',
+                marginTop: `${logoSize / -2}px`,
+                marginLeft: `${logoSize / -2}px`,
               }}
               className="z-[60]"
             >
               <div className="relative">
-                <AriesMark sizeClassName="w-20 h-20" />
+                <div style={{ width: logoSize, height: logoSize }}>
+                  <AriesMark sizeClassName="w-full h-full" />
+                </div>
                 <motion.div
                   className="absolute inset-0 rounded-full border-2 border-primary/50"
                   animate={{ scale: [1, 2], opacity: [0.8, 0] }}
@@ -526,7 +787,7 @@ function Hero() {
                 </div>
                 <span className="font-bold text-white">Scheduled</span>
               </div>
-              <p className="text-sm font-medium text-white/50 tracking-tight">Thu, Apr 2 at 8:30 AM</p>
+              <p className="text-sm font-medium text-white/50 tracking-tight">Next Thu at 8:30 AM</p>
             </motion.div>
           </div>
         </div>
@@ -550,7 +811,7 @@ function Problem() {
     {
       icon: <Clock className="w-6 h-6 text-yellow-400" />,
       title: 'Scattered results',
-      description: 'Checking five different dashboards to answer one question: is this working?',
+      description: 'Checking five different dashboards to answer one question: \u2018are my campaigns delivering results?\u2019',
     },
     {
       icon: <Layers className="w-6 h-6 text-blue-400" />,
@@ -562,7 +823,7 @@ function Problem() {
   return (
     <section id="product" className="py-24 relative overflow-hidden">
       <div className="container mx-auto px-6">
-        <div className="text-center mb-16">
+        <div className="relative z-10 text-center mb-16">
           <motion.h2
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -582,7 +843,7 @@ function Problem() {
           </motion.p>
         </div>
 
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="relative z-10 grid md:grid-cols-2 lg:grid-cols-4 gap-6">
           {problems.map((problem, index) => (
             <motion.div
               key={problem.title}
@@ -592,7 +853,7 @@ function Problem() {
               transition={{ delay: index * 0.1 }}
               className="glass p-8 rounded-3xl border border-white/5 hover:border-white/20 transition-all group"
             >
-              <div className="mb-6 p-3 bg-white/5 rounded-2xl w-fit group-hover:scale-110 transition-transform">
+              <div className="mb-6 w-fit p-3 rounded-full border border-white/10 bg-black/35 backdrop-blur-sm flex items-center justify-center group-hover:scale-110 transition-transform">
                 {problem.icon}
               </div>
               <h3 className="text-xl font-bold mb-4">{problem.title}</h3>
@@ -634,7 +895,7 @@ function Features() {
     {
       icon: <BarChart3 className="w-6 h-6" />,
       title: 'Results clarity',
-      description: 'Business-readable reporting that answers one question: is this working?',
+      description: 'Business-readable reporting that answers one question: \u2018which efforts are performing best?\u2019',
       color: 'from-green-500/20 to-green-600/20',
     },
     {
@@ -709,7 +970,7 @@ function HowItWorks() {
     },
     {
       icon: <BarChart3 className="w-6 h-6 text-green-400" />,
-      title: 'See what worked',
+      title: 'See what delivered results',
       description: 'Business-readable results with one clear recommendation for what to do next.',
     },
   ];
@@ -1199,49 +1460,6 @@ function ContentCalendar() {
 }
 
 function EarlyAccessSignup() {
-  const [email, setEmail] = useState('');
-  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
-  const [message, setMessage] = useState<string | null>(null);
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    const trimmedEmail = email.trim();
-    if (!trimmedEmail) {
-      setStatus('error');
-      setMessage('Enter your email to request early access.');
-      return;
-    }
-
-    setStatus('loading');
-    setMessage(null);
-
-    try {
-      const response = await fetch('/api/early-access', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: trimmedEmail,
-          source: 'marketing-homepage',
-        }),
-      });
-      const result = (await response.json()) as { message?: string };
-
-      if (!response.ok) {
-        throw new Error(result.message || 'We could not save your email right now.');
-      }
-
-      setStatus('success');
-      setMessage(result.message || "You're on the early access list.");
-      setEmail('');
-    } catch (error) {
-      setStatus('error');
-      setMessage(error instanceof Error ? error.message : 'We could not save your email right now.');
-    }
-  }
-
   return (
     <section id="early-access" className="relative overflow-hidden border-y border-white/10 bg-black/35 py-24">
       <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[size:64px_64px] opacity-35" />
@@ -1254,82 +1472,12 @@ function EarlyAccessSignup() {
           className="relative w-full overflow-hidden"
         >
           <div className="container relative z-10 mx-auto grid gap-10 px-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-start">
-            <div>
-              <span className="inline-flex rounded-full border border-primary/20 bg-primary/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.2em] text-primary">
-                Early access
-              </span>
-              <h2 className="mt-6 text-4xl font-light leading-tight md:text-[52px]">
-                Sign in to get <span className="text-gradient">early access</span>
-              </h2>
-              <p className="mt-6 max-w-2xl text-lg leading-8 text-white/62">
-                Join the first group of businesses getting Aries for campaign planning, approval-safe creative, launch scheduling, and clear weekly results.
-              </p>
-
-              <div className="mt-[50px] grid w-full gap-4 sm:grid-cols-3">
-                {[
-                  ['01', ['Beta invite'], 'We send you a personal invite within 48 hours.'],
-                  ['02', ['Workspace', 'preview'], 'See your first campaign workspace before going live.'],
-                  ['03', ['Priority', 'setup'], 'Our team helps you launch your first campaign.'],
-                ].map(([count, labelLines, description]) => (
-                  <div
-                    key={count as string}
-                    className="group min-h-28 rounded-[1.25rem] border border-white/10 bg-black/35 p-5 transition-colors hover:border-primary/35 hover:bg-primary/10"
-                  >
-                    <div className="text-3xl font-light leading-none tracking-[0.08em] text-white">{count}</div>
-                    <div className="mt-5 text-[10px] font-semibold uppercase leading-5 tracking-[0.3em] text-white/45">
-                      {(labelLines as string[]).map((line) => (
-                        <span key={line} className="block">
-                          {line}
-                        </span>
-                      ))}
-                    </div>
-                    <p className="mt-2 text-[9px] font-normal normal-case tracking-normal leading-4 text-white/35">
-                      {description as string}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <form onSubmit={handleSubmit} className="flex min-h-[390px] flex-col justify-center rounded-[2rem] border border-white/10 bg-black/25 p-5 shadow-2xl shadow-black/20">
-              <label className="block text-sm font-semibold text-white/80" htmlFor="early-access-email">
-                Work email
-              </label>
-              <div className="mt-3 flex flex-col gap-3 sm:flex-row lg:flex-col xl:flex-row">
-                <input
-                  id="early-access-email"
-                  type="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  placeholder="you@company.com"
-                  className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-white outline-none transition placeholder:text-white/30 focus:border-primary/50"
-                  disabled={status === 'loading'}
-                />
-                <button
-                  type="submit"
-                  disabled={status === 'loading'}
-                  className="rounded-2xl bg-gradient-to-r from-primary to-secondary px-5 py-3 text-sm font-bold text-white shadow-lg shadow-primary/20 transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {status === 'loading' ? 'Saving...' : 'Request access'}
-                </button>
-              </div>
-              {message ? (
-                <p
-                  className={cn(
-                    'mt-4 rounded-xl border px-4 py-3 text-sm',
-                    status === 'success'
-                      ? 'border-primary/25 bg-primary/10 text-white'
-                      : 'border-red-400/20 bg-red-400/10 text-red-100',
-                  )}
-                >
-                  {message}
-                </p>
-              ) : (
-                <p className="mt-4 text-sm leading-6 text-white/42">
-                  We will only use this email to contact you about Aries early access.
-                </p>
-              )}
-            </form>
+            <EarlyAccessCopy />
+            <EarlyAccessForm
+              source="marketing-homepage"
+              emailInputId="early-access-email"
+              className="flex min-h-[390px] flex-col justify-center rounded-[2rem] border border-white/10 bg-black/25 p-5 shadow-2xl shadow-black/20"
+            />
           </div>
         </motion.div>
       </div>
@@ -1607,28 +1755,20 @@ export default function DonorHomePage() {
 
       <Hero />
 
-      <section className="py-12 border-y border-white/5 bg-black/50 overflow-hidden">
-        <div className="container mx-auto px-6">
-          <div className="max-w-3xl mx-auto text-center">
-            <blockquote className="text-lg md:text-xl text-white/80 italic leading-relaxed">
-              &ldquo;Aries helped me go from scattered social posts to an actual campaign plan in one afternoon. I finally know what to do next.&rdquo;
-            </blockquote>
-            <div className="mt-6 flex items-center justify-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/40 to-secondary/40 flex items-center justify-center text-sm font-bold text-white">
-                S
-              </div>
-              <div className="text-left">
-                <p className="text-sm font-semibold text-white/80">Sarah M.</p>
-                <p className="text-xs text-white/40">Floral studio owner, early access</p>
-              </div>
-            </div>
-          </div>
+      <section className="py-16 border-y border-white/5 bg-black/50">
+        <div className="container mx-auto px-6 text-center max-w-2xl">
+          <blockquote className="text-lg text-white/80 italic leading-relaxed">
+            "Aries helped me go from idea to approved campaign in 2 hours."
+          </blockquote>
+          <p className="mt-4 text-sm text-white/40 font-medium uppercase tracking-wider">
+            Early access user
+          </p>
         </div>
       </section>
 
       <Problem />
 
-      <section className="py-24 relative">
+      <section id="meet-aries" className="py-24 relative">
         <div className="container mx-auto px-6 text-center">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -1639,12 +1779,12 @@ export default function DonorHomePage() {
             <div className="max-w-4xl mx-auto">
               <h2 className="text-4xl md:text-[48px] leading-tight font-bold mb-8">Meet Aries</h2>
               <p className="text-xl text-white/60 mb-12 leading-relaxed">
-                A calm workspace where you plan campaigns, approve creative, launch safely, and see what worked &mdash; without learning marketing software.
+                A calm workspace where you plan campaigns, approve creative, launch safely, and see what delivered results &mdash; without learning marketing software.
               </p>
             </div>
 
             <div className="mx-auto flex flex-wrap items-center justify-center gap-4 pb-4 lg:grid lg:w-fit lg:grid-cols-[12rem_1.25rem_12rem_1.25rem_12rem_1.25rem_12rem_1.25rem_12rem] lg:gap-3 xl:grid-cols-[13rem_2rem_13rem_2rem_13rem_2rem_13rem_2rem_13rem]">
-              {['Set up your business', 'See the plan', 'Review the creative', 'Launch safely', 'See what worked'].map((step, index) => (
+              {['Set up your business', 'See the plan', 'Review the creative', 'Launch safely', 'See what delivered results'].map((step, index) => (
                 <Fragment key={step}>
                   <div className="glass inline-flex w-full items-center justify-center rounded-full border-primary/20 px-8 py-4 text-center text-sm font-semibold whitespace-nowrap cursor-pointer hover-gradient-border lg:px-4">
                     <span className="relative z-10 block w-full text-center">{step}</span>

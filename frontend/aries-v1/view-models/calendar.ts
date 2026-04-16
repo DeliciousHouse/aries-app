@@ -80,7 +80,7 @@ export function createCalendarViewModel(campaigns: RuntimeCampaignListItem[]): C
       eyebrow: 'Calendar',
       title: 'What is going out and when',
       description:
-        'This calendar restores the visual month view while staying honest: every tile comes from Aries runtime schedule events that already exist.',
+        'A month-at-a-glance view of everything scheduled to go out — every tile reflects a real campaign step.',
       metrics: [
         {
           label: 'Upcoming items',

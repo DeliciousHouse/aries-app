@@ -36,13 +36,14 @@ interface GoalStepProps {
   goal: Goal | null;
   onGoalChange: (goal: Goal) => void;
   onNext: () => void;
-  onBack: () => void;
+  onBack?: () => void;
 }
 
 export default function GoalStep({ goal, onGoalChange, onNext, onBack }: GoalStepProps) {
   return (
     <StepContainer
-      stepNumber={3}
+      stepNumber={1}
+      totalSteps={5}
       title="Campaign Goal"
       subtitle="What's the primary objective of this campaign? This shapes the entire strategy and creative direction."
       canProceed={!!goal}
@@ -54,6 +55,7 @@ export default function GoalStep({ goal, onGoalChange, onNext, onBack }: GoalSte
         selected={goal ?? ''}
         onChange={(val) => onGoalChange(val as Goal)}
         multi={false}
+        ariaLabel="Campaign goal"
       />
     </StepContainer>
   );

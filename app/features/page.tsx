@@ -1,11 +1,9 @@
-import type { Metadata } from 'next';
 import React from 'react';
 import MarketingLayout from '../../frontend/marketing/MarketingLayout';
 import Link from 'next/link';
 
-export const metadata: Metadata = {
-  title: 'Features · Aries',
-  description: 'Everything a small business needs to market with confidence.',
+export const metadata = {
+  title: 'Features — Aries AI',
 };
 
 const FEATURES = [

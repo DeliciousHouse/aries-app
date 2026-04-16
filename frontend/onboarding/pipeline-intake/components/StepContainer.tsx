@@ -11,6 +11,7 @@ interface StepContainerProps {
   onNext: () => void;
   onBack?: () => void;
   stepNumber: number;
+  totalSteps?: number;
   isLast?: boolean;
 }
 
@@ -22,12 +23,17 @@ export default function StepContainer({
   onNext,
   onBack,
   stepNumber,
+  totalSteps,
   isLast = false,
 }: StepContainerProps) {
+  const resolvedTotalSteps = totalSteps ?? 5;
   return (
     <div className="w-full max-w-2xl mx-auto">
       {/* Header */}
       <div className="mb-8">
+        <p className="text-[11px] uppercase tracking-[0.22em] text-[#666] mb-2 font-medium">
+          Takes ~3 minutes · Step {stepNumber} of {resolvedTotalSteps}
+        </p>
         <p className="text-xs uppercase tracking-[0.28em] text-aries-crimson mb-2 font-medium">
           Step {stepNumber}
         </p>
