@@ -321,7 +321,14 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   const [offer, setOffer] = useState('');
   const [competitorUrl, setCompetitorUrl] = useState('');
   const [websiteChip, setWebsiteChip] = useState<UrlChipState>({ kind: 'idle' });
-  const [channelsRecommendationApplied, setChannelsRecommendationApplied] = useState(false);
+  // Two separate flags: `locked` prevents the recommendation from re-firing
+  // (set when the user or a loaded draft already has channels). `shown`
+  // controls whether the "Recommended for {businessType}" subtitle actually
+  // appears — only true when the auto-recommendation was the source of the
+  // current selection. The old single-flag implementation conflated these
+  // two concerns and showed the subtitle for draft-loaded selections too.
+  const [channelsRecommendationLocked, setChannelsRecommendationLocked] = useState(false);
+  const [channelsRecommendationShown, setChannelsRecommendationShown] = useState(false);
   const deferredWebsiteUrl = useDeferredValue(websiteUrl.trim());
 
   const profile = businessProfileState.data?.profile ?? null;
@@ -525,25 +532,37 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     if (currentStep.key !== 'channels') {
       return;
     }
-    if (channelsRecommendationApplied) {
+    if (channelsRecommendationLocked) {
       return;
     }
     if (selectedChannels.length > 0) {
-      // User (or a loaded draft) already has channels — mark as applied so
-      // unchecking back down to zero doesn't trigger a surprise re-select.
-      setChannelsRecommendationApplied(true);
+      // User (or a loaded draft) already has channels — lock the recommender
+      // so unchecking back down to zero doesn't trigger a surprise re-select,
+      // but leave `shown` false so the "Recommended for {businessType}"
+      // subtitle doesn't appear for user-selected or draft-loaded channels.
+      setChannelsRecommendationLocked(true);
       return;
     }
     if (!businessType.trim()) {
       return;
     }
-    const recommended = recommendedChannelsForBusinessType(businessType);
+    // Filter the recommendation against the actual rendered CHANNEL_OPTIONS
+    // so we never pre-select an id that doesn't appear in the UI. Without
+    // this filter a user could be pre-selected to e.g. `email` or
+    // `instagram-organic` that aren't rendered in this flow's option list,
+    // pass the channels step's canProceed check (selectedChannels.length > 0),
+    // and send unsupported ids downstream with no visible selection.
+    const availableIds = new Set(CHANNEL_OPTIONS.map((option) => option.id));
+    const recommended = recommendedChannelsForBusinessType(businessType).filter(
+      (id) => availableIds.has(id),
+    );
     if (recommended.length === 0) {
       return;
     }
     setSelectedChannels(recommended);
-    setChannelsRecommendationApplied(true);
-  }, [currentStep.key, selectedChannels.length, channelsRecommendationApplied, businessType]);
+    setChannelsRecommendationLocked(true);
+    setChannelsRecommendationShown(true);
+  }, [currentStep.key, selectedChannels.length, channelsRecommendationLocked, businessType]);
 
   useEffect(() => {
     if (!draftId || !deferredWebsiteUrl || !isValidHttpsUrl(deferredWebsiteUrl)) {
@@ -809,7 +828,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                         value={websiteUrl}
                         onChange={(event) => setWebsiteUrl(event.target.value)}
                         className={fieldInputClassName}
-                        placeholder="https://aries.sugarandleather.com"
+                        placeholder="https://yourbusiness.com"
                       />
                     </Field>
                   </div>
@@ -849,7 +868,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                         }}
                         onBlur={() => setWebsiteChip(urlChipFromValue(websiteUrl))}
                         className={fieldInputClassName}
-                        placeholder="https://sugarandleather.com"
+                        placeholder="https://yourbusiness.com"
                       />
                       {websiteChip.kind === 'valid' ? (
                         <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-medium">
@@ -975,7 +994,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                   <p className="max-w-3xl text-sm leading-7 text-white/65">
                     Choose the channels Aries should prioritize first. The initial set stays lightweight so the first campaign is easy to approve and launch.
                   </p>
-                  {channelsRecommendationApplied && businessType.trim() ? (
+                  {channelsRecommendationShown && businessType.trim() ? (
                     <p className="max-w-3xl text-xs font-medium uppercase tracking-[0.22em] text-[#ba8cff]">
                       Recommended for {businessType.trim()}
                     </p>

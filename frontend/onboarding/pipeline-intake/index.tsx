@@ -132,7 +132,7 @@ export default function PipelineIntake() {
         }}
       >
         {step === 0 && (
-          <GoalStep goal={goal} onGoalChange={setGoal} onNext={goNext} onBack={undefined} />
+          <GoalStep goal={goal} onGoalChange={setGoal} onNext={goNext} />
         )}
         {step === 1 && (
           <BrandStep
