@@ -9,6 +9,9 @@ export interface AriesMarkProps {
   sizes?: string;
   priority?: boolean;
   style?: CSSProperties;
+  /** Marks the image as decorative (alt=""). Use when an ancestor already
+   *  provides the accessible name (e.g. a brand link with aria-label). */
+  decorative?: boolean;
 }
 
 export function AriesMark({
@@ -17,11 +20,15 @@ export function AriesMark({
   sizes = '80px',
   priority = false,
   style,
+  decorative = false,
 }: AriesMarkProps) {
+  // When an ancestor already provides the accessible name (e.g. a brand link
+  // with aria-label="Aries AI — home"), callers pass `decorative` so this
+  // image doesn't add a redundant announcement.
   return (
     <Image
       src="/ariesai-logo.webp"
-      alt="Aries AI Logo"
+      alt={decorative ? '' : 'Aries AI Logo'}
       width={500}
       height={500}
       sizes={sizes}

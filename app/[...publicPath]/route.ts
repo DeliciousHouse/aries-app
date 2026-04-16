@@ -69,8 +69,8 @@ const NOT_FOUND_HTML = `<!doctype html>
   <body>
     <main class="card">
       <p class="eyebrow">404</p>
-      <h1>This route doesn&rsquo;t exist in the Aries runtime</h1>
-      <p>Head back to the homepage or go to login.</p>
+      <h1>Page not found</h1>
+      <p>The page you&rsquo;re looking for doesn&rsquo;t exist. Head back to the homepage or sign in.</p>
       <div class="actions">
         <a class="primary" href="/">Back to home</a>
         <a class="secondary" href="/login">Go to login</a>

@@ -1,5 +1,9 @@
 import MarketingLayout from '@/frontend/marketing/MarketingLayout';
 
+export const metadata = {
+  title: 'Terms of Service — Aries AI',
+};
+
 const SECTIONS = [
   {
     title: 'What Aries does',

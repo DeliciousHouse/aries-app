@@ -1,5 +1,9 @@
 import MarketingLayout from '@/frontend/marketing/MarketingLayout';
 
+export const metadata = {
+  title: 'Privacy Policy — Aries AI',
+};
+
 const PRINCIPLES = [
   'We only collect the information needed to run your campaigns and show you the status of your work.',
   'Your campaign data stays tied to your account — other customers cannot see it.',
