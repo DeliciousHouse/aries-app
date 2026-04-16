@@ -919,26 +919,41 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                       <p className="text-sm leading-7 text-white/68">{brandPreviewSummary(preview, urlPreview)}</p>
                     </div>
 
-                    {previewLoading ? (
-                      <div className="mt-6 rounded-[1.25rem] border border-white/10 bg-white/[0.04] px-4 py-4 text-sm text-white/62">
-                        Preparing the brand preview from the current source website.
-                      </div>
-                    ) : previewError ? (
-                      <div className="mt-6 rounded-[1.25rem] border border-amber-300/20 bg-amber-300/10 px-4 py-4 text-sm text-amber-100">
-                        {previewError}
-                      </div>
-                    ) : preview ? (
-                      <div className="mt-6 grid gap-4 sm:grid-cols-2">
-                        <PreviewStat label="Brand voice" value={preview.brandVoiceSummary || 'Aries will refine the brand voice after the source review.'} />
-                        <PreviewStat label="Offer" value={preview.offerSummary || 'Aries will refine the offer summary after the source review.'} />
-                        <PreviewStat label="Current source" value={firstPresent(preview.canonicalUrl, websiteUrl, 'No source set yet.') || ''} />
-                        <PreviewStat label="Visible summary" value={brandPreviewSummary(preview, urlPreview)} />
-                      </div>
-                    ) : (
-                      <div className="mt-6 rounded-[1.25rem] border border-white/10 bg-white/[0.04] px-4 py-4 text-sm text-white/58">
-                        Enter a valid HTTPS website to prepare the brand snapshot.
-                      </div>
-                    )}
+                    {(() => {
+                      // Only show the emerald "ready to analyze" chip for a
+                      // URL that would actually pass step validation
+                      // (isValidHttpsUrl gates Continue and the preview fetch).
+                      // Parsing with `new URL()` alone accepts http:// and
+                      // other non-https schemes, which would show a green
+                      // success state for a URL that still blocks the user.
+                      const readyHostname = isValidHttpsUrl(websiteUrl)
+                        ? hostnameFromUrl(websiteUrl.trim())
+                        : null;
+                      return previewLoading ? (
+                        <div className="mt-6 rounded-[1.25rem] border border-white/10 bg-white/[0.04] px-4 py-4 text-sm text-white/62">
+                          Preparing the brand preview from the current source website.
+                        </div>
+                      ) : previewError ? (
+                        <div className="mt-6 rounded-[1.25rem] border border-amber-300/20 bg-amber-300/10 px-4 py-4 text-sm text-amber-100">
+                          {previewError}
+                        </div>
+                      ) : preview ? (
+                        <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                          <PreviewStat label="Brand voice" value={preview.brandVoiceSummary || 'Aries will refine the brand voice after the source review.'} />
+                          <PreviewStat label="Offer" value={preview.offerSummary || 'Aries will refine the offer summary after the source review.'} />
+                          <PreviewStat label="Current source" value={firstPresent(preview.canonicalUrl, websiteUrl, 'No source set yet.') || ''} />
+                          <PreviewStat label="Visible summary" value={brandPreviewSummary(preview, urlPreview)} />
+                        </div>
+                      ) : readyHostname ? (
+                        <div className="mt-6 rounded-[1.25rem] border border-emerald-500/30 bg-emerald-500/10 px-4 py-4 text-sm text-emerald-100">
+                          {`✓ ${readyHostname} — ready to analyze`}
+                        </div>
+                      ) : (
+                        <div className="mt-6 rounded-[1.25rem] border border-white/10 bg-white/[0.04] px-4 py-4 text-sm text-white/58">
+                          Enter a valid HTTPS website to prepare the brand snapshot.
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               ) : null}
