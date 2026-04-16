@@ -70,7 +70,7 @@ export function resolveDataRoot(): string {
   const candidates = [HOST_SHARED_DATA_ROOT, HOST_TEMP_DATA_ROOT, CONTAINER_DATA_ROOT]
     .map((candidate) => normalizeRoot(candidate));
 
-  return candidates.find((candidate) => existsSync(candidate)) || resolveCodeRoot();
+  return candidates.find((candidate) => existsSync(candidate)) || normalizeRoot(HOST_SHARED_DATA_ROOT);
 }
 
 export function resolveCodePath(...segments: string[]): string {

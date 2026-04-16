@@ -4,7 +4,7 @@ import type { IntegrationCardAction } from '@/lib/api/integrations';
 import { useIntegrations } from '@/hooks/use-integrations';
 
 import { customerSafeUiErrorMessage } from './customer-safe-copy';
-import { EmptyStatePanel, LoadingStateGrid, ShellPanel } from './components';
+import { EmptyStatePanel, LoadingStateGrid, ShellPanel, StatusChip } from './components';
 
 export default function AriesChannelIntegrationsScreen() {
   const integrations = useIntegrations({ autoLoad: true });
@@ -92,16 +92,35 @@ export default function AriesChannelIntegrationsScreen() {
                         <p className="text-sm font-medium text-white">{card.display_name}</p>
                         <p className="text-sm text-white/45">{card.description}</p>
                       </div>
-                      {primaryAction ? (
-                        <button
-                          type="button"
-                          onClick={() => void handleIntegrationAction(primaryAction.action, card.platform)}
-                          disabled={integrations.busyAction === `${card.platform}:${primaryAction.action}`}
-                          className={primaryAction.className}
+                      <div className="flex items-center gap-3 shrink-0">
+                        <StatusChip
+                          status={
+                            card.connection_state === 'connected'
+                              ? 'approved'
+                              : card.connection_state === 'reauth_required'
+                                ? 'changes_requested'
+                                : 'draft'
+                          }
                         >
-                          {primaryAction.label}
-                        </button>
-                      ) : null}
+                          {card.connection_state === 'connected'
+                            ? 'Connected'
+                            : card.connection_state === 'reauth_required'
+                              ? 'Needs attention'
+                              : card.connection_state === 'disabled'
+                                ? 'Setup needed'
+                                : 'Not connected'}
+                        </StatusChip>
+                        {primaryAction ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleIntegrationAction(primaryAction.action, card.platform)}
+                            disabled={integrations.busyAction === `${card.platform}:${primaryAction.action}`}
+                            className={primaryAction.className}
+                          >
+                            {primaryAction.label}
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                 );
