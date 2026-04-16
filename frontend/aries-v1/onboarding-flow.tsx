@@ -524,6 +524,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   const [resumeChecked, setResumeChecked] = useState(false);
   const [showTransition, setShowTransition] = useState(false);
   const draftApiFailedRef = useRef(false);
+  const creatingDraftRef = useRef(false);
   const localSaveTimerRef = useRef<number | null>(null);
   const savedIndicatorTimerRef = useRef<number | null>(null);
   const transitionTimerRef = useRef<number | null>(null);
@@ -576,11 +577,16 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   }, [draftParam]);
 
   useEffect(() => {
-    if (draftId || creatingDraft) {
+    // Guard duplicate fires with a ref, NOT the `creatingDraft` state — if we
+    // depend on that state here we re-run the effect the moment we flip it,
+    // which cancels the in-flight promise's callbacks and strands
+    // `creatingDraft === true`, leaving the submit button disabled forever.
+    if (draftId || creatingDraftRef.current) {
       return;
     }
 
     let cancelled = false;
+    creatingDraftRef.current = true;
     setCreatingDraft(true);
 
     void ariesApi.createOnboardingDraft()
@@ -598,15 +604,14 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         }
       })
       .finally(() => {
-        if (!cancelled) {
-          setCreatingDraft(false);
-        }
+        creatingDraftRef.current = false;
+        setCreatingDraft(false);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [ariesApi, creatingDraft, draftId, router]);
+  }, [ariesApi, draftId, router]);
 
   useEffect(() => {
     if (!draftId || loadedDraftId === draftId) {
