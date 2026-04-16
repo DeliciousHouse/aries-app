@@ -10,7 +10,7 @@
 //                    skip the send; the caller still resolves successfully so
 //                    routes don't leak "email not configured" as an oracle.
 //   EMAIL_FROM       Fully-qualified "From" header, e.g.
-//                    `Aries AI <noreply@aries.sugarandleather.com>`. The
+//                    `Aries AI <noreply@sugarandleather.com>`. The
 //                    domain portion MUST be verified at
 //                    https://resend.com/domains before Resend will accept the
 //                    send — otherwise Resend returns a 4xx that we only log.
@@ -20,7 +20,7 @@
 
 import { Resend } from 'resend';
 
-const DEFAULT_FROM = 'Aries AI <noreply@aries.sugarandleather.com>';
+const DEFAULT_FROM = 'Aries AI <noreply@sugarandleather.com>';
 
 function renderHtml(code: string): string {
   return `<!doctype html>
