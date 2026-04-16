@@ -37,9 +37,15 @@ type GoalOption = {
 
 const STEP_DEFINITIONS: StepDefinition[] = [
   {
+    key: 'goal',
+    label: 'Goal',
+    title: 'What outcome matters most right now?',
+    description: 'Start with the goal so every downstream step — business profile, website review, brand snapshot, and channel mix — is built around a real objective.',
+  },
+  {
     key: 'business',
     label: 'Business',
-    title: 'Start with the business Aries will represent.',
+    title: 'Set the business Aries will represent.',
     description: 'Set the operating basics once so every campaign starts from the same clear foundation.',
   },
   {
@@ -60,34 +66,28 @@ const STEP_DEFINITIONS: StepDefinition[] = [
     title: 'Choose where the first campaign should show up.',
     description: 'Start with the channels that matter now. The rest can be added later without rebuilding the profile.',
   },
-  {
-    key: 'goal',
-    label: 'Goal',
-    title: 'What outcome matters most right now?',
-    description: 'Tell Aries what your business needs so the first campaign is built around a real objective.',
-  },
 ];
 
 const CHANNEL_OPTIONS: ChannelOption[] = [
   {
     id: 'meta-ads',
-    label: 'Meta',
-    description: 'Paid social for demand capture, retargeting, and direct-response offers.',
+    label: 'Meta (Facebook + Instagram Ads)',
+    description: 'Paid ads on Facebook and Instagram via Meta Business Suite.',
   },
   {
     id: 'instagram',
-    label: 'Instagram',
-    description: 'High-visibility social touchpoints for brand presence, proof, and offer awareness.',
+    label: 'Instagram (Organic)',
+    description: 'Organic posts, stories, and reels on Instagram.',
   },
   {
     id: 'google-business',
     label: 'Google Business',
-    description: 'Local discovery and intent capture for service-led businesses that need qualified traffic.',
+    description: 'Local presence, reviews, and Google Maps visibility.',
   },
   {
     id: 'linkedin',
     label: 'LinkedIn',
-    description: 'Professional reach for higher-trust offers, partnerships, and longer consideration cycles.',
+    description: 'Professional network for B2B reach and thought leadership.',
   },
 ];
 
@@ -165,6 +165,43 @@ function hostnameFromUrl(value: string | null | undefined): string | null {
   }
 }
 
+type UrlChipState =
+  | { kind: 'idle' }
+  | { kind: 'valid'; hostname: string }
+  | { kind: 'invalid' };
+
+function urlChipFromValue(value: string): UrlChipState {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return { kind: 'idle' };
+  }
+  const hostname = hostnameFromUrl(trimmed);
+  if (!hostname || !isValidHttpsUrl(trimmed)) {
+    return { kind: 'invalid' };
+  }
+  return { kind: 'valid', hostname };
+}
+
+function recommendedChannelsForBusinessType(businessType: string): string[] {
+  const normalized = businessType.trim().toLowerCase();
+  if (!normalized) {
+    return ['meta-ads', 'instagram-organic'];
+  }
+  const localKeywords = ['local', 'restaurant', 'retail', 'service', 'salon', 'clinic', 'store', 'shop'];
+  const saasKeywords = ['saas', 'software', 'b2b', 'agency', 'platform', 'technology', 'tech'];
+  const ecomKeywords = ['ecommerce', 'e-commerce', 'commerce', 'dtc', 'direct-to-consumer', 'online store', 'brand'];
+  if (localKeywords.some((kw) => normalized.includes(kw))) {
+    return ['meta-ads', 'instagram-organic', 'google-business'];
+  }
+  if (saasKeywords.some((kw) => normalized.includes(kw))) {
+    return ['linkedin', 'meta-ads', 'email'];
+  }
+  if (ecomKeywords.some((kw) => normalized.includes(kw))) {
+    return ['meta-ads', 'instagram-organic', 'email', 'tiktok'];
+  }
+  return ['meta-ads', 'instagram-organic'];
+}
+
 function firstPresent(...values: Array<string | null | undefined>): string | null {
   for (const value of values) {
     const trimmed = typeof value === 'string' ? value.trim() : '';
@@ -223,9 +260,21 @@ function stepReady(stepKey: StepKey, values: {
   return true;
 }
 
-function stepValidationMessage(stepKey: StepKey): string {
+function stepValidationMessage(stepKey: StepKey, values?: {
+  businessName: string;
+  businessType: string;
+}): string | null {
   if (stepKey === 'business') {
-    return 'Add the business name and business type before continuing.';
+    if (values) {
+      if (!values.businessName.trim()) {
+        return 'Add a business name before continuing.';
+      }
+      if (!values.businessType.trim()) {
+        return 'Select a business type before continuing.';
+      }
+      return null;
+    }
+    return 'Add a business name before continuing.';
   }
   if (stepKey === 'website') {
     return 'Enter a valid HTTPS website before continuing.';
@@ -270,6 +319,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [urlPreview, setUrlPreview] = useState<UrlPreviewResponse | null>(null);
+  const [previewRefreshCounter, setPreviewRefreshCounter] = useState(0);
   const [draftId, setDraftId] = useState(draftParam);
   const [creatingDraft, setCreatingDraft] = useState(false);
   const [loadedDraftId, setLoadedDraftId] = useState<string | null>(null);
@@ -283,6 +333,15 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   const [customGoal, setCustomGoal] = useState('');
   const [offer, setOffer] = useState('');
   const [competitorUrl, setCompetitorUrl] = useState('');
+  const [websiteChip, setWebsiteChip] = useState<UrlChipState>({ kind: 'idle' });
+  // Two separate flags: `locked` prevents the recommendation from re-firing
+  // (set when the user or a loaded draft already has channels). `shown`
+  // controls whether the "Recommended for {businessType}" subtitle actually
+  // appears — only true when the auto-recommendation was the source of the
+  // current selection. The old single-flag implementation conflated these
+  // two concerns and showed the subtitle for draft-loaded selections too.
+  const [channelsRecommendationLocked, setChannelsRecommendationLocked] = useState(false);
+  const [channelsRecommendationShown, setChannelsRecommendationShown] = useState(false);
   const deferredWebsiteUrl = useDeferredValue(websiteUrl.trim());
 
   const profile = businessProfileState.data?.profile ?? null;
@@ -406,7 +465,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         }
 
         const nextProfile = result.profileResponse.profile;
-        setBusinessName(nextProfile.businessName || nextProfile.brandKit?.brand_name || '');
+        setBusinessName(nextProfile.businessName?.trim() ? nextProfile.businessName.trim() : '');
         setWebsiteUrl(nextProfile.websiteUrl || nextProfile.brandKit?.source_url || '');
         setBusinessType(nextProfile.businessType || '');
         setApproverName(nextProfile.launchApproverName || '');
@@ -469,6 +528,56 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   ]);
 
   useEffect(() => {
+    if (currentStep.key !== 'website') {
+      return;
+    }
+    if (websiteChip.kind !== 'idle') {
+      return;
+    }
+    const trimmed = websiteUrl.trim();
+    if (!trimmed) {
+      return;
+    }
+    setWebsiteChip(urlChipFromValue(trimmed));
+  }, [currentStep.key, websiteChip.kind, websiteUrl]);
+
+  useEffect(() => {
+    if (currentStep.key !== 'channels') {
+      return;
+    }
+    if (channelsRecommendationLocked) {
+      return;
+    }
+    if (selectedChannels.length > 0) {
+      // User (or a loaded draft) already has channels — lock the recommender
+      // so unchecking back down to zero doesn't trigger a surprise re-select,
+      // but leave `shown` false so the "Recommended for {businessType}"
+      // subtitle doesn't appear for user-selected or draft-loaded channels.
+      setChannelsRecommendationLocked(true);
+      return;
+    }
+    if (!businessType.trim()) {
+      return;
+    }
+    // Filter the recommendation against the actual rendered CHANNEL_OPTIONS
+    // so we never pre-select an id that doesn't appear in the UI. Without
+    // this filter a user could be pre-selected to e.g. `email` or
+    // `instagram-organic` that aren't rendered in this flow's option list,
+    // pass the channels step's canProceed check (selectedChannels.length > 0),
+    // and send unsupported ids downstream with no visible selection.
+    const availableIds = new Set(CHANNEL_OPTIONS.map((option) => option.id));
+    const recommended = recommendedChannelsForBusinessType(businessType).filter(
+      (id) => availableIds.has(id),
+    );
+    if (recommended.length === 0) {
+      return;
+    }
+    setSelectedChannels(recommended);
+    setChannelsRecommendationLocked(true);
+    setChannelsRecommendationShown(true);
+  }, [currentStep.key, selectedChannels.length, channelsRecommendationLocked, businessType]);
+
+  useEffect(() => {
     if (!draftId || !deferredWebsiteUrl || !isValidHttpsUrl(deferredWebsiteUrl)) {
       setUrlPreview(null);
       setPreviewError(null);
@@ -501,7 +610,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [ariesApi, deferredWebsiteUrl, draftId]);
+  }, [ariesApi, deferredWebsiteUrl, draftId, previewRefreshCounter]);
 
   function toggleChannel(channelId: string) {
     setSelectedChannels((current) =>
@@ -513,7 +622,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
 
   function handleContinue() {
     if (!stepReady(currentStep.key, { businessName, businessType, websiteUrl, selectedChannels, goal, customGoal })) {
-      setError(stepValidationMessage(currentStep.key));
+      setError(stepValidationMessage(currentStep.key, { businessName, businessType }) ?? 'Complete the current step before continuing.');
       return;
     }
     setError(null);
@@ -522,7 +631,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
 
   async function handleFinish() {
     if (!canFinish) {
-      setError(stepValidationMessage(currentStep.key));
+      setError(stepValidationMessage(currentStep.key, { businessName, businessType }) ?? 'Complete the current step before continuing.');
       return;
     }
 
@@ -632,6 +741,9 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
             </div>
 
             <div className="relative z-10 px-6 pb-6 pt-5 sm:px-8 lg:px-10">
+              <p className="mb-3 text-xs font-medium uppercase tracking-[0.22em] text-white/52">
+                Takes ~3 minutes · Step {stepIndex + 1} of {STEP_DEFINITIONS.length}
+              </p>
               <div className="flex flex-wrap gap-3 border-b border-white/8 pb-5">
                 {STEP_DEFINITIONS.map((step, index) => {
                   const active = index === stepIndex;
@@ -729,7 +841,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                         value={websiteUrl}
                         onChange={(event) => setWebsiteUrl(event.target.value)}
                         className={fieldInputClassName}
-                        placeholder="https://aries.sugarandleather.com"
+                        placeholder="https://yourbusiness.com"
                       />
                     </Field>
                   </div>
@@ -765,10 +877,22 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                           setWebsiteUrl(event.target.value);
                           setUrlPreview(null);
                           setPreviewError(null);
+                          setWebsiteChip({ kind: 'idle' });
                         }}
+                        onBlur={() => setWebsiteChip(urlChipFromValue(websiteUrl))}
                         className={fieldInputClassName}
-                        placeholder="https://sugarandleather.com"
+                        placeholder="https://yourbusiness.com"
                       />
+                      {websiteChip.kind === 'valid' ? (
+                        <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-medium">
+                          <Check className="w-3.5 h-3.5" /> {websiteChip.hostname} — ready to analyze
+                        </div>
+                      ) : null}
+                      {websiteChip.kind === 'invalid' ? (
+                        <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-medium">
+                          <span aria-hidden>✗</span> Enter a valid HTTPS website
+                        </div>
+                      ) : null}
                     </Field>
 
                     <div className="rounded-[1.5rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-5">
@@ -832,6 +956,50 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
 
               {currentStep.key === 'brand' ? (
                 <div className="space-y-6">
+                  {previewLoading ? (
+                    <div className="rounded-[2rem] border border-white/10 bg-[linear-gradient(160deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] p-6 animate-pulse">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#ba8cff] mb-4">Analyzing your site...</p>
+                      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+                        <div className="space-y-4">
+                          <div className="h-8 w-48 rounded-[0.75rem] bg-white/10" />
+                          <div className="h-4 w-64 rounded-[0.5rem] bg-white/[0.06]" />
+                          <div className="space-y-2">
+                            <div className="h-3 w-full rounded-[0.5rem] bg-white/[0.06]" />
+                            <div className="h-3 w-5/6 rounded-[0.5rem] bg-white/[0.06]" />
+                            <div className="h-3 w-4/6 rounded-[0.5rem] bg-white/[0.06]" />
+                          </div>
+                          <div className="grid gap-4 sm:grid-cols-2">
+                            <div className="h-20 rounded-[1rem] bg-white/[0.05]" />
+                            <div className="h-20 rounded-[1rem] bg-white/[0.05]" />
+                          </div>
+                        </div>
+                        <div className="grid gap-4">
+                          <div className="h-32 rounded-[1.5rem] bg-white/[0.05]" />
+                          <div className="h-20 rounded-[1.5rem] bg-white/[0.05]" />
+                        </div>
+                      </div>
+                    </div>
+                  ) : previewError ? (
+                    <div className="rounded-[2rem] border border-amber-400/20 bg-amber-400/[0.06] p-6">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-amber-300 mb-3">Brand analysis failed</p>
+                      <p className="text-sm leading-7 text-amber-100/80 mb-4">{previewError}</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUrlPreview(null);
+                          setPreviewError(null);
+                          // Bump the refresh counter — the preview useEffect
+                          // lists it in deps, so incrementing is enough to
+                          // re-run the fetch without churning websiteUrl (and
+                          // without the fragile setTimeout batching trick).
+                          setPreviewRefreshCounter((n) => n + 1);
+                        }}
+                        className="inline-flex items-center gap-2 rounded-full border border-amber-400/30 bg-amber-400/10 px-4 py-2 text-sm font-medium text-amber-200 transition hover:bg-amber-400/20"
+                      >
+                        Retry analysis
+                      </button>
+                    </div>
+                  ) : (
                   <div className="rounded-[2rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(151,93,255,0.12),transparent_28%),linear-gradient(160deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] p-6">
                     <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
                       <div className="space-y-4">
@@ -867,6 +1035,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                       </div>
                     </div>
                   </div>
+                  )}
 
                   {preview?.externalLinks && preview.externalLinks.length > 0 ? (
                     <div className="rounded-[1.6rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-5">
@@ -894,6 +1063,11 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                   <p className="max-w-3xl text-sm leading-7 text-white/65">
                     Choose the channels Aries should prioritize first. The initial set stays lightweight so the first campaign is easy to approve and launch.
                   </p>
+                  {channelsRecommendationShown && businessType.trim() ? (
+                    <p className="max-w-3xl text-xs font-medium uppercase tracking-[0.22em] text-[#ba8cff]">
+                      Recommended for {businessType.trim()}
+                    </p>
+                  ) : null}
                   <div className="grid gap-4 md:grid-cols-2">
                     {CHANNEL_OPTIONS.map((channel) => {
                       const selected = selectedChannels.includes(channel.id);
@@ -982,7 +1156,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                         value={competitorUrl}
                         onChange={(event) => setCompetitorUrl(event.target.value)}
                         className={fieldInputClassName}
-                        placeholder="https://betterup.com"
+                        placeholder="https://competitor.com"
                       />
                     </Field>
 

@@ -32,19 +32,19 @@ test('public onboarding boundary serves the premium intake at /onboarding/start 
   assert.match(startScreenSource, /Tenant onboarding tooling moved off the public path/);
 });
 
-test('onboarding flow keeps the live client-facing step order and removes the old welcome-first intake', () => {
+test('onboarding flow asks for the goal first so every downstream step is built around it', () => {
+  const goalIndex = onboardingSource.indexOf("label: 'Goal'");
   const businessIndex = onboardingSource.indexOf("label: 'Business'");
   const websiteIndex = onboardingSource.indexOf("label: 'Website'");
   const brandIndex = onboardingSource.indexOf("label: 'Brand identity'");
   const channelsIndex = onboardingSource.indexOf("label: 'Channels'");
-  const goalIndex = onboardingSource.indexOf("label: 'Goal'");
 
   assert.equal(onboardingSource.includes("label: 'Welcome'"), false);
-  assert.equal(businessIndex >= 0, true);
+  assert.equal(goalIndex >= 0, true);
+  assert.equal(businessIndex > goalIndex, true);
   assert.equal(websiteIndex > businessIndex, true);
   assert.equal(brandIndex > websiteIndex, true);
   assert.equal(channelsIndex > brandIndex, true);
-  assert.equal(goalIndex > channelsIndex, true);
 });
 
 test('onboarding flow keeps website and brand preview customer-facing without exposing internal onboarding fields', () => {

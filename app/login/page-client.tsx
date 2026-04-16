@@ -37,10 +37,12 @@ export default function LoginPageClient() {
     () => resolveLoginErrorCode(searchParams.get('error'), searchParams.get('code')),
     [searchParams],
   );
-  const savedMessage = useMemo(
-    () => savedDraftMessage(searchParams.get('draftSaved'), searchParams.get('businessName')),
-    [searchParams],
-  );
+  const savedMessage = useMemo(() => {
+    if (searchParams.get('reset') === 'success') {
+      return 'Password updated — sign in with your new password';
+    }
+    return savedDraftMessage(searchParams.get('draftSaved'), searchParams.get('businessName'));
+  }, [searchParams]);
   const signupHref = useMemo(() => {
     const params = new URLSearchParams();
     if (callbackUrl) {

@@ -24,7 +24,8 @@ export default function CompetitorStep({
 
   return (
     <StepContainer
-      stepNumber={2}
+      stepNumber={3}
+      totalSteps={5}
       title="Your Competitor"
       subtitle="Enter the competitor's website URL. Aries will resolve the brand, find the Meta page internally, and analyze ads without needing a Facebook or Ad Library link."
       canProceed={!!preview}
@@ -36,7 +37,7 @@ export default function CompetitorStep({
         onChange={onCompetitorUrlChange}
         onPreviewLoaded={setPreview}
         label="Competitor website URL"
-        placeholder="https://betterup.com"
+        placeholder="https://competitor.com"
         excludeUrl={brandUrl}
         validationMode="competitor_website"
       />

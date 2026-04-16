@@ -37,7 +37,26 @@ export default function PipelineIntake() {
   };
 
   const handleSubmit = async () => {
-    if (!goal || !mode || channels.length === 0 || !brandUrl || !competitorUrl) return;
+    if (!goal) {
+      setSubmitError('Select a campaign goal on Step 1 before launching.');
+      return;
+    }
+    if (!brandUrl) {
+      setSubmitError('Enter your brand URL on Step 2 before launching.');
+      return;
+    }
+    if (!competitorUrl) {
+      setSubmitError('Enter a competitor URL on Step 3 before launching.');
+      return;
+    }
+    if (channels.length === 0) {
+      setSubmitError('Select at least one channel on Step 4 before launching.');
+      return;
+    }
+    if (!mode) {
+      setSubmitError('Pick an execution mode on Step 5 before launching.');
+      return;
+    }
 
     const payload: PipelineInput = {
       brand_url: brandUrl,
@@ -113,9 +132,17 @@ export default function PipelineIntake() {
         }}
       >
         {step === 0 && (
-          <BrandStep brandUrl={brandUrl} onBrandUrlChange={setBrandUrl} onNext={goNext} />
+          <GoalStep goal={goal} onGoalChange={setGoal} onNext={goNext} />
         )}
         {step === 1 && (
+          <BrandStep
+            brandUrl={brandUrl}
+            onBrandUrlChange={setBrandUrl}
+            onNext={goNext}
+            onBack={goBack}
+          />
+        )}
+        {step === 2 && (
           <CompetitorStep
             competitorUrl={competitorUrl}
             brandUrl={brandUrl}
@@ -123,9 +150,6 @@ export default function PipelineIntake() {
             onNext={goNext}
             onBack={goBack}
           />
-        )}
-        {step === 2 && (
-          <GoalStep goal={goal} onGoalChange={setGoal} onNext={goNext} onBack={goBack} />
         )}
         {step === 3 && (
           <ChannelsStep
