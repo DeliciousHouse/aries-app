@@ -810,6 +810,17 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                         <PreviewStat label="Current source" value={firstPresent(preview.canonicalUrl, websiteUrl, 'No source set yet.') || ''} />
                         <PreviewStat label="Visible summary" value={brandPreviewSummary(preview, urlPreview)} />
                       </div>
+                    ) : websiteUrl.trim() && !previewLoading ? (
+                      <div className="mt-6 rounded-[1.25rem] border border-emerald-500/30 bg-emerald-500/10 px-4 py-4 text-sm text-emerald-100">
+                        {(() => {
+                          try {
+                            const parsed = new URL(websiteUrl.trim());
+                            return `✓ ${parsed.hostname.replace(/^www\./i, '')} — ready to analyze`;
+                          } catch {
+                            return 'Enter a valid HTTPS website to prepare the brand snapshot.';
+                          }
+                        })()}
+                      </div>
                     ) : (
                       <div className="mt-6 rounded-[1.25rem] border border-white/10 bg-white/[0.04] px-4 py-4 text-sm text-white/58">
                         Enter a valid HTTPS website to prepare the brand snapshot.
