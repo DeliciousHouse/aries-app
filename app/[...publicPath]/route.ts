@@ -5,10 +5,10 @@ export const dynamic = 'force-dynamic';
 function responseForPath(pathname: string, headOnly = false): Response {
   const artifact = resolvePublicMarketingArtifact(pathname);
   if (!artifact) {
-    return new Response('Public marketing route not found.', {
-      status: 404,
+    return new Response(null, {
+      status: 302,
       headers: {
-        'content-type': 'text/plain; charset=utf-8',
+        location: '/_not-found',
         'cache-control': 'no-store',
       },
     });
