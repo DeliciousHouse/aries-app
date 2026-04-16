@@ -37,9 +37,15 @@ type GoalOption = {
 
 const STEP_DEFINITIONS: StepDefinition[] = [
   {
+    key: 'goal',
+    label: 'Goal',
+    title: 'What outcome matters most right now?',
+    description: 'Start with the goal so every downstream step — business profile, website review, brand snapshot, and channel mix — is built around a real objective.',
+  },
+  {
     key: 'business',
     label: 'Business',
-    title: 'Start with the business Aries will represent.',
+    title: 'Set the business Aries will represent.',
     description: 'Set the operating basics once so every campaign starts from the same clear foundation.',
   },
   {
@@ -59,12 +65,6 @@ const STEP_DEFINITIONS: StepDefinition[] = [
     label: 'Channels',
     title: 'Choose where the first campaign should show up.',
     description: 'Start with the channels that matter now. The rest can be added later without rebuilding the profile.',
-  },
-  {
-    key: 'goal',
-    label: 'Goal',
-    title: 'What outcome matters most right now?',
-    description: 'Tell Aries what your business needs so the first campaign is built around a real objective.',
   },
 ];
 
@@ -163,6 +163,43 @@ function hostnameFromUrl(value: string | null | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+type UrlChipState =
+  | { kind: 'idle' }
+  | { kind: 'valid'; hostname: string }
+  | { kind: 'invalid' };
+
+function urlChipFromValue(value: string): UrlChipState {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return { kind: 'idle' };
+  }
+  const hostname = hostnameFromUrl(trimmed);
+  if (!hostname || !isValidHttpsUrl(trimmed)) {
+    return { kind: 'invalid' };
+  }
+  return { kind: 'valid', hostname };
+}
+
+function recommendedChannelsForBusinessType(businessType: string): string[] {
+  const normalized = businessType.trim().toLowerCase();
+  if (!normalized) {
+    return ['meta-ads', 'instagram-organic'];
+  }
+  const localKeywords = ['local', 'restaurant', 'retail', 'service', 'salon', 'clinic', 'store', 'shop'];
+  const saasKeywords = ['saas', 'software', 'b2b', 'agency', 'platform', 'technology', 'tech'];
+  const ecomKeywords = ['ecommerce', 'e-commerce', 'commerce', 'dtc', 'direct-to-consumer', 'online store', 'brand'];
+  if (localKeywords.some((kw) => normalized.includes(kw))) {
+    return ['meta-ads', 'instagram-organic', 'google-business'];
+  }
+  if (saasKeywords.some((kw) => normalized.includes(kw))) {
+    return ['linkedin', 'meta-ads', 'email'];
+  }
+  if (ecomKeywords.some((kw) => normalized.includes(kw))) {
+    return ['meta-ads', 'instagram-organic', 'email', 'tiktok'];
+  }
+  return ['meta-ads', 'instagram-organic'];
 }
 
 function firstPresent(...values: Array<string | null | undefined>): string | null {
@@ -296,6 +333,15 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   const [customGoal, setCustomGoal] = useState('');
   const [offer, setOffer] = useState('');
   const [competitorUrl, setCompetitorUrl] = useState('');
+  const [websiteChip, setWebsiteChip] = useState<UrlChipState>({ kind: 'idle' });
+  // Two separate flags: `locked` prevents the recommendation from re-firing
+  // (set when the user or a loaded draft already has channels). `shown`
+  // controls whether the "Recommended for {businessType}" subtitle actually
+  // appears — only true when the auto-recommendation was the source of the
+  // current selection. The old single-flag implementation conflated these
+  // two concerns and showed the subtitle for draft-loaded selections too.
+  const [channelsRecommendationLocked, setChannelsRecommendationLocked] = useState(false);
+  const [channelsRecommendationShown, setChannelsRecommendationShown] = useState(false);
   const deferredWebsiteUrl = useDeferredValue(websiteUrl.trim());
 
   const profile = businessProfileState.data?.profile ?? null;
@@ -482,6 +528,56 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   ]);
 
   useEffect(() => {
+    if (currentStep.key !== 'website') {
+      return;
+    }
+    if (websiteChip.kind !== 'idle') {
+      return;
+    }
+    const trimmed = websiteUrl.trim();
+    if (!trimmed) {
+      return;
+    }
+    setWebsiteChip(urlChipFromValue(trimmed));
+  }, [currentStep.key, websiteChip.kind, websiteUrl]);
+
+  useEffect(() => {
+    if (currentStep.key !== 'channels') {
+      return;
+    }
+    if (channelsRecommendationLocked) {
+      return;
+    }
+    if (selectedChannels.length > 0) {
+      // User (or a loaded draft) already has channels — lock the recommender
+      // so unchecking back down to zero doesn't trigger a surprise re-select,
+      // but leave `shown` false so the "Recommended for {businessType}"
+      // subtitle doesn't appear for user-selected or draft-loaded channels.
+      setChannelsRecommendationLocked(true);
+      return;
+    }
+    if (!businessType.trim()) {
+      return;
+    }
+    // Filter the recommendation against the actual rendered CHANNEL_OPTIONS
+    // so we never pre-select an id that doesn't appear in the UI. Without
+    // this filter a user could be pre-selected to e.g. `email` or
+    // `instagram-organic` that aren't rendered in this flow's option list,
+    // pass the channels step's canProceed check (selectedChannels.length > 0),
+    // and send unsupported ids downstream with no visible selection.
+    const availableIds = new Set(CHANNEL_OPTIONS.map((option) => option.id));
+    const recommended = recommendedChannelsForBusinessType(businessType).filter(
+      (id) => availableIds.has(id),
+    );
+    if (recommended.length === 0) {
+      return;
+    }
+    setSelectedChannels(recommended);
+    setChannelsRecommendationLocked(true);
+    setChannelsRecommendationShown(true);
+  }, [currentStep.key, selectedChannels.length, channelsRecommendationLocked, businessType]);
+
+  useEffect(() => {
     if (!draftId || !deferredWebsiteUrl || !isValidHttpsUrl(deferredWebsiteUrl)) {
       setUrlPreview(null);
       setPreviewError(null);
@@ -645,6 +741,9 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
             </div>
 
             <div className="relative z-10 px-6 pb-6 pt-5 sm:px-8 lg:px-10">
+              <p className="mb-3 text-xs font-medium uppercase tracking-[0.22em] text-white/52">
+                Takes ~3 minutes · Step {stepIndex + 1} of {STEP_DEFINITIONS.length}
+              </p>
               <div className="flex flex-wrap gap-3 border-b border-white/8 pb-5">
                 {STEP_DEFINITIONS.map((step, index) => {
                   const active = index === stepIndex;
@@ -778,10 +877,22 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                           setWebsiteUrl(event.target.value);
                           setUrlPreview(null);
                           setPreviewError(null);
+                          setWebsiteChip({ kind: 'idle' });
                         }}
+                        onBlur={() => setWebsiteChip(urlChipFromValue(websiteUrl))}
                         className={fieldInputClassName}
                         placeholder="https://yourbusiness.com"
                       />
+                      {websiteChip.kind === 'valid' ? (
+                        <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-medium">
+                          <Check className="w-3.5 h-3.5" /> {websiteChip.hostname} — ready to analyze
+                        </div>
+                      ) : null}
+                      {websiteChip.kind === 'invalid' ? (
+                        <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-medium">
+                          <span aria-hidden>✗</span> Enter a valid HTTPS website
+                        </div>
+                      ) : null}
                     </Field>
 
                     <div className="rounded-[1.5rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-5">
@@ -941,6 +1052,11 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                   <p className="max-w-3xl text-sm leading-7 text-white/65">
                     Choose the channels Aries should prioritize first. The initial set stays lightweight so the first campaign is easy to approve and launch.
                   </p>
+                  {channelsRecommendationShown && businessType.trim() ? (
+                    <p className="max-w-3xl text-xs font-medium uppercase tracking-[0.22em] text-[#ba8cff]">
+                      Recommended for {businessType.trim()}
+                    </p>
+                  ) : null}
                   <div className="grid gap-4 md:grid-cols-2">
                     {CHANNEL_OPTIONS.map((channel) => {
                       const selected = selectedChannels.includes(channel.id);

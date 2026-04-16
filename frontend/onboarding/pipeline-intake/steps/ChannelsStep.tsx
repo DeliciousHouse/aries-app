@@ -66,6 +66,7 @@ export default function ChannelsStep({
   return (
     <StepContainer
       stepNumber={4}
+      totalSteps={5}
       title="Target Channels"
       subtitle="Select the platforms where your campaign will run. You can choose multiple."
       canProceed={channels.length > 0}
