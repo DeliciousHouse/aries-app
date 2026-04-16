@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, ArrowRight, Chrome, Lock, Mail } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Lock, Mail } from 'lucide-react';
 
 import { AriesMark } from '@/frontend/donor/ui';
 
