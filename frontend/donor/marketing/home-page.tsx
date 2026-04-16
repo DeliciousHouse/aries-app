@@ -346,7 +346,7 @@ function Hero() {
           <motion.div style={{ opacity: useTransform(smoothProgress, [0, 0.05], [1, 0]) }} className="mb-8">
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-reflection relative">
               <Sparkles className="w-4 h-4 text-primary" />
-              <span className="text-sm font-medium text-white/80">Nothing goes live without your approval</span>
+              <span className="text-sm font-medium text-white/80">The system small businesses actually use to grow</span>
             </div>
           </motion.div>
 
@@ -357,8 +357,8 @@ function Hero() {
             }}
             className="text-3xl md:text-[3rem] lg:text-[4rem] font-bold tracking-tight mb-8 leading-[1.1]"
           >
-            Plan, create, approve, launch, and <br />
-            <span className="text-gradient">improve your marketing</span>
+            Marketing without a system is expensive. <br />
+            <span className="text-gradient">Aries gives you the system.</span>
           </motion.h1>
 
           <motion.p
@@ -368,7 +368,7 @@ function Hero() {
             }}
             className="max-w-2xl mx-auto text-[1rem] text-white/60 mb-12"
           >
-            Aries gives business owners a calm workspace to see what is running, what needs approval, what is scheduled next, what is working, and what to do now.
+            Plan campaigns, approve creative, launch safely. Nothing goes live without your approval — and you always know what is running, what needs your sign-off, and what is working.
           </motion.p>
 
           <motion.div
