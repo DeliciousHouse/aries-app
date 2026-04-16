@@ -6,7 +6,6 @@ import pool from "./lib/db";
 import { resolveAuthRuntimeConfig } from "./lib/auth-runtime-config";
 import {
   DATABASE_UNAVAILABLE_ERROR,
-  EMAIL_DOES_NOT_EXIST_ERROR,
   GOOGLE_SIGN_IN_REQUIRED_ERROR,
 } from "./lib/auth-error-message";
 import { ensureUserJourneySchema } from "./lib/auth-user-journey";
@@ -25,10 +24,6 @@ const authRuntime = resolveAuthRuntimeConfig(process.env);
 
 class DatabaseUnavailableCredentialsError extends CredentialsSignin {
   code = DATABASE_UNAVAILABLE_ERROR;
-}
-
-class EmailDoesNotExistCredentialsError extends CredentialsSignin {
-  code = EMAIL_DOES_NOT_EXIST_ERROR;
 }
 
 class GoogleSignInRequiredCredentialsError extends CredentialsSignin {
@@ -77,7 +72,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           );
 
           if ((result.rowCount ?? 0) === 0) {
-            throw new EmailDoesNotExistCredentialsError();
+            // Don't signal "email not found" distinctly — that was a user
+            // enumeration oracle. Return null (generic "Invalid email or
+            // password") just like a wrong-password outcome. The signup CTA
+            // below the login form handles the legitimate "I don't have an
+            // account" UX without needing a server-side signal.
+            return null;
           }
 
           const row = result.rows[0] as {

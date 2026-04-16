@@ -1,17 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 
 import AuthLayout from '../../frontend/auth/auth-layout';
 import LoginForm from '../../frontend/auth/login-form';
-import { EMAIL_DOES_NOT_EXIST_ERROR } from '@/lib/auth-error-message';
-import {
-  getLoginAuthErrorMessage,
-  resolveLoginErrorCode,
-  shouldRedirectLoginToSignup,
-} from '@/lib/login-auth-error';
+import { getLoginAuthErrorMessage } from '@/lib/login-auth-error';
 
 function savedDraftMessage(draftSaved: string | null, businessName: string | null): string | null {
   if (draftSaved !== '1') {
@@ -33,10 +28,6 @@ export default function LoginPageClient() {
   const [authError, setAuthError] = useState<string | null>(null);
   const callbackUrl = '/auth/post-login';
   const defaultEmail = searchParams.get('email') || '';
-  const queryErrorCode = useMemo(
-    () => resolveLoginErrorCode(searchParams.get('error'), searchParams.get('code')),
-    [searchParams],
-  );
   const savedMessage = useMemo(() => {
     if (searchParams.get('reset') === 'success') {
       return 'Password updated — sign in with your new password';
@@ -71,18 +62,6 @@ export default function LoginPageClient() {
     [searchParams],
   );
 
-  useEffect(() => {
-    if (queryErrorCode !== EMAIL_DOES_NOT_EXIST_ERROR) {
-      return;
-    }
-
-    const email = searchParams.get('email') || '';
-    if (typeof window !== 'undefined') {
-      window.alert("Email doesn't exist. Please sign up.");
-    }
-    router.replace(`/signup?email=${encodeURIComponent(email)}&notice=${EMAIL_DOES_NOT_EXIST_ERROR}`);
-  }, [queryErrorCode, router, searchParams]);
-
   const handleGoogleSuccess = () => {
     setIsLoading(true);
     setAuthError(null);
@@ -111,15 +90,6 @@ export default function LoginPageClient() {
       }
 
       if (result.error) {
-        if (shouldRedirectLoginToSignup(result.error, result.code)) {
-          if (typeof window !== 'undefined') {
-            window.alert("Email doesn't exist. Please sign up.");
-          }
-          router.push(`/signup?email=${encodeURIComponent(email)}&notice=${EMAIL_DOES_NOT_EXIST_ERROR}`);
-          router.refresh();
-          return;
-        }
-
         setAuthError(
           getLoginAuthErrorMessage(
             result.error,
