@@ -159,7 +159,22 @@ async function initDb() {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
     `);
-    
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS password_resets (
+        id BIGSERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        email TEXT NOT NULL,
+        code_hash TEXT NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        used_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_password_resets_email_created
+        ON password_resets (email, created_at DESC);
+    `);
+
     console.log('Database initialized successfully.');
   } catch (err) {
     console.error('Error initializing database:', err);
