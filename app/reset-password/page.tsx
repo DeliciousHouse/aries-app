@@ -3,6 +3,10 @@ import { Suspense } from 'react';
 import AuthLayout from '../../frontend/auth/auth-layout';
 import ResetPasswordPageClient from './page-client';
 
+export const metadata = {
+  title: 'Set a new password — Aries AI',
+};
+
 export default function ResetPasswordPage() {
   return (
     <Suspense

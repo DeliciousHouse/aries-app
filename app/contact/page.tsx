@@ -2,6 +2,10 @@ import Link from 'next/link';
 
 import MarketingLayout from '../../frontend/marketing/MarketingLayout';
 
+export const metadata = {
+  title: 'Contact — Aries AI',
+};
+
 export default function ContactPage() {
   return (
     <MarketingLayout>

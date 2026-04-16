@@ -1,6 +1,10 @@
 import React from 'react';
 import MarketingLayout from '../../frontend/marketing/MarketingLayout';
 
+export const metadata = {
+  title: 'API — Aries AI',
+};
+
 const ENDPOINTS = [
   {
     method: 'POST',

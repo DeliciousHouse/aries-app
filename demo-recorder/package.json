@@ -1,0 +1,19 @@
+{
+  "name": "aries-demo-recorder",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Playwright-driven B-roll recorder for the Aries AI LinkedIn Live demo. Produces MP4-ready 1920x1080 clips of every scripted segment.",
+  "scripts": {
+    "install:browser": "playwright install chromium",
+    "record:all": "playwright test --grep-invert \"sign in the seeded demo account\"",
+    "record:public": "playwright test tests/01-public-tour.spec.ts tests/02-signup-form.spec.ts",
+    "record:authed": "playwright test tests/03-onboarding.spec.ts tests/04-new-campaign.spec.ts tests/05-job-status.spec.ts",
+    "record:one": "playwright test --grep",
+    "auth:refresh": "playwright test tests/_auth-setup.spec.ts --project=chromium-1080p --reporter=list",
+    "convert:mp4": "bash scripts/convert-webm-to-mp4.sh",
+    "clean": "rm -rf test-results playwright-report storage-state.json"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}
