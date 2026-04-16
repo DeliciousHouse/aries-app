@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ComponentType, type FormEvent, type SVGProps } from 'react';
 
 import {
+  ArrowRight,
   BarChart3,
   Check,
   ChevronLeft,
@@ -15,6 +16,7 @@ import {
   Linkedin,
   MoreHorizontal,
   PenTool,
+  Play,
   Plus,
   RefreshCw,
   Search,
@@ -638,14 +640,26 @@ function Hero() {
               opacity: useTransform(smoothProgress, [0, 0.05], [1, 0]),
               y: useTransform(smoothProgress, [0, 0.05], [0, -20]),
             }}
-            className="mx-auto w-full max-w-3xl"
+            className="flex flex-col sm:flex-row items-center justify-center gap-4"
           >
-            <EarlyAccessForm
-              source="marketing-hero"
-              emailInputId="hero-early-access-email"
-              variant="hero"
-              buttonLabel="Get early access"
-            />
+            <a
+              href="/onboarding/start"
+              className="w-full sm:w-auto px-8 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 hover:scale-105 transition-transform flex items-center justify-center gap-2"
+            >
+              Start with your business <ArrowRight className="w-5 h-5" />
+            </a>
+            <a
+              href="/login"
+              className="w-full sm:w-auto px-8 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2"
+            >
+              Log in
+            </a>
+            <a
+              href="/#how-it-works"
+              className="w-full sm:w-auto px-8 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2"
+            >
+              <Play className="w-5 h-5 fill-current" /> See how it works
+            </a>
           </motion.div>
 
           <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
@@ -1177,6 +1191,8 @@ function ContentCalendar() {
   const [activeDate, setActiveDate] = useState('10');
   const [currentWeek, setCurrentWeek] = useState<'current' | 'next'>('current');
   const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [activePlatforms, setActivePlatforms] = useState<string[]>([]);
 
   const platforms = [
     { name: 'X / Twitter' },
@@ -1199,10 +1215,24 @@ function ContentCalendar() {
     CONTENT_CALENDAR_SCHEDULE.find((entry) => entry.date === date)?.posts || [];
 
   const displayedSchedule = useMemo(() => {
-    return currentWeek === 'current'
-      ? CONTENT_CALENDAR_SCHEDULE.filter((item) => ['6', '7', '8', '9', '10', '11', '12'].includes(item.date))
-      : CONTENT_CALENDAR_SCHEDULE.filter((item) => ['13', '14', '15', '16', '17', '18', '19'].includes(item.date));
-  }, [currentWeek]);
+    const weekDates = currentWeek === 'current'
+      ? ['6', '7', '8', '9', '10', '11', '12']
+      : ['13', '14', '15', '16', '17', '18', '19'];
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+
+    return CONTENT_CALENDAR_SCHEDULE
+      .filter((item) => weekDates.includes(item.date))
+      .map((day) => ({
+        ...day,
+        posts: day.posts.filter((post) => {
+          const matchesSearch = normalizedSearch.length === 0
+            || post.title.toLowerCase().includes(normalizedSearch);
+          const matchesPlatform = activePlatforms.length === 0
+            || activePlatforms.includes(post.platform);
+          return matchesSearch && matchesPlatform;
+        }),
+      }));
+  }, [currentWeek, searchTerm, activePlatforms]);
 
   return (
     <section id="calendar" className="py-24 relative overflow-hidden">
@@ -1248,7 +1278,9 @@ function ContentCalendar() {
               <input
                 type="text"
                 placeholder="Search posts..."
-                className="w-full bg-black/30 border border-white/10 rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-primary/50 transition-colors"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                className="w-full bg-black/30 border border-white/10 rounded-xl py-2 pl-10 pr-4 text-sm text-white focus:outline-none focus:border-primary/50 transition-colors"
               />
             </div>
 
@@ -1256,16 +1288,46 @@ function ContentCalendar() {
               <div>
                 <h4 className="text-xs font-bold uppercase tracking-widest text-white/30 mb-4">Platforms</h4>
                 <div className="space-y-2">
-                  {platforms.map((platform) => (
-                    <div key={platform.name} className="flex items-center justify-between p-3 rounded-xl hover:bg-white/5 transition-colors cursor-pointer group">
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-medium text-white/70 group-hover:text-white transition-colors">
-                          {platform.name}
-                        </span>
-                      </div>
-                      <div className="w-2 h-2 rounded-full bg-primary" />
-                    </div>
-                  ))}
+                  {platforms.map((platform) => {
+                    const isActive = activePlatforms.includes(platform.name);
+                    return (
+                      <button
+                        key={platform.name}
+                        type="button"
+                        onClick={() =>
+                          setActivePlatforms((current) =>
+                            current.includes(platform.name)
+                              ? current.filter((name) => name !== platform.name)
+                              : [...current, platform.name],
+                          )
+                        }
+                        aria-pressed={isActive}
+                        className={cn(
+                          'w-full flex items-center justify-between p-3 rounded-xl transition-colors cursor-pointer group text-left',
+                          isActive ? 'bg-white/10' : 'hover:bg-white/5',
+                        )}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span
+                            className={cn(
+                              'text-sm font-medium transition-colors',
+                              isActive ? 'text-white' : 'text-white/70 group-hover:text-white',
+                            )}
+                          >
+                            {platform.name}
+                          </span>
+                        </div>
+                        <div
+                          className={cn(
+                            'w-2 h-2 rounded-full transition-all',
+                            isActive
+                              ? 'bg-primary scale-125 shadow-[0_0_8px_rgba(124,58,237,0.5)]'
+                              : 'bg-white/10',
+                          )}
+                        />
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
