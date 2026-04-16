@@ -115,7 +115,6 @@ export default function SignUpPageClient() {
           onNavigate={handleNavigate}
           onSubmit={handleSubmit}
           onGoogleSuccess={handleGoogleSuccess}
-          onSlackClick={() => {}}
           isLoading={isLoading}
           authError={authError || defaultAuthError}
           savedStateMessage={savedMessage}
