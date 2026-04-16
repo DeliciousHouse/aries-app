@@ -37,7 +37,11 @@ export default function PipelineIntake() {
   };
 
   const handleSubmit = async () => {
-    if (!goal || !mode || channels.length === 0 || !brandUrl || !competitorUrl) return;
+    if (!brandUrl) { setSubmitError('Enter your brand URL on Step 1 before launching.'); return; }
+    if (!competitorUrl) { setSubmitError('Enter a competitor URL on Step 2 before launching.'); return; }
+    if (!goal) { setSubmitError('Select a campaign goal on Step 3 before launching.'); return; }
+    if (channels.length === 0) { setSubmitError('Select at least one channel on Step 4 before launching.'); return; }
+    if (!mode) { setSubmitError('Select an execution mode before launching.'); return; }
 
     const payload: PipelineInput = {
       brand_url: brandUrl,
