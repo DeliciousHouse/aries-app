@@ -1,6 +1,15 @@
 'use client';
 
-import { useDeferredValue, useEffect, useMemo, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import clsx from 'clsx';
@@ -8,6 +17,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
+  Loader2,
   ShieldCheck,
 } from 'lucide-react';
 
@@ -291,6 +301,148 @@ function stepValidationMessage(stepKey: StepKey, values?: {
   return 'Complete the current step before continuing.';
 }
 
+const LOCAL_DRAFT_KEY = 'aries:v1-onboarding-draft';
+const LOCAL_DRAFT_VERSION = 1;
+
+type LocalDraftSnapshot = {
+  version: number;
+  updatedAt: number;
+  businessName: string;
+  businessType: string;
+  websiteUrl: string;
+  approverName: string;
+  selectedChannels: string[];
+  goal: string;
+  customGoal: string;
+  offer: string;
+  competitorUrl: string;
+};
+
+function readLocalDraft(): LocalDraftSnapshot | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem(LOCAL_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<LocalDraftSnapshot> | null;
+    if (!parsed || parsed.version !== LOCAL_DRAFT_VERSION) return null;
+    return {
+      version: LOCAL_DRAFT_VERSION,
+      updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
+      businessName: parsed.businessName || '',
+      businessType: parsed.businessType || '',
+      websiteUrl: parsed.websiteUrl || '',
+      approverName: parsed.approverName || '',
+      selectedChannels: Array.isArray(parsed.selectedChannels) ? parsed.selectedChannels : [],
+      goal: parsed.goal || '',
+      customGoal: parsed.customGoal || '',
+      offer: parsed.offer || '',
+      competitorUrl: parsed.competitorUrl || '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeLocalDraft(snapshot: Omit<LocalDraftSnapshot, 'version' | 'updatedAt'>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const payload: LocalDraftSnapshot = {
+      version: LOCAL_DRAFT_VERSION,
+      updatedAt: Date.now(),
+      ...snapshot,
+    };
+    window.localStorage.setItem(LOCAL_DRAFT_KEY, JSON.stringify(payload));
+  } catch {
+    // storage quota or private-mode errors — degrade silently
+  }
+}
+
+function clearLocalDraft(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(LOCAL_DRAFT_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+function localDraftHasContent(snapshot: LocalDraftSnapshot | null): boolean {
+  if (!snapshot) return false;
+  return Boolean(
+    snapshot.businessName.trim() ||
+      snapshot.businessType.trim() ||
+      snapshot.websiteUrl.trim() ||
+      snapshot.approverName.trim() ||
+      snapshot.selectedChannels.length > 0 ||
+      snapshot.goal.trim() ||
+      snapshot.customGoal.trim() ||
+      snapshot.offer.trim() ||
+      snapshot.competitorUrl.trim(),
+  );
+}
+
+function offerPlaceholderForBusinessType(businessType: string): string {
+  const normalized = businessType.trim().toLowerCase();
+  if (!normalized) {
+    return "Describe your core offer and customer. Example: 'A meal-planning app for busy parents — weekly plans, one-tap grocery lists, and family-friendly recipes.'";
+  }
+  if (
+    normalized.includes('saas') ||
+    normalized.includes('software') ||
+    normalized.includes('platform') ||
+    normalized.includes('b2b') ||
+    normalized.includes('technology') ||
+    normalized.includes('tech')
+  ) {
+    return "Describe your core product and who it's for. Example: 'A task management SaaS for small marketing agencies that need to keep clients in the loop.'";
+  }
+  if (
+    normalized.includes('ecommerce') ||
+    normalized.includes('e-commerce') ||
+    normalized.includes('retail') ||
+    normalized.includes('dtc') ||
+    normalized.includes('shop') ||
+    normalized.includes('store') ||
+    normalized.includes('commerce') ||
+    normalized.includes('product')
+  ) {
+    return "Describe your product line and customer. Example: 'Handmade leather goods for remote workers — wallets, bags, and desk accessories.'";
+  }
+  if (
+    normalized.includes('agency') ||
+    normalized.includes('studio') ||
+    normalized.includes('consult')
+  ) {
+    return "Describe your service and client type. Example: 'Brand design for Series A consumer startups.'";
+  }
+  if (
+    normalized.includes('service') ||
+    normalized.includes('local') ||
+    normalized.includes('salon') ||
+    normalized.includes('clinic') ||
+    normalized.includes('restaurant') ||
+    normalized.includes('florist') ||
+    normalized.includes('coach')
+  ) {
+    return "Describe the service and customer. Example: 'A boutique floral studio serving Brooklyn weddings and event planners.'";
+  }
+  return "Describe your core offer and customer. Example: 'A meal-planning app for busy parents — weekly plans, one-tap grocery lists, and family-friendly recipes.'";
+}
+
+type TouchedFields = {
+  businessName: boolean;
+  businessType: boolean;
+  approverName: boolean;
+  websiteUrl: boolean;
+  offer: boolean;
+  competitorUrl: boolean;
+  customGoal: boolean;
+};
+
+type FieldValidity = 'untouched' | 'valid' | 'invalid';
+
 function authRedirectHref(input: { draftId: string; businessName: string }): string {
   const callbackUrl = `/onboarding/resume?draft=${encodeURIComponent(input.draftId)}`;
   const params = new URLSearchParams({
@@ -342,7 +494,41 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   // two concerns and showed the subtitle for draft-loaded selections too.
   const [channelsRecommendationLocked, setChannelsRecommendationLocked] = useState(false);
   const [channelsRecommendationShown, setChannelsRecommendationShown] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'local-saved'>('idle');
+  const [touched, setTouched] = useState<TouchedFields>({
+    businessName: false,
+    businessType: false,
+    approverName: false,
+    websiteUrl: false,
+    offer: false,
+    competitorUrl: false,
+    customGoal: false,
+  });
+  const [resumePromptOpen, setResumePromptOpen] = useState(false);
+  const [pendingLocalDraft, setPendingLocalDraft] = useState<LocalDraftSnapshot | null>(null);
+  const [resumeChecked, setResumeChecked] = useState(false);
+  const [showTransition, setShowTransition] = useState(false);
+  const draftApiFailedRef = useRef(false);
+  const localSaveTimerRef = useRef<number | null>(null);
+  const savedIndicatorTimerRef = useRef<number | null>(null);
+  const transitionTimerRef = useRef<number | null>(null);
+  const submittingRef = useRef(false);
   const deferredWebsiteUrl = useDeferredValue(websiteUrl.trim());
+
+  const markTouched = useCallback((field: keyof TouchedFields) => {
+    setTouched((prev) => (prev[field] ? prev : { ...prev, [field]: true }));
+  }, []);
+
+  const markSaved = useCallback((kind: 'saved' | 'local-saved' = 'saved') => {
+    setSaveStatus(kind);
+    if (savedIndicatorTimerRef.current) {
+      window.clearTimeout(savedIndicatorTimerRef.current);
+    }
+    savedIndicatorTimerRef.current = window.setTimeout(() => {
+      setSaveStatus('idle');
+      savedIndicatorTimerRef.current = null;
+    }, 1500);
+  }, []);
 
   const profile = businessProfileState.data?.profile ?? null;
   const currentStep = STEP_DEFINITIONS[stepIndex];
@@ -490,7 +676,15 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     if (!draftId) {
       return;
     }
+    // Don't autosave until the draft has been hydrated from the server (or
+    // freshly created locally). Without this guard, landing on
+    // /onboarding/start?draft=XXX would fire this effect immediately with
+    // the initial empty field values and overwrite the server draft.
+    if (loadedDraftId !== draftId) {
+      return;
+    }
 
+    setSaveStatus('saving');
     const timer = window.setTimeout(() => {
       void ariesApi.updateOnboardingDraft(draftId, {
         websiteUrl,
@@ -507,7 +701,17 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
           canonical_url: urlPreview?.canonicalUrl || null,
           source_fingerprint: urlPreview?.canonicalUrl || websiteUrl || null,
         },
-      }).catch(() => {});
+      })
+        .then(() => {
+          draftApiFailedRef.current = false;
+          markSaved('saved');
+        })
+        .catch(() => {
+          // Draft API failed — fall back to localStorage below so the user
+          // doesn't lose their in-progress inputs.
+          draftApiFailedRef.current = true;
+          setSaveStatus('idle');
+        });
     }, 250);
 
     return () => {
@@ -525,7 +729,103 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     selectedChannels,
     urlPreview,
     websiteUrl,
+    loadedDraftId,
+    markSaved,
   ]);
+
+  // localStorage fallback: always write a debounced snapshot so unauthenticated
+  // users (no draftId yet) and users where the draft API failed don't lose
+  // their inputs on refresh. Skips the write for empty drafts so we don't
+  // leave an empty key around (and so a recently cleared draft doesn't get
+  // re-created by a trailing debounced tick). Also suppressed while submitting
+  // / transitioning so clearLocalDraft() sticks.
+  useEffect(() => {
+    if (submittingRef.current) return;
+    if (localSaveTimerRef.current) {
+      window.clearTimeout(localSaveTimerRef.current);
+    }
+    localSaveTimerRef.current = window.setTimeout(() => {
+      const snapshot = {
+        businessName,
+        businessType,
+        websiteUrl,
+        approverName,
+        selectedChannels,
+        goal,
+        customGoal,
+        offer,
+        competitorUrl,
+      };
+      const hasContent =
+        snapshot.businessName.trim() ||
+        snapshot.businessType.trim() ||
+        snapshot.websiteUrl.trim() ||
+        snapshot.approverName.trim() ||
+        snapshot.selectedChannels.length > 0 ||
+        snapshot.goal.trim() ||
+        snapshot.customGoal.trim() ||
+        snapshot.offer.trim() ||
+        snapshot.competitorUrl.trim();
+      if (hasContent) {
+        writeLocalDraft(snapshot);
+        if (!draftId || draftApiFailedRef.current) {
+          markSaved('local-saved');
+        }
+      } else {
+        clearLocalDraft();
+      }
+      localSaveTimerRef.current = null;
+    }, 500);
+    return () => {
+      if (localSaveTimerRef.current) {
+        window.clearTimeout(localSaveTimerRef.current);
+        localSaveTimerRef.current = null;
+      }
+    };
+  }, [
+    approverName,
+    businessName,
+    businessType,
+    competitorUrl,
+    customGoal,
+    draftId,
+    goal,
+    offer,
+    selectedChannels,
+    websiteUrl,
+    markSaved,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (transitionTimerRef.current) {
+        window.clearTimeout(transitionTimerRef.current);
+        transitionTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  // Check for local draft on mount and offer to restore.
+  useEffect(() => {
+    if (resumeChecked) return;
+    const snapshot = readLocalDraft();
+    setResumeChecked(true);
+    if (!localDraftHasContent(snapshot)) {
+      return;
+    }
+    // If we already have a server draft with content, skip the prompt — the
+    // server draft always wins.
+    if (draftParam) {
+      return;
+    }
+    // If the authenticated user already has a business profile, the hydrate
+    // effect will populate things — don't confuse with an older local draft.
+    if (props.initialAuthenticated) {
+      return;
+    }
+    setPendingLocalDraft(snapshot);
+    setResumePromptOpen(true);
+  }, [draftParam, props.initialAuthenticated, resumeChecked]);
 
   useEffect(() => {
     if (currentStep.key !== 'website') {
@@ -620,6 +920,35 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     );
   }
 
+  function handleResumeLocalDraft() {
+    if (!pendingLocalDraft) {
+      setResumePromptOpen(false);
+      return;
+    }
+    const snap = pendingLocalDraft;
+    setBusinessName(snap.businessName);
+    setBusinessType(snap.businessType);
+    setWebsiteUrl(snap.websiteUrl);
+    setApproverName(snap.approverName);
+    setSelectedChannels(snap.selectedChannels);
+    setGoal(snap.goal);
+    setCustomGoal(snap.customGoal);
+    setOffer(snap.offer);
+    setCompetitorUrl(snap.competitorUrl);
+    setResumePromptOpen(false);
+    setPendingLocalDraft(null);
+  }
+
+  function handleDismissResume() {
+    setResumePromptOpen(false);
+    setPendingLocalDraft(null);
+    if (localSaveTimerRef.current) {
+      window.clearTimeout(localSaveTimerRef.current);
+      localSaveTimerRef.current = null;
+    }
+    clearLocalDraft();
+  }
+
   function handleContinue() {
     if (!stepReady(currentStep.key, { businessName, businessType, websiteUrl, selectedChannels, goal, customGoal })) {
       setError(stepValidationMessage(currentStep.key, { businessName, businessType }) ?? 'Complete the current step before continuing.');
@@ -680,8 +1009,25 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         },
       });
 
+      // Freeze autosave and cancel any pending debounced write so the draft
+      // doesn't get re-written between clearLocalDraft() and navigation.
+      submittingRef.current = true;
+      if (localSaveTimerRef.current) {
+        window.clearTimeout(localSaveTimerRef.current);
+        localSaveTimerRef.current = null;
+      }
+      clearLocalDraft();
+
       if (props.initialAuthenticated) {
-        router.push(`/onboarding/resume?draft=${encodeURIComponent(activeDraftId)}`);
+        // Full-screen transition for ~1.8s before redirecting so the user
+        // sees a clear "we've got it, building your campaign" state instead
+        // of a blank screen while the server-side resume page materializes
+        // the campaign. Timer is tracked in a ref so unmount can cancel it.
+        setShowTransition(true);
+        transitionTimerRef.current = window.setTimeout(() => {
+          transitionTimerRef.current = null;
+          router.push(`/onboarding/resume?draft=${encodeURIComponent(activeDraftId)}`);
+        }, 1800);
         return;
       }
 
@@ -702,8 +1048,148 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     }
   }
 
+  const businessNameValidity: FieldValidity = !touched.businessName
+    ? 'untouched'
+    : businessName.trim().length > 0
+      ? 'valid'
+      : 'invalid';
+  const businessTypeValidity: FieldValidity = !touched.businessType
+    ? 'untouched'
+    : businessType.trim().length > 0
+      ? 'valid'
+      : 'invalid';
+  const websiteUrlValidity: FieldValidity = !touched.websiteUrl
+    ? 'untouched'
+    : websiteUrl.trim().length === 0
+      ? 'invalid'
+      : isValidHttpsUrl(websiteUrl)
+        ? 'valid'
+        : 'invalid';
+  const competitorUrlValidity: FieldValidity = !touched.competitorUrl
+    ? 'untouched'
+    : competitorUrl.trim().length === 0
+      ? 'valid' // optional field
+      : isValidHttpsUrl(competitorUrl)
+        ? 'valid'
+        : 'invalid';
+  const offerValidity: FieldValidity = touched.offer && offer.trim().length > 0 ? 'valid' : 'untouched';
+  const customGoalValidity: FieldValidity = !touched.customGoal
+    ? 'untouched'
+    : customGoal.trim().length > 0
+      ? 'valid'
+      : 'invalid';
+
+  function inputClassForValidity(validity: FieldValidity): string {
+    if (validity === 'valid') {
+      return clsx(fieldInputClassName, 'border-emerald-500/40 focus:border-emerald-400');
+    }
+    if (validity === 'invalid') {
+      return clsx(fieldInputClassName, 'border-red-500/50 focus:border-red-400');
+    }
+    return fieldInputClassName;
+  }
+
+  function fieldErrorMessage(field: keyof TouchedFields): string | null {
+    if (!touched[field]) return null;
+    switch (field) {
+      case 'businessName':
+        return businessName.trim() ? null : 'Add a business name.';
+      case 'businessType':
+        return businessType.trim() ? null : 'Describe the business in plain language.';
+      case 'websiteUrl': {
+        if (!websiteUrl.trim()) return 'Enter a website so Aries can analyze it.';
+        return isValidHttpsUrl(websiteUrl) ? null : 'Enter a valid HTTPS URL (e.g. https://yourbusiness.com).';
+      }
+      case 'competitorUrl': {
+        if (!competitorUrl.trim()) return null; // optional
+        return isValidHttpsUrl(competitorUrl) ? null : 'Enter a valid HTTPS URL for the competitor.';
+      }
+      case 'customGoal':
+        return customGoal.trim() ? null : 'Describe the business outcome you want.';
+      case 'offer':
+      case 'approverName':
+      default:
+        return null;
+    }
+  }
+
+  if (showTransition) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#07080d] text-white px-4">
+        <div className="relative max-w-md w-full rounded-[2rem] border border-white/14 bg-[linear-gradient(180deg,rgba(28,24,39,0.6),rgba(14,12,20,0.36))] px-8 py-10 text-center shadow-[0_34px_110px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.22)] backdrop-blur-[30px]">
+          <div className="pointer-events-none absolute inset-0 rounded-[2rem] bg-[radial-gradient(circle_at_top,rgba(171,108,255,0.18),transparent_55%)]" />
+          <div className="relative z-10 flex flex-col items-center gap-5">
+            <Image
+              src="/ariesai-logo.webp"
+              alt="Aries"
+              width={72}
+              height={72}
+              className="h-16 w-16 opacity-90"
+            />
+            <div className="flex items-center gap-3">
+              <Loader2 aria-hidden="true" className="h-5 w-5 animate-spin text-[#c8a6ff]" />
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#ba8cff]">
+                Building your first campaign plan
+              </p>
+            </div>
+            <h2 className="text-2xl font-semibold tracking-[-0.02em] text-white">
+              All set — we&apos;ll take it from here.
+            </h2>
+            <p className="text-sm leading-7 text-white/66">
+              This usually takes 10–30 seconds. We&apos;ll open the workspace as soon as it&apos;s ready.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen overflow-hidden bg-[#07080d] text-white">
+      {resumePromptOpen && pendingLocalDraft ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="resume-prompt-title"
+          aria-describedby="resume-prompt-body"
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              handleDismissResume();
+            }
+          }}
+        >
+          <div className="w-full max-w-md rounded-[1.5rem] border border-white/14 bg-[linear-gradient(180deg,rgba(28,24,39,0.9),rgba(14,12,20,0.85))] p-6 shadow-[0_34px_110px_rgba(0,0,0,0.55)]">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#ba8cff]">
+              Welcome back
+            </p>
+            <h3 id="resume-prompt-title" className="mt-2 text-xl font-semibold text-white">Resume where you left off?</h3>
+            <p id="resume-prompt-body" className="mt-3 text-sm leading-7 text-white/66">
+              We saved your onboarding inputs in this browser. Continue from your last session, or start over.
+            </p>
+            <div className="mt-5 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={handleResumeLocalDraft}
+                autoFocus
+                className="inline-flex items-center gap-2 rounded-full border border-[#a96cff]/40 bg-[linear-gradient(90deg,#5c2e96,#7a41c2,#a96cff)] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_0_24px_rgba(169,108,255,0.2)] transition hover:translate-y-[-1px]"
+              >
+                Continue
+                <ArrowRight aria-hidden="true" className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={handleDismissResume}
+                className="inline-flex items-center gap-2 rounded-full border border-white/16 bg-white/[0.04] px-5 py-2.5 text-sm font-medium text-white/78 transition hover:border-white/30 hover:text-white"
+              >
+                Start over
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute left-[-8%] top-0 h-[26rem] w-[26rem] rounded-full bg-[radial-gradient(circle,rgba(127,76,255,0.18),transparent_72%)] blur-3xl" />
       </div>
@@ -741,9 +1227,12 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
             </div>
 
             <div className="relative z-10 px-6 pb-6 pt-5 sm:px-8 lg:px-10">
-              <p className="mb-3 text-xs font-medium uppercase tracking-[0.22em] text-white/52">
-                Takes ~3 minutes · Step {stepIndex + 1} of {STEP_DEFINITIONS.length}
-              </p>
+              <div className="mb-3 flex flex-wrap items-center gap-3">
+                <p className="text-xs font-medium uppercase tracking-[0.22em] text-white/52">
+                  Takes ~3 minutes · Step {stepIndex + 1} of {STEP_DEFINITIONS.length}
+                </p>
+                <SaveIndicator status={saveStatus} />
+              </div>
               <div className="flex flex-wrap gap-3 border-b border-white/8 pb-5">
                 {STEP_DEFINITIONS.map((step, index) => {
                   const active = index === stepIndex;
@@ -803,32 +1292,40 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                     <Field
                       label="Business name"
                       hint="Use the client-facing name that should appear throughout the workspace."
+                      validity={businessNameValidity}
+                      error={fieldErrorMessage('businessName')}
                     >
                       <input
                         value={businessName}
                         onChange={(event) => setBusinessName(event.target.value)}
-                        className={fieldInputClassName}
+                        onBlur={() => markTouched('businessName')}
+                        className={inputClassForValidity(businessNameValidity)}
                         placeholder="Sugar & Leather"
                       />
                     </Field>
                     <Field
                       label="Business type"
                       hint="Describe the business in plain language, not internal taxonomy."
+                      validity={businessTypeValidity}
+                      error={fieldErrorMessage('businessType')}
                     >
                       <input
                         value={businessType}
                         onChange={(event) => setBusinessType(event.target.value)}
-                        className={fieldInputClassName}
+                        onBlur={() => markTouched('businessType')}
+                        className={inputClassForValidity(businessTypeValidity)}
                         placeholder="Executive and transformational coaching network"
                       />
                     </Field>
                     <Field
                       label="Launch approver"
                       hint="Who should have the final say before anything goes live?"
+                      optional
                     >
                       <input
                         value={approverName}
                         onChange={(event) => setApproverName(event.target.value)}
+                        onBlur={() => markTouched('approverName')}
                         className={fieldInputClassName}
                         placeholder="Audrey"
                       />
@@ -836,11 +1333,14 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                     <Field
                       label="Current source"
                       hint="Enter the website Aries should treat as the active brand source for this campaign."
+                      validity={websiteUrlValidity}
+                      error={fieldErrorMessage('websiteUrl')}
                     >
                       <input
                         value={websiteUrl}
                         onChange={(event) => setWebsiteUrl(event.target.value)}
-                        className={fieldInputClassName}
+                        onBlur={() => markTouched('websiteUrl')}
+                        className={inputClassForValidity(websiteUrlValidity)}
                         placeholder="https://yourbusiness.com"
                       />
                     </Field>
@@ -870,6 +1370,8 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                     <Field
                       label="Website"
                       hint="Use the current live website. Aries treats this as the active brand source for the first campaign."
+                      validity={websiteUrlValidity}
+                      error={fieldErrorMessage('websiteUrl')}
                     >
                       <input
                         value={websiteUrl}
@@ -879,8 +1381,11 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                           setPreviewError(null);
                           setWebsiteChip({ kind: 'idle' });
                         }}
-                        onBlur={() => setWebsiteChip(urlChipFromValue(websiteUrl))}
-                        className={fieldInputClassName}
+                        onBlur={() => {
+                          markTouched('websiteUrl');
+                          setWebsiteChip(urlChipFromValue(websiteUrl));
+                        }}
+                        className={inputClassForValidity(websiteUrlValidity)}
                         placeholder="https://yourbusiness.com"
                       />
                       {websiteChip.kind === 'valid' ? (
@@ -1057,16 +1562,25 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                       Recommended for {businessType.trim()}
                     </p>
                   ) : null}
-                  <div className="grid gap-4 md:grid-cols-2">
+                  <div className="grid gap-4 md:grid-cols-2" role="group" aria-label="Campaign channels">
                     {CHANNEL_OPTIONS.map((channel) => {
                       const selected = selectedChannels.includes(channel.id);
                       return (
                         <button
                           key={channel.id}
                           type="button"
+                          role="checkbox"
+                          aria-checked={selected}
+                          tabIndex={0}
                           onClick={() => toggleChannel(channel.id)}
+                          onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault();
+                              toggleChannel(channel.id);
+                            }
+                          }}
                           className={clsx(
-                            'rounded-[1.5rem] border px-5 py-5 text-left transition',
+                            'rounded-[1.5rem] border px-5 py-5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a96cff] focus-visible:ring-offset-2 focus-visible:ring-offset-[#07080d]',
                             selected
                               ? 'border-[#a96cff]/40 bg-[linear-gradient(180deg,rgba(151,93,255,0.16),rgba(151,93,255,0.05))] text-white shadow-[0_0_18px_rgba(169,108,255,0.12)]'
                               : 'border-white/10 bg-white/[0.03] text-white/62 hover:border-white/16 hover:bg-white/[0.04] hover:text-white',
@@ -1077,7 +1591,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                               <p className="text-base font-semibold">{channel.label}</p>
                               <p className="mt-2 text-sm leading-7 text-white/58">{channel.description}</p>
                             </div>
-                            {selected ? <Check className="mt-1 h-4 w-4 text-[#d6b8ff]" /> : null}
+                            {selected ? <Check className="mt-1 h-4 w-4 text-[#d6b8ff]" aria-hidden /> : null}
                           </div>
                         </button>
                       );
@@ -1090,61 +1604,108 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                 <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
                   <div className="space-y-4">
                     <p className="text-sm leading-7 text-white/65">What should Aries help your business achieve first?</p>
-                    <div className="grid gap-3">
-                      {GOAL_OPTIONS.map((option) => (
-                        <button
-                          key={option.label}
-                          type="button"
-                          onClick={() => {
-                            setGoal(option.label);
-                            if (option.label !== 'Other') {
-                              setCustomGoal('');
-                            }
-                          }}
-                          className={clsx(
-                            'rounded-[1.35rem] border px-4 py-4 text-left transition',
-                            goal === option.label
-                              ? 'border-[#a96cff]/40 bg-[linear-gradient(180deg,rgba(151,93,255,0.16),rgba(151,93,255,0.05))] text-white shadow-[0_0_18px_rgba(169,108,255,0.12)]'
-                              : 'border-white/10 bg-white/[0.03] text-white/62 hover:border-white/16 hover:bg-white/[0.04] hover:text-white',
-                          )}
-                        >
-                          <p className="font-medium">{option.label}</p>
-                          <p className="mt-2 text-sm leading-7 text-white/58">{option.description}</p>
-                        </button>
-                      ))}
+                    <div className="grid gap-3" role="radiogroup" aria-label="Campaign goal">
+                      {GOAL_OPTIONS.map((option) => {
+                        const active = goal === option.label;
+                        return (
+                          <button
+                            key={option.label}
+                            type="button"
+                            role="radio"
+                            aria-checked={active}
+                            tabIndex={0}
+                            onClick={() => {
+                              setGoal(option.label);
+                              if (option.label !== 'Other') {
+                                setCustomGoal('');
+                              }
+                            }}
+                            onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
+                                setGoal(option.label);
+                                if (option.label !== 'Other') {
+                                  setCustomGoal('');
+                                }
+                              }
+                            }}
+                            className={clsx(
+                              'rounded-[1.35rem] border px-4 py-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a96cff] focus-visible:ring-offset-2 focus-visible:ring-offset-[#07080d]',
+                              active
+                                ? 'border-[#a96cff]/40 bg-[linear-gradient(180deg,rgba(151,93,255,0.16),rgba(151,93,255,0.05))] text-white shadow-[0_0_18px_rgba(169,108,255,0.12)]'
+                                : 'border-white/10 bg-white/[0.03] text-white/62 hover:border-white/16 hover:bg-white/[0.04] hover:text-white',
+                            )}
+                          >
+                            <p className="font-medium">{option.label}</p>
+                            <p className="mt-2 text-sm leading-7 text-white/58">{option.description}</p>
+                          </button>
+                        );
+                      })}
                       {goal === 'Other' ? (
-                        <input
-                          value={customGoal}
-                          onChange={(event) => setCustomGoal(event.target.value)}
-                          className={fieldInputClassName}
-                          placeholder="Describe your business outcome goal"
-                          autoFocus
-                        />
+                        <div className="space-y-2">
+                          <input
+                            value={customGoal}
+                            onChange={(event) => setCustomGoal(event.target.value)}
+                            onBlur={() => markTouched('customGoal')}
+                            className={inputClassForValidity(customGoalValidity)}
+                            placeholder="Describe your business outcome goal"
+                            autoFocus
+                          />
+                          {fieldErrorMessage('customGoal') ? (
+                            <p className="text-xs text-red-400">{fieldErrorMessage('customGoal')}</p>
+                          ) : null}
+                        </div>
                       ) : null}
                     </div>
                   </div>
 
                   <div className="grid gap-5">
-                    <Field
-                      label="What does your business offer?"
-                      hint="The core product, service, or program Aries should focus the first campaign around."
+                    <div
+                      className={clsx(
+                        'space-y-3 rounded-[1.5rem] border p-5 shadow-[0_20px_50px_rgba(0,0,0,0.18)] transition',
+                        offerValidity === 'valid'
+                          ? 'border-emerald-500/40 bg-[linear-gradient(180deg,rgba(16,185,129,0.06),rgba(255,255,255,0.02))]'
+                          : 'border-[#a96cff]/35 bg-[linear-gradient(180deg,rgba(151,93,255,0.08),rgba(255,255,255,0.02))]',
+                      )}
                     >
-                      <input
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold uppercase tracking-[0.18em] text-white">
+                          What does your business offer?
+                        </span>
+                        {offerValidity === 'valid' ? (
+                          <Check className="h-4 w-4 text-emerald-400" aria-hidden />
+                        ) : null}
+                      </div>
+                      <p className="text-xs leading-6 text-[#d6b8ff]">
+                        The more specific you are, the better Aries will do.
+                      </p>
+                      <textarea
                         value={offer}
                         onChange={(event) => setOffer(event.target.value)}
-                        className={fieldInputClassName}
-                        placeholder="e.g. Private coaching, SaaS subscriptions, handmade jewelry"
+                        onBlur={() => markTouched('offer')}
+                        rows={4}
+                        className={clsx(
+                          'w-full rounded-[1rem] border bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] px-4 py-3 text-white outline-none transition duration-200 placeholder:text-white/32 focus:border-[#b36cff] focus:shadow-[0_0_0_1px_rgba(179,108,255,0.24),0_0_24px_rgba(179,108,255,0.14)]',
+                          offerValidity === 'valid'
+                            ? 'border-emerald-500/50'
+                            : 'border-[#a96cff]/30',
+                        )}
+                        placeholder={offerPlaceholderForBusinessType(businessType)}
                       />
-                    </Field>
+                    </div>
 
                     <Field
                       label="Competitor website"
-                      hint="Optional. Add one strong comparison site if you want Aries to account for market positioning."
+                      hint="Add one strong comparison site if you want Aries to account for market positioning."
+                      optional
+                      validity={competitorUrlValidity}
+                      error={fieldErrorMessage('competitorUrl')}
                     >
                       <input
                         value={competitorUrl}
                         onChange={(event) => setCompetitorUrl(event.target.value)}
-                        className={fieldInputClassName}
+                        onBlur={() => markTouched('competitorUrl')}
+                        className={inputClassForValidity(competitorUrlValidity)}
                         placeholder="https://competitor.com"
                       />
                     </Field>
@@ -1220,13 +1781,55 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   );
 }
 
-function Field(props: { label: string; hint?: string; children: ReactNode }) {
+function Field(props: {
+  label: string;
+  hint?: string;
+  children: ReactNode;
+  optional?: boolean;
+  validity?: FieldValidity;
+  error?: string | null;
+}) {
+  const validity = props.validity ?? 'untouched';
   return (
     <label className="space-y-2">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/72">{props.label}</span>
+      <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/72">
+        {props.label}
+        {props.optional ? (
+          <span className="text-xs font-normal normal-case tracking-normal text-white/40">(optional)</span>
+        ) : null}
+        {validity === 'valid' ? <Check className="h-3.5 w-3.5 text-emerald-400" aria-hidden /> : null}
+      </span>
       {props.children}
-      {props.hint ? <p className="text-sm leading-7 text-white/46">{props.hint}</p> : null}
+      {props.error ? (
+        <p className="text-xs text-red-400">{props.error}</p>
+      ) : props.hint ? (
+        <p className="text-sm leading-7 text-white/46">{props.hint}</p>
+      ) : null}
     </label>
+  );
+}
+
+function SaveIndicator(props: { status: 'idle' | 'saving' | 'saved' | 'local-saved' }) {
+  if (props.status === 'idle') return null;
+  if (props.status === 'saving') {
+    return (
+      <span
+        aria-live="polite"
+        className="inline-flex items-center gap-1.5 text-xs font-medium text-white/45"
+      >
+        <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+        Saving…
+      </span>
+    );
+  }
+  return (
+    <span
+      aria-live="polite"
+      className="inline-flex items-center gap-1.5 text-xs font-medium text-white/55"
+    >
+      <Check className="h-3 w-3 text-emerald-400" aria-hidden />
+      {props.status === 'local-saved' ? 'Progress saved in this browser' : 'Progress saved'}
+    </span>
   );
 }
 
