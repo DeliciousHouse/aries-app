@@ -1,19 +1,26 @@
 // lib/email.ts
 //
-// Outbound transactional email helpers.
+// Outbound transactional email helpers backed by Resend (https://resend.com).
 //
-// Environment variables:
-//   RESEND_API_KEY   API key for the Resend SDK. If missing, emails are
-//                    logged and the promise resolves without throwing — this
-//                    keeps dev environments usable without a real key and
-//                    avoids leaking a "not configured" oracle back to callers.
+// Environment variables (names match Resend's official SDK conventions):
+//   RESEND_API_KEY   Required in production. API key from
+//                    https://resend.com/api-keys. The Resend Node SDK reads
+//                    this directly as `new Resend(process.env.RESEND_API_KEY)`.
+//                    When missing in production we log at ERROR level and
+//                    skip the send; the caller still resolves successfully so
+//                    routes don't leak "email not configured" as an oracle.
 //   EMAIL_FROM       Fully-qualified "From" header, e.g.
-//                    `Aries AI <noreply@aries.sugarandleather.com>`. Falls
-//                    back to that default value when unset.
+//                    `Aries AI <noreply@sugarandleather.com>`. The
+//                    domain portion MUST be verified at
+//                    https://resend.com/domains before Resend will accept the
+//                    send — otherwise Resend returns a 4xx that we only log.
+//                    Falls back to the DEFAULT_FROM below when unset.
+//                    For local/sandbox testing use `onboarding@resend.dev`
+//                    (Resend's shared verified sender).
 
 import { Resend } from 'resend';
 
-const DEFAULT_FROM = 'Aries AI <noreply@aries.sugarandleather.com>';
+const DEFAULT_FROM = 'Aries AI <noreply@sugarandleather.com>';
 
 function renderHtml(code: string): string {
   return `<!doctype html>
@@ -66,12 +73,19 @@ export async function sendPasswordResetEmail(email: string, code: string): Promi
     return;
   }
 
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.EMAIL_FROM || DEFAULT_FROM;
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  const from = process.env.EMAIL_FROM?.trim() || DEFAULT_FROM;
 
   if (!apiKey) {
-    console.warn(
-      '[email] RESEND_API_KEY not set; skipping send for password reset email.',
+    // In production an unset RESEND_API_KEY silently breaks password reset,
+    // so log at ERROR (not WARN) to make deployment misconfig obvious in logs
+    // and alerting. In dev/test we still surface it but don't throw, so the
+    // routes keep their no-enumeration 200 contract.
+    const level = process.env.NODE_ENV === 'production' ? 'error' : 'warn';
+    console[level](
+      '[email] RESEND_API_KEY is not set — password reset email WILL NOT be delivered. ' +
+        'Set RESEND_API_KEY in the production environment (see https://resend.com/api-keys) ' +
+        'and verify EMAIL_FROM domain at https://resend.com/domains.',
       { to: email },
     );
     return;
@@ -88,14 +102,19 @@ export async function sendPasswordResetEmail(email: string, code: string): Promi
     });
 
     if ((result as { error?: unknown } | null)?.error) {
+      // Typical causes: unverified EMAIL_FROM domain, invalid API key,
+      // Resend rate limit (5 req/sec default). The error surfaces in
+      // `result.error` rather than throwing.
       console.error('[email] Resend returned an error for password reset email.', {
         to: email,
+        from,
         error: (result as { error: unknown }).error,
       });
     }
   } catch (error) {
     console.error('[email] Failed to send password reset email.', {
       to: email,
+      from,
       error: error instanceof Error ? error.message : String(error),
     });
   }
