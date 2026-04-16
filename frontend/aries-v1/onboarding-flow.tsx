@@ -71,23 +71,38 @@ const STEP_DEFINITIONS: StepDefinition[] = [
 const CHANNEL_OPTIONS: ChannelOption[] = [
   {
     id: 'meta-ads',
-    label: 'Meta',
-    description: 'Paid social for demand capture, retargeting, and direct-response offers.',
+    label: 'Meta (Facebook + Instagram Ads)',
+    description: 'Paid ads on Facebook and Instagram via Meta Business Suite.',
   },
   {
-    id: 'instagram',
-    label: 'Instagram',
-    description: 'High-visibility social touchpoints for brand presence, proof, and offer awareness.',
+    id: 'instagram-organic',
+    label: 'Instagram (Organic)',
+    description: 'Organic posts, stories, and reels on Instagram.',
+  },
+  {
+    id: 'email',
+    label: 'Email Marketing',
+    description: 'Automated email campaigns and sequences.',
   },
   {
     id: 'google-business',
     label: 'Google Business',
-    description: 'Local discovery and intent capture for service-led businesses that need qualified traffic.',
+    description: 'Local presence, reviews, and Google Maps visibility.',
   },
   {
     id: 'linkedin',
     label: 'LinkedIn',
-    description: 'Professional reach for higher-trust offers, partnerships, and longer consideration cycles.',
+    description: 'Professional network for B2B reach and thought leadership.',
+  },
+  {
+    id: 'tiktok',
+    label: 'TikTok',
+    description: 'Short-form video ads and organic content.',
+  },
+  {
+    id: 'youtube',
+    label: 'YouTube',
+    description: 'Video ads, shorts, and channel content.',
   },
 ];
 
@@ -223,9 +238,21 @@ function stepReady(stepKey: StepKey, values: {
   return true;
 }
 
-function stepValidationMessage(stepKey: StepKey): string {
+function stepValidationMessage(stepKey: StepKey, values?: {
+  businessName: string;
+  businessType: string;
+}): string | null {
   if (stepKey === 'business') {
-    return 'Add the business name and business type before continuing.';
+    if (values) {
+      if (!values.businessName.trim()) {
+        return 'Add a business name before continuing.';
+      }
+      if (!values.businessType.trim()) {
+        return 'Select a business type before continuing.';
+      }
+      return null;
+    }
+    return 'Add a business name before continuing.';
   }
   if (stepKey === 'website') {
     return 'Enter a valid HTTPS website before continuing.';
@@ -406,7 +433,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         }
 
         const nextProfile = result.profileResponse.profile;
-        setBusinessName(nextProfile.businessName || nextProfile.brandKit?.brand_name || '');
+        setBusinessName(nextProfile.businessName?.trim() ? nextProfile.businessName.trim() : '');
         setWebsiteUrl(nextProfile.websiteUrl || nextProfile.brandKit?.source_url || '');
         setBusinessType(nextProfile.businessType || '');
         setApproverName(nextProfile.launchApproverName || '');
@@ -513,7 +540,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
 
   function handleContinue() {
     if (!stepReady(currentStep.key, { businessName, businessType, websiteUrl, selectedChannels, goal, customGoal })) {
-      setError(stepValidationMessage(currentStep.key));
+      setError(stepValidationMessage(currentStep.key, { businessName, businessType }) ?? 'Complete the current step before continuing.');
       return;
     }
     setError(null);
@@ -522,7 +549,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
 
   async function handleFinish() {
     if (!canFinish) {
-      setError(stepValidationMessage(currentStep.key));
+      setError(stepValidationMessage(currentStep.key, { businessName, businessType }) ?? 'Complete the current step before continuing.');
       return;
     }
 
@@ -729,7 +756,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                         value={websiteUrl}
                         onChange={(event) => setWebsiteUrl(event.target.value)}
                         className={fieldInputClassName}
-                        placeholder="https://aries.sugarandleather.com"
+                        placeholder="https://yourbusiness.com"
                       />
                     </Field>
                   </div>
@@ -767,7 +794,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                           setPreviewError(null);
                         }}
                         className={fieldInputClassName}
-                        placeholder="https://sugarandleather.com"
+                        placeholder="https://yourbusiness.com"
                       />
                     </Field>
 
@@ -971,7 +998,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                         value={competitorUrl}
                         onChange={(event) => setCompetitorUrl(event.target.value)}
                         className={fieldInputClassName}
-                        placeholder="https://betterup.com"
+                        placeholder="https://competitor.com"
                       />
                     </Field>
 
