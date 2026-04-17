@@ -66,6 +66,7 @@ import {
   tenantBrandKitPath,
   type TenantBrandKit,
 } from './brand-kit';
+import { invalidateValidatedProfilesIfSourceChanged } from './validated-profile-store';
 
 export type StartMarketingJobRequest = {
   tenantId: string;
@@ -1083,13 +1084,18 @@ export async function startMarketingJob(input: StartMarketingJobRequest): Promis
   const brandCampaignInput = ensureBrandCampaignInput(input);
 
   const jobId = makeMarketingJobId();
+  const tenantId = input.tenantId.trim();
+  // Quarantine tenant-scoped validated docs (brand-profile / website-analysis /
+  // business-profile) from a prior campaign so they cannot bleed into the new
+  // campaign's approval payloads when the brand URL has changed.
+  invalidateValidatedProfilesIfSourceChanged(tenantId, brandCampaignInput.brandUrl);
   const { brandKit, filePath } = await extractAndSaveTenantBrandKit({
-    tenantId: input.tenantId.trim(),
+    tenantId,
     brandUrl: brandCampaignInput.brandUrl,
   });
   const doc = createMarketingJobRuntimeDocument({
     jobId,
-    tenantId: input.tenantId.trim(),
+    tenantId,
     payload: input.payload,
     brandKit: runtimeBrandKitReference(brandKit, filePath),
     createdBy: input.createdBy ?? null,

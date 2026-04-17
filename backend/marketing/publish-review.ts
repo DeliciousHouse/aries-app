@@ -812,7 +812,14 @@ function buildFallbackPublishReviewBundle(
     resolveMarketingArtifactPath(stringValue(recordValue(reviewPayload?.artifact_paths)?.preview_path)) ||
     stringArray(platformPreviews[0]?.media_paths)[0] ||
     null;
-  const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id);
+  const runtimeSourceUrl =
+    stringValue(runtimeDoc.inputs.request?.websiteUrl) ||
+    stringValue(runtimeDoc.inputs.request?.brandUrl) ||
+    stringValue(runtimeDoc.inputs.brand_url) ||
+    '';
+  const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
+    currentSourceUrl: runtimeSourceUrl || null,
+  });
   const validatedLandingHooks = recordValue(validatedProfile.hooks)?.['landing-page'];
   const validatedLandingHook =
     Array.isArray(validatedLandingHooks)

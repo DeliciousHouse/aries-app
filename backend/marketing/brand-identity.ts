@@ -154,13 +154,21 @@ export function recordMatchesCurrentSource(
   record: Record<string, unknown> | null,
   currentSourceUrl?: string | null,
 ): boolean {
-  const currentFingerprint = normalizeSourceFingerprint(currentSourceUrl);
-  if (!record || !currentFingerprint) {
+  if (!record) {
     return true;
   }
 
+  const currentFingerprint = normalizeSourceFingerprint(currentSourceUrl);
+  if (!currentFingerprint) {
+    return true;
+  }
+
+  // When a current source URL is known, reject records we cannot positively
+  // attribute to that source. Previously an unfingerprinted record was treated
+  // as matching any source, which let stale tenant-scoped files from prior
+  // campaigns leak into the current campaign's approval payload.
   const recordFingerprint = sourceFingerprintFromRecord(record);
-  return !recordFingerprint || recordFingerprint === currentFingerprint;
+  return recordFingerprint === currentFingerprint;
 }
 
 type BuildBrandIdentityInput = {

@@ -132,6 +132,22 @@ function normalizeWhitespace(value: string): string {
   return decodeHtmlEntities(value).replace(/\s+/g, ' ').trim();
 }
 
+// Strip nested tags (including framework markers like Angular's `_ngcontent-*`
+// and raw `style="..."` / `class="..."` attribute remnants) and decode entities
+// so values scraped from rendered DOM fragments don't leak raw HTML into
+// brand-kit fields. Applied wherever we pull visible text out of a tag's inner
+// HTML — titles, h1s, image alts.
+function stripHtmlTags(value: string): string {
+  return normalizeWhitespace(
+    value
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, ' ')
+      .replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, ' ')
+      .replace(/<[^>]+>/g, ' '),
+  );
+}
+
 function normalizeColor(value: string): string | null {
   const trimmed = value.trim().toLowerCase();
   if (!trimmed || trimmed === 'transparent') {
@@ -244,7 +260,7 @@ function extractMetaContent(html: string, attribute: string, key: string): strin
 
 function extractTitle(html: string): string | null {
   const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '';
-  return normalizeWhitespace(title) || null;
+  return stripHtmlTags(title) || null;
 }
 
 function extractLinkCandidates(html: string, relNeedle: string): string[] {
@@ -296,7 +312,7 @@ function extractInlineCss(html: string): string[] {
 function extractTextByTag(html: string, tagName: string): string[] {
   return Array.from(
     html.matchAll(new RegExp(`<${tagName}\\b[^>]*>([\\s\\S]*?)<\\/${tagName}>`, 'gi')),
-    (match) => normalizeWhitespace(match[1] || ''),
+    (match) => stripHtmlTags(match[1] || ''),
   ).filter(Boolean);
 }
 
@@ -524,7 +540,12 @@ function brandNameScore(candidate: string, url: string): number {
 }
 
 function cleanBrandNameCandidate(candidate: string, url: string): string | null {
-  const normalized = normalizeWhitespace(candidate);
+  // Defense in depth: if a candidate arrives with nested HTML (because an
+  // upstream extractor returned raw inner HTML instead of visible text),
+  // strip it here before scoring. Otherwise brand_name can persist as a
+  // literal `<span ...>Welcome to </span><span ...>N</span>...` blob and
+  // leak into the brand identity preview / font preview cards.
+  const normalized = stripHtmlTags(candidate);
   if (!normalized) {
     return null;
   }
@@ -876,11 +897,18 @@ export function normalizeBrandKitSignals(input: BrandKitSignalsInput | null | un
 
 function normalizePersistedBrandKit(brandKit: TenantBrandKit): TenantBrandKit {
   const normalizedSignals = normalizeBrandKitSignals(brandKit);
+  // Re-sanitize brand_name on load so brand-kit.json files written before
+  // the HTML-stripping fix don't keep rendering raw markup in the preview.
+  // Fall back to the original trimmed value if sanitization would empty it —
+  // assertTenantBrandKit rejects empty brand names.
+  const sanitizedBrandName =
+    cleanBrandNameCandidate(brandKit.brand_name || '', brandKit.source_url || '') ||
+    normalizeWhitespace(brandKit.brand_name || '');
   return {
     tenant_id: brandKit.tenant_id,
     source_url: brandKit.source_url,
     canonical_url: brandKit.canonical_url ?? null,
-    brand_name: brandKit.brand_name,
+    brand_name: sanitizedBrandName,
     logo_urls: normalizedSignals.logo_urls,
     colors: normalizedSignals.colors,
     font_families: normalizedSignals.font_families,
