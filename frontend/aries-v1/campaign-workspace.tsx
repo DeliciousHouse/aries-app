@@ -311,6 +311,8 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
                 ? () => void submitReviewDecision(status.brandReview!.reviewId, 'changes_requested')
                 : undefined
             }
+            nextStageHref={`/dashboard/campaigns/${encodeURIComponent(props.campaignId)}?view=strategy`}
+            nextStageLabel="Go to Strategy Review"
           />
         </div>
       ) : null}
@@ -336,6 +338,8 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
               ? () => void submitReviewDecision(status.strategyReview!.reviewId, 'changes_requested', status.approval?.approvalId)
               : undefined
           }
+          nextStageHref={`/dashboard/campaigns/${encodeURIComponent(props.campaignId)}?view=creative`}
+          nextStageLabel="Go to Creative Review"
         />
       ) : null}
 
@@ -666,10 +670,16 @@ function StageReviewSurface(props: {
   busy: boolean;
   onApprove?: () => void;
   onChangesRequested?: () => void;
+  /** Shown after this review is approved so the user has a clear next step
+   * (e.g. "Go to Strategy Review") instead of the stale "Approve" button. */
+  nextStageHref?: string;
+  nextStageLabel?: string;
 }) {
   if (!props.review) {
     return <GateFallbackPanel eyebrow="Checkpoint" fallback={props.fallback} />;
   }
+
+  const isApproved = props.review.status === 'approved';
 
   return (
     <div className="space-y-4">
@@ -723,14 +733,22 @@ function StageReviewSurface(props: {
             </ShellPanel>
           ) : null}
 
-          <ReviewDecisionCard
-            note={props.note}
-            onNoteChange={props.onNoteChange}
-            busy={props.busy}
-            onApprove={props.onApprove}
-            onChangesRequested={props.onChangesRequested}
-            placeholder={props.review.notePlaceholder}
-          />
+          {isApproved && props.nextStageHref ? (
+            <ApprovedNextStageCard
+              href={props.nextStageHref}
+              label={props.nextStageLabel || 'Continue to next review'}
+              stageLabel={reviewSurfaceLabel(props.review.reviewType)}
+            />
+          ) : (
+            <ReviewDecisionCard
+              note={props.note}
+              onNoteChange={props.onNoteChange}
+              busy={props.busy}
+              onApprove={isApproved ? undefined : props.onApprove}
+              onChangesRequested={isApproved ? undefined : props.onChangesRequested}
+              placeholder={props.review.notePlaceholder}
+            />
+          )}
 
           <HistoryCard history={props.review.history} />
         </div>
@@ -872,6 +890,27 @@ function PublishStatusSurface(props: {
   );
 }
 
+function ApprovedNextStageCard(props: { href: string; label: string; stageLabel: string }) {
+  return (
+    <ShellPanel eyebrow={`${props.stageLabel} approved`} title="Ready for the next review">
+      <div className="space-y-4">
+        <p className="text-sm leading-7 text-white/65">
+          This review has been approved. Continue to the next stage to keep the campaign moving.
+        </p>
+        <Link
+          href={props.href}
+          style={{ color: '#11161c' }}
+          className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold transition hover:translate-y-[-1px]"
+        >
+          <CheckCircle2 className="h-4 w-4" />
+          {props.label}
+          <ArrowUpRight className="h-4 w-4" />
+        </Link>
+      </div>
+    </ShellPanel>
+  );
+}
+
 function ReviewDecisionCard(props: {
   note: string;
   onNoteChange: (value: string) => void | null;
@@ -896,7 +935,11 @@ function ReviewDecisionCard(props: {
               type="button"
               onClick={props.onApprove}
               disabled={props.busy}
-              className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] disabled:opacity-60"
+              /* Inline color bypasses any cascade conflict so the approval
+                 label is always visible even if utility layering changes
+                 elsewhere. Belt-and-suspenders for the demo-critical CTA. */
+              style={{ color: '#11161c' }}
+              className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold disabled:opacity-60"
             >
               <CheckCircle2 className="h-4 w-4" />
               {props.busy ? 'Saving...' : 'Approve'}
