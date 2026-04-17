@@ -62,6 +62,11 @@ export type RuntimeCampaignListItem = {
   deletedAt?: string | null;
   /** User id of whoever soft-deleted the campaign. Paired with deletedAt. */
   deletedBy?: string | null;
+  /** Set when the delete landed while the pipeline was still running. The
+   * orchestrator will stop starting new stages and (best-effort) the
+   * gateway will abort the in-flight run. Until the pipeline reaches a
+   * terminal state, the UI shows "Cancelling..." instead of just "Deleted". */
+  softCancelRequestedAt?: string | null;
 };
 
 export type RuntimeReviewDecision = {

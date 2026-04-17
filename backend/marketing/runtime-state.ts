@@ -152,6 +152,12 @@ export type MarketingJobRuntimeDocument = {
   /** Optional. User id of whoever soft-deleted the campaign. Paired with
    * `deleted_at`. `null` when the campaign is live. */
   deleted_by?: string | null;
+  /** Optional. Set when a soft-delete lands while the pipeline is still
+   * executing. The orchestrator checks this before starting each stage and
+   * short-circuits to the `cancelled` terminal status if set. The gateway
+   * also tries to abort the in-flight Lobster run so mid-stage work stops
+   * quickly instead of waiting for the current stage to finish naturally. */
+  soft_cancel_requested_at?: string | null;
 };
 
 const STAGES: MarketingStage[] = ['research', 'strategy', 'production', 'publish'];
@@ -303,7 +309,18 @@ export function createMarketingJobRuntimeDocument(input: {
     created_by: input.createdBy ?? null,
     deleted_at: null,
     deleted_by: null,
+    soft_cancel_requested_at: null,
   };
+}
+
+/** Returns true when the pipeline has unfinished work. Used by soft-delete
+ * to decide whether to arm the cancel signal (in-progress) or just hide
+ * the campaign (already terminal). */
+export function isPipelineActive(doc: MarketingJobRuntimeDocument): boolean {
+  if (doc.state === 'completed' || doc.state === 'failed') {
+    return false;
+  }
+  return true;
 }
 
 export function assertMarketingRuntimeSchemas(): void {
@@ -564,8 +581,17 @@ export function listDeletedMarketingJobIdsForTenant(tenantId: string): string[] 
  * Soft-delete a marketing campaign. Marks `deleted_at` + `deleted_by` on the
  * runtime document so it drops out of the default list queries but stays
  * resolvable via its direct jobId (for the Deleted campaigns Recycle Bin
- * restore flow). Returns the updated document, or `null` if the job is not
- * found or belongs to a different tenant.
+ * restore flow).
+ *
+ * If the pipeline is still running when the delete lands, also arms
+ * `soft_cancel_requested_at`. The orchestrator checks that field before
+ * starting each stage and short-circuits to the `cancelled` terminal status
+ * so no new stages execute. Callers that want faster mid-stage teardown can
+ * also invoke the gateway's Lobster `cancel` action (see
+ * `cancelOpenClawLobsterWorkflow` in `backend/openclaw/gateway-client.ts`).
+ *
+ * Returns the updated document, or `null` if the job is not found or
+ * belongs to a different tenant.
  */
 export function softDeleteMarketingJob(input: {
   jobId: string;
@@ -576,8 +602,12 @@ export function softDeleteMarketingJob(input: {
   if (!doc || doc.tenant_id !== input.tenantId) {
     return null;
   }
-  doc.deleted_at = nowIso();
+  const ts = nowIso();
+  doc.deleted_at = ts;
   doc.deleted_by = input.deletedBy;
+  if (isPipelineActive(doc)) {
+    doc.soft_cancel_requested_at = ts;
+  }
   saveMarketingJobRuntime(input.jobId, doc);
   return doc;
 }
@@ -600,6 +630,9 @@ export function restoreMarketingJob(input: {
   }
   doc.deleted_at = null;
   doc.deleted_by = null;
+  // Clear the cancel arm on restore too so the orchestrator does not
+  // immediately re-cancel a restored campaign on its next stage boundary.
+  doc.soft_cancel_requested_at = null;
   saveMarketingJobRuntime(input.jobId, doc);
   return doc;
 }

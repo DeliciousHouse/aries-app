@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 
+import { cancelOpenClawLobsterWorkflow } from '@/backend/openclaw/gateway-client';
 import {
+  isPipelineActive,
   loadMarketingJobRuntime,
   softDeleteMarketingJob,
   restoreMarketingJob,
@@ -92,6 +94,8 @@ export async function handleDeleteMarketingJob(
     );
   }
 
+  const wasActive = isPipelineActive(doc);
+
   const updated = softDeleteMarketingJob({
     jobId,
     tenantId: tenantResult.tenantContext.tenantId,
@@ -108,11 +112,20 @@ export async function handleDeleteMarketingJob(
     );
   }
 
+  // If the pipeline was mid-run when the delete landed, best-effort ask the
+  // gateway to abort the in-flight Lobster run so the orchestrator does not
+  // finish the current stage before the soft-cancel boundary check picks up.
+  // The call swallows errors internally; soft-delete succeeds regardless.
+  if (wasActive) {
+    await cancelOpenClawLobsterWorkflow({ correlationId: jobId }).catch(() => {});
+  }
+
   return NextResponse.json(
     {
       jobId,
       deletedAt: updated.deleted_at ?? null,
       deletedBy: updated.deleted_by ?? null,
+      softCancelRequestedAt: updated.soft_cancel_requested_at ?? null,
     },
     { status: 200 },
   );

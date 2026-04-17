@@ -91,6 +91,9 @@ export type RuntimeCampaignListItem = {
   deletedAt?: string | null;
   /** Set alongside `deletedAt`. User id of whoever deleted the campaign. */
   deletedBy?: string | null;
+  /** Set when the delete landed while the pipeline was still running. UI
+   * uses this to render "Cancelling..." in the Recycle Bin. */
+  softCancelRequestedAt?: string | null;
 };
 
 export type RuntimeReviewDecision = {
@@ -1333,6 +1336,7 @@ export async function listDeletedMarketingCampaignsForTenant(
     const item = buildCampaignListItem(status, view, pendingApprovals);
     item.deletedAt = doc.deleted_at ?? null;
     item.deletedBy = doc.deleted_by ?? null;
+    item.softCancelRequestedAt = doc.soft_cancel_requested_at ?? null;
     campaigns.push(item);
   }
 

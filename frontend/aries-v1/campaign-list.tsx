@@ -247,9 +247,11 @@ function DeletedCampaignsSection(props: {
               <div className="space-y-1">
                 <p className="text-sm font-medium text-white/85">{campaign.name}</p>
                 <p className="text-xs text-white/45">
-                  {campaign.deletedAt
-                    ? `Deleted ${formatDeletedAt(campaign.deletedAt)}`
-                    : 'Deleted'}
+                  {campaign.softCancelRequestedAt
+                    ? `Cancelling... requested ${formatDeletedAt(campaign.softCancelRequestedAt)}`
+                    : campaign.deletedAt
+                      ? `Deleted ${formatDeletedAt(campaign.deletedAt)}`
+                      : 'Deleted'}
                 </p>
               </div>
               <button
