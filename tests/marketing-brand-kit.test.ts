@@ -270,6 +270,48 @@ test('extractBrandKitFromWebsite strips nested HTML markup from the brand name c
   }
 });
 
+test('extractBrandKitFromWebsite strips entity-encoded HTML markup from the brand name', async () => {
+  // Regression for PR #135 review: if tag-stripping runs BEFORE entity decoding,
+  // `&lt;span&gt;...` survives the tag pass and becomes literal `<span>` text
+  // after decode, re-introducing the exact raw-HTML leak stripHtmlTags exists
+  // to prevent. Entities must be decoded first, then tags stripped.
+  const originalFetch = globalThis.fetch;
+  const brandUrl = 'https://entity-nwa.example';
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+    if (url === brandUrl) {
+      return createFetchResponse(
+        `<!doctype html>
+        <html>
+          <head><title>Entity Co</title></head>
+          <body>
+            <h1>&lt;span _ngcontent-x style=&quot;font-family:Cinzel&quot;&gt;Welcome to &lt;/span&gt;&lt;span&gt;Entity Co&lt;/span&gt;</h1>
+          </body>
+        </html>`,
+        'text/html; charset=utf-8',
+      );
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof globalThis.fetch;
+
+  try {
+    const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+    const brandKit = await extractBrandKitFromWebsite({
+      tenantId: 'entity-nwa',
+      brandUrl,
+    });
+    assert.doesNotMatch(brandKit.brand_name, /<\/?[a-z]/i, `brand_name leaked literal HTML: ${brandKit.brand_name}`);
+    assert.doesNotMatch(brandKit.brand_name, /&lt;|&gt;|&quot;/i, `brand_name leaked raw entities: ${brandKit.brand_name}`);
+    assert.doesNotMatch(brandKit.brand_name, /_ngcontent-/i, `brand_name leaked Angular marker: ${brandKit.brand_name}`);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('normalizePersistedBrandKit sanitizes HTML markup in a cached brand_name on load', async () => {
   await withRuntimeEnv(async () => {
     const { saveTenantBrandKit, loadTenantBrandKit } = await import('../backend/marketing/brand-kit');

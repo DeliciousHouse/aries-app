@@ -120,10 +120,17 @@ export function tenantBrandKitPath(tenantId: string): string {
  * so operators can still inspect prior state. brand-kit.json is handled
  * separately by extractAndSaveTenantBrandKit and is not touched here.
  */
+export type QuarantinedValidatedProfile = {
+  /** Path the file lived at before quarantine (does not exist post-rename). */
+  originalPath: string;
+  /** Path the file now lives at, so operators/logs can locate it. */
+  stalePath: string;
+};
+
 export function invalidateValidatedProfilesIfSourceChanged(
   tenantId: string,
   newSourceUrl: string | null | undefined,
-): { quarantined: string[] } {
+): { quarantined: QuarantinedValidatedProfile[] } {
   const currentFingerprint = normalizeSourceFingerprint(newSourceUrl);
   if (!currentFingerprint) {
     return { quarantined: [] };
@@ -135,7 +142,7 @@ export function invalidateValidatedProfilesIfSourceChanged(
     tenantBusinessProfilePath(tenantId),
   ];
 
-  const quarantined: string[] = [];
+  const quarantined: QuarantinedValidatedProfile[] = [];
   const stamp = Date.now();
   for (const filePath of candidates) {
     if (!existsSync(filePath)) {
@@ -146,10 +153,10 @@ export function invalidateValidatedProfilesIfSourceChanged(
     if (recordFingerprint && recordFingerprint === currentFingerprint) {
       continue;
     }
-    const staleName = filePath.replace(/\.json$/, `.stale-${stamp}.json`);
+    const stalePath = filePath.replace(/\.json$/, `.stale-${stamp}.json`);
     try {
-      renameSync(filePath, staleName);
-      quarantined.push(filePath);
+      renameSync(filePath, stalePath);
+      quarantined.push({ originalPath: filePath, stalePath });
     } catch {
       // If rename fails (e.g. cross-device), leave the file; the tightened
       // matcher will still reject it at read time.

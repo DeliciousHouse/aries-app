@@ -132,20 +132,22 @@ function normalizeWhitespace(value: string): string {
   return decodeHtmlEntities(value).replace(/\s+/g, ' ').trim();
 }
 
-// Strip nested tags (including framework markers like Angular's `_ngcontent-*`
-// and raw `style="..."` / `class="..."` attribute remnants) and decode entities
-// so values scraped from rendered DOM fragments don't leak raw HTML into
-// brand-kit fields. Applied wherever we pull visible text out of a tag's inner
-// HTML — titles, h1s, image alts.
+// Decode entities FIRST, then strip nested tags (including framework markers
+// like Angular's `_ngcontent-*` and raw `style="..."` / `class="..."` attribute
+// remnants). The order matters: if we tag-stripped before decoding, entity-
+// encoded markup like `&lt;span&gt;...` would survive the tag pass and then
+// become literal `<span>` text after decode, re-introducing the raw-HTML leak
+// this helper exists to prevent. Applied wherever we pull visible text out of
+// a tag's inner HTML — titles, h1s, image alts.
 function stripHtmlTags(value: string): string {
-  return normalizeWhitespace(
-    value
-      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
-      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
-      .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, ' ')
-      .replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, ' ')
-      .replace(/<[^>]+>/g, ' '),
-  );
+  return decodeHtmlEntities(value)
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, ' ')
+    .replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function normalizeColor(value: string): string | null {
