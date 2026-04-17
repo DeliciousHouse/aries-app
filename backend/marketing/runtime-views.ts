@@ -820,6 +820,16 @@ function firstCheckpointSections(
   return sections.filter((section) => section.body.trim().length > 0);
 }
 
+// Document/artifact attachments get the polished in-app viewer at
+// /materials/[jobId]/[assetId] instead of the raw /api/.../assets/... URL.
+// The raw route still serves bytes (e.g. the image <img src>), but opening
+// a brand bible or website brand analysis markdown file in a new tab now
+// renders styled HTML through the viewer rather than a black raw-text tab
+// or a forced file download.
+function viewerUrl(jobId: string, assetId: string): string {
+  return `/materials/${encodeURIComponent(jobId)}/${encodeURIComponent(assetId)}`;
+}
+
 function firstCheckpointAttachments(
   view: CampaignWorkspaceView,
   runtimeDoc: MarketingJobRuntimeDocument,
@@ -828,12 +838,14 @@ function firstCheckpointAttachments(
   const assetLinks = new Map(buildMarketingAssetLinks(runtimeDoc.job_id, runtimeDoc).map((asset) => [asset.id, asset] as const));
   const researchSummary = assetLinks.get('research-summary');
   const brandKit = assetLinks.get('brand-kit-json');
+  const brandBible = assetLinks.get('brand-bible-markdown');
+  const designSystem = assetLinks.get('brand-design-system');
 
   if (researchSummary) {
     attachments.push({
       id: researchSummary.id,
       label: researchSummary.label,
-      url: researchSummary.url,
+      url: viewerUrl(runtimeDoc.job_id, researchSummary.id),
       contentType: researchSummary.contentType,
       kind: 'document',
     });
@@ -843,8 +855,28 @@ function firstCheckpointAttachments(
     attachments.push({
       id: brandKit.id,
       label: brandKit.label,
-      url: brandKit.url,
+      url: viewerUrl(runtimeDoc.job_id, brandKit.id),
       contentType: brandKit.contentType,
+      kind: 'document',
+    });
+  }
+
+  if (brandBible) {
+    attachments.push({
+      id: brandBible.id,
+      label: brandBible.label,
+      url: viewerUrl(runtimeDoc.job_id, brandBible.id),
+      contentType: brandBible.contentType,
+      kind: 'document',
+    });
+  }
+
+  if (designSystem) {
+    attachments.push({
+      id: designSystem.id,
+      label: designSystem.label,
+      url: viewerUrl(runtimeDoc.job_id, designSystem.id),
+      contentType: designSystem.contentType,
       kind: 'document',
     });
   }
@@ -853,6 +885,9 @@ function firstCheckpointAttachments(
     attachments.push({
       id: asset.id,
       label: asset.name,
+      // Brand assets (user-uploaded logos, fonts, brand photos) keep the raw
+      // URL so they render inline as images or download as intended source
+      // files. The viewer page is for generated documents, not uploads.
       url: asset.url,
       contentType: asset.contentType,
       kind: 'brand_asset',

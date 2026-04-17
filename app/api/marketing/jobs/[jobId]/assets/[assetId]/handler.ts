@@ -169,10 +169,16 @@ export async function handleGetMarketingJobAsset(
     });
   }
 
+  // `inline` (not `attachment`) keeps the browser from surprise-downloading
+  // unknown or markdown-ish content when this route is hit directly. The
+  // /materials/[jobId]/[assetId] viewer is the polished default for
+  // document-kind attachments; this raw route remains available for image
+  // rendering and for the "Download source" affordance in the viewer.
   return new Response(buffer, {
     status: 200,
     headers: {
       'content-type': asset.contentType,
+      'content-disposition': 'inline',
       'cache-control': 'private, max-age=60',
     },
   });
