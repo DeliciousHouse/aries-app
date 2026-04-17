@@ -58,6 +58,10 @@ export type RuntimeCampaignListItem = {
   previewPosts: AriesDashboardPost[];
   previewAssets: AriesDashboardAsset[];
   dashboard: AriesDashboardCampaignContent;
+  /** Set when the campaign has been soft-deleted (Recycle Bin entry). */
+  deletedAt?: string | null;
+  /** User id of whoever soft-deleted the campaign. Paired with deletedAt. */
+  deletedBy?: string | null;
 };
 
 export type RuntimeReviewDecision = {
@@ -206,7 +210,13 @@ export type OnboardingDraft = {
   materializedJobId: string | null;
 };
 
-export type CampaignListResponse = { campaigns: RuntimeCampaignListItem[] };
+export type CampaignListResponse = {
+  campaigns: RuntimeCampaignListItem[];
+  /** Soft-deleted campaigns in the same shape as `campaigns`. Feeds the
+   * Recycle Bin / "Deleted campaigns" section of the campaign list screen
+   * so users can see what they deleted and restore if needed. */
+  deletedCampaigns: RuntimeCampaignListItem[];
+};
 export type ReviewQueueResponse = { reviews: RuntimeReviewItem[]; archivedReviews?: RuntimeReviewItem[] };
 export type ReviewItemResponse = { review: RuntimeReviewItem };
 export type ReviewDecisionRequest = {

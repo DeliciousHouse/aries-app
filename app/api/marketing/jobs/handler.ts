@@ -293,6 +293,7 @@ export async function handlePostMarketingJobs(
     const result = await startMarketingJob({
       tenantId: resolvedTenantId,
       jobType: requestBody.jobType as 'brand_campaign',
+      createdBy: tenantResult.tenantContext.userId ?? null,
       payload: hydratedPayload,
     });
     const workspace = ensureCampaignWorkspaceRecord({

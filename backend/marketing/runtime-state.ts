@@ -139,6 +139,19 @@ export type MarketingJobRuntimeDocument = {
   history: MarketingHistoryEntry[];
   created_at: string;
   updated_at: string;
+  /** Optional. When set, identifies the user that originated the campaign.
+   * Used by the campaign delete permission check (tenant_admin OR creator).
+   * Existing campaigns predating this field have `created_by === null` and
+   * are treated as admin-only to delete. */
+  created_by?: string | null;
+  /** Optional. When set, the campaign is soft-deleted — hidden from the
+   * regular campaign list / dashboard queries, but still resolvable via its
+   * direct jobId for the "Deleted campaigns" restore section and for
+   * support queries. Clearing this field restores the campaign. */
+  deleted_at?: string | null;
+  /** Optional. User id of whoever soft-deleted the campaign. Paired with
+   * `deleted_at`. `null` when the campaign is live. */
+  deleted_by?: string | null;
 };
 
 const STAGES: MarketingStage[] = ['research', 'strategy', 'production', 'publish'];
@@ -227,6 +240,10 @@ export function createMarketingJobRuntimeDocument(input: {
   payload: Record<string, unknown>;
   brandKit: MarketingBrandKitReference;
   publishConfig?: Partial<MarketingPublishConfig>;
+  /** Optional. User id of the caller that created the campaign. Persisted so
+   * delete permissions can allow the creator (in addition to tenant_admin)
+   * to soft-delete their own campaign. */
+  createdBy?: string | null;
 }): MarketingJobRuntimeDocument {
   const ts = nowIso();
   const payloadChannels = Array.isArray(input.payload?.channels)
@@ -283,6 +300,9 @@ export function createMarketingJobRuntimeDocument(input: {
     ],
     created_at: ts,
     updated_at: ts,
+    created_by: input.createdBy ?? null,
+    deleted_at: null,
+    deleted_by: null,
   };
 }
 
@@ -464,7 +484,10 @@ export function loadMarketingJobRuntime(jobId: string): MarketingJobRuntimeDocum
   }
 }
 
-function collectMarketingJobRefsForTenant(tenantId: string): Array<{ jobId: string; updatedAt: number }> {
+function collectMarketingJobRefsForTenant(
+  tenantId: string,
+  options: { includeDeleted?: boolean; onlyDeleted?: boolean } = {},
+): Array<{ jobId: string; updatedAt: number }> {
   const root = marketingRuntimeRoot();
   if (!existsSync(root)) {
     return [];
@@ -504,6 +527,18 @@ function collectMarketingJobRefsForTenant(tenantId: string): Array<{ jobId: stri
       if (doc.tenant_id !== tenantId) {
         continue;
       }
+      // Soft-delete filter. By default the list view skips deleted campaigns.
+      // Callers that need to see the Recycle Bin pass { onlyDeleted: true }.
+      // Callers that need both (e.g. internal migration / support tooling)
+      // pass { includeDeleted: true }.
+      const deletedAtRaw = typeof doc.deleted_at === 'string' ? doc.deleted_at.trim() : '';
+      const isDeleted = deletedAtRaw.length > 0;
+      if (options.onlyDeleted && !isDeleted) {
+        continue;
+      }
+      if (!options.onlyDeleted && !options.includeDeleted && isDeleted) {
+        continue;
+      }
       const updatedAt = Date.parse(typeof doc.updated_at === 'string' ? doc.updated_at : '');
       if (!Number.isFinite(updatedAt)) {
         continue;
@@ -519,6 +554,54 @@ function collectMarketingJobRefsForTenant(tenantId: string): Array<{ jobId: stri
 
 export function listMarketingJobIdsForTenant(tenantId: string): string[] {
   return collectMarketingJobRefsForTenant(tenantId).map((entry) => entry.jobId);
+}
+
+export function listDeletedMarketingJobIdsForTenant(tenantId: string): string[] {
+  return collectMarketingJobRefsForTenant(tenantId, { onlyDeleted: true }).map((entry) => entry.jobId);
+}
+
+/**
+ * Soft-delete a marketing campaign. Marks `deleted_at` + `deleted_by` on the
+ * runtime document so it drops out of the default list queries but stays
+ * resolvable via its direct jobId (for the Deleted campaigns Recycle Bin
+ * restore flow). Returns the updated document, or `null` if the job is not
+ * found or belongs to a different tenant.
+ */
+export function softDeleteMarketingJob(input: {
+  jobId: string;
+  tenantId: string;
+  deletedBy: string;
+}): MarketingJobRuntimeDocument | null {
+  const doc = loadMarketingJobRuntime(input.jobId);
+  if (!doc || doc.tenant_id !== input.tenantId) {
+    return null;
+  }
+  doc.deleted_at = nowIso();
+  doc.deleted_by = input.deletedBy;
+  saveMarketingJobRuntime(input.jobId, doc);
+  return doc;
+}
+
+/**
+ * Restore a soft-deleted marketing campaign by clearing `deleted_at` /
+ * `deleted_by`. Returns the updated document, or `null` if the job is not
+ * found, belongs to a different tenant, or was never deleted.
+ */
+export function restoreMarketingJob(input: {
+  jobId: string;
+  tenantId: string;
+}): MarketingJobRuntimeDocument | null {
+  const doc = loadMarketingJobRuntime(input.jobId);
+  if (!doc || doc.tenant_id !== input.tenantId) {
+    return null;
+  }
+  if (!doc.deleted_at) {
+    return doc;
+  }
+  doc.deleted_at = null;
+  doc.deleted_by = null;
+  saveMarketingJobRuntime(input.jobId, doc);
+  return doc;
 }
 
 export function listMarketingTenantIds(): string[] {

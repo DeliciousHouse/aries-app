@@ -69,6 +69,11 @@ import {
 export type StartMarketingJobRequest = {
   tenantId: string;
   jobType: 'brand_campaign';
+  /** Optional. User id of the authenticated caller that initiated the
+   * campaign. Persisted on the runtime document so the campaign delete
+   * permission check can allow the creator to delete their own campaigns
+   * (in addition to tenant_admin users). */
+  createdBy?: string | null;
   payload: {
     brandUrl?: unknown;
     competitorUrl?: unknown;
@@ -1037,6 +1042,7 @@ export async function startMarketingJob(input: StartMarketingJobRequest): Promis
     tenantId: input.tenantId.trim(),
     payload: input.payload,
     brandKit: runtimeBrandKitReference(brandKit, filePath),
+    createdBy: input.createdBy ?? null,
   });
   saveMarketingJobRuntime(jobId, doc);
 
