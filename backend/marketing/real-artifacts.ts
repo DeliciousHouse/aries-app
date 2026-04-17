@@ -181,7 +181,45 @@ export function normalizeArtifactText(value: string | null | undefined): string 
   if (!normalized || isLowSignalGeneratedText(normalized)) {
     return null;
   }
-  return normalized;
+  return stripCliIdioms(normalized);
+}
+
+// CLI-facing instructions occasionally leak from workflow scripts into fields
+// that surface directly in the approval UI (approval_message, summary,
+// core_message). The most recent offender was
+//   "Reply with approval and rerun with launch_approved=true to generate ..."
+// — a developer instruction aimed at whoever was invoking the lobster pipeline
+// on the command line, which rendered verbatim inside the cyan approval card.
+// This helper is a defense-in-depth pass: producers (e.g. lobster/bin/*) are
+// the primary fix, but we also scrub the rendered text so a future regression
+// elsewhere can't leak the same pattern to end users.
+// Order matters: rewrite whole CLI-instruction sentences BEFORE stripping the
+// inner flag tokens, otherwise the outer sentence-level pattern no longer
+// matches once the flag token is gone and we're left with grammatically
+// broken halves like "Reply with approval and to generate publish-ready assets."
+const CLI_IDIOM_REWRITES: Array<[RegExp, string]> = [
+  // "Reply/Respond with approval and (re-run|rerun|retry|invoke|restart) ..."
+  // sentence — strip the whole sentence up to the next period, because the
+  // trailing clause ("to generate publish-ready assets") is still CLI guidance
+  // even after the flag name is scrubbed.
+  [/\s*(?:reply|respond)\s+with\s+approval\s+and\s+(?:re[- ]?run|rerun|retry|invoke|restart)\b[^.]*\.?\s*/gi, ' '],
+  // Standalone "rerun with foo_bar=true/false ..." sentence (no "reply with
+  // approval and" preamble), also up to the next period.
+  [/\s*(?:re[- ]?run|rerun|retry|invoke|restart)\s+with\s+[a-z0-9_-]+\s*=\s*(?:true|false)\b[^.]*\.?\s*/gi, ' '],
+  // Bare `flag=true` / `flag=false` tokens left behind after the rewrites above
+  // or appearing standalone in other fields.
+  [/\b[a-z][a-z0-9_-]*\s*=\s*(?:true|false)\b/gi, ''],
+  // Long-form CLI flags that shouldn't appear in UI copy.
+  [/\s--[a-z][a-z0-9-]*(?:=[^\s.,;]+)?/gi, ''],
+];
+
+function stripCliIdioms(value: string): string {
+  let result = value;
+  for (const [pattern, replacement] of CLI_IDIOM_REWRITES) {
+    result = result.replace(pattern, replacement);
+  }
+  // Collapse any double-spaces / leftover punctuation introduced by rewrites.
+  return result.replace(/\s+([.,;:!?])/g, '$1').replace(/\s{2,}/g, ' ').trim();
 }
 
 export function explicitArtifactValue(value: string | null | undefined, fallback = ARTIFACT_UNAVAILABLE_TEXT): string {
