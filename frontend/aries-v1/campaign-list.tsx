@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight, FileImage, FileText, Layers3, Plus, Trash2, Undo2 } from 'lucide-react';
 
@@ -174,13 +174,39 @@ function DeleteButton(props: {
   label: string;
 }) {
   const [armed, setArmed] = useState(false);
+  // Track the auto-reset timer in a ref so a re-arm can cancel the prior
+  // timer (otherwise rapid double-clicks could flip `armed` back to false
+  // mid-flow) and so unmount can clear a pending timer (otherwise the
+  // setTimeout callback would call setArmed after unmount and log a warning).
+  const resetTimerRef = useRef<number | null>(null);
+
+  const clearResetTimer = useCallback(() => {
+    if (resetTimerRef.current !== null) {
+      window.clearTimeout(resetTimerRef.current);
+      resetTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return clearResetTimer;
+  }, [clearResetTimer]);
 
   // Reset the armed state after 4s of inactivity so the button doesn't stay
   // primed indefinitely if the user clicks once and wanders off.
-  function arm() {
+  const arm = useCallback(() => {
+    clearResetTimer();
     setArmed(true);
-    window.setTimeout(() => setArmed(false), 4000);
-  }
+    resetTimerRef.current = window.setTimeout(() => {
+      resetTimerRef.current = null;
+      setArmed(false);
+    }, 4000);
+  }, [clearResetTimer]);
+
+  const confirm = useCallback(() => {
+    clearResetTimer();
+    setArmed(false);
+    props.onConfirm();
+  }, [clearResetTimer, props]);
 
   if (props.busy) {
     return (
@@ -211,10 +237,7 @@ function DeleteButton(props: {
   return (
     <button
       type="button"
-      onClick={() => {
-        setArmed(false);
-        props.onConfirm();
-      }}
+      onClick={confirm}
       className="inline-flex shrink-0 items-center gap-2 rounded-full border border-red-400/60 bg-red-500/15 px-3 py-1.5 text-xs font-semibold text-red-100 transition hover:bg-red-500/25"
     >
       <Trash2 className="h-4 w-4" />

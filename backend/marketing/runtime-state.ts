@@ -583,6 +583,12 @@ export function listDeletedMarketingJobIdsForTenant(tenantId: string): string[] 
  * resolvable via its direct jobId (for the Deleted campaigns Recycle Bin
  * restore flow).
  *
+ * **Idempotent.** If the campaign is already soft-deleted, the existing
+ * `deleted_at` / `deleted_by` / `soft_cancel_requested_at` are preserved
+ * and the call returns the current document unchanged. Otherwise a repeat
+ * DELETE request would clobber the original deletion timestamp/actor and
+ * weaken the audit trail.
+ *
  * If the pipeline is still running when the delete lands, also arms
  * `soft_cancel_requested_at`. The orchestrator checks that field before
  * starting each stage and short-circuits to the `cancelled` terminal status
@@ -602,6 +608,12 @@ export function softDeleteMarketingJob(input: {
   if (!doc || doc.tenant_id !== input.tenantId) {
     return null;
   }
+  // Already soft-deleted — preserve the original audit fields so a repeat
+  // DELETE does not rewrite history. Return the current document so the
+  // caller can still echo back the existing deleted_at / deleted_by.
+  if (doc.deleted_at) {
+    return doc;
+  }
   const ts = nowIso();
   doc.deleted_at = ts;
   doc.deleted_by = input.deletedBy;
@@ -614,8 +626,12 @@ export function softDeleteMarketingJob(input: {
 
 /**
  * Restore a soft-deleted marketing campaign by clearing `deleted_at` /
- * `deleted_by`. Returns the updated document, or `null` if the job is not
- * found, belongs to a different tenant, or was never deleted.
+ * `deleted_by` / `soft_cancel_requested_at`.
+ *
+ * **Idempotent.** If the campaign is already live (not deleted), the
+ * current document is returned unchanged — a repeat restore request is a
+ * safe no-op. The only case that returns `null` is when the job is not
+ * found at all or belongs to a different tenant.
  */
 export function restoreMarketingJob(input: {
   jobId: string;

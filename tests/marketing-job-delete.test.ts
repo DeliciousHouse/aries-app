@@ -170,6 +170,46 @@ describe('DELETE /api/marketing/jobs/:jobId', () => {
     }));
     assert.equal(adminResponse.status, 200);
   });
+
+  it('is idempotent on repeat delete: preserves the original deleted_at + deleted_by', async () => {
+    const { handleDeleteMarketingJob } = await import('../app/api/marketing/jobs/[jobId]/delete/handler');
+    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+
+    await writeRuntimeDoc('job_idempotent', { tenant_id: 'tenant_acme', created_by: null });
+
+    const first = await handleDeleteMarketingJob('job_idempotent', async () => ({
+      userId: 'user_admin_1',
+      tenantId: 'tenant_acme',
+      tenantSlug: 'acme',
+      role: 'tenant_admin',
+    }));
+    assert.equal(first.status, 200);
+    const firstBody = (await first.json()) as { deletedAt: string | null; deletedBy: string | null };
+    const originalDeletedAt = firstBody.deletedAt;
+    const originalDeletedBy = firstBody.deletedBy;
+    assert.ok(originalDeletedAt);
+    assert.equal(originalDeletedBy, 'user_admin_1');
+
+    // Wait long enough that a naive nowIso() overwrite would produce a
+    // different timestamp, then hit DELETE again as a different user.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const second = await handleDeleteMarketingJob('job_idempotent', async () => ({
+      userId: 'user_admin_2',
+      tenantId: 'tenant_acme',
+      tenantSlug: 'acme',
+      role: 'tenant_admin',
+    }));
+    assert.equal(second.status, 200);
+    const secondBody = (await second.json()) as { deletedAt: string | null; deletedBy: string | null };
+    assert.equal(secondBody.deletedAt, originalDeletedAt, 'deleted_at must not be rewritten by a repeat delete');
+    assert.equal(secondBody.deletedBy, originalDeletedBy, 'deleted_by must not be rewritten by a repeat delete');
+
+    const doc = loadMarketingJobRuntime('job_idempotent');
+    assert.ok(doc);
+    assert.equal(doc.deleted_at, originalDeletedAt);
+    assert.equal(doc.deleted_by, originalDeletedBy);
+  });
 });
 
 describe('POST /api/marketing/jobs/:jobId/restore', () => {
@@ -237,5 +277,29 @@ describe('POST /api/marketing/jobs/:jobId/restore', () => {
     }));
 
     assert.equal(response.status, 403);
+  });
+
+  it('is idempotent on a live (not-deleted) campaign: returns 200 without mutating state', async () => {
+    const { handleRestoreMarketingJob } = await import('../app/api/marketing/jobs/[jobId]/delete/handler');
+    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+
+    await writeRuntimeDoc('job_restore_idempotent', {
+      tenant_id: 'tenant_acme',
+      created_by: 'user_admin',
+      // Note: deleted_at is null — the campaign is already live.
+    });
+
+    const response = await handleRestoreMarketingJob('job_restore_idempotent', async () => ({
+      userId: 'user_admin',
+      tenantId: 'tenant_acme',
+      tenantSlug: 'acme',
+      role: 'tenant_admin',
+    }));
+
+    assert.equal(response.status, 200);
+    const doc = loadMarketingJobRuntime('job_restore_idempotent');
+    assert.ok(doc);
+    assert.equal(doc.deleted_at, null);
+    assert.equal(doc.deleted_by, null);
   });
 });

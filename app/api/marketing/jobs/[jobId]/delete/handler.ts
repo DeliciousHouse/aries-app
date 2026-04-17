@@ -9,10 +9,20 @@ import {
 } from '@/backend/marketing/runtime-state';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
-const MARKETING_ONBOARDING_REQUIRED = {
+// Separate copy for each verb so a user hitting the restore endpoint
+// pre-onboarding doesn't see a misleading "before deleting a campaign"
+// message. The status / reason are identical; only the user-facing message
+// differs per call site.
+const DELETE_ONBOARDING_REQUIRED = {
   status: 409,
   reason: 'onboarding_required',
   message: 'Complete tenant onboarding before deleting a campaign.',
+} as const;
+
+const RESTORE_ONBOARDING_REQUIRED = {
+  status: 409,
+  reason: 'onboarding_required',
+  message: 'Complete tenant onboarding before restoring a campaign.',
 } as const;
 
 type DeletePermissionDecision =
@@ -55,7 +65,7 @@ export async function handleDeleteMarketingJob(
   tenantContextLoader?: TenantContextLoader,
 ) {
   const tenantResult = await loadTenantContextOrResponse(tenantContextLoader, {
-    missingMembershipResponse: MARKETING_ONBOARDING_REQUIRED,
+    missingMembershipResponse: DELETE_ONBOARDING_REQUIRED,
   });
   if ('response' in tenantResult) {
     return tenantResult.response;
@@ -136,7 +146,7 @@ export async function handleRestoreMarketingJob(
   tenantContextLoader?: TenantContextLoader,
 ) {
   const tenantResult = await loadTenantContextOrResponse(tenantContextLoader, {
-    missingMembershipResponse: MARKETING_ONBOARDING_REQUIRED,
+    missingMembershipResponse: RESTORE_ONBOARDING_REQUIRED,
   });
   if ('response' in tenantResult) {
     return tenantResult.response;
