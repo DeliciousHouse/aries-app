@@ -1,14 +1,31 @@
+import type { ReactNode } from 'react';
 import { notFound } from 'next/navigation';
-import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { auth } from '@/auth';
 import { findMarketingAsset } from '@/backend/marketing/asset-library';
+import { readMarketingAssetWithinAllowedRoots } from '@/backend/marketing/asset-read';
 import { loadMarketingJobRuntime } from '@/backend/marketing/runtime-state';
 import { getTenantContext } from '@/lib/tenant-context';
 import { renderSimpleMarkdown } from '@/lib/simple-markdown';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * Safely decode a URI-encoded route param. Malformed percent-encoding (e.g.
+ * a hand-edited URL with a lone `%` or an invalid UTF-8 sequence) causes
+ * `decodeURIComponent` to throw `URIError`, which would 500 the page. Other
+ * routes in the repo fall back to the raw value on decode failure; do the
+ * same here so a malformed URL results in a 404 via the downstream lookup
+ * instead of a server error.
+ */
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
 
 type ViewerParams = { jobId: string; assetId: string };
 
@@ -37,8 +54,8 @@ export default async function MaterialsViewerPage({
   params: Promise<ViewerParams>;
 }) {
   const { jobId: rawJobId, assetId: rawAssetId } = await params;
-  const jobId = decodeURIComponent(rawJobId);
-  const assetId = decodeURIComponent(rawAssetId);
+  const jobId = safeDecode(rawJobId);
+  const assetId = safeDecode(rawAssetId);
 
   const session = await auth();
   if (!session?.user?.id) {
@@ -69,21 +86,24 @@ export default async function MaterialsViewerPage({
     notFound();
   }
 
-  let raw: string | null = null;
-  let rawBuffer: Buffer | null = null;
-  try {
-    rawBuffer = await readFile(asset.filePath);
-    raw = rawBuffer.toString('utf8');
-  } catch {
+  // Share the same normalize + trusted-root + realpath check the raw asset
+  // API handler uses (backend/marketing/asset-read.ts) instead of calling
+  // readFile(asset.filePath) directly. This keeps the viewer's filesystem
+  // reach identical to the API's — a malformed or out-of-root filePath in
+  // the runtime doc cannot coerce the viewer into reading an arbitrary
+  // file on disk.
+  const rawBuffer = await readMarketingAssetWithinAllowedRoots(asset.filePath);
+  if (!rawBuffer) {
     notFound();
   }
+  const raw = rawBuffer.toString('utf8');
 
   const contentType = asset.contentType;
   const kindLabel = labelForKind(asset.filePath);
   const fileName = path.basename(asset.filePath);
   const downloadHref = `/api/marketing/jobs/${encodeURIComponent(jobId)}/assets/${encodeURIComponent(assetId)}`;
 
-  let rendered: React.ReactNode;
+  let rendered: ReactNode;
 
   if (isRenderableImage(contentType)) {
     rendered = (
