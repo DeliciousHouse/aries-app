@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 
-import { listMarketingCampaignsForTenant } from '@/backend/marketing/runtime-views';
+import {
+  listDeletedMarketingCampaignsForTenant,
+  listMarketingCampaignsForTenant,
+} from '@/backend/marketing/runtime-views';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
 export async function handleGetMarketingCampaigns(tenantContextLoader?: TenantContextLoader) {
@@ -9,8 +12,11 @@ export async function handleGetMarketingCampaigns(tenantContextLoader?: TenantCo
     return tenantResult.response;
   }
 
-  const campaigns = await listMarketingCampaignsForTenant(tenantResult.tenantContext.tenantId);
-  return NextResponse.json({ campaigns }, { status: 200 });
+  const [campaigns, deletedCampaigns] = await Promise.all([
+    listMarketingCampaignsForTenant(tenantResult.tenantContext.tenantId),
+    listDeletedMarketingCampaignsForTenant(tenantResult.tenantContext.tenantId),
+  ]);
+  return NextResponse.json({ campaigns, deletedCampaigns }, { status: 200 });
 }
 
 export async function GET() {
