@@ -140,11 +140,16 @@ function normalizeWhitespace(value: string): string {
 // this helper exists to prevent. Applied wherever we pull visible text out of
 // a tag's inner HTML — titles, h1s, image alts.
 function stripHtmlTags(value: string): string {
+  // Closing tags use `<\/name\b[^>]*>` instead of `<\/name>` so HTML variants
+  // that include trailing whitespace or attributes on the close tag (e.g.
+  // `</script >`, `</style foo>`) are still recognized. The narrow
+  // `<\/name>` form leaves the script/style body intact as literal text,
+  // which is what CodeQL's "Bad HTML filtering regexp" rule flags.
   return decodeHtmlEntities(value)
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, ' ')
-    .replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, ' ')
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style\b[^>]*>/gi, ' ')
+    .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript\b[^>]*>/gi, ' ')
+    .replace(/<svg\b[^>]*>[\s\S]*?<\/svg\b[^>]*>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();

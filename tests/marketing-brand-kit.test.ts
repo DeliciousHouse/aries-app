@@ -270,6 +270,49 @@ test('extractBrandKitFromWebsite strips nested HTML markup from the brand name c
   }
 });
 
+test('stripHtmlTags handles <script>/<style>/</svg>/</noscript> close-tag variants with whitespace or attributes', async () => {
+  // Regression for CodeQL "Bad HTML filtering regexp" alert. The narrow
+  // `<\/script>` pattern would miss `</script >` or `</script foo>`, so the
+  // script body would survive into brand_name as literal text. The site
+  // below nests a malicious-looking <script> inside the H1 using each
+  // close-tag variant.
+  const originalFetch = globalThis.fetch;
+  const brandUrl = 'https://malformed-close.example';
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+    if (url === brandUrl) {
+      return createFetchResponse(
+        `<!doctype html>
+        <html>
+          <head><title>Malformed Co</title></head>
+          <body>
+            <h1>Real <script>alert('leak-1')</script > Brand <style foo>body{display:none}</style > <noscript >tracker</noscript x> <svg attr><path/></svg > Co</h1>
+          </body>
+        </html>`,
+        'text/html; charset=utf-8',
+      );
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof globalThis.fetch;
+
+  try {
+    const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+    const brandKit = await extractBrandKitFromWebsite({
+      tenantId: 'malformed-co',
+      brandUrl,
+    });
+    assert.doesNotMatch(brandKit.brand_name, /alert\(/, `script body leaked: ${brandKit.brand_name}`);
+    assert.doesNotMatch(brandKit.brand_name, /display:none/, `style body leaked: ${brandKit.brand_name}`);
+    assert.doesNotMatch(brandKit.brand_name, /tracker/, `noscript body leaked: ${brandKit.brand_name}`);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('extractBrandKitFromWebsite strips entity-encoded HTML markup from the brand name', async () => {
   // Regression for PR #135 review: if tag-stripping runs BEFORE entity decoding,
   // `&lt;span&gt;...` survives the tag pass and becomes literal `<span>` text
