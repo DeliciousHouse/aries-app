@@ -192,12 +192,22 @@ function contentTypeForAsset(filePath: string): string {
     case '.html':
       return 'text/html; charset=utf-8';
     case '.md':
+      return 'text/markdown; charset=utf-8';
     case '.txt':
       return 'text/plain; charset=utf-8';
     case '.json':
       return 'application/json; charset=utf-8';
+    case '.css':
+      return 'text/css; charset=utf-8';
+    case '.js':
+      return 'text/javascript; charset=utf-8';
     default:
-      return 'application/octet-stream';
+      // Fall back to text/plain rather than application/octet-stream so the
+      // browser renders an unknown text asset inline instead of forcing a
+      // file download. Binary types get correct headers above; anything that
+      // reaches this default is effectively a text file we haven't explicitly
+      // mapped yet, and inline-rendering is safer than surprise downloads.
+      return 'text/plain; charset=utf-8';
   }
 }
 

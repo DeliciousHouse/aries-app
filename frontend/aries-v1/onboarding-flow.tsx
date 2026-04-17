@@ -527,7 +527,6 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   const creatingDraftRef = useRef(false);
   const localSaveTimerRef = useRef<number | null>(null);
   const savedIndicatorTimerRef = useRef<number | null>(null);
-  const transitionTimerRef = useRef<number | null>(null);
   const submittingRef = useRef(false);
   const deferredWebsiteUrl = useDeferredValue(websiteUrl.trim());
 
@@ -816,15 +815,6 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     markSaved,
   ]);
 
-  useEffect(() => {
-    return () => {
-      if (transitionTimerRef.current) {
-        window.clearTimeout(transitionTimerRef.current);
-        transitionTimerRef.current = null;
-      }
-    };
-  }, []);
-
   // Check for local draft on mount and offer to restore.
   useEffect(() => {
     if (resumeChecked) return;
@@ -1039,15 +1029,15 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
       clearLocalDraft();
 
       if (props.initialAuthenticated) {
-        // Full-screen transition for ~1.8s before redirecting so the user
-        // sees a clear "we've got it, building your campaign" state instead
-        // of a blank screen while the server-side resume page materializes
-        // the campaign. Timer is tracked in a ref so unmount can cancel it.
+        // Show the full-screen "Building your first campaign plan" state and
+        // navigate immediately. The transition component stays mounted until
+        // Next.js finishes server-rendering /onboarding/resume (which can
+        // take 10-30s while the marketing job materializes), so the user
+        // sees continuous feedback without the 1.8s timer race that caused
+        // earlier "button loops to the same page" reports where the timer
+        // and the unmount cleanup fought each other.
         setShowTransition(true);
-        transitionTimerRef.current = window.setTimeout(() => {
-          transitionTimerRef.current = null;
-          router.push(`/onboarding/resume?draft=${encodeURIComponent(activeDraftId)}`);
-        }, 1800);
+        router.push(`/onboarding/resume?draft=${encodeURIComponent(activeDraftId)}`);
         return;
       }
 
@@ -1789,7 +1779,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                     {submitting
                       ? 'Saving setup...'
                       : props.initialAuthenticated
-                        ? 'Continue to workspace'
+                        ? 'Continue to Dashboard'
                         : 'Save and continue'}
                     <ArrowRight className="h-4 w-4" />
                   </button>
