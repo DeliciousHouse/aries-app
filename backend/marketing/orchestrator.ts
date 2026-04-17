@@ -43,6 +43,7 @@ import {
   createMarketingJobRuntimeDocument,
   defaultPublishConfig,
   getStageRecord,
+  loadMarketingJobRuntime,
   markStageAwaitingApproval,
   markStageCompleted,
   markStageInProgress,
@@ -69,6 +70,11 @@ import {
 export type StartMarketingJobRequest = {
   tenantId: string;
   jobType: 'brand_campaign';
+  /** Optional. User id of the authenticated caller that initiated the
+   * campaign. Persisted on the runtime document so the campaign delete
+   * permission check can allow the creator to delete their own campaigns
+   * (in addition to tenant_admin users). */
+  createdBy?: string | null;
   payload: {
     brandUrl?: unknown;
     competitorUrl?: unknown;
@@ -260,6 +266,11 @@ function marketingPipelineArgs(doc: MarketingJobRuntimeDocument): Record<string,
     competitor_facebook_url: facebookPageUrl,
     brand_slug: doc.tenant_id,
     agent_id: process.env.OPENCLAW_SESSION_KEY?.trim() || 'main',
+    // Correlation id the gateway uses to target a cancel signal at this
+    // specific in-flight run. Kept identical to the marketing job id so
+    // `cancelOpenClawLobsterWorkflow({ correlationId: jobId })` aborts
+    // exactly the run this orchestrator call spawned.
+    cancel_correlation_id: doc.job_id,
   };
 }
 
@@ -715,7 +726,51 @@ function activeApprovalRecord(
 }
 
 
+/**
+ * Sentinel thrown when a soft-cancel request lands between stages. Callers
+ * (startMarketingJob + approve/resume paths) catch this and exit without
+ * propagating an error, because the campaign has already been marked
+ * `cancelled` by `applySoftCancelIfRequested`. This keeps the control flow
+ * separate from genuine pipeline failures.
+ */
+class MarketingJobCancelledError extends Error {
+  constructor(public jobId: string) {
+    super(`marketing_job_cancelled:${jobId}`);
+    this.name = 'MarketingJobCancelledError';
+  }
+}
+
+/**
+ * Stage-boundary cancel check. Reloads the runtime doc from disk (so we see
+ * `soft_cancel_requested_at` writes that landed via softDeleteMarketingJob
+ * while this orchestrator call was waiting on an approval) and, if the
+ * cancel has been armed, transitions the job to a terminal `cancelled`
+ * state and throws `MarketingJobCancelledError` so the caller bails without
+ * starting the next stage.
+ */
+function applySoftCancelIfRequested(doc: MarketingJobRuntimeDocument): void {
+  const fresh = loadMarketingJobRuntime(doc.job_id);
+  const armed = fresh?.soft_cancel_requested_at;
+  if (!armed) {
+    return;
+  }
+  // Mirror the cancel-at timestamp onto the doc the caller is holding so
+  // later logs and the returned envelope reflect it.
+  doc.soft_cancel_requested_at = armed;
+  doc.state = 'completed';
+  doc.status = 'completed';
+  doc.current_stage = doc.current_stage;
+  appendHistory(doc, 'marketing job cancelled via soft-delete', {
+    stage: doc.current_stage,
+    state: 'cancelled',
+    status: 'cancelled',
+  });
+  saveMarketingJobRuntime(doc.job_id, doc);
+  throw new MarketingJobCancelledError(doc.job_id);
+}
+
 async function runResearchStage(doc: MarketingJobRuntimeDocument): Promise<void> {
+  applySoftCancelIfRequested(doc);
   setJobRunning(doc, 'research', 'running research stage');
   markStageInProgress(doc, 'research');
   saveMarketingJobRuntime(doc.job_id, doc);
@@ -1037,13 +1092,20 @@ export async function startMarketingJob(input: StartMarketingJobRequest): Promis
     tenantId: input.tenantId.trim(),
     payload: input.payload,
     brandKit: runtimeBrandKitReference(brandKit, filePath),
+    createdBy: input.createdBy ?? null,
   });
   saveMarketingJobRuntime(jobId, doc);
 
   try {
     await runResearchStage(doc);
   } catch (error) {
-    handleFailure(doc, doc.current_stage, error);
+    // A cancel between startMarketingJob setup and the research stage
+    // entrypoint is an intentional exit, not a pipeline failure.
+    if (error instanceof MarketingJobCancelledError) {
+      // Document was already saved as cancelled by applySoftCancelIfRequested.
+    } else {
+      handleFailure(doc, doc.current_stage, error);
+    }
   }
 
   return {

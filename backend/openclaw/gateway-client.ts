@@ -648,3 +648,61 @@ export async function resumeOpenClawLobsterWorkflow(input: OpenClawResumeCallInp
 
   throw lastError instanceof Error ? lastError : new Error('workflow_resume_failed');
 }
+
+export interface OpenClawCancelCallInput {
+  /** Correlation id used by the gateway to find the in-flight Lobster run.
+   * For marketing campaigns this is the marketing job id; the orchestrator
+   * tags the `argsJson` it submits to `run` with the same id so the
+   * gateway-side cancel handler can look it up. */
+  correlationId: string;
+  cwd?: string;
+  timeoutMs?: number;
+}
+
+/**
+ * Best-effort cancel of an in-flight Lobster run. Targets the gateway's
+ * `lobster` tool with `action: 'cancel'` and the supplied correlation id.
+ *
+ * **Swallows all errors by design.** The primary cancel mechanism is the
+ * aries-app stage-boundary check (`soft_cancel_requested_at` on the
+ * runtime doc). This call is a best-effort accelerator that tries to abort
+ * the currently-executing stage faster. If the gateway has not yet been
+ * rebuilt with the cancel action, or the tool is unreachable, or no active
+ * run matches, we still return without throwing so soft-delete can proceed.
+ */
+export async function cancelOpenClawLobsterWorkflow(
+  input: OpenClawCancelCallInput,
+): Promise<{ cancelled: boolean; reason?: string }> {
+  const runtime = resolveOpenClawLobsterRuntimeContext({ cwd: input.cwd });
+  const timeoutMs = input.timeoutMs ?? 5_000;
+
+  console.info('[openclaw-gateway]', {
+    event: 'workflow-cancel-requested',
+    sessionKey: runtime.sessionKey,
+    cwd: runtime.cwd,
+    correlationId: input.correlationId,
+    timeoutMs,
+  });
+
+  try {
+    await invokeGateway({
+      tool: 'lobster',
+      sessionKey: runtime.sessionKey,
+      args: {
+        action: 'cancel',
+        correlationId: input.correlationId,
+        cwd: runtime.cwd,
+        timeoutMs,
+      },
+    });
+    return { cancelled: true };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    console.warn('[openclaw-gateway]', {
+      event: 'workflow-cancel-best-effort-failed',
+      correlationId: input.correlationId,
+      reason,
+    });
+    return { cancelled: false, reason };
+  }
+}

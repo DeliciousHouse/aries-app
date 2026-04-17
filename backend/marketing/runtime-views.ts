@@ -15,7 +15,13 @@ import { buildMarketingAssetLinks } from './asset-library';
 import { normalizeBrandKitSignals } from './brand-kit';
 import { approveMarketingJob } from './jobs-approve';
 import { denyMarketingJob } from './orchestrator';
-import { loadMarketingJobRuntime, listMarketingJobIdsForTenant, listMarketingTenantIds, type MarketingJobRuntimeDocument } from './runtime-state';
+import {
+  listDeletedMarketingJobIdsForTenant,
+  listMarketingJobIdsForTenant,
+  listMarketingTenantIds,
+  loadMarketingJobRuntime,
+  type MarketingJobRuntimeDocument,
+} from './runtime-state';
 import {
   dashboardDateRangeText,
   type MarketingDashboardAsset,
@@ -79,6 +85,15 @@ export type RuntimeCampaignListItem = {
   previewPosts: MarketingDashboardPost[];
   previewAssets: MarketingDashboardAsset[];
   dashboard: RuntimeCampaignDashboard;
+  /** Set when the campaign has been soft-deleted. Matches the field of the
+   * same name on the public `RuntimeCampaignListItem` type in
+   * `lib/api/aries-v1.ts`, so the API response passes through cleanly. */
+  deletedAt?: string | null;
+  /** Set alongside `deletedAt`. User id of whoever deleted the campaign. */
+  deletedBy?: string | null;
+  /** Set when the delete landed while the pipeline was still running. UI
+   * uses this to render "Cancelling..." in the Recycle Bin. */
+  softCancelRequestedAt?: string | null;
 };
 
 export type RuntimeReviewDecision = {
@@ -1324,6 +1339,47 @@ export async function listMarketingCampaignsForTenant(tenantId: string): Promise
     const leftUpdated = Date.parse(left.updatedAt || '');
     const rightUpdated = Date.parse(right.updatedAt || '');
     return (Number.isFinite(rightUpdated) ? rightUpdated : 0) - (Number.isFinite(leftUpdated) ? leftUpdated : 0);
+  });
+}
+
+/**
+ * List soft-deleted campaigns for the Recycle Bin section on the campaign
+ * list screen. Same shape as live campaigns but each entry carries
+ * deletedAt + deletedBy so the UI can show who deleted what when.
+ */
+export async function listDeletedMarketingCampaignsForTenant(
+  tenantId: string,
+): Promise<RuntimeCampaignListItem[]> {
+  const campaigns: RuntimeCampaignListItem[] = [];
+  const seen = new Set<string>();
+
+  for (const jobId of listDeletedMarketingJobIdsForTenant(tenantId)) {
+    const doc = loadMarketingJobRuntime(jobId);
+    if (!doc || doc.tenant_id !== tenantId) {
+      continue;
+    }
+    const status = getMarketingJobStatus(jobId);
+    if (status.tenantName === null && status.brandWebsiteUrl === null && status.status === 'error') {
+      continue;
+    }
+    const view = buildCampaignWorkspaceView(jobId);
+    const key = view.dashboard.campaign?.externalCampaignId || view.dashboard.campaign?.name || `job::${jobId}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    const pendingApprovals = buildReviewItemsForJob(jobId).filter((item) => item.status !== 'approved').length;
+    const item = buildCampaignListItem(status, view, pendingApprovals);
+    item.deletedAt = doc.deleted_at ?? null;
+    item.deletedBy = doc.deleted_by ?? null;
+    item.softCancelRequestedAt = doc.soft_cancel_requested_at ?? null;
+    campaigns.push(item);
+  }
+
+  return campaigns.sort((left, right) => {
+    const leftDeleted = Date.parse(left.deletedAt || '');
+    const rightDeleted = Date.parse(right.deletedAt || '');
+    return (Number.isFinite(rightDeleted) ? rightDeleted : 0) - (Number.isFinite(leftDeleted) ? leftDeleted : 0);
   });
 }
 
