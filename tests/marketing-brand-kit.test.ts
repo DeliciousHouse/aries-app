@@ -216,6 +216,171 @@ function installRenderedColorBrandSiteFetchMock(capture?: { calls: number }): ()
   };
 }
 
+test('extractBrandKitFromWebsite strips nested HTML markup from the brand name candidates', async () => {
+  // Regression: an Angular/React-rendered H1 can contain nested `<span>`s with
+  // inline `style` / `_ngcontent-*` attributes. The previous extractor returned
+  // inner HTML as the brand name, so the preview card showed raw `<span ...>`
+  // tags as the brand heading and as each font preview's sample text.
+  const originalFetch = globalThis.fetch;
+  const brandUrl = 'https://nwaeventco.example';
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+    if (url === brandUrl) {
+      return createFetchResponse(
+        `<!doctype html>
+        <html>
+          <head>
+            <title>NWA Event Co. | Home</title>
+            <link href="${brandUrl}/styles.css" rel="stylesheet" />
+          </head>
+          <body>
+            <h1>
+              <span _ngcontent-ng-c1473099053 style="font-family: 'Cinzel', serif;">Welcome to </span>
+              <span _ngcontent-ng-c1473099053 style="font-family: 'Cinzel Decorative', serif;">N</span>
+              <span _ngcontent-ng-c1473099053 style="font-family: 'Cinzel', serif;">WA Event Co.</span>
+            </h1>
+          </body>
+        </html>`,
+        'text/html; charset=utf-8',
+      );
+    }
+    if (url === `${brandUrl}/styles.css`) {
+      return createFetchResponse(`body { font-family: "Cinzel", serif; }`, 'text/css');
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof globalThis.fetch;
+
+  try {
+    const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+    const brandKit = await extractBrandKitFromWebsite({
+      tenantId: 'nwaeventco',
+      brandUrl,
+    });
+
+    assert.ok(brandKit.brand_name, 'brand_name should be extracted');
+    assert.doesNotMatch(brandKit.brand_name, /<\/?[a-z]/i, `brand_name leaked HTML: ${brandKit.brand_name}`);
+    assert.doesNotMatch(brandKit.brand_name, /_ngcontent-/i, `brand_name leaked Angular marker: ${brandKit.brand_name}`);
+    assert.doesNotMatch(brandKit.brand_name, /font-family/i, `brand_name leaked style attribute: ${brandKit.brand_name}`);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('stripHtmlTags handles <script>/<style>/</svg>/</noscript> close-tag variants with whitespace or attributes', async () => {
+  // Regression for CodeQL "Bad HTML filtering regexp" alert. The narrow
+  // `<\/script>` pattern would miss `</script >` or `</script foo>`, so the
+  // script body would survive into brand_name as literal text. The site
+  // below nests a malicious-looking <script> inside the H1 using each
+  // close-tag variant.
+  const originalFetch = globalThis.fetch;
+  const brandUrl = 'https://malformed-close.example';
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+    if (url === brandUrl) {
+      return createFetchResponse(
+        `<!doctype html>
+        <html>
+          <head><title>Malformed Co</title></head>
+          <body>
+            <h1>Real <script>alert('leak-1')</script > Brand <style foo>body{display:none}</style > <noscript >tracker</noscript x> <svg attr><path/></svg > Co</h1>
+          </body>
+        </html>`,
+        'text/html; charset=utf-8',
+      );
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof globalThis.fetch;
+
+  try {
+    const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+    const brandKit = await extractBrandKitFromWebsite({
+      tenantId: 'malformed-co',
+      brandUrl,
+    });
+    assert.doesNotMatch(brandKit.brand_name, /alert\(/, `script body leaked: ${brandKit.brand_name}`);
+    assert.doesNotMatch(brandKit.brand_name, /display:none/, `style body leaked: ${brandKit.brand_name}`);
+    assert.doesNotMatch(brandKit.brand_name, /tracker/, `noscript body leaked: ${brandKit.brand_name}`);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('extractBrandKitFromWebsite strips entity-encoded HTML markup from the brand name', async () => {
+  // Regression for PR #135 review: if tag-stripping runs BEFORE entity decoding,
+  // `&lt;span&gt;...` survives the tag pass and becomes literal `<span>` text
+  // after decode, re-introducing the exact raw-HTML leak stripHtmlTags exists
+  // to prevent. Entities must be decoded first, then tags stripped.
+  const originalFetch = globalThis.fetch;
+  const brandUrl = 'https://entity-nwa.example';
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+    if (url === brandUrl) {
+      return createFetchResponse(
+        `<!doctype html>
+        <html>
+          <head><title>Entity Co</title></head>
+          <body>
+            <h1>&lt;span _ngcontent-x style=&quot;font-family:Cinzel&quot;&gt;Welcome to &lt;/span&gt;&lt;span&gt;Entity Co&lt;/span&gt;</h1>
+          </body>
+        </html>`,
+        'text/html; charset=utf-8',
+      );
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof globalThis.fetch;
+
+  try {
+    const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+    const brandKit = await extractBrandKitFromWebsite({
+      tenantId: 'entity-nwa',
+      brandUrl,
+    });
+    assert.doesNotMatch(brandKit.brand_name, /<\/?[a-z]/i, `brand_name leaked literal HTML: ${brandKit.brand_name}`);
+    assert.doesNotMatch(brandKit.brand_name, /&lt;|&gt;|&quot;/i, `brand_name leaked raw entities: ${brandKit.brand_name}`);
+    assert.doesNotMatch(brandKit.brand_name, /_ngcontent-/i, `brand_name leaked Angular marker: ${brandKit.brand_name}`);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('normalizePersistedBrandKit sanitizes HTML markup in a cached brand_name on load', async () => {
+  await withRuntimeEnv(async () => {
+    const { saveTenantBrandKit, loadTenantBrandKit } = await import('../backend/marketing/brand-kit');
+    saveTenantBrandKit('nwaeventco', {
+      tenant_id: 'nwaeventco',
+      source_url: 'https://nwaeventco.example',
+      canonical_url: 'https://nwaeventco.example',
+      brand_name:
+        '<span _ngcontent-ng-c1473099053 style="font-family: \'Cinzel\', serif;">Welcome to </span>' +
+        '<span _ngcontent-ng-c1473099053>N</span>' +
+        '<span _ngcontent-ng-c1473099053>WA Event Co.</span>',
+      logo_urls: [],
+      colors: { primary: null, secondary: null, accent: null, palette: [] },
+      font_families: [],
+      external_links: [],
+      extracted_at: new Date().toISOString(),
+      brand_voice_summary: null,
+      offer_summary: null,
+    });
+    const loaded = loadTenantBrandKit('nwaeventco');
+    assert.ok(loaded);
+    assert.doesNotMatch(loaded!.brand_name, /<\/?[a-z]/i);
+    assert.doesNotMatch(loaded!.brand_name, /_ngcontent-/i);
+  });
+});
+
 test('extractBrandKitFromWebsite derives logo, palette, fonts, and social links from the canonical brand site', async () => {
   const restoreFetch = installBrandSiteFetchMock();
 

@@ -132,6 +132,29 @@ function normalizeWhitespace(value: string): string {
   return decodeHtmlEntities(value).replace(/\s+/g, ' ').trim();
 }
 
+// Decode entities FIRST, then strip nested tags (including framework markers
+// like Angular's `_ngcontent-*` and raw `style="..."` / `class="..."` attribute
+// remnants). The order matters: if we tag-stripped before decoding, entity-
+// encoded markup like `&lt;span&gt;...` would survive the tag pass and then
+// become literal `<span>` text after decode, re-introducing the raw-HTML leak
+// this helper exists to prevent. Applied wherever we pull visible text out of
+// a tag's inner HTML — titles, h1s, image alts.
+function stripHtmlTags(value: string): string {
+  // Closing tags use `<\/name\b[^>]*>` instead of `<\/name>` so HTML variants
+  // that include trailing whitespace or attributes on the close tag (e.g.
+  // `</script >`, `</style foo>`) are still recognized. The narrow
+  // `<\/name>` form leaves the script/style body intact as literal text,
+  // which is what CodeQL's "Bad HTML filtering regexp" rule flags.
+  return decodeHtmlEntities(value)
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style\b[^>]*>/gi, ' ')
+    .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript\b[^>]*>/gi, ' ')
+    .replace(/<svg\b[^>]*>[\s\S]*?<\/svg\b[^>]*>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function normalizeColor(value: string): string | null {
   const trimmed = value.trim().toLowerCase();
   if (!trimmed || trimmed === 'transparent') {
@@ -244,7 +267,7 @@ function extractMetaContent(html: string, attribute: string, key: string): strin
 
 function extractTitle(html: string): string | null {
   const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '';
-  return normalizeWhitespace(title) || null;
+  return stripHtmlTags(title) || null;
 }
 
 function extractLinkCandidates(html: string, relNeedle: string): string[] {
@@ -296,7 +319,7 @@ function extractInlineCss(html: string): string[] {
 function extractTextByTag(html: string, tagName: string): string[] {
   return Array.from(
     html.matchAll(new RegExp(`<${tagName}\\b[^>]*>([\\s\\S]*?)<\\/${tagName}>`, 'gi')),
-    (match) => normalizeWhitespace(match[1] || ''),
+    (match) => stripHtmlTags(match[1] || ''),
   ).filter(Boolean);
 }
 
@@ -524,7 +547,12 @@ function brandNameScore(candidate: string, url: string): number {
 }
 
 function cleanBrandNameCandidate(candidate: string, url: string): string | null {
-  const normalized = normalizeWhitespace(candidate);
+  // Defense in depth: if a candidate arrives with nested HTML (because an
+  // upstream extractor returned raw inner HTML instead of visible text),
+  // strip it here before scoring. Otherwise brand_name can persist as a
+  // literal `<span ...>Welcome to </span><span ...>N</span>...` blob and
+  // leak into the brand identity preview / font preview cards.
+  const normalized = stripHtmlTags(candidate);
   if (!normalized) {
     return null;
   }
@@ -876,11 +904,18 @@ export function normalizeBrandKitSignals(input: BrandKitSignalsInput | null | un
 
 function normalizePersistedBrandKit(brandKit: TenantBrandKit): TenantBrandKit {
   const normalizedSignals = normalizeBrandKitSignals(brandKit);
+  // Re-sanitize brand_name on load so brand-kit.json files written before
+  // the HTML-stripping fix don't keep rendering raw markup in the preview.
+  // Fall back to the original trimmed value if sanitization would empty it —
+  // assertTenantBrandKit rejects empty brand names.
+  const sanitizedBrandName =
+    cleanBrandNameCandidate(brandKit.brand_name || '', brandKit.source_url || '') ||
+    normalizeWhitespace(brandKit.brand_name || '');
   return {
     tenant_id: brandKit.tenant_id,
     source_url: brandKit.source_url,
     canonical_url: brandKit.canonical_url ?? null,
-    brand_name: brandKit.brand_name,
+    brand_name: sanitizedBrandName,
     logo_urls: normalizedSignals.logo_urls,
     colors: normalizedSignals.colors,
     font_families: normalizedSignals.font_families,
