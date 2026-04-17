@@ -7,6 +7,7 @@ import { ArrowUpRight, CheckCircle2, MessageSquareText, XCircle } from 'lucide-r
 import MediaPreview from '@/frontend/components/media-preview';
 import { useMarketingJobStatus } from '@/hooks/use-marketing-job-status';
 import type {
+  GetMarketingJobStatusResponse,
   MarketingCampaignStatusHistoryEntry,
   MarketingCreativeAssetReviewPayload,
   MarketingStageReviewPayload,
@@ -113,7 +114,14 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
   const [briefSaving, setBriefSaving] = useState(false);
 
   const status = job.data && !('error' in job.data) ? job.data : null;
-  const activeView = props.initialView || 'brand';
+  // `activeView === null` means the overview mode — the default landing
+  // for /dashboard/campaigns/[id] with no ?view= query param. Previously
+  // this fell through to 'brand', so clicking the Campaigns nav item
+  // jumped straight into the brand review content, which users reported
+  // as "Campaigns goes to the review page instead of a dedicated campaigns
+  // page". Overview mode is a distinct landing with stage-status summary
+  // cards and quick links into each review stage.
+  const activeView: WorkspaceView | null = props.initialView ?? null;
 
   const progressActive = !!(status && deriveGenerationProgressState(status)?.isComplete === false);
 
@@ -243,7 +251,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
               {status.campaignWindow?.start && status.campaignWindow?.end ? `${status.campaignWindow.start} - ${status.campaignWindow.end}` : 'Dates not scheduled yet'}
             </span>
             <span className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-white/70">
-              {stageReadyLabel(activeView)}
+              {activeView ? stageReadyLabel(activeView) : 'Campaign overview'}
             </span>
           </div>
           {headerState.sourceUrl ? (
@@ -268,6 +276,16 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
       </ShellPanel>
 
       <div className="flex flex-wrap gap-3">
+        <Link
+          href={`/dashboard/campaigns/${encodeURIComponent(props.campaignId)}`}
+          className={`rounded-full border px-4 py-2.5 text-sm font-medium transition ${
+            activeView === null
+              ? 'border-white/20 bg-white/[0.08] text-white'
+              : 'border-white/8 bg-white/[0.03] text-white/55 hover:border-white/15 hover:text-white'
+          }`}
+        >
+          Overview
+        </Link>
         {([
           ['brand', 'Brand Review'],
           ['strategy', 'Strategy Review'],
@@ -276,7 +294,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
         ] as Array<[WorkspaceView, string]>).map(([view, label]) => (
           <Link
             key={view}
-            href={currentStageHref(props.campaignId, view)}
+            href={`/dashboard/campaigns/${encodeURIComponent(props.campaignId)}?view=${view}`}
             className={`rounded-full border px-4 py-2.5 text-sm font-medium transition ${
               activeView === view
                 ? 'border-white/20 bg-white/[0.08] text-white'
@@ -287,6 +305,17 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
           </Link>
         ))}
       </div>
+
+      {activeView === null ? (
+        <CampaignOverview
+          status={status}
+          campaignId={props.campaignId}
+          brandFallback={brandFallback}
+          strategyFallback={strategyFallback}
+          creativeFallback={creativeFallback}
+          publishState={publishState}
+        />
+      ) : null}
 
       {activeView === 'brand' ? (
         <div className="space-y-4">
@@ -377,6 +406,96 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
           <SectionLink href="/dashboard/publish-status" label="Publish / status" />
         </div>
       </ShellPanel>
+    </div>
+  );
+}
+
+function CampaignOverview(props: {
+  status: GetMarketingJobStatusResponse;
+  campaignId: string;
+  brandFallback: GateFallbackState;
+  strategyFallback: GateFallbackState;
+  creativeFallback: GateFallbackState;
+  publishState: PublishSurfaceState;
+}) {
+  const { status, campaignId } = props;
+
+  const stages: Array<{
+    view: WorkspaceView;
+    label: string;
+    statusChip: ReturnType<typeof chipStatus> | null;
+    summary: string;
+    ctaLabel: string;
+  }> = [
+    {
+      view: 'brand',
+      label: 'Brand Review',
+      statusChip: status.brandReview ? chipStatus(status.brandReview.status) : null,
+      summary:
+        status.brandReview?.summary ||
+        props.brandFallback.description,
+      ctaLabel:
+        status.brandReview?.status === 'approved' ? 'Revisit brand review' : 'Open brand review',
+    },
+    {
+      view: 'strategy',
+      label: 'Strategy Review',
+      statusChip: status.strategyReview ? chipStatus(status.strategyReview.status) : null,
+      summary:
+        status.strategyReview?.summary ||
+        props.strategyFallback.description,
+      ctaLabel:
+        status.strategyReview?.status === 'approved' ? 'Revisit strategy review' : 'Open strategy review',
+    },
+    {
+      view: 'creative',
+      label: 'Creative Review',
+      statusChip: null,
+      summary:
+        props.creativeFallback.description ||
+        'Reviewable assets will appear here when production outputs are available.',
+      ctaLabel: 'Open creative review',
+    },
+    {
+      view: 'publish',
+      label: 'Launch Status',
+      statusChip: null,
+      summary: props.publishState.description || props.publishState.emptyDescription,
+      ctaLabel: 'Open launch status',
+    },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <ShellPanel eyebrow="Overview" title="Campaign at a glance">
+        <p className="max-w-3xl text-sm leading-7 text-white/65">
+          This is the campaign&rsquo;s landing page. Pick a review stage below to jump in, or use the nav above to open a specific review.
+        </p>
+      </ShellPanel>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        {stages.map((stage) => (
+          <div
+            key={stage.view}
+            className="flex flex-col gap-4 rounded-[1.5rem] border border-white/10 bg-white/[0.04] p-5"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h3 className="text-base font-semibold text-white">{stage.label}</h3>
+              {stage.statusChip ? <StatusChip status={stage.statusChip} /> : null}
+            </div>
+            <p className="text-sm leading-7 text-white/62">{stage.summary}</p>
+            <div className="mt-auto">
+              <Link
+                href={`/dashboard/campaigns/${encodeURIComponent(campaignId)}?view=${stage.view}`}
+                className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.03] px-4 py-2.5 text-sm font-medium text-white/85 transition hover:border-white/20 hover:text-white"
+              >
+                {stage.ctaLabel}
+                <ArrowUpRight className="h-4 w-4" />
+              </Link>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
