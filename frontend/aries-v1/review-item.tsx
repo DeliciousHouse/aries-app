@@ -281,7 +281,11 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
                 type="button"
                 onClick={() => void applyDecision('approve')}
                 disabled={busy}
-                className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] disabled:opacity-60"
+                /* Inline color is a cascade-proof belt-and-suspenders for
+                   the approval CTA so the label is always visible on the
+                   white pill even if utility layering shifts elsewhere. */
+                style={{ color: '#11161c' }}
+                className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold disabled:opacity-60"
               >
                 <CheckCircle2 className="h-4 w-4" />
                 {busy ? 'Saving...' : reviewItem.currentVersion.cta || 'Approve'}
