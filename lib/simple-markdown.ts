@@ -14,9 +14,9 @@
  *   - Paragraphs (blank-line separated)
  *
  * HTML-escapes everything before applying markdown rules, so rendered
- * output is safe to drop into a server-rendered page without dangerouslyXYZ
- * concerns on the source markdown itself. The caller still controls how
- * the resulting HTML is embedded.
+ * output is safe to drop into a server-rendered page without
+ * dangerouslySetInnerHTML concerns on the source markdown itself. The
+ * caller still controls how the resulting HTML is embedded.
  *
  * Prefer marked / remark / react-markdown if we end up needing tables,
  * GFM extensions, or tighter CommonMark compliance. This is deliberately

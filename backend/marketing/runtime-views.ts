@@ -838,9 +838,10 @@ function firstCheckpointSections(
 // Document/artifact attachments get the polished in-app viewer at
 // /materials/[jobId]/[assetId] instead of the raw /api/.../assets/... URL.
 // The raw route still serves bytes (e.g. the image <img src>), but opening
-// a brand bible or website brand analysis markdown file in a new tab now
-// renders styled HTML through the viewer rather than a black raw-text tab
-// or a forced file download.
+// one of the four document attachments this function routes —
+// research-summary, brand-kit-json, brand-bible-markdown, or
+// brand-design-system — in a new tab now renders styled HTML through the
+// viewer rather than a black raw-text tab or a forced file download.
 function viewerUrl(jobId: string, assetId: string): string {
   return `/materials/${encodeURIComponent(jobId)}/${encodeURIComponent(assetId)}`;
 }
