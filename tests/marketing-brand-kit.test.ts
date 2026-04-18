@@ -462,8 +462,12 @@ test('extractBrandKitFromWebsite (via htmlToText) strips malformed close-tag var
       return createFetchResponse(
         `<!doctype html>
         <html>
-          <head><title>Voice Co</title></head>
+          <head>
+            <title>Voice Co</title>
+            <meta name="description" content="Official Voice Co brand description for tests.">
+          </head>
           <body>
+            <h1>Voice Co Heading</h1>
             <p>Authentic brand voice here.</p>
             <script>alert('should-be-removed')</script >
             <p>More brand messaging.</p>
@@ -484,12 +488,12 @@ test('extractBrandKitFromWebsite (via htmlToText) strips malformed close-tag var
       tenantId: 'malformed-voice-co',
       brandUrl,
     });
-    // brand_voice_summary uses htmlToText internally
-    if (brandKit.brand_voice_summary) {
-      assert.doesNotMatch(brandKit.brand_voice_summary, /alert\(/, 'script body should not leak into brand voice');
-      assert.doesNotMatch(brandKit.brand_voice_summary, /display:none/, 'style body should not leak into brand voice');
-      assert.doesNotMatch(brandKit.brand_voice_summary, /tracker/, 'noscript body should not leak into brand voice');
-    }
+    // brand_voice_summary uses htmlToText internally — deriveBrandVoiceSummary
+    // requires a meta description or h1/h2 to return non-null.
+    assert.ok(brandKit.brand_voice_summary, 'brand_voice_summary should be non-null when meta description and h1 are present');
+    assert.doesNotMatch(brandKit.brand_voice_summary, /alert\(/, 'script body should not leak into brand voice');
+    assert.doesNotMatch(brandKit.brand_voice_summary, /display:none/, 'style body should not leak into brand voice');
+    assert.doesNotMatch(brandKit.brand_voice_summary, /tracker/, 'noscript body should not leak into brand voice');
   } finally {
     globalThis.fetch = originalFetch;
   }

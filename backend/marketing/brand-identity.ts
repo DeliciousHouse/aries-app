@@ -69,12 +69,17 @@ const UTILITY_TOKEN_PATTERN =
 const CSS_REMNANT_PATTERN = /(?:^|\s)(?:[#.][a-z0-9_-]+|::?[a-z-]+|@media|var\(--[^)]+\)|theme\([^)]+\)|calc\([^)]+\))/gi;
 
 function decodeHtmlEntities(value: string): string {
+  // Decode `&amp;` BEFORE `&lt;`/`&gt;` so double-encoded markup like
+  // `&amp;lt;script&amp;gt;` is fully decoded to `<script>` and then
+  // caught by the tag-stripping regexes. Matching the order used by
+  // `decodeHtmlEntities` in brand-kit.ts.
   return value
+    .replace(/&amp;/gi, '&')
     .replace(/&quot;/gi, '"')
     .replace(/&#39;/gi, "'")
+    .replace(/&apos;/gi, "'")
     .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&amp;/gi, '&');
+    .replace(/&gt;/gi, '>');
 }
 
 export function normalizeBrandIdentityText(value: unknown): string | null {

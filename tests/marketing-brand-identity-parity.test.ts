@@ -576,5 +576,24 @@ test('normalizeBrandIdentityText strips malformed close-tag variants', async () 
   assert.doesNotMatch(result3!, /<script|<style/, 'tags should be stripped after decode');
   assert.match(result3!, /Real/, 'legitimate content should remain');
   assert.match(result3!, /content/, 'legitimate content should remain');
+
+  // Test 4: Double-encoded entities (&amp;lt; → &lt; → <) are fully decoded
+  // and stripped. This verifies &amp; is decoded BEFORE &lt;/&gt;.
+  const doubleEncodedInput = 'Safe &amp;lt;script&amp;gt;alert("double")&amp;lt;/script&amp;gt; text';
+  const result4 = normalizeBrandIdentityText(doubleEncodedInput);
+
+  assert.ok(result4, 'should return non-null result for double-encoded tags');
+  assert.doesNotMatch(result4!, /alert\(/, 'double-encoded script should be fully decoded and stripped');
+  assert.doesNotMatch(result4!, /<script/, 'double-decoded tags should be stripped');
+  assert.match(result4!, /Safe/, 'legitimate content should remain');
+  assert.match(result4!, /text/, 'legitimate content should remain');
+
+  // Test 5: &apos; entity is decoded
+  const aposInput = 'Brand&apos;s best offer';
+  const result5 = normalizeBrandIdentityText(aposInput);
+
+  assert.ok(result5, 'should return non-null result for apos entity');
+  assert.doesNotMatch(result5!, /&apos;/, '&apos; entity should be decoded');
+  assert.match(result5!, /Brand's best offer/, 'apostrophe should be decoded to single quote');
 });
 
