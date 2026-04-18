@@ -12,6 +12,7 @@ import {
 } from './runtime-state';
 import { buildMarketingAssetLinks, marketingAssetUrl, type MarketingAssetLink } from './asset-library';
 import { resolvePublishReviewBundle } from './publish-review';
+import { publishReviewLinkedAssetId, publishReviewMediaAssetId } from './publish-review-asset-ids';
 import {
   ARTIFACT_INCOMPLETE_TEXT,
   ARTIFACT_UNAVAILABLE_TEXT,
@@ -701,7 +702,16 @@ function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): MarketingRe
       const platformSlug = stringValue(entry.platform_slug, `platform-${index + 1}`);
       const platformName = stringValue(entry.platform_name, `Platform ${index + 1}`);
       const directMediaAssets = stringArray(entry.media_paths)
-        .map((_, mediaIndex) => linkById.get(`platform-preview-${platformSlug}-media-${mediaIndex + 1}`))
+        .map((_, mediaIndex) =>
+          linkById.get(
+            publishReviewMediaAssetId({
+              platformSlug,
+              previewIndex: index,
+              explicitPreviewAssetId: entry.asset_preview_id,
+              mediaIndex,
+            }),
+          ),
+        )
         .filter((asset): asset is MarketingAssetLink => !!asset);
       return {
         id: `platform-preview-${platformSlug}`,
@@ -723,9 +733,30 @@ function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): MarketingRe
         ],
         mediaAssets: directMediaAssets.length > 0 ? directMediaAssets : fallbackPlatformMediaAssets(assetLinks, platformSlug),
         assetLinks: [
-          linkById.get(`platform-preview-${platformSlug}-asset-contract`),
-          linkById.get(`platform-preview-${platformSlug}-asset-brief`),
-          linkById.get(`platform-preview-${platformSlug}-asset-landing-page`),
+          linkById.get(
+            publishReviewLinkedAssetId({
+              platformSlug,
+              previewIndex: index,
+              explicitPreviewAssetId: entry.asset_preview_id,
+              suffix: 'contract',
+            }),
+          ),
+          linkById.get(
+            publishReviewLinkedAssetId({
+              platformSlug,
+              previewIndex: index,
+              explicitPreviewAssetId: entry.asset_preview_id,
+              suffix: 'brief',
+            }),
+          ),
+          linkById.get(
+            publishReviewLinkedAssetId({
+              platformSlug,
+              previewIndex: index,
+              explicitPreviewAssetId: entry.asset_preview_id,
+              suffix: 'landing-page',
+            }),
+          ),
         ].filter((asset): asset is MarketingAssetLink => !!asset),
       };
     }),
