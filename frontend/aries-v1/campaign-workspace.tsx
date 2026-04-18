@@ -260,7 +260,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
           ) : null}
           <p className="max-w-3xl text-sm leading-7 text-white/65">{status.summary.subheadline}</p>
           <div className="grid gap-4 md:grid-cols-4">
-            <MetricCard label="Brand assets" value={String(status.campaignBrief?.brandAssets.length || 0)} />
+            <MetricCard label="Generated assets" value={String(status.dashboard.assets.length)} />
             <MetricCard label="Creative approvals" value={`${status.creativeReview?.approvedCount || 0}/${status.creativeReview?.assets.length || 0}`} />
             <MetricCard label="Publish items" value={String(status.dashboard.publishItems.length)} />
             <MetricCard label="History entries" value={String(currentHistory.length)} />
