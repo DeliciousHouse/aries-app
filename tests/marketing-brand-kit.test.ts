@@ -439,7 +439,9 @@ test('extractInlineCss handles <style> close-tag variants with whitespace or att
       brandUrl,
     });
     // The hardened pattern should extract both CSS blocks despite malformed close tags
-    assert.ok(brandKit.colors.palette.length > 0, 'should extract colors from both style blocks');
+    const paletteValues = brandKit.colors.palette.map((color) => color.toLowerCase());
+    assert.ok(paletteValues.includes('#ff0000'), 'should extract color from the well-formed style block');
+    assert.ok(paletteValues.includes('#00ff00'), 'should extract color from the malformed-close style block');
   } finally {
     globalThis.fetch = originalFetch;
   }
