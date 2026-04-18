@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowUpRight, CheckCircle2, MessageSquareText, XCircle } from 'lucide-react';
 
 import MediaPreview from '@/frontend/components/media-preview';
+import { safeHref } from '@/lib/safe-href';
 import { useMarketingJobStatus } from '@/hooks/use-marketing-job-status';
 import type {
   MarketingCampaignStatusHistoryEntry,
@@ -864,8 +865,10 @@ function PublishStatusSurface(props: {
           <EmptyStatePanel compact title={props.overview.emptyTitle} description={props.overview.emptyDescription} />
         ) : (
           <div className="space-y-3">
-            {props.publishItems.map((item) => (
-              <div key={item.id} className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4">
+            {props.publishItems.map((item) => {
+              const hrefCandidate = safeHref(item.destinationUrl);
+              const isExternal = hrefCandidate ? /^https?:\/\//i.test(hrefCandidate) : false;
+              const itemBody = (
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
                     <p className="text-sm font-medium text-white">{item.title}</p>
@@ -877,8 +880,34 @@ function PublishStatusSurface(props: {
                     {workflowStateLabel(item.status)}
                   </StatusChip>
                 </div>
-              </div>
-            ))}
+              );
+              const cardClass = `block rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4 ${hrefCandidate ? 'transition hover:border-white/20 hover:bg-black/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30' : ''}`;
+              if (hrefCandidate && isExternal) {
+                return (
+                  <a
+                    key={item.id}
+                    href={hrefCandidate}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={cardClass}
+                  >
+                    {itemBody}
+                  </a>
+                );
+              }
+              if (hrefCandidate) {
+                return (
+                  <Link key={item.id} href={hrefCandidate} className={cardClass}>
+                    {itemBody}
+                  </Link>
+                );
+              }
+              return (
+                <div key={item.id} className={cardClass}>
+                  {itemBody}
+                </div>
+              );
+            })}
           </div>
         )}
       </ShellPanel>
