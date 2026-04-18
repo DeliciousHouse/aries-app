@@ -210,7 +210,7 @@ const CLI_IDIOM_REWRITES: Array<[RegExp, string]> = [
   // or appearing standalone in other fields.
   [/\b[a-z][a-z0-9_-]*\s*=\s*(?:true|false)\b/gi, ''],
   // Long-form CLI flags that shouldn't appear in UI copy.
-  [/\s--[a-z][a-z0-9-]*(?:=[^\s.,;]+)?/gi, ''],
+  [/(^|\s)--[a-z][a-z0-9-]*(?:=[^\s.,;]+)?/gi, '$1'],
 ];
 
 function stripCliIdioms(value: string): string {
