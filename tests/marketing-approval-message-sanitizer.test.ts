@@ -24,6 +24,10 @@ test('normalizeArtifactText strips bare foo=true / --flag tokens', () => {
   );
   const withLongFlag = normalizeArtifactText('Run the command --verbose=loud to see output.') || '';
   assert.doesNotMatch(withLongFlag, /--verbose/);
+
+  const leadingLongFlag = normalizeArtifactText('--verbose=loud show the latest output.') || '';
+  assert.doesNotMatch(leadingLongFlag, /--verbose/);
+  assert.match(leadingLongFlag, /show the latest output\./i);
 });
 
 test('normalizeArtifactText leaves clean marketing copy untouched', () => {
