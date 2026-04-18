@@ -311,7 +311,7 @@ function extractStylesheetUrls(html: string, baseUrl: string): string[] {
 
 function extractInlineCss(html: string): string[] {
   return Array.from(
-    html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi),
+    html.matchAll(/<style[^>]*>([\s\S]*?)<\/style\b[^>]*>/gi),
     (match) => match[1]?.trim() || '',
   ).filter(Boolean);
 }
@@ -326,10 +326,10 @@ function extractTextByTag(html: string, tagName: string): string[] {
 function htmlToText(html: string): string {
   return normalizeWhitespace(
     html
-      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
-      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
-      .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, ' ')
-      .replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, ' ')
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>/gi, ' ')
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style\b[^>]*>/gi, ' ')
+      .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript\b[^>]*>/gi, ' ')
+      .replace(/<svg\b[^>]*>[\s\S]*?<\/svg\b[^>]*>/gi, ' ')
       .replace(/<[^>]+>/g, ' '),
   );
 }
@@ -337,10 +337,10 @@ function htmlToText(html: string): string {
 function cleanSentenceCandidate(value: string | null | undefined, maxLength = 220): string | null {
   const normalized = normalizeWhitespace(
     (value || '')
-      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
-      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
-      .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, ' ')
-      .replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, ' ')
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>/gi, ' ')
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style\b[^>]*>/gi, ' ')
+      .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript\b[^>]*>/gi, ' ')
+      .replace(/<svg\b[^>]*>[\s\S]*?<\/svg\b[^>]*>/gi, ' ')
       .replace(PREVIEW_ATTRIBUTE_PATTERN, ' ')
       .replace(/<[^>]+>/g, ' ')
       .replace(PREVIEW_UTILITY_TOKEN_PATTERN, ' ')
