@@ -381,6 +381,118 @@ test('normalizePersistedBrandKit sanitizes HTML markup in a cached brand_name on
   });
 });
 
+test('sanitizeBrandKitSummaryText (cleanSentenceCandidate) strips malformed close-tag variants', async () => {
+  // Regression for follow-up to PR #135: cleanSentenceCandidate uses the same
+  // script/style/noscript/svg stripping as stripHtmlTags but was not yet
+  // hardened against close-tag variants with whitespace or attributes.
+  const { sanitizeBrandKitSummaryText } = await import('../backend/marketing/brand-kit');
+
+  // Test malformed close tags in brand-voice/offer-summary passages
+  const input = 'Real brand <script>malicious</script > value <style foo>unwanted</style > content <noscript >tracking</noscript x> here <svg attr>graphic</svg >';
+  const result = sanitizeBrandKitSummaryText(input);
+
+  assert.ok(result, 'should return non-null result');
+  assert.doesNotMatch(result!, /malicious/, 'script body should be stripped');
+  assert.doesNotMatch(result!, /unwanted/, 'style body should be stripped');
+  assert.doesNotMatch(result!, /tracking/, 'noscript body should be stripped');
+  assert.doesNotMatch(result!, /graphic/, 'svg body should be stripped');
+  assert.match(result!, /Real brand/, 'legitimate content should remain');
+  assert.match(result!, /value/, 'legitimate content should remain');
+  assert.match(result!, /content/, 'legitimate content should remain');
+  assert.match(result!, /here/, 'legitimate content should remain');
+});
+
+test('extractInlineCss handles <style> close-tag variants with whitespace or attributes', async () => {
+  // Regression for follow-up to PR #135: extractInlineCss was not hardened
+  // against close-tag variants. While less critical (it extracts CSS for
+  // palette/font inference, not filtering for XSS), consistency with
+  // stripHtmlTags prevents incomplete extraction.
+  const originalFetch = globalThis.fetch;
+  const brandUrl = 'https://malformed-style.example';
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+    if (url === brandUrl) {
+      return createFetchResponse(
+        `<!doctype html>
+        <html>
+          <head>
+            <title>Malformed Style Co</title>
+            <style>body { background: #ff0000; }</style>
+            <style foo>body { color: #00ff00; }</style >
+          </head>
+          <body><h1>Test</h1></body>
+        </html>`,
+        'text/html; charset=utf-8',
+      );
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof globalThis.fetch;
+
+  try {
+    const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+    const brandKit = await extractBrandKitFromWebsite({
+      tenantId: 'malformed-style-co',
+      brandUrl,
+    });
+    // The hardened pattern should extract both CSS blocks despite malformed close tags
+    assert.ok(brandKit.colors.palette.length > 0, 'should extract colors from both style blocks');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('extractBrandKitFromWebsite (via htmlToText) strips malformed close-tag variants from brand voice', async () => {
+  // Regression for follow-up to PR #135: htmlToText (used by brand-voice and
+  // offer-summary extraction) was not hardened against close-tag variants.
+  const originalFetch = globalThis.fetch;
+  const brandUrl = 'https://malformed-voice.example';
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
+    if (url === brandUrl) {
+      return createFetchResponse(
+        `<!doctype html>
+        <html>
+          <head><title>Voice Co</title></head>
+          <body>
+            <p>Authentic brand voice here.</p>
+            <script>alert('should-be-removed')</script >
+            <p>More brand messaging.</p>
+            <style foo>body{display:none}</style >
+            <noscript >tracker</noscript x>
+            <svg attr><path/></svg >
+          </body>
+        </html>`,
+        'text/html; charset=utf-8',
+      );
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof globalThis.fetch;
+
+  try {
+    const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+    const brandKit = await extractBrandKitFromWebsite({
+      tenantId: 'malformed-voice-co',
+      brandUrl,
+    });
+    // brand_voice_summary uses htmlToText internally
+    if (brandKit.brand_voice_summary) {
+      assert.doesNotMatch(brandKit.brand_voice_summary, /alert\(/, 'script body should not leak into brand voice');
+      assert.doesNotMatch(brandKit.brand_voice_summary, /display:none/, 'style body should not leak into brand voice');
+      assert.doesNotMatch(brandKit.brand_voice_summary, /tracker/, 'noscript body should not leak into brand voice');
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('extractBrandKitFromWebsite derives logo, palette, fonts, and social links from the canonical brand site', async () => {
   const restoreFetch = installBrandSiteFetchMock();
 

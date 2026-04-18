@@ -537,3 +537,44 @@ test('source switch prevents source A brand identity from surviving in read mode
     }
   });
 });
+
+test('normalizeBrandIdentityText strips malformed close-tag variants', async () => {
+  // Regression for follow-up to PR #135: normalizeBrandIdentityText was not
+  // hardened against close-tag variants and only stripped script/style (not
+  // noscript/svg). It also decoded entities AFTER tag stripping, allowing
+  // entity-encoded tags to survive.
+  const { normalizeBrandIdentityText } = await import('../backend/marketing/brand-identity');
+
+  // Test 1: Malformed close tags with whitespace or attributes
+  const malformedInput = 'Real brand <script>alert("xss")</script > text <style foo>body{}</style > here <noscript >x</noscript x> end <svg attr></svg >';
+  const result1 = normalizeBrandIdentityText(malformedInput);
+
+  assert.ok(result1, 'should return non-null result for malformed tags');
+  assert.doesNotMatch(result1!, /alert\(/, 'script body should be stripped');
+  assert.doesNotMatch(result1!, /body\{\}/, 'style body should be stripped');
+  assert.doesNotMatch(result1!, /<noscript/, 'noscript tags should be stripped');
+  assert.doesNotMatch(result1!, /<svg/, 'svg tags should be stripped');
+  assert.match(result1!, /Real brand/, 'legitimate content should remain');
+
+  // Test 2: Entity-encoded tags are decoded BEFORE stripping (not after)
+  const entityEncodedInput = 'Clean text &lt;script&gt;alert("encoded")&lt;/script&gt; more &lt;style&gt;body{}&lt;/style&gt; text';
+  const result2 = normalizeBrandIdentityText(entityEncodedInput);
+
+  assert.ok(result2, 'should return non-null result for entity-encoded tags');
+  assert.doesNotMatch(result2!, /alert\(/, 'entity-encoded script should be decoded and stripped');
+  assert.doesNotMatch(result2!, /body\{\}/, 'entity-encoded style should be decoded and stripped');
+  assert.doesNotMatch(result2!, /&lt;|&gt;/, 'entities should be decoded');
+  assert.doesNotMatch(result2!, /<script|<style/, 'decoded tags should be stripped');
+  assert.match(result2!, /Clean text/, 'legitimate content should remain');
+
+  // Test 3: Both malformed close tags AND entity encoding combined
+  const combinedInput = '&lt;script&gt;bad&lt;/script &gt; Real &lt;style foo&gt;css&lt;/style &gt; content';
+  const result3 = normalizeBrandIdentityText(combinedInput);
+
+  assert.ok(result3, 'should return non-null result for combined issues');
+  assert.doesNotMatch(result3!, /bad|css/, 'malicious content should be stripped');
+  assert.doesNotMatch(result3!, /<script|<style/, 'tags should be stripped after decode');
+  assert.match(result3!, /Real/, 'legitimate content should remain');
+  assert.match(result3!, /content/, 'legitimate content should remain');
+});
+
