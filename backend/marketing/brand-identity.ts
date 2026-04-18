@@ -70,11 +70,11 @@ const CSS_REMNANT_PATTERN = /(?:^|\s)(?:[#.][a-z0-9_-]+|::?[a-z-]+|@media|var\(-
 
 function decodeHtmlEntities(value: string): string {
   return value
-    .replace(/&amp;/gi, '&')
     .replace(/&quot;/gi, '"')
     .replace(/&#39;/gi, "'")
     .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>');
+    .replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&');
 }
 
 export function normalizeBrandIdentityText(value: unknown): string | null {
