@@ -651,7 +651,14 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
               <p className="text-white/60">Load a campaign to review its launch state before approving.</p>
             ) : null}
 
-            {statusSuccess ? (
+            {statusSuccess && !statusSuccess.approval?.required ? (
+              <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-5 text-blue-100">
+                <strong className="block mb-1">No approval required</strong>
+                <span>This campaign does not currently require approval. The workflow may have already progressed or been resolved.</span>
+              </div>
+            ) : null}
+
+            {statusSuccess && statusSuccess.approval?.required ? (
               <div className="grid gap-5">
                 {(() => {
                   const dashboardAssetsById = new Map(statusSuccess.dashboard.assets.map((asset) => [asset.id, asset] as const))
