@@ -129,10 +129,18 @@ function absoluteCompatibilityCandidates(filePath: string): string[] {
   const normalized = path.normalize(filePath);
   const candidates = new Set([normalized]);
   const codeRoot = path.normalize(resolveCodeRoot());
-  const legacyCodeRoot = path.join(codeRoot, 'aries-app');
+  const remapPrefixes = [
+    '/home/node/workspace/aries-app',
+    '/app/aries-app',
+    path.join(codeRoot, 'aries-app'),
+  ].map((prefix) => path.normalize(prefix));
 
-  if (normalized === legacyCodeRoot || normalized.startsWith(`${legacyCodeRoot}${path.sep}`)) {
-    const suffix = normalized.slice(legacyCodeRoot.length);
+  for (const prefix of remapPrefixes) {
+    if (normalized !== prefix && !normalized.startsWith(`${prefix}${path.sep}`)) {
+      continue;
+    }
+
+    const suffix = normalized.slice(prefix.length).replace(/^[\\/]+/, '');
     candidates.add(path.join(codeRoot, suffix));
   }
 

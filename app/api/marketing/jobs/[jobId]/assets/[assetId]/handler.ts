@@ -9,6 +9,26 @@ const MARKETING_ONBOARDING_REQUIRED = {
   message: 'Complete tenant onboarding before viewing brand campaign assets.',
 } as const;
 
+const ASSET_NOT_FOUND_BODY = JSON.stringify({
+  error: 'Marketing asset not found.',
+  reason: 'marketing_asset_not_found',
+});
+
+function assetNotFoundResponse(
+  jobId: string,
+  assetId: string,
+  cause: 'tenant_mismatch' | 'asset_descriptor_missing' | 'asset_file_missing',
+): Response {
+  // Branch-distinguishing log so operators can tell which of the three 404
+  // paths fired without leaking internal state to the client (the response
+  // body intentionally stays an opaque `marketing_asset_not_found`).
+  console.warn('[marketing-asset-not-found]', { jobId, assetId, cause });
+  return new Response(ASSET_NOT_FOUND_BODY, {
+    status: 404,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
 export async function handleGetMarketingJobAsset(
   jobId: string,
   assetId: string,
@@ -30,26 +50,17 @@ export async function handleGetMarketingJobAsset(
   }
 
   if (runtimeDoc.tenant_id !== tenantResult.tenantContext.tenantId) {
-    return new Response(JSON.stringify({ error: 'Marketing asset not found.', reason: 'marketing_asset_not_found' }), {
-      status: 404,
-      headers: { 'content-type': 'application/json' },
-    });
+    return assetNotFoundResponse(jobId, assetId, 'tenant_mismatch');
   }
 
   const asset = findMarketingAsset(jobId, runtimeDoc, assetId);
   if (!asset) {
-    return new Response(JSON.stringify({ error: 'Marketing asset not found.', reason: 'marketing_asset_not_found' }), {
-      status: 404,
-      headers: { 'content-type': 'application/json' },
-    });
+    return assetNotFoundResponse(jobId, assetId, 'asset_descriptor_missing');
   }
 
   const buffer = await readMarketingAssetWithinAllowedRoots(asset.filePath);
   if (!buffer) {
-    return new Response(JSON.stringify({ error: 'Marketing asset not found.', reason: 'marketing_asset_not_found' }), {
-      status: 404,
-      headers: { 'content-type': 'application/json' },
-    });
+    return assetNotFoundResponse(jobId, assetId, 'asset_file_missing');
   }
 
   // `inline` (not `attachment`) keeps the browser from surprise-downloading

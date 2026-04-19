@@ -7,6 +7,7 @@ import { resolveCodePath, resolveCodeRoot, resolveDataRoot } from '@/lib/runtime
 
 import type { MarketingCampaignWindow } from './jobs-status'
 import { extractPublishReviewBundle } from './publish-review'
+import { publishReviewLinkedAssetId, publishReviewMediaAssetId } from './publish-review-asset-ids'
 import {
   campaignRootForBrand as realArtifactCampaignRootForBrand,
   inferBrandSlug,
@@ -1510,7 +1511,11 @@ function resolveDashboardAssetFilePath(
   fallbackPaths: Array<string | null | undefined> = [],
 ): string | null {
   const codeRoot = path.normalize(resolveCodeRoot())
-  const legacyCodeRoot = path.join(codeRoot, 'aries-app')
+  const remapPrefixes = [
+    '/home/node/workspace/aries-app',
+    '/app/aries-app',
+    path.join(codeRoot, 'aries-app'),
+  ].map((prefix) => path.normalize(prefix))
   const roots = [
     resolveDataRoot(),
     resolveCodeRoot(),
@@ -1538,15 +1543,19 @@ function resolveDashboardAssetFilePath(
     }
 
     const normalized = path.normalize(candidate)
-    if (existsSync(normalized)) {
-      return normalized
+    const compatibilityCandidates = new Set([normalized])
+    for (const prefix of remapPrefixes) {
+      if (normalized !== prefix && !normalized.startsWith(`${prefix}${path.sep}`)) {
+        continue
+      }
+
+      const suffix = normalized.slice(prefix.length).replace(/^[\\/]+/, '')
+      compatibilityCandidates.add(path.join(codeRoot, suffix))
     }
 
-    if (normalized === legacyCodeRoot || normalized.startsWith(`${legacyCodeRoot}${path.sep}`)) {
-      const suffix = normalized.slice(legacyCodeRoot.length + 1)
-      const remapped = path.join(codeRoot, suffix)
-      if (existsSync(remapped)) {
-        return remapped
+    for (const compatibilityCandidate of compatibilityCandidates) {
+      if (existsSync(compatibilityCandidate)) {
+        return compatibilityCandidate
       }
     }
   }
@@ -2008,15 +2017,13 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
     const assetPaths = recordValue(preview.asset_paths) ?? {}
     const mediaPaths = asStringArray(preview.media_paths)
     const assetIds: string[] = []
-    // Each platform_preview is a distinct creative concept (e.g., per-family Nano Banana Pro
-    // render). Including the preview index in the asset id keeps every concept addressable
-    // even when several previews share the same platform_slug.
-    const previewAssetPrefix = stringValue(preview.asset_preview_id) || `platform-preview-${platform}-${index + 1}`
-
     mediaPaths.forEach((filePath, mediaIndex) => {
-      const assetId = mediaIndex === 0 && stringValue(preview.asset_preview_id)
-        ? previewAssetPrefix
-        : `${previewAssetPrefix}-media-${mediaIndex + 1}`
+      const assetId = publishReviewMediaAssetId({
+        platformSlug: platform,
+        previewIndex: index,
+        explicitPreviewAssetId: preview.asset_preview_id,
+        mediaIndex,
+      })
       const addedAsset = addAsset({
         id: assetId,
         campaignId,
@@ -2059,7 +2066,12 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
         return
       }
       const suffix = label === 'contract' ? 'contract' : label === 'brief' ? 'brief' : 'landing-page'
-      const assetId = `${previewAssetPrefix}-asset-${suffix}`
+      const assetId = publishReviewLinkedAssetId({
+        platformSlug: platform,
+        previewIndex: index,
+        explicitPreviewAssetId: preview.asset_preview_id,
+        suffix,
+      })
       const addedAsset = addAsset({
         id: assetId,
         campaignId,
