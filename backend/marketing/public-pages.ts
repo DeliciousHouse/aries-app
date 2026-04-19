@@ -138,11 +138,9 @@ function sniffMediaContentType(filePath: string): string | null {
 }
 
 function fileContentType(filePath: string): string {
-  const sniffedMediaType = sniffMediaContentType(filePath);
-  if (sniffedMediaType) {
-    return sniffedMediaType;
-  }
-
+  // Extension-first: QuickTime .mov files also contain an `ftyp` box, so
+  // sniffing first would mislabel them as video/mp4. Only fall back to
+  // magic-byte sniffing when the extension is missing or unrecognized.
   const ext = path.extname(filePath).toLowerCase();
   switch (ext) {
     case '.css':
@@ -176,9 +174,14 @@ function fileContentType(filePath: string): string {
     case '.txt':
     case '.md':
       return 'text/plain; charset=utf-8';
-    default:
-      return 'application/octet-stream';
   }
+
+  const sniffedMediaType = sniffMediaContentType(filePath);
+  if (sniffedMediaType) {
+    return sniffedMediaType;
+  }
+
+  return 'application/octet-stream';
 }
 
 function existingFile(filePath: string): string | null {

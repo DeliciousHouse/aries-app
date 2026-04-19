@@ -198,11 +198,11 @@ function sniffMediaContentType(filePath: string): string | null {
 }
 
 export function contentTypeForAsset(filePath: string): string {
-  const sniffedMediaType = sniffMediaContentType(filePath);
-  if (sniffedMediaType) {
-    return sniffedMediaType;
-  }
-
+  // Extension-first: a QuickTime .mov still contains an `ftyp` box, so if we
+  // sniffed before reading the extension we'd collapse every ISOBMFF variant
+  // into video/mp4 and lose the .mov → video/quicktime / .m4v → video/x-m4v
+  // distinction. Only fall back to magic-byte sniffing when the extension is
+  // missing or unrecognized.
   const ext = path.extname(filePath).toLowerCase();
   switch (ext) {
     case '.png':
@@ -239,13 +239,18 @@ export function contentTypeForAsset(filePath: string): string {
       return 'text/css; charset=utf-8';
     case '.js':
       return 'text/javascript; charset=utf-8';
-    default:
-      // Binary assets that don't match the explicit map above should fall
-      // back to application/octet-stream. The old default of text/plain
-      // forced the browser to attempt inline-rendering of bytes like .mp4
-      // that then broke because the response advertised itself as text.
-      return 'application/octet-stream';
   }
+
+  const sniffedMediaType = sniffMediaContentType(filePath);
+  if (sniffedMediaType) {
+    return sniffedMediaType;
+  }
+
+  // Binary assets that don't match the explicit map above should fall back
+  // to application/octet-stream. The old default of text/plain forced the
+  // browser to attempt inline-rendering of bytes like .mp4 that then broke
+  // because the response advertised itself as text.
+  return 'application/octet-stream';
 }
 
 export function marketingAssetUrl(jobId: string, assetId: string): string {

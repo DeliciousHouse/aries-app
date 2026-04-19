@@ -56,6 +56,23 @@ test('contentTypeForAsset sniffs ftyp magic bytes to classify ISOBMFF as video/m
   });
 });
 
+test('contentTypeForAsset keeps .mov as video/quicktime even though the file carries an ftyp box', async () => {
+  await withScratchDir(async (dir) => {
+    // Real .mov files are ISOBMFF too and include an `ftyp` box. Extension
+    // wins so we keep the QuickTime distinction instead of collapsing all
+    // ISOBMFF into video/mp4.
+    const movFile = path.join(dir, 'clip.mov');
+    const buffer = Buffer.concat([
+      Buffer.from([0x00, 0x00, 0x00, 0x20]),
+      Buffer.from('ftypqt  ', 'ascii'),
+      Buffer.alloc(16, 0),
+    ]);
+    await writeFile(movFile, buffer);
+
+    assert.equal(contentTypeForAsset(movFile), 'video/quicktime');
+  });
+});
+
 test('contentTypeForAsset keeps sniffing image magic bytes when extension is missing', async () => {
   await withScratchDir(async (dir) => {
     const pngLike = path.join(dir, 'asset.bin');

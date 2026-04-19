@@ -14,10 +14,12 @@ type MediaPreviewProps = {
   emptyLabel?: string;
   nonImageLabel?: string;
   /**
-   * When set, wraps the preview (image or fallback label) in an anchor that
-   * opens `href` in a new tab. Lets callers make the thumbnail a click target
-   * for videos, landing pages, or any non-image asset where inline rendering
-   * only shows a placeholder.
+   * When set, wraps the preview in an anchor that opens `href` in a new tab.
+   * Wrapping only applies to the image and fallback-placeholder rendering
+   * paths. In video mode `href` is intentionally ignored: wrapping a
+   * `<video>` in `<a>` swallows clicks on the native controls and breaks
+   * play/pause. Callers that want a separate "open in new tab" affordance
+   * for videos should render their own link next to `<MediaPreview>`.
    */
   href?: string | null;
 };
@@ -78,6 +80,8 @@ export default function MediaPreview(props: MediaPreviewProps) {
   if (mode === 'video' && props.src) {
     // Do not wrap <video> in an anchor — the surrounding <a> swallows click
     // events on the native controls and the play button stops working.
+    // In video mode, `props.href` is intentionally ignored; link wrapping
+    // only applies to the image/fallback rendering paths below.
     return (
       <div className={props.className}>
         {/* eslint-disable-next-line jsx-a11y/media-has-caption */}

@@ -8,11 +8,15 @@ before merging.
 
 OpenClaw + Lobster run on the host and must write to the shared bind mount that
 the Aries container sees as `/data`. Pick the most recent Stage 3 `run_id` and
-look at the host directory directly:
+look at the host directory directly, using `ARIES_SHARED_DATA_ROOT` if it is
+exported on the VM (and `/home/node/data` as the documented default otherwise
+— it should match whatever the left side of the `/data` bind mount points at
+in `docker-compose.yml`):
 
 ```bash
-RUN_ID=$(ls -1t /home/node/data/lobster-stage3-cache | head -n 1)
-ls /home/node/data/lobster-stage3-cache/"$RUN_ID"/
+DATA_ROOT="${ARIES_SHARED_DATA_ROOT:-/home/node/data}"
+RUN_ID=$(ls -1t "$DATA_ROOT"/lobster-stage3-cache | head -n 1)
+ls "$DATA_ROOT"/lobster-stage3-cache/"$RUN_ID"/
 ```
 
 Expected: at least one `.mp4` file plus `production_review_preview.json` (and

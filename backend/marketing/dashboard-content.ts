@@ -529,11 +529,10 @@ function sniffMediaContentType(filePath: string): string | null {
 }
 
 function contentTypeForAsset(filePath: string): string {
-  const sniffedMediaType = sniffMediaContentType(filePath)
-  if (sniffedMediaType) {
-    return sniffedMediaType
-  }
-
+  // Extension-first: QuickTime .mov files carry an `ftyp` box too, so
+  // sniffing before the extension check would label every ISOBMFF variant
+  // as video/mp4. Only fall back to magic-byte sniffing when the extension
+  // is missing or unrecognized.
   const ext = path.extname(filePath).toLowerCase()
   switch (ext) {
     case '.png':
@@ -565,9 +564,14 @@ function contentTypeForAsset(filePath: string): string {
       return 'text/plain; charset=utf-8'
     case '.json':
       return 'application/json; charset=utf-8'
-    default:
-      return 'application/octet-stream'
   }
+
+  const sniffedMediaType = sniffMediaContentType(filePath)
+  if (sniffedMediaType) {
+    return sniffedMediaType
+  }
+
+  return 'application/octet-stream'
 }
 
 function buildAssetUrl(jobId: string, assetId: string): string {
