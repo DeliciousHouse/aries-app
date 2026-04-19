@@ -436,6 +436,7 @@ function buildCampaignListItem(
       posts: view.dashboard.posts.length,
       landingPages: view.dashboard.assets.filter((asset) => asset.type === 'landing_page').length,
       imageAds: view.dashboard.assets.filter((asset) => asset.type === 'image_ad').length,
+      videoAds: view.dashboard.assets.filter((asset) => asset.type === 'video_ad').length,
       scripts: view.dashboard.assets.filter((asset) => asset.type === 'script' || asset.type === 'copy').length,
       publishItems: view.dashboard.publishItems.length,
       proposalConcepts: view.dashboard.posts.filter((post) => post.provenance.sourceKind === 'proposal').length,

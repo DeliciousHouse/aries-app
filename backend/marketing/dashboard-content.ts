@@ -43,6 +43,7 @@ export type MarketingDashboardSourceKind =
 export type MarketingDashboardAssetType =
   | 'landing_page'
   | 'image_ad'
+  | 'video_ad'
   | 'script'
   | 'copy'
   | 'contract'
@@ -196,6 +197,7 @@ type MarketingDashboardCampaignInternal = {
     posts: number
     landingPages: number
     imageAds: number
+    videoAds: number
     scripts: number
     publishItems: number
     proposalConcepts: number
@@ -483,7 +485,7 @@ function compatibilityStatusFor(itemStatus: MarketingDashboardItemStatus): Marke
   }
 }
 
-function sniffImageContentType(filePath: string): string | null {
+function sniffMediaContentType(filePath: string): string | null {
   try {
     const buffer = readFileSync(filePath)
     if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
@@ -515,15 +517,21 @@ function sniffImageContentType(filePath: string): string | null {
     ) {
       return 'image/webp'
     }
+    // ISO Base Media File Format (mp4/mov/m4v/etc.) — the 4 bytes starting
+    // at offset 4 are the 'ftyp' box type. Treat it as video/mp4 so the
+    // browser can decode it inline.
+    if (buffer.length >= 8 && buffer.subarray(4, 8).toString('ascii') === 'ftyp') {
+      return 'video/mp4'
+    }
   } catch {}
 
   return null
 }
 
 function contentTypeForAsset(filePath: string): string {
-  const sniffedImageType = sniffImageContentType(filePath)
-  if (sniffedImageType) {
-    return sniffedImageType
+  const sniffedMediaType = sniffMediaContentType(filePath)
+  if (sniffedMediaType) {
+    return sniffedMediaType
   }
 
   const ext = path.extname(filePath).toLowerCase()
@@ -539,6 +547,17 @@ function contentTypeForAsset(filePath: string): string {
       return 'image/webp'
     case '.svg':
       return 'image/svg+xml'
+    case '.mp4':
+      return 'video/mp4'
+    case '.m4v':
+      return 'video/x-m4v'
+    case '.mov':
+      return 'video/quicktime'
+    case '.webm':
+      return 'video/webm'
+    case '.ogv':
+    case '.ogg':
+      return 'video/ogg'
     case '.html':
       return 'text/html; charset=utf-8'
     case '.md':
@@ -618,6 +637,41 @@ function lobsterRoots(): string[] {
 
 function lobsterOutputRoots(): string[] {
   return lobsterRoots().map((root) => path.join(root, 'output'))
+}
+
+function collectVeoVideoPaths(
+  ...sources: Array<Record<string, unknown> | null | undefined>
+): string[] {
+  const seen = new Set<string>()
+  const push = (value: unknown) => {
+    if (typeof value !== 'string') return
+    const trimmed = value.trim()
+    if (!trimmed) return
+    seen.add(trimmed)
+  }
+  for (const source of sources) {
+    if (!source) continue
+    // Prefer the newer multi-family map when present so we surface every
+    // rendered aspect ratio; fall back to legacy single-path fields otherwise.
+    const byFamily = recordValue(source.rendered_video_paths_by_family)
+    if (byFamily) {
+      for (const value of Object.values(byFamily)) push(value)
+      continue
+    }
+    const renderedPath = source.rendered_video_path
+    if (typeof renderedPath === 'string' && renderedPath.trim()) {
+      push(renderedPath)
+      continue
+    }
+    const videoFile = source.video_file
+    if (typeof videoFile === 'string' && videoFile.trim()) {
+      push(videoFile)
+      continue
+    }
+    const expected = recordValue(source.expected_render_outputs)
+    if (expected) push(expected.video_file)
+  }
+  return Array.from(seen)
 }
 
 function readJsonIfExists(filePath: string | null | undefined): Record<string, unknown> | null {
@@ -2219,6 +2273,7 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
     const imagePath = stringValue(publishPackage.image_path)
     const fallbackSvgPath = stringValue(publishPackage.fallback_svg_path)
     const reviewPackagePath = stringValue(publishPackage.review_package_path)
+    const videoPaths = collectVeoVideoPaths(readJsonIfExists(contractPath), publishPackage)
     if (reviewPackagePath) {
       reviewPackagePaths.add(reviewPackagePath)
     }
@@ -2246,12 +2301,16 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
       `Publish-ready ${platformLabel(platform).toLowerCase()} package is available.`
 
     const assetIds: string[] = []
-    ;[
+    const publishAssetEntries: Array<[string, string, MarketingDashboardAssetType]> = [
       ['publish-image', imagePath, 'image_ad'],
       ['publish-copy', copyPath, 'copy'],
       ['publish-fallback', fallbackSvgPath, 'image_ad'],
       ['publish-contract', contractPath, 'contract'],
-    ].forEach(([prefix, filePath, type]) => {
+    ]
+    for (const videoPath of videoPaths) {
+      publishAssetEntries.push([`publish-video-${platform}`, videoPath, 'video_ad'])
+    }
+    publishAssetEntries.forEach(([prefix, filePath, type]) => {
       if (!filePath) {
         return
       }
@@ -2260,8 +2319,8 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
         id: assetId,
         campaignId,
         jobId: campaignId,
-        type: type as MarketingDashboardAssetType,
-        title: `${platformLabel(platform)} ${String(prefix).replace(/^publish-/, '')}`,
+        type,
+        title: `${platformLabel(platform)} ${String(prefix).replace(/^publish-/, '').replace(new RegExp(`-${platform}$`), '')}`,
         summary,
         platform,
         platformLabel: platformLabel(platform),
@@ -2404,6 +2463,11 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
       const copyPath = stringValue(assetPaths.copy_path)
       const imagePath = stringValue(assetPaths.image_path || assetPaths.poster_image_path)
       const landingPath = stringValue(assetPaths.landing_page_path)
+      const reviewVideoPaths = collectVeoVideoPaths(
+        assetPaths,
+        entry,
+        readJsonIfExists(stringValue(entry.contract_path) || stringValue(assetPaths.contract_path)),
+      )
       const title =
         stringValue(entry.title) ||
         extractTitleFromCopyPayload(copyPath) ||
@@ -2414,12 +2478,16 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
         'Review-ready publish package awaiting scheduling or activation.'
 
       const assetIds: string[] = []
-      ;[
+      const reviewAssetEntries: Array<[string, string, MarketingDashboardAssetType]> = [
         ['review-image', imagePath, 'image_ad'],
         ['review-copy', copyPath, 'copy'],
         ['review-landing-page', landingPath, 'landing_page'],
         ['review-package', reviewPackagePath, 'review_package'],
-      ].forEach(([prefix, filePath, type]) => {
+      ]
+      for (const videoPath of reviewVideoPaths) {
+        reviewAssetEntries.push([`review-video-${platform}`, videoPath, 'video_ad'])
+      }
+      reviewAssetEntries.forEach(([prefix, filePath, type]) => {
         if (!filePath) {
           return
         }
@@ -2428,8 +2496,8 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
           id: assetId,
           campaignId,
           jobId: campaignId,
-          type: type as MarketingDashboardAssetType,
-          title: `${platformLabel(platform)} ${String(prefix).replace(/^review-/, '')}`,
+          type,
+          title: `${platformLabel(platform)} ${String(prefix).replace(/^review-/, '').replace(new RegExp(`-${platform}$`), '')}`,
           summary,
           platform,
           platformLabel: platformLabel(platform),
@@ -2699,6 +2767,7 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
     posts: posts.length,
     landingPages: assets.filter((asset) => asset.type === 'landing_page').length,
     imageAds: assets.filter((asset) => asset.type === 'image_ad').length,
+    videoAds: assets.filter((asset) => asset.type === 'video_ad').length,
     scripts: assets.filter((asset) => asset.type === 'script' || asset.type === 'copy').length,
     publishItems: publishItems.length,
     proposalConcepts: posts.filter((post) => post.provenance.sourceKind === 'proposal').length,

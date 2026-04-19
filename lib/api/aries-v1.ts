@@ -46,6 +46,7 @@ export type RuntimeCampaignListItem = {
     posts: number;
     landingPages: number;
     imageAds: number;
+    videoAds: number;
     scripts: number;
     publishItems: number;
     proposalConcepts: number;
