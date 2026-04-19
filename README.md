@@ -226,8 +226,8 @@ docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml
 
 ### Docker-specific notes
 
-- The app container stores generated runtime artifacts in the named volume `aries_runtime_data`, mounted at `/data`.
-- `docker-compose.local.yml` defaults `OPENCLAW_GATEWAY_URL` to `http://host.docker.internal:18789` so the container can talk to an OpenClaw process running on the host.
+- The app container stores generated runtime artifacts under `/data`, which is a bind mount from `${ARIES_SHARED_DATA_ROOT:-/home/node/data}` on the host. Using a bind mount (not a Docker-managed named volume) is intentional: it lets host-side OpenClaw/Lobster and the Aries container read and write the same files at the same absolute paths.
+- `docker-compose.local.yml` defaults `OPENCLAW_GATEWAY_URL` to `http://host.docker.internal:3456` so the container can talk to an OpenClaw process running on the host.
 - The Compose setup expects an external PostgreSQL instance; it does not include a Postgres service.
 - For production-style Compose runs, `NODE_ENV` is set to `production` and the container starts with `npm run start`.
 

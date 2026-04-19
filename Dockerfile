@@ -20,7 +20,7 @@ ARG ARIES_NODE_GID=1004
 WORKDIR /app
 
 ENV NODE_ENV=production
-ENV PORT=8100
+ENV PORT=3000
 ENV CODE_ROOT=/app
 ENV DATA_ROOT=/data
 ENV HOME=/home/node
@@ -77,5 +77,5 @@ COPY --from=builder --chown=node:node /app/README-runtime.md ./README-runtime.md
 
 USER node
 
-EXPOSE 8100
+EXPOSE 3000
 CMD ["npm", "run", "start"]
