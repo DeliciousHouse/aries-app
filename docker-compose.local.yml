@@ -1,5 +1,11 @@
 services:
   aries-app:
+    # The aries-app service runs the baked production image (`npm run start`).
+    # Do NOT bind-mount the source tree onto /app here — it would shadow the
+    # image's built `.next`, production `node_modules`, and compiled output
+    # and break the runtime. For a live-reload dev loop, use `aries-app-dev`
+    # (the dev profile below) which runs `npm run dev` against the mounted
+    # source at /app.
     environment:
       PORT: ${PORT:-3000}
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
@@ -9,8 +15,6 @@ services:
       OPENCLAW_SESSION_KEY: ${OPENCLAW_SESSION_KEY:-main}
     ports:
       - "${PORT:-3000}:${PORT:-3000}"
-    volumes:
-      - ./:/app
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

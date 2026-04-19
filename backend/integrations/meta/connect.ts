@@ -63,7 +63,7 @@ function configuredRedirectUris(): string[] {
   }
 
   if (uris.size === 0) {
-    uris.add('http://localhost:8100/api/integrations/meta/callback');
+    uris.add('http://localhost:3000/api/integrations/meta/callback');
   }
 
   return [...uris];
