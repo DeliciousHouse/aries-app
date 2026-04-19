@@ -22,6 +22,40 @@ type PublishReviewLinkedAssetIdInput = PublishReviewAssetIdInput & {
   suffix: 'contract' | 'brief' | 'landing-page';
 };
 
+export function canonicalizePublishReviewPlatformSlug(value: unknown, fallback = ''): string {
+  const normalized = stringValue(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  if (!normalized) {
+    return fallback;
+  }
+
+  if (['meta', 'facebook', 'facebook-ads', 'meta-ads', 'meta-ads-manager'].includes(normalized)) {
+    return 'meta-ads';
+  }
+  if (['instagram', 'instagram-feed', 'instagram-reels'].includes(normalized)) {
+    return 'instagram';
+  }
+  if (['x', 'twitter', 'x-post'].includes(normalized)) {
+    return 'x';
+  }
+  if (['youtube', 'youtube-shorts', 'youtube-longform'].includes(normalized)) {
+    return 'youtube';
+  }
+  if (['linkedin', 'linkedin-video'].includes(normalized)) {
+    return 'linkedin';
+  }
+  if (['landing-page', 'landing-page-campaign', 'landing'].includes(normalized)) {
+    return 'landing-page';
+  }
+  if (['short-video', 'video', 'stories', 'instagram-feed-video'].includes(normalized)) {
+    return 'video';
+  }
+  return normalized;
+}
+
 export function publishReviewPreviewAssetPrefix({
   platformSlug,
   previewIndex,

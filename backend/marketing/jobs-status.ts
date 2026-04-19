@@ -12,7 +12,12 @@ import {
 } from './runtime-state';
 import { buildMarketingAssetLinks, marketingAssetUrl, type MarketingAssetLink } from './asset-library';
 import { resolvePublishReviewBundle } from './publish-review';
-import { publishReviewLinkedAssetId, publishReviewMediaAssetId } from './publish-review-asset-ids';
+import {
+  canonicalizePublishReviewPlatformSlug,
+  publishReviewLinkedAssetId,
+  publishReviewMediaAssetId,
+  publishReviewPreviewAssetPrefix,
+} from './publish-review-asset-ids';
 import {
   ARTIFACT_INCOMPLETE_TEXT,
   ARTIFACT_UNAVAILABLE_TEXT,
@@ -699,7 +704,10 @@ function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): MarketingRe
         }
       : null,
     platformPreviews: recordArray(reviewBundle.platform_previews).map((entry, index) => {
-      const platformSlug = stringValue(entry.platform_slug, `platform-${index + 1}`);
+      const platformSlug = canonicalizePublishReviewPlatformSlug(
+        entry.platform_slug,
+        `platform-${index + 1}`,
+      );
       const platformName = stringValue(entry.platform_name, `Platform ${index + 1}`);
       const directMediaAssets = stringArray(entry.media_paths)
         .map((_, mediaIndex) =>
@@ -713,8 +721,13 @@ function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): MarketingRe
           ),
         )
         .filter((asset): asset is MarketingAssetLink => !!asset);
+      const previewId = publishReviewPreviewAssetPrefix({
+        platformSlug,
+        previewIndex: index,
+        explicitPreviewAssetId: entry.asset_preview_id,
+      });
       return {
-        id: `platform-preview-${platformSlug}`,
+        id: previewId,
         platformSlug,
         platformName,
         channelType: stringValue(entry.channel_type, 'draft'),

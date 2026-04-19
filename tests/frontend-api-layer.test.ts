@@ -912,7 +912,7 @@ test('/api/marketing/jobs/:jobId returns stage progress and safe artifact summar
     assert.equal((body.assetPreviewCards as any[]).length, 1);
     assert.equal((body.assetPreviewCards as any[])[0].platformSlug, 'meta-ads');
     assert.equal((body.assetPreviewCards as any[])[0].mediaCount, 1);
-    assert.equal((body.assetPreviewCards as any[])[0].previewHref, `/marketing/job-approve?jobId=${jobId}&preview=platform-preview-meta-ads`);
+    assert.equal((body.assetPreviewCards as any[])[0].previewHref, `/marketing/job-approve?jobId=${jobId}&preview=platform-preview-meta-ads-1`);
     assert.equal(Array.isArray(body.calendarEvents), true);
     assert.equal((body.calendarEvents as any[]).length, 2);
     assert.equal((body.calendarEvents as any[])[0].platform, 'meta-ads');
@@ -1239,6 +1239,104 @@ test('/api/marketing/jobs/:jobId keeps same-platform publish review concepts add
 
     assert.equal(assetResponse.status, 200);
     assert.equal(await assetResponse.text(), 'preview-b');
+  });
+});
+
+test('/api/marketing/jobs/:jobId canonicalizes aliased publish review platform slugs before building preview ids', async () => {
+  await withRuntimeEnv(async (dataRoot) => {
+    const { handleGetMarketingJobStatus } = await import('../app/api/marketing/jobs/[jobId]/handler');
+    const jobId = 'mkt_publish_review_alias_slug';
+    const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
+    const mediaAssetRelativePath = path.join('generated', 'draft', 'marketing-assets', 'facebook-preview.png');
+    const mediaAssetPath = path.join(dataRoot, mediaAssetRelativePath);
+    await mkdir(path.dirname(runtimeFile), { recursive: true });
+    await mkdir(path.dirname(mediaAssetPath), { recursive: true });
+    await writeFile(mediaAssetPath, 'facebook-preview', 'utf8');
+    await writeFile(
+      runtimeFile,
+      JSON.stringify({
+        schema_name: 'marketing_job_state_schema',
+        schema_version: '1.0.0',
+        job_id: jobId,
+        job_type: 'brand_campaign',
+        tenant_id: 'tenant_real',
+        state: 'approval_required',
+        status: 'awaiting_approval',
+        current_stage: 'publish',
+        stage_order: ['research', 'strategy', 'production', 'publish'],
+        stages: {
+          research: { stage: 'research', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-r', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          strategy: { stage: 'strategy', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-s', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          production: { stage: 'production', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-p', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          publish: {
+            stage: 'publish',
+            status: 'awaiting_approval',
+            started_at: null,
+            completed_at: null,
+            failed_at: null,
+            run_id: 'run-publish',
+            summary: null,
+            primary_output: {
+              launch_review: {
+                review_bundle: {
+                  campaign_name: 'Sugar & Leather',
+                  summary: {},
+                  platform_previews: [
+                    {
+                      platform_slug: 'facebook',
+                      platform_name: 'Meta Ads',
+                      channel_type: 'paid-social',
+                      summary: 'Alias preview ready',
+                      media_paths: [mediaAssetRelativePath],
+                      asset_paths: {},
+                    },
+                  ],
+                },
+              },
+            },
+            outputs: {},
+            artifacts: [],
+            errors: [],
+          },
+        },
+        approvals: { current: null, history: [] },
+        publish_config: { platforms: ['meta-ads'], live_publish_platforms: [], video_render_platforms: [] },
+        brand_kit: {
+          path: path.join(process.env.DATA_ROOT!, 'generated', 'validated', 'tenant_real', 'brand-kit.json'),
+          source_url: 'https://sugarandleather.com',
+          canonical_url: 'https://sugarandleather.com',
+          brand_name: 'Sugar & Leather',
+          logo_urls: [],
+          colors: { primary: '#9c6b3e', secondary: '#f3e9dd', accent: '#3d2410', palette: ['#9c6b3e', '#f3e9dd', '#3d2410'] },
+          font_families: ['Manrope'],
+          external_links: [],
+          extracted_at: '2026-03-18T00:00:00.000Z',
+        },
+        inputs: { request: {}, brand_url: 'https://sugarandleather.com' },
+        errors: [],
+        last_error: null,
+        history: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, null, 2),
+    );
+
+    const statusResponse = await handleGetMarketingJobStatus(
+      jobId,
+      async () => ({
+        userId: 'user_123',
+        tenantId: 'tenant_real',
+        tenantSlug: 'acme',
+        role: 'tenant_admin',
+      }),
+    );
+    const statusBody = (await statusResponse.json()) as Record<string, any>;
+
+    assert.equal(statusResponse.status, 200);
+    assert.equal(statusBody.assetPreviewCards[0].platformSlug, 'meta-ads');
+    assert.equal(statusBody.assetPreviewCards[0].previewHref, `/marketing/job-approve?jobId=${jobId}&preview=platform-preview-meta-ads-1`);
+    assert.equal(statusBody.reviewBundle.platformPreviews[0].id, 'platform-preview-meta-ads-1');
+    assert.equal(statusBody.reviewBundle.platformPreviews[0].mediaAssets[0].url, `/api/marketing/jobs/${jobId}/assets/platform-preview-meta-ads-1-media-1`);
   });
 });
 
@@ -4954,6 +5052,186 @@ test('/api/marketing/jobs/:jobId/workspace-assets/:assetId supports legacy works
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('content-type'), 'application/pdf');
     assert.equal(body, 'legacy-workspace-asset');
+  });
+});
+
+test('/api/marketing/jobs/:jobId/workspace-assets/:assetId supports legacy workspace paths rooted at /home/node/workspace/aries-app', async () => {
+  await withRuntimeEnv(async () => {
+    const { handleGetMarketingWorkspaceAsset } = await import('../app/api/marketing/jobs/[jobId]/workspace-assets/[assetId]/handler');
+    const jobId = 'mkt_workspace_asset_workspace_root_job';
+    const workspaceFile = path.join(
+      process.env.DATA_ROOT!,
+      'generated',
+      'draft',
+      'marketing-workspaces',
+      jobId,
+      'workspace.json',
+    );
+    const actualAssetPath = path.join(
+      process.env.CODE_ROOT!,
+      'generated',
+      'draft',
+      'marketing-workspaces',
+      jobId,
+      'brief-assets',
+      'brief_asset_workspace-root-brand-guidelines.pdf',
+    );
+    const legacySavedPath = actualAssetPath.replace(process.env.CODE_ROOT!, '/home/node/workspace/aries-app');
+    await mkdir(path.dirname(workspaceFile), { recursive: true });
+    await mkdir(path.dirname(actualAssetPath), { recursive: true });
+    await writeFile(actualAssetPath, 'workspace-root-legacy-asset', 'utf8');
+    await writeFile(
+      workspaceFile,
+      JSON.stringify({
+        schema_name: 'marketing_campaign_workspace',
+        schema_version: '1.0.0',
+        job_id: jobId,
+        tenant_id: 'tenant_real',
+        workflow_state: 'draft',
+        brief: {
+          websiteUrl: 'https://brand.example',
+          businessName: 'Brand Example',
+          businessType: 'B2B SaaS',
+          approverName: 'Avery',
+          goal: 'Book walkthroughs',
+          offer: 'Proof-led launch audit',
+          competitorUrl: 'https://betterup.com',
+          channels: ['meta-ads'],
+          brandVoice: 'Grounded and direct',
+          styleVibe: 'Minimal and editorial',
+          visualReferences: [],
+          mustUseCopy: 'Book a walkthrough',
+          mustAvoidAesthetics: 'Generic stock imagery',
+          notes: 'Lead with proof points from recent launches.',
+          brandAssets: [
+            {
+              id: 'brief_asset_workspace_root',
+              name: 'Brand guidelines',
+              fileName: 'brand-guidelines.pdf',
+              contentType: 'application/pdf',
+              filePath: legacySavedPath,
+              size: 29,
+              uploadedAt: '2026-04-04T00:00:00.000Z',
+            },
+          ],
+        },
+        stage_reviews: {
+          brand: { status: 'not_ready', latestNote: null, updatedAt: null, evidenceKind: null },
+          strategy: { status: 'not_ready', latestNote: null, updatedAt: null, evidenceKind: null },
+          creative: { status: 'not_ready', latestNote: null, updatedAt: null, evidenceKind: null },
+        },
+        creative_asset_reviews: {},
+        status_history: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, null, 2),
+    );
+
+    const response = await handleGetMarketingWorkspaceAsset(
+      jobId,
+      'brief_asset_workspace_root',
+      async () => ({
+        userId: 'user_123',
+        tenantId: 'tenant_real',
+        tenantSlug: 'acme',
+        role: 'tenant_admin',
+      }),
+    );
+    const body = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'application/pdf');
+    assert.equal(body, 'workspace-root-legacy-asset');
+  });
+});
+
+test('/api/marketing/jobs/:jobId/workspace-assets/:assetId supports legacy workspace paths rooted at /app/aries-app', async () => {
+  await withRuntimeEnv(async () => {
+    const { handleGetMarketingWorkspaceAsset } = await import('../app/api/marketing/jobs/[jobId]/workspace-assets/[assetId]/handler');
+    const jobId = 'mkt_workspace_asset_app_root_job';
+    const workspaceFile = path.join(
+      process.env.DATA_ROOT!,
+      'generated',
+      'draft',
+      'marketing-workspaces',
+      jobId,
+      'workspace.json',
+    );
+    const actualAssetPath = path.join(
+      process.env.CODE_ROOT!,
+      'generated',
+      'draft',
+      'marketing-workspaces',
+      jobId,
+      'brief-assets',
+      'brief_asset_app-root-brand-guidelines.pdf',
+    );
+    const legacySavedPath = actualAssetPath.replace(process.env.CODE_ROOT!, '/app/aries-app');
+    await mkdir(path.dirname(workspaceFile), { recursive: true });
+    await mkdir(path.dirname(actualAssetPath), { recursive: true });
+    await writeFile(actualAssetPath, 'app-root-legacy-asset', 'utf8');
+    await writeFile(
+      workspaceFile,
+      JSON.stringify({
+        schema_name: 'marketing_campaign_workspace',
+        schema_version: '1.0.0',
+        job_id: jobId,
+        tenant_id: 'tenant_real',
+        workflow_state: 'draft',
+        brief: {
+          websiteUrl: 'https://brand.example',
+          businessName: 'Brand Example',
+          businessType: 'B2B SaaS',
+          approverName: 'Avery',
+          goal: 'Book walkthroughs',
+          offer: 'Proof-led launch audit',
+          competitorUrl: 'https://betterup.com',
+          channels: ['meta-ads'],
+          brandVoice: 'Grounded and direct',
+          styleVibe: 'Minimal and editorial',
+          visualReferences: [],
+          mustUseCopy: 'Book a walkthrough',
+          mustAvoidAesthetics: 'Generic stock imagery',
+          notes: 'Lead with proof points from recent launches.',
+          brandAssets: [
+            {
+              id: 'brief_asset_app_root',
+              name: 'Brand guidelines',
+              fileName: 'brand-guidelines.pdf',
+              contentType: 'application/pdf',
+              filePath: legacySavedPath,
+              size: 24,
+              uploadedAt: '2026-04-04T00:00:00.000Z',
+            },
+          ],
+        },
+        stage_reviews: {
+          brand: { status: 'not_ready', latestNote: null, updatedAt: null, evidenceKind: null },
+          strategy: { status: 'not_ready', latestNote: null, updatedAt: null, evidenceKind: null },
+          creative: { status: 'not_ready', latestNote: null, updatedAt: null, evidenceKind: null },
+        },
+        creative_asset_reviews: {},
+        status_history: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, null, 2),
+    );
+
+    const response = await handleGetMarketingWorkspaceAsset(
+      jobId,
+      'brief_asset_app_root',
+      async () => ({
+        userId: 'user_123',
+        tenantId: 'tenant_real',
+        tenantSlug: 'acme',
+        role: 'tenant_admin',
+      }),
+    );
+    const body = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'application/pdf');
+    assert.equal(body, 'app-root-legacy-asset');
   });
 });
 

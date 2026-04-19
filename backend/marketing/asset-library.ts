@@ -6,6 +6,7 @@ import { resolveCodeRoot, resolveDataRoot } from '@/lib/runtime-paths';
 import { listMarketingDashboardAssetsForJob } from './dashboard-content';
 import { collectResearchStageArtifacts, collectStrategyReviewArtifacts } from './artifact-collector';
 import {
+  canonicalizePublishReviewPlatformSlug,
   legacyPublishReviewLinkedAssetId,
   legacyPublishReviewMediaAssetId,
   publishReviewLinkedAssetId,
@@ -141,7 +142,7 @@ function uniqueStrings(values: Array<string | null | undefined>): string[] {
 }
 
 function normalizePublishPreviewSlug(platform: Record<string, unknown>, previewIndex: number): string {
-  return slugify(stringValue(platform.platform_slug, `platform-${previewIndex + 1}`), `platform-${previewIndex + 1}`);
+  return canonicalizePublishReviewPlatformSlug(platform.platform_slug, `platform-${previewIndex + 1}`);
 }
 
 function sniffImageContentType(filePath: string): string | null {
