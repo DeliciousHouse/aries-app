@@ -42,6 +42,9 @@ try {
       scanAt: result.scanAt,
       stats: result.stats,
       pending: result.pending,
+      escalated: result.escalated,
+      unresolved: result.unresolved,
+      summary: result.summary,
     })
   } else {
     emitScanSummary(result, { dryRun })
