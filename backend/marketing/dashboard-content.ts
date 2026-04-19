@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -43,6 +43,7 @@ export type MarketingDashboardSourceKind =
 export type MarketingDashboardAssetType =
   | 'landing_page'
   | 'image_ad'
+  | 'video_ad'
   | 'script'
   | 'copy'
   | 'contract'
@@ -196,6 +197,7 @@ type MarketingDashboardCampaignInternal = {
     posts: number
     landingPages: number
     imageAds: number
+    videoAds: number
     scripts: number
     publishItems: number
     proposalConcepts: number
@@ -485,45 +487,82 @@ function compatibilityStatusFor(itemStatus: MarketingDashboardItemStatus): Marke
 
 function sniffImageContentType(filePath: string): string | null {
   try {
-    const buffer = readFileSync(filePath)
-    if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
-      return 'image/jpeg'
-    }
-    if (
-      buffer.length >= 8 &&
-      buffer[0] === 0x89 &&
-      buffer[1] === 0x50 &&
-      buffer[2] === 0x4e &&
-      buffer[3] === 0x47 &&
-      buffer[4] === 0x0d &&
-      buffer[5] === 0x0a &&
-      buffer[6] === 0x1a &&
-      buffer[7] === 0x0a
-    ) {
-      return 'image/png'
-    }
-    if (buffer.length >= 6) {
-      const signature = buffer.subarray(0, 6).toString('utf8')
-      if (signature === 'GIF87a' || signature === 'GIF89a') {
-        return 'image/gif'
+    const fd = openSync(filePath, 'r')
+    try {
+      const buffer = Buffer.alloc(12)
+      const bytesRead = readSync(fd, buffer, 0, buffer.length, 0)
+      const header = buffer.subarray(0, bytesRead)
+
+      if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) {
+        return 'image/jpeg'
       }
-    }
-    if (
-      buffer.length >= 12 &&
-      buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
-      buffer.subarray(8, 12).toString('ascii') === 'WEBP'
-    ) {
-      return 'image/webp'
+      if (
+        header.length >= 8 &&
+        header[0] === 0x89 &&
+        header[1] === 0x50 &&
+        header[2] === 0x4e &&
+        header[3] === 0x47 &&
+        header[4] === 0x0d &&
+        header[5] === 0x0a &&
+        header[6] === 0x1a &&
+        header[7] === 0x0a
+      ) {
+        return 'image/png'
+      }
+      if (header.length >= 6) {
+        const signature = header.subarray(0, 6).toString('utf8')
+        if (signature === 'GIF87a' || signature === 'GIF89a') {
+          return 'image/gif'
+        }
+      }
+      if (
+        header.length >= 12 &&
+        header.subarray(0, 4).toString('ascii') === 'RIFF' &&
+        header.subarray(8, 12).toString('ascii') === 'WEBP'
+      ) {
+        return 'image/webp'
+      }
+    } finally {
+      closeSync(fd)
     }
   } catch {}
 
   return null
 }
 
+function sniffIsoBmffContentType(filePath: string): string | null {
+  // ISOBMFF (mp4/mov/m4v/etc.) is ambiguous between video/mp4 and
+  // video/quicktime, so callers should only consult this fallback when the
+  // extension didn't already classify the file.
+  try {
+    const fd = openSync(filePath, 'r')
+    try {
+      const buffer = Buffer.alloc(8)
+      const bytesRead = readSync(fd, buffer, 0, buffer.length, 0)
+      const header = buffer.subarray(0, bytesRead)
+
+      if (header.length >= 8 && header.subarray(4, 8).toString('ascii') === 'ftyp') {
+        return 'video/mp4'
+      }
+    } finally {
+      closeSync(fd)
+    }
+  } catch {}
+
+  return null
+}
+
+function sniffMediaContentType(filePath: string): string | null {
+  return sniffImageContentType(filePath) ?? sniffIsoBmffContentType(filePath)
+}
+
 function contentTypeForAsset(filePath: string): string {
-  const sniffedImageType = sniffImageContentType(filePath)
-  if (sniffedImageType) {
-    return sniffedImageType
+  // Image bytes are unambiguous, so let the magic bytes override the
+  // extension when they disagree (preview snapshots routinely keep their
+  // source extension even after the bytes change format).
+  const sniffedImage = sniffImageContentType(filePath)
+  if (sniffedImage) {
+    return sniffedImage
   }
 
   const ext = path.extname(filePath).toLowerCase()
@@ -539,6 +578,17 @@ function contentTypeForAsset(filePath: string): string {
       return 'image/webp'
     case '.svg':
       return 'image/svg+xml'
+    case '.mp4':
+      return 'video/mp4'
+    case '.m4v':
+      return 'video/x-m4v'
+    case '.mov':
+      return 'video/quicktime'
+    case '.webm':
+      return 'video/webm'
+    case '.ogv':
+    case '.ogg':
+      return 'video/ogg'
     case '.html':
       return 'text/html; charset=utf-8'
     case '.md':
@@ -546,9 +596,16 @@ function contentTypeForAsset(filePath: string): string {
       return 'text/plain; charset=utf-8'
     case '.json':
       return 'application/json; charset=utf-8'
-    default:
-      return 'application/octet-stream'
   }
+
+  // ISOBMFF (`ftyp`) sniffing only runs after the extension switch because
+  // it can't distinguish QuickTime from MP4.
+  const sniffedIsoBmff = sniffIsoBmffContentType(filePath)
+  if (sniffedIsoBmff) {
+    return sniffedIsoBmff
+  }
+
+  return 'application/octet-stream'
 }
 
 function buildAssetUrl(jobId: string, assetId: string): string {
@@ -618,6 +675,41 @@ function lobsterRoots(): string[] {
 
 function lobsterOutputRoots(): string[] {
   return lobsterRoots().map((root) => path.join(root, 'output'))
+}
+
+function collectVeoVideoPaths(
+  ...sources: Array<Record<string, unknown> | null | undefined>
+): string[] {
+  const seen = new Set<string>()
+  const push = (value: unknown) => {
+    if (typeof value !== 'string') return
+    const trimmed = value.trim()
+    if (!trimmed) return
+    seen.add(trimmed)
+  }
+  for (const source of sources) {
+    if (!source) continue
+    // Prefer the newer multi-family map when present so we surface every
+    // rendered aspect ratio; fall back to legacy single-path fields otherwise.
+    const byFamily = recordValue(source.rendered_video_paths_by_family)
+    if (byFamily) {
+      for (const value of Object.values(byFamily)) push(value)
+      continue
+    }
+    const renderedPath = source.rendered_video_path
+    if (typeof renderedPath === 'string' && renderedPath.trim()) {
+      push(renderedPath)
+      continue
+    }
+    const videoFile = source.video_file
+    if (typeof videoFile === 'string' && videoFile.trim()) {
+      push(videoFile)
+      continue
+    }
+    const expected = recordValue(source.expected_render_outputs)
+    if (expected) push(expected.video_file)
+  }
+  return Array.from(seen)
 }
 
 function readJsonIfExists(filePath: string | null | undefined): Record<string, unknown> | null {
@@ -2219,6 +2311,7 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
     const imagePath = stringValue(publishPackage.image_path)
     const fallbackSvgPath = stringValue(publishPackage.fallback_svg_path)
     const reviewPackagePath = stringValue(publishPackage.review_package_path)
+    const videoPaths = collectVeoVideoPaths(readJsonIfExists(contractPath), publishPackage)
     if (reviewPackagePath) {
       reviewPackagePaths.add(reviewPackagePath)
     }
@@ -2246,12 +2339,16 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
       `Publish-ready ${platformLabel(platform).toLowerCase()} package is available.`
 
     const assetIds: string[] = []
-    ;[
+    const publishAssetEntries: Array<[string, string, MarketingDashboardAssetType]> = [
       ['publish-image', imagePath, 'image_ad'],
       ['publish-copy', copyPath, 'copy'],
       ['publish-fallback', fallbackSvgPath, 'image_ad'],
       ['publish-contract', contractPath, 'contract'],
-    ].forEach(([prefix, filePath, type]) => {
+    ]
+    for (const videoPath of videoPaths) {
+      publishAssetEntries.push([`publish-video-${platform}`, videoPath, 'video_ad'])
+    }
+    publishAssetEntries.forEach(([prefix, filePath, type]) => {
       if (!filePath) {
         return
       }
@@ -2260,8 +2357,8 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
         id: assetId,
         campaignId,
         jobId: campaignId,
-        type: type as MarketingDashboardAssetType,
-        title: `${platformLabel(platform)} ${String(prefix).replace(/^publish-/, '')}`,
+        type,
+        title: `${platformLabel(platform)} ${String(prefix).replace(/^publish-/, '').replace(new RegExp(`-${platform}$`), '')}`,
         summary,
         platform,
         platformLabel: platformLabel(platform),
@@ -2404,6 +2501,11 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
       const copyPath = stringValue(assetPaths.copy_path)
       const imagePath = stringValue(assetPaths.image_path || assetPaths.poster_image_path)
       const landingPath = stringValue(assetPaths.landing_page_path)
+      const reviewVideoPaths = collectVeoVideoPaths(
+        assetPaths,
+        entry,
+        readJsonIfExists(stringValue(entry.contract_path) || stringValue(assetPaths.contract_path)),
+      )
       const title =
         stringValue(entry.title) ||
         extractTitleFromCopyPayload(copyPath) ||
@@ -2414,12 +2516,16 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
         'Review-ready publish package awaiting scheduling or activation.'
 
       const assetIds: string[] = []
-      ;[
+      const reviewAssetEntries: Array<[string, string, MarketingDashboardAssetType]> = [
         ['review-image', imagePath, 'image_ad'],
         ['review-copy', copyPath, 'copy'],
         ['review-landing-page', landingPath, 'landing_page'],
         ['review-package', reviewPackagePath, 'review_package'],
-      ].forEach(([prefix, filePath, type]) => {
+      ]
+      for (const videoPath of reviewVideoPaths) {
+        reviewAssetEntries.push([`review-video-${platform}`, videoPath, 'video_ad'])
+      }
+      reviewAssetEntries.forEach(([prefix, filePath, type]) => {
         if (!filePath) {
           return
         }
@@ -2428,8 +2534,8 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
           id: assetId,
           campaignId,
           jobId: campaignId,
-          type: type as MarketingDashboardAssetType,
-          title: `${platformLabel(platform)} ${String(prefix).replace(/^review-/, '')}`,
+          type,
+          title: `${platformLabel(platform)} ${String(prefix).replace(/^review-/, '').replace(new RegExp(`-${platform}$`), '')}`,
           summary,
           platform,
           platformLabel: platformLabel(platform),
@@ -2699,6 +2805,7 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
     posts: posts.length,
     landingPages: assets.filter((asset) => asset.type === 'landing_page').length,
     imageAds: assets.filter((asset) => asset.type === 'image_ad').length,
+    videoAds: assets.filter((asset) => asset.type === 'video_ad').length,
     scripts: assets.filter((asset) => asset.type === 'script' || asset.type === 'copy').length,
     publishItems: publishItems.length,
     proposalConcepts: posts.filter((post) => post.provenance.sourceKind === 'proposal').length,

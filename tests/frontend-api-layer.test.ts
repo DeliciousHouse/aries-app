@@ -5956,4 +5956,115 @@ test('/api/marketing/reviews/[reviewId]/decision decodes encoded review ids befo
     clearOpenClawTestInvoker();
   });
 });
+
+test('/api/marketing/jobs/:jobId exposes .mp4 paths as video/mp4 media assets on the review bundle', async () => {
+  await withRuntimeEnv(async () => {
+    const { handleGetMarketingJobStatus } = await import('../app/api/marketing/jobs/[jobId]/handler');
+    const { handleGetMarketingJobAsset } = await import('../app/api/marketing/jobs/[jobId]/assets/[assetId]/handler');
+    const jobId = 'mkt_video_preview';
+    const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
+    const videoPath = path.join(
+      process.env.CODE_ROOT!,
+      'lobster',
+      'output',
+      'publish-ready',
+      'brand-example-stage2-plan',
+      'tiktok',
+      'tiktok.mp4',
+    );
+    await mkdir(path.dirname(runtimeFile), { recursive: true });
+    await mkdir(path.dirname(videoPath), { recursive: true });
+    await writeFile(videoPath, 'mp4-bytes-for-test', 'utf8');
+    await writeFile(
+      runtimeFile,
+      JSON.stringify({
+        schema_name: 'marketing_job_state_schema',
+        schema_version: '1.0.0',
+        job_id: jobId,
+        job_type: 'brand_campaign',
+        tenant_id: 'tenant_real',
+        state: 'approval_required',
+        status: 'awaiting_approval',
+        current_stage: 'publish',
+        stage_order: ['research', 'strategy', 'production', 'publish'],
+        stages: {
+          research: { stage: 'research', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-r', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          strategy: { stage: 'strategy', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-s', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          production: { stage: 'production', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-p', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          publish: {
+            stage: 'publish',
+            status: 'awaiting_approval',
+            started_at: '2026-03-19T00:00:05.000Z',
+            completed_at: null,
+            failed_at: null,
+            run_id: 'run-publish',
+            summary: { summary: 'Video preview ready.' },
+            primary_output: null,
+            outputs: {
+              review: {
+                review_bundle: {
+                  campaign_name: 'TikTok video preview',
+                  approval_message: 'Approve the rendered video.',
+                  summary: { core_message: 'Launch the campaign with video creative.' },
+                  platform_previews: [
+                    {
+                      platform_slug: 'tiktok',
+                      platform_name: 'TikTok',
+                      channel_type: 'video',
+                      summary: 'Rendered video preview.',
+                      headline: 'Launch video',
+                      media_paths: [videoPath],
+                      asset_paths: {},
+                    },
+                  ],
+                },
+              },
+            },
+            artifacts: [],
+            errors: [],
+          },
+        },
+        approvals: { current: null, history: [] },
+        publish_config: { platforms: ['tiktok'], live_publish_platforms: [], video_render_platforms: ['tiktok'] },
+        inputs: { request: {}, brand_url: 'https://brand.example' },
+        errors: [],
+        last_error: null,
+        history: [],
+        created_at: '2026-03-19T00:00:00.000Z',
+        updated_at: '2026-03-19T00:10:05.000Z',
+      }, null, 2),
+    );
+
+    const response = await handleGetMarketingJobStatus(
+      jobId,
+      async () => ({
+        userId: 'user_123',
+        tenantId: 'tenant_real',
+        tenantSlug: 'acme',
+        role: 'tenant_admin',
+      }),
+    );
+    const body = (await response.json()) as Record<string, any>;
+    assert.equal(response.status, 200);
+    const previews = body.reviewBundle.platformPreviews as Array<{ mediaAssets: Array<{ url: string; contentType: string }> }>;
+    assert.equal(previews.length, 1);
+    assert.equal(previews[0].mediaAssets.length >= 1, true);
+    const videoAsset = previews[0].mediaAssets.find((asset) => asset.contentType === 'video/mp4');
+    assert.ok(videoAsset, 'expected at least one video/mp4 media asset in the review bundle');
+
+    const assetId = videoAsset!.url.split('/').pop()!;
+    const assetResponse = await handleGetMarketingJobAsset(
+      jobId,
+      decodeURIComponent(assetId),
+      async () => ({
+        userId: 'user_123',
+        tenantId: 'tenant_real',
+        tenantSlug: 'acme',
+        role: 'tenant_admin',
+      }),
+    );
+    assert.equal(assetResponse.status, 200);
+    assert.equal(assetResponse.headers.get('content-type'), 'video/mp4');
+  });
+});
 });

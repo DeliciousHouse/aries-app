@@ -50,6 +50,16 @@ services:
       OPENCLAW_LOBSTER_CWD: ${OPENCLAW_LOBSTER_CWD:-/app/lobster}
       OPENCLAW_GATEWAY_LOBSTER_CWD: ${OPENCLAW_GATEWAY_LOBSTER_CWD:-lobster}
       OPENCLAW_LOCAL_LOBSTER_CWD: ${OPENCLAW_LOCAL_LOBSTER_CWD:-/app/lobster}
+      # Lobster stage cache dirs. These MUST resolve to the same absolute paths
+      # on the host (where OpenClaw/Lobster writes) and inside the container
+      # (where Aries reads), so the routes live under the shared /data bind
+      # mount. The host operator must export the matching LOBSTER_STAGE{N}_CACHE_DIR
+      # pointing at ${ARIES_SHARED_DATA_ROOT}/lobster-stage{N}-cache BEFORE
+      # starting OpenClaw; see DOCKER.md.
+      LOBSTER_STAGE1_CACHE_DIR: ${LOBSTER_STAGE1_CACHE_DIR:-/data/lobster-stage1-cache}
+      LOBSTER_STAGE2_CACHE_DIR: ${LOBSTER_STAGE2_CACHE_DIR:-/data/lobster-stage2-cache}
+      LOBSTER_STAGE3_CACHE_DIR: ${LOBSTER_STAGE3_CACHE_DIR:-/data/lobster-stage3-cache}
+      LOBSTER_STAGE4_CACHE_DIR: ${LOBSTER_STAGE4_CACHE_DIR:-/data/lobster-stage4-cache}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

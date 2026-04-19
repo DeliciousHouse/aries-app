@@ -341,6 +341,7 @@ export interface MarketingDashboardProvenance {
 export type MarketingDashboardAssetType =
   | 'landing_page'
   | 'image_ad'
+  | 'video_ad'
   | 'script'
   | 'copy'
   | 'contract'
@@ -486,6 +487,7 @@ export interface MarketingDashboardCampaign {
     posts: number;
     landingPages: number;
     imageAds: number;
+    videoAds: number;
     scripts: number;
     publishItems: number;
     proposalConcepts: number;

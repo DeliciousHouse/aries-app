@@ -190,10 +190,42 @@ function sniffImageContentType(filePath: string): string | null {
   return null;
 }
 
-function contentTypeForAsset(filePath: string): string {
-  const sniffedImageType = sniffImageContentType(filePath);
-  if (sniffedImageType) {
-    return sniffedImageType;
+function sniffIsoBmffContentType(filePath: string): string | null {
+  // ISO Base Media File Format (mp4/mov/m4v/etc.) starts with a 4-byte size
+  // followed by the 'ftyp' box type. Both QuickTime (.mov) and MP4 share
+  // the same outer container, so this is only safe to consult when the
+  // extension already failed — otherwise we'd collapse .mov into video/mp4
+  // and lose the QuickTime distinction.
+  try {
+    const fd = openSync(filePath, 'r');
+    try {
+      const buffer = Buffer.alloc(8);
+      const bytesRead = readSync(fd, buffer, 0, buffer.length, 0);
+      const header = buffer.subarray(0, bytesRead);
+
+      if (header.length >= 8 && header.subarray(4, 8).toString('ascii') === 'ftyp') {
+        return 'video/mp4';
+      }
+    } finally {
+      closeSync(fd);
+    }
+  } catch {}
+
+  return null;
+}
+
+function sniffMediaContentType(filePath: string): string | null {
+  return sniffImageContentType(filePath) ?? sniffIsoBmffContentType(filePath);
+}
+
+export function contentTypeForAsset(filePath: string): string {
+  // Image magic bytes are unambiguous (a JPEG header can only mean JPEG, a
+  // PNG signature can only mean PNG, etc.), so we let the bytes override
+  // the extension when they disagree — operators routinely save sniffed
+  // previews under whatever extension the source URL had.
+  const sniffedImage = sniffImageContentType(filePath);
+  if (sniffedImage) {
+    return sniffedImage;
   }
 
   const ext = path.extname(filePath).toLowerCase();
@@ -209,6 +241,17 @@ function contentTypeForAsset(filePath: string): string {
       return 'image/webp';
     case '.svg':
       return 'image/svg+xml';
+    case '.mp4':
+      return 'video/mp4';
+    case '.m4v':
+      return 'video/x-m4v';
+    case '.mov':
+      return 'video/quicktime';
+    case '.webm':
+      return 'video/webm';
+    case '.ogv':
+    case '.ogg':
+      return 'video/ogg';
     case '.html':
       return 'text/html; charset=utf-8';
     case '.md':
@@ -221,14 +264,20 @@ function contentTypeForAsset(filePath: string): string {
       return 'text/css; charset=utf-8';
     case '.js':
       return 'text/javascript; charset=utf-8';
-    default:
-      // Fall back to text/plain rather than application/octet-stream so the
-      // browser renders an unknown text asset inline instead of forcing a
-      // file download. Binary types get correct headers above; anything that
-      // reaches this default is effectively a text file we haven't explicitly
-      // mapped yet, and inline-rendering is safer than surprise downloads.
-      return 'text/plain; charset=utf-8';
   }
+
+  // ISOBMFF (`ftyp`) sniffing is ambiguous between MP4 and QuickTime, so we
+  // only run it when the extension didn't pick a winner above.
+  const sniffedIsoBmff = sniffIsoBmffContentType(filePath);
+  if (sniffedIsoBmff) {
+    return sniffedIsoBmff;
+  }
+
+  // Binary assets that don't match the explicit map above should fall back
+  // to application/octet-stream. The old default of text/plain forced the
+  // browser to attempt inline-rendering of bytes like .mp4 that then broke
+  // because the response advertised itself as text.
+  return 'application/octet-stream';
 }
 
 export function marketingAssetUrl(jobId: string, assetId: string): string {
