@@ -394,13 +394,16 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
   };
 
   for (const asset of dashboardAssets) {
-    if (!asset.filePath || !asset.contentType?.startsWith('image/')) {
+    if (!asset.filePath || !/^(image|video)\//.test(asset.contentType ?? '')) {
       continue;
     }
     if (
       !asset.id.startsWith('publish-image-') &&
       !asset.id.startsWith('publish-fallback-') &&
-      !asset.id.startsWith('image-')
+      !asset.id.startsWith('publish-video-') &&
+      !asset.id.startsWith('review-video-') &&
+      !asset.id.startsWith('image-') &&
+      !asset.id.startsWith('video-')
     ) {
       continue;
     }

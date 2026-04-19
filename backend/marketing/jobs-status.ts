@@ -778,13 +778,16 @@ function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): MarketingRe
 
 function fallbackPlatformMediaAssets(assetLinks: MarketingAssetLink[], platformSlug: string): MarketingAssetLink[] {
   return assetLinks.filter((asset) => {
-    if (!asset.contentType.startsWith('image/')) {
+    if (!/^(image|video)\//.test(asset.contentType)) {
       return false;
     }
     return (
       asset.id.startsWith(`publish-image-${platformSlug}`) ||
       asset.id.startsWith(`publish-fallback-${platformSlug}`) ||
-      asset.id.startsWith(`image-${platformSlug}`)
+      asset.id.startsWith(`publish-video-${platformSlug}`) ||
+      asset.id.startsWith(`review-video-${platformSlug}`) ||
+      asset.id.startsWith(`image-${platformSlug}`) ||
+      asset.id.startsWith(`video-${platformSlug}`)
     );
   });
 }
