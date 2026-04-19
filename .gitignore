@@ -165,7 +165,10 @@ output/
 !.agent/workflows/
 /local/
 package-lock.json
-.claude/
+.claude/*
+!.claude/hooks/
+!.claude/hooks/**
+!.claude/settings.json
 .agent/
 skills-lock.json
 
