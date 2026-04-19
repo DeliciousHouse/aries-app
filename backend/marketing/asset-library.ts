@@ -145,7 +145,7 @@ function normalizePublishPreviewSlug(platform: Record<string, unknown>, previewI
   return canonicalizePublishReviewPlatformSlug(platform.platform_slug, `platform-${previewIndex + 1}`);
 }
 
-function sniffMediaContentType(filePath: string): string | null {
+function sniffImageContentType(filePath: string): string | null {
   try {
     const fd = openSync(filePath, 'r');
     try {
@@ -182,10 +182,27 @@ function sniffMediaContentType(filePath: string): string | null {
       ) {
         return 'image/webp';
       }
-      // ISO Base Media File Format (mp4/mov/m4v/etc.) starts with a 4-byte
-      // size followed by the 'ftyp' box type. Sniffing the ftyp box lets us
-      // return the right video/mp4 content-type even when the extension is
-      // missing or misleading.
+    } finally {
+      closeSync(fd);
+    }
+  } catch {}
+
+  return null;
+}
+
+function sniffIsoBmffContentType(filePath: string): string | null {
+  // ISO Base Media File Format (mp4/mov/m4v/etc.) starts with a 4-byte size
+  // followed by the 'ftyp' box type. Both QuickTime (.mov) and MP4 share
+  // the same outer container, so this is only safe to consult when the
+  // extension already failed — otherwise we'd collapse .mov into video/mp4
+  // and lose the QuickTime distinction.
+  try {
+    const fd = openSync(filePath, 'r');
+    try {
+      const buffer = Buffer.alloc(8);
+      const bytesRead = readSync(fd, buffer, 0, buffer.length, 0);
+      const header = buffer.subarray(0, bytesRead);
+
       if (header.length >= 8 && header.subarray(4, 8).toString('ascii') === 'ftyp') {
         return 'video/mp4';
       }
@@ -197,12 +214,20 @@ function sniffMediaContentType(filePath: string): string | null {
   return null;
 }
 
+function sniffMediaContentType(filePath: string): string | null {
+  return sniffImageContentType(filePath) ?? sniffIsoBmffContentType(filePath);
+}
+
 export function contentTypeForAsset(filePath: string): string {
-  // Extension-first: a QuickTime .mov still contains an `ftyp` box, so if we
-  // sniffed before reading the extension we'd collapse every ISOBMFF variant
-  // into video/mp4 and lose the .mov → video/quicktime / .m4v → video/x-m4v
-  // distinction. Only fall back to magic-byte sniffing when the extension is
-  // missing or unrecognized.
+  // Image magic bytes are unambiguous (a JPEG header can only mean JPEG, a
+  // PNG signature can only mean PNG, etc.), so we let the bytes override
+  // the extension when they disagree — operators routinely save sniffed
+  // previews under whatever extension the source URL had.
+  const sniffedImage = sniffImageContentType(filePath);
+  if (sniffedImage) {
+    return sniffedImage;
+  }
+
   const ext = path.extname(filePath).toLowerCase();
   switch (ext) {
     case '.png':
@@ -241,9 +266,11 @@ export function contentTypeForAsset(filePath: string): string {
       return 'text/javascript; charset=utf-8';
   }
 
-  const sniffedMediaType = sniffMediaContentType(filePath);
-  if (sniffedMediaType) {
-    return sniffedMediaType;
+  // ISOBMFF (`ftyp`) sniffing is ambiguous between MP4 and QuickTime, so we
+  // only run it when the extension didn't pick a winner above.
+  const sniffedIsoBmff = sniffIsoBmffContentType(filePath);
+  if (sniffedIsoBmff) {
+    return sniffedIsoBmff;
   }
 
   // Binary assets that don't match the explicit map above should fall back

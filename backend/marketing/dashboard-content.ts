@@ -485,7 +485,7 @@ function compatibilityStatusFor(itemStatus: MarketingDashboardItemStatus): Marke
   }
 }
 
-function sniffMediaContentType(filePath: string): string | null {
+function sniffImageContentType(filePath: string): string | null {
   try {
     const buffer = readFileSync(filePath)
     if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
@@ -517,9 +517,17 @@ function sniffMediaContentType(filePath: string): string | null {
     ) {
       return 'image/webp'
     }
-    // ISO Base Media File Format (mp4/mov/m4v/etc.) — the 4 bytes starting
-    // at offset 4 are the 'ftyp' box type. Treat it as video/mp4 so the
-    // browser can decode it inline.
+  } catch {}
+
+  return null
+}
+
+function sniffIsoBmffContentType(filePath: string): string | null {
+  // ISOBMFF (mp4/mov/m4v/etc.) is ambiguous between video/mp4 and
+  // video/quicktime, so callers should only consult this fallback when the
+  // extension didn't already classify the file.
+  try {
+    const buffer = readFileSync(filePath)
     if (buffer.length >= 8 && buffer.subarray(4, 8).toString('ascii') === 'ftyp') {
       return 'video/mp4'
     }
@@ -528,11 +536,19 @@ function sniffMediaContentType(filePath: string): string | null {
   return null
 }
 
+function sniffMediaContentType(filePath: string): string | null {
+  return sniffImageContentType(filePath) ?? sniffIsoBmffContentType(filePath)
+}
+
 function contentTypeForAsset(filePath: string): string {
-  // Extension-first: QuickTime .mov files carry an `ftyp` box too, so
-  // sniffing before the extension check would label every ISOBMFF variant
-  // as video/mp4. Only fall back to magic-byte sniffing when the extension
-  // is missing or unrecognized.
+  // Image bytes are unambiguous, so let the magic bytes override the
+  // extension when they disagree (preview snapshots routinely keep their
+  // source extension even after the bytes change format).
+  const sniffedImage = sniffImageContentType(filePath)
+  if (sniffedImage) {
+    return sniffedImage
+  }
+
   const ext = path.extname(filePath).toLowerCase()
   switch (ext) {
     case '.png':
@@ -566,9 +582,11 @@ function contentTypeForAsset(filePath: string): string {
       return 'application/json; charset=utf-8'
   }
 
-  const sniffedMediaType = sniffMediaContentType(filePath)
-  if (sniffedMediaType) {
-    return sniffedMediaType
+  // ISOBMFF (`ftyp`) sniffing only runs after the extension switch because
+  // it can't distinguish QuickTime from MP4.
+  const sniffedIsoBmff = sniffIsoBmffContentType(filePath)
+  if (sniffedIsoBmff) {
+    return sniffedIsoBmff
   }
 
   return 'application/octet-stream'

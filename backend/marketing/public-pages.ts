@@ -94,7 +94,7 @@ function normalizePublicPath(pathname: string): string | null {
   return `/${segments.join('/')}`;
 }
 
-function sniffMediaContentType(filePath: string): string | null {
+function sniffImageContentType(filePath: string): string | null {
   try {
     const buffer = readFileSync(filePath);
     if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
@@ -126,9 +126,17 @@ function sniffMediaContentType(filePath: string): string | null {
     ) {
       return 'image/webp';
     }
-    // ISO Base Media File Format (mp4/mov/m4v/etc.) — second 4 bytes are
-    // the 'ftyp' box type. Treat any such container as video/mp4 so the
-    // browser can render it inline via <video>.
+  } catch {}
+
+  return null;
+}
+
+function sniffIsoBmffContentType(filePath: string): string | null {
+  // ISOBMFF (`ftyp`) sniffing collapses MP4 and QuickTime, so callers
+  // should only consult it when the extension didn't already classify the
+  // file.
+  try {
+    const buffer = readFileSync(filePath);
     if (buffer.length >= 8 && buffer.subarray(4, 8).toString('ascii') === 'ftyp') {
       return 'video/mp4';
     }
@@ -138,9 +146,14 @@ function sniffMediaContentType(filePath: string): string | null {
 }
 
 function fileContentType(filePath: string): string {
-  // Extension-first: QuickTime .mov files also contain an `ftyp` box, so
-  // sniffing first would mislabel them as video/mp4. Only fall back to
-  // magic-byte sniffing when the extension is missing or unrecognized.
+  // Image bytes are unambiguous; let them override the extension when
+  // operators saved a sniffed preview under the source URL's extension
+  // even though the bytes are a different format.
+  const sniffedImage = sniffImageContentType(filePath);
+  if (sniffedImage) {
+    return sniffedImage;
+  }
+
   const ext = path.extname(filePath).toLowerCase();
   switch (ext) {
     case '.css':
@@ -176,9 +189,11 @@ function fileContentType(filePath: string): string {
       return 'text/plain; charset=utf-8';
   }
 
-  const sniffedMediaType = sniffMediaContentType(filePath);
-  if (sniffedMediaType) {
-    return sniffedMediaType;
+  // ISOBMFF sniffing only runs after the extension switch because it can't
+  // distinguish QuickTime from MP4.
+  const sniffedIsoBmff = sniffIsoBmffContentType(filePath);
+  if (sniffedIsoBmff) {
+    return sniffedIsoBmff;
   }
 
   return 'application/octet-stream';

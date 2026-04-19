@@ -83,3 +83,14 @@ test('contentTypeForAsset keeps sniffing image magic bytes when extension is mis
     assert.equal(contentTypeForAsset(pngLike), 'image/png');
   });
 });
+
+test('contentTypeForAsset trusts image bytes over a drifted extension (JPEG bytes saved as .png)', async () => {
+  await withScratchDir(async (dir) => {
+    // Operators routinely keep the source URL's extension when scraping a
+    // preview, so image MIME has to follow the bytes when the two disagree.
+    const drifted = path.join(dir, 'meta-preview.png');
+    await writeFile(drifted, Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00]));
+
+    assert.equal(contentTypeForAsset(drifted), 'image/jpeg');
+  });
+});
