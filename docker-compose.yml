@@ -10,7 +10,7 @@ services:
     environment:
       HOME: /home/node
       NODE_ENV: production
-      PORT: ${PORT:-8100}
+      PORT: ${PORT:-3000}
       CODE_ROOT: /app
       DATA_ROOT: /data
       GEMINI_API_KEY: ${GEMINI_API_KEY}
@@ -57,7 +57,7 @@ services:
       - gh_config:/home/node/.config/gh
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:${PORT:-8100}/ >/dev/null"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:${PORT:-3000}/ >/dev/null"]
       interval: 30s
       timeout: 5s
       retries: 5

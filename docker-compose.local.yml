@@ -1,15 +1,20 @@
 services:
   aries-app:
-    ports:
-      - "8100:8100"
+    # The aries-app service runs the baked production image (`npm run start`).
+    # Do NOT bind-mount the source tree onto /app here — it would shadow the
+    # image's built `.next`, production `node_modules`, and compiled output
+    # and break the runtime. For a live-reload dev loop, use `aries-app-dev`
+    # (the dev profile below) which runs `npm run dev` against the mounted
+    # source at /app.
     environment:
-      OPENCLAW_GATEWAY_URL: ${OPENCLAW_GATEWAY_URL:-http://host.docker.internal:18789}
+      PORT: ${PORT:-3000}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      AUTH_URL: ${AUTH_URL:-http://localhost:3000}
+      OPENCLAW_GATEWAY_URL: ${OPENCLAW_GATEWAY_URL:-http://host.docker.internal:3456}
       OPENCLAW_SESSION_KEY: ${OPENCLAW_SESSION_KEY:-main}
-      OPENCLAW_LOBSTER_CWD: ${OPENCLAW_LOBSTER_CWD:-/app/aries-app/lobster}
-      OPENCLAW_GATEWAY_LOBSTER_CWD: ${OPENCLAW_GATEWAY_LOBSTER_CWD:-lobster}
-      OPENCLAW_LOCAL_LOBSTER_CWD: ${OPENCLAW_LOCAL_LOBSTER_CWD:-/app/aries-app/lobster}
-    volumes:
-      - ./:/app/aries-app
+    ports:
+      - "${PORT:-3000}:${PORT:-3000}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -21,7 +26,8 @@ services:
     command: npm run dev
     environment:
       NODE_ENV: development
-      PORT: 8100
+      HOME: /home/node
+      PORT: ${PORT:-3000}
       CODE_ROOT: /app
       DATA_ROOT: /data
       GEMINI_API_KEY: ${GEMINI_API_KEY}
@@ -30,7 +36,7 @@ services:
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: ${DB_NAME}
-      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8100}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
       OAUTH_TOKEN_ENCRYPTION_KEY: ${OAUTH_TOKEN_ENCRYPTION_KEY}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
@@ -48,21 +54,32 @@ services:
       TIKTOK_CLIENT_SECRET: ${TIKTOK_CLIENT_SECRET}
       X_CLIENT_ID: ${X_CLIENT_ID}
       X_CLIENT_SECRET: ${X_CLIENT_SECRET}
-      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:8100}
-      AUTH_URL: ${AUTH_URL:-http://localhost:8100}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      AUTH_URL: ${AUTH_URL:-http://localhost:3000}
       AUTH_TRUST_HOST: ${AUTH_TRUST_HOST:-true}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
-      OPENCLAW_GATEWAY_URL: ${OPENCLAW_GATEWAY_URL:-http://host.docker.internal:18789}
+      OPENCLAW_GATEWAY_URL: ${OPENCLAW_GATEWAY_URL:-http://host.docker.internal:3456}
       OPENCLAW_SESSION_KEY: ${OPENCLAW_SESSION_KEY:-main}
       OPENCLAW_LOBSTER_CWD: ${OPENCLAW_LOBSTER_CWD:-/app/lobster}
       OPENCLAW_GATEWAY_LOBSTER_CWD: ${OPENCLAW_GATEWAY_LOBSTER_CWD:-lobster}
       OPENCLAW_LOCAL_LOBSTER_CWD: ${OPENCLAW_LOCAL_LOBSTER_CWD:-/app/lobster}
+      # Lobster stage cache dirs must resolve to the same absolute paths on the
+      # host (where OpenClaw/Lobster writes) and in the container (where Aries
+      # reads). The /data bind mount above shares ${ARIES_SHARED_DATA_ROOT} with
+      # the host, so as long as the host operator exports matching
+      # LOBSTER_STAGE{N}_CACHE_DIR values pointing at
+      # ${ARIES_SHARED_DATA_ROOT}/lobster-stage{N}-cache before starting
+      # OpenClaw, both sides see the same files. See DOCKER.md.
+      LOBSTER_STAGE1_CACHE_DIR: ${LOBSTER_STAGE1_CACHE_DIR:-/data/lobster-stage1-cache}
+      LOBSTER_STAGE2_CACHE_DIR: ${LOBSTER_STAGE2_CACHE_DIR:-/data/lobster-stage2-cache}
+      LOBSTER_STAGE3_CACHE_DIR: ${LOBSTER_STAGE3_CACHE_DIR:-/data/lobster-stage3-cache}
+      LOBSTER_STAGE4_CACHE_DIR: ${LOBSTER_STAGE4_CACHE_DIR:-/data/lobster-stage4-cache}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
     volumes:
       - ./:/app
-      - aries_runtime_data:/data
+      - ${ARIES_SHARED_DATA_ROOT:-/home/node/data}:/data
     ports:
-      - "8100:8100"
+      - "${PORT:-3000}:${PORT:-3000}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
