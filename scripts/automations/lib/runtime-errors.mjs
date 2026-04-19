@@ -341,9 +341,30 @@ function sortIncidents(items) {
   })
 }
 
+const repairableRuntimeIncidentStatuses = new Set(['open', 'repair_planned', 'repairing', 'retryable'])
+const unresolvedRuntimeIncidentStatuses = new Set(['open', 'repair_planned', 'repairing', 'retryable', 'escalated'])
+
 export function getPendingRuntimeIncidents({ includeEscalated = false } = {}) {
-  const allowed = new Set(includeEscalated ? ['open', 'repair_planned', 'repairing', 'retryable', 'escalated'] : ['open', 'repair_planned', 'repairing', 'retryable'])
+  const allowed = includeEscalated ? unresolvedRuntimeIncidentStatuses : repairableRuntimeIncidentStatuses
   return sortIncidents(loadRuntimeIncidentLog().items.filter((item) => allowed.has(item.status)))
+}
+
+export function summarizeRuntimeIncidentQueues(incidents = []) {
+  const pending = sortIncidents(incidents.filter((item) => repairableRuntimeIncidentStatuses.has(item.status)))
+  const escalated = sortIncidents(incidents.filter((item) => item.status === 'escalated'))
+  const unresolved = sortIncidents(incidents.filter((item) => unresolvedRuntimeIncidentStatuses.has(item.status)))
+
+  return {
+    pending,
+    escalated,
+    unresolved,
+    repairQueue: pending.length,
+    escalatedCount: escalated.length,
+    unresolvedCount: unresolved.length,
+    highestRepairSeverity: pending.length ? pending[0].severity : 'none',
+    highestSeverity: unresolved.length ? unresolved[0].severity : 'none',
+    nextStep: pending.length ? 'run repair loop' : escalated.length ? 'review escalated incidents' : 'none',
+  }
 }
 
 export function printJson(value) {
@@ -496,6 +517,8 @@ export function scanRuntimeErrors({ withBuild = false, withAutomationVerify = fa
     items: sortIncidents(nextItems),
   }
 
+  const summary = summarizeRuntimeIncidentQueues(nextLog.items)
+
   if (!dryRun) saveRuntimeIncidentLog(nextLog)
 
   return {
@@ -503,12 +526,15 @@ export function scanRuntimeErrors({ withBuild = false, withAutomationVerify = fa
     checks: checks.map((check) => ({ id: check.id, validationCommand: check.validationCommand })),
     stats,
     incidents: nextLog.items,
-    pending: nextLog.items.filter((item) => ['open', 'repair_planned', 'repairing', 'retryable'].includes(item.status)),
+    pending: summary.pending,
+    escalated: summary.escalated,
+    unresolved: summary.unresolved,
+    summary,
   }
 }
 
 export function emitScanSummary(result, { dryRun = false } = {}) {
-  const highestSeverity = result.pending.length ? result.pending[0].severity : 'none'
+  const summary = result.summary || summarizeRuntimeIncidentQueues(result.incidents || [])
   emitSummary([
     `status: ${result.stats.failedChecks > 0 ? 'attention' : 'ok'}`,
     `mode: ${dryRun ? 'dry-run' : 'live'}`,
@@ -518,8 +544,11 @@ export function emitScanSummary(result, { dryRun = false } = {}) {
     `ongoing_incidents: ${result.stats.ongoingIncidents}`,
     `reopened_incidents: ${result.stats.reopenedIncidents}`,
     `resolved_incidents: ${result.stats.resolvedIncidents}`,
-    `repair_queue: ${result.pending.length}`,
-    `highest_severity: ${highestSeverity}`,
-    `next_step: ${result.pending.length ? 'run repair loop' : 'none'}`,
+    `repair_queue: ${summary.repairQueue}`,
+    `escalated_incidents: ${summary.escalatedCount}`,
+    `unresolved_incidents: ${summary.unresolvedCount}`,
+    `highest_repair_severity: ${summary.highestRepairSeverity}`,
+    `highest_severity: ${summary.highestSeverity}`,
+    `next_step: ${summary.nextStep}`,
   ])
 }
