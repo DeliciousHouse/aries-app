@@ -145,7 +145,7 @@ function normalizePublishPreviewSlug(platform: Record<string, unknown>, previewI
   return canonicalizePublishReviewPlatformSlug(platform.platform_slug, `platform-${previewIndex + 1}`);
 }
 
-function sniffImageContentType(filePath: string): string | null {
+function sniffMediaContentType(filePath: string): string | null {
   try {
     const fd = openSync(filePath, 'r');
     try {
@@ -182,6 +182,13 @@ function sniffImageContentType(filePath: string): string | null {
       ) {
         return 'image/webp';
       }
+      // ISO Base Media File Format (mp4/mov/m4v/etc.) starts with a 4-byte
+      // size followed by the 'ftyp' box type. Sniffing the ftyp box lets us
+      // return the right video/mp4 content-type even when the extension is
+      // missing or misleading.
+      if (header.length >= 8 && header.subarray(4, 8).toString('ascii') === 'ftyp') {
+        return 'video/mp4';
+      }
     } finally {
       closeSync(fd);
     }
@@ -190,10 +197,10 @@ function sniffImageContentType(filePath: string): string | null {
   return null;
 }
 
-function contentTypeForAsset(filePath: string): string {
-  const sniffedImageType = sniffImageContentType(filePath);
-  if (sniffedImageType) {
-    return sniffedImageType;
+export function contentTypeForAsset(filePath: string): string {
+  const sniffedMediaType = sniffMediaContentType(filePath);
+  if (sniffedMediaType) {
+    return sniffedMediaType;
   }
 
   const ext = path.extname(filePath).toLowerCase();
@@ -209,6 +216,17 @@ function contentTypeForAsset(filePath: string): string {
       return 'image/webp';
     case '.svg':
       return 'image/svg+xml';
+    case '.mp4':
+      return 'video/mp4';
+    case '.m4v':
+      return 'video/x-m4v';
+    case '.mov':
+      return 'video/quicktime';
+    case '.webm':
+      return 'video/webm';
+    case '.ogv':
+    case '.ogg':
+      return 'video/ogg';
     case '.html':
       return 'text/html; charset=utf-8';
     case '.md':
@@ -222,12 +240,11 @@ function contentTypeForAsset(filePath: string): string {
     case '.js':
       return 'text/javascript; charset=utf-8';
     default:
-      // Fall back to text/plain rather than application/octet-stream so the
-      // browser renders an unknown text asset inline instead of forcing a
-      // file download. Binary types get correct headers above; anything that
-      // reaches this default is effectively a text file we haven't explicitly
-      // mapped yet, and inline-rendering is safer than surprise downloads.
-      return 'text/plain; charset=utf-8';
+      // Binary assets that don't match the explicit map above should fall
+      // back to application/octet-stream. The old default of text/plain
+      // forced the browser to attempt inline-rendering of bytes like .mp4
+      // that then broke because the response advertised itself as text.
+      return 'application/octet-stream';
   }
 }
 
@@ -394,16 +411,13 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
   };
 
   for (const asset of dashboardAssets) {
-    if (!asset.filePath || !/^(image|video)\//.test(asset.contentType ?? '')) {
+    if (!asset.filePath || !asset.contentType?.startsWith('image/')) {
       continue;
     }
     if (
       !asset.id.startsWith('publish-image-') &&
       !asset.id.startsWith('publish-fallback-') &&
-      !asset.id.startsWith('publish-video-') &&
-      !asset.id.startsWith('review-video-') &&
-      !asset.id.startsWith('image-') &&
-      !asset.id.startsWith('video-')
+      !asset.id.startsWith('image-')
     ) {
       continue;
     }

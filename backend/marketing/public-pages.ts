@@ -94,7 +94,7 @@ function normalizePublicPath(pathname: string): string | null {
   return `/${segments.join('/')}`;
 }
 
-function sniffImageContentType(filePath: string): string | null {
+function sniffMediaContentType(filePath: string): string | null {
   try {
     const buffer = readFileSync(filePath);
     if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
@@ -126,15 +126,21 @@ function sniffImageContentType(filePath: string): string | null {
     ) {
       return 'image/webp';
     }
+    // ISO Base Media File Format (mp4/mov/m4v/etc.) — second 4 bytes are
+    // the 'ftyp' box type. Treat any such container as video/mp4 so the
+    // browser can render it inline via <video>.
+    if (buffer.length >= 8 && buffer.subarray(4, 8).toString('ascii') === 'ftyp') {
+      return 'video/mp4';
+    }
   } catch {}
 
   return null;
 }
 
 function fileContentType(filePath: string): string {
-  const sniffedImageType = sniffImageContentType(filePath);
-  if (sniffedImageType) {
-    return sniffedImageType;
+  const sniffedMediaType = sniffMediaContentType(filePath);
+  if (sniffedMediaType) {
+    return sniffedMediaType;
   }
 
   const ext = path.extname(filePath).toLowerCase();
@@ -154,6 +160,17 @@ function fileContentType(filePath: string): string {
       return 'image/gif';
     case '.webp':
       return 'image/webp';
+    case '.mp4':
+      return 'video/mp4';
+    case '.m4v':
+      return 'video/x-m4v';
+    case '.mov':
+      return 'video/quicktime';
+    case '.webm':
+      return 'video/webm';
+    case '.ogv':
+    case '.ogg':
+      return 'video/ogg';
     case '.json':
       return 'application/json; charset=utf-8';
     case '.txt':
