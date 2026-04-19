@@ -875,3 +875,87 @@ test('dashboard adapter prefers live platform schedule signals over fallback eve
     assert.equal(content.calendarEvents[0]?.provenance.isPlatformNative, true);
   });
 });
+
+test('dashboard adapter surfaces rendered .mp4 video assets from veo contract fields', async () => {
+  await withDashboardEnv(async (env) => {
+    const jobId = 'video-ready';
+    const platformSlug = 'tiktok';
+    const doc: any = baseRuntimeDoc(jobId, 'tenant_dashboard');
+    doc.current_stage = 'publish';
+    doc.stages.production = stageRecord('production', 'completed', 'prod-run');
+    doc.stages.publish = stageRecord('publish', 'completed', 'publish-run');
+
+    const videoPath = path.join(
+      env.lobsterRoot,
+      'output',
+      'brand-example-stage2-plan',
+      platformSlug,
+      `${platformSlug}.mp4`,
+    );
+    const contractPath = path.join(
+      env.lobsterRoot,
+      'output',
+      'static-contracts',
+      'brand-example-stage2-plan',
+      `${platformSlug}-video.json`,
+    );
+    const posterPath = path.join(
+      env.lobsterRoot,
+      'output',
+      'publish-ready',
+      'brand-example-stage2-plan',
+      platformSlug,
+      `${platformSlug}.png`,
+    );
+    const copyPath = path.join(
+      env.lobsterRoot,
+      'output',
+      'publish-ready',
+      'brand-example-stage2-plan',
+      platformSlug,
+      `${platformSlug}.json`,
+    );
+
+    await writeText(videoPath, 'mp4-bytes');
+    await writeText(posterPath, 'png-poster');
+    await writeJson(copyPath, {
+      headline: 'TikTok launch package',
+      body_lines: ['proof', 'cta'],
+    });
+    await writeJson(contractPath, {
+      platform_slug: platformSlug,
+      rendered_video_paths_by_family: {
+        'family-a': videoPath,
+      },
+      rendered_video_path: videoPath,
+      expected_render_outputs: {
+        video_file: videoPath,
+      },
+    });
+    await writeJson(path.join(process.env.LOBSTER_STAGE4_CACHE_DIR!, 'publish-run', `${platformSlug}_publisher.json`), {
+      platform: platformSlug,
+      contract_path: contractPath,
+      generated_at: '2026-03-21T00:00:00.000Z',
+      publish_package: {
+        copy_path: copyPath,
+        image_path: posterPath,
+      },
+    });
+    await seedPlanner('plan-run');
+    await writeRuntimeDoc(jobId, doc);
+
+    const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
+    const content = getMarketingDashboardContent(jobId, {
+      referenceDate: new Date('2026-03-27T00:00:00.000Z'),
+    });
+
+    const videoAsset = content.assets.find((asset) => asset.type === 'video_ad');
+    assert.ok(videoAsset, 'expected a video_ad asset registered for .mp4 contract output');
+    assert.ok(
+      videoAsset!.id.startsWith(`publish-video-${platformSlug}`),
+      `expected asset id to start with publish-video-${platformSlug}, got ${videoAsset!.id}`,
+    );
+    assert.equal(videoAsset!.contentType, 'video/mp4');
+    assert.equal((content.campaigns[0]?.counts as any).videoAds, 1);
+  });
+});
