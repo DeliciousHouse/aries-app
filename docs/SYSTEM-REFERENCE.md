@@ -1,15 +1,16 @@
 # Aries System Reference
 
-Last refreshed Apr 19, 2026, 00:00 PDT.
+Last refreshed Apr 20, 2026, 00:00 PDT.
 
 ## What changed today
-- app/api/marketing/jobs/[jobId]/assets/[assetId]/handler.ts
-- app/api/marketing/jobs/[jobId]/workspace-assets/[assetId]/handler.ts
+- backend/marketing/asset-ingest.ts
 - backend/marketing/asset-library.ts
-- backend/marketing/asset-read.ts
-- backend/marketing/jobs-status.ts
-- backend/marketing/publish-review-asset-ids.ts
-- tests/frontend-api-layer.test.ts
+- backend/marketing/dashboard-content.ts
+- frontend/components/media-preview.tsx
+- backend/marketing/runtime-state.ts
+- docker-compose.yml
+- scripts/backfill-asset-ingest.mjs
+- tests/asset-ingest.test.ts
 
 ## Current architecture overview
 - Next.js App Router runtime serves the public site, authenticated operator shell, and browser-safe internal APIs.
@@ -19,12 +20,12 @@ Last refreshed Apr 19, 2026, 00:00 PDT.
 
 ## Module inventory
 - app/ 117 files
-- backend/ 76 files
+- backend/ 77 files
 - components/ 14 files
 - hooks/ 17 files
 - lib/ 25 files
-- scripts/ 31 files
-- skills/ 87 files
+- scripts/ 32 files
+- skills/ 88 files
 - workflows/ 4 files
 
 ## Active cron jobs
@@ -81,4 +82,4 @@ Last refreshed Apr 19, 2026, 00:00 PDT.
 - Working tree clean at refresh time.
 
 ## Reference date
-- 2026-04-19
+- 2026-04-20
