@@ -741,18 +741,201 @@ FAMILY_VISUAL_DIRECTIONS: dict[str, dict[str, str]] = {
 }
 
 
+def _visual_archetype_key(family_id: str) -> str:
+    """Return the static archetype key (e.g. 'outcome-proof') for a family id.
+
+    Same suffix-matching rule as before; split out so callers can pick either the
+    static dict entry or the synthesized direction while keeping the lookup
+    logic single-sourced.
+    """
+    normalized = (family_id or "").lower().strip()
+    for key in FAMILY_VISUAL_DIRECTIONS.keys():
+        if normalized.endswith(key) or key in normalized:
+            return key
+    return "outcome-proof"
+
+
 def _visual_direction_for_family(family_id: str) -> dict[str, str]:
     """Resolve the visual concept for a creative family.
 
     Matches by normalized id suffix so `meta-outcome-proof`, `instagram-outcome-proof`,
     etc. all map to the same underlying concept.
     """
-    normalized = (family_id or "").lower().strip()
-    for key, direction in FAMILY_VISUAL_DIRECTIONS.items():
-        if normalized.endswith(key) or key in normalized:
-            return direction
-    # Default to the "outcome proof" concept so we never ship a totally generic prompt.
-    return FAMILY_VISUAL_DIRECTIONS["outcome-proof"]
+    return FAMILY_VISUAL_DIRECTIONS[_visual_archetype_key(family_id)]
+
+
+# Cache synthesized directions per (brand_slug, archetype) so the four platform
+# variants of the same family share one Gemini call and subsequent stage4 runs
+# for the same brand stay cheap. Module-level is fine: the Python process is
+# short-lived (one pipeline invocation) and each family/brand pair is resolved
+# at most a handful of times per run.
+_VISUAL_DIRECTION_CACHE: dict[tuple[str, str], dict[str, str]] = {}
+
+
+def _gemini_text_call(prompt: str, model_name: str) -> str:
+    """Fire a one-shot text completion at Gemini. Returns the raw text or ''.
+
+    Kept local to stage4 so the static-image prompt builder doesn't pull in
+    stage2's helper just for one call. Matches the same endpoint shape the
+    image flow already uses further down this file.
+    """
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        return ""
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{model_name}:generateContent?key={api_key}"
+    )
+    body = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{"text": prompt}],
+            }
+        ]
+    }
+    try:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(body).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=30.0) as response:
+            parsed = json.loads(response.read().decode("utf-8", errors="replace"))
+        candidates = parsed.get("candidates", [])
+        if not candidates:
+            return ""
+        parts = candidates[0].get("content", {}).get("parts", [])
+        return "\n".join(part.get("text", "") for part in parts if part.get("text")).strip()
+    except Exception as exc:
+        sys.stderr.write(f"[stage4] gemini text call failed: {type(exc).__name__}: {exc}\n")
+        sys.stderr.flush()
+        return ""
+
+
+def _extract_json_object(raw: str) -> dict:
+    """Pull the first top-level JSON object out of a possibly-fenced LLM reply."""
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+    match = re.search(r"\{.*\}", raw, flags=re.DOTALL)
+    if not match:
+        return {}
+    try:
+        parsed = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def synthesize_visual_direction(
+    brand_context: dict,
+    family_id: str,
+    headline: str,
+) -> dict[str, str]:
+    """LLM-generate a scene direction grounded in the specific brand.
+
+    Falls back to FAMILY_VISUAL_DIRECTIONS when brand_context is empty, when
+    GEMINI_API_KEY is missing, or when the model returns something we can't
+    parse, so the stage4 pipeline still ships an image no matter what.
+    """
+    archetype = _visual_archetype_key(family_id)
+    fallback = FAMILY_VISUAL_DIRECTIONS[archetype]
+
+    brand_slug = str(brand_context.get("brand_slug") or "").strip() or "unknown"
+    brand_name = str(brand_context.get("brand_name") or "").strip()
+    positioning = str(brand_context.get("positioning") or "").strip()
+    audience = str(brand_context.get("audience") or "").strip()
+    problem = str(brand_context.get("problem_statement") or "").strip()
+    offer = str(brand_context.get("offer") or "").strip()
+    style_vibe = str(brand_context.get("style_vibe") or "").strip()
+    business_type = str(brand_context.get("business_type") or "").strip()
+    voice_list = brand_context.get("brand_voice") or []
+    if not isinstance(voice_list, list):
+        voice_list = []
+    voice = ", ".join([str(v).strip() for v in voice_list if str(v).strip()][:4])
+
+    # If we have effectively no brand signal, don't bother calling Gemini —
+    # the result would just be another generic scene. Hardcoded dict wins.
+    if not any([positioning, audience, offer, style_vibe, business_type]):
+        return fallback
+
+    cache_key = (brand_slug, archetype)
+    cached = _VISUAL_DIRECTION_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    archetype_briefs = {
+        "outcome-proof": "Hero a single bold proof statistic or concrete outcome, magazine-cover energy.",
+        "problem-to-promise": "Intimate, documentary, native-organic feel — looks like a real user post, not an ad.",
+        "offer-clarity": "Clean product/offer demo composition, premium launch-page polish, minimal elements.",
+        "differentiated-proof": "Side-by-side or contrasted composition that anchors the brand's unique angle.",
+    }
+    archetype_brief = archetype_briefs.get(archetype, archetype_briefs["outcome-proof"])
+
+    prompt = "\n".join(
+        [
+            "You are art-directing ONE static marketing image for a specific brand.",
+            "Write a scene direction that is visually specific to THIS brand, not a generic marketing archetype.",
+            "",
+            "Brand identity:",
+            f"- Brand: {brand_name or brand_slug}",
+            f"- Business type: {business_type or 'n/a'}",
+            f"- Positioning: {positioning or 'n/a'}",
+            f"- Audience: {audience or 'n/a'}",
+            f"- Problem it solves: {problem or 'n/a'}",
+            f"- Offer: {offer or 'n/a'}",
+            f"- Voice attributes: {voice or 'n/a'}",
+            f"- Style vibe: {style_vibe or 'n/a'}",
+            "",
+            f"Creative archetype to honor: {archetype}",
+            f"Archetype brief: {archetype_brief}",
+            f"Ad headline to render: {headline}",
+            "",
+            "Return ONLY a single JSON object (no prose, no code fences) with exactly three string keys:",
+            '  "concept": a short (<= 10 word) name for the visual concept, brand-specific',
+            '  "scene":   one paragraph, concrete, naming subjects/props/environments/lighting a photographer could shoot; grounded in the brand (materials, environments, tools, people that match THIS business)',
+            '  "style":   a short phrase describing the photographic/visual style and mood',
+            "",
+            "Do NOT mention the headline text, logos, brand names, or UI elements in the scene.",
+            "Do NOT reuse the archetype brief verbatim — translate it into this brand's world.",
+            "Avoid generic Apple-keynote / startup-launch tropes unless this brand is genuinely a tech launch.",
+        ]
+    )
+
+    model_name = os.environ.get("LOBSTER_STAGE4_TEXT_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash"
+    raw = _gemini_text_call(prompt, model_name)
+    parsed = _extract_json_object(raw)
+
+    concept = normalize_space(str(parsed.get("concept") or ""))
+    scene = normalize_space(str(parsed.get("scene") or ""))
+    style = normalize_space(str(parsed.get("style") or ""))
+
+    # Partial responses are still better than a generic archetype IF the scene
+    # came through, since scene is the field that actually steers the image
+    # model. If scene is missing, fall back fully.
+    if not scene:
+        _VISUAL_DIRECTION_CACHE[cache_key] = fallback
+        return fallback
+
+    direction = {
+        "concept": concept or fallback["concept"],
+        "scene": scene,
+        "style": style or fallback["style"],
+    }
+    _VISUAL_DIRECTION_CACHE[cache_key] = direction
+    sys.stderr.write(
+        f"[stage4] synthesized visual direction brand={brand_slug} archetype={archetype} "
+        f"concept={direction['concept']!r}\n"
+    )
+    sys.stderr.flush()
+    return direction
 
 
 def static_image_prompt(contract: dict) -> str:
@@ -762,7 +945,11 @@ def static_image_prompt(contract: dict) -> str:
     headline = normalize_space(str(creative.get("headline", "")))
     cta = normalize_space(str(creative.get("primary_cta", "")))
     family_id = str(contract.get("family_id") or creative.get("family_id") or "")
-    visual = _visual_direction_for_family(family_id)
+    brand_context = record_or_empty(contract.get("brand_context"))
+    # Try to LLM-synthesize a brand-specific scene; the function itself falls
+    # back to the static FAMILY_VISUAL_DIRECTIONS dict when brand signal is
+    # missing or Gemini can't be reached, so callers always get a usable dict.
+    visual = synthesize_visual_direction(brand_context, family_id, headline)
 
     # Aspect ratio hint kept at the very top so the model doesn't default to square.
     # The headline is passed as EXACT text the model should render, nothing else.

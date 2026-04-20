@@ -35,6 +35,7 @@ def _family_contract(
     design_tokens: dict,
     aspect_ratio: str,
     platform_label: str,
+    brand_context: dict,
 ) -> dict:
     family_id = str(family.get("family_id") or family.get("family_name") or "unknown")
     hook = validate_copy_text(
@@ -66,6 +67,40 @@ def _family_contract(
         },
         "layout": {"aspect_ratio": aspect_ratio},
         "brand_tokens": design_tokens,
+        # Per-brand scene synthesis: the stage-4 image prompt builder uses these
+        # fields to LLM-generate a visual concept grounded in the brand instead
+        # of defaulting to the same 4 hardcoded archetypes for every company.
+        # If everything here is empty the builder falls back to the static dict.
+        "brand_context": brand_context,
+    }
+
+
+def _build_brand_context(brief: dict, brand_slug: str) -> dict:
+    creative_handoff = record_or_empty(brief.get("creative_handoff"))
+    brand_identity = record_or_empty(brief.get("brand_identity"))
+    brand_kit = record_or_empty(brief.get("brand_kit") or creative_handoff.get("brand_kit"))
+    brand_voice = brief.get("brand_voice") or creative_handoff.get("brand_voice") or []
+    if not isinstance(brand_voice, list):
+        brand_voice = []
+    return {
+        "brand_slug": brand_slug,
+        "brand_name": str(brief.get("brand_name") or creative_handoff.get("brand_name") or "").strip(),
+        "positioning": str(brief.get("positioning") or brand_identity.get("positioning") or "").strip(),
+        "audience": str(brief.get("audience_summary") or brand_identity.get("audience") or "").strip(),
+        "problem_statement": str(brief.get("problem_statement") or "").strip(),
+        "offer": str(brief.get("offer_summary") or brand_identity.get("offer") or "").strip(),
+        "brand_voice": [str(v).strip() for v in brand_voice if str(v).strip()][:6],
+        "style_vibe": str(
+            creative_handoff.get("style_vibe")
+            or brand_identity.get("styleVibe")
+            or brand_kit.get("style_vibe")
+            or ""
+        ).strip(),
+        "business_type": str(
+            brand_kit.get("business_type")
+            or creative_handoff.get("business_type")
+            or ""
+        ).strip(),
     }
 
 
@@ -88,6 +123,7 @@ def main() -> int:
     design_tokens = record_or_empty(brief.get("design_tokens") or record_or_empty(brief.get("creative_handoff")).get("design_tokens"))
     palette = record_or_empty(design_tokens.get("palette"))
     typography = record_or_empty(design_tokens.get("typography"))
+    brand_context = _build_brand_context(brief, brand_slug)
 
     paths = brand_output_paths(brand_slug)
     ad_images_dir = paths["ad_images_dir"]
@@ -120,6 +156,7 @@ def main() -> int:
             design_tokens,
             platform["aspect_ratio"],
             platform["platform_label"],
+            brand_context,
         )
         return {
             "family_index": index,
