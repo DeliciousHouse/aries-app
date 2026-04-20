@@ -52,7 +52,13 @@ function lobsterRoots(): string[] {
 }
 
 function lobsterOutputRoots(): string[] {
-  return lobsterRoots().map((root) => path.join(root, 'output'));
+  // See real-artifacts.lobsterOutputRoots for why the host bind-mount is included.
+  const hostMount = process.env.ARIES_LOBSTER_HOST_OUTPUT_MOUNT?.trim();
+  const roots = lobsterRoots().map((root) => path.join(root, 'output'));
+  if (hostMount) {
+    roots.push(path.normalize(hostMount));
+  }
+  return Array.from(new Set(roots));
 }
 
 function readJsonIfExists(filePath: string | null | undefined): Record<string, unknown> | null {

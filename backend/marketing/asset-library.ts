@@ -76,6 +76,12 @@ function assetRoots(): string[] {
 }
 
 function outputRoots(): string[] {
+  // Include the host bind-mount (ARIES_LOBSTER_HOST_OUTPUT_MOUNT) so the
+  // container can resolve asset files the host's Lobster pipeline wrote to
+  // the host's lobster/output directory. Matches the roots resolved in
+  // real-artifacts.ts / dashboard-content.ts / public-pages.ts /
+  // stage-artifact-resolution.ts.
+  const hostMount = process.env.ARIES_LOBSTER_HOST_OUTPUT_MOUNT?.trim();
   return Array.from(
     new Set(
       [
@@ -86,6 +92,7 @@ function outputRoots(): string[] {
           ? path.join(process.env.OPENCLAW_LOBSTER_CWD.trim(), 'output')
           : null,
         path.join(resolveCodeRoot(), 'lobster', 'output'),
+        hostMount ? path.normalize(hostMount) : null,
       ].filter((value): value is string => typeof value === 'string' && value.length > 0),
     ),
   );

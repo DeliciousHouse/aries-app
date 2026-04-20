@@ -80,7 +80,12 @@ function lobsterRoots(): string[] {
 }
 
 function lobsterOutputRoots(): string[] {
-  return lobsterRoots().map((root) => path.join(root, 'output'));
+  // See real-artifacts.lobsterOutputRoots for why the host bind-mount is included.
+  const hostMount = process.env.ARIES_LOBSTER_HOST_OUTPUT_MOUNT?.trim();
+  return uniqueStrings([
+    ...lobsterRoots().map((root) => path.join(root, 'output')),
+    hostMount ? path.normalize(hostMount) : null,
+  ]);
 }
 
 function readJsonIfExists(filePath: string | null | undefined): Record<string, unknown> | null {
