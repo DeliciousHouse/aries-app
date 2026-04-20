@@ -191,8 +191,7 @@ function withBusinessProfileDefaults(
   const payloadBrandUrl = stringValue(payload.websiteUrl || payload.brandUrl);
   const tenantBrandUrl = stringValue(defaults.websiteUrl);
   const brandUrlsMatch =
-    !payloadBrandUrl ||
-    !tenantBrandUrl ||
+    Boolean(payloadBrandUrl && tenantBrandUrl) &&
     normalizeBrandUrlForComparison(payloadBrandUrl) === normalizeBrandUrlForComparison(tenantBrandUrl);
 
   const tenantIdentityMappings: Array<[keyof typeof defaults, string[]]> = [
