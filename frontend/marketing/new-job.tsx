@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, type FormEvent } from 'react';
+import React, { useEffect, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, FileUp, Rocket, Sparkles } from 'lucide-react';
+import { ArrowRight, FileUp, LoaderCircle, Rocket, Sparkles } from 'lucide-react';
 
 import type { MarketingApiError } from '@/lib/api/marketing';
 import { validateCanonicalCompetitorUrl } from '@/lib/marketing-competitor';
@@ -26,6 +26,16 @@ export interface MarketingNewJobScreenProps {
   redirectMode?: 'status' | 'dashboard';
 }
 
+const SUBMIT_PROGRESS_MESSAGES = [
+  'Saving brief',
+  'Uploading brand assets',
+  'Preparing workspace',
+  'Starting review flow',
+  'Starting campaign',
+];
+
+const FINAL_SUBMIT_PROGRESS_INDEX = SUBMIT_PROGRESS_MESSAGES.length - 1;
+
 export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
   const router = useRouter();
   const marketingCreate = useMarketingJobCreate(props.clientOptions);
@@ -40,7 +50,30 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
   const [competitorUrl, setCompetitorUrl] = useState('');
   const [brandAssets, setBrandAssets] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [submitProgress, setSubmitProgress] = useState({ stepIndex: 0, dotCount: 0 });
   const [errorText, setErrorText] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!submitting) {
+      setSubmitProgress({ stepIndex: 0, dotCount: 0 });
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setSubmitProgress((current) => {
+        if (current.stepIndex < FINAL_SUBMIT_PROGRESS_INDEX) {
+          return { stepIndex: current.stepIndex + 1, dotCount: 0 };
+        }
+
+        return {
+          stepIndex: current.stepIndex,
+          dotCount: (current.dotCount % 3) + 1,
+        };
+      });
+    }, 1300);
+
+    return () => window.clearInterval(intervalId);
+  }, [submitting]);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -88,6 +121,7 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
     }
 
     setSubmitting(true);
+    let shouldResetSubmitting = true;
     try {
       const response = await marketingCreate.createJob(formData);
       if (!response) {
@@ -103,13 +137,19 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
       }
 
       if (props.redirectMode === 'dashboard') {
+        setSubmitProgress({ stepIndex: FINAL_SUBMIT_PROGRESS_INDEX, dotCount: 1 });
+        shouldResetSubmitting = false;
         router.push(`/dashboard/campaigns/${encodeURIComponent(response.jobId)}?view=brand`);
         return;
       }
 
+      setSubmitProgress({ stepIndex: FINAL_SUBMIT_PROGRESS_INDEX, dotCount: 1 });
+      shouldResetSubmitting = false;
       router.push(response.jobStatusUrl ?? `/marketing/job-status?jobId=${encodeURIComponent(response.jobId)}`);
     } finally {
-      setSubmitting(false);
+      if (shouldResetSubmitting) {
+        setSubmitting(false);
+      }
     }
   }
 
@@ -117,6 +157,10 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
     ? 'space-y-6'
     : 'min-h-screen bg-background px-6 py-10 md:px-8 lg:px-10';
   const contentClassName = props.embedded ? 'grid gap-6' : 'max-w-7xl mx-auto grid gap-6';
+  const isFinalSubmitMessage = submitting && submitProgress.stepIndex === FINAL_SUBMIT_PROGRESS_INDEX;
+  const submitButtonLabel = submitting
+    ? `${SUBMIT_PROGRESS_MESSAGES[submitProgress.stepIndex]}${isFinalSubmitMessage ? '.'.repeat(Math.max(submitProgress.dotCount, 1)) : ''}`
+    : 'Start campaign';
 
   return (
     <div className={wrapperClassName}>
@@ -260,7 +304,10 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
                 className="w-full rounded-full bg-gradient-to-r from-primary to-secondary px-6 py-4 text-white font-semibold shadow-xl shadow-primary/20 disabled:opacity-60 disabled:cursor-not-allowed"
                 aria-describedby={!websiteUrl.trim() && !submitting ? 'start-campaign-hint' : undefined}
               >
-                {submitting ? 'Starting campaign...' : 'Start campaign'}
+                <span className="inline-flex items-center justify-center gap-2">
+                  {submitting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+                  {submitButtonLabel}
+                </span>
               </button>
               {!websiteUrl.trim() && !submitting && (
                 <p id="start-campaign-hint" className="mt-2 text-center text-xs text-white/45">

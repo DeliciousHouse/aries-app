@@ -26,7 +26,7 @@ export default function LoginPageClient() {
   const searchParams = useSearchParams();
   const [isLoading, setIsLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const callbackUrl = '/auth/post-login';
+  const callbackUrl = searchParams.get('callbackUrl') || '/auth/post-login';
   const defaultEmail = searchParams.get('email') || '';
   const savedMessage = useMemo(() => {
     if (searchParams.get('reset') === 'success') {

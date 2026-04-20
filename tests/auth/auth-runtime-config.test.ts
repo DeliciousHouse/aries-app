@@ -23,6 +23,18 @@ test("falls back to APP_BASE_URL when auth URLs are unset", () => {
   assert.equal(config.authUrl, "https://aries.sugarandleather.com");
 });
 
+test("ignores loopback auth URLs during development so request host can drive callbacks", () => {
+  const config = resolveAuthRuntimeConfig({
+    NODE_ENV: "development",
+    NEXTAUTH_URL: "http://localhost:8100",
+    AUTH_URL: "http://localhost:8100",
+    APP_BASE_URL: "http://localhost:8100",
+  });
+
+  assert.equal(config.authUrl, undefined);
+  assert.equal(config.trustHost, true);
+});
+
 test("uses AUTH_TRUST_HOST when explicitly set", () => {
   const trustDisabled = resolveAuthRuntimeConfig({
     NODE_ENV: "production",

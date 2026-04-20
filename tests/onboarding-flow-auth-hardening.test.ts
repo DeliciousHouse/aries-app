@@ -17,7 +17,7 @@ test('authenticated onboarding flow avoids demo fallbacks and sample tenant defa
     'utf8',
   );
   const signUpPageSource = readFileSync(
-    path.join(PROJECT_ROOT, 'app/signup/page.tsx'),
+    path.join(PROJECT_ROOT, 'app/signup/page-client.tsx'),
     'utf8',
   );
   const signUpFormSource = readFileSync(
@@ -42,6 +42,7 @@ test('authenticated onboarding flow avoids demo fallbacks and sample tenant defa
   assert.doesNotMatch(onboardingSource, /\/api\/marketing\/jobs/);
   assert.match(loginSource, /Your setup for/);
   assert.match(loginSource, /callbackUrl/);
+  assert.match(loginSource, /searchParams\.get\('callbackUrl'\) \|\| '\/auth\/post-login'/);
   assert.match(signUpPageSource, /callbackUrl/);
   assert.match(signUpPageSource, /Your setup for/);
   assert.match(signUpFormSource, /savedStateMessage/);
