@@ -1655,8 +1655,11 @@ function resolveDashboardAssetFilePath(
     const hostOutputDir = process.env.ARIES_LOBSTER_HOST_OUTPUT_DIR?.trim()
     const hostOutputMount = process.env.ARIES_LOBSTER_HOST_OUTPUT_MOUNT?.trim()
     if (hostOutputDir && hostOutputMount) {
-      const normalizedHostDir = path.normalize(hostOutputDir)
-      const normalizedHostMount = path.normalize(hostOutputMount)
+      // path.resolve (not path.normalize) so a trailing slash on the env
+      // var doesn't produce `/foo//` in the startsWith guard and silently
+      // no-op the remap.
+      const normalizedHostDir = path.resolve(hostOutputDir)
+      const normalizedHostMount = path.resolve(hostOutputMount)
       if (
         normalized === normalizedHostDir ||
         normalized.startsWith(`${normalizedHostDir}${path.sep}`)
