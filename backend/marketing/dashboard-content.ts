@@ -552,10 +552,6 @@ function sniffIsoBmffContentType(filePath: string): string | null {
   return null
 }
 
-function sniffMediaContentType(filePath: string): string | null {
-  return sniffImageContentType(filePath) ?? sniffIsoBmffContentType(filePath)
-}
-
 function contentTypeForAsset(filePath: string): string {
   // Image bytes are unambiguous, so let the magic bytes override the
   // extension when they disagree (preview snapshots routinely keep their
