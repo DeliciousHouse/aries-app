@@ -143,3 +143,28 @@ test('calendar view-model uses runtime calendar events for the month grid', () =
   assert.match(model.events[0].scheduledFor, /Spring Launch/);
   assert.equal(model.hero.metrics[0]?.value, '2');
 });
+
+test('calendar view-model relabels landing page events as Reddit', () => {
+  const model = createCalendarViewModel([
+    buildCampaign({
+      dashboard: {
+        campaign: null,
+        posts: [],
+        assets: [],
+        publishItems: [],
+        calendarEvents: [
+          buildCalendarEvent({
+            id: 'event-reddit-1',
+            platform: 'landing-page',
+            platformLabel: 'Landing Page',
+          }),
+        ],
+        statuses: buildStatusSummary({
+          scheduled: 1,
+        }),
+      },
+    }),
+  ]);
+
+  assert.equal(model.events[0]?.platform, 'Reddit');
+});

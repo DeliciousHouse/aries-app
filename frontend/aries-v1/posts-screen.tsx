@@ -202,9 +202,9 @@ export default function AriesPostsScreen() {
         eyebrow="Posts"
         title="Ready-to-publish inventory"
         action={
-          <Link href="/dashboard/calendar" className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-semibold text-primary">
+          <Link href="/dashboard/calendar" className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-semibold !text-black">
             Open calendar
-            <ArrowRight className="h-4 w-4 text-primary" />
+            <ArrowRight className="h-4 w-4 !text-black" />
           </Link>
         }
       >
