@@ -1646,6 +1646,28 @@ function resolveDashboardAssetFilePath(
       compatibilityCandidates.add(path.join(codeRoot, suffix))
     }
 
+    // Host-output → bind-mount remap. Runtime docs written by the host's
+    // Lobster pipeline pin absolute paths under ARIES_LOBSTER_HOST_OUTPUT_DIR;
+    // inside this container that tree is only reachable via the read-only
+    // bind mount at ARIES_LOBSTER_HOST_OUTPUT_MOUNT. Without this remap the
+    // dashboard drops creative image assets and falls through to
+    // creativeReviewReason='no_real_creative_assets'.
+    const hostOutputDir = process.env.ARIES_LOBSTER_HOST_OUTPUT_DIR?.trim()
+    const hostOutputMount = process.env.ARIES_LOBSTER_HOST_OUTPUT_MOUNT?.trim()
+    if (hostOutputDir && hostOutputMount) {
+      const normalizedHostDir = path.normalize(hostOutputDir)
+      const normalizedHostMount = path.normalize(hostOutputMount)
+      if (
+        normalized === normalizedHostDir ||
+        normalized.startsWith(`${normalizedHostDir}${path.sep}`)
+      ) {
+        const hostSuffix = normalized.slice(normalizedHostDir.length).replace(/^[\\/]+/, '')
+        compatibilityCandidates.add(
+          hostSuffix ? path.join(normalizedHostMount, hostSuffix) : normalizedHostMount,
+        )
+      }
+    }
+
     for (const compatibilityCandidate of compatibilityCandidates) {
       if (existsSync(compatibilityCandidate)) {
         return compatibilityCandidate
