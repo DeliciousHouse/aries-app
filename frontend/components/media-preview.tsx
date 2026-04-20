@@ -82,8 +82,6 @@ export default function MediaPreview(props: MediaPreviewProps) {
     // events on the native controls and the play button stops working.
     // In video mode, `props.href` is intentionally ignored; link wrapping
     // only applies to the image/fallback rendering paths below.
-    // In video mode, `props.href` is intentionally ignored; link wrapping
-    // only applies to the image/fallback rendering paths below.
     return (
       <div className={props.className}>
         {/* eslint-disable-next-line jsx-a11y/media-has-caption */}

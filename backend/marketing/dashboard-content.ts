@@ -552,10 +552,6 @@ function sniffIsoBmffContentType(filePath: string): string | null {
   return null
 }
 
-function sniffMediaContentType(filePath: string): string | null {
-  return sniffImageContentType(filePath) ?? sniffIsoBmffContentType(filePath)
-}
-
 function contentTypeForAsset(filePath: string): string {
   // Image bytes are unambiguous, so let the magic bytes override the
   // extension when they disagree (preview snapshots routinely keep their
@@ -2218,7 +2214,12 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
       funnelStage,
       objective,
       destinationUrl: stringValue(assetPaths.landing_page_path) || brandUrl,
-      previewAssetId: assetIds[0] || null,
+      // Prefer a rendered ad image for this platform. When `media_paths` is
+      // empty (render never fired or publish bundle didn't wire the PNGs in),
+      // `assetIds[0]` is the contract JSON, which the UI then surfaces as an
+      // "image preview" that opens raw JSON on click. `creativeAssetIdsByPlatform`
+      // holds the actual image-* descriptors scanned from `ad-images/`.
+      previewAssetId: (creativeAssetIdsByPlatform.get(platform) || [])[0] || assetIds[0] || null,
       status: publishStatus,
       createdAt: deriveSourceTimestamp(preview.generated_at, context.status.updatedAt),
       relatedAssetIds: assetIds,
@@ -2244,7 +2245,7 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
       funnelStage,
       objective,
       destinationUrl: stringValue(assetPaths.landing_page_path) || brandUrl,
-      previewAssetId: assetIds[0] || null,
+      previewAssetId: (creativeAssetIdsByPlatform.get(platform) || [])[0] || assetIds[0] || null,
       status: publishStatus,
       createdAt: deriveSourceTimestamp(preview.generated_at, context.status.updatedAt),
       conceptId: slugify(title, `preview-${index + 1}`),

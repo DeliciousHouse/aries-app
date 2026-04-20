@@ -1,14 +1,18 @@
 import {
-  copyFileSync,
+  closeSync,
   existsSync,
   mkdirSync,
-  readFileSync,
+  openSync,
+  readSync,
   renameSync,
   statSync,
-  writeFileSync,
+  unlinkSync,
+  writeSync,
 } from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
+
+const INGEST_CHUNK_BYTES = 64 * 1024;
 
 import { resolveDataRoot } from '@/lib/runtime-paths';
 
@@ -105,8 +109,11 @@ function remapHostPath(absPath: string, ctx: IngestContext): string {
   return absPath;
 }
 
-function destinationFor(ctx: IngestContext, sha: string, basename: string): string {
-  return path.join(ctx.dataRoot, INGEST_SUBDIR, sha.slice(0, 2), sha, basename);
+function destinationFor(ctx: IngestContext, sha: string, ext: string): string {
+  // Content-addressed: identical bytes land in the same file regardless of the
+  // source filename. Extension is preserved so readers that dispatch on `.ext`
+  // (content-type sniffing, Next.js `<Image>`, etc.) still work.
+  return path.join(ctx.dataRoot, INGEST_SUBDIR, sha.slice(0, 2), `${sha}${ext}`);
 }
 
 function ingestOne(original: string, ctx: IngestContext): string {
@@ -133,34 +140,75 @@ function ingestOne(original: string, ctx: IngestContext): string {
     return original;
   }
 
-  let bytes: Buffer;
+  // Stream the bytes through a single pass so peak memory stays at the chunk
+  // size (64 KB) regardless of asset size — a 200 MB video should not spike
+  // container RSS by 200 MB just because someone saved the runtime doc.
+  const stagingDir = path.join(ctx.dataRoot, INGEST_SUBDIR);
+  let srcFd = -1;
+  let tmpFd = -1;
+  let tmp = '';
+  const hash = crypto.createHash('sha256');
+  let totalBytes = 0;
   try {
-    bytes = readFileSync(readable);
+    srcFd = openSync(readable, 'r');
   } catch {
     ctx.result.skipped.push({ path: original, reason: 'unreadable' });
     ctx.cache.set(original, original);
     return original;
   }
 
-  const sha = crypto.createHash('sha256').update(bytes).digest('hex');
-  const basename = path.basename(normalized);
-  const dest = destinationFor(ctx, sha, basename);
+  try {
+    mkdirSync(stagingDir, { recursive: true });
+    tmp = path.join(
+      stagingDir,
+      `.ingest-tmp-${process.pid}-${crypto.randomBytes(6).toString('hex')}`,
+    );
+    tmpFd = openSync(tmp, 'wx');
 
-  if (!existsSync(dest)) {
+    const buf = Buffer.allocUnsafe(INGEST_CHUNK_BYTES);
+    for (;;) {
+      const n = readSync(srcFd, buf, 0, buf.length, null);
+      if (n <= 0) break;
+      hash.update(buf.subarray(0, n));
+      writeSync(tmpFd, buf, 0, n);
+      totalBytes += n;
+    }
+  } catch (err) {
+    try { if (tmpFd >= 0) closeSync(tmpFd); } catch {}
+    try { if (srcFd >= 0) closeSync(srcFd); } catch {}
+    if (tmp) { try { unlinkSync(tmp); } catch {} }
+    console.warn('[asset-ingest] stream copy failed, keeping original path', {
+      source: readable,
+      code: (err as NodeJS.ErrnoException | null)?.code,
+    });
+    ctx.result.skipped.push({ path: original, reason: 'unreadable' });
+    ctx.cache.set(original, original);
+    return original;
+  }
+
+  closeSync(tmpFd);
+  closeSync(srcFd);
+
+  const sha = hash.digest('hex');
+  const ext = path.extname(normalized);
+  const dest = destinationFor(ctx, sha, ext);
+
+  if (existsSync(dest)) {
+    // Content-addressed dedupe: another save already landed these exact
+    // bytes. Drop our tmp and point at the canonical copy.
+    try { unlinkSync(tmp); } catch {}
+  } else {
     mkdirSync(path.dirname(dest), { recursive: true });
-    // Write to a temp file and rename to avoid partial-read races if two
-    // saves fight over the same sha in parallel.
-    const tmp = `${dest}.tmp-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
     try {
-      writeFileSync(tmp, bytes);
       renameSync(tmp, dest);
     } catch (err) {
-      // EEXIST after the existsSync check means a sibling writer won; that's
-      // fine. Anything else we log and keep the original path so we don't
-      // break the save.
+      // Lost the race with a sibling writer (EEXIST) — identical bytes under
+      // the same sha, so the end state is still correct. Anything else we
+      // log and fall back to the original path.
+      try { unlinkSync(tmp); } catch {}
       const code = (err as NodeJS.ErrnoException | null)?.code;
       if (code !== 'EEXIST') {
-        console.warn('[asset-ingest] copy failed, keeping original path', {
+        console.warn('[asset-ingest] rename failed, keeping original path', {
           source: readable,
           dest,
           code,
@@ -176,7 +224,7 @@ function ingestOne(original: string, ctx: IngestContext): string {
     try {
       return statSync(dest).size;
     } catch {
-      return bytes.length;
+      return totalBytes;
     }
   })();
 

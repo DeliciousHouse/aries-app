@@ -214,10 +214,6 @@ function sniffIsoBmffContentType(filePath: string): string | null {
   return null;
 }
 
-function sniffMediaContentType(filePath: string): string | null {
-  return sniffImageContentType(filePath) ?? sniffIsoBmffContentType(filePath);
-}
-
 export function contentTypeForAsset(filePath: string): string {
   // Image magic bytes are unambiguous (a JPEG header can only mean JPEG, a
   // PNG signature can only mean PNG, etc.), so we let the bytes override
