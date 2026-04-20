@@ -60,10 +60,16 @@ services:
       LOBSTER_STAGE2_CACHE_DIR: ${LOBSTER_STAGE2_CACHE_DIR:-/data/lobster-stage2-cache}
       LOBSTER_STAGE3_CACHE_DIR: ${LOBSTER_STAGE3_CACHE_DIR:-/data/lobster-stage3-cache}
       LOBSTER_STAGE4_CACHE_DIR: ${LOBSTER_STAGE4_CACHE_DIR:-/data/lobster-stage4-cache}
+      # Host lobster/output mount is read by asset-ingest to copy generated
+      # assets into DATA_ROOT at ingest time. Keep _DIR/_MOUNT in sync with
+      # the bind mount below so asset-ingest can remap host paths.
+      ARIES_LOBSTER_HOST_OUTPUT_DIR: ${ARIES_LOBSTER_HOST_OUTPUT_DIR:-/home/node/openclaw/aries-app/lobster/output}
+      ARIES_LOBSTER_HOST_OUTPUT_MOUNT: ${ARIES_LOBSTER_HOST_OUTPUT_MOUNT:-/host-lobster-output}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - ${ARIES_SHARED_DATA_ROOT:-/home/node/data}:/data
+      - ${ARIES_LOBSTER_HOST_OUTPUT_DIR:-/home/node/openclaw/aries-app/lobster/output}:${ARIES_LOBSTER_HOST_OUTPUT_MOUNT:-/host-lobster-output}:ro
       - gh_config:/home/node/.config/gh
     restart: unless-stopped
     healthcheck:

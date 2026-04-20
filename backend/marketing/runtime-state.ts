@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { normalizeMetaLocatorUrl, normalizeMetaPageId } from '@/lib/marketing-competitor';
 import { describeSpecResolution, resolveDataPath } from '@/lib/runtime-paths';
+import { ingestRuntimeDocAssets } from './asset-ingest';
 import { loadTenantBrandKit, tenantBrandKitPath, type TenantBrandKit } from './brand-kit';
 import { recordMarketingFailureRuntimeIncident } from './runtime-error-bridge';
 
@@ -713,6 +714,14 @@ export function findLatestMarketingJobIdForTenant(tenantId: string): string | nu
 
 export function saveMarketingJobRuntime(jobId: string, doc: MarketingJobRuntimeDocument): string {
   assertMarketingRuntimeDocument(doc);
+  const ingest = ingestRuntimeDocAssets(doc as unknown as Record<string, unknown>);
+  if (ingest.rewrites.length > 0) {
+    console.info('[asset-ingest] rewrote runtime-doc paths', {
+      jobId,
+      rewrites: ingest.rewrites.length,
+      sample: ingest.rewrites.slice(0, 3).map(({ from, to }) => ({ from, to })),
+    });
+  }
   doc.updated_at = nowIso();
   const filePath = marketingRuntimePath(jobId);
   mkdirSync(path.dirname(filePath), { recursive: true });
