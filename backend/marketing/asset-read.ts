@@ -4,6 +4,8 @@ import path from 'node:path';
 
 import { resolveCodePath, resolveCodeRoot, resolveDataRoot } from '@/lib/runtime-paths';
 
+import { remapHostOutputToMount } from './host-output-path';
+
 /**
  * Safe reader for files referenced by the marketing runtime documents.
  *
@@ -148,26 +150,9 @@ function absoluteCompatibilityCandidates(filePath: string): string[] {
     candidates.add(path.join(codeRoot, suffix));
   }
 
-  // Host-output → bind-mount remap. Absolute paths that point at the
-  // host's lobster/output tree (ARIES_LOBSTER_HOST_OUTPUT_DIR) need to be
-  // rewritten onto the in-container bind-mount path
-  // (ARIES_LOBSTER_HOST_OUTPUT_MOUNT) so isWithinRoot accepts them and
-  // readFile actually finds the bytes.
-  const hostOutputDir = process.env.ARIES_LOBSTER_HOST_OUTPUT_DIR?.trim();
-  const hostOutputMount = process.env.ARIES_LOBSTER_HOST_OUTPUT_MOUNT?.trim();
-  if (hostOutputDir && hostOutputMount) {
-    // path.resolve (not path.normalize) so a trailing slash on the env var
-    // doesn't produce `/foo//` in the startsWith guard and silently no-op
-    // the remap.
-    const normalizedHostDir = path.resolve(hostOutputDir);
-    const normalizedHostMount = path.resolve(hostOutputMount);
-    if (
-      normalized === normalizedHostDir ||
-      normalized.startsWith(`${normalizedHostDir}${path.sep}`)
-    ) {
-      const hostSuffix = normalized.slice(normalizedHostDir.length).replace(/^[\\/]+/, '');
-      candidates.add(hostSuffix ? path.join(normalizedHostMount, hostSuffix) : normalizedHostMount);
-    }
+  const hostMountCandidate = remapHostOutputToMount(normalized);
+  if (hostMountCandidate) {
+    candidates.add(hostMountCandidate);
   }
 
   return Array.from(candidates);
