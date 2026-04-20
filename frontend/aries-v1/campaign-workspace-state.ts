@@ -298,11 +298,7 @@ export function deriveGenerationProgressState(
   const fallbackCompletedCount = positiveCount(status.createdPostCount);
   const completedCount = clampCount(
     explicitTotal && explicitTotal > 0
-      ? explicitCompletedCount > 0
-        ? explicitCompletedCount
-        : fallbackCompletedCount && fallbackCompletedCount <= totalCount
-          ? fallbackCompletedCount
-          : 0
+      ? explicitCompletedCount
       : fallbackCompletedCount || explicitCompletedCount,
     totalCount,
   );

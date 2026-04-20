@@ -728,10 +728,19 @@ def main() -> int:
     run_id = ensure_run_id(data.get("run_id", ""), brand_slug, data.get("campaign_name", ""))
     plan = data.get("publish_plan", {})
     launch_approved = _as_bool(args.launch_approved)
+    # Keep this string strictly user-facing. The prior version ended with
+    # "Reply with approval and rerun with launch_approved=true to generate
+    # publish-ready assets." — a CLI instruction aimed at whoever was
+    # invoking the workflow directly, which then surfaced verbatim inside
+    # the approval card in the web UI. That kind of developer-facing idiom
+    # (flag names, rerun/retry guidance, "=true/false") must not appear in
+    # approval_message; the frontend sanitizer is defense-in-depth only.
+    campaign_name_text = data.get("campaign_name", brand_slug)
     approval_message = (
-        f"Approval needed: marketing pipeline launch review for {data.get('campaign_name', brand_slug)}. "
-        f"Static assets: {plan.get('static_contract_count', 0)}. Video assets: {plan.get('video_contract_count', 0)}. "
-        "Reply with approval and rerun with launch_approved=true to generate publish-ready assets."
+        f"Launch review for {campaign_name_text} is ready. "
+        f"This package covers {plan.get('static_contract_count', 0)} static assets "
+        f"and {plan.get('video_contract_count', 0)} video assets. "
+        "Approve to move these into publish-ready production, or request changes to keep the package open for revision."
     )
     review_bundle = _build_review_bundle(data, "", approval_message, launch_approved)
     _validate_review_bundle(review_bundle)

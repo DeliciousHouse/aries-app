@@ -1,18 +1,15 @@
 # Aries System Reference
 
-Last refreshed Apr 14, 2026, 03:53 PDT.
+Last refreshed Apr 19, 2026, 00:00 PDT.
 
 ## What changed today
-- backend/marketing/artifact-collector.ts
-- backend/marketing/dashboard-content.ts
-- backend/marketing/orchestrator.ts
-- docker-compose.local.yml
-- docker-compose.yml
-- lobster/bin/_approval_bridge
-- lobster/bin/_stage4_common.py
-- lobster/bin/ad-designer
-- lobster/bin/launch-review-preview
-- lobster/marketing-pipeline.lobster
+- app/api/marketing/jobs/[jobId]/assets/[assetId]/handler.ts
+- app/api/marketing/jobs/[jobId]/workspace-assets/[assetId]/handler.ts
+- backend/marketing/asset-library.ts
+- backend/marketing/asset-read.ts
+- backend/marketing/jobs-status.ts
+- backend/marketing/publish-review-asset-ids.ts
+- tests/frontend-api-layer.test.ts
 
 ## Current architecture overview
 - Next.js App Router runtime serves the public site, authenticated operator shell, and browser-safe internal APIs.
@@ -21,13 +18,13 @@ Last refreshed Apr 14, 2026, 03:53 PDT.
 - Repo context and automation output should stay scoped to `aries-app` only.
 
 ## Module inventory
-- app/ 108 files
-- backend/ 74 files
+- app/ 117 files
+- backend/ 76 files
 - components/ 14 files
 - hooks/ 17 files
-- lib/ 21 files
-- scripts/ 27 files
-- skills/ 79 files
+- lib/ 25 files
+- scripts/ 31 files
+- skills/ 87 files
 - workflows/ 4 files
 
 ## Active cron jobs
@@ -38,6 +35,7 @@ Last refreshed Apr 14, 2026, 03:53 PDT.
 - Aries standup watchdog — 50 8,13,17 * * 1-5 America/Los_Angeles — Verify that the current standup transcript and per-chief reports exist in /home/node/.openclaw/projects/shared/teams and that no forbidden local standup artifacts were recreated.
 - Aries GitHub feedback connector — 0 7 * * * America/Los_Angeles — Sync GitHub issues, classify bug vs feature, route each pending item to the correct skill workflow, and update the processing log.
 - Aries GitHub feedback daily summary — 0 18 * * * America/Los_Angeles — Deliver the daily batch summary for non-critical GitHub feedback items that were processed and logged.
+- Aries CI watcher dispatcher — */15 * * * * America/Los_Angeles — Auto-spawn ao worker sessions for open ci-watcher issues filed by the remote CI watcher trigger, deduplicating against existing ao sessions by issue number.
 - Aries runtime error intake — 5,35 * * * * America/Los_Angeles — Scan Aries runtime and automation health, normalize failures into the runtime incident log, and announce the concise detection/resolution summary.
 - Aries runtime error repair loop — 10,40 * * * * America/Los_Angeles — Work the highest-priority repairable runtime incident with a bounded fix loop, validate the result, and announce the concise resolution or escalation summary.
 - Aries rolling system reference — 45 21 * * * America/Los_Angeles — Update docs/SYSTEM-REFERENCE.md with architecture, inventory, cron jobs, and known issues.
@@ -45,7 +43,7 @@ Last refreshed Apr 14, 2026, 03:53 PDT.
 - Aries weekly review — 0 14 * * 5 America/Los_Angeles — Generate the Friday weekly review from live board, git, cron, backlog, and service-health truth, save it under memory/reviews, and optionally email the HTML version.
 
 ## Runtime scripts
-- dev: next dev -p 8100 --turbopack
+- dev: next dev --turbopack
 - build: next build
 - start: node scripts/start-runtime.mjs
 - precheck: node scripts/runtime-precheck.mjs
@@ -61,14 +59,15 @@ Last refreshed Apr 14, 2026, 03:53 PDT.
 - validate:banned-patterns: node scripts/check-banned-patterns.mjs
 - validate:marketing-flow: APP_BASE_URL=https://aries.example.com tsx --test tests/marketing-job-flow.test.ts tests/onboarding-marketing-contracts.test.ts
 - validate:repo-boundary: node scripts/check-repo-boundary.mjs
-- validate:homepage-perf: mkdir -p .artifacts && CI=1 npx --yes lighthouse http://127.0.0.1:8100 --only-categories=performance --preset=desktop --no-enable-error-reporting --chrome-flags='--headless=new --no-sandbox --disable-dev-shm-usage' --output=json --output-path=.artifacts/lighthouse-homepage.json
-- validate:homepage-perf:mobile: mkdir -p .artifacts && CI=1 npx --yes lighthouse http://127.0.0.1:8100 --only-categories=performance --form-factor=mobile --screenEmulation.mobile=true --throttling-method=simulate --no-enable-error-reporting --chrome-flags='--headless=new --no-sandbox --disable-dev-shm-usage' --output=json --output-path=.artifacts/lighthouse-homepage-mobile.json
+- validate:homepage-perf: mkdir -p .artifacts && CI=1 npx --yes lighthouse http://127.0.0.1:3000 --only-categories=performance --preset=desktop --no-enable-error-reporting --chrome-flags='--headless=new --no-sandbox --disable-dev-shm-usage' --output=json --output-path=.artifacts/lighthouse-homepage.json
+- validate:homepage-perf:mobile: mkdir -p .artifacts && CI=1 npx --yes lighthouse http://127.0.0.1:3000 --only-categories=performance --form-factor=mobile --screenEmulation.mobile=true --throttling-method=simulate --no-enable-error-reporting --chrome-flags='--headless=new --no-sandbox --disable-dev-shm-usage' --output=json --output-path=.artifacts/lighthouse-homepage-mobile.json
 - automation:backup: node scripts/automations/private-repo-backup.mjs
 - automation:self-improve: node scripts/automations/overnight-self-improve.mjs
 - automation:daily-brief: node scripts/automations/daily-brief.mjs
 - automation:feedback-connector: node scripts/automations/feedback-connector.mjs sync
 - automation:feedback-summary: node scripts/automations/feedback-daily-summary.mjs
 - automation:runtime-error-intake: node scripts/automations/runtime-error-intake.mjs scan
+- automation:ci-watcher-dispatch: node scripts/automations/ci-watcher-dispatch.mjs
 - automation:system-reference: node scripts/automations/rolling-system-reference.mjs
 - automation:install: node scripts/automations/install-openclaw-crons.mjs
 - automation:verify: node scripts/automations/verify-automations.mjs
@@ -79,26 +78,7 @@ Last refreshed Apr 14, 2026, 03:53 PDT.
 - Cross-project drift should be treated as a regression and removed instead of archived into active repo context.
 
 ## Working tree snapshot
-- M .env.example
-- M AGENTS.md
-- M CLAUDE.md
-- M DELEGATION-RULES.md
-- M DOCKER.md
-- M IDENTITY.md
-- M MEMORY.md
-- M PRIORITIES.md
-- M PRODUCTION_HANDOFF.md
-- M PROTECTED_SYSTEMS.md
-- M README-runtime.md
-- M README.md
-- M RUNTIME.md
-- M SOUL.md
-- M TOOLS.md
-- D data/org-chart.json
-- D docs/briefs/2026-03-29-brief.md
-- D docs/briefs/2026-04-04-brief.md
-- D docs/briefs/2026-04-07-brief.md
-- D docs/briefs/2026-04-09-brief.md
+- Working tree clean at refresh time.
 
 ## Reference date
-- 2026-04-14
+- 2026-04-19

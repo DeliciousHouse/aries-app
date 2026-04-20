@@ -168,36 +168,73 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
       </ShellPanel>
 
       {reviewItem.previewUrl || reviewItem.fullPreviewUrl ? (
-        <ShellPanel eyebrow="Preview" title="Full preview access">
-          <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
-            <MediaPreview
-              src={reviewItem.fullPreviewUrl || reviewItem.previewUrl || null}
-              alt={reviewItem.title}
-              contentType={reviewItem.contentType || null}
-              className="min-h-[24rem] overflow-hidden rounded-[1.2rem] border border-white/8 bg-black/20"
-              imageClassName="h-full w-full object-contain bg-black/40"
-              emptyLabel="Preview pending"
-              nonImageLabel="Preview available"
-            />
-            <div className="space-y-4">
-              <p className="text-sm leading-7 text-white/65">
-                Use the full-preview action to open the asset without the shallow dashboard crop.
-              </p>
-              {reviewItem.fullPreviewUrl ? (
-                <a href={reviewItem.fullPreviewUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-full border border-white/12 px-4 py-2.5 text-sm font-medium text-white/80 transition hover:border-white/20 hover:text-white">
-                  Open full preview
-                  <ArrowUpRight className="h-4 w-4" />
-                </a>
-              ) : null}
-              {reviewItem.destinationUrl ? (
-                <a href={reviewItem.destinationUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-full border border-white/12 px-4 py-2.5 text-sm font-medium text-white/80 transition hover:border-white/20 hover:text-white">
-                  Open destination
-                  <ArrowUpRight className="h-4 w-4" />
-                </a>
-              ) : null}
-            </div>
-          </div>
-        </ShellPanel>
+        <>
+          {reviewItem.contentType?.startsWith('video/') ? (
+            <ShellPanel eyebrow="Preview" title="Video preview">
+              <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+                <MediaPreview
+                  src={reviewItem.fullPreviewUrl || reviewItem.previewUrl || null}
+                  alt={reviewItem.title}
+                  contentType={reviewItem.contentType || null}
+                  href={reviewItem.fullPreviewUrl || reviewItem.previewUrl || null}
+                  className="min-h-[24rem] overflow-hidden rounded-[1.2rem] border border-white/8 bg-black/20"
+                  imageClassName="h-full w-full object-contain bg-black"
+                  emptyLabel="Preview pending"
+                  nonImageLabel="Open video"
+                />
+                <div className="space-y-4">
+                  <p className="text-sm leading-7 text-white/65">
+                    The rendered video plays inline. Use the full-preview link to open it in a new tab.
+                  </p>
+                  {reviewItem.fullPreviewUrl ? (
+                    <a href={reviewItem.fullPreviewUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-full border border-white/12 px-4 py-2.5 text-sm font-medium text-white/80 transition hover:border-white/20 hover:text-white">
+                      Open full preview
+                      <ArrowUpRight className="h-4 w-4" />
+                    </a>
+                  ) : null}
+                  {reviewItem.destinationUrl ? (
+                    <a href={reviewItem.destinationUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-full border border-white/12 px-4 py-2.5 text-sm font-medium text-white/80 transition hover:border-white/20 hover:text-white">
+                      Open destination
+                      <ArrowUpRight className="h-4 w-4" />
+                    </a>
+                  ) : null}
+                </div>
+              </div>
+            </ShellPanel>
+          ) : (
+            <ShellPanel eyebrow="Preview" title="Full preview access">
+              <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+                <MediaPreview
+                  src={reviewItem.fullPreviewUrl || reviewItem.previewUrl || null}
+                  alt={reviewItem.title}
+                  contentType={reviewItem.contentType || null}
+                  href={reviewItem.fullPreviewUrl || reviewItem.previewUrl || null}
+                  className="min-h-[24rem] overflow-hidden rounded-[1.2rem] border border-white/8 bg-black/20"
+                  imageClassName="h-full w-full object-contain bg-black/40"
+                  emptyLabel="Preview pending"
+                  nonImageLabel="Preview available"
+                />
+                <div className="space-y-4">
+                  <p className="text-sm leading-7 text-white/65">
+                    Use the full-preview action to open the asset without the shallow dashboard crop.
+                  </p>
+                  {reviewItem.fullPreviewUrl ? (
+                    <a href={reviewItem.fullPreviewUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-full border border-white/12 px-4 py-2.5 text-sm font-medium text-white/80 transition hover:border-white/20 hover:text-white">
+                      Open full preview
+                      <ArrowUpRight className="h-4 w-4" />
+                    </a>
+                  ) : null}
+                  {reviewItem.destinationUrl ? (
+                    <a href={reviewItem.destinationUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-full border border-white/12 px-4 py-2.5 text-sm font-medium text-white/80 transition hover:border-white/20 hover:text-white">
+                      Open destination
+                      <ArrowUpRight className="h-4 w-4" />
+                    </a>
+                  ) : null}
+                </div>
+              </div>
+            </ShellPanel>
+          )}
+        </>
       ) : null}
 
       {reviewItem.sections.length > 0 ? (
@@ -295,7 +332,11 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
                   void applyDecision('approve');
                 }}
                 disabled={busy}
-                className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] disabled:opacity-60"
+                /* Inline color is a cascade-proof belt-and-suspenders for
+                   the approval CTA so the label is always visible on the
+                   white pill even if utility layering shifts elsewhere. */
+                style={{ color: '#11161c' }}
+                className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold disabled:opacity-60"
               >
                 {busy && activeAction === 'approve' ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                 {busy && activeAction === 'approve' ? activeProgressLabel : reviewItem.currentVersion.cta || 'Approve'}

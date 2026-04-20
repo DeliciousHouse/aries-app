@@ -34,7 +34,7 @@ cp .env.example .env
 export DB_HOST=localhost DB_PORT=5432 DB_USER=aries_user DB_PASSWORD=aries_pass DB_NAME=aries_dev
 export CODE_ROOT=/home/node/openclaw/aries-app DATA_ROOT=/tmp/aries-data NODE_ENV=development
 export OPENCLAW_LOBSTER_CWD=/home/node/openclaw/aries-app/lobster
-export APP_BASE_URL=http://localhost:8100 NEXTAUTH_URL=http://localhost:8100 AUTH_URL=http://localhost:8100 AUTH_TRUST_HOST=true
+export APP_BASE_URL=http://localhost:3000 NEXTAUTH_URL=http://localhost:3000 AUTH_URL=http://localhost:3000 AUTH_TRUST_HOST=true
 export MARKETING_STATUS_PUBLIC=1
 ```
 
@@ -131,10 +131,10 @@ Start the app:
 ```bash
 export DB_HOST=localhost DB_PORT=5432 DB_USER=aries_user DB_PASSWORD=aries_pass DB_NAME=aries_dev
 export CODE_ROOT=/workspace DATA_ROOT=/tmp/aries-data NODE_ENV=development
-export APP_BASE_URL=http://localhost:8100 NEXTAUTH_URL=http://localhost:8100 AUTH_URL=http://localhost:8100 AUTH_TRUST_HOST=true
-npx next dev -p 8100 --turbopack
+export APP_BASE_URL=http://localhost:3000 NEXTAUTH_URL=http://localhost:3000 AUTH_URL=http://localhost:3000 AUTH_TRUST_HOST=true
+npx next dev -p 3000 --turbopack
 ```
 Then run:
 ```bash
-mkdir -p .artifacts && npx --yes lighthouse http://127.0.0.1:8100 --only-categories=performance --preset=desktop --chrome-flags='--headless=new --no-sandbox --disable-dev-shm-usage' --output=json --output-path=.artifacts/lighthouse-homepage.json
+mkdir -p .artifacts && npx --yes lighthouse http://127.0.0.1:3000 --only-categories=performance --preset=desktop --chrome-flags='--headless=new --no-sandbox --disable-dev-shm-usage' --output=json --output-path=.artifacts/lighthouse-homepage.json
 ```

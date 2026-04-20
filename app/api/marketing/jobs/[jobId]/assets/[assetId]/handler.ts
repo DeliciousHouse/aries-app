@@ -1,10 +1,6 @@
-import { readFile, realpath } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
-
 import { findMarketingAsset } from '@/backend/marketing/asset-library';
+import { readMarketingAssetWithinAllowedRoots } from '@/backend/marketing/asset-read';
 import { loadMarketingJobRuntime } from '@/backend/marketing/runtime-state';
-import { resolveCodePath, resolveCodeRoot, resolveDataRoot } from '@/lib/runtime-paths';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
 const MARKETING_ONBOARDING_REQUIRED = {
@@ -13,117 +9,24 @@ const MARKETING_ONBOARDING_REQUIRED = {
   message: 'Complete tenant onboarding before viewing brand campaign assets.',
 } as const;
 
-type NormalizedAssetPath =
-  | { kind: 'relative'; path: string }
-  | { kind: 'absolute'; path: string };
+const ASSET_NOT_FOUND_BODY = JSON.stringify({
+  error: 'Marketing asset not found.',
+  reason: 'marketing_asset_not_found',
+});
 
-function normalizeAssetPath(filePath: string): NormalizedAssetPath | null {
-  const trimmed = filePath.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  if (path.isAbsolute(trimmed)) {
-    return {
-      kind: 'absolute',
-      path: path.normalize(trimmed),
-    };
-  }
-
-  const segments = trimmed.split(/[\\/]+/).filter(Boolean);
-  if (segments.length === 0 || segments.some((segment) => segment === '.' || segment === '..')) {
-    return null;
-  }
-
-  return {
-    kind: 'relative',
-    path: path.join(...segments),
-  };
-}
-
-function trustedRoots(): string[] {
-  return Array.from(
-    new Set(
-      [
-        resolveDataRoot(),
-        resolveCodeRoot(),
-        resolveCodePath('lobster'),
-        process.env.OPENCLAW_LOCAL_LOBSTER_CWD?.trim(),
-        process.env.OPENCLAW_LOBSTER_CWD?.trim(),
-        process.env.LOBSTER_STAGE1_CACHE_DIR?.trim() || path.join(tmpdir(), 'lobster-stage1-cache'),
-        process.env.LOBSTER_STAGE2_CACHE_DIR?.trim() || path.join(tmpdir(), 'lobster-stage2-cache'),
-        process.env.LOBSTER_STAGE3_CACHE_DIR?.trim() || path.join(tmpdir(), 'lobster-stage3-cache'),
-        process.env.LOBSTER_STAGE4_CACHE_DIR?.trim() || path.join(tmpdir(), 'lobster-stage4-cache'),
-      ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-    )
-  );
-}
-
-function absoluteCompatibilityCandidates(filePath: string): string[] {
-  const normalized = path.normalize(filePath);
-  const candidates = new Set([normalized]);
-  const codeRoot = path.normalize(resolveCodeRoot());
-  const legacyCodeRoot = path.join(codeRoot, 'aries-app');
-
-  if (normalized === legacyCodeRoot || normalized.startsWith(`${legacyCodeRoot}${path.sep}`)) {
-    const suffix = normalized.slice(legacyCodeRoot.length);
-    candidates.add(path.join(codeRoot, suffix));
-  }
-
-  return Array.from(candidates);
-}
-
-/**
- * Returns true only when the resolved candidate stays within the provided
- * root directory. Paths that escape upward or resolve to another absolute
- * location are rejected.
- */
-function isWithinRoot(root: string, candidate: string): boolean {
-  const relative = path.relative(root, candidate);
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
-}
-
-async function readAssetWithinAllowedRoots(filePath: string): Promise<Buffer | null> {
-  const normalizedPath = normalizeAssetPath(filePath);
-  if (!normalizedPath) {
-    return null;
-  }
-
-  const roots = trustedRoots();
-  const candidates =
-    normalizedPath.kind === 'absolute'
-      ? absoluteCompatibilityCandidates(normalizedPath.path)
-      : roots.map((root) => path.resolve(root, normalizedPath.path));
-
-  for (const candidate of candidates) {
-    for (const root of roots) {
-      if (!isWithinRoot(root, candidate)) {
-        continue;
-      }
-      try {
-        const [resolvedRoot, resolvedCandidate] = await Promise.all([
-          realpath(root).catch(() => root),
-          realpath(candidate),
-        ]);
-        if (!isWithinRoot(resolvedRoot, resolvedCandidate)) {
-          continue;
-        }
-        return await readFile(resolvedCandidate);
-      } catch (error) {
-        if (
-          error &&
-          typeof error === 'object' &&
-          'code' in error &&
-          (error.code === 'ENOENT' || error.code === 'ENOTDIR')
-        ) {
-          continue;
-        }
-        throw error;
-      }
-    }
-  }
-
-  return null;
+function assetNotFoundResponse(
+  jobId: string,
+  assetId: string,
+  cause: 'tenant_mismatch' | 'asset_descriptor_missing' | 'asset_file_missing',
+): Response {
+  // Branch-distinguishing log so operators can tell which of the three 404
+  // paths fired without leaking internal state to the client (the response
+  // body intentionally stays an opaque `marketing_asset_not_found`).
+  console.warn('[marketing-asset-not-found]', { jobId, assetId, cause });
+  return new Response(ASSET_NOT_FOUND_BODY, {
+    status: 404,
+    headers: { 'content-type': 'application/json' },
+  });
 }
 
 export async function handleGetMarketingJobAsset(
@@ -147,32 +50,29 @@ export async function handleGetMarketingJobAsset(
   }
 
   if (runtimeDoc.tenant_id !== tenantResult.tenantContext.tenantId) {
-    return new Response(JSON.stringify({ error: 'Marketing asset not found.', reason: 'marketing_asset_not_found' }), {
-      status: 404,
-      headers: { 'content-type': 'application/json' },
-    });
+    return assetNotFoundResponse(jobId, assetId, 'tenant_mismatch');
   }
 
   const asset = findMarketingAsset(jobId, runtimeDoc, assetId);
   if (!asset) {
-    return new Response(JSON.stringify({ error: 'Marketing asset not found.', reason: 'marketing_asset_not_found' }), {
-      status: 404,
-      headers: { 'content-type': 'application/json' },
-    });
+    return assetNotFoundResponse(jobId, assetId, 'asset_descriptor_missing');
   }
 
-  const buffer = await readAssetWithinAllowedRoots(asset.filePath);
+  const buffer = await readMarketingAssetWithinAllowedRoots(asset.filePath);
   if (!buffer) {
-    return new Response(JSON.stringify({ error: 'Marketing asset not found.', reason: 'marketing_asset_not_found' }), {
-      status: 404,
-      headers: { 'content-type': 'application/json' },
-    });
+    return assetNotFoundResponse(jobId, assetId, 'asset_file_missing');
   }
 
+  // `inline` (not `attachment`) keeps the browser from surprise-downloading
+  // unknown or markdown-ish content when this route is hit directly. The
+  // /materials/[jobId]/[assetId] viewer is the polished default for
+  // document-kind attachments; this raw route remains available for image
+  // rendering and for the "Download source" affordance in the viewer.
   return new Response(buffer, {
     status: 200,
     headers: {
       'content-type': asset.contentType,
+      'content-disposition': 'inline',
       'cache-control': 'private, max-age=60',
     },
   });

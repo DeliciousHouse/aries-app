@@ -1285,10 +1285,11 @@ export function buildCampaignWorkspaceView(jobId: string): CampaignWorkspaceView
     creativeReviewReady: creativeAssetIds.length > 0,
     creativeAssetIds,
     publishReadySignal:
-      rawDashboard.statuses.countsByStatus.ready_to_publish > 0 ||
-      rawDashboard.statuses.countsByStatus.published_to_meta_paused > 0 ||
-      rawDashboard.statuses.countsByStatus.scheduled > 0 ||
-      rawDashboard.statuses.countsByStatus.live > 0,
+      rawDashboard.publishItems.length > 0 &&
+      (rawDashboard.statuses.countsByStatus.ready_to_publish > 0 ||
+        rawDashboard.statuses.countsByStatus.published_to_meta_paused > 0 ||
+        rawDashboard.statuses.countsByStatus.scheduled > 0 ||
+        rawDashboard.statuses.countsByStatus.live > 0),
     publishedSignal:
       rawDashboard.statuses.countsByStatus.published_to_meta_paused > 0 ||
       rawDashboard.statuses.countsByStatus.scheduled > 0 ||

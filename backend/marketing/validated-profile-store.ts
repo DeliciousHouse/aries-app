@@ -1,9 +1,14 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync } from 'node:fs';
 
 import type { MarketingBrandIdentity } from '@/lib/api/marketing';
 import { sanitizeLegacyCompetitorUrl } from '@/lib/marketing-competitor';
 import { resolveDataPath } from '@/lib/runtime-paths';
-import { buildMarketingBrandIdentity, recordMatchesCurrentSource } from './brand-identity';
+import {
+  buildMarketingBrandIdentity,
+  normalizeSourceFingerprint,
+  recordMatchesCurrentSource,
+  sourceFingerprintFromRecord,
+} from './brand-identity';
 
 function stringValue(value: unknown): string | null {
   if (typeof value === 'string' && value.trim()) {
@@ -102,6 +107,62 @@ export function tenantBusinessProfilePath(tenantId: string): string {
 
 export function tenantBrandKitPath(tenantId: string): string {
   return resolveDataPath('generated', 'validated', tenantId, 'brand-kit.json');
+}
+
+/**
+ * Quarantine tenant-scoped validated docs that were written for a different
+ * source URL than the campaign now starting. Prevents stale brand-profile /
+ * website-analysis / business-profile content from bleeding into the new
+ * campaign's approval payloads. Files with no recoverable source fingerprint
+ * are quarantined too, because we cannot verify they belong to the new source.
+ *
+ * Renames the offending file to `<name>.stale-<ts>.json` rather than deleting,
+ * so operators can still inspect prior state. brand-kit.json is handled
+ * separately by extractAndSaveTenantBrandKit and is not touched here.
+ */
+export type QuarantinedValidatedProfile = {
+  /** Path the file lived at before quarantine (does not exist post-rename). */
+  originalPath: string;
+  /** Path the file now lives at, so operators/logs can locate it. */
+  stalePath: string;
+};
+
+export function invalidateValidatedProfilesIfSourceChanged(
+  tenantId: string,
+  newSourceUrl: string | null | undefined,
+): { quarantined: QuarantinedValidatedProfile[] } {
+  const currentFingerprint = normalizeSourceFingerprint(newSourceUrl);
+  if (!currentFingerprint) {
+    return { quarantined: [] };
+  }
+
+  const candidates: string[] = [
+    tenantBrandProfilePath(tenantId),
+    tenantWebsiteAnalysisPath(tenantId),
+    tenantBusinessProfilePath(tenantId),
+  ];
+
+  const quarantined: QuarantinedValidatedProfile[] = [];
+  const stamp = Date.now();
+  for (const filePath of candidates) {
+    if (!existsSync(filePath)) {
+      continue;
+    }
+    const record = readJsonIfExists(filePath);
+    const recordFingerprint = sourceFingerprintFromRecord(record);
+    if (recordFingerprint && recordFingerprint === currentFingerprint) {
+      continue;
+    }
+    const stalePath = filePath.replace(/\.json$/, `.stale-${stamp}.json`);
+    try {
+      renameSync(filePath, stalePath);
+      quarantined.push({ originalPath: filePath, stalePath });
+    } catch {
+      // If rename fails (e.g. cross-device), leave the file; the tightened
+      // matcher will still reject it at read time.
+    }
+  }
+  return { quarantined };
 }
 
 export type ValidatedMarketingProfileDocs = {

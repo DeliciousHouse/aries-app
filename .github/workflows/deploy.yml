@@ -206,7 +206,7 @@ jobs:
 
           healthy=0
           for attempt in $(seq 1 30); do
-            if docker compose exec -T "${SERVICE_NAME}" wget -qO- http://127.0.0.1:8100/ >/dev/null 2>&1; then
+            if docker compose exec -T "${SERVICE_NAME}" wget -qO- "http://127.0.0.1:${PORT:-3000}/" >/dev/null 2>&1; then
               healthy=1
               break
             fi

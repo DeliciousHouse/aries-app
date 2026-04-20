@@ -15,7 +15,13 @@ import { buildMarketingAssetLinks } from './asset-library';
 import { normalizeBrandKitSignals } from './brand-kit';
 import { approveMarketingJob } from './jobs-approve';
 import { denyMarketingJob } from './orchestrator';
-import { loadMarketingJobRuntime, listMarketingJobIdsForTenant, listMarketingTenantIds, type MarketingJobRuntimeDocument } from './runtime-state';
+import {
+  listDeletedMarketingJobIdsForTenant,
+  listMarketingJobIdsForTenant,
+  listMarketingTenantIds,
+  loadMarketingJobRuntime,
+  type MarketingJobRuntimeDocument,
+} from './runtime-state';
 import {
   dashboardDateRangeText,
   type MarketingDashboardAsset,
@@ -79,6 +85,15 @@ export type RuntimeCampaignListItem = {
   previewPosts: MarketingDashboardPost[];
   previewAssets: MarketingDashboardAsset[];
   dashboard: RuntimeCampaignDashboard;
+  /** Set when the campaign has been soft-deleted. Matches the field of the
+   * same name on the public `RuntimeCampaignListItem` type in
+   * `lib/api/aries-v1.ts`, so the API response passes through cleanly. */
+  deletedAt?: string | null;
+  /** Set alongside `deletedAt`. User id of whoever deleted the campaign. */
+  deletedBy?: string | null;
+  /** Set when the delete landed while the pipeline was still running. UI
+   * uses this to render "Cancelling..." in the Recycle Bin. */
+  softCancelRequestedAt?: string | null;
 };
 
 export type RuntimeReviewDecision = {
@@ -421,6 +436,7 @@ function buildCampaignListItem(
       posts: view.dashboard.posts.length,
       landingPages: view.dashboard.assets.filter((asset) => asset.type === 'landing_page').length,
       imageAds: view.dashboard.assets.filter((asset) => asset.type === 'image_ad').length,
+      videoAds: view.dashboard.assets.filter((asset) => asset.type === 'video_ad').length,
       scripts: view.dashboard.assets.filter((asset) => asset.type === 'script' || asset.type === 'copy').length,
       publishItems: view.dashboard.publishItems.length,
       proposalConcepts: view.dashboard.posts.filter((post) => post.provenance.sourceKind === 'proposal').length,
@@ -820,6 +836,17 @@ function firstCheckpointSections(
   return sections.filter((section) => section.body.trim().length > 0);
 }
 
+// Document/artifact attachments get the polished in-app viewer at
+// /materials/[jobId]/[assetId] instead of the raw /api/.../assets/... URL.
+// The raw route still serves bytes (e.g. the image <img src>), but opening
+// one of the four document attachments this function routes —
+// research-summary, brand-kit-json, brand-bible-markdown, or
+// brand-design-system — in a new tab now renders styled HTML through the
+// viewer rather than a black raw-text tab or a forced file download.
+function viewerUrl(jobId: string, assetId: string): string {
+  return `/materials/${encodeURIComponent(jobId)}/${encodeURIComponent(assetId)}`;
+}
+
 function firstCheckpointAttachments(
   view: CampaignWorkspaceView,
   runtimeDoc: MarketingJobRuntimeDocument,
@@ -828,12 +855,14 @@ function firstCheckpointAttachments(
   const assetLinks = new Map(buildMarketingAssetLinks(runtimeDoc.job_id, runtimeDoc).map((asset) => [asset.id, asset] as const));
   const researchSummary = assetLinks.get('research-summary');
   const brandKit = assetLinks.get('brand-kit-json');
+  const brandBible = assetLinks.get('brand-bible-markdown');
+  const designSystem = assetLinks.get('brand-design-system');
 
   if (researchSummary) {
     attachments.push({
       id: researchSummary.id,
       label: researchSummary.label,
-      url: researchSummary.url,
+      url: viewerUrl(runtimeDoc.job_id, researchSummary.id),
       contentType: researchSummary.contentType,
       kind: 'document',
     });
@@ -843,8 +872,28 @@ function firstCheckpointAttachments(
     attachments.push({
       id: brandKit.id,
       label: brandKit.label,
-      url: brandKit.url,
+      url: viewerUrl(runtimeDoc.job_id, brandKit.id),
       contentType: brandKit.contentType,
+      kind: 'document',
+    });
+  }
+
+  if (brandBible) {
+    attachments.push({
+      id: brandBible.id,
+      label: brandBible.label,
+      url: viewerUrl(runtimeDoc.job_id, brandBible.id),
+      contentType: brandBible.contentType,
+      kind: 'document',
+    });
+  }
+
+  if (designSystem) {
+    attachments.push({
+      id: designSystem.id,
+      label: designSystem.label,
+      url: viewerUrl(runtimeDoc.job_id, designSystem.id),
+      contentType: designSystem.contentType,
       kind: 'document',
     });
   }
@@ -853,6 +902,9 @@ function firstCheckpointAttachments(
     attachments.push({
       id: asset.id,
       label: asset.name,
+      // Brand assets (user-uploaded logos, fonts, brand photos) keep the raw
+      // URL so they render inline as images or download as intended source
+      // files. The viewer page is for generated documents, not uploads.
       url: asset.url,
       contentType: asset.contentType,
       kind: 'brand_asset',
@@ -1288,6 +1340,47 @@ export async function listMarketingCampaignsForTenant(tenantId: string): Promise
     const leftUpdated = Date.parse(left.updatedAt || '');
     const rightUpdated = Date.parse(right.updatedAt || '');
     return (Number.isFinite(rightUpdated) ? rightUpdated : 0) - (Number.isFinite(leftUpdated) ? leftUpdated : 0);
+  });
+}
+
+/**
+ * List soft-deleted campaigns for the Recycle Bin section on the campaign
+ * list screen. Same shape as live campaigns but each entry carries
+ * deletedAt + deletedBy so the UI can show who deleted what when.
+ */
+export async function listDeletedMarketingCampaignsForTenant(
+  tenantId: string,
+): Promise<RuntimeCampaignListItem[]> {
+  const campaigns: RuntimeCampaignListItem[] = [];
+  const seen = new Set<string>();
+
+  for (const jobId of listDeletedMarketingJobIdsForTenant(tenantId)) {
+    const doc = loadMarketingJobRuntime(jobId);
+    if (!doc || doc.tenant_id !== tenantId) {
+      continue;
+    }
+    const status = getMarketingJobStatus(jobId);
+    if (status.tenantName === null && status.brandWebsiteUrl === null && status.status === 'error') {
+      continue;
+    }
+    const view = buildCampaignWorkspaceView(jobId);
+    const key = view.dashboard.campaign?.externalCampaignId || view.dashboard.campaign?.name || `job::${jobId}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    const pendingApprovals = buildReviewItemsForJob(jobId).filter((item) => item.status !== 'approved').length;
+    const item = buildCampaignListItem(status, view, pendingApprovals);
+    item.deletedAt = doc.deleted_at ?? null;
+    item.deletedBy = doc.deleted_by ?? null;
+    item.softCancelRequestedAt = doc.soft_cancel_requested_at ?? null;
+    campaigns.push(item);
+  }
+
+  return campaigns.sort((left, right) => {
+    const leftDeleted = Date.parse(left.deletedAt || '');
+    const rightDeleted = Date.parse(right.deletedAt || '');
+    return (Number.isFinite(rightDeleted) ? rightDeleted : 0) - (Number.isFinite(leftDeleted) ? leftDeleted : 0);
   });
 }
 

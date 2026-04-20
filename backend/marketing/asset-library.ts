@@ -5,6 +5,13 @@ import { resolveCodeRoot, resolveDataRoot } from '@/lib/runtime-paths';
 
 import { listMarketingDashboardAssetsForJob } from './dashboard-content';
 import { collectResearchStageArtifacts, collectStrategyReviewArtifacts } from './artifact-collector';
+import {
+  canonicalizePublishReviewPlatformSlug,
+  legacyPublishReviewLinkedAssetId,
+  legacyPublishReviewMediaAssetId,
+  publishReviewLinkedAssetId,
+  publishReviewMediaAssetId,
+} from './publish-review-asset-ids';
 import { extractPublishReviewBundle } from './publish-review';
 import type { MarketingJobRuntimeDocument } from './runtime-state';
 import { loadValidatedMarketingProfileDocs, loadValidatedMarketingProfileSnapshot } from './validated-profile-store';
@@ -25,15 +32,24 @@ export type MarketingAssetLink = {
 
 function resolveExistingAbsoluteAssetPath(filePath: string): string | null {
   const normalizedPath = path.normalize(filePath);
-  if (existsSync(normalizedPath)) {
-    return normalizedPath;
+  const codeRoot = path.normalize(resolveCodeRoot());
+  const remapPrefixes = [
+    '/home/node/workspace/aries-app',
+    '/app/aries-app',
+    path.join(codeRoot, 'aries-app'),
+  ].map((prefix) => path.normalize(prefix));
+  const candidates = new Set([normalizedPath]);
+
+  for (const prefix of remapPrefixes) {
+    if (normalizedPath !== prefix && !normalizedPath.startsWith(`${prefix}${path.sep}`)) {
+      continue;
+    }
+
+    const suffix = normalizedPath.slice(prefix.length).replace(/^[\\/]+/, '');
+    candidates.add(path.join(codeRoot, suffix));
   }
 
-  const codeRoot = path.normalize(resolveCodeRoot());
-  const legacyCodeRoot = path.join(codeRoot, 'aries-app');
-  if (normalizedPath === legacyCodeRoot || normalizedPath.startsWith(`${legacyCodeRoot}${path.sep}`)) {
-    const suffix = normalizedPath.slice(legacyCodeRoot.length + 1);
-    const candidate = path.join(codeRoot, suffix);
+  for (const candidate of candidates) {
     if (existsSync(candidate)) {
       return candidate;
     }
@@ -125,6 +141,10 @@ function uniqueStrings(values: Array<string | null | undefined>): string[] {
   return Array.from(new Set(values.map((value) => stringValue(value)).filter(Boolean)));
 }
 
+function normalizePublishPreviewSlug(platform: Record<string, unknown>, previewIndex: number): string {
+  return canonicalizePublishReviewPlatformSlug(platform.platform_slug, `platform-${previewIndex + 1}`);
+}
+
 function sniffImageContentType(filePath: string): string | null {
   try {
     const fd = openSync(filePath, 'r');
@@ -170,10 +190,38 @@ function sniffImageContentType(filePath: string): string | null {
   return null;
 }
 
-function contentTypeForAsset(filePath: string): string {
-  const sniffedImageType = sniffImageContentType(filePath);
-  if (sniffedImageType) {
-    return sniffedImageType;
+function sniffIsoBmffContentType(filePath: string): string | null {
+  // ISO Base Media File Format (mp4/mov/m4v/etc.) starts with a 4-byte size
+  // followed by the 'ftyp' box type. Both QuickTime (.mov) and MP4 share
+  // the same outer container, so this is only safe to consult when the
+  // extension already failed — otherwise we'd collapse .mov into video/mp4
+  // and lose the QuickTime distinction.
+  try {
+    const fd = openSync(filePath, 'r');
+    try {
+      const buffer = Buffer.alloc(8);
+      const bytesRead = readSync(fd, buffer, 0, buffer.length, 0);
+      const header = buffer.subarray(0, bytesRead);
+
+      if (header.length >= 8 && header.subarray(4, 8).toString('ascii') === 'ftyp') {
+        return 'video/mp4';
+      }
+    } finally {
+      closeSync(fd);
+    }
+  } catch {}
+
+  return null;
+}
+
+export function contentTypeForAsset(filePath: string): string {
+  // Image magic bytes are unambiguous (a JPEG header can only mean JPEG, a
+  // PNG signature can only mean PNG, etc.), so we let the bytes override
+  // the extension when they disagree — operators routinely save sniffed
+  // previews under whatever extension the source URL had.
+  const sniffedImage = sniffImageContentType(filePath);
+  if (sniffedImage) {
+    return sniffedImage;
   }
 
   const ext = path.extname(filePath).toLowerCase();
@@ -189,16 +237,43 @@ function contentTypeForAsset(filePath: string): string {
       return 'image/webp';
     case '.svg':
       return 'image/svg+xml';
+    case '.mp4':
+      return 'video/mp4';
+    case '.m4v':
+      return 'video/x-m4v';
+    case '.mov':
+      return 'video/quicktime';
+    case '.webm':
+      return 'video/webm';
+    case '.ogv':
+    case '.ogg':
+      return 'video/ogg';
     case '.html':
       return 'text/html; charset=utf-8';
     case '.md':
+      return 'text/markdown; charset=utf-8';
     case '.txt':
       return 'text/plain; charset=utf-8';
     case '.json':
       return 'application/json; charset=utf-8';
-    default:
-      return 'application/octet-stream';
+    case '.css':
+      return 'text/css; charset=utf-8';
+    case '.js':
+      return 'text/javascript; charset=utf-8';
   }
+
+  // ISOBMFF (`ftyp`) sniffing is ambiguous between MP4 and QuickTime, so we
+  // only run it when the extension didn't pick a winner above.
+  const sniffedIsoBmff = sniffIsoBmffContentType(filePath);
+  if (sniffedIsoBmff) {
+    return sniffedIsoBmff;
+  }
+
+  // Binary assets that don't match the explicit map above should fall back
+  // to application/octet-stream. The old default of text/plain forced the
+  // browser to attempt inline-rendering of bytes like .mp4 that then broke
+  // because the response advertised itself as text.
+  return 'application/octet-stream';
 }
 
 export function marketingAssetUrl(jobId: string, assetId: string): string {
@@ -392,22 +467,54 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
     addAsset('review-packet-production', stringValue(reviewPacket?.production_review_preview_path) || null, 'Production review preview');
     addAsset('review-packet-canonical', stringValue(reviewPacket?.canonical_review_packet_path) || null, 'Canonical review packet');
 
-    for (const platform of platformPreviews) {
-      const slug = stringValue(platform.platform_slug, 'platform');
+    for (const [previewIndex, platform] of platformPreviews.entries()) {
+      const slug = normalizePublishPreviewSlug(platform, previewIndex);
       const platformName = stringValue(platform.platform_name, slug);
       const assetPaths = recordValue(platform.asset_paths);
 
       stringArray(platform.media_paths).forEach((filePath, index) => {
         addAsset(
-          `platform-preview-${slug}-media-${index + 1}`,
+          publishReviewMediaAssetId({
+            platformSlug: slug,
+            previewIndex,
+            explicitPreviewAssetId: platform.asset_preview_id,
+            mediaIndex: index,
+          }),
           filePath,
           `${platformName} media ${index + 1}`,
           previewFallbacksByPlatform.get(slug) || previewFallbacksByPlatform.get('landing-page') || []
         );
       });
-      addAsset(`platform-preview-${slug}-asset-contract`, stringValue(assetPaths?.contract_path) || null, `${platformName} contract`);
-      addAsset(`platform-preview-${slug}-asset-brief`, stringValue(assetPaths?.brief_path) || null, `${platformName} brief`);
-      addAsset(`platform-preview-${slug}-asset-landing-page`, stringValue(assetPaths?.landing_page_path) || null, `${platformName} landing page`);
+      addAsset(
+        publishReviewLinkedAssetId({
+          platformSlug: slug,
+          previewIndex,
+          explicitPreviewAssetId: platform.asset_preview_id,
+          suffix: 'contract',
+        }),
+        stringValue(assetPaths?.contract_path) || null,
+        `${platformName} contract`,
+      );
+      addAsset(
+        publishReviewLinkedAssetId({
+          platformSlug: slug,
+          previewIndex,
+          explicitPreviewAssetId: platform.asset_preview_id,
+          suffix: 'brief',
+        }),
+        stringValue(assetPaths?.brief_path) || null,
+        `${platformName} brief`,
+      );
+      addAsset(
+        publishReviewLinkedAssetId({
+          platformSlug: slug,
+          previewIndex,
+          explicitPreviewAssetId: platform.asset_preview_id,
+          suffix: 'landing-page',
+        }),
+        stringValue(assetPaths?.landing_page_path) || null,
+        `${platformName} landing page`,
+      );
     }
   }
 
@@ -436,5 +543,59 @@ export function findMarketingAsset(
   runtimeDoc: MarketingJobRuntimeDocument,
   assetId: string
 ): MarketingAssetDescriptor | null {
-  return buildMarketingAssetLibrary(jobId, runtimeDoc).find((asset) => asset.id === assetId) ?? null;
+  const assets = buildMarketingAssetLibrary(jobId, runtimeDoc);
+  const directMatch = assets.find((asset) => asset.id === assetId);
+  if (directMatch) {
+    return directMatch;
+  }
+
+  const reviewBundle = extractPublishReviewBundle(runtimeDoc);
+  const platformPreviews = recordArray(reviewBundle?.platform_previews);
+  const legacyToCanonical = new Map<string, string>();
+
+  for (const [previewIndex, platform] of platformPreviews.entries()) {
+    const slug = normalizePublishPreviewSlug(platform, previewIndex);
+    const explicitPreviewAssetId = platform.asset_preview_id;
+
+    stringArray(platform.media_paths).forEach((_, mediaIndex) => {
+      legacyToCanonical.set(
+        legacyPublishReviewMediaAssetId(slug, mediaIndex),
+        publishReviewMediaAssetId({
+          platformSlug: slug,
+          previewIndex,
+          explicitPreviewAssetId,
+          mediaIndex,
+        }),
+      );
+    });
+
+    for (const suffix of ['contract', 'brief', 'landing-page'] as const) {
+      const assetPaths = recordValue(platform.asset_paths);
+      const candidatePath =
+        suffix === 'contract'
+          ? stringValue(assetPaths?.contract_path)
+          : suffix === 'brief'
+            ? stringValue(assetPaths?.brief_path)
+            : stringValue(assetPaths?.landing_page_path);
+      if (!candidatePath) {
+        continue;
+      }
+      legacyToCanonical.set(
+        legacyPublishReviewLinkedAssetId(slug, suffix),
+        publishReviewLinkedAssetId({
+          platformSlug: slug,
+          previewIndex,
+          explicitPreviewAssetId,
+          suffix,
+        }),
+      );
+    }
+  }
+
+  const canonicalId = legacyToCanonical.get(assetId);
+  if (!canonicalId) {
+    return null;
+  }
+
+  return assets.find((asset) => asset.id === canonicalId) ?? null;
 }

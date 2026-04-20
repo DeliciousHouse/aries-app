@@ -78,6 +78,7 @@ function buildCampaign(overrides: Partial<RuntimeCampaignListItem> = {}): Runtim
       posts: 1,
       landingPages: 0,
       imageAds: 1,
+      videoAds: 0,
       scripts: 0,
       publishItems: 1,
       proposalConcepts: 0,

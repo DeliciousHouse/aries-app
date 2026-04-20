@@ -134,3 +134,45 @@ test('recordStageFailure writes a runtime incident immediately', async () => {
     rmSync(tmpRoot, { recursive: true, force: true });
   }
 });
+
+test('runtime error intake summary keeps escalated incidents visible', async () => {
+  // @ts-expect-error runtime error scanner is implemented as an ESM .mjs helper
+  const { emitScanSummary, summarizeRuntimeIncidentQueues } = await import('../scripts/automations/lib/runtime-errors.mjs');
+
+  const summary = summarizeRuntimeIncidentQueues([
+    { incidentId: 'inc-escalated', status: 'escalated', severity: 'high', source: 'marketing-job-failure' },
+  ] as any);
+
+  const writes: string[] = [];
+  const originalWrite = process.stdout.write.bind(process.stdout);
+
+  process.stdout.write = ((chunk: any, ...args: any[]) => {
+    writes.push(String(chunk));
+    return true;
+  }) as typeof process.stdout.write;
+
+  try {
+    emitScanSummary({
+      stats: {
+        scannedChecks: 3,
+        failedChecks: 1,
+        newIncidents: 0,
+        ongoingIncidents: 1,
+        reopenedIncidents: 0,
+        resolvedIncidents: 0,
+      },
+      incidents: summary.unresolved,
+      summary,
+    } as any);
+  } finally {
+    process.stdout.write = originalWrite;
+  }
+
+  const output = writes.join('');
+  assert.match(output, /repair_queue: 0/);
+  assert.match(output, /escalated_incidents: 1/);
+  assert.match(output, /unresolved_incidents: 1/);
+  assert.match(output, /highest_repair_severity: none/);
+  assert.match(output, /highest_severity: high/);
+  assert.match(output, /next_step: review escalated incidents/);
+});

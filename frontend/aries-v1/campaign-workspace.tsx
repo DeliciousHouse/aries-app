@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowUpRight, CheckCircle2, LoaderCircle, MessageSquareText, XCircle } from 'lucide-react';
 
 import MediaPreview from '@/frontend/components/media-preview';
+import { safeHref } from '@/lib/safe-href';
 import { useMarketingJobStatus } from '@/hooks/use-marketing-job-status';
 import type {
   MarketingCampaignStatusHistoryEntry,
@@ -269,7 +270,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
           ) : null}
           <p className="max-w-3xl text-sm leading-7 text-white/65">{status.summary.subheadline}</p>
           <div className="grid gap-4 md:grid-cols-4">
-            <MetricCard label="Brand assets" value={String(status.campaignBrief?.brandAssets.length || 0)} />
+            <MetricCard label="Generated assets" value={String(status.dashboard.assets.length)} />
             <MetricCard label="Creative approvals" value={`${status.creativeReview?.approvedCount || 0}/${status.creativeReview?.assets.length || 0}`} />
             <MetricCard label="Publish items" value={String(status.dashboard.publishItems.length)} />
             <MetricCard label="History entries" value={String(currentHistory.length)} />
@@ -321,6 +322,8 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
                 ? () => void submitReviewDecision(status.brandReview!.reviewId, 'changes_requested')
                 : undefined
             }
+            nextStageHref={`/dashboard/campaigns/${encodeURIComponent(props.campaignId)}?view=strategy`}
+            nextStageLabel="Go to Strategy Review"
           />
         </div>
       ) : null}
@@ -346,6 +349,8 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
               ? () => void submitReviewDecision(status.strategyReview!.reviewId, 'changes_requested', status.approval?.approvalId)
               : undefined
           }
+          nextStageHref={`/dashboard/campaigns/${encodeURIComponent(props.campaignId)}?view=creative`}
+          nextStageLabel="Go to Creative Review"
         />
       ) : null}
 
@@ -678,10 +683,16 @@ function StageReviewSurface(props: {
   busy: boolean;
   onApprove?: () => void;
   onChangesRequested?: () => void;
+  /** Shown after this review is approved so the user has a clear next step
+   * (e.g. "Go to Strategy Review") instead of the stale "Approve" button. */
+  nextStageHref?: string;
+  nextStageLabel?: string;
 }) {
   if (!props.review) {
     return <GateFallbackPanel eyebrow="Checkpoint" fallback={props.fallback} />;
   }
+
+  const isApproved = props.review.status === 'approved';
 
   return (
     <div className="space-y-4">
@@ -719,14 +730,22 @@ function StageReviewSurface(props: {
           </ShellPanel>
         ))}
 
-        <ReviewDecisionCard
-          note={props.note}
-          onNoteChange={props.onNoteChange}
-          busy={props.busy}
-          onApprove={props.onApprove}
-          onChangesRequested={props.onChangesRequested}
-          placeholder={props.review.notePlaceholder}
-        />
+        {isApproved && props.nextStageHref ? (
+          <ApprovedNextStageCard
+            href={props.nextStageHref}
+            label={props.nextStageLabel || 'Continue to next review'}
+            stageLabel={reviewSurfaceLabel(props.review.reviewType)}
+          />
+        ) : (
+          <ReviewDecisionCard
+            note={props.note}
+            onNoteChange={props.onNoteChange}
+            busy={props.busy}
+            onApprove={isApproved ? undefined : props.onApprove}
+            onChangesRequested={isApproved ? undefined : props.onChangesRequested}
+            placeholder={props.review.notePlaceholder}
+          />
+        )}
 
         <HistoryCard history={props.review.history} />
       </div>
@@ -841,8 +860,10 @@ function PublishStatusSurface(props: {
           <EmptyStatePanel compact title={props.overview.emptyTitle} description={props.overview.emptyDescription} />
         ) : (
           <div className="space-y-3">
-            {props.publishItems.map((item) => (
-              <div key={item.id} className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4">
+            {props.publishItems.map((item) => {
+              const hrefCandidate = safeHref(item.destinationUrl);
+              const isExternal = hrefCandidate ? /^https?:\/\//i.test(hrefCandidate) : false;
+              const itemBody = (
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
                     <p className="text-sm font-medium text-white">{item.title}</p>
@@ -854,8 +875,34 @@ function PublishStatusSurface(props: {
                     {workflowStateLabel(item.status)}
                   </StatusChip>
                 </div>
-              </div>
-            ))}
+              );
+              const cardClass = `block rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4 ${hrefCandidate ? 'transition hover:border-white/20 hover:bg-black/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30' : ''}`;
+              if (hrefCandidate && isExternal) {
+                return (
+                  <a
+                    key={item.id}
+                    href={hrefCandidate}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={cardClass}
+                  >
+                    {itemBody}
+                  </a>
+                );
+              }
+              if (hrefCandidate) {
+                return (
+                  <Link key={item.id} href={hrefCandidate} className={cardClass}>
+                    {itemBody}
+                  </Link>
+                );
+              }
+              return (
+                <div key={item.id} className={cardClass}>
+                  {itemBody}
+                </div>
+              );
+            })}
           </div>
         )}
       </ShellPanel>
@@ -864,6 +911,27 @@ function PublishStatusSurface(props: {
         <ActivityFeed items={props.history.map((entry) => ({ id: entry.id, label: historyTypeLabel(entry.type), detail: entry.note || workflowStateLabel(entry.workflowState), at: formatDecisionTimestamp(entry.at) }))} />
       </ShellPanel>
     </div>
+  );
+}
+
+function ApprovedNextStageCard(props: { href: string; label: string; stageLabel: string }) {
+  return (
+    <ShellPanel eyebrow={`${props.stageLabel} approved`} title="Ready for the next review">
+      <div className="space-y-4">
+        <p className="text-sm leading-7 text-white/65">
+          This review has been approved. Continue to the next stage to keep the campaign moving.
+        </p>
+        <Link
+          href={props.href}
+          style={{ color: '#11161c' }}
+          className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold transition hover:translate-y-[-1px]"
+        >
+          <CheckCircle2 className="h-4 w-4" />
+          {props.label}
+          <ArrowUpRight className="h-4 w-4" />
+        </Link>
+      </div>
+    </ShellPanel>
   );
 }
 
@@ -928,8 +996,11 @@ function ReviewDecisionCard(props: {
                 props.onApprove?.();
               }}
               disabled={props.busy}
-              className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] hover:cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
-              style={{ cursor: props.busy ? 'not-allowed' : 'pointer' }}
+              /* Inline color bypasses any cascade conflict so the approval
+                 label is always visible even if utility layering changes
+                 elsewhere. Belt-and-suspenders for the demo-critical CTA. */
+              style={{ color: '#11161c', cursor: props.busy ? 'not-allowed' : 'pointer' }}
+              className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold hover:cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
             >
               {props.busy && activeAction === 'approve' ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
               {props.busy && activeAction === 'approve' ? activeProgressLabel : 'Approve'}

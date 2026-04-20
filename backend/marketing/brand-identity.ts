@@ -68,15 +68,34 @@ const UTILITY_TOKEN_PATTERN =
   /\b(?:bg|text|font|tracking|max-w|min-w|min-h|max-h|from|via|to|px|py|pt|pr|pb|pl|mx|my|mt|mr|mb|ml|grid|flex|gap|items|justify|rounded|shadow|ring|border|leading)-\[[^\]\s]+\]/gi;
 const CSS_REMNANT_PATTERN = /(?:^|\s)(?:[#.][a-z0-9_-]+|::?[a-z-]+|@media|var\(--[^)]+\)|theme\([^)]+\)|calc\([^)]+\))/gi;
 
+function decodeHtmlEntities(value: string): string {
+  // Decode `&amp;` BEFORE `&lt;`/`&gt;` so double-encoded markup like
+  // `&amp;lt;script&amp;gt;` is fully decoded to `<script>` and then
+  // caught by the tag-stripping regexes. Matching the order used by
+  // `decodeHtmlEntities` in brand-kit.ts.
+  return value
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&apos;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>');
+}
+
 export function normalizeBrandIdentityText(value: unknown): string | null {
   let text = stringValue(value);
   if (!text) {
     return null;
   }
 
-  text = text
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+  // Decode entities BEFORE tag-stripping so entity-encoded tags like
+  // `&lt;script&gt;` are recognized and removed. Otherwise they survive as
+  // literal `<script>` text after decode, re-introducing the HTML leak.
+  text = decodeHtmlEntities(text)
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style\b[^>]*>/gi, ' ')
+    .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript\b[^>]*>/gi, ' ')
+    .replace(/<svg\b[^>]*>[\s\S]*?<\/svg\b[^>]*>/gi, ' ')
     .replace(ATTRIBUTE_PATTERN, ' ')
     .replace(HTML_FRAGMENT_PATTERN, ' ')
     .replace(HTML_ENTITY_PATTERN, ' ')
@@ -154,13 +173,21 @@ export function recordMatchesCurrentSource(
   record: Record<string, unknown> | null,
   currentSourceUrl?: string | null,
 ): boolean {
-  const currentFingerprint = normalizeSourceFingerprint(currentSourceUrl);
-  if (!record || !currentFingerprint) {
+  if (!record) {
     return true;
   }
 
+  const currentFingerprint = normalizeSourceFingerprint(currentSourceUrl);
+  if (!currentFingerprint) {
+    return true;
+  }
+
+  // When a current source URL is known, reject records we cannot positively
+  // attribute to that source. Previously an unfingerprinted record was treated
+  // as matching any source, which let stale tenant-scoped files from prior
+  // campaigns leak into the current campaign's approval payload.
   const recordFingerprint = sourceFingerprintFromRecord(record);
-  return !recordFingerprint || recordFingerprint === currentFingerprint;
+  return recordFingerprint === currentFingerprint;
 }
 
 type BuildBrandIdentityInput = {
