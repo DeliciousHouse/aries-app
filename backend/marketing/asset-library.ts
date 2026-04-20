@@ -49,6 +49,31 @@ function resolveExistingAbsoluteAssetPath(filePath: string): string | null {
     candidates.add(path.join(codeRoot, suffix));
   }
 
+  // Host-output → bind-mount remap. The host's Lobster pipeline writes
+  // creative images under an absolute host path (e.g. ARIES_LOBSTER_HOST_OUTPUT_DIR
+  // = /home/node/openclaw/aries-app/lobster/output) but inside this container
+  // that directory is only reachable via the read-only bind mount at
+  // ARIES_LOBSTER_HOST_OUTPUT_MOUNT (default /host-lobster-output). Without
+  // this remap, runtime_docs that pin absolute host paths (stage-3/4
+  // creative assets) fail existsSync and the dashboard collapses to
+  // creativeReviewReason='no_real_creative_assets'.
+  const hostOutputDir = process.env.ARIES_LOBSTER_HOST_OUTPUT_DIR?.trim();
+  const hostOutputMount = process.env.ARIES_LOBSTER_HOST_OUTPUT_MOUNT?.trim();
+  if (hostOutputDir && hostOutputMount) {
+    // path.resolve (not path.normalize) so a trailing slash on the env var
+    // doesn't produce `/foo//` in the startsWith guard and silently no-op
+    // the remap.
+    const normalizedHostDir = path.resolve(hostOutputDir);
+    const normalizedHostMount = path.resolve(hostOutputMount);
+    if (
+      normalizedPath === normalizedHostDir ||
+      normalizedPath.startsWith(`${normalizedHostDir}${path.sep}`)
+    ) {
+      const suffix = normalizedPath.slice(normalizedHostDir.length).replace(/^[\\/]+/, '');
+      candidates.add(suffix ? path.join(normalizedHostMount, suffix) : normalizedHostMount);
+    }
+  }
+
   for (const candidate of candidates) {
     if (existsSync(candidate)) {
       return candidate;

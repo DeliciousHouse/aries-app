@@ -116,6 +116,10 @@ function trustedRoots(): string[] {
         resolveCodePath('lobster'),
         process.env.OPENCLAW_LOCAL_LOBSTER_CWD?.trim(),
         process.env.OPENCLAW_LOBSTER_CWD?.trim(),
+        // Host bind-mount of the host's lobster/output tree (creative
+        // images written by the host pipeline are only reachable from
+        // inside the container via this read-only mount).
+        process.env.ARIES_LOBSTER_HOST_OUTPUT_MOUNT?.trim(),
         process.env.LOBSTER_STAGE1_CACHE_DIR?.trim() || path.join(tmpdir(), 'lobster-stage1-cache'),
         process.env.LOBSTER_STAGE2_CACHE_DIR?.trim() || path.join(tmpdir(), 'lobster-stage2-cache'),
         process.env.LOBSTER_STAGE3_CACHE_DIR?.trim() || path.join(tmpdir(), 'lobster-stage3-cache'),
@@ -142,6 +146,28 @@ function absoluteCompatibilityCandidates(filePath: string): string[] {
 
     const suffix = normalized.slice(prefix.length).replace(/^[\\/]+/, '');
     candidates.add(path.join(codeRoot, suffix));
+  }
+
+  // Host-output → bind-mount remap. Absolute paths that point at the
+  // host's lobster/output tree (ARIES_LOBSTER_HOST_OUTPUT_DIR) need to be
+  // rewritten onto the in-container bind-mount path
+  // (ARIES_LOBSTER_HOST_OUTPUT_MOUNT) so isWithinRoot accepts them and
+  // readFile actually finds the bytes.
+  const hostOutputDir = process.env.ARIES_LOBSTER_HOST_OUTPUT_DIR?.trim();
+  const hostOutputMount = process.env.ARIES_LOBSTER_HOST_OUTPUT_MOUNT?.trim();
+  if (hostOutputDir && hostOutputMount) {
+    // path.resolve (not path.normalize) so a trailing slash on the env var
+    // doesn't produce `/foo//` in the startsWith guard and silently no-op
+    // the remap.
+    const normalizedHostDir = path.resolve(hostOutputDir);
+    const normalizedHostMount = path.resolve(hostOutputMount);
+    if (
+      normalized === normalizedHostDir ||
+      normalized.startsWith(`${normalizedHostDir}${path.sep}`)
+    ) {
+      const hostSuffix = normalized.slice(normalizedHostDir.length).replace(/^[\\/]+/, '');
+      candidates.add(hostSuffix ? path.join(normalizedHostMount, hostSuffix) : normalizedHostMount);
+    }
   }
 
   return Array.from(candidates);
