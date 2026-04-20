@@ -2340,6 +2340,12 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
       `Publish-ready ${platformLabel(platform).toLowerCase()} package is available.`
 
     const assetIds: string[] = []
+    // Track media-type assets separately so the preview thumbnail prefers an
+    // actual image/video over the markdown copy or JSON contract that happen
+    // to be registered alongside. Without this, video-only platforms (TikTok,
+    // Reels) show their copy .md or contract JSON as the "preview" because
+    // `assetIds[0]` is whatever landed first in the loop order.
+    const mediaAssetIds: string[] = []
     const publishAssetEntries: Array<[string, string, MarketingDashboardAssetType]> = [
       ['publish-image', imagePath, 'image_ad'],
       ['publish-copy', copyPath, 'copy'],
@@ -2384,6 +2390,9 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
       })
       if (addedAsset) {
         assetIds.push(addedAsset.id)
+        if (type === 'image_ad' || type === 'video_ad') {
+          mediaAssetIds.push(addedAsset.id)
+        }
       }
     })
 
@@ -2403,7 +2412,7 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
       funnelStage,
       objective,
       destinationUrl: brandUrl,
-      previewAssetId: assetIds[0] || null,
+      previewAssetId: mediaAssetIds[0] || assetIds[0] || null,
       status: explicitStatus,
       createdAt,
       relatedAssetIds: assetIds,
@@ -2517,6 +2526,7 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
         'Review-ready publish package awaiting scheduling or activation.'
 
       const assetIds: string[] = []
+      const mediaAssetIds: string[] = []
       const reviewAssetEntries: Array<[string, string, MarketingDashboardAssetType]> = [
         ['review-image', imagePath, 'image_ad'],
         ['review-copy', copyPath, 'copy'],
@@ -2561,6 +2571,9 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
         })
         if (addedAsset) {
           assetIds.push(addedAsset.id)
+          if (type === 'image_ad' || type === 'video_ad' || type === 'landing_page') {
+            mediaAssetIds.push(addedAsset.id)
+          }
         }
       })
 
@@ -2576,7 +2589,7 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
         funnelStage,
         objective,
         destinationUrl: landingPath || brandUrl,
-        previewAssetId: assetIds[0] || null,
+        previewAssetId: mediaAssetIds[0] || assetIds[0] || null,
         status: publishStatus,
         createdAt: context.status.updatedAt,
         relatedAssetIds: assetIds,
@@ -2602,7 +2615,7 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
         funnelStage,
         objective,
         destinationUrl: landingPath || brandUrl,
-        previewAssetId: assetIds[0] || null,
+        previewAssetId: mediaAssetIds[0] || assetIds[0] || null,
         status: publishStatus,
         createdAt: context.status.updatedAt,
         conceptId: slugify(title, `${platform}-${index + 1}`),
