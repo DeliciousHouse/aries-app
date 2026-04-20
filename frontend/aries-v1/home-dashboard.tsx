@@ -19,8 +19,11 @@ export default function AriesHomeDashboard() {
   const profile = useBusinessProfile({ autoLoad: true });
   const integrations = useIntegrations({ autoLoad: true });
 
-  const loading = campaigns.isLoading || reviews.isLoading || profile.profile.isLoading;
-  const loadError = campaigns.error || reviews.error || profile.profile.error;
+  // Review queue data is useful, but it should not block the dashboard shell.
+  // A slow reviews fetch can happen when runtime review hydration needs to scan
+  // large job payloads; keep the dashboard usable and let reviews hydrate later.
+  const loading = campaigns.isLoading || profile.profile.isLoading;
+  const loadError = campaigns.error || profile.profile.error;
   const campaignList = campaigns.data?.campaigns ?? [];
   const reviewList = reviews.data?.reviews ?? [];
   const profileData = profile.profile.data?.profile ?? null;

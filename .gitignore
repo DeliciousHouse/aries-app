@@ -180,3 +180,6 @@ docs/superpowers/
 default/memory/*-daily-standup.md
 default/memory/*-standup.md
 default/memory/*-standup-*.md
+.env
+.env.local
+.env.*.local

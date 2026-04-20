@@ -186,7 +186,7 @@ export function StatusChip(props: { status: AriesCampaignStatus | AriesItemStatu
   return (
     <span
       className={clsx(
-        'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium tracking-[0.03em]',
+        'inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium tracking-[0.03em]',
         palette,
       )}
     >

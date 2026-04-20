@@ -23,6 +23,22 @@ export interface RedesignAppShellProps {
   skipOnboardingGate?: boolean;
 }
 
+const REVIEW_COUNT_TIMEOUT_MS = 1500;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  });
+}
+
 export default async function RedesignAppShell({
   children,
   currentRouteId,
@@ -67,9 +83,21 @@ export default async function RedesignAppShell({
   }
 
   const currentRoute = currentRouteId ? getRouteById(currentRouteId) : null;
-  const reviewCount = session.user.tenantId
-    ? await countPendingMarketingReviewItemsForTenant(String(session.user.tenantId))
-    : 0;
+  let reviewCount = 0;
+  if (session.user.tenantId) {
+    try {
+      reviewCount = await withTimeout(
+        countPendingMarketingReviewItemsForTenant(String(session.user.tenantId)),
+        REVIEW_COUNT_TIMEOUT_MS,
+        0,
+      );
+    } catch (error) {
+      console.warn('[app-shell] Unable to resolve review count without blocking render.', {
+        tenantId: String(session.user.tenantId),
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
 
   async function logoutAction(_formData: FormData) {
     'use server';

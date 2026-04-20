@@ -37,6 +37,9 @@ function buildLoginErrorUrl(error: string): string {
 if (authRuntime.authUrl) {
   process.env.NEXTAUTH_URL = process.env.NEXTAUTH_URL ?? authRuntime.authUrl;
   process.env.AUTH_URL = process.env.AUTH_URL ?? authRuntime.authUrl;
+} else if (process.env.NODE_ENV !== "production") {
+  delete process.env.NEXTAUTH_URL;
+  delete process.env.AUTH_URL;
 }
 
 export const { handlers, signIn, signOut, auth } = NextAuth({

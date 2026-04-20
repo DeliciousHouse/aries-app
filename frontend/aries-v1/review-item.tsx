@@ -1,14 +1,22 @@
 'use client';
 
-import { useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import Link from 'next/link';
-import { ArrowUpRight, CheckCircle2, MessageSquareText, XCircle } from 'lucide-react';
+import { ArrowUpRight, CheckCircle2, LoaderCircle, MessageSquareText, XCircle } from 'lucide-react';
 
 import MediaPreview from '@/frontend/components/media-preview';
 import { useRuntimeReviewItem } from '@/hooks/use-runtime-review-item';
 
 import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { EmptyStatePanel, LoadingStateGrid, ShellPanel, StatusChip } from './components';
+
+type DecisionActionKind = 'approve' | 'changes_requested' | 'reject';
+
+const DECISION_PROGRESS_LABELS: Record<DecisionActionKind, string[]> = {
+  approve: ['Saving decision', 'Resuming workflow', 'Preparing next stage', 'Loading review'],
+  changes_requested: ['Saving request', 'Sending revision notes', 'Updating review state', 'Refreshing checkpoint'],
+  reject: ['Saving decision', 'Marking review rejected', 'Updating review state', 'Refreshing checkpoint'],
+};
 
 function workflowLabel(value: string): string {
   if (value === 'workflow_approval') {
@@ -56,6 +64,8 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
   const review = useRuntimeReviewItem(props.reviewId, { autoLoad: true });
   const item = review.data?.review ?? null;
   const [note, setNote] = useState('');
+  const [activeAction, setActiveAction] = useState<DecisionActionKind>('approve');
+  const [progressIndex, setProgressIndex] = useState(0);
   const busy = review.decision.isLoading;
   // Synchronous double-submit lock. `busy` / `disabled` aren't enough because
   // React state updates are async — a fast second click or effect re-invocation
@@ -72,6 +82,19 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
     const timestamp = new Date(item.lastDecision.at).toLocaleString();
     return actor ? `${action} by ${actor} at ${timestamp}` : `${action} at ${timestamp}`;
   }, [item]);
+
+  useEffect(() => {
+    if (!busy) {
+      setProgressIndex(0);
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setProgressIndex((current) => Math.min(current + 1, DECISION_PROGRESS_LABELS[activeAction].length - 1));
+    }, 1800);
+
+    return () => window.clearInterval(intervalId);
+  }, [activeAction, busy]);
 
   if (review.isLoading) {
     return <LoadingStateGrid />;
@@ -90,6 +113,7 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
   }
 
   const reviewItem = item;
+  const activeProgressLabel = busy ? DECISION_PROGRESS_LABELS[activeAction][progressIndex] : null;
 
   async function applyDecision(action: 'approve' | 'changes_requested' | 'reject') {
     // Bug A hardening: the ref lock alone doesn't catch a second click that
@@ -247,20 +271,7 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
         </div>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
-        {reviewItem.attachments.length > 0 ? (
-          <ShellPanel eyebrow="Materials" title="Supporting materials">
-            <div className="space-y-3">
-              {reviewItem.attachments.map((attachment) => (
-                <a key={attachment.id} href={attachment.url} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-4 rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4 text-sm text-white/80 transition hover:border-white/16 hover:text-white">
-                  <span>{attachment.label}</span>
-                  <ArrowUpRight className="h-4 w-4" />
-                </a>
-              ))}
-            </div>
-          </ShellPanel>
-        ) : null}
-
+      <div className="space-y-4">
         <ShellPanel eyebrow="Decision" title="Choose what happens next">
           <div className="space-y-4">
             <div>
@@ -279,30 +290,39 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
             <div className="flex flex-wrap gap-3">
               <button
                 type="button"
-                onClick={() => void applyDecision('approve')}
+                onClick={() => {
+                  setActiveAction('approve');
+                  void applyDecision('approve');
+                }}
                 disabled={busy}
                 className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] disabled:opacity-60"
               >
-                <CheckCircle2 className="h-4 w-4" />
-                {busy ? 'Saving...' : reviewItem.currentVersion.cta || 'Approve'}
+                {busy && activeAction === 'approve' ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                {busy && activeAction === 'approve' ? activeProgressLabel : reviewItem.currentVersion.cta || 'Approve'}
               </button>
               <button
                 type="button"
-                onClick={() => void applyDecision('changes_requested')}
+                onClick={() => {
+                  setActiveAction('changes_requested');
+                  void applyDecision('changes_requested');
+                }}
                 disabled={busy}
                 className="inline-flex items-center gap-2 rounded-full border border-white/12 px-5 py-3 text-sm font-semibold text-white disabled:opacity-60"
               >
-                <MessageSquareText className="h-4 w-4" />
-                Request changes
+                {busy && activeAction === 'changes_requested' ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <MessageSquareText className="h-4 w-4" />}
+                {busy && activeAction === 'changes_requested' ? activeProgressLabel : 'Request changes'}
               </button>
               <button
                 type="button"
-                onClick={() => void applyDecision('reject')}
+                onClick={() => {
+                  setActiveAction('reject');
+                  void applyDecision('reject');
+                }}
                 disabled={busy}
                 className="inline-flex items-center gap-2 rounded-full border border-rose-300/20 bg-rose-300/10 px-5 py-3 text-sm font-semibold text-rose-50 disabled:opacity-60"
               >
-                <XCircle className="h-4 w-4" />
-                Reject
+                {busy && activeAction === 'reject' ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
+                {busy && activeAction === 'reject' ? activeProgressLabel : 'Reject'}
               </button>
             </div>
           </div>

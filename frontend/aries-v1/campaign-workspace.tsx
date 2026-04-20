@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowUpRight, CheckCircle2, MessageSquareText, XCircle } from 'lucide-react';
+import { ArrowUpRight, CheckCircle2, LoaderCircle, MessageSquareText, XCircle } from 'lucide-react';
 
 import MediaPreview from '@/frontend/components/media-preview';
 import { useMarketingJobStatus } from '@/hooks/use-marketing-job-status';
@@ -25,6 +25,16 @@ import {
 } from './campaign-workspace-state';
 import { customerSafeActionErrorMessage, customerSafeUiErrorMessage } from './customer-safe-copy';
 import { ActivityFeed, EmptyStatePanel, SectionLink, ShellPanel, StatusChip } from './components';
+
+type DecisionActionKind = 'approve' | 'changes_requested' | 'reject';
+
+const DECISION_PROGRESS_LABELS: Record<DecisionActionKind, string[]> = {
+  approve: ['Saving decision', 'Resuming workflow', 'Preparing next stage', 'Loading review'],
+  changes_requested: ['Saving request', 'Sending revision notes', 'Updating review state', 'Refreshing checkpoint'],
+  reject: ['Saving decision', 'Marking review rejected', 'Updating review state', 'Refreshing checkpoint'],
+};
+
+const DECISION_PROGRESS_MAX_PERCENT = 94;
 
 function isActiveJobStatus(status: string): boolean {
   return ['accepted', 'running', 'in_progress', 'ready', 'awaiting_approval', 'resumed', 'pending'].includes(
@@ -628,14 +638,16 @@ function BriefField(props: { label: string; value: string }) {
   );
 }
 
-function WorkspaceActionLink(props: { action: WorkspaceAction }) {
+function WorkspaceActionLink(props: { action: WorkspaceAction; tone?: 'default' | 'review' }) {
+  const textClass = props.tone === 'review' ? 'text-black' : 'text-[#11161c]';
+
   return (
     <Link
       href={props.action.href}
-      className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-semibold text-[#11161c] transition hover:translate-y-[-1px]"
+      className={`inline-flex cursor-pointer items-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-semibold transition hover:translate-y-[-1px] ${textClass}`}
     >
-      {props.action.label}
-      <ArrowUpRight className="h-4 w-4" />
+      <span className={textClass}>{props.action.label}</span>
+      <ArrowUpRight className={`h-4 w-4 ${textClass}`} />
     </Link>
   );
 }
@@ -648,7 +660,7 @@ function GateFallbackPanel(props: {
     <ShellPanel
       eyebrow={props.eyebrow}
       title={props.fallback.title}
-      action={props.fallback.action ? <WorkspaceActionLink action={props.fallback.action} /> : undefined}
+      action={props.fallback.action ? <WorkspaceActionLink action={props.fallback.action} tone="review" /> : undefined}
     >
       <div className="space-y-3">
         <p className="text-sm leading-7 text-white/65">{props.fallback.description}</p>
@@ -700,40 +712,23 @@ function StageReviewSurface(props: {
         </ShellPanel>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-        <div className="space-y-4">
-          {props.review.sections.map((section) => (
-            <ShellPanel key={section.id} eyebrow="Content" title={section.title}>
-              <div className="whitespace-pre-wrap text-sm leading-7 text-white/68">{section.body}</div>
-            </ShellPanel>
-          ))}
-        </div>
+      <div className="space-y-4">
+        {props.review.sections.map((section) => (
+          <ShellPanel key={section.id} eyebrow="Content" title={section.title}>
+            <div className="whitespace-pre-wrap text-sm leading-7 text-white/68">{section.body}</div>
+          </ShellPanel>
+        ))}
 
-        <div className="space-y-4">
-          {props.review.attachments.length > 0 ? (
-            <ShellPanel eyebrow="Materials" title="Supporting materials">
-              <div className="space-y-3">
-                {props.review.attachments.map((attachment) => (
-                  <a key={attachment.id} href={attachment.url} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-4 rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4 text-sm text-white/80 transition hover:border-white/16 hover:text-white">
-                    <span>{attachment.label}</span>
-                    <ArrowUpRight className="h-4 w-4" />
-                  </a>
-                ))}
-              </div>
-            </ShellPanel>
-          ) : null}
+        <ReviewDecisionCard
+          note={props.note}
+          onNoteChange={props.onNoteChange}
+          busy={props.busy}
+          onApprove={props.onApprove}
+          onChangesRequested={props.onChangesRequested}
+          placeholder={props.review.notePlaceholder}
+        />
 
-          <ReviewDecisionCard
-            note={props.note}
-            onNoteChange={props.onNoteChange}
-            busy={props.busy}
-            onApprove={props.onApprove}
-            onChangesRequested={props.onChangesRequested}
-            placeholder={props.review.notePlaceholder}
-          />
-
-          <HistoryCard history={props.review.history} />
-        </div>
+        <HistoryCard history={props.review.history} />
       </div>
     </div>
   );
@@ -881,6 +876,40 @@ function ReviewDecisionCard(props: {
   onReject?: () => void;
   placeholder?: string;
 }) {
+  const [activeAction, setActiveAction] = useState<DecisionActionKind>('approve');
+  const [progressIndex, setProgressIndex] = useState(0);
+  const [progressPercent, setProgressPercent] = useState(0);
+
+  useEffect(() => {
+    if (!props.busy) {
+      setProgressIndex(0);
+      setProgressPercent(0);
+      return;
+    }
+
+    const progressLabels = DECISION_PROGRESS_LABELS[activeAction];
+    const startedAt = Date.now();
+    setProgressPercent(8);
+    setProgressIndex(0);
+
+    const intervalId = window.setInterval(() => {
+      const elapsedMs = Date.now() - startedAt;
+      const easedPercent = Math.round(8 + (1 - Math.exp(-elapsedMs / 4200)) * (DECISION_PROGRESS_MAX_PERCENT - 8));
+      const nextPercent = Math.min(DECISION_PROGRESS_MAX_PERCENT, easedPercent);
+      const nextIndex = Math.min(
+        progressLabels.length - 1,
+        Math.floor((nextPercent / 100) * progressLabels.length),
+      );
+
+      setProgressPercent(nextPercent);
+      setProgressIndex(nextIndex);
+    }, 160);
+
+    return () => window.clearInterval(intervalId);
+  }, [activeAction, props.busy]);
+
+  const activeProgressLabel = props.busy ? DECISION_PROGRESS_LABELS[activeAction][progressIndex] : null;
+
   return (
     <ShellPanel eyebrow="Decision" title="Approve or request changes">
       <div className="space-y-4">
@@ -894,37 +923,66 @@ function ReviewDecisionCard(props: {
           {props.onApprove ? (
             <button
               type="button"
-              onClick={props.onApprove}
+              onClick={() => {
+                setActiveAction('approve');
+                props.onApprove?.();
+              }}
               disabled={props.busy}
-              className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] hover:cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+              style={{ cursor: props.busy ? 'not-allowed' : 'pointer' }}
             >
-              <CheckCircle2 className="h-4 w-4" />
-              {props.busy ? 'Saving...' : 'Approve'}
+              {props.busy && activeAction === 'approve' ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              {props.busy && activeAction === 'approve' ? activeProgressLabel : 'Approve'}
             </button>
           ) : null}
           {props.onChangesRequested ? (
             <button
               type="button"
-              onClick={props.onChangesRequested}
+              onClick={() => {
+                setActiveAction('changes_requested');
+                props.onChangesRequested?.();
+              }}
               disabled={props.busy}
-              className="inline-flex items-center gap-2 rounded-full border border-white/12 px-5 py-3 text-sm font-semibold text-white disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-full border border-white/12 px-5 py-3 text-sm font-semibold text-white hover:cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+              style={{ cursor: props.busy ? 'not-allowed' : 'pointer' }}
             >
-              <MessageSquareText className="h-4 w-4" />
-              Request changes
+              {props.busy && activeAction === 'changes_requested' ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <MessageSquareText className="h-4 w-4" />}
+              {props.busy && activeAction === 'changes_requested' ? activeProgressLabel : 'Request changes'}
             </button>
           ) : null}
           {props.onReject ? (
             <button
               type="button"
-              onClick={props.onReject}
+              onClick={() => {
+                setActiveAction('reject');
+                props.onReject?.();
+              }}
               disabled={props.busy}
-              className="inline-flex items-center gap-2 rounded-full border border-rose-300/20 bg-rose-300/10 px-5 py-3 text-sm font-semibold text-rose-50 disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-full border border-rose-300/20 bg-rose-300/10 px-5 py-3 text-sm font-semibold text-rose-50 hover:cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+              style={{ cursor: props.busy ? 'not-allowed' : 'pointer' }}
             >
-              <XCircle className="h-4 w-4" />
-              Reject
+              {props.busy && activeAction === 'reject' ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
+              {props.busy && activeAction === 'reject' ? activeProgressLabel : 'Reject'}
             </button>
           ) : null}
         </div>
+        {props.busy ? (
+          <div className="rounded-[1.25rem] border border-white/10 bg-white/[0.04] px-4 py-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-medium text-white/88">{activeProgressLabel}</p>
+              <p className="text-sm font-semibold tabular-nums text-white/72">{progressPercent}%</p>
+            </div>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/[0.08]">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-sky-400 via-cyan-300 to-emerald-300 transition-[width] duration-300 ease-out"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+            <p className="mt-3 text-xs leading-5 text-white/55">
+              Aries is saving the decision and refreshing the next review state. This can take a few seconds.
+            </p>
+          </div>
+        ) : null}
       </div>
     </ShellPanel>
   );

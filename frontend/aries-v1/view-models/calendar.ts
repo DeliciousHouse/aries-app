@@ -44,6 +44,14 @@ function formatScheduledLabel(value: string, campaignName: string, statusLabel: 
   }).format(new Date(timestamp))} UTC · ${campaignName} · ${statusLabel}`;
 }
 
+function normalizeCalendarPlatformLabel(platformLabel: string): string {
+  if (platformLabel.trim().toLowerCase() === 'landing page') {
+    return 'Reddit';
+  }
+
+  return platformLabel;
+}
+
 export function createCalendarViewModel(campaigns: RuntimeCampaignListItem[]): CalendarViewModel {
   const events = campaigns
     .flatMap((campaign) => campaign.dashboard.calendarEvents.map((event) => ({ campaign, event })))
@@ -56,7 +64,7 @@ export function createCalendarViewModel(campaigns: RuntimeCampaignListItem[]): C
       return {
         id: event.id,
         title: event.title,
-        platform: event.platformLabel,
+        platform: normalizeCalendarPlatformLabel(event.platformLabel),
         scheduledFor: formatScheduledLabel(event.startsAt, event.campaignName, event.statusLabel),
         status: event.status,
         href: `/dashboard/campaigns/${campaign.id}`,
