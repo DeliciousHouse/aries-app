@@ -65,7 +65,17 @@ export function lobsterRoots(): string[] {
 }
 
 export function lobsterOutputRoots(): string[] {
-  return lobsterRoots().map((root) => path.join(root, 'output'));
+  // In the aries-app container the host's lobster/output dir is bind-mounted
+  // read-only at ARIES_LOBSTER_HOST_OUTPUT_MOUNT. Include it here so directory
+  // scans (landing-pages, ad-images, scripts, proposals) find the real files
+  // written by the host-side Lobster pipeline. Without this, campaignRootForBrand
+  // falls back to a path that only exists on the host, listFiles returns empty,
+  // and the dashboard shows zero creative assets even though the pipeline ran.
+  const hostMount = process.env.ARIES_LOBSTER_HOST_OUTPUT_MOUNT?.trim();
+  return uniqueStrings([
+    ...lobsterRoots().map((root) => path.join(root, 'output')),
+    hostMount ? path.normalize(hostMount) : null,
+  ]);
 }
 
 function absoluteCompatibilityCandidates(filePath: string): string[] {

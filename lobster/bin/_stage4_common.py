@@ -8,8 +8,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from datetime import datetime, timezone
@@ -710,6 +712,7 @@ FAMILY_VISUAL_DIRECTIONS: dict[str, dict[str, str]] = {
             "studio lighting, one striking hero subject photographed from a flattering angle."
         ),
         "style": "Cinematic studio photography, high contrast, premium magazine cover aesthetic.",
+        "brief": "Hero a single bold proof statistic or concrete outcome, magazine-cover energy.",
     },
     "problem-to-promise": {
         "concept": "Native organic handwritten note",
@@ -719,6 +722,7 @@ FAMILY_VISUAL_DIRECTIONS: dict[str, dict[str, str]] = {
             "Looks like an authentic user-generated post, not an ad."
         ),
         "style": "Intimate documentary photography, warm daylight, shallow depth of field, un-styled and authentic.",
+        "brief": "Intimate, documentary, native-organic feel, looks like a real user post, not an ad.",
     },
     "offer-clarity": {
         "concept": "Clean product demo mockup",
@@ -728,6 +732,7 @@ FAMILY_VISUAL_DIRECTIONS: dict[str, dict[str, str]] = {
             "Feels like an Apple product landing page."
         ),
         "style": "Modern minimalist product photography, soft shadows, pastel or neutral background, premium tech launch energy.",
+        "brief": "Clean product/offer demo composition, premium launch-page polish, minimal elements.",
     },
     "differentiated-proof": {
         "concept": "Split comparison anchor",
@@ -737,6 +742,7 @@ FAMILY_VISUAL_DIRECTIONS: dict[str, dict[str, str]] = {
             "No labels, no arrows, no captions — the contrast does the talking."
         ),
         "style": "Editorial comparison layout, magazine-quality photography, high visual contrast between the two halves.",
+        "brief": "Side-by-side or contrasted composition that anchors the brand's unique angle.",
     },
 }
 
@@ -769,7 +775,13 @@ def _visual_direction_for_family(family_id: str) -> dict[str, str]:
 # for the same brand stay cheap. Module-level is fine: the Python process is
 # short-lived (one pipeline invocation) and each family/brand pair is resolved
 # at most a handful of times per run.
+#
+# ad-designer runs families through a ThreadPoolExecutor, so several workers can
+# race on the same (brand_slug, archetype) key. The lock serializes the
+# cache-miss path so we don't fire the same Gemini call N times; hits stay
+# lock-free because dict reads are atomic under the GIL.
 _VISUAL_DIRECTION_CACHE: dict[tuple[str, str], dict[str, str]] = {}
+_VISUAL_DIRECTION_LOCK = threading.Lock()
 
 
 def _gemini_text_call(prompt: str, model_name: str) -> str:
@@ -784,7 +796,8 @@ def _gemini_text_call(prompt: str, model_name: str) -> str:
         return ""
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{model_name}:generateContent?key={api_key}"
+        f"{urllib.parse.quote(model_name)}:generateContent"
+        f"?key={urllib.parse.quote(api_key)}"
     )
     body = {
         "contents": [
@@ -815,7 +828,13 @@ def _gemini_text_call(prompt: str, model_name: str) -> str:
 
 
 def _extract_json_object(raw: str) -> dict:
-    """Pull the first top-level JSON object out of a possibly-fenced LLM reply."""
+    """Pull the first top-level JSON object out of a possibly-fenced LLM reply.
+
+    A greedy /\\{.*\\}/ match would swallow everything between the first `{`
+    and the last `}`, which trips on replies containing more than one object
+    or trailing prose with its own braces. We walk the string and take the
+    first balance-closed object instead.
+    """
     if not raw:
         return {}
     try:
@@ -824,14 +843,37 @@ def _extract_json_object(raw: str) -> dict:
             return parsed
     except json.JSONDecodeError:
         pass
-    match = re.search(r"\{.*\}", raw, flags=re.DOTALL)
-    if not match:
-        return {}
-    try:
-        parsed = json.loads(match.group(0))
-    except json.JSONDecodeError:
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
+    for start in range(len(raw)):
+        if raw[start] != "{":
+            continue
+        depth = 0
+        in_str = False
+        escape = False
+        for end in range(start, len(raw)):
+            ch = raw[end]
+            if in_str:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = raw[start : end + 1]
+                    try:
+                        parsed = json.loads(candidate)
+                    except json.JSONDecodeError:
+                        break
+                    return parsed if isinstance(parsed, dict) else {}
+        # unbalanced or unparseable starting at this `{`, try the next one
+    return {}
 
 
 def synthesize_visual_direction(
@@ -844,7 +886,14 @@ def synthesize_visual_direction(
     Falls back to FAMILY_VISUAL_DIRECTIONS when brand_context is empty, when
     GEMINI_API_KEY is missing, or when the model returns something we can't
     parse, so the stage4 pipeline still ships an image no matter what.
+
+    The cache key is (brand_slug, archetype). The headline is intentionally
+    NOT in the prompt: one synthesized scene is shared across the four
+    platform variants of the same family, which is the whole point of the
+    cache. Feeding the headline in would make each variant want a different
+    scene but only the first one would ever be written.
     """
+    _ = headline  # kept in signature for call-site stability; see docstring.
     archetype = _visual_archetype_key(family_id)
     fallback = FAMILY_VISUAL_DIRECTIONS[archetype]
 
@@ -861,8 +910,8 @@ def synthesize_visual_direction(
         voice_list = []
     voice = ", ".join([str(v).strip() for v in voice_list if str(v).strip()][:4])
 
-    # If we have effectively no brand signal, don't bother calling Gemini —
-    # the result would just be another generic scene. Hardcoded dict wins.
+    # If we have effectively no brand signal, don't bother calling Gemini.
+    # The result would just be another generic scene. Hardcoded dict wins.
     if not any([positioning, audience, offer, style_vibe, business_type]):
         return fallback
 
@@ -871,71 +920,68 @@ def synthesize_visual_direction(
     if cached is not None:
         return cached
 
-    archetype_briefs = {
-        "outcome-proof": "Hero a single bold proof statistic or concrete outcome, magazine-cover energy.",
-        "problem-to-promise": "Intimate, documentary, native-organic feel — looks like a real user post, not an ad.",
-        "offer-clarity": "Clean product/offer demo composition, premium launch-page polish, minimal elements.",
-        "differentiated-proof": "Side-by-side or contrasted composition that anchors the brand's unique angle.",
-    }
-    archetype_brief = archetype_briefs.get(archetype, archetype_briefs["outcome-proof"])
+    # Serialize the miss path. Cache hits above are lock-free.
+    with _VISUAL_DIRECTION_LOCK:
+        cached = _VISUAL_DIRECTION_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
 
-    prompt = "\n".join(
-        [
-            "You are art-directing ONE static marketing image for a specific brand.",
-            "Write a scene direction that is visually specific to THIS brand, not a generic marketing archetype.",
-            "",
-            "Brand identity:",
-            f"- Brand: {brand_name or brand_slug}",
-            f"- Business type: {business_type or 'n/a'}",
-            f"- Positioning: {positioning or 'n/a'}",
-            f"- Audience: {audience or 'n/a'}",
-            f"- Problem it solves: {problem or 'n/a'}",
-            f"- Offer: {offer or 'n/a'}",
-            f"- Voice attributes: {voice or 'n/a'}",
-            f"- Style vibe: {style_vibe or 'n/a'}",
-            "",
-            f"Creative archetype to honor: {archetype}",
-            f"Archetype brief: {archetype_brief}",
-            f"Ad headline to render: {headline}",
-            "",
-            "Return ONLY a single JSON object (no prose, no code fences) with exactly three string keys:",
-            '  "concept": a short (<= 10 word) name for the visual concept, brand-specific',
-            '  "scene":   one paragraph, concrete, naming subjects/props/environments/lighting a photographer could shoot; grounded in the brand (materials, environments, tools, people that match THIS business)',
-            '  "style":   a short phrase describing the photographic/visual style and mood',
-            "",
-            "Do NOT mention the headline text, logos, brand names, or UI elements in the scene.",
-            "Do NOT reuse the archetype brief verbatim — translate it into this brand's world.",
-            "Avoid generic Apple-keynote / startup-launch tropes unless this brand is genuinely a tech launch.",
-        ]
-    )
+        prompt = "\n".join(
+            [
+                "You are art-directing ONE static marketing image for a specific brand.",
+                "Write a scene direction that is visually specific to THIS brand, not a generic marketing archetype.",
+                "",
+                "Brand identity:",
+                f"- Brand: {brand_name or brand_slug}",
+                f"- Business type: {business_type or 'n/a'}",
+                f"- Positioning: {positioning or 'n/a'}",
+                f"- Audience: {audience or 'n/a'}",
+                f"- Problem it solves: {problem or 'n/a'}",
+                f"- Offer: {offer or 'n/a'}",
+                f"- Voice attributes: {voice or 'n/a'}",
+                f"- Style vibe: {style_vibe or 'n/a'}",
+                "",
+                f"Creative archetype to honor: {archetype}",
+                f"Archetype brief: {fallback['brief']}",
+                "",
+                "Return ONLY a single JSON object (no prose, no code fences) with exactly three string keys:",
+                '  "concept": a short (<= 10 word) name for the visual concept, brand-specific',
+                '  "scene":   one paragraph, concrete, naming subjects/props/environments/lighting a photographer could shoot; grounded in the brand (materials, environments, tools, people that match THIS business)',
+                '  "style":   a short phrase describing the photographic/visual style and mood',
+                "",
+                "Do NOT mention any headline text, logos, brand names, or UI elements in the scene.",
+                "Do NOT reuse the archetype brief verbatim, translate it into this brand's world.",
+                "Avoid generic Apple-keynote / startup-launch tropes unless this brand is genuinely a tech launch.",
+            ]
+        )
 
-    model_name = os.environ.get("LOBSTER_STAGE4_TEXT_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash"
-    raw = _gemini_text_call(prompt, model_name)
-    parsed = _extract_json_object(raw)
+        model_name = os.environ.get("LOBSTER_STAGE4_TEXT_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash"
+        raw = _gemini_text_call(prompt, model_name)
+        parsed = _extract_json_object(raw)
 
-    concept = normalize_space(str(parsed.get("concept") or ""))
-    scene = normalize_space(str(parsed.get("scene") or ""))
-    style = normalize_space(str(parsed.get("style") or ""))
+        concept = normalize_space(str(parsed.get("concept") or ""))
+        scene = normalize_space(str(parsed.get("scene") or ""))
+        style = normalize_space(str(parsed.get("style") or ""))
 
-    # Partial responses are still better than a generic archetype IF the scene
-    # came through, since scene is the field that actually steers the image
-    # model. If scene is missing, fall back fully.
-    if not scene:
-        _VISUAL_DIRECTION_CACHE[cache_key] = fallback
-        return fallback
+        # Partial responses are still better than a generic archetype IF the
+        # scene came through, since scene is the field that actually steers
+        # the image model. If scene is missing, fall back fully.
+        if not scene:
+            _VISUAL_DIRECTION_CACHE[cache_key] = fallback
+            return fallback
 
-    direction = {
-        "concept": concept or fallback["concept"],
-        "scene": scene,
-        "style": style or fallback["style"],
-    }
-    _VISUAL_DIRECTION_CACHE[cache_key] = direction
-    sys.stderr.write(
-        f"[stage4] synthesized visual direction brand={brand_slug} archetype={archetype} "
-        f"concept={direction['concept']!r}\n"
-    )
-    sys.stderr.flush()
-    return direction
+        direction = {
+            "concept": concept or fallback["concept"],
+            "scene": scene,
+            "style": style or fallback["style"],
+        }
+        _VISUAL_DIRECTION_CACHE[cache_key] = direction
+        sys.stderr.write(
+            f"[stage4] synthesized visual direction brand={brand_slug} archetype={archetype} "
+            f"concept={direction['concept']!r}\n"
+        )
+        sys.stderr.flush()
+        return direction
 
 
 def static_image_prompt(contract: dict) -> str:

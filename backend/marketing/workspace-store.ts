@@ -152,17 +152,33 @@ function coalesceStringPayload(primary: unknown, fallback: unknown): string | un
   return fallbackValue || undefined;
 }
 
+// Tenant-identity defaults always apply (the approver is the human operator,
+// independent of which brand the campaign targets). Brand-identity defaults
+// (name, type, goal, offer, voice, style, competitor, channels) only apply
+// when the incoming payload's brand URL matches the tenant's registered
+// websiteUrl — otherwise we'd bleed the previous campaign's brand into a
+// new one when the same tenant runs campaigns for different brands.
+function normalizeBrandUrlForComparison(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+  try {
+    const url = new URL(trimmed.includes('://') ? trimmed : `https://${trimmed}`);
+    const host = url.hostname.toLowerCase().replace(/^www\./, '');
+    const pathPart = url.pathname === '/' ? '' : url.pathname.replace(/\/+$/, '');
+    return `${host}${pathPart}`;
+  } catch {
+    return trimmed.toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '');
+  }
+}
+
 function withBusinessProfileDefaults(
   tenantId: string,
   payload: Record<string, unknown> = {},
 ): Record<string, unknown> {
   const defaults = marketingPayloadDefaultsFromBusinessProfile(tenantId);
   const nextPayload = { ...payload };
-
-  const mergedChannels = stringArray(payload.channels);
-  if (mergedChannels.length === 0 && defaults.channels && defaults.channels.length > 0) {
-    nextPayload.channels = defaults.channels;
-  }
 
   const websiteUrl = coalesceStringPayload(payload.websiteUrl || payload.brandUrl, defaults.websiteUrl);
   if (websiteUrl) {
@@ -172,16 +188,30 @@ function withBusinessProfileDefaults(
     }
   }
 
-  const mappings: Array<[keyof typeof defaults, string[]]> = [
+  const payloadBrandUrl = stringValue(payload.websiteUrl || payload.brandUrl);
+  const tenantBrandUrl = stringValue(defaults.websiteUrl);
+  const brandUrlsMatch =
+    !payloadBrandUrl ||
+    !tenantBrandUrl ||
+    normalizeBrandUrlForComparison(payloadBrandUrl) === normalizeBrandUrlForComparison(tenantBrandUrl);
+
+  const tenantIdentityMappings: Array<[keyof typeof defaults, string[]]> = [
+    ['approverName', ['approverName', 'launchApproverName']],
+  ];
+
+  const brandIdentityMappings: Array<[keyof typeof defaults, string[]]> = [
     ['businessName', ['businessName']],
     ['businessType', ['businessType']],
     ['primaryGoal', ['primaryGoal', 'goal']],
-    ['approverName', ['approverName', 'launchApproverName']],
     ['offer', ['offer']],
     ['brandVoice', ['brandVoice']],
     ['styleVibe', ['styleVibe']],
     ['competitorUrl', ['competitorUrl']],
   ];
+
+  const mappings = brandUrlsMatch
+    ? [...tenantIdentityMappings, ...brandIdentityMappings]
+    : tenantIdentityMappings;
 
   for (const [defaultKey, payloadKeys] of mappings) {
     const defaultValue = defaults[defaultKey];
@@ -193,6 +223,16 @@ function withBusinessProfileDefaults(
         nextPayload[payloadKey] = defaultValue;
       }
     }
+  }
+
+  const mergedChannels = stringArray(payload.channels);
+  if (
+    brandUrlsMatch &&
+    mergedChannels.length === 0 &&
+    defaults.channels &&
+    defaults.channels.length > 0
+  ) {
+    nextPayload.channels = defaults.channels;
   }
 
   return nextPayload;
