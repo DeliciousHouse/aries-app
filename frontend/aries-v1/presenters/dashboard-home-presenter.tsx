@@ -371,7 +371,7 @@ export default function DashboardHomePresenter({
                     <span className="mb-1 block text-[15px] font-medium text-white/90">{item.title}</span>
                     <span className="text-sm text-white/40">{item.meta}</span>
                   </div>
-                  <div className="rounded-full border border-[#4a4025] bg-[#2a2515]/50 px-3 py-1 text-xs font-medium text-[#e5c07b]">
+                  <div className="shrink-0 whitespace-nowrap rounded-full border border-[#4a4025] bg-[#2a2515]/50 px-3 py-1 text-xs font-medium text-[#e5c07b]">
                     {item.status === 'changes_requested' ? 'Needs changes' : 'In review'}
                   </div>
                 </Link>

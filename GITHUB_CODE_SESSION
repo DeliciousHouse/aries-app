@@ -1,0 +1,49 @@
+Here's the standard flow for this situation:
+
+**1. Make sure his frontend branch work is committed (or stashed)** so nothing gets lost:
+```bash
+git status
+git add -A && git commit -m "WIP: frontend design"
+# or: git stash
+```
+
+**2. Update local master from remote:**
+```bash
+git checkout master
+git pull origin master
+```
+
+**3. Go back to his frontend branch and bring master's changes in.** Two options — pick one:
+
+Merge (preserves history, creates a merge commit):
+```bash
+git checkout frontend-design
+git merge master
+```
+
+Rebase (cleaner linear history, replays his commits on top of master):
+```bash
+git checkout frontend-design
+git rebase master
+```
+
+For a feature branch that hasn't been shared/pushed yet, rebase is usually cleaner. If he's already pushed the branch and others might be based on it, merge is safer.
+
+**4. Resolve conflicts.** Git will pause and mark conflicted files. He edits them, then:
+```bash
+git add <resolved-files>
+git merge --continue     # if merging
+# or
+git rebase --continue    # if rebasing
+```
+
+If things go sideways, `git merge --abort` or `git rebase --abort` returns him to where he started.
+
+**5. Push:**
+```bash
+git push origin frontend-design
+```
+
+If he rebased a branch that was previously pushed, he'll need `git push --force-with-lease` (safer than `--force` because it won't clobber someone else's work on that branch).
+
+One thing worth checking before he starts: `git log origin/master..master` — if that shows commits, his local master has work that hasn't been pushed, and a plain `git pull` could create a weird merge on master. In that case `git pull --rebase` on master first is cleaner.

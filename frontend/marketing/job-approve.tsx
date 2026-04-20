@@ -197,25 +197,6 @@ function ReviewBundlePreview({ reviewBundle }: { reviewBundle: MarketingReviewBu
         ) : null}
       </div>
 
-      {reviewBundle.reviewPacketAssets.length > 0 ? (
-        <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5">
-          <strong className="block mb-3">Supporting materials</strong>
-          <div className="flex flex-wrap gap-3">
-            {reviewBundle.reviewPacketAssets.map((asset) => (
-              <a
-                key={asset.id}
-                href={asset.url}
-                target="_blank"
-                rel="noreferrer"
-                className="text-sm text-primary hover:text-primary/80 transition-colors"
-              >
-                {asset.label}
-              </a>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
       <div>
         <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-3">Platform drafts to review before approval</p>
         {reviewBundle.platformPreviews.length === 0 ? (

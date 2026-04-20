@@ -7,12 +7,18 @@ import {
   Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
+  Facebook,
+  Globe,
+  Instagram,
   Layers3,
-  Sparkles,
+  Linkedin,
+  Music2,
+  Youtube,
   X as CloseIcon,
 } from 'lucide-react';
 
 import type { CalendarViewModel } from '@/frontend/aries-v1/view-models/calendar';
+import { RedditIcon, XIcon } from '@/frontend/components/Icons';
 
 type CalendarMode = 'week' | 'month';
 
@@ -129,7 +135,7 @@ export default function CalendarPresenter({ model }: CalendarPresenterProps) {
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+        <div className="space-y-6">
           <section className="glass-panel min-w-0 p-5 md:p-6">
             <div className="mb-6 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
               <div className="flex flex-col gap-4 md:flex-row md:items-center">
@@ -214,7 +220,7 @@ export default function CalendarPresenter({ model }: CalendarPresenterProps) {
                       return (
                         <div
                           key={dayKey}
-                          className={`flex min-h-[170px] flex-col bg-[#050505] p-3 transition-all ${
+                          className={`flex min-h-[190px] flex-col bg-[#050505] p-3 transition-all ${
                             !isSameMonth(day, currentDate) ? 'opacity-35' : ''
                           } ${active ? 'bg-primary/[0.03]' : ''}`}
                         >
@@ -225,15 +231,30 @@ export default function CalendarPresenter({ model }: CalendarPresenterProps) {
                             {active ? <div className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_8px_rgba(123,97,255,0.8)]" /> : null}
                           </div>
 
-                          <div className="flex-1 space-y-1 overflow-y-auto pr-1 custom-scrollbar">
+                          <div className="flex-1 space-y-1">
                             {events.map((event) => (
                               <button
                                 key={event.id}
                                 type="button"
                                 onClick={() => setSelectedEventId(event.id)}
-                                className={`flex w-full items-center gap-1.5 truncate rounded border px-2 py-1 text-left text-[8px] font-bold transition-all hover:bg-white/[0.05] ${platformTone(event.platform)}`}
+                                className={`w-full rounded border px-2.5 py-2 text-left text-[9px] transition-all hover:bg-white/[0.05] ${platformTone(event.platform)}`}
                               >
-                                <span className="truncate">{event.title}</span>
+                                <div className="flex items-center justify-between gap-2 text-[8px] font-mono uppercase tracking-[0.14em]">
+                                  <span className="text-white">{formatTime(new Date(event.timestamp))}</span>
+                                  <span className="flex h-4 w-4 items-center justify-center text-white">
+                                    {platformLogo(event.platform)}
+                                  </span>
+                                </div>
+                                <span
+                                  className="mt-2.5 block overflow-hidden text-[9px] font-normal leading-snug text-white"
+                                  style={{
+                                    display: '-webkit-box',
+                                    WebkitBoxOrient: 'vertical',
+                                    WebkitLineClamp: 2,
+                                  }}
+                                >
+                                  {event.title}
+                                </span>
                               </button>
                             ))}
                           </div>
@@ -253,18 +274,14 @@ export default function CalendarPresenter({ model }: CalendarPresenterProps) {
                             {String(day.getDate())}
                           </div>
                         </div>
-                        <div className="flex-1 space-y-3 overflow-y-auto pr-1 custom-scrollbar">
-                          {events.length === 0 ? (
-                            <div className="rounded-xl border border-dashed border-white/6 bg-black/10 p-3 text-center text-[10px] uppercase tracking-[0.22em] text-white/20">
-                              No signal
-                            </div>
-                          ) : (
+                        <div className="flex-1 space-y-3">
+                          {events.length === 0 ? null : (
                             events.map((event) => (
                               <button
                                 key={event.id}
                                 type="button"
                                 onClick={() => setSelectedEventId(event.id)}
-                                className={`w-full rounded-2xl border bg-[#0a0a0a]/80 p-3 text-left shadow-lg transition-all hover:scale-[1.02] ${platformTone(event.platform)}`}
+                                className={`w-full rounded-2xl border bg-[#0a0a0a]/80 p-3 text-left shadow-lg transition-all ${platformTone(event.platform)}`}
                               >
                                 <div className="mb-2 flex items-center justify-between">
                                   <span className="text-[10px] font-mono opacity-70">
@@ -275,8 +292,10 @@ export default function CalendarPresenter({ model }: CalendarPresenterProps) {
                                   </span>
                                 </div>
                                 <h3 className="mb-1 text-[11px] font-bold leading-tight text-white">{event.title}</h3>
-                                <div className="flex items-center gap-2 text-[8px] font-bold uppercase tracking-[0.18em] text-white/60">
-                                  <span>{event.platform}</span>
+                                <div className="flex items-center gap-2 text-white/85">
+                                  <span className="flex h-4 w-4 items-center justify-center">
+                                    {platformLogo(event.platform)}
+                                  </span>
                                 </div>
                               </button>
                             ))
@@ -290,59 +309,30 @@ export default function CalendarPresenter({ model }: CalendarPresenterProps) {
             </div>
           </section>
 
-          <div className="space-y-6">
-            <section className="glass-panel p-6">
-              <div className="mb-6 flex items-center gap-3">
-                <Sparkles className="h-4 w-4 text-primary" />
-                <h2 className="text-lg font-semibold text-white">Upcoming runtime schedule</h2>
-              </div>
-              <div className="space-y-3">
-                {model.events.slice(0, 6).map((event) => (
-                  <button
-                    key={event.id}
-                    type="button"
-                    onClick={() => setSelectedEventId(event.id)}
-                    className="w-full rounded-2xl border border-white/[0.05] bg-white/[0.02] p-4 text-left transition-all hover:border-primary/20 hover:bg-primary/[0.04]"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-medium text-white">{event.title}</p>
-                        <p className="mt-1 text-sm text-white/55">{event.scheduledFor}</p>
-                      </div>
-                      <span className={`rounded-full border px-3 py-1 text-xs font-medium ${statusPill(event.status)}`}>
-                        {event.platform}
-                      </span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            <section className="glass-panel p-6">
-              <h2 className="mb-6 text-lg font-semibold text-white">Campaign status at a glance</h2>
-              <div className="space-y-4">
-                {model.campaigns.map((campaign) => (
-                  <Link
-                    key={campaign.id}
-                    href={campaign.href}
-                    className="block rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 transition-all hover:border-primary/20 hover:bg-primary/[0.04]"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-medium text-white">{campaign.name}</p>
-                      <span className={`rounded-full border px-3 py-1 text-xs font-medium ${statusPill(campaign.status)}`}>
-                        {campaign.status.replace('_', ' ')}
-                      </span>
-                    </div>
-                    <p className="mt-2 text-sm text-white/55">{campaign.nextScheduled}</p>
-                    <div className="mt-3 flex flex-wrap gap-3 text-xs uppercase tracking-[0.2em] text-white/35">
-                      <span>{campaign.stageLabel}</span>
-                      <span>{campaign.pendingApprovals} pending approvals</span>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </section>
-          </div>
+          <section className="glass-panel p-6">
+            <h2 className="mb-6 text-lg font-semibold text-white">Campaign status at a glance</h2>
+            <div className="space-y-4">
+              {model.campaigns.map((campaign) => (
+                <Link
+                  key={campaign.id}
+                  href={campaign.href}
+                  className="block rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 transition-all hover:border-primary/20 hover:bg-primary/[0.04]"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium text-white">{campaign.name}</p>
+                    <span className={`rounded-full border px-3 py-1 text-xs font-medium ${statusPill(campaign.status)}`}>
+                      {campaign.status.replace('_', ' ')}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm text-white/55">{campaign.nextScheduled}</p>
+                  <div className="mt-3 flex flex-wrap gap-3 text-xs uppercase tracking-[0.2em] text-white/35">
+                    <span>{campaign.stageLabel}</span>
+                    <span>{campaign.pendingApprovals} pending approvals</span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </section>
         </div>
       )}
 
@@ -406,12 +396,28 @@ export default function CalendarPresenter({ model }: CalendarPresenterProps) {
 
 function platformTone(platform: string) {
   const key = platform.toLowerCase();
+  if (key.includes('meta')) return 'border-sky-500/40 text-sky-300 bg-sky-500/5';
   if (key.includes('linkedin')) return 'border-blue-500/40 text-blue-400 bg-blue-500/5';
   if (key.includes('instagram')) return 'border-pink-500/40 text-pink-400 bg-pink-500/5';
+  if (key.includes('reddit')) return 'border-orange-500/40 text-orange-300 bg-orange-500/5';
   if (key.includes('youtube')) return 'border-red-500/40 text-red-400 bg-red-500/5';
-  if (key.includes('facebook')) return 'border-indigo-500/40 text-indigo-400 bg-indigo-500/5';
+  if (key.includes('facebook')) return 'border-sky-500/40 text-sky-300 bg-sky-500/5';
   if (key.includes('x')) return 'border-zinc-400/40 text-zinc-300 bg-zinc-400/5';
   return 'border-primary/40 text-primary bg-primary/5';
+}
+
+function platformLogo(platform: string) {
+  const key = platform.toLowerCase();
+  const iconClassName = 'h-3.5 w-3.5 text-white';
+
+  if (key.includes('meta') || key.includes('facebook')) return <Facebook className={iconClassName} />;
+  if (key.includes('linkedin')) return <Linkedin className={iconClassName} />;
+  if (key.includes('instagram')) return <Instagram className={iconClassName} />;
+  if (key.includes('youtube')) return <Youtube className={iconClassName} />;
+  if (key.includes('reddit')) return <RedditIcon className={iconClassName} />;
+  if (key.includes('x')) return <XIcon className={iconClassName} />;
+  if (key.includes('tiktok')) return <Music2 className={iconClassName} />;
+  return <Globe className={iconClassName} />;
 }
 
 function statusPill(status: CalendarViewModel['events'][number]['status']) {
