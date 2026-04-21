@@ -157,6 +157,17 @@ export function readMarketingArtifactJson(filePath: string | null | undefined): 
   }
 }
 
+// Module-level so the table isn't reallocated for every entity match inside
+// the .replace callback. Mirrors brand-kit.ts's NAMED_ENTITY_TABLE; values
+// are tiny so we keep a local copy rather than introduce a shared utility.
+const NAMED_ENTITY_TABLE: Record<string, string> = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
+  copy: '\u00a9', reg: '\u00ae', trade: '\u2122',
+  hellip: '\u2026', mdash: '\u2014', ndash: '\u2013',
+  lsquo: '\u2018', rsquo: '\u2019', ldquo: '\u201c', rdquo: '\u201d',
+  bull: '\u2022', middot: '\u00b7',
+};
+
 function decodeEntities(value: string): string {
   return value.replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+[0-9]?);/gi, (match, body) => {
     const lower = body.toLowerCase();
@@ -174,14 +185,7 @@ function decodeEntities(value: string): string {
       }
       return match;
     }
-    const named: Record<string, string> = {
-      amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
-      copy: '\u00a9', reg: '\u00ae', trade: '\u2122',
-      hellip: '\u2026', mdash: '\u2014', ndash: '\u2013',
-      lsquo: '\u2018', rsquo: '\u2019', ldquo: '\u201c', rdquo: '\u201d',
-      bull: '\u2022', middot: '\u00b7',
-    };
-    return named[lower] !== undefined ? named[lower] : match;
+    return NAMED_ENTITY_TABLE[lower] !== undefined ? NAMED_ENTITY_TABLE[lower] : match;
   });
 }
 
