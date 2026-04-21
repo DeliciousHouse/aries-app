@@ -1042,7 +1042,22 @@ function normalizeBrandColors(colors: Partial<TenantBrandColors> | null | undefi
 }
 
 function normalizeFontFamilies(families: string[]): string[] {
-  return unique(families.map((value) => normalizeFontFamilyCandidate(value) || '').filter(Boolean)).slice(0, 4);
+  // ISSUE-009: dedupe case/whitespace variants (e.g. "Arial" vs "arial" vs
+  // " Arial ") so the Brand-identity Fonts preview doesn't render four cards
+  // with the same typeface. `normalizeFontFamilyCandidate` already trims and
+  // strips quotes; we key the Set by the lowercased family name to also
+  // collapse case-only duplicates, while preserving the first-seen casing.
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of families) {
+    const canonical = normalizeFontFamilyCandidate(value);
+    if (!canonical) continue;
+    const key = canonical.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(canonical);
+  }
+  return out.slice(0, 4);
 }
 
 export function normalizeBrandKitSignals(input: BrandKitSignalsInput | null | undefined): {
