@@ -1694,9 +1694,12 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                       )}
                     >
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold uppercase tracking-[0.18em] text-white">
+                        <label
+                          htmlFor="onboarding-core-offer"
+                          className="text-sm font-semibold uppercase tracking-[0.18em] text-white"
+                        >
                           What does your business offer?
-                        </span>
+                        </label>
                         {offerValidity === 'valid' ? (
                           <Check className="h-4 w-4 text-emerald-400" aria-hidden />
                         ) : null}
@@ -1705,6 +1708,8 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                         The more specific you are, the better Aries will do.
                       </p>
                       <textarea
+                        id="onboarding-core-offer"
+                        aria-label="Describe your core offer and customer"
                         value={offer}
                         onChange={(event) => setOffer(event.target.value)}
                         onBlur={() => markTouched('offer')}
