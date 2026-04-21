@@ -3,7 +3,7 @@
   "title": "Logo candidates renders title text instead of logo images",
   "severity": "high",
   "category": "visual",
-  "passes": false,
+  "passes": true,
   "blocked": false,
   "page": "https://aries.sugarandleather.com/onboarding/start (Step 4 Brand identity)",
   "symptom": "'Logo candidates' section shows the page title 'Nike. Just Do It. Nike.com' repeated as 4 text rows. No actual logo images rendered despite nike.com exposing multiple logo SVGs, favicon, and og:image.",

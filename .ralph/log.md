@@ -37,3 +37,34 @@ already landed in commits a739162 + f77c0a5. This loop handles the remaining 8.
 - Follow-ups: Other gaps noted in the bug ("Built for business owners", footer spacing) appeared to be ordinary between-section padding in the rendered accessibility tree — not empty sections. If QA's next pass still flags them, they need design input on content density, not a code fix.
 
 ---
+
+## 2026-04-21 — ISSUE-005 (logo candidates) — PASSING
+
+- Story: Brand identity step 4 showed the page title "Nike. Just Do It.
+  Nike.com" repeated as 4 text rows instead of logo images.
+- Root cause: extractLogoUrls in backend/marketing/brand-kit.ts never
+  scanned inline <svg class="logo"> (Nike's header pattern), discarded
+  favicons via the -100 favicon penalty + score>=0 gate, and only kept
+  og:image when a higher-signal logo already existed. So logo_urls came
+  back empty and the frontend's graceful placeholder was being replaced
+  upstream by the page title string.
+- Fix: added extractHeaderNavSvgLogos pass (emits data:image/svg+xml
+  URLs), added className signal to scoreLogoCandidate, tightened the
+  <link> pass to rel=icon variants only, and kept favicons/og:image as
+  fallback candidates when no explicit-signal logo exists. Ordering:
+  explicit (score>=40) wins and caps at 2; else best-of-3 fallback.
+- Frontend already renders img src tiles in VisualBoard — no change
+  needed there, the bug was purely backend returning an empty array.
+- Files changed:
+  - backend/marketing/brand-kit.ts (extraction + normalize)
+  - tests/marketing-brand-kit-logo-extraction.regression-005.test.ts (new)
+- Verification: new regression covers 5 cases (nav-svg, favicon fallback,
+  og fallback, explicit beats fallback, empty-page). Existing
+  marketing-brand-kit.test.ts + brand-kit-logo-filter.test.ts +
+  entity-decode regression + business-profile-screen.test.ts all still
+  pass (42/42).
+- Commits: f78a426 (fix), ef38ad5 (regression test), story + log flip to
+  follow.
+- Follow-ups: none — ordering decision (highest score first, og beats
+  favicon in fallback tier) is deterministic and documented in the fix
+  commit for future readers.
