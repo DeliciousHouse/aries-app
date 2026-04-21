@@ -219,3 +219,123 @@ test('extractBrandKitFromWebsite returns empty logo_urls when no logo-like asset
     restore();
   }
 });
+
+// Copilot review (PR #159): in the no-explicit-signal fallback path,
+// extractLogoUrls used to sort purely by score. A pile of negative-score
+// first-party <img> tags (team photos, hero art, etc.) could crowd out the
+// trustworthy og:image / favicon fallbacks. Fallback selection now stratifies
+// by source tier (svg > og > link > img) AND requires img score >= 0.
+test('extractBrandKitFromWebsite fallback prefers og:image over a pile of generic <img> tags', async () => {
+  const brandUrl = 'https://og-vs-pile.example';
+  const restore = installHtmlFetchMock(brandUrl, `<!doctype html>
+    <html>
+      <head>
+        <title>Og Vs Pile Co</title>
+        <meta property="og:image" content="/og/share-card.png" />
+      </head>
+      <body>
+        <main>
+          <img src="/team/alex-headshot.jpg" alt="Alex" />
+          <img src="/team/sam-portrait.jpg" alt="Sam" />
+          <img src="/team/jordan-avatar.jpg" alt="Jordan" />
+          <img src="/testimonial/quote-1.jpg" alt="testimonial" />
+          <img src="/founder/founder-photo.jpg" alt="founder" />
+        </main>
+      </body>
+    </html>`);
+
+  try {
+    const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+    const brandKit = await extractBrandKitFromWebsite({ tenantId: 'og-vs-pile', brandUrl });
+    assert.ok(
+      brandKit.logo_urls.includes('https://og-vs-pile.example/og/share-card.png'),
+      `expected og:image fallback, got: ${JSON.stringify(brandKit.logo_urls)}`,
+    );
+    // None of the explicitly-demoted (negative-score) team / portrait / founder
+    // images should be returned as logos in the fallback tier.
+    for (const candidate of brandKit.logo_urls) {
+      assert.ok(
+        !/team|portrait|avatar|testimonial|headshot|founder/.test(candidate),
+        `did not expect demoted img candidate in fallback: ${candidate}`,
+      );
+    }
+  } finally {
+    restore();
+  }
+});
+
+test('extractBrandKitFromWebsite fallback prefers favicon over a pile of demoted <img> tags', async () => {
+  const brandUrl = 'https://favicon-vs-pile.example';
+  const restore = installHtmlFetchMock(brandUrl, `<!doctype html>
+    <html>
+      <head>
+        <title>Favicon Vs Pile Co</title>
+        <link rel="icon" href="/favicon.ico" />
+      </head>
+      <body>
+        <main>
+          <img src="/team/alex-headshot.jpg" alt="Alex" />
+          <img src="/team/sam-portrait.jpg" alt="Sam" />
+          <img src="/team/jordan-avatar.jpg" alt="Jordan" />
+          <img src="/testimonial/quote-1.jpg" alt="testimonial" />
+          <img src="/founder/founder-photo.jpg" alt="founder" />
+        </main>
+      </body>
+    </html>`);
+
+  try {
+    const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+    const brandKit = await extractBrandKitFromWebsite({ tenantId: 'favicon-vs-pile', brandUrl });
+    assert.ok(
+      brandKit.logo_urls.includes('https://favicon-vs-pile.example/favicon.ico'),
+      `expected favicon fallback, got: ${JSON.stringify(brandKit.logo_urls)}`,
+    );
+    for (const candidate of brandKit.logo_urls) {
+      assert.ok(
+        !/team|portrait|avatar|testimonial|headshot|founder/.test(candidate),
+        `did not expect demoted img candidate in fallback: ${candidate}`,
+      );
+    }
+  } finally {
+    restore();
+  }
+});
+
+// Same fallback-source-priority guard, but applied to the persisted-state
+// reconstruction path (normalizeLogoUrls inside normalizeBrandKitSignals).
+test('normalizeBrandKitSignals fallback keeps og:image / favicon ahead of generic-img URLs', async () => {
+  const { normalizeBrandKitSignals } = await import('../backend/marketing/brand-kit');
+  const result = normalizeBrandKitSignals({
+    logo_urls: [
+      'https://example.com/team/alex-headshot.jpg',
+      'https://example.com/team/sam-portrait.jpg',
+      'https://example.com/founder/founder-photo.jpg',
+      'https://example.com/og/share-card.png',
+      'https://example.com/favicon.ico',
+    ],
+    colors: { primary: null, secondary: null, accent: null, palette: [] },
+    font_families: [],
+  });
+  // og:image and favicon must appear; demoted img URLs must not leak in.
+  assert.ok(
+    result.logo_urls.includes('https://example.com/og/share-card.png'),
+    `expected og fallback in normalized result: ${JSON.stringify(result.logo_urls)}`,
+  );
+  assert.ok(
+    result.logo_urls.includes('https://example.com/favicon.ico'),
+    `expected favicon fallback in normalized result: ${JSON.stringify(result.logo_urls)}`,
+  );
+  for (const candidate of result.logo_urls) {
+    assert.ok(
+      !/team|portrait|avatar|headshot|founder/.test(candidate),
+      `did not expect demoted img candidate in normalized fallback: ${candidate}`,
+    );
+  }
+  // og: should be ranked before favicon (svg > og > link > img tier order).
+  const ogIndex = result.logo_urls.indexOf('https://example.com/og/share-card.png');
+  const faviconIndex = result.logo_urls.indexOf('https://example.com/favicon.ico');
+  assert.ok(
+    ogIndex < faviconIndex,
+    `expected og before favicon, got: ${JSON.stringify(result.logo_urls)}`,
+  );
+});

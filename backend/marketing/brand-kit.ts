@@ -761,10 +761,50 @@ export function isLikelyFirstPartyLogo(candidateUrl: string, brandUrl: string): 
   return true;
 }
 
+type LogoSource = 'img' | 'link' | 'og' | 'svg';
+
 type LogoCandidate = {
   url: string;
   score: number;
+  source: LogoSource;
 };
+
+// Stratify fallback candidates by trust tier (svg > og > link > img) and only
+// then by score, so a pile of negative-score first-party <img> tags can't
+// crowd out reliable favicon/og:image fallbacks. Within the <img> tier,
+// require score >= 0 so explicitly-demoted candidates (e.g. team photos,
+// social cards) don't masquerade as logos when no explicit-signal logo exists.
+const FALLBACK_SOURCE_PRIORITY: Record<LogoSource, number> = {
+  svg: 0,
+  og: 1,
+  link: 2,
+  img: 3,
+};
+
+function selectFallbackCandidates(candidates: LogoCandidate[]): string[] {
+  const filtered = candidates.filter(
+    (candidate) => candidate.source !== 'img' || candidate.score >= 0,
+  );
+  const sorted = filtered.slice().sort((left, right) => {
+    const leftPriority = FALLBACK_SOURCE_PRIORITY[left.source];
+    const rightPriority = FALLBACK_SOURCE_PRIORITY[right.source];
+    if (leftPriority !== rightPriority) return leftPriority - rightPriority;
+    return right.score - left.score;
+  });
+  return unique(sorted.map((candidate) => candidate.url)).slice(0, 3);
+}
+
+function inferLogoSourceFromUrl(url: string): LogoSource {
+  if (url.startsWith('data:image/svg')) return 'svg';
+  const lower = url.toLowerCase();
+  if (/favicon|apple-touch-icon|mask-icon|mstile|android-chrome|fluid-icon/.test(lower)) {
+    return 'link';
+  }
+  if (/\/og[\/-]|og[-_]?image|open[-_]?graph|share[-_]?card|social[-_]?card/.test(lower)) {
+    return 'og';
+  }
+  return 'img';
+}
 
 function scoreLogoCandidate(input: {
   url: string;
@@ -845,6 +885,7 @@ function extractLogoUrls(html: string, baseUrl: string): string[] {
     candidates.push({
       url: ogImageUrl,
       score: scoreLogoCandidate({ url: ogImageUrl, source: 'og' }),
+      source: 'og',
     });
   }
 
@@ -864,6 +905,7 @@ function extractLogoUrls(html: string, baseUrl: string): string[] {
     candidates.push({
       url: href,
       score: scoreLogoCandidate({ url: href, rel: attributes.rel, source: 'link' }),
+      source: 'link',
     });
   }
 
@@ -887,6 +929,7 @@ function extractLogoUrls(html: string, baseUrl: string): string[] {
         className: attributes.class,
         source: 'img',
       }),
+      source: 'img',
     });
   }
 
@@ -894,6 +937,7 @@ function extractLogoUrls(html: string, baseUrl: string): string[] {
     candidates.push({
       url: svgDataUrl,
       score: scoreLogoCandidate({ url: 'logo-svg', className: 'logo', source: 'svg' }),
+      source: 'svg',
     });
   }
 
@@ -902,11 +946,11 @@ function extractLogoUrls(html: string, baseUrl: string): string[] {
   if (explicit.length > 0) {
     return unique(explicit.map((candidate) => candidate.url)).slice(0, 2);
   }
-  // No explicit-signal logos. Fall back to whatever we have (favicons via
-  // <link rel=icon>, og:image). Ordering: highest score first, which keeps
-  // the scoring function's existing preferences intact (e.g. og beats
-  // favicon when both are present and both lack an explicit signal).
-  return unique(sorted.map((candidate) => candidate.url)).slice(0, 3);
+  // No explicit-signal logos. Stratify fallback by trust tier (svg > og >
+  // link > img) and require img score >= 0 so generic page images can't
+  // crowd out reliable favicon/og:image fallbacks. See
+  // selectFallbackCandidates above.
+  return selectFallbackCandidates(sorted);
 }
 
 function likelyCtas(html: string): string[] {
@@ -1005,24 +1049,27 @@ async function fetchText(
 }
 
 function normalizeLogoUrls(urls: string[]): string[] {
-  const candidates = urls
-    .map((url) => ({
+  const candidates: LogoCandidate[] = urls.map((url) => {
+    const source = inferLogoSourceFromUrl(url);
+    return {
       url,
       score: scoreLogoCandidate({
         url,
-        source: url.startsWith('data:image/svg') ? 'svg' : 'img',
-        className: url.startsWith('data:image/svg') ? 'logo' : undefined,
+        source,
+        className: source === 'svg' ? 'logo' : undefined,
       }),
-    }))
-    .sort((left, right) => right.score - left.score);
-  const explicit = candidates.filter((candidate) => candidate.score >= 40);
+      source,
+    };
+  });
+  const sorted = candidates.slice().sort((left, right) => right.score - left.score);
+  const explicit = sorted.filter((candidate) => candidate.score >= 40);
   if (explicit.length > 0) {
     return unique(explicit.map((candidate) => candidate.url)).slice(0, 2);
   }
-  // No explicit-signal logos — keep the fallback candidates (og:image,
-  // favicons, generic <img>) so the frontend has something to render.
-  // Mirror extractLogoUrls: highest score first, cap at 3.
-  return unique(candidates.map((candidate) => candidate.url)).slice(0, 3);
+  // No explicit-signal logos — mirror extractLogoUrls: stratify fallback by
+  // trust tier (svg > og > link > img) and require img score >= 0 so
+  // arbitrary persisted page images don't get treated as logos downstream.
+  return selectFallbackCandidates(sorted);
 }
 
 function normalizeBrandColors(colors: Partial<TenantBrandColors> | null | undefined): TenantBrandColors {
