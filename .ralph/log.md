@@ -136,3 +136,18 @@ onboarding-flow-public still 4/4. No backend touched.
 - Files: backend/marketing/brand-kit.ts, frontend/aries-v1/onboarding-flow.tsx, tests/font-cards-dedup.regression-009.test.ts
 - Commits: a4ac186 (fix), 1fbc9e3 (regression test)
 - Verification: target regression suite (ISSUE-001/002/004/005/006/008/009 + marketing-brand-kit + brand-kit-logo-filter) — 56/56 pass.
+
+---
+
+## Final integration review (2026-04-21) — SHIP
+
+All 8 deferred issues (plus earlier ISSUE-003/007 and ISSUE-010 from the prior loop) are closed. Integration review verdict: **SHIP**. 60/60 regression tests pass. `npm run validate:repo-boundary` and `validate:banned-patterns` both pass. Diff scope is clean (25 local commits, 27 files touched, no binaries, no generated artifacts, all within backend/marketing, frontend/, tests/, and .ralph/).
+
+### Non-blocking follow-ups surfaced during review (not merge blockers — reproducible from review trail)
+
+- **ISSUE-002:** Belt-and-suspenders `aria-label` + `<label for=id>` on the onboarding textarea. When both are present, aria-label wins in the accessible-name computation, creating a potential WCAG 2.5.3 "Label in Name" mismatch between the visible label text and the announced name. Consider dropping the aria-label so the `<label>` wins, or making the aria-label start with / contain the visible question text.
+- **ISSUE-006:** The regression test is a `readFileSync` + regex against `onboarding-flow.tsx` source. It covers all four logical states (palette empty/populated, fonts empty/populated) but is brittle to refactors (extract copy to a constant or i18n table → test fails without behavior changing). Upgrade path: export `VisualBoard` or extract empty-state strings to a testable module, then assert on rendered output via a real component test.
+- **ISSUE-009:** Two small nits. (1) The commit message describes the new test as a "render assertion" but it's actually a source-pattern regex (same brittleness as ISSUE-006). (2) The frontend's `key={font.toLowerCase()}` is redundant given backend dedup; could revert to `key={font}` for stability (intentional "belt-and-braces" per the implementer). Neither affects behavior.
+
+None of these block the batch from being reviewed and merged by Brendan. They're documented here so they don't get lost.
+
