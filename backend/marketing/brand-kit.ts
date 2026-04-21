@@ -585,7 +585,39 @@ function extractExternalLinks(html: string, baseUrl: string): TenantBrandLink[] 
     }
   }
 
-  return unique(discovered.map((entry) => JSON.stringify(entry))).map((entry) => JSON.parse(entry));
+  return dedupeBrandLinks(discovered);
+}
+
+// Dedupe by hostname+pathname (ignoring query/fragment). Preserves first-seen
+// order. When duplicates collide, keeps the shortest URL string. See
+// ISSUE-008: visible brand links must not list the same hostname+path multiple
+// times when only query strings or fragments differ.
+function dedupeBrandLinks(links: TenantBrandLink[]): TenantBrandLink[] {
+  const order: string[] = [];
+  const byKey = new Map<string, TenantBrandLink>();
+
+  for (const link of links) {
+    let key: string;
+    try {
+      const parsed = new URL(link.url);
+      key = `${link.platform}|${parsed.hostname.toLowerCase()}${parsed.pathname || '/'}`;
+    } catch {
+      key = `${link.platform}|${link.url}`;
+    }
+
+    const existing = byKey.get(key);
+    if (!existing) {
+      order.push(key);
+      byKey.set(key, link);
+      continue;
+    }
+
+    if (link.url.length < existing.url.length) {
+      byKey.set(key, link);
+    }
+  }
+
+  return order.map((key) => byKey.get(key)!).filter(Boolean);
 }
 
 function brandNameScore(candidate: string, url: string): number {
