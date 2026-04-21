@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ArrowUpRight, CheckCircle2, LoaderCircle, MessageSquareText, XCircle } from 'lucide-react';
@@ -172,8 +172,21 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
     );
   }
 
-  if (!status) {
-    return <EmptyStatePanel title="Campaign not found" description="This campaign could not be loaded from the current runtime state." />;
+  if (!status || status.marketing_job_state === 'not_found') {
+    return (
+      <EmptyStatePanel
+        title="Campaign not found"
+        description="We couldn't find a campaign with that id. It may have been removed or never existed."
+        action={
+          <Link
+            href="/dashboard/campaigns"
+            className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-4 py-2 text-sm font-medium text-white/80 transition hover:border-white/25 hover:text-white"
+          >
+            Back to campaigns
+          </Link>
+        }
+      />
+    );
   }
 
   const workflowState = status.workflowState;
@@ -467,6 +480,37 @@ function BrandBriefCard(props: {
   const [mustAvoidAesthetics, setMustAvoidAesthetics] = useState(props.brief.mustAvoidAesthetics);
   const [notes, setNotes] = useState(props.brief.notes);
   const [brandAssets, setBrandAssets] = useState<File[]>([]);
+  const [urlTouched, setUrlTouched] = useState(false);
+  const editRegionRef = useRef<HTMLDivElement | null>(null);
+  const websiteInputRef = useRef<HTMLInputElement | null>(null);
+
+  const trimmedUrl = websiteUrl.trim();
+  const urlIsValid = /^https?:\/\/\S+/i.test(trimmedUrl);
+  const urlErrorMessage = !trimmedUrl
+    ? 'Website URL is required.'
+    : !urlIsValid
+    ? 'Enter a full URL starting with http:// or https://'
+    : '';
+
+  function handleCancelEdit() {
+    setEditing(false);
+    setUrlTouched(false);
+  }
+
+  // H2 (a11y): focus first input when edit region opens, Esc cancels.
+  useEffect(() => {
+    if (!editing) return;
+    websiteInputRef.current?.focus();
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        handleCancelEdit();
+      }
+    }
+    const node = editRegionRef.current;
+    node?.addEventListener('keydown', onKeyDown);
+    return () => node?.removeEventListener('keydown', onKeyDown);
+  }, [editing]);
 
   useEffect(() => {
     setWebsiteUrl(props.brief.websiteUrl);
@@ -479,6 +523,10 @@ function BrandBriefCard(props: {
   }, [props.brief]);
 
   async function handleSave() {
+    if (!urlIsValid) {
+      setUrlTouched(true);
+      return;
+    }
     const visualReferenceEntries = visualReferences.split('\n').map((item) => item.trim()).filter(Boolean);
 
     if (brandAssets.length > 0) {
@@ -511,6 +559,7 @@ function BrandBriefCard(props: {
 
     setBrandAssets([]);
     setEditing(false);
+    setUrlTouched(false);
   }
 
   return (
@@ -524,7 +573,7 @@ function BrandBriefCard(props: {
             <>
               <button
                 type="button"
-                onClick={() => setEditing(false)}
+                onClick={handleCancelEdit}
                 className="rounded-full border border-white/12 px-4 py-2 text-sm text-white/75 transition hover:border-white/20 hover:text-white"
               >
                 Cancel
@@ -532,7 +581,7 @@ function BrandBriefCard(props: {
               <button
                 type="button"
                 onClick={() => void handleSave()}
-                disabled={props.saving}
+                disabled={props.saving || !urlIsValid}
                 className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-[#11161c] disabled:opacity-60"
               >
                 {props.saving ? 'Saving…' : 'Save brief'}
@@ -551,14 +600,50 @@ function BrandBriefCard(props: {
       </div>
 
       {editing ? (
-        <div className="grid gap-4 md:grid-cols-2">
-          <EditableBriefField label="Website URL" value={websiteUrl} onChange={setWebsiteUrl} />
-          <EditableBriefField label="Brand voice" multiline rows={4} value={brandVoice} onChange={setBrandVoice} />
-          <EditableBriefField label="Style / vibe" multiline rows={4} value={styleVibe} onChange={setStyleVibe} />
-          <EditableBriefField label="Visual references" multiline rows={5} value={visualReferences} onChange={setVisualReferences} />
-          <EditableBriefField label="Must-use copy" multiline rows={4} value={mustUseCopy} onChange={setMustUseCopy} />
-          <EditableBriefField label="Must-avoid aesthetics" multiline rows={4} value={mustAvoidAesthetics} onChange={setMustAvoidAesthetics} />
-          <EditableBriefField label="Revision notes" multiline rows={5} value={notes} onChange={setNotes} className="md:col-span-2" />
+        <div
+          ref={editRegionRef}
+          role="region"
+          aria-label="Edit brief"
+          className="grid gap-4 md:grid-cols-2"
+        >
+          <div className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4 md:col-span-2">
+            <label
+              htmlFor="edit-brief-website-url"
+              className="block text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35"
+            >
+              Website URL
+            </label>
+            <input
+              ref={websiteInputRef}
+              id="edit-brief-website-url"
+              type="url"
+              required
+              inputMode="url"
+              pattern="https?://.+"
+              placeholder="https://your-brand.com"
+              aria-invalid={urlTouched && !urlIsValid}
+              aria-describedby={urlTouched && urlErrorMessage ? 'edit-brief-website-url-error' : undefined}
+              value={websiteUrl}
+              onChange={(event) => setWebsiteUrl(event.target.value)}
+              onBlur={() => setUrlTouched(true)}
+              className="mt-3 w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-sm text-white placeholder:text-white/30"
+            />
+            {urlTouched && urlErrorMessage ? (
+              <p
+                id="edit-brief-website-url-error"
+                role="alert"
+                className="mt-2 text-xs text-rose-300"
+              >
+                {urlErrorMessage}
+              </p>
+            ) : null}
+          </div>
+          <EditableBriefField id="edit-brief-brand-voice" label="Brand voice" multiline rows={4} maxLength={2000} placeholder="Describe how the brand should sound (e.g., confident, playful, direct)." value={brandVoice} onChange={setBrandVoice} />
+          <EditableBriefField id="edit-brief-style-vibe" label="Style / vibe" multiline rows={4} maxLength={2000} placeholder="Describe the visual vibe (e.g., minimal editorial, warm and retro)." value={styleVibe} onChange={setStyleVibe} />
+          <EditableBriefField id="edit-brief-visual-references" label="Visual references" multiline rows={5} maxLength={3000} placeholder="Paste one reference URL or note per line." value={visualReferences} onChange={setVisualReferences} />
+          <EditableBriefField id="edit-brief-must-use" label="Must-use copy" multiline rows={4} maxLength={2000} placeholder="Taglines, claims, CTAs that must appear verbatim." value={mustUseCopy} onChange={setMustUseCopy} />
+          <EditableBriefField id="edit-brief-must-avoid" label="Must-avoid aesthetics" multiline rows={4} maxLength={2000} placeholder="Colors, tropes, or styles the brand does not want to see." value={mustAvoidAesthetics} onChange={setMustAvoidAesthetics} />
+          <EditableBriefField id="edit-brief-notes" label="Revision notes" multiline rows={5} maxLength={3000} placeholder="Context for this revision: what's changing and why." value={notes} onChange={setNotes} className="md:col-span-2" />
 
           <div className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4 md:col-span-2">
             <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">Add logos / brand assets</p>
@@ -613,31 +698,55 @@ function BrandBriefCard(props: {
 }
 
 function EditableBriefField(props: {
+  id: string;
   label: string;
   value: string;
   onChange: (value: string) => void;
   multiline?: boolean;
   rows?: number;
   className?: string;
+  maxLength?: number;
+  placeholder?: string;
 }) {
+  const counterId = `${props.id}-counter`;
   return (
-    <label className={`rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4 block ${props.className || ''}`}>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">{props.label}</p>
+    <div className={`rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4 ${props.className || ''}`}>
+      {/* H7 fix: <label> carries only the label text (via htmlFor), so
+          screen readers no longer concatenate label + current value. */}
+      <label
+        htmlFor={props.id}
+        className="block text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35"
+      >
+        {props.label}
+      </label>
       {props.multiline ? (
         <textarea
+          id={props.id}
           value={props.value}
           onChange={(event) => props.onChange(event.target.value)}
           rows={props.rows || 4}
+          maxLength={props.maxLength}
+          placeholder={props.placeholder}
+          aria-describedby={props.maxLength ? counterId : undefined}
           className="mt-3 w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-sm text-white placeholder:text-white/30"
         />
       ) : (
         <input
+          id={props.id}
           value={props.value}
           onChange={(event) => props.onChange(event.target.value)}
+          maxLength={props.maxLength}
+          placeholder={props.placeholder}
+          aria-describedby={props.maxLength ? counterId : undefined}
           className="mt-3 w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-sm text-white placeholder:text-white/30"
         />
       )}
-    </label>
+      {props.maxLength ? (
+        <p id={counterId} className="mt-2 text-right text-[11px] text-white/45" aria-live="polite">
+          {props.value.length} / {props.maxLength}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
