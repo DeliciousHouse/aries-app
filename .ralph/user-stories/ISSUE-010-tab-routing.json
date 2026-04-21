@@ -1,0 +1,32 @@
+{
+  "id": "ISSUE-010",
+  "title": "Brand Review tab does not change page content",
+  "severity": "high",
+  "category": "functional",
+  "passes": true,
+  "blocked": false,
+  "page": "https://aries.sugarandleather.com/dashboard/campaigns/{campaignId}?view=brand",
+  "symptom": "Clicking Brand Review (or Strategy / Creative / Launch Status) tab on campaign workspace changes URL query param ?view=... but the rendered content does not change. No console errors. No network failures.",
+  "acceptance_criteria": [
+    "Clicking each tab (Brand Review, Strategy Review, Creative Review, Launch Status) updates both URL and visible content",
+    "Default view (no ?view= param) shows the overview (current behavior)",
+    "Deep-linking to ?view=brand, ?view=strategy, ?view=creative, ?view=publish renders the correct section directly on load",
+    "Browser back/forward navigates correctly through view history",
+    "Regression test (component or e2e) asserts that setting view=brand in the URL renders the brand-specific component"
+  ],
+  "suspected_files": [
+    "frontend/aries-v1/campaign-workspace.tsx (likely missing useSearchParams / switch)",
+    "app/dashboard/campaigns/[campaignId]/page.tsx"
+  ],
+  "notes": "HIGH priority — this is the primary navigation pattern for the newly-shipped campaign flow. Exhaustive QA of dashboard subpages is effectively blocked until this works.",
+  "resolution": {
+    "root_cause": "The client component AriesCampaignWorkspace derived activeView from the server-provided initialView prop only. Next.js App Router client-side navigation (Link clicks, back/forward) mutates the URL search params without re-invoking the server component, so the prop stayed frozen at its first-render value and the switch never re-evaluated — even though URL and server-side deep links worked fine.",
+    "fix": "Read the view reactively via next/navigation useSearchParams() in campaign-workspace.tsx, validated through a new resolveWorkspaceView() helper in campaign-workspace-state.ts. initialView remains the fallback for the very first client render.",
+    "files_changed": [
+      "frontend/aries-v1/campaign-workspace.tsx",
+      "frontend/aries-v1/campaign-workspace-state.ts",
+      "tests/campaign-workspace-tab-routing.regression-010.test.ts"
+    ],
+    "verified_via": "npx tsx --test tests/campaign-workspace-tab-routing.regression-010.test.ts tests/campaign-workspace-state.test.ts (15/15 pass); npx tsc --noEmit produced zero new errors on touched files."
+  }
+}

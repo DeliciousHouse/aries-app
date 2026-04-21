@@ -1,0 +1,23 @@
+{
+  "id": "ISSUE-005",
+  "title": "Logo candidates renders title text instead of logo images",
+  "severity": "high",
+  "category": "visual",
+  "passes": true,
+  "blocked": false,
+  "page": "https://aries.sugarandleather.com/onboarding/start (Step 4 Brand identity)",
+  "symptom": "'Logo candidates' section shows the page title 'Nike. Just Do It. Nike.com' repeated as 4 text rows. No actual logo images rendered despite nike.com exposing multiple logo SVGs, favicon, and og:image.",
+  "acceptance_criteria": [
+    "When the scraper finds <img> tags with logo-suggestive signals (alt containing 'logo' / 'brand', filename containing 'logo', class containing 'logo', or an SVG in a header/nav), those URLs are returned as logo_candidates",
+    "Favicon (/favicon.ico or <link rel=icon>) is always considered as a fallback candidate",
+    "og:image is considered as a candidate when no higher-signal logos found",
+    "The frontend renders them as <img> elements, not as text",
+    "If no candidates found, the section shows the 'will appear here' placeholder (no text repetition)",
+    "New regression test: given an HTML fixture with a <nav><svg class=\"logo\">...</svg></nav>, the extractor returns the SVG source"
+  ],
+  "suspected_files": [
+    "backend/marketing/brand-kit.ts (logo extraction)",
+    "frontend/aries-v1/campaign-workspace.tsx",
+    "frontend/brand-identity/** (or wherever LogoCandidates renders)"
+  ]
+}

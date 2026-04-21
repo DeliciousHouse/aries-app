@@ -24,6 +24,9 @@ import {
 import { useBusinessProfile } from '@/hooks/use-business-profile';
 import { createAriesV1Api, type UrlPreviewBrandKitPreview, type UrlPreviewResponse } from '@/lib/api/aries-v1';
 import { validateCanonicalCompetitorUrl } from '@/lib/marketing-competitor';
+import { VISUAL_BOARD_EMPTY_STATE_COPY } from './onboarding-flow.copy';
+
+export { VISUAL_BOARD_EMPTY_STATE_COPY } from './onboarding-flow.copy';
 
 type StepKey = 'business' | 'website' | 'brand' | 'channels' | 'goal';
 
@@ -1694,9 +1697,12 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                       )}
                     >
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold uppercase tracking-[0.18em] text-white">
+                        <label
+                          htmlFor="onboarding-core-offer"
+                          className="text-sm font-semibold uppercase tracking-[0.18em] text-white"
+                        >
                           What does your business offer?
-                        </span>
+                        </label>
                         {offerValidity === 'valid' ? (
                           <Check className="h-4 w-4 text-emerald-400" aria-hidden />
                         ) : null}
@@ -1705,6 +1711,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                         The more specific you are, the better Aries will do.
                       </p>
                       <textarea
+                        id="onboarding-core-offer"
                         value={offer}
                         onChange={(event) => setOffer(event.target.value)}
                         onBlur={() => markTouched('offer')}
@@ -1914,7 +1921,7 @@ function VisualBoard(props: {
             ))}
           </div>
         ) : (
-          <p className="mt-4 text-sm text-white/55">Logo and mark references will appear here when the site exposes them clearly.</p>
+          <p className="mt-4 text-sm text-white/55">{VISUAL_BOARD_EMPTY_STATE_COPY.logos}</p>
         )}
       </div>
 
@@ -1930,7 +1937,7 @@ function VisualBoard(props: {
               ))}
             </div>
           ) : (
-            <p className="mt-4 text-sm text-white/55">Palette cues will appear here once the website review is ready.</p>
+            <p className="mt-4 text-sm text-white/55">{VISUAL_BOARD_EMPTY_STATE_COPY.palette}</p>
           )}
         </div>
 
@@ -1950,7 +1957,7 @@ function VisualBoard(props: {
               ))}
             </div>
           ) : (
-            <p className="mt-4 text-sm text-white/55">Type direction will appear here once the website review is ready.</p>
+            <p className="mt-4 text-sm text-white/55">{VISUAL_BOARD_EMPTY_STATE_COPY.fonts}</p>
           )}
         </div>
       </div>

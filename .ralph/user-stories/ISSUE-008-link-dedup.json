@@ -1,0 +1,20 @@
+{
+  "id": "ISSUE-008",
+  "title": "Visible brand links not deduplicated",
+  "severity": "medium",
+  "category": "ux",
+  "passes": true,
+  "blocked": false,
+  "page": "https://aries.sugarandleather.com/onboarding/start (Step 4)",
+  "symptom": "'Visible brand links' lists about.nike.com twice and agreementservice.svs.nike.com three times with different query strings. User only needs to see one of each hostname.",
+  "acceptance_criteria": [
+    "Links are deduplicated by hostname+pathname (ignoring query string and fragment)",
+    "Display prefers the shorter URL when duplicates collapse",
+    "Order is preserved as first-seen",
+    "Regression test: input of 5 links with 3 unique hostname+paths yields 3 output links"
+  ],
+  "suspected_files": [
+    "backend/marketing/brand-kit.ts",
+    "backend/marketing/real-artifacts.ts"
+  ]
+}

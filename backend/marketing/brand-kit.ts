@@ -115,13 +115,57 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+// Named entity table — covers the common set found across modern marketing
+// sites (Nike, Adidas, Stripe, Shopify, etc.). Keep this list curated; do not
+// expand to the full HTML5 named-entity spec without a benchmark — the table
+// lookup is on the hot path for every brand-kit extraction.
+const NAMED_ENTITY_TABLE: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+  copy: '\u00a9',
+  reg: '\u00ae',
+  trade: '\u2122',
+  hellip: '\u2026',
+  mdash: '\u2014',
+  ndash: '\u2013',
+  lsquo: '\u2018',
+  rsquo: '\u2019',
+  ldquo: '\u201c',
+  rdquo: '\u201d',
+  bull: '\u2022',
+  middot: '\u00b7',
+  laquo: '\u00ab',
+  raquo: '\u00bb',
+};
+
+// Decode HTML entities — handles named (&amp;), decimal (&#39;), and hex
+// (&#x27;) forms in a single pass. Crucially, this MUST run before any other
+// regex that could split a `&#xNN;` token into `& xNN;` (which is exactly the
+// `& x27;` artifact users were seeing in brand voice / revision notes).
 function decodeHtmlEntities(value: string): string {
-  return value
-    .replace(/&amp;/gi, '&')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>');
+  return value.replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+[0-9]?);/gi, (match, body) => {
+    const lower = body.toLowerCase();
+    if (lower.startsWith('#x')) {
+      const code = parseInt(lower.slice(2), 16);
+      if (Number.isFinite(code) && code > 0 && code <= 0x10ffff) {
+        try { return String.fromCodePoint(code); } catch { return match; }
+      }
+      return match;
+    }
+    if (lower.startsWith('#')) {
+      const code = parseInt(lower.slice(1), 10);
+      if (Number.isFinite(code) && code > 0 && code <= 0x10ffff) {
+        try { return String.fromCodePoint(code); } catch { return match; }
+      }
+      return match;
+    }
+    const named = NAMED_ENTITY_TABLE[lower];
+    return named !== undefined ? named : match;
+  });
 }
 
 function unique<T>(values: T[]): T[] {
@@ -129,7 +173,19 @@ function unique<T>(values: T[]): T[] {
 }
 
 function normalizeWhitespace(value: string): string {
-  return decodeHtmlEntities(value).replace(/\s+/g, ' ').trim();
+  // ISSUE-004: when inline tags like `<em>` are stripped upstream, the tag
+  // boundary is replaced with a space so adjacent words don't fuse. The
+  // resulting text can contain space-before-punctuation artifacts such as
+  // `innovative products , experiences` (orphan ` , `) or `wait .` (space
+  // before period). After collapsing whitespace, drop a single whitespace
+  // run that sits directly before sentence punctuation, then collapse
+  // accidental repeated commas. URLs and ellipses are unaffected because
+  // they have no space immediately before the punctuation.
+  return decodeHtmlEntities(value)
+    .replace(/\s+/g, ' ')
+    .replace(/ ([,.;:!?])/g, '$1')
+    .replace(/,(\s*,)+/g, ',')
+    .trim();
 }
 
 // Decode entities FIRST, then strip nested tags (including framework markers
@@ -529,7 +585,39 @@ function extractExternalLinks(html: string, baseUrl: string): TenantBrandLink[] 
     }
   }
 
-  return unique(discovered.map((entry) => JSON.stringify(entry))).map((entry) => JSON.parse(entry));
+  return dedupeBrandLinks(discovered);
+}
+
+// Dedupe by hostname+pathname (ignoring query/fragment). Preserves first-seen
+// order. When duplicates collide, keeps the shortest URL string. See
+// ISSUE-008: visible brand links must not list the same hostname+path multiple
+// times when only query strings or fragments differ.
+function dedupeBrandLinks(links: TenantBrandLink[]): TenantBrandLink[] {
+  const order: string[] = [];
+  const byKey = new Map<string, TenantBrandLink>();
+
+  for (const link of links) {
+    let key: string;
+    try {
+      const parsed = new URL(link.url);
+      key = `${link.platform}|${parsed.hostname.toLowerCase()}${parsed.pathname || '/'}`;
+    } catch {
+      key = `${link.platform}|${link.url}`;
+    }
+
+    const existing = byKey.get(key);
+    if (!existing) {
+      order.push(key);
+      byKey.set(key, link);
+      continue;
+    }
+
+    if (link.url.length < existing.url.length) {
+      byKey.set(key, link);
+    }
+  }
+
+  return order.map((key) => byKey.get(key)!).filter(Boolean);
 }
 
 function brandNameScore(candidate: string, url: string): number {
@@ -673,25 +761,70 @@ export function isLikelyFirstPartyLogo(candidateUrl: string, brandUrl: string): 
   return true;
 }
 
+type LogoSource = 'img' | 'link' | 'og' | 'svg';
+
 type LogoCandidate = {
   url: string;
   score: number;
+  source: LogoSource;
 };
+
+// Stratify fallback candidates by trust tier (svg > og > link > img) and only
+// then by score, so a pile of negative-score first-party <img> tags can't
+// crowd out reliable favicon/og:image fallbacks. Within the <img> tier,
+// require score >= 0 so explicitly-demoted candidates (e.g. team photos,
+// social cards) don't masquerade as logos when no explicit-signal logo exists.
+const FALLBACK_SOURCE_PRIORITY: Record<LogoSource, number> = {
+  svg: 0,
+  og: 1,
+  link: 2,
+  img: 3,
+};
+
+function selectFallbackCandidates(candidates: LogoCandidate[]): string[] {
+  const filtered = candidates.filter(
+    (candidate) => candidate.source !== 'img' || candidate.score >= 0,
+  );
+  const sorted = filtered.slice().sort((left, right) => {
+    const leftPriority = FALLBACK_SOURCE_PRIORITY[left.source];
+    const rightPriority = FALLBACK_SOURCE_PRIORITY[right.source];
+    if (leftPriority !== rightPriority) return leftPriority - rightPriority;
+    return right.score - left.score;
+  });
+  return unique(sorted.map((candidate) => candidate.url)).slice(0, 3);
+}
+
+function inferLogoSourceFromUrl(url: string): LogoSource {
+  if (url.startsWith('data:image/svg')) return 'svg';
+  const lower = url.toLowerCase();
+  if (/favicon|apple-touch-icon|mask-icon|mstile|android-chrome|fluid-icon/.test(lower)) {
+    return 'link';
+  }
+  if (/\/og[\/-]|og[-_]?image|open[-_]?graph|share[-_]?card|social[-_]?card/.test(lower)) {
+    return 'og';
+  }
+  return 'img';
+}
 
 function scoreLogoCandidate(input: {
   url: string;
   alt?: string;
   rel?: string;
-  source: 'img' | 'link' | 'og';
+  className?: string;
+  source: 'img' | 'link' | 'og' | 'svg';
 }): number {
   const lowerUrl = input.url.toLowerCase();
   const alt = normalizeWhitespace(input.alt || '').toLowerCase();
+  const className = (input.className || '').toLowerCase();
+  const LOGO_SIGNAL_RE = /logo|wordmark|logotype|lockup|brandlogo|brand-logo|brandmark|logo-mark|logo mark/;
   const explicitLogoSignal =
-    /logo|wordmark|logotype|lockup|brandlogo|brand-logo|brandmark|logo-mark/.test(lowerUrl) ||
-    /logo|wordmark|logotype|lockup|brandlogo|brand-logo|brandmark|logo mark/.test(alt);
+    LOGO_SIGNAL_RE.test(lowerUrl) ||
+    LOGO_SIGNAL_RE.test(alt) ||
+    /\blogo\b|\bbrand\b|wordmark|logotype|lockup|brandmark/.test(className);
   let score = 0;
 
   if (input.source === 'img') score += 20;
+  if (input.source === 'svg') score += 30;
   if (input.source === 'og') score += 8;
   if (input.source === 'link') score -= 20;
   if (input.source === 'img' && !explicitLogoSignal) score -= 40;
@@ -715,19 +848,53 @@ function scoreLogoCandidate(input: {
   return score;
 }
 
+// Extract inline <svg> blocks from <nav>/<header> containers when the <svg>
+// tag itself carries a logo/brand class or aria-label. Returns each as a
+// `data:image/svg+xml;utf8,...` URL so the frontend can render it via an
+// <img> tag without a separate network fetch. This is how sites like Nike
+// ship their header wordmark — an inline SVG with class="logo" — so without
+// this path we would never surface a logo candidate for them.
+function extractHeaderNavSvgLogos(html: string): string[] {
+  const results: string[] = [];
+  const containerRegex = /<(nav|header)\b[^>]*>([\s\S]*?)<\/\1\b[^>]*>/gi;
+  for (const containerMatch of html.matchAll(containerRegex)) {
+    const inner = containerMatch[2] || '';
+    const svgRegex = /<svg\b([^>]*)>([\s\S]*?)<\/svg\b[^>]*>/gi;
+    for (const svgMatch of inner.matchAll(svgRegex)) {
+      const attrs = parseTagAttributes(svgMatch[1] || '');
+      const className = (attrs.class || '').toLowerCase();
+      const ariaLabel = (attrs['aria-label'] || '').toLowerCase();
+      const role = (attrs.role || '').toLowerCase();
+      const hasLogoClass = /\blogo\b|\bbrand\b|wordmark|logotype|lockup|brandmark/.test(className);
+      const hasLogoAria = /logo|brand|wordmark/.test(ariaLabel);
+      if (!hasLogoClass && !hasLogoAria && role !== 'img') {
+        continue;
+      }
+      const rawSvg = `<svg${svgMatch[1]}>${svgMatch[2]}</svg>`;
+      results.push(`data:image/svg+xml;utf8,${encodeURIComponent(rawSvg)}`);
+    }
+  }
+  return results;
+}
+
 function extractLogoUrls(html: string, baseUrl: string): string[] {
   const candidates: LogoCandidate[] = [];
   const ogImage = extractMetaContent(html, 'property', 'og:image');
   const ogImageUrl = resolveAbsoluteUrl(baseUrl, ogImage || '');
-  if (ogImageUrl) {
+  if (ogImageUrl && isLikelyFirstPartyLogo(ogImageUrl, baseUrl)) {
     candidates.push({
       url: ogImageUrl,
       score: scoreLogoCandidate({ url: ogImageUrl, source: 'og' }),
+      source: 'og',
     });
   }
 
   for (const match of html.matchAll(/<link\b([^>]*)>/gi)) {
     const attributes = parseTagAttributes(match[1] || '');
+    const rel = (attributes.rel || '').toLowerCase();
+    if (!/\b(icon|shortcut icon|apple-touch-icon|mask-icon|fluid-icon)\b/.test(rel)) {
+      continue;
+    }
     const href = resolveAbsoluteUrl(baseUrl, attributes.href || '');
     if (!href) {
       continue;
@@ -738,11 +905,16 @@ function extractLogoUrls(html: string, baseUrl: string): string[] {
     candidates.push({
       url: href,
       score: scoreLogoCandidate({ url: href, rel: attributes.rel, source: 'link' }),
+      source: 'link',
     });
   }
 
-  for (const image of extractImageCandidates(html)) {
-    const href = resolveAbsoluteUrl(baseUrl, image.url);
+  for (const match of html.matchAll(/<img\b([^>]*)>/gi)) {
+    const attributes = parseTagAttributes(match[1] || '');
+    if (!attributes.src) {
+      continue;
+    }
+    const href = resolveAbsoluteUrl(baseUrl, attributes.src);
     if (!href) {
       continue;
     }
@@ -751,16 +923,34 @@ function extractLogoUrls(html: string, baseUrl: string): string[] {
     }
     candidates.push({
       url: href,
-      score: scoreLogoCandidate({ url: href, alt: image.alt, source: 'img' }),
+      score: scoreLogoCandidate({
+        url: href,
+        alt: attributes.alt,
+        className: attributes.class,
+        source: 'img',
+      }),
+      source: 'img',
     });
   }
 
-  const sorted = candidates
-    .filter((candidate) => candidate.score >= 0)
-    .sort((left, right) => right.score - left.score);
-  const explicit = sorted.filter((candidate) => candidate.score >= 40);
+  for (const svgDataUrl of extractHeaderNavSvgLogos(html)) {
+    candidates.push({
+      url: svgDataUrl,
+      score: scoreLogoCandidate({ url: 'logo-svg', className: 'logo', source: 'svg' }),
+      source: 'svg',
+    });
+  }
 
-  return unique((explicit.length > 0 ? explicit : sorted).map((candidate) => candidate.url)).slice(0, explicit.length > 0 ? 2 : 1);
+  const sorted = candidates.sort((left, right) => right.score - left.score);
+  const explicit = sorted.filter((candidate) => candidate.score >= 40);
+  if (explicit.length > 0) {
+    return unique(explicit.map((candidate) => candidate.url)).slice(0, 2);
+  }
+  // No explicit-signal logos. Stratify fallback by trust tier (svg > og >
+  // link > img) and require img score >= 0 so generic page images can't
+  // crowd out reliable favicon/og:image fallbacks. See
+  // selectFallbackCandidates above.
+  return selectFallbackCandidates(sorted);
 }
 
 function likelyCtas(html: string): string[] {
@@ -859,15 +1049,27 @@ async function fetchText(
 }
 
 function normalizeLogoUrls(urls: string[]): string[] {
-  const candidates = urls
-    .map((url) => ({
+  const candidates: LogoCandidate[] = urls.map((url) => {
+    const source = inferLogoSourceFromUrl(url);
+    return {
       url,
-      score: scoreLogoCandidate({ url, source: 'img' }),
-    }))
-    .filter((candidate) => candidate.score >= 0)
-    .sort((left, right) => right.score - left.score);
-  const explicit = candidates.filter((candidate) => candidate.score >= 40);
-  return unique((explicit.length > 0 ? explicit : candidates).map((candidate) => candidate.url)).slice(0, explicit.length > 0 ? 2 : 1);
+      score: scoreLogoCandidate({
+        url,
+        source,
+        className: source === 'svg' ? 'logo' : undefined,
+      }),
+      source,
+    };
+  });
+  const sorted = candidates.slice().sort((left, right) => right.score - left.score);
+  const explicit = sorted.filter((candidate) => candidate.score >= 40);
+  if (explicit.length > 0) {
+    return unique(explicit.map((candidate) => candidate.url)).slice(0, 2);
+  }
+  // No explicit-signal logos — mirror extractLogoUrls: stratify fallback by
+  // trust tier (svg > og > link > img) and require img score >= 0 so
+  // arbitrary persisted page images don't get treated as logos downstream.
+  return selectFallbackCandidates(sorted);
 }
 
 function normalizeBrandColors(colors: Partial<TenantBrandColors> | null | undefined): TenantBrandColors {
@@ -887,7 +1089,22 @@ function normalizeBrandColors(colors: Partial<TenantBrandColors> | null | undefi
 }
 
 function normalizeFontFamilies(families: string[]): string[] {
-  return unique(families.map((value) => normalizeFontFamilyCandidate(value) || '').filter(Boolean)).slice(0, 4);
+  // ISSUE-009: dedupe case/whitespace variants (e.g. "Arial" vs "arial" vs
+  // " Arial ") so the Brand-identity Fonts preview doesn't render four cards
+  // with the same typeface. `normalizeFontFamilyCandidate` already trims and
+  // strips quotes; we key the Set by the lowercased family name to also
+  // collapse case-only duplicates, while preserving the first-seen casing.
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of families) {
+    const canonical = normalizeFontFamilyCandidate(value);
+    if (!canonical) continue;
+    const key = canonical.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(canonical);
+  }
+  return out.slice(0, 4);
 }
 
 export function normalizeBrandKitSignals(input: BrandKitSignalsInput | null | undefined): {

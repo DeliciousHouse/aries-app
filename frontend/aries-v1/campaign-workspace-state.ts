@@ -255,6 +255,16 @@ function generationCopy(
   };
 }
 
+export function resolveWorkspaceView(
+  value: string | null | undefined,
+  fallback: WorkspaceView = 'brand',
+): WorkspaceView {
+  if (value === 'brand' || value === 'strategy' || value === 'creative' || value === 'publish') {
+    return value;
+  }
+  return fallback;
+}
+
 export function approvalStepToView(workflowStepId: string | null | undefined): WorkspaceView | null {
   if (workflowStepId === 'approve_stage_2') return 'brand';
   if (workflowStepId === 'approve_stage_3') return 'strategy';
