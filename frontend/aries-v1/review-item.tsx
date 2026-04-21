@@ -114,8 +114,21 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
 
   const reviewItem = item;
   const activeProgressLabel = busy ? DECISION_PROGRESS_LABELS[activeAction][progressIndex] : null;
+  const noteIsEmpty = note.trim().length === 0;
 
   async function applyDecision(action: 'approve' | 'changes_requested' | 'reject') {
+    // Destructive actions require a non-empty comment so the actor provides
+    // rationale that flows into decision history. Reject additionally prompts
+    // a confirm() so a misclick doesn't terminate the review.
+    if ((action === 'changes_requested' || action === 'reject') && noteIsEmpty) {
+      return;
+    }
+    if (action === 'reject' && typeof window !== 'undefined') {
+      const confirmed = window.confirm('Reject this review? This cannot be undone from the client side.');
+      if (!confirmed) {
+        return;
+      }
+    }
     // Bug A hardening: the ref lock alone doesn't catch a second click that
     // fires after the first POST resolves but before the component re-renders
     // (observed on approve_stage_4_publish where the first POST returns 200
@@ -323,6 +336,11 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
               <p id="note-char-count" className={`mt-1.5 text-right text-xs tabular-nums ${note.length >= 550 ? 'text-amber-400/70' : 'text-white/30'}`}>
                 {note.length} / 600
               </p>
+              {noteIsEmpty ? (
+                <p className="mt-1.5 text-xs text-white/45" data-testid="destructive-note-helper">
+                  A comment is required to request changes.
+                </p>
+              ) : null}
             </div>
             <div className="flex flex-wrap gap-3">
               <button
@@ -347,8 +365,11 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
                   setActiveAction('changes_requested');
                   void applyDecision('changes_requested');
                 }}
-                disabled={busy}
-                className="inline-flex items-center gap-2 rounded-full border border-white/12 px-5 py-3 text-sm font-semibold text-white disabled:opacity-60"
+                disabled={busy || noteIsEmpty}
+                aria-disabled={busy || noteIsEmpty}
+                data-testid="review-request-changes"
+                title={noteIsEmpty ? 'A comment is required to request changes.' : undefined}
+                className="inline-flex items-center gap-2 rounded-full border border-white/12 px-5 py-3 text-sm font-semibold text-white disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {busy && activeAction === 'changes_requested' ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <MessageSquareText className="h-4 w-4" />}
                 {busy && activeAction === 'changes_requested' ? activeProgressLabel : 'Request changes'}
@@ -359,8 +380,11 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
                   setActiveAction('reject');
                   void applyDecision('reject');
                 }}
-                disabled={busy}
-                className="inline-flex items-center gap-2 rounded-full border border-rose-300/20 bg-rose-300/10 px-5 py-3 text-sm font-semibold text-rose-50 disabled:opacity-60"
+                disabled={busy || noteIsEmpty}
+                aria-disabled={busy || noteIsEmpty}
+                data-testid="review-reject"
+                title={noteIsEmpty ? 'A comment is required to reject.' : undefined}
+                className="inline-flex items-center gap-2 rounded-full border border-rose-300/20 bg-rose-300/10 px-5 py-3 text-sm font-semibold text-rose-50 disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {busy && activeAction === 'reject' ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
                 {busy && activeAction === 'reject' ? activeProgressLabel : 'Reject'}

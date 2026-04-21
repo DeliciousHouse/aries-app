@@ -1160,10 +1160,52 @@ function mergeReviewState(jobId: string, tenantId: string, items: RuntimeReviewI
 
   return items.map((item) => {
     const persisted = state.items[item.id];
-    return persisted
+    const merged = persisted
       ? { ...item, status: persisted.status, lastDecision: persisted.lastDecision }
       : item;
+    return syncHistoryWithLastDecision(merged);
   });
+}
+
+/**
+ * Bug ISSUE-W2-RF (M4): the per-review banner reads `lastDecision` from the
+ * persisted review-state file, but the "Decision history" list reads from the
+ * `history` array which, for workflow_approval items, is hardcoded to []
+ * and for stage/creative items comes from the workspace record. After a
+ * decision is submitted, the banner can flip while the history panel still
+ * says "No decision history yet." This helper synchronizes the two sources
+ * of truth so the history always reflects the latest banner decision.
+ */
+function syncHistoryWithLastDecision(item: RuntimeReviewItem): RuntimeReviewItem {
+  if (!item.lastDecision) {
+    return item;
+  }
+  const { action, actedBy, note, at } = item.lastDecision;
+  const alreadyRecorded = item.history.some(
+    (entry) => entry.action === action && entry.at === at && (entry.actor || '') === (actedBy || ''),
+  );
+  if (alreadyRecorded) {
+    return item;
+  }
+  const synthesized: MarketingCampaignStatusHistoryEntry = {
+    id: `runtime-decision:${item.id}:${at}`,
+    at,
+    actor: actedBy,
+    type: 'stage_review',
+    workflowState: item.workflowState,
+    stage: item.reviewType === 'brand' || item.reviewType === 'strategy' || item.reviewType === 'creative'
+      ? item.reviewType
+      : undefined,
+    assetId: item.assetId,
+    action,
+    note: note ?? null,
+    status: action === 'approve'
+      ? 'approved'
+      : action === 'reject'
+        ? 'rejected'
+        : 'changes_requested',
+  };
+  return { ...item, history: [...item.history, synthesized] };
 }
 
 function buildReviewItemsForJob(jobId: string): RuntimeReviewItem[] {
