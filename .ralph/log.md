@@ -69,3 +69,10 @@ already landed in commits a739162 + f77c0a5. This loop handles the remaining 8.
   favicon in fallback tier) is deterministic and documented in the fix
   commit for future readers.
 - Code-review follow-up for ISSUE-005 landed: removed dead-code branch in extractHeaderNavSvgLogos so role=img alone qualifies; added regression tests for role=img SVG and og:image-vs-favicon tie-break ordering.
+
+## ISSUE-004 — scraped brand text grammar artifacts (2026-04-21)
+Root cause: stripping inline tags (<em>, etc.) replaces the boundary with a space so adjacent words don't fuse, but normalizeWhitespace did not collapse the resulting space-before-punctuation artifact (e.g. "innovative , experiences").
+Fix: normalizeWhitespace now drops a single whitespace run before , . ; : ! ? and collapses repeated commas. URLs/ellipses unaffected.
+Files: backend/marketing/brand-kit.ts, tests/marketing-brand-kit-grammar.regression-004.test.ts
+Commits: 1916e1b (fix + regression test)
+Verification: 43/43 pass across marketing-brand-kit, entity-decode-001, logo-extraction-005, brand-kit-logo-filter, grammar-004 suites.
