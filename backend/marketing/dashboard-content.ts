@@ -5,6 +5,7 @@ import path from 'node:path'
 
 import { resolveCodePath, resolveCodeRoot, resolveDataRoot } from '@/lib/runtime-paths'
 
+import { remapHostOutputToMount } from './host-output-path'
 import type { MarketingCampaignWindow } from './jobs-status'
 import { extractPublishReviewBundle } from './publish-review'
 import { publishReviewLinkedAssetId, publishReviewMediaAssetId } from './publish-review-asset-ids'
@@ -1646,29 +1647,9 @@ function resolveDashboardAssetFilePath(
       compatibilityCandidates.add(path.join(codeRoot, suffix))
     }
 
-    // Host-output → bind-mount remap. Runtime docs written by the host's
-    // Lobster pipeline pin absolute paths under ARIES_LOBSTER_HOST_OUTPUT_DIR;
-    // inside this container that tree is only reachable via the read-only
-    // bind mount at ARIES_LOBSTER_HOST_OUTPUT_MOUNT. Without this remap the
-    // dashboard drops creative image assets and falls through to
-    // creativeReviewReason='no_real_creative_assets'.
-    const hostOutputDir = process.env.ARIES_LOBSTER_HOST_OUTPUT_DIR?.trim()
-    const hostOutputMount = process.env.ARIES_LOBSTER_HOST_OUTPUT_MOUNT?.trim()
-    if (hostOutputDir && hostOutputMount) {
-      // path.resolve (not path.normalize) so a trailing slash on the env
-      // var doesn't produce `/foo//` in the startsWith guard and silently
-      // no-op the remap.
-      const normalizedHostDir = path.resolve(hostOutputDir)
-      const normalizedHostMount = path.resolve(hostOutputMount)
-      if (
-        normalized === normalizedHostDir ||
-        normalized.startsWith(`${normalizedHostDir}${path.sep}`)
-      ) {
-        const hostSuffix = normalized.slice(normalizedHostDir.length).replace(/^[\\/]+/, '')
-        compatibilityCandidates.add(
-          hostSuffix ? path.join(normalizedHostMount, hostSuffix) : normalizedHostMount,
-        )
-      }
+    const hostMountCandidate = remapHostOutputToMount(normalized)
+    if (hostMountCandidate) {
+      compatibilityCandidates.add(hostMountCandidate)
     }
 
     for (const compatibilityCandidate of compatibilityCandidates) {
