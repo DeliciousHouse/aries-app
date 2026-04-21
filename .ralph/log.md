@@ -76,3 +76,19 @@ Fix: normalizeWhitespace now drops a single whitespace run before , . ; : ! ? an
 Files: backend/marketing/brand-kit.ts, tests/marketing-brand-kit-grammar.regression-004.test.ts
 Commits: 1916e1b (fix + regression test)
 Verification: 43/43 pass across marketing-brand-kit, entity-decode-001, logo-extraction-005, brand-kit-logo-filter, grammar-004 suites.
+
+## ISSUE-002 — onboarding core-offer textarea a11y (2026-04-21) — PASSING
+
+Root cause: in frontend/aries-v1/onboarding-flow.tsx the Step-1 question
+'What does your business offer?' was a <span> and the adjacent <textarea>
+had neither htmlFor/id binding nor aria-label, so it never appeared in
+the accessibility tree (browser snapshot returned no @e ref).
+Fix: convert the question to <label htmlFor="onboarding-core-offer">,
+add matching id on the <textarea>, plus an explicit
+aria-label="Describe your core offer and customer" as a screen-reader
+safety net. Class names and surrounding markup unchanged → no visual diff.
+Files: frontend/aries-v1/onboarding-flow.tsx,
+       tests/onboarding-textarea-a11y.regression-002.test.ts (new).
+Commits: 15e8ac8 (fix), 776b484 (regression test), story + log flip to follow.
+Verification: new regression passes (1/1); brand-kit suite still 43/43;
+onboarding-flow-public still 4/4. No backend touched.
