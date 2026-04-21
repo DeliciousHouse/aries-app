@@ -151,3 +151,27 @@ All 8 deferred issues (plus earlier ISSUE-003/007 and ISSUE-010 from the prior l
 
 None of these block the batch from being reviewed and merged by Brendan. They're documented here so they don't get lost.
 
+
+## Follow-up commits (2026-04-21)
+
+The three non-blocking nits surfaced in the integration review above are
+landed as atomic follow-ups. Each commit independently passes the full
+regression suite (60→61 tests after the ISSUE-006 upgrade, all green).
+
+- 23e42ca — fix(onboarding): drop redundant aria-label for Label-in-Name
+  conformance (ISSUE-002 follow-up). Removed the aria-label from the
+  core-offer <textarea> so the visible <label htmlFor> alone provides the
+  accessible name (WCAG 2.5.3). Regression test now asserts the negative.
+- 3a879d8 — refactor(onboarding): extract VisualBoard empty-state copy to
+  exported constants (ISSUE-006 follow-up). Copy strings live in a sidecar
+  module `frontend/aries-v1/onboarding-flow.copy.ts` (sidecar chosen
+  because importing the full .tsx would pull React/next-client deps into
+  the Node test runtime). Test imports the constants directly + keeps a
+  source-side guard that the empty-state branches still reference them.
+- f998f1d — refactor(onboarding): use stable font key now that backend
+  dedupes (ISSUE-009 follow-up). Reverted `key={font.toLowerCase()}` to
+  `key={font}` so a future upstream dedup regression surfaces as a
+  duplicate-key warning instead of being silently absorbed.
+
+Suite after batch: 97/97 pass across the 12-file regression list (count
+grew from 96 → 97 due to the new ISSUE-006 "constants are wired in" test).
