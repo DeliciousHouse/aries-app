@@ -16,9 +16,10 @@ const onboardingSource = readFileSync(
 // The 'Describe your core offer and customer' textarea on Step 1 of
 // /onboarding/start did not appear in the accessibility tree because the
 // adjacent question text was a <span>, not a <label>, and the textarea had
-// no aria-label or htmlFor binding. The fix wires htmlFor/id and an
-// aria-label safety net so screen readers announce the field.
-test('core-offer textarea has an accessible name (htmlFor/id binding + aria-label)', () => {
+// no aria-label or htmlFor binding. The fix wires htmlFor/id so the visible
+// question is the textarea's accessible name (no aria-label, which would
+// override the visible label and trip WCAG 2.5.3 Label-in-Name).
+test('core-offer textarea has an accessible name (htmlFor/id binding only, no aria-label)', () => {
   // The visible question is rendered as a <label> bound to the textarea.
   assert.match(
     onboardingSource,
@@ -26,11 +27,24 @@ test('core-offer textarea has an accessible name (htmlFor/id binding + aria-labe
     'expected the "What does your business offer?" question to be rendered as a <label htmlFor="onboarding-core-offer">',
   );
 
-  // The textarea declares the matching id and an explicit aria-label.
+  // The textarea declares the matching id (no aria-label — the <label> wins).
   assert.match(
     onboardingSource,
-    /<textarea[\s\S]*?id="onboarding-core-offer"[\s\S]*?aria-label="Describe your core offer and customer"[\s\S]*?value=\{offer\}/,
-    'expected the offer <textarea> to expose id="onboarding-core-offer" and aria-label="Describe your core offer and customer"',
+    /<textarea[\s\S]*?id="onboarding-core-offer"[\s\S]*?value=\{offer\}/,
+    'expected the offer <textarea> to expose id="onboarding-core-offer"',
+  );
+
+  // WCAG 2.5.3 Label in Name: the textarea must NOT carry an aria-label,
+  // because aria-label would override the <label> in the accessible-name
+  // computation and create a mismatch with the visible question text.
+  const textareaMatch = onboardingSource.match(
+    /<textarea[\s\S]*?id="onboarding-core-offer"[\s\S]*?\/>/,
+  );
+  assert.ok(textareaMatch, 'expected to locate the core-offer <textarea> tag');
+  assert.doesNotMatch(
+    textareaMatch![0],
+    /aria-label=/,
+    'core-offer <textarea> must not declare aria-label; the <label htmlFor> provides the accessible name',
   );
 
   // Guard against regressing back to a bare <span> for the question text,

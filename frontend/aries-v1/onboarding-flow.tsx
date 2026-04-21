@@ -1709,7 +1709,6 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                       </p>
                       <textarea
                         id="onboarding-core-offer"
-                        aria-label="Describe your core offer and customer"
                         value={offer}
                         onChange={(event) => setOffer(event.target.value)}
                         onBlur={() => markTouched('offer')}
