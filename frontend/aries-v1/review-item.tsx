@@ -8,6 +8,7 @@ import MediaPreview from '@/frontend/components/media-preview';
 import { useRuntimeReviewItem } from '@/hooks/use-runtime-review-item';
 
 import { customerSafeUiErrorMessage } from './customer-safe-copy';
+import { isDestructiveActionBlocked } from './review-destructive-guard';
 import { EmptyStatePanel, LoadingStateGrid, ShellPanel, StatusChip } from './components';
 
 type DecisionActionKind = 'approve' | 'changes_requested' | 'reject';
@@ -120,7 +121,7 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
     // Destructive actions require a non-empty comment so the actor provides
     // rationale that flows into decision history. Reject additionally prompts
     // a confirm() so a misclick doesn't terminate the review.
-    if ((action === 'changes_requested' || action === 'reject') && noteIsEmpty) {
+    if ((action === 'changes_requested' || action === 'reject') && isDestructiveActionBlocked(action, note)) {
       return;
     }
     if (action === 'reject' && typeof window !== 'undefined') {

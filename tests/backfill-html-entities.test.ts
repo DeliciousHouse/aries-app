@@ -58,6 +58,19 @@ test('hasArtifact detects every known variant', () => {
   assert.equal(hasArtifact(null as any), false);
 });
 
+// Regression: a `/g`-flagged regex shares `lastIndex` across `.test()` calls
+// and flips true/false on alternating calls for the same input. Calling
+// hasArtifact on the same string twice MUST return the same result both times.
+test('hasArtifact is stable across repeated calls on the same input (no lastIndex bug)', () => {
+  const sample = 'Swap & x27;em for photography';
+  assert.equal(hasArtifact(sample), true);
+  assert.equal(hasArtifact(sample), true, 'second call must also return true');
+  assert.equal(hasArtifact(sample), true, 'third call too');
+  const clean = "Nike's voice";
+  assert.equal(hasArtifact(clean), false);
+  assert.equal(hasArtifact(clean), false);
+});
+
 test('decodeWorkspaceRecord fixes brief.brandVoice and revision notes', () => {
   const record: any = {
     brief: {

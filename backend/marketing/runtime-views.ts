@@ -1176,7 +1176,7 @@ function mergeReviewState(jobId: string, tenantId: string, items: RuntimeReviewI
  * says "No decision history yet." This helper synchronizes the two sources
  * of truth so the history always reflects the latest banner decision.
  */
-function syncHistoryWithLastDecision(item: RuntimeReviewItem): RuntimeReviewItem {
+export function syncHistoryWithLastDecision(item: RuntimeReviewItem): RuntimeReviewItem {
   if (!item.lastDecision) {
     return item;
   }
@@ -1187,11 +1187,18 @@ function syncHistoryWithLastDecision(item: RuntimeReviewItem): RuntimeReviewItem
   if (alreadyRecorded) {
     return item;
   }
+  // Match the shape written by the non-synthesized path in
+  // backend/marketing/workspace-store.ts:
+  //   - per-asset creative reviews → type: 'creative_asset_review'
+  //   - stage/workflow_approval reviews → type: 'stage_review'
+  // Previously we hardcoded 'stage_review' for every synthesized entry, which
+  // mislabeled creative asset decisions in the Decision-history panel.
+  const isCreativeAsset = item.reviewType === 'creative' && Boolean(item.assetId);
   const synthesized: MarketingCampaignStatusHistoryEntry = {
     id: `runtime-decision:${item.id}:${at}`,
     at,
     actor: actedBy,
-    type: 'stage_review',
+    type: isCreativeAsset ? 'creative_asset_review' : 'stage_review',
     workflowState: item.workflowState,
     stage: item.reviewType === 'brand' || item.reviewType === 'strategy' || item.reviewType === 'creative'
       ? item.reviewType

@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { resolveProjectRoot } from './helpers/project-root';
 
 // ISSUE-W2-L3 regression guard: any absolute asset path referenced — either
 // directly as a string literal or via a `lib/brand.ts` constant — from
@@ -9,7 +10,7 @@ import assert from 'node:assert/strict';
 // `public/`. If this fails, the dashboard (and any page that renders these
 // assets) will emit console 404s on load.
 
-const repoRoot = path.resolve(__dirname, '..');
+const repoRoot = resolveProjectRoot(import.meta.url);
 const publicDir = path.join(repoRoot, 'public');
 const brandPath = path.join(repoRoot, 'lib/brand.ts');
 const layoutPath = path.join(repoRoot, 'app/layout.tsx');

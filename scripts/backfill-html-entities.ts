@@ -74,7 +74,13 @@ import { decodeHtmlEntities } from '../backend/marketing/brand-kit';
 // Matches `& x27;`, `& X27;`, `& #39;`, etc. — entity with the `#` replaced by
 // a stray space. We rebuild the `&#...;` form and hand it back to the real
 // decoder.
-const SPACE_NOT_HASH_ENTITY = /&\s+(x[0-9a-f]+|[0-9]+);/gi;
+//
+// NOTE: two constants on purpose. A `/g`-flagged regex shares `lastIndex`
+// state across calls, so reusing the same instance for both `.test()` and
+// `.replace()` produces alternating true/false for identical input. Keep
+// the non-global instance for tests and the global one for replace-all.
+const SPACE_NOT_HASH_ENTITY_TEST = /&\s+(x[0-9a-f]+|[0-9]+);/i;
+const SPACE_NOT_HASH_ENTITY_REPLACE = /&\s+(x[0-9a-f]+|[0-9]+);/gi;
 
 export function fixArtifacts(value: string): string {
   if (typeof value !== 'string' || value.length === 0) {
@@ -83,7 +89,7 @@ export function fixArtifacts(value: string): string {
   let next = value;
 
   // Step 1: repair `& x27;` -> `&#x27;`, `& 39;` -> `&#39;`.
-  next = next.replace(SPACE_NOT_HASH_ENTITY, (_m, body) => `&#${body};`);
+  next = next.replace(SPACE_NOT_HASH_ENTITY_REPLACE, (_m, body) => `&#${body};`);
 
   // Step 2: unwrap double-escapes like `&amp;#x27;` or `&amp;amp;`. We run
   // the decoder up to 3 times so that fully-wrapped `&amp;amp;#x27;` unravels
@@ -102,7 +108,7 @@ export function hasArtifact(value: unknown): boolean {
   return (
     /&#x[0-9a-f]+;/i.test(value) ||
     /&#[0-9]+;/.test(value) ||
-    SPACE_NOT_HASH_ENTITY.test(value) ||
+    SPACE_NOT_HASH_ENTITY_TEST.test(value) ||
     /&amp;/i.test(value) ||
     /&[a-z]+[0-9]?;/i.test(value)
   );
