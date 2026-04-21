@@ -127,3 +127,12 @@ onboarding-flow-public still 4/4. No backend touched.
   duplicates but not case/whitespace variants. Did NOT touch — that bug
   belongs to ISSUE-009. Flagged here for the next pass.
 - Commits: regression test + story flip (atomic).
+
+## ISSUE-009 — Font preview cards all identical (PASSING)
+
+- Root cause: normalizeFontFamilies used plain Set dedup, so case/whitespace variants ("Arial", " Arial ", "arial") each survived as separate entries and became separate VisualBoard cards. Frontend already applied per-card fontFamily — the bug was data-layer.
+- Fix: canonicalize dedup key (lowercased trimmed family) while preserving first-seen casing; still caps at 4. Also made VisualBoard React `key` case-insensitive as a belt-and-braces guard.
+- Layer fixed: backend (primary) + frontend (defensive key).
+- Files: backend/marketing/brand-kit.ts, frontend/aries-v1/onboarding-flow.tsx, tests/font-cards-dedup.regression-009.test.ts
+- Commits: a4ac186 (fix), 1fbc9e3 (regression test)
+- Verification: target regression suite (ISSUE-001/002/004/005/006/008/009 + marketing-brand-kit + brand-kit-logo-filter) — 56/56 pass.

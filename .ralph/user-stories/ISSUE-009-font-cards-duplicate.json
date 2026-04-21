@@ -3,7 +3,7 @@
   "title": "Fonts section shows 4 identical font cards",
   "severity": "low",
   "category": "visual",
-  "passes": false,
+  "passes": true,
   "blocked": false,
   "page": "https://aries.sugarandleather.com/onboarding/start (Step 4)",
   "symptom": "All 4 font preview cards render the same text in what appears to be the same typeface. Either the data is wrong (4x same font) or the CSS font-family is not being applied per-card.",
