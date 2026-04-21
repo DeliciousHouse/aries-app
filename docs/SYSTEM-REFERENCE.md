@@ -1,16 +1,13 @@
 # Aries System Reference
 
-Last refreshed Apr 20, 2026, 00:00 PDT.
+Last refreshed Apr 21, 2026, 00:00 PDT.
 
 ## What changed today
-- backend/marketing/asset-ingest.ts
 - backend/marketing/asset-library.ts
+- backend/marketing/asset-read.ts
 - backend/marketing/dashboard-content.ts
-- frontend/components/media-preview.tsx
-- backend/marketing/runtime-state.ts
-- docker-compose.yml
-- scripts/backfill-asset-ingest.mjs
-- tests/asset-ingest.test.ts
+- backend/marketing/host-output-path.ts
+- tests/host-output-path.test.ts
 
 ## Current architecture overview
 - Next.js App Router runtime serves the public site, authenticated operator shell, and browser-safe internal APIs.
@@ -20,7 +17,7 @@ Last refreshed Apr 20, 2026, 00:00 PDT.
 
 ## Module inventory
 - app/ 117 files
-- backend/ 77 files
+- backend/ 78 files
 - components/ 14 files
 - hooks/ 17 files
 - lib/ 25 files
@@ -44,7 +41,7 @@ Last refreshed Apr 20, 2026, 00:00 PDT.
 - Aries weekly review — 0 14 * * 5 America/Los_Angeles — Generate the Friday weekly review from live board, git, cron, backlog, and service-health truth, save it under memory/reviews, and optionally email the HTML version.
 
 ## Runtime scripts
-- dev: next dev --turbopack
+- dev: next dev -p 3000 --turbopack
 - build: next build
 - start: node scripts/start-runtime.mjs
 - precheck: node scripts/runtime-precheck.mjs
@@ -82,4 +79,4 @@ Last refreshed Apr 20, 2026, 00:00 PDT.
 - Working tree clean at refresh time.
 
 ## Reference date
-- 2026-04-20
+- 2026-04-21
