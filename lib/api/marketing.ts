@@ -648,3 +648,99 @@ export function isMarketingErrorResult<TData>(
 ): value is MarketingApiError {
   return typeof (value as MarketingApiError)?.error === 'string';
 }
+
+/** Map backend field names to the camelCase field names used by the new-job form. */
+const MARKETING_FIELD_ALIAS: Record<string, string> = {
+  website_url: 'websiteUrl',
+  brand_url: 'websiteUrl',
+  websiteurl: 'websiteUrl',
+  brandurl: 'websiteUrl',
+  competitor_url: 'competitorUrl',
+  competitorurl: 'competitorUrl',
+  brand_voice: 'brandVoice',
+  style_vibe: 'styleVibe',
+};
+
+function normalizeFieldName(raw: string): string {
+  const lower = raw.toLowerCase();
+  if (MARKETING_FIELD_ALIAS[lower]) return MARKETING_FIELD_ALIAS[lower];
+  return raw;
+}
+
+/**
+ * Extract field-level validation errors from a 422 response body. Supports
+ *   - { errors: [{ field, message }] }
+ *   - { detail: [{ loc: [..., 'field'], msg }] }   (FastAPI / pydantic)
+ *   - { fieldErrors: { field: 'message' } }
+ * Returns an empty object if no structured field errors are present.
+ */
+export function parseMarketingFieldErrors(body: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!body || typeof body !== 'object') return out;
+  const b = body as Record<string, unknown>;
+
+  const fieldErrors = b.fieldErrors;
+  if (fieldErrors && typeof fieldErrors === 'object' && !Array.isArray(fieldErrors)) {
+    for (const [k, v] of Object.entries(fieldErrors as Record<string, unknown>)) {
+      if (typeof v === 'string' && v.trim()) {
+        out[normalizeFieldName(k)] = v;
+      }
+    }
+  }
+
+  const errors = b.errors;
+  if (Array.isArray(errors)) {
+    for (const entry of errors) {
+      if (entry && typeof entry === 'object') {
+        const e = entry as Record<string, unknown>;
+        const field = typeof e.field === 'string' ? e.field : typeof e.path === 'string' ? e.path : null;
+        const message =
+          typeof e.message === 'string'
+            ? e.message
+            : typeof e.msg === 'string'
+              ? e.msg
+              : null;
+        if (field && message && !out[normalizeFieldName(field)]) {
+          out[normalizeFieldName(field)] = message;
+        }
+      }
+    }
+  }
+
+  const detail = b.detail;
+  if (Array.isArray(detail)) {
+    for (const entry of detail) {
+      if (entry && typeof entry === 'object') {
+        const e = entry as Record<string, unknown>;
+        const loc = Array.isArray(e.loc) ? e.loc : null;
+        const msg = typeof e.msg === 'string' ? e.msg : typeof e.message === 'string' ? e.message : null;
+        if (loc && loc.length && msg) {
+          // Pick the last string segment as the field name (skip 'body'/'query' prefix).
+          let field: string | null = null;
+          for (let i = loc.length - 1; i >= 0; i -= 1) {
+            const seg = loc[i];
+            if (typeof seg === 'string' && seg !== 'body' && seg !== 'query') {
+              field = seg;
+              break;
+            }
+          }
+          if (field && !out[normalizeFieldName(field)]) {
+            out[normalizeFieldName(field)] = msg;
+          }
+        }
+      }
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Simple client-side validator used to block obviously-invalid URLs before hitting
+ * the server. Intentionally permissive — the backend remains the source of truth.
+ */
+export function isValidWebsiteUrl(value: string | null | undefined): boolean {
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  if (!trimmed) return false;
+  return /^https?:\/\/[^\s.]+\.[^\s]+$/i.test(trimmed);
+}
