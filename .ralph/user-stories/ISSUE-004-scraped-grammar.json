@@ -1,0 +1,21 @@
+{
+  "id": "ISSUE-004",
+  "title": "Scraped brand text has broken grammar",
+  "severity": "medium",
+  "category": "content",
+  "passes": false,
+  "blocked": false,
+  "page": "https://aries.sugarandleather.com/onboarding/start (Step 3 Website, and dashboard brand brief)",
+  "symptom": "Brand voice for nike.com renders as 'delivers innovative , experiences and services' — misplaced comma, missing noun before it. Scraper drops inline-element text mid-sentence, leaving a comma with empty left-hand side.",
+  "acceptance_criteria": [
+    "When inline tags are stripped, adjacent words are joined with a single space (no orphan commas)",
+    "Consecutive punctuation patterns like ' , ' or ', ,' are normalized to a single comma with one trailing space",
+    "Regression test fixes the Nike-style input and produces clean output",
+    "Existing brand-kit tests still pass"
+  ],
+  "suspected_files": [
+    "backend/marketing/brand-kit.ts (htmlToText, normalizeWhitespace)",
+    "backend/marketing/real-artifacts.ts (stripHtml)"
+  ],
+  "notes": "Root cause: regex /<[^>]+>/g replaces inline tags with '', not ' '. Should replace with ' ' AND then collapse orphan-punctuation artifacts in normalizeWhitespace."
+}

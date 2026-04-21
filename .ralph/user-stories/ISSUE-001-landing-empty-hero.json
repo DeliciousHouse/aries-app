@@ -1,0 +1,22 @@
+{
+  "id": "ISSUE-001",
+  "title": "Landing page empty hero sections",
+  "severity": "high",
+  "category": "visual",
+  "passes": false,
+  "blocked": false,
+  "page": "https://aries.sugarandleather.com",
+  "symptom": "Landing page renders with multiple large vertical black voids between hero, testimonial, 'How It Works', and 'Built for business owners' sections. Looks like components or images failed to render.",
+  "acceptance_criteria": [
+    "Landing page has no empty vertical sections wider than one viewport height",
+    "All planned content blocks render their intended UI (images, illustrations, feature cards, etc.)",
+    "Browser console shows zero errors on load",
+    "Existing landing-page tests pass"
+  ],
+  "suspected_files": [
+    "app/page.tsx",
+    "app/(marketing)/**",
+    "frontend/landing/**"
+  ],
+  "notes": "Could be CSS-only (missing height constraint), missing lazy-loaded images, or a conditionally-rendered component with a false condition. Investigate before guessing."
+}

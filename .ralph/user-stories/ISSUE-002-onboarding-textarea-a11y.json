@@ -1,0 +1,21 @@
+{
+  "id": "ISSUE-002",
+  "title": "Onboarding core-offer textarea missing a11y attributes",
+  "severity": "medium",
+  "category": "accessibility",
+  "passes": false,
+  "blocked": false,
+  "page": "https://aries.sugarandleather.com/onboarding/start",
+  "symptom": "The 'Describe your core offer and customer' textarea on Step 1 (Goal) is not exposed in the accessibility tree — no ref ID in browser snapshots. Missing aria-label or associated <label for>.",
+  "acceptance_criteria": [
+    "Textarea has either an explicit aria-label or a <label for=id> association",
+    "The element appears in the accessibility tree with a descriptive name",
+    "Visual appearance is unchanged",
+    "A test asserts the textarea has an accessible name"
+  ],
+  "suspected_files": [
+    "frontend/marketing/new-job.tsx",
+    "frontend/aries-v1/business-profile-screen.tsx",
+    "app/onboarding/**"
+  ]
+}
