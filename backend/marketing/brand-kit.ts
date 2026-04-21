@@ -726,16 +726,21 @@ function scoreLogoCandidate(input: {
   url: string;
   alt?: string;
   rel?: string;
-  source: 'img' | 'link' | 'og';
+  className?: string;
+  source: 'img' | 'link' | 'og' | 'svg';
 }): number {
   const lowerUrl = input.url.toLowerCase();
   const alt = normalizeWhitespace(input.alt || '').toLowerCase();
+  const className = (input.className || '').toLowerCase();
+  const LOGO_SIGNAL_RE = /logo|wordmark|logotype|lockup|brandlogo|brand-logo|brandmark|logo-mark|logo mark/;
   const explicitLogoSignal =
-    /logo|wordmark|logotype|lockup|brandlogo|brand-logo|brandmark|logo-mark/.test(lowerUrl) ||
-    /logo|wordmark|logotype|lockup|brandlogo|brand-logo|brandmark|logo mark/.test(alt);
+    LOGO_SIGNAL_RE.test(lowerUrl) ||
+    LOGO_SIGNAL_RE.test(alt) ||
+    /\blogo\b|\bbrand\b|wordmark|logotype|lockup|brandmark/.test(className);
   let score = 0;
 
   if (input.source === 'img') score += 20;
+  if (input.source === 'svg') score += 30;
   if (input.source === 'og') score += 8;
   if (input.source === 'link') score -= 20;
   if (input.source === 'img' && !explicitLogoSignal) score -= 40;
@@ -759,11 +764,43 @@ function scoreLogoCandidate(input: {
   return score;
 }
 
+// Extract inline <svg> blocks from <nav>/<header> containers when the <svg>
+// tag itself carries a logo/brand class or aria-label. Returns each as a
+// `data:image/svg+xml;utf8,...` URL so the frontend can render it via an
+// <img> tag without a separate network fetch. This is how sites like Nike
+// ship their header wordmark — an inline SVG with class="logo" — so without
+// this path we would never surface a logo candidate for them.
+function extractHeaderNavSvgLogos(html: string): string[] {
+  const results: string[] = [];
+  const containerRegex = /<(nav|header)\b[^>]*>([\s\S]*?)<\/\1\b[^>]*>/gi;
+  for (const containerMatch of html.matchAll(containerRegex)) {
+    const inner = containerMatch[2] || '';
+    const svgRegex = /<svg\b([^>]*)>([\s\S]*?)<\/svg\b[^>]*>/gi;
+    for (const svgMatch of inner.matchAll(svgRegex)) {
+      const attrs = parseTagAttributes(svgMatch[1] || '');
+      const className = (attrs.class || '').toLowerCase();
+      const ariaLabel = (attrs['aria-label'] || '').toLowerCase();
+      const role = (attrs.role || '').toLowerCase();
+      const hasLogoClass = /\blogo\b|\bbrand\b|wordmark|logotype|lockup|brandmark/.test(className);
+      const hasLogoAria = /logo|brand|wordmark/.test(ariaLabel);
+      if (!hasLogoClass && !hasLogoAria && role !== 'img') {
+        continue;
+      }
+      if (!hasLogoClass && !hasLogoAria) {
+        continue;
+      }
+      const rawSvg = `<svg${svgMatch[1]}>${svgMatch[2]}</svg>`;
+      results.push(`data:image/svg+xml;utf8,${encodeURIComponent(rawSvg)}`);
+    }
+  }
+  return results;
+}
+
 function extractLogoUrls(html: string, baseUrl: string): string[] {
   const candidates: LogoCandidate[] = [];
   const ogImage = extractMetaContent(html, 'property', 'og:image');
   const ogImageUrl = resolveAbsoluteUrl(baseUrl, ogImage || '');
-  if (ogImageUrl) {
+  if (ogImageUrl && isLikelyFirstPartyLogo(ogImageUrl, baseUrl)) {
     candidates.push({
       url: ogImageUrl,
       score: scoreLogoCandidate({ url: ogImageUrl, source: 'og' }),
@@ -772,6 +809,10 @@ function extractLogoUrls(html: string, baseUrl: string): string[] {
 
   for (const match of html.matchAll(/<link\b([^>]*)>/gi)) {
     const attributes = parseTagAttributes(match[1] || '');
+    const rel = (attributes.rel || '').toLowerCase();
+    if (!/\b(icon|shortcut icon|apple-touch-icon|mask-icon|fluid-icon)\b/.test(rel)) {
+      continue;
+    }
     const href = resolveAbsoluteUrl(baseUrl, attributes.href || '');
     if (!href) {
       continue;
@@ -785,8 +826,12 @@ function extractLogoUrls(html: string, baseUrl: string): string[] {
     });
   }
 
-  for (const image of extractImageCandidates(html)) {
-    const href = resolveAbsoluteUrl(baseUrl, image.url);
+  for (const match of html.matchAll(/<img\b([^>]*)>/gi)) {
+    const attributes = parseTagAttributes(match[1] || '');
+    if (!attributes.src) {
+      continue;
+    }
+    const href = resolveAbsoluteUrl(baseUrl, attributes.src);
     if (!href) {
       continue;
     }
@@ -795,16 +840,32 @@ function extractLogoUrls(html: string, baseUrl: string): string[] {
     }
     candidates.push({
       url: href,
-      score: scoreLogoCandidate({ url: href, alt: image.alt, source: 'img' }),
+      score: scoreLogoCandidate({
+        url: href,
+        alt: attributes.alt,
+        className: attributes.class,
+        source: 'img',
+      }),
     });
   }
 
-  const sorted = candidates
-    .filter((candidate) => candidate.score >= 0)
-    .sort((left, right) => right.score - left.score);
-  const explicit = sorted.filter((candidate) => candidate.score >= 40);
+  for (const svgDataUrl of extractHeaderNavSvgLogos(html)) {
+    candidates.push({
+      url: svgDataUrl,
+      score: scoreLogoCandidate({ url: 'logo-svg', className: 'logo', source: 'svg' }),
+    });
+  }
 
-  return unique((explicit.length > 0 ? explicit : sorted).map((candidate) => candidate.url)).slice(0, explicit.length > 0 ? 2 : 1);
+  const sorted = candidates.sort((left, right) => right.score - left.score);
+  const explicit = sorted.filter((candidate) => candidate.score >= 40);
+  if (explicit.length > 0) {
+    return unique(explicit.map((candidate) => candidate.url)).slice(0, 2);
+  }
+  // No explicit-signal logos. Fall back to whatever we have (favicons via
+  // <link rel=icon>, og:image). Ordering: highest score first, which keeps
+  // the scoring function's existing preferences intact (e.g. og beats
+  // favicon when both are present and both lack an explicit signal).
+  return unique(sorted.map((candidate) => candidate.url)).slice(0, 3);
 }
 
 function likelyCtas(html: string): string[] {
@@ -906,12 +967,21 @@ function normalizeLogoUrls(urls: string[]): string[] {
   const candidates = urls
     .map((url) => ({
       url,
-      score: scoreLogoCandidate({ url, source: 'img' }),
+      score: scoreLogoCandidate({
+        url,
+        source: url.startsWith('data:image/svg') ? 'svg' : 'img',
+        className: url.startsWith('data:image/svg') ? 'logo' : undefined,
+      }),
     }))
-    .filter((candidate) => candidate.score >= 0)
     .sort((left, right) => right.score - left.score);
   const explicit = candidates.filter((candidate) => candidate.score >= 40);
-  return unique((explicit.length > 0 ? explicit : candidates).map((candidate) => candidate.url)).slice(0, explicit.length > 0 ? 2 : 1);
+  if (explicit.length > 0) {
+    return unique(explicit.map((candidate) => candidate.url)).slice(0, 2);
+  }
+  // No explicit-signal logos — keep the fallback candidates (og:image,
+  // favicons, generic <img>) so the frontend has something to render.
+  // Mirror extractLogoUrls: highest score first, cap at 3.
+  return unique(candidates.map((candidate) => candidate.url)).slice(0, 3);
 }
 
 function normalizeBrandColors(colors: Partial<TenantBrandColors> | null | undefined): TenantBrandColors {
