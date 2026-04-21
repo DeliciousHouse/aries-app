@@ -396,8 +396,8 @@ function OrbitLine({
   const lineTargetRadius = Math.max(startRadius, radius - endPadding);
   const lineStart = 0.3 + index * 0.015;
   const lineEnd = 0.35 + index * 0.015;
-  const lineCurrentRadius = useTransform(progress, [lineStart, lineEnd, 0.5, 0.6], [startRadius, lineTargetRadius, lineTargetRadius, startRadius]);
-  const lineOpacity = useTransform(progress, [lineStart, lineStart + 0.01, 0.5, 0.6], [0, 0.8, 0.8, 0]);
+  const lineCurrentRadius = useTransform(progress, [lineStart, lineEnd, 0.9, 1.0], [startRadius, lineTargetRadius, lineTargetRadius, startRadius]);
+  const lineOpacity = useTransform(progress, [lineStart, lineStart + 0.01, 0.9, 1.0], [0, 0.8, 0.8, 0]);
 
   const x1 = useTransform(rotation, (rot) => Math.cos(((angle + rot) * Math.PI) / 180) * startRadius);
   const y1 = useTransform(rotation, (rot) => Math.sin(((angle + rot) * Math.PI) / 180) * startRadius);
@@ -436,7 +436,7 @@ function OrbitPlatform({
   platformSize: number;
   iconSize: number;
 }) {
-  const platformRadius = useTransform(progress, [0, 0.05, 0.15, 0.5, 0.6], [0, 0, platform.radius, platform.radius, 0]);
+  const platformRadius = useTransform(progress, [0, 0.05, 0.15, 0.9, 1.0], [0, 0, platform.radius, platform.radius, 0]);
   const x = useTransform([platformRadius, rotation], ([r, rot]) => Math.cos(((platform.angle + (rot as number)) * Math.PI) / 180) * (r as number));
   const y = useTransform([platformRadius, rotation], ([r, rot]) => Math.sin(((platform.angle + (rot as number)) * Math.PI) / 180) * (r as number));
   const Icon = platform.icon;
@@ -567,9 +567,9 @@ function Hero() {
   const logoY = useTransform(smoothProgress, [0, 0.15, 0.3, 0.5, 0.95, 1], [startY, startY, 0, 0, startY, startY]);
   const logoScale = useTransform(smoothProgress, [0, 0.15, 0.3, 0.5, 0.95, 1], [1, 1, logoScaleFactor, logoScaleFactor, 1, 1]);
   const logoOpacity = useTransform(smoothProgress, [0, 0.95, 1], [1, 1, 0]);
-  const centralCircleOpacity = useTransform(smoothProgress, [0, 0.05, 0.15, 0.5, 0.6], [0, 0, 1, 1, 0]);
-  const centralCircleScale = useTransform(smoothProgress, [0, 0.05, 0.15, 0.5, 0.6], [0.5, 0.5, 1, 1, 0.5]);
-  const platformsOpacity = useTransform(smoothProgress, [0, 0.05, 0.15, 0.5, 0.6], [0, 0, 1, 1, 0]);
+  const centralCircleOpacity = useTransform(smoothProgress, [0, 0.05, 0.15, 0.9, 1.0], [0, 0, 1, 1, 0]);
+  const centralCircleScale = useTransform(smoothProgress, [0, 0.05, 0.15, 0.9, 1.0], [0.5, 0.5, 1, 1, 0.5]);
+  const platformsOpacity = useTransform(smoothProgress, [0, 0.05, 0.15, 0.9, 1.0], [0, 0, 1, 1, 0]);
   const platformsRotate = useTransform(smoothProgress, [0, 1], [0, 360]);
 
   return (
