@@ -1946,7 +1946,7 @@ function VisualBoard(props: {
           {props.fontFamilies.length > 0 ? (
             <div className="mt-4 space-y-3">
               {props.fontFamilies.map((font) => (
-                <div key={font.toLowerCase()} className="rounded-[1rem] border border-white/8 bg-white/[0.03] px-4 py-4">
+                <div key={font} className="rounded-[1rem] border border-white/8 bg-white/[0.03] px-4 py-4">
                   <p
                     className="text-2xl text-white"
                     style={{ fontFamily: `"${font}", ${font}, ui-sans-serif, system-ui, sans-serif` }}
