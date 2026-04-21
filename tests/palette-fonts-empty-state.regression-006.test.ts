@@ -4,6 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { resolveProjectRoot } from './helpers/project-root';
+import { VISUAL_BOARD_EMPTY_STATE_COPY } from '../frontend/aries-v1/onboarding-flow.copy';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
@@ -18,68 +19,75 @@ const onboardingSource = readFileSync(
 // rendered explanatory copy in the same situation. The fix matches that pattern
 // for Palette and Fonts so the empty state never reads as a broken UI.
 //
-// These guards lock in:
-//   1. The Logo-candidates empty-state copy (the reference pattern).
-//   2. A Palette empty-state branch with parallel placeholder copy.
-//   3. A Fonts empty-state branch with parallel placeholder copy.
-//   4. The populated branches still iterate the underlying arrays so visual
-//      output is unchanged when there is content to show.
+// FOLLOW-UP: the original test grepped string literals in the .tsx source,
+// which would break under any copy refactor (e.g. extracting to a constant
+// or i18n table). The empty-state copy now lives in a sidecar module
+// (`onboarding-flow.copy.ts`) imported by both the component and this test,
+// so the assertions can verify the actual render values directly. A small
+// source-side guard remains to confirm the constants are wired into the
+// component (not just declared and ignored).
 
-test('Logo candidates section keeps its empty-state copy (reference pattern)', () => {
+test('logos empty-state copy is defined and references logos/marks', () => {
+  assert.ok(
+    VISUAL_BOARD_EMPTY_STATE_COPY.logos.length > 0,
+    'logos empty-state copy must not be empty',
+  );
   assert.match(
-    onboardingSource,
-    /logoUrls\.length\s*>\s*0\s*\?[\s\S]*?:\s*\(\s*\n\s*<p[^>]*>Logo and mark references will appear here when the site exposes them clearly\.<\/p>/,
-    'expected the Logo candidates section to render its empty-state placeholder when logoUrls is empty',
+    VISUAL_BOARD_EMPTY_STATE_COPY.logos,
+    /logo|mark/i,
+    'logos empty-state copy should mention logo/mark',
   );
 });
 
-test('Palette section renders empty-state copy when colors array is empty (ISSUE-006)', () => {
-  // Conditional branch: empty colors → placeholder copy.
-  assert.match(
-    onboardingSource,
-    /props\.colors\.length\s*>\s*0\s*\?[\s\S]*?:\s*\(\s*\n\s*<p[^>]*>[^<]*will appear here[^<]*<\/p>/,
-    'expected the Palette section to fall back to a "will appear here" placeholder when props.colors is empty',
+test('palette empty-state copy is defined and mentions the palette', () => {
+  assert.ok(
+    VISUAL_BOARD_EMPTY_STATE_COPY.palette.length > 0,
+    'palette empty-state copy must not be empty',
   );
-
-  // The placeholder copy must mention the palette/colors so a screen reader
-  // user understands which section is empty.
   assert.match(
-    onboardingSource,
-    /<p[^>]*>Palette[^<]*will appear here[^<]*<\/p>/i,
-    'expected the Palette empty-state copy to mention "Palette" and "will appear here"',
+    VISUAL_BOARD_EMPTY_STATE_COPY.palette,
+    /palette/i,
+    'palette empty-state copy should mention "palette"',
   );
+});
 
-  // Populated branch must still iterate colors so visual output is unchanged
-  // when there is content to render.
+test('fonts empty-state copy is defined and mentions type/typography', () => {
+  assert.ok(
+    VISUAL_BOARD_EMPTY_STATE_COPY.fonts.length > 0,
+    'fonts empty-state copy must not be empty',
+  );
+  assert.match(
+    VISUAL_BOARD_EMPTY_STATE_COPY.fonts,
+    /type|font|typograph/i,
+    'fonts empty-state copy should mention type/font/typography',
+  );
+});
+
+test('VisualBoard component actually renders the empty-state constants (not just declares them)', () => {
+  // Each of the three keys must be referenced in the .tsx source — i.e. the
+  // empty-state branches still exist and are wired to the constants. This
+  // guards against someone deleting the empty-state branches entirely while
+  // leaving the constants behind, which would silently regress ISSUE-006.
+  for (const key of ['logos', 'palette', 'fonts'] as const) {
+    assert.match(
+      onboardingSource,
+      new RegExp(`VISUAL_BOARD_EMPTY_STATE_COPY\\.${key}\\b`),
+      `expected onboarding-flow.tsx to reference VISUAL_BOARD_EMPTY_STATE_COPY.${key} in the empty-state branch`,
+    );
+  }
+
+  // Populated branches must still iterate the underlying arrays so visual
+  // output is unchanged when there is content to render. NOTE: ISSUE-009
+  // separately tracks duplicate font cards; this test does not assert dedup
+  // behaviour.
   assert.match(
     onboardingSource,
-    /props\.colors\.map\(\(color, index\) =>/,
+    /props\.colors\.map\(/,
     'expected the populated Palette branch to keep mapping over props.colors',
   );
-});
-
-test('Fonts section renders empty-state copy when fontFamilies array is empty (ISSUE-006)', () => {
-  // Conditional branch: empty fontFamilies → placeholder copy.
   assert.match(
     onboardingSource,
-    /props\.fontFamilies\.length\s*>\s*0\s*\?[\s\S]*?:\s*\(\s*\n\s*<p[^>]*>[^<]*will appear here[^<]*<\/p>/,
-    'expected the Fonts section to fall back to a "will appear here" placeholder when props.fontFamilies is empty',
-  );
-
-  // The placeholder copy must convey type/font direction so users know which
-  // section is awaiting data.
-  assert.match(
-    onboardingSource,
-    /<p[^>]*>(Type direction|Fonts?|Typography)[^<]*will appear here[^<]*<\/p>/i,
-    'expected the Fonts empty-state copy to reference type/typography and "will appear here"',
-  );
-
-  // Populated branch must still iterate fontFamilies so visual output is
-  // unchanged when there is content to render. NOTE: ISSUE-009 separately
-  // tracks duplicate font cards; this test does not assert dedup behaviour.
-  assert.match(
-    onboardingSource,
-    /props\.fontFamilies\.map\(\(font\) =>/,
+    /props\.fontFamilies\.map\(/,
     'expected the populated Fonts branch to keep mapping over props.fontFamilies',
   );
 });
