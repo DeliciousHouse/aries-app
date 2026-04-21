@@ -115,13 +115,57 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+// Named entity table — covers the common set found across modern marketing
+// sites (Nike, Adidas, Stripe, Shopify, etc.). Keep this list curated; do not
+// expand to the full HTML5 named-entity spec without a benchmark — the table
+// lookup is on the hot path for every brand-kit extraction.
+const NAMED_ENTITY_TABLE: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+  copy: '\u00a9',
+  reg: '\u00ae',
+  trade: '\u2122',
+  hellip: '\u2026',
+  mdash: '\u2014',
+  ndash: '\u2013',
+  lsquo: '\u2018',
+  rsquo: '\u2019',
+  ldquo: '\u201c',
+  rdquo: '\u201d',
+  bull: '\u2022',
+  middot: '\u00b7',
+  laquo: '\u00ab',
+  raquo: '\u00bb',
+};
+
+// Decode HTML entities — handles named (&amp;), decimal (&#39;), and hex
+// (&#x27;) forms in a single pass. Crucially, this MUST run before any other
+// regex that could split a `&#xNN;` token into `& xNN;` (which is exactly the
+// `& x27;` artifact users were seeing in brand voice / revision notes).
 function decodeHtmlEntities(value: string): string {
-  return value
-    .replace(/&amp;/gi, '&')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>');
+  return value.replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+[0-9]?);/gi, (match, body) => {
+    const lower = body.toLowerCase();
+    if (lower.startsWith('#x')) {
+      const code = parseInt(lower.slice(2), 16);
+      if (Number.isFinite(code) && code > 0 && code <= 0x10ffff) {
+        try { return String.fromCodePoint(code); } catch { return match; }
+      }
+      return match;
+    }
+    if (lower.startsWith('#')) {
+      const code = parseInt(lower.slice(1), 10);
+      if (Number.isFinite(code) && code > 0 && code <= 0x10ffff) {
+        try { return String.fromCodePoint(code); } catch { return match; }
+      }
+      return match;
+    }
+    const named = NAMED_ENTITY_TABLE[lower];
+    return named !== undefined ? named : match;
+  });
 }
 
 function unique<T>(values: T[]): T[] {
