@@ -3,7 +3,7 @@
   "title": "Empty Palette and Fonts sections lack empty-state copy",
   "severity": "medium",
   "category": "ux",
-  "passes": false,
+  "passes": true,
   "blocked": false,
   "page": "https://aries.sugarandleather.com/onboarding/start (Step 4)",
   "symptom": "Palette and Fonts section headings render with no content when extraction returned zero results. Other empty sections (Logo candidates, Offer summary) DO show 'will appear here once the website provides enough signal'. Inconsistency is jarring.",

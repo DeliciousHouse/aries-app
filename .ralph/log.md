@@ -100,3 +100,30 @@ onboarding-flow-public still 4/4. No backend touched.
 - Files: backend/marketing/brand-kit.ts, tests/marketing-brand-kit-link-dedup.regression-008.test.ts
 - Commits: 0601b56 (fix + regression test)
 - Verification: targeted regression suite (marketing-brand-kit + ISSUE-001/004/005/008 + brand-kit-logo-filter) — 48/48 pass.
+
+## ISSUE-006 — Palette/Fonts empty-state copy (2026-04-21) — PASSING
+
+- Investigation found VisualBoard in frontend/aries-v1/onboarding-flow.tsx
+  already renders Logo-pattern-matching empty-state copy for both Palette
+  ("Palette cues will appear here once the website review is ready.") and
+  Fonts ("Type direction will appear here once the website review is
+  ready.") at lines 1933 and 1953. Live-site symptom must be a stale
+  deploy or pre-fix snapshot — the source has the branch.
+- Action: locked in the behaviour with a regression test so a future
+  refactor cannot drop the empty-state branches again. Test asserts:
+  (1) Logo-candidates reference pattern still present,
+  (2) Palette has `props.colors.length > 0 ? ... : <p>...will appear here...</p>`
+      and the fallback mentions "Palette",
+  (3) Fonts has the parallel branch on `props.fontFamilies` referencing
+      type/typography copy,
+  (4) Populated branches still iterate the underlying arrays so visual
+      output is unchanged when content exists.
+- Files: tests/palette-fonts-empty-state.regression-006.test.ts (new).
+  No frontend source change needed — the fix already shipped.
+- Verification: `npx tsx --test tests/palette-fonts-empty-state.regression-006.test.ts`
+  → 3/3 pass.
+- ISSUE-009 territory note: VisualBoard's font map keys on `font` alone
+  (line 1946 `key={font}`), which would already collapse exact-string
+  duplicates but not case/whitespace variants. Did NOT touch — that bug
+  belongs to ISSUE-009. Flagged here for the next pass.
+- Commits: regression test + story flip (atomic).
