@@ -99,33 +99,49 @@ export default function ApiDocsPage() {
             </p>
           </div>
 
-          <div className="space-y-6">
+          <ul data-testid="api-docs-endpoint-list" className="list-none p-0 m-0 space-y-6">
             {ENDPOINTS.map((endpoint) => (
-              <div key={`${endpoint.method}-${endpoint.path}`} className="glass rounded-[2rem] p-8">
-                <div className="flex flex-wrap items-center gap-3 mb-4">
-                  <span className="inline-flex px-3 py-1 rounded-full bg-primary/15 border border-primary/20 text-primary text-xs uppercase tracking-[0.2em] font-semibold">
-                    {endpoint.method}
-                  </span>
-                  <code className="font-semibold text-white">{endpoint.path}</code>
-                </div>
-                <p className="text-white/60 mb-6">{endpoint.desc}</p>
-                <div className="grid lg:grid-cols-2 gap-6">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-white/40 mb-3">Request body</p>
-                    <div className="rounded-[1.25rem] border border-white/10 bg-black/30 p-5 font-mono text-sm text-white/75 break-words">
-                      {endpoint.body}
+              <li
+                key={`${endpoint.method}-${endpoint.path}`}
+                data-testid="api-docs-endpoint"
+                className="list-none"
+              >
+                <article
+                  data-method={endpoint.method}
+                  data-path={endpoint.path}
+                  className="glass rounded-[2rem] p-8 border border-white/10 overflow-hidden isolate"
+                >
+                  <header className="flex flex-wrap items-center gap-3 mb-4">
+                    <span
+                      data-testid="api-docs-endpoint-method"
+                      className="inline-flex px-3 py-1 rounded-full bg-primary/15 border border-primary/20 text-primary text-xs uppercase tracking-[0.2em] font-semibold"
+                    >
+                      {endpoint.method}
+                    </span>
+                    <code className="font-semibold text-white">{endpoint.path}</code>
+                  </header>
+                  <p className="text-white/60 mb-6">{endpoint.desc}</p>
+                  <div className="grid lg:grid-cols-2 gap-6">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.2em] text-white/40 mb-3">Request body</p>
+                      <div className="rounded-[1.25rem] border border-white/10 bg-black/30 p-5 font-mono text-sm text-white/75 break-words overflow-hidden">
+                        {endpoint.body}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.2em] text-white/40 mb-3">Response</p>
+                      <div
+                        data-testid="api-docs-endpoint-response"
+                        className="rounded-[1.25rem] border border-white/10 bg-black/30 p-5 font-mono text-sm text-white/75 break-words overflow-hidden"
+                      >
+                        {endpoint.response}
+                      </div>
                     </div>
                   </div>
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-white/40 mb-3">Response</p>
-                    <div className="rounded-[1.25rem] border border-white/10 bg-black/30 p-5 font-mono text-sm text-white/75 break-words">
-                      {endpoint.response}
-                    </div>
-                  </div>
-                </div>
-              </div>
+                </article>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
       </section>
     </MarketingLayout>

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ArrowRight, FileUp, LoaderCircle, Rocket, Sparkles } from 'lucide-react';
 
 import type { MarketingApiError } from '@/lib/api/marketing';
+import { isValidWebsiteUrl } from '@/lib/api/marketing';
 import { validateCanonicalCompetitorUrl } from '@/lib/marketing-competitor';
 import { useMarketingJobCreate, type UseMarketingJobCreateOptions } from '@/hooks/use-marketing-job-create';
 import StatusBadge from '../components/status-badge';
@@ -82,6 +83,10 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
     const trimmedWebsiteUrl = websiteUrl.trim();
     if (!trimmedWebsiteUrl) {
       setErrorText('website URL is required');
+      return;
+    }
+    if (!isValidWebsiteUrl(trimmedWebsiteUrl)) {
+      setErrorText('Website URL must look like https://example.com');
       return;
     }
 
@@ -197,8 +202,15 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
                   onChange={(event) => setWebsiteUrl(event.target.value)}
                   placeholder="https://yourbrand.com"
                   required
+                  aria-invalid={marketingCreate.fieldErrors?.websiteUrl ? true : undefined}
+                  aria-describedby={marketingCreate.fieldErrors?.websiteUrl ? 'website-url-error' : undefined}
                   className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
                 />
+                {marketingCreate.fieldErrors?.websiteUrl ? (
+                  <p id="website-url-error" className="mt-2 text-sm text-red-300">
+                    {marketingCreate.fieldErrors.websiteUrl}
+                  </p>
+                ) : null}
               </Field>
 
               <Field label="Brand voice">
@@ -291,8 +303,15 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
                   value={competitorUrl}
                   onChange={(event) => setCompetitorUrl(event.target.value)}
                   placeholder="Optional competitor website, e.g. https://competitor.com"
+                  aria-invalid={marketingCreate.fieldErrors?.competitorUrl ? true : undefined}
+                  aria-describedby={marketingCreate.fieldErrors?.competitorUrl ? 'competitor-url-error' : undefined}
                   className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
                 />
+                {marketingCreate.fieldErrors?.competitorUrl ? (
+                  <p id="competitor-url-error" className="mt-2 text-sm text-red-300">
+                    {marketingCreate.fieldErrors.competitorUrl}
+                  </p>
+                ) : null}
                 <p className="mt-2 text-sm text-white/45">
                   Enter the competitor&apos;s website. Do not paste a Facebook page or Meta Ad Library URL here.
                 </p>
@@ -300,18 +319,20 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
 
               <button
                 type="submit"
-                disabled={submitting || !websiteUrl.trim()}
+                disabled={submitting || !isValidWebsiteUrl(websiteUrl)}
                 className="w-full rounded-full bg-gradient-to-r from-primary to-secondary px-6 py-4 text-white font-semibold shadow-xl shadow-primary/20 disabled:opacity-60 disabled:cursor-not-allowed"
-                aria-describedby={!websiteUrl.trim() && !submitting ? 'start-campaign-hint' : undefined}
+                aria-describedby={!isValidWebsiteUrl(websiteUrl) && !submitting ? 'start-campaign-hint' : undefined}
               >
                 <span className="inline-flex items-center justify-center gap-2">
                   {submitting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
                   {submitButtonLabel}
                 </span>
               </button>
-              {!websiteUrl.trim() && !submitting && (
+              {!isValidWebsiteUrl(websiteUrl) && !submitting && (
                 <p id="start-campaign-hint" className="mt-2 text-center text-xs text-white/45">
-                  Enter a website URL to start the campaign.
+                  {websiteUrl.trim()
+                    ? 'Enter a valid URL like https://example.com to start the campaign.'
+                    : 'Enter a website URL to start the campaign.'}
                 </p>
               )}
 

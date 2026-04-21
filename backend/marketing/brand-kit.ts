@@ -146,7 +146,9 @@ const NAMED_ENTITY_TABLE: Record<string, string> = {
 // (&#x27;) forms in a single pass. Crucially, this MUST run before any other
 // regex that could split a `&#xNN;` token into `& xNN;` (which is exactly the
 // `& x27;` artifact users were seeing in brand voice / revision notes).
-function decodeHtmlEntities(value: string): string {
+// Exported for one-off backfill tooling (scripts/backfill-html-entities.ts)
+// and tests. Runtime callers in this file continue to use the local binding.
+export function decodeHtmlEntities(value: string): string {
   return value.replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+[0-9]?);/gi, (match, body) => {
     const lower = body.toLowerCase();
     if (lower.startsWith('#x')) {

@@ -4,6 +4,11 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import Link from 'next/link';
 
 import { useBusinessProfile } from '@/hooks/use-business-profile';
+import {
+  hasValidationErrors,
+  validateBusinessProfileForm,
+  type BusinessProfileFieldErrors,
+} from '@/lib/validation/business-profile';
 
 import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { DashboardHero, EmptyStatePanel, LoadingStateGrid, ShellPanel } from './components';
@@ -76,6 +81,10 @@ export default function AriesBusinessProfileScreen() {
   const [styleVibe, setStyleVibe] = useState('');
   const [notes, setNotes] = useState('');
   const [launchApproverUserId, setLaunchApproverUserId] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<BusinessProfileFieldErrors>({});
+  const [feedback, setFeedback] = useState<
+    { kind: 'success' | 'error'; message: string } | null
+  >(null);
 
   const profile = business.profile.data?.profile ?? null;
   const teamProfiles = business.team.data?.profiles ?? [];
@@ -97,9 +106,19 @@ export default function AriesBusinessProfileScreen() {
   }, [profile]);
 
   async function saveProfile() {
-    await business.updateProfile({
-      businessName,
-      websiteUrl,
+    const errors = validateBusinessProfileForm({ businessName, websiteUrl });
+    setFieldErrors(errors);
+    if (hasValidationErrors(errors)) {
+      setFeedback({
+        kind: 'error',
+        message: 'Please fix the highlighted fields before saving.',
+      });
+      return;
+    }
+    setFeedback(null);
+    const response = await business.updateProfile({
+      businessName: businessName.trim(),
+      websiteUrl: websiteUrl.trim(),
       businessType,
       primaryGoal,
       offer,
@@ -110,7 +129,18 @@ export default function AriesBusinessProfileScreen() {
       notes,
       launchApproverUserId: launchApproverUserId || null,
     });
+    if (response) {
+      setFeedback({ kind: 'success', message: 'Business profile saved.' });
+    } else {
+      const serverMessage = business.save.error?.message;
+      setFeedback({
+        kind: 'error',
+        message: serverMessage || 'Failed to save business profile.',
+      });
+    }
   }
+
+  const hasErrors = hasValidationErrors(fieldErrors);
 
   function toggleChannel(channelId: string) {
     setSelectedChannels((current) =>
@@ -228,7 +258,7 @@ export default function AriesBusinessProfileScreen() {
             <button
               type="button"
               onClick={() => void saveProfile()}
-              disabled={business.save.isLoading}
+              disabled={business.save.isLoading || hasErrors}
               className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] disabled:opacity-60"
             >
               {business.save.isLoading ? 'Saving…' : 'Save profile'}
@@ -236,6 +266,18 @@ export default function AriesBusinessProfileScreen() {
           }
         >
           <div className="space-y-6">
+            {feedback ? (
+              <div
+                role={feedback.kind === 'error' ? 'alert' : 'status'}
+                className={
+                  feedback.kind === 'success'
+                    ? 'rounded-[1.25rem] border border-emerald-400/25 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-50'
+                    : 'rounded-[1.25rem] border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-50'
+                }
+              >
+                {feedback.message}
+              </div>
+            ) : null}
             <div className="grid gap-4 md:grid-cols-2">
               <EditableField
                 label="Business name"
@@ -243,9 +285,18 @@ export default function AriesBusinessProfileScreen() {
               >
                 <input
                   value={businessName}
-                  onChange={(event) => setBusinessName(event.target.value)}
+                  onChange={(event) => {
+                    setBusinessName(event.target.value);
+                    if (fieldErrors.businessName) {
+                      setFieldErrors((prev) => ({ ...prev, businessName: undefined }));
+                    }
+                  }}
+                  aria-invalid={Boolean(fieldErrors.businessName)}
                   className="w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white"
                 />
+                {fieldErrors.businessName ? (
+                  <p className="mt-2 text-xs text-red-200">{fieldErrors.businessName}</p>
+                ) : null}
               </EditableField>
               <EditableField
                 label="Website"
@@ -253,9 +304,19 @@ export default function AriesBusinessProfileScreen() {
               >
                 <input
                   value={websiteUrl}
-                  onChange={(event) => setWebsiteUrl(event.target.value)}
+                  onChange={(event) => {
+                    setWebsiteUrl(event.target.value);
+                    if (fieldErrors.websiteUrl) {
+                      setFieldErrors((prev) => ({ ...prev, websiteUrl: undefined }));
+                    }
+                  }}
+                  aria-invalid={Boolean(fieldErrors.websiteUrl)}
+                  placeholder="https://example.com"
                   className="w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white"
                 />
+                {fieldErrors.websiteUrl ? (
+                  <p className="mt-2 text-xs text-red-200">{fieldErrors.websiteUrl}</p>
+                ) : null}
               </EditableField>
               <EditableField
                 label="Business type"

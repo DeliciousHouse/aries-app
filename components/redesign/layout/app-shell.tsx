@@ -1,9 +1,11 @@
 import type { ReactNode } from 'react';
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 
 import { auth, signOut } from '@/auth';
 import { countPendingMarketingReviewItemsForTenant } from '@/backend/marketing/runtime-views';
 import { getRouteById, type AppRouteId } from '@/frontend/app-shell/routes';
+import { buildLoginRedirect } from '@/lib/auth/callback-url';
 import pool from '@/lib/db';
 import { shouldRequireOnboarding, getUserJourneyRow, isTenantOnboardingComplete } from '@/lib/auth-user-journey';
 
@@ -49,7 +51,26 @@ export default async function RedesignAppShell({
 }: RedesignAppShellProps): Promise<JSX.Element> {
   const session = await auth();
   if (!session?.user) {
-    redirect('/login');
+    // Preserve the originally requested path so the login flow can return
+    // the user to where they were trying to go (ISSUE-W2-L4).
+    const h = await headers();
+    const rawPath =
+      h.get('x-invoke-path') ?? h.get('x-pathname') ?? h.get('next-url') ?? null;
+    let pathname: string | null = rawPath;
+    let search: string | null = null;
+    if (!pathname) {
+      const referer = h.get('referer');
+      if (referer) {
+        try {
+          const url = new URL(referer);
+          pathname = url.pathname;
+          search = url.search;
+        } catch {
+          // ignore malformed referer
+        }
+      }
+    }
+    redirect(buildLoginRedirect(pathname, search));
   }
 
   if (!skipOnboardingGate) {
