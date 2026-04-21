@@ -599,7 +599,7 @@ export default function AppShellClient({
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 8, scale: 0.98 }}
                   transition={{ duration: 0.18, ease: 'easeOut' }}
-                  className="absolute bottom-14 left-0 z-[90] w-[280px] overflow-hidden rounded-2xl border border-white/10 bg-white/[0.06] shadow-[0_28px_90px_rgba(0,0,0,0.38)] backdrop-blur-xl"
+                  className="absolute bottom-14 left-0 z-[90] w-[280px] overflow-hidden rounded-2xl border border-white/10 bg-neutral-950 shadow-[0_28px_90px_rgba(0,0,0,0.38)] backdrop-blur-xl"
                 >
                   <div className="space-y-1 p-2">
                     <Link
