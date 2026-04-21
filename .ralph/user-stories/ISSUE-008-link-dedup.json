@@ -3,7 +3,7 @@
   "title": "Visible brand links not deduplicated",
   "severity": "medium",
   "category": "ux",
-  "passes": false,
+  "passes": true,
   "blocked": false,
   "page": "https://aries.sugarandleather.com/onboarding/start (Step 4)",
   "symptom": "'Visible brand links' lists about.nike.com twice and agreementservice.svs.nike.com three times with different query strings. User only needs to see one of each hostname.",

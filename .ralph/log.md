@@ -92,3 +92,11 @@ Files: frontend/aries-v1/onboarding-flow.tsx,
 Commits: 15e8ac8 (fix), 776b484 (regression test), story + log flip to follow.
 Verification: new regression passes (1/1); brand-kit suite still 43/43;
 onboarding-flow-public still 4/4. No backend touched.
+
+## ISSUE-008 — Visible brand links not deduplicated (PASSING)
+
+- Root cause: extractExternalLinks deduped via JSON.stringify of {platform, url}, so query-string and fragment variants of the same hostname+path survived.
+- Fix: new dedupeBrandLinks() helper keys on platform|hostname|pathname (URL-parsed, lowercased host, default '/' path). Preserves first-seen order; shortest URL wins on collision.
+- Files: backend/marketing/brand-kit.ts, tests/marketing-brand-kit-link-dedup.regression-008.test.ts
+- Commits: 0601b56 (fix + regression test)
+- Verification: targeted regression suite (marketing-brand-kit + ISSUE-001/004/005/008 + brand-kit-logo-filter) — 48/48 pass.
