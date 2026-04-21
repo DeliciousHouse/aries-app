@@ -786,9 +786,6 @@ function extractHeaderNavSvgLogos(html: string): string[] {
       if (!hasLogoClass && !hasLogoAria && role !== 'img') {
         continue;
       }
-      if (!hasLogoClass && !hasLogoAria) {
-        continue;
-      }
       const rawSvg = `<svg${svgMatch[1]}>${svgMatch[2]}</svg>`;
       results.push(`data:image/svg+xml;utf8,${encodeURIComponent(rawSvg)}`);
     }

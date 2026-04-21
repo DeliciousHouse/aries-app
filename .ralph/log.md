@@ -68,3 +68,4 @@ already landed in commits a739162 + f77c0a5. This loop handles the remaining 8.
 - Follow-ups: none — ordering decision (highest score first, og beats
   favicon in fallback tier) is deterministic and documented in the fix
   commit for future readers.
+- Code-review follow-up for ISSUE-005 landed: removed dead-code branch in extractHeaderNavSvgLogos so role=img alone qualifies; added regression tests for role=img SVG and og:image-vs-favicon tie-break ordering.

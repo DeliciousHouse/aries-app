@@ -142,6 +142,64 @@ test('extractBrandKitFromWebsite prefers explicit-signal <img> logos over favico
   }
 });
 
+test('extractBrandKitFromWebsite qualifies a header inline <svg role="img"> without a logo class as a candidate', async () => {
+  const brandUrl = 'https://role-img-svg.example';
+  const restore = installHtmlFetchMock(brandUrl, `<!doctype html>
+    <html>
+      <head><title>Role Img Co</title></head>
+      <body>
+        <header>
+          <svg role="img" aria-label="Company" viewBox="0 0 100 40">
+            <path d="M10 10h80v20H10z" fill="#222"/>
+          </svg>
+        </header>
+      </body>
+    </html>`);
+
+  try {
+    const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+    const brandKit = await extractBrandKitFromWebsite({ tenantId: 'role-img-svg', brandUrl });
+    const svgCandidate = brandKit.logo_urls.find((url) => url.startsWith('data:image/svg+xml'));
+    assert.ok(
+      svgCandidate,
+      `expected role="img" SVG to qualify as a logo candidate, got: ${JSON.stringify(brandKit.logo_urls)}`,
+    );
+    const decoded = decodeURIComponent(svgCandidate.replace(/^data:image\/svg\+xml;utf8,/, ''));
+    assert.match(decoded, /role="img"/);
+  } finally {
+    restore();
+  }
+});
+
+test('extractBrandKitFromWebsite ranks og:image before favicon when both are tie-break fallbacks', async () => {
+  const brandUrl = 'https://og-vs-favicon.example';
+  const restore = installHtmlFetchMock(brandUrl, `<!doctype html>
+    <html>
+      <head>
+        <title>Og Vs Favicon Co</title>
+        <link rel="icon" href="/favicon.ico" />
+        <meta property="og:image" content="https://og-vs-favicon.example/og.png" />
+      </head>
+      <body><h1>Og Vs Favicon Co</h1></body>
+    </html>`);
+
+  try {
+    const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+    const brandKit = await extractBrandKitFromWebsite({ tenantId: 'og-vs-favicon', brandUrl });
+    assert.ok(brandKit.logo_urls.length > 0, 'expected at least one logo candidate');
+    const ogIndex = brandKit.logo_urls.indexOf('https://og-vs-favicon.example/og.png');
+    const faviconIndex = brandKit.logo_urls.indexOf('https://og-vs-favicon.example/favicon.ico');
+    assert.notEqual(ogIndex, -1, `expected og:image URL in candidates: ${JSON.stringify(brandKit.logo_urls)}`);
+    assert.notEqual(faviconIndex, -1, `expected favicon URL in candidates: ${JSON.stringify(brandKit.logo_urls)}`);
+    assert.ok(
+      ogIndex < faviconIndex,
+      `expected og:image (${ogIndex}) before favicon (${faviconIndex}) in: ${JSON.stringify(brandKit.logo_urls)}`,
+    );
+  } finally {
+    restore();
+  }
+});
+
 test('extractBrandKitFromWebsite returns empty logo_urls when no logo-like assets exist', async () => {
   const brandUrl = 'https://no-logo.example';
   const restore = installHtmlFetchMock(brandUrl, `<!doctype html>
