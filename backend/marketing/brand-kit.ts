@@ -173,7 +173,19 @@ function unique<T>(values: T[]): T[] {
 }
 
 function normalizeWhitespace(value: string): string {
-  return decodeHtmlEntities(value).replace(/\s+/g, ' ').trim();
+  // ISSUE-004: when inline tags like `<em>` are stripped upstream, the tag
+  // boundary is replaced with a space so adjacent words don't fuse. The
+  // resulting text can contain space-before-punctuation artifacts such as
+  // `innovative products , experiences` (orphan ` , `) or `wait .` (space
+  // before period). After collapsing whitespace, drop a single whitespace
+  // run that sits directly before sentence punctuation, then collapse
+  // accidental repeated commas. URLs and ellipses are unaffected because
+  // they have no space immediately before the punctuation.
+  return decodeHtmlEntities(value)
+    .replace(/\s+/g, ' ')
+    .replace(/ ([,.;:!?])/g, '$1')
+    .replace(/,(\s*,)+/g, ',')
+    .trim();
 }
 
 // Decode entities FIRST, then strip nested tags (including framework markers
