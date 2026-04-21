@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { ArrowUpRight, CheckCircle2, LoaderCircle, MessageSquareText, XCircle } from 'lucide-react';
 
 import MediaPreview from '@/frontend/components/media-preview';
@@ -18,6 +19,7 @@ import {
   deriveGenerationProgressState,
   derivePublishSurfaceState,
   deriveWorkspaceHeaderState,
+  resolveWorkspaceView,
   type GateFallbackState,
   type GenerationProgressState,
   type PublishSurfaceState,
@@ -124,7 +126,12 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
   const [briefSaving, setBriefSaving] = useState(false);
 
   const status = job.data && !('error' in job.data) ? job.data : null;
-  const activeView = props.initialView || 'brand';
+  // Read view from the URL so client-side navigation (Link clicks, back/forward)
+  // updates the rendered section. Falls back to server-provided initialView on
+  // first render before useSearchParams populates.
+  const searchParams = useSearchParams();
+  const viewParam = searchParams?.get('view') ?? null;
+  const activeView = resolveWorkspaceView(viewParam, props.initialView || 'brand');
 
   const progressActive = !!(status && deriveGenerationProgressState(status)?.isComplete === false);
 
