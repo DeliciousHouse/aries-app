@@ -22,6 +22,8 @@ The GitHub Actions deploy workflow expects `ghcr.io/delicioushouse/aries-app:<sh
 docker compose -f docker-compose.yml -f docker-compose.local.yml build
 ```
 
+`docker-compose.yml` now owns the host port publish for `aries-app`, so deploys and production-style runs work even when only the base file is used. `docker-compose.local.yml` remains a merged override for localhost defaults and the optional `aries-app-dev` helper service.
+
 ## Required environment
 - `APP_BASE_URL`
 - `ARIES_APP_IMAGE` (optional image/tag override, default: `aries-app:local`)
@@ -61,6 +63,7 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml down
 - Production should not bind mount the repository into `/app`.
 - Keep real secrets out of git.
 - The runtime contract remains `CODE_ROOT=/app` and `DATA_ROOT=/data`.
+- The main `aries-app` service publishes `${PORT:-3000}` from the base compose file; the local override merges into that same service instead of launching a duplicate production instance.
 - Workflow execution is delegated through OpenClaw.
 
 ## Lobster stage cache directories
