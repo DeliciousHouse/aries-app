@@ -27,6 +27,12 @@ export interface MarketingNewJobScreenProps {
   redirectMode?: 'status' | 'dashboard';
 }
 
+export interface MarketingNewJobScreenContentProps extends MarketingNewJobScreenProps {
+  router: {
+    push: (href: string) => void;
+  };
+}
+
 const SUBMIT_PROGRESS_MESSAGES = [
   'Saving brief',
   'Uploading brand assets',
@@ -37,8 +43,8 @@ const SUBMIT_PROGRESS_MESSAGES = [
 
 const FINAL_SUBMIT_PROGRESS_INDEX = SUBMIT_PROGRESS_MESSAGES.length - 1;
 
-export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
-  const router = useRouter();
+export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContentProps) {
+  const router = props.router;
   const marketingCreate = useMarketingJobCreate(props.clientOptions);
 
   const [websiteUrl, setWebsiteUrl] = useState('');
@@ -75,6 +81,12 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
 
     return () => window.clearInterval(intervalId);
   }, [submitting]);
+
+  useEffect(() => {
+    if (marketingCreate.error?.message) {
+      setErrorText(marketingCreate.error.message);
+    }
+  }, [marketingCreate.error]);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -337,7 +349,13 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
               )}
 
               {errorText ? (
-                <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-red-100">{errorText}</div>
+                <div
+                  role="alert"
+                  aria-live="assertive"
+                  className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-red-100"
+                >
+                  {errorText}
+                </div>
               ) : null}
             </form>
           </div>
@@ -390,6 +408,12 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
       </div>
     </div>
   );
+}
+
+export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
+  const router = useRouter();
+
+  return <MarketingNewJobScreenContent {...props} router={router} />;
 }
 
 function Field(props: { label: string; required?: boolean; children: React.ReactNode }) {
