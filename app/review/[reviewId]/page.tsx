@@ -15,9 +15,14 @@ export default async function ReviewItemPage({
   params: Promise<{ reviewId: string }>;
 }) {
   const { reviewId } = await params;
+  const encodedReviewPath = `/review/${reviewId}`;
 
   return (
-    <AppShellLayout currentRouteId="review" skipOnboardingGate>
+    <AppShellLayout
+      currentRouteId="review"
+      skipOnboardingGate
+      loginRedirectPath={encodedReviewPath}
+    >
       <AriesReviewItemScreen reviewId={decodeReviewIdParam(reviewId)} />
     </AppShellLayout>
   );
