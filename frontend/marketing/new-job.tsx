@@ -81,6 +81,12 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
     return () => window.clearInterval(intervalId);
   }, [submitting]);
 
+  useEffect(() => {
+    if (marketingCreate.error?.message) {
+      setErrorText(marketingCreate.error.message);
+    }
+  }, [marketingCreate.error]);
+
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setErrorText(null);
@@ -342,7 +348,13 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
               )}
 
               {errorText ? (
-                <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-red-100">{errorText}</div>
+                <div
+                  role="alert"
+                  aria-live="assertive"
+                  className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-red-100"
+                >
+                  {errorText}
+                </div>
               ) : null}
             </form>
           </div>
