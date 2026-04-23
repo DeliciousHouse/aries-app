@@ -6,7 +6,7 @@ This document is the concise production runbook for `aries-app`.
 
 1. Publish the container image for the exact commit SHA to GHCR.
 2. Push that same commit to `master`.
-3. Let the GitHub Actions deploy workflow pull the verified image and restart the `aries-app` service.
+3. Let the GitHub Actions deploy workflow running on the self-hosted deploy host pull the verified image and restart the `aries-app` service.
 
 ## Deployment checklist
 

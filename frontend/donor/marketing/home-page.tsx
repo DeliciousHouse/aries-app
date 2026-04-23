@@ -1845,13 +1845,20 @@ export default function DonorHomePage() {
               </p>
             </div>
 
-            <div className="mx-auto flex flex-wrap items-center justify-center gap-4 pb-4 lg:grid lg:w-fit lg:grid-cols-[12rem_1.25rem_12rem_1.25rem_12rem_1.25rem_12rem_1.25rem_12rem] lg:gap-3 xl:grid-cols-[13rem_2rem_13rem_2rem_13rem_2rem_13rem_2rem_13rem]">
+            <div
+              aria-label="Meet Aries workflow steps"
+              className="mx-auto flex flex-wrap items-center justify-center gap-4 pb-4 lg:grid lg:w-fit lg:grid-cols-[12rem_1.25rem_12rem_1.25rem_12rem_1.25rem_12rem_1.25rem_12rem] lg:gap-3 xl:grid-cols-[13rem_2rem_13rem_2rem_13rem_2rem_13rem_2rem_13rem]"
+              role="list"
+            >
               {['Set up your business', 'See the plan', 'Review the creative', 'Launch safely', 'See what delivered results'].map((step, index) => (
                 <Fragment key={step}>
-                  <div className="glass inline-flex w-full items-center justify-center rounded-full border-primary/20 px-8 py-4 text-center text-sm font-semibold whitespace-nowrap cursor-pointer hover-gradient-border lg:px-4">
+                  <span
+                    className="glass inline-flex w-full items-center justify-center rounded-full border-primary/20 px-8 py-4 text-center text-sm font-semibold whitespace-nowrap lg:px-4"
+                    role="listitem"
+                  >
                     <span className="relative z-10 block w-full text-center">{step}</span>
-                  </div>
-                  {index < 4 ? <div className="hidden h-px w-full bg-white/20 lg:block" /> : null}
+                  </span>
+                  {index < 4 ? <div aria-hidden="true" role="presentation" className="hidden h-px w-full bg-white/20 lg:block" /> : null}
                 </Fragment>
               ))}
             </div>

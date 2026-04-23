@@ -7,6 +7,7 @@ import pool from '@/lib/db';
 import {
   extractAndSaveTenantBrandKit,
   loadTenantBrandKit,
+  repairLegacyMarketingText,
   sanitizeBrandKitSummaryText,
   type TenantBrandKit,
 } from '@/backend/marketing/brand-kit';
@@ -576,6 +577,26 @@ function buildBusinessProfileView(input: {
   const effectiveChannels = resolvedChannels(
     input.validatedProfile.channels.length > 0 ? input.validatedProfile.channels : (input.record?.channels ?? []),
   );
+  const effectiveOffer = repairLegacyMarketingText(
+    input.validatedProfile.offer ?? input.record?.offer ?? input.brandKit?.offer_summary ?? null,
+  );
+  const effectiveBrandVoice = repairLegacyMarketingText(
+    input.record?.brand_voice ??
+      input.workspaceBrandContext.brandVoice ??
+      input.validatedProfile.brandIdentity?.toneOfVoice ??
+      (input.validatedProfile.brandVoice.length > 0 ? input.validatedProfile.brandVoice.join('\n') : null) ??
+      input.brandKit?.brand_voice_summary ??
+      null,
+  );
+  const effectiveStyleVibe = repairLegacyMarketingText(
+    input.record?.style_vibe ??
+      input.workspaceBrandContext.styleVibe ??
+      input.validatedProfile.brandIdentity?.styleVibe ??
+      null,
+  );
+  const effectiveNotes = repairLegacyMarketingText(
+    input.record?.notes ?? input.validatedProfile.brandIdentity?.summary ?? null,
+  );
 
   return {
     tenantId: input.tenantId,
@@ -586,20 +607,10 @@ function buildBusinessProfileView(input: {
     primaryGoal: effectivePrimaryGoal,
     launchApproverUserId: input.record?.launch_approver_user_id ?? null,
     launchApproverName: input.approverName,
-    offer: input.validatedProfile.offer ?? input.record?.offer ?? input.brandKit?.offer_summary ?? null,
-    brandVoice:
-      input.record?.brand_voice ??
-      input.workspaceBrandContext.brandVoice ??
-      input.validatedProfile.brandIdentity?.toneOfVoice ??
-      (input.validatedProfile.brandVoice.length > 0 ? input.validatedProfile.brandVoice.join('\n') : null) ??
-      input.brandKit?.brand_voice_summary ??
-      null,
-    styleVibe:
-      input.record?.style_vibe ??
-      input.workspaceBrandContext.styleVibe ??
-      input.validatedProfile.brandIdentity?.styleVibe ??
-      null,
-    notes: input.record?.notes ?? input.validatedProfile.brandIdentity?.summary ?? null,
+    offer: effectiveOffer,
+    brandVoice: effectiveBrandVoice,
+    styleVibe: effectiveStyleVibe,
+    notes: effectiveNotes,
     competitorUrl: input.validatedProfile.competitorUrl ?? input.record?.competitor_url ?? null,
     channels: effectiveChannels,
     brandIdentity: input.validatedProfile.brandIdentity,

@@ -15,7 +15,7 @@
 ## Production release
 
 For `aries-app`, deploy by publishing the image for the exact commit SHA first, then pushing that same commit to `master`.
-The GitHub Actions deploy workflow expects `ghcr.io/delicioushouse/aries-app:<sha>` to exist before SSH deploy.
+The GitHub Actions deploy workflow expects `ghcr.io/delicioushouse/aries-app:<sha>` to exist before the self-hosted deploy host pulls it locally.
 
 ## Build
 ```bash

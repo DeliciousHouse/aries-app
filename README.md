@@ -2,7 +2,7 @@
 
 Aries AI is a Next.js App Router application for marketing automation. It combines a public marketing site, an authenticated operator shell, and browser-safe internal APIs that hand execution off to an external OpenClaw Gateway while keeping runtime state on the server. The current repository ships the web runtime, route handlers, backend service layer, local runtime state helpers, and tests for the supported route contract.
 
-> **Important:** the repo-level setup notes still reference Next.js 15 in a few places, but `package.json` currently pins **Next.js 16.1.7**. The development workflow in this README follows the code as it exists today.
+> **Important:** the repo-level setup notes still reference Next.js 15 in a few places, but `package.json` currently pins **Next.js 16.2.3**. The development workflow in this README follows the code as it exists today.
 
 ## What the project includes
 
@@ -35,7 +35,7 @@ Browser
 ## Tech stack
 
 - **Framework:** Next.js App Router
-- **Version currently pinned:** Next.js `16.1.7`
+- **Version currently pinned:** Next.js `16.2.3`
 - **UI:** React 18, Tailwind CSS v4, custom frontend screens/components
 - **Auth:** `next-auth` v5 beta plus tenant/auth runtime helpers
 - **Data/storage:** PostgreSQL (`pg`) plus generated runtime files under `DATA_ROOT`
@@ -183,9 +183,9 @@ npm run dev
 
 The repo includes `docker-compose.yml`, `docker-compose.local.yml`, and a production `Dockerfile`. These files run the Aries app container, but they do **not** provision PostgreSQL or OpenClaw for you, so `DB_*` and `OPENCLAW_*` values still need to point at working services.
 
-### Production release (VM deploy)
+### Production release
 
-Production deploy is triggered by pushing to `master`, but **only after** the GHCR image for that **exact commit SHA** is already published. The GitHub Actions Deploy workflow checks that `ghcr.io/<owner>/aries-app:<sha>` exists before SSH deploy; pushing `master` first without the image fails by design.
+Production deploy is triggered by pushing to `master`, but **only after** the GHCR image for that **exact commit SHA** is already published. The GitHub Actions Deploy workflow runs on the self-hosted deploy host, logs the local Docker daemon into GHCR, and then pulls `ghcr.io/<owner>/aries-app:<sha>`/`:latest` there; pushing `master` first without the image fails by design.
 
 Step-by-step commands and environment variables: see **`DOCKER.md`** → *Production release (GHCR image before `master`)*. A short operational summary also lives in **`docs/SYSTEM-REFERENCE.md`** → *Production release (operational)*.
 
@@ -331,6 +331,13 @@ APP_BASE_URL=https://aries.example.com ./node_modules/.bin/tsx --test tests/**/*
 node scripts/check-banned-patterns.mjs
 APP_BASE_URL=https://aries.example.com ./node_modules/.bin/tsx --test tests/marketing-job-flow.test.ts tests/onboarding-marketing-contracts.test.ts
 ```
+
+### Focused regression specs
+
+- `tests/sign-up-form-submit-validity.regression-001.test.ts` guards the disabled-state contract for the signup submit button until full validation passes.
+- `tests/homepage-meet-aries-step-chips.regression-013.test.ts` keeps the homepage Meet Aries workflow steps non-interactive and exposed with list semantics.
+- `tests/sidebar-account-menu-escape.regression-012.test.ts` preserves Escape-key dismissal for the desktop account menu.
+- `tests/marketing-legacy-text-repair.regression-014.test.ts` covers legacy marketing-copy repair on workspace and business-profile read paths.
 
 ### Notes about test environment stability
 
