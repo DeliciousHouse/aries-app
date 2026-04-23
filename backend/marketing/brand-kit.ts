@@ -170,6 +170,34 @@ export function decodeHtmlEntities(value: string): string {
   });
 }
 
+const SPACE_NOT_HASH_ENTITY_REPLACE = /&\s+(x[0-9a-f]+|[0-9]+);/gi;
+
+export function repairLegacyMarketingText(value: string | null | undefined): string | null {
+  if (typeof value !== 'string' || value.length === 0) {
+    return value ?? null;
+  }
+
+  let next = value.replace(SPACE_NOT_HASH_ENTITY_REPLACE, (_m, body) => `&#${body};`);
+
+  for (let i = 0; i < 3; i += 1) {
+    const decoded = decodeHtmlEntities(next);
+    if (decoded === next) break;
+    next = decoded;
+  }
+
+  return next
+    .split('\n')
+    .map((line) =>
+      line
+        .replace(/[^\S\r\n]+/g, ' ')
+        .replace(/ ([,.;:!?])/g, '$1')
+        .replace(/,(\s*,)+/g, ',')
+        .trimEnd(),
+    )
+    .join('\n')
+    .trim();
+}
+
 function unique<T>(values: T[]): T[] {
   return Array.from(new Set(values));
 }
