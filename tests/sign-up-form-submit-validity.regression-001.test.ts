@@ -28,7 +28,7 @@ test('signup submit CTA depends on real form validity, not just loading state', 
   );
   assert.match(
     source,
-    /const emailIsValid = .*test\(email\.trim\(\)\);/,
+    /const emailIsValid = isValidEmailAddress\(email\);/,
     'signup form should derive email validity before enabling submit',
   );
   assert.match(
@@ -38,12 +38,17 @@ test('signup submit CTA depends on real form validity, not just loading state', 
   );
   assert.match(
     source,
-    /const canSubmit = fullNameIsValid && emailIsValid && passwordMeetsPolicy && !isLoading && !isSubmitting;/,
-    'signup form should gate submit on required fields, valid email, and password policy',
+    /const canSubmit = fullNameIsValid && emailIsValid && passwordMeetsPolicy;/,
+    'signup form should derive validity from required fields, valid email, and password policy',
   );
   assert.match(
     source,
-    /disabled=\{!canSubmit\}/,
+    /const submitDisabled = useDisabledUntilValid\(canSubmit, isLoading \|\| isSubmitting\);/,
+    'signup should gate the submit button through the shared disabled-until-valid helper',
+  );
+  assert.match(
+    source,
+    /disabled=\{submitDisabled\}/,
     'Create account button should stay disabled until the form is actually valid',
   );
   assert.match(
@@ -53,12 +58,17 @@ test('signup submit CTA depends on real form validity, not just loading state', 
   );
   assert.match(
     source,
-    /if \(!fullNameIsValid \|\| !emailIsValid\) return;/,
+    /if \(!fullNameIsValid \|\| !emailIsValid \|\| !password\.trim\(\)\) return;/,
     'handleSubmit should still short-circuit if a caller bypasses the disabled button state with missing required fields',
   );
   assert.match(
     source,
-    /if \(!PASSWORD_POLICY_REGEX\.test\(password\)\) \{[\s\S]*?Password must be at least 8 characters long and include an uppercase letter, a number, and a special character\./,
-    'submit-time password validation should reuse the shared policy regex and preserve the explanatory error message',
+    /<p id="signup-email-error" role="alert"/,
+    'signup should render inline email validation feedback',
+  );
+  assert.match(
+    source,
+    /<p id="signup-password-error" role="alert"/,
+    'signup should render inline password validation feedback',
   );
 });

@@ -32,6 +32,11 @@ import { motion, useScroll, useSpring, useTransform, type MotionValue } from 'mo
 import { cn } from '../lib/utils';
 import { AriesMark } from '../ui';
 import { DonorMarketingShell } from './chrome';
+import {
+  getEmailFieldError,
+  isValidEmailAddress,
+  useDisabledUntilValid,
+} from '@/lib/form-validation';
 
 const EARLY_ACCESS_STEPS = [
   ['01', ['Beta invite']],
@@ -81,7 +86,7 @@ function EarlyAccessCopy({
   );
 }
 
-function EarlyAccessForm({
+export function EarlyAccessForm({
   source,
   emailInputId,
   className,
@@ -97,6 +102,10 @@ function EarlyAccessForm({
   const [email, setEmail] = useState('');
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [message, setMessage] = useState<string | null>(null);
+  const [emailTouched, setEmailTouched] = useState(false);
+  const submittingRef = useRef(false);
+  const emailError = emailTouched ? getEmailFieldError(email, 'your email') : null;
+  const submitDisabled = useDisabledUntilValid(isValidEmailAddress(email), status === 'loading');
 
   useEffect(() => {
     if (variant !== 'hero' || status !== 'success' || !message) {
@@ -113,14 +122,20 @@ function EarlyAccessForm({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
-    const trimmedEmail = email.trim();
-    if (!trimmedEmail) {
-      setStatus('error');
-      setMessage('Enter your email to request early access.');
+    if (status === 'loading' || submittingRef.current) {
       return;
     }
 
+    const trimmedEmail = email.trim();
+    const nextError = getEmailFieldError(trimmedEmail, 'your email');
+    setEmailTouched(true);
+    if (nextError) {
+      setStatus('error');
+      setMessage(nextError);
+      return;
+    }
+
+    submittingRef.current = true;
     setStatus('loading');
     setMessage(null);
 
@@ -147,6 +162,8 @@ function EarlyAccessForm({
     } catch (error) {
       setStatus('error');
       setMessage(error instanceof Error ? error.message : 'We could not save your email right now.');
+    } finally {
+      submittingRef.current = false;
     }
   }
 
@@ -172,10 +189,13 @@ function EarlyAccessForm({
             type="email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
+            onBlur={() => setEmailTouched(true)}
             placeholder="Enter email address"
             className="w-full sm:w-[300px] md:w-[340px] rounded-full bg-white/6 px-6 py-4 text-base text-white outline-none transition placeholder:text-white/30 focus:border-primary/50 shadow-xl shadow-black/20"
             style={{ border: '1px solid #fff3' }}
             disabled={status === 'loading'}
+            aria-invalid={emailError ? true : undefined}
+            aria-describedby={emailError ? `${emailInputId}-error` : undefined}
           />
         ) : (
           <input
@@ -183,14 +203,17 @@ function EarlyAccessForm({
             type="email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
+            onBlur={() => setEmailTouched(true)}
             placeholder="you@company.com"
             className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-white outline-none transition placeholder:text-white/30 focus:border-primary/50"
             disabled={status === 'loading'}
+            aria-invalid={emailError ? true : undefined}
+            aria-describedby={emailError ? `${emailInputId}-error` : undefined}
           />
         )}
         <button
           type="submit"
-          disabled={status === 'loading'}
+          disabled={submitDisabled}
           className={cn(
             'bg-gradient-to-r from-primary to-secondary font-bold text-white shadow-lg shadow-primary/20 transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60',
             isHeroVariant
@@ -201,6 +224,15 @@ function EarlyAccessForm({
           {status === 'loading' ? 'Saving...' : buttonLabel}
         </button>
       </div>
+      {emailError ? (
+        <p
+          id={`${emailInputId}-error`}
+          role="alert"
+          className={cn('mt-4 text-sm text-red-100', isHeroVariant ? 'text-center' : '')}
+        >
+          {emailError}
+        </p>
+      ) : null}
       {message ? (
         <p
           className={cn(
