@@ -86,7 +86,7 @@ function EarlyAccessCopy({
   );
 }
 
-function EarlyAccessForm({
+export function EarlyAccessForm({
   source,
   emailInputId,
   className,
@@ -103,6 +103,7 @@ function EarlyAccessForm({
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [message, setMessage] = useState<string | null>(null);
   const [emailTouched, setEmailTouched] = useState(false);
+  const submittingRef = useRef(false);
   const emailError = emailTouched ? getEmailFieldError(email, 'your email') : null;
   const submitDisabled = useDisabledUntilValid(isValidEmailAddress(email), status === 'loading');
 
@@ -121,15 +122,20 @@ function EarlyAccessForm({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setEmailTouched(true);
-
-    const trimmedEmail = email.trim();
-    if (submitDisabled) {
-      setStatus('error');
-      setMessage(emailError);
+    if (status === 'loading' || submittingRef.current) {
       return;
     }
 
+    const trimmedEmail = email.trim();
+    const nextError = getEmailFieldError(trimmedEmail, 'your email');
+    setEmailTouched(true);
+    if (nextError) {
+      setStatus('error');
+      setMessage(nextError);
+      return;
+    }
+
+    submittingRef.current = true;
     setStatus('loading');
     setMessage(null);
 
@@ -156,6 +162,8 @@ function EarlyAccessForm({
     } catch (error) {
       setStatus('error');
       setMessage(error instanceof Error ? error.message : 'We could not save your email right now.');
+    } finally {
+      submittingRef.current = false;
     }
   }
 
