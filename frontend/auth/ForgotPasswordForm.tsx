@@ -3,6 +3,11 @@
 import React, { useState } from 'react';
 import { AuthView } from '../types';
 import { AriesMark } from '@/frontend/donor/ui';
+import {
+  getEmailFieldError,
+  isValidEmailAddress,
+  useDisabledUntilValid,
+} from '@/lib/form-validation';
 
 
 interface ForgotPasswordFormProps {
@@ -16,11 +21,18 @@ const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({ onNavigate, onS
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [emailTouched, setEmailTouched] = useState(false);
 
+  const emailError = emailTouched ? getEmailFieldError(email, 'your account email') : null;
+  const submitDisabled = useDisabledUntilValid(
+    isValidEmailAddress(email),
+    isLoading || parentLoading,
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email) return;
+    setEmailTouched(true);
+    if (submitDisabled) return;
 
 
     setIsLoading(true);
@@ -42,7 +54,7 @@ const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({ onNavigate, onS
       }
 
       onSubmit(email);
-    } catch (err: any) {
+    } catch {
       setError("An unexpected error occurred. Please try again.");
     } finally {
       setIsLoading(false);
@@ -79,15 +91,24 @@ const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({ onNavigate, onS
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label className="block text-sm font-medium text-white/80 mb-1.5">Account Email</label>
+            <label htmlFor="forgot-password-email" className="block text-sm font-medium text-white/80 mb-1.5">Account Email</label>
             <input
+              id="forgot-password-email"
               type="email"
               required
               className="block w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none transition-all"
               placeholder="name@company.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              onBlur={() => setEmailTouched(true)}
+              aria-invalid={emailError ? true : undefined}
+              aria-describedby={emailError ? 'forgot-password-email-error' : undefined}
             />
+            {emailError ? (
+              <p id="forgot-password-email-error" role="alert" className="mt-2 text-sm text-red-300">
+                {emailError}
+              </p>
+            ) : null}
           </div>
 
 
@@ -100,7 +121,7 @@ const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({ onNavigate, onS
 
           <button
             type="submit"
-            disabled={isLoading || parentLoading || !email}
+            disabled={submitDisabled}
             className="w-full py-3 px-4 bg-gradient-to-r from-primary to-secondary hover:opacity-90 text-white font-medium rounded-xl transition-all shadow-[0_0_20px_rgba(124,58,237,0.3)] hover:shadow-[0_0_30px_rgba(124,58,237,0.5)] flex items-center justify-center gap-2 disabled:opacity-60"
           >
             {isLoading || parentLoading ? 'Sending Code...' : 'Send Recovery Code'}
@@ -113,6 +134,5 @@ const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({ onNavigate, onS
 
 
 export default ForgotPasswordForm;
-
 
 
