@@ -8,7 +8,11 @@ import {
   findTenantClaimsByUserId,
   slugFromIdentity,
 } from '@/lib/auth-tenant-membership';
-import { requireOnboardingDraft, updateOnboardingDraft } from '@/backend/onboarding/draft-store';
+import {
+  claimOnboardingDraftMaterialization,
+  requireOnboardingDraft,
+  updateOnboardingDraft,
+} from '@/backend/onboarding/draft-store';
 import {
   tenantHasStoredBusinessProfileState,
   updateBusinessProfileWithDiagnostics,
@@ -17,6 +21,8 @@ import { listMarketingJobIdsForTenant } from '@/backend/marketing/runtime-state'
 import { listMarketingReviewItemsForTenant } from '@/backend/marketing/runtime-views';
 import { startMarketingJob } from '@/backend/marketing/orchestrator';
 import { ensureCampaignWorkspaceRecord } from '@/backend/marketing/workspace-store';
+
+import OnboardingResumePending from './pending';
 
 function businessSlugBase(input: { businessName: string; websiteUrl: string; email: string }): string {
   const trimmedBusinessName = input.businessName.trim();
@@ -100,46 +106,53 @@ export default async function OnboardingResumePage(
     redirect(`/dashboard/campaigns/${encodeURIComponent(draft.materializedJobId)}?welcome=1`);
   }
 
-  await updateOnboardingDraft(draftId, { status: 'materializing' });
+  const claim = await claimOnboardingDraftMaterialization(draftId);
+  if (claim.draft.status === 'materialized' && claim.draft.materializedJobId) {
+    redirect(`/dashboard/campaigns/${encodeURIComponent(claim.draft.materializedJobId)}?welcome=1`);
+  }
+
+  if (!claim.claimed) {
+    return <OnboardingResumePending />;
+  }
 
   try {
     const tenantId = await resolveTenantForDraft({
       userId: session.user.id,
       email: session.user.email,
-      businessName: draft.businessName,
-      websiteUrl: draft.websiteUrl,
+      businessName: claim.draft.businessName,
+      websiteUrl: claim.draft.websiteUrl,
     });
 
     const client = await pool.connect();
     try {
       await updateBusinessProfileWithDiagnostics(client, {
         tenantId,
-        businessName: draft.businessName,
-        websiteUrl: draft.websiteUrl,
-        businessType: draft.businessType,
-        primaryGoal: draft.goal,
-        launchApproverName: draft.approverName || null,
-        offer: draft.offer || null,
-        competitorUrl: draft.competitorUrl || null,
-        channels: draft.channels,
+        businessName: claim.draft.businessName,
+        websiteUrl: claim.draft.websiteUrl,
+        businessType: claim.draft.businessType,
+        primaryGoal: claim.draft.goal,
+        launchApproverName: claim.draft.approverName || null,
+        offer: claim.draft.offer || null,
+        competitorUrl: claim.draft.competitorUrl || null,
+        channels: claim.draft.channels,
       });
     } finally {
       client.release();
     }
 
     const payload = {
-      brandUrl: draft.websiteUrl,
-      websiteUrl: draft.websiteUrl,
-      businessName: draft.businessName,
-      businessType: draft.businessType,
-      approverName: draft.approverName,
-      launchApproverName: draft.approverName,
-      competitorUrl: draft.competitorUrl,
-      goal: draft.goal,
-      primaryGoal: draft.goal,
-      offer: draft.offer,
-      notes: draft.preview?.description || '',
-      channels: draft.channels,
+      brandUrl: claim.draft.websiteUrl,
+      websiteUrl: claim.draft.websiteUrl,
+      businessName: claim.draft.businessName,
+      businessType: claim.draft.businessType,
+      approverName: claim.draft.approverName,
+      launchApproverName: claim.draft.approverName,
+      competitorUrl: claim.draft.competitorUrl,
+      goal: claim.draft.goal,
+      primaryGoal: claim.draft.goal,
+      offer: claim.draft.offer,
+      notes: claim.draft.preview?.description || '',
+      channels: claim.draft.channels,
       mode: 'guided',
     };
 

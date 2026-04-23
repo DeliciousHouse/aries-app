@@ -379,6 +379,32 @@ export async function requireOnboardingDraft(draftId: string): Promise<Onboardin
   return draft;
 }
 
+export async function claimOnboardingDraftMaterialization(
+  draftId: string,
+): Promise<{ draft: OnboardingDraft; claimed: boolean }> {
+  const normalized = normalizeDraftId(draftId);
+
+  const result = await pool.query<DraftRow>(
+    `UPDATE onboarding_drafts
+      SET status = 'materializing', updated_at = now()
+    WHERE draft_id = $1 AND status = 'ready_for_auth'
+    RETURNING *`,
+    [normalized],
+  );
+
+  if ((result.rowCount ?? 0) > 0) {
+    return {
+      draft: rowToDraft(result.rows[0]),
+      claimed: true,
+    };
+  }
+
+  return {
+    draft: await requireOnboardingDraft(normalized),
+    claimed: false,
+  };
+}
+
 export async function updateOnboardingDraft(
   draftId: string,
   mutation: OnboardingDraftMutation,
