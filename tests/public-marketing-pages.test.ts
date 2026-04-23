@@ -101,11 +101,13 @@ test('public marketing pages return valid elements with expected route shells an
     assert.equal(isValidElement(contactElement), true);
     assert.equal(contactElement.type, MarketingLayout);
     const contactText = normalizeWhitespace(collectText(contactElement.props.children));
-    assert.match(contactText, /Contact intake is not available yet/);
+    assert.match(contactText, /support@sugarandleather\.com/);
+    assert.match(contactText, /Email support/);
     assert.match(contactText, /Start with your business/);
     const contactSource = readRepoFile('app/contact/page.tsx');
+    assert.match(contactSource, /const SUPPORT_EMAIL = 'support@sugarandleather\.com';/);
+    assert.match(contactSource, /const SUPPORT_MAILTO = `mailto:\$\{SUPPORT_EMAIL\}\?subject=Aries%20support%20request`;/);
     assert.match(contactSource, /\/onboarding\/start/);
-    assert.doesNotMatch(contactSource, /\/onboarding\/pipeline-intake/);
 
     const apiDocsElement = ApiDocsPage();
     assert.equal(isValidElement(apiDocsElement), true);

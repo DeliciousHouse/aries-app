@@ -51,7 +51,7 @@ function baseReviewItem(overrides: Partial<RuntimeReviewItem> = {}): RuntimeRevi
     campaignId: 'job_x',
     campaignName: 'Demo',
     reviewType: 'workflow_approval',
-    workflowState: 'in_review',
+    workflowState: 'strategy_review_required',
     workflowStage: 'strategy',
     title: 'Approve strategy',
     channel: 'Campaign',
@@ -60,6 +60,7 @@ function baseReviewItem(overrides: Partial<RuntimeReviewItem> = {}): RuntimeRevi
     status: 'changes_requested',
     summary: '',
     currentVersion: { id: 'approval:abc', label: '', headline: '', supportingText: '', cta: '', notes: [] },
+    lastDecision: null,
     sections: [],
     attachments: [],
     history: [],
@@ -116,7 +117,7 @@ test('M4: workflow_approval items stay as stage_review (they have no assetId)', 
 });
 
 test('M4: no lastDecision => history is untouched', () => {
-  const item = baseReviewItem({ lastDecision: undefined });
+  const item = baseReviewItem({ lastDecision: null });
   const out = syncHistoryWithLastDecision(item);
   assert.equal(out.history.length, 0);
   assert.strictEqual(out, item);
@@ -133,7 +134,7 @@ test('M4: already-recorded decision is not duplicated', () => {
         at,
         actor: 'Client reviewer',
         type: 'stage_review',
-        workflowState: 'in_review',
+        workflowState: 'strategy_review_required',
         action: 'approve',
         note: null,
         status: 'approved',
