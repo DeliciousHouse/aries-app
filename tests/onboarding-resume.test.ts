@@ -23,3 +23,10 @@ test('onboarding resume materializes the isolated tenant and workspace after aut
   assert.match(source, /\/dashboard\/campaigns\/\$\{encodeURIComponent\(result\.jobId\)\}\?welcome=1/);
   assert.doesNotMatch(source, /derivePublicMarketingTenantId/);
 });
+
+test('onboarding resume claims materialization once and falls back to a pending handoff screen for duplicate renders', () => {
+  assert.match(source, /claimOnboardingDraftMaterialization/);
+  assert.match(source, /if \(!claim\.claimed\)/);
+  assert.match(source, /OnboardingResumePending/);
+  assert.doesNotMatch(source, /updateOnboardingDraft\(draftId, \{ status: 'materializing' \}\)/);
+});
