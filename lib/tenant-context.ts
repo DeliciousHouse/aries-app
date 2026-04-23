@@ -130,7 +130,7 @@ export async function resolveTenantContextForSession(
   try {
     return await loadTenantContextForUser(queryable, userId);
   } catch (error) {
-    if (claimContext) {
+    if (claimContext && !(error instanceof TenantContextError)) {
       return claimContext;
     }
     throw error;
