@@ -119,6 +119,7 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
     setEmailTouched(true);
     setPasswordTouched(true);
     if (!fullNameIsValid || !emailIsValid || !password.trim()) return;
+    const normalizedEmail = email.trim();
 
     // Password Validation
     if (!PASSWORD_POLICY_REGEX.test(password)) {
@@ -130,7 +131,7 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
     setErrorLocal(null);
     try {
       const result = await registerUserAction({
-        email,
+        email: normalizedEmail,
         password,
         fullName,
         orgName: orgNameInput
@@ -142,7 +143,7 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
         return;
       }
 
-      const submitResult = await onSubmit(email, password);
+      const submitResult = await onSubmit(normalizedEmail, password);
       if (!submitResult.success) {
         setIsSubmitting(false);
       }
