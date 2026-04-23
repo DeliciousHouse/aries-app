@@ -21,6 +21,9 @@ const sections = [
   { id: 'security', title: 'Security', icon: ShieldCheck },
 ];
 
+export const SECTION_ANCHOR_CLASS = 'scroll-mt-32 md:scroll-mt-36';
+export const DIVIDED_SECTION_ANCHOR_CLASS = `${SECTION_ANCHOR_CLASS} pt-12 border-t border-white/5`;
+
 export default function Docs() {
   const [activeSection, setActiveSection] = useState('overview');
   const sectionRefs = useRef<{ [key: string]: HTMLElement | null }>({});
@@ -136,7 +139,7 @@ export default function Docs() {
               <section
                 id="overview"
                 ref={(el) => { sectionRefs.current['overview'] = el; }}
-                className="scroll-mt-24"
+                className={SECTION_ANCHOR_CLASS}
               >
                 <div className="flex items-center gap-4 mb-8">
                   <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center border border-white/10">
@@ -159,7 +162,7 @@ export default function Docs() {
               <section
                 id="quick-start"
                 ref={(el) => { sectionRefs.current['quick-start'] = el; }}
-                className="scroll-mt-24 pt-12 border-t border-white/5"
+                className={DIVIDED_SECTION_ANCHOR_CLASS}
               >
                 <div className="flex items-center gap-4 mb-8">
                   <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center border border-white/10">
@@ -188,7 +191,7 @@ export default function Docs() {
               <section
                 id="architecture"
                 ref={(el) => { sectionRefs.current['architecture'] = el; }}
-                className="scroll-mt-24 pt-12 border-t border-white/5"
+                className={DIVIDED_SECTION_ANCHOR_CLASS}
               >
                 <div className="flex items-center gap-4 mb-8">
                   <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center border border-white/10">
@@ -211,7 +214,7 @@ export default function Docs() {
               <section
                 id="campaigns"
                 ref={(el) => { sectionRefs.current['campaigns'] = el; }}
-                className="scroll-mt-24 pt-12 border-t border-white/5"
+                className={DIVIDED_SECTION_ANCHOR_CLASS}
               >
                 <div className="flex items-center gap-4 mb-8">
                   <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center border border-white/10">
@@ -247,7 +250,7 @@ export default function Docs() {
               <section
                 id="integrations"
                 ref={(el) => { sectionRefs.current['integrations'] = el; }}
-                className="scroll-mt-24 pt-12 border-t border-white/5"
+                className={DIVIDED_SECTION_ANCHOR_CLASS}
               >
                 <div className="flex items-center gap-4 mb-8">
                   <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center border border-white/10">
@@ -286,7 +289,7 @@ export default function Docs() {
               <section
                 id="security"
                 ref={(el) => { sectionRefs.current['security'] = el; }}
-                className="scroll-mt-24 pt-12 border-t border-white/5"
+                className={DIVIDED_SECTION_ANCHOR_CLASS}
               >
                 <div className="flex items-center gap-4 mb-8">
                   <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center border border-white/10">
@@ -325,6 +328,6 @@ export default function Docs() {
   );
 }
 
-function cn(...classes: any[]) {
+function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(' ');
 }

@@ -117,7 +117,7 @@ test('M4: workflow_approval items stay as stage_review (they have no assetId)', 
 });
 
 test('M4: no lastDecision => history is untouched', () => {
-  const item = baseReviewItem({ lastDecision: undefined });
+  const item = baseReviewItem({ lastDecision: null });
   const out = syncHistoryWithLastDecision(item);
   assert.equal(out.history.length, 0);
   assert.strictEqual(out, item);
