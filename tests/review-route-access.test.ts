@@ -71,48 +71,88 @@ function makeTenantBrandKit(tenantId: string): TenantBrandKit {
   };
 }
 
-test('review route returns a recovery-oriented error when the review exists in another workspace', async () => {
+function saveApprovalReviewJob(jobId: string, tenantId: string): string {
+  const brandKit = makeTenantBrandKit(tenantId);
+  saveTenantBrandKit(tenantId, brandKit);
+
+  const runtimeDoc = createMarketingJobRuntimeDocument({
+    jobId,
+    tenantId,
+    payload: {
+      businessName: 'Brand Example',
+      brandUrl: brandKit.source_url,
+    },
+    brandKit: {
+      path: tenantBrandKitPath(tenantId),
+      ...brandKit,
+    },
+  });
+
+  runtimeDoc.approvals.current = {
+    stage: 'strategy',
+    status: 'awaiting_approval',
+    approval_id: `${jobId}_approval`,
+    title: 'Strategy approval required',
+    message: 'Continue to strategy.',
+    requested_at: '2026-04-23T00:00:00.000Z',
+    action_label: 'Review strategy',
+  };
+
+  saveMarketingJobRuntime(runtimeDoc.job_id, runtimeDoc);
+  return `${jobId}::approval`;
+}
+
+function activeTenantContext(tenantId: string) {
+  return async () => ({
+    userId: 'user_active',
+    tenantId,
+    tenantSlug: tenantId,
+    role: 'tenant_admin' as const,
+  });
+}
+
+test('review route returns the review when it belongs to the active tenant', async () => {
   await withRuntimeEnv(async () => {
-    const tenantId = 'tenant_expected';
-    saveTenantBrandKit(tenantId, makeTenantBrandKit(tenantId));
-    const runtimeDoc = createMarketingJobRuntimeDocument({
-      jobId: 'mkt_review_wrong_workspace',
-      tenantId,
-      payload: {
-        businessName: 'Brand Example',
-        brandUrl: `https://${tenantId}.example.com`,
-      },
-      brandKit: {
-        path: tenantBrandKitPath(tenantId),
-        ...makeTenantBrandKit(tenantId),
-      },
-    });
-
-    runtimeDoc.approvals.current = {
-      stage: 'strategy',
-      status: 'awaiting_approval',
-      approval_id: 'mkta_wrong_workspace',
-      title: 'Strategy approval required',
-      message: 'Continue to strategy.',
-      requested_at: '2026-04-23T00:00:00.000Z',
-      action_label: 'Review strategy',
-    };
-
-    saveMarketingJobRuntime(runtimeDoc.job_id, runtimeDoc);
+    const reviewId = saveApprovalReviewJob('mkt_review_current_tenant', 'tenant_current');
 
     const response = await handleGetMarketingReviewItem(
-      'mkt_review_wrong_workspace%3A%3Aapproval',
-      async () => ({
-        userId: 'user_active',
-        tenantId: 'tenant_active',
-        tenantSlug: 'active',
-        role: 'tenant_admin',
-      }),
+      encodeURIComponent(reviewId),
+      activeTenantContext('tenant_current'),
+    );
+    const body = (await response.json()) as { review?: { id?: string } };
+
+    assert.equal(response.status, 200);
+    assert.equal(body.review?.id, reviewId);
+  });
+});
+
+test('review route returns a recovery-oriented error when the review exists in another workspace', async () => {
+  await withRuntimeEnv(async () => {
+    const reviewId = saveApprovalReviewJob('mkt_review_wrong_workspace', 'tenant_expected');
+
+    const response = await handleGetMarketingReviewItem(
+      encodeURIComponent(reviewId),
+      activeTenantContext('tenant_active'),
     );
     const body = (await response.json()) as Record<string, unknown>;
 
     assert.equal(response.status, 409);
     assert.equal(body.error, 'review_not_in_current_workspace');
     assert.match(String(body.message), /different workspace/i);
+  });
+});
+
+test('review route keeps unknown review ids on the 404 path even when another tenant owns unrelated runtime docs', async () => {
+  await withRuntimeEnv(async () => {
+    saveApprovalReviewJob('mkt_review_unrelated_other_tenant_job', 'tenant_expected');
+
+    const response = await handleGetMarketingReviewItem(
+      encodeURIComponent('mkt_review_unrelated_other_tenant_job::does-not-exist'),
+      activeTenantContext('tenant_active'),
+    );
+    const body = (await response.json()) as Record<string, unknown>;
+
+    assert.equal(response.status, 404);
+    assert.equal(body.error, 'review_not_found');
   });
 });
