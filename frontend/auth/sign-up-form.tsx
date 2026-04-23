@@ -5,8 +5,12 @@ import { AuthView } from '../types';
 import { registerUserAction } from '@/app/actions/auth';
 import { getInvitationByToken } from '../services/supabase';
 import { AriesMark } from '@/frontend/donor/ui';
-
-
+import {
+  getEmailFieldError,
+  getRequiredFieldError,
+  isValidEmailAddress,
+  useDisabledUntilValid,
+} from '@/lib/form-validation';
 
 interface SignUpFormProps {
   onNavigate: (view: AuthView, email?: string) => void;
@@ -19,6 +23,15 @@ interface SignUpFormProps {
 }
 
 const PASSWORD_POLICY_REGEX = /^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/;
+const PASSWORD_POLICY_MESSAGE =
+  'Password must be at least 8 characters long and include an uppercase letter, a number, and a special character.';
+
+type InvitationData = {
+  email: string;
+  organizations?: {
+    name?: string;
+  } | null;
+};
 
 const SignUpForm: React.FC<SignUpFormProps> = ({
   onNavigate,
@@ -35,8 +48,11 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
   const [orgNameInput, setOrgNameInput] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorLocal, setErrorLocal] = useState<string | null>(null);
-  const [invitationData, setInvitationData] = useState<Record<string, any> | null>(null);
+  const [invitationData, setInvitationData] = useState<InvitationData | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [fullNameTouched, setFullNameTouched] = useState(false);
+  const [emailTouched, setEmailTouched] = useState(false);
+  const [passwordTouched, setPasswordTouched] = useState(false);
 
 
   useEffect(() => {
@@ -50,13 +66,14 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
     const emailParam = params.get('email');
     if (token) {
       getInvitationByToken(token).then(data => {
-        if (data) {
-          setInvitationData(data);
-          setOrgNameInput(data.organizations?.name || '');
-          setEmail(data.email);
+        const invitation = data as InvitationData | null;
+        if (invitation) {
+          setInvitationData(invitation);
+          setOrgNameInput(invitation.organizations?.name || '');
+          setEmail(invitation.email);
 
 
-          const namePart = data.email.split('@')[0];
+          const namePart = invitation.email.split('@')[0];
           const firstName = namePart.split(/[._+-]/)[0];
           setFullName(firstName.charAt(0).toUpperCase() + firstName.slice(1));
         }
@@ -81,18 +98,31 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
 
 
   const passwordMeetsPolicy = PASSWORD_POLICY_REGEX.test(password);
-  const emailIsValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const emailIsValid = isValidEmailAddress(email);
   const fullNameIsValid = fullName.trim().length > 0;
-  const canSubmit = fullNameIsValid && emailIsValid && passwordMeetsPolicy && !isLoading && !isSubmitting;
+  const fullNameError = fullNameTouched ? getRequiredFieldError(fullName, 'your full name') : null;
+  const emailError = emailTouched ? getEmailFieldError(email) : null;
+  const passwordError = !passwordTouched
+    ? null
+    : !password.trim()
+      ? getRequiredFieldError(password, 'your password')
+      : passwordMeetsPolicy
+        ? null
+        : PASSWORD_POLICY_MESSAGE;
+  const canSubmit = fullNameIsValid && emailIsValid && passwordMeetsPolicy;
+  const submitDisabled = useDisabledUntilValid(canSubmit, isLoading || isSubmitting);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isLoading || isSubmitting) return;
-    if (!fullNameIsValid || !emailIsValid) return;
+    setFullNameTouched(true);
+    setEmailTouched(true);
+    setPasswordTouched(true);
+    if (!fullNameIsValid || !emailIsValid || !password.trim()) return;
 
     // Password Validation
     if (!PASSWORD_POLICY_REGEX.test(password)) {
-      setErrorLocal("Password must be at least 8 characters long and include an uppercase letter, a number, and a special character.");
+      setErrorLocal(null);
       return;
     }
 
@@ -116,14 +146,11 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
       if (!submitResult.success) {
         setIsSubmitting(false);
       }
-    } catch (err: any) {
-      setErrorLocal(err.message || "Signup failed.");
+    } catch (error: unknown) {
+      setErrorLocal(error instanceof Error ? error.message : "Signup failed.");
       setIsSubmitting(false);
     }
   };
-
-
-  const inputStyle = "w-full px-[16px] py-[10px] rounded-xl border border-white/20 bg-black/10 text-white placeholder-[#851028] placeholder:font-medium placeholder:text-[15px] focus:outline-none focus:border-white/40 transition-all text-[15px] shadow-inner";
 
 
   return (
@@ -135,7 +162,7 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
           <span className="text-2xl font-bold tracking-tight text-white -mt-4">Aries AI</span>
         </div>
         <h1 className="text-3xl font-bold mb-2 text-white">
-          {invitationData ? `Joining ${invitationData.organizations.name}` : "Create Account"}
+          {invitationData ? `Joining ${invitationData.organizations?.name || 'your organization'}` : "Create Account"}
         </h1>
         <p className="text-white/60">
           Plan, approve, and launch campaigns from one workspace.
@@ -165,15 +192,24 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label className="block text-sm font-medium text-white/80 mb-1.5">Full Name</label>
+            <label htmlFor="signup-full-name" className="block text-sm font-medium text-white/80 mb-1.5">Full Name</label>
             <input 
+              id="signup-full-name"
               type="text" 
               required 
               className="block w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none transition-all" 
               placeholder="John Doe" 
               value={fullName} 
-              onChange={(e) => setFullName(e.target.value)} 
+              onChange={(e) => setFullName(e.target.value)}
+              onBlur={() => setFullNameTouched(true)}
+              aria-invalid={fullNameError ? true : undefined}
+              aria-describedby={fullNameError ? 'signup-full-name-error' : undefined}
             />
+            {fullNameError ? (
+              <p id="signup-full-name-error" role="alert" className="mt-2 text-sm text-red-300">
+                {fullNameError}
+              </p>
+            ) : null}
           </div>
 
 
@@ -191,29 +227,42 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
 
 
           <div>
-            <label className="block text-sm font-medium text-white/80 mb-1.5">Email Address</label>
+            <label htmlFor="signup-email" className="block text-sm font-medium text-white/80 mb-1.5">Email Address</label>
             <input 
+              id="signup-email"
               type="email" 
               required 
               className="block w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none transition-all disabled:opacity-60" 
               placeholder="name@company.com" 
               value={email} 
-              onChange={(e) => setEmail(e.target.value)} 
+              onChange={(e) => setEmail(e.target.value)}
+              onBlur={() => setEmailTouched(true)}
               disabled={!!invitationData} 
+              aria-invalid={emailError ? true : undefined}
+              aria-describedby={emailError ? 'signup-email-error' : undefined}
             />
+            {emailError ? (
+              <p id="signup-email-error" role="alert" className="mt-2 text-sm text-red-300">
+                {emailError}
+              </p>
+            ) : null}
           </div>
 
 
           <div>
-            <label className="block text-sm font-medium text-white/80 mb-1.5">Password</label>
+            <label htmlFor="signup-password" className="block text-sm font-medium text-white/80 mb-1.5">Password</label>
             <div className="relative">
               <input 
+                id="signup-password"
                 type={showPassword ? 'text' : 'password'} 
                 required 
                 className="block w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none transition-all" 
                 placeholder="••••••••" 
                 value={password} 
-                onChange={(e) => setPassword(e.target.value)} 
+                onChange={(e) => setPassword(e.target.value)}
+                onBlur={() => setPasswordTouched(true)}
+                aria-invalid={passwordError ? true : undefined}
+                aria-describedby={passwordError ? 'signup-password-error' : undefined}
               />
               <button
                 type="button"
@@ -232,12 +281,17 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
                 )}
               </button>
             </div>
+            {passwordError ? (
+              <p id="signup-password-error" role="alert" className="mt-2 text-sm text-red-300">
+                {passwordError}
+              </p>
+            ) : null}
           </div>
 
 
           <button
             type="submit"
-            disabled={!canSubmit}
+            disabled={submitDisabled}
             className="w-full py-3 px-4 bg-gradient-to-r from-primary to-secondary hover:opacity-90 text-white font-medium rounded-xl transition-all shadow-[0_0_20px_rgba(124,58,237,0.3)] hover:shadow-[0_0_30px_rgba(124,58,237,0.5)] flex items-center justify-center gap-2 disabled:opacity-60"
           >
             {isSubmitting ? 'Creating account…' : 'Create account'}
