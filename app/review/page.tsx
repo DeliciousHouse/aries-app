@@ -3,7 +3,7 @@ import AriesReviewQueueScreen from '@/frontend/aries-v1/review-queue';
 
 export default function ReviewQueuePage() {
   return (
-    <AppShellLayout currentRouteId="review" skipOnboardingGate loginRedirectPath="/review">
+    <AppShellLayout currentRouteId="review" skipOnboardingGate>
       <AriesReviewQueueScreen />
     </AppShellLayout>
   );

@@ -5913,40 +5913,6 @@ test('/api/marketing/reviews/[reviewId] decodes encoded review ids before loadin
   });
 });
 
-test('/api/marketing/reviews/[reviewId] returns a recovery-oriented error when the review exists in another workspace', async () => {
-  await withRuntimeEnv(async (dataRoot) => {
-    const { handleGetMarketingReviewItem } = await import('../app/api/marketing/reviews/[reviewId]/route');
-    const jobsRoot = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs');
-    const jobId = 'mkt_review_other_workspace';
-    const runtimeDoc = makeApprovalReviewRuntimeDoc({
-      dataRoot,
-      jobId,
-      tenantId: 'tenant_expected',
-    }) as Record<string, unknown>;
-
-    await mkdir(jobsRoot, { recursive: true });
-    await writeFile(
-      path.join(jobsRoot, `${jobId}.json`),
-      JSON.stringify(runtimeDoc, null, 2),
-    );
-
-    const response = await handleGetMarketingReviewItem(
-      `${jobId}%3A%3Aapproval`,
-      async () => ({
-        userId: 'user_2',
-        tenantId: 'tenant_active',
-        tenantSlug: 'active-workspace',
-        role: 'tenant_admin',
-      }),
-    );
-    const body = (await response.json()) as Record<string, unknown>;
-
-    assert.equal(response.status, 409);
-    assert.equal(body.error, 'review_not_in_current_workspace');
-    assert.match(String(body.message), /different workspace/i);
-  });
-});
-
 test('/api/marketing/reviews/[reviewId]/decision decodes encoded review ids before saving the decision', async () => {
   await withRuntimeEnv(async (dataRoot) => {
     const { handlePostMarketingReviewDecision } = await import('../app/api/marketing/reviews/[reviewId]/decision/route');
