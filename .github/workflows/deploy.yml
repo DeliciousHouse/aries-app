@@ -112,9 +112,11 @@ jobs:
         env:
           TARGET_IMAGE: ${{ steps.resolve.outputs.image_ref }}
           TARGET_CHECKOUT_REF: ${{ steps.resolve.outputs.checkout_ref }}
+          WORKFLOW_GIT_TOKEN: ${{ secrets.GHCR_WORKFLOW_TOKEN || github.token }}
         run: |
           set -euo pipefail
           repo_path="${DEPLOY_PATH}"
+          origin_url="https://x-access-token:${WORKFLOW_GIT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
 
           if [[ ! -d "${repo_path}/.git" ]]; then
             echo "ERROR: DEPLOY_PATH must point at the persistent deploy checkout (missing .git): ${repo_path}" >&2
@@ -164,7 +166,9 @@ jobs:
             exit 1
           }
 
-          git -C "${repo_path}" fetch --prune --tags origin
+          git -C "${repo_path}" fetch --prune --tags "${origin_url}" \
+            '+refs/heads/*:refs/remotes/origin/*' \
+            '+refs/tags/*:refs/tags/*'
           checkout_target="$(resolve_checkout_target "${TARGET_CHECKOUT_REF}")"
 
           # Destructive hard-sync. `reset --hard` forces HEAD + index + worktree

@@ -29,6 +29,21 @@ test('deploy workflow uses a self-hosted runner on the deploy host with no SSH h
     /repo_path="\$\{DEPLOY_PATH\}"/,
     'deploy script should operate directly on the local deployment checkout path',
   );
+  assert.match(
+    workflow,
+    /WORKFLOW_GIT_TOKEN:\s*\$\{\{\s*secrets\.GHCR_WORKFLOW_TOKEN\s*\|\|\s*github\.token\s*\}\}/,
+    'deploy workflow should expose a workflow-scoped Git token for local fetches instead of depending on SSH user state',
+  );
+  assert.match(
+    workflow,
+    /origin_url="https:\/\/x-access-token:\$\{WORKFLOW_GIT_TOKEN\}@github\.com\/\$\{GITHUB_REPOSITORY\}\.git"/,
+    'deploy workflow should build an HTTPS origin URL from the workflow token for self-hosted fetches',
+  );
+  assert.match(
+    workflow,
+    /git -C "\$\{repo_path\}" fetch --prune --tags "\$\{origin_url\}"[\s\S]*?refs\/remotes\/origin\/\*/,
+    'deploy workflow should refresh origin refs through the authenticated HTTPS URL before resetting the checkout',
+  );
   assert.doesNotMatch(
     workflow,
     /Configure SSH/,
