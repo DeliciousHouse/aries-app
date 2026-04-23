@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { loadTenantContextForUser } from '../../lib/tenant-context';
+import {
+  loadTenantContextForUser,
+  resolveTenantContextForSession,
+} from '../../lib/tenant-context';
 
 test('loadTenantContextForUser returns tenant context from Postgres membership row', async () => {
   const queryable = {
@@ -68,4 +71,41 @@ test('loadTenantContextForUser throws a clear error when tenant claims are incom
     () => loadTenantContextForUser(queryable, '42'),
     /organization_id, tenant_id, tenant_slug, role/i
   );
+});
+
+test('resolveTenantContextForSession prefers the live membership row over stale session tenant claims', async () => {
+  const queryable = {
+    async query(_sql: string, params: unknown[]) {
+      assert.deepEqual(params, [42]);
+      return {
+        rowCount: 1,
+        rows: [
+          {
+            user_id: '42',
+            organization_id: '8',
+            tenant_id: '8',
+            tenant_slug: 'framex-studio',
+            role: 'tenant_admin' as const,
+          },
+        ],
+      };
+    },
+  };
+
+  const context = await resolveTenantContextForSession(queryable, {
+    user: {
+      id: '42',
+      tenantId: '7',
+      tenantSlug: 'old-workspace',
+      role: 'tenant_admin',
+    },
+    expires: '2099-01-01T00:00:00.000Z',
+  });
+
+  assert.deepEqual(context, {
+    userId: '42',
+    tenantId: '8',
+    tenantSlug: 'framex-studio',
+    role: 'tenant_admin',
+  });
 });
