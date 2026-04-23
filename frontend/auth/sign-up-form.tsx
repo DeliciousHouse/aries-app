@@ -79,9 +79,14 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
   }, [errorLocal]);
 
 
+  const passwordMeetsPolicy = /^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/.test(password);
+  const emailIsValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const fullNameIsValid = fullName.trim().length > 0;
+  const canSubmit = fullNameIsValid && emailIsValid && passwordMeetsPolicy && !isLoading && !isSubmitting;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password) return;
+    if (!fullNameIsValid || !emailIsValid || !passwordMeetsPolicy) return;
 
     // Password Validation
     const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/;
@@ -231,7 +236,7 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
 
           <button
             type="submit"
-            disabled={isLoading || isSubmitting}
+            disabled={!canSubmit}
             className="w-full py-3 px-4 bg-gradient-to-r from-primary to-secondary hover:opacity-90 text-white font-medium rounded-xl transition-all shadow-[0_0_20px_rgba(124,58,237,0.3)] hover:shadow-[0_0_30px_rgba(124,58,237,0.5)] flex items-center justify-center gap-2 disabled:opacity-60"
           >
             {isSubmitting ? 'Creating account…' : 'Create account'}
