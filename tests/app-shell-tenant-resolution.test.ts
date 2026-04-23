@@ -16,5 +16,6 @@ test('app shell resolves the current tenant from the live membership row before 
   assert.match(source, /liveTenantId = tenantContext\?\.tenantId \?\? null/);
   assert.match(source, /isTenantOnboardingComplete\(\s*client,\s*liveTenantId/);
   assert.match(source, /countPendingMarketingReviewItemsForTenant\(liveTenantId\)/);
+  assert.doesNotMatch(source, /const reviewCountClient = await pool\.connect\(\)/);
   assert.doesNotMatch(source, /countPendingMarketingReviewItemsForTenant\(String\(session\.user\.tenantId\)\)/);
 });

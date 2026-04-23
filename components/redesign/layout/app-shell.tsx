@@ -80,10 +80,10 @@ export default async function RedesignAppShell({
     redirect(buildLoginRedirect(pathname, search));
   }
 
+  let liveTenantId: string | null = session.user.tenantId ? String(session.user.tenantId) : null;
   if (!skipOnboardingGate) {
     const client = await pool.connect();
     let shouldRedirectToOnboarding = false;
-    let liveTenantId: string | null = null;
     try {
       try {
         const tenantContext = await loadTenantContextForUser(client, session.user.id);
@@ -120,18 +120,6 @@ export default async function RedesignAppShell({
 
   const currentRoute = currentRouteId ? getRouteById(currentRouteId) : null;
   let reviewCount = 0;
-  let liveTenantId: string | null = null;
-  const reviewCountClient = await pool.connect();
-  try {
-    try {
-      const tenantContext = await loadTenantContextForUser(reviewCountClient, session.user.id);
-      liveTenantId = tenantContext?.tenantId ?? null;
-    } catch {
-      liveTenantId = session.user.tenantId ? String(session.user.tenantId) : null;
-    }
-  } finally {
-    reviewCountClient.release();
-  }
 
   if (liveTenantId) {
     try {
