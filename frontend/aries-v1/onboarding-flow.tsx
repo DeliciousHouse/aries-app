@@ -473,6 +473,24 @@ function authRedirectHref(input: { draftId: string; businessName: string }): str
   return `/login?${params.toString()}`;
 }
 
+function replaceOnboardingUrlState(input: { draftId: string; step?: StepKey | null }): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const url = new URL(window.location.href);
+  url.pathname = '/onboarding/start';
+  url.searchParams.set('draft', input.draftId);
+
+  if (input.step) {
+    url.searchParams.set('step', input.step);
+  } else {
+    url.searchParams.delete('step');
+  }
+
+  window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}`);
+}
+
 export default function AriesOnboardingFlow(props: { initialAuthenticated?: boolean }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -598,7 +616,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         }
         const nextDraftId = response.draft.draftId;
         setDraftId(nextDraftId);
-        router.replace(`/onboarding/start?draft=${encodeURIComponent(nextDraftId)}`);
+        replaceOnboardingUrlState({ draftId: nextDraftId, step: currentStep.key });
       })
       .catch(() => {
         if (!cancelled) {
@@ -613,7 +631,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     return () => {
       cancelled = true;
     };
-  }, [ariesApi, draftId, router]);
+  }, [ariesApi, currentStep.key, draftId]);
 
   useEffect(() => {
     if (!draftId || loadedDraftId === draftId) {
@@ -986,7 +1004,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         const response = await ariesApi.createOnboardingDraft();
         activeDraftId = response.draft.draftId;
         setDraftId(activeDraftId);
-        router.replace(`/onboarding/start?draft=${encodeURIComponent(activeDraftId)}`);
+        replaceOnboardingUrlState({ draftId: activeDraftId, step: currentStep.key });
       } catch {
         setError('We could not create an onboarding session. Please reload and try again.');
         setSubmitting(false);
