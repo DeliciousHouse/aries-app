@@ -56,6 +56,7 @@ import MarketingNewJobScreen from '../frontend/marketing/new-job';
 import MarketingJobStatusScreen from '../frontend/marketing/job-status';
 import MarketingJobApproveScreen from '../frontend/marketing/job-approve';
 import AppShellLayout from '../frontend/app-shell/layout';
+import { buildLoginRedirect } from '../lib/auth/callback-url';
 import { resolveProjectRoot } from './helpers/project-root';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
@@ -166,6 +167,7 @@ test('/review wraps the review queue in the app shell', () => {
   assert.equal(isValidElement(element), true);
   assert.equal(element.type, AppShellLayout);
   assert.equal(element.props.currentRouteId, 'review');
+  assert.equal(element.props.loginRedirectPath, '/review');
   assert.equal(isValidElement(element.props.children), true);
   assert.equal(element.props.children.type, AriesReviewQueueScreen);
 });
@@ -180,6 +182,10 @@ test('/review/[reviewId] preserves the review id for the review detail experienc
   assert.equal(isValidElement(element), true);
   assert.equal(element.type, AppShellLayout);
   assert.equal(element.props.currentRouteId, 'review');
+  assert.equal(
+    element.props.loginRedirectPath,
+    '/review/review_meta_launch_hero',
+  );
   assert.equal(isValidElement(element.props.children), true);
   assert.equal(element.props.children.type, AriesReviewItemScreen);
   assert.equal(element.props.children.props.reviewId, 'review_meta_launch_hero');
@@ -194,6 +200,10 @@ test('/review/[reviewId] decodes encoded review ids before rendering the detail 
 
   assert.equal(isValidElement(element), true);
   assert.equal(element.props.children.props.reviewId, 'mkt_123::approval');
+  assert.equal(
+    buildLoginRedirect(element.props.loginRedirectPath),
+    '/login?callbackUrl=%2Freview%2Fmkt_123%253A%253Aapproval',
+  );
 });
 
 test('/dashboard/calendar wraps the calendar screen in the app shell', () => {
