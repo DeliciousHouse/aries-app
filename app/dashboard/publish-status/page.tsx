@@ -1,6 +1,10 @@
 import AppShellLayout from '@/frontend/app-shell/layout';
 import AriesLatestCampaignView from '@/frontend/aries-v1/latest-campaign-view';
 
+export const metadata = {
+  title: 'Publish Status · Aries AI',
+};
+
 export default function DashboardPublishStatusPage() {
   return (
     <AppShellLayout currentRouteId="publishStatus">

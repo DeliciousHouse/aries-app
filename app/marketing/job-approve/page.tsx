@@ -1,6 +1,10 @@
 import React from 'react';
 import MarketingJobApproveScreen from '../../../frontend/marketing/job-approve';
 
+export const metadata = {
+  title: 'Campaign Approval · Aries AI',
+};
+
 export default async function MarketingJobApprovePage({
   searchParams
 }: {

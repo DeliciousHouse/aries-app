@@ -1,5 +1,9 @@
 import MarketingLayout from '@/frontend/marketing/MarketingLayout';
 
+export const metadata = {
+  title: 'Sitemap · Aries AI',
+};
+
 const ROUTE_GROUPS: Array<{ title: string; routes: Array<{ href: string; label: string }> }> = [
   {
     title: 'Public',

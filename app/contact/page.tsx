@@ -6,6 +6,9 @@ export const metadata = {
   title: 'Contact — Aries AI',
 };
 
+const SUPPORT_EMAIL = 'support@sugarandleather.com';
+const SUPPORT_MAILTO = `mailto:${SUPPORT_EMAIL}?subject=Aries%20support%20request`;
+
 export default function ContactPage() {
   return (
     <MarketingLayout>
@@ -19,19 +22,29 @@ export default function ContactPage() {
               Get in touch with the <span className="text-gradient">Aries team</span>
             </h1>
             <p className="text-xl text-white/60 mb-8">
-              Contact intake is not available yet. In the meantime, the best way to get started is to set up your business directly in the app.
+              Reach the team directly at{' '}
+              <a href={SUPPORT_MAILTO} className="underline decoration-primary/60 underline-offset-4 hover:text-white">
+                {SUPPORT_EMAIL}
+              </a>
+              . Include your business name, goal, and the best reply address so we can route your request quickly.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4">
+              <a
+                href={SUPPORT_MAILTO}
+                className="px-8 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 text-center"
+              >
+                Email support
+              </a>
               <Link
                 href="/onboarding/start"
-                className="px-8 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20"
+                className="px-8 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all text-center"
               >
                 Start with your business
               </Link>
               <Link
                 href="/login"
-                className="px-8 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all"
+                className="px-8 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all text-center"
               >
                 Sign in
               </Link>
