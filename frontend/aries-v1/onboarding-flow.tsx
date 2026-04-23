@@ -142,6 +142,16 @@ const GOAL_OPTIONS: GoalOption[] = [
   },
 ];
 
+function stepIndexFromStepParam(stepParam: string | null | undefined): number {
+  const normalized = stepParam?.trim() || '';
+  if (!normalized) {
+    return 0;
+  }
+
+  const index = STEP_DEFINITIONS.findIndex((step) => step.key === normalized);
+  return index >= 0 ? index : 0;
+}
+
 function goalFromBusinessProfile(primaryGoal: string | null | undefined): string {
   const normalized = primaryGoal?.trim().toLowerCase() || '';
   if (!normalized) {
@@ -473,14 +483,22 @@ function authRedirectHref(input: { draftId: string; businessName: string }): str
   return `/login?${params.toString()}`;
 }
 
-function replaceOnboardingUrlState(input: { draftId: string; step?: StepKey | null }): void {
+function writeOnboardingUrlState(input: {
+  draftId?: string | null;
+  step?: StepKey | null;
+  historyMode?: 'push' | 'replace';
+}): void {
   if (typeof window === 'undefined') {
     return;
   }
 
   const url = new URL(window.location.href);
   url.pathname = '/onboarding/start';
-  url.searchParams.set('draft', input.draftId);
+  if (input.draftId) {
+    url.searchParams.set('draft', input.draftId);
+  } else {
+    url.searchParams.delete('draft');
+  }
 
   if (input.step) {
     url.searchParams.set('step', input.step);
@@ -488,7 +506,13 @@ function replaceOnboardingUrlState(input: { draftId: string; step?: StepKey | nu
     url.searchParams.delete('step');
   }
 
-  window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}`);
+  const nextUrl = `${url.pathname}${url.search}`;
+  if (input.historyMode === 'push') {
+    window.history.pushState(window.history.state, '', nextUrl);
+    return;
+  }
+
+  window.history.replaceState(window.history.state, '', nextUrl);
 }
 
 export default function AriesOnboardingFlow(props: { initialAuthenticated?: boolean }) {
@@ -496,12 +520,13 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   const searchParams = useSearchParams();
   const ariesApi = useMemo(() => createAriesV1Api(), []);
   const draftParam = searchParams.get('draft')?.trim() || '';
+  const stepParam = searchParams.get('step');
   const {
     load: loadBusinessProfile,
     profile: businessProfileState,
   } = useBusinessProfile({ autoLoad: false });
 
-  const [stepIndex, setStepIndex] = useState(0);
+  const [stepIndex, setStepIndex] = useState(() => stepIndexFromStepParam(stepParam));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -597,6 +622,22 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   }, [draftParam]);
 
   useEffect(() => {
+    setStepIndex(stepIndexFromStepParam(stepParam));
+  }, [stepParam]);
+
+  useEffect(() => {
+    const syncFromBrowserHistory = () => {
+      const nextStep = new URL(window.location.href).searchParams.get('step');
+      setStepIndex(stepIndexFromStepParam(nextStep));
+    };
+
+    window.addEventListener('popstate', syncFromBrowserHistory);
+    return () => {
+      window.removeEventListener('popstate', syncFromBrowserHistory);
+    };
+  }, []);
+
+  useEffect(() => {
     // Guard duplicate fires with a ref, NOT the `creatingDraft` state — if we
     // depend on that state here we re-run the effect the moment we flip it,
     // which cancels the in-flight promise's callbacks and strands
@@ -616,7 +657,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         }
         const nextDraftId = response.draft.draftId;
         setDraftId(nextDraftId);
-        replaceOnboardingUrlState({ draftId: nextDraftId, step: currentStep.key });
+        writeOnboardingUrlState({ draftId: nextDraftId, step: currentStep.key, historyMode: 'replace' });
       })
       .catch(() => {
         if (!cancelled) {
@@ -985,8 +1026,15 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
       setError(stepValidationMessage(currentStep.key, { businessName, businessType }) ?? 'Complete the current step before continuing.');
       return;
     }
+    const nextStepIndex = Math.min(stepIndex + 1, STEP_DEFINITIONS.length - 1);
+    const nextStep = STEP_DEFINITIONS[nextStepIndex];
     setError(null);
-    setStepIndex((index) => Math.min(index + 1, STEP_DEFINITIONS.length - 1));
+    setStepIndex(nextStepIndex);
+    writeOnboardingUrlState({
+      draftId,
+      step: nextStep?.key ?? currentStep.key,
+      historyMode: 'push',
+    });
   }
 
   async function handleFinish() {
@@ -1004,7 +1052,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         const response = await ariesApi.createOnboardingDraft();
         activeDraftId = response.draft.draftId;
         setDraftId(activeDraftId);
-        replaceOnboardingUrlState({ draftId: activeDraftId, step: currentStep.key });
+        writeOnboardingUrlState({ draftId: activeDraftId, step: currentStep.key, historyMode: 'replace' });
       } catch {
         setError('We could not create an onboarding session. Please reload and try again.');
         setSubmitting(false);
@@ -1773,8 +1821,15 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
               <button
                 type="button"
                 onClick={() => {
+                  const nextStepIndex = Math.max(stepIndex - 1, 0);
+                  const nextStep = STEP_DEFINITIONS[nextStepIndex];
                   setError(null);
-                  setStepIndex((index) => Math.max(index - 1, 0));
+                  setStepIndex(nextStepIndex);
+                  writeOnboardingUrlState({
+                    draftId,
+                    step: nextStep?.key ?? STEP_DEFINITIONS[0]?.key ?? null,
+                    historyMode: 'push',
+                  });
                 }}
                 disabled={stepIndex === 0 || submitting}
                 className="inline-flex items-center gap-2 rounded-full border border-[#fff] bg-white/[0.03] px-4 py-2.5 text-sm font-medium text-[#fff] transition disabled:cursor-not-allowed disabled:opacity-40 hover:border-[#fff] hover:text-[#fff]"
