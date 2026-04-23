@@ -1,11 +1,10 @@
 services:
   aries-app:
-    # The aries-app service runs the baked production image (`npm run start`).
-    # Do NOT bind-mount the source tree onto /app here — it would shadow the
-    # image's built `.next`, production `node_modules`, and compiled output
-    # and break the runtime. For a live-reload dev loop, use `aries-app-dev`
-    # (the dev profile below) which runs `npm run dev` against the mounted
-    # source at /app.
+    # This block is a local-only override for the main aries-app service.
+    # It does NOT create a second instance; Compose merges these fields into
+    # the base aries-app definition from docker-compose.yml. Keep local URL
+    # defaults here, while the production port publish stays in the base file
+    # so deploys work even when only docker-compose.yml is used.
     environment:
       PORT: ${PORT:-3000}
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
@@ -13,10 +12,6 @@ services:
       AUTH_URL: ${AUTH_URL:-http://localhost:3000}
       OPENCLAW_GATEWAY_URL: ${OPENCLAW_GATEWAY_URL:-http://host.docker.internal:3456}
       OPENCLAW_SESSION_KEY: ${OPENCLAW_SESSION_KEY:-main}
-    ports:
-      - "${PORT:-3000}:${PORT:-3000}"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 
   aries-app-dev:
     profiles: ["dev"]

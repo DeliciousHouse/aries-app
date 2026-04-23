@@ -203,7 +203,7 @@ cp .env.example .env
 docker network create docker-stack || true
 ```
 
-3. Start the app with the local overrides file so port `3000` is published and `host.docker.internal` is available for host-based OpenClaw access:
+3. Start the app with the local overrides file so localhost-oriented URL defaults and `host.docker.internal` are applied for host-based OpenClaw access. The base compose file now owns the production port publish, so this override does not create a second app instance:
 
 ```bash
 docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml up --build -d aries-app
@@ -227,7 +227,8 @@ docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml
 ### Docker-specific notes
 
 - The app container stores generated runtime artifacts under `/data`, which is a bind mount from `${ARIES_SHARED_DATA_ROOT:-/home/node/data}` on the host. Using a bind mount (not a Docker-managed named volume) is intentional: it lets host-side OpenClaw/Lobster and the Aries container read and write the same files at the same absolute paths.
-- `docker-compose.local.yml` defaults `OPENCLAW_GATEWAY_URL` to `http://host.docker.internal:3456` so the container can talk to an OpenClaw process running on the host.
+- `docker-compose.yml` now publishes `${PORT:-3000}` for the main `aries-app` service because both deploys and local production-style runs depend on that host port existing.
+- `docker-compose.local.yml` only layers in localhost-friendly URL defaults plus `OPENCLAW_GATEWAY_URL=http://host.docker.internal:3456`; it merges into the same `aries-app` service rather than creating a second production container.
 - The Compose setup expects an external PostgreSQL instance; it does not include a Postgres service.
 - For production-style Compose runs, `NODE_ENV` is set to `production` and the container starts with `npm run start`.
 

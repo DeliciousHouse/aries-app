@@ -65,6 +65,8 @@ services:
       # the bind mount below so asset-ingest can remap host paths.
       ARIES_LOBSTER_HOST_OUTPUT_DIR: ${ARIES_LOBSTER_HOST_OUTPUT_DIR:-/home/node/openclaw/aries-app/lobster/output}
       ARIES_LOBSTER_HOST_OUTPUT_MOUNT: ${ARIES_LOBSTER_HOST_OUTPUT_MOUNT:-/host-lobster-output}
+    ports:
+      - "${PORT:-3000}:${PORT:-3000}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
