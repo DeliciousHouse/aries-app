@@ -593,6 +593,8 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
 
   const profile = businessProfileState.data?.profile ?? null;
   const currentStep = STEP_DEFINITIONS[stepIndex];
+  const currentStepKeyRef = useRef<StepKey>(currentStep.key);
+  currentStepKeyRef.current = currentStep.key;
   const preview = urlPreview?.brandKitPreview ?? null;
   const previewBrandName =
     firstPresent(
@@ -657,7 +659,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         }
         const nextDraftId = response.draft.draftId;
         setDraftId(nextDraftId);
-        writeOnboardingUrlState({ draftId: nextDraftId, step: currentStep.key, historyMode: 'replace' });
+        writeOnboardingUrlState({ draftId: nextDraftId, step: currentStepKeyRef.current, historyMode: 'replace' });
       })
       .catch(() => {
         if (!cancelled) {
@@ -672,7 +674,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     return () => {
       cancelled = true;
     };
-  }, [ariesApi, currentStep.key, draftId]);
+  }, [ariesApi, draftId]);
 
   useEffect(() => {
     if (!draftId || loadedDraftId === draftId) {
@@ -1052,7 +1054,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         const response = await ariesApi.createOnboardingDraft();
         activeDraftId = response.draft.draftId;
         setDraftId(activeDraftId);
-        writeOnboardingUrlState({ draftId: activeDraftId, step: currentStep.key, historyMode: 'replace' });
+        writeOnboardingUrlState({ draftId: activeDraftId, step: currentStepKeyRef.current, historyMode: 'replace' });
       } catch {
         setError('We could not create an onboarding session. Please reload and try again.');
         setSubmitting(false);

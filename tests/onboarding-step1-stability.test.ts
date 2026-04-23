@@ -14,6 +14,8 @@ const source = readFileSync(
 test('authenticated onboarding drafts update the URL without a router navigation that resets Step 1 state', () => {
   assert.match(source, /window\.history\.replaceState/);
   assert.match(source, /writeOnboardingUrlState/);
+  assert.match(source, /currentStepKeyRef/);
+  assert.match(source, /currentStepKeyRef\.current/);
   assert.doesNotMatch(source, /router\.replace\(`\/onboarding\/start\?draft=\$\{encodeURIComponent\(nextDraftId\)\}`\)/);
   assert.doesNotMatch(source, /router\.replace\(`\/onboarding\/start\?draft=\$\{encodeURIComponent\(activeDraftId\)\}`\)/);
 });
