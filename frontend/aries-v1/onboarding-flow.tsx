@@ -23,6 +23,10 @@ import {
 
 import { useBusinessProfile } from '@/hooks/use-business-profile';
 import { createAriesV1Api, type UrlPreviewBrandKitPreview, type UrlPreviewResponse } from '@/lib/api/aries-v1';
+import {
+  getRequiredFieldError,
+  useDisabledUntilValid,
+} from '@/lib/form-validation';
 import { validateCanonicalCompetitorUrl } from '@/lib/marketing-competitor';
 import { VISUAL_BOARD_EMPTY_STATE_COPY } from './onboarding-flow.copy';
 
@@ -269,6 +273,7 @@ function stepReady(stepKey: StepKey, values: {
   selectedChannels: string[];
   goal: string;
   customGoal: string;
+  offer: string;
 }): boolean {
   if (stepKey === 'business') {
     return values.businessName.trim().length > 0 && values.businessType.trim().length > 0;
@@ -281,9 +286,9 @@ function stepReady(stepKey: StepKey, values: {
   }
   if (stepKey === 'goal') {
     if (values.goal === 'Other') {
-      return values.customGoal.trim().length > 0;
+      return values.customGoal.trim().length > 0 && values.offer.trim().length > 0;
     }
-    return values.goal.trim().length > 0;
+    return values.goal.trim().length > 0 && values.offer.trim().length > 0;
   }
   return true;
 }
@@ -291,6 +296,8 @@ function stepReady(stepKey: StepKey, values: {
 function stepValidationMessage(stepKey: StepKey, values?: {
   businessName: string;
   businessType: string;
+  goal: string;
+  offer: string;
 }): string | null {
   if (stepKey === 'business') {
     if (values) {
@@ -314,7 +321,13 @@ function stepValidationMessage(stepKey: StepKey, values?: {
     return 'Select at least one channel before continuing.';
   }
   if (stepKey === 'goal') {
-    return 'Choose a business outcome before continuing.';
+    if (!values?.goal.trim()) {
+      return 'Choose a business outcome before continuing.';
+    }
+    if (!values.offer.trim()) {
+      return 'Describe what your business offers before continuing.';
+    }
+    return null;
   }
   return 'Complete the current step before continuing.';
 }
@@ -452,6 +465,7 @@ function offerPlaceholderForBusinessType(businessType: string): string {
 type TouchedFields = {
   businessName: boolean;
   businessType: boolean;
+  goal: boolean;
   approverName: boolean;
   websiteUrl: boolean;
   offer: boolean;
@@ -516,6 +530,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   const [touched, setTouched] = useState<TouchedFields>({
     businessName: false,
     businessType: false,
+    goal: false,
     approverName: false,
     websiteUrl: false,
     offer: false,
@@ -569,8 +584,20 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
       selectedChannels,
       goal,
       customGoal,
+      offer,
     }),
   );
+  const currentStepIsReady = stepReady(currentStep.key, {
+    businessName,
+    businessType,
+    websiteUrl,
+    selectedChannels,
+    goal,
+    customGoal,
+    offer,
+  });
+  const continueDisabled = useDisabledUntilValid(currentStepIsReady, submitting || creatingDraft);
+  const finishDisabled = useDisabledUntilValid(canFinish, submitting || creatingDraft);
   const fieldInputClassName =
     'w-full rounded-[1rem] border border-white/12 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] px-4 py-3 text-white outline-none transition duration-200 placeholder:text-white/24 focus:border-[#b36cff] focus:shadow-[0_0_0_1px_rgba(179,108,255,0.24),0_0_24px_rgba(179,108,255,0.14)]';
 
@@ -963,8 +990,25 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   }
 
   function handleContinue() {
-    if (!stepReady(currentStep.key, { businessName, businessType, websiteUrl, selectedChannels, goal, customGoal })) {
-      setError(stepValidationMessage(currentStep.key, { businessName, businessType }) ?? 'Complete the current step before continuing.');
+    if (!currentStepIsReady) {
+      if (currentStep.key === 'business') {
+        markTouched('businessName');
+        markTouched('businessType');
+      }
+      if (currentStep.key === 'website' || currentStep.key === 'brand') {
+        markTouched('websiteUrl');
+      }
+      if (currentStep.key === 'goal') {
+        markTouched('goal');
+        markTouched('offer');
+        if (goal === 'Other') {
+          markTouched('customGoal');
+        }
+      }
+      setError(
+        stepValidationMessage(currentStep.key, { businessName, businessType, goal, offer }) ??
+          'Complete the current step before continuing.',
+      );
       return;
     }
     setError(null);
@@ -973,7 +1017,10 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
 
   async function handleFinish() {
     if (!canFinish) {
-      setError(stepValidationMessage(currentStep.key, { businessName, businessType }) ?? 'Complete the current step before continuing.');
+      setError(
+        stepValidationMessage(currentStep.key, { businessName, businessType, goal, offer }) ??
+          'Complete the current step before continuing.',
+      );
       return;
     }
 
@@ -1085,7 +1132,15 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
       : isValidHttpsUrl(competitorUrl)
         ? 'valid'
         : 'invalid';
-  const offerValidity: FieldValidity = touched.offer && offer.trim().length > 0 ? 'valid' : 'untouched';
+  const goalError = touched.goal && !goal.trim()
+    ? 'Choose a business outcome before continuing.'
+    : null;
+  const offerError = touched.offer ? getRequiredFieldError(offer, 'what your business offers') : null;
+  const offerValidity: FieldValidity = !touched.offer
+    ? 'untouched'
+    : offer.trim().length > 0
+      ? 'valid'
+      : 'invalid';
   const customGoalValidity: FieldValidity = !touched.customGoal
     ? 'untouched'
     : customGoal.trim().length > 0
@@ -1109,6 +1164,8 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         return businessName.trim() ? null : 'Add a business name.';
       case 'businessType':
         return businessType.trim() ? null : 'Describe the business in plain language.';
+      case 'goal':
+        return goal.trim() ? null : 'Choose a business outcome before continuing.';
       case 'websiteUrl': {
         if (!websiteUrl.trim()) return 'Enter a website so Aries can analyze it.';
         return isValidHttpsUrl(websiteUrl) ? null : 'Enter a valid HTTPS URL (e.g. https://yourbusiness.com).';
@@ -1120,6 +1177,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
       case 'customGoal':
         return customGoal.trim() ? null : 'Describe the business outcome you want.';
       case 'offer':
+        return getRequiredFieldError(offer, 'what your business offers');
       case 'approverName':
       default:
         return null;
@@ -1632,7 +1690,13 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                 <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
                   <div className="space-y-4">
                     <p className="text-sm leading-7 text-white/65">What should Aries help your business achieve first?</p>
-                    <div className="grid gap-3" role="radiogroup" aria-label="Campaign goal">
+                    <div
+                      className="grid gap-3"
+                      role="radiogroup"
+                      aria-label="Campaign goal"
+                      aria-invalid={goalError ? true : undefined}
+                      aria-describedby={goalError ? 'onboarding-goal-error' : undefined}
+                    >
                       {GOAL_OPTIONS.map((option) => {
                         const active = goal === option.label;
                         return (
@@ -1644,6 +1708,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                             tabIndex={0}
                             onClick={() => {
                               setGoal(option.label);
+                              markTouched('goal');
                               if (option.label !== 'Other') {
                                 setCustomGoal('');
                               }
@@ -1652,6 +1717,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                               if (event.key === 'Enter' || event.key === ' ') {
                                 event.preventDefault();
                                 setGoal(option.label);
+                                markTouched('goal');
                                 if (option.label !== 'Other') {
                                   setCustomGoal('');
                                 }
@@ -1680,11 +1746,18 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                             autoFocus
                           />
                           {fieldErrorMessage('customGoal') ? (
-                            <p className="text-xs text-red-400">{fieldErrorMessage('customGoal')}</p>
+                            <p id="onboarding-custom-goal-error" role="alert" className="text-xs text-red-400">
+                              {fieldErrorMessage('customGoal')}
+                            </p>
                           ) : null}
                         </div>
                       ) : null}
                     </div>
+                    {goalError ? (
+                      <p id="onboarding-goal-error" role="alert" className="text-sm text-red-300">
+                        {goalError}
+                      </p>
+                    ) : null}
                   </div>
 
                   <div className="grid gap-5">
@@ -1723,7 +1796,14 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                             : 'border-[#a96cff]/30',
                         )}
                         placeholder={offerPlaceholderForBusinessType(businessType)}
+                        aria-invalid={offerError ? true : undefined}
+                        aria-describedby={offerError ? 'onboarding-offer-error' : undefined}
                       />
+                      {offerError ? (
+                        <p id="onboarding-offer-error" role="alert" className="text-sm text-red-300">
+                          {offerError}
+                        </p>
+                      ) : null}
                     </div>
 
                     <Field
@@ -1771,7 +1851,8 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                   <button
                     type="button"
                     onClick={handleContinue}
-                    className="inline-flex items-center gap-2 rounded-full border border-[#a96cff]/40 bg-[linear-gradient(90deg,#5c2e96,#7a41c2,#a96cff)] px-6 py-3 text-sm font-semibold text-white shadow-[0_0_24px_rgba(169,108,255,0.2)] transition hover:translate-y-[-1px]"
+                    disabled={continueDisabled}
+                    className="inline-flex items-center gap-2 rounded-full border border-[#a96cff]/40 bg-[linear-gradient(90deg,#5c2e96,#7a41c2,#a96cff)] px-6 py-3 text-sm font-semibold text-white shadow-[0_0_24px_rgba(169,108,255,0.2)] transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Continue
                     <ArrowRight className="h-4 w-4" />
@@ -1780,7 +1861,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                   <button
                     type="button"
                     onClick={() => void handleFinish()}
-                    disabled={submitting || !canFinish || creatingDraft}
+                    disabled={finishDisabled}
                     className="inline-flex items-center gap-2 rounded-full border border-[#a96cff]/40 bg-[linear-gradient(90deg,#5c2e96,#7a41c2,#a96cff)] px-6 py-3 text-sm font-semibold text-white shadow-[0_0_24px_rgba(169,108,255,0.2)] transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {submitting
@@ -1833,7 +1914,7 @@ function Field(props: {
       </span>
       {props.children}
       {props.error ? (
-        <p className="text-xs text-red-400">{props.error}</p>
+        <p role="alert" className="text-xs text-red-400">{props.error}</p>
       ) : props.hint ? (
         <p className="text-sm leading-7 text-white/46">{props.hint}</p>
       ) : null}
