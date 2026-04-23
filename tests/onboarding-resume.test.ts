@@ -12,7 +12,7 @@ const source = readFileSync(
 );
 
 test('onboarding resume materializes the isolated tenant and workspace after auth', () => {
-  assert.match(source, /requireOnboardingDraft/);
+  assert.doesNotMatch(source, /const draft = await requireOnboardingDraft/);
   assert.match(source, /createOrganizationWithUniqueSlug/);
   assert.match(source, /assignUserToOrganization/);
   assert.match(source, /tenantIsReusable/);
@@ -29,4 +29,5 @@ test('onboarding resume claims materialization once and falls back to a pending 
   assert.match(source, /if \(!claim\.claimed\)/);
   assert.match(source, /OnboardingResumePending/);
   assert.doesNotMatch(source, /updateOnboardingDraft\(draftId, \{ status: 'materializing' \}\)/);
+  assert.doesNotMatch(source, /const draft = await requireOnboardingDraft/);
 });

@@ -10,7 +10,6 @@ import {
 } from '@/lib/auth-tenant-membership';
 import {
   claimOnboardingDraftMaterialization,
-  requireOnboardingDraft,
   updateOnboardingDraft,
 } from '@/backend/onboarding/draft-store';
 import {
@@ -99,11 +98,6 @@ export default async function OnboardingResumePage(
 
   if (!session?.user?.id || !session.user.email) {
     redirect(`/login?callbackUrl=${encodeURIComponent(`/onboarding/resume?draft=${encodeURIComponent(draftId)}`)}`);
-  }
-
-  const draft = await requireOnboardingDraft(draftId);
-  if (draft.status === 'materialized' && draft.materializedJobId) {
-    redirect(`/dashboard/campaigns/${encodeURIComponent(draft.materializedJobId)}?welcome=1`);
   }
 
   const claim = await claimOnboardingDraftMaterialization(draftId);
