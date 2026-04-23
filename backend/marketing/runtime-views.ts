@@ -1556,13 +1556,14 @@ export async function lookupMarketingReviewItemForTenant(
   if (!runtimeDoc) {
     return { status: 'missing' };
   }
-  if (runtimeDoc.tenant_id !== tenantId) {
-    return { status: 'wrong_workspace' };
-  }
 
   const review = resolveRuntimeReviewItem(jobId, reviewId);
   if (!review) {
     return { status: 'missing' };
+  }
+
+  if (runtimeDoc.tenant_id !== tenantId) {
+    return { status: 'wrong_workspace' };
   }
 
   return { status: 'ok', review };
