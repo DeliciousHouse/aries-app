@@ -27,6 +27,12 @@ export interface MarketingNewJobScreenProps {
   redirectMode?: 'status' | 'dashboard';
 }
 
+export interface MarketingNewJobScreenContentProps extends MarketingNewJobScreenProps {
+  router: {
+    push: (href: string) => void;
+  };
+}
+
 const SUBMIT_PROGRESS_MESSAGES = [
   'Saving brief',
   'Uploading brand assets',
@@ -37,8 +43,7 @@ const SUBMIT_PROGRESS_MESSAGES = [
 
 const FINAL_SUBMIT_PROGRESS_INDEX = SUBMIT_PROGRESS_MESSAGES.length - 1;
 
-export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
-  const router = useRouter();
+export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContentProps) {
   const marketingCreate = useMarketingJobCreate(props.clientOptions);
 
   const [websiteUrl, setWebsiteUrl] = useState('');
@@ -390,6 +395,12 @@ export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
       </div>
     </div>
   );
+}
+
+export function MarketingNewJobScreen(props: MarketingNewJobScreenProps) {
+  const router = useRouter();
+
+  return <MarketingNewJobScreenContent {...props} router={router} />;
 }
 
 function Field(props: { label: string; required?: boolean; children: React.ReactNode }) {
