@@ -17,6 +17,7 @@ export interface RedesignAppShellProps {
   title?: string;
   subtitle?: string;
   actions?: ReactNode;
+  loginRedirectPath?: string;
   /**
    * When true, the shell skips the onboarding redirect. Use for surfaces that
    * must stay reachable for users who have not finished onboarding (for
@@ -47,6 +48,7 @@ export default async function RedesignAppShell({
   title,
   subtitle,
   actions,
+  loginRedirectPath,
   skipOnboardingGate = false,
 }: RedesignAppShellProps): Promise<JSX.Element> {
   const session = await auth();
@@ -55,7 +57,11 @@ export default async function RedesignAppShell({
     // the user to where they were trying to go (ISSUE-W2-L4).
     const h = await headers();
     const rawPath =
-      h.get('x-invoke-path') ?? h.get('x-pathname') ?? h.get('next-url') ?? null;
+      loginRedirectPath
+      ?? h.get('x-invoke-path')
+      ?? h.get('x-pathname')
+      ?? h.get('next-url')
+      ?? null;
     let pathname: string | null = rawPath;
     let search: string | null = null;
     if (!pathname) {
