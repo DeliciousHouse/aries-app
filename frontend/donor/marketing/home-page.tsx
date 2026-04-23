@@ -1858,7 +1858,7 @@ export default function DonorHomePage() {
                   >
                     <span className="relative z-10 block w-full text-center">{step}</span>
                   </span>
-                  {index < 4 ? <div aria-hidden="true" className="hidden h-px w-full bg-white/20 lg:block" /> : null}
+                  {index < 4 ? <div aria-hidden="true" role="presentation" className="hidden h-px w-full bg-white/20 lg:block" /> : null}
                 </Fragment>
               ))}
             </div>

@@ -18,7 +18,7 @@ on:
         required: true
         type: string
       git_ref:
-        description: Optional git ref to check out on the VM
+        description: Optional git ref to check out on the deploy host
         required: false
         type: string
 
@@ -40,7 +40,7 @@ env:
 
 jobs:
   deploy:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - name: Validate branch wiring
         env:
@@ -101,64 +101,41 @@ jobs:
           echo "checkout_ref=${checkout_ref}" >> "${GITHUB_OUTPUT}"
           echo "image_ref=${image_ref}" >> "${GITHUB_OUTPUT}"
 
-      - name: Configure SSH
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
-          DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          deploy_port="${DEPLOY_PORT:-22}"
-          if [[ -z "${DEPLOY_HOST}" || -z "${DEPLOY_SSH_PRIVATE_KEY}" ]]; then
-            echo "ERROR: DEPLOY_HOST and DEPLOY_SSH_PRIVATE_KEY secrets are required." >&2
-            exit 1
-          fi
-          install -m 700 -d "${HOME}/.ssh"
-          printf '%s\n' "${DEPLOY_SSH_PRIVATE_KEY}" > "${HOME}/.ssh/id_ed25519"
-          chmod 600 "${HOME}/.ssh/id_ed25519"
-          ssh-keyscan -p "${deploy_port}" "${DEPLOY_HOST}" >> "${HOME}/.ssh/known_hosts"
-          chmod 600 "${HOME}/.ssh/known_hosts"
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_WORKFLOW_TOKEN || github.token }}
 
-      - name: Deploy to VM
+      - name: Deploy on host
         env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           TARGET_IMAGE: ${{ steps.resolve.outputs.image_ref }}
           TARGET_CHECKOUT_REF: ${{ steps.resolve.outputs.checkout_ref }}
         run: |
           set -euo pipefail
-          deploy_port="${DEPLOY_PORT:-22}"
-          if [[ -z "${DEPLOY_USER}" ]]; then
-            echo "ERROR: DEPLOY_USER secret is required." >&2
+          repo_path="${DEPLOY_PATH}"
+
+          if [[ ! -d "${repo_path}/.git" ]]; then
+            echo "ERROR: DEPLOY_PATH must point at the persistent deploy checkout (missing .git): ${repo_path}" >&2
             exit 1
           fi
 
-          ssh -p "${deploy_port}" "${DEPLOY_USER}@${DEPLOY_HOST}" \
-            TARGET_IMAGE="${TARGET_IMAGE}" \
-            TARGET_CHECKOUT_REF="${TARGET_CHECKOUT_REF}" \
-            REPO_PATH="${DEPLOY_PATH}" \
-            SERVICE_NAME="${SERVICE_NAME}" \
-            'bash -s' <<'EOF'
-          set -euo pipefail
-
-          repo_path="${REPO_PATH}"
-
-          # Deploy contract: the VM repo checkout is a build artifact, NOT an
-          # authoring surface. Every deploy hard-syncs the working tree to the
-          # target ref. Any tracked file edited in place on the VM will be
+          # Deploy contract: the deploy-host repo checkout is a build artifact,
+          # NOT an authoring surface. Every deploy hard-syncs the working tree
+          # to the target ref. Any tracked file edited in place on the host will be
           # destroyed; commit changes upstream instead. Any untracked state that
           # must survive (e.g. .deploy-backups/, data/generated/, node_modules/)
           # must be gitignored — `git clean -fd` without -x leaves ignored
           # files alone.
           #
           # Historically this step used a stash / preserve-untracked / pop
-          # dance that tried to merge VM-local state back on top of the
+          # dance that tried to merge host-local state back on top of the
           # checkout. That dance failed whenever cron-written files (the ones
           # now gitignored) collided with origin, leaving orphaned stashes and
           # a wedged working tree that blocked every subsequent deploy. The
           # simpler hard-sync flow below is deliberately destructive and
-          # idempotent so a dirty VM never jams future deploys.
+          # idempotent so a dirty deploy host never jams future deploys.
 
           resolve_checkout_target() {
             local requested="$1"
@@ -217,4 +194,3 @@ jobs:
             echo "ERROR: Aries app health check failed after deploy." >&2
             exit 1
           fi
-          EOF

@@ -18,6 +18,7 @@ interface SignUpFormProps {
   defaultEmail?: string;
 }
 
+const PASSWORD_POLICY_REGEX = /^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/;
 
 const SignUpForm: React.FC<SignUpFormProps> = ({
   onNavigate,
@@ -79,18 +80,18 @@ const SignUpForm: React.FC<SignUpFormProps> = ({
   }, [errorLocal]);
 
 
-  const passwordMeetsPolicy = /^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/.test(password);
+  const passwordMeetsPolicy = PASSWORD_POLICY_REGEX.test(password);
   const emailIsValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const fullNameIsValid = fullName.trim().length > 0;
   const canSubmit = fullNameIsValid && emailIsValid && passwordMeetsPolicy && !isLoading && !isSubmitting;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullNameIsValid || !emailIsValid || !passwordMeetsPolicy) return;
+    if (isLoading || isSubmitting) return;
+    if (!fullNameIsValid || !emailIsValid) return;
 
     // Password Validation
-    const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/;
-    if (!passwordRegex.test(password)) {
+    if (!PASSWORD_POLICY_REGEX.test(password)) {
       setErrorLocal("Password must be at least 8 characters long and include an uppercase letter, a number, and a special character.");
       return;
     }

@@ -57,7 +57,7 @@ test('Meet Aries step chips are a semantic list without false interactive stylin
   );
   assert.match(
     section,
-    /aria-hidden="true" className="hidden h-px w-full bg-white\/20 lg:block"/,
-    'connector lines should stay presentational only',
+    /aria-hidden="true" role="presentation" className="hidden h-px w-full bg-white\/20 lg:block"/,
+    'connector lines should stay presentational only even inside the semantic list container',
   );
 });

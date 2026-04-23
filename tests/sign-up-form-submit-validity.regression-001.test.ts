@@ -17,9 +17,13 @@ const source = readFileSync(
 // Report: .gstack/qa-reports/qa-report-aries-sugarandleather-com-2026-04-23.md
 
 test('signup submit CTA depends on real form validity, not just loading state', () => {
+  assert.ok(
+    source.includes('const PASSWORD_POLICY_REGEX = /^(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&]).{8,}$/;'),
+    'signup form should define the password policy once so button gating and submit-time validation stay in sync',
+  );
   assert.match(
     source,
-    /const passwordMeetsPolicy = .*test\(password\);/,
+    /const passwordMeetsPolicy = PASSWORD_POLICY_REGEX\.test\(password\);/,
     'signup form should derive password policy validity before enabling submit',
   );
   assert.match(
@@ -44,7 +48,17 @@ test('signup submit CTA depends on real form validity, not just loading state', 
   );
   assert.match(
     source,
-    /if \(!fullNameIsValid \|\| !emailIsValid \|\| !passwordMeetsPolicy\) return;/,
-    'handleSubmit should still short-circuit if a caller bypasses the disabled button state',
+    /if \(isLoading \|\| isSubmitting\) return;/,
+    'handleSubmit should ignore programmatic or double submits while auth is already in flight',
+  );
+  assert.match(
+    source,
+    /if \(!fullNameIsValid \|\| !emailIsValid\) return;/,
+    'handleSubmit should still short-circuit if a caller bypasses the disabled button state with missing required fields',
+  );
+  assert.match(
+    source,
+    /if \(!PASSWORD_POLICY_REGEX\.test\(password\)\) \{[\s\S]*?Password must be at least 8 characters long and include an uppercase letter, a number, and a special character\./,
+    'submit-time password validation should reuse the shared policy regex and preserve the explanatory error message',
   );
 });
