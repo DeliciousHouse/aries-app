@@ -10,19 +10,20 @@ function flushMicrotasks() {
 }
 
 test('MarketingNewJobScreen shows the backend error after a valid submit fails', async () => {
+  const globalWithWindow = globalThis as Record<string, unknown>;
   const previousFetch = globalThis.fetch;
-  const previousWindow = (globalThis as typeof globalThis & { window?: typeof globalThis }).window;
+  const previousWindow = globalWithWindow.window;
   const pushCalls: string[] = [];
   globalThis.fetch = (async () =>
     new Response(JSON.stringify({ error: 'OpenClaw gateway unavailable' }), {
       status: 503,
       headers: { 'content-type': 'application/json' },
     })) as typeof fetch;
-  (globalThis as typeof globalThis & { window: typeof globalThis }).window = globalThis;
+  globalWithWindow.window = globalThis;
 
   try {
     const { act, create } = await import('react-test-renderer');
-    let root: import('react-test-renderer').ReactTestRenderer | null = null;
+    let root!: import('react-test-renderer').ReactTestRenderer;
 
     await act(async () => {
       root = create(
@@ -39,16 +40,13 @@ test('MarketingNewJobScreen shows the backend error after a valid submit fails',
       await flushMicrotasks();
     });
 
-    const renderer = root;
-    assert.ok(renderer, 'renderer should be created');
-
-    const websiteInput = renderer.root.findByProps({ placeholder: 'https://yourbrand.com' });
+    const websiteInput = root.root.findByProps({ placeholder: 'https://yourbrand.com' });
     await act(async () => {
       websiteInput.props.onChange({ target: { value: 'https://example.com' } });
       await flushMicrotasks();
     });
 
-    const form = renderer.root.findByType('form');
+    const form = root.root.findByType('form');
     await act(async () => {
       await form.props.onSubmit({ preventDefault() {} });
       await flushMicrotasks();
@@ -56,13 +54,13 @@ test('MarketingNewJobScreen shows the backend error after a valid submit fails',
     });
 
     assert.deepEqual(pushCalls, []);
-    assert.match(JSON.stringify(renderer.toJSON()), /OpenClaw gateway unavailable/);
+    assert.match(JSON.stringify(root.toJSON()), /OpenClaw gateway unavailable/);
   } finally {
     globalThis.fetch = previousFetch;
     if (previousWindow === undefined) {
-      delete (globalThis as typeof globalThis & { window?: typeof globalThis }).window;
+      delete globalWithWindow.window;
     } else {
-      (globalThis as typeof globalThis & { window: typeof globalThis }).window = previousWindow;
+      globalWithWindow.window = previousWindow;
     }
   }
 });

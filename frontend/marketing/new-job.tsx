@@ -44,6 +44,7 @@ const SUBMIT_PROGRESS_MESSAGES = [
 const FINAL_SUBMIT_PROGRESS_INDEX = SUBMIT_PROGRESS_MESSAGES.length - 1;
 
 export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContentProps) {
+  const router = props.router;
   const marketingCreate = useMarketingJobCreate(props.clientOptions);
 
   const [websiteUrl, setWebsiteUrl] = useState('');
