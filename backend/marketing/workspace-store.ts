@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { resolveDataPath } from '@/lib/runtime-paths';
+import { repairLegacyMarketingText } from '@/backend/marketing/brand-kit';
 import { marketingPayloadDefaultsFromBusinessProfile } from '@/backend/tenant/business-profile';
 
 export type MarketingCampaignWorkflowState =
@@ -282,23 +283,23 @@ function normalizeCampaignBrief(
 ): CampaignBriefRecord {
   return {
     websiteUrl: stringValue(payload.websiteUrl || payload.brandUrl, existing?.websiteUrl || ''),
-    businessName: stringValue(payload.businessName, existing?.businessName || ''),
-    businessType: stringValue(payload.businessType, existing?.businessType || ''),
-    approverName: stringValue(payload.approverName || payload.launchApproverName, existing?.approverName || ''),
-    goal: stringValue(payload.goal || payload.primaryGoal, existing?.goal || ''),
-    offer: stringValue(payload.offer, existing?.offer || ''),
+    businessName: repairLegacyMarketingText(stringValue(payload.businessName, existing?.businessName || '')) || '',
+    businessType: repairLegacyMarketingText(stringValue(payload.businessType, existing?.businessType || '')) || '',
+    approverName: repairLegacyMarketingText(stringValue(payload.approverName || payload.launchApproverName, existing?.approverName || '')) || '',
+    goal: repairLegacyMarketingText(stringValue(payload.goal || payload.primaryGoal, existing?.goal || '')) || '',
+    offer: repairLegacyMarketingText(stringValue(payload.offer, existing?.offer || '')) || '',
     competitorUrl: stringValue(payload.competitorUrl, existing?.competitorUrl || ''),
     channels: stringArray(payload.channels).length > 0
       ? stringArray(payload.channels)
       : (existing?.channels || []),
-    brandVoice: stringValue(payload.brandVoice, existing?.brandVoice || ''),
-    styleVibe: stringValue(payload.styleVibe, existing?.styleVibe || ''),
+    brandVoice: repairLegacyMarketingText(stringValue(payload.brandVoice, existing?.brandVoice || '')) || '',
+    styleVibe: repairLegacyMarketingText(stringValue(payload.styleVibe, existing?.styleVibe || '')) || '',
     visualReferences: stringArray(payload.visualReferences).length > 0
-      ? stringArray(payload.visualReferences)
-      : (existing?.visualReferences || []),
-    mustUseCopy: stringValue(payload.mustUseCopy, existing?.mustUseCopy || ''),
-    mustAvoidAesthetics: stringValue(payload.mustAvoidAesthetics, existing?.mustAvoidAesthetics || ''),
-    notes: stringValue(payload.notes, existing?.notes || ''),
+      ? stringArray(payload.visualReferences).map((entry) => repairLegacyMarketingText(entry) || '').filter(Boolean)
+      : (existing?.visualReferences || []).map((entry) => repairLegacyMarketingText(entry) || '').filter(Boolean),
+    mustUseCopy: repairLegacyMarketingText(stringValue(payload.mustUseCopy, existing?.mustUseCopy || '')) || '',
+    mustAvoidAesthetics: repairLegacyMarketingText(stringValue(payload.mustAvoidAesthetics, existing?.mustAvoidAesthetics || '')) || '',
+    notes: repairLegacyMarketingText(stringValue(payload.notes, existing?.notes || '')) || '',
     brandAssets: existing?.brandAssets || [],
   };
 }
