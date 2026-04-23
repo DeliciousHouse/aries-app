@@ -3,6 +3,12 @@ import Link from 'next/link';
 import { ArrowLeft, ArrowRight, Lock, Mail } from 'lucide-react';
 
 import { AriesMark } from '@/frontend/donor/ui';
+import {
+  getEmailFieldError,
+  getRequiredFieldError,
+  isValidEmailAddress,
+  useDisabledUntilValid,
+} from '@/lib/form-validation';
 
 interface LoginFormProps {
   defaultEmail?: string;
@@ -26,10 +32,17 @@ const LoginForm: React.FC<LoginFormProps> = ({
   const [email, setEmail] = useState(defaultEmail || '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [emailTouched, setEmailTouched] = useState(false);
+  const [passwordTouched, setPasswordTouched] = useState(false);
 
   useEffect(() => {
     setEmail(defaultEmail || '');
   }, [defaultEmail]);
+
+  const emailError = emailTouched ? getEmailFieldError(email) : null;
+  const passwordError = passwordTouched ? getRequiredFieldError(password, 'your password') : null;
+  const credentialsAreValid = isValidEmailAddress(email) && password.trim().length > 0;
+  const submitDisabled = useDisabledUntilValid(credentialsAreValid, isLoading);
 
   return (
     <div className="max-w-md mx-auto">
@@ -60,30 +73,44 @@ const LoginForm: React.FC<LoginFormProps> = ({
           className="space-y-5"
           onSubmit={(event) => {
             event.preventDefault();
+            setEmailTouched(true);
+            setPasswordTouched(true);
+            if (submitDisabled) {
+              return;
+            }
             onCredentialsSubmit(email, password);
           }}
         >
           <div>
-            <label className="block text-sm font-medium text-white/80 mb-1.5">Email Address</label>
+            <label htmlFor="login-email" className="block text-sm font-medium text-white/80 mb-1.5">Email Address</label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <Mail className="h-5 w-5 text-white/40" />
               </div>
               <input
+                id="login-email"
                 type="email"
                 className="block w-full pl-10 pr-3 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none transition-all disabled:opacity-60"
                 placeholder="you@example.com"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
+                onBlur={() => setEmailTouched(true)}
                 autoComplete="email"
                 disabled={isLoading}
+                aria-invalid={emailError ? true : undefined}
+                aria-describedby={emailError ? 'login-email-error' : undefined}
               />
             </div>
+            {emailError ? (
+              <p id="login-email-error" role="alert" className="mt-2 text-sm text-red-300">
+                {emailError}
+              </p>
+            ) : null}
           </div>
 
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-sm font-medium text-white/80">Password</label>
+              <label htmlFor="login-password" className="block text-sm font-medium text-white/80">Password</label>
               <Link href="/forgot-password" className="text-sm text-white/60 hover:text-white transition-colors">
                 Forgot password?
               </Link>
@@ -93,13 +120,17 @@ const LoginForm: React.FC<LoginFormProps> = ({
                 <Lock className="h-5 w-5 text-white/40" />
               </div>
               <input
+                id="login-password"
                 type={showPassword ? 'text' : 'password'}
                 className="block w-full pl-10 pr-12 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:outline-none transition-all disabled:opacity-60"
                 placeholder="••••••••"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
+                onBlur={() => setPasswordTouched(true)}
                 autoComplete="current-password"
                 disabled={isLoading}
+                aria-invalid={passwordError ? true : undefined}
+                aria-describedby={passwordError ? 'login-password-error' : undefined}
               />
               <button
                 type="button"
@@ -109,11 +140,16 @@ const LoginForm: React.FC<LoginFormProps> = ({
                 {showPassword ? 'Hide' : 'Show'}
               </button>
             </div>
+            {passwordError ? (
+              <p id="login-password-error" role="alert" className="mt-2 text-sm text-red-300">
+                {passwordError}
+              </p>
+            ) : null}
           </div>
 
           <button
             type="submit"
-            disabled={isLoading || !email || !password}
+            disabled={submitDisabled}
             className="w-full py-3 px-4 bg-gradient-to-r from-primary to-secondary hover:opacity-90 text-white font-medium rounded-xl transition-all shadow-[0_0_20px_rgba(124,58,237,0.3)] hover:shadow-[0_0_30px_rgba(124,58,237,0.5)] flex items-center justify-center gap-2 disabled:opacity-60"
           >
             <Lock className="w-4 h-4" />
