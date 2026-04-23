@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-import { lookupMarketingReviewItemForTenant } from '@/backend/marketing/runtime-views';
+import { getMarketingReviewItemForTenant } from '@/backend/marketing/runtime-views';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
 function decodeReviewIdParam(reviewId: string): string {
@@ -21,24 +21,12 @@ export async function handleGetMarketingReviewItem(
     return tenantResult.response;
   }
 
-  const lookup = await lookupMarketingReviewItemForTenant(
-    tenantResult.tenantContext.tenantId,
-    decodedReviewId,
-  );
-  if (lookup.status === 'wrong_workspace') {
-    return NextResponse.json(
-      {
-        error: 'review_not_in_current_workspace',
-        message: 'This review belongs to a different workspace than the one currently active for your account.',
-      },
-      { status: 409 },
-    );
-  }
-  if (lookup.status !== 'ok') {
+  const review = await getMarketingReviewItemForTenant(tenantResult.tenantContext.tenantId, decodedReviewId);
+  if (!review) {
     return NextResponse.json({ error: 'review_not_found' }, { status: 404 });
   }
 
-  return NextResponse.json({ review: lookup.review }, { status: 200 });
+  return NextResponse.json({ review }, { status: 200 });
 }
 
 export async function GET(_req: Request, { params }: { params: Promise<{ reviewId: string }> }) {

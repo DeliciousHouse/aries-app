@@ -150,11 +150,6 @@ export type RuntimeReviewQueue = {
   archivedReviews: RuntimeReviewItem[];
 };
 
-export type RuntimeReviewItemLookupResult =
-  | { status: 'ok'; review: RuntimeReviewItem }
-  | { status: 'missing' }
-  | { status: 'wrong_workspace' };
-
 export type RuntimeReviewStateFile = {
   schema_name: 'marketing_review_state';
   schema_version: '1.0.0';
@@ -1547,30 +1542,13 @@ export async function listPublicMarketingReviewItems(): Promise<RuntimeReviewIte
   return items.sort((left, right) => right.scheduledFor.localeCompare(left.scheduledFor));
 }
 
-export async function lookupMarketingReviewItemForTenant(
-  tenantId: string,
-  reviewId: string,
-): Promise<RuntimeReviewItemLookupResult> {
+export async function getMarketingReviewItemForTenant(tenantId: string, reviewId: string): Promise<RuntimeReviewItem | null> {
   const { jobId } = reviewIdParts(reviewId);
   const runtimeDoc = loadMarketingJobRuntime(jobId);
-  if (!runtimeDoc) {
-    return { status: 'missing' };
+  if (!runtimeDoc || runtimeDoc.tenant_id !== tenantId) {
+    return null;
   }
-  if (runtimeDoc.tenant_id !== tenantId) {
-    return { status: 'wrong_workspace' };
-  }
-
-  const review = resolveRuntimeReviewItem(jobId, reviewId);
-  if (!review) {
-    return { status: 'missing' };
-  }
-
-  return { status: 'ok', review };
-}
-
-export async function getMarketingReviewItemForTenant(tenantId: string, reviewId: string): Promise<RuntimeReviewItem | null> {
-  const lookup = await lookupMarketingReviewItemForTenant(tenantId, reviewId);
-  return lookup.status === 'ok' ? lookup.review : null;
+  return resolveRuntimeReviewItem(jobId, reviewId);
 }
 
 export async function recordMarketingReviewDecision(input: {
