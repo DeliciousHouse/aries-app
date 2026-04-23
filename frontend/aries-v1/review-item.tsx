@@ -8,6 +8,7 @@ import MediaPreview from '@/frontend/components/media-preview';
 import { useRuntimeReviewItem } from '@/hooks/use-runtime-review-item';
 
 import { customerSafeUiErrorMessage } from './customer-safe-copy';
+import { getReviewRecoveryState } from './review-recovery';
 import { isDestructiveActionBlocked } from './review-destructive-guard';
 import { EmptyStatePanel, LoadingStateGrid, ShellPanel, StatusChip } from './components';
 
@@ -64,6 +65,7 @@ function brandKitFontStyle(family: string): CSSProperties {
 export default function AriesReviewItemScreen(props: { reviewId: string }) {
   const review = useRuntimeReviewItem(props.reviewId, { autoLoad: true });
   const item = review.data?.review ?? null;
+  const recoveryState = getReviewRecoveryState(review.error);
   const [note, setNote] = useState('');
   const [activeAction, setActiveAction] = useState<DecisionActionKind>('approve');
   const [progressIndex, setProgressIndex] = useState(0);
@@ -102,6 +104,31 @@ export default function AriesReviewItemScreen(props: { reviewId: string }) {
   }
 
   if (review.error) {
+    if (recoveryState) {
+      return (
+        <EmptyStatePanel
+          title={recoveryState.title}
+          description={`${recoveryState.description} ${recoveryState.guidance}`}
+          action={
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <Link
+                href={recoveryState.primaryAction.href}
+                className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] transition hover:translate-y-[-1px]"
+              >
+                {recoveryState.primaryAction.label}
+              </Link>
+              <Link
+                href={recoveryState.secondaryAction.href}
+                className="inline-flex items-center gap-2 rounded-full border border-white/12 px-5 py-3 text-sm font-medium text-white/80 transition hover:border-white/20 hover:text-white"
+              >
+                {recoveryState.secondaryAction.label}
+              </Link>
+            </div>
+          }
+        />
+      );
+    }
+
     return (
       <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
         {customerSafeUiErrorMessage(review.error.message, 'This review item is not available right now.')}

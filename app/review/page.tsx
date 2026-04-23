@@ -7,7 +7,7 @@ export const metadata = {
 
 export default function ReviewQueuePage() {
   return (
-    <AppShellLayout currentRouteId="review" skipOnboardingGate>
+    <AppShellLayout currentRouteId="review" skipOnboardingGate loginRedirectPath="/review">
       <AriesReviewQueueScreen />
     </AppShellLayout>
   );
