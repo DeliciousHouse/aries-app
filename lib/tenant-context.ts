@@ -116,22 +116,33 @@ export function resolveTenantContextFromSession(session: Session | null): Tenant
   };
 }
 
-export async function getTenantContext(): Promise<TenantContext> {
-  const session = await auth();
+export async function resolveTenantContextForSession(
+  queryable: Queryable,
+  session: Session | null,
+): Promise<TenantContext> {
   const claimContext = resolveTenantContextFromSession(session);
-  if (claimContext) {
-    return claimContext;
-  }
-
   const userId = session?.user?.id;
 
   if (!userId) {
     throw new Error('Authentication required.');
   }
 
+  try {
+    return await loadTenantContextForUser(queryable, userId);
+  } catch (error) {
+    if (claimContext) {
+      return claimContext;
+    }
+    throw error;
+  }
+}
+
+export async function getTenantContext(): Promise<TenantContext> {
+  const session = await auth();
+
   const client = await pool.connect();
   try {
-    return await loadTenantContextForUser(client, userId);
+    return await resolveTenantContextForSession(client, session);
   } finally {
     client.release();
   }

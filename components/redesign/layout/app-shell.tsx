@@ -8,6 +8,7 @@ import { getRouteById, type AppRouteId } from '@/frontend/app-shell/routes';
 import { buildLoginRedirect } from '@/lib/auth/callback-url';
 import pool from '@/lib/db';
 import { shouldRequireOnboarding, getUserJourneyRow, isTenantOnboardingComplete } from '@/lib/auth-user-journey';
+import { loadTenantContextForUser } from '@/lib/tenant-context';
 
 import AppShellClient from './app-shell-client';
 
@@ -76,12 +77,20 @@ export default async function RedesignAppShell({
   if (!skipOnboardingGate) {
     const client = await pool.connect();
     let shouldRedirectToOnboarding = false;
+    let liveTenantId: string | null = null;
     try {
+      try {
+        const tenantContext = await loadTenantContextForUser(client, session.user.id);
+        liveTenantId = tenantContext?.tenantId ?? null;
+      } catch {
+        liveTenantId = null;
+      }
+
       const row = await getUserJourneyRow(client, session.user.id);
       const onboardingCompleted = await isTenantOnboardingComplete(
         client,
-        session.user.tenantId
-          ? String(session.user.tenantId)
+        liveTenantId
+          ? liveTenantId
           : row?.organization_id !== null && row?.organization_id !== undefined
             ? String(row.organization_id)
             : null,
@@ -105,16 +114,29 @@ export default async function RedesignAppShell({
 
   const currentRoute = currentRouteId ? getRouteById(currentRouteId) : null;
   let reviewCount = 0;
-  if (session.user.tenantId) {
+  let liveTenantId: string | null = null;
+  const reviewCountClient = await pool.connect();
+  try {
+    try {
+      const tenantContext = await loadTenantContextForUser(reviewCountClient, session.user.id);
+      liveTenantId = tenantContext?.tenantId ?? null;
+    } catch {
+      liveTenantId = session.user.tenantId ? String(session.user.tenantId) : null;
+    }
+  } finally {
+    reviewCountClient.release();
+  }
+
+  if (liveTenantId) {
     try {
       reviewCount = await withTimeout(
-        countPendingMarketingReviewItemsForTenant(String(session.user.tenantId)),
+        countPendingMarketingReviewItemsForTenant(liveTenantId),
         REVIEW_COUNT_TIMEOUT_MS,
         0,
       );
     } catch (error) {
       console.warn('[app-shell] Unable to resolve review count without blocking render.', {
-        tenantId: String(session.user.tenantId),
+        tenantId: liveTenantId,
         error: error instanceof Error ? error.message : String(error),
       });
     }
