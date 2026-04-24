@@ -6165,13 +6165,17 @@ test('/api/marketing/jobs/:jobId/assets/:assetId streams video assets with range
       tenantSlug: 'acme',
       role: 'tenant_admin' as const,
     });
+    const requestAsset = async (range?: string) => {
+      const headers = range ? { range } : undefined;
+      return handleGetMarketingJobAsset(
+        jobId,
+        'video-launch-cut',
+        new Request('http://localhost/api/marketing/jobs/test/assets/video-launch-cut', { headers }),
+        tenantLoader,
+      );
+    };
 
-    const fullResponse = await handleGetMarketingJobAsset(
-      jobId,
-      'video-launch-cut',
-      new Request('http://localhost/api/marketing/jobs/test/assets/video-launch-cut'),
-      tenantLoader,
-    );
+    const fullResponse = await requestAsset();
 
     assert.equal(fullResponse.status, 200);
     assert.equal(fullResponse.headers.get('content-type'), 'video/mp4');
@@ -6179,14 +6183,7 @@ test('/api/marketing/jobs/:jobId/assets/:assetId streams video assets with range
     assert.equal(fullResponse.headers.get('content-length'), String(fixtureBytes.length));
     assert.deepEqual(Buffer.from(await fullResponse.arrayBuffer()), fixtureBytes);
 
-    const rangeResponse = await handleGetMarketingJobAsset(
-      jobId,
-      'video-launch-cut',
-      new Request('http://localhost/api/marketing/jobs/test/assets/video-launch-cut', {
-        headers: { range: 'bytes=0-1023' },
-      }),
-      tenantLoader,
-    );
+    const rangeResponse = await requestAsset('bytes=0-1023');
 
     assert.equal(rangeResponse.status, 206);
     assert.equal(rangeResponse.headers.get('content-type'), 'video/mp4');
@@ -6194,6 +6191,40 @@ test('/api/marketing/jobs/:jobId/assets/:assetId streams video assets with range
     assert.equal(rangeResponse.headers.get('content-length'), '1024');
     assert.equal(rangeResponse.headers.get('content-range'), `bytes 0-1023/${fixtureBytes.length}`);
     assert.deepEqual(Buffer.from(await rangeResponse.arrayBuffer()), fixtureBytes.subarray(0, 1024));
+
+    const openEndedRangeResponse = await requestAsset('bytes=400-');
+    assert.equal(openEndedRangeResponse.status, 206);
+    assert.equal(openEndedRangeResponse.headers.get('content-range'), `bytes 400-${fixtureBytes.length - 1}/${fixtureBytes.length}`);
+    assert.deepEqual(Buffer.from(await openEndedRangeResponse.arrayBuffer()), fixtureBytes.subarray(400));
+
+    const suffixRangeResponse = await requestAsset('bytes=-1000');
+    const suffixStart = Math.max(0, fixtureBytes.length - 1000);
+    assert.equal(suffixRangeResponse.status, 206);
+    assert.equal(suffixRangeResponse.headers.get('content-range'), `bytes ${suffixStart}-${fixtureBytes.length - 1}/${fixtureBytes.length}`);
+    assert.deepEqual(Buffer.from(await suffixRangeResponse.arrayBuffer()), fixtureBytes.subarray(suffixStart));
+
+    const clampedRangeResponse = await requestAsset('bytes=0-9999');
+    assert.equal(clampedRangeResponse.status, 206);
+    assert.equal(clampedRangeResponse.headers.get('content-range'), `bytes 0-${fixtureBytes.length - 1}/${fixtureBytes.length}`);
+    assert.deepEqual(Buffer.from(await clampedRangeResponse.arrayBuffer()), fixtureBytes);
+
+    const oversizedSuffixResponse = await requestAsset('bytes=-1000000000');
+    assert.equal(oversizedSuffixResponse.status, 206);
+    assert.equal(oversizedSuffixResponse.headers.get('content-range'), `bytes 0-${fixtureBytes.length - 1}/${fixtureBytes.length}`);
+    assert.deepEqual(Buffer.from(await oversizedSuffixResponse.arrayBuffer()), fixtureBytes);
+
+    for (const range of [
+      'bytes=5000-500',
+      'bytes=NaN-',
+      `bytes=${fixtureBytes.length}-`,
+      'bytes=-0',
+      'bytes=',
+    ]) {
+      const unsatisfiableResponse = await requestAsset(range);
+      assert.equal(unsatisfiableResponse.status, 416, `expected ${range} to return 416`);
+      assert.equal(unsatisfiableResponse.headers.get('content-range'), `bytes */${fixtureBytes.length}`);
+      assert.equal(await unsatisfiableResponse.text(), '');
+    }
 
     const posterResponse = await handleGetMarketingJobAsset(
       jobId,
