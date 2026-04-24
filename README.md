@@ -2,8 +2,6 @@
 
 Aries AI is a Next.js App Router application for marketing automation. It combines a public marketing site, an authenticated operator shell, and browser-safe internal APIs that hand execution off to an external OpenClaw Gateway while keeping runtime state on the server. The current repository ships the web runtime, route handlers, backend service layer, local runtime state helpers, and tests for the supported route contract.
 
-> **Important:** the repo-level setup notes still reference Next.js 15 in a few places, but `package.json` currently pins **Next.js 16.2.3**. The development workflow in this README follows the code as it exists today.
-
 ## What the project includes
 
 - **Public marketing pages** for the homepage, features, documentation, and API docs.
@@ -376,7 +374,6 @@ Infrastructure and deploy:
 ## Project TODO list
 
 - [ ] Review and expand `.env.example` so local setup is fully self-serve and matches the documented overrides.
-- [ ] Reconcile remaining documentation drift where some in-repo docs still describe Next.js 15 even though `package.json` currently pins Next.js 16.
 - [ ] Audit route documentation and tests for stale references to removed pages such as `/contact` so the documented route surface stays accurate.
 - [ ] Document tenant-auth expectations for operator routes in one canonical place.
 - [ ] Expand API documentation for tenant profile, approval request, and workflow-run endpoints.
@@ -415,7 +412,6 @@ Infrastructure and deploy:
 - `VERSION` — canonical version string used by `package.json` and release tagging
 - `TODOS.md` — tracked follow-up work, including known test-infrastructure debt
 - `SETUP.md` — setup and environment reference
-- `README-runtime.md` — runtime architecture and supported route contract summary
 - `DOCKER.md` — container, compose, and GHCR release reference
 - `PRODUCTION_HANDOFF.md` — concise production deployment runbook
 - `docs/SYSTEM-REFERENCE.md` — living architecture reference refreshed by the automation cron
