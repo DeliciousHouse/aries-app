@@ -340,7 +340,7 @@ def main() -> int:
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--brand-slug", default="client-brand")
     parser.add_argument("--research-model", default="gemini/gemini-3-flash-preview")
-    parser.add_argument("--video-model", default="veo-3.0-generate-001")
+    parser.add_argument("--video-model", default="veo-3.1-fast-generate-preview")
     parser.add_argument("--campaign-id", default="")
     parser.add_argument("--concept-id", default="")
     parser.add_argument("--job-id", default="")
