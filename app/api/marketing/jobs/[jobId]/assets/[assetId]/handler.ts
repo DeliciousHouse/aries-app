@@ -223,7 +223,7 @@ export async function handleGetMarketingJobAsset(
       : tenantContextLoader;
   const requiresTenantContext = assetId.startsWith('video-') || !isMarketingPublicMode();
 
-  const runtimeDoc = loadMarketingJobRuntime(jobId);
+  const runtimeDoc = await loadMarketingJobRuntime(jobId);
   if (!runtimeDoc) {
     return new Response(JSON.stringify({ error: 'Marketing job not found.', reason: 'marketing_job_not_found' }), {
       status: 404,
@@ -250,7 +250,7 @@ export async function handleGetMarketingJobAsset(
     return streamVideoAsset(jobId, assetId, request);
   }
 
-  const asset = findMarketingAsset(jobId, runtimeDoc, assetId);
+  const asset = await findMarketingAsset(jobId, runtimeDoc, assetId);
   if (!asset) {
     return assetNotFoundResponse(jobId, assetId, 'asset_descriptor_missing');
   }

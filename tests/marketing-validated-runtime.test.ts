@@ -247,7 +247,7 @@ test('validated profile snapshot reads brand/profile docs in the required preced
     );
 
     const { loadValidatedMarketingProfileSnapshot } = await import('../backend/marketing/validated-profile-store');
-    const snapshot = loadValidatedMarketingProfileSnapshot(tenantId);
+    const snapshot = await loadValidatedMarketingProfileSnapshot(tenantId);
 
     assert.equal(snapshot.brandName, 'Brand Profile Name');
     assert.equal(snapshot.websiteUrl, 'https://brand-profile.example/');

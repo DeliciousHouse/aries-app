@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import type {
@@ -111,27 +111,33 @@ function recordArray(value: unknown): Array<Record<string, unknown>> {
     : [];
 }
 
-function readJsonIfExists(filePath: string | null | undefined): Record<string, unknown> | null {
-  if (!filePath || !existsSync(filePath)) {
+async function readJsonIfExists(filePath: string | null | undefined): Promise<Record<string, unknown> | null> {
+  if (!filePath) {
     return null;
   }
 
   try {
-    return recordValue(JSON.parse(readFileSync(filePath, 'utf8')));
-  } catch {
+    return recordValue(JSON.parse(await readFile(filePath, 'utf8')));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return null;
+    }
     return null;
   }
 }
 
-function readTextIfExists(filePath: string | null | undefined): string | null {
-  if (!filePath || !existsSync(filePath)) {
+async function readTextIfExists(filePath: string | null | undefined): Promise<string | null> {
+  if (!filePath) {
     return null;
   }
 
   try {
-    const text = readFileSync(filePath, 'utf8').trim();
+    const text = (await readFile(filePath, 'utf8')).trim();
     return text || null;
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return null;
+    }
     return null;
   }
 }
@@ -399,18 +405,18 @@ function buildCampaignBrief(record: CampaignWorkspaceRecord): MarketingCampaignB
   };
 }
 
-function loadStagePayloadBundle(runtimeDoc: MarketingJobRuntimeDocument): StagePayloadBundle {
+async function loadStagePayloadBundle(runtimeDoc: MarketingJobRuntimeDocument): Promise<StagePayloadBundle> {
   const sourceUrl = currentSourceUrl(runtimeDoc);
-  const validatedDocs = loadValidatedMarketingProfileDocs(runtimeDoc.tenant_id, {
+  const validatedDocs = await loadValidatedMarketingProfileDocs(runtimeDoc.tenant_id, {
     currentSourceUrl: sourceUrl,
   });
   const strategyOutputs = recordValue(runtimeDoc.stages.strategy.outputs) || {};
   const productionOutputs = recordValue(runtimeDoc.stages.production.outputs) || {};
-  const strategyFallback = collectStrategyReviewArtifacts(
+  const strategyFallback = await collectStrategyReviewArtifacts(
     runtimeDoc.stages.strategy.primary_output || { run_id: runtimeDoc.stages.strategy.run_id },
     runtimeDoc,
   );
-  const productionFallback = collectProductionReviewArtifacts(
+  const productionFallback = await collectProductionReviewArtifacts(
     runtimeDoc.stages.production.primary_output || { run_id: runtimeDoc.stages.production.run_id },
     runtimeDoc,
   );
@@ -428,14 +434,24 @@ function loadStagePayloadBundle(runtimeDoc: MarketingJobRuntimeDocument): StageP
   const fallbackCampaignPlannerPath = stringValue(strategyFallback.outputs.campaign_planner_path);
   const fallbackStrategyPreviewPath = stringValue(strategyFallback.outputs.strategy_review_path);
   const fallbackProductionPreviewPath = stringValue(productionFallback.outputs.production_review_path);
+  const runtimeWebsiteAnalysisFile = await readJsonIfExists(runtimeWebsiteAnalysisPath);
+  const runtimeBrandProfileFile = await readJsonIfExists(runtimeBrandProfilePath);
+  const runtimeCampaignPlannerFile = await readJsonIfExists(runtimeCampaignPlannerPath);
+  const runtimeStrategyPreviewFile = await readJsonIfExists(runtimeStrategyPreviewPath);
+  const runtimeProductionPreviewFile = await readJsonIfExists(runtimeProductionPreviewPath);
+  const fallbackWebsiteAnalysisFile = await readJsonIfExists(fallbackWebsiteAnalysisPath);
+  const fallbackBrandProfileFile = await readJsonIfExists(fallbackBrandProfilePath);
+  const fallbackCampaignPlannerFile = await readJsonIfExists(fallbackCampaignPlannerPath);
+  const fallbackStrategyPreviewFile = await readJsonIfExists(fallbackStrategyPreviewPath);
+  const fallbackProductionPreviewFile = await readJsonIfExists(fallbackProductionPreviewPath);
 
   const rawRuntimeRunWebsiteAnalysis =
     recordValue(strategyOutputs.website) ||
-    readJsonIfExists(runtimeWebsiteAnalysisPath);
+    runtimeWebsiteAnalysisFile;
   const runtimeRunWebsiteAnalysis =
     (recordMatchesCurrentSource(recordValue(strategyOutputs.website), sourceUrl) ? recordValue(strategyOutputs.website) : null) ||
-    (recordMatchesCurrentSource(readJsonIfExists(runtimeWebsiteAnalysisPath), sourceUrl)
-      ? readJsonIfExists(runtimeWebsiteAnalysisPath)
+    (recordMatchesCurrentSource(runtimeWebsiteAnalysisFile, sourceUrl)
+      ? runtimeWebsiteAnalysisFile
       : null);
   const runtimeWebsiteAnalysis =
     runtimeRunWebsiteAnalysis ||
@@ -444,30 +460,30 @@ function loadStagePayloadBundle(runtimeDoc: MarketingJobRuntimeDocument): StageP
     (recordMatchesCurrentSource(recordValue(strategyOutputs.brand_profile), sourceUrl)
       ? recordValue(strategyOutputs.brand_profile)
       : null) ||
-    (recordMatchesCurrentSource(readJsonIfExists(runtimeBrandProfilePath), sourceUrl)
-      ? readJsonIfExists(runtimeBrandProfilePath)
+    (recordMatchesCurrentSource(runtimeBrandProfileFile, sourceUrl)
+      ? runtimeBrandProfileFile
       : null);
   const runtimeCampaignPlanner = sourceMatchedStrategyPayload(
-    recordValue(strategyOutputs.planner) || readJsonIfExists(runtimeCampaignPlannerPath),
+    recordValue(strategyOutputs.planner) || runtimeCampaignPlannerFile,
     sourceUrl,
     runtimeRunWebsiteAnalysis,
     !!rawRuntimeRunWebsiteAnalysis,
   );
   const runtimeStrategyPreview = sourceMatchedStrategyPayload(
-    recordValue(strategyOutputs.review) || readJsonIfExists(runtimeStrategyPreviewPath),
+    recordValue(strategyOutputs.review) || runtimeStrategyPreviewFile,
     sourceUrl,
     runtimeRunWebsiteAnalysis,
     !!rawRuntimeRunWebsiteAnalysis,
   );
   const runtimeProductionPreview = recordValue(productionOutputs.review) ||
-    readJsonIfExists(runtimeProductionPreviewPath);
+    runtimeProductionPreviewFile;
 
   const rawFallbackRunWebsiteAnalysis =
-    readJsonIfExists(fallbackWebsiteAnalysisPath) ||
+    fallbackWebsiteAnalysisFile ||
     recordValue(strategyFallback.outputs.website);
   const fallbackRunWebsiteAnalysis =
-    (recordMatchesCurrentSource(readJsonIfExists(fallbackWebsiteAnalysisPath), sourceUrl)
-      ? readJsonIfExists(fallbackWebsiteAnalysisPath)
+    (recordMatchesCurrentSource(fallbackWebsiteAnalysisFile, sourceUrl)
+      ? fallbackWebsiteAnalysisFile
       : null) ||
     (recordMatchesCurrentSource(recordValue(strategyFallback.outputs.website), sourceUrl)
       ? recordValue(strategyFallback.outputs.website)
@@ -475,36 +491,36 @@ function loadStagePayloadBundle(runtimeDoc: MarketingJobRuntimeDocument): StageP
   const websiteAnalysis = runtimeWebsiteAnalysis || fallbackRunWebsiteAnalysis;
   const brandProfile = runtimeBrandProfile ||
     validatedDocs.brandProfile ||
-    (recordMatchesCurrentSource(readJsonIfExists(fallbackBrandProfilePath), sourceUrl)
-      ? readJsonIfExists(fallbackBrandProfilePath)
+    (recordMatchesCurrentSource(fallbackBrandProfileFile, sourceUrl)
+      ? fallbackBrandProfileFile
       : null) ||
     (recordMatchesCurrentSource(recordValue(strategyFallback.outputs.brand_profile), sourceUrl)
       ? recordValue(strategyFallback.outputs.brand_profile)
       : null);
   const campaignPlanner = runtimeCampaignPlanner ||
     sourceMatchedStrategyPayload(
-      readJsonIfExists(fallbackCampaignPlannerPath) || recordValue(strategyFallback.outputs.planner),
+      fallbackCampaignPlannerFile || recordValue(strategyFallback.outputs.planner),
       sourceUrl,
       fallbackRunWebsiteAnalysis,
       !!rawFallbackRunWebsiteAnalysis,
     );
   const strategyPreview = runtimeStrategyPreview ||
     sourceMatchedStrategyPayload(
-      readJsonIfExists(fallbackStrategyPreviewPath) || recordValue(strategyFallback.outputs.review),
+      fallbackStrategyPreviewFile || recordValue(strategyFallback.outputs.review),
       sourceUrl,
       fallbackRunWebsiteAnalysis,
       !!rawFallbackRunWebsiteAnalysis,
     );
   const productionPreview = runtimeProductionPreview ||
-    readJsonIfExists(fallbackProductionPreviewPath) ||
+    fallbackProductionPreviewFile ||
     recordValue(productionFallback.outputs.review);
 
   const hasCurrentSourceBrandArtifacts = !!(websiteAnalysis || brandProfile);
   const hasCurrentSourceStrategyArtifacts = !!(campaignPlanner || strategyPreview || hasCurrentSourceBrandArtifacts);
 
-  const brandBibleAsset = findMarketingAsset(runtimeDoc.job_id, runtimeDoc, 'brand-bible-markdown');
-  const designSystemAsset = findMarketingAsset(runtimeDoc.job_id, runtimeDoc, 'brand-design-system');
-  const proposalMarkdownAsset = findMarketingAsset(runtimeDoc.job_id, runtimeDoc, 'strategy-proposal-markdown');
+  const brandBibleAsset = await findMarketingAsset(runtimeDoc.job_id, runtimeDoc, 'brand-bible-markdown');
+  const designSystemAsset = await findMarketingAsset(runtimeDoc.job_id, runtimeDoc, 'brand-design-system');
+  const proposalMarkdownAsset = await findMarketingAsset(runtimeDoc.job_id, runtimeDoc, 'strategy-proposal-markdown');
 
   return {
     websiteAnalysis,
@@ -513,16 +529,16 @@ function loadStagePayloadBundle(runtimeDoc: MarketingJobRuntimeDocument): StageP
     strategyPreview,
     productionPreview,
     brandBibleText: hasCurrentSourceBrandArtifacts
-      ? readTextIfExists(
+      ? await readTextIfExists(
           brandBibleAsset?.filePath || stringValue(recordValue(websiteAnalysis?.artifacts)?.brand_bible_markdown_path),
         )
       : null,
     designSystemCss: hasCurrentSourceBrandArtifacts
-      ? readTextIfExists(
+      ? await readTextIfExists(
           designSystemAsset?.filePath || stringValue(recordValue(websiteAnalysis?.artifacts)?.design_system_css_path),
         )
       : null,
-    proposalMarkdown: hasCurrentSourceStrategyArtifacts ? readTextIfExists(proposalMarkdownAsset?.filePath) : null,
+    proposalMarkdown: hasCurrentSourceStrategyArtifacts ? await readTextIfExists(proposalMarkdownAsset?.filePath) : null,
     sources: {
       websiteAnalysis: runtimeWebsiteAnalysis
         ? 'runtime'
@@ -643,18 +659,18 @@ function stageHistory(
     .map(campaignStatusHistoryEntry);
 }
 
-function buildBrandReview(
+async function buildBrandReview(
   runtimeDoc: MarketingJobRuntimeDocument,
   record: CampaignWorkspaceRecord,
   payloads: StagePayloadBundle,
-): MarketingStageReviewPayload | null {
+): Promise<MarketingStageReviewPayload | null> {
   const hasGeneratedBrandArtifacts = hasRealBrandArtifacts(payloads);
   const hasUploadedBrandAssets = uploadedBrandAssets(record);
   if (!hasGeneratedBrandArtifacts && !hasUploadedBrandAssets) {
     return null;
   }
 
-  const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
+  const validatedProfile = await loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
     currentSourceUrl: currentSourceUrl(runtimeDoc) || record.brief.websiteUrl || null,
   });
   const brandProfile = payloads.brandProfile;
@@ -679,7 +695,7 @@ function buildBrandReview(
         .map((entry) => entry.trim())
     : [];
   const attachments: MarketingReviewAttachment[] = [];
-  const assetLinks = new Map(buildMarketingAssetLinks(runtimeDoc.job_id, runtimeDoc).map((asset) => [asset.id, asset] as const));
+  const assetLinks = new Map((await buildMarketingAssetLinks(runtimeDoc.job_id, runtimeDoc)).map((asset) => [asset.id, asset] as const));
 
   for (const asset of record.brief.brandAssets) {
     attachments.push(
@@ -865,11 +881,11 @@ function buildBrandReview(
   };
 }
 
-function buildStrategyReview(
+async function buildStrategyReview(
   runtimeDoc: MarketingJobRuntimeDocument,
   record: CampaignWorkspaceRecord,
   payloads: StagePayloadBundle,
-): MarketingStageReviewPayload | null {
+): Promise<MarketingStageReviewPayload | null> {
   const campaignPlan = recordValue(payloads.campaignPlanner?.campaign_plan);
   const reviewPacket = recordValue(payloads.strategyPreview?.review_packet);
   const productionBrief = recordValue(recordValue(payloads.productionPreview?.production_handoff)?.production_brief);
@@ -877,7 +893,7 @@ function buildStrategyReview(
     return null;
   }
   const attachments: MarketingReviewAttachment[] = [];
-  const assetLinks = new Map(buildMarketingAssetLinks(runtimeDoc.job_id, runtimeDoc).map((asset) => [asset.id, asset] as const));
+  const assetLinks = new Map((await buildMarketingAssetLinks(runtimeDoc.job_id, runtimeDoc)).map((asset) => [asset.id, asset] as const));
 
   for (const assetId of ['strategy-campaign-planner', 'strategy-review-preview', 'strategy-proposal-markdown', 'strategy-proposal-html'] as const) {
     const asset = assetLinks.get(assetId);
@@ -944,12 +960,12 @@ function buildStrategyReview(
   };
 }
 
-function buildCreativeAssets(
+async function buildCreativeAssets(
   runtimeDoc: MarketingJobRuntimeDocument,
   record: CampaignWorkspaceRecord,
   dashboard: MarketingDashboardCampaignContent,
   productionPreview: Record<string, unknown> | null,
-): MarketingCreativeAssetReviewPayload[] {
+): Promise<MarketingCreativeAssetReviewPayload[]> {
   const creativeAssets = dashboard.assets.filter(
     (asset) =>
       ['landing_page', 'image_ad', 'script', 'copy'].includes(asset.type) &&
@@ -957,31 +973,31 @@ function buildCreativeAssets(
   );
   const reviewPacket = recordValue(productionPreview?.review_packet);
   const assetPreviews = recordValue(reviewPacket?.asset_previews);
-  const fallbackLanding = readLandingPageArtifactDetails({ runtimeDoc });
-  const fallbackScripts = readScriptArtifactDetails({ runtimeDoc });
+  const fallbackLanding = await readLandingPageArtifactDetails({ runtimeDoc });
+  const fallbackScripts = await readScriptArtifactDetails({ runtimeDoc });
 
   let metaAdScriptsByFamily:
     | Record<string, unknown>
     | null
     | undefined;
 
-  function getMetaAdScriptsByFamily(): Record<string, unknown> | null {
+  async function getMetaAdScriptsByFamily(): Promise<Record<string, unknown> | null> {
     if (metaAdScriptsByFamily !== undefined) {
       return metaAdScriptsByFamily;
     }
-    const scriptwriterPayload = readMarketingStageStepPayload(runtimeDoc, 3, 'scriptwriter').payload;
+    const scriptwriterPayload = (await readMarketingStageStepPayload(runtimeDoc, 3, 'scriptwriter')).payload;
     metaAdScriptsByFamily = recordValue(
       recordValue(scriptwriterPayload?.script_assets)?.meta_ad_scripts_by_family,
     );
     return metaAdScriptsByFamily;
   }
 
-  function perFamilyHook(filePath: string | null): string | null {
+  async function perFamilyHook(filePath: string | null): Promise<string | null> {
     const familyId = familyIdFromImagePath(filePath);
     if (!familyId) {
       return null;
     }
-    const scriptsByFamily = getMetaAdScriptsByFamily();
+    const scriptsByFamily = await getMetaAdScriptsByFamily();
     if (!scriptsByFamily) {
       return null;
     }
@@ -989,16 +1005,16 @@ function buildCreativeAssets(
     return stringValue(entry?.hook) || null;
   }
 
-  return creativeAssets.map((asset) => {
+  return Promise.all(creativeAssets.map(async (asset) => {
     const reviewState = record.creative_asset_reviews[asset.id];
-    const resolvedAsset = findMarketingAsset(runtimeDoc.job_id, runtimeDoc, asset.id);
+    const resolvedAsset = await findMarketingAsset(runtimeDoc.job_id, runtimeDoc, asset.id);
     const fileName = resolvedAsset?.filePath ? path.basename(resolvedAsset.filePath) : null;
     const isVideoScript = asset.platform === 'video' || /video|short/i.test(`${asset.id} ${asset.title}`);
     const scriptDetails = isVideoScript
-      ? readScriptArtifactDetails({ shortVideoScriptPath: resolvedAsset?.filePath || null, runtimeDoc })
-      : readScriptArtifactDetails({ metaScriptPath: resolvedAsset?.filePath || null, runtimeDoc });
+      ? await readScriptArtifactDetails({ shortVideoScriptPath: resolvedAsset?.filePath || null, runtimeDoc })
+      : await readScriptArtifactDetails({ metaScriptPath: resolvedAsset?.filePath || null, runtimeDoc });
     const landingDetails = asset.type === 'landing_page'
-      ? readLandingPageArtifactDetails({ path: resolvedAsset?.filePath || null, runtimeDoc })
+      ? await readLandingPageArtifactDetails({ path: resolvedAsset?.filePath || null, runtimeDoc })
       : fallbackLanding;
     const detailLines: string[] = [];
     const assetSummary =
@@ -1007,7 +1023,7 @@ function buildCreativeAssets(
           normalizeArtifactText(landingDetails.subheadline) ||
           normalizeArtifactText(stringValue(assetPreviews?.landing_page_headline))
         : asset.type === 'image_ad'
-          ? normalizeArtifactText(perFamilyHook(resolvedAsset?.filePath || null)) ||
+          ? normalizeArtifactText(await perFamilyHook(resolvedAsset?.filePath || null)) ||
             normalizeArtifactText(scriptDetails.metaAdHook) ||
             normalizeArtifactText(fallbackScripts.metaAdHook) ||
             normalizeArtifactText(stringValue(assetPreviews?.meta_ad_hook))
@@ -1033,7 +1049,7 @@ function buildCreativeAssets(
         detailLines.push(`Slug: ${landingDetails.slug}`);
       }
     } else if (asset.type === 'image_ad') {
-      detailLines.push(`Ad hook: ${perFamilyHook(resolvedAsset?.filePath || null) || scriptDetails.metaAdHook || fallbackScripts.metaAdHook || normalizeArtifactText(stringValue(assetPreviews?.meta_ad_hook)) || ARTIFACT_UNAVAILABLE_TEXT}`);
+      detailLines.push(`Ad hook: ${await perFamilyHook(resolvedAsset?.filePath || null) || scriptDetails.metaAdHook || fallbackScripts.metaAdHook || normalizeArtifactText(stringValue(assetPreviews?.meta_ad_hook)) || ARTIFACT_UNAVAILABLE_TEXT}`);
     } else if (isVideoScript) {
       detailLines.push(`Opening line: ${scriptDetails.shortVideoOpeningLine || fallbackScripts.shortVideoOpeningLine || normalizeArtifactText(stringValue(assetPreviews?.video_opening_line)) || ARTIFACT_UNAVAILABLE_TEXT}`);
       if ((scriptDetails.shortVideoBeats[0] || fallbackScripts.shortVideoBeats[0])) {
@@ -1062,7 +1078,7 @@ function buildCreativeAssets(
       latestNote: reviewState?.latestNote || null,
       history: stageHistory(record.status_history, 'creative', asset.id),
     };
-  });
+  }));
 }
 
 function creativeReviewStatus(
@@ -1080,15 +1096,15 @@ function creativeReviewStatus(
   return assets.length > 0 ? 'pending_review' : 'not_ready';
 }
 
-function buildCreativeReview(
+async function buildCreativeReview(
   runtimeDoc: MarketingJobRuntimeDocument,
   record: CampaignWorkspaceRecord,
   dashboard: MarketingDashboardCampaignContent,
   productionPreview: Record<string, unknown> | null,
   publishBlockedReason: string | null,
   counts: { approved: number; pending: number; rejected: number },
-): MarketingCreativeReviewPayload | null {
-  const assets = buildCreativeAssets(runtimeDoc, record, dashboard, productionPreview);
+): Promise<MarketingCreativeReviewPayload | null> {
+  const assets = await buildCreativeAssets(runtimeDoc, record, dashboard, productionPreview);
   if (assets.length === 0) {
     return null;
   }
@@ -1207,8 +1223,8 @@ function syncWorkspaceReviewsFromRuntime(
   return changed;
 }
 
-export function buildCampaignWorkspaceView(jobId: string): CampaignWorkspaceView {
-  const runtimeDoc = loadMarketingJobRuntime(jobId);
+export async function buildCampaignWorkspaceView(jobId: string): Promise<CampaignWorkspaceView> {
+  const runtimeDoc = await loadMarketingJobRuntime(jobId);
   if (!runtimeDoc) {
     return {
       jobId,
@@ -1231,13 +1247,13 @@ export function buildCampaignWorkspaceView(jobId: string): CampaignWorkspaceView
     };
   }
 
-  const record = ensureCampaignWorkspaceRecord({
+  const record = await ensureCampaignWorkspaceRecord({
     jobId,
     tenantId: runtimeDoc.tenant_id,
     payload: recordValue(runtimeDoc.inputs.request) || {},
   });
-  const rawDashboard = getMarketingDashboardCampaignContent(jobId);
-  const payloads = loadStagePayloadBundle(runtimeDoc);
+  const rawDashboard = await getMarketingDashboardCampaignContent(jobId);
+  const payloads = await loadStagePayloadBundle(runtimeDoc);
   const realBrandArtifactsReady = hasRealBrandArtifacts(payloads);
   const hasUploadedBrandAssets = uploadedBrandAssets(record);
   const brandReviewRenderable = realBrandArtifactsReady || hasUploadedBrandAssets;
@@ -1297,9 +1313,9 @@ export function buildCampaignWorkspaceView(jobId: string): CampaignWorkspaceView
   });
 
   const dashboard = withGatedDashboardStatus(rawDashboard, workflowResolution.workflowState);
-  const brandReview = brandReviewRenderable ? buildBrandReview(runtimeDoc, record, payloads) : null;
-  const strategyReview = strategyReady ? buildStrategyReview(runtimeDoc, record, payloads) : null;
-  const creativeReview = buildCreativeReview(
+  const brandReview = brandReviewRenderable ? await buildBrandReview(runtimeDoc, record, payloads) : null;
+  const strategyReview = strategyReady ? await buildStrategyReview(runtimeDoc, record, payloads) : null;
+  const creativeReview = await buildCreativeReview(
     runtimeDoc,
     record,
     dashboard,
@@ -1402,12 +1418,12 @@ function campaignIdentity(campaign: MarketingDashboardCampaign | null, jobId: st
   return campaign.externalCampaignId || campaign.name || `job::${jobId}`;
 }
 
-export function getWorkflowAwareDashboardContentForTenant(tenantId: string): MarketingDashboardContent {
+export async function getWorkflowAwareDashboardContentForTenant(tenantId: string): Promise<MarketingDashboardContent> {
   const items: MarketingDashboardCampaignContent[] = [];
   const seen = new Set<string>();
 
-  for (const jobId of listMarketingJobIdsForTenant(tenantId)) {
-    const view = buildCampaignWorkspaceView(jobId);
+  for (const jobId of await listMarketingJobIdsForTenant(tenantId)) {
+    const view = await buildCampaignWorkspaceView(jobId);
     const key = campaignIdentity(view.dashboard.campaign, jobId);
     if (seen.has(key)) {
       continue;

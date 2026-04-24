@@ -1,4 +1,5 @@
-import { closeSync, existsSync, openSync, readFileSync, readSync } from 'node:fs';
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { resolveCodeRoot, resolveDataRoot } from '@/lib/runtime-paths';
@@ -159,81 +160,67 @@ function normalizePublishPreviewSlug(platform: Record<string, unknown>, previewI
   return canonicalizePublishReviewPlatformSlug(platform.platform_slug, `platform-${previewIndex + 1}`);
 }
 
-function sniffImageContentType(filePath: string): string | null {
+async function sniffImageContentType(filePath: string): Promise<string | null> {
   try {
-    const fd = openSync(filePath, 'r');
-    try {
-      const buffer = Buffer.alloc(12);
-      const bytesRead = readSync(fd, buffer, 0, buffer.length, 0);
-      const header = buffer.subarray(0, bytesRead);
+    const header = (await readFile(filePath)).subarray(0, 12);
 
-      if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) {
-        return 'image/jpeg';
+    if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) {
+      return 'image/jpeg';
+    }
+    if (
+      header.length >= 8 &&
+      header[0] === 0x89 &&
+      header[1] === 0x50 &&
+      header[2] === 0x4e &&
+      header[3] === 0x47 &&
+      header[4] === 0x0d &&
+      header[5] === 0x0a &&
+      header[6] === 0x1a &&
+      header[7] === 0x0a
+    ) {
+      return 'image/png';
+    }
+    if (header.length >= 6) {
+      const signature = header.subarray(0, 6).toString('utf8');
+      if (signature === 'GIF87a' || signature === 'GIF89a') {
+        return 'image/gif';
       }
-      if (
-        header.length >= 8 &&
-        header[0] === 0x89 &&
-        header[1] === 0x50 &&
-        header[2] === 0x4e &&
-        header[3] === 0x47 &&
-        header[4] === 0x0d &&
-        header[5] === 0x0a &&
-        header[6] === 0x1a &&
-        header[7] === 0x0a
-      ) {
-        return 'image/png';
-      }
-      if (header.length >= 6) {
-        const signature = header.subarray(0, 6).toString('utf8');
-        if (signature === 'GIF87a' || signature === 'GIF89a') {
-          return 'image/gif';
-        }
-      }
-      if (
-        header.length >= 12 &&
-        header.subarray(0, 4).toString('ascii') === 'RIFF' &&
-        header.subarray(8, 12).toString('ascii') === 'WEBP'
-      ) {
-        return 'image/webp';
-      }
-    } finally {
-      closeSync(fd);
+    }
+    if (
+      header.length >= 12 &&
+      header.subarray(0, 4).toString('ascii') === 'RIFF' &&
+      header.subarray(8, 12).toString('ascii') === 'WEBP'
+    ) {
+      return 'image/webp';
     }
   } catch {}
 
   return null;
 }
 
-function sniffIsoBmffContentType(filePath: string): string | null {
+async function sniffIsoBmffContentType(filePath: string): Promise<string | null> {
   // ISO Base Media File Format (mp4/mov/m4v/etc.) starts with a 4-byte size
   // followed by the 'ftyp' box type. Both QuickTime (.mov) and MP4 share
   // the same outer container, so this is only safe to consult when the
   // extension already failed — otherwise we'd collapse .mov into video/mp4
   // and lose the QuickTime distinction.
   try {
-    const fd = openSync(filePath, 'r');
-    try {
-      const buffer = Buffer.alloc(8);
-      const bytesRead = readSync(fd, buffer, 0, buffer.length, 0);
-      const header = buffer.subarray(0, bytesRead);
+    const header = (await readFile(filePath)).subarray(0, 8);
 
-      if (header.length >= 8 && header.subarray(4, 8).toString('ascii') === 'ftyp') {
-        return 'video/mp4';
-      }
-    } finally {
-      closeSync(fd);
+    if (header.length >= 8 && header.subarray(4, 8).toString('ascii') === 'ftyp') {
+      return 'video/mp4';
     }
   } catch {}
 
   return null;
 }
 
-export function contentTypeForAsset(filePath: string): string {
+export async function contentTypeForAsset(filePath: string): Promise<string> {
   // Image magic bytes are unambiguous (a JPEG header can only mean JPEG, a
   // PNG signature can only mean PNG, etc.), so we let the bytes override
   // the extension when they disagree — operators routinely save sniffed
   // previews under whatever extension the source URL had.
-  const sniffedImage = sniffImageContentType(filePath);
+  const sniffedImage = await sniffImageContentType(filePath);
   if (sniffedImage) {
     return sniffedImage;
   }
@@ -278,7 +265,7 @@ export function contentTypeForAsset(filePath: string): string {
 
   // ISOBMFF (`ftyp`) sniffing is ambiguous between MP4 and QuickTime, so we
   // only run it when the extension didn't pick a winner above.
-  const sniffedIsoBmff = sniffIsoBmffContentType(filePath);
+  const sniffedIsoBmff = await sniffIsoBmffContentType(filePath);
   if (sniffedIsoBmff) {
     return sniffedIsoBmff;
   }
@@ -294,7 +281,7 @@ export function marketingAssetUrl(jobId: string, assetId: string): string {
   return `/api/marketing/jobs/${encodeURIComponent(jobId)}/assets/${encodeURIComponent(assetId)}`;
 }
 
-export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJobRuntimeDocument): MarketingAssetDescriptor[] {
+export async function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJobRuntimeDocument): Promise<MarketingAssetDescriptor[]> {
   const assets: MarketingAssetDescriptor[] = [];
   const assetById = new Map<string, MarketingAssetDescriptor>();
   const resolveAssetPath = (
@@ -322,7 +309,7 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
     return null;
   };
 
-  const addAsset = (
+  const addAsset = async (
     id: string,
     filePath: string | null | undefined,
     label: string,
@@ -339,21 +326,21 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
       id,
       filePath: resolvedPath,
       label,
-      contentType: contentTypeForAsset(resolvedPath),
+      contentType: await contentTypeForAsset(resolvedPath),
     });
   };
 
   const strategyOutputs = recordValue(runtimeDoc.stages.strategy.outputs);
-  const researchFallback = collectResearchStageArtifacts(
+  const researchFallback = await collectResearchStageArtifacts(
     runtimeDoc.stages.research.primary_output || { run_id: runtimeDoc.stages.research.run_id },
   );
-  const validatedProfileDocs = loadValidatedMarketingProfileDocs(runtimeDoc.tenant_id, {
+  const validatedProfileDocs = await loadValidatedMarketingProfileDocs(runtimeDoc.tenant_id, {
     currentSourceUrl: runtimeDoc.inputs.brand_url || null,
   });
-  const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
+  const validatedProfile = await loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
     currentSourceUrl: runtimeDoc.inputs.brand_url || null,
   });
-  const strategyFallback = collectStrategyReviewArtifacts(
+  const strategyFallback = await collectStrategyReviewArtifacts(
     runtimeDoc.stages.strategy.primary_output || { run_id: runtimeDoc.stages.strategy.run_id },
     runtimeDoc,
   );
@@ -378,7 +365,7 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
   if (websiteAnalysisPath) {
     try {
       const resolvedWebsiteAnalysisPath = resolveAssetPath(websiteAnalysisPath) || websiteAnalysisPath;
-      websiteAnalysis = recordValue(JSON.parse(readFileSync(resolvedWebsiteAnalysisPath, 'utf8')));
+      websiteAnalysis = recordValue(JSON.parse(await readFile(resolvedWebsiteAnalysisPath, 'utf8')));
     } catch {
       websiteAnalysis = null;
     }
@@ -405,23 +392,23 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
     })(),
   ]);
 
-  addAsset('research-summary', researchSummaryPath, 'Competitor research summary');
-  addAsset('strategy-website-analysis', websiteAnalysisPath, 'Website brand analysis');
-  addAsset(
+  await addAsset('research-summary', researchSummaryPath, 'Competitor research summary');
+  await addAsset('strategy-website-analysis', websiteAnalysisPath, 'Website brand analysis');
+  await addAsset(
     'brand-kit-json',
     runtimeDoc.brand_kit?.path || validatedProfileDocs.paths.brandKit,
     'Extracted brand kit',
     [validatedProfileDocs.paths.brandKit],
   );
-  addAsset('strategy-campaign-planner', plannerPath, 'Campaign planner');
-  addAsset('strategy-review-preview', strategyReviewPath, 'Strategy review preview');
-  addAsset(
+  await addAsset('strategy-campaign-planner', plannerPath, 'Campaign planner');
+  await addAsset('strategy-review-preview', strategyReviewPath, 'Strategy review preview');
+  await addAsset(
     'brand-bible-markdown',
     stringValue(brandArtifacts?.brand_bible_markdown_path) || null,
     'Brand bible',
     outputRoots().flatMap((outputRoot) => brandSlugCandidates.map((brandSlug) => path.join(outputRoot, `${brandSlug}-brand-bible.md`))),
   );
-  addAsset(
+  await addAsset(
     'brand-design-system',
     stringValue(brandArtifacts?.design_system_css_path) || null,
     'Design system',
@@ -429,13 +416,13 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
   );
 
   if (brandSlugCandidates.length > 0) {
-    addAsset(
+    await addAsset(
       'strategy-proposal-markdown',
       null,
       'Campaign proposal',
       outputRoots().flatMap((outputRoot) => brandSlugCandidates.map((brandSlug) => path.join(outputRoot, `${brandSlug}-campaign-proposal.md`))),
     );
-    addAsset(
+    await addAsset(
       'strategy-proposal-html',
       null,
       'Campaign proposal preview',
@@ -443,7 +430,7 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
     );
   }
 
-  const dashboardAssets = listMarketingDashboardAssetsForJob(jobId);
+  const dashboardAssets = await listMarketingDashboardAssetsForJob(jobId);
   const previewFallbacksByPlatform = new Map<string, string[]>();
   const rememberPreviewFallback = (platform: string, filePath: string) => {
     previewFallbacksByPlatform.set(platform, [
@@ -466,7 +453,7 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
     rememberPreviewFallback(asset.platform, asset.filePath);
   }
 
-  const reviewBundle = extractPublishReviewBundle(runtimeDoc);
+  const reviewBundle = await extractPublishReviewBundle(runtimeDoc);
   if (reviewBundle) {
     const artifactPaths = recordValue(reviewBundle.artifact_paths);
     const landingPage = recordValue(reviewBundle.landing_page_preview);
@@ -474,20 +461,20 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
     const reviewPacket = recordValue(reviewBundle.review_packet);
     const platformPreviews = recordArray(reviewBundle.platform_previews);
 
-    addAsset('launch-review-preview', stringValue(artifactPaths?.preview_path) || null, 'Launch review preview');
-    addAsset('landing-page-path', stringValue(landingPage?.landing_page_path) || null, 'Landing page');
-    addAsset('script-meta', stringValue(scriptPreview?.meta_script_path) || null, 'Meta script');
-    addAsset('script-video', stringValue(scriptPreview?.short_video_script_path) || null, 'Short video script');
-    addAsset('review-packet-production', stringValue(reviewPacket?.production_review_preview_path) || null, 'Production review preview');
-    addAsset('review-packet-canonical', stringValue(reviewPacket?.canonical_review_packet_path) || null, 'Canonical review packet');
+    await addAsset('launch-review-preview', stringValue(artifactPaths?.preview_path) || null, 'Launch review preview');
+    await addAsset('landing-page-path', stringValue(landingPage?.landing_page_path) || null, 'Landing page');
+    await addAsset('script-meta', stringValue(scriptPreview?.meta_script_path) || null, 'Meta script');
+    await addAsset('script-video', stringValue(scriptPreview?.short_video_script_path) || null, 'Short video script');
+    await addAsset('review-packet-production', stringValue(reviewPacket?.production_review_preview_path) || null, 'Production review preview');
+    await addAsset('review-packet-canonical', stringValue(reviewPacket?.canonical_review_packet_path) || null, 'Canonical review packet');
 
     for (const [previewIndex, platform] of platformPreviews.entries()) {
       const slug = normalizePublishPreviewSlug(platform, previewIndex);
       const platformName = stringValue(platform.platform_name, slug);
       const assetPaths = recordValue(platform.asset_paths);
 
-      stringArray(platform.media_paths).forEach((filePath, index) => {
-        addAsset(
+      for (const [index, filePath] of stringArray(platform.media_paths).entries()) {
+        await addAsset(
           publishReviewMediaAssetId({
             platformSlug: slug,
             previewIndex,
@@ -498,8 +485,8 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
           `${platformName} media ${index + 1}`,
           previewFallbacksByPlatform.get(slug) || previewFallbacksByPlatform.get('landing-page') || []
         );
-      });
-      addAsset(
+      }
+      await addAsset(
         publishReviewLinkedAssetId({
           platformSlug: slug,
           previewIndex,
@@ -509,7 +496,7 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
         stringValue(assetPaths?.contract_path) || null,
         `${platformName} contract`,
       );
-      addAsset(
+      await addAsset(
         publishReviewLinkedAssetId({
           platformSlug: slug,
           previewIndex,
@@ -519,7 +506,7 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
         stringValue(assetPaths?.brief_path) || null,
         `${platformName} brief`,
       );
-      addAsset(
+      await addAsset(
         publishReviewLinkedAssetId({
           platformSlug: slug,
           previewIndex,
@@ -536,15 +523,15 @@ export function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJ
     if (!asset.filePath) {
       continue;
     }
-    addAsset(asset.id, asset.filePath, asset.title);
+    await addAsset(asset.id, asset.filePath, asset.title);
   }
 
   assets.push(...assetById.values());
   return assets;
 }
 
-export function buildMarketingAssetLinks(jobId: string, runtimeDoc: MarketingJobRuntimeDocument): MarketingAssetLink[] {
-  return buildMarketingAssetLibrary(jobId, runtimeDoc).map((asset) => ({
+export async function buildMarketingAssetLinks(jobId: string, runtimeDoc: MarketingJobRuntimeDocument): Promise<MarketingAssetLink[]> {
+  return (await buildMarketingAssetLibrary(jobId, runtimeDoc)).map((asset) => ({
     id: asset.id,
     url: marketingAssetUrl(jobId, asset.id),
     label: asset.label,
@@ -552,18 +539,18 @@ export function buildMarketingAssetLinks(jobId: string, runtimeDoc: MarketingJob
   }));
 }
 
-export function findMarketingAsset(
+export async function findMarketingAsset(
   jobId: string,
   runtimeDoc: MarketingJobRuntimeDocument,
   assetId: string
-): MarketingAssetDescriptor | null {
-  const assets = buildMarketingAssetLibrary(jobId, runtimeDoc);
+): Promise<MarketingAssetDescriptor | null> {
+  const assets = await buildMarketingAssetLibrary(jobId, runtimeDoc);
   const directMatch = assets.find((asset) => asset.id === assetId);
   if (directMatch) {
     return directMatch;
   }
 
-  const reviewBundle = extractPublishReviewBundle(runtimeDoc);
+  const reviewBundle = await extractPublishReviewBundle(runtimeDoc);
   const platformPreviews = recordArray(reviewBundle?.platform_previews);
   const legacyToCanonical = new Map<string, string>();
 

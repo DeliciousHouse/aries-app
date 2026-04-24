@@ -638,8 +638,8 @@ function statusLabel(status: MarketingDashboardItemStatus): string {
   }
 }
 
-function rawPublishReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): Record<string, unknown> | null {
-  return extractPublishReviewBundle(runtimeDoc)
+async function rawPublishReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): Promise<Record<string, unknown> | null> {
+  return await extractPublishReviewBundle(runtimeDoc)
 }
 
 function envCacheRoot(stage: 1 | 2 | 3 | 4): string {
@@ -753,12 +753,12 @@ function listFiles(directoryPath: string | null | undefined, predicate?: (fileNa
   }
 }
 
-function readStageStepPayload(
+async function readStageStepPayload(
   runtimeDoc: MarketingJobRuntimeDocument,
   stage: 1 | 2 | 3 | 4,
   stepName: string,
-): Record<string, unknown> | null {
-  return readMarketingStageStepPayload(runtimeDoc, stage, stepName).payload
+): Promise<Record<string, unknown> | null> {
+  return (await readMarketingStageStepPayload(runtimeDoc, stage, stepName)).payload
 }
 
 function normalizePlatformSlug(value: string | null | undefined): string {
@@ -790,7 +790,7 @@ function extractBrandSlug(runtimeDoc: MarketingJobRuntimeDocument, planner: Prop
   return inferBrandSlug(runtimeDoc)
 }
 
-function parseProposalPlan(runtimeDoc: MarketingJobRuntimeDocument): ProposalPlan {
+async function parseProposalPlan(runtimeDoc: MarketingJobRuntimeDocument): Promise<ProposalPlan> {
   if (
     runtimeDoc.stages.strategy.status !== 'completed' &&
     runtimeDoc.stages.strategy.status !== 'failed' &&
@@ -816,10 +816,10 @@ function parseProposalPlan(runtimeDoc: MarketingJobRuntimeDocument): ProposalPla
     }
   }
 
-  const planner = readStageStepPayload(runtimeDoc, 2, 'campaign_planner')
+  const planner = await readStageStepPayload(runtimeDoc, 2, 'campaign_planner')
   const plan = recordValue(planner?.campaign_plan) ?? {}
   const brandProfiles = recordValue(planner?.brand_profiles_record) ?? {}
-  const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
+  const validatedProfile = await loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
     currentSourceUrl: runtimeDoc.inputs.brand_url || null,
   })
   return {
@@ -836,14 +836,19 @@ function parseProposalPlan(runtimeDoc: MarketingJobRuntimeDocument): ProposalPla
   }
 }
 
-function extractCampaignName(runtimeDoc: MarketingJobRuntimeDocument, status: DashboardStatusSnapshot, proposal: ProposalPlan): string {
+async function extractCampaignName(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  status: DashboardStatusSnapshot,
+  proposal: ProposalPlan,
+): Promise<string> {
+  const validatedProfile = await loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
+    currentSourceUrl: runtimeDoc.inputs.brand_url || null,
+  })
   const candidates = [
     status.reviewCampaignName,
     proposal.campaignName,
     status.tenantName,
-    loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
-      currentSourceUrl: runtimeDoc.inputs.brand_url || null,
-    }).brandName,
+    validatedProfile.brandName,
     runtimeDoc.brand_kit?.brand_name,
   ]
     .map((value) => stringValue(value))
@@ -1030,12 +1035,12 @@ function publishReviewSummary(preview: Record<string, unknown>, fallback: string
   return conciseMarketingText(180, preview.caption_text, preview.summary) || fallback
 }
 
-function extractCampaignId(runtimeDoc: MarketingJobRuntimeDocument, proposal: ProposalPlan): string {
+async function extractCampaignId(runtimeDoc: MarketingJobRuntimeDocument, proposal: ProposalPlan): Promise<string> {
   if (proposal.campaignId) {
     return proposal.campaignId
   }
 
-  const publishBundle = rawPublishReviewBundle(runtimeDoc)
+  const publishBundle = await rawPublishReviewBundle(runtimeDoc)
   const reviewCampaignName = stringValue(publishBundle?.campaign_id || publishBundle?.campaign_name)
   if (reviewCampaignName) {
     return slugify(reviewCampaignName, runtimeDoc.job_id)
@@ -1138,7 +1143,7 @@ function productionArtifactsAvailable(runtimeDoc: MarketingJobRuntimeDocument): 
   )
 }
 
-function publishArtifactsAvailable(runtimeDoc: MarketingJobRuntimeDocument): boolean {
+async function publishArtifactsAvailable(runtimeDoc: MarketingJobRuntimeDocument): Promise<boolean> {
   const publish = runtimeDoc.stages.publish
   const approvalStep = approvalWorkflowStepId(runtimeDoc)
   const publishOutputs = recordValue(publish.outputs)
@@ -1151,7 +1156,7 @@ function publishArtifactsAvailable(runtimeDoc: MarketingJobRuntimeDocument): boo
     !!recordValue(publishOutputs?.review) ||
     !!recordValue(publishOutputs?.envelope) ||
     !!recordValue(primaryOutput?.launch_review) ||
-    !!extractPublishReviewBundle(runtimeDoc)
+    !!(await extractPublishReviewBundle(runtimeDoc))
   )
 }
 
@@ -1175,12 +1180,12 @@ function creativeStatus(runtimeDoc: MarketingJobRuntimeDocument): MarketingDashb
   return 'draft'
 }
 
-function publishReadyStatus(runtimeDoc: MarketingJobRuntimeDocument): MarketingDashboardItemStatus {
+async function publishReadyStatus(runtimeDoc: MarketingJobRuntimeDocument): Promise<MarketingDashboardItemStatus> {
   if (approvalWorkflowStepId(runtimeDoc) === 'approve_stage_4_publish') {
     return 'ready_to_publish'
   }
   if (
-    publishArtifactsAvailable(runtimeDoc) &&
+    await publishArtifactsAvailable(runtimeDoc) &&
     (
       runtimeDoc.approvals.current?.stage === 'publish' ||
       runtimeDoc.stages.publish.status === 'awaiting_approval' ||
@@ -1335,8 +1340,8 @@ function summaryFromStatus(context: CampaignBuildContext): string {
   )
 }
 
-function buildCampaignWindowSnapshot(runtimeDoc: MarketingJobRuntimeDocument): MarketingCampaignWindow | null {
-  const reviewBundle = rawPublishReviewBundle(runtimeDoc)
+async function buildCampaignWindowSnapshot(runtimeDoc: MarketingJobRuntimeDocument): Promise<MarketingCampaignWindow | null> {
+  const reviewBundle = await rawPublishReviewBundle(runtimeDoc)
   const summary = recordValue(reviewBundle?.summary)
   const campaignWindow = recordValue(summary?.campaign_window)
   const start = stringValue(campaignWindow?.start) || null
@@ -1351,11 +1356,11 @@ function approvalReviewHref(jobId: string): string {
   return `/review/${encodeURIComponent(`${jobId}::approval`)}`
 }
 
-function buildStatusSnapshot(runtimeDoc: MarketingJobRuntimeDocument, proposal: ProposalPlan): DashboardStatusSnapshot {
-  const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
+async function buildStatusSnapshot(runtimeDoc: MarketingJobRuntimeDocument, proposal: ProposalPlan): Promise<DashboardStatusSnapshot> {
+  const validatedProfile = await loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
     currentSourceUrl: runtimeDoc.inputs.brand_url || null,
   })
-  const reviewBundle = rawPublishReviewBundle(runtimeDoc)
+  const reviewBundle = await rawPublishReviewBundle(runtimeDoc)
   const summaryHeadline =
     proposal.objective ||
     stringValue(runtimeDoc.summary?.headline) ||
@@ -1371,7 +1376,7 @@ function buildStatusSnapshot(runtimeDoc: MarketingJobRuntimeDocument, proposal: 
   return {
     tenantName: validatedProfile.brandName || runtimeDoc.brand_kit?.brand_name || null,
     brandWebsiteUrl: validatedProfile.websiteUrl || runtimeDoc.brand_kit?.source_url || runtimeDoc.inputs.brand_url || null,
-    campaignWindow: buildCampaignWindowSnapshot(runtimeDoc),
+    campaignWindow: await buildCampaignWindowSnapshot(runtimeDoc),
     currentStage: runtimeDoc.current_stage || null,
     updatedAt: runtimeDoc.updated_at || null,
     approvalRequired: !!runtimeDoc.approvals.current,
@@ -1568,11 +1573,16 @@ function campaignIdentityKey(
   ].join('::')
 }
 
-function buildCampaignContext(jobId: string, runtimeDoc: MarketingJobRuntimeDocument, options: MarketingDashboardBuildOptions): CampaignBuildContext {
-  const proposal = parseProposalPlan(runtimeDoc)
-  const status = buildStatusSnapshot(runtimeDoc, proposal)
+async function buildCampaignContext(
+  jobId: string,
+  runtimeDoc: MarketingJobRuntimeDocument,
+  options: MarketingDashboardBuildOptions,
+): Promise<CampaignBuildContext> {
+  const proposal = await parseProposalPlan(runtimeDoc)
+  const status = await buildStatusSnapshot(runtimeDoc, proposal)
   const brandSlug = extractBrandSlug(runtimeDoc, proposal)
-  const externalCampaignId = extractCampaignId(runtimeDoc, proposal)
+  const externalCampaignId = await extractCampaignId(runtimeDoc, proposal)
+  const reviewBundle = await rawPublishReviewBundle(runtimeDoc)
   return {
     jobId,
     runtimeDoc,
@@ -1581,11 +1591,11 @@ function buildCampaignContext(jobId: string, runtimeDoc: MarketingJobRuntimeDocu
     proposal,
     brandSlug,
     externalCampaignId,
-    campaignName: extractCampaignName(runtimeDoc, status, proposal),
+    campaignName: await extractCampaignName(runtimeDoc, status, proposal),
     objective: extractObjective(status, proposal),
     funnelStage: extractFunnelStage(
       proposal.objective,
-      recordValue(rawPublishReviewBundle(runtimeDoc)?.summary)?.funnel_stage,
+      recordValue(reviewBundle?.summary)?.funnel_stage,
     ),
     campaignRoot: realArtifactCampaignRootForBrand(brandSlug),
     outputRoots: lobsterOutputRoots(),
@@ -1662,7 +1672,7 @@ function resolveDashboardAssetFilePath(
   return null
 }
 
-function buildCampaignContentInternal(context: CampaignBuildContext): MarketingDashboardContentInternal {
+async function buildCampaignContentInternal(context: CampaignBuildContext): Promise<MarketingDashboardContentInternal> {
   const assetByKey = new Map<string, { priority: number; asset: MarketingDashboardAssetInternal }>()
   const postCandidates: Array<{ priority: number; post: CandidatePost }> = []
   const publishByKey = new Map<string, { priority: number; item: MarketingDashboardPublishItemInternal }>()
@@ -1676,7 +1686,7 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
   const brandUrl = context.status.brandWebsiteUrl || context.runtimeDoc.inputs.brand_url || null
   const canUseProposalArtifacts = strategyArtifactsAvailable(context.runtimeDoc)
   const canUseProductionArtifacts = productionArtifactsAvailable(context.runtimeDoc)
-  const canUsePublishArtifacts = publishArtifactsAvailable(context.runtimeDoc)
+  const canUsePublishArtifacts = await publishArtifactsAvailable(context.runtimeDoc)
 
   const addAsset = (
     candidate: CandidateAsset,
@@ -1840,7 +1850,7 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
   // aries-app container can't see the host-side lobster cache files, we can
   // still recover production_handoff from the runtime doc itself.
   const productionFinalizeOnDisk = canUseProductionArtifacts
-    ? readStageStepPayload(context.runtimeDoc, 3, 'creative_director_finalize')
+    ? await readStageStepPayload(context.runtimeDoc, 3, 'creative_director_finalize')
     : null
   const productionPrimaryOutput = recordValue(context.runtimeDoc.stages.production.primary_output)
   const productionFinalize =
@@ -2081,10 +2091,12 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
   }
 
   const publisherPayloads = canUsePublishArtifacts
-    ? PUBLISHER_STEPS.map((stepName) => {
-        const payload = readStageStepPayload(context.runtimeDoc, 4, stepName)
-        return payload ? { stepName, payload } : null
-      }).filter((entry): entry is { stepName: typeof PUBLISHER_STEPS[number]; payload: Record<string, unknown> } => !!entry)
+    ? (await Promise.all(
+        PUBLISHER_STEPS.map(async (stepName) => {
+          const payload = await readStageStepPayload(context.runtimeDoc, 4, stepName)
+          return payload ? { stepName, payload } : null
+        }),
+      )).filter((entry): entry is { stepName: typeof PUBLISHER_STEPS[number]; payload: Record<string, unknown> } => !!entry)
     : []
 
   const previewFallbackPathsByPlatform = new Map<string, string[]>()
@@ -2106,10 +2118,10 @@ function buildCampaignContentInternal(context: CampaignBuildContext): MarketingD
     rememberPreviewFallbackPath(platform, stringValue(publishPackage.fallback_svg_path))
   }
 
-  const publishBundle = canUsePublishArtifacts ? rawPublishReviewBundle(context.runtimeDoc) : null
+  const publishBundle = canUsePublishArtifacts ? await rawPublishReviewBundle(context.runtimeDoc) : null
   const platformPreviews = canUsePublishArtifacts ? recordArray(publishBundle?.platform_previews) : []
   const reviewCalendarEvents = canUsePublishArtifacts ? recordArray(recordValue(publishBundle?.content_calendar)?.events) : []
-  const publishStatus = publishReadyStatus(context.runtimeDoc)
+  const publishStatus = await publishReadyStatus(context.runtimeDoc)
 
   for (const [index, preview] of platformPreviews.entries()) {
     const platform = normalizePlatformSlug(stringValue(preview.platform_slug || preview.platform_name, 'campaign'))
@@ -2923,8 +2935,11 @@ function mergeContent(items: MarketingDashboardContentInternal[]): MarketingDash
   return merged
 }
 
-export function getMarketingDashboardContentInternal(jobId: string, options: MarketingDashboardBuildOptions = {}): MarketingDashboardContentInternal {
-  const runtimeDoc = loadMarketingJobRuntime(jobId)
+export async function getMarketingDashboardContentInternal(
+  jobId: string,
+  options: MarketingDashboardBuildOptions = {},
+): Promise<MarketingDashboardContentInternal> {
+  const runtimeDoc = await loadMarketingJobRuntime(jobId)
   if (!runtimeDoc) {
     return {
       campaigns: [],
@@ -2936,15 +2951,21 @@ export function getMarketingDashboardContentInternal(jobId: string, options: Mar
     }
   }
 
-  return buildCampaignContentInternal(buildCampaignContext(jobId, runtimeDoc, options))
+  return await buildCampaignContentInternal(await buildCampaignContext(jobId, runtimeDoc, options))
 }
 
-export function getMarketingDashboardContent(jobId: string, options: MarketingDashboardBuildOptions = {}): MarketingDashboardContent {
-  return publicFromInternal(getMarketingDashboardContentInternal(jobId, options))
+export async function getMarketingDashboardContent(
+  jobId: string,
+  options: MarketingDashboardBuildOptions = {},
+): Promise<MarketingDashboardContent> {
+  return publicFromInternal(await getMarketingDashboardContentInternal(jobId, options))
 }
 
-export function getMarketingDashboardCampaignContent(jobId: string, options: MarketingDashboardBuildOptions = {}): MarketingDashboardCampaignContent {
-  const internal = getMarketingDashboardContentInternal(jobId, options)
+export async function getMarketingDashboardCampaignContent(
+  jobId: string,
+  options: MarketingDashboardBuildOptions = {},
+): Promise<MarketingDashboardCampaignContent> {
+  const internal = await getMarketingDashboardContentInternal(jobId, options)
   return {
     campaign: internal.campaigns[0] ? sanitizeCampaign(internal.campaigns[0]) : null,
     posts: internal.posts.map(sanitizePost),
@@ -2955,15 +2976,15 @@ export function getMarketingDashboardCampaignContent(jobId: string, options: Mar
   }
 }
 
-export function getMarketingDashboardContentForTenantInternal(
+export async function getMarketingDashboardContentForTenantInternal(
   tenantId: string,
   options: MarketingDashboardBuildOptions = {},
-): MarketingDashboardContentInternal {
+): Promise<MarketingDashboardContentInternal> {
   const dedupedCampaigns: MarketingDashboardContentInternal[] = []
   const seenCampaigns = new Set<string>()
 
-  for (const jobId of listMarketingJobIdsForTenant(tenantId)) {
-    const content = getMarketingDashboardContentInternal(jobId, options)
+  for (const jobId of await listMarketingJobIdsForTenant(tenantId)) {
+    const content = await getMarketingDashboardContentInternal(jobId, options)
     const campaign = content.campaigns[0]
     const dedupeKey = campaign ? campaignIdentityKey(campaign) : `job::${jobId}`
     if (seenCampaigns.has(dedupeKey)) {
@@ -2977,15 +2998,18 @@ export function getMarketingDashboardContentForTenantInternal(
   return mergeContent(dedupedCampaigns)
 }
 
-export function getMarketingDashboardContentForTenant(
+export async function getMarketingDashboardContentForTenant(
   tenantId: string,
   options: MarketingDashboardBuildOptions = {},
-): MarketingDashboardContent {
-  return publicFromInternal(getMarketingDashboardContentForTenantInternal(tenantId, options))
+): Promise<MarketingDashboardContent> {
+  return publicFromInternal(await getMarketingDashboardContentForTenantInternal(tenantId, options))
 }
 
-export function listMarketingDashboardAssetsForJob(jobId: string, options: MarketingDashboardBuildOptions = {}): MarketingDashboardAssetInternal[] {
-  return getMarketingDashboardContentInternal(jobId, options).assets
+export async function listMarketingDashboardAssetsForJob(
+  jobId: string,
+  options: MarketingDashboardBuildOptions = {},
+): Promise<MarketingDashboardAssetInternal[]> {
+  return (await getMarketingDashboardContentInternal(jobId, options)).assets
 }
 
 export function dashboardDateRangeText(window: MarketingCampaignWindow | null): string {

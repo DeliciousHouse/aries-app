@@ -301,7 +301,7 @@ async function seedCurrentSourceIdentity(input: {
   );
 
   const { ensureCampaignWorkspaceRecord } = await import('../backend/marketing/workspace-store');
-  ensureCampaignWorkspaceRecord({
+  await ensureCampaignWorkspaceRecord({
     jobId: input.jobId,
     tenantId: input.tenantId,
     payload: {
@@ -355,10 +355,10 @@ test('canonical brand identity stays in parity across validated snapshot, brand 
     const { buildCampaignWorkspaceView } = await import('../backend/marketing/workspace-views');
     const { getBusinessProfile } = await import('../backend/tenant/business-profile');
 
-    const snapshot = loadValidatedMarketingProfileSnapshot(tenantId, {
+    const snapshot = await loadValidatedMarketingProfileSnapshot(tenantId, {
       currentSourceUrl: fixture.websiteUrl,
     });
-    const workspaceView = buildCampaignWorkspaceView(jobId);
+    const workspaceView = await buildCampaignWorkspaceView(jobId);
     const businessProfile = await getBusinessProfile(fakeTenantClient() as never, tenantId);
 
     const strategyResult = runScript({
@@ -468,10 +468,10 @@ test('source switch prevents source A brand identity from surviving in read mode
     const { loadValidatedMarketingProfileSnapshot } = await import('../backend/marketing/validated-profile-store');
     const { buildCampaignWorkspaceView } = await import('../backend/marketing/workspace-views');
     const { getBusinessProfile } = await import('../backend/tenant/business-profile');
-    const snapshot = loadValidatedMarketingProfileSnapshot(tenantId, {
+    const snapshot = await loadValidatedMarketingProfileSnapshot(tenantId, {
       currentSourceUrl: sourceB.websiteUrl,
     });
-    const workspaceView = buildCampaignWorkspaceView(jobId);
+    const workspaceView = await buildCampaignWorkspaceView(jobId);
     const businessProfile = await getBusinessProfile(fakeTenantClient() as never, tenantId);
 
     const brandProfile = JSON.parse(

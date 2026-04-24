@@ -93,13 +93,13 @@ export async function handlePatchMarketingJobBrief(
   }
   const tenantId = tenantResult.tenantContext.tenantId;
 
-  const runtimeDoc = loadMarketingJobRuntime(jobId);
+  const runtimeDoc = await loadMarketingJobRuntime(jobId);
   if (!runtimeDoc || runtimeDoc.tenant_id !== tenantId) {
     return NextResponse.json({ error: 'Marketing job not found.' }, { status: 404 });
   }
 
   const requestBody = await parseBriefRequest(req);
-  const record = ensureCampaignWorkspaceRecord({
+  const record = await ensureCampaignWorkspaceRecord({
     jobId,
     tenantId,
     payload: {
