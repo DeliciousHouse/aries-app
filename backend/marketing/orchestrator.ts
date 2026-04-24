@@ -266,6 +266,7 @@ function marketingPipelineArgs(doc: MarketingJobRuntimeDocument): Record<string,
     competitor: doc.inputs.competitor_url ?? '',
     competitor_facebook_url: facebookPageUrl,
     brand_slug: doc.tenant_id,
+    job_id: doc.job_id,
     agent_id: process.env.OPENCLAW_SESSION_KEY?.trim() || 'main',
     // Correlation id the gateway uses to target a cancel signal at this
     // specific in-flight run. Kept identical to the marketing job id so
