@@ -3,6 +3,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import type { MarketingJobFacts } from './job-facts';
 import type { MarketingJobRuntimeDocument, MarketingVideoStageArtifact } from './runtime-state';
 import { readMarketingStageStepPayload } from './stage-artifact-resolution';
 import {
@@ -739,6 +740,7 @@ function resolvePublishArtifactBrandSlug(
 async function buildFallbackPublishReviewBundle(
   runtimeDoc: MarketingJobRuntimeDocument,
   reviewPayload: Record<string, unknown> | null,
+  facts?: MarketingJobFacts,
 ): Promise<Record<string, unknown> | null> {
   const preflight = await readPublishStepPayload(runtimeDoc, 'performance_marketer_preflight');
   const productionHandoff = recordValue(preflight?.production_handoff);
@@ -779,7 +781,12 @@ async function buildFallbackPublishReviewBundle(
     runtimeDoc,
     brandSlug: artifactBrandSlug,
   });
-  const productionReview = await readMarketingStageStepPayload(runtimeDoc, 3, 'production_review_preview');
+  const productionReview = facts
+    ? await facts.stagePayload('production', 'production_review_preview')
+    : (await readMarketingStageStepPayload(runtimeDoc, 3, 'production_review_preview')).payload;
+  const productionReviewPath =
+    stringValue(recordValue(runtimeDoc.stages.production.outputs)?.production_review_path) ||
+    null;
   const platformPreviews: Record<string, unknown>[] = [];
   for (const reviewPackagePath of reviewPackagePaths) {
     const reviewPackage = await readJsonIfExists(reviewPackagePath);
@@ -898,9 +905,9 @@ async function buildFallbackPublishReviewBundle(
             short_video_script_path: scriptDetails.shortVideoScriptPath || undefined,
           }
         : null,
-    review_packet: productionReview.path
+    review_packet: productionReviewPath
       ? {
-          production_review_preview_path: resolveMarketingArtifactPath(productionReview.path) || productionReview.path,
+          production_review_preview_path: resolveMarketingArtifactPath(productionReviewPath) || productionReviewPath,
         }
       : null,
     platform_previews: platformPreviews,
@@ -958,12 +965,15 @@ function runtimeDocFallbackCampaignName(
   return stringValue(primaryBundle.campaign_name || fallbackBundle.campaign_name, 'Campaign');
 }
 
-export async function resolvePublishReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): Promise<PublishReviewBundleResolution> {
-  const reviewPayload = await extractPublishReviewPayload(runtimeDoc);
+export async function resolvePublishReviewBundle(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  facts?: MarketingJobFacts,
+): Promise<PublishReviewBundleResolution> {
+  const reviewPayload = await extractPublishReviewPayload(runtimeDoc, facts);
   const runtimeBundle = normalizeReviewBundle(recordValue(reviewPayload?.review_bundle));
   const fallbackBundle =
     publishStageHasRuntimeContext(runtimeDoc) || runtimeBundle
-      ? await buildFallbackPublishReviewBundle(runtimeDoc, reviewPayload)
+      ? await buildFallbackPublishReviewBundle(runtimeDoc, reviewPayload, facts)
       : null;
 
   if (runtimeBundle && !fallbackBundle) {
@@ -998,7 +1008,10 @@ export async function resolvePublishReviewBundle(runtimeDoc: MarketingJobRuntime
   };
 }
 
-export async function extractPublishReviewPayload(runtimeDoc: MarketingJobRuntimeDocument): Promise<Record<string, unknown> | null> {
+export async function extractPublishReviewPayload(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  facts?: MarketingJobFacts,
+): Promise<Record<string, unknown> | null> {
   const publishStage = runtimeDoc.stages.publish;
   const reviewOutput = recordValue(publishStage.outputs.review);
   if (reviewOutput) {
@@ -1012,7 +1025,9 @@ export async function extractPublishReviewPayload(runtimeDoc: MarketingJobRuntim
   }
 
   const loggedReview = publishStageHasRuntimeContext(runtimeDoc)
-    ? await readPublishStepPayload(runtimeDoc, 'launch_review_preview')
+    ? facts
+      ? await facts.stagePayload('publish', 'launch_review_preview')
+      : await readPublishStepPayload(runtimeDoc, 'launch_review_preview')
     : null;
   if (loggedReview) {
     return loggedReview;
@@ -1021,6 +1036,9 @@ export async function extractPublishReviewPayload(runtimeDoc: MarketingJobRuntim
   return primaryOutput;
 }
 
-export async function extractPublishReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): Promise<Record<string, unknown> | null> {
-  return (await resolvePublishReviewBundle(runtimeDoc)).reviewBundle;
+export async function extractPublishReviewBundle(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  facts?: MarketingJobFacts,
+): Promise<Record<string, unknown> | null> {
+  return (await resolvePublishReviewBundle(runtimeDoc, facts)).reviewBundle;
 }

@@ -7,6 +7,7 @@ import { resolveCodeRoot, resolveDataRoot } from '@/lib/runtime-paths';
 import { listMarketingDashboardAssetsForJob } from './dashboard-content';
 import { remapHostOutputToMount } from './host-output-path';
 import { collectResearchStageArtifacts, collectStrategyReviewArtifacts } from './artifact-collector';
+import { createMarketingJobFacts, type MarketingJobFacts } from './job-facts';
 import {
   canonicalizePublishReviewPlatformSlug,
   legacyPublishReviewLinkedAssetId,
@@ -281,9 +282,14 @@ export function marketingAssetUrl(jobId: string, assetId: string): string {
   return `/api/marketing/jobs/${encodeURIComponent(jobId)}/assets/${encodeURIComponent(assetId)}`;
 }
 
-export async function buildMarketingAssetLibrary(jobId: string, runtimeDoc: MarketingJobRuntimeDocument): Promise<MarketingAssetDescriptor[]> {
+export async function buildMarketingAssetLibrary(
+  jobId: string,
+  runtimeDoc: MarketingJobRuntimeDocument,
+  facts?: MarketingJobFacts,
+): Promise<MarketingAssetDescriptor[]> {
   const assets: MarketingAssetDescriptor[] = [];
   const assetById = new Map<string, MarketingAssetDescriptor>();
+  const resolvedFacts = facts ?? createMarketingJobFacts(runtimeDoc, null);
   const resolveAssetPath = (
     filePath: string | null | undefined,
     fallbackPaths: Array<string | null | undefined> = []
@@ -332,6 +338,7 @@ export async function buildMarketingAssetLibrary(jobId: string, runtimeDoc: Mark
 
   const strategyOutputs = recordValue(runtimeDoc.stages.strategy.outputs);
   const researchFallback = await collectResearchStageArtifacts(
+    resolvedFacts,
     runtimeDoc.stages.research.primary_output || { run_id: runtimeDoc.stages.research.run_id },
   );
   const validatedProfileDocs = await loadValidatedMarketingProfileDocs(runtimeDoc.tenant_id, {
@@ -341,8 +348,8 @@ export async function buildMarketingAssetLibrary(jobId: string, runtimeDoc: Mark
     currentSourceUrl: runtimeDoc.inputs.brand_url || null,
   });
   const strategyFallback = await collectStrategyReviewArtifacts(
+    resolvedFacts,
     runtimeDoc.stages.strategy.primary_output || { run_id: runtimeDoc.stages.strategy.run_id },
-    runtimeDoc,
   );
   const researchSummaryPath =
     stringValue(researchFallback.outputs.compile_path) ||
@@ -453,7 +460,7 @@ export async function buildMarketingAssetLibrary(jobId: string, runtimeDoc: Mark
     rememberPreviewFallback(asset.platform, asset.filePath);
   }
 
-  const reviewBundle = await extractPublishReviewBundle(runtimeDoc);
+  const reviewBundle = await extractPublishReviewBundle(runtimeDoc, resolvedFacts);
   if (reviewBundle) {
     const artifactPaths = recordValue(reviewBundle.artifact_paths);
     const landingPage = recordValue(reviewBundle.landing_page_preview);
@@ -530,8 +537,12 @@ export async function buildMarketingAssetLibrary(jobId: string, runtimeDoc: Mark
   return assets;
 }
 
-export async function buildMarketingAssetLinks(jobId: string, runtimeDoc: MarketingJobRuntimeDocument): Promise<MarketingAssetLink[]> {
-  return (await buildMarketingAssetLibrary(jobId, runtimeDoc)).map((asset) => ({
+export async function buildMarketingAssetLinks(
+  jobId: string,
+  runtimeDoc: MarketingJobRuntimeDocument,
+  facts?: MarketingJobFacts,
+): Promise<MarketingAssetLink[]> {
+  return (await buildMarketingAssetLibrary(jobId, runtimeDoc, facts)).map((asset) => ({
     id: asset.id,
     url: marketingAssetUrl(jobId, asset.id),
     label: asset.label,
@@ -542,15 +553,17 @@ export async function buildMarketingAssetLinks(jobId: string, runtimeDoc: Market
 export async function findMarketingAsset(
   jobId: string,
   runtimeDoc: MarketingJobRuntimeDocument,
-  assetId: string
+  assetId: string,
+  facts?: MarketingJobFacts,
 ): Promise<MarketingAssetDescriptor | null> {
-  const assets = await buildMarketingAssetLibrary(jobId, runtimeDoc);
+  const resolvedFacts = facts ?? createMarketingJobFacts(runtimeDoc, null);
+  const assets = await buildMarketingAssetLibrary(jobId, runtimeDoc, resolvedFacts);
   const directMatch = assets.find((asset) => asset.id === assetId);
   if (directMatch) {
     return directMatch;
   }
 
-  const reviewBundle = await extractPublishReviewBundle(runtimeDoc);
+  const reviewBundle = await extractPublishReviewBundle(runtimeDoc, resolvedFacts);
   const platformPreviews = recordArray(reviewBundle?.platform_previews);
   const legacyToCanonical = new Map<string, string>();
 

@@ -12,6 +12,7 @@ import {
   type MarketingVideoStageArtifact,
   type MarketingStageSummary,
 } from './runtime-state';
+import type { MarketingJobFacts } from './job-facts';
 import { resolvePublishReviewBundle } from './publish-review';
 import {
   ARTIFACT_UNAVAILABLE_TEXT,
@@ -241,12 +242,17 @@ async function resolveRunId(
   return asString(primaryOutput?.run_id) || (runtimeDoc && stage ? await inferMarketingStageRunId(runtimeDoc, stage) : null);
 }
 
-export async function collectResearchStageArtifacts(primaryOutput: Record<string, unknown> | null): Promise<StageCapture> {
-  const runId = await resolveRunId(primaryOutput);
+export async function collectResearchStageArtifacts(
+  facts: MarketingJobFacts,
+  primaryOutput: Record<string, unknown> | null,
+): Promise<StageCapture> {
+  const runId = (await resolveRunId(primaryOutput, facts.runtimeDoc, 1)) || facts.runId;
   const compilePath = runId ? stepPayloadPath(1, runId, 'ads_analyst_compile') : '';
   const extractorPath = runId ? stepPayloadPath(1, runId, 'meta_ads_extractor') : '';
-  const compile = compilePath ? await readJsonIfExists(compilePath) : null;
-  const extractor = extractorPath ? await readJsonIfExists(extractorPath) : null;
+  const [compile, extractor] = await Promise.all([
+    facts.stagePayload('research', 'ads_analyst_compile'),
+    facts.stagePayload('research', 'meta_ads_extractor'),
+  ]);
   const executive = asRecord(compile?.executive_summary) ?? {};
   // Only treat the competitor as real if the upstream produced a non-generic value.
   // ads-analyst defaults to the literal string "competitor" when no brand was set,
@@ -291,45 +297,42 @@ export async function collectResearchStageArtifacts(primaryOutput: Record<string
 }
 
 export async function collectStrategyReviewArtifacts(
+  facts: MarketingJobFacts,
   primaryOutput: Record<string, unknown> | null,
-  runtimeDoc?: MarketingJobRuntimeDocument | null,
 ): Promise<StageCapture> {
+  const runtimeDoc = facts.runtimeDoc;
   const sourceUrl = currentSourceUrl(runtimeDoc);
   const validatedDocs = runtimeDoc ? await loadValidatedMarketingProfileDocs(runtimeDoc.tenant_id, {
     currentSourceUrl: sourceUrl,
   }) : null;
-  const websiteStep = runtimeDoc ? await readMarketingStageStepPayload(runtimeDoc, 2, 'website_brand_analysis') : null;
-  const plannerStep = runtimeDoc ? await readMarketingStageStepPayload(runtimeDoc, 2, 'campaign_planner') : null;
-  const reviewStep = runtimeDoc ? await readMarketingStageStepPayload(runtimeDoc, 2, 'strategy_review_preview') : null;
-  const runId =
-    await resolveRunId(primaryOutput, runtimeDoc, 2) ||
-    websiteStep?.runId ||
-    plannerStep?.runId ||
-    reviewStep?.runId ||
-    null;
+  const [websiteStep, plannerStep, reviewStep] = await Promise.all([
+    facts.stagePayload('strategy', 'website_brand_analysis'),
+    facts.stagePayload('strategy', 'campaign_planner'),
+    facts.stagePayload('strategy', 'strategy_review_preview'),
+  ]);
+  const runId = (await resolveRunId(primaryOutput, runtimeDoc, 2)) || facts.runId || null;
   const websitePath =
     stringValue(asRecord(primaryOutput)?.validated_website_analysis_path) ||
     validatedDocs?.paths.websiteAnalysis ||
-    websiteStep?.path ||
     (runId ? stepPayloadPath(2, runId, 'website_brand_analysis') : '');
   const brandProfilePath =
     stringValue(asRecord(primaryOutput)?.validated_brand_profile_path) ||
     validatedDocs?.paths.brandProfile ||
     null;
-  const plannerPath = plannerStep?.path || (runId ? stepPayloadPath(2, runId, 'campaign_planner') : '');
-  const reviewPath = reviewStep?.path || (runId ? stepPayloadPath(2, runId, 'strategy_review_preview') : '');
-  const rawRunWebsite = websiteStep?.payload || (websitePath ? await readJsonIfExists(websitePath) : null);
+  const plannerPath = runId ? stepPayloadPath(2, runId, 'campaign_planner') : '';
+  const reviewPath = runId ? stepPayloadPath(2, runId, 'strategy_review_preview') : '';
+  const rawRunWebsite = websiteStep || (websitePath ? await facts.jsonAtPath(websitePath) : null);
   const runWebsite = sourceMatchedRecord(
     rawRunWebsite,
     sourceUrl,
   );
   const website = runWebsite || validatedDocs?.websiteAnalysis || null;
   const brandProfile = sourceMatchedRecord(
-    validatedDocs?.brandProfile || (brandProfilePath ? await readJsonIfExists(brandProfilePath) : null),
+    validatedDocs?.brandProfile || (brandProfilePath ? await facts.jsonAtPath(brandProfilePath) : null),
     sourceUrl,
   );
-  const plannerCandidate = plannerStep?.payload || (plannerPath ? await readJsonIfExists(plannerPath) : null);
-  const reviewCandidate = reviewStep?.payload || (reviewPath ? await readJsonIfExists(reviewPath) : null);
+  const plannerCandidate = plannerStep || (plannerPath ? await facts.jsonAtPath(plannerPath) : null);
+  const reviewCandidate = reviewStep || (reviewPath ? await facts.jsonAtPath(reviewPath) : null);
   const planner = strategyPayloadMatchesCurrentSource(plannerCandidate, sourceUrl, runWebsite, !!rawRunWebsite) ? plannerCandidate : null;
   const review = strategyPayloadMatchesCurrentSource(reviewCandidate, sourceUrl, runWebsite, !!rawRunWebsite) ? reviewCandidate : null;
   const brandAnalysis = asRecord(website?.brand_analysis) ?? {};
@@ -410,23 +413,20 @@ export async function collectStrategyFinalizeArtifacts(primaryOutput: Record<str
 }
 
 export async function collectProductionReviewArtifacts(
+  facts: MarketingJobFacts,
   primaryOutput: Record<string, unknown> | null,
-  runtimeDoc?: MarketingJobRuntimeDocument | null,
 ): Promise<StageCapture> {
-  const reviewStep = runtimeDoc ? await readMarketingStageStepPayload(runtimeDoc, 3, 'production_review_preview') : null;
-  const finalizeStep = runtimeDoc ? await readMarketingStageStepPayload(runtimeDoc, 3, 'creative_director_finalize') : null;
-  const videoStep = runtimeDoc ? await readMarketingStageStepPayload(runtimeDoc, 3, 'veo_video_generator') : null;
-  const runId =
-    await resolveRunId(primaryOutput, runtimeDoc, 3) ||
-    reviewStep?.runId ||
-    finalizeStep?.runId ||
-    videoStep?.runId ||
-    null;
-  const reviewPath = reviewStep?.path || (runId ? stepPayloadPath(3, runId, 'production_review_preview') : '');
-  const finalizePath = finalizeStep?.path || (runId ? stepPayloadPath(3, runId, 'creative_director_finalize') : '');
-  const videoPath = videoStep?.path || (runId ? stepPayloadPath(3, runId, 'veo_video_generator') : '');
-  const review = reviewStep?.payload || (reviewPath ? await readJsonIfExists(reviewPath) : null);
-  const video = videoStep?.payload || (videoPath ? await readJsonIfExists(videoPath) : null);
+  const runtimeDoc = facts.runtimeDoc;
+  const [reviewStep, videoStep] = await Promise.all([
+    facts.stagePayload('production', 'production_review_preview'),
+    facts.stagePayload('production', 'veo_video_generator'),
+  ]);
+  const runId = (await resolveRunId(primaryOutput, runtimeDoc, 3)) || facts.runId || null;
+  const reviewPath = runId ? stepPayloadPath(3, runId, 'production_review_preview') : '';
+  const finalizePath = runId ? stepPayloadPath(3, runId, 'creative_director_finalize') : '';
+  const videoPath = runId ? stepPayloadPath(3, runId, 'veo_video_generator') : '';
+  const review = reviewStep || (reviewPath ? await facts.jsonAtPath(reviewPath) : null);
+  const video = videoStep || (videoPath ? await facts.jsonAtPath(videoPath) : null);
   const jobId = runtimeDoc?.job_id || stringValue(primaryOutput?.job_id) || null;
   const packet = asRecord(review?.review_packet) ?? {};
   const summaryBlock = asRecord(packet.summary) ?? {};
