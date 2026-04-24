@@ -5,7 +5,10 @@ import { useCallback, useEffect, useMemo } from 'react';
 import { createAriesV1Api, type ReviewDecisionRequest, type ReviewItemResponse } from '@/lib/api/aries-v1';
 import { useAsyncAction, useRequestState } from './use-request-state';
 
-export function useRuntimeReviewItem(reviewId: string, options: { baseUrl?: string; autoLoad?: boolean } = {}) {
+export function useRuntimeReviewItem(
+  reviewId: string,
+  options: { baseUrl?: string; autoLoad?: boolean; initialData?: ReviewItemResponse | null } = {},
+) {
   const api = useMemo(() => createAriesV1Api(options), [options.baseUrl]);
   const state = useRequestState<ReviewItemResponse>();
   const decision = useAsyncAction<ReviewItemResponse>();
@@ -37,8 +40,9 @@ export function useRuntimeReviewItem(reviewId: string, options: { baseUrl?: stri
 
   useEffect(() => {
     if (options.autoLoad === false) return;
+    if (options.initialData?.review.id === reviewId) return;
     void load();
-  }, [load, options.autoLoad]);
+  }, [load, options.autoLoad, options.initialData?.review.id, reviewId]);
 
   return { ...state, load, decision, submitDecision };
 }

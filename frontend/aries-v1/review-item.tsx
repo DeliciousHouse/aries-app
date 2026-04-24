@@ -6,6 +6,7 @@ import { ArrowUpRight, CheckCircle2, LoaderCircle, MessageSquareText, XCircle } 
 
 import MediaPreview from '@/frontend/components/media-preview';
 import { useRuntimeReviewItem } from '@/hooks/use-runtime-review-item';
+import type { ReviewItemResponse } from '@/lib/api/aries-v1';
 
 import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { getReviewRecoveryState } from './review-recovery';
@@ -62,9 +63,9 @@ function brandKitFontStyle(family: string): CSSProperties {
   };
 }
 
-export default function AriesReviewItemScreen(props: { reviewId: string }) {
-  const review = useRuntimeReviewItem(props.reviewId, { autoLoad: true });
-  const item = review.data?.review ?? null;
+export default function AriesReviewItemScreen(props: { reviewId: string; initialData?: ReviewItemResponse | null }) {
+  const review = useRuntimeReviewItem(props.reviewId, { autoLoad: true, initialData: props.initialData });
+  const item = review.data?.review ?? props.initialData?.review ?? null;
   const recoveryState = getReviewRecoveryState(review.error);
   const [note, setNote] = useState('');
   const [activeAction, setActiveAction] = useState<DecisionActionKind>('approve');
