@@ -6101,4 +6101,315 @@ test('/api/marketing/jobs/:jobId exposes .mp4 paths as video/mp4 media assets on
     assert.equal(assetResponse.headers.get('content-type'), 'video/mp4');
   });
 });
+
+test('/api/marketing/jobs/:jobId/assets/:assetId streams video assets with range support', async () => {
+  await withRuntimeEnv(async () => {
+    const { handleGetMarketingJobAsset } = await import('../app/api/marketing/jobs/[jobId]/assets/[assetId]/handler');
+    const fixturePath = path.join(PROJECT_ROOT, 'tests', 'fixtures', 'tiny-video.mp4');
+    const fixtureBytes = await readFile(fixturePath);
+    const jobId = 'mkt_stream_video_job';
+    const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
+    const videosDir = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'jobs', jobId, 'videos');
+    const videoPath = path.join(videosDir, 'launch-cut.mp4');
+    const posterPath = path.join(videosDir, 'launch-cut.jpg');
+
+    await mkdir(path.dirname(runtimeFile), { recursive: true });
+    await mkdir(videosDir, { recursive: true });
+    await writeFile(videoPath, fixtureBytes);
+    await writeFile(posterPath, Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00]));
+    await writeFile(
+      runtimeFile,
+      JSON.stringify({
+        schema_name: 'marketing_job_state_schema',
+        schema_version: '1.0.0',
+        job_id: jobId,
+        job_type: 'brand_campaign',
+        tenant_id: 'tenant_real',
+        state: 'approval_required',
+        status: 'awaiting_approval',
+        current_stage: 'publish',
+        stage_order: ['research', 'strategy', 'production', 'publish'],
+        stages: {
+          research: { stage: 'research', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-r', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          strategy: { stage: 'strategy', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-s', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          production: { stage: 'production', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-p', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          publish: {
+            stage: 'publish',
+            status: 'awaiting_approval',
+            started_at: null,
+            completed_at: null,
+            failed_at: null,
+            run_id: 'run-publish',
+            summary: null,
+            primary_output: null,
+            outputs: {},
+            artifacts: [],
+            errors: [],
+          },
+        },
+        approvals: { current: null, history: [] },
+        publish_config: { platforms: ['tiktok'], live_publish_platforms: [], video_render_platforms: ['tiktok'] },
+        brand_kit: null,
+        inputs: { request: {}, brand_url: 'https://brand.example' },
+        errors: [],
+        last_error: null,
+        history: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, null, 2),
+    );
+
+    const tenantLoader = async () => ({
+      userId: 'user_123',
+      tenantId: 'tenant_real',
+      tenantSlug: 'acme',
+      role: 'tenant_admin' as const,
+    });
+
+    const fullResponse = await handleGetMarketingJobAsset(
+      jobId,
+      'video-launch-cut',
+      new Request('http://localhost/api/marketing/jobs/test/assets/video-launch-cut'),
+      tenantLoader,
+    );
+
+    assert.equal(fullResponse.status, 200);
+    assert.equal(fullResponse.headers.get('content-type'), 'video/mp4');
+    assert.equal(fullResponse.headers.get('accept-ranges'), 'bytes');
+    assert.equal(fullResponse.headers.get('content-length'), String(fixtureBytes.length));
+    assert.deepEqual(Buffer.from(await fullResponse.arrayBuffer()), fixtureBytes);
+
+    const rangeResponse = await handleGetMarketingJobAsset(
+      jobId,
+      'video-launch-cut',
+      new Request('http://localhost/api/marketing/jobs/test/assets/video-launch-cut', {
+        headers: { range: 'bytes=0-1023' },
+      }),
+      tenantLoader,
+    );
+
+    assert.equal(rangeResponse.status, 206);
+    assert.equal(rangeResponse.headers.get('content-type'), 'video/mp4');
+    assert.equal(rangeResponse.headers.get('accept-ranges'), 'bytes');
+    assert.equal(rangeResponse.headers.get('content-length'), '1024');
+    assert.equal(rangeResponse.headers.get('content-range'), `bytes 0-1023/${fixtureBytes.length}`);
+    assert.deepEqual(Buffer.from(await rangeResponse.arrayBuffer()), fixtureBytes.subarray(0, 1024));
+
+    const posterResponse = await handleGetMarketingJobAsset(
+      jobId,
+      'video-launch-cut-poster',
+      new Request('http://localhost/api/marketing/jobs/test/assets/video-launch-cut-poster'),
+      tenantLoader,
+    );
+
+    assert.equal(posterResponse.status, 200);
+    assert.equal(posterResponse.headers.get('content-type'), 'image/jpeg');
+    assert.equal(posterResponse.headers.get('accept-ranges'), 'bytes');
+    assert.deepEqual(
+      Buffer.from(await posterResponse.arrayBuffer()),
+      Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00]),
+    );
+  });
+});
+
+test('/api/marketing/jobs/:jobId/assets/:assetId rejects traversal-style video asset ids with 400', async () => {
+  await withRuntimeEnv(async () => {
+    const { handleGetMarketingJobAsset } = await import('../app/api/marketing/jobs/[jobId]/assets/[assetId]/handler');
+    const jobId = 'mkt_stream_video_traversal';
+    const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
+
+    await mkdir(path.dirname(runtimeFile), { recursive: true });
+    await writeFile(
+      runtimeFile,
+      JSON.stringify({
+        schema_name: 'marketing_job_state_schema',
+        schema_version: '1.0.0',
+        job_id: jobId,
+        job_type: 'brand_campaign',
+        tenant_id: 'tenant_real',
+        state: 'approval_required',
+        status: 'awaiting_approval',
+        current_stage: 'publish',
+        stage_order: ['research', 'strategy', 'production', 'publish'],
+        stages: {
+          research: { stage: 'research', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-r', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          strategy: { stage: 'strategy', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-s', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          production: { stage: 'production', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-p', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          publish: {
+            stage: 'publish',
+            status: 'awaiting_approval',
+            started_at: null,
+            completed_at: null,
+            failed_at: null,
+            run_id: 'run-publish',
+            summary: null,
+            primary_output: null,
+            outputs: {},
+            artifacts: [],
+            errors: [],
+          },
+        },
+        approvals: { current: null, history: [] },
+        publish_config: { platforms: ['tiktok'], live_publish_platforms: [], video_render_platforms: ['tiktok'] },
+        brand_kit: null,
+        inputs: { request: {}, brand_url: 'https://brand.example' },
+        errors: [],
+        last_error: null,
+        history: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, null, 2),
+    );
+
+    const response = await handleGetMarketingJobAsset(
+      jobId,
+      'video-../../etc/passwd',
+      new Request('http://localhost/api/marketing/jobs/test/assets/video-../../etc/passwd'),
+      async () => ({
+        userId: 'user_123',
+        tenantId: 'tenant_real',
+        tenantSlug: 'acme',
+        role: 'tenant_admin',
+      }),
+    );
+    const body = (await response.json()) as Record<string, unknown>;
+
+    assert.equal(response.status, 400);
+    assert.equal(body.reason, 'invalid_marketing_asset_request');
+  });
+});
+
+test('/api/marketing/jobs/:jobId/assets/:assetId rejects cross-tenant video access with 403', async () => {
+  await withRuntimeEnv(async () => {
+    const { handleGetMarketingJobAsset } = await import('../app/api/marketing/jobs/[jobId]/assets/[assetId]/handler');
+    const jobId = 'mkt_stream_video_cross_tenant';
+    const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
+
+    await mkdir(path.dirname(runtimeFile), { recursive: true });
+    await writeFile(
+      runtimeFile,
+      JSON.stringify({
+        schema_name: 'marketing_job_state_schema',
+        schema_version: '1.0.0',
+        job_id: jobId,
+        job_type: 'brand_campaign',
+        tenant_id: 'tenant_owner',
+        state: 'approval_required',
+        status: 'awaiting_approval',
+        current_stage: 'publish',
+        stage_order: ['research', 'strategy', 'production', 'publish'],
+        stages: {
+          research: { stage: 'research', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-r', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          strategy: { stage: 'strategy', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-s', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          production: { stage: 'production', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-p', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          publish: {
+            stage: 'publish',
+            status: 'awaiting_approval',
+            started_at: null,
+            completed_at: null,
+            failed_at: null,
+            run_id: 'run-publish',
+            summary: null,
+            primary_output: null,
+            outputs: {},
+            artifacts: [],
+            errors: [],
+          },
+        },
+        approvals: { current: null, history: [] },
+        publish_config: { platforms: ['tiktok'], live_publish_platforms: [], video_render_platforms: ['tiktok'] },
+        brand_kit: null,
+        inputs: { request: {}, brand_url: 'https://brand.example' },
+        errors: [],
+        last_error: null,
+        history: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, null, 2),
+    );
+
+    const response = await handleGetMarketingJobAsset(
+      jobId,
+      'video-launch-cut',
+      new Request('http://localhost/api/marketing/jobs/test/assets/video-launch-cut'),
+      async () => ({
+        userId: 'user_123',
+        tenantId: 'tenant_other',
+        tenantSlug: 'other',
+        role: 'tenant_admin',
+      }),
+    );
+    const body = (await response.json()) as Record<string, unknown>;
+
+    assert.equal(response.status, 403);
+    assert.equal(body.reason, 'marketing_asset_forbidden');
+  });
+});
+
+test('/api/marketing/jobs/:jobId/assets/:assetId returns 404 for missing video files', async () => {
+  await withRuntimeEnv(async () => {
+    const { handleGetMarketingJobAsset } = await import('../app/api/marketing/jobs/[jobId]/assets/[assetId]/handler');
+    const jobId = 'mkt_stream_video_missing';
+    const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
+
+    await mkdir(path.dirname(runtimeFile), { recursive: true });
+    await writeFile(
+      runtimeFile,
+      JSON.stringify({
+        schema_name: 'marketing_job_state_schema',
+        schema_version: '1.0.0',
+        job_id: jobId,
+        job_type: 'brand_campaign',
+        tenant_id: 'tenant_real',
+        state: 'approval_required',
+        status: 'awaiting_approval',
+        current_stage: 'publish',
+        stage_order: ['research', 'strategy', 'production', 'publish'],
+        stages: {
+          research: { stage: 'research', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-r', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          strategy: { stage: 'strategy', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-s', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          production: { stage: 'production', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-p', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          publish: {
+            stage: 'publish',
+            status: 'awaiting_approval',
+            started_at: null,
+            completed_at: null,
+            failed_at: null,
+            run_id: 'run-publish',
+            summary: null,
+            primary_output: null,
+            outputs: {},
+            artifacts: [],
+            errors: [],
+          },
+        },
+        approvals: { current: null, history: [] },
+        publish_config: { platforms: ['tiktok'], live_publish_platforms: [], video_render_platforms: ['tiktok'] },
+        brand_kit: null,
+        inputs: { request: {}, brand_url: 'https://brand.example' },
+        errors: [],
+        last_error: null,
+        history: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, null, 2),
+    );
+
+    const response = await handleGetMarketingJobAsset(
+      jobId,
+      'video-missing-cut',
+      new Request('http://localhost/api/marketing/jobs/test/assets/video-missing-cut'),
+      async () => ({
+        userId: 'user_123',
+        tenantId: 'tenant_real',
+        tenantSlug: 'acme',
+        role: 'tenant_admin',
+      }),
+    );
+    const body = (await response.json()) as Record<string, unknown>;
+
+    assert.equal(response.status, 404);
+    assert.equal(body.reason, 'marketing_asset_not_found');
+  });
+});
 });
