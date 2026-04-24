@@ -33,9 +33,9 @@ def emit_json(payload: Any) -> None:
     sys.stdout.write("\n")
 
 
-def slugify(value: str) -> str:
+def slugify(value: str, fallback: str = "client-brand") -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", (value or "").lower()).strip("-")
-    return slug or "client-brand"
+    return slug or fallback
 
 
 def make_run_id(seed: str) -> str:
@@ -56,6 +56,40 @@ def cache_root() -> Path:
     root = Path(os.environ.get("LOBSTER_STAGE3_CACHE_DIR", Path(tempfile.gettempdir()) / "lobster-stage3-cache"))
     root.mkdir(parents=True, exist_ok=True)
     return root
+
+
+def resolve_data_root() -> Path:
+    return Path(os.environ.get("DATA_ROOT", "/data")).resolve()
+
+
+def resolve_video_render_root(job_id: str, campaign_id: str, cwd: Path | None = None) -> Path:
+    normalized_job_id = (job_id or "").strip()
+    if normalized_job_id:
+        return resolve_data_root() / "generated" / "draft" / "jobs" / normalized_job_id / "videos"
+    base_cwd = (cwd or Path.cwd()).resolve()
+    return base_cwd / "output" / "video-contracts" / campaign_id / "rendered"
+
+
+def video_variant_output_paths(
+    platform_slug: str,
+    family_id: str,
+    *,
+    job_id: str,
+    campaign_id: str,
+    cwd: Path | None = None,
+) -> dict[str, str]:
+    root = resolve_video_render_root(job_id, campaign_id, cwd=cwd)
+    if (job_id or "").strip():
+        stem = root / f"{platform_slug}-{family_id}"
+    else:
+        stem = root / platform_slug / f"{platform_slug}-{family_id}"
+    return {
+        "directory": str(stem.parent),
+        "video_file": str(stem.with_suffix(".mp4")),
+        "captions_file": str(stem.with_suffix(".srt")),
+        "poster_file": str(stem.with_suffix(".jpg")),
+        "project_file": str(stem.with_suffix(".json")),
+    }
 
 
 def run_dir(run_id: str) -> Path:

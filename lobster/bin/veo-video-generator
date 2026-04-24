@@ -17,6 +17,7 @@ from _stage3_common import (
     save_artifact_text,
     save_step,
     slugify,
+    video_variant_output_paths,
     utc_now,
 )
 from _stage4_common import run_veo_render, veo_render_enabled
@@ -170,22 +171,76 @@ def build_master_script(brief: dict, script_assets: dict) -> dict:
     }
 
 
-def build_render_outputs(base_dir: Path, platform_slug: str) -> dict:
-    rendered_dir = base_dir / "rendered" / platform_slug
-    return {
-        "directory": str(rendered_dir),
-        "video_file": str(rendered_dir / f"{platform_slug}.mp4"),
-        "captions_file": str(rendered_dir / f"{platform_slug}.srt"),
-        "poster_file": str(rendered_dir / f"{platform_slug}.jpg"),
-        "project_file": str(rendered_dir / f"{platform_slug}.json"),
-    }
+def planned_video_families(brief: dict, master_contract: dict) -> list[dict]:
+    def _string(value) -> str:
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped:
+                return stripped
+        return ""
+
+    video_matrix = record_or_empty(brief.get("testing_matrix", {}).get("video", {}) if isinstance(brief, dict) else {})
+    raw_cold = [fam for fam in list_or_empty(video_matrix.get("cold_funnel")) if isinstance(fam, dict) and _string(fam.get("primary_hook"))]
+    raw_warm = [fam for fam in list_or_empty(video_matrix.get("warm_funnel")) if isinstance(fam, dict) and _string(fam.get("primary_hook"))]
+    if raw_cold and raw_warm:
+        selected_families = [raw_cold[0], raw_warm[0]]
+    elif raw_cold:
+        selected_families = raw_cold[:2]
+    elif raw_warm:
+        selected_families = raw_warm[:2]
+    else:
+        selected_families = [
+            {
+                "family_id": "default",
+                "family_name": "Default",
+                "funnel_stage": "cold",
+                "primary_hook": master_contract["creative"]["opening_line"],
+                "opening_line": master_contract["creative"]["opening_line"],
+                "angle": master_contract["creative"]["summary"],
+                "proof_variants": [],
+                "offer_variants": [],
+            }
+        ]
+
+    planned: list[dict] = []
+    for family_index, family in enumerate(selected_families):
+        family_id = slugify(str(family.get("family_id") or f"family-{family_index}"), f"family-{family_index}")
+        planned.append(
+            {
+                **family,
+                "family_id": family_id,
+                "family_name": _string(family.get("family_name")) or family_id,
+                "funnel_stage": _string(family.get("funnel_stage")) or "cold",
+            }
+        )
+    return planned
+
+
+def build_render_outputs(
+    campaign_id: str,
+    platform_slug: str,
+    *,
+    primary_family_id: str,
+    job_id: str,
+    cwd: Path | None = None,
+) -> dict:
+    return video_variant_output_paths(
+        platform_slug,
+        primary_family_id,
+        job_id=job_id,
+        campaign_id=campaign_id,
+        cwd=cwd,
+    )
 
 
 def build_platform_contract(
     platform_config: dict,
     master_contract: dict,
-    base_dir: Path,
+    output_root: Path,
     args: argparse.Namespace,
+    *,
+    primary_family_id: str,
+    job_id: str,
 ) -> dict:
     platform_slug = platform_config["platform_slug"]
     target_duration = platform_config["target_duration_seconds"]
@@ -233,7 +288,13 @@ def build_platform_contract(
                 "downstream_only": True,
             },
         },
-        "expected_render_outputs": build_render_outputs(base_dir, platform_slug),
+        "expected_render_outputs": build_render_outputs(
+            master_contract["campaign_id"],
+            platform_slug,
+            primary_family_id=primary_family_id,
+            job_id=job_id,
+            cwd=Path.cwd(),
+        ),
     }
 
 
@@ -282,6 +343,7 @@ def main() -> int:
     parser.add_argument("--video-model", default="veo-3.0-generate-001")
     parser.add_argument("--campaign-id", default="")
     parser.add_argument("--concept-id", default="")
+    parser.add_argument("--job-id", default="")
     parser.add_argument("--platform", default="")
     parser.add_argument("--contract-path", default="")
     parser.add_argument("--render-requested", action="store_true")
@@ -293,6 +355,7 @@ def main() -> int:
     brand_slug = slugify(args.brand_slug or data.get("brand_slug", "client-brand"))
     research_model = normalize_research_model(args.research_model or data.get("research_model", ""))
     run_id = ensure_run_id(data.get("run_id", ""), brand_slug, brief.get("campaign_name", ""))
+    job_id = first_nonempty(args.job_id, data.get("job_id", ""), data.get("jobId", ""))
 
     campaign_id = slugify(args.campaign_id or data.get("campaign_id", "") or derive_campaign_id(brand_slug, brief))
     concept_id = slugify(args.concept_id or data.get("concept_id", "") or derive_concept_id(brief, script_assets))
@@ -361,31 +424,100 @@ def main() -> int:
             "downstream_render_request_received": render_request,
             "downstream_render_request_valid": render_gate_open,
         },
-        "expected_render_outputs": {
-            item["platform_slug"]: build_render_outputs(output_root, item["platform_slug"])
-            for item in PLATFORM_DEFAULTS
-        },
+    }
+    selected_families = planned_video_families(brief, master_contract)
+    primary_family_id = selected_families[0]["family_id"]
+    master_contract["expected_render_outputs"] = {
+        item["platform_slug"]: build_render_outputs(
+            campaign_id,
+            item["platform_slug"],
+            primary_family_id=primary_family_id,
+            job_id=job_id,
+            cwd=Path.cwd(),
+        )
+        for item in PLATFORM_DEFAULTS
     }
 
     master_contract_path = output_root / "master-video-contract.json"
     master_contract_path.write_text(json.dumps(master_contract, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    platform_contracts = []
+    platform_contracts: list[dict] = []
+    platform_contract_records: dict[str, dict] = {}
     for platform_config in PLATFORM_DEFAULTS:
-        contract = build_platform_contract(platform_config, master_contract, output_root, args)
+        contract = build_platform_contract(
+            platform_config,
+            master_contract,
+            output_root,
+            args,
+            primary_family_id=primary_family_id,
+            job_id=job_id,
+        )
         contract_path = output_root / f"{platform_config['platform_slug']}.json"
         contract_path.write_text(json.dumps(contract, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         brief_path = briefs_dir / f"{platform_config['platform_slug']}.md"
         brief_path.write_text(build_brief_markdown(contract).rstrip() + "\n", encoding="utf-8")
-        platform_contracts.append(
-            {
-                "platform": platform_config["platform"],
-                "platform_slug": platform_config["platform_slug"],
-                "contract_path": str(contract_path),
-                "brief_path": str(brief_path),
-                "expected_render_outputs": contract["expected_render_outputs"],
-            }
-        )
+        entry = {
+            "platform": platform_config["platform"],
+            "platform_slug": platform_config["platform_slug"],
+            "contract_path": str(contract_path),
+            "brief_path": str(brief_path),
+            "expected_render_outputs": contract["expected_render_outputs"],
+            "render_status": contract["render_status"],
+        }
+        platform_contracts.append(entry)
+        platform_contract_records[platform_config["platform_slug"]] = {
+            "entry": entry,
+            "contract": contract,
+            "contract_path": contract_path,
+            "brief_path": brief_path,
+        }
+
+    for platform_config in PLATFORM_DEFAULTS:
+        planned_variants = []
+        for family in selected_families:
+            output_paths = video_variant_output_paths(
+                platform_config["platform_slug"],
+                family["family_id"],
+                job_id=job_id,
+                campaign_id=campaign_id,
+                cwd=Path.cwd(),
+            )
+            planned_variants.append(
+                {
+                    "platform_slug": platform_config["platform_slug"],
+                    "family_id": family["family_id"],
+                    "video_path": output_paths["video_file"],
+                    "poster_path": output_paths["poster_file"],
+                    "captions_path": output_paths["captions_file"],
+                    "duration_seconds": platform_config["target_duration_seconds"],
+                    "aspect_ratio": platform_config["aspect_ratio"],
+                }
+            )
+        contract_record = platform_contract_records[platform_config["platform_slug"]]
+        contract = contract_record["contract"]
+        entry = contract_record["entry"]
+        contract["rendered_video_path"] = planned_variants[0]["video_path"]
+        contract["rendered_video_paths_by_family"] = {item["family_id"]: item["video_path"] for item in planned_variants}
+        contract["rendered_video_variants"] = planned_variants
+        contract["expected_render_outputs"] = {
+            "directory": planned_variants[0]["video_path"].rsplit("/", 1)[0],
+            "video_file": planned_variants[0]["video_path"],
+            "captions_file": planned_variants[0]["captions_path"],
+            "poster_file": planned_variants[0]["poster_path"],
+            "project_file": video_variant_output_paths(
+                platform_config["platform_slug"],
+                primary_family_id,
+                job_id=job_id,
+                campaign_id=campaign_id,
+                cwd=Path.cwd(),
+            )["project_file"],
+        }
+        entry["expected_render_outputs"] = contract["expected_render_outputs"]
+        entry["rendered_video_path"] = contract["rendered_video_path"]
+        entry["rendered_video_paths_by_family"] = contract["rendered_video_paths_by_family"]
+        entry["rendered_video_variants"] = planned_variants
+        contract_record["contract_path"].write_text(json.dumps(contract, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        contract_record["brief_path"].write_text(build_brief_markdown(contract).rstrip() + "\n", encoding="utf-8")
 
     platform_index = {
         "schema_version": "2026-03-17.video-contract.v1",
@@ -424,41 +556,14 @@ def main() -> int:
         render_mode = "contract_and_render"
         render_status = "rendered"
 
-        def _string(value) -> str:
-            if isinstance(value, str):
-                stripped = value.strip()
-                if stripped:
-                    return stripped
-            return ""
-
-        # Family selection from testing_matrix.video. Prefer 1 cold + 1 warm
-        # for funnel variety. Fall back to 2 cold, then 2 warm, then a single
-        # default family grounded in master_contract.creative if the matrix
-        # is missing entirely (back-compat with older campaigns).
-        video_matrix = record_or_empty(brief.get("testing_matrix", {}).get("video", {}) if isinstance(brief, dict) else {})
-        raw_cold = [fam for fam in list_or_empty(video_matrix.get("cold_funnel")) if isinstance(fam, dict) and _string(fam.get("primary_hook"))]
-        raw_warm = [fam for fam in list_or_empty(video_matrix.get("warm_funnel")) if isinstance(fam, dict) and _string(fam.get("primary_hook"))]
-        if raw_cold and raw_warm:
-            selected_families = [raw_cold[0], raw_warm[0]]
-        elif raw_cold:
-            selected_families = raw_cold[:2]
-        elif raw_warm:
-            selected_families = raw_warm[:2]
-        else:
-            selected_families = [
-                {
-                    "family_id": "default",
-                    "family_name": "Default",
-                    "funnel_stage": "cold",
-                    "primary_hook": master_contract["creative"]["opening_line"],
-                    "opening_line": master_contract["creative"]["opening_line"],
-                    "angle": master_contract["creative"]["summary"],
-                    "proof_variants": [],
-                    "offer_variants": [],
-                }
-            ]
-
         def _build_family_prompt(family: dict) -> str:
+            def _string(value) -> str:
+                if isinstance(value, str):
+                    stripped = value.strip()
+                    if stripped:
+                        return stripped
+                return ""
+
             family_name = _string(family.get("family_name")) or _string(family.get("family_id")) or "Default"
             funnel_stage = _string(family.get("funnel_stage")) or "cold"
             hook = _string(family.get("primary_hook")) or master_contract["creative"]["opening_line"]
@@ -501,23 +606,28 @@ def main() -> int:
         for aspect_ratio, platforms in aspect_groups.items():
             representative = platforms[0]
             canonical_slug = representative["platform_slug"]
-            canonical_dir = output_root / "rendered" / canonical_slug
-            canonical_dir.mkdir(parents=True, exist_ok=True)
             for family_index, family in enumerate(selected_families):
-                family_id = slugify(str(family.get("family_id") or f"family-{family_index}"), f"family-{family_index}")
+                source_video_path = Path(
+                    video_variant_output_paths(
+                        canonical_slug,
+                        family["family_id"],
+                        job_id=job_id,
+                        campaign_id=campaign_id,
+                        cwd=Path.cwd(),
+                    )["video_file"]
+                )
                 render_jobs.append(
                     {
                         "aspect_ratio": aspect_ratio,
                         "platforms": platforms,
                         "representative": representative,
                         "canonical_slug": canonical_slug,
-                        "canonical_dir": canonical_dir,
                         "family_index": family_index,
                         "family": family,
-                        "family_id": family_id,
-                        "family_name": _string(family.get("family_name")) or family_id,
-                        "funnel_stage": _string(family.get("funnel_stage")) or "cold",
-                        "source_video_path": canonical_dir / f"{canonical_slug}-{family_id}.mp4",
+                        "family_id": family["family_id"],
+                        "family_name": family["family_name"],
+                        "funnel_stage": family["funnel_stage"],
+                        "source_video_path": source_video_path,
                     }
                 )
 
@@ -572,16 +682,22 @@ def main() -> int:
             mirror_entries: list[dict] = []
             for platform_config in job["platforms"]:
                 platform_slug = platform_config["platform_slug"]
-                target_dir = output_root / "rendered" / platform_slug
-                target_dir.mkdir(parents=True, exist_ok=True)
-                tagged_target = target_dir / f"{platform_slug}-{job['family_id']}.mp4"
+                output_paths = video_variant_output_paths(
+                    platform_slug,
+                    job["family_id"],
+                    job_id=job_id,
+                    campaign_id=campaign_id,
+                    cwd=Path.cwd(),
+                )
+                tagged_target = Path(output_paths["video_file"])
+                tagged_target.parent.mkdir(parents=True, exist_ok=True)
                 if tagged_target != job["source_video_path"]:
                     tagged_target.write_bytes(source_bytes)
                 # Back-compat: first family also written to the un-tagged
                 # canonical path so older consumers that read
                 # `{platform_slug}.mp4` still find a valid mp4.
-                if family_index == 0:
-                    legacy_target = target_dir / f"{platform_slug}.mp4"
+                if family_index == 0 and not job_id:
+                    legacy_target = tagged_target.parent / f"{platform_slug}.mp4"
                     if legacy_target != job["source_video_path"]:
                         legacy_target.write_bytes(source_bytes)
                 mirror_entries.append(
@@ -591,6 +707,8 @@ def main() -> int:
                         "aspect_ratio": job["aspect_ratio"],
                         "family_id": job["family_id"],
                         "video_path": str(tagged_target),
+                        "poster_path": output_paths["poster_file"],
+                        "captions_path": output_paths["captions_file"],
                         "source_video_path": str(job["source_video_path"]),
                         "duration_seconds": platform_config.get("target_duration_seconds"),
                     }
@@ -621,17 +739,54 @@ def main() -> int:
                         variants[item["family_id"]] = item["video_path"]
                         ordered_variants.append(
                             {
+                                "platform_slug": item["platform_slug"],
                                 "family_id": item["family_id"],
                                 "aspect_ratio": item["aspect_ratio"],
                                 "video_path": item["video_path"],
+                                "poster_path": item["poster_path"],
+                                "captions_path": item["captions_path"],
+                                "duration_seconds": item["duration_seconds"],
                                 "source_video_path": item["source_video_path"],
                             }
                         )
             if variants:
-                platform_contract["render_status"] = "rendered"
-                platform_contract["rendered_video_path"] = ordered_variants[0]["video_path"]
-                platform_contract["rendered_video_paths_by_family"] = variants
-                platform_contract["rendered_video_variants"] = ordered_variants
+                contract_record = platform_contract_records[target_slug]
+                contract_record["entry"]["render_status"] = "rendered"
+                contract_record["entry"]["rendered_video_path"] = ordered_variants[0]["video_path"]
+                contract_record["entry"]["rendered_video_paths_by_family"] = variants
+                contract_record["entry"]["rendered_video_variants"] = ordered_variants
+                contract_record["contract"]["render_status"] = "rendered"
+                contract_record["contract"]["rendered_video_path"] = ordered_variants[0]["video_path"]
+                contract_record["contract"]["rendered_video_paths_by_family"] = variants
+                contract_record["contract"]["rendered_video_variants"] = ordered_variants
+                contract_record["contract"]["expected_render_outputs"] = {
+                    "directory": ordered_variants[0]["video_path"].rsplit("/", 1)[0],
+                    "video_file": ordered_variants[0]["video_path"],
+                    "captions_file": ordered_variants[0]["captions_path"],
+                    "poster_file": ordered_variants[0]["poster_path"],
+                    "project_file": video_variant_output_paths(
+                        target_slug,
+                        primary_family_id,
+                        job_id=job_id,
+                        campaign_id=campaign_id,
+                        cwd=Path.cwd(),
+                    )["project_file"],
+                }
+                contract_record["entry"]["expected_render_outputs"] = contract_record["contract"]["expected_render_outputs"]
+                contract_record["contract_path"].write_text(
+                    json.dumps(contract_record["contract"], indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                contract_record["brief_path"].write_text(
+                    build_brief_markdown(contract_record["contract"]).rstrip() + "\n",
+                    encoding="utf-8",
+                )
+
+    master_contract["render_requested"] = render_enabled
+    master_contract["render_status"] = render_status
+    master_contract["execution"]["mode"] = render_mode
+    master_contract_path.write_text(json.dumps(master_contract, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    platform_index_path.write_text(json.dumps(platform_index, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     summary_text = "\n".join(
         [
@@ -658,6 +813,7 @@ def main() -> int:
         "brand_slug": brand_slug,
         "campaign_id": campaign_id,
         "concept_id": concept_id,
+        "job_id": job_id,
         "production_brief": brief,
         "script_assets": script_assets,
         "video_assets": {

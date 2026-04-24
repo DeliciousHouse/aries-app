@@ -22,6 +22,8 @@ args:
     default: ""
   brand_slug:
     default: client-brand
+  job_id:
+    default: ""
 cwd: lobster
 steps:
   - id: validate_root_args
@@ -191,6 +193,7 @@ steps:
     command: >
       python3 ./bin/veo-video-generator --json
       --brand-slug "${brand_slug}"
+      --job-id "${job_id}"
     stdin: $stage_3_ad.json
     when: $approve_stage_3.approved
 
