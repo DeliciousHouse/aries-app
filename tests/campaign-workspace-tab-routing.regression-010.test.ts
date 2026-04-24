@@ -64,4 +64,9 @@ test('campaign-workspace client wires the view through useSearchParams', () => {
     /resolveWorkspaceView\(/,
     'campaign-workspace.tsx must funnel the view through resolveWorkspaceView for validation',
   );
+  assert.match(
+    source,
+    /<Link[\s\S]*?href=\{currentStageHref\(props\.campaignId, view\)\}[\s\S]*?scroll=\{false\}/,
+    'campaign-workspace.tsx must disable Next Link scroll resets for view-pill navigation',
+  );
 });
