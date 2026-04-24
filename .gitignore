@@ -15,7 +15,7 @@ jspm_packages/
 dist/
 build/
 .next/
-tsconfig.tsbuildinfo
+*.tsbuildinfo
 generated/
 publish/*.js
 publish/*.js.map
@@ -107,6 +107,7 @@ data/nightly-build-log.json
 
 # Runtime session state (local only)
 state/
+.openclaw/
 
 # Misc
 .artifacts/
@@ -116,6 +117,7 @@ state/
 .npm
 .tmp/
 .clawhub/
+.gstack/
 SOUL.md
 USER.md
 IDENTITY.md
@@ -164,7 +166,6 @@ output/
 .agent/*.json
 !.agent/workflows/
 /local/
-package-lock.json
 .claude/*
 !.claude/hooks/
 !.claude/hooks/**
