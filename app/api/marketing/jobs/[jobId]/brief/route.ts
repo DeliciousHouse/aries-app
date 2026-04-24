@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { invalidateMarketingJobStatus } from '@/backend/marketing/jobs-status';
 import {
   appendCampaignHistory,
   ensureCampaignWorkspaceRecord,
@@ -123,6 +124,7 @@ export async function handlePatchMarketingJobBrief(
     ...requestBody.payload,
   };
   saveMarketingJobRuntime(jobId, runtimeDoc);
+  invalidateMarketingJobStatus(jobId);
 
   return NextResponse.json({ ok: true }, { status: 200 });
 }

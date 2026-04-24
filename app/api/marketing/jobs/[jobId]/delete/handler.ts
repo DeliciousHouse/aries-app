@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { invalidateMarketingJobStatus } from '@/backend/marketing/jobs-status';
 import { cancelOpenClawLobsterWorkflow } from '@/backend/openclaw/gateway-client';
 import {
   isPipelineActive,
@@ -130,6 +131,8 @@ export async function handleDeleteMarketingJob(
     await cancelOpenClawLobsterWorkflow({ correlationId: jobId }).catch(() => {});
   }
 
+  invalidateMarketingJobStatus(jobId);
+
   return NextResponse.json(
     {
       jobId,
@@ -197,6 +200,8 @@ export async function handleRestoreMarketingJob(
       { status: 404 },
     );
   }
+
+  invalidateMarketingJobStatus(jobId);
 
   return NextResponse.json(
     {
