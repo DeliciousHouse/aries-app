@@ -6,6 +6,12 @@ import { loadMarketingJobRuntime } from '@/backend/marketing/runtime-state';
 import { buildCampaignWorkspaceView } from '@/backend/marketing/workspace-views';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
+type MarketingJobStatusRouteDeps = {
+  loadMarketingJobRuntime: typeof loadMarketingJobRuntime;
+  getMarketingJobStatusCached: typeof getMarketingJobStatusCached;
+  buildCampaignWorkspaceView: typeof buildCampaignWorkspaceView;
+};
+
 const MARKETING_ONBOARDING_REQUIRED = {
   status: 409,
   reason: 'onboarding_required',
@@ -16,6 +22,13 @@ const MARKETING_JOB_NOT_FOUND_RESPONSE = {
   error: 'Marketing job not found.',
   reason: 'marketing_job_not_found',
 } as const;
+
+const defaultMarketingJobStatusRouteDeps: MarketingJobStatusRouteDeps = {
+  loadMarketingJobRuntime,
+  getMarketingJobStatusCached,
+  buildCampaignWorkspaceView,
+};
+let marketingJobStatusRouteDeps: MarketingJobStatusRouteDeps = { ...defaultMarketingJobStatusRouteDeps };
 
 function alignApprovalWithWorkspace(
   approval: MarketingApprovalSummary | null,
@@ -60,7 +73,7 @@ export async function handleGetMarketingJobStatus(
     return tenantResult.response;
   }
 
-  const runtimeDoc = await loadMarketingJobRuntime(jobId);
+  const runtimeDoc = await marketingJobStatusRouteDeps.loadMarketingJobRuntime(jobId);
   if (!runtimeDoc || runtimeDoc.tenant_id !== tenantResult.tenantContext.tenantId) {
     console.warn('[marketing-job-not-found]', {
       jobId,
@@ -70,8 +83,10 @@ export async function handleGetMarketingJobStatus(
   }
 
   try {
-    const { payload: result, cacheStatus } = await getMarketingJobStatusCached(tenantResult.tenantContext.tenantId, jobId);
-    const workspaceView = await buildCampaignWorkspaceView(jobId);
+    const [{ payload: result, cacheStatus }, workspaceView] = await Promise.all([
+      marketingJobStatusRouteDeps.getMarketingJobStatusCached(tenantResult.tenantContext.tenantId, jobId),
+      marketingJobStatusRouteDeps.buildCampaignWorkspaceView(jobId),
+    ]);
 
     return NextResponse.json(
       {
@@ -118,4 +133,15 @@ export async function handleGetMarketingJobStatus(
       { status: 500 }
     );
   }
+}
+
+export function overrideMarketingJobStatusRouteDepsForTests(overrides: Partial<MarketingJobStatusRouteDeps>): void {
+  marketingJobStatusRouteDeps = {
+    ...marketingJobStatusRouteDeps,
+    ...overrides,
+  };
+}
+
+export function resetMarketingJobStatusRouteDepsForTests(): void {
+  marketingJobStatusRouteDeps = { ...defaultMarketingJobStatusRouteDeps };
 }

@@ -337,20 +337,22 @@ export async function buildMarketingAssetLibrary(
   };
 
   const strategyOutputs = recordValue(runtimeDoc.stages.strategy.outputs);
-  const researchFallback = await collectResearchStageArtifacts(
-    resolvedFacts,
-    runtimeDoc.stages.research.primary_output || { run_id: runtimeDoc.stages.research.run_id },
-  );
-  const validatedProfileDocs = await loadValidatedMarketingProfileDocs(runtimeDoc.tenant_id, {
-    currentSourceUrl: runtimeDoc.inputs.brand_url || null,
-  });
-  const validatedProfile = await loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
-    currentSourceUrl: runtimeDoc.inputs.brand_url || null,
-  });
-  const strategyFallback = await collectStrategyReviewArtifacts(
-    resolvedFacts,
-    runtimeDoc.stages.strategy.primary_output || { run_id: runtimeDoc.stages.strategy.run_id },
-  );
+  const [researchFallback, validatedProfileDocs, validatedProfile, strategyFallback] = await Promise.all([
+    collectResearchStageArtifacts(
+      resolvedFacts,
+      runtimeDoc.stages.research.primary_output || { run_id: runtimeDoc.stages.research.run_id },
+    ),
+    loadValidatedMarketingProfileDocs(runtimeDoc.tenant_id, {
+      currentSourceUrl: runtimeDoc.inputs.brand_url || null,
+    }),
+    loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
+      currentSourceUrl: runtimeDoc.inputs.brand_url || null,
+    }),
+    collectStrategyReviewArtifacts(
+      resolvedFacts,
+      runtimeDoc.stages.strategy.primary_output || { run_id: runtimeDoc.stages.strategy.run_id },
+    ),
+  ]);
   const researchSummaryPath =
     stringValue(researchFallback.outputs.compile_path) ||
     null;
