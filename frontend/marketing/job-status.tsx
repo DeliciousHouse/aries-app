@@ -74,10 +74,12 @@ function DashboardAssetCard({ asset }: { asset: MarketingDashboardAsset }) {
   return (
     <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
       <MediaPreview
-        src={asset.thumbnailUrl || asset.previewUrl}
+        src={asset.previewUrl || asset.thumbnailUrl}
+        poster={asset.thumbnailUrl}
         alt={asset.title}
         contentType={asset.contentType}
         className="h-40 overflow-hidden rounded-[1rem] border border-white/8 bg-black/20"
+        imageClassName={asset.contentType?.startsWith('video/') ? 'h-full w-full object-contain bg-black' : undefined}
         emptyLabel="Preview pending"
         nonImageLabel={asset.type === 'landing_page' ? 'Landing page preview available' : 'Asset preview available'}
       />
@@ -104,10 +106,12 @@ function DashboardPostCard({
   return (
     <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
       <MediaPreview
-        src={previewAsset?.thumbnailUrl || previewAsset?.previewUrl}
+        src={previewAsset?.previewUrl || previewAsset?.thumbnailUrl}
+        poster={previewAsset?.thumbnailUrl}
         alt={post.title}
         contentType={previewAsset?.contentType}
         className="h-40 overflow-hidden rounded-[1rem] border border-white/8 bg-black/20"
+        imageClassName={previewAsset?.contentType?.startsWith('video/') ? 'h-full w-full object-contain bg-black' : undefined}
         emptyLabel="Preview pending"
         nonImageLabel="Preview available"
       />
@@ -126,34 +130,60 @@ function DashboardPostCard({
 function ReviewPreviewGallery({ previews }: { previews: MarketingReviewPreviewCard[] }) {
   return (
     <div className="grid gap-4 xl:grid-cols-2">
-      {previews.map((preview) => (
-        <div key={preview.id} className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
-          <p className="text-xs uppercase tracking-[0.22em] text-white/35">{preview.platformName}</p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {preview.mediaAssets.length > 0 ? (
-              preview.mediaAssets.map((asset) => (
-                <a key={asset.id} href={asset.url} target="_blank" rel="noreferrer" className="rounded-[1rem] overflow-hidden border border-white/8 bg-black/20">
-                  <MediaPreview
-                    src={asset.url}
-                    alt={asset.label}
-                    contentType={asset.contentType}
-                    className="h-36 w-full"
-                    emptyLabel="Preview pending"
-                    nonImageLabel={asset.label}
-                  />
-                </a>
-              ))
-            ) : (
-              <MediaPreview
-                alt={preview.platformName}
-                className="h-36 rounded-[1rem] border border-white/8 bg-black/20"
-                emptyLabel="Preview pending"
-              />
-            )}
+      {previews.map((preview) => {
+        const imageAssets = preview.mediaAssets.filter((asset) => !asset.contentType.startsWith('video/'));
+        const videoAssets = preview.mediaAssets.filter((asset) => asset.contentType.startsWith('video/'));
+
+        return (
+          <div key={preview.id} className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
+            <p className="text-xs uppercase tracking-[0.22em] text-white/35">{preview.platformName}</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {imageAssets.length > 0 ? (
+                imageAssets.map((asset) => (
+                  <a key={asset.id} href={asset.url} target="_blank" rel="noreferrer" className="rounded-[1rem] overflow-hidden border border-white/8 bg-black/20">
+                    <MediaPreview
+                      src={asset.url}
+                      alt={asset.label}
+                      contentType={asset.contentType}
+                      className="h-36 w-full"
+                      emptyLabel="Preview pending"
+                      nonImageLabel={asset.label}
+                    />
+                  </a>
+                ))
+              ) : (
+                <MediaPreview
+                  alt={preview.platformName}
+                  className="h-36 rounded-[1rem] border border-white/8 bg-black/20"
+                  emptyLabel="Preview pending"
+                />
+              )}
+            </div>
+            {videoAssets.length > 0 ? (
+              <div className="grid gap-3">
+                <strong className="text-sm text-white">Rendered videos</strong>
+                <div className="grid gap-3">
+                  {videoAssets.map((asset) => (
+                    <a key={asset.id} href={asset.url} target="_blank" rel="noreferrer" className="rounded-[1rem] overflow-hidden border border-white/8 bg-black/20">
+                      <MediaPreview
+                        src={asset.url}
+                        poster={asset.posterUrl}
+                        alt={asset.label}
+                        contentType={asset.contentType}
+                        className="h-36 w-full"
+                        imageClassName="h-full w-full object-contain bg-black"
+                        emptyLabel="Preview pending"
+                        nonImageLabel={asset.label}
+                      />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            <p className="text-sm text-white/60">{preview.summary}</p>
           </div>
-          <p className="text-sm text-white/60">{preview.summary}</p>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

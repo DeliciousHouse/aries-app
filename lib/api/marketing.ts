@@ -129,6 +129,7 @@ export interface MarketingAssetLink {
   url: string;
   label: string;
   contentType: string;
+  posterUrl?: string | null;
 }
 
 export interface MarketingApprovalSummary {

@@ -67,6 +67,9 @@ function ArtifactPreview({ artifact }: { artifact: MarketingArtifactCard }) {
 }
 
 function ReviewPreviewCard({ preview }: { preview: MarketingReviewPreviewCard }) {
+  const imageAssets = preview.mediaAssets.filter((asset) => !asset.contentType.startsWith('video/'));
+  const videoAssets = preview.mediaAssets.filter((asset) => asset.contentType.startsWith('video/'));
+
   return (
     <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
       <div>
@@ -96,10 +99,10 @@ function ReviewPreviewCard({ preview }: { preview: MarketingReviewPreviewCard })
           ))}
         </ul>
       ) : null}
-      {preview.mediaAssets.length > 0 ? (
+      {imageAssets.length > 0 ? (
         <div className="grid gap-3">
           <div className="grid sm:grid-cols-2 gap-3">
-            {preview.mediaAssets.map((asset) => (
+            {imageAssets.map((asset) => (
               <a
                 key={asset.id}
                 href={asset.url}
@@ -118,21 +121,48 @@ function ReviewPreviewCard({ preview }: { preview: MarketingReviewPreviewCard })
               </a>
             ))}
           </div>
-          {preview.assetLinks.length > 0 ? (
-            <div className="flex flex-wrap gap-3">
-              {preview.assetLinks.map((asset) => (
-                <a
-                  key={asset.id}
-                  href={asset.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-sm text-primary hover:text-primary/80 transition-colors"
-                >
-                  {asset.label}
-                </a>
-              ))}
-            </div>
-          ) : null}
+        </div>
+      ) : null}
+      {preview.assetLinks.length > 0 ? (
+        <div className="flex flex-wrap gap-3">
+          {preview.assetLinks.map((asset) => (
+            <a
+              key={asset.id}
+              href={asset.url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm text-primary hover:text-primary/80 transition-colors"
+            >
+              {asset.label}
+            </a>
+          ))}
+        </div>
+      ) : null}
+      {videoAssets.length > 0 ? (
+        <div className="grid gap-3">
+          <strong className="text-sm text-white">Rendered videos</strong>
+          <div className="grid gap-3">
+            {videoAssets.map((asset) => (
+              <a
+                key={asset.id}
+                href={asset.url}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-[1.25rem] overflow-hidden border border-white/10 bg-black/30"
+              >
+                <MediaPreview
+                  src={asset.url}
+                  poster={asset.posterUrl}
+                  alt={asset.label}
+                  contentType={asset.contentType}
+                  className="h-44 w-full"
+                  imageClassName="h-full w-full object-contain bg-black"
+                  emptyLabel="Preview pending"
+                  nonImageLabel={asset.label}
+                />
+              </a>
+            ))}
+          </div>
         </div>
       ) : null}
     </div>
@@ -217,10 +247,12 @@ function DashboardAssetPreviewCard({ asset }: { asset: MarketingDashboardAsset }
   return (
     <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
       <MediaPreview
-        src={asset.thumbnailUrl || asset.previewUrl}
+        src={asset.previewUrl || asset.thumbnailUrl}
+        poster={asset.thumbnailUrl}
         alt={asset.title}
         contentType={asset.contentType}
         className="h-44 overflow-hidden rounded-[1.1rem] border border-white/8 bg-black/20"
+        imageClassName={asset.contentType?.startsWith('video/') ? 'h-full w-full object-contain bg-black' : undefined}
         emptyLabel={`${asset.type.replace(/_/g, ' ')} pending`}
         nonImageLabel={asset.type === 'landing_page' ? 'Landing page preview available' : 'Asset preview available'}
       />
@@ -244,15 +276,18 @@ function DashboardListCard(props: {
   summary: string
   status: string
   previewUrl?: string | null
+  posterUrl?: string | null
   previewContentType?: string | null
 }) {
   return (
     <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
       <MediaPreview
         src={props.previewUrl}
+        poster={props.posterUrl}
         alt={props.title}
         contentType={props.previewContentType}
         className="h-36 overflow-hidden rounded-[1.1rem] border border-white/8 bg-black/20"
+        imageClassName={props.previewContentType?.startsWith('video/') ? 'h-full w-full object-contain bg-black' : undefined}
         emptyLabel="Preview pending"
         nonImageLabel="Preview available"
       />
@@ -271,14 +306,15 @@ function DashboardListCard(props: {
 function dashboardPreviewUrl(
   assetId: string | null | undefined,
   assetsById: Map<string, MarketingDashboardAsset>
-): { url: string | null; contentType: string | null } {
+): { url: string | null; posterUrl: string | null; contentType: string | null } {
   if (!assetId) {
-    return { url: null, contentType: null };
+    return { url: null, posterUrl: null, contentType: null };
   }
 
   const asset = assetsById.get(assetId);
   return {
-    url: asset?.thumbnailUrl || asset?.previewUrl || null,
+    url: asset?.previewUrl || asset?.thumbnailUrl || null,
+    posterUrl: asset?.thumbnailUrl || null,
     contentType: asset?.contentType || null,
   };
 }
@@ -672,6 +708,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
                                 summary={post.summary}
                                 status={post.status}
                                 previewUrl={preview.url}
+                                posterUrl={preview.posterUrl}
                                 previewContentType={preview.contentType}
                               />
                             );
@@ -694,6 +731,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
                                 summary={item.summary}
                                 status={item.status}
                                 previewUrl={preview.url}
+                                posterUrl={preview.posterUrl}
                                 previewContentType={preview.contentType}
                               />
                             );
