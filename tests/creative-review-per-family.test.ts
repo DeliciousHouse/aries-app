@@ -257,7 +257,7 @@ test('buildCampaignWorkspaceView uses per-family hooks for Meta image ad cards i
       'utf8',
     );
 
-    const view = buildCampaignWorkspaceView(jobId);
+    const view = await buildCampaignWorkspaceView(jobId);
 
     assert.notEqual(view.creativeReview, null, 'creativeReview should be populated');
 

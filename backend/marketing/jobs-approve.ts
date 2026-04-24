@@ -6,7 +6,7 @@ export type { ApproveMarketingJobRequest, ApproveMarketingJobResponse } from './
 export async function approveMarketingJob(
   input: ApproveMarketingJobRequest
 ): Promise<ApproveMarketingJobResponse> {
-  const doc = loadMarketingJobRuntime(input.jobId);
+  const doc = await loadMarketingJobRuntime(input.jobId);
   if (!doc) {
     return {
       status: 'error',

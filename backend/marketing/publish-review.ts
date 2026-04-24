@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync } from 'node:fs';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -61,17 +62,20 @@ function uniqueStrings(values: Array<string | null | undefined>): string[] {
   return Array.from(new Set(values.map((value) => stringValue(value)).filter(Boolean)));
 }
 
-function readJsonIfExists(filePath: string | null | undefined): Record<string, unknown> | null {
-  if (!filePath || !existsSync(filePath)) {
+async function readJsonIfExists(filePath: string | null | undefined): Promise<Record<string, unknown> | null> {
+  if (!filePath) {
     return null;
   }
 
   try {
-    const parsed = JSON.parse(readFileSync(filePath, 'utf8'));
+    const parsed = JSON.parse(await readFile(filePath, 'utf8'));
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
       ? (parsed as Record<string, unknown>)
       : null;
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return null;
+    }
     return null;
   }
 }
@@ -120,15 +124,15 @@ type PublishStepPayloadCandidate = {
   mtimeMs: number;
 };
 
-function readExactPublishStepPayload(runtimeDoc: MarketingJobRuntimeDocument, stepName: string, runId: string): PublishStepPayloadCandidate | null {
+async function readExactPublishStepPayload(runtimeDoc: MarketingJobRuntimeDocument, stepName: string, runId: string): Promise<PublishStepPayloadCandidate | null> {
   const cachePath = path.join(cacheRoot('LOBSTER_STAGE4_CACHE_DIR', 'lobster-stage4-cache'), runId, `${stepName}.json`);
-  const cached = readJsonIfExists(cachePath);
+  const cached = await readJsonIfExists(cachePath);
   if (cached) {
     try {
       return {
         runId,
         payload: cached,
-        mtimeMs: statSync(cachePath).mtimeMs,
+        mtimeMs: (await stat(cachePath)).mtimeMs,
       };
     } catch {
       return {
@@ -141,13 +145,13 @@ function readExactPublishStepPayload(runtimeDoc: MarketingJobRuntimeDocument, st
 
   for (const outputRoot of lobsterOutputRoots()) {
     const logPath = path.join(outputRoot, 'logs', runId, 'stage-4-publish-optimize', `${stepName}.json`);
-    const logged = readJsonIfExists(logPath);
+    const logged = await readJsonIfExists(logPath);
     if (logged) {
       try {
         return {
           runId,
           payload: logged,
-          mtimeMs: statSync(logPath).mtimeMs,
+          mtimeMs: (await stat(logPath)).mtimeMs,
         };
       } catch {
         return {
@@ -209,10 +213,10 @@ function scorePublishStepPayloadCandidate(
   };
 }
 
-function collectFallbackPublishStepPayloadCandidates(
+async function collectFallbackPublishStepPayloadCandidates(
   runtimeDoc: MarketingJobRuntimeDocument,
   stepName: string
-): PublishStepPayloadCandidate[] {
+): Promise<PublishStepPayloadCandidate[]> {
   const prefix = competitorSlug(runtimeDoc);
   if (!prefix) {
     return [];
@@ -223,7 +227,7 @@ function collectFallbackPublishStepPayloadCandidates(
 
   const cacheDir = cacheRoot('LOBSTER_STAGE4_CACHE_DIR', 'lobster-stage4-cache');
   if (existsSync(cacheDir)) {
-    for (const entry of readdirSync(cacheDir)) {
+    for (const entry of await readdir(cacheDir)) {
       if (!entry.startsWith(`${prefix}-`)) {
         continue;
       }
@@ -231,13 +235,13 @@ function collectFallbackPublishStepPayloadCandidates(
       if (seenPaths.has(candidatePath)) {
         continue;
       }
-      const payload = readJsonIfExists(candidatePath);
+      const payload = await readJsonIfExists(candidatePath);
       if (!payload) {
         continue;
       }
       seenPaths.add(candidatePath);
       try {
-        candidates.push({ runId: entry, payload, mtimeMs: statSync(candidatePath).mtimeMs });
+        candidates.push({ runId: entry, payload, mtimeMs: (await stat(candidatePath)).mtimeMs });
       } catch {
         candidates.push({ runId: entry, payload, mtimeMs: 0 });
       }
@@ -249,7 +253,7 @@ function collectFallbackPublishStepPayloadCandidates(
     if (!existsSync(logsRoot)) {
       continue;
     }
-    for (const entry of readdirSync(logsRoot)) {
+    for (const entry of await readdir(logsRoot)) {
       if (!entry.startsWith(`${prefix}-`)) {
         continue;
       }
@@ -257,13 +261,13 @@ function collectFallbackPublishStepPayloadCandidates(
       if (seenPaths.has(candidatePath)) {
         continue;
       }
-      const payload = readJsonIfExists(candidatePath);
+      const payload = await readJsonIfExists(candidatePath);
       if (!payload) {
         continue;
       }
       seenPaths.add(candidatePath);
       try {
-        candidates.push({ runId: entry, payload, mtimeMs: statSync(candidatePath).mtimeMs });
+        candidates.push({ runId: entry, payload, mtimeMs: (await stat(candidatePath)).mtimeMs });
       } catch {
         candidates.push({ runId: entry, payload, mtimeMs: 0 });
       }
@@ -281,16 +285,16 @@ function collectFallbackPublishStepPayloadCandidates(
   });
 }
 
-function readPublishStepPayload(runtimeDoc: MarketingJobRuntimeDocument, stepName: string): Record<string, unknown> | null {
+async function readPublishStepPayload(runtimeDoc: MarketingJobRuntimeDocument, stepName: string): Promise<Record<string, unknown> | null> {
   const explicitRunId = stringValue(runtimeDoc.stages.publish.run_id);
   if (explicitRunId) {
-    const explicit = readExactPublishStepPayload(runtimeDoc, stepName, explicitRunId);
+    const explicit = await readExactPublishStepPayload(runtimeDoc, stepName, explicitRunId);
     if (explicit) {
       return explicit.payload;
     }
   }
 
-  for (const candidate of collectFallbackPublishStepPayloadCandidates(runtimeDoc, stepName)) {
+  for (const candidate of await collectFallbackPublishStepPayloadCandidates(runtimeDoc, stepName)) {
     return candidate.payload;
   }
 
@@ -644,13 +648,18 @@ function buildPublisherStepNames(): string[] {
   ];
 }
 
-function collectPublisherPayloads(runtimeDoc: MarketingJobRuntimeDocument): Array<Record<string, unknown>> {
-  return buildPublisherStepNames()
-    .map((stepName) => readPublishStepPayload(runtimeDoc, stepName))
-    .filter((payload): payload is Record<string, unknown> => !!payload);
+async function collectPublisherPayloads(runtimeDoc: MarketingJobRuntimeDocument): Promise<Array<Record<string, unknown>>> {
+  const payloads: Array<Record<string, unknown>> = [];
+  for (const stepName of buildPublisherStepNames()) {
+    const payload = await readPublishStepPayload(runtimeDoc, stepName);
+    if (payload) {
+      payloads.push(payload);
+    }
+  }
+  return payloads;
 }
 
-function reviewPackageCandidatePaths(runtimeDoc: MarketingJobRuntimeDocument, campaignName: string | null): string[] {
+async function reviewPackageCandidatePaths(runtimeDoc: MarketingJobRuntimeDocument, campaignName: string | null): Promise<string[]> {
   const brandSlug = inferBrandSlug(runtimeDoc);
   const normalizedCampaignName = stringValue(campaignName);
   const candidates = new Set<string>();
@@ -664,7 +673,7 @@ function reviewPackageCandidatePaths(runtimeDoc: MarketingJobRuntimeDocument, ca
       if (!existsSync(reviewRoot)) {
         continue;
       }
-      for (const platformEntry of readdirSync(reviewRoot)) {
+      for (const platformEntry of await readdir(reviewRoot)) {
         const filePath = path.join(reviewRoot, platformEntry, 'review-package.json');
         if (existsSync(filePath)) {
           candidates.add(filePath);
@@ -727,15 +736,15 @@ function resolvePublishArtifactBrandSlug(
   return candidates[0] || null;
 }
 
-function buildFallbackPublishReviewBundle(
+async function buildFallbackPublishReviewBundle(
   runtimeDoc: MarketingJobRuntimeDocument,
   reviewPayload: Record<string, unknown> | null,
-): Record<string, unknown> | null {
-  const preflight = readPublishStepPayload(runtimeDoc, 'performance_marketer_preflight');
+): Promise<Record<string, unknown> | null> {
+  const preflight = await readPublishStepPayload(runtimeDoc, 'performance_marketer_preflight');
   const productionHandoff = recordValue(preflight?.production_handoff);
   const productionBrief = recordValue(productionHandoff?.production_brief);
   const reviewBundle = recordValue(reviewPayload?.review_bundle);
-  const publisherPayloads = collectPublisherPayloads(runtimeDoc);
+  const publisherPayloads = await collectPublisherPayloads(runtimeDoc);
   const reviewPackagePaths = new Set<string>();
 
   for (const payload of publisherPayloads) {
@@ -751,79 +760,80 @@ function buildFallbackPublishReviewBundle(
     stringValue(reviewPayload?.campaign_name) ||
     stringValue(preflight?.campaign_name);
   const artifactBrandSlug = resolvePublishArtifactBrandSlug(runtimeDoc, campaignName || null);
-  for (const candidatePath of reviewPackageCandidatePaths(runtimeDoc, campaignName || null)) {
+  for (const candidatePath of await reviewPackageCandidatePaths(runtimeDoc, campaignName || null)) {
     const resolved = resolveMarketingArtifactPath(candidatePath);
     if (resolved) {
       reviewPackagePaths.add(resolved);
     }
   }
 
-  const landingDetails = readLandingPageArtifactDetails({
+  const landingDetails = await readLandingPageArtifactDetails({
     path: stringValue(recordValue(reviewBundle?.landing_page_preview)?.landing_page_path) || null,
     runtimeDoc,
     brandSlug: artifactBrandSlug,
   });
   const runtimeScriptPreview = recordValue(reviewBundle?.script_preview);
-  const scriptDetails = readScriptArtifactDetails({
+  const scriptDetails = await readScriptArtifactDetails({
     metaScriptPath: stringValue(runtimeScriptPreview?.meta_script_path) || null,
     shortVideoScriptPath: stringValue(runtimeScriptPreview?.short_video_script_path) || null,
     runtimeDoc,
     brandSlug: artifactBrandSlug,
   });
-  const productionReview = readMarketingStageStepPayload(runtimeDoc, 3, 'production_review_preview');
-  const platformPreviews = Array.from(reviewPackagePaths).flatMap((reviewPackagePath) => {
-      const reviewPackage = readJsonIfExists(reviewPackagePath);
-      if (!reviewPackage) {
-        return [];
-      }
-      const packageRecord = reviewPackage;
-      const rawPlatformSlug = stringValue(packageRecord.platform || path.basename(path.dirname(reviewPackagePath)));
-      const slug = platformSlug(rawPlatformSlug);
-      const publisherPayload = publisherPayloads.find((payload) =>
-        platformSlug(stringValue(payload.platform || payload.type)) === slug,
-      ) || null;
-      const publishPackage = recordValue(publisherPayload?.publish_package);
-      const packageAssetPaths = normalizeAssetPaths(packageRecord.asset_paths);
-      const copyDetails = readPublishCopyDetails(
-        stringValue(packageAssetPaths?.copy_path) ||
-          stringValue(publishPackage?.copy_path),
-      );
-      const mediaPaths = uniqueStrings([
-        resolveMarketingArtifactPath(stringValue(packageAssetPaths?.image_path)),
-        resolveMarketingArtifactPath(stringValue(packageAssetPaths?.poster_image_path)),
-        resolveMarketingArtifactPath(stringValue(publishPackage?.image_path)),
-        resolveMarketingArtifactPath(stringValue(publishPackage?.fallback_svg_path)),
-      ]);
-      return [{
-        platform_slug: slug,
-        platform_name: platformNameFromSlug(slug),
-        channel_type: channelTypeForPlatform(slug),
-        rendered_video_asset_id: firstRenderedVideoAssetIdForPlatform(runtimeDoc, slug),
-        summary:
-          preferredText(copyDetails.bodyLines[0], copyDetails.headline, stringValue(packageRecord.summary)) ||
-          ARTIFACT_UNAVAILABLE_TEXT,
-        headline: preferredText(copyDetails.headline),
-        hook:
-          slug === 'meta-ads'
-            ? preferredText(scriptDetails.metaAdHook, copyDetails.headline)
-            : slug === 'tiktok' || slug === 'youtube'
-              ? preferredText(scriptDetails.shortVideoOpeningLine, copyDetails.headline)
-              : preferredText(copyDetails.headline),
-        caption_text: preferredText(copyDetails.bodyLines[0]),
-        cta: preferredText(copyDetails.cta, landingDetails.cta),
-        media_paths: mediaPaths,
-        asset_paths: {
-          contract_path:
-            resolveMarketingArtifactPath(stringValue(packageRecord.contract_path)) ||
-            resolveMarketingArtifactPath(stringValue(publisherPayload?.contract_path)) ||
-            undefined,
-          brief_path: resolveMarketingArtifactPath(reviewPackagePath) || undefined,
-          landing_page_path: landingDetails.path || undefined,
-          copy_path: copyDetails.path || undefined,
-          image_path: mediaPaths[0] || undefined,
-        },
-      } satisfies Record<string, unknown>];
-    });
+  const productionReview = await readMarketingStageStepPayload(runtimeDoc, 3, 'production_review_preview');
+  const platformPreviews: Record<string, unknown>[] = [];
+  for (const reviewPackagePath of reviewPackagePaths) {
+    const reviewPackage = await readJsonIfExists(reviewPackagePath);
+    if (!reviewPackage) {
+      continue;
+    }
+    const packageRecord = reviewPackage;
+    const rawPlatformSlug = stringValue(packageRecord.platform || path.basename(path.dirname(reviewPackagePath)));
+    const slug = platformSlug(rawPlatformSlug);
+    const publisherPayload = publisherPayloads.find((payload) =>
+      platformSlug(stringValue(payload.platform || payload.type)) === slug,
+    ) || null;
+    const publishPackage = recordValue(publisherPayload?.publish_package);
+    const packageAssetPaths = normalizeAssetPaths(packageRecord.asset_paths);
+    const copyDetails = await readPublishCopyDetails(
+      stringValue(packageAssetPaths?.copy_path) ||
+        stringValue(publishPackage?.copy_path),
+    );
+    const mediaPaths = uniqueStrings([
+      resolveMarketingArtifactPath(stringValue(packageAssetPaths?.image_path)),
+      resolveMarketingArtifactPath(stringValue(packageAssetPaths?.poster_image_path)),
+      resolveMarketingArtifactPath(stringValue(publishPackage?.image_path)),
+      resolveMarketingArtifactPath(stringValue(publishPackage?.fallback_svg_path)),
+    ]);
+    platformPreviews.push({
+      platform_slug: slug,
+      platform_name: platformNameFromSlug(slug),
+      channel_type: channelTypeForPlatform(slug),
+      rendered_video_asset_id: firstRenderedVideoAssetIdForPlatform(runtimeDoc, slug),
+      summary:
+        preferredText(copyDetails.bodyLines[0], copyDetails.headline, stringValue(packageRecord.summary)) ||
+        ARTIFACT_UNAVAILABLE_TEXT,
+      headline: preferredText(copyDetails.headline),
+      hook:
+        slug === 'meta-ads'
+          ? preferredText(scriptDetails.metaAdHook, copyDetails.headline)
+          : slug === 'tiktok' || slug === 'youtube'
+            ? preferredText(scriptDetails.shortVideoOpeningLine, copyDetails.headline)
+            : preferredText(copyDetails.headline),
+      caption_text: preferredText(copyDetails.bodyLines[0]),
+      cta: preferredText(copyDetails.cta, landingDetails.cta),
+      media_paths: mediaPaths,
+      asset_paths: {
+        contract_path:
+          resolveMarketingArtifactPath(stringValue(packageRecord.contract_path)) ||
+          resolveMarketingArtifactPath(stringValue(publisherPayload?.contract_path)) ||
+          undefined,
+        brief_path: resolveMarketingArtifactPath(reviewPackagePath) || undefined,
+        landing_page_path: landingDetails.path || undefined,
+        copy_path: copyDetails.path || undefined,
+        image_path: mediaPaths[0] || undefined,
+      },
+    } satisfies Record<string, unknown>);
+  }
 
   const previewPath =
     resolveMarketingArtifactPath(stringValue(recordValue(reviewPayload?.artifacts)?.preview_path)) ||
@@ -835,7 +845,7 @@ function buildFallbackPublishReviewBundle(
     stringValue(runtimeDoc.inputs.request?.brandUrl) ||
     stringValue(runtimeDoc.inputs.brand_url) ||
     '';
-  const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
+  const validatedProfile = await loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
     currentSourceUrl: runtimeSourceUrl || null,
   });
   const validatedLandingHooks = recordValue(validatedProfile.hooks)?.['landing-page'];
@@ -948,12 +958,12 @@ function runtimeDocFallbackCampaignName(
   return stringValue(primaryBundle.campaign_name || fallbackBundle.campaign_name, 'Campaign');
 }
 
-export function resolvePublishReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): PublishReviewBundleResolution {
-  const reviewPayload = extractPublishReviewPayload(runtimeDoc);
+export async function resolvePublishReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): Promise<PublishReviewBundleResolution> {
+  const reviewPayload = await extractPublishReviewPayload(runtimeDoc);
   const runtimeBundle = normalizeReviewBundle(recordValue(reviewPayload?.review_bundle));
   const fallbackBundle =
     publishStageHasRuntimeContext(runtimeDoc) || runtimeBundle
-      ? buildFallbackPublishReviewBundle(runtimeDoc, reviewPayload)
+      ? await buildFallbackPublishReviewBundle(runtimeDoc, reviewPayload)
       : null;
 
   if (runtimeBundle && !fallbackBundle) {
@@ -988,7 +998,7 @@ export function resolvePublishReviewBundle(runtimeDoc: MarketingJobRuntimeDocume
   };
 }
 
-export function extractPublishReviewPayload(runtimeDoc: MarketingJobRuntimeDocument): Record<string, unknown> | null {
+export async function extractPublishReviewPayload(runtimeDoc: MarketingJobRuntimeDocument): Promise<Record<string, unknown> | null> {
   const publishStage = runtimeDoc.stages.publish;
   const reviewOutput = recordValue(publishStage.outputs.review);
   if (reviewOutput) {
@@ -1002,7 +1012,7 @@ export function extractPublishReviewPayload(runtimeDoc: MarketingJobRuntimeDocum
   }
 
   const loggedReview = publishStageHasRuntimeContext(runtimeDoc)
-    ? readPublishStepPayload(runtimeDoc, 'launch_review_preview')
+    ? await readPublishStepPayload(runtimeDoc, 'launch_review_preview')
     : null;
   if (loggedReview) {
     return loggedReview;
@@ -1011,6 +1021,6 @@ export function extractPublishReviewPayload(runtimeDoc: MarketingJobRuntimeDocum
   return primaryOutput;
 }
 
-export function extractPublishReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): Record<string, unknown> | null {
-  return resolvePublishReviewBundle(runtimeDoc).reviewBundle;
+export async function extractPublishReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): Promise<Record<string, unknown> | null> {
+  return (await resolvePublishReviewBundle(runtimeDoc)).reviewBundle;
 }

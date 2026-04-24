@@ -367,13 +367,13 @@ async function launchApproverName(client: PoolClient, approverUserId: string | n
   return result.rows[0].full_name || result.rows[0].email || null;
 }
 
-function runtimeBrandKitAsTenantBrandKit(tenantId: string): { brandKit: TenantBrandKit | null; latestJobId: string | null } {
-  const latestJobId = findLatestMarketingJobIdForTenant(tenantId);
+async function runtimeBrandKitAsTenantBrandKit(tenantId: string): Promise<{ brandKit: TenantBrandKit | null; latestJobId: string | null }> {
+  const latestJobId = await findLatestMarketingJobIdForTenant(tenantId);
   if (!latestJobId) {
     return { brandKit: null, latestJobId: null };
   }
 
-  const runtimeDoc = loadMarketingJobRuntime(latestJobId);
+  const runtimeDoc = await loadMarketingJobRuntime(latestJobId);
   const runtimeBrandKit = runtimeDoc?.brand_kit;
   if (!runtimeBrandKit) {
     return { brandKit: null, latestJobId };
@@ -402,12 +402,12 @@ function runtimeBrandKitAsTenantBrandKit(tenantId: string): { brandKit: TenantBr
   };
 }
 
-export function resolveBusinessProfileBrandKit(tenantId: string): {
+export async function resolveBusinessProfileBrandKit(tenantId: string): Promise<{
   brandKit: TenantBrandKit | null;
   source: BusinessProfileBrandKitSource;
   latestJobId: string | null;
-} {
-  const runtime = runtimeBrandKitAsTenantBrandKit(tenantId);
+}> {
+  const runtime = await runtimeBrandKitAsTenantBrandKit(tenantId);
   if (runtime.brandKit) {
     return {
       brandKit: runtime.brandKit,
@@ -416,7 +416,7 @@ export function resolveBusinessProfileBrandKit(tenantId: string): {
     };
   }
 
-  const persisted = loadTenantBrandKit(tenantId);
+  const persisted = await loadTenantBrandKit(tenantId);
   if (persisted) {
     return {
       brandKit: persisted,
@@ -655,8 +655,8 @@ export async function getBusinessProfileWithDiagnostics(client: PoolClient, tena
 
   const tenantRow = tenant.rows[0] as { id: number; name: string; slug: string };
   const record = loadBusinessProfileRecord(tenantId);
-  const { brandKit, source, latestJobId } = resolveBusinessProfileBrandKit(tenantId);
-  const validatedProfile = loadValidatedMarketingProfileSnapshot(tenantId, {
+  const { brandKit, source, latestJobId } = await resolveBusinessProfileBrandKit(tenantId);
+  const validatedProfile = await loadValidatedMarketingProfileSnapshot(tenantId, {
     currentSourceUrl: record?.website_url ?? brandKit?.canonical_url ?? brandKit?.source_url ?? null,
   });
   const workspaceBrandContext = loadLatestWorkspaceBrandContext(latestJobId);
@@ -753,7 +753,7 @@ export async function updateBusinessProfileWithDiagnostics(
   return getBusinessProfileWithDiagnostics(client, input.tenantId);
 }
 
-export function tenantHasStoredBusinessProfileState(tenantId: string): boolean {
+export async function tenantHasStoredBusinessProfileState(tenantId: string): Promise<boolean> {
   const record = loadBusinessProfileRecord(tenantId);
   if (
     record &&
@@ -773,18 +773,18 @@ export function tenantHasStoredBusinessProfileState(tenantId: string): boolean {
     return true;
   }
 
-  const docs = loadValidatedMarketingProfileDocs(tenantId);
+  const docs = await loadValidatedMarketingProfileDocs(tenantId);
   return Boolean(docs.brandProfile || docs.websiteAnalysis || docs.businessProfile || docs.brandKit);
 }
 
-export function getPublicBusinessProfile(websiteUrl?: string | null): ResolvedBusinessProfile {
+export async function getPublicBusinessProfile(websiteUrl?: string | null): Promise<ResolvedBusinessProfile> {
   const normalizedWebsiteUrl = normalizeMarketingWebsiteUrl(websiteUrl);
   const tenantId =
     derivePublicMarketingTenantId(normalizedWebsiteUrl) ||
     'public_campaign';
   const record = loadBusinessProfileRecord(tenantId);
-  const { brandKit, source, latestJobId } = resolveBusinessProfileBrandKit(tenantId);
-  const validatedProfile = loadValidatedMarketingProfileSnapshot(tenantId, {
+  const { brandKit, source, latestJobId } = await resolveBusinessProfileBrandKit(tenantId);
+  const validatedProfile = await loadValidatedMarketingProfileSnapshot(tenantId, {
     currentSourceUrl: normalizedWebsiteUrl || record?.website_url || brandKit?.canonical_url || brandKit?.source_url || null,
   });
   const tenantSlug = record?.tenant_slug || publicTenantSlug(tenantId);
@@ -818,7 +818,7 @@ export async function updatePublicBusinessProfile(input: Omit<BusinessProfileUpd
     throw new Error('invalid_website_url');
   }
 
-  const current = getPublicBusinessProfile(normalizedWebsiteUrl);
+  const current = await getPublicBusinessProfile(normalizedWebsiteUrl);
   const nextBusinessName =
     mergePersistedStringField(current.profile.businessName || null, input.businessName).value ||
     current.profile.businessName ||
@@ -856,7 +856,7 @@ export async function updatePublicBusinessProfile(input: Omit<BusinessProfileUpd
   });
 
   await persistBrandKitIfNeeded(tenantId, normalizedWebsiteUrl, current.profile.websiteUrl);
-  return getPublicBusinessProfile(normalizedWebsiteUrl);
+  return await getPublicBusinessProfile(normalizedWebsiteUrl);
 }
 
 export function persistBusinessProfileFieldsFromMarketingPayload(
@@ -984,10 +984,10 @@ export function persistBusinessProfileFieldsFromMarketingPayload(
   return nextRecord;
 }
 
-export function marketingPayloadDefaultsFromBusinessProfile(tenantId: string): PersistedMarketingProfileDefaults {
+export async function marketingPayloadDefaultsFromBusinessProfile(tenantId: string): Promise<PersistedMarketingProfileDefaults> {
   const record = loadBusinessProfileRecord(tenantId);
-  const { brandKit, latestJobId } = resolveBusinessProfileBrandKit(tenantId);
-  const validatedProfile = loadValidatedMarketingProfileSnapshot(tenantId, {
+  const { brandKit, latestJobId } = await resolveBusinessProfileBrandKit(tenantId);
+  const validatedProfile = await loadValidatedMarketingProfileSnapshot(tenantId, {
     currentSourceUrl: record?.website_url ?? brandKit?.canonical_url ?? brandKit?.source_url ?? null,
   });
   const workspaceBrandContext = loadLatestWorkspaceBrandContext(latestJobId);

@@ -79,7 +79,7 @@ test('loadValidatedMarketingProfileSnapshot hides stale tenant docs when current
       },
     });
 
-    const snapshot = loadValidatedMarketingProfileSnapshot('tenant_nwa', {
+    const snapshot = await loadValidatedMarketingProfileSnapshot('tenant_nwa', {
       currentSourceUrl: 'https://nwaeventco.com',
     });
 
@@ -109,7 +109,7 @@ test('invalidateValidatedProfilesIfSourceChanged quarantines mismatched and unfi
       },
     );
 
-    const result = invalidateValidatedProfilesIfSourceChanged('tenant_nwa', 'https://nwaeventco.com');
+    const result = await invalidateValidatedProfilesIfSourceChanged('tenant_nwa', 'https://nwaeventco.com');
 
     // The mismatched brand-profile and the unfingerprinted website-analysis must both be quarantined;
     // the matching business-profile must remain.
@@ -126,7 +126,7 @@ test('invalidateValidatedProfilesIfSourceChanged quarantines mismatched and unfi
 
     // After quarantine, loadValidatedMarketingProfileSnapshot must not see the stale content even
     // if a later caller forgets to pass currentSourceUrl.
-    const snapshot = loadValidatedMarketingProfileSnapshot('tenant_nwa');
+    const snapshot = await loadValidatedMarketingProfileSnapshot('tenant_nwa');
     assert.notEqual(snapshot.businessName, 'Mejuri', 'Mejuri data must not return after quarantine');
 
     // Sanity check: both the business-profile.json (preserved) and the new .stale- files live side by side.
@@ -143,7 +143,7 @@ test('invalidateValidatedProfilesIfSourceChanged is a no-op when no current sour
     const { brandProfilePath } = await writeValidatedDocs(dataRoot, 'tenant_nwa', {
       brandProfile: { canonical_url: 'https://anything.com/', brand_name: 'Anything' },
     });
-    const result = invalidateValidatedProfilesIfSourceChanged('tenant_nwa', null);
+    const result = await invalidateValidatedProfilesIfSourceChanged('tenant_nwa', null);
     assert.deepEqual(result.quarantined, []);
     assert.equal(existsSync(brandProfilePath), true, 'file must remain untouched when source is unknown');
   });

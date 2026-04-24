@@ -72,7 +72,7 @@ export async function handleDeleteMarketingJob(
     return tenantResult.response;
   }
 
-  const doc = loadMarketingJobRuntime(jobId);
+  const doc = await loadMarketingJobRuntime(jobId);
   if (!doc) {
     return NextResponse.json(
       { error: 'Campaign not found.', reason: 'marketing_job_not_found' },
@@ -107,7 +107,7 @@ export async function handleDeleteMarketingJob(
 
   const wasActive = isPipelineActive(doc);
 
-  const updated = softDeleteMarketingJob({
+  const updated = await softDeleteMarketingJob({
     jobId,
     tenantId: tenantResult.tenantContext.tenantId,
     deletedBy: tenantResult.tenantContext.userId,
@@ -155,7 +155,7 @@ export async function handleRestoreMarketingJob(
     return tenantResult.response;
   }
 
-  const doc = loadMarketingJobRuntime(jobId);
+  const doc = await loadMarketingJobRuntime(jobId);
   if (!doc) {
     return NextResponse.json(
       { error: 'Campaign not found.', reason: 'marketing_job_not_found' },
@@ -189,7 +189,7 @@ export async function handleRestoreMarketingJob(
     );
   }
 
-  const updated = restoreMarketingJob({
+  const updated = await restoreMarketingJob({
     jobId,
     tenantId: tenantResult.tenantContext.tenantId,
   });

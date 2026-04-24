@@ -575,9 +575,9 @@ test('denying a workflow checkpoint persists a denied approval record and clears
       deniedBy: 'operator',
       approvalId,
       note: 'Not ready yet.',
-    }, loadMarketingJobRuntime(started.jobId)!);
+    }, (await loadMarketingJobRuntime(started.jobId))!);
 
-    const runtimeDoc = loadMarketingJobRuntime(started.jobId);
+    const runtimeDoc = await loadMarketingJobRuntime(started.jobId);
     const records = listMarketingApprovalRecordsForJob(started.jobId);
 
     assert.equal(denied.status, 'denied');

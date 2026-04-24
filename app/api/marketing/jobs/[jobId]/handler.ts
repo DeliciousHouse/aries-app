@@ -19,8 +19,8 @@ const MARKETING_JOB_NOT_FOUND_RESPONSE = {
 
 function alignApprovalWithWorkspace(
   approval: MarketingApprovalSummary | null,
-  workflowState: ReturnType<typeof buildCampaignWorkspaceView>['workflowState'],
-  publishBlockedReason: ReturnType<typeof buildCampaignWorkspaceView>['publishBlockedReason'],
+  workflowState: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['workflowState'],
+  publishBlockedReason: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['publishBlockedReason'],
 ) {
   if (!approval || workflowState !== 'revisions_requested') {
     return approval;
@@ -37,14 +37,14 @@ function alignApprovalWithWorkspace(
 
 function alignApprovalRequiredWithWorkspace(
   approvalRequired: boolean,
-  workflowState: ReturnType<typeof buildCampaignWorkspaceView>['workflowState'],
+  workflowState: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['workflowState'],
 ) {
   return workflowState === 'revisions_requested' ? false : approvalRequired;
 }
 
 function alignNextStepWithWorkspace(
   nextStep: MarketingJobStatusResponse['nextStep'],
-  workflowState: ReturnType<typeof buildCampaignWorkspaceView>['workflowState'],
+  workflowState: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['workflowState'],
 ) {
   return workflowState === 'revisions_requested' ? 'wait_for_completion' : nextStep;
 }
@@ -60,7 +60,7 @@ export async function handleGetMarketingJobStatus(
     return tenantResult.response;
   }
 
-  const runtimeDoc = loadMarketingJobRuntime(jobId);
+  const runtimeDoc = await loadMarketingJobRuntime(jobId);
   if (!runtimeDoc || runtimeDoc.tenant_id !== tenantResult.tenantContext.tenantId) {
     console.warn('[marketing-job-not-found]', {
       jobId,
@@ -71,7 +71,7 @@ export async function handleGetMarketingJobStatus(
 
   try {
     const { payload: result, cacheStatus } = await getMarketingJobStatusCached(tenantResult.tenantContext.tenantId, jobId);
-    const workspaceView = buildCampaignWorkspaceView(jobId);
+    const workspaceView = await buildCampaignWorkspaceView(jobId);
 
     return NextResponse.json(
       {

@@ -35,7 +35,7 @@ export async function handleApproveMarketingJob(
   }
 
   try {
-    const doc = loadMarketingJobRuntime(jobId);
+    const doc = await loadMarketingJobRuntime(jobId);
     if (!doc) {
       return NextResponse.json(
         {

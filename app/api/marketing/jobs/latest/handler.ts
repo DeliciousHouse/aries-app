@@ -12,9 +12,9 @@ const MARKETING_ONBOARDING_REQUIRED = {
 } as const;
 
 function alignApprovalWithWorkspace(
-  approval: ReturnType<typeof getMarketingJobStatus>['approval'],
-  workflowState: ReturnType<typeof buildCampaignWorkspaceView>['workflowState'],
-  publishBlockedReason: ReturnType<typeof buildCampaignWorkspaceView>['publishBlockedReason'],
+  approval: Awaited<ReturnType<typeof getMarketingJobStatus>>['approval'],
+  workflowState: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['workflowState'],
+  publishBlockedReason: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['publishBlockedReason'],
 ) {
   if (!approval || workflowState !== 'revisions_requested') {
     return approval;
@@ -31,14 +31,14 @@ function alignApprovalWithWorkspace(
 
 function alignApprovalRequiredWithWorkspace(
   approvalRequired: boolean,
-  workflowState: ReturnType<typeof buildCampaignWorkspaceView>['workflowState'],
+  workflowState: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['workflowState'],
 ) {
   return workflowState === 'revisions_requested' ? false : approvalRequired;
 }
 
 function alignNextStepWithWorkspace(
-  nextStep: ReturnType<typeof getMarketingJobStatus>['nextStep'],
-  workflowState: ReturnType<typeof buildCampaignWorkspaceView>['workflowState'],
+  nextStep: Awaited<ReturnType<typeof getMarketingJobStatus>>['nextStep'],
+  workflowState: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['workflowState'],
 ) {
   return workflowState === 'revisions_requested' ? 'wait_for_completion' : nextStep;
 }
@@ -64,7 +64,7 @@ export async function handleGetLatestMarketingJobStatus(
     );
   }
 
-  const latestJobId = findLatestMarketingJobIdForTenant(tenantId);
+  const latestJobId = await findLatestMarketingJobIdForTenant(tenantId);
   if (!latestJobId) {
     return NextResponse.json(
       {
@@ -75,8 +75,8 @@ export async function handleGetLatestMarketingJobStatus(
     );
   }
 
-  const result = getMarketingJobStatus(latestJobId);
-  const workspaceView = buildCampaignWorkspaceView(latestJobId);
+  const result = await getMarketingJobStatus(latestJobId);
+  const workspaceView = await buildCampaignWorkspaceView(latestJobId);
   return NextResponse.json(
     {
       jobId: result.jobId,

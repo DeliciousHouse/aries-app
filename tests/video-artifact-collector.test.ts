@@ -77,7 +77,7 @@ test('collectProductionReviewArtifacts emits one video artifact per rendered var
       },
     });
 
-    const capture = collectProductionReviewArtifacts({ run_id: runId, job_id: jobId }, null);
+    const capture = await collectProductionReviewArtifacts({ run_id: runId, job_id: jobId }, null);
     const videoArtifacts = capture.artifacts.filter(
       (artifact): artifact is Extract<(typeof capture.artifacts)[number], { type: 'video' }> =>
         'type' in artifact && artifact.type === 'video',

@@ -93,7 +93,7 @@ test('/api/marketing/jobs reaches the first approval checkpoint through the real
     assert.equal((captured[0]?.args as Record<string, unknown>)?.pipeline, 'marketing-pipeline.lobster');
     assert.equal((captured[0]?.args as Record<string, unknown>)?.cwd, 'lobster');
 
-    const runtimeDoc = loadMarketingJobRuntime(String(body.jobId));
+    const runtimeDoc = await loadMarketingJobRuntime(String(body.jobId));
     assert.equal(runtimeDoc?.current_stage, 'strategy');
     assert.equal(runtimeDoc?.stages.research.run_id, 'route-smoke-run');
     assert.equal(runtimeDoc?.approvals.current?.workflow_step_id, 'approve_stage_2');

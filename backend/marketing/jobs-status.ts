@@ -766,9 +766,9 @@ function buildTimeline(
   });
 }
 
-function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): MarketingReviewBundle | null {
+async function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): Promise<MarketingReviewBundle | null> {
   const jobId = runtimeDoc.job_id;
-  const resolvedReview = resolvePublishReviewBundle(runtimeDoc);
+  const resolvedReview = await resolvePublishReviewBundle(runtimeDoc);
   const review = resolvedReview.reviewPayload;
   const reviewBundle = resolvedReview.reviewBundle;
   if (!reviewBundle) {
@@ -779,7 +779,7 @@ function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): MarketingRe
   const scriptPreview = recordValue(reviewBundle.script_preview);
   const reviewPacket = recordValue(reviewBundle.review_packet);
   const artifactPaths = recordValue(reviewBundle.artifact_paths);
-  const assetLinks = buildMarketingAssetLinks(jobId, runtimeDoc);
+  const assetLinks = await buildMarketingAssetLinks(jobId, runtimeDoc);
   const linkById = new Map(assetLinks.map((asset) => [asset.id, asset] as const));
 
   return {
@@ -977,16 +977,16 @@ function fallbackPlatformMediaAssets(assetLinks: MarketingAssetLink[], platformS
   });
 }
 
-function rawPublishReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): Record<string, unknown> | null {
-  return resolvePublishReviewBundle(runtimeDoc).reviewBundle;
+async function rawPublishReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): Promise<Record<string, unknown> | null> {
+  return (await resolvePublishReviewBundle(runtimeDoc)).reviewBundle;
 }
 
-function publishReviewSource(runtimeDoc: MarketingJobRuntimeDocument): 'runtime' | 'merged_runtime_artifacts' | 'artifact_fallback' | 'none' {
-  return resolvePublishReviewBundle(runtimeDoc).source;
+async function publishReviewSource(runtimeDoc: MarketingJobRuntimeDocument): Promise<'runtime' | 'merged_runtime_artifacts' | 'artifact_fallback' | 'none'> {
+  return (await resolvePublishReviewBundle(runtimeDoc)).source;
 }
 
-function buildCampaignWindow(runtimeDoc: MarketingJobRuntimeDocument): MarketingCampaignWindow | null {
-  const reviewBundle = rawPublishReviewBundle(runtimeDoc);
+async function buildCampaignWindow(runtimeDoc: MarketingJobRuntimeDocument): Promise<MarketingCampaignWindow | null> {
+  const reviewBundle = await rawPublishReviewBundle(runtimeDoc);
   const summary = recordValue(reviewBundle?.summary);
   const campaignWindow = recordValue(summary?.campaign_window);
 
@@ -1031,8 +1031,8 @@ function buildAssetPreviewCards(jobId: string, reviewBundle: MarketingReviewBund
   }));
 }
 
-function buildCalendarEvents(runtimeDoc: MarketingJobRuntimeDocument): MarketingCalendarEvent[] {
-  const reviewBundle = rawPublishReviewBundle(runtimeDoc);
+async function buildCalendarEvents(runtimeDoc: MarketingJobRuntimeDocument): Promise<MarketingCalendarEvent[]> {
+  const reviewBundle = await rawPublishReviewBundle(runtimeDoc);
   const contentCalendar = recordValue(reviewBundle?.content_calendar);
   const events = recordArray(contentCalendar?.events);
 
@@ -1056,12 +1056,12 @@ function buildCalendarEvents(runtimeDoc: MarketingJobRuntimeDocument): Marketing
     .filter((event): event is MarketingCalendarEvent => !!event);
 }
 
-function buildPostCounts(
+async function buildPostCounts(
   runtimeDoc: MarketingJobRuntimeDocument,
   reviewBundle: MarketingReviewBundle | null,
   calendarEvents: MarketingCalendarEvent[]
-): { plannedPostCount: number | null; createdPostCount: number | null } {
-  const rawBundle = rawPublishReviewBundle(runtimeDoc);
+): Promise<{ plannedPostCount: number | null; createdPostCount: number | null }> {
+  const rawBundle = await rawPublishReviewBundle(runtimeDoc);
   const summary = recordValue(rawBundle?.summary);
   const explicitPlanned = numberValue(summary?.planned_posts);
   const explicitCreated = numberValue(summary?.created_posts);
@@ -1079,10 +1079,10 @@ function buildPostCounts(
   };
 }
 
-function buildMarketingJobStatus(jobId: string): MarketingJobStatusResponse {
-  assertMarketingRuntimeSchemas();
+async function buildMarketingJobStatus(jobId: string): Promise<MarketingJobStatusResponse> {
+  await assertMarketingRuntimeSchemas();
 
-  const runtimeDoc = loadMarketingJobRuntime(jobId);
+  const runtimeDoc = await loadMarketingJobRuntime(jobId);
   if (!runtimeDoc) {
     return {
       jobId,
@@ -1129,13 +1129,13 @@ function buildMarketingJobStatus(jobId: string): MarketingJobStatusResponse {
   };
   const state = deriveState(runtimeDoc, stageStatus);
   const approval = buildApproval(jobId, runtimeDoc);
-  const reviewBundle = buildReviewBundle(runtimeDoc);
-  const campaignWindow = buildCampaignWindow(runtimeDoc);
+  const reviewBundle = await buildReviewBundle(runtimeDoc);
+  const campaignWindow = await buildCampaignWindow(runtimeDoc);
   const durationDays = buildDurationDays(campaignWindow);
   const assetPreviewCards = buildAssetPreviewCards(jobId, reviewBundle);
-  const calendarEvents = buildCalendarEvents(runtimeDoc);
-  const postCounts = buildPostCounts(runtimeDoc, reviewBundle, calendarEvents);
-  const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
+  const calendarEvents = await buildCalendarEvents(runtimeDoc);
+  const postCounts = await buildPostCounts(runtimeDoc, reviewBundle, calendarEvents);
+  const validatedProfile = await loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
     currentSourceUrl: runtimeDoc.inputs.brand_url || null,
   });
   if (shouldLogMarketingJobStatus()) {
@@ -1143,7 +1143,7 @@ function buildMarketingJobStatus(jobId: string): MarketingJobStatusResponse {
       event: 'job-status',
       jobId,
       tenantId: runtimeDoc.tenant_id,
-      reviewBundleSource: publishReviewSource(runtimeDoc),
+      reviewBundleSource: await publishReviewSource(runtimeDoc),
       reviewBundleReason: reviewBundle ? 'hydrated' : 'no_real_publish_review_artifacts',
     });
   }
@@ -1182,6 +1182,6 @@ function buildMarketingJobStatus(jobId: string): MarketingJobStatusResponse {
   };
 }
 
-export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse {
+export async function getMarketingJobStatus(jobId: string): Promise<MarketingJobStatusResponse> {
   return buildMarketingJobStatus(jobId);
 }

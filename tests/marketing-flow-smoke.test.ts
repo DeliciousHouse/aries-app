@@ -176,14 +176,14 @@ test('canonical client-facing marketing smoke flow stays on the monolithic pipel
     assert.equal((startPayload as any)?.args?.pipeline, MARKETING_PIPELINE_FILE);
     assert.equal((startPayload as any)?.args?.cwd, 'lobster');
 
-    const statusBeforeApproval = getMarketingJobStatus(startResult.jobId);
+    const statusBeforeApproval = await getMarketingJobStatus(startResult.jobId);
     assert.equal(statusBeforeApproval.state, 'approval_required');
     assert.equal(statusBeforeApproval.status, 'awaiting_approval');
     assert.equal(statusBeforeApproval.currentStage, 'strategy');
     assert.equal(statusBeforeApproval.stageStatus.strategy, 'awaiting_approval');
     assert.equal(statusBeforeApproval.approvalRequired, true);
     assert.equal(statusBeforeApproval.approval?.required, true);
-    const startedDoc = loadMarketingJobRuntime(startResult.jobId)!;
+    const startedDoc = (await loadMarketingJobRuntime(startResult.jobId))!;
     assert.equal(startedDoc.approvals.current?.workflow_name, MARKETING_WORKFLOW_NAME);
     assert.equal(startedDoc.approvals.current?.workflow_step_id, 'approve_stage_2');
     assert.equal(startedDoc.stages.research.run_id, 'verify-flow-run');
@@ -194,11 +194,11 @@ test('canonical client-facing marketing smoke flow stays on the monolithic pipel
       tenantId: 'tenant_verify',
       approvedBy: 'verify-runner',
       approvedStages: ['strategy'],
-    }, loadMarketingJobRuntime(startResult.jobId)!);
+    }, (await loadMarketingJobRuntime(startResult.jobId))!);
     assert.equal(strategyApproval.status, 'resumed');
     assert.equal(strategyApproval.resumedStage, 'production');
     assert.equal(strategyApproval.completed, false);
-    const afterStrategy = loadMarketingJobRuntime(startResult.jobId)!;
+    const afterStrategy = (await loadMarketingJobRuntime(startResult.jobId))!;
     assert.equal(afterStrategy.approvals.current?.workflow_name, MARKETING_WORKFLOW_NAME);
     assert.equal(afterStrategy.approvals.current?.workflow_step_id, 'approve_stage_3');
     assert.equal(afterStrategy.stages.strategy.run_id, 'verify-flow-run');
@@ -209,11 +209,11 @@ test('canonical client-facing marketing smoke flow stays on the monolithic pipel
       tenantId: 'tenant_verify',
       approvedBy: 'verify-runner',
       approvedStages: ['production'],
-    }, loadMarketingJobRuntime(startResult.jobId)!);
+    }, (await loadMarketingJobRuntime(startResult.jobId))!);
     assert.equal(productionApproval.status, 'resumed');
     assert.equal(productionApproval.resumedStage, 'publish');
     assert.equal(productionApproval.completed, false);
-    const afterProduction = loadMarketingJobRuntime(startResult.jobId)!;
+    const afterProduction = (await loadMarketingJobRuntime(startResult.jobId))!;
     assert.equal(afterProduction.approvals.current?.workflow_name, MARKETING_WORKFLOW_NAME);
     assert.equal(afterProduction.approvals.current?.workflow_step_id, 'approve_stage_4');
     assert.equal(afterProduction.stages.production.run_id, 'verify-flow-run');
@@ -225,7 +225,7 @@ test('canonical client-facing marketing smoke flow stays on the monolithic pipel
       approvedBy: 'verify-runner',
       approvedStages: ['publish'],
       resumePublishIfNeeded: true,
-    }, loadMarketingJobRuntime(startResult.jobId)!);
+    }, (await loadMarketingJobRuntime(startResult.jobId))!);
 
 
     assert.equal(approvalResult.status, 'resumed');
@@ -234,7 +234,7 @@ test('canonical client-facing marketing smoke flow stays on the monolithic pipel
     assert.deepEqual(actions, ['run', 'resume', 'resume', 'resume']);
     assert.deepEqual(resumeTokens, ['resume_strategy', 'resume_production', 'resume_publish']);
 
-    const statusAfterApproval = getMarketingJobStatus(startResult.jobId);
+    const statusAfterApproval = await getMarketingJobStatus(startResult.jobId);
     assert.equal(statusAfterApproval.state, 'completed');
     assert.equal(statusAfterApproval.status, 'completed');
     assert.equal(statusAfterApproval.stageStatus.publish, 'completed');

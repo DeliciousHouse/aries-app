@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, renameSync } from 'node:fs';
+import { existsSync, renameSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 
 import type { MarketingBrandIdentity } from '@/lib/api/marketing';
 import { sanitizeLegacyCompetitorUrl } from '@/lib/marketing-competitor';
@@ -34,13 +35,13 @@ function recordValue(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function readJsonIfExists(filePath: string): Record<string, unknown> | null {
-  if (!existsSync(filePath)) {
-    return null;
-  }
+async function readJsonIfExists(filePath: string): Promise<Record<string, unknown> | null> {
   try {
-    return recordValue(JSON.parse(readFileSync(filePath, 'utf8')));
-  } catch {
+    return recordValue(JSON.parse(await readFile(filePath, 'utf8')));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return null;
+    }
     return null;
   }
 }
@@ -127,10 +128,10 @@ export type QuarantinedValidatedProfile = {
   stalePath: string;
 };
 
-export function invalidateValidatedProfilesIfSourceChanged(
+export async function invalidateValidatedProfilesIfSourceChanged(
   tenantId: string,
   newSourceUrl: string | null | undefined,
-): { quarantined: QuarantinedValidatedProfile[] } {
+): Promise<{ quarantined: QuarantinedValidatedProfile[] }> {
   const currentFingerprint = normalizeSourceFingerprint(newSourceUrl);
   if (!currentFingerprint) {
     return { quarantined: [] };
@@ -148,7 +149,7 @@ export function invalidateValidatedProfilesIfSourceChanged(
     if (!existsSync(filePath)) {
       continue;
     }
-    const record = readJsonIfExists(filePath);
+    const record = await readJsonIfExists(filePath);
     const recordFingerprint = sourceFingerprintFromRecord(record);
     if (recordFingerprint && recordFingerprint === currentFingerprint) {
       continue;
@@ -182,18 +183,18 @@ export type ValidatedMarketingProfileLoadOptions = {
   currentSourceUrl?: string | null;
 };
 
-export function loadValidatedMarketingProfileDocs(
+export async function loadValidatedMarketingProfileDocs(
   tenantId: string,
   options: ValidatedMarketingProfileLoadOptions = {},
-): ValidatedMarketingProfileDocs {
+): Promise<ValidatedMarketingProfileDocs> {
   const brandProfilePath = tenantBrandProfilePath(tenantId);
   const websiteAnalysisPath = tenantWebsiteAnalysisPath(tenantId);
   const businessProfilePath = tenantBusinessProfilePath(tenantId);
   const brandKitPath = tenantBrandKitPath(tenantId);
-  const rawBrandProfile = readJsonIfExists(brandProfilePath);
-  const rawWebsiteAnalysis = readJsonIfExists(websiteAnalysisPath);
-  const rawBusinessProfile = readJsonIfExists(businessProfilePath);
-  const rawBrandKit = readJsonIfExists(brandKitPath);
+  const rawBrandProfile = await readJsonIfExists(brandProfilePath);
+  const rawWebsiteAnalysis = await readJsonIfExists(websiteAnalysisPath);
+  const rawBusinessProfile = await readJsonIfExists(businessProfilePath);
+  const rawBrandKit = await readJsonIfExists(brandKitPath);
   const brandProfile = recordMatchesCurrentSource(rawBrandProfile, options.currentSourceUrl) ? rawBrandProfile : null;
   const websiteAnalysis = recordMatchesCurrentSource(rawWebsiteAnalysis, options.currentSourceUrl) ? rawWebsiteAnalysis : null;
   const businessProfile = recordMatchesCurrentSource(rawBusinessProfile, options.currentSourceUrl) ? rawBusinessProfile : null;
@@ -243,11 +244,11 @@ function landingHookFromDoc(doc: Record<string, unknown> | null): string | null 
   return stringArray(creativeHandoffHooks)[0] || stringArray(analysisHooks)[0] || null;
 }
 
-export function loadValidatedMarketingProfileSnapshot(
+export async function loadValidatedMarketingProfileSnapshot(
   tenantId: string,
   options: ValidatedMarketingProfileLoadOptions = {},
-): ValidatedMarketingProfileSnapshot {
-  const docs = loadValidatedMarketingProfileDocs(tenantId, options);
+): Promise<ValidatedMarketingProfileSnapshot> {
+  const docs = await loadValidatedMarketingProfileDocs(tenantId, options);
   const brandProfile = docs.brandProfile;
   const websiteAnalysis = docs.websiteAnalysis;
   const websiteBrandAnalysis = recordValue(websiteAnalysis?.brand_analysis);

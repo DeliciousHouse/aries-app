@@ -854,12 +854,12 @@ function viewerUrl(jobId: string, assetId: string): string {
   return `/materials/${encodeURIComponent(jobId)}/${encodeURIComponent(assetId)}`;
 }
 
-function firstCheckpointAttachments(
+async function firstCheckpointAttachments(
   view: CampaignWorkspaceView,
   runtimeDoc: MarketingJobRuntimeDocument,
-): MarketingReviewAttachment[] {
+): Promise<MarketingReviewAttachment[]> {
   const attachments: MarketingReviewAttachment[] = [];
-  const assetLinks = new Map(buildMarketingAssetLinks(runtimeDoc.job_id, runtimeDoc).map((asset) => [asset.id, asset] as const));
+  const assetLinks = new Map((await buildMarketingAssetLinks(runtimeDoc.job_id, runtimeDoc)).map((asset) => [asset.id, asset] as const));
   const researchSummary = assetLinks.get('research-summary');
   const brandKit = assetLinks.get('brand-kit-json');
   const brandBible = assetLinks.get('brand-bible-markdown');
@@ -1042,12 +1042,12 @@ function launchReviewApprovalSections(runtimeDoc: MarketingJobRuntimeDocument): 
   return sections;
 }
 
-function workflowApprovalItem(
+async function workflowApprovalItem(
   status: MarketingJobStatusResponse,
   view: CampaignWorkspaceView,
   runtimeDoc: MarketingJobRuntimeDocument,
   campaignNameValue: string,
-): RuntimeReviewItem | null {
+): Promise<RuntimeReviewItem | null> {
   if (!status.approval) {
     return null;
   }
@@ -1069,7 +1069,7 @@ function workflowApprovalItem(
             body: approvalSurfaceSummary(status),
           },
         ];
-  const attachments = firstCheckpoint ? firstCheckpointAttachments(view, runtimeDoc) : [];
+  const attachments = firstCheckpoint ? await firstCheckpointAttachments(view, runtimeDoc) : [];
   const summary = approvalSurfaceSummary(status);
   const title = approvalSurfaceTitle(status);
   const cta = view.workflowState === 'revisions_requested'
@@ -1222,14 +1222,14 @@ export function syncHistoryWithLastDecision(item: RuntimeReviewItem): RuntimeRev
   return { ...item, history: [...item.history, synthesized] };
 }
 
-function buildReviewItemsForJob(jobId: string): RuntimeReviewItem[] {
-  const runtimeDoc = loadMarketingJobRuntime(jobId);
+async function buildReviewItemsForJob(jobId: string): Promise<RuntimeReviewItem[]> {
+  const runtimeDoc = await loadMarketingJobRuntime(jobId);
   if (!runtimeDoc) {
     return [];
   }
 
-  const status = getMarketingJobStatus(jobId);
-  const view = buildCampaignWorkspaceView(jobId);
+  const status = await getMarketingJobStatus(jobId);
+  const view = await buildCampaignWorkspaceView(jobId);
   const campaignNameValue = campaignName(status, view);
 
   const items: RuntimeReviewItem[] = [];
@@ -1244,7 +1244,7 @@ function buildReviewItemsForJob(jobId: string): RuntimeReviewItem[] {
   }
   items.push(...publishPreviewReviewItems(status, view, campaignNameValue));
 
-  const approvalItem = workflowApprovalItem(status, view, runtimeDoc, campaignNameValue);
+  const approvalItem = await workflowApprovalItem(status, view, runtimeDoc, campaignNameValue);
   if (approvalItem) {
     items.push(approvalItem);
   }
@@ -1252,8 +1252,8 @@ function buildReviewItemsForJob(jobId: string): RuntimeReviewItem[] {
   return mergeReviewState(jobId, runtimeDoc.tenant_id, items);
 }
 
-function resolveRuntimeReviewItem(jobId: string, reviewId: string): RuntimeReviewItem | null {
-  const items = buildReviewItemsForJob(jobId);
+async function resolveRuntimeReviewItem(jobId: string, reviewId: string): Promise<RuntimeReviewItem | null> {
+  const items = await buildReviewItemsForJob(jobId);
   const exact = items.find((item) => item.id === reviewId);
   if (exact) {
     return exact;
@@ -1267,7 +1267,7 @@ function resolveRuntimeReviewItem(jobId: string, reviewId: string): RuntimeRevie
     }
   }
 
-  const runtimeDoc = loadMarketingJobRuntime(jobId);
+  const runtimeDoc = await loadMarketingJobRuntime(jobId);
   if (!runtimeDoc) {
     return null;
   }
@@ -1377,18 +1377,18 @@ export async function listMarketingCampaignsForTenant(tenantId: string): Promise
   const campaigns: RuntimeCampaignListItem[] = [];
   const seen = new Set<string>();
 
-  for (const jobId of listMarketingJobIdsForTenant(tenantId)) {
-    const status = getMarketingJobStatus(jobId);
+  for (const jobId of await listMarketingJobIdsForTenant(tenantId)) {
+    const status = await getMarketingJobStatus(jobId);
     if (status.tenantName === null && status.brandWebsiteUrl === null && status.status === 'error') {
       continue;
     }
-    const view = buildCampaignWorkspaceView(jobId);
+    const view = await buildCampaignWorkspaceView(jobId);
     const key = view.dashboard.campaign?.externalCampaignId || view.dashboard.campaign?.name || `job::${jobId}`;
     if (seen.has(key)) {
       continue;
     }
     seen.add(key);
-    const pendingApprovals = buildReviewItemsForJob(jobId).filter((item) => item.status !== 'approved').length;
+    const pendingApprovals = (await buildReviewItemsForJob(jobId)).filter((item) => item.status !== 'approved').length;
     campaigns.push(buildCampaignListItem(status, view, pendingApprovals));
   }
 
@@ -1410,22 +1410,22 @@ export async function listDeletedMarketingCampaignsForTenant(
   const campaigns: RuntimeCampaignListItem[] = [];
   const seen = new Set<string>();
 
-  for (const jobId of listDeletedMarketingJobIdsForTenant(tenantId)) {
-    const doc = loadMarketingJobRuntime(jobId);
+  for (const jobId of await listDeletedMarketingJobIdsForTenant(tenantId)) {
+    const doc = await loadMarketingJobRuntime(jobId);
     if (!doc || doc.tenant_id !== tenantId) {
       continue;
     }
-    const status = getMarketingJobStatus(jobId);
+    const status = await getMarketingJobStatus(jobId);
     if (status.tenantName === null && status.brandWebsiteUrl === null && status.status === 'error') {
       continue;
     }
-    const view = buildCampaignWorkspaceView(jobId);
+    const view = await buildCampaignWorkspaceView(jobId);
     const key = view.dashboard.campaign?.externalCampaignId || view.dashboard.campaign?.name || `job::${jobId}`;
     if (seen.has(key)) {
       continue;
     }
     seen.add(key);
-    const pendingApprovals = buildReviewItemsForJob(jobId).filter((item) => item.status !== 'approved').length;
+    const pendingApprovals = (await buildReviewItemsForJob(jobId)).filter((item) => item.status !== 'approved').length;
     const item = buildCampaignListItem(status, view, pendingApprovals);
     item.deletedAt = doc.deleted_at ?? null;
     item.deletedBy = doc.deleted_by ?? null;
@@ -1443,7 +1443,7 @@ export async function listDeletedMarketingCampaignsForTenant(
 export async function listPublicMarketingCampaigns(): Promise<RuntimeCampaignListItem[]> {
   const byId = new Map<string, RuntimeCampaignListItem>();
 
-  for (const tenantId of listMarketingTenantIds()) {
+  for (const tenantId of await listMarketingTenantIds()) {
     const campaigns = await listMarketingCampaignsForTenant(tenantId);
     for (const campaign of campaigns) {
       if (!byId.has(campaign.id)) {
@@ -1463,21 +1463,21 @@ export async function getMarketingCampaignContentForTenant(
   tenantId: string,
   campaignId: string,
 ): Promise<MarketingDashboardCampaignContent | null> {
-  const jobIds = new Set(listMarketingJobIdsForTenant(tenantId));
+  const jobIds = new Set(await listMarketingJobIdsForTenant(tenantId));
   if (!jobIds.has(campaignId)) {
     return null;
   }
-  return buildCampaignWorkspaceView(campaignId).dashboard;
+  return (await buildCampaignWorkspaceView(campaignId)).dashboard;
 }
 
 export async function listMarketingPostsForTenant(tenantId: string): Promise<MarketingDashboardContent> {
-  return getWorkflowAwareDashboardContentForTenant(tenantId);
+  return await getWorkflowAwareDashboardContentForTenant(tenantId);
 }
 
 export async function listPublicMarketingPosts(): Promise<MarketingDashboardContent> {
-  const tenantIds = listMarketingTenantIds();
+  const tenantIds = await listMarketingTenantIds();
   const emptyTenantId = tenantIds[0] || 'public_empty';
-  const content = getWorkflowAwareDashboardContentForTenant(emptyTenantId);
+  const content = await getWorkflowAwareDashboardContentForTenant(emptyTenantId);
 
   if (tenantIds.length <= 1) {
     return content;
@@ -1501,7 +1501,7 @@ export async function listPublicMarketingPosts(): Promise<MarketingDashboardCont
   };
 
   for (const tenantId of tenantIds) {
-    const next = getWorkflowAwareDashboardContentForTenant(tenantId);
+    const next = await getWorkflowAwareDashboardContentForTenant(tenantId);
     campaigns.push(...next.campaigns);
     posts.push(...next.posts);
     assets.push(...next.assets);
@@ -1534,16 +1534,18 @@ export async function listMarketingReviewItemsForTenant(tenantId: string): Promi
 }
 
 export async function listMarketingReviewQueueForTenant(tenantId: string): Promise<RuntimeReviewQueue> {
-  const items = listMarketingJobIdsForTenant(tenantId)
-    .flatMap((jobId) => buildReviewItemsForJob(jobId))
-    .filter((item) => item.status !== 'approved');
+  const items: RuntimeReviewItem[] = [];
+  for (const jobId of await listMarketingJobIdsForTenant(tenantId)) {
+    const reviewItems = await buildReviewItemsForJob(jobId);
+    items.push(...reviewItems.filter((item) => item.status !== 'approved'));
+  }
 
   return buildRuntimeReviewQueue(items);
 }
 
 export async function listPublicMarketingReviewItems(): Promise<RuntimeReviewItem[]> {
   const items = [] as RuntimeReviewItem[];
-  for (const tenantId of listMarketingTenantIds()) {
+  for (const tenantId of await listMarketingTenantIds()) {
     items.push(...(await listMarketingReviewItemsForTenant(tenantId)));
   }
   return items.sort((left, right) => right.scheduledFor.localeCompare(left.scheduledFor));
@@ -1554,12 +1556,12 @@ export async function lookupMarketingReviewItemForTenant(
   reviewId: string,
 ): Promise<RuntimeReviewItemLookupResult> {
   const { jobId } = reviewIdParts(reviewId);
-  const runtimeDoc = loadMarketingJobRuntime(jobId);
+  const runtimeDoc = await loadMarketingJobRuntime(jobId);
   if (!runtimeDoc) {
     return { status: 'missing' };
   }
 
-  const review = resolveRuntimeReviewItem(jobId, reviewId);
+  const review = await resolveRuntimeReviewItem(jobId, reviewId);
   if (!review) {
     return { status: 'missing' };
   }
@@ -1585,18 +1587,18 @@ export async function recordMarketingReviewDecision(input: {
   approvalId?: string;
 }): Promise<RuntimeReviewItem | null> {
   const { jobId } = reviewIdParts(input.reviewId);
-  const runtimeDoc = loadMarketingJobRuntime(jobId);
+  const runtimeDoc = await loadMarketingJobRuntime(jobId);
   if (!runtimeDoc || runtimeDoc.tenant_id !== input.tenantId) {
     return null;
   }
 
-  const item = resolveRuntimeReviewItem(jobId, input.reviewId);
+  const item = await resolveRuntimeReviewItem(jobId, input.reviewId);
   if (!item) {
     return null;
   }
 
   if (isWorkflowApprovalItem(item)) {
-    const workspaceRecord = ensureCampaignWorkspaceRecord({
+    const workspaceRecord = await ensureCampaignWorkspaceRecord({
       jobId,
       tenantId: input.tenantId,
       payload: (runtimeDoc.inputs.request as Record<string, unknown>) || {},
@@ -1615,7 +1617,7 @@ export async function recordMarketingReviewDecision(input: {
         checkpoint?.approval_id &&
         input.approvalId !== checkpoint.approval_id
       ) {
-        const refreshedStale = resolveRuntimeReviewItem(jobId, item.id) || resolveRuntimeReviewItem(jobId, input.reviewId);
+        const refreshedStale = (await resolveRuntimeReviewItem(jobId, item.id)) || (await resolveRuntimeReviewItem(jobId, input.reviewId));
         return refreshedStale ?? item;
       }
       const approvalResult = await approveMarketingJob({
@@ -1661,7 +1663,7 @@ export async function recordMarketingReviewDecision(input: {
       assertDenialResult(denialResult);
     }
   } else {
-    const workspaceRecord = ensureCampaignWorkspaceRecord({
+    const workspaceRecord = await ensureCampaignWorkspaceRecord({
       jobId,
       tenantId: input.tenantId,
       payload: (runtimeDoc.inputs.request as Record<string, unknown>) || {},
@@ -1707,7 +1709,7 @@ export async function recordMarketingReviewDecision(input: {
       saveCampaignWorkspaceRecord(workspaceRecord);
 
       if (input.action === 'approve' && runtimeDoc.approvals.current?.stage === 'production') {
-        const refreshedView = buildCampaignWorkspaceView(jobId);
+        const refreshedView = await buildCampaignWorkspaceView(jobId);
         if (refreshedView.creativeReview?.approvalComplete) {
           const approvalResult = await approveMarketingJob({
             jobId,
@@ -1723,7 +1725,7 @@ export async function recordMarketingReviewDecision(input: {
   }
 
   const lastDecision = persistReviewDecision(input.tenantId, item, input.reviewId, input.action, input.actedBy, input.note);
-  const refreshed = resolveRuntimeReviewItem(jobId, item.id) || resolveRuntimeReviewItem(jobId, input.reviewId);
+  const refreshed = (await resolveRuntimeReviewItem(jobId, item.id)) || (await resolveRuntimeReviewItem(jobId, input.reviewId));
   if (!refreshed) {
     return {
       ...item,
