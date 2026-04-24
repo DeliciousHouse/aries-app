@@ -198,6 +198,7 @@ type CacheEntry = {
 type MarketingJobStatusBuilder = (
   tenantId: string,
   jobId: string,
+  facts?: MarketingJobFacts,
 ) => MarketingJobStatusResponse | Promise<MarketingJobStatusResponse>;
 
 export type MarketingJobStatusCacheState = 'hit' | 'miss' | 'inflight';
@@ -207,7 +208,8 @@ const STATUS_CACHE_MAX = 1_000;
 const statusCache = new Map<string, CacheEntry>();
 const inflight = new Map<string, Promise<MarketingJobStatusResponse>>();
 
-let marketingJobStatusBuilder: MarketingJobStatusBuilder = (_tenantId, jobId) => buildMarketingJobStatus(jobId);
+let marketingJobStatusBuilder: MarketingJobStatusBuilder = (_tenantId, jobId, facts) =>
+  buildMarketingJobStatus(jobId, facts);
 
 function statusCacheKey(tenantId: string, jobId: string): string {
   return `${tenantId}:${jobId}`;
@@ -217,6 +219,7 @@ export async function getMarketingJobStatusCached(
   tenantId: string,
   jobId: string,
   now: number = Date.now(),
+  facts?: MarketingJobFacts,
 ): Promise<{ payload: MarketingJobStatusResponse; cacheStatus: MarketingJobStatusCacheState }> {
   const key = statusCacheKey(tenantId, jobId);
   const cached = statusCache.get(key);
@@ -232,7 +235,7 @@ export async function getMarketingJobStatusCached(
   const startedAt = Date.now();
   const promise = new Promise<MarketingJobStatusResponse>((resolve, reject) => {
     setImmediate(() => {
-      Promise.resolve(marketingJobStatusBuilder(tenantId, jobId))
+      Promise.resolve(marketingJobStatusBuilder(tenantId, jobId, facts))
         .then((payload) => {
           statusCache.set(key, { payload, expiresAt: now + STATUS_CACHE_TTL_MS });
           if (statusCache.size > STATUS_CACHE_MAX) {
@@ -271,7 +274,7 @@ export function evictOldest(): void {
 export function resetMarketingJobStatusCacheForTests(): void {
   statusCache.clear();
   inflight.clear();
-  marketingJobStatusBuilder = (_tenantId, jobId) => buildMarketingJobStatus(jobId);
+  marketingJobStatusBuilder = (_tenantId, jobId, facts) => buildMarketingJobStatus(jobId, facts);
 }
 
 export function overrideMarketingJobStatusBuilderForTests(builder: MarketingJobStatusBuilder): void {
@@ -1096,10 +1099,13 @@ async function buildPostCounts(
   };
 }
 
-async function buildMarketingJobStatus(jobId: string): Promise<MarketingJobStatusResponse> {
+async function buildMarketingJobStatus(
+  jobId: string,
+  facts?: MarketingJobFacts,
+): Promise<MarketingJobStatusResponse> {
   await assertMarketingRuntimeSchemas();
 
-  const runtimeDoc = await loadMarketingJobRuntime(jobId);
+  const runtimeDoc = facts?.runtimeDoc ?? await loadMarketingJobRuntime(jobId);
   if (!runtimeDoc) {
     return {
       jobId,
@@ -1138,7 +1144,7 @@ async function buildMarketingJobStatus(jobId: string): Promise<MarketingJobStatu
     };
   }
 
-  const facts = createMarketingJobFacts(runtimeDoc, null);
+  const resolvedFacts = facts ?? createMarketingJobFacts(runtimeDoc, null);
   const stageStatus: Record<string, string> = {
     research: responseStageStatus(runtimeDoc.stages.research),
     strategy: responseStageStatus(runtimeDoc.stages.strategy),
@@ -1147,12 +1153,12 @@ async function buildMarketingJobStatus(jobId: string): Promise<MarketingJobStatu
   };
   const state = deriveState(runtimeDoc, stageStatus);
   const approval = buildApproval(jobId, runtimeDoc);
-  const reviewBundle = await buildReviewBundle(runtimeDoc, facts);
-  const campaignWindow = await buildCampaignWindow(runtimeDoc, facts);
+  const reviewBundle = await buildReviewBundle(runtimeDoc, resolvedFacts);
+  const campaignWindow = await buildCampaignWindow(runtimeDoc, resolvedFacts);
   const durationDays = buildDurationDays(campaignWindow);
   const assetPreviewCards = buildAssetPreviewCards(jobId, reviewBundle);
-  const calendarEvents = await buildCalendarEvents(runtimeDoc, facts);
-  const postCounts = await buildPostCounts(runtimeDoc, facts, reviewBundle, calendarEvents);
+  const calendarEvents = await buildCalendarEvents(runtimeDoc, resolvedFacts);
+  const postCounts = await buildPostCounts(runtimeDoc, resolvedFacts, reviewBundle, calendarEvents);
   const validatedProfile = await loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
     currentSourceUrl: runtimeDoc.inputs.brand_url || null,
   });
@@ -1161,7 +1167,7 @@ async function buildMarketingJobStatus(jobId: string): Promise<MarketingJobStatu
       event: 'job-status',
       jobId,
       tenantId: runtimeDoc.tenant_id,
-      reviewBundleSource: await publishReviewSource(runtimeDoc, facts),
+      reviewBundleSource: await publishReviewSource(runtimeDoc, resolvedFacts),
       reviewBundleReason: reviewBundle ? 'hydrated' : 'no_real_publish_review_artifacts',
     });
   }

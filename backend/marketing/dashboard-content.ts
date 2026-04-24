@@ -1,11 +1,12 @@
 import crypto from 'node:crypto'
-import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync } from 'node:fs'
+import { access, open, readdir, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 import { resolveCodePath, resolveCodeRoot, resolveDataRoot } from '@/lib/runtime-paths'
 
 import { remapHostOutputToMount } from './host-output-path'
+import { type MarketingJobFacts } from './job-facts'
 import type { MarketingCampaignWindow } from './jobs-status'
 import { extractPublishReviewBundle } from './publish-review'
 import { publishReviewLinkedAssetId, publishReviewMediaAssetId } from './publish-review-asset-ids'
@@ -264,6 +265,7 @@ export type MarketingDashboardCampaignContent = {
 
 export type MarketingDashboardBuildOptions = {
   referenceDate?: Date
+  facts?: MarketingJobFacts
 }
 
 type CandidateAsset = Omit<MarketingDashboardAssetInternal, 'relatedPostIds' | 'relatedPublishItemIds'>
@@ -316,6 +318,7 @@ type ContractRecord = {
 type CampaignBuildContext = {
   jobId: string
   runtimeDoc: MarketingJobRuntimeDocument
+  facts?: MarketingJobFacts
   status: DashboardStatusSnapshot
   referenceDate: Date
   proposal: ProposalPlan
@@ -341,6 +344,30 @@ type DashboardStatusSnapshot = {
     subheadline: string
   }
   reviewCampaignName: string | null
+}
+
+async function pathExists(filePath: string): Promise<boolean> {
+  try {
+    await access(filePath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function readFileHeader(filePath: string, length: number): Promise<Buffer | null> {
+  try {
+    const handle = await open(filePath, 'r')
+    try {
+      const buffer = Buffer.alloc(length)
+      const { bytesRead } = await handle.read(buffer, 0, length, 0)
+      return buffer.subarray(0, bytesRead)
+    } finally {
+      await handle.close()
+    }
+  } catch {
+    return null
+  }
 }
 
 const ITEM_STATUS_PRIORITY: Record<MarketingDashboardItemStatus, number> = {
@@ -486,78 +513,62 @@ function compatibilityStatusFor(itemStatus: MarketingDashboardItemStatus): Marke
   }
 }
 
-function sniffImageContentType(filePath: string): string | null {
-  try {
-    const fd = openSync(filePath, 'r')
-    try {
-      const buffer = Buffer.alloc(12)
-      const bytesRead = readSync(fd, buffer, 0, buffer.length, 0)
-      const header = buffer.subarray(0, bytesRead)
+async function sniffImageContentType(filePath: string): Promise<string | null> {
+  const header = await readFileHeader(filePath, 12)
+  if (!header) {
+    return null
+  }
 
-      if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) {
-        return 'image/jpeg'
-      }
-      if (
-        header.length >= 8 &&
-        header[0] === 0x89 &&
-        header[1] === 0x50 &&
-        header[2] === 0x4e &&
-        header[3] === 0x47 &&
-        header[4] === 0x0d &&
-        header[5] === 0x0a &&
-        header[6] === 0x1a &&
-        header[7] === 0x0a
-      ) {
-        return 'image/png'
-      }
-      if (header.length >= 6) {
-        const signature = header.subarray(0, 6).toString('utf8')
-        if (signature === 'GIF87a' || signature === 'GIF89a') {
-          return 'image/gif'
-        }
-      }
-      if (
-        header.length >= 12 &&
-        header.subarray(0, 4).toString('ascii') === 'RIFF' &&
-        header.subarray(8, 12).toString('ascii') === 'WEBP'
-      ) {
-        return 'image/webp'
-      }
-    } finally {
-      closeSync(fd)
+  if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) {
+    return 'image/jpeg'
+  }
+  if (
+    header.length >= 8 &&
+    header[0] === 0x89 &&
+    header[1] === 0x50 &&
+    header[2] === 0x4e &&
+    header[3] === 0x47 &&
+    header[4] === 0x0d &&
+    header[5] === 0x0a &&
+    header[6] === 0x1a &&
+    header[7] === 0x0a
+  ) {
+    return 'image/png'
+  }
+  if (header.length >= 6) {
+    const signature = header.subarray(0, 6).toString('utf8')
+    if (signature === 'GIF87a' || signature === 'GIF89a') {
+      return 'image/gif'
     }
-  } catch {}
+  }
+  if (
+    header.length >= 12 &&
+    header.subarray(0, 4).toString('ascii') === 'RIFF' &&
+    header.subarray(8, 12).toString('ascii') === 'WEBP'
+  ) {
+    return 'image/webp'
+  }
 
   return null
 }
 
-function sniffIsoBmffContentType(filePath: string): string | null {
+async function sniffIsoBmffContentType(filePath: string): Promise<string | null> {
   // ISOBMFF (mp4/mov/m4v/etc.) is ambiguous between video/mp4 and
   // video/quicktime, so callers should only consult this fallback when the
   // extension didn't already classify the file.
-  try {
-    const fd = openSync(filePath, 'r')
-    try {
-      const buffer = Buffer.alloc(8)
-      const bytesRead = readSync(fd, buffer, 0, buffer.length, 0)
-      const header = buffer.subarray(0, bytesRead)
-
-      if (header.length >= 8 && header.subarray(4, 8).toString('ascii') === 'ftyp') {
-        return 'video/mp4'
-      }
-    } finally {
-      closeSync(fd)
-    }
-  } catch {}
+  const header = await readFileHeader(filePath, 8)
+  if (header && header.length >= 8 && header.subarray(4, 8).toString('ascii') === 'ftyp') {
+    return 'video/mp4'
+  }
 
   return null
 }
 
-function contentTypeForAsset(filePath: string): string {
+async function contentTypeForAsset(filePath: string): Promise<string> {
   // Image bytes are unambiguous, so let the magic bytes override the
   // extension when they disagree (preview snapshots routinely keep their
   // source extension even after the bytes change format).
-  const sniffedImage = sniffImageContentType(filePath)
+  const sniffedImage = await sniffImageContentType(filePath)
   if (sniffedImage) {
     return sniffedImage
   }
@@ -597,7 +608,7 @@ function contentTypeForAsset(filePath: string): string {
 
   // ISOBMFF (`ftyp`) sniffing only runs after the extension switch because
   // it can't distinguish QuickTime from MP4.
-  const sniffedIsoBmff = sniffIsoBmffContentType(filePath)
+  const sniffedIsoBmff = await sniffIsoBmffContentType(filePath)
   if (sniffedIsoBmff) {
     return sniffedIsoBmff
   }
@@ -638,8 +649,11 @@ function statusLabel(status: MarketingDashboardItemStatus): string {
   }
 }
 
-async function rawPublishReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): Promise<Record<string, unknown> | null> {
-  return await extractPublishReviewBundle(runtimeDoc)
+async function rawPublishReviewBundle(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  facts?: MarketingJobFacts,
+): Promise<Record<string, unknown> | null> {
+  return await extractPublishReviewBundle(runtimeDoc, facts)
 }
 
 function envCacheRoot(stage: 1 | 2 | 3 | 4): string {
@@ -714,13 +728,16 @@ function collectVeoVideoPaths(
   return Array.from(seen)
 }
 
-function readJsonIfExists(filePath: string | null | undefined): Record<string, unknown> | null {
-  if (!filePath || !existsSync(filePath)) {
+async function readJsonIfExists(
+  filePath: string | null | undefined,
+  facts?: MarketingJobFacts,
+): Promise<Record<string, unknown> | null> {
+  if (!filePath) {
     return null
   }
+
   try {
-    const raw = readFileSync(filePath, 'utf8')
-    const parsed = JSON.parse(raw)
+    const parsed = facts ? await facts.jsonAtPath(filePath) : JSON.parse(await readFile(filePath, 'utf8'))
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
       ? (parsed as Record<string, unknown>)
       : null
@@ -729,23 +746,26 @@ function readJsonIfExists(filePath: string | null | undefined): Record<string, u
   }
 }
 
-function readTextIfExists(filePath: string | null | undefined): string | null {
-  if (!filePath || !existsSync(filePath)) {
+async function readTextIfExists(filePath: string | null | undefined): Promise<string | null> {
+  if (!filePath) {
     return null
   }
   try {
-    return readFileSync(filePath, 'utf8')
+    return await readFile(filePath, 'utf8')
   } catch {
     return null
   }
 }
 
-function listFiles(directoryPath: string | null | undefined, predicate?: (fileName: string) => boolean): string[] {
-  if (!directoryPath || !existsSync(directoryPath)) {
+async function listFiles(
+  directoryPath: string | null | undefined,
+  predicate?: (fileName: string) => boolean,
+): Promise<string[]> {
+  if (!directoryPath || !(await pathExists(directoryPath))) {
     return []
   }
   try {
-    return readdirSync(directoryPath)
+    return (await readdir(directoryPath))
       .filter((fileName) => (predicate ? predicate(fileName) : true))
       .map((fileName) => path.join(directoryPath, fileName))
   } catch {
@@ -757,7 +777,20 @@ async function readStageStepPayload(
   runtimeDoc: MarketingJobRuntimeDocument,
   stage: 1 | 2 | 3 | 4,
   stepName: string,
+  facts?: MarketingJobFacts,
 ): Promise<Record<string, unknown> | null> {
+  if (facts) {
+    if (stage === 1) {
+      return await facts.stagePayload('research', stepName)
+    }
+    if (stage === 2) {
+      return await facts.stagePayload('strategy', stepName)
+    }
+    if (stage === 3) {
+      return await facts.stagePayload('production', stepName)
+    }
+    return await facts.stagePayload('publish', stepName)
+  }
   return (await readMarketingStageStepPayload(runtimeDoc, stage, stepName)).payload
 }
 
@@ -790,7 +823,10 @@ function extractBrandSlug(runtimeDoc: MarketingJobRuntimeDocument, planner: Prop
   return inferBrandSlug(runtimeDoc)
 }
 
-async function parseProposalPlan(runtimeDoc: MarketingJobRuntimeDocument): Promise<ProposalPlan> {
+async function parseProposalPlan(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  facts?: MarketingJobFacts,
+): Promise<ProposalPlan> {
   if (
     runtimeDoc.stages.strategy.status !== 'completed' &&
     runtimeDoc.stages.strategy.status !== 'failed' &&
@@ -816,7 +852,7 @@ async function parseProposalPlan(runtimeDoc: MarketingJobRuntimeDocument): Promi
     }
   }
 
-  const planner = await readStageStepPayload(runtimeDoc, 2, 'campaign_planner')
+  const planner = await readStageStepPayload(runtimeDoc, 2, 'campaign_planner', facts)
   const plan = recordValue(planner?.campaign_plan) ?? {}
   const brandProfiles = recordValue(planner?.brand_profiles_record) ?? {}
   const validatedProfile = await loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
@@ -1035,12 +1071,16 @@ function publishReviewSummary(preview: Record<string, unknown>, fallback: string
   return conciseMarketingText(180, preview.caption_text, preview.summary) || fallback
 }
 
-async function extractCampaignId(runtimeDoc: MarketingJobRuntimeDocument, proposal: ProposalPlan): Promise<string> {
+async function extractCampaignId(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  proposal: ProposalPlan,
+  facts?: MarketingJobFacts,
+): Promise<string> {
   if (proposal.campaignId) {
     return proposal.campaignId
   }
 
-  const publishBundle = await rawPublishReviewBundle(runtimeDoc)
+  const publishBundle = await rawPublishReviewBundle(runtimeDoc, facts)
   const reviewCampaignName = stringValue(publishBundle?.campaign_id || publishBundle?.campaign_name)
   if (reviewCampaignName) {
     return slugify(reviewCampaignName, runtimeDoc.job_id)
@@ -1058,13 +1098,16 @@ function proposalDocumentPaths(brandSlug: string): string[] {
   return files
 }
 
-function extractTitleFromCopyPayload(filePath: string | null | undefined): string | null {
-  const payload = readJsonIfExists(filePath)
+async function extractTitleFromCopyPayload(
+  filePath: string | null | undefined,
+  facts?: MarketingJobFacts,
+): Promise<string | null> {
+  const payload = await readJsonIfExists(filePath, facts)
   if (payload) {
     return stringValue(payload.headline || payload.title || payload.hook) || null
   }
 
-  const text = readTextIfExists(filePath)
+  const text = await readTextIfExists(filePath)
   if (!text) {
     return null
   }
@@ -1073,8 +1116,11 @@ function extractTitleFromCopyPayload(filePath: string | null | undefined): strin
   return heading ? heading.replace(/^#+\s*/, '').trim() : null
 }
 
-function extractSummaryFromCopyPayload(filePath: string | null | undefined): string {
-  const payload = readJsonIfExists(filePath)
+async function extractSummaryFromCopyPayload(
+  filePath: string | null | undefined,
+  facts?: MarketingJobFacts,
+): Promise<string> {
+  const payload = await readJsonIfExists(filePath, facts)
   if (payload) {
     const bodyLine = asStringArray(payload.body_lines)
       .map((line) => conciseMarketingText(180, line))
@@ -1085,7 +1131,7 @@ function extractSummaryFromCopyPayload(filePath: string | null | undefined): str
     return conciseMarketingText(180, payload.summary, payload.caption, payload.description) || ''
   }
 
-  const text = readTextIfExists(filePath)
+  const text = await readTextIfExists(filePath)
   if (!text) {
     return ''
   }
@@ -1143,7 +1189,10 @@ function productionArtifactsAvailable(runtimeDoc: MarketingJobRuntimeDocument): 
   )
 }
 
-async function publishArtifactsAvailable(runtimeDoc: MarketingJobRuntimeDocument): Promise<boolean> {
+async function publishArtifactsAvailable(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  facts?: MarketingJobFacts,
+): Promise<boolean> {
   const publish = runtimeDoc.stages.publish
   const approvalStep = approvalWorkflowStepId(runtimeDoc)
   const publishOutputs = recordValue(publish.outputs)
@@ -1156,7 +1205,7 @@ async function publishArtifactsAvailable(runtimeDoc: MarketingJobRuntimeDocument
     !!recordValue(publishOutputs?.review) ||
     !!recordValue(publishOutputs?.envelope) ||
     !!recordValue(primaryOutput?.launch_review) ||
-    !!(await extractPublishReviewBundle(runtimeDoc))
+    !!(await extractPublishReviewBundle(runtimeDoc, facts))
   )
 }
 
@@ -1180,12 +1229,15 @@ function creativeStatus(runtimeDoc: MarketingJobRuntimeDocument): MarketingDashb
   return 'draft'
 }
 
-async function publishReadyStatus(runtimeDoc: MarketingJobRuntimeDocument): Promise<MarketingDashboardItemStatus> {
+async function publishReadyStatus(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  facts?: MarketingJobFacts,
+): Promise<MarketingDashboardItemStatus> {
   if (approvalWorkflowStepId(runtimeDoc) === 'approve_stage_4_publish') {
     return 'ready_to_publish'
   }
   if (
-    await publishArtifactsAvailable(runtimeDoc) &&
+    await publishArtifactsAvailable(runtimeDoc, facts) &&
     (
       runtimeDoc.approvals.current?.stage === 'publish' ||
       runtimeDoc.stages.publish.status === 'awaiting_approval' ||
@@ -1265,20 +1317,27 @@ function deriveSourceTimestamp(...values: unknown[]): string | null {
   return null
 }
 
-function contractFilePaths(explicitPaths: string[], directoryPath: string | null): string[] {
+async function contractFilePaths(explicitPaths: string[], directoryPath: string | null): Promise<string[]> {
   const jsonFiles = directoryPath
-    ? listFiles(directoryPath, (fileName) => fileName.endsWith('.json') && !fileName.startsWith('master-') && fileName !== 'platform-index.json')
+    ? await listFiles(
+        directoryPath,
+        (fileName) => fileName.endsWith('.json') && !fileName.startsWith('master-') && fileName !== 'platform-index.json',
+      )
     : []
   return uniqueStrings([...explicitPaths, ...jsonFiles])
 }
 
-function loadContracts(explicitPaths: string[], directoryPath: string | null): ContractRecord[] {
-  return contractFilePaths(explicitPaths, directoryPath)
-    .map((filePath) => {
-      const payload = readJsonIfExists(filePath)
-      return payload ? { filePath, payload } : null
-    })
-    .filter((entry): entry is ContractRecord => !!entry)
+async function loadContracts(
+  explicitPaths: string[],
+  directoryPath: string | null,
+  facts?: MarketingJobFacts,
+): Promise<ContractRecord[]> {
+  const filePaths = await contractFilePaths(explicitPaths, directoryPath)
+  const entries = await Promise.all(filePaths.map(async (filePath) => {
+    const payload = await readJsonIfExists(filePath, facts)
+    return payload ? { filePath, payload } : null
+  }))
+  return entries.filter((entry): entry is ContractRecord => !!entry)
 }
 
 function extractPlatformFromFilename(filePath: string): string {
@@ -1340,8 +1399,11 @@ function summaryFromStatus(context: CampaignBuildContext): string {
   )
 }
 
-async function buildCampaignWindowSnapshot(runtimeDoc: MarketingJobRuntimeDocument): Promise<MarketingCampaignWindow | null> {
-  const reviewBundle = await rawPublishReviewBundle(runtimeDoc)
+async function buildCampaignWindowSnapshot(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  facts?: MarketingJobFacts,
+): Promise<MarketingCampaignWindow | null> {
+  const reviewBundle = await rawPublishReviewBundle(runtimeDoc, facts)
   const summary = recordValue(reviewBundle?.summary)
   const campaignWindow = recordValue(summary?.campaign_window)
   const start = stringValue(campaignWindow?.start) || null
@@ -1356,11 +1418,15 @@ function approvalReviewHref(jobId: string): string {
   return `/review/${encodeURIComponent(`${jobId}::approval`)}`
 }
 
-async function buildStatusSnapshot(runtimeDoc: MarketingJobRuntimeDocument, proposal: ProposalPlan): Promise<DashboardStatusSnapshot> {
+async function buildStatusSnapshot(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  proposal: ProposalPlan,
+  facts?: MarketingJobFacts,
+): Promise<DashboardStatusSnapshot> {
   const validatedProfile = await loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
     currentSourceUrl: runtimeDoc.inputs.brand_url || null,
   })
-  const reviewBundle = await rawPublishReviewBundle(runtimeDoc)
+  const reviewBundle = await rawPublishReviewBundle(runtimeDoc, facts)
   const summaryHeadline =
     proposal.objective ||
     stringValue(runtimeDoc.summary?.headline) ||
@@ -1376,7 +1442,7 @@ async function buildStatusSnapshot(runtimeDoc: MarketingJobRuntimeDocument, prop
   return {
     tenantName: validatedProfile.brandName || runtimeDoc.brand_kit?.brand_name || null,
     brandWebsiteUrl: validatedProfile.websiteUrl || runtimeDoc.brand_kit?.source_url || runtimeDoc.inputs.brand_url || null,
-    campaignWindow: await buildCampaignWindowSnapshot(runtimeDoc),
+    campaignWindow: await buildCampaignWindowSnapshot(runtimeDoc, facts),
     currentStage: runtimeDoc.current_stage || null,
     updatedAt: runtimeDoc.updated_at || null,
     approvalRequired: !!runtimeDoc.approvals.current,
@@ -1578,14 +1644,15 @@ async function buildCampaignContext(
   runtimeDoc: MarketingJobRuntimeDocument,
   options: MarketingDashboardBuildOptions,
 ): Promise<CampaignBuildContext> {
-  const proposal = await parseProposalPlan(runtimeDoc)
-  const status = await buildStatusSnapshot(runtimeDoc, proposal)
+  const proposal = await parseProposalPlan(runtimeDoc, options.facts)
+  const status = await buildStatusSnapshot(runtimeDoc, proposal, options.facts)
   const brandSlug = extractBrandSlug(runtimeDoc, proposal)
-  const externalCampaignId = await extractCampaignId(runtimeDoc, proposal)
-  const reviewBundle = await rawPublishReviewBundle(runtimeDoc)
+  const externalCampaignId = await extractCampaignId(runtimeDoc, proposal, options.facts)
+  const reviewBundle = await rawPublishReviewBundle(runtimeDoc, options.facts)
   return {
     jobId,
     runtimeDoc,
+    facts: options.facts,
     status,
     referenceDate: nowReference(options.referenceDate),
     proposal,
@@ -1610,10 +1677,10 @@ function makeCandidateAsset(input: CandidateAsset): MarketingDashboardAssetInter
   }
 }
 
-function resolveDashboardAssetFilePath(
+async function resolveDashboardAssetFilePath(
   filePath: string | null | undefined,
   fallbackPaths: Array<string | null | undefined> = [],
-): string | null {
+): Promise<string | null> {
   const codeRoot = path.normalize(resolveCodeRoot())
   const remapPrefixes = [
     '/home/node/workspace/aries-app',
@@ -1639,7 +1706,7 @@ function resolveDashboardAssetFilePath(
     if (!path.isAbsolute(candidate)) {
       for (const root of roots) {
         const resolved = path.resolve(root, candidate)
-        if (existsSync(resolved)) {
+        if (await pathExists(resolved)) {
           return resolved
         }
       }
@@ -1663,7 +1730,7 @@ function resolveDashboardAssetFilePath(
     }
 
     for (const compatibilityCandidate of compatibilityCandidates) {
-      if (existsSync(compatibilityCandidate)) {
+      if (await pathExists(compatibilityCandidate)) {
         return compatibilityCandidate
       }
     }
@@ -1686,13 +1753,13 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
   const brandUrl = context.status.brandWebsiteUrl || context.runtimeDoc.inputs.brand_url || null
   const canUseProposalArtifacts = strategyArtifactsAvailable(context.runtimeDoc)
   const canUseProductionArtifacts = productionArtifactsAvailable(context.runtimeDoc)
-  const canUsePublishArtifacts = await publishArtifactsAvailable(context.runtimeDoc)
+  const canUsePublishArtifacts = await publishArtifactsAvailable(context.runtimeDoc, context.facts)
 
-  const addAsset = (
+  const addAsset = async (
     candidate: CandidateAsset,
     fallbackFilePaths: Array<string | null | undefined> = [],
   ) => {
-    const resolvedFilePath = resolveDashboardAssetFilePath(candidate.filePath, fallbackFilePaths)
+    const resolvedFilePath = await resolveDashboardAssetFilePath(candidate.filePath, fallbackFilePaths)
     if (candidate.filePath && !resolvedFilePath) {
       return null
     }
@@ -1704,7 +1771,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
     const asset = makeCandidateAsset({
       ...candidate,
       filePath,
-      contentType: filePath ? contentTypeForAsset(filePath) : candidate.contentType,
+      contentType: filePath ? await contentTypeForAsset(filePath) : candidate.contentType,
     })
     if (!existing || priority < existing.priority) {
       assetByKey.set(key, { priority, asset })
@@ -1753,13 +1820,13 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
     return existing.item
   }
 
-  const addProposalDocumentAssets = () => {
+  const addProposalDocumentAssets = async () => {
     for (const filePath of proposalDocumentPaths(context.brandSlug)) {
-      if (!existsSync(filePath)) {
+      if (!(await pathExists(filePath))) {
         continue
       }
       const assetId = makeAssetId(campaignId, 'proposal', filePath)
-      addAsset({
+      await addAsset({
         id: assetId,
         campaignId,
         jobId: campaignId,
@@ -1774,7 +1841,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
         destinationUrl: brandUrl,
         previewUrl: buildAssetUrl(campaignId, assetId),
         thumbnailUrl: null,
-        contentType: contentTypeForAsset(filePath),
+        contentType: await contentTypeForAsset(filePath),
         filePath,
         status: proposalStatus(context.runtimeDoc),
         createdAt: context.proposal.createdAt || context.status.updatedAt,
@@ -1833,7 +1900,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
   }
 
   if (canUseProposalArtifacts) {
-    addProposalDocumentAssets()
+    await addProposalDocumentAssets()
     addProposalConcepts()
   }
 
@@ -1850,7 +1917,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
   // aries-app container can't see the host-side lobster cache files, we can
   // still recover production_handoff from the runtime doc itself.
   const productionFinalizeOnDisk = canUseProductionArtifacts
-    ? await readStageStepPayload(context.runtimeDoc, 3, 'creative_director_finalize')
+    ? await readStageStepPayload(context.runtimeDoc, 3, 'creative_director_finalize', context.facts)
     : null
   const productionPrimaryOutput = recordValue(context.runtimeDoc.stages.production.primary_output)
   const productionFinalize =
@@ -1868,23 +1935,26 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
     : []
   const contracts = canUseProductionArtifacts
     ? [
-        ...loadContracts(staticPaths, staticContractRoot),
-        ...loadContracts(videoPaths, videoContractRoot),
+        ...(await loadContracts(staticPaths, staticContractRoot, context.facts)),
+        ...(await loadContracts(videoPaths, videoContractRoot, context.facts)),
       ]
     : []
 
   const creativeAssetStatus = creativeStatus(context.runtimeDoc)
 
   const landingPageFiles = canUseProductionArtifacts
-    ? listFiles(context.campaignRoot ? path.join(context.campaignRoot, 'landing-pages') : null, (fileName) => fileName.endsWith('.html'))
+    ? await listFiles(
+        context.campaignRoot ? path.join(context.campaignRoot, 'landing-pages') : null,
+        (fileName) => fileName.endsWith('.html'),
+      )
     : []
   const adImageFiles = canUseProductionArtifacts
-    ? listFiles(context.campaignRoot ? path.join(context.campaignRoot, 'ad-images') : null, (fileName) =>
+    ? await listFiles(context.campaignRoot ? path.join(context.campaignRoot, 'ad-images') : null, (fileName) =>
         /\.(png|jpe?g|gif|webp|svg)$/i.test(fileName),
       )
     : []
   const scriptFiles = canUseProductionArtifacts
-    ? listFiles(context.campaignRoot ? path.join(context.campaignRoot, 'scripts') : null, (fileName) =>
+    ? await listFiles(context.campaignRoot ? path.join(context.campaignRoot, 'scripts') : null, (fileName) =>
         /\.(md|txt|json)$/i.test(fileName),
       )
     : []
@@ -1907,7 +1977,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
     const contract = contractByPlatform.get('landing-page')
     const assetId = makeAssetId(campaignId, 'landing-page', filePath)
     const destinationUrl = extractDestinationUrl(context.runtimeDoc, contract?.payload || null)
-    addAsset({
+    await addAsset({
       id: assetId,
       campaignId,
       jobId: campaignId,
@@ -1922,7 +1992,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
       destinationUrl,
       previewUrl: buildAssetUrl(campaignId, assetId),
       thumbnailUrl: buildAssetUrl(campaignId, assetId),
-      contentType: contentTypeForAsset(filePath),
+      contentType: await contentTypeForAsset(filePath),
       filePath,
       status: creativeAssetStatus,
       createdAt: context.status.updatedAt,
@@ -1941,7 +2011,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
   for (const filePath of adImageFiles) {
     const platform = extractPlatformFromFilename(filePath)
     const assetId = makeAssetId(campaignId, 'image', filePath)
-    addAsset({
+    await addAsset({
       id: assetId,
       campaignId,
       jobId: campaignId,
@@ -1956,7 +2026,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
       destinationUrl: extractDestinationUrl(context.runtimeDoc, contractByPlatform.get(platform)?.payload || null),
       previewUrl: buildAssetUrl(campaignId, assetId),
       thumbnailUrl: buildAssetUrl(campaignId, assetId),
-      contentType: contentTypeForAsset(filePath),
+      contentType: await contentTypeForAsset(filePath),
       filePath,
       status: creativeAssetStatus,
       createdAt: context.status.updatedAt,
@@ -1975,13 +2045,15 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
   for (const filePath of scriptFiles) {
     const platform = extractPlatformFromFilename(filePath)
     const assetId = makeAssetId(campaignId, 'script', filePath)
-    addAsset({
+    await addAsset({
       id: assetId,
       campaignId,
       jobId: campaignId,
       type: path.extname(filePath).toLowerCase() === '.json' ? 'copy' : 'script',
-      title: extractTitleFromCopyPayload(filePath) || `${platformLabel(platform)} script`,
-      summary: extractSummaryFromCopyPayload(filePath) || 'Generated script or post concept ready for publishing workflows.',
+      title: (await extractTitleFromCopyPayload(filePath, context.facts)) || `${platformLabel(platform)} script`,
+      summary:
+        (await extractSummaryFromCopyPayload(filePath, context.facts)) ||
+        'Generated script or post concept ready for publishing workflows.',
       platform,
       platformLabel: platformLabel(platform),
       campaignName,
@@ -1990,7 +2062,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
       destinationUrl: extractDestinationUrl(context.runtimeDoc, contractByPlatform.get(platform)?.payload || null),
       previewUrl: buildAssetUrl(campaignId, assetId),
       thumbnailUrl: null,
-      contentType: contentTypeForAsset(filePath),
+      contentType: await contentTypeForAsset(filePath),
       filePath,
       status: creativeAssetStatus,
       createdAt: context.status.updatedAt,
@@ -2093,7 +2165,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
   const publisherPayloads = canUsePublishArtifacts
     ? (await Promise.all(
         PUBLISHER_STEPS.map(async (stepName) => {
-          const payload = await readStageStepPayload(context.runtimeDoc, 4, stepName)
+          const payload = await readStageStepPayload(context.runtimeDoc, 4, stepName, context.facts)
           return payload ? { stepName, payload } : null
         }),
       )).filter((entry): entry is { stepName: typeof PUBLISHER_STEPS[number]; payload: Record<string, unknown> } => !!entry)
@@ -2118,24 +2190,26 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
     rememberPreviewFallbackPath(platform, stringValue(publishPackage.fallback_svg_path))
   }
 
-  const publishBundle = canUsePublishArtifacts ? await rawPublishReviewBundle(context.runtimeDoc) : null
+  const publishBundle = canUsePublishArtifacts
+    ? await rawPublishReviewBundle(context.runtimeDoc, context.facts)
+    : null
   const platformPreviews = canUsePublishArtifacts ? recordArray(publishBundle?.platform_previews) : []
   const reviewCalendarEvents = canUsePublishArtifacts ? recordArray(recordValue(publishBundle?.content_calendar)?.events) : []
-  const publishStatus = await publishReadyStatus(context.runtimeDoc)
+  const publishStatus = await publishReadyStatus(context.runtimeDoc, context.facts)
 
   for (const [index, preview] of platformPreviews.entries()) {
     const platform = normalizePlatformSlug(stringValue(preview.platform_slug || preview.platform_name, 'campaign'))
     const assetPaths = recordValue(preview.asset_paths) ?? {}
     const mediaPaths = asStringArray(preview.media_paths)
     const assetIds: string[] = []
-    mediaPaths.forEach((filePath, mediaIndex) => {
+    for (const [mediaIndex, filePath] of mediaPaths.entries()) {
       const assetId = publishReviewMediaAssetId({
         platformSlug: platform,
         previewIndex: index,
         explicitPreviewAssetId: preview.asset_preview_id,
         mediaIndex,
       })
-      const addedAsset = addAsset({
+      const addedAsset = await addAsset({
         id: assetId,
         campaignId,
         jobId: campaignId,
@@ -2150,7 +2224,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
         destinationUrl: stringValue(assetPaths.landing_page_path) || brandUrl,
         previewUrl: buildAssetUrl(campaignId, assetId),
         thumbnailUrl: buildAssetUrl(campaignId, assetId),
-        contentType: contentTypeForAsset(filePath),
+        contentType: await contentTypeForAsset(filePath),
         filePath,
         status: publishStatus,
         createdAt: deriveSourceTimestamp(preview.generated_at, context.status.updatedAt),
@@ -2166,15 +2240,15 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
       if (addedAsset) {
         assetIds.push(addedAsset.id)
       }
-    })
+    }
 
-    ;[
+    for (const [label, filePath, type] of [
       ['contract', stringValue(assetPaths.contract_path), 'contract'],
       ['brief', stringValue(assetPaths.brief_path), 'contract'],
       ['landing-page', stringValue(assetPaths.landing_page_path), 'landing_page'],
-    ].forEach(([label, filePath, type]) => {
+    ] as const) {
       if (!filePath) {
-        return
+        continue
       }
       const suffix = label === 'contract' ? 'contract' : label === 'brief' ? 'brief' : 'landing-page'
       const assetId = publishReviewLinkedAssetId({
@@ -2183,7 +2257,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
         explicitPreviewAssetId: preview.asset_preview_id,
         suffix,
       })
-      const addedAsset = addAsset({
+      const addedAsset = await addAsset({
         id: assetId,
         campaignId,
         jobId: campaignId,
@@ -2198,7 +2272,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
         destinationUrl: label === 'landing-page' ? filePath : brandUrl,
         previewUrl: buildAssetUrl(campaignId, assetId),
         thumbnailUrl: type === 'landing_page' ? buildAssetUrl(campaignId, assetId) : null,
-        contentType: contentTypeForAsset(filePath),
+        contentType: await contentTypeForAsset(filePath),
         filePath,
         status: publishStatus,
         createdAt: context.status.updatedAt,
@@ -2214,7 +2288,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
       if (addedAsset) {
         assetIds.push(addedAsset.id)
       }
-    })
+    }
 
     const title = publishReviewDisplayTitle(preview, platform)
     const postDedupeKey = dedupePostKey({
@@ -2335,7 +2409,8 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
     const imagePath = stringValue(publishPackage.image_path)
     const fallbackSvgPath = stringValue(publishPackage.fallback_svg_path)
     const reviewPackagePath = stringValue(publishPackage.review_package_path)
-    const videoPaths = collectVeoVideoPaths(readJsonIfExists(contractPath), publishPackage)
+    const contractPayload = await readJsonIfExists(contractPath, context.facts)
+    const videoPaths = collectVeoVideoPaths(contractPayload, publishPackage)
     if (reviewPackagePath) {
       reviewPackagePaths.add(reviewPackagePath)
     }
@@ -2355,11 +2430,11 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
       context.status.updatedAt,
     )
     const title =
-      extractTitleFromCopyPayload(copyPath) ||
-      stringValue(recordValue(readJsonIfExists(contractPath)?.creative)?.headline) ||
+      (await extractTitleFromCopyPayload(copyPath, context.facts)) ||
+      stringValue(recordValue(contractPayload?.creative)?.headline) ||
       `${platformLabel(platform)} package`
     const summary =
-      extractSummaryFromCopyPayload(copyPath) ||
+      (await extractSummaryFromCopyPayload(copyPath, context.facts)) ||
       `Publish-ready ${platformLabel(platform).toLowerCase()} package is available.`
 
     const assetIds: string[] = []
@@ -2372,12 +2447,12 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
     for (const videoPath of videoPaths) {
       publishAssetEntries.push([`publish-video-${platform}`, videoPath, 'video_ad'])
     }
-    publishAssetEntries.forEach(([prefix, filePath, type]) => {
+    for (const [prefix, filePath, type] of publishAssetEntries) {
       if (!filePath) {
-        return
+        continue
       }
       const assetId = makeAssetId(campaignId, String(prefix), filePath)
-      const addedAsset = addAsset({
+      const addedAsset = await addAsset({
         id: assetId,
         campaignId,
         jobId: campaignId,
@@ -2392,7 +2467,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
         destinationUrl: brandUrl,
         previewUrl: buildAssetUrl(campaignId, assetId),
         thumbnailUrl: /\.(png|jpe?g|gif|webp|svg)$/i.test(filePath) ? buildAssetUrl(campaignId, assetId) : null,
-        contentType: contentTypeForAsset(filePath),
+        contentType: await contentTypeForAsset(filePath),
         filePath,
         status: explicitStatus,
         createdAt,
@@ -2408,7 +2483,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
       if (addedAsset) {
         assetIds.push(addedAsset.id)
       }
-    })
+    }
 
     const publishItem = addPublishItem({
       campaignId,
@@ -2510,7 +2585,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
   }
 
   for (const reviewPackagePath of reviewPackagePaths) {
-    const reviewPackage = readJsonIfExists(reviewPackagePath)
+    const reviewPackage = await readJsonIfExists(reviewPackagePath, context.facts)
     if (!reviewPackage) {
       continue
     }
@@ -2525,17 +2600,21 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
       const copyPath = stringValue(assetPaths.copy_path)
       const imagePath = stringValue(assetPaths.image_path || assetPaths.poster_image_path)
       const landingPath = stringValue(assetPaths.landing_page_path)
+      const reviewContractPayload = await readJsonIfExists(
+        stringValue(entry.contract_path) || stringValue(assetPaths.contract_path),
+        context.facts,
+      )
       const reviewVideoPaths = collectVeoVideoPaths(
         assetPaths,
         entry,
-        readJsonIfExists(stringValue(entry.contract_path) || stringValue(assetPaths.contract_path)),
+        reviewContractPayload,
       )
       const title =
         stringValue(entry.title) ||
-        extractTitleFromCopyPayload(copyPath) ||
+        (await extractTitleFromCopyPayload(copyPath, context.facts)) ||
         `${platformLabel(platform)} review item ${entries.length > 0 ? index + 1 : ''}`.trim()
       const summary =
-        extractSummaryFromCopyPayload(copyPath) ||
+        (await extractSummaryFromCopyPayload(copyPath, context.facts)) ||
         stringValue(entry.summary) ||
         'Review-ready publish package awaiting scheduling or activation.'
 
@@ -2549,12 +2628,12 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
       for (const videoPath of reviewVideoPaths) {
         reviewAssetEntries.push([`review-video-${platform}`, videoPath, 'video_ad'])
       }
-      reviewAssetEntries.forEach(([prefix, filePath, type]) => {
+      for (const [prefix, filePath, type] of reviewAssetEntries) {
         if (!filePath) {
-          return
+          continue
         }
         const assetId = makeAssetId(campaignId, String(prefix), `${filePath}-${index}`)
-        const addedAsset = addAsset({
+        const addedAsset = await addAsset({
           id: assetId,
           campaignId,
           jobId: campaignId,
@@ -2569,7 +2648,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
           destinationUrl: landingPath || brandUrl,
           previewUrl: buildAssetUrl(campaignId, assetId),
           thumbnailUrl: /\.(png|jpe?g|gif|webp|svg|html)$/i.test(filePath) ? buildAssetUrl(campaignId, assetId) : null,
-          contentType: contentTypeForAsset(filePath),
+          contentType: await contentTypeForAsset(filePath),
           filePath,
           status: publishStatus,
           createdAt: context.status.updatedAt,
@@ -2585,7 +2664,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
         if (addedAsset) {
           assetIds.push(addedAsset.id)
         }
-      })
+      }
 
       const publishItem = addPublishItem({
         campaignId,
@@ -2939,7 +3018,7 @@ export async function getMarketingDashboardContentInternal(
   jobId: string,
   options: MarketingDashboardBuildOptions = {},
 ): Promise<MarketingDashboardContentInternal> {
-  const runtimeDoc = await loadMarketingJobRuntime(jobId)
+  const runtimeDoc = options.facts?.runtimeDoc ?? await loadMarketingJobRuntime(jobId)
   if (!runtimeDoc) {
     return {
       campaigns: [],

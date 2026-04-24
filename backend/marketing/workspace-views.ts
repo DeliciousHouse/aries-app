@@ -111,19 +111,14 @@ function recordArray(value: unknown): Array<Record<string, unknown>> {
     : [];
 }
 
-async function readJsonIfExists(filePath: string | null | undefined): Promise<Record<string, unknown> | null> {
+async function readJsonViaFacts(
+  facts: MarketingJobFacts,
+  filePath: string | null | undefined,
+): Promise<Record<string, unknown> | null> {
   if (!filePath) {
     return null;
   }
-
-  try {
-    return recordValue(JSON.parse(await readFile(filePath, 'utf8')));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
-      return null;
-    }
-    return null;
-  }
+  return recordValue(await facts.jsonAtPath(filePath));
 }
 
 async function readTextIfExists(filePath: string | null | undefined): Promise<string | null> {
@@ -437,16 +432,16 @@ async function loadStagePayloadBundle(
   const fallbackCampaignPlannerPath = stringValue(strategyFallback.outputs.campaign_planner_path);
   const fallbackStrategyPreviewPath = stringValue(strategyFallback.outputs.strategy_review_path);
   const fallbackProductionPreviewPath = stringValue(productionFallback.outputs.production_review_path);
-  const runtimeWebsiteAnalysisFile = await readJsonIfExists(runtimeWebsiteAnalysisPath);
-  const runtimeBrandProfileFile = await readJsonIfExists(runtimeBrandProfilePath);
-  const runtimeCampaignPlannerFile = await readJsonIfExists(runtimeCampaignPlannerPath);
-  const runtimeStrategyPreviewFile = await readJsonIfExists(runtimeStrategyPreviewPath);
-  const runtimeProductionPreviewFile = await readJsonIfExists(runtimeProductionPreviewPath);
-  const fallbackWebsiteAnalysisFile = await readJsonIfExists(fallbackWebsiteAnalysisPath);
-  const fallbackBrandProfileFile = await readJsonIfExists(fallbackBrandProfilePath);
-  const fallbackCampaignPlannerFile = await readJsonIfExists(fallbackCampaignPlannerPath);
-  const fallbackStrategyPreviewFile = await readJsonIfExists(fallbackStrategyPreviewPath);
-  const fallbackProductionPreviewFile = await readJsonIfExists(fallbackProductionPreviewPath);
+  const runtimeWebsiteAnalysisFile = await readJsonViaFacts(facts, runtimeWebsiteAnalysisPath);
+  const runtimeBrandProfileFile = await readJsonViaFacts(facts, runtimeBrandProfilePath);
+  const runtimeCampaignPlannerFile = await readJsonViaFacts(facts, runtimeCampaignPlannerPath);
+  const runtimeStrategyPreviewFile = await readJsonViaFacts(facts, runtimeStrategyPreviewPath);
+  const runtimeProductionPreviewFile = await readJsonViaFacts(facts, runtimeProductionPreviewPath);
+  const fallbackWebsiteAnalysisFile = await readJsonViaFacts(facts, fallbackWebsiteAnalysisPath);
+  const fallbackBrandProfileFile = await readJsonViaFacts(facts, fallbackBrandProfilePath);
+  const fallbackCampaignPlannerFile = await readJsonViaFacts(facts, fallbackCampaignPlannerPath);
+  const fallbackStrategyPreviewFile = await readJsonViaFacts(facts, fallbackStrategyPreviewPath);
+  const fallbackProductionPreviewFile = await readJsonViaFacts(facts, fallbackProductionPreviewPath);
 
   const rawRuntimeRunWebsiteAnalysis =
     recordValue(strategyOutputs.website) ||
@@ -1230,8 +1225,11 @@ function syncWorkspaceReviewsFromRuntime(
   return changed;
 }
 
-export async function buildCampaignWorkspaceView(jobId: string): Promise<CampaignWorkspaceView> {
-  const runtimeDoc = await loadMarketingJobRuntime(jobId);
+export async function buildCampaignWorkspaceView(
+  jobId: string,
+  facts?: MarketingJobFacts,
+): Promise<CampaignWorkspaceView> {
+  const runtimeDoc = facts?.runtimeDoc ?? await loadMarketingJobRuntime(jobId);
   if (!runtimeDoc) {
     return {
       jobId,
@@ -1259,9 +1257,9 @@ export async function buildCampaignWorkspaceView(jobId: string): Promise<Campaig
     tenantId: runtimeDoc.tenant_id,
     payload: recordValue(runtimeDoc.inputs.request) || {},
   });
-  const facts = createMarketingJobFacts(runtimeDoc, null);
-  const rawDashboard = await getMarketingDashboardCampaignContent(jobId);
-  const payloads = await loadStagePayloadBundle(runtimeDoc, facts);
+  const resolvedFacts = facts ?? createMarketingJobFacts(runtimeDoc, null);
+  const rawDashboard = await getMarketingDashboardCampaignContent(jobId, { facts: resolvedFacts });
+  const payloads = await loadStagePayloadBundle(runtimeDoc, resolvedFacts);
   const realBrandArtifactsReady = hasRealBrandArtifacts(payloads);
   const hasUploadedBrandAssets = uploadedBrandAssets(record);
   const brandReviewRenderable = realBrandArtifactsReady || hasUploadedBrandAssets;
@@ -1321,8 +1319,12 @@ export async function buildCampaignWorkspaceView(jobId: string): Promise<Campaig
   });
 
   const dashboard = withGatedDashboardStatus(rawDashboard, workflowResolution.workflowState);
-  const brandReview = brandReviewRenderable ? await buildBrandReview(runtimeDoc, record, payloads, facts) : null;
-  const strategyReview = strategyReady ? await buildStrategyReview(runtimeDoc, record, payloads, facts) : null;
+  const brandReview = brandReviewRenderable
+    ? await buildBrandReview(runtimeDoc, record, payloads, resolvedFacts)
+    : null;
+  const strategyReview = strategyReady
+    ? await buildStrategyReview(runtimeDoc, record, payloads, resolvedFacts)
+    : null;
   const creativeReview = await buildCreativeReview(
     runtimeDoc,
     record,
@@ -1334,7 +1336,7 @@ export async function buildCampaignWorkspaceView(jobId: string): Promise<Campaig
       pending: workflowResolution.creativePendingCount,
       rejected: workflowResolution.creativeRejectedCount,
     },
-    facts,
+    resolvedFacts,
   );
 
   console.info('[marketing-hydration]', {

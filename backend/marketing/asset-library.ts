@@ -1,5 +1,4 @@
-import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { resolveCodeRoot, resolveDataRoot } from '@/lib/runtime-paths';
@@ -34,7 +33,16 @@ export type MarketingAssetLink = {
   posterUrl?: string | null;
 };
 
-function resolveExistingAbsoluteAssetPath(filePath: string): string | null {
+async function pathExists(filePath: string): Promise<boolean> {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveExistingAbsoluteAssetPath(filePath: string): Promise<string | null> {
   const normalizedPath = path.normalize(filePath);
   const codeRoot = path.normalize(resolveCodeRoot());
   const remapPrefixes = [
@@ -59,7 +67,7 @@ function resolveExistingAbsoluteAssetPath(filePath: string): string | null {
   }
 
   for (const candidate of candidates) {
-    if (existsSync(candidate)) {
+    if (await pathExists(candidate)) {
       return candidate;
     }
   }
@@ -107,10 +115,10 @@ function outputRoots(): string[] {
   );
 }
 
-function resolveExistingRelativeAssetPath(filePath: string): string | null {
+async function resolveExistingRelativeAssetPath(filePath: string): Promise<string | null> {
   for (const root of assetRoots()) {
     const candidate = path.resolve(root, filePath);
-    if (existsSync(candidate)) {
+    if (await pathExists(candidate)) {
       return candidate;
     }
   }
@@ -290,10 +298,10 @@ export async function buildMarketingAssetLibrary(
   const assets: MarketingAssetDescriptor[] = [];
   const assetById = new Map<string, MarketingAssetDescriptor>();
   const resolvedFacts = facts ?? createMarketingJobFacts(runtimeDoc, null);
-  const resolveAssetPath = (
+  const resolveAssetPath = async (
     filePath: string | null | undefined,
     fallbackPaths: Array<string | null | undefined> = []
-  ): string | null => {
+  ): Promise<string | null> => {
     const candidates = [filePath, ...fallbackPaths]
       .map((value) => stringValue(value))
       .filter(Boolean);
@@ -301,12 +309,13 @@ export async function buildMarketingAssetLibrary(
     for (const candidate of candidates) {
       if (!path.isAbsolute(candidate)) {
         const resolved = resolveExistingRelativeAssetPath(candidate);
-        if (resolved) {
-          return resolved;
+        const asyncResolved = await resolved;
+        if (asyncResolved) {
+          return asyncResolved;
         }
         continue;
       }
-      const resolved = resolveExistingAbsoluteAssetPath(candidate);
+      const resolved = await resolveExistingAbsoluteAssetPath(candidate);
       if (resolved) {
         return resolved;
       }
@@ -324,7 +333,7 @@ export async function buildMarketingAssetLibrary(
     if (assetById.has(id)) {
       return;
     }
-    const resolvedPath = resolveAssetPath(filePath, fallbackPaths);
+    const resolvedPath = await resolveAssetPath(filePath, fallbackPaths);
     if (!resolvedPath) {
       return;
     }
@@ -371,8 +380,9 @@ export async function buildMarketingAssetLibrary(
   let websiteAnalysis: Record<string, unknown> | null = null;
   if (websiteAnalysisPath) {
     try {
-      const resolvedWebsiteAnalysisPath = resolveAssetPath(websiteAnalysisPath) || websiteAnalysisPath;
-      websiteAnalysis = recordValue(JSON.parse(await readFile(resolvedWebsiteAnalysisPath, 'utf8')));
+      const resolvedWebsiteAnalysisPath =
+        (await resolveAssetPath(websiteAnalysisPath)) || websiteAnalysisPath;
+      websiteAnalysis = await resolvedFacts.jsonAtPath(resolvedWebsiteAnalysisPath);
     } catch {
       websiteAnalysis = null;
     }
@@ -437,7 +447,7 @@ export async function buildMarketingAssetLibrary(
     );
   }
 
-  const dashboardAssets = await listMarketingDashboardAssetsForJob(jobId);
+  const dashboardAssets = await listMarketingDashboardAssetsForJob(jobId, { facts: resolvedFacts });
   const previewFallbacksByPlatform = new Map<string, string[]>();
   const rememberPreviewFallback = (platform: string, filePath: string) => {
     previewFallbacksByPlatform.set(platform, [

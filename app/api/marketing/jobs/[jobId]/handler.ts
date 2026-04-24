@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 import type { MarketingApprovalSummary, MarketingJobStatusResponse } from '@/backend/marketing/jobs-status';
 import { getMarketingJobStatusCached } from '@/backend/marketing/jobs-status';
+import { createMarketingJobFacts } from '@/backend/marketing/job-facts';
 import { loadMarketingJobRuntime } from '@/backend/marketing/runtime-state';
 import { buildCampaignWorkspaceView } from '@/backend/marketing/workspace-views';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
@@ -70,8 +71,14 @@ export async function handleGetMarketingJobStatus(
   }
 
   try {
-    const { payload: result, cacheStatus } = await getMarketingJobStatusCached(tenantResult.tenantContext.tenantId, jobId);
-    const workspaceView = await buildCampaignWorkspaceView(jobId);
+    const facts = createMarketingJobFacts(runtimeDoc, null);
+    const { payload: result, cacheStatus } = await getMarketingJobStatusCached(
+      tenantResult.tenantContext.tenantId,
+      jobId,
+      Date.now(),
+      facts,
+    );
+    const workspaceView = await buildCampaignWorkspaceView(jobId, facts);
 
     return NextResponse.json(
       {

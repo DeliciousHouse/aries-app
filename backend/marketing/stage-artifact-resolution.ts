@@ -1,5 +1,4 @@
-import { existsSync } from 'node:fs';
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { access, readdir, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -107,6 +106,15 @@ async function readJsonIfExists(filePath: string | null | undefined): Promise<Re
   }
 }
 
+async function pathExists(filePath: string): Promise<boolean> {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function competitorRunIdPrefixes(runtimeDoc: MarketingJobRuntimeDocument): string[] {
   const raw = stringValue(runtimeDoc.inputs.competitor_url || runtimeDoc.inputs.request?.competitorUrl);
   if (!raw) {
@@ -164,7 +172,7 @@ export async function inferMarketingStageRunId(
   const seenRunIds = new Set<string>();
 
   const stageCacheRoot = cacheRoot(stage);
-  if (existsSync(stageCacheRoot)) {
+  if (await pathExists(stageCacheRoot)) {
     for (const entry of await readdir(stageCacheRoot)) {
       if (!prefixes.some((prefix) => entry.startsWith(`${prefix}-`))) {
         continue;
@@ -190,7 +198,7 @@ export async function inferMarketingStageRunId(
 
   for (const outputRoot of lobsterOutputRoots()) {
     const logsRoot = path.join(outputRoot, 'logs');
-    if (!existsSync(logsRoot)) {
+    if (!(await pathExists(logsRoot))) {
       continue;
     }
     for (const entry of await readdir(logsRoot)) {
@@ -201,7 +209,7 @@ export async function inferMarketingStageRunId(
         continue;
       }
       const stagePath = path.join(logsRoot, entry, stageFolder(stage));
-      if (!existsSync(stagePath)) {
+      if (!(await pathExists(stagePath))) {
         continue;
       }
       try {
@@ -228,11 +236,14 @@ export async function readMarketingStageStepPayload(
   preferredRunId?: string | null,
 ): Promise<StepPayloadResolution> {
   const currentStage = stageKey(stage);
-  const runIds = uniqueStrings([
+  const explicitRunIds = uniqueStrings([
     preferredRunId,
     stringValue(runtimeDoc.stages[currentStage].run_id),
-    await inferMarketingStageRunId(runtimeDoc, stage),
   ]);
+  const inferredRunIds = explicitRunIds.length > 0
+    ? []
+    : uniqueStrings([await inferMarketingStageRunId(runtimeDoc, stage)]);
+  const runIds = [...explicitRunIds, ...inferredRunIds];
 
   for (const runId of runIds) {
     const cachePath = path.join(cacheRoot(stage), runId, `${stepName}.json`);
