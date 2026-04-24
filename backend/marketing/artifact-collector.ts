@@ -8,6 +8,7 @@ import {
   asStringArray,
   type MarketingStage,
   type MarketingStageArtifact,
+  type MarketingVideoStageArtifact,
   type MarketingStageSummary,
 } from './runtime-state';
 import { resolvePublishReviewBundle } from './publish-review';
@@ -119,6 +120,10 @@ function artifact(input: Omit<MarketingStageArtifact, 'details'> & { details?: s
   };
 }
 
+function videoArtifact(input: MarketingVideoStageArtifact): MarketingVideoStageArtifact {
+  return input;
+}
+
 function asRecordArray(value: unknown): Array<Record<string, unknown>> {
   return Array.isArray(value)
     ? value.filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === 'object' && !Array.isArray(entry))
@@ -128,6 +133,104 @@ function asRecordArray(value: unknown): Array<Record<string, unknown>> {
 function detailLines(label: string, values: Array<string | null | undefined>, maxItems = 3): string[] {
   const cleaned = values.filter((value): value is string => typeof value === 'string' && value.trim().length > 0).slice(0, maxItems);
   return cleaned.length > 0 ? [`${label}: ${cleaned.join(' • ')}`] : [];
+}
+
+function numberValue(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function titleCaseSlug(value: string): string {
+  return value
+    .split(/[-_]+/g)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function familyTitle(value: string): string {
+  if (/^family[-_\s]/i.test(value)) {
+    return value
+      .split(/[-_\s]+/g)
+      .map((part) => (part.length === 1 ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1)))
+      .join(' ');
+  }
+
+  return `Family ${value.length === 1 ? value.toUpperCase() : titleCaseSlug(value)}`;
+}
+
+function collectRenderedVideoArtifacts(params: {
+  jobId: string | null;
+  videoPayload: Record<string, unknown> | null;
+}): MarketingVideoStageArtifact[] {
+  const { jobId, videoPayload } = params;
+  if (!jobId || !videoPayload) {
+    return [];
+  }
+
+  const videoAssets = asRecord(videoPayload.video_assets) ?? {};
+  return asRecordArray(videoAssets.platform_contracts).flatMap((contract) => {
+    const platformSlug =
+      stringValue(contract.platform_slug) ||
+      stringValue(contract.canonical_platform_slug);
+    if (!platformSlug) {
+      return [];
+    }
+
+    const platformTitle =
+      stringValue(contract.platform) ||
+      stringValue(contract.platform_name) ||
+      titleCaseSlug(platformSlug);
+    const platformRequirements = asRecord(contract.platform_requirements) ?? {};
+
+    return asRecordArray(contract.rendered_video_variants).flatMap((variant) => {
+      const familyId = stringValue(variant.family_id);
+      if (!familyId) {
+        return [];
+      }
+
+      const artifactId = `video-${platformSlug}-${familyId}`;
+      const durationSeconds =
+        numberValue(variant.duration_seconds) ??
+        numberValue(platformRequirements.target_duration_seconds) ??
+        0;
+      const aspectRatio =
+        stringValue(variant.aspect_ratio) ||
+        stringValue(contract.aspect_ratio) ||
+        stringValue(platformRequirements.aspect_ratio) ||
+        'unknown';
+      const familyDisplay =
+        stringValue(variant.family_name) ||
+        stringValue(contract.family_name) ||
+        familyTitle(familyId);
+
+      return [
+        videoArtifact({
+          id: artifactId,
+          stage: 'production',
+          type: 'video',
+          title: `${platformTitle} — ${familyDisplay}`,
+          category: 'video',
+          status: 'completed',
+          summary: `${platformTitle} render for ${familyDisplay} (${aspectRatio}, ${durationSeconds}s).`,
+          details: [],
+          contentType: 'video/mp4',
+          url: `/api/marketing/jobs/${jobId}/assets/${artifactId}`,
+          posterUrl: `/api/marketing/jobs/${jobId}/assets/${artifactId}-poster`,
+          platformSlug,
+          familyId,
+          durationSeconds,
+          aspectRatio,
+        }),
+      ];
+    });
+  });
 }
 
 function resolveRunId(
@@ -324,12 +427,14 @@ export function collectProductionReviewArtifacts(
   const videoPath = videoStep?.path || (runId ? stepPayloadPath(3, runId, 'veo_video_generator') : '');
   const review = reviewStep?.payload || (reviewPath ? readJsonIfExists(reviewPath) : null);
   const video = videoStep?.payload || (videoPath ? readJsonIfExists(videoPath) : null);
+  const jobId = runtimeDoc?.job_id || stringValue(primaryOutput?.job_id) || null;
   const packet = asRecord(review?.review_packet) ?? {};
   const summaryBlock = asRecord(packet.summary) ?? {};
   const previews = asRecord(packet.asset_previews) ?? {};
   const landingDetails = readLandingPageArtifactDetails({ runtimeDoc });
   const scriptDetails = readScriptArtifactDetails({ runtimeDoc });
   const videoAssets = asRecord(video?.video_assets) ?? {};
+  const renderedVideoArtifacts = collectRenderedVideoArtifacts({ jobId, videoPayload: video });
   const summary: MarketingStageSummary | null = {
     summary:
       stringValue(summaryBlock.core_message) ||
@@ -366,20 +471,7 @@ export function collectProductionReviewArtifacts(
         path: reviewPath || null,
         preview_path: asString(asRecord(review?.artifacts)?.preview_path),
       }),
-      artifact({
-        id: 'video-contracts',
-        stage: 'production',
-        title: 'Video contract handoff',
-        category: 'contracts',
-        status: 'completed',
-        summary: `${Array.isArray(videoAssets.platform_contracts) ? videoAssets.platform_contracts.length : 0} video platform contract(s) prepared.`,
-        details: Array.isArray(videoAssets.platform_contracts)
-          ? (videoAssets.platform_contracts as Array<Record<string, unknown>>)
-              .slice(0, 4)
-              .map((entry) => stringValue(entry.platform, 'Platform'))
-          : [],
-        path: videoPath || null,
-      }),
+      ...renderedVideoArtifacts,
     ],
   };
 }

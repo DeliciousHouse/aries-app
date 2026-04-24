@@ -36,7 +36,7 @@ export type MarketingStageCard = {
   highlight?: string;
 };
 
-export type MarketingArtifactCard = {
+type MarketingArtifactCardBase = {
   id: string;
   stage: MarketingStage;
   title: string;
@@ -48,6 +48,19 @@ export type MarketingArtifactCard = {
   actionLabel?: string;
   actionHref?: string;
 };
+
+export type MarketingVideoArtifactCard = MarketingArtifactCardBase & {
+  type: 'video';
+  contentType: 'video/mp4';
+  url: string;
+  posterUrl: string;
+  platformSlug: string;
+  familyId: string;
+  durationSeconds: number;
+  aspectRatio: string;
+};
+
+export type MarketingArtifactCard = MarketingArtifactCardBase | MarketingVideoArtifactCard;
 
 export type MarketingTimelineEntry = {
   id: string;
@@ -525,6 +538,10 @@ function buildArtifacts(
   approval: MarketingApprovalSummary | null
 ): MarketingArtifactCard[] {
   const firstCheckpointCopy = firstBrandAnalysisCheckpointCopy();
+  const isVideoArtifact = (
+    entry: MarketingJobRuntimeDocument['stages'][MarketingStage]['artifacts'][number],
+  ): entry is Extract<typeof entry, { type: 'video' }> => 'type' in entry && entry.type === 'video';
+
   return Object.values(runtimeDoc.stages)
     .flatMap((stageRecord) =>
       stageRecord.artifacts.map((entry) => ({
@@ -554,6 +571,18 @@ function buildArtifacts(
           entry.id === 'launch-review' && approval?.required
             ? approval.actionHref
             : entry.action_href ?? undefined,
+        ...(isVideoArtifact(entry)
+          ? {
+              type: 'video' as const,
+              contentType: entry.contentType,
+              url: entry.url,
+              posterUrl: entry.posterUrl,
+              platformSlug: entry.platformSlug,
+              familyId: entry.familyId,
+              durationSeconds: entry.durationSeconds,
+              aspectRatio: entry.aspectRatio,
+            }
+          : {}),
       }))
     );
 }

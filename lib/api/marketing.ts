@@ -76,7 +76,7 @@ export interface MarketingStageCard {
   highlight?: string;
 }
 
-export interface MarketingArtifactCard {
+interface MarketingArtifactCardBase {
   id: string;
   stage: MarketingStage;
   title: string;
@@ -88,6 +88,19 @@ export interface MarketingArtifactCard {
   actionLabel?: string;
   actionHref?: string;
 }
+
+export interface MarketingVideoArtifactCard extends MarketingArtifactCardBase {
+  type: 'video';
+  contentType: 'video/mp4';
+  url: string;
+  posterUrl: string;
+  platformSlug: string;
+  familyId: string;
+  durationSeconds: number;
+  aspectRatio: string;
+}
+
+export type MarketingArtifactCard = MarketingArtifactCardBase | MarketingVideoArtifactCard;
 
 export interface MarketingTimelineEntry {
   id: string;
