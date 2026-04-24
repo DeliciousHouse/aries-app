@@ -9,6 +9,8 @@ import MediaPreview from '@/frontend/components/media-preview';
 import { safeHref } from '@/lib/safe-href';
 import { useMarketingJobStatus } from '@/hooks/use-marketing-job-status';
 import type {
+  MarketingArtifactCard,
+  MarketingVideoArtifactCard,
   MarketingCampaignStatusHistoryEntry,
   MarketingCreativeAssetReviewPayload,
   MarketingStageReviewPayload,
@@ -117,6 +119,90 @@ function formatDecisionTimestamp(value: string): string {
 
 function currentStageHref(campaignId: string, view: WorkspaceView): string {
   return `/dashboard/campaigns/${encodeURIComponent(campaignId)}?view=${view}`;
+}
+
+const PLATFORM_VIDEO_LABELS: Record<string, string> = {
+  tiktok: 'TikTok',
+  youtube: 'YouTube',
+  'youtube-shorts': 'YouTube Shorts',
+  instagram: 'Instagram',
+  'instagram-reels': 'Instagram Reels',
+  meta: 'Meta',
+  'meta-ads': 'Meta Ads',
+  facebook: 'Facebook',
+};
+
+function isRenderedVideoArtifact(artifact: MarketingArtifactCard): artifact is MarketingVideoArtifactCard {
+  return (
+    'type' in artifact &&
+    artifact.type === 'video' &&
+    'contentType' in artifact &&
+    artifact.contentType === 'video/mp4' &&
+    'url' in artifact &&
+    typeof artifact.url === 'string' &&
+    artifact.url.trim().length > 0
+  );
+}
+
+function humanizePlatformSlug(platformSlug: string): string {
+  const normalized = platformSlug.trim().toLowerCase();
+  if (!normalized) {
+    return 'Video';
+  }
+  if (PLATFORM_VIDEO_LABELS[normalized]) {
+    return PLATFORM_VIDEO_LABELS[normalized];
+  }
+  return normalized
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(' ');
+}
+
+function humanizeFamilyId(familyId: string): string {
+  const normalized = familyId.trim().replace(/[-_]+/g, ' ');
+  if (!normalized) {
+    return 'Variant';
+  }
+  const lower = normalized.toLowerCase();
+  return lower.charAt(0).toUpperCase() + lower.slice(1);
+}
+
+export function RenderedVideosSection(props: { artifacts: MarketingArtifactCard[] | null | undefined }) {
+  const videoArtifacts = (props.artifacts || []).filter(isRenderedVideoArtifact);
+
+  if (videoArtifacts.length === 0) {
+    return null;
+  }
+
+  return (
+    <ShellPanel eyebrow="Creative Outputs" title="Rendered videos">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {videoArtifacts.map((artifact) => {
+          const platform = humanizePlatformSlug(artifact.platformSlug);
+          const family = humanizeFamilyId(artifact.familyId);
+
+          return (
+            <div key={artifact.id} className="space-y-3 rounded-[1.25rem] border border-white/10 bg-white/[0.03] p-4">
+              <div>
+                <p className="text-sm font-medium text-white/82">{platform} — {family}</p>
+              </div>
+              <MediaPreview
+                src={artifact.url}
+                poster={artifact.posterUrl}
+                contentType="video/mp4"
+                alt={`${platform} — ${family}`}
+                className="h-48 w-full rounded"
+                imageClassName="h-full w-full rounded object-contain bg-black"
+                emptyLabel="Rendered video pending"
+                nonImageLabel="Rendered video available"
+              />
+            </div>
+          );
+        })}
+      </div>
+    </ShellPanel>
+  );
 }
 
 export default function AriesCampaignWorkspace(props: { campaignId: string; initialView?: WorkspaceView }) {
@@ -379,6 +465,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
           {generationProgress && !generationProgress.isComplete ? (
             <GenerationProgressBar progress={generationProgress} />
           ) : null}
+          <RenderedVideosSection artifacts={status.artifacts} />
           <CreativeReviewSurface
             review={status.creativeReview}
             fallback={creativeFallback}
