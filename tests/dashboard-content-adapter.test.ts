@@ -257,7 +257,7 @@ test('dashboard adapter derives proposal-backed content and calendar without liv
     const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
     const { listMarketingCampaignsForTenant } = await import('../backend/marketing/runtime-views');
 
-    const content = getMarketingDashboardContent(jobId, {
+    const content = await getMarketingDashboardContent(jobId, {
       referenceDate: new Date('2026-03-27T00:00:00.000Z'),
     });
     const campaigns = await listMarketingCampaignsForTenant('tenant_dashboard');
@@ -319,7 +319,7 @@ test('dashboard adapter recovers proposal artifacts from live Lobster logs when 
     await writeRuntimeDoc(jobId, doc);
 
     const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
-    const content = getMarketingDashboardContent(jobId, {
+    const content = await getMarketingDashboardContent(jobId, {
       referenceDate: new Date('2026-03-27T00:00:00.000Z'),
     });
 
@@ -365,7 +365,7 @@ test('dashboard adapter uses human-readable campaign and proposal concept labels
     await writeRuntimeDoc(jobId, doc);
 
     const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
-    const content = getMarketingDashboardContent(jobId, {
+    const content = await getMarketingDashboardContent(jobId, {
       referenceDate: new Date('2026-03-27T00:00:00.000Z'),
     });
 
@@ -423,7 +423,7 @@ test('dashboard adapter falls back to platform labels when creative contract hea
     await writeRuntimeDoc(jobId, doc);
 
     const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
-    const content = getMarketingDashboardContent(jobId, {
+    const content = await getMarketingDashboardContent(jobId, {
       referenceDate: new Date('2026-03-27T00:00:00.000Z'),
     });
     const metaCreative = content.posts.find((post) => post.type === 'meta_ad');
@@ -482,7 +482,7 @@ test('dashboard adapter falls back to platform labels when creative contract cop
     await writeRuntimeDoc(jobId, doc);
 
     const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
-    const content = getMarketingDashboardContent(jobId, {
+    const content = await getMarketingDashboardContent(jobId, {
       referenceDate: new Date('2026-03-27T00:00:00.000Z'),
     });
     const metaCreative = content.posts.find((post) => post.type === 'meta_ad');
@@ -529,7 +529,7 @@ test('dashboard adapter keeps proposal approval truthful and does not leak futur
     await writeRuntimeDoc(jobId, doc);
 
     const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
-    const content = getMarketingDashboardContent(jobId, {
+    const content = await getMarketingDashboardContent(jobId, {
       referenceDate: new Date('2026-03-27T00:00:00.000Z'),
     });
 
@@ -586,7 +586,7 @@ test('dashboard adapter does not infer publish review content during strategy ap
     await writeRuntimeDoc(jobId, doc);
 
     const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
-    const content = getMarketingDashboardContent(jobId, {
+    const content = await getMarketingDashboardContent(jobId, {
       referenceDate: new Date('2026-03-27T00:00:00.000Z'),
     });
 
@@ -609,7 +609,7 @@ test('dashboard adapter surfaces generated landing pages, image ads, scripts, an
     await writeRuntimeDoc(jobId, doc);
 
     const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
-    const content = getMarketingDashboardContent(jobId, {
+    const content = await getMarketingDashboardContent(jobId, {
       referenceDate: new Date('2026-03-27T00:00:00.000Z'),
     });
 
@@ -655,7 +655,7 @@ test('dashboard adapter keeps campaign status in review while a live approval ch
     await writeRuntimeDoc(jobId, doc);
 
     const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
-    const content = getMarketingDashboardContent(jobId, {
+    const content = await getMarketingDashboardContent(jobId, {
       referenceDate: new Date('2026-03-27T00:00:00.000Z'),
     });
 
@@ -713,7 +713,7 @@ test('dashboard adapter surfaces pre-publish review items as ready to publish', 
     await writeRuntimeDoc(jobId, doc);
 
     const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
-    const content = getMarketingDashboardContent(jobId, {
+    const content = await getMarketingDashboardContent(jobId, {
       referenceDate: new Date('2026-03-27T00:00:00.000Z'),
     });
 
@@ -806,7 +806,7 @@ test('dashboard adapter recovers paused-publish review items from Stage 4 logs w
     await writeRuntimeDoc(jobId, doc);
 
     const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
-    const content = getMarketingDashboardContent(jobId, {
+    const content = await getMarketingDashboardContent(jobId, {
       referenceDate: new Date('2026-03-27T00:00:00.000Z'),
     });
 
@@ -829,7 +829,7 @@ test('dashboard adapter surfaces paused Meta ads as published to Meta (paused)',
     await writeRuntimeDoc(jobId, doc);
 
     const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
-    const content = getMarketingDashboardContent(jobId, {
+    const content = await getMarketingDashboardContent(jobId, {
       referenceDate: new Date('2026-03-27T00:00:00.000Z'),
     });
 
@@ -865,7 +865,7 @@ test('dashboard adapter prefers live platform schedule signals over fallback eve
     await writeRuntimeDoc(jobId, doc);
 
     const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
-    const content = getMarketingDashboardContent(jobId, {
+    const content = await getMarketingDashboardContent(jobId, {
       referenceDate: new Date('2026-03-27T00:00:00.000Z'),
     });
 
@@ -945,7 +945,7 @@ test('dashboard adapter surfaces rendered .mp4 video assets from veo contract fi
     await writeRuntimeDoc(jobId, doc);
 
     const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
-    const content = getMarketingDashboardContent(jobId, {
+    const content = await getMarketingDashboardContent(jobId, {
       referenceDate: new Date('2026-03-27T00:00:00.000Z'),
     });
 

@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { resolveDataPath } from '@/lib/runtime-paths';
@@ -1281,15 +1282,18 @@ export function tenantBrandKitPath(tenantId: string): string {
   return resolveDataPath('generated', 'validated', tenantId, 'brand-kit.json');
 }
 
-export function loadTenantBrandKit(tenantId: string): TenantBrandKit | null {
+export async function loadTenantBrandKit(tenantId: string): Promise<TenantBrandKit | null> {
   const filePath = tenantBrandKitPath(tenantId);
-  if (!existsSync(filePath)) {
-    return null;
+  try {
+    const brandKit = normalizePersistedBrandKit(JSON.parse(await readFile(filePath, 'utf8')) as TenantBrandKit);
+    assertTenantBrandKit(brandKit);
+    return brandKit;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return null;
+    }
+    throw error;
   }
-
-  const brandKit = normalizePersistedBrandKit(JSON.parse(readFileSync(filePath, 'utf8')) as TenantBrandKit);
-  assertTenantBrandKit(brandKit);
-  return brandKit;
 }
 
 function isFreshBrandKit(brandKit: TenantBrandKit, brandUrl: string): boolean {
@@ -1322,7 +1326,7 @@ export async function extractAndSaveTenantBrandKit(input: {
   brandUrl: string;
   fetchImpl?: typeof fetch;
 }): Promise<{ brandKit: TenantBrandKit; filePath: string }> {
-  const existing = loadTenantBrandKit(input.tenantId);
+  const existing = await loadTenantBrandKit(input.tenantId);
   if (existing && isFreshBrandKit(existing, input.brandUrl)) {
     saveTenantBrandKit(input.tenantId, existing);
     return {

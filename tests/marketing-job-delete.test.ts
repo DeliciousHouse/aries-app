@@ -99,7 +99,7 @@ describe('DELETE /api/marketing/jobs/:jobId', () => {
     assert.ok(body.deletedAt);
     assert.equal(body.deletedBy, 'user_admin');
 
-    const doc = loadMarketingJobRuntime('job_admin');
+    const doc = await loadMarketingJobRuntime('job_admin');
     assert.ok(doc);
     assert.ok(doc.deleted_at);
     assert.equal(doc.deleted_by, 'user_admin');
@@ -205,7 +205,7 @@ describe('DELETE /api/marketing/jobs/:jobId', () => {
     assert.equal(secondBody.deletedAt, originalDeletedAt, 'deleted_at must not be rewritten by a repeat delete');
     assert.equal(secondBody.deletedBy, originalDeletedBy, 'deleted_by must not be rewritten by a repeat delete');
 
-    const doc = loadMarketingJobRuntime('job_idempotent');
+    const doc = await loadMarketingJobRuntime('job_idempotent');
     assert.ok(doc);
     assert.equal(doc.deleted_at, originalDeletedAt);
     assert.equal(doc.deleted_by, originalDeletedBy);
@@ -253,7 +253,7 @@ describe('POST /api/marketing/jobs/:jobId/restore', () => {
     }));
 
     assert.equal(response.status, 200);
-    const doc = loadMarketingJobRuntime('job_restore');
+    const doc = await loadMarketingJobRuntime('job_restore');
     assert.ok(doc);
     assert.equal(doc.deleted_at, null);
     assert.equal(doc.deleted_by, null);
@@ -297,7 +297,7 @@ describe('POST /api/marketing/jobs/:jobId/restore', () => {
     }));
 
     assert.equal(response.status, 200);
-    const doc = loadMarketingJobRuntime('job_restore_idempotent');
+    const doc = await loadMarketingJobRuntime('job_restore_idempotent');
     assert.ok(doc);
     assert.equal(doc.deleted_at, null);
     assert.equal(doc.deleted_by, null);

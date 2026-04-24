@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { invalidateMarketingJobStatus } from '@/backend/marketing/jobs-status';
 import { startMarketingJob } from '@/backend/marketing/orchestrator';
 import {
   ensureCampaignWorkspaceRecord,
@@ -146,11 +147,11 @@ function normalizeJobPayload(payload: Record<string, unknown>): Record<string, u
   return nextPayload;
 }
 
-function enrichPayloadFromBusinessProfile(
+async function enrichPayloadFromBusinessProfile(
   tenantId: string,
   payload: Record<string, unknown>,
-): Record<string, unknown> {
-  const defaults = marketingPayloadDefaultsFromBusinessProfile(tenantId);
+): Promise<Record<string, unknown>> {
+  const defaults = await marketingPayloadDefaultsFromBusinessProfile(tenantId);
   const nextPayload = { ...payload };
   const applyIfMissing = (key: string, value: unknown) => {
     if (typeof nextPayload[key] === 'string' && nextPayload[key].trim().length > 0) {
@@ -289,14 +290,14 @@ export async function handlePostMarketingJobs(
         tenantResult.tenantContext.tenantSlug,
       payload: normalizedPayload,
     });
-    const hydratedPayload = enrichPayloadFromBusinessProfile(resolvedTenantId, normalizedPayload);
+    const hydratedPayload = await enrichPayloadFromBusinessProfile(resolvedTenantId, normalizedPayload);
     const result = await startMarketingJob({
       tenantId: resolvedTenantId,
       jobType: requestBody.jobType as 'brand_campaign',
       createdBy: tenantResult.tenantContext.userId ?? null,
       payload: hydratedPayload,
     });
-    const workspace = ensureCampaignWorkspaceRecord({
+    const workspace = await ensureCampaignWorkspaceRecord({
       jobId: result.jobId,
       tenantId: resolvedTenantId,
       payload: hydratedPayload,
@@ -304,6 +305,8 @@ export async function handlePostMarketingJobs(
     if (requestBody.uploads.length > 0) {
       saveCampaignWorkspaceAssets(workspace, requestBody.uploads);
     }
+
+    invalidateMarketingJobStatus(result.jobId);
 
     return NextResponse.json(
       {

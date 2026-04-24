@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync } from 'node:fs';
+import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { resolveCodePath, resolveCodeRoot, resolveDataRoot } from '@/lib/runtime-paths';
@@ -127,28 +128,28 @@ export function resolveMarketingArtifactPath(filePath: string | null | undefined
   return null;
 }
 
-export function readMarketingArtifactText(filePath: string | null | undefined): string | null {
+export async function readMarketingArtifactText(filePath: string | null | undefined): Promise<string | null> {
   const resolvedPath = resolveMarketingArtifactPath(filePath);
   if (!resolvedPath) {
     return null;
   }
 
   try {
-    const text = readFileSync(resolvedPath, 'utf8').trim();
+    const text = (await readFile(resolvedPath, 'utf8')).trim();
     return text.length > 0 ? text : null;
   } catch {
     return null;
   }
 }
 
-export function readMarketingArtifactJson(filePath: string | null | undefined): Record<string, unknown> | null {
+export async function readMarketingArtifactJson(filePath: string | null | undefined): Promise<Record<string, unknown> | null> {
   const resolvedPath = resolveMarketingArtifactPath(filePath);
   if (!resolvedPath) {
     return null;
   }
 
   try {
-    const parsed = JSON.parse(readFileSync(resolvedPath, 'utf8'));
+    const parsed = JSON.parse(await readFile(resolvedPath, 'utf8'));
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
       ? (parsed as Record<string, unknown>)
       : null;
@@ -308,14 +309,14 @@ function firstReadablePath(paths: Array<string | null | undefined>): string | nu
   return null;
 }
 
-function firstFileMatching(dirPath: string | null, matcher: (fileName: string) => boolean): string | null {
+async function firstFileMatching(dirPath: string | null, matcher: (fileName: string) => boolean): Promise<string | null> {
   const resolvedDir = resolveMarketingArtifactPath(dirPath);
   if (!resolvedDir || !existsSync(resolvedDir)) {
     return null;
   }
 
   try {
-    const fileName = readdirSync(resolvedDir)
+    const fileName = (await readdir(resolvedDir))
       .filter((entry) => matcher(entry))
       .sort()[0];
     return fileName ? path.join(resolvedDir, fileName) : null;
@@ -358,18 +359,18 @@ export type LandingPageArtifactDetails = {
   sections: string[];
 };
 
-export function readLandingPageArtifactDetails(input: {
+export async function readLandingPageArtifactDetails(input: {
   path?: string | null;
   runtimeDoc?: MarketingJobRuntimeDocument | null;
   brandSlug?: string | null;
-}): LandingPageArtifactDetails {
+}): Promise<LandingPageArtifactDetails> {
   const brandSlug = stringValue(input.brandSlug) || (input.runtimeDoc ? inferBrandSlug(input.runtimeDoc) : '');
   const campaignRoot = brandSlug ? campaignRootForBrand(brandSlug) : null;
   const resolvedPath = firstReadablePath([
     input.path,
-    firstFileMatching(campaignRoot ? path.join(campaignRoot, 'landing-pages') : null, (fileName) => fileName.endsWith('.html')),
+    await firstFileMatching(campaignRoot ? path.join(campaignRoot, 'landing-pages') : null, (fileName) => fileName.endsWith('.html')),
   ]);
-  const html = readMarketingArtifactText(resolvedPath);
+  const html = await readMarketingArtifactText(resolvedPath);
   if (!html) {
     return {
       path: resolvedPath,
@@ -419,14 +420,14 @@ function cleanMarkdownLines(value: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
-function scriptPaths(brandSlug: string): { metaScriptPath: string | null; shortVideoPath: string | null } {
+async function scriptPaths(brandSlug: string): Promise<{ metaScriptPath: string | null; shortVideoPath: string | null }> {
   const campaignRoot = campaignRootForBrand(brandSlug);
   return {
-    metaScriptPath: firstFileMatching(
+    metaScriptPath: await firstFileMatching(
       campaignRoot ? path.join(campaignRoot, 'scripts') : null,
       (fileName) => /meta/i.test(fileName) && /\.(md|txt|json)$/i.test(fileName),
     ),
-    shortVideoPath: firstFileMatching(
+    shortVideoPath: await firstFileMatching(
       campaignRoot ? path.join(campaignRoot, 'scripts') : null,
       (fileName) => /(video|reel|short)/i.test(fileName) && /\.(md|txt|json)$/i.test(fileName),
     ),
@@ -442,20 +443,20 @@ export type ScriptArtifactDetails = {
   shortVideoBeats: string[];
 };
 
-export function readScriptArtifactDetails(input: {
+export async function readScriptArtifactDetails(input: {
   metaScriptPath?: string | null;
   shortVideoScriptPath?: string | null;
   runtimeDoc?: MarketingJobRuntimeDocument | null;
   brandSlug?: string | null;
-}): ScriptArtifactDetails {
+}): Promise<ScriptArtifactDetails> {
   const brandSlug = stringValue(input.brandSlug) || (input.runtimeDoc ? inferBrandSlug(input.runtimeDoc) : '');
-  const fallbackPaths = brandSlug ? scriptPaths(brandSlug) : { metaScriptPath: null, shortVideoPath: null };
+  const fallbackPaths = brandSlug ? await scriptPaths(brandSlug) : { metaScriptPath: null, shortVideoPath: null };
   const metaScriptPath = firstReadablePath([input.metaScriptPath, fallbackPaths.metaScriptPath]);
   const shortVideoScriptPath = firstReadablePath([input.shortVideoScriptPath, fallbackPaths.shortVideoPath]);
-  const metaText = readMarketingArtifactText(metaScriptPath);
-  const videoText = readMarketingArtifactText(shortVideoScriptPath);
-  const metaJson = readMarketingArtifactJson(metaScriptPath);
-  const videoJson = readMarketingArtifactJson(shortVideoScriptPath);
+  const metaText = await readMarketingArtifactText(metaScriptPath);
+  const videoText = await readMarketingArtifactText(shortVideoScriptPath);
+  const metaJson = await readMarketingArtifactJson(metaScriptPath);
+  const videoJson = await readMarketingArtifactJson(shortVideoScriptPath);
 
   const metaAdHook =
     normalizeArtifactText(stringValue(metaJson?.hook || metaJson?.headline)) ||
@@ -499,9 +500,9 @@ export type PublishCopyDetails = {
   proofPoints: string[];
 };
 
-export function readPublishCopyDetails(filePath: string | null | undefined): PublishCopyDetails {
+export async function readPublishCopyDetails(filePath: string | null | undefined): Promise<PublishCopyDetails> {
   const resolvedPath = resolveMarketingArtifactPath(filePath);
-  const payload = readMarketingArtifactJson(resolvedPath);
+  const payload = await readMarketingArtifactJson(resolvedPath);
   if (payload) {
     return {
       path: resolvedPath,
@@ -512,7 +513,7 @@ export function readPublishCopyDetails(filePath: string | null | undefined): Pub
     };
   }
 
-  const text = readMarketingArtifactText(resolvedPath);
+  const text = await readMarketingArtifactText(resolvedPath);
   if (!text) {
     return {
       path: resolvedPath,

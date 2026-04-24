@@ -62,7 +62,7 @@ export default async function MaterialsViewerPage({
     notFound();
   }
 
-  const runtimeDoc = loadMarketingJobRuntime(jobId);
+  const runtimeDoc = await loadMarketingJobRuntime(jobId);
   if (!runtimeDoc) {
     notFound();
   }
@@ -81,7 +81,7 @@ export default async function MaterialsViewerPage({
     notFound();
   }
 
-  const asset = findMarketingAsset(jobId, runtimeDoc, assetId);
+  const asset = await findMarketingAsset(jobId, runtimeDoc, assetId);
   if (!asset) {
     notFound();
   }

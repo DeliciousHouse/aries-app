@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { normalizeMetaLocatorUrl, normalizeMetaPageId } from '@/lib/marketing-competitor';
@@ -337,7 +338,7 @@ export function isPipelineActive(doc: MarketingJobRuntimeDocument): boolean {
   return true;
 }
 
-export function assertMarketingRuntimeSchemas(): void {
+export async function assertMarketingRuntimeSchemas(): Promise<void> {
   for (const fileName of REQUIRED_SCHEMA_FILES) {
     const resolution = describeSpecResolution(fileName);
     console.info('[marketing-runtime-schema]', {
@@ -357,7 +358,7 @@ export function assertMarketingRuntimeSchemas(): void {
     }
 
     try {
-      const raw = readFileSync(schemaPath, 'utf8');
+      const raw = await readFile(schemaPath, 'utf8');
       const parsed = JSON.parse(raw);
       if (!parsed || typeof parsed !== 'object') {
         throw new Error('schema root must be an object');
@@ -401,9 +402,9 @@ function runtimeBrandKitReferenceFromTenantBrandKit(
   };
 }
 
-function recoverLegacyRuntimeBrandKit(doc: MarketingJobRuntimeDocument): MarketingBrandKitReference | null {
+async function recoverLegacyRuntimeBrandKit(doc: MarketingJobRuntimeDocument): Promise<MarketingBrandKitReference | null> {
   try {
-    const persistedBrandKit = loadTenantBrandKit(doc.tenant_id);
+    const persistedBrandKit = await loadTenantBrandKit(doc.tenant_id);
     if (!persistedBrandKit) {
       console.warn('[marketing-runtime-state]', {
         event: 'legacy-runtime-brand-kit-missing',
@@ -453,14 +454,10 @@ function assertMarketingRuntimeDocument(doc: MarketingJobRuntimeDocument): void 
   }
 }
 
-export function loadMarketingJobRuntime(jobId: string): MarketingJobRuntimeDocument | null {
+export async function loadMarketingJobRuntime(jobId: string): Promise<MarketingJobRuntimeDocument | null> {
   const filePath = marketingRuntimePath(jobId);
-  if (!existsSync(filePath)) {
-    return null;
-  }
-
   try {
-    const raw = readFileSync(filePath, 'utf8');
+    const raw = await readFile(filePath, 'utf8');
     const parsed = JSON.parse(raw) as Record<string, unknown> | null;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       return null;
@@ -507,29 +504,36 @@ export function loadMarketingJobRuntime(jobId: string): MarketingJobRuntimeDocum
       doc.publish_config = defaultPublishConfig(doc.publish_config);
     }
     if (!doc.brand_kit) {
-      doc.brand_kit = recoverLegacyRuntimeBrandKit(doc);
+      doc.brand_kit = await recoverLegacyRuntimeBrandKit(doc);
     }
     return doc;
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return null;
+    }
     return null;
   }
 }
 
-function collectMarketingJobRefsForTenant(
+async function collectMarketingJobRefsForTenant(
   tenantId: string,
   options: { includeDeleted?: boolean; onlyDeleted?: boolean } = {},
-): Array<{ jobId: string; updatedAt: number }> {
+): Promise<Array<{ jobId: string; updatedAt: number }>> {
   const root = marketingRuntimeRoot();
-  if (!existsSync(root)) {
-    return [];
-  }
-
   const refs: Array<{ jobId: string; updatedAt: number }> = [];
-  const entries = readdirSync(root).filter((entry) => entry.endsWith('.json'));
+  let entries: string[];
+  try {
+    entries = (await readdir(root)).filter((entry) => entry.endsWith('.json'));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return [];
+    }
+    throw error;
+  }
 
   for (const entry of entries) {
     try {
-      const raw = readFileSync(path.join(root, entry), 'utf8');
+      const raw = await readFile(path.join(root, entry), 'utf8');
       const doc = JSON.parse(raw) as Record<string, unknown>;
       if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
         continue;
@@ -583,12 +587,12 @@ function collectMarketingJobRefsForTenant(
   return refs.sort((left, right) => right.updatedAt - left.updatedAt);
 }
 
-export function listMarketingJobIdsForTenant(tenantId: string): string[] {
-  return collectMarketingJobRefsForTenant(tenantId).map((entry) => entry.jobId);
+export async function listMarketingJobIdsForTenant(tenantId: string): Promise<string[]> {
+  return (await collectMarketingJobRefsForTenant(tenantId)).map((entry) => entry.jobId);
 }
 
-export function listDeletedMarketingJobIdsForTenant(tenantId: string): string[] {
-  return collectMarketingJobRefsForTenant(tenantId, { onlyDeleted: true }).map((entry) => entry.jobId);
+export async function listDeletedMarketingJobIdsForTenant(tenantId: string): Promise<string[]> {
+  return (await collectMarketingJobRefsForTenant(tenantId, { onlyDeleted: true })).map((entry) => entry.jobId);
 }
 
 /**
@@ -613,12 +617,12 @@ export function listDeletedMarketingJobIdsForTenant(tenantId: string): string[] 
  * Returns the updated document, or `null` if the job is not found or
  * belongs to a different tenant.
  */
-export function softDeleteMarketingJob(input: {
+export async function softDeleteMarketingJob(input: {
   jobId: string;
   tenantId: string;
   deletedBy: string;
-}): MarketingJobRuntimeDocument | null {
-  const doc = loadMarketingJobRuntime(input.jobId);
+}): Promise<MarketingJobRuntimeDocument | null> {
+  const doc = await loadMarketingJobRuntime(input.jobId);
   if (!doc || doc.tenant_id !== input.tenantId) {
     return null;
   }
@@ -647,11 +651,11 @@ export function softDeleteMarketingJob(input: {
  * safe no-op. The only case that returns `null` is when the job is not
  * found at all or belongs to a different tenant.
  */
-export function restoreMarketingJob(input: {
+export async function restoreMarketingJob(input: {
   jobId: string;
   tenantId: string;
-}): MarketingJobRuntimeDocument | null {
-  const doc = loadMarketingJobRuntime(input.jobId);
+}): Promise<MarketingJobRuntimeDocument | null> {
+  const doc = await loadMarketingJobRuntime(input.jobId);
   if (!doc || doc.tenant_id !== input.tenantId) {
     return null;
   }
@@ -667,18 +671,22 @@ export function restoreMarketingJob(input: {
   return doc;
 }
 
-export function listMarketingTenantIds(): string[] {
+export async function listMarketingTenantIds(): Promise<string[]> {
   const root = marketingRuntimeRoot();
-  if (!existsSync(root)) {
-    return [];
-  }
-
-  const entries = readdirSync(root).filter((entry) => entry.endsWith('.json'));
   const tenants = new Set<string>();
+  let entries: string[];
+  try {
+    entries = (await readdir(root)).filter((entry) => entry.endsWith('.json'));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return [];
+    }
+    throw error;
+  }
 
   for (const entry of entries) {
     try {
-      const raw = readFileSync(path.join(root, entry), 'utf8');
+      const raw = await readFile(path.join(root, entry), 'utf8');
       const doc = JSON.parse(raw) as Record<string, unknown>;
       const tenantId = typeof doc.tenant_id === 'string' ? doc.tenant_id.trim() : '';
       if (tenantId) {
@@ -692,18 +700,22 @@ export function listMarketingTenantIds(): string[] {
   return [...tenants];
 }
 
-export function findLatestMarketingTenantId(): string | null {
+export async function findLatestMarketingTenantId(): Promise<string | null> {
   const root = marketingRuntimeRoot();
-  if (!existsSync(root)) {
-    return null;
-  }
-
-  const entries = readdirSync(root).filter((entry) => entry.endsWith('.json'));
   let latest: { tenantId: string; updatedAt: number } | null = null;
+  let entries: string[];
+  try {
+    entries = (await readdir(root)).filter((entry) => entry.endsWith('.json'));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return null;
+    }
+    throw error;
+  }
 
   for (const entry of entries) {
     try {
-      const raw = readFileSync(path.join(root, entry), 'utf8');
+      const raw = await readFile(path.join(root, entry), 'utf8');
       const doc = JSON.parse(raw) as Record<string, unknown>;
       const tenantId = typeof doc.tenant_id === 'string' ? doc.tenant_id.trim() : '';
       const updatedAt = Date.parse(typeof doc.updated_at === 'string' ? doc.updated_at : '');
@@ -721,8 +733,8 @@ export function findLatestMarketingTenantId(): string | null {
   return latest?.tenantId ?? null;
 }
 
-export function findLatestMarketingJobIdForTenant(tenantId: string): string | null {
-  return collectMarketingJobRefsForTenant(tenantId)[0]?.jobId ?? null;
+export async function findLatestMarketingJobIdForTenant(tenantId: string): Promise<string | null> {
+  return (await collectMarketingJobRefsForTenant(tenantId))[0]?.jobId ?? null;
 }
 
 export function saveMarketingJobRuntime(jobId: string, doc: MarketingJobRuntimeDocument): string {

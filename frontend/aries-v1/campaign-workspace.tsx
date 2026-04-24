@@ -394,6 +394,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
           <Link
             key={view}
             href={currentStageHref(props.campaignId, view)}
+            scroll={false}
             className={`rounded-full border px-4 py-2.5 text-sm font-medium transition ${
               activeView === view
                 ? 'border-white/20 bg-white/[0.08] text-white'

@@ -38,11 +38,11 @@ function businessSlugBase(input: { businessName: string; websiteUrl: string; ema
 }
 
 async function tenantIsReusable(tenantId: string): Promise<boolean> {
-  if (listMarketingJobIdsForTenant(tenantId).length > 0) {
+  if ((await listMarketingJobIdsForTenant(tenantId)).length > 0) {
     return false;
   }
 
-  if (tenantHasStoredBusinessProfileState(tenantId)) {
+  if (await tenantHasStoredBusinessProfileState(tenantId)) {
     return false;
   }
 
@@ -157,7 +157,7 @@ export default async function OnboardingResumePage(
       payload,
     });
 
-    ensureCampaignWorkspaceRecord({
+    await ensureCampaignWorkspaceRecord({
       jobId: result.jobId,
       tenantId,
       payload,

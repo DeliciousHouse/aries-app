@@ -5,6 +5,8 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { collectProductionReviewArtifacts } from '../backend/marketing/artifact-collector';
+import { createMarketingJobFacts } from '../backend/marketing/job-facts';
+import { createMarketingJobRuntimeDocument } from '../backend/marketing/runtime-state';
 
 async function writeJson(filePath: string, value: unknown) {
   await mkdir(path.dirname(filePath), { recursive: true });
@@ -20,6 +22,33 @@ test('collectProductionReviewArtifacts emits one video artifact per rendered var
   process.env.LOBSTER_STAGE3_CACHE_DIR = tempRoot;
 
   try {
+    const runtimeDoc = createMarketingJobRuntimeDocument({
+      jobId,
+      tenantId: 'tenant-video-artifacts',
+      payload: {
+        brandUrl: 'https://brand.example.com',
+      },
+      brandKit: {
+        path: path.join(tempRoot, 'brand-kit.json'),
+        source_url: 'https://brand.example.com',
+        canonical_url: 'https://brand.example.com',
+        brand_name: 'Brand Example',
+        logo_urls: [],
+        colors: {
+          primary: '#111111',
+          secondary: '#f4f4f4',
+          accent: '#c24d2c',
+          palette: ['#111111', '#f4f4f4', '#c24d2c'],
+        },
+        font_families: ['Manrope'],
+        external_links: [],
+        extracted_at: '2026-04-24T00:00:00.000Z',
+        brand_voice_summary: 'Direct and grounded.',
+        offer_summary: 'Proof-led launch audit.',
+      },
+    });
+    runtimeDoc.stages.production.run_id = runId;
+
     await writeJson(path.join(tempRoot, runId, 'veo_video_generator.json'), {
       type: 'veo_video_generator',
       run_id: runId,
@@ -77,7 +106,10 @@ test('collectProductionReviewArtifacts emits one video artifact per rendered var
       },
     });
 
-    const capture = collectProductionReviewArtifacts({ run_id: runId, job_id: jobId }, null);
+    const capture = await collectProductionReviewArtifacts(
+      createMarketingJobFacts(runtimeDoc, runId),
+      { run_id: runId, job_id: jobId },
+    );
     const videoArtifacts = capture.artifacts.filter(
       (artifact): artifact is Extract<(typeof capture.artifacts)[number], { type: 'video' }> =>
         'type' in artifact && artifact.type === 'video',
