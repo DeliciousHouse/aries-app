@@ -15,7 +15,6 @@ const protectedEntries = [
   'MEMORY.md',
   'TOOLS.md',
   'README.md',
-  'README-runtime.md',
   'SETUP.md',
   'ROUTE_MANIFEST.md',
   '.env.example',

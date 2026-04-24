@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
 const expectedRoot = process.env.ARIES_CANONICAL_REPO_ROOT || '/home/node/openclaw/aries-app';
-const requiredMarkers = ['package.json', 'README-runtime.md', 'app', 'backend', 'tests'];
+const requiredMarkers = ['package.json', 'VERSION', 'app', 'backend', 'tests'];
 
 function fail(message) {
   console.error(`workspace verification failed: ${message}`);

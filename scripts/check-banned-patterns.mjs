@@ -8,7 +8,6 @@ const root =
     ? candidateRoot
     : process.cwd();
 const files = [
-  'README-runtime.md',
   'SETUP.md',
   'ROUTE_MANIFEST.md',
   'WEBHOOK_MANIFEST.md',

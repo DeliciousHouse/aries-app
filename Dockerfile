@@ -73,7 +73,7 @@ COPY --from=builder --chown=node:node /app/next.config.mjs ./next.config.mjs
 COPY --from=builder --chown=node:node /app/postcss.config.mjs ./postcss.config.mjs
 COPY --from=builder --chown=node:node /app/tailwind.config.ts ./tailwind.config.ts
 COPY --from=builder --chown=node:node /app/tsconfig.json ./tsconfig.json
-COPY --from=builder --chown=node:node /app/README-runtime.md ./README-runtime.md
+COPY --from=builder --chown=node:node /app/VERSION ./VERSION
 
 USER node
 
