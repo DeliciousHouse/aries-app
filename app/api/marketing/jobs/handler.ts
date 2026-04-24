@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { invalidateMarketingJobStatus } from '@/backend/marketing/jobs-status';
 import { startMarketingJob } from '@/backend/marketing/orchestrator';
 import {
   ensureCampaignWorkspaceRecord,
@@ -304,6 +305,8 @@ export async function handlePostMarketingJobs(
     if (requestBody.uploads.length > 0) {
       saveCampaignWorkspaceAssets(workspace, requestBody.uploads);
     }
+
+    invalidateMarketingJobStatus(result.jobId);
 
     return NextResponse.json(
       {

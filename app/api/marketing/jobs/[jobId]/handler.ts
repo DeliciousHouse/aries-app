@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
-import { getMarketingJobStatus } from '@/backend/marketing/jobs-status';
+import type { MarketingApprovalSummary, MarketingJobStatusResponse } from '@/backend/marketing/jobs-status';
+import { getMarketingJobStatusCached } from '@/backend/marketing/jobs-status';
 import { buildCampaignWorkspaceView } from '@/backend/marketing/workspace-views';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
@@ -11,7 +12,7 @@ const MARKETING_ONBOARDING_REQUIRED = {
 } as const;
 
 function alignApprovalWithWorkspace(
-  approval: ReturnType<typeof getMarketingJobStatus>['approval'],
+  approval: MarketingApprovalSummary | null,
   workflowState: ReturnType<typeof buildCampaignWorkspaceView>['workflowState'],
   publishBlockedReason: ReturnType<typeof buildCampaignWorkspaceView>['publishBlockedReason'],
 ) {
@@ -36,7 +37,7 @@ function alignApprovalRequiredWithWorkspace(
 }
 
 function alignNextStepWithWorkspace(
-  nextStep: ReturnType<typeof getMarketingJobStatus>['nextStep'],
+  nextStep: MarketingJobStatusResponse['nextStep'],
   workflowState: ReturnType<typeof buildCampaignWorkspaceView>['workflowState'],
 ) {
   return workflowState === 'revisions_requested' ? 'wait_for_completion' : nextStep;
@@ -54,7 +55,7 @@ export async function handleGetMarketingJobStatus(
   }
 
   try {
-    const result = getMarketingJobStatus(jobId);
+    const { payload: result, cacheStatus } = await getMarketingJobStatusCached(tenantResult.tenantContext.tenantId, jobId);
     const workspaceView = buildCampaignWorkspaceView(jobId);
     if (result.tenantId && result.tenantId !== tenantResult.tenantContext.tenantId) {
       return NextResponse.json(
@@ -62,7 +63,7 @@ export async function handleGetMarketingJobStatus(
           error: 'Marketing job not found.',
           reason: 'marketing_job_not_found',
         },
-        { status: 404 }
+        { status: 404, headers: { 'x-cache': cacheStatus } }
       );
     }
 
@@ -101,7 +102,7 @@ export async function handleGetMarketingJobStatus(
         repairStatus: result.repairStatus,
         dashboard: workspaceView.dashboard,
       },
-      { status: 200 }
+      { status: 200, headers: { 'x-cache': cacheStatus } }
     );
   } catch (error) {
     return NextResponse.json(

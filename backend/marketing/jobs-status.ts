@@ -189,6 +189,98 @@ export type MarketingJobStatusResponse = {
   repairStatus: string;
 };
 
+type CacheEntry = {
+  payload: MarketingJobStatusResponse;
+  expiresAt: number;
+};
+
+type MarketingJobStatusBuilder = (
+  tenantId: string,
+  jobId: string,
+) => MarketingJobStatusResponse | Promise<MarketingJobStatusResponse>;
+
+export type MarketingJobStatusCacheState = 'hit' | 'miss' | 'inflight';
+
+const STATUS_CACHE_TTL_MS = 10_000;
+const STATUS_CACHE_MAX = 1_000;
+const statusCache = new Map<string, CacheEntry>();
+const inflight = new Map<string, Promise<MarketingJobStatusResponse>>();
+
+let marketingJobStatusBuilder: MarketingJobStatusBuilder = (_tenantId, jobId) => buildMarketingJobStatus(jobId);
+
+function statusCacheKey(tenantId: string, jobId: string): string {
+  return `${tenantId}:${jobId}`;
+}
+
+export async function getMarketingJobStatusCached(
+  tenantId: string,
+  jobId: string,
+  now: number = Date.now(),
+): Promise<{ payload: MarketingJobStatusResponse; cacheStatus: MarketingJobStatusCacheState }> {
+  const key = statusCacheKey(tenantId, jobId);
+  const cached = statusCache.get(key);
+  if (cached && cached.expiresAt > now) {
+    return { payload: cached.payload, cacheStatus: 'hit' };
+  }
+
+  const pending = inflight.get(key);
+  if (pending) {
+    return { payload: await pending, cacheStatus: 'inflight' };
+  }
+
+  const startedAt = Date.now();
+  const promise = new Promise<MarketingJobStatusResponse>((resolve, reject) => {
+    setImmediate(() => {
+      Promise.resolve(marketingJobStatusBuilder(tenantId, jobId))
+        .then((payload) => {
+          statusCache.set(key, { payload, expiresAt: now + STATUS_CACHE_TTL_MS });
+          if (statusCache.size > STATUS_CACHE_MAX) {
+            evictOldest();
+          }
+          inflight.delete(key);
+          console.log('[jobs-cache] miss key=%s cold_ms=%d', key, Date.now() - startedAt);
+          resolve(payload);
+        })
+        .catch((error: unknown) => {
+          inflight.delete(key);
+          reject(error);
+        });
+    });
+  });
+
+  inflight.set(key, promise);
+  return { payload: await promise, cacheStatus: 'miss' };
+}
+
+export function invalidateMarketingJobStatus(jobId: string): void {
+  for (const key of statusCache.keys()) {
+    if (key.endsWith(`:${jobId}`)) {
+      statusCache.delete(key);
+    }
+  }
+}
+
+export function evictOldest(): void {
+  const oldest = statusCache.keys().next().value;
+  if (oldest) {
+    statusCache.delete(oldest);
+  }
+}
+
+export function resetMarketingJobStatusCacheForTests(): void {
+  statusCache.clear();
+  inflight.clear();
+  marketingJobStatusBuilder = (_tenantId, jobId) => buildMarketingJobStatus(jobId);
+}
+
+export function overrideMarketingJobStatusBuilderForTests(builder: MarketingJobStatusBuilder): void {
+  marketingJobStatusBuilder = builder;
+}
+
+export function getMarketingJobStatusCacheSizeForTests(): number {
+  return statusCache.size;
+}
+
 function shouldLogMarketingJobStatus(): boolean {
   const raw = process.env.MARKETING_DEBUG_LOG_JOBS_STATUS?.trim().toLowerCase();
   return raw === '1' || raw === 'true';
@@ -987,7 +1079,7 @@ function buildPostCounts(
   };
 }
 
-export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse {
+function buildMarketingJobStatus(jobId: string): MarketingJobStatusResponse {
   assertMarketingRuntimeSchemas();
 
   const runtimeDoc = loadMarketingJobRuntime(jobId);
@@ -1088,4 +1180,8 @@ export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse
     nextStep: state.nextStep,
     repairStatus: state.repairStatus,
   };
+}
+
+export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse {
+  return buildMarketingJobStatus(jobId);
 }

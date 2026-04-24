@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { invalidateMarketingJobStatus } from '@/backend/marketing/jobs-status';
 import { approveMarketingJob } from '@/backend/marketing/orchestrator';
 import { loadMarketingJobRuntime } from '@/backend/marketing/runtime-state';
 import { OpenClawGatewayError } from '@/backend/openclaw/gateway-client';
@@ -106,6 +107,8 @@ export async function handleApproveMarketingJob(
         { status: 409 }
       );
     }
+
+    invalidateMarketingJobStatus(jobId);
 
     return NextResponse.json(
       {
