@@ -179,23 +179,47 @@ function makeAwaitingPublishApprovalRuntimeDoc(input: {
   tenantId: string;
   launchPreviewPath: string;
   platformSlug?: string | null;
+  platformPreviews?: Array<{
+    platformSlug: string;
+    platformName: string;
+    channelType?: string;
+  }>;
+  renderedVideos?: Array<{
+    platformSlug: string;
+    familyId: string;
+    title?: string;
+    posterUrl?: string;
+    url?: string;
+  }>;
   updatedAt?: string;
 }) {
   const updatedAt = input.updatedAt ?? '2026-03-20T00:10:00.000Z';
-  const platformPreviews = input.platformSlug
-    ? [
-        {
-          platform_slug: input.platformSlug,
-          platform_name: 'Meta Ads',
-          channel_type: 'paid-social',
-          summary: 'Carousel preview ready for launch.',
-          headline: 'April collection launch',
-          caption_text: 'Meet the April collection.',
-          cta: 'Shop the drop',
-          media_paths: [],
-        },
-      ]
-    : [];
+  const platformPreviews = input.platformPreviews
+    ? input.platformPreviews.map((preview) => ({
+        platform_slug: preview.platformSlug,
+        platform_name: preview.platformName,
+        channel_type: preview.channelType ?? 'paid-social',
+        summary: `${preview.platformName} preview ready for launch.`,
+        headline: 'April collection launch',
+        caption_text: 'Meet the April collection.',
+        cta: 'Shop the drop',
+        media_paths: [],
+      }))
+    : input.platformSlug
+      ? [
+          {
+            platform_slug: input.platformSlug,
+            platform_name: 'Meta Ads',
+            channel_type: 'paid-social',
+            summary: 'Carousel preview ready for launch.',
+            headline: 'April collection launch',
+            caption_text: 'Meet the April collection.',
+            cta: 'Shop the drop',
+            media_paths: [],
+          },
+        ]
+      : [];
+  const renderedVideos = input.renderedVideos ?? [];
 
   return {
     schema_name: 'marketing_job_state_schema',
@@ -210,7 +234,35 @@ function makeAwaitingPublishApprovalRuntimeDoc(input: {
     stages: {
       research: { stage: 'research', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-r', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
       strategy: { stage: 'strategy', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-s', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
-      production: { stage: 'production', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-p', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+      production: {
+        stage: 'production',
+        status: 'completed',
+        started_at: null,
+        completed_at: null,
+        failed_at: null,
+        run_id: 'run-p',
+        summary: null,
+        primary_output: null,
+        outputs: {},
+        artifacts: renderedVideos.map((video) => ({
+          id: `video-${video.platformSlug}-${video.familyId}`,
+          stage: 'production',
+          type: 'video',
+          title: video.title ?? `${video.platformSlug} — ${video.familyId}`,
+          category: 'video',
+          status: 'completed',
+          summary: `${video.platformSlug} render for ${video.familyId}.`,
+          details: [],
+          contentType: 'video/mp4',
+          url: video.url ?? `/api/marketing/jobs/${input.jobId}/assets/video-${video.platformSlug}-${video.familyId}`,
+          posterUrl: video.posterUrl ?? `/api/marketing/jobs/${input.jobId}/assets/video-${video.platformSlug}-${video.familyId}-poster`,
+          platformSlug: video.platformSlug,
+          familyId: video.familyId,
+          durationSeconds: 15,
+          aspectRatio: '9:16',
+        })),
+        errors: [],
+      },
       publish: {
         stage: 'publish',
         status: 'awaiting_approval',
@@ -921,5 +973,50 @@ test('publish approvals still surface a workflow review item when the bundle has
     assert.equal(campaigns[0].approvalActionHref, undefined);
     assert.equal(workspace?.workflow_state, 'revisions_requested');
     assert.equal(workspace?.stage_reviews.creative.status, 'changes_requested');
+  });
+});
+
+test('publish-preview review items attach rendered mp4 previews for video platforms', async () => {
+  await withMarketingRuntimeEnv(async (dataRoot) => {
+    const jobsRoot = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs');
+    const jobId = 'publish-preview-video-attachments';
+    const runtimeFile = path.join(jobsRoot, `${jobId}.json`);
+    const launchPreviewPath = path.join(dataRoot, 'launch-review-preview.txt');
+    await mkdir(jobsRoot, { recursive: true });
+    await writeFile(launchPreviewPath, 'Launch review packet', 'utf8');
+    await writeFile(
+      runtimeFile,
+      JSON.stringify(makeAwaitingPublishApprovalRuntimeDoc({
+        dataRoot,
+        jobId,
+        tenantId: 'tenant_review',
+        launchPreviewPath,
+        platformPreviews: [
+          { platformSlug: 'tiktok', platformName: 'TikTok', channelType: 'video' },
+          { platformSlug: 'youtube', platformName: 'YouTube', channelType: 'video' },
+        ],
+        renderedVideos: [
+          { platformSlug: 'tiktok', familyId: 'portrait', title: 'TikTok — Portrait' },
+          { platformSlug: 'youtube', familyId: 'shorts', title: 'YouTube — Shorts' },
+        ],
+      }), null, 2),
+    );
+
+    const views = await import('../backend/marketing/runtime-views');
+    const reviews = await views.listMarketingReviewItemsForTenant('tenant_review');
+    const publishPreviewReviews = reviews.filter((item) => item.id.startsWith(`${jobId}::publish-preview:`));
+
+    assert.equal(publishPreviewReviews.length, 2);
+
+    for (const [platformSlug, familyId] of [['tiktok', 'portrait'], ['youtube', 'shorts']] as const) {
+      const review = publishPreviewReviews.find((item) => item.id === `${jobId}::publish-preview:${platformSlug}`);
+      assert.ok(review, `expected publish preview review for ${platformSlug}`);
+
+      const videoAttachment = review.attachments.find((attachment) => attachment.contentType === 'video/mp4');
+      assert.ok(videoAttachment, `expected video attachment for ${platformSlug}`);
+      assert.equal(videoAttachment?.id, `video-${platformSlug}-${familyId}`);
+      assert.equal(videoAttachment?.kind, 'preview');
+      assert.equal(videoAttachment?.posterUrl, `/api/marketing/jobs/${jobId}/assets/video-${platformSlug}-${familyId}-poster`);
+    }
   });
 });

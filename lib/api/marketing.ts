@@ -281,6 +281,7 @@ export interface MarketingReviewAttachment {
   url: string;
   contentType: string;
   kind: 'brand_asset' | 'document' | 'preview' | 'artifact';
+  posterUrl?: string | null;
 }
 
 export interface MarketingStageReviewPayload {
