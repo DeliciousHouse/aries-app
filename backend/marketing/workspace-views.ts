@@ -21,6 +21,7 @@ import {
   collectProductionReviewArtifacts,
   collectStrategyReviewArtifacts,
 } from './artifact-collector';
+import { createMarketingJobFacts, type MarketingJobFacts } from './job-facts';
 import { recordMatchesCurrentSource, sourceFingerprintFromRecord } from './brand-identity';
 import { sanitizeBrandKitSummaryText } from './brand-kit';
 import { getMarketingDashboardCampaignContent } from './dashboard-content';
@@ -32,7 +33,6 @@ import {
   readLandingPageArtifactDetails,
   readScriptArtifactDetails,
 } from './real-artifacts';
-import { readMarketingStageStepPayload } from './stage-artifact-resolution';
 import {
   ensureCampaignWorkspaceRecord,
   marketingWorkspaceAssetUrl,
@@ -405,7 +405,10 @@ function buildCampaignBrief(record: CampaignWorkspaceRecord): MarketingCampaignB
   };
 }
 
-async function loadStagePayloadBundle(runtimeDoc: MarketingJobRuntimeDocument): Promise<StagePayloadBundle> {
+async function loadStagePayloadBundle(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  facts: MarketingJobFacts,
+): Promise<StagePayloadBundle> {
   const sourceUrl = currentSourceUrl(runtimeDoc);
   const validatedDocs = await loadValidatedMarketingProfileDocs(runtimeDoc.tenant_id, {
     currentSourceUrl: sourceUrl,
@@ -413,12 +416,12 @@ async function loadStagePayloadBundle(runtimeDoc: MarketingJobRuntimeDocument): 
   const strategyOutputs = recordValue(runtimeDoc.stages.strategy.outputs) || {};
   const productionOutputs = recordValue(runtimeDoc.stages.production.outputs) || {};
   const strategyFallback = await collectStrategyReviewArtifacts(
+    facts,
     runtimeDoc.stages.strategy.primary_output || { run_id: runtimeDoc.stages.strategy.run_id },
-    runtimeDoc,
   );
   const productionFallback = await collectProductionReviewArtifacts(
+    facts,
     runtimeDoc.stages.production.primary_output || { run_id: runtimeDoc.stages.production.run_id },
-    runtimeDoc,
   );
 
   const runtimeWebsiteAnalysisPath = stringValue(strategyOutputs.validated_website_analysis_path) || stringValue(strategyOutputs.website_brand_analysis_path);
@@ -518,9 +521,9 @@ async function loadStagePayloadBundle(runtimeDoc: MarketingJobRuntimeDocument): 
   const hasCurrentSourceBrandArtifacts = !!(websiteAnalysis || brandProfile);
   const hasCurrentSourceStrategyArtifacts = !!(campaignPlanner || strategyPreview || hasCurrentSourceBrandArtifacts);
 
-  const brandBibleAsset = await findMarketingAsset(runtimeDoc.job_id, runtimeDoc, 'brand-bible-markdown');
-  const designSystemAsset = await findMarketingAsset(runtimeDoc.job_id, runtimeDoc, 'brand-design-system');
-  const proposalMarkdownAsset = await findMarketingAsset(runtimeDoc.job_id, runtimeDoc, 'strategy-proposal-markdown');
+  const brandBibleAsset = await findMarketingAsset(runtimeDoc.job_id, runtimeDoc, 'brand-bible-markdown', facts);
+  const designSystemAsset = await findMarketingAsset(runtimeDoc.job_id, runtimeDoc, 'brand-design-system', facts);
+  const proposalMarkdownAsset = await findMarketingAsset(runtimeDoc.job_id, runtimeDoc, 'strategy-proposal-markdown', facts);
 
   return {
     websiteAnalysis,
@@ -663,6 +666,7 @@ async function buildBrandReview(
   runtimeDoc: MarketingJobRuntimeDocument,
   record: CampaignWorkspaceRecord,
   payloads: StagePayloadBundle,
+  facts: MarketingJobFacts,
 ): Promise<MarketingStageReviewPayload | null> {
   const hasGeneratedBrandArtifacts = hasRealBrandArtifacts(payloads);
   const hasUploadedBrandAssets = uploadedBrandAssets(record);
@@ -695,7 +699,7 @@ async function buildBrandReview(
         .map((entry) => entry.trim())
     : [];
   const attachments: MarketingReviewAttachment[] = [];
-  const assetLinks = new Map((await buildMarketingAssetLinks(runtimeDoc.job_id, runtimeDoc)).map((asset) => [asset.id, asset] as const));
+  const assetLinks = new Map((await buildMarketingAssetLinks(runtimeDoc.job_id, runtimeDoc, facts)).map((asset) => [asset.id, asset] as const));
 
   for (const asset of record.brief.brandAssets) {
     attachments.push(
@@ -885,6 +889,7 @@ async function buildStrategyReview(
   runtimeDoc: MarketingJobRuntimeDocument,
   record: CampaignWorkspaceRecord,
   payloads: StagePayloadBundle,
+  facts: MarketingJobFacts,
 ): Promise<MarketingStageReviewPayload | null> {
   const campaignPlan = recordValue(payloads.campaignPlanner?.campaign_plan);
   const reviewPacket = recordValue(payloads.strategyPreview?.review_packet);
@@ -893,7 +898,7 @@ async function buildStrategyReview(
     return null;
   }
   const attachments: MarketingReviewAttachment[] = [];
-  const assetLinks = new Map((await buildMarketingAssetLinks(runtimeDoc.job_id, runtimeDoc)).map((asset) => [asset.id, asset] as const));
+  const assetLinks = new Map((await buildMarketingAssetLinks(runtimeDoc.job_id, runtimeDoc, facts)).map((asset) => [asset.id, asset] as const));
 
   for (const assetId of ['strategy-campaign-planner', 'strategy-review-preview', 'strategy-proposal-markdown', 'strategy-proposal-html'] as const) {
     const asset = assetLinks.get(assetId);
@@ -965,6 +970,7 @@ async function buildCreativeAssets(
   record: CampaignWorkspaceRecord,
   dashboard: MarketingDashboardCampaignContent,
   productionPreview: Record<string, unknown> | null,
+  facts: MarketingJobFacts,
 ): Promise<MarketingCreativeAssetReviewPayload[]> {
   const creativeAssets = dashboard.assets.filter(
     (asset) =>
@@ -985,7 +991,7 @@ async function buildCreativeAssets(
     if (metaAdScriptsByFamily !== undefined) {
       return metaAdScriptsByFamily;
     }
-    const scriptwriterPayload = (await readMarketingStageStepPayload(runtimeDoc, 3, 'scriptwriter')).payload;
+    const scriptwriterPayload = await facts.stagePayload('production', 'scriptwriter');
     metaAdScriptsByFamily = recordValue(
       recordValue(scriptwriterPayload?.script_assets)?.meta_ad_scripts_by_family,
     );
@@ -1007,7 +1013,7 @@ async function buildCreativeAssets(
 
   return Promise.all(creativeAssets.map(async (asset) => {
     const reviewState = record.creative_asset_reviews[asset.id];
-    const resolvedAsset = await findMarketingAsset(runtimeDoc.job_id, runtimeDoc, asset.id);
+    const resolvedAsset = await findMarketingAsset(runtimeDoc.job_id, runtimeDoc, asset.id, facts);
     const fileName = resolvedAsset?.filePath ? path.basename(resolvedAsset.filePath) : null;
     const isVideoScript = asset.platform === 'video' || /video|short/i.test(`${asset.id} ${asset.title}`);
     const scriptDetails = isVideoScript
@@ -1103,8 +1109,9 @@ async function buildCreativeReview(
   productionPreview: Record<string, unknown> | null,
   publishBlockedReason: string | null,
   counts: { approved: number; pending: number; rejected: number },
+  facts: MarketingJobFacts,
 ): Promise<MarketingCreativeReviewPayload | null> {
-  const assets = await buildCreativeAssets(runtimeDoc, record, dashboard, productionPreview);
+  const assets = await buildCreativeAssets(runtimeDoc, record, dashboard, productionPreview, facts);
   if (assets.length === 0) {
     return null;
   }
@@ -1252,8 +1259,9 @@ export async function buildCampaignWorkspaceView(jobId: string): Promise<Campaig
     tenantId: runtimeDoc.tenant_id,
     payload: recordValue(runtimeDoc.inputs.request) || {},
   });
+  const facts = createMarketingJobFacts(runtimeDoc, null);
   const rawDashboard = await getMarketingDashboardCampaignContent(jobId);
-  const payloads = await loadStagePayloadBundle(runtimeDoc);
+  const payloads = await loadStagePayloadBundle(runtimeDoc, facts);
   const realBrandArtifactsReady = hasRealBrandArtifacts(payloads);
   const hasUploadedBrandAssets = uploadedBrandAssets(record);
   const brandReviewRenderable = realBrandArtifactsReady || hasUploadedBrandAssets;
@@ -1313,8 +1321,8 @@ export async function buildCampaignWorkspaceView(jobId: string): Promise<Campaig
   });
 
   const dashboard = withGatedDashboardStatus(rawDashboard, workflowResolution.workflowState);
-  const brandReview = brandReviewRenderable ? await buildBrandReview(runtimeDoc, record, payloads) : null;
-  const strategyReview = strategyReady ? await buildStrategyReview(runtimeDoc, record, payloads) : null;
+  const brandReview = brandReviewRenderable ? await buildBrandReview(runtimeDoc, record, payloads, facts) : null;
+  const strategyReview = strategyReady ? await buildStrategyReview(runtimeDoc, record, payloads, facts) : null;
   const creativeReview = await buildCreativeReview(
     runtimeDoc,
     record,
@@ -1326,6 +1334,7 @@ export async function buildCampaignWorkspaceView(jobId: string): Promise<Campaig
       pending: workflowResolution.creativePendingCount,
       rejected: workflowResolution.creativeRejectedCount,
     },
+    facts,
   );
 
   console.info('[marketing-hydration]', {

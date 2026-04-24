@@ -36,6 +36,7 @@ import {
   collectResearchStageArtifacts,
   collectStrategyReviewArtifacts,
 } from './artifact-collector';
+import { createMarketingJobFacts } from './job-facts';
 import {
   appendHistory,
   assertMarketingRuntimeSchemas,
@@ -793,7 +794,10 @@ async function runResearchStage(doc: MarketingJobRuntimeDocument): Promise<void>
 
   const envelope = await runMarketingPipeline(doc);
   const primaryOutput = primaryOutputRecord(envelope);
-  const capture = await collectResearchStageArtifacts(primaryOutput);
+  const capture = await collectResearchStageArtifacts(
+    createMarketingJobFacts(doc, runIdFromPrimaryOutput(primaryOutput)),
+    primaryOutput,
+  );
   const summary = summarizeResearch(primaryOutput);
   const runId = capture.runId || runIdFromPrimaryOutput(primaryOutput);
   markStageCompleted(doc, 'research', {
@@ -854,7 +858,10 @@ async function finalizeStrategyAndRunProductionReview(
 
   const envelope = await resumeMarketingPipeline(resumeToken);
   const primaryOutput = primaryOutputRecord(envelope);
-  const strategyReviewCapture = await collectStrategyReviewArtifacts(primaryOutput, doc);
+  const strategyReviewCapture = await collectStrategyReviewArtifacts(
+    createMarketingJobFacts(doc, runIdFromPrimaryOutput(primaryOutput)),
+    primaryOutput,
+  );
   const strategy = summarizeStrategy(primaryOutput);
   markStageCompleted(doc, 'strategy', {
     runId: strategyReviewCapture.runId ?? runIdFromPrimaryOutput(primaryOutput) ?? getStageRecord(doc, 'research').run_id,
@@ -917,7 +924,10 @@ async function finalizeProductionAndRunPublishReview(
 
   const envelope = await resumeMarketingPipeline(resumeToken);
   const primaryOutput = primaryOutputRecord(envelope);
-  const productionReviewCapture = await collectProductionReviewArtifacts(primaryOutput, doc);
+  const productionReviewCapture = await collectProductionReviewArtifacts(
+    createMarketingJobFacts(doc, runIdFromPrimaryOutput(primaryOutput)),
+    primaryOutput,
+  );
   const production = summarizeProduction(primaryOutput);
   markStageCompleted(doc, 'production', {
     runId: productionReviewCapture.runId ?? runIdFromPrimaryOutput(primaryOutput) ?? getStageRecord(doc, 'strategy').run_id,

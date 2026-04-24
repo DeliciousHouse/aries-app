@@ -9,7 +9,7 @@ import type { MarketingJobRuntimeDocument, MarketingStage } from './runtime-stat
 
 export type MarketingArtifactStageNumber = 1 | 2 | 3 | 4;
 
-type StepPayloadResolution = {
+export type StepPayloadResolution = {
   runId: string | null;
   path: string | null;
   payload: Record<string, unknown> | null;
@@ -225,9 +225,11 @@ export async function readMarketingStageStepPayload(
   runtimeDoc: MarketingJobRuntimeDocument,
   stage: MarketingArtifactStageNumber,
   stepName: string,
+  preferredRunId?: string | null,
 ): Promise<StepPayloadResolution> {
   const currentStage = stageKey(stage);
   const runIds = uniqueStrings([
+    preferredRunId,
     stringValue(runtimeDoc.stages[currentStage].run_id),
     await inferMarketingStageRunId(runtimeDoc, stage),
   ]);

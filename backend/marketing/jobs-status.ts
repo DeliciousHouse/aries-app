@@ -11,6 +11,7 @@ import {
   type MarketingStage,
 } from './runtime-state';
 import { buildMarketingAssetLinks, marketingAssetUrl, type MarketingAssetLink } from './asset-library';
+import { createMarketingJobFacts, type MarketingJobFacts } from './job-facts';
 import { resolvePublishReviewBundle } from './publish-review';
 import {
   canonicalizePublishReviewPlatformSlug,
@@ -766,9 +767,12 @@ function buildTimeline(
   });
 }
 
-async function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): Promise<MarketingReviewBundle | null> {
+async function buildReviewBundle(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  facts: MarketingJobFacts,
+): Promise<MarketingReviewBundle | null> {
   const jobId = runtimeDoc.job_id;
-  const resolvedReview = await resolvePublishReviewBundle(runtimeDoc);
+  const resolvedReview = await resolvePublishReviewBundle(runtimeDoc, facts);
   const review = resolvedReview.reviewPayload;
   const reviewBundle = resolvedReview.reviewBundle;
   if (!reviewBundle) {
@@ -779,7 +783,7 @@ async function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): Promi
   const scriptPreview = recordValue(reviewBundle.script_preview);
   const reviewPacket = recordValue(reviewBundle.review_packet);
   const artifactPaths = recordValue(reviewBundle.artifact_paths);
-  const assetLinks = await buildMarketingAssetLinks(jobId, runtimeDoc);
+  const assetLinks = await buildMarketingAssetLinks(jobId, runtimeDoc, facts);
   const linkById = new Map(assetLinks.map((asset) => [asset.id, asset] as const));
 
   return {
@@ -977,16 +981,25 @@ function fallbackPlatformMediaAssets(assetLinks: MarketingAssetLink[], platformS
   });
 }
 
-async function rawPublishReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): Promise<Record<string, unknown> | null> {
-  return (await resolvePublishReviewBundle(runtimeDoc)).reviewBundle;
+async function rawPublishReviewBundle(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  facts: MarketingJobFacts,
+): Promise<Record<string, unknown> | null> {
+  return (await resolvePublishReviewBundle(runtimeDoc, facts)).reviewBundle;
 }
 
-async function publishReviewSource(runtimeDoc: MarketingJobRuntimeDocument): Promise<'runtime' | 'merged_runtime_artifacts' | 'artifact_fallback' | 'none'> {
-  return (await resolvePublishReviewBundle(runtimeDoc)).source;
+async function publishReviewSource(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  facts: MarketingJobFacts,
+): Promise<'runtime' | 'merged_runtime_artifacts' | 'artifact_fallback' | 'none'> {
+  return (await resolvePublishReviewBundle(runtimeDoc, facts)).source;
 }
 
-async function buildCampaignWindow(runtimeDoc: MarketingJobRuntimeDocument): Promise<MarketingCampaignWindow | null> {
-  const reviewBundle = await rawPublishReviewBundle(runtimeDoc);
+async function buildCampaignWindow(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  facts: MarketingJobFacts,
+): Promise<MarketingCampaignWindow | null> {
+  const reviewBundle = await rawPublishReviewBundle(runtimeDoc, facts);
   const summary = recordValue(reviewBundle?.summary);
   const campaignWindow = recordValue(summary?.campaign_window);
 
@@ -1031,8 +1044,11 @@ function buildAssetPreviewCards(jobId: string, reviewBundle: MarketingReviewBund
   }));
 }
 
-async function buildCalendarEvents(runtimeDoc: MarketingJobRuntimeDocument): Promise<MarketingCalendarEvent[]> {
-  const reviewBundle = await rawPublishReviewBundle(runtimeDoc);
+async function buildCalendarEvents(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  facts: MarketingJobFacts,
+): Promise<MarketingCalendarEvent[]> {
+  const reviewBundle = await rawPublishReviewBundle(runtimeDoc, facts);
   const contentCalendar = recordValue(reviewBundle?.content_calendar);
   const events = recordArray(contentCalendar?.events);
 
@@ -1058,10 +1074,11 @@ async function buildCalendarEvents(runtimeDoc: MarketingJobRuntimeDocument): Pro
 
 async function buildPostCounts(
   runtimeDoc: MarketingJobRuntimeDocument,
+  facts: MarketingJobFacts,
   reviewBundle: MarketingReviewBundle | null,
   calendarEvents: MarketingCalendarEvent[]
 ): Promise<{ plannedPostCount: number | null; createdPostCount: number | null }> {
-  const rawBundle = await rawPublishReviewBundle(runtimeDoc);
+  const rawBundle = await rawPublishReviewBundle(runtimeDoc, facts);
   const summary = recordValue(rawBundle?.summary);
   const explicitPlanned = numberValue(summary?.planned_posts);
   const explicitCreated = numberValue(summary?.created_posts);
@@ -1121,6 +1138,7 @@ async function buildMarketingJobStatus(jobId: string): Promise<MarketingJobStatu
     };
   }
 
+  const facts = createMarketingJobFacts(runtimeDoc, null);
   const stageStatus: Record<string, string> = {
     research: responseStageStatus(runtimeDoc.stages.research),
     strategy: responseStageStatus(runtimeDoc.stages.strategy),
@@ -1129,12 +1147,12 @@ async function buildMarketingJobStatus(jobId: string): Promise<MarketingJobStatu
   };
   const state = deriveState(runtimeDoc, stageStatus);
   const approval = buildApproval(jobId, runtimeDoc);
-  const reviewBundle = await buildReviewBundle(runtimeDoc);
-  const campaignWindow = await buildCampaignWindow(runtimeDoc);
+  const reviewBundle = await buildReviewBundle(runtimeDoc, facts);
+  const campaignWindow = await buildCampaignWindow(runtimeDoc, facts);
   const durationDays = buildDurationDays(campaignWindow);
   const assetPreviewCards = buildAssetPreviewCards(jobId, reviewBundle);
-  const calendarEvents = await buildCalendarEvents(runtimeDoc);
-  const postCounts = await buildPostCounts(runtimeDoc, reviewBundle, calendarEvents);
+  const calendarEvents = await buildCalendarEvents(runtimeDoc, facts);
+  const postCounts = await buildPostCounts(runtimeDoc, facts, reviewBundle, calendarEvents);
   const validatedProfile = await loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
     currentSourceUrl: runtimeDoc.inputs.brand_url || null,
   });
@@ -1143,7 +1161,7 @@ async function buildMarketingJobStatus(jobId: string): Promise<MarketingJobStatu
       event: 'job-status',
       jobId,
       tenantId: runtimeDoc.tenant_id,
-      reviewBundleSource: await publishReviewSource(runtimeDoc),
+      reviewBundleSource: await publishReviewSource(runtimeDoc, facts),
       reviewBundleReason: reviewBundle ? 'hydrated' : 'no_real_publish_review_artifacts',
     });
   }
