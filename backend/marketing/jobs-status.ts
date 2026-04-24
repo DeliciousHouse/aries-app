@@ -25,7 +25,10 @@ import {
   explicitArtifactValue,
   normalizeArtifactText,
 } from './real-artifacts';
-import { loadValidatedMarketingProfileSnapshot } from './validated-profile-store';
+import {
+  loadValidatedMarketingProfileSnapshot,
+  type ValidatedMarketingProfileSnapshot,
+} from './validated-profile-store';
 
 type TimelineTone = 'info' | 'success' | 'warning' | 'danger';
 
@@ -200,6 +203,45 @@ type MarketingJobStatusBuilder = (
   jobId: string,
 ) => MarketingJobStatusResponse | Promise<MarketingJobStatusResponse>;
 
+type ResolvedPublishReviewBundle = Awaited<ReturnType<typeof resolvePublishReviewBundle>>;
+
+type MarketingJobStatusDependencies = {
+  buildReviewBundle: (
+    runtimeDoc: MarketingJobRuntimeDocument,
+    facts: MarketingJobFacts,
+    resolvedReviewPromise?: Promise<ResolvedPublishReviewBundle>,
+    assetLinksPromise?: Promise<MarketingAssetLink[]>,
+  ) => Promise<MarketingReviewBundle | null>;
+  buildCampaignWindow: (
+    runtimeDoc: MarketingJobRuntimeDocument,
+    facts: MarketingJobFacts,
+    resolvedReviewPromise?: Promise<ResolvedPublishReviewBundle>,
+  ) => Promise<MarketingCampaignWindow | null>;
+  buildCalendarEvents: (
+    runtimeDoc: MarketingJobRuntimeDocument,
+    facts: MarketingJobFacts,
+    resolvedReviewPromise?: Promise<ResolvedPublishReviewBundle>,
+  ) => Promise<MarketingCalendarEvent[]>;
+  buildPostCounts: (
+    runtimeDoc: MarketingJobRuntimeDocument,
+    facts: MarketingJobFacts,
+    reviewBundle: MarketingReviewBundle | null,
+    calendarEvents: MarketingCalendarEvent[],
+    resolvedReviewPromise?: Promise<ResolvedPublishReviewBundle>,
+  ) => Promise<{ plannedPostCount: number | null; createdPostCount: number | null }>;
+  loadValidatedMarketingProfileSnapshot: (
+    tenantId: string,
+    options: { currentSourceUrl?: string | null },
+  ) => Promise<ValidatedMarketingProfileSnapshot>;
+  publishReviewSource: (
+    runtimeDoc: MarketingJobRuntimeDocument,
+    facts: MarketingJobFacts,
+    resolvedReviewPromise?: Promise<ResolvedPublishReviewBundle>,
+  ) => Promise<'runtime' | 'merged_runtime_artifacts' | 'artifact_fallback' | 'none'>;
+  resolvePublishReviewBundle: typeof resolvePublishReviewBundle;
+  buildMarketingAssetLinks: typeof buildMarketingAssetLinks;
+};
+
 export type MarketingJobStatusCacheState = 'hit' | 'miss' | 'inflight';
 
 const STATUS_CACHE_TTL_MS = 10_000;
@@ -208,6 +250,7 @@ const statusCache = new Map<string, CacheEntry>();
 const inflight = new Map<string, Promise<MarketingJobStatusResponse>>();
 
 let marketingJobStatusBuilder: MarketingJobStatusBuilder = (_tenantId, jobId) => buildMarketingJobStatus(jobId);
+let marketingJobStatusDependencies: MarketingJobStatusDependencies = createDefaultMarketingJobStatusDependencies();
 
 function statusCacheKey(tenantId: string, jobId: string): string {
   return `${tenantId}:${jobId}`;
@@ -272,10 +315,20 @@ export function resetMarketingJobStatusCacheForTests(): void {
   statusCache.clear();
   inflight.clear();
   marketingJobStatusBuilder = (_tenantId, jobId) => buildMarketingJobStatus(jobId);
+  marketingJobStatusDependencies = createDefaultMarketingJobStatusDependencies();
 }
 
 export function overrideMarketingJobStatusBuilderForTests(builder: MarketingJobStatusBuilder): void {
   marketingJobStatusBuilder = builder;
+}
+
+export function overrideMarketingJobStatusDependenciesForTests(
+  overrides: Partial<MarketingJobStatusDependencies>,
+): void {
+  marketingJobStatusDependencies = {
+    ...marketingJobStatusDependencies,
+    ...overrides,
+  };
 }
 
 export function getMarketingJobStatusCacheSizeForTests(): number {
@@ -770,9 +823,14 @@ function buildTimeline(
 async function buildReviewBundle(
   runtimeDoc: MarketingJobRuntimeDocument,
   facts: MarketingJobFacts,
+  resolvedReviewPromise?: Promise<ResolvedPublishReviewBundle>,
+  assetLinksPromise?: Promise<MarketingAssetLink[]>,
 ): Promise<MarketingReviewBundle | null> {
   const jobId = runtimeDoc.job_id;
-  const resolvedReview = await resolvePublishReviewBundle(runtimeDoc, facts);
+  const [resolvedReview, assetLinks] = await Promise.all([
+    resolvedReviewPromise ?? marketingJobStatusDependencies.resolvePublishReviewBundle(runtimeDoc, facts),
+    assetLinksPromise ?? marketingJobStatusDependencies.buildMarketingAssetLinks(jobId, runtimeDoc, facts),
+  ]);
   const review = resolvedReview.reviewPayload;
   const reviewBundle = resolvedReview.reviewBundle;
   if (!reviewBundle) {
@@ -783,7 +841,6 @@ async function buildReviewBundle(
   const scriptPreview = recordValue(reviewBundle.script_preview);
   const reviewPacket = recordValue(reviewBundle.review_packet);
   const artifactPaths = recordValue(reviewBundle.artifact_paths);
-  const assetLinks = await buildMarketingAssetLinks(jobId, runtimeDoc, facts);
   const linkById = new Map(assetLinks.map((asset) => [asset.id, asset] as const));
 
   return {
@@ -984,22 +1041,29 @@ function fallbackPlatformMediaAssets(assetLinks: MarketingAssetLink[], platformS
 async function rawPublishReviewBundle(
   runtimeDoc: MarketingJobRuntimeDocument,
   facts: MarketingJobFacts,
+  resolvedReviewPromise?: Promise<ResolvedPublishReviewBundle>,
 ): Promise<Record<string, unknown> | null> {
-  return (await resolvePublishReviewBundle(runtimeDoc, facts)).reviewBundle;
+  return (
+    await (resolvedReviewPromise ?? marketingJobStatusDependencies.resolvePublishReviewBundle(runtimeDoc, facts))
+  ).reviewBundle;
 }
 
 async function publishReviewSource(
   runtimeDoc: MarketingJobRuntimeDocument,
   facts: MarketingJobFacts,
+  resolvedReviewPromise?: Promise<ResolvedPublishReviewBundle>,
 ): Promise<'runtime' | 'merged_runtime_artifacts' | 'artifact_fallback' | 'none'> {
-  return (await resolvePublishReviewBundle(runtimeDoc, facts)).source;
+  return (
+    await (resolvedReviewPromise ?? marketingJobStatusDependencies.resolvePublishReviewBundle(runtimeDoc, facts))
+  ).source;
 }
 
 async function buildCampaignWindow(
   runtimeDoc: MarketingJobRuntimeDocument,
   facts: MarketingJobFacts,
+  resolvedReviewPromise?: Promise<ResolvedPublishReviewBundle>,
 ): Promise<MarketingCampaignWindow | null> {
-  const reviewBundle = await rawPublishReviewBundle(runtimeDoc, facts);
+  const reviewBundle = await rawPublishReviewBundle(runtimeDoc, facts, resolvedReviewPromise);
   const summary = recordValue(reviewBundle?.summary);
   const campaignWindow = recordValue(summary?.campaign_window);
 
@@ -1047,8 +1111,9 @@ function buildAssetPreviewCards(jobId: string, reviewBundle: MarketingReviewBund
 async function buildCalendarEvents(
   runtimeDoc: MarketingJobRuntimeDocument,
   facts: MarketingJobFacts,
+  resolvedReviewPromise?: Promise<ResolvedPublishReviewBundle>,
 ): Promise<MarketingCalendarEvent[]> {
-  const reviewBundle = await rawPublishReviewBundle(runtimeDoc, facts);
+  const reviewBundle = await rawPublishReviewBundle(runtimeDoc, facts, resolvedReviewPromise);
   const contentCalendar = recordValue(reviewBundle?.content_calendar);
   const events = recordArray(contentCalendar?.events);
 
@@ -1076,9 +1141,10 @@ async function buildPostCounts(
   runtimeDoc: MarketingJobRuntimeDocument,
   facts: MarketingJobFacts,
   reviewBundle: MarketingReviewBundle | null,
-  calendarEvents: MarketingCalendarEvent[]
+  calendarEvents: MarketingCalendarEvent[],
+  resolvedReviewPromise?: Promise<ResolvedPublishReviewBundle>,
 ): Promise<{ plannedPostCount: number | null; createdPostCount: number | null }> {
-  const rawBundle = await rawPublishReviewBundle(runtimeDoc, facts);
+  const rawBundle = await rawPublishReviewBundle(runtimeDoc, facts, resolvedReviewPromise);
   const summary = recordValue(rawBundle?.summary);
   const explicitPlanned = numberValue(summary?.planned_posts);
   const explicitCreated = numberValue(summary?.created_posts);
@@ -1139,6 +1205,8 @@ async function buildMarketingJobStatus(jobId: string): Promise<MarketingJobStatu
   }
 
   const facts = createMarketingJobFacts(runtimeDoc, null);
+  const resolvedPublishReviewPromise = marketingJobStatusDependencies.resolvePublishReviewBundle(runtimeDoc, facts);
+  const assetLinksPromise = marketingJobStatusDependencies.buildMarketingAssetLinks(jobId, runtimeDoc, facts);
   const stageStatus: Record<string, string> = {
     research: responseStageStatus(runtimeDoc.stages.research),
     strategy: responseStageStatus(runtimeDoc.stages.strategy),
@@ -1147,21 +1215,38 @@ async function buildMarketingJobStatus(jobId: string): Promise<MarketingJobStatu
   };
   const state = deriveState(runtimeDoc, stageStatus);
   const approval = buildApproval(jobId, runtimeDoc);
-  const reviewBundle = await buildReviewBundle(runtimeDoc, facts);
-  const campaignWindow = await buildCampaignWindow(runtimeDoc, facts);
+  const [reviewBundle, campaignWindow, calendarEvents, validatedProfile] = await Promise.all([
+    marketingJobStatusDependencies.buildReviewBundle(
+      runtimeDoc,
+      facts,
+      resolvedPublishReviewPromise,
+      assetLinksPromise,
+    ),
+    marketingJobStatusDependencies.buildCampaignWindow(runtimeDoc, facts, resolvedPublishReviewPromise),
+    marketingJobStatusDependencies.buildCalendarEvents(runtimeDoc, facts, resolvedPublishReviewPromise),
+    marketingJobStatusDependencies.loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
+      currentSourceUrl: runtimeDoc.inputs.brand_url || null,
+    }),
+  ]);
   const durationDays = buildDurationDays(campaignWindow);
   const assetPreviewCards = buildAssetPreviewCards(jobId, reviewBundle);
-  const calendarEvents = await buildCalendarEvents(runtimeDoc, facts);
-  const postCounts = await buildPostCounts(runtimeDoc, facts, reviewBundle, calendarEvents);
-  const validatedProfile = await loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
-    currentSourceUrl: runtimeDoc.inputs.brand_url || null,
-  });
+  const postCounts = await marketingJobStatusDependencies.buildPostCounts(
+    runtimeDoc,
+    facts,
+    reviewBundle,
+    calendarEvents,
+    resolvedPublishReviewPromise,
+  );
   if (shouldLogMarketingJobStatus()) {
     console.info('[marketing-hydration]', {
       event: 'job-status',
       jobId,
       tenantId: runtimeDoc.tenant_id,
-      reviewBundleSource: await publishReviewSource(runtimeDoc, facts),
+      reviewBundleSource: await marketingJobStatusDependencies.publishReviewSource(
+        runtimeDoc,
+        facts,
+        resolvedPublishReviewPromise,
+      ),
       reviewBundleReason: reviewBundle ? 'hydrated' : 'no_real_publish_review_artifacts',
     });
   }
@@ -1202,4 +1287,17 @@ async function buildMarketingJobStatus(jobId: string): Promise<MarketingJobStatu
 
 export async function getMarketingJobStatus(jobId: string): Promise<MarketingJobStatusResponse> {
   return buildMarketingJobStatus(jobId);
+}
+
+function createDefaultMarketingJobStatusDependencies(): MarketingJobStatusDependencies {
+  return {
+    buildReviewBundle,
+    buildCampaignWindow,
+    buildCalendarEvents,
+    buildPostCounts,
+    loadValidatedMarketingProfileSnapshot,
+    publishReviewSource,
+    resolvePublishReviewBundle,
+    buildMarketingAssetLinks,
+  };
 }
