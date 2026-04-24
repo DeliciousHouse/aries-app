@@ -335,10 +335,26 @@ APP_BASE_URL=https://aries.example.com ./node_modules/.bin/tsx --test tests/mark
 
 ### Focused regression specs
 
+Auth and signup:
 - `tests/sign-up-form-submit-validity.regression-001.test.ts` guards the disabled-state contract for the signup submit button until full validation passes.
+- `tests/login-form-validation.regression-010.test.ts` keeps inline validation and submit-disable behavior in place on the login screen.
+- `tests/forgot-password-form-validation.regression-011.test.ts` covers the same contract on the forgot-password screen.
+- `tests/signup-email-normalization.regression-017.test.ts` pins trim + lowercase email normalization before submission.
+
+Homepage and marketing surfaces:
 - `tests/homepage-meet-aries-step-chips.regression-013.test.ts` keeps the homepage Meet Aries workflow steps non-interactive and exposed with list semantics.
-- `tests/sidebar-account-menu-escape.regression-012.test.ts` preserves Escape-key dismissal for the desktop account menu.
+- `tests/homepage-request-access-validation.regression-013.test.ts` guards inline validation on the homepage request-access form.
+- `tests/homepage-request-access-loading.regression-016.test.ts` preserves the loading state and disable behavior during submission.
 - `tests/marketing-legacy-text-repair.regression-014.test.ts` covers legacy marketing-copy repair on workspace and business-profile read paths.
+
+Onboarding and operator shell:
+- `tests/onboarding-step-one-validation.regression-012.test.ts` blocks empty submits on onboarding step one before they fire.
+- `tests/sidebar-account-menu-escape.regression-012.test.ts` preserves Escape-key dismissal for the desktop account menu.
+- `tests/route-metadata-and-docs-anchors.regression-015.test.ts` pins route metadata and documentation anchor integrity, including the `support@sugarandleather.com` contact mailto.
+
+Infrastructure and deploy:
+- `tests/deploy-workflow-self-hosted.regression-015.test.ts` asserts the GitHub Actions deploy workflow stays on the self-hosted runner with HTTPS checkout.
+- `tests/production-compose-port-publish.regression-016.test.ts` keeps the production port publish in `docker-compose.yml` so deploys do not silently lose host port 3000.
 
 ### Notes about test environment stability
 
@@ -395,8 +411,14 @@ APP_BASE_URL=https://aries.example.com ./node_modules/.bin/tsx --test tests/mark
 
 ## Additional repository docs
 
+- `CHANGELOG.md` — versioned release notes (what shipped, in user-facing language)
+- `VERSION` — canonical version string used by `package.json` and release tagging
+- `TODOS.md` — tracked follow-up work, including known test-infrastructure debt
 - `SETUP.md` — setup and environment reference
 - `README-runtime.md` — runtime architecture and supported route contract summary
+- `DOCKER.md` — container, compose, and GHCR release reference
+- `PRODUCTION_HANDOFF.md` — concise production deployment runbook
+- `docs/SYSTEM-REFERENCE.md` — living architecture reference refreshed by the automation cron
 - `skills/README.md` — local skills documentation
 - `lobster/README.md` and `lobster/bin/README.md` — Lobster-related notes
 
