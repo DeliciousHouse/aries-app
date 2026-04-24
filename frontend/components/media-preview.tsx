@@ -4,9 +4,11 @@ import { useMemo, useState } from 'react';
 import { FileImage, FileText, Globe } from 'lucide-react';
 
 import { safeHref } from '@/lib/safe-href';
+import VideoPreview from '@/frontend/components/video-preview';
 
 type MediaPreviewProps = {
   src?: string | null;
+  poster?: string | null;
   alt: string;
   contentType?: string | null;
   className?: string;
@@ -78,20 +80,12 @@ export default function MediaPreview(props: MediaPreviewProps) {
   const validatedHref = safeHref(props.href);
 
   if (mode === 'video' && props.src) {
-    // Do not wrap <video> in an anchor — the surrounding <a> swallows click
-    // events on the native controls and the play button stops working.
-    // In video mode, `props.href` is intentionally ignored; link wrapping
-    // only applies to the image/fallback rendering paths below.
     return (
       <div className={props.className}>
-        {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-        <video
-          controls
-          playsInline
-          preload="metadata"
+        <VideoPreview
           src={props.src}
+          poster={props.poster}
           className={props.imageClassName || 'h-full w-full object-contain bg-black'}
-          onError={() => setFailed(true)}
         />
       </div>
     );
