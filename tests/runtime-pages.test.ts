@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { isValidElement } from 'react';
+import { createElement, isValidElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 
 import HomePage from '../app/page';
 import DashboardPage from '../app/dashboard/page';
@@ -20,7 +21,7 @@ import DashboardStrategyReviewPage from '../app/dashboard/strategy-review/page';
 import CampaignsPage from '../app/campaigns/page';
 import CampaignWorkspacePage from '../app/campaigns/[campaignId]/page';
 import ReviewQueuePage from '../app/review/page';
-import ReviewItemPage from '../app/review/[reviewId]/page';
+import ReviewItemPage, { loadReviewItemPageData } from '../app/review/[reviewId]/page';
 import ResultsPage from '../app/results/page';
 import CalendarPage from '../app/calendar/page';
 import PostsPage from '../app/posts/page';
@@ -57,6 +58,7 @@ import MarketingJobStatusScreen from '../frontend/marketing/job-status';
 import MarketingJobApproveScreen from '../frontend/marketing/job-approve';
 import AppShellLayout from '../frontend/app-shell/layout';
 import { buildLoginRedirect } from '../lib/auth/callback-url';
+import type { RuntimeReviewItem } from '../lib/api/aries-v1';
 import { resolveProjectRoot } from './helpers/project-root';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
@@ -75,6 +77,61 @@ async function expectAsyncRedirect(callable: () => Promise<unknown>, location: s
     assert.equal((error as { digest?: string }).digest, `NEXT_REDIRECT;replace;${location};307;`);
     return true;
   });
+}
+
+function makeRuntimeReviewItem(
+  id: string,
+  overrides: Partial<RuntimeReviewItem> = {},
+): RuntimeReviewItem {
+  return {
+    id,
+    jobId: id.split('::')[0] || 'mkt_review_page',
+    campaignId: 'campaign_review_page',
+    campaignName: 'Review Page Campaign',
+    reviewType: 'creative',
+    workflowState: 'creative_review_required',
+    workflowStage: 'production',
+    title: 'Review page asset',
+    channel: 'Meta Ads',
+    placement: 'Feed',
+    scheduledFor: '2026-04-24T17:00:00.000Z',
+    status: 'in_review',
+    summary: 'Review this asset before launch.',
+    currentVersion: {
+      id: 'creative:asset',
+      label: 'Current version',
+      headline: 'Review page asset',
+      supportingText: 'Asset copy.',
+      cta: 'Approve',
+      notes: [],
+    },
+    lastDecision: null,
+    previewUrl: '/api/marketing/jobs/mkt_review_page/assets/asset-preview',
+    fullPreviewUrl: '/api/marketing/jobs/mkt_review_page/assets/asset-full',
+    contentType: 'image/png',
+    destinationUrl: null,
+    sections: [],
+    attachments: [],
+    history: [],
+    ...overrides,
+  };
+}
+
+async function assertReviewPageBodyUsesLoadedReview(review: RuntimeReviewItem) {
+  const encodedReviewId = encodeURIComponent(review.id);
+  const loaded = await loadReviewItemPageData(encodedReviewId, async () => (
+    Response.json({ review })
+  ));
+
+  assert.equal(loaded?.review.id, review.id);
+
+  const body = renderToStaticMarkup(createElement(AriesReviewItemScreen, {
+    reviewId: review.id,
+    initialData: loaded,
+  }));
+
+  assert.doesNotMatch(body, /Review item not found/);
+  assert.match(body, new RegExp(review.title));
 }
 
 test('/ returns the public homepage component', () => {
@@ -204,6 +261,51 @@ test('/review/[reviewId] decodes encoded review ids before rendering the detail 
     buildLoginRedirect(element.props.loginRedirectPath),
     '/login?callbackUrl=%2Freview%2Fmkt_123%253A%253Aapproval',
   );
+});
+
+test('/review/[reviewId] seeds encoded publish-preview video review data into the rendered page body', async () => {
+  await assertReviewPageBodyUsesLoadedReview(makeRuntimeReviewItem(
+    'mkt_63d45c2b-6f8e-4036-9ebf-703892f3dd63::publish-preview:tiktok',
+    {
+      reviewType: 'workflow_approval',
+      workflowState: 'ready_to_publish',
+      workflowStage: 'publish',
+      title: 'TikTok publish preview',
+      channel: 'TikTok',
+      placement: 'Publish preview',
+      contentType: 'video/mp4',
+      previewUrl: '/api/marketing/jobs/mkt_63d45c2b-6f8e-4036-9ebf-703892f3dd63/assets/video-tiktok-portrait',
+      fullPreviewUrl: '/api/marketing/jobs/mkt_63d45c2b-6f8e-4036-9ebf-703892f3dd63/assets/video-tiktok-portrait',
+      currentVersion: {
+        id: 'approval:publish-preview:tiktok',
+        label: 'Publish preview',
+        headline: 'TikTok publish preview',
+        supportingText: 'Rendered TikTok video.',
+        cta: 'Approve',
+        notes: [],
+      },
+    },
+  ));
+});
+
+test('/review/[reviewId] seeds encoded creative image review data into the rendered page body', async () => {
+  await assertReviewPageBodyUsesLoadedReview(makeRuntimeReviewItem(
+    'mkt_c3929018-5bdb-4dfc-83ab-f2ed13bdb97b::creative:image-proof',
+    {
+      title: 'Creative image proof',
+      channel: 'Instagram',
+      placement: 'Feed image',
+      contentType: 'image/png',
+      currentVersion: {
+        id: 'creative:image-proof',
+        label: 'Image proof',
+        headline: 'Creative image proof',
+        supportingText: 'Static image creative.',
+        cta: 'Approve',
+        notes: [],
+      },
+    },
+  ));
 });
 
 test('/dashboard/calendar wraps the calendar screen in the app shell', () => {
