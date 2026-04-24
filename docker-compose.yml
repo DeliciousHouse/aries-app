@@ -17,8 +17,10 @@ services:
       OPENCLAW_GATEWAY_URL: ${OPENCLAW_GATEWAY_URL}
       OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
       OPENCLAW_SESSION_KEY: ${OPENCLAW_SESSION_KEY:-main}
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT:-5432}
+      # DB_HOST points at the companion postgres service below, not at ${DB_HOST}
+      # from .env. Compose owns service discovery; .env only holds credentials.
+      DB_HOST: postgres
+      DB_PORT: 5432
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: ${DB_NAME}
@@ -82,6 +84,29 @@ services:
       start_period: 30s
     networks:
       - docker_stack
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - aries_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - docker_stack
 
 networks:
   docker_stack:
@@ -92,4 +117,6 @@ volumes:
   gh_config:
     name: aries-app_gh_config
     external: true
+  aries_pg_data:
+    name: aries_pg_data
     
