@@ -19,7 +19,7 @@ export type MarketingJobState = 'queued' | 'running' | 'approval_required' | 'co
 export type MarketingJobStatus = 'pending' | 'running' | 'awaiting_approval' | 'completed' | 'failed';
 export type MarketingStageStatus = 'not_started' | 'in_progress' | 'awaiting_approval' | 'completed' | 'failed' | 'skipped';
 
-export type MarketingStageArtifact = {
+type MarketingStageArtifactBase = {
   id: string;
   stage: MarketingStage;
   title: string;
@@ -32,6 +32,19 @@ export type MarketingStageArtifact = {
   action_label?: string | null;
   action_href?: string | null;
 };
+
+export type MarketingVideoStageArtifact = MarketingStageArtifactBase & {
+  type: 'video';
+  contentType: 'video/mp4';
+  url: string;
+  posterUrl: string;
+  platformSlug: string;
+  familyId: string;
+  durationSeconds: number;
+  aspectRatio: string;
+};
+
+export type MarketingStageArtifact = MarketingStageArtifactBase | MarketingVideoStageArtifact;
 
 export type MarketingStageSummary = {
   summary: string;
