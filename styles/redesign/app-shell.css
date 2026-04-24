@@ -50,28 +50,6 @@
   padding: clamp(1.25rem, 3vw, 2rem);
 }
 
-.rd-page-header {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-}
-
-.rd-page-header__title {
-  margin: 0;
-  font-family: var(--rd-font-display);
-  font-size: clamp(2rem, 4vw, 3rem);
-  line-height: 1;
-  letter-spacing: -0.04em;
-}
-
-.rd-page-header__description {
-  margin: 0.65rem 0 0;
-  color: var(--rd-text-secondary);
-  line-height: 1.7;
-}
-
 .rd-stat-grid {
   display: grid;
   gap: 1rem;
@@ -96,11 +74,6 @@
 }
 
 @media (max-width: 720px) {
-  .rd-page-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
   .rd-stat-grid {
     grid-template-columns: 1fr;
   }
