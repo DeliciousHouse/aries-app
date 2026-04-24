@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { invalidateMarketingJobStatus } from '@/backend/marketing/jobs-status';
 import {
   appendCampaignHistory,
   ensureCampaignWorkspaceRecord,
@@ -92,13 +93,13 @@ export async function handlePatchMarketingJobBrief(
   }
   const tenantId = tenantResult.tenantContext.tenantId;
 
-  const runtimeDoc = loadMarketingJobRuntime(jobId);
+  const runtimeDoc = await loadMarketingJobRuntime(jobId);
   if (!runtimeDoc || runtimeDoc.tenant_id !== tenantId) {
     return NextResponse.json({ error: 'Marketing job not found.' }, { status: 404 });
   }
 
   const requestBody = await parseBriefRequest(req);
-  const record = ensureCampaignWorkspaceRecord({
+  const record = await ensureCampaignWorkspaceRecord({
     jobId,
     tenantId,
     payload: {
@@ -123,6 +124,7 @@ export async function handlePatchMarketingJobBrief(
     ...requestBody.payload,
   };
   saveMarketingJobRuntime(jobId, runtimeDoc);
+  invalidateMarketingJobStatus(jobId);
 
   return NextResponse.json({ ok: true }, { status: 200 });
 }

@@ -62,39 +62,43 @@ function isWithinRoot(root: string, candidate: string): boolean {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
-function parseSingleRangeHeader(rangeHeader: string, size: number): { start: number; end: number } | null {
+type ParsedRange =
+  | { kind: 'partial'; start: number; end: number }
+  | { kind: 'unsatisfiable' };
+
+function parseSingleRangeHeader(rangeHeader: string, size: number): ParsedRange {
   const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
   if (!match) {
-    return null;
+    return { kind: 'unsatisfiable' };
   }
 
   const [, startText, endText] = match;
   if (!startText && !endText) {
-    return null;
+    return { kind: 'unsatisfiable' };
   }
 
   if (!startText) {
     const suffixLength = Number(endText);
     if (!Number.isInteger(suffixLength) || suffixLength <= 0) {
-      return null;
+      return { kind: 'unsatisfiable' };
     }
 
     const start = Math.max(size - suffixLength, 0);
-    return { start, end: size - 1 };
+    return { kind: 'partial', start, end: size - 1 };
   }
 
   const start = Number(startText);
   const requestedEnd = endText ? Number(endText) : size - 1;
   if (!Number.isInteger(start) || !Number.isInteger(requestedEnd)) {
-    return null;
+    return { kind: 'unsatisfiable' };
   }
 
   const end = Math.min(requestedEnd, size - 1);
   if (start < 0 || start >= size || start > end) {
-    return null;
+    return { kind: 'unsatisfiable' };
   }
 
-  return { start, end };
+  return { kind: 'partial', start, end };
 }
 
 type ReadableStreamWithFrom = typeof ReadableStream & {
@@ -178,7 +182,7 @@ async function streamVideoAsset(
   const rangeHeader = request?.headers.get('range');
   if (rangeHeader) {
     const range = parseSingleRangeHeader(rangeHeader, fileInfo.size);
-    if (!range) {
+    if (range.kind === 'unsatisfiable') {
       commonHeaders.set('content-range', `bytes */${fileInfo.size}`);
       return new Response(null, {
         status: 416,
@@ -219,7 +223,7 @@ export async function handleGetMarketingJobAsset(
       : tenantContextLoader;
   const requiresTenantContext = assetId.startsWith('video-') || !isMarketingPublicMode();
 
-  const runtimeDoc = loadMarketingJobRuntime(jobId);
+  const runtimeDoc = await loadMarketingJobRuntime(jobId);
   if (!runtimeDoc) {
     return new Response(JSON.stringify({ error: 'Marketing job not found.', reason: 'marketing_job_not_found' }), {
       status: 404,
@@ -246,7 +250,7 @@ export async function handleGetMarketingJobAsset(
     return streamVideoAsset(jobId, assetId, request);
   }
 
-  const asset = findMarketingAsset(jobId, runtimeDoc, assetId);
+  const asset = await findMarketingAsset(jobId, runtimeDoc, assetId);
   if (!asset) {
     return assetNotFoundResponse(jobId, assetId, 'asset_descriptor_missing');
   }

@@ -181,7 +181,7 @@ test('marketingPayloadDefaultsFromBusinessProfile derives defaults from validate
       ),
     );
 
-    const defaults = marketingPayloadDefaultsFromBusinessProfile('11');
+    const defaults = await marketingPayloadDefaultsFromBusinessProfile('11');
 
     assert.equal(defaults.websiteUrl, 'https://sugarandleather.com');
     assert.equal(defaults.businessName, 'Sugar & Leather');

@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
   const tenantId = draftTenantId(draftId);
 
   try {
-    const storedBrandKit = loadTenantBrandKit(tenantId);
+    const storedBrandKit = await loadTenantBrandKit(tenantId);
     const sameStoredBrandKit =
       storedBrandKit &&
       (storedBrandKit.source_url === normalizedUrl || storedBrandKit.canonical_url === normalizedUrl)

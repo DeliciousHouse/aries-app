@@ -1,4 +1,5 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync } from 'node:fs';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -8,7 +9,7 @@ import type { MarketingJobRuntimeDocument, MarketingStage } from './runtime-stat
 
 export type MarketingArtifactStageNumber = 1 | 2 | 3 | 4;
 
-type StepPayloadResolution = {
+export type StepPayloadResolution = {
   runId: string | null;
   path: string | null;
   payload: Record<string, unknown> | null;
@@ -88,17 +89,20 @@ function lobsterOutputRoots(): string[] {
   ]);
 }
 
-function readJsonIfExists(filePath: string | null | undefined): Record<string, unknown> | null {
-  if (!filePath || !existsSync(filePath)) {
+async function readJsonIfExists(filePath: string | null | undefined): Promise<Record<string, unknown> | null> {
+  if (!filePath) {
     return null;
   }
 
   try {
-    const parsed = JSON.parse(readFileSync(filePath, 'utf8'));
+    const parsed = JSON.parse(await readFile(filePath, 'utf8'));
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
       ? (parsed as Record<string, unknown>)
       : null;
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return null;
+    }
     return null;
   }
 }
@@ -140,10 +144,10 @@ function stageTimestamp(runtimeDoc: MarketingJobRuntimeDocument, stage: Marketin
   return candidates[0] ?? 0;
 }
 
-export function inferMarketingStageRunId(
+export async function inferMarketingStageRunId(
   runtimeDoc: MarketingJobRuntimeDocument,
   stage: MarketingArtifactStageNumber,
-): string | null {
+): Promise<string | null> {
   const currentStage = stageKey(stage);
   const explicitRunId = stringValue(runtimeDoc.stages[currentStage].run_id);
   if (explicitRunId) {
@@ -161,7 +165,7 @@ export function inferMarketingStageRunId(
 
   const stageCacheRoot = cacheRoot(stage);
   if (existsSync(stageCacheRoot)) {
-    for (const entry of readdirSync(stageCacheRoot)) {
+    for (const entry of await readdir(stageCacheRoot)) {
       if (!prefixes.some((prefix) => entry.startsWith(`${prefix}-`))) {
         continue;
       }
@@ -170,7 +174,7 @@ export function inferMarketingStageRunId(
       }
       try {
         const entryPath = path.join(stageCacheRoot, entry);
-        const stats = statSync(entryPath);
+        const stats = await stat(entryPath);
         if (!stats.isDirectory()) {
           continue;
         }
@@ -189,7 +193,7 @@ export function inferMarketingStageRunId(
     if (!existsSync(logsRoot)) {
       continue;
     }
-    for (const entry of readdirSync(logsRoot)) {
+    for (const entry of await readdir(logsRoot)) {
       if (!prefixes.some((prefix) => entry.startsWith(`${prefix}-`))) {
         continue;
       }
@@ -201,7 +205,7 @@ export function inferMarketingStageRunId(
         continue;
       }
       try {
-        const stats = statSync(stagePath);
+        const stats = await stat(stagePath);
         seenRunIds.add(entry);
         candidates.push({
           runId: entry,
@@ -217,20 +221,22 @@ export function inferMarketingStageRunId(
     ?.runId || null;
 }
 
-export function readMarketingStageStepPayload(
+export async function readMarketingStageStepPayload(
   runtimeDoc: MarketingJobRuntimeDocument,
   stage: MarketingArtifactStageNumber,
   stepName: string,
-): StepPayloadResolution {
+  preferredRunId?: string | null,
+): Promise<StepPayloadResolution> {
   const currentStage = stageKey(stage);
   const runIds = uniqueStrings([
+    preferredRunId,
     stringValue(runtimeDoc.stages[currentStage].run_id),
-    inferMarketingStageRunId(runtimeDoc, stage),
+    await inferMarketingStageRunId(runtimeDoc, stage),
   ]);
 
   for (const runId of runIds) {
     const cachePath = path.join(cacheRoot(stage), runId, `${stepName}.json`);
-    const cached = readJsonIfExists(cachePath);
+    const cached = await readJsonIfExists(cachePath);
     if (cached) {
       return {
         runId,
@@ -242,7 +248,7 @@ export function readMarketingStageStepPayload(
 
     for (const outputRoot of lobsterOutputRoots()) {
       const logPath = path.join(outputRoot, 'logs', runId, stageFolder(stage), `${stepName}.json`);
-      const logged = readJsonIfExists(logPath);
+      const logged = await readJsonIfExists(logPath);
       if (logged) {
         return {
           runId,

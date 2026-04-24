@@ -59,7 +59,7 @@ async function main(): Promise<void> {
   }
 
   const dataRoot = assertValidatedPersistenceRoot();
-  const existing = loadTenantBrandKit(tenantId);
+  const existing = await loadTenantBrandKit(tenantId);
   const existingMatches = !!existing && normalizeUrl(existing.source_url) === brandUrl;
   const { brandKit, filePath } = await extractAndSaveTenantBrandKit({
     tenantId,

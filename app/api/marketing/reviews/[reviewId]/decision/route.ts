@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { invalidateMarketingJobStatus } from '@/backend/marketing/jobs-status';
 import { RuntimeReviewDecisionError, recordMarketingReviewDecision } from '@/backend/marketing/runtime-views';
 import { OpenClawGatewayError } from '@/backend/openclaw/gateway-client';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
@@ -61,6 +62,8 @@ export async function handlePostMarketingReviewDecision(
     if (!review) {
       return NextResponse.json({ error: 'review_not_found' }, { status: 404 });
     }
+
+    invalidateMarketingJobStatus(review.jobId);
 
     return NextResponse.json({ review }, { status: 200 });
   } catch (error) {

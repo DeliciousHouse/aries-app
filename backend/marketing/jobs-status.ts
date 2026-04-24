@@ -11,6 +11,7 @@ import {
   type MarketingStage,
 } from './runtime-state';
 import { buildMarketingAssetLinks, marketingAssetUrl, type MarketingAssetLink } from './asset-library';
+import { createMarketingJobFacts, type MarketingJobFacts } from './job-facts';
 import { resolvePublishReviewBundle } from './publish-review';
 import {
   canonicalizePublishReviewPlatformSlug,
@@ -188,6 +189,98 @@ export type MarketingJobStatusResponse = {
   nextStep: string;
   repairStatus: string;
 };
+
+type CacheEntry = {
+  payload: MarketingJobStatusResponse;
+  expiresAt: number;
+};
+
+type MarketingJobStatusBuilder = (
+  tenantId: string,
+  jobId: string,
+) => MarketingJobStatusResponse | Promise<MarketingJobStatusResponse>;
+
+export type MarketingJobStatusCacheState = 'hit' | 'miss' | 'inflight';
+
+const STATUS_CACHE_TTL_MS = 10_000;
+const STATUS_CACHE_MAX = 1_000;
+const statusCache = new Map<string, CacheEntry>();
+const inflight = new Map<string, Promise<MarketingJobStatusResponse>>();
+
+let marketingJobStatusBuilder: MarketingJobStatusBuilder = (_tenantId, jobId) => buildMarketingJobStatus(jobId);
+
+function statusCacheKey(tenantId: string, jobId: string): string {
+  return `${tenantId}:${jobId}`;
+}
+
+export async function getMarketingJobStatusCached(
+  tenantId: string,
+  jobId: string,
+  now: number = Date.now(),
+): Promise<{ payload: MarketingJobStatusResponse; cacheStatus: MarketingJobStatusCacheState }> {
+  const key = statusCacheKey(tenantId, jobId);
+  const cached = statusCache.get(key);
+  if (cached && cached.expiresAt > now) {
+    return { payload: cached.payload, cacheStatus: 'hit' };
+  }
+
+  const pending = inflight.get(key);
+  if (pending) {
+    return { payload: await pending, cacheStatus: 'inflight' };
+  }
+
+  const startedAt = Date.now();
+  const promise = new Promise<MarketingJobStatusResponse>((resolve, reject) => {
+    setImmediate(() => {
+      Promise.resolve(marketingJobStatusBuilder(tenantId, jobId))
+        .then((payload) => {
+          statusCache.set(key, { payload, expiresAt: now + STATUS_CACHE_TTL_MS });
+          if (statusCache.size > STATUS_CACHE_MAX) {
+            evictOldest();
+          }
+          inflight.delete(key);
+          console.log('[jobs-cache] miss key=%s cold_ms=%d', key, Date.now() - startedAt);
+          resolve(payload);
+        })
+        .catch((error: unknown) => {
+          inflight.delete(key);
+          reject(error);
+        });
+    });
+  });
+
+  inflight.set(key, promise);
+  return { payload: await promise, cacheStatus: 'miss' };
+}
+
+export function invalidateMarketingJobStatus(jobId: string): void {
+  for (const key of statusCache.keys()) {
+    if (key.endsWith(`:${jobId}`)) {
+      statusCache.delete(key);
+    }
+  }
+}
+
+export function evictOldest(): void {
+  const oldest = statusCache.keys().next().value;
+  if (oldest) {
+    statusCache.delete(oldest);
+  }
+}
+
+export function resetMarketingJobStatusCacheForTests(): void {
+  statusCache.clear();
+  inflight.clear();
+  marketingJobStatusBuilder = (_tenantId, jobId) => buildMarketingJobStatus(jobId);
+}
+
+export function overrideMarketingJobStatusBuilderForTests(builder: MarketingJobStatusBuilder): void {
+  marketingJobStatusBuilder = builder;
+}
+
+export function getMarketingJobStatusCacheSizeForTests(): number {
+  return statusCache.size;
+}
 
 function shouldLogMarketingJobStatus(): boolean {
   const raw = process.env.MARKETING_DEBUG_LOG_JOBS_STATUS?.trim().toLowerCase();
@@ -674,9 +767,12 @@ function buildTimeline(
   });
 }
 
-function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): MarketingReviewBundle | null {
+async function buildReviewBundle(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  facts: MarketingJobFacts,
+): Promise<MarketingReviewBundle | null> {
   const jobId = runtimeDoc.job_id;
-  const resolvedReview = resolvePublishReviewBundle(runtimeDoc);
+  const resolvedReview = await resolvePublishReviewBundle(runtimeDoc, facts);
   const review = resolvedReview.reviewPayload;
   const reviewBundle = resolvedReview.reviewBundle;
   if (!reviewBundle) {
@@ -687,7 +783,7 @@ function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): MarketingRe
   const scriptPreview = recordValue(reviewBundle.script_preview);
   const reviewPacket = recordValue(reviewBundle.review_packet);
   const artifactPaths = recordValue(reviewBundle.artifact_paths);
-  const assetLinks = buildMarketingAssetLinks(jobId, runtimeDoc);
+  const assetLinks = await buildMarketingAssetLinks(jobId, runtimeDoc, facts);
   const linkById = new Map(assetLinks.map((asset) => [asset.id, asset] as const));
 
   return {
@@ -885,16 +981,25 @@ function fallbackPlatformMediaAssets(assetLinks: MarketingAssetLink[], platformS
   });
 }
 
-function rawPublishReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): Record<string, unknown> | null {
-  return resolvePublishReviewBundle(runtimeDoc).reviewBundle;
+async function rawPublishReviewBundle(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  facts: MarketingJobFacts,
+): Promise<Record<string, unknown> | null> {
+  return (await resolvePublishReviewBundle(runtimeDoc, facts)).reviewBundle;
 }
 
-function publishReviewSource(runtimeDoc: MarketingJobRuntimeDocument): 'runtime' | 'merged_runtime_artifacts' | 'artifact_fallback' | 'none' {
-  return resolvePublishReviewBundle(runtimeDoc).source;
+async function publishReviewSource(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  facts: MarketingJobFacts,
+): Promise<'runtime' | 'merged_runtime_artifacts' | 'artifact_fallback' | 'none'> {
+  return (await resolvePublishReviewBundle(runtimeDoc, facts)).source;
 }
 
-function buildCampaignWindow(runtimeDoc: MarketingJobRuntimeDocument): MarketingCampaignWindow | null {
-  const reviewBundle = rawPublishReviewBundle(runtimeDoc);
+async function buildCampaignWindow(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  facts: MarketingJobFacts,
+): Promise<MarketingCampaignWindow | null> {
+  const reviewBundle = await rawPublishReviewBundle(runtimeDoc, facts);
   const summary = recordValue(reviewBundle?.summary);
   const campaignWindow = recordValue(summary?.campaign_window);
 
@@ -939,8 +1044,11 @@ function buildAssetPreviewCards(jobId: string, reviewBundle: MarketingReviewBund
   }));
 }
 
-function buildCalendarEvents(runtimeDoc: MarketingJobRuntimeDocument): MarketingCalendarEvent[] {
-  const reviewBundle = rawPublishReviewBundle(runtimeDoc);
+async function buildCalendarEvents(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  facts: MarketingJobFacts,
+): Promise<MarketingCalendarEvent[]> {
+  const reviewBundle = await rawPublishReviewBundle(runtimeDoc, facts);
   const contentCalendar = recordValue(reviewBundle?.content_calendar);
   const events = recordArray(contentCalendar?.events);
 
@@ -964,12 +1072,13 @@ function buildCalendarEvents(runtimeDoc: MarketingJobRuntimeDocument): Marketing
     .filter((event): event is MarketingCalendarEvent => !!event);
 }
 
-function buildPostCounts(
+async function buildPostCounts(
   runtimeDoc: MarketingJobRuntimeDocument,
+  facts: MarketingJobFacts,
   reviewBundle: MarketingReviewBundle | null,
   calendarEvents: MarketingCalendarEvent[]
-): { plannedPostCount: number | null; createdPostCount: number | null } {
-  const rawBundle = rawPublishReviewBundle(runtimeDoc);
+): Promise<{ plannedPostCount: number | null; createdPostCount: number | null }> {
+  const rawBundle = await rawPublishReviewBundle(runtimeDoc, facts);
   const summary = recordValue(rawBundle?.summary);
   const explicitPlanned = numberValue(summary?.planned_posts);
   const explicitCreated = numberValue(summary?.created_posts);
@@ -987,10 +1096,10 @@ function buildPostCounts(
   };
 }
 
-export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse {
-  assertMarketingRuntimeSchemas();
+async function buildMarketingJobStatus(jobId: string): Promise<MarketingJobStatusResponse> {
+  await assertMarketingRuntimeSchemas();
 
-  const runtimeDoc = loadMarketingJobRuntime(jobId);
+  const runtimeDoc = await loadMarketingJobRuntime(jobId);
   if (!runtimeDoc) {
     return {
       jobId,
@@ -1029,6 +1138,7 @@ export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse
     };
   }
 
+  const facts = createMarketingJobFacts(runtimeDoc, null);
   const stageStatus: Record<string, string> = {
     research: responseStageStatus(runtimeDoc.stages.research),
     strategy: responseStageStatus(runtimeDoc.stages.strategy),
@@ -1037,13 +1147,13 @@ export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse
   };
   const state = deriveState(runtimeDoc, stageStatus);
   const approval = buildApproval(jobId, runtimeDoc);
-  const reviewBundle = buildReviewBundle(runtimeDoc);
-  const campaignWindow = buildCampaignWindow(runtimeDoc);
+  const reviewBundle = await buildReviewBundle(runtimeDoc, facts);
+  const campaignWindow = await buildCampaignWindow(runtimeDoc, facts);
   const durationDays = buildDurationDays(campaignWindow);
   const assetPreviewCards = buildAssetPreviewCards(jobId, reviewBundle);
-  const calendarEvents = buildCalendarEvents(runtimeDoc);
-  const postCounts = buildPostCounts(runtimeDoc, reviewBundle, calendarEvents);
-  const validatedProfile = loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
+  const calendarEvents = await buildCalendarEvents(runtimeDoc, facts);
+  const postCounts = await buildPostCounts(runtimeDoc, facts, reviewBundle, calendarEvents);
+  const validatedProfile = await loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
     currentSourceUrl: runtimeDoc.inputs.brand_url || null,
   });
   if (shouldLogMarketingJobStatus()) {
@@ -1051,7 +1161,7 @@ export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse
       event: 'job-status',
       jobId,
       tenantId: runtimeDoc.tenant_id,
-      reviewBundleSource: publishReviewSource(runtimeDoc),
+      reviewBundleSource: await publishReviewSource(runtimeDoc, facts),
       reviewBundleReason: reviewBundle ? 'hydrated' : 'no_real_publish_review_artifacts',
     });
   }
@@ -1088,4 +1198,8 @@ export function getMarketingJobStatus(jobId: string): MarketingJobStatusResponse
     nextStep: state.nextStep,
     repairStatus: state.repairStatus,
   };
+}
+
+export async function getMarketingJobStatus(jobId: string): Promise<MarketingJobStatusResponse> {
+  return buildMarketingJobStatus(jobId);
 }

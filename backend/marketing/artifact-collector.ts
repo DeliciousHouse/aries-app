@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -11,6 +12,7 @@ import {
   type MarketingVideoStageArtifact,
   type MarketingStageSummary,
 } from './runtime-state';
+import type { MarketingJobFacts } from './job-facts';
 import { resolvePublishReviewBundle } from './publish-review';
 import {
   ARTIFACT_UNAVAILABLE_TEXT,
@@ -46,18 +48,17 @@ function stepPayloadPath(stage: 1 | 2 | 3 | 4, runId: string, stepName: string):
   return path.join(root, runId, `${stepName}.json`);
 }
 
-function readJsonIfExists(filePath: string): Record<string, unknown> | null {
-  if (!existsSync(filePath)) {
-    return null;
-  }
-
+async function readJsonIfExists(filePath: string): Promise<Record<string, unknown> | null> {
   try {
-    const raw = readFileSync(filePath, 'utf8');
+    const raw = await readFile(filePath, 'utf8');
     const parsed = JSON.parse(raw);
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
       ? (parsed as Record<string, unknown>)
       : null;
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return null;
+    }
     return null;
   }
 }
@@ -233,20 +234,25 @@ function collectRenderedVideoArtifacts(params: {
   });
 }
 
-function resolveRunId(
+async function resolveRunId(
   primaryOutput: Record<string, unknown> | null,
   runtimeDoc?: MarketingJobRuntimeDocument | null,
   stage?: 1 | 2 | 3 | 4,
-): string | null {
-  return asString(primaryOutput?.run_id) || (runtimeDoc && stage ? inferMarketingStageRunId(runtimeDoc, stage) : null);
+): Promise<string | null> {
+  return asString(primaryOutput?.run_id) || (runtimeDoc && stage ? await inferMarketingStageRunId(runtimeDoc, stage) : null);
 }
 
-export function collectResearchStageArtifacts(primaryOutput: Record<string, unknown> | null): StageCapture {
-  const runId = resolveRunId(primaryOutput);
+export async function collectResearchStageArtifacts(
+  facts: MarketingJobFacts,
+  primaryOutput: Record<string, unknown> | null,
+): Promise<StageCapture> {
+  const runId = (await resolveRunId(primaryOutput, facts.runtimeDoc, 1)) || facts.runId;
   const compilePath = runId ? stepPayloadPath(1, runId, 'ads_analyst_compile') : '';
   const extractorPath = runId ? stepPayloadPath(1, runId, 'meta_ads_extractor') : '';
-  const compile = compilePath ? readJsonIfExists(compilePath) : null;
-  const extractor = extractorPath ? readJsonIfExists(extractorPath) : null;
+  const [compile, extractor] = await Promise.all([
+    facts.stagePayload('research', 'ads_analyst_compile'),
+    facts.stagePayload('research', 'meta_ads_extractor'),
+  ]);
   const executive = asRecord(compile?.executive_summary) ?? {};
   // Only treat the competitor as real if the upstream produced a non-generic value.
   // ads-analyst defaults to the literal string "competitor" when no brand was set,
@@ -290,46 +296,43 @@ export function collectResearchStageArtifacts(primaryOutput: Record<string, unkn
   };
 }
 
-export function collectStrategyReviewArtifacts(
+export async function collectStrategyReviewArtifacts(
+  facts: MarketingJobFacts,
   primaryOutput: Record<string, unknown> | null,
-  runtimeDoc?: MarketingJobRuntimeDocument | null,
-): StageCapture {
+): Promise<StageCapture> {
+  const runtimeDoc = facts.runtimeDoc;
   const sourceUrl = currentSourceUrl(runtimeDoc);
-  const validatedDocs = runtimeDoc ? loadValidatedMarketingProfileDocs(runtimeDoc.tenant_id, {
+  const validatedDocs = runtimeDoc ? await loadValidatedMarketingProfileDocs(runtimeDoc.tenant_id, {
     currentSourceUrl: sourceUrl,
   }) : null;
-  const websiteStep = runtimeDoc ? readMarketingStageStepPayload(runtimeDoc, 2, 'website_brand_analysis') : null;
-  const plannerStep = runtimeDoc ? readMarketingStageStepPayload(runtimeDoc, 2, 'campaign_planner') : null;
-  const reviewStep = runtimeDoc ? readMarketingStageStepPayload(runtimeDoc, 2, 'strategy_review_preview') : null;
-  const runId =
-    resolveRunId(primaryOutput, runtimeDoc, 2) ||
-    websiteStep?.runId ||
-    plannerStep?.runId ||
-    reviewStep?.runId ||
-    null;
+  const [websiteStep, plannerStep, reviewStep] = await Promise.all([
+    facts.stagePayload('strategy', 'website_brand_analysis'),
+    facts.stagePayload('strategy', 'campaign_planner'),
+    facts.stagePayload('strategy', 'strategy_review_preview'),
+  ]);
+  const runId = (await resolveRunId(primaryOutput, runtimeDoc, 2)) || facts.runId || null;
   const websitePath =
     stringValue(asRecord(primaryOutput)?.validated_website_analysis_path) ||
     validatedDocs?.paths.websiteAnalysis ||
-    websiteStep?.path ||
     (runId ? stepPayloadPath(2, runId, 'website_brand_analysis') : '');
   const brandProfilePath =
     stringValue(asRecord(primaryOutput)?.validated_brand_profile_path) ||
     validatedDocs?.paths.brandProfile ||
     null;
-  const plannerPath = plannerStep?.path || (runId ? stepPayloadPath(2, runId, 'campaign_planner') : '');
-  const reviewPath = reviewStep?.path || (runId ? stepPayloadPath(2, runId, 'strategy_review_preview') : '');
-  const rawRunWebsite = websiteStep?.payload || (websitePath ? readJsonIfExists(websitePath) : null);
+  const plannerPath = runId ? stepPayloadPath(2, runId, 'campaign_planner') : '';
+  const reviewPath = runId ? stepPayloadPath(2, runId, 'strategy_review_preview') : '';
+  const rawRunWebsite = websiteStep || (websitePath ? await facts.jsonAtPath(websitePath) : null);
   const runWebsite = sourceMatchedRecord(
     rawRunWebsite,
     sourceUrl,
   );
   const website = runWebsite || validatedDocs?.websiteAnalysis || null;
   const brandProfile = sourceMatchedRecord(
-    validatedDocs?.brandProfile || (brandProfilePath ? readJsonIfExists(brandProfilePath) : null),
+    validatedDocs?.brandProfile || (brandProfilePath ? await facts.jsonAtPath(brandProfilePath) : null),
     sourceUrl,
   );
-  const plannerCandidate = plannerStep?.payload || (plannerPath ? readJsonIfExists(plannerPath) : null);
-  const reviewCandidate = reviewStep?.payload || (reviewPath ? readJsonIfExists(reviewPath) : null);
+  const plannerCandidate = plannerStep || (plannerPath ? await facts.jsonAtPath(plannerPath) : null);
+  const reviewCandidate = reviewStep || (reviewPath ? await facts.jsonAtPath(reviewPath) : null);
   const planner = strategyPayloadMatchesCurrentSource(plannerCandidate, sourceUrl, runWebsite, !!rawRunWebsite) ? plannerCandidate : null;
   const review = strategyPayloadMatchesCurrentSource(reviewCandidate, sourceUrl, runWebsite, !!rawRunWebsite) ? reviewCandidate : null;
   const brandAnalysis = asRecord(website?.brand_analysis) ?? {};
@@ -391,8 +394,8 @@ export function collectStrategyReviewArtifacts(
   };
 }
 
-export function collectStrategyFinalizeArtifacts(primaryOutput: Record<string, unknown> | null): StageCapture {
-  const runId = resolveRunId(primaryOutput);
+export async function collectStrategyFinalizeArtifacts(primaryOutput: Record<string, unknown> | null): Promise<StageCapture> {
+  const runId = await resolveRunId(primaryOutput);
   const handoff = asRecord(primaryOutput?.strategy_handoff) ?? {};
   return {
     runId,
@@ -409,30 +412,27 @@ export function collectStrategyFinalizeArtifacts(primaryOutput: Record<string, u
   };
 }
 
-export function collectProductionReviewArtifacts(
+export async function collectProductionReviewArtifacts(
+  facts: MarketingJobFacts,
   primaryOutput: Record<string, unknown> | null,
-  runtimeDoc?: MarketingJobRuntimeDocument | null,
-): StageCapture {
-  const reviewStep = runtimeDoc ? readMarketingStageStepPayload(runtimeDoc, 3, 'production_review_preview') : null;
-  const finalizeStep = runtimeDoc ? readMarketingStageStepPayload(runtimeDoc, 3, 'creative_director_finalize') : null;
-  const videoStep = runtimeDoc ? readMarketingStageStepPayload(runtimeDoc, 3, 'veo_video_generator') : null;
-  const runId =
-    resolveRunId(primaryOutput, runtimeDoc, 3) ||
-    reviewStep?.runId ||
-    finalizeStep?.runId ||
-    videoStep?.runId ||
-    null;
-  const reviewPath = reviewStep?.path || (runId ? stepPayloadPath(3, runId, 'production_review_preview') : '');
-  const finalizePath = finalizeStep?.path || (runId ? stepPayloadPath(3, runId, 'creative_director_finalize') : '');
-  const videoPath = videoStep?.path || (runId ? stepPayloadPath(3, runId, 'veo_video_generator') : '');
-  const review = reviewStep?.payload || (reviewPath ? readJsonIfExists(reviewPath) : null);
-  const video = videoStep?.payload || (videoPath ? readJsonIfExists(videoPath) : null);
+): Promise<StageCapture> {
+  const runtimeDoc = facts.runtimeDoc;
+  const [reviewStep, videoStep] = await Promise.all([
+    facts.stagePayload('production', 'production_review_preview'),
+    facts.stagePayload('production', 'veo_video_generator'),
+  ]);
+  const runId = (await resolveRunId(primaryOutput, runtimeDoc, 3)) || facts.runId || null;
+  const reviewPath = runId ? stepPayloadPath(3, runId, 'production_review_preview') : '';
+  const finalizePath = runId ? stepPayloadPath(3, runId, 'creative_director_finalize') : '';
+  const videoPath = runId ? stepPayloadPath(3, runId, 'veo_video_generator') : '';
+  const review = reviewStep || (reviewPath ? await facts.jsonAtPath(reviewPath) : null);
+  const video = videoStep || (videoPath ? await facts.jsonAtPath(videoPath) : null);
   const jobId = runtimeDoc?.job_id || stringValue(primaryOutput?.job_id) || null;
   const packet = asRecord(review?.review_packet) ?? {};
   const summaryBlock = asRecord(packet.summary) ?? {};
   const previews = asRecord(packet.asset_previews) ?? {};
-  const landingDetails = readLandingPageArtifactDetails({ runtimeDoc });
-  const scriptDetails = readScriptArtifactDetails({ runtimeDoc });
+  const landingDetails = await readLandingPageArtifactDetails({ runtimeDoc });
+  const scriptDetails = await readScriptArtifactDetails({ runtimeDoc });
   const videoAssets = asRecord(video?.video_assets) ?? {};
   const renderedVideoArtifacts = collectRenderedVideoArtifacts({ jobId, videoPayload: video });
   const summary: MarketingStageSummary | null = {
@@ -476,8 +476,8 @@ export function collectProductionReviewArtifacts(
   };
 }
 
-export function collectProductionFinalizeArtifacts(primaryOutput: Record<string, unknown> | null): StageCapture {
-  const runId = resolveRunId(primaryOutput);
+export async function collectProductionFinalizeArtifacts(primaryOutput: Record<string, unknown> | null): Promise<StageCapture> {
+  const runId = await resolveRunId(primaryOutput);
   const handoff = asRecord(primaryOutput?.production_handoff) ?? {};
   const contractHandoffs = asRecord(handoff.contract_handoffs) ?? {};
   const staticHandoff = asRecord(contractHandoffs.static) ?? {};
@@ -497,21 +497,21 @@ export function collectProductionFinalizeArtifacts(primaryOutput: Record<string,
   };
 }
 
-export function collectPublishReviewArtifacts(
+export async function collectPublishReviewArtifacts(
   primaryOutput: Record<string, unknown> | null,
   runtimeDoc?: MarketingJobRuntimeDocument | null,
-): StageCapture {
-  const preflightStep = runtimeDoc ? readMarketingStageStepPayload(runtimeDoc, 4, 'performance_marketer_preflight') : null;
-  const reviewStep = runtimeDoc ? readMarketingStageStepPayload(runtimeDoc, 4, 'launch_review_preview') : null;
+): Promise<StageCapture> {
+  const preflightStep = runtimeDoc ? await readMarketingStageStepPayload(runtimeDoc, 4, 'performance_marketer_preflight') : null;
+  const reviewStep = runtimeDoc ? await readMarketingStageStepPayload(runtimeDoc, 4, 'launch_review_preview') : null;
   const runId =
-    resolveRunId(primaryOutput, runtimeDoc, 4) ||
+    await resolveRunId(primaryOutput, runtimeDoc, 4) ||
     preflightStep?.runId ||
     reviewStep?.runId ||
     null;
   const preflightPath = preflightStep?.path || (runId ? stepPayloadPath(4, runId, 'performance_marketer_preflight') : '');
   const reviewPath = reviewStep?.path || (runId ? stepPayloadPath(4, runId, 'launch_review_preview') : '');
-  const preflight = preflightStep?.payload || (preflightPath ? readJsonIfExists(preflightPath) : null);
-  const resolvedPublishReview = runtimeDoc ? resolvePublishReviewBundle(runtimeDoc) : { reviewPayload: null, reviewBundle: null };
+  const preflight = preflightStep?.payload || (preflightPath ? await readJsonIfExists(preflightPath) : null);
+  const resolvedPublishReview = runtimeDoc ? await resolvePublishReviewBundle(runtimeDoc) : { reviewPayload: null, reviewBundle: null };
   // In docker setups, the lobster step cache lives on the gateway host (a different
   // filesystem) so reviewStep/reviewPath both come back null. Fall back to the
   // primaryOutput passed in by the orchestrator — that's the launch_review_preview
@@ -519,7 +519,7 @@ export function collectPublishReviewArtifacts(
   const review =
     resolvedPublishReview.reviewPayload ||
     reviewStep?.payload ||
-    (reviewPath ? readJsonIfExists(reviewPath) : null) ||
+    (reviewPath ? await readJsonIfExists(reviewPath) : null) ||
     (primaryOutput && stringValue((primaryOutput as Record<string, unknown>).type) === 'launch_review_preview'
       ? (primaryOutput as Record<string, unknown>)
       : null);
@@ -530,11 +530,11 @@ export function collectPublishReviewArtifacts(
   const landingPagePreview = asRecord(reviewBundle.landing_page_preview) ?? {};
   const scriptPreview = asRecord(reviewBundle.script_preview) ?? {};
   const platformPreviews = asRecordArray(reviewBundle.platform_previews);
-  const landingDetails = readLandingPageArtifactDetails({
+  const landingDetails = await readLandingPageArtifactDetails({
     path: stringValue(landingPagePreview.landing_page_path) || null,
     runtimeDoc: runtimeDoc || null,
   });
-  const scriptDetails = readScriptArtifactDetails({
+  const scriptDetails = await readScriptArtifactDetails({
     metaScriptPath: stringValue(scriptPreview.meta_script_path) || null,
     shortVideoScriptPath: stringValue(scriptPreview.short_video_script_path) || null,
     runtimeDoc: runtimeDoc || null,
@@ -676,10 +676,10 @@ export function collectPublishReviewArtifacts(
   };
 }
 
-export function collectPublishFinalizeArtifacts(primaryOutput: Record<string, unknown> | null): StageCapture {
-  const runId = resolveRunId(primaryOutput);
+export async function collectPublishFinalizeArtifacts(primaryOutput: Record<string, unknown> | null): Promise<StageCapture> {
+  const runId = await resolveRunId(primaryOutput);
   const summaryPath = runId ? stepPayloadPath(4, runId, 'performance_marketer_summary') : '';
-  const summaryPayload = summaryPath ? readJsonIfExists(summaryPath) : null;
+  const summaryPayload = summaryPath ? await readJsonIfExists(summaryPath) : null;
   const publisherSteps = [
     'meta_ads_publisher',
     'instagram_publisher',
@@ -689,15 +689,20 @@ export function collectPublishFinalizeArtifacts(primaryOutput: Record<string, un
     'linkedin_publisher',
     'reddit_publisher',
   ] as const;
-  const publisherPayloads = runId
-    ? publisherSteps
-        .map((stepName) => {
-          const payloadPath = stepPayloadPath(4, runId, stepName);
-          const payload = readJsonIfExists(payloadPath);
-          return payload ? { stepName, payloadPath, payload } : null;
-        })
-        .filter((entry): entry is { stepName: typeof publisherSteps[number]; payloadPath: string; payload: Record<string, unknown> } => !!entry)
-    : [];
+  const publisherPayloads: Array<{
+    stepName: typeof publisherSteps[number];
+    payloadPath: string;
+    payload: Record<string, unknown>;
+  }> = [];
+  if (runId) {
+    for (const stepName of publisherSteps) {
+      const payloadPath = stepPayloadPath(4, runId, stepName);
+      const payload = await readJsonIfExists(payloadPath);
+      if (payload) {
+        publisherPayloads.push({ stepName, payloadPath, payload });
+      }
+    }
+  }
 
   return {
     runId,

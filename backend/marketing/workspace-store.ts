@@ -174,11 +174,11 @@ function normalizeBrandUrlForComparison(value: string): string {
   }
 }
 
-function withBusinessProfileDefaults(
+async function withBusinessProfileDefaults(
   tenantId: string,
   payload: Record<string, unknown> = {},
-): Record<string, unknown> {
-  const defaults = marketingPayloadDefaultsFromBusinessProfile(tenantId);
+): Promise<Record<string, unknown>> {
+  const defaults = await marketingPayloadDefaultsFromBusinessProfile(tenantId);
   const nextPayload = { ...payload };
 
   const websiteUrl = coalesceStringPayload(payload.websiteUrl || payload.brandUrl, defaults.websiteUrl);
@@ -304,9 +304,9 @@ function normalizeCampaignBrief(
   };
 }
 
-export function createCampaignWorkspaceRecord(input: CreateCampaignWorkspaceInput): CampaignWorkspaceRecord {
+export async function createCampaignWorkspaceRecord(input: CreateCampaignWorkspaceInput): Promise<CampaignWorkspaceRecord> {
   const ts = nowIso();
-  const payload = withBusinessProfileDefaults(input.tenantId, input.payload || {});
+  const payload = await withBusinessProfileDefaults(input.tenantId, input.payload || {});
   return {
     schema_name: 'marketing_campaign_workspace',
     schema_version: '1.0.0',
@@ -374,8 +374,8 @@ export function saveCampaignWorkspaceRecord(record: CampaignWorkspaceRecord): st
   return filePath;
 }
 
-export function ensureCampaignWorkspaceRecord(input: CreateCampaignWorkspaceInput): CampaignWorkspaceRecord {
-  const payload = withBusinessProfileDefaults(input.tenantId, input.payload || {});
+export async function ensureCampaignWorkspaceRecord(input: CreateCampaignWorkspaceInput): Promise<CampaignWorkspaceRecord> {
+  const payload = await withBusinessProfileDefaults(input.tenantId, input.payload || {});
   const existing = loadCampaignWorkspaceRecord(input.jobId, input.tenantId);
   if (existing) {
     existing.brief = normalizeCampaignBrief(payload, existing.brief);
@@ -383,7 +383,7 @@ export function ensureCampaignWorkspaceRecord(input: CreateCampaignWorkspaceInpu
     return existing;
   }
 
-  const created = createCampaignWorkspaceRecord({ ...input, payload });
+  const created = await createCampaignWorkspaceRecord({ ...input, payload });
   saveCampaignWorkspaceRecord(created);
   return created;
 }

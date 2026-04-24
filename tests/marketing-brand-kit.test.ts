@@ -374,7 +374,7 @@ test('normalizePersistedBrandKit sanitizes HTML markup in a cached brand_name on
       brand_voice_summary: null,
       offer_summary: null,
     });
-    const loaded = loadTenantBrandKit('nwaeventco');
+    const loaded = await loadTenantBrandKit('nwaeventco');
     assert.ok(loaded);
     assert.doesNotMatch(loaded!.brand_name, /<\/?[a-z]/i);
     assert.doesNotMatch(loaded!.brand_name, /_ngcontent-/i);

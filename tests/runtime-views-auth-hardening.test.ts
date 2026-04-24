@@ -653,7 +653,7 @@ test('approving a workflow approval review item resumes the marketing job', asyn
       assert.equal(approved?.status, 'approved');
       assert.equal(approved?.lastDecision?.actedBy, 'Morgan');
 
-      const runtimeDoc = loadMarketingJobRuntime(started.jobId);
+      const runtimeDoc = await loadMarketingJobRuntime(started.jobId);
       assert.equal(runtimeDoc?.current_stage, 'production');
       assert.equal(runtimeDoc?.approvals.current?.stage, 'production');
     } finally {
@@ -693,7 +693,7 @@ test('approve_stage_2 workflow reviews include research, brief, brand-kit, and u
         payload,
       });
 
-      const record = ensureCampaignWorkspaceRecord({
+      const record = await ensureCampaignWorkspaceRecord({
         jobId: started.jobId,
         tenantId: 'tenant_123',
         payload,
@@ -777,7 +777,7 @@ test('stale workflow approval ids do not advance a newer approval checkpoint', a
         approvalId: staleApprovalId,
       });
 
-      let runtimeDoc = loadMarketingJobRuntime(started.jobId);
+      let runtimeDoc = await loadMarketingJobRuntime(started.jobId);
       assert.equal(runtimeDoc?.current_stage, 'production');
       assert.equal(runtimeDoc?.approvals.current?.stage, 'production');
 
@@ -790,7 +790,7 @@ test('stale workflow approval ids do not advance a newer approval checkpoint', a
         approvalId: staleApprovalId,
       });
 
-      runtimeDoc = loadMarketingJobRuntime(started.jobId);
+      runtimeDoc = await loadMarketingJobRuntime(started.jobId);
       assert.equal(runtimeDoc?.current_stage, 'production');
       assert.equal(runtimeDoc?.approvals.current?.stage, 'production');
     } finally {

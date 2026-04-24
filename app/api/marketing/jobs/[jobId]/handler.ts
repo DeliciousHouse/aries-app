@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 
-import { getMarketingJobStatus } from '@/backend/marketing/jobs-status';
+import type { MarketingApprovalSummary, MarketingJobStatusResponse } from '@/backend/marketing/jobs-status';
+import { getMarketingJobStatusCached } from '@/backend/marketing/jobs-status';
+import { loadMarketingJobRuntime } from '@/backend/marketing/runtime-state';
 import { buildCampaignWorkspaceView } from '@/backend/marketing/workspace-views';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
@@ -10,10 +12,15 @@ const MARKETING_ONBOARDING_REQUIRED = {
   message: 'Complete tenant onboarding before viewing brand campaign status.',
 } as const;
 
+const MARKETING_JOB_NOT_FOUND_RESPONSE = {
+  error: 'Marketing job not found.',
+  reason: 'marketing_job_not_found',
+} as const;
+
 function alignApprovalWithWorkspace(
-  approval: ReturnType<typeof getMarketingJobStatus>['approval'],
-  workflowState: ReturnType<typeof buildCampaignWorkspaceView>['workflowState'],
-  publishBlockedReason: ReturnType<typeof buildCampaignWorkspaceView>['publishBlockedReason'],
+  approval: MarketingApprovalSummary | null,
+  workflowState: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['workflowState'],
+  publishBlockedReason: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['publishBlockedReason'],
 ) {
   if (!approval || workflowState !== 'revisions_requested') {
     return approval;
@@ -30,14 +37,14 @@ function alignApprovalWithWorkspace(
 
 function alignApprovalRequiredWithWorkspace(
   approvalRequired: boolean,
-  workflowState: ReturnType<typeof buildCampaignWorkspaceView>['workflowState'],
+  workflowState: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['workflowState'],
 ) {
   return workflowState === 'revisions_requested' ? false : approvalRequired;
 }
 
 function alignNextStepWithWorkspace(
-  nextStep: ReturnType<typeof getMarketingJobStatus>['nextStep'],
-  workflowState: ReturnType<typeof buildCampaignWorkspaceView>['workflowState'],
+  nextStep: MarketingJobStatusResponse['nextStep'],
+  workflowState: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['workflowState'],
 ) {
   return workflowState === 'revisions_requested' ? 'wait_for_completion' : nextStep;
 }
@@ -53,18 +60,18 @@ export async function handleGetMarketingJobStatus(
     return tenantResult.response;
   }
 
+  const runtimeDoc = await loadMarketingJobRuntime(jobId);
+  if (!runtimeDoc || runtimeDoc.tenant_id !== tenantResult.tenantContext.tenantId) {
+    console.warn('[marketing-job-not-found]', {
+      jobId,
+      cause: runtimeDoc ? 'tenant_mismatch' : 'runtime_doc_missing',
+    });
+    return NextResponse.json(MARKETING_JOB_NOT_FOUND_RESPONSE, { status: 404 });
+  }
+
   try {
-    const result = getMarketingJobStatus(jobId);
-    const workspaceView = buildCampaignWorkspaceView(jobId);
-    if (result.tenantId && result.tenantId !== tenantResult.tenantContext.tenantId) {
-      return NextResponse.json(
-        {
-          error: 'Marketing job not found.',
-          reason: 'marketing_job_not_found',
-        },
-        { status: 404 }
-      );
-    }
+    const { payload: result, cacheStatus } = await getMarketingJobStatusCached(tenantResult.tenantContext.tenantId, jobId);
+    const workspaceView = await buildCampaignWorkspaceView(jobId);
 
     return NextResponse.json(
       {
@@ -101,7 +108,7 @@ export async function handleGetMarketingJobStatus(
         repairStatus: result.repairStatus,
         dashboard: workspaceView.dashboard,
       },
-      { status: 200 }
+      { status: 200, headers: { 'x-cache': cacheStatus } }
     );
   } catch (error) {
     return NextResponse.json(

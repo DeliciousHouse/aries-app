@@ -36,6 +36,7 @@ import {
   collectResearchStageArtifacts,
   collectStrategyReviewArtifacts,
 } from './artifact-collector';
+import { createMarketingJobFacts } from './job-facts';
 import {
   appendHistory,
   assertMarketingRuntimeSchemas,
@@ -163,7 +164,7 @@ async function ensureRuntimeBrandKit(doc: MarketingJobRuntimeDocument): Promise<
     return;
   }
 
-  const existingBrandKit = loadTenantBrandKit(doc.tenant_id);
+  const existingBrandKit = await loadTenantBrandKit(doc.tenant_id);
   if (existingBrandKit && existingBrandKit.source_url === brandUrl) {
     doc.brand_kit = runtimeBrandKitReference(existingBrandKit, tenantBrandKitPath(doc.tenant_id));
     return;
@@ -750,8 +751,8 @@ class MarketingJobCancelledError extends Error {
  * state and throws `MarketingJobCancelledError` so the caller bails without
  * starting the next stage.
  */
-function applySoftCancelIfRequested(doc: MarketingJobRuntimeDocument): void {
-  const fresh = loadMarketingJobRuntime(doc.job_id);
+async function applySoftCancelIfRequested(doc: MarketingJobRuntimeDocument): Promise<void> {
+  const fresh = await loadMarketingJobRuntime(doc.job_id);
   const armed = fresh?.soft_cancel_requested_at;
   if (!armed) {
     return;
@@ -772,7 +773,7 @@ function applySoftCancelIfRequested(doc: MarketingJobRuntimeDocument): void {
 }
 
 async function runResearchStage(doc: MarketingJobRuntimeDocument): Promise<void> {
-  applySoftCancelIfRequested(doc);
+  await applySoftCancelIfRequested(doc);
   setJobRunning(doc, 'research', 'running research stage');
   markStageInProgress(doc, 'research');
   saveMarketingJobRuntime(doc.job_id, doc);
@@ -793,7 +794,10 @@ async function runResearchStage(doc: MarketingJobRuntimeDocument): Promise<void>
 
   const envelope = await runMarketingPipeline(doc);
   const primaryOutput = primaryOutputRecord(envelope);
-  const capture = collectResearchStageArtifacts(primaryOutput);
+  const capture = await collectResearchStageArtifacts(
+    createMarketingJobFacts(doc, runIdFromPrimaryOutput(primaryOutput)),
+    primaryOutput,
+  );
   const summary = summarizeResearch(primaryOutput);
   const runId = capture.runId || runIdFromPrimaryOutput(primaryOutput);
   markStageCompleted(doc, 'research', {
@@ -854,7 +858,10 @@ async function finalizeStrategyAndRunProductionReview(
 
   const envelope = await resumeMarketingPipeline(resumeToken);
   const primaryOutput = primaryOutputRecord(envelope);
-  const strategyReviewCapture = collectStrategyReviewArtifacts(primaryOutput, doc);
+  const strategyReviewCapture = await collectStrategyReviewArtifacts(
+    createMarketingJobFacts(doc, runIdFromPrimaryOutput(primaryOutput)),
+    primaryOutput,
+  );
   const strategy = summarizeStrategy(primaryOutput);
   markStageCompleted(doc, 'strategy', {
     runId: strategyReviewCapture.runId ?? runIdFromPrimaryOutput(primaryOutput) ?? getStageRecord(doc, 'research').run_id,
@@ -917,7 +924,10 @@ async function finalizeProductionAndRunPublishReview(
 
   const envelope = await resumeMarketingPipeline(resumeToken);
   const primaryOutput = primaryOutputRecord(envelope);
-  const productionReviewCapture = collectProductionReviewArtifacts(primaryOutput, doc);
+  const productionReviewCapture = await collectProductionReviewArtifacts(
+    createMarketingJobFacts(doc, runIdFromPrimaryOutput(primaryOutput)),
+    primaryOutput,
+  );
   const production = summarizeProduction(primaryOutput);
   markStageCompleted(doc, 'production', {
     runId: productionReviewCapture.runId ?? runIdFromPrimaryOutput(primaryOutput) ?? getStageRecord(doc, 'strategy').run_id,
@@ -983,7 +993,7 @@ async function advancePublishStage(doc: MarketingJobRuntimeDocument, resumeToken
 
   const envelope = await resumeMarketingPipeline(resumeToken);
   const primaryOutput = primaryOutputRecord(envelope);
-  const publishReviewCapture = collectPublishReviewArtifacts(primaryOutput, doc);
+  const publishReviewCapture = await collectPublishReviewArtifacts(primaryOutput, doc);
   const publish = summarizePublish(primaryOutput);
   if (envelope.requiresApproval?.resumeToken) {
     const approval = publishPausedApprovalMessage(
