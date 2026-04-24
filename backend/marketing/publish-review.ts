@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import type { MarketingJobRuntimeDocument } from './runtime-state';
+import type { MarketingJobRuntimeDocument, MarketingVideoStageArtifact } from './runtime-state';
 import { readMarketingStageStepPayload } from './stage-artifact-resolution';
 import {
   ARTIFACT_INCOMPLETE_TEXT,
@@ -386,6 +386,23 @@ function normalizePlatformPreview(value: Record<string, unknown>): Record<string
       .filter(Boolean),
     asset_paths: normalizeAssetPaths(value.asset_paths),
   };
+}
+
+function isVideoStageArtifact(
+  artifact: MarketingJobRuntimeDocument['stages']['production']['artifacts'][number],
+): artifact is MarketingVideoStageArtifact {
+  return 'type' in artifact && artifact.type === 'video';
+}
+
+function firstRenderedVideoAssetIdForPlatform(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  platformSlugValue: string,
+): string | undefined {
+  const match = runtimeDoc.stages.production.artifacts.find((artifact) => (
+    isVideoStageArtifact(artifact) && artifact.platformSlug === platformSlugValue
+  ));
+
+  return match?.id;
 }
 
 function normalizeLandingPagePreview(value: unknown): Record<string, unknown> | null {
@@ -781,6 +798,7 @@ function buildFallbackPublishReviewBundle(
         platform_slug: slug,
         platform_name: platformNameFromSlug(slug),
         channel_type: channelTypeForPlatform(slug),
+        rendered_video_asset_id: firstRenderedVideoAssetIdForPlatform(runtimeDoc, slug),
         summary:
           preferredText(copyDetails.bodyLines[0], copyDetails.headline, stringValue(packageRecord.summary)) ||
           ARTIFACT_UNAVAILABLE_TEXT,

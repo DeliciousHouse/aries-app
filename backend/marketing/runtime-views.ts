@@ -713,7 +713,8 @@ function publishPreviewReviewItems(
           label: asset.label,
           url: asset.url,
           contentType: asset.contentType,
-          kind: asset.contentType.startsWith('image/') ? ('preview' as const) : ('artifact' as const),
+          kind: /^(image|video)\//.test(asset.contentType) ? ('preview' as const) : ('artifact' as const),
+          posterUrl: asset.posterUrl ?? null,
         })),
         ...preview.assetLinks.map((asset) => ({
           id: asset.id,
@@ -721,6 +722,7 @@ function publishPreviewReviewItems(
           url: asset.url,
           contentType: asset.contentType,
           kind: asset.contentType.startsWith('image/') ? ('preview' as const) : ('artifact' as const),
+          posterUrl: asset.posterUrl ?? null,
         })),
       ],
       history: [],

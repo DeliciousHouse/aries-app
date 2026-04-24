@@ -750,6 +750,12 @@ function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): MarketingRe
           ),
         )
         .filter((asset): asset is MarketingAssetLink => !!asset);
+      const renderedVideoAsset = resolveRenderedVideoAssetLink(
+        runtimeDoc,
+        platformSlug,
+        stringValue(entry.rendered_video_asset_id) || null,
+        platformName,
+      );
       const previewId = publishReviewPreviewAssetPrefix({
         platformSlug,
         previewIndex: index,
@@ -773,7 +779,10 @@ function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): MarketingRe
           ...stringArray(entry.proof_points),
           ...stringArray(recordValue(entry.format) ? Object.values(recordValue(entry.format) as Record<string, unknown>) : []),
         ],
-        mediaAssets: directMediaAssets.length > 0 ? directMediaAssets : fallbackPlatformMediaAssets(assetLinks, platformSlug),
+        mediaAssets: mergePreviewMediaAssets(
+          directMediaAssets.length > 0 ? directMediaAssets : fallbackPlatformMediaAssets(assetLinks, platformSlug),
+          renderedVideoAsset,
+        ),
         assetLinks: [
           linkById.get(
             publishReviewLinkedAssetId({
@@ -803,6 +812,61 @@ function buildReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): MarketingRe
       };
     }),
   };
+}
+
+function isVideoArtifact(
+  artifact: MarketingJobRuntimeDocument['stages'][MarketingStage]['artifacts'][number],
+): artifact is Extract<MarketingJobRuntimeDocument['stages'][MarketingStage]['artifacts'][number], { type: 'video' }> {
+  return 'type' in artifact && artifact.type === 'video';
+}
+
+function renderedVideoLabel(
+  platformName: string,
+  artifact: Extract<MarketingJobRuntimeDocument['stages'][MarketingStage]['artifacts'][number], { type: 'video' }>,
+): string {
+  const [, familyDisplay = artifact.familyId] = artifact.title.split(' — ');
+  return `${platformName} video — ${familyDisplay}`;
+}
+
+function resolveRenderedVideoAssetLink(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  platformSlug: string,
+  explicitAssetId: string | null,
+  platformName: string,
+): MarketingAssetLink | null {
+  let matchingArtifact: Extract<MarketingJobRuntimeDocument['stages'][MarketingStage]['artifacts'][number], { type: 'video' }> | null = null;
+  for (const artifact of runtimeDoc.stages.production.artifacts) {
+    if (!isVideoArtifact(artifact)) {
+      continue;
+    }
+    if (artifact.id === explicitAssetId || (!explicitAssetId && artifact.platformSlug === platformSlug)) {
+      matchingArtifact = artifact;
+      break;
+    }
+  }
+
+  if (!matchingArtifact) {
+    return null;
+  }
+
+  return {
+    id: matchingArtifact.id,
+    label: renderedVideoLabel(platformName, matchingArtifact),
+    url: matchingArtifact.url,
+    contentType: matchingArtifact.contentType,
+    posterUrl: matchingArtifact.posterUrl,
+  };
+}
+
+function mergePreviewMediaAssets(
+  assets: MarketingAssetLink[],
+  renderedVideoAsset: MarketingAssetLink | null,
+): MarketingAssetLink[] {
+  if (!renderedVideoAsset) {
+    return assets;
+  }
+
+  return [renderedVideoAsset, ...assets.filter((asset) => asset.id !== renderedVideoAsset.id)];
 }
 
 function fallbackPlatformMediaAssets(assetLinks: MarketingAssetLink[], platformSlug: string): MarketingAssetLink[] {
