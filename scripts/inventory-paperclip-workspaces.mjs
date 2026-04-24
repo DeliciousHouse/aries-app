@@ -20,7 +20,7 @@ function safeGit(cwd, args) {
 }
 
 function looksLikeCanonicalRoot(candidateRoot) {
-  return ['package.json', 'README-runtime.md', 'app', 'backend', 'tests'].every((marker) =>
+  return ['package.json', 'VERSION', 'app', 'backend', 'tests'].every((marker) =>
     existsSync(path.join(candidateRoot, marker))
   );
 }

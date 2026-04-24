@@ -3,7 +3,7 @@
 ## Workspace
 
 - Primary repo: `/home/node/openclaw/aries-app`
-- Main docs: `README.md`, `README-runtime.md`, `SETUP.md`, `ROUTE_MANIFEST.md`
+- Main docs: `README.md`, `SETUP.md`, `ROUTE_MANIFEST.md`
 
 ## Boundary reminder
 

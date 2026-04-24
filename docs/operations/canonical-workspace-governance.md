@@ -17,7 +17,7 @@ All coding agents must satisfy these rules:
 2. `git rev-parse --show-toplevel` resolves to `/app/aries-app`
 3. Startup checks confirm the expected top-level markers exist:
    - `package.json`
-   - `README-runtime.md`
+   - `VERSION`
    - `app/`
    - `backend/`
    - `tests/`

@@ -33,7 +33,7 @@ const required = [
   'package.json',
   'tsconfig.json',
   '.env.example',
-  'README-runtime.md',
+  'VERSION',
   'auth.ts',
   'app/layout.tsx',
   'app/page.tsx',

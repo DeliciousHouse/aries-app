@@ -40,8 +40,6 @@
   "exclude": [
     "node_modules",
     "dist",
-    "recovery",
-    "references/AriesAI-Frontend",
     "demo-recorder"
   ]
 }
