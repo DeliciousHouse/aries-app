@@ -107,6 +107,7 @@ data/nightly-build-log.json
 
 # Runtime session state (local only)
 state/
+.openclaw/
 
 # Misc
 .artifacts/
