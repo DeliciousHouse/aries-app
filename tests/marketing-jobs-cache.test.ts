@@ -18,6 +18,7 @@ import { resolveProjectRoot } from './helpers/project-root';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 const originalConsoleLog = console.log;
+const originalConsoleWarn = console.warn;
 
 function buildPayload(jobId: string, tenantId: string, sequence: number): MarketingJobStatusResponse {
   return {
@@ -110,11 +111,13 @@ async function withRuntimeEnv<T>(run: () => Promise<T>): Promise<T> {
 test.beforeEach(() => {
   resetMarketingJobStatusCacheForTests();
   console.log = () => {};
+  console.warn = () => {};
 });
 
 test.afterEach(() => {
   resetMarketingJobStatusCacheForTests();
   console.log = originalConsoleLog;
+  console.warn = originalConsoleWarn;
 });
 
 test('cold read returns miss and populates cache', async () => {
@@ -270,8 +273,14 @@ test('memory cap evicts the oldest cache entry', async () => {
   assert.equal(calls, 1_002);
 });
 
-test('marketing job route returns x-cache miss then hit on repeat request', async () => {
+test('marketing job route does not cache unknown jobs and returns 404 for repeat requests', async () => {
   await withRuntimeEnv(async () => {
+    let calls = 0;
+    overrideMarketingJobStatusBuilderForTests(async (tenantId, jobId) => {
+      calls += 1;
+      return buildPayload(jobId, tenantId, calls);
+    });
+
     const tenantContextLoader = async () => ({
       userId: 'user-cache-test',
       tenantId: 'tenant-cache-test',
@@ -282,9 +291,11 @@ test('marketing job route returns x-cache miss then hit on repeat request', asyn
     const first = await handleGetMarketingJobStatus('missing-job', tenantContextLoader);
     const second = await handleGetMarketingJobStatus('missing-job', tenantContextLoader);
 
-    assert.equal(first.status, 200);
-    assert.equal(first.headers.get('x-cache'), 'miss');
-    assert.equal(second.status, 200);
-    assert.equal(second.headers.get('x-cache'), 'hit');
+    assert.equal(first.status, 404);
+    assert.equal(first.headers.get('x-cache'), null);
+    assert.equal(second.status, 404);
+    assert.equal(second.headers.get('x-cache'), null);
+    assert.equal(calls, 0);
+    assert.equal(getMarketingJobStatusCacheSizeForTests(), 0);
   });
 });
