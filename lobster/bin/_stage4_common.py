@@ -416,7 +416,7 @@ def run_nano_banana(prompt: str, destination: Path, aspect_ratio: str) -> dict:
         }
 
 
-VEO_MODEL_DEFAULT = "veo-3.1-generate-preview"
+VEO_MODEL_DEFAULT = "veo-3.1-fast-generate-preview"
 VEO_POLL_INTERVAL_SECONDS = 10
 VEO_POLL_TIMEOUT_SECONDS = 600
 VEO_MAX_ATTEMPTS = 2
