@@ -1,0 +1,117 @@
+name: Issue agent fix
+
+on:
+  issues:
+    types: [opened, labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: GitHub issue number to investigate and fix
+        required: true
+        type: number
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+
+concurrency:
+  group: issue-agent-fix-${{ github.event.issue.number || inputs.issue_number }}
+  cancel-in-progress: false
+
+jobs:
+  start-fix:
+    name: Investigate issue and propose a fix
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.action == 'opened' ||
+      (github.event.action == 'labeled' && github.event.label.name == 'agent:fix')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve issue context
+        id: issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ISSUE_NUMBER: ${{ github.event.issue.number }}
+          INPUT_ISSUE_NUMBER: ${{ inputs.issue_number }}
+        run: |
+          set -euo pipefail
+          issue_number="${EVENT_ISSUE_NUMBER:-${INPUT_ISSUE_NUMBER:-}}"
+          if [ -z "$issue_number" ]; then
+            echo "Unable to resolve issue number" >&2
+            exit 1
+          fi
+          gh issue view "$issue_number" --json number,title,body,author,labels,url > /tmp/issue.json
+          {
+            echo "number=$issue_number"
+            echo "title<<EOF"
+            jq -r '.title' /tmp/issue.json
+            echo "EOF"
+            echo "body<<EOF"
+            jq -r '.body // ""' /tmp/issue.json
+            echo "EOF"
+            echo "url=$(jq -r '.url' /tmp/issue.json)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Apply agent labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+        run: |
+          set -euo pipefail
+          gh label create agent:fix --color 5319E7 --description "Agent should investigate and propose a code fix" --force
+          gh label create agent:in-progress --color FBCA04 --description "Agent is currently working on this issue" --force
+          gh issue edit "$ISSUE_NUMBER" --add-label agent:in-progress
+
+      - name: Claude issue fixer
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          base_branch: master
+          branch_prefix: issue-agent/
+          track_progress: true
+          prompt: |
+            REPO: ${{ github.repository }}
+            ISSUE NUMBER: #${{ steps.issue.outputs.number }}
+            ISSUE URL: ${{ steps.issue.outputs.url }}
+            ISSUE TITLE: ${{ steps.issue.outputs.title }}
+
+            ISSUE BODY:
+            ${{ steps.issue.outputs.body }}
+
+            You are fixing an Aries App GitHub issue autonomously.
+
+            Required workflow:
+            1. Confirm the issue belongs to aries-app. If it clearly does not, comment on the issue and stop without code changes.
+            2. Inspect the smallest relevant code and tests.
+            3. Reproduce or write a failing regression test for the reported behavior when feasible.
+            4. Implement the smallest safe fix.
+            5. Run targeted tests plus npm run workspace:verify. If broader validation is cheap, run it too.
+            6. Commit the change on a branch created from master and open a draft PR that includes "Fixes #${{ steps.issue.outputs.number }}".
+            7. Comment on the issue with the PR link, validation run, and any remaining risk.
+
+            Repository rules:
+            - Do not push directly to master.
+            - Keep the fix scoped to this issue.
+            - Do not add sibling-project language or unrelated operational context.
+            - Prefer tests under tests/*.test.ts using `npx tsx --test tests/<file>.test.ts`.
+          claude_args: |
+            --max-turns 30
+            --allowedTools "Bash(git:*),Bash(gh:*),Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(python3:*),Bash(jq:*),Read,Write,Edit,MultiEdit,Grep,Glob"
+
+      - name: Clear in-progress label when automation finishes
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+        run: |
+          if [ -n "${ISSUE_NUMBER:-}" ]; then
+            gh issue edit "$ISSUE_NUMBER" --remove-label agent:in-progress || true
+          fi

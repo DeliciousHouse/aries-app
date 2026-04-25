@@ -118,9 +118,14 @@ class FakeImageRenderer:
             self.max_active = max(self.max_active, self.active)
             self.calls.append(filename_stem)
             self.condition.notify_all()
-            deadline = time.monotonic() + 1.0
-            while self.started < self.release_after and time.monotonic() < deadline:
-                self.condition.wait(timeout=0.01)
+            released = self.condition.wait_for(lambda: self.started >= self.release_after, timeout=5.0)
+            if not released:
+                self.active -= 1
+                self.condition.notify_all()
+                raise AssertionError(
+                    f"Timed out waiting for {self.release_after} concurrent image renders; "
+                    f"only {self.started} started"
+                )
         try:
             # Scramble completion order so the test proves ad-designer restores
             # deterministic submission order after as_completed() returns.

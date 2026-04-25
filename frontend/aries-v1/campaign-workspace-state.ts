@@ -49,6 +49,8 @@ export interface GenerationProgressState {
   isComplete: boolean;
 }
 
+type ReviewStatusPayload = { status: string };
+
 const VIEW_ORDER: Record<WorkspaceView, number> = {
   brand: 0,
   strategy: 1,
@@ -368,14 +370,20 @@ export function deriveWorkspaceHeaderState(
 }
 
 export function deriveGateFallbackState(
-  status: Pick<GetMarketingJobStatusResponse, 'approval' | 'workflowState' | 'stageCards' | 'nextStep'>,
+  status: Pick<
+    GetMarketingJobStatusResponse,
+    'approval' | 'workflowState' | 'stageCards' | 'nextStep' | 'brandReview' | 'strategyReview' | 'creativeReview'
+  >,
   activeView: WorkspaceView,
   campaignId: string,
   publishBlockedReason?: string | null,
 ): GateFallbackState {
   const defaultCopy = DEFAULT_WAITING_COPY[activeView];
-  const approvalView = approvalStepToView(status.approval?.workflowStepId);
-  const blockerView = approvalView || blockerViewFromWorkflowState(status.workflowState);
+  const approvalView = approvedReviewView(status, approvalStepToView(status.approval?.workflowStepId))
+    ? null
+    : approvalStepToView(status.approval?.workflowStepId);
+  const workflowBlockerView = blockerViewFromWorkflowState(status.workflowState);
+  const blockerView = approvalView || (approvedReviewView(status, workflowBlockerView) ? null : workflowBlockerView);
   const activeStageCard = stageCardForView(status.stageCards, activeView);
   const stageSummary = activeStageCard?.summary?.trim() || null;
   const stageHighlight = activeStageCard?.highlight?.trim() || null;
@@ -430,6 +438,29 @@ export function deriveGateFallbackState(
     detail: stageHighlight || nextStepDetail(status.nextStep),
     action: null,
   };
+}
+
+function reviewForView(
+  status: Pick<GetMarketingJobStatusResponse, 'brandReview' | 'strategyReview' | 'creativeReview'>,
+  view: WorkspaceView | null,
+): ReviewStatusPayload | null {
+  if (view === 'brand') {
+    return status.brandReview;
+  }
+  if (view === 'strategy') {
+    return status.strategyReview;
+  }
+  if (view === 'creative') {
+    return status.creativeReview;
+  }
+  return null;
+}
+
+function approvedReviewView(
+  status: Pick<GetMarketingJobStatusResponse, 'brandReview' | 'strategyReview' | 'creativeReview'>,
+  view: WorkspaceView | null,
+): boolean {
+  return reviewForView(status, view)?.status === 'approved';
 }
 
 export function derivePublishSurfaceState(

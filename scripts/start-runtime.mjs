@@ -2,12 +2,15 @@ import { spawn } from 'node:child_process';
 import cluster from 'node:cluster';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const defaultPort = 3000;
 const defaultWebConcurrency = 2;
 const maxNumericWebConcurrency = 64;
 const defaultWorkerMaxRestarts = 5;
 const shutdownTimeoutMs = 10_000;
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(scriptDir, '..');
 const rawPort = process.env.PORT?.trim();
 const parsedPort = rawPort ? Number(rawPort) : defaultPort;
 const isValidPort = Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535;
@@ -226,7 +229,7 @@ function activeWorkerCount() {
 }
 
 function nextCliPath() {
-  return path.join(process.cwd(), 'node_modules', 'next', 'dist', 'bin', 'next');
+  return path.join(projectRoot, 'node_modules', 'next', 'dist', 'bin', 'next');
 }
 
 function registerSignalHandlers(handler) {
