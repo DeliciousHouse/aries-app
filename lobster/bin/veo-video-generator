@@ -95,6 +95,17 @@ def list_or_empty(value) -> list:
     return value if isinstance(value, list) else []
 
 
+def positive_int_from_env(name: str, default: int) -> int:
+    raw_value = os.environ.get(name, str(default)) or str(default)
+    try:
+        parsed = int(raw_value)
+    except ValueError as exc:
+        raise SystemExit(f"quality_gate_failed:veo_video_generator:invalid_parallelism:{raw_value}") from exc
+    if parsed < 1:
+        raise SystemExit(f"quality_gate_failed:veo_video_generator:invalid_parallelism:{raw_value}")
+    return parsed
+
+
 def derive_campaign_id(brand_slug: str, brief: dict) -> str:
     return slugify(
         first_nonempty(
@@ -647,7 +658,7 @@ def main() -> int:
             )
             return {"job": job, "render_result": render_result}
 
-        video_parallelism_cap = int(os.environ.get("LOBSTER_VIDEO_PARALLELISM", "2") or "2")
+        video_parallelism_cap = positive_int_from_env("LOBSTER_VIDEO_PARALLELISM", 2)
         video_parallelism = max(1, min(video_parallelism_cap, len(render_jobs) or 1))
 
         render_outcomes: list[dict] = []

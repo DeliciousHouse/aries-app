@@ -393,6 +393,16 @@ class VeoVideoGeneratorRenderBatchTest(unittest.TestCase):
             run_veo_video_generator_with_fake_renderer(duplicated, renderer)
         self.assertEqual(renderer.calls, [])
 
+    def test_invalid_video_parallelism_fails_before_rendering(self) -> None:
+        renderer = FakeVeoRenderer(release_after=1)
+        with self.assertRaisesRegex(SystemExit, "quality_gate_failed:veo_video_generator:invalid_parallelism:nope"):
+            run_veo_video_generator_with_fake_renderer(
+                smoke_input(),
+                renderer,
+                {"LOBSTER_VIDEO_PARALLELISM": "nope"},
+            )
+        self.assertEqual(renderer.calls, [])
+
 
 if __name__ == "__main__":
     unittest.main()

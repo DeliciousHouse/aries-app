@@ -283,6 +283,16 @@ class AdDesignerBatchGenerationTest(unittest.TestCase):
             )
         self.assertEqual(renderer.calls, [])
 
+    def test_invalid_image_parallelism_fails_before_rendering(self) -> None:
+        renderer = FakeImageRenderer(release_after=1)
+        with self.assertRaisesRegex(SystemExit, "quality_gate_failed:ad_designer:invalid_parallelism:0"):
+            run_ad_designer(
+                ad_designer_input([family("cold-proof", "Cold Proof", "cold")]),
+                renderer,
+                {"LOBSTER_IMAGE_PARALLELISM": "0"},
+            )
+        self.assertEqual(renderer.calls, [])
+
 
 if __name__ == "__main__":
     unittest.main()
