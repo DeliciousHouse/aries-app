@@ -24,6 +24,14 @@ IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".webm", ".m4v"}
 DEFAULT_TIMEOUT_SECONDS = 300
 MAX_MEDIA_BYTES = 200 * 1024 * 1024
+ASPECT_RATIO_ALIASES = {
+    "square": "1:1",
+    "portrait": "9:16",
+    "vertical": "9:16",
+    "landscape": "16:9",
+    "horizontal": "16:9",
+}
+SUPPORTED_ASPECT_RATIOS = {"1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"}
 
 
 class MediaGatewayError(RuntimeError):
@@ -276,13 +284,25 @@ def extract_media_locator(result: dict[str, Any], *, expected_kind: str) -> str:
     raise MediaGatewayError("missing_media_locator")
 
 
+def _normalized_aspect_ratio(value: str) -> str:
+    cleaned = (value or "").strip().lower()
+    normalized = ASPECT_RATIO_ALIASES.get(cleaned, cleaned)
+    if normalized in SUPPORTED_ASPECT_RATIOS:
+        return normalized
+    return "4:5"
+
+
 def generate_image(prompt: str, destination: Path, *, aspect_ratio: str) -> dict[str, Any]:
+    normalized_aspect_ratio = _normalized_aspect_ratio(aspect_ratio)
     args = {
         "prompt": prompt,
-        "aspect_ratio": aspect_ratio,
-        "aspectRatio": aspect_ratio,
+        "aspect_ratio": normalized_aspect_ratio,
+        "aspectRatio": normalized_aspect_ratio,
         "resolution": os.environ.get("LOBSTER_IMAGE_RESOLUTION", "1K"),
     }
+    model = (os.environ.get("LOBSTER_GATEWAY_IMAGE_MODEL") or os.environ.get("OPENCLAW_IMAGE_GENERATION_MODEL") or "").strip()
+    if model:
+        args["model"] = model
     result = invoke_media_tool("image_generate", args, prompt=prompt, timeout_seconds=300)
     locator = extract_media_locator(result, expected_kind="image")
     copy_gateway_media_to_destination(locator, destination, expected_kind="image")
@@ -300,15 +320,20 @@ def generate_image(prompt: str, destination: Path, *, aspect_ratio: str) -> dict
 
 
 def generate_video(prompt: str, destination: Path, *, aspect_ratio: str, duration_seconds: int, model: str | None = None) -> dict[str, Any]:
+    normalized_aspect_ratio = _normalized_aspect_ratio(aspect_ratio)
     args = {
         "prompt": prompt,
-        "aspect_ratio": aspect_ratio,
-        "aspectRatio": aspect_ratio,
+        "aspect_ratio": normalized_aspect_ratio,
+        "aspectRatio": normalized_aspect_ratio,
         "duration_seconds": duration_seconds,
         "durationSeconds": duration_seconds,
     }
     if model:
         args["model"] = model
+    else:
+        configured_model = (os.environ.get("LOBSTER_GATEWAY_VIDEO_MODEL") or os.environ.get("OPENCLAW_VIDEO_GENERATION_MODEL") or "").strip()
+        if configured_model:
+            args["model"] = configured_model
     result = invoke_media_tool("video_generate", args, prompt=prompt, timeout_seconds=int(os.environ.get("LOBSTER_VIDEO_GATEWAY_TIMEOUT_SECONDS", "900")))
     locator = extract_media_locator(result, expected_kind="video")
     copy_gateway_media_to_destination(locator, destination, expected_kind="video")

@@ -590,7 +590,7 @@ def run_veo_render(
                 destination,
                 aspect_ratio=_veo_aspect_to_flag(aspect_ratio),
                 duration_seconds=_veo_duration_for(duration_seconds),
-                model=resolved_model,
+                model=(os.environ.get("LOBSTER_GATEWAY_VIDEO_MODEL") or os.environ.get("OPENCLAW_VIDEO_GENERATION_MODEL") or "").strip() or None,
             )
         except MediaGatewayError as exc:
             if strict_gateway_mode():

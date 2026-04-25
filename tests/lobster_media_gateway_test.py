@@ -81,6 +81,23 @@ class OpenClawMediaGatewayTests(unittest.TestCase):
                 result = stage4.run_veo_render("prompt", destination, "9:16", 8)
         self.assertEqual(result["provider"], "openclaw_media_gateway")
         generate_gateway_video.assert_called_once()
+        self.assertIsNone(generate_gateway_video.call_args.kwargs.get("model"))
+
+    def test_gateway_video_model_uses_gateway_specific_override(self):
+        stage4 = importlib.import_module("_stage4_common")
+        with tempfile.TemporaryDirectory() as tempdir:
+            destination = Path(tempdir) / "video.mp4"
+            with patched_env(
+                GEMINI_API_KEY="***",
+                LOBSTER_VIDEO_RENDER_ENABLED="1",
+                LOBSTER_MEDIA_GATEWAY_ENABLED="1",
+                LOBSTER_GATEWAY_VIDEO_MODEL="openai/sora-2",
+                OPENCLAW_GATEWAY_URL="https://gateway.example.test",
+                OPENCLAW_GATEWAY_TOKEN="***",
+            ), mock.patch.object(stage4, "generate_gateway_video") as generate_gateway_video:
+                generate_gateway_video.return_value = {"executed": True, "status": "ok", "provider": "openclaw_media_gateway"}
+                stage4.run_veo_render("prompt", destination, "9:16", 8)
+        self.assertEqual(generate_gateway_video.call_args.kwargs.get("model"), "openai/sora-2")
 
     def test_gateway_requested_without_url_token_fails_closed_for_image(self):
         stage4 = importlib.import_module("_stage4_common")
@@ -203,6 +220,32 @@ class OpenClawMediaGatewayTests(unittest.TestCase):
         self.assertIn('"tool": "image_generate"', captured["body"])
         self.assertIn('"sessionKey": "media-session"', captured["body"])
         self.assertEqual(result["paths"], ["/tmp/generated.png"])
+
+    def test_gateway_generation_normalizes_human_aspect_aliases(self):
+        gateway = importlib.import_module("_openclaw_media_gateway")
+        with tempfile.TemporaryDirectory() as tempdir:
+            destination = Path(tempdir) / "image.png"
+            with mock.patch.object(gateway, "invoke_media_tool") as invoke_media_tool, mock.patch.object(
+                gateway, "copy_gateway_media_to_destination"
+            ) as copy_gateway_media_to_destination:
+                invoke_media_tool.return_value = {"paths": ["/tmp/generated.png"]}
+                gateway.generate_image("prompt", destination, aspect_ratio="square")
+        invoke_media_tool.assert_called_once()
+        args = invoke_media_tool.call_args.args[1]
+        self.assertEqual(args["aspect_ratio"], "1:1")
+        self.assertEqual(args["aspectRatio"], "1:1")
+        copy_gateway_media_to_destination.assert_called_once()
+
+    def test_gateway_image_model_uses_gateway_specific_override(self):
+        gateway = importlib.import_module("_openclaw_media_gateway")
+        with tempfile.TemporaryDirectory() as tempdir:
+            destination = Path(tempdir) / "image.png"
+            with patched_env(LOBSTER_GATEWAY_IMAGE_MODEL="openai/gpt-image-2"), mock.patch.object(
+                gateway, "invoke_media_tool"
+            ) as invoke_media_tool, mock.patch.object(gateway, "copy_gateway_media_to_destination"):
+                invoke_media_tool.return_value = {"paths": ["/tmp/generated.png"]}
+                gateway.generate_image("prompt", destination, aspect_ratio="4:5")
+        self.assertEqual(invoke_media_tool.call_args.args[1]["model"], "openai/gpt-image-2")
 
 
 if __name__ == "__main__":
