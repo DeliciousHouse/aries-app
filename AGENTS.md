@@ -15,7 +15,9 @@ This repository is for `aries-app` only.
 ## Authority
 
 - Brendan is the final decision-maker.
-- Make low-risk, reversible `aries-app` changes directly.
+- Make low-risk, reversible `aries-app` changes without prior escalation, but still use the normal branch/PR process.
+- Push local work when it is ready for review, but never push directly to `master`.
+- Every pushed branch must have a corresponding pull request created before the task is considered complete.
 - Escalate high-risk, destructive, expensive, or scope-changing changes before acting.
 
 ## Truth order
