@@ -44,7 +44,9 @@ Stage-3 behavior:
 - Wrappers cache step JSON and text artifacts under `/tmp/lobster-stage3-cache/<run_id>/`.
 - `creative-director --mode preflight` converts the Stage-2 `strategy_handoff` into a production brief.
 - `creative-director --mode finalize` compiles a production handoff from cached stage-3 artifacts after review approval, including static contract handoffs for stage 4 rendering/publishing.
+- `ad-designer` renders the platform × family static creative matrix concurrently. `LOBSTER_IMAGE_PARALLELISM` caps image render worker threads and defaults to `6`.
 - `veo-video-generator` now defaults to contract-generation-only: it writes a master video contract, platform index, eight normalized platform contracts, and per-platform creative briefs under `output/video-contracts/<campaign_id>/`, but does not render media.
+- When `LOBSTER_VIDEO_RENDER_ENABLED=1` opens the video render gate, `veo-video-generator` dispatches Veo render jobs concurrently by supported render aspect and family. `LOBSTER_VIDEO_PARALLELISM` caps Veo render worker threads and defaults to `2`.
 
 Implemented locally for stage 4:
 - performance-marketer
