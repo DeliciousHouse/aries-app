@@ -46,7 +46,14 @@ Stage-3 behavior:
 - `creative-director --mode finalize` compiles a production handoff from cached stage-3 artifacts after review approval, including static contract handoffs for stage 4 rendering/publishing.
 - `ad-designer` renders the platform × family static creative matrix concurrently. `LOBSTER_IMAGE_PARALLELISM` caps image render worker threads and defaults to `6`.
 - `veo-video-generator` now defaults to contract-generation-only: it writes a master video contract, platform index, eight normalized platform contracts, and per-platform creative briefs under `output/video-contracts/<campaign_id>/`, but does not render media.
-- When `LOBSTER_VIDEO_RENDER_ENABLED=1` opens the video render gate, `veo-video-generator` dispatches Veo render jobs concurrently by supported render aspect and family. `LOBSTER_VIDEO_PARALLELISM` caps Veo render worker threads and defaults to `2`.
+- When `LOBSTER_MEDIA_GATEWAY_ENABLED=1` and `OPENCLAW_GATEWAY_URL` / `OPENCLAW_GATEWAY_TOKEN` are set, `ad-designer` and `veo-video-generator` route Stage-3/4 media generation through the OpenClaw gateway tools instead of calling provider APIs directly:
+  - images use OpenClaw `image_generate` and preserve the existing `image_path` / `nano_banana` artifact shape;
+  - videos use OpenClaw `video_generate` and preserve the existing video output path shape;
+  - OpenClaw owns provider selection and OAuth/subscription-backed auth such as OpenAI Codex image/video subscriptions and Gemini CLI OAuth.
+- Gateway media mode is fail-closed by default. If the gateway is enabled but `image_generate` / `video_generate` fails, Lobster records/raises the gateway failure rather than silently falling back to direct Gemini/Veo. For local development only, set `LOBSTER_MEDIA_GATEWAY_ALLOW_DIRECT_FALLBACK=1` to allow direct legacy fallback when `GEMINI_API_KEY` is also present.
+- Gateway media mode also routes non-SVG image text QA through OpenClaw's `image` vision tool when direct `GEMINI_API_KEY` is unavailable, so generated image safety checks can use the same gateway-owned OAuth/provider configuration.
+- Gateway-returned local media paths are copied only from allowlisted shared roots. Set `LOBSTER_MEDIA_GATEWAY_SHARED_ROOTS` to a colon-separated root list when Aries and OpenClaw share a filesystem; otherwise prefer gateway-returned HTTPS media URLs and optionally restrict them with `LOBSTER_MEDIA_GATEWAY_ALLOWED_HOSTS`.
+- When `LOBSTER_VIDEO_RENDER_ENABLED=1` opens the video render gate, `veo-video-generator` dispatches render jobs concurrently by supported render aspect and family. `LOBSTER_VIDEO_PARALLELISM` caps render worker threads and defaults to `2`.
 
 Implemented locally for stage 4:
 - performance-marketer

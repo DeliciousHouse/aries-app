@@ -21,6 +21,14 @@ from typing import Any
 from _canonical_outputs import write_stage_log
 from _brand_tokens import brand_direction_lines
 from _marketing_profile_common import contains_wrapper_language, normalize_space
+from _openclaw_media_gateway import (
+    MediaGatewayError,
+    generate_image as generate_gateway_image,
+    generate_video as generate_gateway_video,
+    invoke_media_tool,
+    media_gateway_requested,
+    strict_gateway_mode,
+)
 
 
 def safe_path_exists(candidate: str | Path) -> bool:
@@ -282,11 +290,28 @@ def aspect_ratio_to_flag(value: str) -> str:
 
 
 def nano_banana_enabled() -> bool:
-    return bool(os.environ.get("GEMINI_API_KEY", "").strip())
+    return media_gateway_requested() or bool(os.environ.get("GEMINI_API_KEY", "").strip())
 
 
 def run_nano_banana(prompt: str, destination: Path, aspect_ratio: str) -> dict:
     destination.parent.mkdir(parents=True, exist_ok=True)
+    if media_gateway_requested():
+        try:
+            return generate_gateway_image(prompt, destination, aspect_ratio=aspect_ratio_to_flag(aspect_ratio))
+        except MediaGatewayError as exc:
+            if strict_gateway_mode():
+                return {
+                    "executed": False,
+                    "status": type(exc).__name__,
+                    "stdout": "",
+                    "stderr": str(exc),
+                    "returncode": None,
+                    "command": ["openclaw", "image_generate"],
+                    "output_path": str(destination),
+                    "provider": "openclaw_media_gateway",
+                }
+            sys.stderr.write(f"[openclaw-media-gateway] image fallback after gateway failure: {str(exc)[:300]}\n")
+            sys.stderr.flush()
     use_script = safe_path_exists(NANO_BANANA_SCRIPT) and shutil.which("uv")
     if use_script:
         command = [
@@ -423,9 +448,9 @@ VEO_MAX_ATTEMPTS = 2
 
 
 def veo_render_enabled() -> bool:
-    if not os.environ.get("GEMINI_API_KEY", "").strip():
+    if not os.environ.get("LOBSTER_VIDEO_RENDER_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}:
         return False
-    return os.environ.get("LOBSTER_VIDEO_RENDER_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
+    return media_gateway_requested() or bool(os.environ.get("GEMINI_API_KEY", "").strip())
 
 
 def _veo_aspect_to_flag(aspect_ratio: str) -> str:
@@ -558,6 +583,20 @@ def run_veo_render(
     """
     resolved_model = (model or os.environ.get("LOBSTER_VIDEO_MODEL") or VEO_MODEL_DEFAULT).strip() or VEO_MODEL_DEFAULT
     destination.parent.mkdir(parents=True, exist_ok=True)
+    if media_gateway_requested():
+        try:
+            return generate_gateway_video(
+                prompt,
+                destination,
+                aspect_ratio=_veo_aspect_to_flag(aspect_ratio),
+                duration_seconds=_veo_duration_for(duration_seconds),
+                model=resolved_model,
+            )
+        except MediaGatewayError as exc:
+            if strict_gateway_mode():
+                raise RuntimeError(f"video_generation_failed:{destination.stem}:media_gateway:{str(exc)[:200]}") from exc
+            sys.stderr.write(f"[openclaw-media-gateway] video fallback after gateway failure: {str(exc)[:300]}\n")
+            sys.stderr.flush()
     last_error: dict | None = None
     for attempt in range(1, VEO_MAX_ATTEMPTS + 1):
         sys.stderr.write(
@@ -642,9 +681,54 @@ def extract_svg_text(image_path: Path) -> list[str]:
     return [normalize_space(match.group(1)) for match in re.finditer(r"<text\b[^>]*>(.*?)</text>", text, flags=re.IGNORECASE | re.DOTALL) if normalize_space(match.group(1))]
 
 
+def ocr_image_text_with_gateway(image_path: Path) -> list[str]:
+    prompt = (
+        "Read any visible marketing text in this image. Return strict JSON only "
+        "in the shape {\"lines\":[\"text line 1\",\"text line 2\"]}. Do not summarize."
+    )
+    details = invoke_media_tool(
+        "image",
+        {
+            "image": str(image_path),
+            "prompt": prompt,
+            "maxImages": 1,
+            "maxBytesMb": 20,
+        },
+        prompt=prompt,
+        timeout_seconds=120,
+    )
+    raw_text_parts: list[str] = []
+    content = details.get("content")
+    if isinstance(content, list):
+        for part in content:
+            if isinstance(part, dict) and isinstance(part.get("text"), str):
+                raw_text_parts.append(part["text"])
+            elif isinstance(part, str):
+                raw_text_parts.append(part)
+    for key in ("text", "output", "result"):
+        if isinstance(details.get(key), str):
+            raw_text_parts.append(details[key])
+    raw_text = "\n".join(raw_text_parts)
+    if not raw_text.strip():
+        return []
+    match = re.search(r"\{.*\}", raw_text, flags=re.DOTALL)
+    if not match:
+        return []
+    lines_payload = json.loads(match.group(0))
+    lines = lines_payload.get("lines", [])
+    if not isinstance(lines, list):
+        return []
+    return [normalize_space(line) for line in lines if normalize_space(line)]
+
+
 def ocr_image_text_with_gemini(image_path: Path) -> list[str]:
     api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not api_key:
+        if media_gateway_requested():
+            try:
+                return ocr_image_text_with_gateway(image_path)
+            except MediaGatewayError as exc:
+                raise RuntimeError(f"image_text_qa_unavailable:media_gateway:{str(exc)[:200]}") from exc
         raise RuntimeError("image_text_qa_unavailable:gemini_api_key_missing")
     request_body = {
         "contents": [
