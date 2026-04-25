@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
+import io
 import json
 import os
+import runpy
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
@@ -98,6 +103,140 @@ def smoke_input() -> dict:
     }
 
 
+@contextmanager
+def temporary_cwd(path: Path):
+    previous = Path.cwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(previous)
+
+
+class FakeVeoRenderer:
+    def __init__(self, release_after: int) -> None:
+        self.release_after = release_after
+        self.condition = threading.Condition()
+        self.active = 0
+        self.started = 0
+        self.max_active = 0
+        self.calls: list[dict] = []
+
+    def __call__(
+        self,
+        prompt: str,
+        destination: Path,
+        aspect_ratio: str,
+        duration_seconds: int,
+        model: str | None = None,
+    ) -> dict:
+        with self.condition:
+            self.active += 1
+            self.started += 1
+            self.max_active = max(self.max_active, self.active)
+            call = {
+                "prompt": prompt,
+                "destination": str(destination),
+                "aspect_ratio": aspect_ratio,
+                "duration_seconds": duration_seconds,
+                "model": model,
+            }
+            self.calls.append(call)
+            self.condition.notify_all()
+            released = self.condition.wait_for(lambda: self.started >= self.release_after, timeout=5.0)
+            if not released:
+                self.active -= 1
+                self.condition.notify_all()
+                raise AssertionError(
+                    f"Timed out waiting for {self.release_after} concurrent video renders; "
+                    f"only {self.started} started"
+                )
+        try:
+            # Make completion order differ from submission order so the script's
+            # post-processing sort has to provide deterministic output.
+            if aspect_ratio == "9:16" and "Warm Proof" not in prompt:
+                time.sleep(0.03)
+            elif aspect_ratio == "9:16":
+                time.sleep(0.02)
+            elif "Warm Proof" not in prompt:
+                time.sleep(0.01)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(f"fake veo mp4 {destination.name}".encode("utf-8"))
+            return {
+                "executed": True,
+                "status": "fake_ok",
+                "stdout": "",
+                "stderr": "",
+                "returncode": 0,
+                "command": [model or "fake-veo"],
+                "output_path": str(destination),
+                "provider": "fake_veo",
+                "operation_name": f"fake/{destination.stem}",
+            }
+        finally:
+            with self.condition:
+                self.active -= 1
+                self.condition.notify_all()
+
+
+def run_veo_video_generator_with_fake_renderer(
+    payload: dict,
+    renderer: FakeVeoRenderer,
+    env_overrides: dict[str, str] | None = None,
+) -> dict:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        workdir = Path(temp_dir) / "lobster-workdir"
+        data_root = Path(temp_dir) / "data-root"
+        cache_root = Path(temp_dir) / "stage3-cache"
+        workdir.mkdir()
+        env = {
+            "DATA_ROOT": str(data_root),
+            "LOBSTER_STAGE3_CACHE_DIR": str(cache_root),
+            "GEMINI_API_KEY": "fake-key-no-network",
+            "LOBSTER_VIDEO_RENDER_ENABLED": "1",
+            "LOBSTER_VIDEO_PARALLELISM": "3",
+        }
+        if env_overrides:
+            env.update(env_overrides)
+        with temporary_cwd(workdir), patch.dict(os.environ, env, clear=False):
+            namespace = runpy.run_path(str(VEO_VIDEO_GENERATOR), run_name="__veo_video_generator_batch_test__")
+            namespace["main"].__globals__["run_veo_render"] = renderer
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with (
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        str(VEO_VIDEO_GENERATOR),
+                        "--json",
+                        "--brand-slug",
+                        "acme-brand",
+                        "--job-id",
+                        "job-render-123",
+                    ],
+                ),
+                patch.object(sys, "stdin", io.StringIO(json.dumps(payload))),
+                patch.object(sys, "stdout", stdout),
+                patch.object(sys, "stderr", stderr),
+            ):
+                result = namespace["main"]()
+            if result != 0:
+                raise AssertionError(f"veo-video-generator returned non-zero status {result}: {stderr.getvalue()}")
+            parsed = json.loads(stdout.getvalue())
+            parsed["_stderr"] = stderr.getvalue()
+            parsed["_video_paths_exist"] = {
+                variant["video_path"]: Path(variant["video_path"]).exists()
+                for platform in parsed.get("video_assets", {}).get("platform_contracts", [])
+                for variant in platform.get("rendered_video_variants", [])
+            }
+            parsed["_platform_contract_payloads"] = {
+                platform["contract_path"]: json.loads(Path(platform["contract_path"]).read_text(encoding="utf-8"))
+                for platform in parsed.get("video_assets", {}).get("platform_contracts", [])
+            }
+            return parsed
+
+
 class VideoVariantOutputPathsTest(unittest.TestCase):
     def test_job_scoped_paths_use_data_root(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -189,6 +328,85 @@ class VeoVideoGeneratorSmokeTest(unittest.TestCase):
                     contract_payload["rendered_video_paths_by_family"],
                     platform["rendered_video_paths_by_family"],
                 )
+
+
+class VeoVideoGeneratorRenderBatchTest(unittest.TestCase):
+    def test_render_enabled_uses_parallelism_and_returns_complete_platform_family_matrix(self) -> None:
+        renderer = FakeVeoRenderer(release_after=3)
+        payload = run_veo_video_generator_with_fake_renderer(smoke_input(), renderer)
+
+        self.assertIn("with parallelism=3", payload["_stderr"])
+        self.assertEqual(renderer.max_active, 3)
+        self.assertEqual(len(renderer.calls), 4)
+
+        video_assets = payload["video_assets"]
+        self.assertEqual(video_assets["render_status"], "rendered")
+        rendered_videos = video_assets["rendered_videos"]
+        self.assertEqual(
+            [(entry["aspect_ratio"], entry["family_id"]) for entry in rendered_videos],
+            [
+                ("9:16", "cold-proof"),
+                ("9:16", "warm-proof"),
+                ("16:9", "cold-proof"),
+                ("16:9", "warm-proof"),
+            ],
+        )
+
+        platforms = video_assets["platform_contracts"]
+        self.assertEqual(
+            [platform["platform_slug"] for platform in platforms],
+            [
+                "youtube-shorts",
+                "tiktok",
+                "instagram-reels",
+                "instagram-feed-video",
+                "youtube-longform",
+                "stories",
+                "linkedin-video",
+                "x-video",
+            ],
+        )
+
+        all_pairs: list[tuple[str, str]] = []
+        for platform in platforms:
+            contract_payload = payload["_platform_contract_payloads"][platform["contract_path"]]
+            platform_slug = platform["platform_slug"]
+            expected_aspect_ratio = contract_payload["platform_requirements"]["aspect_ratio"]
+            variants = platform["rendered_video_variants"]
+            self.assertEqual([variant["family_id"] for variant in variants], ["cold-proof", "warm-proof"])
+            self.assertEqual(set(platform["rendered_video_paths_by_family"].keys()), {"cold-proof", "warm-proof"})
+            self.assertEqual(len(variants), 2)
+            for variant in variants:
+                pair = (platform_slug, variant["family_id"])
+                all_pairs.append(pair)
+                self.assertEqual(variant["platform_slug"], platform_slug)
+                self.assertEqual(variant["aspect_ratio"], expected_aspect_ratio)
+                self.assertTrue(payload["_video_paths_exist"][variant["video_path"]], variant["video_path"])
+                self.assertEqual(
+                    contract_payload["rendered_video_paths_by_family"][variant["family_id"]],
+                    variant["video_path"],
+                )
+        self.assertEqual(len(all_pairs), 16)
+        self.assertEqual(len(all_pairs), len(set(all_pairs)))
+
+    def test_duplicate_video_family_ids_fail_before_rendering(self) -> None:
+        duplicated = json.loads(json.dumps(smoke_input()))
+        duplicated["production_brief"]["testing_matrix"]["video"]["warm_funnel"][0]["family_id"] = "cold-proof"
+        renderer = FakeVeoRenderer(release_after=1)
+
+        with self.assertRaisesRegex(SystemExit, "quality_gate_failed:video_families:duplicate_family_id:cold-proof"):
+            run_veo_video_generator_with_fake_renderer(duplicated, renderer)
+        self.assertEqual(renderer.calls, [])
+
+    def test_invalid_video_parallelism_fails_before_rendering(self) -> None:
+        renderer = FakeVeoRenderer(release_after=1)
+        with self.assertRaisesRegex(SystemExit, "quality_gate_failed:veo_video_generator:invalid_parallelism:nope"):
+            run_veo_video_generator_with_fake_renderer(
+                smoke_input(),
+                renderer,
+                {"LOBSTER_VIDEO_PARALLELISM": "nope"},
+            )
+        self.assertEqual(renderer.calls, [])
 
 
 if __name__ == "__main__":

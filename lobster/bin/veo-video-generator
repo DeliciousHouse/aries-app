@@ -95,6 +95,17 @@ def list_or_empty(value) -> list:
     return value if isinstance(value, list) else []
 
 
+def positive_int_from_env(name: str, default: int) -> int:
+    raw_value = os.environ.get(name, str(default)) or str(default)
+    try:
+        parsed = int(raw_value)
+    except ValueError as exc:
+        raise SystemExit(f"quality_gate_failed:veo_video_generator:invalid_parallelism:{raw_value}") from exc
+    if parsed < 1:
+        raise SystemExit(f"quality_gate_failed:veo_video_generator:invalid_parallelism:{raw_value}")
+    return parsed
+
+
 def derive_campaign_id(brand_slug: str, brief: dict) -> str:
     return slugify(
         first_nonempty(
@@ -203,8 +214,12 @@ def planned_video_families(brief: dict, master_contract: dict) -> list[dict]:
         ]
 
     planned: list[dict] = []
+    seen_family_ids: set[str] = set()
     for family_index, family in enumerate(selected_families):
         family_id = slugify(str(family.get("family_id") or f"family-{family_index}"), f"family-{family_index}")
+        if family_id in seen_family_ids:
+            raise SystemExit(f"quality_gate_failed:video_families:duplicate_family_id:{family_id}")
+        seen_family_ids.add(family_id)
         planned.append(
             {
                 **family,
@@ -616,8 +631,10 @@ def main() -> int:
                         cwd=Path.cwd(),
                     )["video_file"]
                 )
+                job_index = len(render_jobs)
                 render_jobs.append(
                     {
+                        "job_index": job_index,
                         "aspect_ratio": aspect_ratio,
                         "platforms": platforms,
                         "representative": representative,
@@ -641,7 +658,7 @@ def main() -> int:
             )
             return {"job": job, "render_result": render_result}
 
-        video_parallelism_cap = int(os.environ.get("LOBSTER_VIDEO_PARALLELISM", "2") or "2")
+        video_parallelism_cap = positive_int_from_env("LOBSTER_VIDEO_PARALLELISM", 2)
         video_parallelism = max(1, min(video_parallelism_cap, len(render_jobs) or 1))
 
         render_outcomes: list[dict] = []
@@ -670,10 +687,10 @@ def main() -> int:
         # Post-process: mirror each rendered mp4 to all platforms sharing its
         # aspect ratio, tagged with family_id. Done sequentially after all
         # renders succeed so we never mirror a partial file. Order the
-        # outcomes by (aspect_ratio, family_index) so rendered_videos follows
-        # the same order as the original nested-loop output — downstream
-        # consumers that assumed cold-before-warm ordering still see it.
-        render_outcomes.sort(key=lambda o: (o["job"]["aspect_ratio"], o["job"]["family_index"]))
+        # outcomes by the original render-job index so rendered_videos is
+        # deterministic and independent of whichever concurrent Veo job
+        # finishes first.
+        render_outcomes.sort(key=lambda o: o["job"]["job_index"])
         for outcome in render_outcomes:
             job = outcome["job"]
             render_result = outcome["render_result"]
@@ -704,7 +721,8 @@ def main() -> int:
                     {
                         "platform": platform_config["platform"],
                         "platform_slug": platform_slug,
-                        "aspect_ratio": job["aspect_ratio"],
+                        "aspect_ratio": platform_config["aspect_ratio"],
+                        "render_aspect_ratio": job["aspect_ratio"],
                         "family_id": job["family_id"],
                         "video_path": str(tagged_target),
                         "poster_path": output_paths["poster_file"],

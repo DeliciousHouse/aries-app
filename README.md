@@ -247,6 +247,9 @@ docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml
 
 ### Common optional variables
 
+- `ARIES_PROCESS_MANAGER` (`cluster` by default; set `node` for one-process rollback)
+- `ARIES_WEB_CONCURRENCY` (`2` by default; positive integer or `max`)
+- `DB_POOL_MAX` (`20` by default, per worker)
 - `AUTH_TRUST_HOST`
 - `OPENCLAW_SESSION_KEY`
 - `OPENCLAW_GATEWAY_LOBSTER_CWD`

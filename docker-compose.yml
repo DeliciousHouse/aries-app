@@ -10,7 +10,11 @@ services:
     environment:
       HOME: /home/node
       NODE_ENV: production
+      ARIES_PROCESS_MANAGER: ${ARIES_PROCESS_MANAGER:-cluster}
+      ARIES_WEB_CONCURRENCY: ${ARIES_WEB_CONCURRENCY:-2}
+      ARIES_WORKER_MAX_RESTARTS: ${ARIES_WORKER_MAX_RESTARTS:-5}
       PORT: ${PORT:-3000}
+      HOST: 0.0.0.0
       CODE_ROOT: /app
       DATA_ROOT: /data
       GEMINI_API_KEY: ${GEMINI_API_KEY}
@@ -21,6 +25,7 @@ services:
       # from .env. Compose owns service discovery; .env only holds credentials.
       DB_HOST: postgres
       DB_PORT: 5432
+      DB_POOL_MAX: ${DB_POOL_MAX:-20}
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: ${DB_NAME}
