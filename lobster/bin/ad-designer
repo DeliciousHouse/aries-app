@@ -28,6 +28,28 @@ def _meta_families(brief: dict) -> list[dict]:
     return families
 
 
+def _family_identifier(index: int, family: dict) -> str:
+    return str(family.get("family_id") or family.get("family_name") or f"family-{index + 1}")
+
+
+def _validate_unique_family_ids(families: list[dict]) -> None:
+    seen: dict[str, int] = {}
+    for index, family in enumerate(families):
+        family_id = _family_identifier(index, family)
+        if family_id in seen:
+            raise SystemExit(f"quality_gate_failed:ad_designer:duplicate_family_id:{family_id}")
+        seen[family_id] = index
+
+
+def _validate_unique_output_stems(tasks: list[dict]) -> None:
+    seen: dict[str, int] = {}
+    for index, task in enumerate(tasks):
+        output_stem = str(task.get("output_stem") or "")
+        if output_stem in seen:
+            raise SystemExit(f"quality_gate_failed:ad_designer:duplicate_output_stem:{output_stem}")
+        seen[output_stem] = index
+
+
 def _family_contract(
     family: dict,
     cta: str,
@@ -129,6 +151,7 @@ def main() -> int:
     ad_images_dir = paths["ad_images_dir"]
 
     families = _meta_families(brief)
+    _validate_unique_family_ids(families)
 
     PLATFORM_IMAGE_MATRIX = [
         {"platform_slug": "meta-ads",      "platform_label": "Meta Feed",       "aspect_ratio": "4:5"},
@@ -138,7 +161,7 @@ def main() -> int:
     ]
 
     def _family_slug_for(index: int, family: dict) -> str:
-        raw_family_id = str(family.get("family_id") or family.get("family_name") or f"family-{index + 1}")
+        raw_family_id = _family_identifier(index, family)
         slug = slugify(raw_family_id)
         if slug.startswith("meta-"):
             slug = slug[len("meta-"):]
@@ -147,6 +170,7 @@ def main() -> int:
         return slug or f"family-{index + 1}"
 
     def _build_task(index: int, family: dict, platform: dict) -> dict:
+        family_id = _family_identifier(index, family)
         family_slug = _family_slug_for(index, family)
         platform_slug = platform["platform_slug"]
         contract = _family_contract(
@@ -164,8 +188,8 @@ def main() -> int:
             "platform_label": platform["platform_label"],
             "aspect_ratio": platform["aspect_ratio"],
             "family": family,
-            "family_id": str(family.get("family_id") or family.get("family_name") or f"family-{index + 1}"),
-            "family_name": str(family.get("family_name") or family.get("family_id") or f"Family {index + 1}"),
+            "family_id": family_id,
+            "family_name": str(family.get("family_name") or family_id),
             "funnel_stage": str(family.get("funnel_stage") or "cold"),
             "family_slug": family_slug,
             "output_stem": f"{platform_slug}-{family_slug}",
@@ -181,9 +205,9 @@ def main() -> int:
             "platform_slug": task["platform_slug"],
             "platform_label": task["platform_label"],
             "aspect_ratio": task["aspect_ratio"],
-            "family_id": task["family"].get("family_id", task["family_slug"]),
-            "family_name": task["family"].get("family_name", task["family_name"]),
-            "funnel_stage": task["family"].get("funnel_stage", "cold"),
+            "family_id": task["family_id"],
+            "family_name": task["family_name"],
+            "funnel_stage": task["funnel_stage"],
             "image_path": asset["image_path"],
             "image_kind": asset["image_kind"],
             "nano_banana": asset["nano_banana"],
@@ -198,6 +222,7 @@ def main() -> int:
     for family_index, family in enumerate(families):
         for platform in PLATFORM_IMAGE_MATRIX:
             all_tasks.append(_build_task(family_index, family, platform))
+    _validate_unique_output_stems(all_tasks)
 
     parallelism_cap = int(os.environ.get("LOBSTER_IMAGE_PARALLELISM", "6") or "6")
     parallelism = max(1, min(parallelism_cap, len(all_tasks) or 1))
