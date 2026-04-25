@@ -9,7 +9,7 @@
 ## Deployment contract
 - Application code is baked into the image and mounted internally at `/app`.
 - Writable runtime data lives under `/data` only.
-- Production runtime uses Docker named volumes for `/data`.
+- Production Compose mounts `/data` from `${ARIES_SHARED_DATA_ROOT:-/home/node/data}` so Lobster caches and generated assets survive container replacement.
 - Source bind mounts are development-only.
 
 ## Production release
@@ -29,6 +29,7 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml build
 - `ARIES_APP_IMAGE` (optional image/tag override, default: `aries-app:local`)
 - `ARIES_PROCESS_MANAGER` (optional; default `cluster`, set `node` for one-process rollback)
 - `ARIES_WEB_CONCURRENCY` (optional; default `2`, accepts a positive integer or `max`)
+- `ARIES_WORKER_MAX_RESTARTS` (optional; default `5`, exits the container if all workers exceed the restart cap)
 - `DB_POOL_MAX` (optional; default `20` per worker)
 - `OPENCLAW_GATEWAY_URL`
 - `OPENCLAW_GATEWAY_TOKEN`
@@ -71,6 +72,9 @@ Tuning knobs:
   worker count aggressively on a database with tight `max_connections`.
 - `ARIES_PROCESS_MANAGER=node` is the emergency rollback path. It keeps the same
   image and runs a single `next start` process on `${PORT:-3000}`.
+- `ARIES_WORKER_MAX_RESTARTS=5` caps per-worker crash restarts. If every worker
+  exceeds the cap, PID 1 exits so Docker can restart the container instead of
+  leaving an unhealthy cluster primary alive.
 - Each worker gets `APP_INSTANCE_ID`, which appears in the pg `application_name`
   as `aries-app:<id>` for connection debugging.
 

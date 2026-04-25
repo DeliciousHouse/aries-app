@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
@@ -21,6 +22,9 @@ test('production runtime uses native Node cluster workers by default', () => {
   assert.match(startRuntime, /defaultWebConcurrency = 2/, 'default worker count should be at least two');
   assert.match(startRuntime, /cluster\.setupPrimary\(\{[\s\S]*exec: nextCliPath\(\),[\s\S]*args: \['start', '-p', String\(parsedPort\)\]/);
   assert.match(startRuntime, /cluster\.fork\(\{[\s\S]*APP_INSTANCE_ID: String\(instanceId\)/, 'each worker should get an APP_INSTANCE_ID');
+  assert.match(startRuntime, /ARIES_WORKER_MAX_RESTARTS/, 'worker restart attempts should be capped');
+  assert.match(startRuntime, /workerRestartCounts/, 'cluster restarts should be tracked per worker instance');
+  assert.match(startRuntime, /process\.exit\(1\)/, 'cluster primary should fail when all workers exceed the restart cap');
   assert.match(startRuntime, /ARIES_WEB_CONCURRENCY/, 'worker count should be tunable without rebuilding the image');
   assert.match(startRuntime, /WEB_CONCURRENCY/, 'generic WEB_CONCURRENCY should be accepted outside Compose');
   assert.match(startRuntime, /ARIES_PROCESS_MANAGER/, 'runtime should expose a process-manager rollback knob');
@@ -62,6 +66,11 @@ test('compose config exposes worker and pool knobs while preserving one upstream
   );
   assert.match(
     baseAriesApp![0],
+    /ARIES_WORKER_MAX_RESTARTS: \$\{ARIES_WORKER_MAX_RESTARTS:-5\}/,
+    'production compose should cap crash restarts before Docker restarts the container',
+  );
+  assert.match(
+    baseAriesApp![0],
     /DB_POOL_MAX: \$\{DB_POOL_MAX:-20\}/,
     'production compose should make the per-worker pg pool size explicit',
   );
@@ -81,4 +90,20 @@ test('Docker operations docs avoid committing live benchmark identifiers', () =>
   assert.match(dockerDocs, /JOB_ID="<campaign-job-id>"/);
   assert.doesNotMatch(dockerDocs, /aries\.sugarandleather\.com/);
   assert.doesNotMatch(dockerDocs, /mkt_[0-9a-f-]{36}/);
+});
+
+test('runtime rejects invalid concurrency environment values before starting Next', () => {
+  const runtimeScript = path.join(PROJECT_ROOT, 'scripts/start-runtime.mjs');
+  const result = spawnSync(process.execPath, [runtimeScript], {
+    cwd: PROJECT_ROOT,
+    env: {
+      ...process.env,
+      ARIES_WEB_CONCURRENCY: '0',
+      ARIES_PROCESS_MANAGER: 'cluster',
+    },
+    encoding: 'utf8',
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Invalid ARIES_WEB_CONCURRENCY\/WEB_CONCURRENCY value "0"/);
 });

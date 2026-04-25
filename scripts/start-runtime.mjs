@@ -6,6 +6,7 @@ import path from 'node:path';
 const defaultPort = 3000;
 const defaultWebConcurrency = 2;
 const maxNumericWebConcurrency = 64;
+const defaultWorkerMaxRestarts = 5;
 const shutdownTimeoutMs = 10_000;
 const rawPort = process.env.PORT?.trim();
 const parsedPort = rawPort ? Number(rawPort) : defaultPort;
@@ -54,7 +55,13 @@ function startClusterRuntime() {
   }
 
   const workerCount = resolveWebConcurrency(process.env.ARIES_WEB_CONCURRENCY, process.env.WEB_CONCURRENCY);
+  const maxWorkerRestarts = resolvePositiveIntegerEnv(
+    process.env.ARIES_WORKER_MAX_RESTARTS,
+    'ARIES_WORKER_MAX_RESTARTS',
+    defaultWorkerMaxRestarts,
+  );
   const workerInstanceIds = new Map();
+  const workerRestartCounts = new Map();
   let shuttingDown = false;
 
   cluster.setupPrimary({
@@ -77,8 +84,21 @@ function startClusterRuntime() {
       return;
     }
 
+    const restartCount = (workerRestartCounts.get(instanceId) ?? 0) + 1;
+    workerRestartCounts.set(instanceId, restartCount);
+
+    if (restartCount > maxWorkerRestarts) {
+      console.error(
+        `[runtime] worker instance ${instanceId} exceeded ${maxWorkerRestarts} restart attempts; not restarting`,
+      );
+      if (activeWorkerCount() === 0) {
+        process.exit(1);
+      }
+      return;
+    }
+
     console.error(
-      `[runtime] worker ${worker.process.pid ?? worker.id} exited (code=${String(code)} signal=${String(signal)}); restarting instance ${instanceId}`,
+      `[runtime] worker ${worker.process.pid ?? worker.id} exited (code=${String(code)} signal=${String(signal)}); restarting instance ${instanceId} attempt ${restartCount}/${maxWorkerRestarts}`,
     );
     forkWorker(instanceId);
   });
@@ -154,15 +174,35 @@ function resolveWebConcurrency(rawAriesConcurrency, rawGenericConcurrency) {
   }
 
   if (!/^\d+$/.test(rawValue)) {
-    return defaultWebConcurrency;
+    failInvalidPositiveInteger('ARIES_WEB_CONCURRENCY/WEB_CONCURRENCY', rawValue);
   }
 
   const parsed = Number(rawValue);
   if (!Number.isInteger(parsed) || parsed < 1) {
-    return defaultWebConcurrency;
+    failInvalidPositiveInteger('ARIES_WEB_CONCURRENCY/WEB_CONCURRENCY', rawValue);
   }
 
   return Math.min(parsed, maxNumericWebConcurrency);
+}
+
+function resolvePositiveIntegerEnv(rawValue, label, defaultValue) {
+  const trimmed = rawValue?.trim();
+  if (!trimmed) {
+    return defaultValue;
+  }
+  if (!/^\d+$/.test(trimmed)) {
+    failInvalidPositiveInteger(label, trimmed);
+  }
+  const parsed = Number(trimmed);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    failInvalidPositiveInteger(label, trimmed);
+  }
+  return parsed;
+}
+
+function failInvalidPositiveInteger(label, value) {
+  console.error(`Invalid ${label} value "${value}". Expected a positive integer.`);
+  process.exit(1);
 }
 
 function firstNonEmpty(...values) {
