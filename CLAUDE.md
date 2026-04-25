@@ -89,7 +89,17 @@ npm run precheck
 **Test environment notes:**
 - Tests use Node.js built-in test runner via `tsx --test` (not Jest/Vitest).
 - Many tests require `APP_BASE_URL=https://aries.example.com` to be set.
-- `npm run verify` wraps the fast regression suite with all needed env overrides — use this for quick validation.
+- `npm run verify` wraps the fast regression suite with all needed env overrides and runs `npm run guardrails:agent` first.
+- `npm run test:concurrent` runs the full TypeScript test set with `--test-concurrency=8`; use it before shipping work that changes routes, backend services, process management, or shared helpers.
+
+## Active operational guardrails
+
+These rules are here because they already bit this repo.
+
+1. **DB fan-out and endpoint latency:** Do not add `Promise.all` around PostgreSQL or gateway-backed call chains until you have checked `DB_POOL_MAX` and benchmarked the full endpoint, not just the helper. More parallel queries can make an isolated function faster while making the customer-facing request slower through pool contention. For production launch-scale, treat total database pressure as `ARIES_WEB_CONCURRENCY * DB_POOL_MAX` per container.
+2. **Parallel-agent duplicate work:** Before any agent ships or opens a PR from a parallel worktree, run `npm run guardrails:agent`. It performs `git fetch origin`, detects the base branch, compares `HEAD` to `origin/<base>`, and warns when the branch has no unique diff or looks like duplicate already-landed work.
+3. **Codex worker prompt stalls:** If Codex or AO workers appear to run forever with no output, inspect tmux before assuming the task is hard. Codex can block on a model-upgrade prompt; select `Use existing model` with Down + Enter, then resume monitoring.
+4. **Initial scale target:** Optimize the first production profile for about 50 people/users, not just a single happy-path demo. Use `ARIES_WEB_CONCURRENCY=4 DB_POOL_MAX=10` as the first container profile unless the database connection budget says otherwise, and validate with the 50-concurrent smoke check in `DOCKER.md`.
 
 ## Key Directories
 

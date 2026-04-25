@@ -83,12 +83,25 @@ as an application dependency introduces extra license/audit surface. Native Node
 cluster mode gives this container the same single-port, multi-worker request
 load-balancing shape with fewer production dependencies.
 
-Example four-worker deploy with smaller per-worker pg pools:
+Example four-worker deploy with smaller per-worker pg pools. This is the initial
+profile for roughly 50 people/users if the database can spare about 40 app
+connections for this container:
 
 ```bash
 ARIES_WEB_CONCURRENCY=4 DB_POOL_MAX=10 \
 docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
 ```
+
+For multiple app containers, reserve room for migrations, admin sessions, and
+Postgres maintenance when doing the math. A safe first-pass budget is:
+
+```text
+total_app_connections = containers * ARIES_WEB_CONCURRENCY * DB_POOL_MAX
+```
+
+Do not raise `ARIES_WEB_CONCURRENCY` without lowering `DB_POOL_MAX` or confirming
+that `total_app_connections` still fits the database's `max_connections` with
+headroom.
 
 Readiness/liveness:
 
@@ -119,6 +132,31 @@ seq 1 8 | xargs -I{} -P8 sh -c '
 
 Compare the serial time and the worst 8-concurrent time before and after changing
 `ARIES_WEB_CONCURRENCY`/`DB_POOL_MAX`.
+
+For the first 50-person launch profile, also run a short 50-concurrent smoke
+check against the health and job endpoints. This catches connection-pool pressure
+that an 8-request check can miss. Prefer the reusable Node smoke command for
+repeatability:
+
+```bash
+SCALE_SMOKE_BASE_URL="$BASE_URL" npm run smoke:scale50
+```
+
+Use the shell one-liner variant when Node dependencies are not available:
+
+```bash
+seq 1 50 | xargs -I{} -P50 sh -c '
+  curl -o /dev/null -sS \
+    -w "health {}: status=%{http_code} total=%{time_total}s\\n" \
+    "$0/api/health/db"
+' "$BASE_URL"
+
+seq 1 50 | xargs -I{} -P50 sh -c '
+  curl -b "$0" -o /dev/null -sS \
+    -w "job {}: status=%{http_code} total=%{time_total}s\\n" \
+    "$1/api/marketing/jobs/$2"
+' "$COOKIE_JAR" "$BASE_URL" "$JOB_ID"
+```
 
 To pin a specific private GHCR tag without editing compose files:
 ```bash
