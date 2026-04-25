@@ -31,6 +31,16 @@ def load_env_file(path: Path) -> None:
             os.environ[key] = value
 
 
+def require_real_prompt(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise MediaGatewayError(
+            f"{name} is required. Provide a real campaign/personality prompt from actual evidence; "
+            "the smoke script intentionally has no synthetic test-data fallback."
+        )
+    return value
+
+
 def main() -> int:
     for candidate in [ROOT / ".env", ROOT.parent / ".env", Path.home() / "openclaw" / ".env", Path.home() / ".hermes" / ".env"]:
         load_env_file(candidate)
@@ -45,9 +55,9 @@ def main() -> int:
     print(f"destination_dir={out_dir}")
 
     image = generate_image(
-        "Minimal product ad test image: a single blue circle on a plain white background. No text.",
+        require_real_prompt("LOBSTER_SMOKE_IMAGE_PROMPT"),
         image_dest,
-        aspect_ratio="square",
+        aspect_ratio=os.environ.get("LOBSTER_SMOKE_IMAGE_ASPECT_RATIO", "square"),
     )
     print(f"image_status={image.get('status')} image_exists={image_dest.exists()} image_bytes={image_dest.stat().st_size if image_dest.exists() else 0}")
 
@@ -56,11 +66,11 @@ def main() -> int:
         return 0
 
     video = generate_video(
-        "Minimal 5 second video test: a blue circle gently pulsing on a plain white background. No text.",
+        require_real_prompt("LOBSTER_SMOKE_VIDEO_PROMPT"),
         video_dest,
-        aspect_ratio="16:9",
-        duration_seconds=5,
-        model=os.environ.get("LOBSTER_VIDEO_MODEL"),
+        aspect_ratio=os.environ.get("LOBSTER_SMOKE_VIDEO_ASPECT_RATIO", "16:9"),
+        duration_seconds=int(os.environ.get("LOBSTER_SMOKE_VIDEO_DURATION_SECONDS", "5")),
+        model=os.environ.get("LOBSTER_GATEWAY_VIDEO_MODEL"),
     )
     print(f"video_status={video.get('status')} video_exists={video_dest.exists()} video_bytes={video_dest.stat().st_size if video_dest.exists() else 0}")
     return 0
