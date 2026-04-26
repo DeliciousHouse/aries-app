@@ -1,0 +1,4 @@
+import type { QueryClient } from './profileContext';
+import { requireNumericTenantId, type TenantContext } from './tenant';
+export async function saveManualAnalysis(ctx: TenantContext, db: QueryClient, input: { creativeAssetId: string; hookType?: string; visualStyleTags?: string[]; copyStyleTags?: string[]; strengths?: string[]; weaknesses?: string[] }) { const tenantId=requireNumericTenantId(ctx); const r=await db.query<{id:string}>('INSERT INTO creative_analyses (tenant_id, creative_asset_id, hook_type, visual_style_tags, copy_style_tags, strengths, weaknesses, model_used) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id',[tenantId,input.creativeAssetId,input.hookType ?? null,input.visualStyleTags ?? [],input.copyStyleTags ?? [],input.strengths ?? [],input.weaknesses ?? [],'manual-v1']); return { id:String(r.rows[0]?.id ?? ''), queued:false }; }
+export function enqueueAnalysis() { return { queued:false, reason:'analysis_stub_v1' }; }

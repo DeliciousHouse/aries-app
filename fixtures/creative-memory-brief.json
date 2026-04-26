@@ -1,0 +1,23 @@
+{
+  "brief": {
+    "objective": "lead magnet signups",
+    "platform": "instagram",
+    "placement": "feed",
+    "aspectRatio": "4:5",
+    "funnelStage": "TOFU",
+    "offer": "Free AI workflow checklist",
+    "audience": "operations managers at small teams",
+    "creativeType": "native educational image",
+    "cta": "Get the free checklist",
+    "imageText": [
+      "Your AI tools aren\u2019t the problem.",
+      "Your workflows are.",
+      "Get the free checklist"
+    ],
+    "mustAvoidAesthetics": [
+      "robots",
+      "purple gradients",
+      "fake dashboards"
+    ]
+  }
+}
