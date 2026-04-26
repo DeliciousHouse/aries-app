@@ -65,6 +65,16 @@ test('business profile screen offers Add Profile CTA and mirrors connected socia
     'Business Profile should derive connected social profiles from connected integration cards',
   );
   assert.equal(
+    source.includes("integrations.data?.status === 'error'"),
+    true,
+    'Business Profile should show connected profile status as unavailable when the integrations API returns an error payload with HTTP 200',
+  );
+  assert.equal(
+    source.includes('Connected profile status is not available right now.'),
+    true,
+    'Business Profile should use unavailable copy instead of the no-profiles empty state for integrations error payloads',
+  );
+  assert.equal(
     source.includes('Connected profiles'),
     true,
     'Business Profile channel section should summarize connected social profiles near the Add Profile CTA',

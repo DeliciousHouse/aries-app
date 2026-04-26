@@ -108,6 +108,7 @@ export default function AriesBusinessProfileScreen() {
   const profile = business.profile.data?.profile ?? null;
   const teamProfiles = business.team.data?.profiles ?? [];
   const integrationCards = integrations.data?.status === 'ok' ? integrations.data.cards : [];
+  const integrationsUnavailable = integrations.error || integrations.data?.status === 'error';
   const connectedProfileLabels = Array.from(new Set(
     integrationCards
       .filter((card) => card.connection_state === 'connected')
@@ -115,7 +116,7 @@ export default function AriesBusinessProfileScreen() {
   ));
   const connectedProfilesSummary = integrations.isLoading
     ? 'Checking connected profiles…'
-    : integrations.error
+    : integrationsUnavailable
       ? 'Connected profile status is not available right now.'
       : connectedProfileLabels.length > 0
         ? connectedProfileLabels.join(', ')
