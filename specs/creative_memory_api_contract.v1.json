@@ -7,9 +7,9 @@
     "POST /api/creative-memory/context-pack/preview",
     "POST /api/creative-memory/prompt-recipes/preview",
     "POST /api/creative-memory/prompt-recipes",
+    "POST /api/creative-memory/outcome-labels",
     "POST /api/creative-memory/generated-assets",
-    "PATCH /api/creative-memory/generated-assets",
-    "POST /api/creative-memory/outcome-labels"
+    "PATCH /api/creative-memory/generated-assets"
   ],
   "tenant": "current-session only, no tenant id in normal route bodies"
 }
