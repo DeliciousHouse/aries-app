@@ -182,8 +182,8 @@ async function initDb() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         UNIQUE (tenant_id, id),
-        CHECK (media_type <> 'image' OR array_length(exact_image_text, 1) IS NOT NULL),
-        CHECK (source_type <> 'competitor_meta_ad' AND permission_scope <> 'public_ad_library' OR usable_for_generation = FALSE)
+        CONSTRAINT creative_assets_exact_image_text_generation_check CHECK (media_type <> 'image' OR usable_for_generation = FALSE OR learning_lifecycle <> 'approved_for_generation' OR array_length(exact_image_text, 1) IS NOT NULL),
+        CONSTRAINT creative_assets_competitor_not_usable_check CHECK ((source_type <> 'competitor_meta_ad' AND permission_scope <> 'public_ad_library') OR usable_for_generation = FALSE)
       );
 
       CREATE TABLE IF NOT EXISTS creative_analyses (
@@ -303,7 +303,7 @@ async function initDb() {
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
         idempotency_key TEXT NOT NULL,
-        label TEXT NOT NULL CHECK (label IN ('useful','not_useful','winner','loser','used_in_campaign','needs_changes','approved','rejected','regenerated','edited_by_user')),
+        label TEXT NOT NULL CHECK (label IN ('useful','not_useful','winner','loser','used_in_campaign','needs_changes','approved','rejected')),
         prompt_recipe_id UUID,
         generated_asset_id UUID,
         note TEXT,
@@ -342,8 +342,12 @@ async function initDb() {
       ALTER TABLE creative_assets ADD CONSTRAINT creative_assets_source_type_check CHECK (source_type IN ('owned_instagram','owned_facebook','owned_meta_ad','competitor_meta_ad','manual_upload','generated_by_aries','runtime_artifact','landing_page_screenshot'));
       ALTER TABLE creative_assets DROP CONSTRAINT IF EXISTS creative_assets_permission_scope_check;
       ALTER TABLE creative_assets ADD CONSTRAINT creative_assets_permission_scope_check CHECK (permission_scope IN ('owned','public_ad_library','user_uploaded','generated','licensed'));
+      ALTER TABLE creative_assets DROP CONSTRAINT IF EXISTS creative_assets_exact_image_text_generation_check;
+      ALTER TABLE creative_assets ADD CONSTRAINT creative_assets_exact_image_text_generation_check CHECK (media_type <> 'image' OR usable_for_generation = FALSE OR learning_lifecycle <> 'approved_for_generation' OR array_length(exact_image_text, 1) IS NOT NULL);
       ALTER TABLE creative_assets DROP CONSTRAINT IF EXISTS creative_assets_competitor_not_usable_check;
-      ALTER TABLE creative_assets ADD CONSTRAINT creative_assets_competitor_not_usable_check CHECK (source_type <> 'competitor_meta_ad' AND permission_scope <> 'public_ad_library' OR usable_for_generation = FALSE);
+      ALTER TABLE creative_assets ADD CONSTRAINT creative_assets_competitor_not_usable_check CHECK ((source_type <> 'competitor_meta_ad' AND permission_scope <> 'public_ad_library') OR usable_for_generation = FALSE);
+      ALTER TABLE campaign_learning_labels DROP CONSTRAINT IF EXISTS campaign_learning_labels_label_check;
+      ALTER TABLE campaign_learning_labels ADD CONSTRAINT campaign_learning_labels_label_check CHECK (label IN ('useful','not_useful','winner','loser','used_in_campaign','needs_changes','approved','rejected'));
       CREATE UNIQUE INDEX IF NOT EXISTS idx_creative_assets_tenant_checksum_unique ON creative_assets (tenant_id, checksum) WHERE checksum IS NOT NULL;
       CREATE UNIQUE INDEX IF NOT EXISTS idx_style_cards_tenant_name_unique ON style_cards (tenant_id, name);
       CREATE UNIQUE INDEX IF NOT EXISTS idx_market_pattern_notes_natural_unique ON market_pattern_notes (tenant_id, source_label, pattern);

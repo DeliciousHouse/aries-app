@@ -37,15 +37,20 @@ export function validatePromptContextBudget(input: { tokenEstimate: number; maxT
   if (!Number.isFinite(input.tokenEstimate) || input.tokenEstimate > input.maxTokens) throw new CreativeMemoryValidationError('context_budget_exceeded','Creative Memory context pack exceeds the prompt budget.');
 }
 
+const safeAssetSegment = /^[A-Za-z0-9._~-]+$/;
+
 export function sanitizeServedAssetRef(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const ref = value.trim();
-  if (!ref) return null;
-  if (!ref.startsWith('/')) return null;
-  if (ref.startsWith('//')) return null;
+  if (!ref || !ref.startsWith('/') || ref.startsWith('//')) return null;
+  if (ref.includes('?') || ref.includes('#') || ref.includes('\\')) return null;
   if (/^\/(?:home|mnt|tmp|var|etc|root)\b/i.test(ref)) return null;
-  if (!/^\/(?:api\/marketing\/jobs\/[^\s]+\/assets\/[^\s]+|materials\/[^\s]+\/[^\s]+)$/.test(ref)) return null;
-  return ref;
+  const segments = ref.split('/').filter(Boolean);
+  if (segments.some((segment) => segment === '.' || segment === '..' || !safeAssetSegment.test(segment))) return null;
+  const apiAssetRef = segments.length === 6 && segments[0] === 'api' && segments[1] === 'marketing' && segments[2] === 'jobs' && segments[4] === 'assets';
+  const materialRef = segments.length === 3 && segments[0] === 'materials';
+  if (!apiAssetRef && !materialRef) return null;
+  return `/${segments.join('/')}`;
 }
 
 export function assertFrontendSafeValue(value: unknown): void {
@@ -54,7 +59,7 @@ export function assertFrontendSafeValue(value: unknown): void {
     if (key && sensitiveResponseKeys.has(key)) throw new CreativeMemoryValidationError('unsafe_response', `Creative Memory response contains unsafe key: ${key}`);
     if (typeof v === 'string') {
       if (/\b[A-Za-z]:\\/.test(v) || v.includes('/home/') || v.includes('/mnt/') || v.includes('file://')) throw new CreativeMemoryValidationError('unsafe_response','Creative Memory response contains a raw filesystem path.');
-      if (/^https?:\/\//i.test(v) || /^\/\//.test(v) || /s3\.amazonaws\.com|amazonaws\.com|storage\.googleapis\.com|blob\.core\.windows\.net/i.test(v)) throw new CreativeMemoryValidationError('unsafe_response','Creative Memory response contains a raw external asset URL.');
+      if (/^\/\//.test(v) || /s3\.amazonaws\.com|amazonaws\.com|storage\.googleapis\.com|blob\.core\.windows\.net/i.test(v)) throw new CreativeMemoryValidationError('unsafe_response','Creative Memory response contains a raw external asset URL.');
       return;
     }
     if (Array.isArray(v)) { v.forEach((item) => visit(item)); return; }

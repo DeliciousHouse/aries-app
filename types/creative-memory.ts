@@ -102,4 +102,6 @@ export interface PromptRecipePreview {
   excludedCandidateCount: number;
   canGenerate: boolean;
   blockingReason?: string;
+  selectionReasons?: string[];
+  provenance?: { generatedAt?: string; retrieval?: string; sideEffectFree?: boolean; [key: string]: unknown };
 }
