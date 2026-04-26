@@ -1,0 +1,13 @@
+{
+  "version": "v1",
+  "routes": [
+    "GET /api/creative-memory",
+    "GET /api/creative-memory/assets",
+    "GET /api/creative-memory/style-cards",
+    "POST /api/creative-memory/context-pack/preview",
+    "POST /api/creative-memory/prompt-recipes/preview",
+    "POST /api/creative-memory/prompt-recipes",
+    "POST /api/creative-memory/outcome-labels"
+  ],
+  "tenant": "current-session only, no tenant id in normal route bodies"
+}

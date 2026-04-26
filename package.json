@@ -33,7 +33,11 @@
     "automation:ci-watcher-dispatch": "node scripts/automations/ci-watcher-dispatch.mjs",
     "automation:system-reference": "node scripts/automations/rolling-system-reference.mjs",
     "automation:install": "node scripts/automations/install-openclaw-crons.mjs",
-    "automation:verify": "node scripts/automations/verify-automations.mjs"
+    "automation:verify": "node scripts/automations/verify-automations.mjs",
+    "creative-memory:seed": "node scripts/creative-memory-seed.mjs",
+    "creative-memory:backfill": "node scripts/creative-memory-backfill.mjs",
+    "creative-memory:smoke": "node scripts/creative-memory-smoke.mjs",
+    "test:creative-memory": "tsx --test tests/creative-memory-*.test.ts"
   },
   "dependencies": {
     "@react-three/drei": "^9.122.0",
