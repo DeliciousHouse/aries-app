@@ -4,6 +4,7 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import Link from 'next/link';
 
 import { useBusinessProfile } from '@/hooks/use-business-profile';
+import { useIntegrations } from '@/hooks/use-integrations';
 import {
   hasValidationErrors,
   validateBusinessProfileForm,
@@ -44,6 +45,16 @@ const CHANNEL_OPTIONS: ChannelOption[] = [
 
 const DEFAULT_CHANNEL_IDS = ['meta-ads', 'instagram'];
 
+const CONNECTED_PROFILE_LABELS: Record<string, string> = {
+  facebook: 'Meta',
+  instagram: 'Instagram',
+  linkedin: 'LinkedIn',
+  x: 'X',
+  youtube: 'YouTube',
+  reddit: 'Reddit',
+  tiktok: 'TikTok',
+};
+
 function brandKitFontStyle(family: string): CSSProperties {
   return {
     fontFamily: `"${family}", ${family}, ui-sans-serif, system-ui, sans-serif`,
@@ -64,12 +75,20 @@ function channelLabel(channelId: string): string {
   return CHANNEL_OPTIONS.find((option) => option.id === channelId)?.label || channelId;
 }
 
-function joinedValues(values: string[]): string {
-  return values.map(channelLabel).join(', ');
+function connectedProfileLabel(platform: string, fallback: string): string {
+  return CONNECTED_PROFILE_LABELS[platform] || fallback || platform;
+}
+
+function joinedValues(values: string[], connectedProfileLabels: string[] = []): string {
+  return Array.from(new Set([
+    ...values.map(channelLabel),
+    ...connectedProfileLabels,
+  ].map((value) => value.trim()).filter(Boolean))).join(', ');
 }
 
 export default function AriesBusinessProfileScreen() {
   const business = useBusinessProfile({ autoLoad: true });
+  const integrations = useIntegrations({ autoLoad: true });
   const [businessName, setBusinessName] = useState('');
   const [websiteUrl, setWebsiteUrl] = useState('');
   const [businessType, setBusinessType] = useState('');
@@ -88,6 +107,19 @@ export default function AriesBusinessProfileScreen() {
 
   const profile = business.profile.data?.profile ?? null;
   const teamProfiles = business.team.data?.profiles ?? [];
+  const integrationCards = integrations.data?.status === 'ok' ? integrations.data.cards : [];
+  const connectedProfileLabels = Array.from(new Set(
+    integrationCards
+      .filter((card) => card.connection_state === 'connected')
+      .map((card) => connectedProfileLabel(card.platform, card.display_name)),
+  ));
+  const connectedProfilesSummary = integrations.isLoading
+    ? 'Checking connected profiles…'
+    : integrations.error
+      ? 'Connected profile status is not available right now.'
+      : connectedProfileLabels.length > 0
+        ? connectedProfileLabels.join(', ')
+        : 'No connected social profiles yet.';
   const ready = !business.profile.isLoading && !business.team.isLoading;
 
   useEffect(() => {
@@ -223,7 +255,7 @@ export default function AriesBusinessProfileScreen() {
           },
           {
             label: 'Channels',
-            value: joinedValues(selectedChannels),
+            value: joinedValues(selectedChannels, connectedProfileLabels),
             detail: profile.incomplete ? 'The profile still needs a few details before it is fully locked.' : 'These channels are ready for the next campaign.',
             tone: profile.incomplete ? 'watch' : 'good',
           },
@@ -379,6 +411,23 @@ export default function AriesBusinessProfileScreen() {
                     </button>
                   );
                 })}
+              </div>
+              <div className="rounded-[1.3rem] border border-white/8 bg-black/18 px-4 py-4 text-white">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Connected profiles</p>
+                    <p className="mt-2 text-sm leading-7 text-white/58">{connectedProfilesSummary}</p>
+                  </div>
+                  <Link
+                    href="/dashboard/settings/channel-integrations?from=business-profile"
+                    className="inline-flex shrink-0 items-center justify-center rounded-full border border-white/15 bg-white px-4 py-2 text-sm font-semibold text-[#11161c] transition hover:bg-white/90"
+                  >
+                    Add Profile
+                  </Link>
+                </div>
+                <p className="mt-3 text-xs leading-6 text-white/42">
+                  Newly connected media portals update this Business Profile channel summary automatically.
+                </p>
               </div>
             </div>
 

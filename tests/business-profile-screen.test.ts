@@ -42,3 +42,31 @@ test('business profile screen replaces the comma-list channel editor with curate
   assert.equal(source.includes('LinkedIn'), true);
   assert.equal(source.includes('meta-ads, instagram, linkedin'), false);
 });
+
+test('business profile screen offers Add Profile CTA and mirrors connected social profiles', () => {
+  assert.equal(
+    source.includes('Add Profile'),
+    true,
+    'Business Profile must expose an Add Profile CTA where account owners manage operating profile channels',
+  );
+  assert.equal(
+    source.includes('/dashboard/settings/channel-integrations?from=business-profile'),
+    true,
+    'Add Profile CTA should route to the existing channel integration connection page',
+  );
+  assert.equal(
+    source.includes('useIntegrations({ autoLoad: true })'),
+    true,
+    'Business Profile should load integration cards so newly connected media portals auto-update channel context',
+  );
+  assert.equal(
+    source.includes("connection_state === 'connected'"),
+    true,
+    'Business Profile should derive connected social profiles from connected integration cards',
+  );
+  assert.equal(
+    source.includes('Connected profiles'),
+    true,
+    'Business Profile channel section should summarize connected social profiles near the Add Profile CTA',
+  );
+});
