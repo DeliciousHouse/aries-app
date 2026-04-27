@@ -37,7 +37,8 @@
     "creative-memory:seed": "node scripts/creative-memory-seed.mjs",
     "creative-memory:backfill": "node scripts/creative-memory-backfill.mjs",
     "creative-memory:smoke": "node scripts/creative-memory-smoke.mjs",
-    "test:creative-memory": "tsx --test tests/creative-memory-*.test.ts"
+    "test:creative-memory": "tsx --test tests/creative-memory-*.test.ts",
+    "eval:creative-memory-learning": "tsx scripts/eval-creative-memory-learning.ts"
   },
   "dependencies": {
     "@react-three/drei": "^9.122.0",
