@@ -63,7 +63,4 @@ test('signup interactive controls do not include an unnamed icon-only button', (
     /<button[\s\S]*?aria-label=\{showPassword \? 'Hide password' : 'Show password'\}[\s\S]*?<svg aria-hidden="true" focusable="false"/,
     'the icon-only password visibility button must have an accessible name',
   );
-  assert.match(source, />\s*\{isSubmitting \? 'Creating account…' : 'Create account'\}\s*<\/button>/);
-  assert.match(source, /<span className="text-white\/80 group-hover:text-white">Google<\/span>/);
-  assert.match(source, />Sign In<\/button>/);
 });

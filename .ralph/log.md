@@ -72,6 +72,6 @@ Passed:
 
 ## Remaining caveats
 
-- Browser vision analysis failed in this Hermes/Codex session due unsupported configured vision model, so discovery used browser snapshots, console, DOM checks, route status checks, and source lookup.
+- Browser vision analysis failed in this Hermes/Codex session due to unsupported configured vision model, so discovery used browser snapshots, console, DOM checks, route status checks, and source lookup.
 - Authenticated dashboard behavior was limited to unauthenticated redirects because no private credentials were available in the session.
 - Broader `tests/frontend-api-layer.test.ts` has unrelated known marketing workspace/hydration failures when run as a full file, but the ISSUE-004 and ISSUE-005 targeted paths pass and `npm run verify` passes.
