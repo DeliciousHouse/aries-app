@@ -97,7 +97,10 @@ export default function Docs() {
             {/* Sidebar */}
             <aside className="lg:w-64 flex-shrink-0">
               <div className="lg:sticky lg:top-24 space-y-2">
-                <nav className="flex lg:flex-col overflow-x-auto lg:overflow-visible pb-4 lg:pb-0 gap-2 scrollbar-hide">
+                <nav
+                  aria-label="Documentation sections"
+                  className="flex lg:flex-col overflow-x-auto lg:overflow-visible pb-4 lg:pb-0 gap-2 scrollbar-hide"
+                >
                   {sections.map((section) => {
                     const Icon = section.icon;
                     return (

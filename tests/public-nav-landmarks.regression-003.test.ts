@@ -15,6 +15,21 @@ function countMatches(source: string, pattern: RegExp): number {
   return source.match(pattern)?.length ?? 0;
 }
 
+function navOpeningTags(source: string): string[] {
+  return source.match(/<nav\b[\s\S]*?>/g) ?? [];
+}
+
+function assertNavsAreNamed(source: string, context: string): void {
+  const navs = navOpeningTags(source);
+
+  assert.notEqual(navs.length, 0, `${context} should render at least one nav landmark`);
+  assert.deepEqual(
+    navs.filter((nav) => !/\baria-(?:label|labelledby)=/.test(nav)),
+    [],
+    `${context} should give every nav landmark an accessible name`,
+  );
+}
+
 // ISSUE-003 — public navigation should point at the standalone /features page,
 // and pages composed with shared shells should expose a single primary main landmark.
 test('public marketing Features links use the canonical /features route', () => {
@@ -58,4 +73,24 @@ test('documentation content does not nest a second main inside the marketing she
   assert.equal(countMatches(marketingShellSource, /<main\b/g), 1, 'marketing shell should own the page main landmark');
   assert.equal(countMatches(docsSource, /<main\b/g), 0, 'Docs content should not render a nested main landmark');
   assert.equal(countMatches(docsSource, /\brole=["']main["']/g), 0, 'Docs content should not add a role=main landmark');
+});
+
+test('documentation page labels marketing and section navigation landmarks', () => {
+  const docsSource = readProjectFile('frontend', 'documentation', 'Docs.tsx');
+  const marketingShellSource = readProjectFile('frontend', 'donor', 'marketing', 'chrome.tsx');
+  const documentationPageSource = readProjectFile('app', 'documentation', 'page.tsx');
+
+  assert.match(documentationPageSource, /<MarketingLayout>[\s\S]*<Docs \/>[\s\S]*<\/MarketingLayout>/);
+  assertNavsAreNamed(marketingShellSource, 'marketing shell');
+  assertNavsAreNamed(docsSource, 'documentation sections');
+  assert.match(
+    navOpeningTags(marketingShellSource).join('\n'),
+    /\baria-label="Primary"/,
+    'global marketing navigation should be named Primary',
+  );
+  assert.match(
+    navOpeningTags(docsSource).join('\n'),
+    /\baria-label="Documentation sections"/,
+    'Docs sidebar navigation should be named Documentation sections',
+  );
 });

@@ -73,6 +73,7 @@ export function DonorNavbar({ heroMode = false }: { heroMode?: boolean }) {
 
   return (
     <nav
+      aria-label="Primary"
       className={cn(
         'fixed top-0 left-0 right-0 z-50 transition-all duration-300 px-6',
         isScrolled && (!heroMode || !isHome || scrollProgress > 0.95)
