@@ -276,7 +276,7 @@ function brandPreviewSummary(
   );
 }
 
-function stepReady(stepKey: StepKey, values: {
+export function stepReady(stepKey: StepKey, values: {
   businessName: string;
   businessType: string;
   websiteUrl: string;
@@ -308,7 +308,7 @@ function stepReady(stepKey: StepKey, values: {
   return true;
 }
 
-function stepValidationMessage(stepKey: StepKey, values?: {
+export function stepValidationMessage(stepKey: StepKey, values?: {
   businessName: string;
   businessType: string;
   goal: string;

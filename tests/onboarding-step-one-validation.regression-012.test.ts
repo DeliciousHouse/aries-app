@@ -1,88 +1,126 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import test from 'node:test';
 
+import React from 'react';
+
+import {
+  stepReady,
+  stepValidationMessage,
+} from '../frontend/aries-v1/onboarding-flow';
+import { useDisabledUntilValid } from '../lib/form-validation';
 import {
   COMPETITOR_URL_INVALID_ERROR,
   COMPETITOR_URL_SOCIAL_ERROR,
   validateCanonicalCompetitorUrl,
 } from '../lib/marketing-competitor';
-import { resolveProjectRoot } from './helpers/project-root';
 
-const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
-const source = readFileSync(
-  path.join(PROJECT_ROOT, 'frontend', 'aries-v1', 'onboarding-flow.tsx'),
-  'utf8',
-);
+type GoalStepValues = Parameters<typeof stepReady>[1];
 
-test('onboarding step one keeps Continue disabled until goal and offer are valid with inline alerts', () => {
-  assert.match(
-    source,
-    /return values\.goal\.trim\(\)\.length > 0 && values\.offer\.trim\(\)\.length > 0;/,
-    'step-one validity should require both a selected goal and a non-empty offer summary',
-  );
-  assert.match(
-    source,
-    /const competitorValidation = validateCanonicalCompetitorUrl\(values\.competitorUrl \?\? ''\);[\s\S]*?if \(competitorValidation\.error\) \{[\s\S]*?return false;/,
-    'step-one validity should block Continue when the optional competitor URL fails canonical validation',
-  );
-  assert.match(
-    source,
-    /const continueDisabled = useDisabledUntilValid\(currentStepIsReady, submitting \|\| creatingDraft\);/,
-    'onboarding should use the shared disabled-until-valid helper for Continue',
-  );
-  assert.match(
-    source,
-    /<p id="onboarding-goal-error" role="alert"/,
-    'onboarding should render an inline goal validation alert',
-  );
-  assert.match(
-    source,
-    /<p id="onboarding-offer-error" role="alert"/,
-    'onboarding should render an inline offer validation alert',
-  );
-  assert.match(
-    source,
-    /disabled=\{continueDisabled\}/,
-    'Continue should stay disabled until the current onboarding step is valid',
-  );
-});
+const validGoalValues: GoalStepValues = {
+  businessName: '',
+  businessType: '',
+  websiteUrl: '',
+  selectedChannels: [],
+  goal: 'Get leads',
+  customGoal: '',
+  offer: 'Lifecycle email automation for growing ecommerce brands.',
+  competitorUrl: '',
+};
 
-test('onboarding step one uses canonical competitor validation for inline errors before Continue', () => {
-  assert.match(
-    source,
-    /validateCanonicalCompetitorUrl\(competitorUrl\)/,
-    'step-one competitor input should use the same canonical validator as final submit',
-  );
-  assert.match(
-    source,
-    /const competitorUrlFieldError = competitorUrlError && \(touched\.competitorUrl \|\| currentStep\.key === 'goal'\)/,
-    'competitor URL errors should render inline while the step-one field is present',
-  );
-  assert.match(
-    source,
-    /Do not paste Facebook, Instagram, or Meta Ad Library URLs\./,
-    'the competitor field should warn against Meta locator URLs at entry time',
-  );
-  assert.match(
-    source,
-    /stepValidationMessage\(currentStep\.key, \{ businessName, businessType, goal, offer, competitorUrl \}\)/,
-    'Continue should surface canonical competitor validation messages instead of deferring to final submit',
-  );
-});
+function goalValues(overrides: Partial<GoalStepValues>): GoalStepValues {
+  return { ...validGoalValues, ...overrides };
+}
 
-test('canonical competitor validation rejects Facebook, Meta Ad Library, and unsupported step-one entries', () => {
+test('onboarding goal step behavior gates Continue until goal, offer, and canonical competitor URL are valid', () => {
   assert.equal(
-    validateCanonicalCompetitorUrl('https://www.facebook.com/betterupco').error,
+    stepReady('goal', goalValues({ goal: '' })),
+    false,
+    'goal step is not ready until an outcome is selected',
+  );
+  assert.equal(
+    stepValidationMessage('goal', goalValues({ goal: '' })),
+    'Choose a business outcome before continuing.',
+  );
+
+  assert.equal(
+    stepReady('goal', goalValues({ offer: '   ' })),
+    false,
+    'goal step is not ready until the offer is described',
+  );
+  assert.equal(
+    stepValidationMessage('goal', goalValues({ offer: '   ' })),
+    'Describe what your business offers before continuing.',
+  );
+
+  assert.equal(
+    stepReady('goal', goalValues({ competitorUrl: 'https://www.facebook.com/betterupco' })),
+    false,
+    'Meta/Facebook locator URLs must block Continue on the competitor field step',
+  );
+  assert.equal(
+    stepValidationMessage('goal', goalValues({ competitorUrl: 'https://www.facebook.com/betterupco' })),
     COMPETITOR_URL_SOCIAL_ERROR,
   );
+
   assert.equal(
-    validateCanonicalCompetitorUrl('https://www.facebook.com/ads/library/?id=123').error,
-    COMPETITOR_URL_SOCIAL_ERROR,
+    stepReady('goal', goalValues({ competitorUrl: 'http://competitor.example' })),
+    false,
+    'non-HTTPS competitor URLs must block Continue on the competitor field step',
   );
   assert.equal(
-    validateCanonicalCompetitorUrl('http://competitor.example').error,
+    stepValidationMessage('goal', goalValues({ competitorUrl: 'http://competitor.example' })),
     COMPETITOR_URL_INVALID_ERROR,
   );
+
+  assert.equal(
+    stepReady('goal', goalValues({ competitorUrl: 'competitor.example' })),
+    true,
+    'a valid canonical competitor website keeps the goal step ready',
+  );
+  assert.equal(
+    stepValidationMessage('goal', goalValues({ competitorUrl: 'competitor.example' })),
+    null,
+  );
+  assert.deepEqual(validateCanonicalCompetitorUrl('competitor.example'), {
+    normalized: 'https://competitor.example/',
+    error: null,
+  });
+});
+
+test('shared disabled helper keeps Continue disabled for invalid or busy onboarding goal state', async () => {
+  const { act, create } = await import('react-test-renderer');
+  let root!: import('react-test-renderer').ReactTestRenderer;
+
+  function ContinueHarness(props: { values: GoalStepValues; busy?: boolean }) {
+    const disabled = useDisabledUntilValid(stepReady('goal', props.values), props.busy ?? false);
+    return React.createElement('button', { disabled }, 'Continue');
+  }
+
+  await act(async () => {
+    root = create(
+      React.createElement(ContinueHarness, {
+        values: goalValues({ competitorUrl: 'https://www.instagram.com/competitor' }),
+      }),
+    );
+  });
+  assert.equal(root.root.findByType('button').props.disabled, true);
+
+  await act(async () => {
+    root.update(
+      React.createElement(ContinueHarness, {
+        values: goalValues({ competitorUrl: 'https://competitor.example' }),
+      }),
+    );
+  });
+  assert.equal(root.root.findByType('button').props.disabled, false);
+
+  await act(async () => {
+    root.update(
+      React.createElement(ContinueHarness, {
+        values: goalValues({ competitorUrl: 'https://competitor.example' }),
+        busy: true,
+      }),
+    );
+  });
+  assert.equal(root.root.findByType('button').props.disabled, true);
 });
