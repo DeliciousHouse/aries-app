@@ -346,6 +346,7 @@ test('/api/onboarding/status exposes artifact booleans instead of runtime paths'
   const body = (await response.json()) as Record<string, unknown>;
 
   assert.equal(response.status, 200);
+  assert.equal(body.request_status, 'ok');
   assert.equal(body.onboarding_status, 'ok');
   assert.equal(body.tenant_id, 'tenant_123');
   assert.equal('artifacts' in body, true);

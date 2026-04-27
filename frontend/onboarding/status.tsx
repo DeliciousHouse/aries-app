@@ -67,6 +67,7 @@ export default function OnboardingStatusScreen({
 
   const isStatusError = response?.onboarding_status === 'error';
   const success = !isStatusError && response ? (response as OnboardingStatusSuccess) : null;
+  const tenantNotFound = success?.provisioning_status === 'not_found';
 
   return (
     <div className="min-h-screen bg-background px-6 py-10 md:px-8 lg:px-10">
@@ -152,15 +153,34 @@ export default function OnboardingStatusScreen({
           </div>
         ) : (
           <div className="space-y-5">
+            {tenantNotFound ? (
+              <div className="rounded-2xl border border-amber-400/25 bg-amber-400/10 p-4 text-amber-100">
+                <strong className="block text-white">Tenant not found</strong>
+                <p className="mt-1 text-sm text-amber-100/80">
+                  The status request succeeded, but Aries could not find onboarding artifacts for this tenant ID yet.
+                </p>
+              </div>
+            ) : null}
             <div className="space-y-3">
               <div className="rounded-[1.5rem] border border-white/10 bg-white/5 px-5 py-4 flex items-center justify-between gap-4">
                 <strong>tenant_id</strong>
                 <span className="text-white/70 break-all text-right">{success.tenant_id}</span>
               </div>
               <div className="rounded-[1.5rem] border border-white/10 bg-white/5 px-5 py-4 flex items-center justify-between gap-4">
-                <strong>onboarding_status</strong>
-                <StatusBadge status={success.onboarding_status} />
+                <strong>request_status</strong>
+                <span className="text-white/70 text-right">Request succeeded</span>
               </div>
+              {tenantNotFound ? (
+                <div className="rounded-[1.5rem] border border-amber-400/20 bg-amber-400/10 px-5 py-4 flex items-center justify-between gap-4">
+                  <strong>tenant_status</strong>
+                  <StatusBadge status="not_found" />
+                </div>
+              ) : (
+                <div className="rounded-[1.5rem] border border-white/10 bg-white/5 px-5 py-4 flex items-center justify-between gap-4">
+                  <strong>onboarding_status</strong>
+                  <StatusBadge status={success.onboarding_status} />
+                </div>
+              )}
               <div className="rounded-[1.5rem] border border-white/10 bg-white/5 px-5 py-4 flex items-center justify-between gap-4">
                 <strong>provisioning_status</strong>
                 <StatusBadge status={success.provisioning_status} />

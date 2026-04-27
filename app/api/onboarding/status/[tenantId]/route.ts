@@ -32,6 +32,7 @@ export async function GET(
   if (result.status === 'ok') {
     return NextResponse.json(
       {
+        request_status: 'ok',
         onboarding_status: 'ok',
         tenant_id: result.tenant_id,
         signup_event_id: result.signup_event_id,

@@ -284,6 +284,7 @@ function stepReady(stepKey: StepKey, values: {
   goal: string;
   customGoal: string;
   offer: string;
+  competitorUrl?: string;
 }): boolean {
   if (stepKey === 'business') {
     return values.businessName.trim().length > 0 && values.businessType.trim().length > 0;
@@ -295,6 +296,10 @@ function stepReady(stepKey: StepKey, values: {
     return values.selectedChannels.length > 0;
   }
   if (stepKey === 'goal') {
+    const competitorValidation = validateCanonicalCompetitorUrl(values.competitorUrl ?? '');
+    if (competitorValidation.error) {
+      return false;
+    }
     if (values.goal === 'Other') {
       return values.customGoal.trim().length > 0 && values.offer.trim().length > 0;
     }
@@ -308,6 +313,7 @@ function stepValidationMessage(stepKey: StepKey, values?: {
   businessType: string;
   goal: string;
   offer: string;
+  competitorUrl?: string;
 }): string | null {
   if (stepKey === 'business') {
     if (values) {
@@ -336,6 +342,10 @@ function stepValidationMessage(stepKey: StepKey, values?: {
     }
     if (!values.offer.trim()) {
       return 'Describe what your business offers before continuing.';
+    }
+    const competitorValidation = validateCanonicalCompetitorUrl(values.competitorUrl ?? '');
+    if (competitorValidation.error) {
+      return competitorValidation.error;
     }
     return null;
   }
@@ -630,6 +640,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
       goal,
       customGoal,
       offer,
+      competitorUrl,
     }),
   );
   const currentStepIsReady = stepReady(currentStep.key, {
@@ -640,6 +651,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     goal,
     customGoal,
     offer,
+    competitorUrl,
   });
   const continueDisabled = useDisabledUntilValid(currentStepIsReady, submitting || creatingDraft);
   const finishDisabled = useDisabledUntilValid(canFinish, submitting || creatingDraft);
@@ -1062,12 +1074,15 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
       if (currentStep.key === 'goal') {
         markTouched('goal');
         markTouched('offer');
+        if (validateCanonicalCompetitorUrl(competitorUrl).error) {
+          markTouched('competitorUrl');
+        }
         if (goal === 'Other') {
           markTouched('customGoal');
         }
       }
       setError(
-        stepValidationMessage(currentStep.key, { businessName, businessType, goal, offer }) ??
+        stepValidationMessage(currentStep.key, { businessName, businessType, goal, offer, competitorUrl }) ??
           'Complete the current step before continuing.',
       );
       return;
@@ -1086,7 +1101,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   async function handleFinish() {
     if (!canFinish) {
       setError(
-        stepValidationMessage(currentStep.key, { businessName, businessType, goal, offer }) ??
+        stepValidationMessage(currentStep.key, { businessName, businessType, goal, offer, competitorUrl }) ??
           'Complete the current step before continuing.',
       );
       return;
@@ -1111,11 +1126,13 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
 
     try {
       const trimmedCompetitorUrl = competitorUrl.trim();
+      let canonicalCompetitorUrl: string | null = null;
       if (trimmedCompetitorUrl) {
         const competitorValidation = validateCanonicalCompetitorUrl(trimmedCompetitorUrl);
         if (competitorValidation.error) {
           throw new Error(competitorValidation.error);
         }
+        canonicalCompetitorUrl = competitorValidation.normalized ?? trimmedCompetitorUrl;
       }
 
       const resolvedGoal = goal === 'Other' ? customGoal.trim() : goal;
@@ -1128,7 +1145,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         channels: selectedChannels,
         goal: resolvedGoal,
         offer,
-        competitorUrl: trimmedCompetitorUrl || null,
+        competitorUrl: canonicalCompetitorUrl,
         preview: urlPreview,
         provenance: {
           source_url: websiteUrl,
@@ -1193,13 +1210,18 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
       : isValidHttpsUrl(websiteUrl)
         ? 'valid'
         : 'invalid';
-  const competitorUrlValidity: FieldValidity = !touched.competitorUrl
+  const competitorUrlValidation = validateCanonicalCompetitorUrl(competitorUrl);
+  const competitorUrlError = competitorUrl.trim() ? competitorUrlValidation.error : null;
+  const competitorUrlFieldError = competitorUrlError && (touched.competitorUrl || currentStep.key === 'goal')
+    ? competitorUrlError
+    : null;
+  const competitorUrlValidity: FieldValidity = !touched.competitorUrl && !competitorUrlError
     ? 'untouched'
     : competitorUrl.trim().length === 0
       ? 'valid' // optional field
-      : isValidHttpsUrl(competitorUrl)
-        ? 'valid'
-        : 'invalid';
+      : competitorUrlError
+        ? 'invalid'
+        : 'valid';
   const goalError = touched.goal && !goal.trim()
     ? 'Choose a business outcome before continuing.'
     : null;
@@ -1240,7 +1262,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
       }
       case 'competitorUrl': {
         if (!competitorUrl.trim()) return null; // optional
-        return isValidHttpsUrl(competitorUrl) ? null : 'Enter a valid HTTPS URL for the competitor.';
+        return validateCanonicalCompetitorUrl(competitorUrl).error;
       }
       case 'customGoal':
         return customGoal.trim() ? null : 'Describe the business outcome you want.';
@@ -1876,10 +1898,10 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
 
                     <Field
                       label="Competitor website"
-                      hint="Add one strong comparison site if you want Aries to account for market positioning."
+                      hint="Add one strong comparison site if you want Aries to account for market positioning. Do not paste Facebook, Instagram, or Meta Ad Library URLs."
                       optional
                       validity={competitorUrlValidity}
-                      error={fieldErrorMessage('competitorUrl')}
+                      error={competitorUrlFieldError}
                     >
                       <input
                         value={competitorUrl}

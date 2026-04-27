@@ -27,6 +27,7 @@ test('createOnboardingClient.status appends signup_event_id when provided', asyn
       requests.push(url);
       return new Response(
         JSON.stringify({
+          request_status: 'ok',
           onboarding_status: 'ok',
           tenant_id: 'tenant_backend',
           signup_event_id: 'signup_backend',
