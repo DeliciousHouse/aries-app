@@ -38,15 +38,23 @@ function makeDb(tables: FakeDbTables): QueryClient & { connect?: () => Promise<Q
 
   async function query<Row = Record<string, unknown>>(sql: string, _values?: unknown[]): Promise<QueryResult<Row>> {
     const s = sql.replace(/\s+/g, ' ').trim();
+    const values = _values ?? [];
+    const tenantId = values[0];
+    const forTenant = (r: Record<string, unknown>) => tenantId === undefined || String(r.tenant_id ?? tenantId) === String(tenantId);
+    const createdDesc = (a: Record<string, unknown>, b: Record<string, unknown>) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? ''));
+    const limited = <T,>(items: T[]) => {
+      const match = s.match(/LIMIT (\d+)/i);
+      return match ? items.slice(0, Number(match[1])) : items;
+    };
     // Transaction control
     if (s === 'BEGIN' || s === 'COMMIT' || s === 'ROLLBACK') return { rows: [] as Row[] };
-    if (s.includes('FROM business_profiles')) return { rows: rows.businessProfiles as Row[] };
-    if (s.includes('FROM style_cards')) return { rows: rows.styleCards as Row[] };
+    if (s.includes('FROM business_profiles')) return { rows: rows.businessProfiles.filter(forTenant) as Row[] };
+    if (s.includes('FROM style_cards')) return { rows: limited(rows.styleCards.filter(forTenant).sort((a, b) => Number(b.confidence_score ?? 0) - Number(a.confidence_score ?? 0))) as Row[] };
     if (s.includes('FROM creative_assets') && s.startsWith('SELECT *')) {
-      // Eligible asset query (filters usable_for_generation etc. in SQL)
+      // Eligible asset query (filters lifecycle/source in SQL, then production code applies stricter projection safety)
       if (s.includes('usable_for_generation')) {
         return {
-          rows: rows.creativeAssets.filter((r) => {
+          rows: limited(rows.creativeAssets.filter(forTenant).filter((r) => {
             const st = String(r.source_type ?? '');
             const ps = String(r.permission_scope ?? '');
             const lc = String(r.learning_lifecycle ?? '');
@@ -56,24 +64,24 @@ function makeDb(tables: FakeDbTables): QueryClient & { connect?: () => Promise<Q
               && ['owned_instagram','owned_facebook','owned_meta_ad','generated_by_aries'].includes(st)
               && ['owned','generated'].includes(ps)
               && lc === 'approved_for_generation';
-          }) as Row[],
+          }).sort(createdDesc)) as Row[],
         };
       }
-      return { rows: rows.creativeAssets as Row[] };
+      return { rows: limited(rows.creativeAssets.filter(forTenant).sort(createdDesc)) as Row[] };
     }
     // Excluded asset query (ineligible/competitor for excludedCandidates)
     if (s.includes('FROM creative_assets') && s.startsWith('SELECT id,')) {
       return {
-        rows: rows.creativeAssets.filter((r) => {
+        rows: limited(rows.creativeAssets.filter(forTenant).filter((r) => {
           const st = String(r.source_type ?? '');
           const ps = String(r.permission_scope ?? '');
           const lc = String(r.learning_lifecycle ?? '');
           return st === 'competitor_meta_ad' || ps === 'public_ad_library'
             || lc !== 'approved_for_generation' || r.usable_for_generation === false;
-        }) as Row[],
+        }).sort(createdDesc)) as Row[],
       };
     }
-    if (s.includes('FROM market_pattern_notes')) return { rows: rows.marketPatternNotes as Row[] };
+    if (s.includes('FROM market_pattern_notes')) return { rows: limited(rows.marketPatternNotes.filter(forTenant).sort(createdDesc)) as Row[] };
     if (s.includes('FROM prompt_recipes') || (s.startsWith('SELECT') && s.includes('prompt_recipes'))) return { rows: rows.promptRecipes as Row[] };
     // generated_assets INSERT
     if (s.startsWith('INSERT') && s.includes('generated_assets')) {
@@ -575,21 +583,18 @@ test('tenant A and tenant B preferences never leak into each other', async () =>
   const assetA = makeApprovedAsset('asset-a', tenantA);
   const assetB = makeApprovedAsset('asset-b', tenantB);
 
-  const dbA = makeDb({
-    businessProfiles: [makeProfile('Nocturne Skin')],
-    styleCards: [cardA],
-    creativeAssets: [assetA],
-    marketPatternNotes: [],
-  });
-  const dbB = makeDb({
-    businessProfiles: [makeProfile('PopGlow Lab')],
-    styleCards: [cardB],
-    creativeAssets: [assetB],
+  const db = makeDb({
+    businessProfiles: [
+      { ...makeProfile('Nocturne Skin'), tenant_id: tenantA },
+      { ...makeProfile('PopGlow Lab'), tenant_id: tenantB },
+    ],
+    styleCards: [cardA, cardB],
+    creativeAssets: [assetA, assetB],
     marketPatternNotes: [],
   });
 
-  const previewA = await compilePromptPreview(ctxA, dbA, BASE_BRIEF);
-  const previewB = await compilePromptPreview(ctxB, dbB, BASE_BRIEF);
+  const previewA = await compilePromptPreview(ctxA, db, BASE_BRIEF);
+  const previewB = await compilePromptPreview(ctxB, db, BASE_BRIEF);
 
   assert.equal(previewA.contextPack.status, 'ready');
   assert.equal(previewB.contextPack.status, 'ready');
@@ -652,6 +657,30 @@ test('30 recent ineligible assets must not hide an older eligible asset', async 
     );
   }
   assert.equal(pack.selectedExamples[0].id, 'old-eligible', 'older eligible asset must be selected');
+  assert.equal(pack.selectedExamples[0].rank, 1, 'selected safe examples should use contiguous rank after filtering');
+});
+
+test('recent SQL-eligible but projection-unsafe assets must not hide an older safe eligible asset', async () => {
+  const tenantId = '9401';
+  const ctx = makeTenant(tenantId);
+  const card = makeStyleCard('sc-unsafe-limit', tenantId, 0.9);
+  const unsafeRecent = Array.from({ length: 10 }, (_, i) => ({
+    ...makeApprovedAsset(`unsafe-recent-${i}`, tenantId, i * 1000),
+    served_asset_ref: `/home/node/private/${i}.jpg`,
+  }));
+  const safeOlder = makeApprovedAsset('older-safe-eligible', tenantId, 1000 * 60 * 60 * 24 * 7);
+  const db = makeDb({
+    businessProfiles: [makeProfile('ProjectionSafetyBrand')],
+    styleCards: [card],
+    creativeAssets: [...unsafeRecent, safeOlder],
+    marketPatternNotes: [],
+  });
+
+  const pack = await retrieveCreativeContextPack(ctx, db, BASE_BRIEF);
+  assert.equal(pack.status, 'ready', 'older safe asset should make context ready even after unsafe recent candidates');
+  assert.equal(pack.selectedExamples[0].id, 'older-safe-eligible');
+  assert.equal(pack.selectedExamples[0].rank, 1, 'rank should be assigned after projection-safe filtering');
+  assert.ok(pack.excludedCandidates.some((e) => e.id === 'unsafe-recent-0' && e.reason === 'asset_not_eligible_for_direct_generation'));
 });
 
 // ---------------------------------------------------------------------------

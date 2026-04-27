@@ -10,8 +10,10 @@ function approxTokens(text: string): number { return Math.ceil(text.length / 4);
 export async function retrieveCreativeContextPack(ctx: TenantContext, db: QueryClient, brief: CreativeMemoryBrief, maxTokens = 3500): Promise<CreativeContextPack> {
   const tenantId = requireNumericTenantId(ctx);
   const profile = await loadProfileContext(ctx, db);
-  // Fetch eligible examples with eligibility filtering in SQL (before LIMIT) to prevent
-  // ineligible recent assets from crowding out older approved ones (LIMIT 30 bug).
+  // Fetch a bounded window of SQL-eligible examples, then run the stricter
+  // frontend-safe projection in JS. The over-fetch prevents recent rows that pass
+  // lifecycle/source checks but fail served-ref safety from crowding out older safe
+  // approved examples.
   // A separate query tracks recent ineligible/competitor assets for excludedCandidates.
   const [styleRows, eligibleAssetRows, excludedAssetRows, marketRows] = await Promise.all([
     db.query<Record<string, unknown>>(`SELECT * FROM style_cards WHERE tenant_id = $1 AND status = 'active' ORDER BY confidence_score DESC NULLS LAST, updated_at DESC LIMIT 8`, [tenantId]),
@@ -23,7 +25,7 @@ export async function retrieveCreativeContextPack(ctx: TenantContext, db: QueryC
          AND source_type IN ('owned_instagram','owned_facebook','owned_meta_ad','generated_by_aries')
          AND permission_scope IN ('owned','generated')
          AND learning_lifecycle = 'approved_for_generation'
-       ORDER BY created_at DESC LIMIT 10`,
+       ORDER BY created_at DESC LIMIT 100`,
       [tenantId]
     ),
     db.query<Record<string, unknown>>(
@@ -64,10 +66,10 @@ export async function retrieveCreativeContextPack(ctx: TenantContext, db: QueryC
   });
 
   const selectedExamples: SelectedCreativeExample[] = [];
-  eligibleAssetRows.rows.forEach((row, index) => {
+  eligibleAssetRows.rows.forEach((row) => {
     const asset = projectSafeCreativeAsset(row);
     if (!asset) { excludedCandidates.push({ id: String(row.id), sourceType: String(row.source_type ?? ''), reason: 'asset_not_eligible_for_direct_generation' }); return; }
-    selectedExamples.push({ ...asset, selectionReason: 'Approved owned/generated reference matched this run.', rank: index + 1 });
+    selectedExamples.push({ ...asset, selectionReason: 'Approved owned/generated reference matched this run.', rank: selectedExamples.length + 1 });
   });
   const limitedExamples = selectedExamples.slice(0, 5);
   const marketPatternNotes: MarketPatternNote[] = marketRows.rows.map((row) => ({
