@@ -1,0 +1,23 @@
+{
+  "id": "ISSUE-004",
+  "title": "Onboarding validates competitor URLs at entry time and labels not-found tenant status clearly",
+  "severity": "medium",
+  "category": "validation/content",
+  "passes": false,
+  "blocked": false,
+  "page": "https://aries.sugarandleather.com/onboarding/start and /onboarding/status?tenant_id=obviously-invalid-tenant&signup_event_id=bad",
+  "symptom": "Onboarding accepts a Facebook competitor URL on step 1 and blocks only at final submit. Invalid tenant status displays onboarding_status OK even though provisioning_status is NOT FOUND.",
+  "acceptance_criteria": [
+    "Competitor URL entry uses the same canonical validation as final submit before leaving step 1.",
+    "Facebook, Meta Ad Library, and unsupported competitor URLs show inline field errors at step 1 and block Continue while present.",
+    "Nonexistent tenant status copy clearly distinguishes request success from tenant existence, avoiding a top-level OK label for not-found tenants.",
+    "Add regression tests for competitor URL step gating and not-found status copy/API mapping."
+  ],
+  "suspected_files": [
+    "frontend/aries-v1/onboarding-flow.tsx",
+    "frontend/onboarding/status.tsx",
+    "app/api/onboarding/status/[tenantId]/route.ts",
+    "tests"
+  ],
+  "notes": "Discovery evidence: step 1 allowed https://facebook.com/sugarandleather, then final page displayed competitor_url must be competitor website. Invalid tenant displayed onboarding_status OK + provisioning_status NOT FOUND."
+}

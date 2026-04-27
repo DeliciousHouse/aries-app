@@ -1,0 +1,25 @@
+{
+  "id": "ISSUE-003",
+  "title": "Public navigation has a canonical Features destination and one main landmark per page",
+  "severity": "medium",
+  "category": "ux/accessibility",
+  "passes": false,
+  "blocked": false,
+  "page": "https://aries.sugarandleather.com/features and https://aries.sugarandleather.com/documentation",
+  "symptom": "Global Features links route to /#features while /features exists as a standalone sitemap route. Auth pages have no main landmark, and documentation renders nested main landmarks.",
+  "acceptance_criteria": [
+    "Header/footer Features links consistently navigate to the canonical /features route, or the duplicate /features route is deliberately removed from sitemap/navigation. Prefer /features for this fix.",
+    "Auth pages expose exactly one primary main landmark.",
+    "Documentation page avoids nested main landmarks under the marketing shell.",
+    "Add regression tests for canonical feature links and landmark counts where practical."
+  ],
+  "suspected_files": [
+    "frontend/donor/marketing/chrome.tsx",
+    "frontend/auth/auth-layout.tsx",
+    "frontend/documentation/Docs.tsx",
+    "app/features/page.tsx",
+    "app/sitemap/page.tsx",
+    "tests"
+  ],
+  "notes": "Discovery evidence: clicking Features from /terms lands on /#features, while direct /features exists. DOM: auth pages mainCount=0; /documentation mainCount=2."
+}
