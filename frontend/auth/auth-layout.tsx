@@ -23,9 +23,9 @@ const AuthLayout: React.FC<AuthLayoutProps> = ({ children }) => {
         />
       </div>
 
-      <div className="container mx-auto px-6 relative z-10">
+      <main className="container mx-auto px-6 relative z-10">
         {children}
-      </div>
+      </main>
     </div>
   );
 };

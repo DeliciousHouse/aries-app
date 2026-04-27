@@ -61,7 +61,7 @@ export default function Docs() {
 
   return (
     <div className="min-h-screen bg-[#050505] text-white selection:bg-primary/30">
-      <main className="relative z-10 pt-32 pb-20">
+      <div className="relative z-10 pt-32 pb-20">
         <div className="container mx-auto px-6 max-w-7xl">
           {/* Header */}
           <div className="text-center mb-16">
@@ -323,7 +323,7 @@ export default function Docs() {
             </div>
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 }
