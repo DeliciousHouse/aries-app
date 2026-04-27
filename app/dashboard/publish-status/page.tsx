@@ -7,7 +7,7 @@ export const metadata = {
 
 export default function DashboardPublishStatusPage() {
   return (
-    <AppShellLayout currentRouteId="publishStatus">
+    <AppShellLayout currentRouteId="publishStatus" loginRedirectPath="/dashboard/publish-status">
       <AriesLatestCampaignView
         view="publish"
         title="No publish status yet"
