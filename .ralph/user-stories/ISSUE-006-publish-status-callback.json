@@ -3,7 +3,7 @@
   "title": "Publish status login redirects preserve callback URL",
   "severity": "medium",
   "category": "auth-redirect",
-  "passes": false,
+  "passes": true,
   "blocked": false,
   "page": "https://aries.sugarandleather.com/publish-status and /dashboard/publish-status",
   "symptom": "Unauthenticated publish-status access redirects to /login without callbackUrl, unlike /review surfaces.",

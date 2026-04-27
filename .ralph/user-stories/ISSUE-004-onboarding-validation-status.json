@@ -3,7 +3,7 @@
   "title": "Onboarding validates competitor URLs at entry time and labels not-found tenant status clearly",
   "severity": "medium",
   "category": "validation/content",
-  "passes": false,
+  "passes": true,
   "blocked": false,
   "page": "https://aries.sugarandleather.com/onboarding/start and /onboarding/status?tenant_id=obviously-invalid-tenant&signup_event_id=bad",
   "symptom": "Onboarding accepts a Facebook competitor URL on step 1 and blocks only at final submit. Invalid tenant status displays onboarding_status OK even though provisioning_status is NOT FOUND.",

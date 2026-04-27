@@ -3,7 +3,7 @@
   "title": "Marketing job approval requires loaded approval state and authenticates before job lookup",
   "severity": "medium",
   "category": "security/approval-gating",
-  "passes": false,
+  "passes": true,
   "blocked": false,
   "page": "https://aries.sugarandleather.com/marketing/job-approve?jobId=obviously-invalid-job",
   "symptom": "Approve and Resume remains enabled after status load fails with Authentication required. The approve API returns Marketing job not found to unauthenticated users because it checks runtime job existence before tenant/auth context, unlike the status API.",

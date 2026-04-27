@@ -3,7 +3,7 @@
   "title": "Signup form controls have useful accessible names",
   "severity": "medium",
   "category": "accessibility",
-  "passes": false,
+  "passes": true,
   "blocked": false,
   "page": "https://aries.sugarandleather.com/signup",
   "symptom": "The signup password visibility toggle is an unnamed icon-only button, and Organization is named from placeholder text instead of its visible label.",

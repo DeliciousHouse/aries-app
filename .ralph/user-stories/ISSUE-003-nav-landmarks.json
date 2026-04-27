@@ -3,7 +3,7 @@
   "title": "Public navigation has a canonical Features destination and one main landmark per page",
   "severity": "medium",
   "category": "ux/accessibility",
-  "passes": false,
+  "passes": true,
   "blocked": false,
   "page": "https://aries.sugarandleather.com/features and https://aries.sugarandleather.com/documentation",
   "symptom": "Global Features links route to /#features while /features exists as a standalone sitemap route. Auth pages have no main landmark, and documentation renders nested main landmarks.",

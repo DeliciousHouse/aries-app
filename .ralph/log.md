@@ -39,11 +39,39 @@ Routes tested: dashboard routes and legacy aliases while unauthenticated.
 
 Result: no route-breaking findings. Protected routes and aliases ultimately land on `/login` with HTTP 200 and no console errors.
 
-## Story plan
+## Story plan and resolution
 
-- ISSUE-001: Reset password error handling, validation, and labels.
-- ISSUE-002: Signup form accessible names.
-- ISSUE-003: Public nav canonical Features link and landmark structure.
-- ISSUE-004: Onboarding competitor validation and not-found status copy.
-- ISSUE-005: Marketing job approval gating and approve API auth-order consistency.
-- ISSUE-006: Publish-status login callback preservation.
+- ISSUE-001: Reset password error handling, validation, and labels. PASS. Commits: `5ec2cb9`, `e23f0de`.
+- ISSUE-002: Signup form accessible names. PASS. Commit: `8f2e518`.
+- ISSUE-003: Public nav canonical Features link and landmark structure. PASS. Commits: `fe9beac`, `45dc5b1`.
+- ISSUE-004: Onboarding competitor validation and not-found status copy. PASS. Commits: `5a0ae9d`, `84d9fb8`.
+- ISSUE-005: Marketing job approval gating and approve API auth-order consistency. PASS. Commit: `fc595c0`.
+- ISSUE-006: Publish-status login callback preservation. PASS. Commit: `435ef83`.
+
+## Review loop
+
+- ISSUE-001 initial review requested behavioral tests and safer non-string failed-response parsing. Fixed in `e23f0de`; re-review approved.
+- ISSUE-002 approved with non-blocking source-test caveat.
+- ISSUE-003 initial review requested labeled navigation landmarks. Fixed in `45dc5b1`; re-review approved.
+- ISSUE-004 initial review requested behavioral/source-imported tests. Fixed in `84d9fb8`; re-review approved.
+- ISSUE-005 approved.
+- ISSUE-006 approved.
+
+## Integration validation
+
+Canonical checkout: `/home/node/openclaw/aries-app`.
+
+Passed:
+- `npm run workspace:verify`
+- `npm run typecheck`
+- Targeted 87-test QA regression suite covering reset password, signup, publish-status redirects, public nav/landmarks, onboarding validation/status, marketing approval gating, and core route pages.
+- `git diff --check origin/master...HEAD`
+- `npm run validate:repo-boundary`
+- `npm run validate:banned-patterns`
+- `npm run verify`
+
+## Remaining caveats
+
+- Browser vision analysis failed in this Hermes/Codex session due unsupported configured vision model, so discovery used browser snapshots, console, DOM checks, route status checks, and source lookup.
+- Authenticated dashboard behavior was limited to unauthenticated redirects because no private credentials were available in the session.
+- Broader `tests/frontend-api-layer.test.ts` has unrelated known marketing workspace/hydration failures when run as a full file, but the ISSUE-004 and ISSUE-005 targeted paths pass and `npm run verify` passes.
