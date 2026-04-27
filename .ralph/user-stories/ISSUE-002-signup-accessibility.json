@@ -1,0 +1,22 @@
+{
+  "id": "ISSUE-002",
+  "title": "Signup form controls have useful accessible names",
+  "severity": "medium",
+  "category": "accessibility",
+  "passes": true,
+  "blocked": false,
+  "page": "https://aries.sugarandleather.com/signup",
+  "symptom": "The signup password visibility toggle is an unnamed icon-only button, and Organization is named from placeholder text instead of its visible label.",
+  "acceptance_criteria": [
+    "Password visibility toggle has an accessible name such as Show password / Hide password and updates when toggled.",
+    "The toggle exposes pressed state if appropriate.",
+    "Organization input is associated with its visible Organization (Optional) label via htmlFor/id or aria-labelledby.",
+    "No signup interactive control appears as an unnamed button in the accessibility tree.",
+    "Add a regression test for these accessible names."
+  ],
+  "suspected_files": [
+    "frontend/auth/sign-up-form.tsx",
+    "tests"
+  ],
+  "notes": "Discovery evidence: accessibility snapshot exposed an unnamed button next to Password, and Organization textbox was named e.g. Acme Corp."
+}

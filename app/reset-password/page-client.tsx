@@ -52,8 +52,12 @@ export default function ResetPasswordPageClient() {
       });
 
       if (!response.ok) {
-        const data = (await response.json().catch(() => ({}))) as { error?: string };
-        throw new Error(data.error || 'Failed to update password. Try again.');
+        const data = (await response.json().catch(() => null)) as { error?: unknown } | null;
+        const fallbackMessage = response.status === 400
+          ? 'Your recovery code is invalid or expired. Request a new code and try again.'
+          : 'Failed to update password. Try again.';
+        const responseMessage = typeof data?.error === 'string' ? data.error.trim() : '';
+        throw new Error(responseMessage || fallbackMessage);
       }
 
       router.push('/login?reset=success');

@@ -1,0 +1,23 @@
+{
+  "id": "ISSUE-006",
+  "title": "Publish status login redirects preserve callback URL",
+  "severity": "medium",
+  "category": "auth-redirect",
+  "passes": true,
+  "blocked": false,
+  "page": "https://aries.sugarandleather.com/publish-status and /dashboard/publish-status",
+  "symptom": "Unauthenticated publish-status access redirects to /login without callbackUrl, unlike /review surfaces.",
+  "acceptance_criteria": [
+    "Unauthenticated /publish-status redirects to login with callbackUrl preserving /publish-status or /dashboard/publish-status.",
+    "Direct /dashboard/publish-status also preserves callbackUrl.",
+    "Behavior matches protected review/dashboard redirect patterns.",
+    "Add regression tests for both redirect paths."
+  ],
+  "suspected_files": [
+    "app/publish-status/page.tsx",
+    "app/dashboard/publish-status/page.tsx",
+    "components/redesign/layout/app-shell.tsx",
+    "tests"
+  ],
+  "notes": "Discovery evidence: /publish-status and /dashboard/publish-status both landed on https://aries.sugarandleather.com/login with no callbackUrl. /review preserves callbackUrl."
+}

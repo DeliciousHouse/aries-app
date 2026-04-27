@@ -65,6 +65,8 @@ export interface OnboardingStatusQuery {
 }
 
 export interface OnboardingStatusSuccess {
+  /** Transport/request outcome. Tenant existence is represented by provisioning_status. */
+  request_status: 'ok';
   onboarding_status: 'ok';
   tenant_id: string;
   signup_event_id?: string;

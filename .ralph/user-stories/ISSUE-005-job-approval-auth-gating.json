@@ -1,0 +1,24 @@
+{
+  "id": "ISSUE-005",
+  "title": "Marketing job approval requires loaded approval state and authenticates before job lookup",
+  "severity": "medium",
+  "category": "security/approval-gating",
+  "passes": true,
+  "blocked": false,
+  "page": "https://aries.sugarandleather.com/marketing/job-approve?jobId=obviously-invalid-job",
+  "symptom": "Approve and Resume remains enabled after status load fails with Authentication required. The approve API returns Marketing job not found to unauthenticated users because it checks runtime job existence before tenant/auth context, unlike the status API.",
+  "acceptance_criteria": [
+    "Approve and Resume remains disabled until status load succeeds and returns an active approval requirement/checkpoint.",
+    "Status-load failures never leave the approval/resume CTA enabled.",
+    "Approve API resolves/authenticates tenant context before checking runtime job existence.",
+    "GET status and POST approve produce consistent unauthenticated behavior, so job existence is not distinguishable to unauthenticated users.",
+    "Add regression tests for UI gating and API auth-order consistency."
+  ],
+  "suspected_files": [
+    "frontend/marketing/job-approve.tsx",
+    "app/api/marketing/jobs/[jobId]/approve/handler.ts",
+    "app/api/marketing/jobs/[jobId]/handler.ts",
+    "tests"
+  ],
+  "notes": "Discovery evidence: status surface displayed Authentication required but Approve and Resume was enabled. POST approve on invalid job displayed Marketing job not found."
+}

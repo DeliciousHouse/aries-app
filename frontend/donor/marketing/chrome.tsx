@@ -17,7 +17,7 @@ export interface DonorMarketingShellProps {
 
 const NAV_ITEMS = [
   { name: 'How it works', href: '/#how-it-works' },
-  { name: 'Features', href: '/#features' },
+  { name: 'Features', href: '/features' },
   { name: 'Documentation', href: '/documentation' },
 ] as const;
 
@@ -73,6 +73,7 @@ export function DonorNavbar({ heroMode = false }: { heroMode?: boolean }) {
 
   return (
     <nav
+      aria-label="Primary"
       className={cn(
         'fixed top-0 left-0 right-0 z-50 transition-all duration-300 px-6',
         isScrolled && (!heroMode || !isHome || scrollProgress > 0.95)
@@ -185,7 +186,7 @@ export function DonorFooter() {
             </p>
             <div className="flex gap-4 text-sm text-white/60">
               <a href="/#how-it-works" className="hover:text-white transition-colors">How it works</a>
-              <a href="/#features" className="hover:text-white transition-colors">Features</a>
+              <a href="/features" className="hover:text-white transition-colors">Features</a>
               <a href="/documentation" className="hover:text-white transition-colors">Documentation</a>
             </div>
           </div>

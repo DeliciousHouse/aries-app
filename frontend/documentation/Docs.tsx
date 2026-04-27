@@ -61,7 +61,7 @@ export default function Docs() {
 
   return (
     <div className="min-h-screen bg-[#050505] text-white selection:bg-primary/30">
-      <main className="relative z-10 pt-32 pb-20">
+      <div className="relative z-10 pt-32 pb-20">
         <div className="container mx-auto px-6 max-w-7xl">
           {/* Header */}
           <div className="text-center mb-16">
@@ -97,7 +97,10 @@ export default function Docs() {
             {/* Sidebar */}
             <aside className="lg:w-64 flex-shrink-0">
               <div className="lg:sticky lg:top-24 space-y-2">
-                <nav className="flex lg:flex-col overflow-x-auto lg:overflow-visible pb-4 lg:pb-0 gap-2 scrollbar-hide">
+                <nav
+                  aria-label="Documentation sections"
+                  className="flex lg:flex-col overflow-x-auto lg:overflow-visible pb-4 lg:pb-0 gap-2 scrollbar-hide"
+                >
                   {sections.map((section) => {
                     const Icon = section.icon;
                     return (
@@ -323,7 +326,7 @@ export default function Docs() {
             </div>
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 }
