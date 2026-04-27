@@ -356,11 +356,21 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [jobStatus, setJobStatus] = useState<JobStatusResult | null>(null);
+  const [loadedStatusJobId, setLoadedStatusJobId] = useState<string | null>(null);
   const [approveResult, setApproveResult] = useState<ApproveResult | null>(null);
 
+  const statusSuccess = jobStatus && !isErrorResult(jobStatus) ? jobStatus : null;
+  const activeApprovalCheckpoint =
+    !!statusSuccess?.approval?.required &&
+    statusSuccess.approval.status === 'awaiting_approval' &&
+    !!statusSuccess.marketing_stage;
+  const normalizedJobId = jobId.trim();
   const canSubmit =
-    jobId.trim().length > 0 &&
+    normalizedJobId.length > 0 &&
+    loadedStatusJobId === normalizedJobId &&
+    activeApprovalCheckpoint &&
     approvedBy.trim().length > 0 &&
+    !loadingStatus &&
     !submitting;
 
   useEffect(() => {
@@ -373,14 +383,18 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
   }, [props.defaultJobId]);
 
   async function handleLoadStatus() {
-    if (!jobId.trim()) return;
+    const requestedJobId = jobId.trim();
+    if (!requestedJobId) return;
     setLoadingStatus(true);
+    setLoadedStatusJobId(null);
+    setJobStatus(null);
     setApproveResult(null);
     try {
       marketingStatus.reset();
-      const result = await marketingStatus.load(jobId.trim());
+      const result = await marketingStatus.load(requestedJobId);
       setJobStatus(result);
       if (result && !isErrorResult(result) && result.marketing_stage) {
+        setLoadedStatusJobId(requestedJobId);
         setApprovedStages([result.marketing_stage as MarketingStage]);
         setPlatforms(result.publishConfig.platforms);
         setLivePublishPlatforms(result.publishConfig.livePublishPlatforms);
@@ -389,6 +403,14 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
     } finally {
       setLoadingStatus(false);
     }
+  }
+
+  function handleJobIdChange(value: string) {
+    setJobId(value);
+    setLoadedStatusJobId(null);
+    setJobStatus(null);
+    setApproveResult(null);
+    marketingStatus.reset();
   }
 
   function toggleValue(value: string, setter: Dispatch<SetStateAction<string[]>>) {
@@ -450,7 +472,6 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
     return { tone: 'danger', text: `Approval failed: ${approveResult.approval_status}` };
   })();
 
-  const statusSuccess = jobStatus && !isErrorResult(jobStatus) ? jobStatus : null;
   const approveSuccess = approveResult && !isErrorResult(approveResult) ? approveResult : null;
   const pendingStage = statusSuccess?.approval ? statusSuccess.marketing_stage : null;
   const loadOrActionFailed = !!(
@@ -498,7 +519,7 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
             <Field label="Job ID" hint="Use the current campaign identifier.">
               <input
                 value={jobId}
-                onChange={(event) => setJobId(event.target.value)}
+                onChange={(event) => handleJobIdChange(event.target.value)}
                 placeholder="mkt_..."
                 className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
               />

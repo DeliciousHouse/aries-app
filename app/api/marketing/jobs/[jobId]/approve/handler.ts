@@ -35,6 +35,14 @@ export async function handleApproveMarketingJob(
   }
 
   try {
+    const tenantResult = await loadTenantContextOrResponse(tenantContextLoader, {
+      missingMembershipResponse: MARKETING_ONBOARDING_REQUIRED,
+    });
+    if ('response' in tenantResult) {
+      return tenantResult.response;
+    }
+    const resolvedTenantId = tenantResult.tenantContext.tenantId;
+
     const doc = await loadMarketingJobRuntime(jobId);
     if (!doc) {
       return NextResponse.json(
@@ -45,13 +53,6 @@ export async function handleApproveMarketingJob(
         { status: 404 }
       );
     }
-    const tenantResult = await loadTenantContextOrResponse(tenantContextLoader, {
-      missingMembershipResponse: MARKETING_ONBOARDING_REQUIRED,
-    });
-    if ('response' in tenantResult) {
-      return tenantResult.response;
-    }
-    const resolvedTenantId = tenantResult.tenantContext.tenantId;
     const result = await approveMarketingJob({
       jobId,
       tenantId: resolvedTenantId,
