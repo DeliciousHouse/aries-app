@@ -429,7 +429,7 @@ test('generated asset starts pending/suggested and is excluded, then approved be
   // Need usable asset for approval path
   const dbForApproval = makeDb({
     businessProfiles: [makeProfile('GenBrand')],
-    styleCards: [],
+    styleCards: [card],
     creativeAssets: [ariesAsset],
     marketPatternNotes: [],
     promptRecipes: [promptRecipe],
@@ -439,21 +439,10 @@ test('generated asset starts pending/suggested and is excluded, then approved be
   assert.equal(approved!.reviewStatus, 'approved');
   assert.equal(approved!.learningLifecycle, 'approved_for_generation');
 
-  // Step 4: Verify creative_assets updated to approved_for_generation
-  const updatedAsset = dbForApproval['_tables' as keyof typeof dbForApproval];
-  // Check via retrieval with updated DB
-  const nowApprovedAsset = {
-    ...ariesAsset,
-    learning_lifecycle: 'approved_for_generation',
-    usable_for_generation: true,
-  };
-  const dbAfterApproval = makeDb({
-    businessProfiles: [makeProfile('GenBrand')],
-    styleCards: [card],
-    creativeAssets: [nowApprovedAsset],
-    marketPatternNotes: [],
-  });
-  const packAfter = await retrieveCreativeContextPack(ctx, dbAfterApproval, BASE_BRIEF);
+  // Step 4: Verify approval mutates the linked creative_assets row, then retrieval learns from that same DB state.
+  assert.equal(ariesAsset.usable_for_generation, true, 'approval must mark linked creative asset usable');
+  assert.equal(ariesAsset.learning_lifecycle, 'approved_for_generation', 'approval must mark linked creative asset approved_for_generation');
+  const packAfter = await retrieveCreativeContextPack(ctx, dbForApproval, BASE_BRIEF);
   assert.equal(packAfter.selectedExamples.length, 1, 'approved generated asset must appear in selectedExamples');
   assert.equal(packAfter.selectedExamples[0].id, 'gen-asset-1');
 });
@@ -719,13 +708,14 @@ test('assets with unsafe served_asset_ref are excluded', async () => {
   assert.equal(pack.selectedExamples.length, 0, 'asset with unsafe path must be excluded');
 });
 
-test('context pack response does not leak storage_key, tenant_id, or raw filesystem paths', async () => {
+test('context pack response does not leak storage_key, tenant_id, or raw asset URL fields', async () => {
   const tenantId = '9501';
   const ctx = makeTenant(tenantId);
+  const rawAssetUrlLeakMarker = 'raw-file-url-leak-marker';
   const assetWithSensitive = {
     ...makeApprovedAsset('safe-1', tenantId),
     storage_key: 's3://bucket/key',  // must not appear in response
-    file_url: 'https://s3.amazonaws.com/bucket/file.jpg', // must be stripped
+    file_url: `https://assets.example.invalid/${rawAssetUrlLeakMarker}.jpg`, // must be stripped
   };
   const db = makeDb({
     businessProfiles: [makeProfile('SafetyBrand')],
@@ -736,9 +726,13 @@ test('context pack response does not leak storage_key, tenant_id, or raw filesys
   // assertFrontendSafeResponse in retrieval.ts will throw if response contains unsafe keys
   // If safe, it passes through; if unsafe, it throws
   const pack = await retrieveCreativeContextPack(ctx, db, BASE_BRIEF);
+  const selected = pack.selectedExamples.find((example) => example.id === 'safe-1');
+  assert.ok(selected, 'safe asset should remain selected after sensitive fields are stripped');
+  assert.equal(selected.servedAssetRef, '/materials/assets/img.jpg');
+  assert.equal(Object.prototype.hasOwnProperty.call(selected, 'file_url'), false, 'response must not have file_url key');
   const json = JSON.stringify(pack);
   assert.ok(!json.includes('/home/'), 'response must not contain /home/ filesystem path');
-  assert.ok(!json.includes('s3.amazonaws.com'), 'response must not contain raw S3 URL');
+  assert.ok(!json.includes(rawAssetUrlLeakMarker), 'response must not contain raw asset URL values');
   // storage_key and tenant_id are blocked by assertFrontendSafeResponse
   assert.ok(!json.includes('"storage_key"'), 'response must not have storage_key key');
   assert.ok(!json.includes('"tenant_id"'), 'response must not have tenant_id key');

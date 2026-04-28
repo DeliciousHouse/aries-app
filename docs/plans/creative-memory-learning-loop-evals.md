@@ -452,6 +452,7 @@ npm run eval:creative-memory-learning
 ```bash
 npx tsx --test tests/creative-memory-learning-loop.test.ts
 npm run test:creative-memory
+npm run eval:creative-memory-learning
 npm run validate:repo-boundary
 npm run validate:banned-patterns
 npm run workspace:verify
