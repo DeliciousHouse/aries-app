@@ -51,11 +51,11 @@ test('remapHostOutputToMount returns null when only one env var is set', async (
 test('remapHostOutputToMount rewrites paths under host-output-dir onto the mount', async () => {
   await withEnv(
     {
-      ARIES_LOBSTER_HOST_OUTPUT_DIR: '/home/node/openclaw/aries-app/lobster/output',
+      ARIES_LOBSTER_HOST_OUTPUT_DIR: '/home/node/aries-app/lobster/output',
       ARIES_LOBSTER_HOST_OUTPUT_MOUNT: '/host-lobster-output',
     },
     () => {
-      const input = '/home/node/openclaw/aries-app/lobster/output/27-campaign/landing-pages/index.html';
+      const input = '/home/node/aries-app/lobster/output/27-campaign/landing-pages/index.html';
       assert.equal(
         remapHostOutputToMount(input),
         '/host-lobster-output/27-campaign/landing-pages/index.html',

@@ -48,12 +48,12 @@ test('ingestRuntimeDocAssets copies out-of-DATA_ROOT file and rewrites path', as
     await mkdir(path.dirname(src), { recursive: true });
     const body = Buffer.from('<html>charlene</html>');
     await writeFile(src, body);
-    const declaredHostPath = path.join('/home/node/openclaw/aries-app/lobster/output', '27-campaign', 'landing-pages', 'index.html');
+    const declaredHostPath = path.join('/home/node/aries-app/lobster/output', '27-campaign', 'landing-pages', 'index.html');
 
     await withEnv(
       {
         DATA_ROOT: dataRoot,
-        ARIES_LOBSTER_HOST_OUTPUT_DIR: '/home/node/openclaw/aries-app/lobster/output',
+        ARIES_LOBSTER_HOST_OUTPUT_DIR: '/home/node/aries-app/lobster/output',
         ARIES_LOBSTER_HOST_OUTPUT_MOUNT: hostMount,
       },
       async () => {
@@ -103,12 +103,12 @@ test('ingestRuntimeDocAssets is idempotent — re-ingesting a normalized doc is 
   await withScratch(async ({ dataRoot, hostOut, hostMount }) => {
     const src = path.join(hostOut, 'img.png');
     await writeFile(src, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
-    const declared = path.join('/home/node/openclaw/aries-app/lobster/output', 'img.png');
+    const declared = path.join('/home/node/aries-app/lobster/output', 'img.png');
 
     await withEnv(
       {
         DATA_ROOT: dataRoot,
-        ARIES_LOBSTER_HOST_OUTPUT_DIR: '/home/node/openclaw/aries-app/lobster/output',
+        ARIES_LOBSTER_HOST_OUTPUT_DIR: '/home/node/aries-app/lobster/output',
         ARIES_LOBSTER_HOST_OUTPUT_MOUNT: hostMount,
       },
       async () => {
@@ -129,12 +129,12 @@ test('ingestRuntimeDocAssets is idempotent — re-ingesting a normalized doc is 
 
 test('ingestRuntimeDocAssets leaves unreadable paths untouched (no new failure mode)', async () => {
   await withScratch(async ({ dataRoot, hostMount }) => {
-    const declared = '/home/node/openclaw/aries-app/lobster/output/does-not-exist.html';
+    const declared = '/home/node/aries-app/lobster/output/does-not-exist.html';
 
     await withEnv(
       {
         DATA_ROOT: dataRoot,
-        ARIES_LOBSTER_HOST_OUTPUT_DIR: '/home/node/openclaw/aries-app/lobster/output',
+        ARIES_LOBSTER_HOST_OUTPUT_DIR: '/home/node/aries-app/lobster/output',
         ARIES_LOBSTER_HOST_OUTPUT_MOUNT: hostMount,
       },
       async () => {
@@ -160,13 +160,13 @@ test('ingestRuntimeDocAssets walks nested arrays and objects', async () => {
     await writeFile(a, 'AAA');
     await writeFile(b, '# BBB');
 
-    const declaredA = path.join('/home/node/openclaw/aries-app/lobster/output', 'a.txt');
-    const declaredB = path.join('/home/node/openclaw/aries-app/lobster/output', 'nested', 'b.md');
+    const declaredA = path.join('/home/node/aries-app/lobster/output', 'a.txt');
+    const declaredB = path.join('/home/node/aries-app/lobster/output', 'nested', 'b.md');
 
     await withEnv(
       {
         DATA_ROOT: dataRoot,
-        ARIES_LOBSTER_HOST_OUTPUT_DIR: '/home/node/openclaw/aries-app/lobster/output',
+        ARIES_LOBSTER_HOST_OUTPUT_DIR: '/home/node/aries-app/lobster/output',
         ARIES_LOBSTER_HOST_OUTPUT_MOUNT: hostMount,
       },
       async () => {
@@ -191,12 +191,12 @@ test('ingestRuntimeDocAssets content-addresses so duplicate source copies once',
   await withScratch(async ({ dataRoot, hostOut, hostMount }) => {
     const src = path.join(hostOut, 'shared.json');
     await writeFile(src, '{"hello":"world"}');
-    const declared = path.join('/home/node/openclaw/aries-app/lobster/output', 'shared.json');
+    const declared = path.join('/home/node/aries-app/lobster/output', 'shared.json');
 
     await withEnv(
       {
         DATA_ROOT: dataRoot,
-        ARIES_LOBSTER_HOST_OUTPUT_DIR: '/home/node/openclaw/aries-app/lobster/output',
+        ARIES_LOBSTER_HOST_OUTPUT_DIR: '/home/node/aries-app/lobster/output',
         ARIES_LOBSTER_HOST_OUTPUT_MOUNT: hostMount,
       },
       async () => {
@@ -235,12 +235,12 @@ test('ingestRuntimeDocAssets output is readable by readMarketingAssetWithinAllow
     const src = path.join(hostOut, 'serve-me.html');
     const body = Buffer.from('<html>ok</html>');
     await writeFile(src, body);
-    const declared = path.join('/home/node/openclaw/aries-app/lobster/output', 'serve-me.html');
+    const declared = path.join('/home/node/aries-app/lobster/output', 'serve-me.html');
 
     await withEnv(
       {
         DATA_ROOT: dataRoot,
-        ARIES_LOBSTER_HOST_OUTPUT_DIR: '/home/node/openclaw/aries-app/lobster/output',
+        ARIES_LOBSTER_HOST_OUTPUT_DIR: '/home/node/aries-app/lobster/output',
         ARIES_LOBSTER_HOST_OUTPUT_MOUNT: hostMount,
       },
       async () => {

@@ -70,7 +70,7 @@ services:
       # Host lobster/output mount is read by asset-ingest to copy generated
       # assets into DATA_ROOT at ingest time. Keep _DIR/_MOUNT in sync with
       # the bind mount below so asset-ingest can remap host paths.
-      ARIES_LOBSTER_HOST_OUTPUT_DIR: ${ARIES_LOBSTER_HOST_OUTPUT_DIR:-/home/node/openclaw/aries-app/lobster/output}
+      ARIES_LOBSTER_HOST_OUTPUT_DIR: ${ARIES_LOBSTER_HOST_OUTPUT_DIR:-/home/node/aries-app/lobster/output}
       ARIES_LOBSTER_HOST_OUTPUT_MOUNT: ${ARIES_LOBSTER_HOST_OUTPUT_MOUNT:-/host-lobster-output}
     ports:
       - "${PORT:-3000}:${PORT:-3000}"
@@ -78,7 +78,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ${ARIES_SHARED_DATA_ROOT:-/home/node/data}:/data
-      - ${ARIES_LOBSTER_HOST_OUTPUT_DIR:-/home/node/openclaw/aries-app/lobster/output}:${ARIES_LOBSTER_HOST_OUTPUT_MOUNT:-/host-lobster-output}:ro
+      - ${ARIES_LOBSTER_HOST_OUTPUT_DIR:-/home/node/aries-app/lobster/output}:${ARIES_LOBSTER_HOST_OUTPUT_MOUNT:-/host-lobster-output}:ro
       - gh_config:/home/node/.config/gh
     restart: unless-stopped
     healthcheck:
