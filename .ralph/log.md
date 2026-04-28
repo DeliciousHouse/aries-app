@@ -75,3 +75,32 @@ Passed:
 - Browser vision analysis failed in this Hermes/Codex session due to unsupported configured vision model, so discovery used browser snapshots, console, DOM checks, route status checks, and source lookup.
 - Authenticated dashboard behavior was limited to unauthenticated redirects because no private credentials were available in the session.
 - Broader `tests/frontend-api-layer.test.ts` has unrelated known marketing workspace/hydration failures when run as a full file, but the ISSUE-004 and ISSUE-005 targeted paths pass and `npm run verify` passes.
+
+# Ralph loop log — OpenClaw media gateway QA 2026-04-28
+
+## Discovery
+
+Focused scope: Aries/Lobster image generation, video generation, and image-text QA delegation through OpenClaw; OpenAI Codex OAuth support in the installed OpenClaw runtime; generated asset authenticity/uniqueness.
+
+Findings:
+- ISSUE-007: Docker runtime passed OpenClaw reachability env vars but not the Lobster media gateway opt-in/model/video env vars. Fixed by adding safe env passthrough and docs.
+- ISSUE-008: Installed OpenClaw image generation supports `openai-codex` OAuth fallback for `openai/gpt-image-*`; installed OpenClaw OpenAI video generation does not. Deferred upstream/OpenClaw provider gap.
+
+## Evidence
+
+- Local Aries root returned HTTP 200.
+- OpenClaw gateway health from the Aries container returned live on `host.docker.internal:3456`.
+- Safe auth/config inspection found no explicit `models.providers.openai` config and found an `openai-codex` auth profile, without printing secrets.
+- Generated image evidence saved under `.gstack/qa-reports/media-smoke-20260428T161413Z/`.
+- `asset-verification.json` shows two 1024x1024 PNGs with distinct SHA256 hashes, high entropy, thousands of sampled unique colors, and mean absolute pixel difference 23.607 at 256px.
+
+## Validation
+
+Passed after ISSUE-007 fix:
+- `PYTHONDONTWRITEBYTECODE=1 python tests/lobster_media_gateway_test.py -v` — 14/14 pass.
+- `PYTHONDONTWRITEBYTECODE=1 python -m py_compile lobster/bin/_openclaw_media_gateway.py lobster/bin/_stage4_common.py tests/lobster_media_gateway_test.py scripts/smoke-openclaw-media-gateway.py`.
+- Compose YAML parse check for `docker-compose.yml` and `docker-compose.local.yml`; all media gateway env vars present on the relevant services.
+- `npm run workspace:verify`.
+- `npm run validate:banned-patterns`.
+- `npm run validate:repo-boundary`.
+- `npm run verify`.
