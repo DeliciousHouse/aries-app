@@ -536,16 +536,25 @@ test('label alone does not make a non-approved asset selected by retrieval', asy
   const tenantId = '92041';
   const ctx = makeTenant(tenantId);
   const ineligibleAsset = makeIneligibleAsset('asset-labeled', tenantId, 'observed');
+  const labeledGeneratedAsset = {
+    id: 'generated-labeled',
+    tenant_id: tenantId,
+    creative_asset_id: 'asset-labeled',
+    review_status: 'pending',
+    learning_lifecycle: 'suggested',
+  };
   const db = makeDb({
     businessProfiles: [makeProfile('LabelBrand')],
     styleCards: [],
     creativeAssets: [ineligibleAsset],
     marketPatternNotes: [],
+    generatedAssets: [labeledGeneratedAsset],
     campaignLearningLabels: [],
   });
-  // Apply a "useful" label to the asset
-  await saveCampaignLearningLabel(ctx, db, { idempotencyKey: 'lbl-asset', label: 'useful', generatedAssetId: 'asset-labeled' });
-  // Retrieval should still exclude it
+  // Apply a "useful" label to the generated_assets row linked to the creative asset.
+  // Labels are confidence signals only; they must not change creative_assets lifecycle approval.
+  await saveCampaignLearningLabel(ctx, db, { idempotencyKey: 'lbl-asset', label: 'useful', generatedAssetId: 'generated-labeled' });
+  // Retrieval should still exclude the linked creative asset until the approval loop marks it approved_for_generation.
   const pack = await retrieveCreativeContextPack(ctx, db, BASE_BRIEF);
   assert.equal(pack.selectedExamples.length, 0, 'labeled but non-approved asset must not be selected');
   const excluded = pack.excludedCandidates.find((e) => e.id === 'asset-labeled');
@@ -689,6 +698,7 @@ test('assets with usable_for_generation=false are excluded', async () => {
   assert.equal(pack.selectedExamples.length, 0);
   const excluded = pack.excludedCandidates.find((e) => e.id === 'unusable');
   assert.ok(excluded, 'unusable asset must appear in excludedCandidates');
+  assert.equal(excluded.reason, 'asset_unusable_for_generation');
 });
 
 test('assets with unsafe served_asset_ref are excluded', async () => {

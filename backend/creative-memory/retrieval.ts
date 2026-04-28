@@ -29,7 +29,7 @@ export async function retrieveCreativeContextPack(ctx: TenantContext, db: QueryC
       [tenantId]
     ),
     db.query<Record<string, unknown>>(
-      `SELECT id, source_type, permission_scope, learning_lifecycle FROM creative_assets WHERE tenant_id = $1
+      `SELECT id, source_type, permission_scope, learning_lifecycle, usable_for_generation FROM creative_assets WHERE tenant_id = $1
          AND (source_type IN ('competitor_meta_ad') OR permission_scope IN ('public_ad_library')
               OR learning_lifecycle != 'approved_for_generation' OR usable_for_generation = FALSE)
        ORDER BY created_at DESC LIMIT 20`,
@@ -58,8 +58,11 @@ export async function retrieveCreativeContextPack(ctx: TenantContext, db: QueryC
     const sourceType = String(row.source_type ?? '');
     const permissionScope = String(row.permission_scope ?? '');
     const lifecycle = String(row.learning_lifecycle ?? 'observed');
+    const usableForGeneration = row.usable_for_generation;
     if (sourceType === 'competitor_meta_ad' || permissionScope === 'public_ad_library') {
       excludedCandidates.push({ id: String(row.id), sourceType, reason: 'competitor_direct_example_forbidden' });
+    } else if (lifecycle === 'approved_for_generation' && (usableForGeneration === false || String(usableForGeneration).toLowerCase() === 'false')) {
+      excludedCandidates.push({ id: String(row.id), sourceType, reason: 'asset_unusable_for_generation' });
     } else {
       excludedCandidates.push({ id: String(row.id), sourceType, reason: `asset_lifecycle_${lifecycle}` });
     }
