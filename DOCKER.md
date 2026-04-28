@@ -35,6 +35,11 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml build
 - `OPENCLAW_GATEWAY_TOKEN`
 - `OPENCLAW_SESSION_KEY` (optional; default `main`)
 - `OPENCLAW_LOBSTER_CWD` (optional)
+- `LOBSTER_MEDIA_GATEWAY_ENABLED` (optional; set `1` to route Stage 4 image/video/text QA through OpenClaw)
+- `LOBSTER_VIDEO_RENDER_ENABLED` (optional; still required before video generation runs)
+- `LOBSTER_GATEWAY_IMAGE_MODEL` / `OPENCLAW_IMAGE_GENERATION_MODEL` (optional OpenClaw image model override)
+- `LOBSTER_GATEWAY_VIDEO_MODEL` / `OPENCLAW_VIDEO_GENERATION_MODEL` (optional OpenClaw video model override)
+- `LOBSTER_MEDIA_GATEWAY_ALLOW_DIRECT_FALLBACK` (optional local/dev escape hatch only)
 - `DB_HOST`
 - `DB_PORT`
 - `DB_USER`
@@ -51,6 +56,30 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml build
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
 ```
+
+### OpenClaw media gateway
+
+`OPENCLAW_GATEWAY_URL`, `OPENCLAW_GATEWAY_TOKEN`, and `OPENCLAW_SESSION_KEY`
+only make the gateway reachable. They do not enable Lobster Stage 4 media
+delegation by themselves. Set `LOBSTER_MEDIA_GATEWAY_ENABLED=1` when image
+generation, video generation, and non-SVG image text QA should go through
+OpenClaw's `image_generate`, `video_generate`, and `image` tools.
+
+Video generation still has its own cost/safety gate:
+
+```bash
+LOBSTER_MEDIA_GATEWAY_ENABLED=1 \
+LOBSTER_VIDEO_RENDER_ENABLED=1 \
+LOBSTER_GATEWAY_IMAGE_MODEL=openai/gpt-image-2 \
+LOBSTER_GATEWAY_VIDEO_MODEL=openai/sora-2 \
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
+```
+
+Leave the gateway model variables unset when you want OpenClaw to pick from its
+configured provider registry. Use the `LOBSTER_GATEWAY_*` or `OPENCLAW_*` model
+overrides only when the OpenClaw runtime is known to support that model. Direct
+fallback is fail-closed by default; set `LOBSTER_MEDIA_GATEWAY_ALLOW_DIRECT_FALLBACK=1`
+only for local/dev runs where falling back to direct provider keys is acceptable.
 
 ### Production web concurrency
 
