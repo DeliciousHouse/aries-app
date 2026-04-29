@@ -1,6 +1,6 @@
 ---
 name: orchestrating-subagents
-description: Design subagent orchestration plans for multi-step work. Use when a task needs decomposition across multiple specialized agents, model selection, tool assignment, skill selection, handoff contracts, sequencing, or parallelization. Default orchestrator: Opus. Default subagents: openai-codex/gpt-5.4 for coding and research, gemini-3-pro-image-preview for image creation.
+description: "Design subagent orchestration plans for multi-step work. Use when a task needs decomposition across multiple specialized agents, model selection, tool assignment, skill selection, handoff contracts, sequencing, or parallelization. Default orchestrator: Opus. Default subagents: openai-codex/gpt-5.4 for coding and research, gemini-3-pro-image-preview for image creation."
 ---
 
 # Orchestrating Subagents
