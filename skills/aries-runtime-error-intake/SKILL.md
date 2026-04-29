@@ -5,7 +5,7 @@ description: Scan Aries runtime and automation health, normalize failures into t
 
 # Aries Runtime Error Intake
 
-Run the runtime incident scan from the repo root `/home/node/openclaw/aries-app`.
+Run the runtime incident scan from the repo root `/home/node/aries-app`.
 
 ## Required execution pattern
 

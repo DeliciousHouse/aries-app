@@ -1,0 +1,24 @@
+{
+  "id": "ISSUE-007",
+  "title": "Docker runtime does not pass Lobster media gateway flags into Aries",
+  "severity": "high",
+  "category": "functional",
+  "passes": true,
+  "blocked": false,
+  "page": "local Docker runtime at http://localhost:3000 and Lobster Stage 4 media generation",
+  "symptom": "The running Aries container had OPENCLAW_GATEWAY_URL, OPENCLAW_GATEWAY_TOKEN, and OPENCLAW_SESSION_KEY present, but LOBSTER_MEDIA_GATEWAY_ENABLED, LOBSTER_VIDEO_RENDER_ENABLED, and gateway model override variables were missing. That means image/video/text-QA media paths can still use direct provider fallbacks or stay disabled even when the OpenClaw gateway is reachable.",
+  "acceptance_criteria": [
+    "docker-compose.yml passes LOBSTER_MEDIA_GATEWAY_ENABLED into the aries-app service without enabling it by default.",
+    "docker-compose.yml passes LOBSTER_VIDEO_RENDER_ENABLED and image/video gateway model override variables into the aries-app service.",
+    "docker-compose.local.yml passes the same media gateway variables into both aries-app and aries-app-dev.",
+    ".env.example and DOCKER.md explain that OPENCLAW_GATEWAY_URL/TOKEN only configure reachability and LOBSTER_MEDIA_GATEWAY_ENABLED=1 is the separate opt-in for Stage 4 media delegation.",
+    "Compose YAML parses cleanly and the Lobster media gateway test suite still passes."
+  ],
+  "suspected_files": [
+    "docker-compose.yml",
+    "docker-compose.local.yml",
+    ".env.example",
+    "DOCKER.md"
+  ],
+  "notes": "Fixed in this QA pass by adding safe env passthrough and docs. No secrets are stored in this story."
+}

@@ -92,7 +92,7 @@ This workspace now includes runtime-error intake/repair automation alongside the
 ### 1. Verify local prerequisites
 
 ```bash
-cd /home/node/openclaw/aries-app
+cd /home/node/aries-app
 node scripts/automations/verify-automations.mjs
 ```
 
