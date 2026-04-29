@@ -206,6 +206,21 @@ function defaultLobsterStateDir(): string {
   );
 }
 
+function stripTrailingPathSeparators(value: string): string {
+  let normalized = value.trim();
+  while (normalized.length > 1 && /[\\/]$/.test(normalized)) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized;
+}
+
+function defaultLocalLobsterCwd(): string {
+  return optionalEnv(
+    'OPENCLAW_LOCAL_LOBSTER_CWD',
+    optionalEnv('OPENCLAW_LOBSTER_CWD', resolveCodePath('lobster')),
+  );
+}
+
 function gatewayUrlOrNull(): string | null {
   return process.env.OPENCLAW_GATEWAY_URL?.trim() ? gatewayBaseUrl() : null;
 }
@@ -354,7 +369,9 @@ function asEnvelope(value: unknown): LobsterEnvelope {
 }
 
 function resolveLocalLobsterCwd(configuredCwd: string, localCwd?: string): string {
-  const normalized = localCwd?.trim() || configuredCwd.trim();
+  const normalized = stripTrailingPathSeparators(
+    localCwd?.trim() || defaultLocalLobsterCwd() || configuredCwd.trim(),
+  );
   if (!normalized) {
     return resolveCodePath('lobster');
   }

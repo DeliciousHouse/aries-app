@@ -233,7 +233,8 @@ test('live OpenClaw gateway exposes the lobster tool and writes the diagnostic o
 
     const configuredGatewayHost = gatewayHostForReport();
     const effectiveGatewayUrl = await selectReachableGatewayUrlForSmoke();
-    const cwd = process.env.OPENCLAW_GATEWAY_LOBSTER_CWD?.trim() || defaultGatewayCwdForSmoke();
+    const rawCwd = process.env.OPENCLAW_GATEWAY_LOBSTER_CWD?.trim() || defaultGatewayCwdForSmoke();
+    const normalizedCwd = rawCwd.replace(/[\\/]+$/g, '');
     const baseReport: Omit<DiagnosticReport, 'ok'> = {
       marker,
       reportPath,
@@ -242,14 +243,15 @@ test('live OpenClaw gateway exposes the lobster tool and writes the diagnostic o
       effectiveGatewayHost: hostForUrl(effectiveGatewayUrl ?? undefined),
       requested: {
         tool: 'lobster',
-        cwd,
+        cwd: rawCwd,
         workflow: DIAGNOSTIC_WORKFLOW,
         outputLocation,
       },
     };
 
     assert.ok(
-      !path.isAbsolute(cwd) && (cwd === REPO_ROOT_GATEWAY_CWD || cwd.endsWith(`/${REPO_ROOT_GATEWAY_CWD}`)),
+      !path.isAbsolute(normalizedCwd) &&
+        (normalizedCwd === REPO_ROOT_GATEWAY_CWD || normalizedCwd.endsWith(`/${REPO_ROOT_GATEWAY_CWD}`)),
       `OpenClaw Lobster gateway cwd must be a repo-relative path ending in '${REPO_ROOT_GATEWAY_CWD}' ` +
         `so Aries workflows and diagnostic output resolve correctly. Set OPENCLAW_GATEWAY_LOBSTER_CWD to ` +
         `'${REPO_ROOT_GATEWAY_CWD}' when OpenClaw starts from the repo root, or '${HOST_HOME_GATEWAY_CWD}' ` +
@@ -265,7 +267,7 @@ test('live OpenClaw gateway exposes the lobster tool and writes the diagnostic o
           marker,
           output_location: outputLocation,
         }),
-        cwd,
+        cwd: rawCwd,
         timeoutMs: 15_000,
         maxStdoutBytes: 256 * 1024,
         allowLocalFallback: false,
