@@ -1,0 +1,252 @@
+name: PR agent autofix and automerge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+  pull_request_review:
+    types: [submitted]
+  pull_request_review_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to maintain and merge
+        required: true
+        type: number
+      skip_wait:
+        description: Skip the review-settle wait before merge attempt
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: read
+  checks: read
+  id-token: write
+
+concurrency:
+  group: pr-agent-autofix-automerge-${{ github.event.pull_request.number || inputs.pr_number || github.run_id }}
+  cancel-in-progress: false
+
+env:
+  REVIEW_SETTLE_SECONDS: ${{ vars.REVIEW_SETTLE_SECONDS || '1200' }}
+
+jobs:
+  autofix-automerge:
+    name: Autofix and automerge issue-agent PR
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve PR and guardrails
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+
+          gh label create agent:auto-merge --color 0E8A16 --description "Agent-created PR is eligible for autonomous fixes and merge" --force
+          gh label create agent:needs-attention --color D93F0B --description "Agent automation needs human attention before merge" --force
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            pr_number="${INPUT_PR_NUMBER:-}"
+          else
+            pr_number="$(jq -r '.pull_request.number // empty' "$GITHUB_EVENT_PATH")"
+            if [ -z "$pr_number" ]; then
+              pr_number="$(jq -r '.comment.pull_request_url // .review.pull_request_url // empty | split("/")[-1]' "$GITHUB_EVENT_PATH")"
+            fi
+          fi
+
+          if [ -z "$pr_number" ] || [ "$pr_number" = "null" ]; then
+            echo "Unable to resolve PR number" >&2
+            exit 1
+          fi
+
+          gh pr view "$pr_number" --json number,title,body,url,isDraft,headRefName,baseRefName,labels,reviewDecision,mergeStateStatus,mergeable,isCrossRepository,headRepositoryOwner,headRepository,author > /tmp/pr.json
+
+          is_cross_repo="$(jq -r '.isCrossRepository' /tmp/pr.json)"
+          if [ "$EVENT_NAME" != "workflow_dispatch" ] && [ "$is_cross_repo" = "true" ]; then
+            echo "PR #$pr_number is from a fork/cross-repository branch; refusing to operate on untrusted PRs."
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          head_ref="$(jq -r '.headRefName' /tmp/pr.json)"
+          has_auto_label="$(jq -r '[.labels[].name] | index("agent:auto-merge") != null' /tmp/pr.json)"
+          if [[ "$head_ref" != issue-agent/* && "$has_auto_label" != "true" ]]; then
+            echo "PR #$pr_number is not an issue-agent/* branch and lacks agent:auto-merge; skipping."
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          {
+            echo "number=$pr_number"
+            echo "head_ref=$head_ref"
+            echo "should_run=true"
+            echo "url=$(jq -r '.url' /tmp/pr.json)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Collect PR context and review comments
+        if: steps.pr.outputs.should_run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          set -euo pipefail
+
+          gh pr view "$PR_NUMBER" --json number,title,body,url,isDraft,headRefName,baseRefName,labels,reviewDecision,mergeStateStatus,mergeable,statusCheckRollup,comments,reviews,latestReviews,files > /tmp/pr-context.json
+          gh api --paginate "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/comments" --jq '.[]' > /tmp/pr-review-comments.ndjson
+          gh api --paginate "/repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --jq '.[]' > /tmp/pr-issue-comments.ndjson
+          gh api --paginate "/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" --jq '.[]' > /tmp/pr-reviews.ndjson
+
+          {
+            echo "# PR context"
+            jq -r '"PR #\(.number): \(.title)\nURL: \(.url)\nHead: \(.headRefName) -> \(.baseRefName)\nDraft: \(.isDraft)\nReview decision: \(.reviewDecision // "")\nMerge state: \(.mergeStateStatus // "")\nMergeable: \(.mergeable // "")\n"' /tmp/pr-context.json
+            echo "## Body"
+            jq -r '.body // ""' /tmp/pr-context.json
+            echo "## Reviews"
+            jq -r '.reviews[]? | "- [\(.state)] @\(.author.login // "unknown"): \(.body // "")"' /tmp/pr-context.json
+            echo "## Review comments"
+            jq -r '"- " + (.path // "unknown") + ":" + ((.line // .original_line // 0) | tostring) + " @" + (.user.login // "unknown") + ": " + (.body // "")' /tmp/pr-review-comments.ndjson || true
+            echo "## Issue comments"
+            jq -r '"- @" + (.user.login // "unknown") + ": " + (.body // "")' /tmp/pr-issue-comments.ndjson || true
+          } > /tmp/pr-context.md
+
+      - name: Checkout PR branch
+        if: steps.pr.outputs.should_run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          set -euo pipefail
+          gh pr checkout "$PR_NUMBER"
+          git status --short --branch
+
+      - name: Setup Node 24
+        if: steps.pr.outputs.should_run == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        if: steps.pr.outputs.should_run == 'true'
+        run: npm ci
+
+      - name: Claude PR autofix
+        if: steps.pr.outputs.should_run == 'true'
+        uses: anthropics/claude-code-action@v1
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: #${{ steps.pr.outputs.number }}
+            PR URL: ${{ steps.pr.outputs.url }}
+            PR HEAD BRANCH: ${{ steps.pr.outputs.head_ref }}
+
+            You are maintaining the current pull request branch autonomously.
+
+            Required task:
+            - Fix failing validation, checks, and review comments for this PR branch.
+            - Use the collected context files: /tmp/pr-context.md, /tmp/pr-context.json, /tmp/pr-review-comments.ndjson, /tmp/pr-issue-comments.ndjson, and /tmp/pr-reviews.ndjson.
+            - Stay inside this repository boundary and keep the change scoped to this PR.
+            - Do not open a new PR.
+            - Do not push master or commit directly to master.
+            - If code changes are needed, commit them on the current PR branch and push that PR branch.
+            - Run the workspace verifier and relevant validations before finishing, including npm run workspace:verify when feasible.
+
+            Validation expectations:
+            - npm run workspace:verify
+            - npm run validate:repo-boundary
+            - npm run validate:banned-patterns
+            - npm run verify
+          claude_args: |
+            --max-turns 30
+            --allowedTools "Bash(git:*),Bash(gh:*),Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(python3:*),Bash(jq:*),Read,Write,Edit,MultiEdit,Grep,Glob"
+
+      - name: Validate after Claude
+        if: steps.pr.outputs.should_run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          set -euo pipefail
+          npm run workspace:verify
+          npm run validate:repo-boundary
+          npm run validate:banned-patterns
+          npm run verify
+
+      - name: Wait for review settle period
+        if: steps.pr.outputs.should_run == 'true'
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          SKIP_WAIT: ${{ inputs.skip_wait }}
+        run: |
+          set -euo pipefail
+          wait_seconds="${REVIEW_SETTLE_SECONDS:-1200}"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "${SKIP_WAIT:-false}" = "true" ]; then
+            wait_seconds=0
+          fi
+          if ! [[ "$wait_seconds" =~ ^[0-9]+$ ]]; then
+            echo "Invalid REVIEW_SETTLE_SECONDS '$wait_seconds'; using 1200."
+            wait_seconds=1200
+          fi
+          echo "Waiting ${wait_seconds}s for review/check state to settle."
+          sleep "$wait_seconds"
+
+      - name: Merge or request attention
+        if: steps.pr.outputs.should_run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_PROMPT_DISABLED: 1
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          set -euo pipefail
+
+          gh pr view "$PR_NUMBER" --json number,title,url,isDraft,headRefOid,reviewDecision,mergeStateStatus,mergeable,labels > /tmp/pr-before-merge.json
+          review_decision="$(jq -r '.reviewDecision // ""' /tmp/pr-before-merge.json)"
+          pr_url="$(jq -r '.url' /tmp/pr-before-merge.json)"
+
+          if [ "$review_decision" = "CHANGES_REQUESTED" ]; then
+            gh pr edit "$PR_NUMBER" --add-label agent:needs-attention || true
+            gh pr comment "$PR_NUMBER" --body "Autonomous maintenance stopped: reviewDecision is CHANGES_REQUESTED after validation and review-settle wait. Added agent:needs-attention for human follow-up."
+            exit 1
+          fi
+
+          if [ "$(jq -r '.isDraft' /tmp/pr-before-merge.json)" = "true" ]; then
+            gh pr ready "$PR_NUMBER" || true
+          fi
+
+          merge_summary=""
+          if gh pr merge "$PR_NUMBER" --squash --auto --delete-branch > /tmp/pr-merge.out 2>&1; then
+            merge_summary="Auto-merge enabled or PR queued for squash merge."
+          else
+            auto_output="$(cat /tmp/pr-merge.out)"
+            echo "$auto_output"
+            if gh pr merge "$PR_NUMBER" --squash --delete-branch > /tmp/pr-merge-fallback.out 2>&1; then
+              merge_summary="Auto-merge was unavailable, so the PR was squash-merged immediately."
+            else
+              fallback_output="$(cat /tmp/pr-merge-fallback.out)"
+              echo "$fallback_output"
+              gh pr edit "$PR_NUMBER" --add-label agent:needs-attention || true
+              gh pr comment "$PR_NUMBER" --body "Autonomous maintenance validated this PR, but merge could not be enabled or completed. Added agent:needs-attention.\n\nAuto-merge output:\n\`\`\`\n${auto_output}\n\`\`\`\n\nFallback output:\n\`\`\`\n${fallback_output}\n\`\`\`"
+              exit 1
+            fi
+          fi
+
+          gh pr comment "$PR_NUMBER" --body "Autonomous maintenance completed for ${pr_url}. ${merge_summary} Validations run: npm run workspace:verify, npm run validate:repo-boundary, npm run validate:banned-patterns, npm run verify."
