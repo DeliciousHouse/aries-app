@@ -34,6 +34,10 @@ const steps = [
     args: ['--test', 'tests/repo-boundary-guard.test.ts'],
   },
   {
+    name: 'OpenClaw Lobster live gateway availability smoke',
+    args: ['--test', 'tests/openclaw-lobster-gateway-availability.test.ts'],
+  },
+  {
     name: 'targeted marketing-flow smoke tests',
     args: ['--test', 'tests/marketing-flow-smoke.test.ts'],
   },

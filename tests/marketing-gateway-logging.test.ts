@@ -85,6 +85,60 @@ test('runOpenClawLobsterWorkflow can disable PATH-based local fallback', async (
   }
 });
 
+test('runOpenClawLobsterWorkflow local fallback prefers OPENCLAW_LOCAL_LOBSTER_CWD over gateway cwd', async () => {
+  const previousCodeRoot = process.env.CODE_ROOT;
+  const previousGatewayUrl = process.env.OPENCLAW_GATEWAY_URL;
+  const previousGatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN;
+  const previousGatewayLobsterCwd = process.env.OPENCLAW_GATEWAY_LOBSTER_CWD;
+  const previousLocalLobsterCwd = process.env.OPENCLAW_LOCAL_LOBSTER_CWD;
+  const originalConsoleWarn = console.warn;
+  const warnings: unknown[][] = [];
+
+  process.env.CODE_ROOT = '/app';
+  delete process.env.OPENCLAW_GATEWAY_URL;
+  process.env.OPENCLAW_GATEWAY_TOKEN = 'debug-token';
+  process.env.OPENCLAW_GATEWAY_LOBSTER_CWD = 'aries-app/lobster';
+  process.env.OPENCLAW_LOCAL_LOBSTER_CWD = '/app/lobster';
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args);
+  };
+
+  try {
+    const { OpenClawGatewayError, runOpenClawLobsterWorkflow } = await import('../backend/openclaw/gateway-client');
+
+    await assert.rejects(
+      () =>
+        runOpenClawLobsterWorkflow({
+          pipeline: 'stage-1-research/workflow.lobster',
+          argsJson: '{}',
+        }),
+      (error: unknown) =>
+        error instanceof OpenClawGatewayError &&
+        error.code === 'openclaw_gateway_unreachable' &&
+        /local lobster cli failed/i.test(error.message),
+    );
+
+    const fallback = warnings
+      .map((entry) => entry[1])
+      .find((entry): entry is Record<string, unknown> =>
+        Boolean(entry && typeof entry === 'object' && (entry as Record<string, unknown>).event === 'workflow-local-fallback'),
+      );
+    assert.equal(fallback?.cwd, '/app/lobster');
+  } finally {
+    console.warn = originalConsoleWarn;
+    if (previousCodeRoot === undefined) delete process.env.CODE_ROOT;
+    else process.env.CODE_ROOT = previousCodeRoot;
+    if (previousGatewayUrl === undefined) delete process.env.OPENCLAW_GATEWAY_URL;
+    else process.env.OPENCLAW_GATEWAY_URL = previousGatewayUrl;
+    if (previousGatewayToken === undefined) delete process.env.OPENCLAW_GATEWAY_TOKEN;
+    else process.env.OPENCLAW_GATEWAY_TOKEN = previousGatewayToken;
+    if (previousGatewayLobsterCwd === undefined) delete process.env.OPENCLAW_GATEWAY_LOBSTER_CWD;
+    else process.env.OPENCLAW_GATEWAY_LOBSTER_CWD = previousGatewayLobsterCwd;
+    if (previousLocalLobsterCwd === undefined) delete process.env.OPENCLAW_LOCAL_LOBSTER_CWD;
+    else process.env.OPENCLAW_LOCAL_LOBSTER_CWD = previousLocalLobsterCwd;
+  }
+});
+
 test('resumeOpenClawLobsterWorkflow preserves detailed gateway failure messages from error.details', async () => {
   const previousGatewayUrl = process.env.OPENCLAW_GATEWAY_URL;
   const previousGatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN;
