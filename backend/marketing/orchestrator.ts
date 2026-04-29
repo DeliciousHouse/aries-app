@@ -1058,11 +1058,11 @@ async function advancePublishStage(doc: MarketingJobRuntimeDocument, resumeToken
   saveMarketingJobRuntime(doc.job_id, doc);
 }
 
-function handleFailure(
+function recordFailure(
   doc: MarketingJobRuntimeDocument,
   stage: MarketingStage,
   error: unknown
-): never {
+): void {
   if (error instanceof OpenClawGatewayError) {
     recordStageFailure(doc, stage, {
       code: error.code,
@@ -1080,6 +1080,14 @@ function handleFailure(
     });
   }
   saveMarketingJobRuntime(doc.job_id, doc);
+}
+
+function handleFailure(
+  doc: MarketingJobRuntimeDocument,
+  stage: MarketingStage,
+  error: unknown
+): never {
+  recordFailure(doc, stage, error);
   throw error;
 }
 
@@ -1121,7 +1129,7 @@ export async function startMarketingJob(input: StartMarketingJobRequest): Promis
     if (error instanceof MarketingJobCancelledError) {
       // Document was already saved as cancelled by applySoftCancelIfRequested.
     } else {
-      handleFailure(doc, doc.current_stage, error);
+      recordFailure(doc, doc.current_stage, error);
     }
   }
 
