@@ -1,5 +1,10 @@
-import { redirect } from 'next/navigation';
+import AppShellLayout from '@/frontend/app-shell/layout';
+import AriesSettingsScreen from '@/frontend/aries-v1/settings-screen';
 
 export default function DashboardSettingsPage() {
-  redirect('/dashboard/settings/business-profile');
+  return (
+    <AppShellLayout currentRouteId="settings">
+      <AriesSettingsScreen />
+    </AppShellLayout>
+  );
 }
