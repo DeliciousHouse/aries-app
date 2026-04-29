@@ -26,6 +26,7 @@ permissions:
   actions: read
   checks: read
   # anthropics/claude-code-action requests a GitHub OIDC token before agent mode.
+  id-token: write
 
 concurrency:
   group: pr-agent-autofix-automerge-${{ github.event.pull_request.number || inputs.pr_number || github.run_id }}
