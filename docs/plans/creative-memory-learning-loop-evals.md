@@ -458,7 +458,7 @@ npm run validate:banned-patterns
 npm run workspace:verify
 ```
 
-If `workspace:verify` refuses to run in the worktree due canonical checkout rules, report that clearly and rerun final verification in `/home/node/openclaw/aries-app` after safely checking out or cherry-picking the branch there.
+If `workspace:verify` refuses to run in the worktree due canonical checkout rules, report that clearly and rerun final verification in `/home/node/aries-app` after safely checking out or cherry-picking the branch there.
 
 **Review checklist:**
 

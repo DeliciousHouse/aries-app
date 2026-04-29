@@ -8,7 +8,7 @@ description: Stage current repo changes, commit to a backup branch, and create o
 Automated backup of the current workspace to a private GitHub repository via a backup branch and PR.
 
 ## Required procedure
-1. Work in `/home/node/openclaw/aries-app`.
+1. Work in `/home/node/aries-app`.
 2. Run:
    - `node scripts/automations/private-repo-backup.mjs`
 3. Do not add extra narration around the result.

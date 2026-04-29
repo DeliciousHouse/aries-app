@@ -8,7 +8,7 @@ description: Run the Aries daily standup orchestration and return only its conci
 Use this skill when the Aries standup should run on demand or from cron.
 
 ## Required procedure
-1. Work in `/home/node/openclaw/aries-app`.
+1. Work in `/home/node/aries-app`.
 2. Run:
    - `node scripts/automations/daily-standup.mjs`
 3. Do not add extra narration around the result.

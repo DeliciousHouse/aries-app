@@ -21,8 +21,9 @@ import { resolveDataRoot } from '@/lib/runtime-paths';
  * that every referenced asset ends up inside DATA_ROOT and the document only
  * stores paths the aries-app container can read.
  *
- * Background: OpenClaw/Lobster runs on the host and writes generated assets
- * under /home/node/openclaw/aries-app/lobster/output/... . Those paths are
+ * Background: OpenClaw/Lobster runs on the host and, by default, writes
+ * generated assets under `/home/node/aries-app/lobster/output/...`. The
+ * source-of-truth host prefix is `ARIES_LOBSTER_HOST_OUTPUT_DIR`; host paths are
  * invisible inside the aries-app container (different filesystem namespace),
  * so `readMarketingAssetWithinAllowedRoots` correctly refuses to serve them
  * and the asset routes 404. We fix this at the ingest boundary — the single

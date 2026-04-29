@@ -32,8 +32,8 @@ Copy the template and export local overrides before running the app:
 ```bash
 cp .env.example .env
 export DB_HOST=localhost DB_PORT=5432 DB_USER=aries_user DB_PASSWORD=aries_pass DB_NAME=aries_dev
-export CODE_ROOT=/home/node/openclaw/aries-app DATA_ROOT=/tmp/aries-data NODE_ENV=development
-export OPENCLAW_LOBSTER_CWD=/home/node/openclaw/aries-app/lobster
+export CODE_ROOT=/home/node/aries-app DATA_ROOT=/tmp/aries-data NODE_ENV=development
+export OPENCLAW_LOBSTER_CWD=/home/node/aries-app/lobster
 export APP_BASE_URL=http://localhost:3000 NEXTAUTH_URL=http://localhost:3000 AUTH_URL=http://localhost:3000 AUTH_TRUST_HOST=true
 export MARKETING_STATUS_PUBLIC=1
 ```

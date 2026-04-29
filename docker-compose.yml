@@ -21,6 +21,17 @@ services:
       OPENCLAW_GATEWAY_URL: ${OPENCLAW_GATEWAY_URL}
       OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
       OPENCLAW_SESSION_KEY: ${OPENCLAW_SESSION_KEY:-main}
+      LOBSTER_MEDIA_GATEWAY_ENABLED: ${LOBSTER_MEDIA_GATEWAY_ENABLED:-}
+      LOBSTER_MEDIA_GATEWAY_ALLOW_DIRECT_FALLBACK: ${LOBSTER_MEDIA_GATEWAY_ALLOW_DIRECT_FALLBACK:-}
+      LOBSTER_MEDIA_GATEWAY_SHARED_ROOTS: ${LOBSTER_MEDIA_GATEWAY_SHARED_ROOTS:-}
+      LOBSTER_MEDIA_GATEWAY_ALLOWED_HOSTS: ${LOBSTER_MEDIA_GATEWAY_ALLOWED_HOSTS:-}
+      LOBSTER_MEDIA_GATEWAY_TIMEOUT_SECONDS: ${LOBSTER_MEDIA_GATEWAY_TIMEOUT_SECONDS:-}
+      LOBSTER_GATEWAY_IMAGE_MODEL: ${LOBSTER_GATEWAY_IMAGE_MODEL:-}
+      OPENCLAW_IMAGE_GENERATION_MODEL: ${OPENCLAW_IMAGE_GENERATION_MODEL:-}
+      LOBSTER_VIDEO_RENDER_ENABLED: ${LOBSTER_VIDEO_RENDER_ENABLED:-}
+      LOBSTER_GATEWAY_VIDEO_MODEL: ${LOBSTER_GATEWAY_VIDEO_MODEL:-}
+      OPENCLAW_VIDEO_GENERATION_MODEL: ${OPENCLAW_VIDEO_GENERATION_MODEL:-}
+      LOBSTER_VIDEO_GATEWAY_TIMEOUT_SECONDS: ${LOBSTER_VIDEO_GATEWAY_TIMEOUT_SECONDS:-}
       # DB_HOST points at the companion postgres service below, not at ${DB_HOST}
       # from .env. Compose owns service discovery; .env only holds credentials.
       DB_HOST: postgres
@@ -70,7 +81,7 @@ services:
       # Host lobster/output mount is read by asset-ingest to copy generated
       # assets into DATA_ROOT at ingest time. Keep _DIR/_MOUNT in sync with
       # the bind mount below so asset-ingest can remap host paths.
-      ARIES_LOBSTER_HOST_OUTPUT_DIR: ${ARIES_LOBSTER_HOST_OUTPUT_DIR:-/home/node/openclaw/aries-app/lobster/output}
+      ARIES_LOBSTER_HOST_OUTPUT_DIR: ${ARIES_LOBSTER_HOST_OUTPUT_DIR:-/home/node/aries-app/lobster/output}
       ARIES_LOBSTER_HOST_OUTPUT_MOUNT: ${ARIES_LOBSTER_HOST_OUTPUT_MOUNT:-/host-lobster-output}
     ports:
       - "${PORT:-3000}:${PORT:-3000}"
@@ -78,7 +89,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ${ARIES_SHARED_DATA_ROOT:-/home/node/data}:/data
-      - ${ARIES_LOBSTER_HOST_OUTPUT_DIR:-/home/node/openclaw/aries-app/lobster/output}:${ARIES_LOBSTER_HOST_OUTPUT_MOUNT:-/host-lobster-output}:ro
+      - ${ARIES_LOBSTER_HOST_OUTPUT_DIR:-/home/node/aries-app/lobster/output}:${ARIES_LOBSTER_HOST_OUTPUT_MOUNT:-/host-lobster-output}:ro
       - gh_config:/home/node/.config/gh
     restart: unless-stopped
     healthcheck:

@@ -68,6 +68,7 @@ jobs:
           set -euo pipefail
           gh label create agent:fix --color 5319E7 --description "Agent should investigate and propose a code fix" --force
           gh label create agent:in-progress --color FBCA04 --description "Agent is currently working on this issue" --force
+          gh label create agent:auto-merge --color 0E8A16 --description "Agent-created PR is eligible for autonomous fixes and merge" --force
           gh issue edit "$ISSUE_NUMBER" --add-label agent:in-progress
 
       - name: Claude issue fixer
@@ -94,8 +95,9 @@ jobs:
             3. Reproduce or write a failing regression test for the reported behavior when feasible.
             4. Implement the smallest safe fix.
             5. Run targeted tests plus npm run workspace:verify. If broader validation is cheap, run it too.
-            6. Commit the change on a branch created from master and open a draft PR that includes "Fixes #${{ steps.issue.outputs.number }}".
-            7. Comment on the issue with the PR link, validation run, and any remaining risk.
+            6. Commit the change on a branch created from master and open a ready PR (not draft) that includes "Fixes #${{ steps.issue.outputs.number }}".
+            7. Add the agent:auto-merge label to the PR so the PR autofix/automerge workflow can maintain and merge it.
+            8. Comment on the issue with the PR link, validation run, and any remaining risk.
 
             Repository rules:
             - Do not push directly to master.
@@ -105,6 +107,39 @@ jobs:
           claude_args: |
             --max-turns 30
             --allowedTools "Bash(git:*),Bash(gh:*),Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(python3:*),Bash(jq:*),Read,Write,Edit,MultiEdit,Grep,Glob"
+
+      - name: Opt created PR into auto-merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+        run: |
+          set -euo pipefail
+          gh label create agent:auto-merge --color 0E8A16 --description "Agent-created PR is eligible for autonomous fixes and merge" --force
+
+          gh pr list --state open --limit 100 --json number,url,body,headRefName,createdAt,isDraft > /tmp/open-prs.json
+          pr_json="$(jq --arg issue "$ISSUE_NUMBER" -c '
+            map(
+              select(.headRefName | startswith("issue-agent/")) |
+              select((.body // "") | test("(?i)(fixes|closes|resolves)\\s+#" + $issue + "([^0-9]|$)"))
+            ) |
+            sort_by(.createdAt) |
+            last // empty
+          ' /tmp/open-prs.json)"
+
+          if [ -z "$pr_json" ]; then
+            gh issue comment "$ISSUE_NUMBER" --body "Issue agent finished, but no open issue-agent/* PR referencing Fixes/Closes/Resolves #$ISSUE_NUMBER was found to opt into agent:auto-merge."
+            exit 0
+          fi
+
+          pr_number="$(jq -r '.number' <<< "$pr_json")"
+          pr_url="$(jq -r '.url' <<< "$pr_json")"
+          is_draft="$(jq -r '.isDraft' <<< "$pr_json")"
+
+          gh pr edit "$pr_number" --add-label agent:auto-merge
+          if [ "$is_draft" = "true" ]; then
+            gh pr ready "$pr_number" || true
+          fi
+          gh issue comment "$ISSUE_NUMBER" --body "Opted PR #$pr_number into autonomous maintenance/merge with agent:auto-merge: $pr_url"
 
       - name: Clear in-progress label when automation finishes
         if: always()

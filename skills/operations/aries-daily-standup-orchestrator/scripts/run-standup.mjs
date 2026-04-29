@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
 
 const result = spawnSync('node', ['scripts/automations/daily-standup.mjs', ...process.argv.slice(2)], {
-  cwd: '/home/node/openclaw/aries-app',
+  cwd: process.env.ARIES_CANONICAL_REPO_ROOT || '/home/node/aries-app',
   stdio: 'inherit',
 })
 
