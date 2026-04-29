@@ -11,6 +11,7 @@ import {
   type BusinessProfileFieldErrors,
 } from '@/lib/validation/business-profile';
 
+import { connectedProfileLabel } from './connected-profile-labels';
 import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { DashboardHero, EmptyStatePanel, LoadingStateGrid, ShellPanel } from './components';
 
@@ -45,16 +46,6 @@ const CHANNEL_OPTIONS: ChannelOption[] = [
 
 const DEFAULT_CHANNEL_IDS = ['meta-ads', 'instagram'];
 
-const CONNECTED_PROFILE_LABELS: Record<string, string> = {
-  facebook: 'Meta',
-  instagram: 'Instagram',
-  linkedin: 'LinkedIn',
-  x: 'X',
-  youtube: 'YouTube',
-  reddit: 'Reddit',
-  tiktok: 'TikTok',
-};
-
 function brandKitFontStyle(family: string): CSSProperties {
   return {
     fontFamily: `"${family}", ${family}, ui-sans-serif, system-ui, sans-serif`,
@@ -73,10 +64,6 @@ function firstPresent(...values: Array<string | null | undefined>): string | nul
 
 function channelLabel(channelId: string): string {
   return CHANNEL_OPTIONS.find((option) => option.id === channelId)?.label || channelId;
-}
-
-function connectedProfileLabel(platform: string, fallback: string): string {
-  return CONNECTED_PROFILE_LABELS[platform] || fallback || platform;
 }
 
 function joinedValues(values: string[], connectedProfileLabels: string[] = []): string {

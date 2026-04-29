@@ -1,12 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 
 import { useIntegrations } from '@/hooks/use-integrations';
 import { useBusinessProfile } from '@/hooks/use-business-profile';
 
 import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { EmptyStatePanel, LoadingStateGrid, ShellPanel, StatusChip } from './components';
+import { connectedProfileLabel } from './connected-profile-labels';
 
 export default function AriesSettingsScreen() {
   const integrations = useIntegrations({ autoLoad: true });
@@ -20,6 +22,17 @@ export default function AriesSettingsScreen() {
   const profile = business.profile.data?.profile ?? null;
   const teamProfiles = business.team.data?.profiles ?? [];
   const integrationCards = integrations.data?.status === 'ok' ? integrations.data.cards : [];
+  const integrationsUnavailable = integrations.error || integrations.data?.status === 'error';
+  const connectedProfileLabels = Array.from(new Set(
+    integrationCards
+      .filter((card) => card.connection_state === 'connected')
+      .map((card) => connectedProfileLabel(card.platform, card.display_name)),
+  ));
+  const connectedProfilesSummary = integrationsUnavailable
+    ? 'Connected profile status is not available right now.'
+    : connectedProfileLabels.length > 0
+      ? connectedProfileLabels.join(', ')
+      : 'No connected social profiles yet.';
 
   const ready = !business.profile.isLoading && !business.team.isLoading;
 
@@ -79,6 +92,23 @@ export default function AriesSettingsScreen() {
               <Field label="Business type"><input value={businessType} onChange={(e) => setBusinessType(e.target.value)} className="w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white" /></Field>
               <Field label="Primary goal"><input value={primaryGoal} onChange={(e) => setPrimaryGoal(e.target.value)} className="w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white" /></Field>
             </div>
+            <div className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4 text-white">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-sm font-medium">Connected profiles</p>
+                  <p className="mt-2 text-sm leading-7 text-white/58">{connectedProfilesSummary}</p>
+                </div>
+                <Link
+                  href="/dashboard/settings/channel-integrations?from=business-profile"
+                  className="inline-flex shrink-0 items-center justify-center rounded-full border border-white/15 bg-white px-4 py-2 text-sm font-semibold text-[#11161c] transition hover:bg-white/90"
+                >
+                  Add Profile
+                </Link>
+              </div>
+              <p className="mt-3 text-xs leading-6 text-white/42">
+                Newly connected media portals update this Business Profile summary automatically.
+              </p>
+            </div>
             <button type="button" onClick={() => void saveProfile()} disabled={business.save.isLoading} className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] disabled:opacity-60">
               {business.save.isLoading ? 'Saving…' : 'Save business profile'}
             </button>
@@ -91,9 +121,12 @@ export default function AriesSettingsScreen() {
 
       <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
         <ShellPanel eyebrow="Channels / Integrations" title="Where Aries can publish or monitor">
-          {integrations.error ? (
+          {integrationsUnavailable ? (
             <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
-              {customerSafeUiErrorMessage(integrations.error.message, 'Channel status is not available right now.')}
+              {customerSafeUiErrorMessage(
+                integrations.error?.message || (integrations.data?.status === 'error' ? integrations.data.error.message : undefined),
+                'Channel status is not available right now.',
+              )}
             </div>
           ) : integrationCards.length === 0 ? (
             <EmptyStatePanel compact title="No integrations yet" description="Connect channels so Aries can publish, schedule, and monitor launches." />

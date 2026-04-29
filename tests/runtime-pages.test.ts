@@ -485,7 +485,13 @@ test('/platforms redirects to the canonical dashboard settings route', () => {
 });
 
 test('/dashboard/settings wraps the settings screen in the app shell', () => {
-  expectRedirect(() => DashboardSettingsPage(), '/dashboard/settings/business-profile');
+  const element = DashboardSettingsPage();
+
+  assert.equal(isValidElement(element), true);
+  assert.equal(element.type, AppShellLayout);
+  assert.equal(element.props.currentRouteId, 'settings');
+  assert.equal(isValidElement(element.props.children), true);
+  assert.equal(element.props.children.type, AriesSettingsScreen);
 });
 
 test('/settings redirects to the canonical dashboard settings route', () => {
