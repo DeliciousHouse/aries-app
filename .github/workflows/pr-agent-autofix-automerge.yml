@@ -25,7 +25,6 @@ permissions:
   issues: write
   actions: read
   checks: read
-  id-token: write
 
 concurrency:
   group: pr-agent-autofix-automerge-${{ github.event.pull_request.number || inputs.pr_number || github.run_id }}
@@ -76,7 +75,7 @@ jobs:
           gh pr view "$pr_number" --json number,title,body,url,isDraft,headRefName,baseRefName,labels,reviewDecision,mergeStateStatus,mergeable,isCrossRepository,headRepositoryOwner,headRepository,author > /tmp/pr.json
 
           is_cross_repo="$(jq -r '.isCrossRepository' /tmp/pr.json)"
-          if [ "$EVENT_NAME" != "workflow_dispatch" ] && [ "$is_cross_repo" = "true" ]; then
+          if [ "$is_cross_repo" = "true" ]; then
             echo "PR #$pr_number is from a fork/cross-repository branch; refusing to operate on untrusted PRs."
             echo "should_run=false" >> "$GITHUB_OUTPUT"
             exit 0
