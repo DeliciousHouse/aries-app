@@ -26,7 +26,6 @@ permissions:
   actions: read
   checks: read
   # anthropics/claude-code-action requests a GitHub OIDC token before agent mode.
-  id-token: write
 
 concurrency:
   group: pr-agent-autofix-automerge-${{ github.event.pull_request.number || inputs.pr_number || github.run_id }}
@@ -149,11 +148,10 @@ jobs:
         if: steps.pr.outputs.should_run == 'true'
         uses: anthropics/claude-code-action@v1
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: #${{ steps.pr.outputs.number }}
