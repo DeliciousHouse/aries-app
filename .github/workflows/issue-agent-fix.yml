@@ -77,7 +77,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           base_branch: master
           branch_prefix: issue-agent/
-          track_progress: true
+          track_progress: ${{ github.event_name != 'workflow_dispatch' }}
           prompt: |
             REPO: ${{ github.repository }}
             ISSUE NUMBER: #${{ steps.issue.outputs.number }}
