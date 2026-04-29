@@ -39,7 +39,7 @@ export const automationJobs = [
     cron: '30 8,13,17 * * 1-5',
     tz: 'America/Los_Angeles',
     skill: 'aries-daily-standup-orchestrator',
-    purpose: 'Generate the board-derived Aries chief standup, write the transcript and per-chief reports to /home/node/.openclaw/projects/shared/teams, and announce the concise operational summary.',
+    purpose: 'Generate the board-derived Aries chief standup, write the transcript and per-chief reports to /home/node/.openclaw/projects/shared/team/meetings, and announce the concise operational summary.',
   },
   {
     id: 'aries-standup-watchdog',
@@ -47,7 +47,7 @@ export const automationJobs = [
     cron: '50 8,13,17 * * 1-5',
     tz: 'America/Los_Angeles',
     skill: 'aries-standup-watchdog',
-    purpose: 'Verify that the current standup transcript and per-chief reports exist in /home/node/.openclaw/projects/shared/teams and that no forbidden local standup artifacts were recreated.',
+    purpose: 'Verify that the current standup transcript and per-chief reports exist in /home/node/.openclaw/projects/shared/team/meetings and that no forbidden local standup artifacts were recreated.',
   },
   {
     id: 'aries-github-feedback-connector',

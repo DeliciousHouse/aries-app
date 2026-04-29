@@ -1,7 +1,8 @@
 import path from 'node:path'
 import { existsSync, readdirSync } from 'node:fs'
 
-const SHARED_TEAMS_ROOT = process.env.ARIES_SHARED_TEAMS_ROOT || '/home/node/.openclaw/projects/shared/teams'
+const SHARED_TEAM_ROOT = process.env.ARIES_SHARED_TEAM_ROOT || '/home/node/.openclaw/projects/shared/team'
+const SHARED_MEETINGS_DIR = process.env.ARIES_SHARED_MEETINGS_DIR || path.join(SHARED_TEAM_ROOT, 'meetings')
 const ARIES_REPO_ROOT = process.env.ARIES_CANONICAL_REPO_ROOT || '/home/node/aries-app'
 const date = process.argv[2] || new Intl.DateTimeFormat('en-CA', {
   timeZone: 'America/Los_Angeles',
@@ -10,8 +11,8 @@ const date = process.argv[2] || new Intl.DateTimeFormat('en-CA', {
   day: '2-digit',
 }).format(new Date())
 
-const transcriptPath = path.join(SHARED_TEAMS_ROOT, 'meetings', `${date}-daily-standup.md`)
-const reportDir = path.join(SHARED_TEAMS_ROOT, 'standups', date)
+const transcriptPath = path.join(SHARED_MEETINGS_DIR, `${date}-daily-standup.md`)
+const reportDir = process.env.ARIES_SHARED_STANDUP_REPORTS_DIR || path.join(SHARED_MEETINGS_DIR, `${date}-daily-standup-reports`)
 const expectedReports = ['forge-report.json', 'signal-report.json', 'ledger-report.json']
 const forbiddenPaths = [
   `${ARIES_REPO_ROOT}/team/meetings/${date}-daily-standup.md`,

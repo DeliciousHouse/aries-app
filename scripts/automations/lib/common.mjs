@@ -2,8 +2,9 @@ import { spawnSync } from 'node:child_process'
 import { mkdirSync, readFileSync, writeFileSync, appendFileSync, existsSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
+import { fileURLToPath } from 'node:url'
 
-export const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../..')
+export const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
 export const docsDir = path.join(repoRoot, 'docs')
 export const briefsDir = path.join(docsDir, 'briefs')
 export const memoryDir = path.join(repoRoot, 'memory')
