@@ -250,3 +250,39 @@ test('canonical client-facing marketing smoke flow stays on the monolithic pipel
     assert.equal(runtimeDoc.approvals.current, null);
   });
 });
+
+test('startMarketingJob returns a failed campaign instead of throwing when the gateway tool is unavailable', async () => {
+  await withMarketingRuntimeEnv(async () => {
+    const { OpenClawGatewayError } = await import('../backend/openclaw/gateway-client');
+    const { startMarketingJob } = await import('../backend/marketing/orchestrator');
+    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+
+    setOpenClawTestInvoker(() => {
+      throw new OpenClawGatewayError(
+        'openclaw_gateway_tool_unavailable',
+        'OpenClaw gateway does not expose the requested tool.',
+        404,
+      );
+    });
+
+    const startResult = await startMarketingJob({
+      tenantId: 'tenant_gateway_unavailable',
+      jobType: 'brand_campaign',
+      payload: {
+        brandUrl: 'https://brand.example',
+        competitorUrl: 'https://betterup.com',
+      },
+    });
+
+    assert.equal(startResult.status, 'accepted');
+    assert.equal(startResult.approvalRequired, false);
+    assert.equal(startResult.currentStage, 'research');
+
+    const failedDoc = (await loadMarketingJobRuntime(startResult.jobId))!;
+    assert.equal(failedDoc.state, 'failed');
+    assert.equal(failedDoc.status, 'failed');
+    assert.equal(failedDoc.current_stage, 'research');
+    assert.equal(failedDoc.last_error?.code, 'openclaw_gateway_tool_unavailable');
+    assert.equal(failedDoc.stages.research.status, 'failed');
+  });
+});
