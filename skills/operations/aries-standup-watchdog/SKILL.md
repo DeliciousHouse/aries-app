@@ -8,7 +8,7 @@ description: Run the Aries standup watchdog and return only its concise operatio
 Use this skill when the Aries standup outputs need a fast integrity check.
 
 ## Required procedure
-1. Work in `/home/node/openclaw/aries-app`.
+1. Work in `/home/node/aries-app`.
 2. Run:
    - `node skills/operations/aries-standup-watchdog/scripts/run-watchdog.mjs`
 3. Do not add extra narration around the result.

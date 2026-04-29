@@ -35,7 +35,7 @@ env:
   IMAGE_NAME: aries-app
   STATIC_PUSH_BRANCH: master
   DEFAULT_BRANCH: ${{ vars.DEFAULT_BRANCH }}
-  DEPLOY_PATH: /home/node/openclaw/aries-app
+  DEPLOY_PATH: /home/node/aries-app
   SERVICE_NAME: aries-app
 
 jobs:

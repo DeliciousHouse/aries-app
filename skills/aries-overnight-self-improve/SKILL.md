@@ -8,7 +8,7 @@ description: Pick one small additive improvement each night, ship it safely, val
 Nightly self-improvement build for `aries-app`. This automation should ship one small, production-safe improvement per night without inventing scope, drifting the UI, or touching protected/high-risk surfaces.
 
 ## Required procedure
-1. Work in `/home/node/openclaw/aries-app`.
+1. Work in `/home/node/aries-app`.
 2. Run:
    - `node scripts/automations/overnight-self-improve.mjs`
 3. Do not add extra narration around the result.

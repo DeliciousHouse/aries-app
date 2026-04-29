@@ -13,7 +13,7 @@ Use this skill to work the next repairable incidents from `data/runtime-error-in
 
 ## Required inputs
 
-- Repo root: `/home/node/openclaw/aries-app`
+- Repo root: `/home/node/aries-app`
 - Incident log: `data/runtime-error-incidents.json`
 
 ## Required procedure

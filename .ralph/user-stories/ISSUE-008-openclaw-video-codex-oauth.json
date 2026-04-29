@@ -1,0 +1,22 @@
+{
+  "id": "ISSUE-008",
+  "title": "OpenClaw video generation does not use openai-codex OAuth in the installed runtime",
+  "severity": "high",
+  "category": "functional",
+  "passes": false,
+  "blocked": true,
+  "page": "Lobster Stage 4 video generation through OpenClaw video_generate",
+  "symptom": "Aries/Lobster delegates video generation to OpenClaw's video_generate tool when LOBSTER_MEDIA_GATEWAY_ENABLED=1 and LOBSTER_VIDEO_RENDER_ENABLED=1, but the installed OpenClaw 2026.4.26 OpenAI video provider only checks provider=\"openai\" and throws \"OpenAI API key missing\" when no direct OpenAI provider key exists. Unlike image generation, it has no openai-codex OAuth fallback path.",
+  "acceptance_criteria": [
+    "OpenClaw video provider exposes a documented openai-codex OAuth path for OpenAI video models, or Aries documentation clearly states that Codex OAuth is image-only in the current OpenClaw runtime.",
+    "A live or mocked video_generate smoke proves the selected auth route without printing credential values.",
+    "Aries/Lobster continues to delegate video requests through OpenClaw and does not reimplement provider OAuth internally."
+  ],
+  "suspected_files": [
+    "/home/node/.openclaw/plugin-runtime-deps/openclaw-2026.4.26-e888fc95368e/dist/video-generation-provider-RZ86cD9W.js",
+    "/home/node/openclaw/extensions/openai/video-generation-provider.ts",
+    "lobster/bin/_openclaw_media_gateway.py",
+    "lobster/bin/_stage4_common.py"
+  ],
+  "notes": "Deferred as an OpenClaw provider/runtime gap, not an Aries app source fix. Aries should keep delegating video_generate to OpenClaw."
+}

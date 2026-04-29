@@ -2,7 +2,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
-const HOST_CODE_ROOT = '/home/node/openclaw/aries-app'
+const HOST_CODE_ROOT = process.env.ARIES_CANONICAL_REPO_ROOT || '/home/node/aries-app'
 const HOST_SHARED_DATA_ROOT = '/home/node/data'
 const HOST_TEMP_DATA_ROOT = '/tmp/aries-data'
 
