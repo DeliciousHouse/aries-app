@@ -146,14 +146,14 @@ NODE_ENV=development npm ci
 cp .env.example .env
 export DB_HOST=localhost DB_PORT=5432 DB_USER=aries_user DB_PASSWORD=aries_pass DB_NAME=aries_dev
 export CODE_ROOT=/home/node/aries-app DATA_ROOT=/tmp/aries-data NODE_ENV=development
-export OPENCLAW_GATEWAY_LOBSTER_CWD=lobster
+export OPENCLAW_GATEWAY_LOBSTER_CWD=aries-app/lobster  # installed OpenClaw gateway service from /home/node
 export OPENCLAW_LOCAL_LOBSTER_CWD=/home/node/aries-app/lobster
 export OPENCLAW_LOBSTER_CWD=/home/node/aries-app/lobster
 export APP_BASE_URL=http://localhost:3000 NEXTAUTH_URL=http://localhost:3000 AUTH_URL=http://localhost:3000 AUTH_TRUST_HOST=true
 export MARKETING_STATUS_PUBLIC=1
 ```
 
-Use `OPENCLAW_GATEWAY_LOBSTER_CWD=lobster` for gateway calls. Keep `OPENCLAW_LOCAL_LOBSTER_CWD` / `OPENCLAW_LOBSTER_CWD` pointed at the absolute checkout path for local file reads and compatibility tooling.
+Use `OPENCLAW_GATEWAY_LOBSTER_CWD` as the path to `lobster/` relative to the OpenClaw gateway process, not relative to the Aries process. Use `lobster` when you start OpenClaw from `/home/node/aries-app`; use `aries-app/lobster` for the installed host gateway service that starts from `/home/node`. Keep `OPENCLAW_LOCAL_LOBSTER_CWD` / `OPENCLAW_LOBSTER_CWD` pointed at the absolute checkout path for local file reads and compatibility tooling. Run `npm run validate:openclaw-lobster` after gateway/config changes; it writes a diagnostic report under `.artifacts/openclaw-lobster-availability/` and fails with the fix hint if the `lobster` tool disappears again.
 
 ### 3) Start PostgreSQL
 
