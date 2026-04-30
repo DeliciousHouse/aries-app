@@ -41,6 +41,8 @@ The core domain flow is a 4-stage marketing pipeline defined in `lobster/marketi
 
 Each stage can pause for human approval. `backend/marketing/orchestrator.ts` drives the pipeline: starts stages via the gateway client, collects artifacts, manages approval checkpoints, and records state transitions. Approval records are persisted via `backend/marketing/approval-store.ts`.
 
+**Resumability rule:** Stages must preserve partial artifacts on rate-limit or transient gateway failures so a resume can pick up where it left off. Do not discard work on a non-fatal stage error — persist what completed, surface the failure, and let the orchestrator decide whether to retry. This rule exists because of past Veo render rate-limit incidents that lost completed creative on retry.
+
 ### Auth & Tenant Model
 
 Auth uses next-auth v5 (`auth.ts` at repo root) with Credentials + Google providers. Sessions are enriched with tenant claims (`tenantId`, `tenantSlug`, `role`) via JWT callbacks. `lib/tenant-context.ts` provides `getTenantContext()` which first checks session claims, then falls back to a DB lookup. Tenant roles: `tenant_admin`, `tenant_analyst`, `tenant_viewer`. All authenticated API routes should resolve tenant context server-side.
@@ -110,7 +112,8 @@ Non-obvious layout notes (the rest is discoverable by browsing):
 - `lobster/` vs `workflows/` — `lobster/` holds `.lobster` workflow definitions consumed by the gateway (e.g. `marketing-pipeline.lobster`); `workflows/` holds OpenClaw workflow configs that wire those definitions into the gateway.
 - `specs/` — resolved via `lib/runtime-paths.ts`, not imported directly by path.
 - `skills/` — marketing agent skill definitions (campaign-planner, creative-director, research, etc.) executed by the gateway, not TypeScript modules.
-- `scripts/automations/` — cron-driven jobs installed via `npm run automation:install`.
+- `scripts/automations/` — cron-driven jobs installed via `npm run automation:install`. The job manifest lives in `scripts/automations/manifest.mjs`; verify with `node scripts/automations/verify-automations.mjs` before changing schedules.
+- `DOCKER.md` — container build/runtime profiles and the 50-concurrent smoke check referenced by guardrail #4.
 
 ## Tech Stack Notes
 
@@ -120,6 +123,10 @@ Most of the stack (React, Tailwind, Recharts, etc.) is discoverable from `packag
 - **next-auth v5 beta** — session is enriched with tenant claims in JWT callbacks; do not read user info without going through `getTenantContext()`.
 - **PostgreSQL** via `pg` pool in `lib/db.ts` — no ORM.
 - **Imports use `@/*`** rooted at the repo (e.g. `@/backend/...`, `@/lib/...`).
+
+## Commit & PR Conventions
+
+This repo uses Conventional Commits with a scope (e.g. `fix(ci): ...`, `refactor(workspace): ...`, `feat(marketing): ...`). Match the existing style — `git log --oneline -20` is the source of truth. Keep subjects in the imperative and under ~70 chars; put detail in the body.
 
 ## Banned Patterns
 
@@ -140,35 +147,6 @@ export CODE_ROOT=/home/node/aries-app DATA_ROOT=/tmp/aries-data NODE_ENV=develop
 export APP_BASE_URL=http://localhost:3000 NEXTAUTH_URL=http://localhost:3000 AUTH_URL=http://localhost:3000 AUTH_TRUST_HOST=true
 ```
 
-## gstack (REQUIRED — global install)
+## gstack (REQUIRED)
 
-**Before doing ANY work, verify gstack is installed:**
-
-```bash
-test -d ~/.claude/skills/gstack/bin && echo "GSTACK_OK" || echo "GSTACK_MISSING"
-```
-
-If GSTACK_MISSING: STOP. Do not proceed. Tell the user:
-
-> gstack is required for all AI-assisted work in this repo.
-> Install it:
-> ```bash
-> git clone --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack
-> cd ~/.claude/skills/gstack && ./setup --team
-> ```
-> Then restart your AI coding tool.
-
-Do not skip skills, ignore gstack errors, or work around missing gstack.
-
-Using gstack skills: After install, skills like /qa, /ship, /review, /investigate,
-and /browse are available. Use /browse for all web browsing.
-Use ~/.claude/skills/gstack/... for gstack file paths (the global path).
-
-## GBrain Configuration (configured by /setup-gbrain)
-- Engine: postgres/Supabase
-- Config file: ~/.gbrain/config.json (mode 0600)
-- Setup date: 2026-04-26
-- MCP registered: yes
-- Memory sync: off
-- Current repo policy: read-write
-- Semantic embeddings: configured with OpenAI text-embedding-3-large (1536 dimensions)
+gstack is required for all AI-assisted work in this repo. Verify with `test -d ~/.claude/skills/gstack/bin`. Install/usage instructions live in the global `~/.claude/CLAUDE.md`. Use `/browse` for all web browsing.
