@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ArrowUpRight, CheckCircle2, LoaderCircle, MessageSquareText, XCircle } from 'lucide-react';
@@ -121,7 +121,7 @@ function currentStageHref(campaignId: string, view: WorkspaceView): string {
   return `/dashboard/campaigns/${encodeURIComponent(campaignId)}?view=${view}`;
 }
 
-function normalizeHttpUrlInput(value: string): string {
+function normalizeWebsiteUrlInput(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) {
     return '';
@@ -585,7 +585,7 @@ function BrandBriefCard(props: {
   const editRegionRef = useRef<HTMLDivElement | null>(null);
   const websiteInputRef = useRef<HTMLInputElement | null>(null);
 
-  const normalizedWebsiteUrl = normalizeHttpUrlInput(websiteUrl);
+  const normalizedWebsiteUrl = normalizeWebsiteUrlInput(websiteUrl);
   const trimmedUrl = normalizedWebsiteUrl.trim();
   const urlIsValid = /^https?:\/\/\S+/i.test(trimmedUrl);
   const urlErrorMessage = !trimmedUrl
@@ -594,7 +594,7 @@ function BrandBriefCard(props: {
     ? 'Enter a full URL starting with http:// or https://'
     : '';
 
-  function resetDraftFromBrief() {
+  const resetDraftFromBrief = useCallback(() => {
     setWebsiteUrl(props.brief.websiteUrl);
     setBrandVoice(props.brief.brandVoice);
     setStyleVibe(props.brief.styleVibe);
@@ -603,7 +603,7 @@ function BrandBriefCard(props: {
     setMustAvoidAesthetics(props.brief.mustAvoidAesthetics);
     setNotes(props.brief.notes);
     setBrandAssets([]);
-  }
+  }, [props.brief]);
 
   function handleCancelEdit() {
     resetDraftFromBrief();
@@ -624,14 +624,14 @@ function BrandBriefCard(props: {
     const node = editRegionRef.current;
     node?.addEventListener('keydown', onKeyDown);
     return () => node?.removeEventListener('keydown', onKeyDown);
-  }, [editing]);
+  }, [editing, resetDraftFromBrief]);
 
   useEffect(() => {
     if (editing) {
       return;
     }
     resetDraftFromBrief();
-  }, [editing, props.brief]);
+  }, [editing, resetDraftFromBrief]);
 
   async function handleSave() {
     if (!urlIsValid) {
@@ -737,7 +737,7 @@ function BrandBriefCard(props: {
               value={websiteUrl}
               onChange={(event) => setWebsiteUrl(event.target.value)}
               onBlur={() => {
-                setWebsiteUrl(normalizeHttpUrlInput(websiteUrl));
+                setWebsiteUrl(normalizeWebsiteUrlInput(websiteUrl));
                 setUrlTouched(true);
               }}
               className="mt-3 w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-sm text-white placeholder:text-white/30"

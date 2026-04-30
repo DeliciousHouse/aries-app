@@ -230,7 +230,7 @@ function urlChipFromValue(value: string): UrlChipState {
   }
   const normalized = normalizeHttpsUrlInput(trimmed);
   const hostname = hostnameFromUrl(normalized);
-  if (!hostname || !isValidHttpsUrl(normalized)) {
+  if (!hostname || !isValidHttpsUrl(trimmed)) {
     return { kind: 'invalid' };
   }
   return { kind: 'valid', hostname };
@@ -302,7 +302,7 @@ export function stepReady(stepKey: StepKey, values: {
     return values.businessName.trim().length > 0 && values.businessType.trim().length > 0;
   }
   if (stepKey === 'website' || stepKey === 'brand') {
-    return isValidHttpsUrl(normalizeHttpsUrlInput(values.websiteUrl));
+    return isValidHttpsUrl(values.websiteUrl);
   }
   if (stepKey === 'channels') {
     return values.selectedChannels.length > 0;
@@ -785,7 +785,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   }, [ariesApi, draftId, loadedDraftId]);
 
   useEffect(() => {
-    if (!props.initialAuthenticated || profileHydrated) {
+    if (!props.initialAuthenticated || profileHydrated || draftId) {
       return;
     }
 
@@ -1239,7 +1239,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     ? 'untouched'
     : websiteUrl.trim().length === 0
       ? 'invalid'
-      : isValidHttpsUrl(normalizeHttpsUrlInput(websiteUrl))
+      : isValidHttpsUrl(websiteUrl)
         ? 'valid'
         : 'invalid';
   const competitorUrlValidation = validateCanonicalCompetitorUrl(competitorUrl);
@@ -1290,7 +1290,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         return goal.trim() ? null : 'Choose a business outcome before continuing.';
       case 'websiteUrl': {
         if (!websiteUrl.trim()) return 'Enter a website so Aries can analyze it.';
-        return isValidHttpsUrl(normalizeHttpsUrlInput(websiteUrl)) ? null : 'Enter a valid website URL (we will add https:// if you omit it).';
+        return isValidHttpsUrl(websiteUrl) ? null : 'Enter a valid website URL (we will add https:// if you omit it).';
       }
       case 'competitorUrl': {
         if (!competitorUrl.trim()) return null; // optional

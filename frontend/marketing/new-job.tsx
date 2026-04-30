@@ -189,6 +189,8 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
   const submitButtonLabel = submitting
     ? `${SUBMIT_PROGRESS_MESSAGES[submitProgress.stepIndex]}${isFinalSubmitMessage ? '.'.repeat(Math.max(submitProgress.dotCount, 1)) : ''}`
     : 'Start campaign';
+  const normalizedWebsiteUrl = normalizeWebsiteUrlInput(websiteUrl);
+  const websiteUrlIsValid = isValidWebsiteUrl(normalizedWebsiteUrl);
 
   return (
     <div className={wrapperClassName}>
@@ -343,16 +345,16 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
 
               <button
                 type="submit"
-                disabled={submitting || !isValidWebsiteUrl(normalizeWebsiteUrlInput(websiteUrl))}
+                disabled={submitting || !websiteUrlIsValid}
                 className="w-full rounded-full bg-gradient-to-r from-primary to-secondary px-6 py-4 text-white font-semibold shadow-xl shadow-primary/20 disabled:opacity-60 disabled:cursor-not-allowed"
-                aria-describedby={!isValidWebsiteUrl(normalizeWebsiteUrlInput(websiteUrl)) && !submitting ? 'start-campaign-hint' : undefined}
+                aria-describedby={!websiteUrlIsValid && !submitting ? 'start-campaign-hint' : undefined}
               >
                 <span className="inline-flex items-center justify-center gap-2">
                   {submitting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
                   {submitButtonLabel}
                 </span>
               </button>
-              {!isValidWebsiteUrl(normalizeWebsiteUrlInput(websiteUrl)) && !submitting && (
+              {!websiteUrlIsValid && !submitting && (
                 <p id="start-campaign-hint" className="mt-2 text-center text-xs text-white/45">
                   {websiteUrl.trim()
                     ? 'Enter a valid URL like https://example.com to start the campaign.'

@@ -200,6 +200,8 @@ function countCompletedCreativeAssets(
   creativeReviewAssets: MarketingCreativeAssetReviewPayload[] | null | undefined,
   _dashboardImageAds: number | null | undefined,
 ): { imageCount: number; videoCount: number } {
+  // Keep the image-ad count in the internal signature for call-site stability,
+  // but readiness now comes from assets that expose actual previews.
   const reviewAssets = creativeReviewAssets || [];
   const readyReviewAssets = reviewAssets.filter(reviewAssetHasPreview);
   const readyDashboardAssets = (dashboardAssets || []).filter(dashboardAssetHasPreview);
