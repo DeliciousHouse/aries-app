@@ -74,7 +74,7 @@ jobs:
             exit 1
           fi
 
-          gh pr view "$pr_number" --json number,title,body,url,isDraft,headRefName,baseRefName,labels,reviewDecision,mergeStateStatus,mergeable,isCrossRepository,headRepositoryOwner,headRepository,author > /tmp/pr.json
+          gh pr view "$pr_number" --json number,title,body,url,isDraft,headRefName,baseRefName,labels,reviewDecision,mergeStateStatus,mergeable,isCrossRepository,headRepositoryOwner,headRepository,author,files > /tmp/pr.json
 
           is_cross_repo="$(jq -r '.isCrossRepository' /tmp/pr.json)"
           if [ "$is_cross_repo" = "true" ]; then
@@ -91,10 +91,18 @@ jobs:
             exit 0
           fi
 
+          claude_allowed="true"
+          edits_agent_workflow="$(jq -r '[.files[].path] | any(. == ".github/workflows/pr-agent-autofix-automerge.yml")' /tmp/pr.json)"
+          if [[ "${edits_agent_workflow}" == "true" ]]; then
+            claude_allowed="false"
+            echo "PR #${pr_number} edits pr-agent-autofix-automerge.yml; skipping Claude action because modified Claude workflows cannot exchange app tokens until merged to default branch."
+          fi
+
           {
             echo "number=$pr_number"
             echo "head_ref=$head_ref"
             echo "should_run=true"
+            echo "claude_allowed=$claude_allowed"
             echo "url=$(jq -r '.url' /tmp/pr.json)"
           } >> "$GITHUB_OUTPUT"
 
@@ -146,7 +154,7 @@ jobs:
         run: npm ci
 
       - name: Claude PR autofix
-        if: steps.pr.outputs.should_run == 'true'
+        if: steps.pr.outputs.should_run == 'true' && steps.pr.outputs.claude_allowed == 'true'
         uses: anthropics/claude-code-action@v1
         env:
           GH_TOKEN: ${{ github.token }}

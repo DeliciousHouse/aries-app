@@ -87,6 +87,24 @@ test('agent automerge dispatches an exact-SHA deploy after the PR is actually me
   );
 });
 
+test('agent automerge skips Claude action when the PR edits the agent workflow itself', () => {
+  assert.match(
+    prAgentWorkflow,
+    /claude_allowed=/,
+    'PR agent should expose a claude_allowed output from the guardrail step',
+  );
+  assert.match(
+    prAgentWorkflow,
+    /\.github\/workflows\/pr-agent-autofix-automerge\.yml/,
+    'PR agent should detect edits to its own workflow file',
+  );
+  assert.match(
+    prAgentWorkflow,
+    /Claude PR autofix[\s\S]*?if: steps\.pr\.outputs\.should_run == 'true' && steps\.pr\.outputs\.claude_allowed == 'true'/,
+    'Claude action should be skipped for self-modifying workflow PRs to avoid default-branch validation failures',
+  );
+});
+
 test('deploy workflow builds and force-recreates the exact commit image', () => {
   assert.match(
     workflow,
