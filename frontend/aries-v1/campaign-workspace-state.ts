@@ -187,26 +187,35 @@ function isVideoDashboardAsset(asset: MarketingDashboardAsset): boolean {
   return (asset.contentType || '').toLowerCase().startsWith('video/') || videoLike(`${asset.platform} ${asset.title}`);
 }
 
+function dashboardAssetHasPreview(asset: MarketingDashboardAsset): boolean {
+  return Boolean(asset.previewUrl?.trim() || asset.thumbnailUrl?.trim());
+}
+
+function reviewAssetHasPreview(asset: MarketingCreativeAssetReviewPayload): boolean {
+  return Boolean(asset.previewUrl?.trim() || asset.fullPreviewUrl?.trim());
+}
+
 function countCompletedCreativeAssets(
   dashboardAssets: MarketingDashboardAsset[] | null | undefined,
   creativeReviewAssets: MarketingCreativeAssetReviewPayload[] | null | undefined,
-  dashboardImageAds: number | null | undefined,
+  _dashboardImageAds: number | null | undefined,
 ): { imageCount: number; videoCount: number } {
+  // Keep the image-ad count in the internal signature for call-site stability,
+  // but readiness now comes from assets that expose actual previews.
   const reviewAssets = creativeReviewAssets || [];
-  const reviewVideoCount = reviewAssets.filter(
+  const readyReviewAssets = reviewAssets.filter(reviewAssetHasPreview);
+  const readyDashboardAssets = (dashboardAssets || []).filter(dashboardAssetHasPreview);
+  const reviewVideoCount = readyReviewAssets.filter(
     (asset) => (asset.contentType || '').toLowerCase().startsWith('video/') || videoLike(`${asset.platformLabel} ${asset.title}`),
   ).length;
-  const reviewImageCount = reviewAssets.filter(
+  const reviewImageCount = readyReviewAssets.filter(
     (asset) => (asset.contentType || '').toLowerCase().startsWith('image/'),
   ).length;
 
-  const dashboardVideoCount = (dashboardAssets || []).filter((asset) => isVideoDashboardAsset(asset)).length;
-  const dashboardImageCount = Math.max(
-    dashboardImageAds || 0,
-    (dashboardAssets || []).filter(
-      (asset) => asset.type === 'image_ad' && !isVideoDashboardAsset(asset),
-    ).length,
-  );
+  const dashboardVideoCount = readyDashboardAssets.filter((asset) => isVideoDashboardAsset(asset)).length;
+  const dashboardImageCount = readyDashboardAssets.filter(
+    (asset) => asset.type === 'image_ad' && !isVideoDashboardAsset(asset),
+  ).length;
 
   return {
     imageCount: Math.max(reviewImageCount, dashboardImageCount),

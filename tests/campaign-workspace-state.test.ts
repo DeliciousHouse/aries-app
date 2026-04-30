@@ -233,6 +233,8 @@ test('deriveGenerationProgressState maps creative asset progress from production
             title: 'Meta image',
             platform: 'meta-ads',
             contentType: 'image/png',
+            previewUrl: '/materials/assets/meta-image.png',
+            thumbnailUrl: null,
           },
         ],
       },
@@ -245,6 +247,62 @@ test('deriveGenerationProgressState maps creative asset progress from production
   assert.equal(progress?.currentLabel, 'Generating asset 2 of 4');
   assert.equal(progress?.imageCount, 3);
   assert.equal(progress?.videoCount, 1);
+});
+
+
+
+test('deriveGenerationProgressState does not count creative assets as ready until previews exist', () => {
+  const progress = deriveGenerationProgressState(
+    makeStatus({
+      workflowState: 'creative_review_required',
+      stageCards: [
+        {
+          stage: 'production',
+          label: 'Production',
+          status: 'running',
+          summary: 'Creative outputs are in production.',
+          highlight: 'Static contracts: 2',
+        },
+      ],
+      dashboard: {
+        ...emptyDashboard(),
+        campaign: {
+          counts: {
+            imageAds: 2,
+          },
+        },
+        assets: [
+          {
+            id: 'asset_pending',
+            type: 'image_ad',
+            title: 'Pending Meta image',
+            platform: 'meta-ads',
+            contentType: 'image/png',
+            previewUrl: null,
+            thumbnailUrl: null,
+          },
+        ],
+      },
+      creativeReview: {
+        assets: [
+          {
+            reviewId: 'review_pending',
+            assetId: 'asset_pending',
+            title: 'Pending Meta image',
+            platformLabel: 'Meta Ads',
+            contentType: 'image/png',
+            previewUrl: null,
+            fullPreviewUrl: null,
+          },
+        ],
+      },
+    }) as any,
+  );
+
+  assert.equal(progress?.totalCount, 2);
+  assert.equal(progress?.completedCount, 0);
+  assert.equal(progress?.currentLabel, 'Generating image 1 of 2');
+  assert.equal(progress?.isComplete, false);
 });
 
 test('deriveGenerationProgressState falls back to planned and created counts when contract counts are missing', () => {

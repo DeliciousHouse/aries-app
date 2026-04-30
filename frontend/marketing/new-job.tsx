@@ -14,6 +14,17 @@ function isErrorResult(value: unknown): value is MarketingApiError {
   return typeof (value as MarketingApiError)?.error === 'string';
 }
 
+export function normalizeWebsiteUrlInput(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+  return `https://${trimmed}`;
+}
+
 function splitLines(value: string): string[] {
   return value
     .split('\n')
@@ -92,7 +103,7 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
     event.preventDefault();
     setErrorText(null);
 
-    const trimmedWebsiteUrl = websiteUrl.trim();
+    const trimmedWebsiteUrl = normalizeWebsiteUrlInput(websiteUrl);
     if (!trimmedWebsiteUrl) {
       setErrorText('website URL is required');
       return;
@@ -178,6 +189,8 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
   const submitButtonLabel = submitting
     ? `${SUBMIT_PROGRESS_MESSAGES[submitProgress.stepIndex]}${isFinalSubmitMessage ? '.'.repeat(Math.max(submitProgress.dotCount, 1)) : ''}`
     : 'Start campaign';
+  const normalizedWebsiteUrl = normalizeWebsiteUrlInput(websiteUrl);
+  const websiteUrlIsValid = isValidWebsiteUrl(normalizedWebsiteUrl);
 
   return (
     <div className={wrapperClassName}>
@@ -212,6 +225,7 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                 <input
                   value={websiteUrl}
                   onChange={(event) => setWebsiteUrl(event.target.value)}
+                  onBlur={() => setWebsiteUrl(normalizeWebsiteUrlInput(websiteUrl))}
                   placeholder="https://yourbrand.com"
                   required
                   aria-invalid={marketingCreate.fieldErrors?.websiteUrl ? true : undefined}
@@ -331,16 +345,16 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
 
               <button
                 type="submit"
-                disabled={submitting || !isValidWebsiteUrl(websiteUrl)}
+                disabled={submitting || !websiteUrlIsValid}
                 className="w-full rounded-full bg-gradient-to-r from-primary to-secondary px-6 py-4 text-white font-semibold shadow-xl shadow-primary/20 disabled:opacity-60 disabled:cursor-not-allowed"
-                aria-describedby={!isValidWebsiteUrl(websiteUrl) && !submitting ? 'start-campaign-hint' : undefined}
+                aria-describedby={!websiteUrlIsValid && !submitting ? 'start-campaign-hint' : undefined}
               >
                 <span className="inline-flex items-center justify-center gap-2">
                   {submitting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
                   {submitButtonLabel}
                 </span>
               </button>
-              {!isValidWebsiteUrl(websiteUrl) && !submitting && (
+              {!websiteUrlIsValid && !submitting && (
                 <p id="start-campaign-hint" className="mt-2 text-center text-xs text-white/45">
                   {websiteUrl.trim()
                     ? 'Enter a valid URL like https://example.com to start the campaign.'
@@ -377,11 +391,23 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                   'Strategy output is surfaced in a readable proposal with comments and approval state.',
                   'Creative assets stay review-gated per asset until every required approval is complete.',
                   'Publish remains blocked until the workflow is explicitly approved.',
-                ].map((item) => (
-                  <div key={item} className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-white/70">
-                    {item}
-                  </div>
-                ))}
+                ].map((item, index) => {
+                  const [stage, detail] = item.split(' feed ');
+                  return (
+                    <div key={item} className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-white/70">
+                      <span className="mr-2 rounded-full border border-primary/25 bg-primary/10 px-2 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-primary">
+                        Step {index + 1}
+                      </span>
+                      {stage && detail ? (
+                        <>
+                          <strong className="text-white">{stage}</strong> feed {detail}
+                        </>
+                      ) : (
+                        <strong className="text-white">{item}</strong>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
 

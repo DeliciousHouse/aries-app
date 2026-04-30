@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ArrowUpRight, CheckCircle2, LoaderCircle, MessageSquareText, XCircle } from 'lucide-react';
@@ -119,6 +119,17 @@ function formatDecisionTimestamp(value: string): string {
 
 function currentStageHref(campaignId: string, view: WorkspaceView): string {
   return `/dashboard/campaigns/${encodeURIComponent(campaignId)}?view=${view}`;
+}
+
+function normalizeWebsiteUrlInput(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+  return `https://${trimmed}`;
 }
 
 const PLATFORM_VIDEO_LABELS: Record<string, string> = {
@@ -395,12 +406,14 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
             key={view}
             href={currentStageHref(props.campaignId, view)}
             scroll={false}
-            className={`rounded-full border px-4 py-2.5 text-sm font-medium transition ${
+            aria-current={activeView === view ? 'step' : undefined}
+            className={`rounded-full border px-4 py-2.5 text-sm transition ${
               activeView === view
-                ? 'border-white/20 bg-white/[0.08] text-white'
-                : 'border-white/8 bg-white/[0.03] text-white/55 hover:border-white/15 hover:text-white'
+                ? 'border-white/20 bg-white/[0.08] text-white font-bold shadow-[0_0_0_1px_rgba(255,255,255,0.08)]'
+                : 'border-white/8 bg-white/[0.03] text-white/55 font-medium hover:border-white/15 hover:text-white'
             }`}
           >
+            {activeView === view ? <span className="mr-2 text-[#d6b8ff]">Current:</span> : null}
             {label}
           </Link>
         ))}
@@ -572,7 +585,8 @@ function BrandBriefCard(props: {
   const editRegionRef = useRef<HTMLDivElement | null>(null);
   const websiteInputRef = useRef<HTMLInputElement | null>(null);
 
-  const trimmedUrl = websiteUrl.trim();
+  const normalizedWebsiteUrl = normalizeWebsiteUrlInput(websiteUrl);
+  const trimmedUrl = normalizedWebsiteUrl.trim();
   const urlIsValid = /^https?:\/\/\S+/i.test(trimmedUrl);
   const urlErrorMessage = !trimmedUrl
     ? 'Website URL is required.'
@@ -580,7 +594,19 @@ function BrandBriefCard(props: {
     ? 'Enter a full URL starting with http:// or https://'
     : '';
 
+  const resetDraftFromBrief = useCallback(() => {
+    setWebsiteUrl(props.brief.websiteUrl);
+    setBrandVoice(props.brief.brandVoice);
+    setStyleVibe(props.brief.styleVibe);
+    setVisualReferences(props.brief.visualReferences.join('\n'));
+    setMustUseCopy(props.brief.mustUseCopy);
+    setMustAvoidAesthetics(props.brief.mustAvoidAesthetics);
+    setNotes(props.brief.notes);
+    setBrandAssets([]);
+  }, [props.brief]);
+
   function handleCancelEdit() {
+    resetDraftFromBrief();
     setEditing(false);
     setUrlTouched(false);
   }
@@ -598,17 +624,14 @@ function BrandBriefCard(props: {
     const node = editRegionRef.current;
     node?.addEventListener('keydown', onKeyDown);
     return () => node?.removeEventListener('keydown', onKeyDown);
-  }, [editing]);
+  }, [editing, resetDraftFromBrief]);
 
   useEffect(() => {
-    setWebsiteUrl(props.brief.websiteUrl);
-    setBrandVoice(props.brief.brandVoice);
-    setStyleVibe(props.brief.styleVibe);
-    setVisualReferences(props.brief.visualReferences.join('\n'));
-    setMustUseCopy(props.brief.mustUseCopy);
-    setMustAvoidAesthetics(props.brief.mustAvoidAesthetics);
-    setNotes(props.brief.notes);
-  }, [props.brief]);
+    if (editing) {
+      return;
+    }
+    resetDraftFromBrief();
+  }, [editing, resetDraftFromBrief]);
 
   async function handleSave() {
     if (!urlIsValid) {
@@ -619,7 +642,7 @@ function BrandBriefCard(props: {
 
     if (brandAssets.length > 0) {
       const formData = new FormData();
-      formData.set('websiteUrl', websiteUrl.trim());
+      formData.set('websiteUrl', normalizedWebsiteUrl);
       formData.set('brandVoice', brandVoice.trim());
       formData.set('styleVibe', styleVibe.trim());
       formData.set('mustUseCopy', mustUseCopy.trim());
@@ -635,7 +658,7 @@ function BrandBriefCard(props: {
       await props.onSave(formData);
     } else {
       await props.onSave({
-        websiteUrl: websiteUrl.trim(),
+        websiteUrl: normalizedWebsiteUrl,
         brandVoice: brandVoice.trim(),
         styleVibe: styleVibe.trim(),
         visualReferences: visualReferenceEntries,
@@ -713,7 +736,10 @@ function BrandBriefCard(props: {
               aria-describedby={urlTouched && urlErrorMessage ? 'edit-brief-website-url-error' : undefined}
               value={websiteUrl}
               onChange={(event) => setWebsiteUrl(event.target.value)}
-              onBlur={() => setUrlTouched(true)}
+              onBlur={() => {
+                setWebsiteUrl(normalizeWebsiteUrlInput(websiteUrl));
+                setUrlTouched(true);
+              }}
               className="mt-3 w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-sm text-white placeholder:text-white/30"
             />
             {urlTouched && urlErrorMessage ? (
@@ -947,6 +973,7 @@ function StageReviewSurface(props: {
             busy={props.busy}
             onApprove={isApproved ? undefined : props.onApprove}
             onChangesRequested={isApproved ? undefined : props.onChangesRequested}
+            approveLabel={`Authorize ${reviewSurfaceLabel(props.review.reviewType)} review`}
             placeholder={props.review.notePlaceholder}
           />
         )}
@@ -1024,6 +1051,7 @@ function CreativeReviewSurface(props: {
                   onApprove={() => props.onDecision(asset.reviewId, 'approve')}
                   onChangesRequested={() => props.onDecision(asset.reviewId, 'changes_requested')}
                   onReject={() => props.onDecision(asset.reviewId, 'reject')}
+                  approveLabel="Authorize asset review"
                   placeholder="Add per-asset notes or request revisions."
                 />
                 <HistoryCard history={asset.history} />
@@ -1147,6 +1175,7 @@ function ReviewDecisionCard(props: {
   onChangesRequested?: () => void;
   onReject?: () => void;
   placeholder?: string;
+  approveLabel?: string;
 }) {
   const [activeAction, setActiveAction] = useState<DecisionActionKind>('approve');
   const [progressIndex, setProgressIndex] = useState(0);
@@ -1207,7 +1236,7 @@ function ReviewDecisionCard(props: {
               className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold hover:cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
             >
               {props.busy && activeAction === 'approve' ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-              {props.busy && activeAction === 'approve' ? activeProgressLabel : 'Approve'}
+              {props.busy && activeAction === 'approve' ? activeProgressLabel : props.approveLabel || 'Approve'}
             </button>
           ) : null}
           {props.onChangesRequested ? (
