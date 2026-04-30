@@ -43,16 +43,6 @@ export default function OnboardingResumePending(): JSX.Element {
                 The workspace handoff hasn&apos;t completed yet. Your draft is saved. Try again,
                 and if this keeps happening, contact support so we can investigate.
               </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setStuck(false);
-                  router.refresh();
-                }}
-                className="mt-8 rounded-full border border-white/20 bg-white/5 px-6 py-2 text-sm text-white transition hover:bg-white/10"
-              >
-                Try again
-              </button>
             </>
           ) : (
             <>
@@ -66,6 +56,18 @@ export default function OnboardingResumePending(): JSX.Element {
             </>
           )}
         </div>
+        {stuck ? (
+          <button
+            type="button"
+            onClick={() => {
+              setStuck(false);
+              router.refresh();
+            }}
+            className="mt-8 rounded-full border border-white/20 bg-white/5 px-6 py-2 text-sm text-white transition hover:bg-white/10"
+          >
+            Try again
+          </button>
+        ) : null}
       </div>
     </main>
   );
