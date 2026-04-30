@@ -17,6 +17,7 @@ from _marketing_profile_common import (
     normalize_marketing_url,
     normalize_space,
     record_or_empty,
+    repair_truncated_phrase,
     string_or_none,
     unique_strings,
     utc_now,
@@ -248,7 +249,53 @@ def _structured_analysis_prompt(
     return "\n".join(lines)
 
 
+_REPAIR_STRING_FIELDS = (
+    "audience",
+    "positioning",
+    "problem_statement",
+    "offer",
+    "primary_cta",
+    "style_vibe",
+    "business_type",
+    "primary_goal",
+)
+_REPAIR_LIST_FIELDS = ("proof_points",)
+_REPAIR_CHANNEL_DICT_FIELDS = ("channel_specific_angles",)
+_REPAIR_CHANNEL_LIST_FIELDS = ("hooks", "opening_lines")
+
+
+def _repair_structured_copy(parsed: dict) -> dict:
+    """Strip trailing prepositions/punctuation that would trip the truncation
+    quality gate. LLMs produce these despite explicit prompt rules; deterministic
+    cleanup avoids burning a retry on a fixable formatting error."""
+    if not isinstance(parsed, dict):
+        return parsed
+    for field in _REPAIR_STRING_FIELDS:
+        if field in parsed and isinstance(parsed[field], str):
+            parsed[field] = repair_truncated_phrase(parsed[field])
+    for field in _REPAIR_LIST_FIELDS:
+        if isinstance(parsed.get(field), list):
+            parsed[field] = [repair_truncated_phrase(item) if isinstance(item, str) else item for item in parsed[field]]
+    for field in _REPAIR_CHANNEL_DICT_FIELDS:
+        record = parsed.get(field)
+        if isinstance(record, dict):
+            parsed[field] = {k: (repair_truncated_phrase(v) if isinstance(v, str) else v) for k, v in record.items()}
+    for field in _REPAIR_CHANNEL_LIST_FIELDS:
+        record = parsed.get(field)
+        if isinstance(record, dict):
+            parsed[field] = {
+                channel: (
+                    [repair_truncated_phrase(item) if isinstance(item, str) else item for item in items]
+                    if isinstance(items, list)
+                    else items
+                )
+                for channel, items in record.items()
+            }
+    return parsed
+
+
 def _validated_analysis_fields(parsed: dict, brand_name: str) -> dict:
+    parsed = _repair_structured_copy(parsed)
     audience = validate_copy_text("audience", parsed.get("audience"), min_tokens=4)
     positioning = validate_copy_text("positioning", parsed.get("positioning"), min_tokens=4)
     problem_statement = validate_copy_text("problem_statement", parsed.get("problem_statement"), min_tokens=4)

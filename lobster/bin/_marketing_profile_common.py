@@ -83,6 +83,44 @@ def is_truncated_phrase(value: Any) -> bool:
     return tokens[-1] in TRUNCATED_LAST_TOKENS
 
 
+_TRAILING_PUNCT_SUFFIXES = ("...", ":", "-", "/", "(")
+
+
+def repair_truncated_phrase(value: Any) -> str:
+    """Strip trailing punctuation and trailing preposition/conjunction tokens
+    that would cause is_truncated_phrase() to reject the string. Returns the
+    cleaned value (possibly empty).
+
+    Used to deterministically scrub LLM output before validation, since LLMs
+    routinely produce copy ending with 'for'/'to'/'with'/etc. even when the
+    prompt explicitly forbids it.
+    """
+    normalized = normalize_space(value)
+    if not normalized:
+        return ""
+    changed = True
+    while changed and normalized:
+        changed = False
+        for suffix in _TRAILING_PUNCT_SUFFIXES:
+            if normalized.endswith(suffix):
+                normalized = normalize_space(normalized[: -len(suffix)])
+                changed = True
+                break
+        if changed:
+            continue
+        tokens = re.findall(r"[A-Za-z0-9&']+", normalized.lower())
+        if tokens and tokens[-1] in TRUNCATED_LAST_TOKENS:
+            match = re.search(
+                r"\b" + re.escape(tokens[-1]) + r"\b[^A-Za-z0-9&']*$",
+                normalized,
+                flags=re.IGNORECASE,
+            )
+            if match:
+                normalized = normalize_space(normalized[: match.start()].rstrip(",;:- "))
+                changed = True
+    return normalized
+
+
 def validate_copy_text(label: str, value: Any, min_tokens: int = 3) -> str:
     normalized = normalize_space(value)
     if not normalized:
