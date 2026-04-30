@@ -121,8 +121,8 @@ jobs:
       - name: Publish exact deploy image
         env:
           TARGET_IMAGE_TAG: ${{ steps.resolve.outputs.image_tag }}
-          GHCR_OWNER: ${{ github.repository_owner }}
           GHCR_IMAGE: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          DEFAULT_BRANCH_NAME: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           if [[ ! "${TARGET_IMAGE_TAG}" =~ ^[0-9a-f]{40}$ ]]; then
@@ -136,7 +136,18 @@ jobs:
             exit 1
           fi
 
-          ./scripts/release/publish-image.sh
+          default_branch="${DEFAULT_BRANCH_NAME:-master}"
+          git fetch --no-tags origin "${default_branch}"
+          default_branch_sha="$(git rev-parse "origin/${default_branch}")"
+          publish_sha_only=0
+          if [[ "${TARGET_IMAGE_TAG}" != "${default_branch_sha}" ]]; then
+            publish_sha_only=1
+            echo "Publishing only ${TARGET_IMAGE_TAG}; not moving mutable aliases because origin/${default_branch} is ${default_branch_sha}."
+          else
+            echo "Publishing ${TARGET_IMAGE_TAG} plus ${default_branch}/latest aliases because it is the current default branch head."
+          fi
+
+          PUBLISH_SHA_ONLY="${publish_sha_only}" ./scripts/release/publish-image.sh
 
       - name: Deploy on host
         env:

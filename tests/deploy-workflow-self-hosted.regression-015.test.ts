@@ -17,6 +17,11 @@ const prAgentWorkflow = readFileSync(
   'utf8',
 );
 
+const publishImageScript = readFileSync(
+  path.join(PROJECT_ROOT, 'scripts', 'release', 'publish-image.sh'),
+  'utf8',
+);
+
 // Regression: deploy workflow must run on the deploy host itself instead of SSHing into a remote VM.
 test('deploy workflow uses a self-hosted runner on the deploy host with no SSH hop', () => {
   assert.match(
@@ -63,6 +68,19 @@ test('deploy workflow uses a self-hosted runner on the deploy host with no SSH h
     workflow,
     /DEPLOY_SSH_PRIVATE_KEY|DEPLOY_HOST|DEPLOY_USER/,
     'deploy workflow should not require remote-host SSH secrets after the self-hosted migration',
+  );
+});
+
+test('publish image script supports SHA-only deploy publishing', () => {
+  assert.match(
+    publishImageScript,
+    /PUBLISH_SHA_ONLY="\$\{PUBLISH_SHA_ONLY:-0\}"/,
+    'publish script should expose a SHA-only mode for rollback-safe deploy publishes',
+  );
+  assert.match(
+    publishImageScript,
+    /if \[\[ "\$\{PUBLISH_SHA_ONLY\}" != "1" \]\]; then[\s\S]*?-t "\$\{GHCR_IMAGE\}:\$\{DEFAULT_BRANCH\}"[\s\S]*?-t "\$\{GHCR_IMAGE\}:latest"[\s\S]*?fi/,
+    'mutable branch/latest tags should only be pushed outside SHA-only mode',
   );
 });
 
@@ -113,8 +131,18 @@ test('deploy workflow builds and force-recreates the exact commit image', () => 
   );
   assert.match(
     workflow,
-    /- name: Publish exact deploy image[\s\S]*?\.\/scripts\/release\/publish-image\.sh/,
-    'deploy workflow should publish the exact target image before trying to pull it on the host',
+    /- name: Publish exact deploy image[\s\S]*?git fetch --no-tags origin "\$\{default_branch\}"[\s\S]*?publish_sha_only=1[\s\S]*?PUBLISH_SHA_ONLY="\$\{publish_sha_only\}" \.\/scripts\/release\/publish-image\.sh/,
+    'manual rollback deploys should publish only the requested SHA instead of retagging default-branch aliases',
+  );
+  assert.match(
+    workflow,
+    /Publishing \$\{TARGET_IMAGE_TAG\} plus \$\{default_branch\}\/latest aliases because it is the current default branch head\./,
+    'push deploys and current default-branch deploys should still update default-branch/latest aliases',
+  );
+  assert.match(
+    publishImageScript,
+    /if \[\[ "\$\{PUBLISH_SHA_ONLY\}" != "1" \]\]; then[\s\S]*?-t "\$\{GHCR_IMAGE\}:\$\{DEFAULT_BRANCH\}"[\s\S]*?-t "\$\{GHCR_IMAGE\}:latest"/,
+    'publish-image should omit mutable branch/latest tags when PUBLISH_SHA_ONLY=1',
   );
   assert.match(
     workflow,

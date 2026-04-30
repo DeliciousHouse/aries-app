@@ -56,19 +56,37 @@ fi
 
 GIT_SHA="$(git rev-parse HEAD)"
 PLATFORMS="${PLATFORMS:-linux/amd64,linux/arm64}"
+PUBLISH_SHA_ONLY="${PUBLISH_SHA_ONLY:-0}"
+if [[ "${PUBLISH_SHA_ONLY}" != "0" && "${PUBLISH_SHA_ONLY}" != "1" ]]; then
+  echo "ERROR: PUBLISH_SHA_ONLY must be 0 or 1, got '${PUBLISH_SHA_ONLY}'." >&2
+  exit 1
+fi
 
-docker buildx build \
-  --platform "${PLATFORMS}" \
-  --push \
-  --label "org.opencontainers.image.source=https://github.com/DeliciousHouse/aries-app" \
-  --label "org.opencontainers.image.revision=${GIT_SHA}" \
-  --annotation "index:org.opencontainers.image.description=${IMAGE_DESCRIPTION}" \
-  -t "${GHCR_IMAGE}:${GIT_SHA}" \
-  -t "${GHCR_IMAGE}:${DEFAULT_BRANCH}" \
-  -t "${GHCR_IMAGE}:latest" \
-  -f Dockerfile \
+build_args=(
+  --platform "${PLATFORMS}"
+  --push
+  --label "org.opencontainers.image.source=https://github.com/DeliciousHouse/aries-app"
+  --label "org.opencontainers.image.revision=${GIT_SHA}"
+  --annotation "index:org.opencontainers.image.description=${IMAGE_DESCRIPTION}"
+  -t "${GHCR_IMAGE}:${GIT_SHA}"
+)
+
+if [[ "${PUBLISH_SHA_ONLY}" != "1" ]]; then
+  build_args+=(
+    -t "${GHCR_IMAGE}:${DEFAULT_BRANCH}"
+    -t "${GHCR_IMAGE}:latest"
+  )
+fi
+
+build_args+=(
+  -f Dockerfile
   .
+)
+
+docker buildx build "${build_args[@]}"
 
 echo "Published ${GHCR_IMAGE}:${GIT_SHA}"
-echo "Published ${GHCR_IMAGE}:${DEFAULT_BRANCH}"
-echo "Published ${GHCR_IMAGE}:latest"
+if [[ "${PUBLISH_SHA_ONLY}" != "1" ]]; then
+  echo "Published ${GHCR_IMAGE}:${DEFAULT_BRANCH}"
+  echo "Published ${GHCR_IMAGE}:latest"
+fi
