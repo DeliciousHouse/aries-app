@@ -198,10 +198,7 @@ function reviewAssetHasPreview(asset: MarketingCreativeAssetReviewPayload): bool
 function countCompletedCreativeAssets(
   dashboardAssets: MarketingDashboardAsset[] | null | undefined,
   creativeReviewAssets: MarketingCreativeAssetReviewPayload[] | null | undefined,
-  _dashboardImageAds: number | null | undefined,
 ): { imageCount: number; videoCount: number } {
-  // Keep the image-ad count in the internal signature for call-site stability,
-  // but readiness now comes from assets that expose actual previews.
   const reviewAssets = creativeReviewAssets || [];
   const readyReviewAssets = reviewAssets.filter(reviewAssetHasPreview);
   const readyDashboardAssets = (dashboardAssets || []).filter(dashboardAssetHasPreview);
@@ -306,7 +303,6 @@ export function deriveGenerationProgressState(
   const completedCreativeCounts = countCompletedCreativeAssets(
     status.dashboard.assets,
     status.creativeReview?.assets,
-    status.dashboard.campaign?.counts.imageAds,
   );
   const fallbackTotal = positiveCount(status.plannedPostCount);
   const totalCount = explicitTotal && explicitTotal > 0 ? explicitTotal : fallbackTotal;
