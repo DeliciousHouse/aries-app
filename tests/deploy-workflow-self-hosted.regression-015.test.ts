@@ -72,6 +72,16 @@ test('deploy workflow uses a self-hosted runner on the deploy host with no SSH h
 });
 
 test('publish image script supports SHA-only deploy publishing', () => {
+  assert.doesNotMatch(
+    publishImageScript,
+    /\bnode\s+-p\b/,
+    'publish script should not depend on host Node being on PATH before publishing',
+  );
+  assert.match(
+    publishImageScript,
+    /python3[\s\S]*?package\.json[\s\S]*?Aries marketing automation runtime/,
+    'publish script should read package metadata without Node and fall back to a stable image description',
+  );
   assert.match(
     publishImageScript,
     /PUBLISH_SHA_ONLY="\$\{PUBLISH_SHA_ONLY:-0\}"/,
