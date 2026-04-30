@@ -36,10 +36,22 @@ fi
 # GHCR requires lowercase registry paths; normalize so GitHub org casing does not break pushes.
 GHCR_IMAGE="${GHCR_IMAGE,,}"
 
-IMAGE_DESCRIPTION="${IMAGE_DESCRIPTION:-$(node -p "const pkg = require('./package.json'); pkg.description || ''")}"
+if [[ -z "${IMAGE_DESCRIPTION:-}" ]]; then
+  IMAGE_DESCRIPTION="$(python3 - <<'PYDESC'
+import json
+from pathlib import Path
+
+try:
+    package = json.loads(Path('package.json').read_text())
+except Exception:
+    print('')
+else:
+    print(package.get('description') or '')
+PYDESC
+)"
+fi
 if [[ -z "${IMAGE_DESCRIPTION}" ]]; then
-  echo "ERROR: IMAGE_DESCRIPTION is required." >&2
-  exit 1
+  IMAGE_DESCRIPTION="Aries marketing automation runtime"
 fi
 
 if [[ -n "${GHCR_TOKEN:-}" ]]; then
