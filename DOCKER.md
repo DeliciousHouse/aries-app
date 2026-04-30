@@ -14,8 +14,15 @@
 
 ## Production release
 
-For `aries-app`, deploy by publishing the image for the exact commit SHA first, then pushing that same commit to `master`.
-The GitHub Actions deploy workflow expects `ghcr.io/delicioushouse/aries-app:<sha>` to exist before the self-hosted deploy host pulls it locally.
+For `aries-app`, deploy by merging or pushing to `master`. The GitHub Actions Deploy workflow builds and publishes `ghcr.io/delicioushouse/aries-app:<sha>` for the exact target commit, then the self-hosted deploy host pulls that pinned image and force-recreates the `aries-app` service.
+
+Manual deploys still use workflow dispatch with an explicit image tag. Use the full commit SHA for normal production recovery so the workflow can build and verify the exact image before restart:
+
+```bash
+gh workflow run Deploy --ref master \
+  -f image_tag=<full-commit-sha> \
+  -f git_ref=<full-commit-sha>
+```
 
 ## Build
 ```bash

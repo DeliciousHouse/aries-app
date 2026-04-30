@@ -4,9 +4,9 @@ This document is the concise production runbook for `aries-app`.
 
 ## Release flow
 
-1. Publish the container image for the exact commit SHA to GHCR.
-2. Push that same commit to `master`.
-3. Let the GitHub Actions deploy workflow running on the self-hosted deploy host pull the verified image and restart the `aries-app` service.
+1. Merge or push the target commit to `master`, or manually dispatch Deploy with `image_tag` and `git_ref` set to the full commit SHA.
+2. Let the GitHub Actions Deploy workflow build/publish `ghcr.io/delicioushouse/aries-app:<sha>` for that exact commit.
+3. Let the self-hosted deploy host pull the pinned image and force-recreate the `aries-app` service.
 
 ## Deployment checklist
 
@@ -23,7 +23,7 @@ This document is the concise production runbook for `aries-app`.
 ### Application
 - [ ] Run `npm ci`.
 - [ ] Run `npm run build`.
-- [ ] Confirm the image for the target SHA is available in GHCR.
+- [ ] Confirm the Deploy workflow published and pulled the target SHA image.
 
 ### Validation
 - [ ] Verify core public routes respond.

@@ -23,7 +23,7 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
-  actions: read
+  actions: write
   checks: read
   # anthropics/claude-code-action requests a GitHub OIDC token before agent mode.
   id-token: write
@@ -249,4 +249,24 @@ jobs:
             fi
           fi
 
-          gh pr comment "$PR_NUMBER" --body "Autonomous maintenance completed for ${pr_url}. ${merge_summary} Validations run: npm run workspace:verify, npm run validate:repo-boundary, npm run validate:banned-patterns, npm run verify."
+          merge_sha=""
+          for attempt in $(seq 1 60); do
+            gh pr view "$PR_NUMBER" --json state,mergeCommit,url > /tmp/pr-after-merge.json
+            state="$(jq -r '.state' /tmp/pr-after-merge.json)"
+            merge_sha="$(jq -r '.mergeCommit.oid // ""' /tmp/pr-after-merge.json)"
+            if [[ "${state}" == "MERGED" && -n "${merge_sha}" ]]; then
+              break
+            fi
+            echo "Waiting for PR #${PR_NUMBER} to merge before dispatching Deploy (${attempt}/60). Current state: ${state}."
+            sleep 30
+          done
+
+          if [[ -z "${merge_sha}" ]]; then
+            gh pr edit "$PR_NUMBER" --add-label agent:needs-attention || true
+            gh pr comment "$PR_NUMBER" --body "Autonomous maintenance validated this PR and requested merge, but the PR did not reach MERGED within 30 minutes. Deploy was not dispatched; added agent:needs-attention."
+            exit 1
+          fi
+
+          gh workflow run Deploy --ref master -f image_tag="${merge_sha}" -f git_ref="${merge_sha}"
+
+          gh pr comment "$PR_NUMBER" --body "Autonomous maintenance completed for ${pr_url}. ${merge_summary} Validations run: npm run workspace:verify, npm run validate:repo-boundary, npm run validate:banned-patterns, npm run verify. Dispatched Deploy for merge SHA ${merge_sha}."

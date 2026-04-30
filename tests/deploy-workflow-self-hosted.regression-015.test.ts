@@ -12,6 +12,11 @@ const workflow = readFileSync(
   'utf8',
 );
 
+const prAgentWorkflow = readFileSync(
+  path.join(PROJECT_ROOT, '.github', 'workflows', 'pr-agent-autofix-automerge.yml'),
+  'utf8',
+);
+
 // Regression: deploy workflow must run on the deploy host itself instead of SSHing into a remote VM.
 test('deploy workflow uses a self-hosted runner on the deploy host with no SSH hop', () => {
   assert.match(
@@ -58,5 +63,54 @@ test('deploy workflow uses a self-hosted runner on the deploy host with no SSH h
     workflow,
     /DEPLOY_SSH_PRIVATE_KEY|DEPLOY_HOST|DEPLOY_USER/,
     'deploy workflow should not require remote-host SSH secrets after the self-hosted migration',
+  );
+});
+
+// Regression: PR merges made by GITHUB_TOKEN do not emit normal push-triggered workflows.
+// The agent merge workflow must explicitly dispatch Deploy with the merge SHA, and Deploy
+// must build/pull that exact SHA instead of recycling :latest.
+test('agent automerge dispatches an exact-SHA deploy after the PR is actually merged', () => {
+  assert.match(
+    prAgentWorkflow,
+    /actions:\s*write/,
+    'PR agent needs actions: write so it can dispatch the Deploy workflow after GITHUB_TOKEN merges',
+  );
+  assert.match(
+    prAgentWorkflow,
+    /mergeCommit[\s\S]*?\.mergeCommit\.oid/,
+    'PR agent should read the actual merge commit SHA after GitHub finishes merging',
+  );
+  assert.match(
+    prAgentWorkflow,
+    /gh workflow run Deploy[\s\S]*?-f image_tag="\$\{merge_sha\}"[\s\S]*?-f git_ref="\$\{merge_sha\}"/,
+    'PR agent should dispatch Deploy pinned to the exact merge SHA',
+  );
+});
+
+test('deploy workflow builds and force-recreates the exact commit image', () => {
+  assert.match(
+    workflow,
+    /if \[\[ "\$\{EVENT_NAME\}" == "push" \]\]; then\s*image_tag="\$\{CURRENT_SHA\}"/,
+    'push deploys should target the current commit SHA, not mutable :latest',
+  );
+  assert.match(
+    workflow,
+    /- name: Publish exact deploy image[\s\S]*?\.\/scripts\/release\/publish-image\.sh/,
+    'deploy workflow should publish the exact target image before trying to pull it on the host',
+  );
+  assert.match(
+    workflow,
+    /ARIES_APP_IMAGE="\$\{TARGET_IMAGE\}" docker compose pull "\$\{SERVICE_NAME\}"/,
+    'deploy workflow should pull the pinned target image before recreate',
+  );
+  assert.match(
+    workflow,
+    /docker compose up -d --no-deps --force-recreate --pull always "\$\{SERVICE_NAME\}"/,
+    'deploy workflow should force-recreate the live app so new image and env take effect',
+  );
+  assert.doesNotMatch(
+    workflow,
+    /image_tag="latest"/,
+    'deploy workflow should not deploy mutable :latest for push events',
   );
 });
