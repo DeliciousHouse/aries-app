@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 import { resolveCodePath, resolveCodeRoot } from '@/lib/runtime-paths';
@@ -614,6 +615,15 @@ async function replayMarketingPipelineToApprovalCheckpoint(
   }
 
   return resumeToken;
+}
+
+function lobsterResumeStateKeysMissing(record: MarketingApprovalRecord): boolean {
+  const stateDir = record.runtime_context.state_dir?.trim();
+  const stateKeys = record.lobster_resume_state_keys.filter((key) => key.trim().length > 0);
+  if (!stateDir || stateKeys.length === 0) {
+    return false;
+  }
+  return stateKeys.every((key) => !existsSync(path.join(stateDir, `${key}.json`)));
 }
 
 async function reseedMarketingApprovalResumeToken(
@@ -1496,7 +1506,8 @@ async function resolveMarketingApproval(
       try {
         ({ resumedStage, completed } = await applyResolution(resumeToken));
       } catch (error) {
-        if (!isOpenClawLobsterResumeStateRecoverable(error)) {
+        const inferredMissingState = lobsterResumeStateKeysMissing(currentRecord);
+        if (!isOpenClawLobsterResumeStateRecoverable(error) && !inferredMissingState) {
           throw error;
         }
 

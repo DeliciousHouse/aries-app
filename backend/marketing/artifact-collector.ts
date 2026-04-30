@@ -189,6 +189,10 @@ function collectRenderedVideoArtifacts(params: {
       stringValue(contract.platform_name) ||
       titleCaseSlug(platformSlug);
     const platformRequirements = asRecord(contract.platform_requirements) ?? {};
+    const renderStatus = stringValue(contract.render_status);
+    if (renderStatus && renderStatus !== 'rendered') {
+      return [];
+    }
 
     return asRecordArray(contract.rendered_video_variants).flatMap((variant) => {
       const familyId = stringValue(variant.family_id);

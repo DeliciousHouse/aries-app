@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import re
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -104,6 +105,31 @@ def positive_int_from_env(name: str, default: int) -> int:
     if parsed < 1:
         raise SystemExit(f"quality_gate_failed:veo_video_generator:invalid_parallelism:{raw_value}")
     return parsed
+
+
+def bool_from_env(name: str, default: bool = False) -> bool:
+    raw_value = os.environ.get(name)
+    if raw_value is None or not raw_value.strip():
+        return default
+    return raw_value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def is_rate_limited_video_failure(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "429" in message or "too many requests" in message or "rate limit" in message
+
+
+def render_failure_record(job: dict, exc: Exception) -> dict:
+    return {
+        "aspect_ratio": job["aspect_ratio"],
+        "canonical_platform_slug": job["canonical_slug"],
+        "family_id": job["family_id"],
+        "family_name": job["family_name"],
+        "funnel_stage": job["funnel_stage"],
+        "status": type(exc).__name__,
+        "error": str(exc)[:500],
+        "rate_limited": is_rate_limited_video_failure(exc),
+    }
 
 
 def derive_campaign_id(brand_slug: str, brief: dict) -> str:
@@ -562,6 +588,7 @@ def main() -> int:
     # Total Veo calls per campaign with full matrix: 4 (2 families × 2 aspect
     # ratios). Fallback to 2 calls if only one family is available.
     rendered_videos: list[dict] = []
+    render_failures: list[dict] = []
     render_enabled = veo_render_enabled()
     render_mode = "contract_generation_only"
     render_status = "not_requested"
@@ -579,17 +606,31 @@ def main() -> int:
                         return stripped
                 return ""
 
+            brand_name = _string(brief.get("brand_name")) or _string(master_contract.get("brand_name"))
+            replacement_label = "the artist" if "music" in _string(brief.get("offer_summary")).lower() else "the brand"
+            scrub_targets = [brand_slug, brand_name]
+
+            def _sanitize_personal_reference(text: str) -> str:
+                sanitized = text
+                for target in scrub_targets:
+                    if not isinstance(target, str) or not target.strip():
+                        continue
+                    sanitized = re.sub(re.escape(target.strip()), replacement_label, sanitized, flags=re.IGNORECASE)
+                sanitized = re.sub(r"\bfrom\s+the\s+(?:artist|brand)\b", replacement_label, sanitized, flags=re.IGNORECASE)
+                sanitized = re.sub(r"\bwatch\s+the\s+latest\s+music\s+videos\s+from\s+[^.]+", f"Watch the latest music videos from {replacement_label}", sanitized, flags=re.IGNORECASE)
+                return sanitized.strip()
+
             family_name = _string(family.get("family_name")) or _string(family.get("family_id")) or "Default"
             funnel_stage = _string(family.get("funnel_stage")) or "cold"
-            hook = _string(family.get("primary_hook")) or master_contract["creative"]["opening_line"]
-            opening = _string(family.get("opening_line")) or hook
-            angle = _string(family.get("angle")) or master_contract["creative"]["summary"]
-            proofs = [p for p in (family.get("proof_variants") or []) if isinstance(p, str) and p.strip()]
-            offer_variants = [o for o in (family.get("offer_variants") or []) if isinstance(o, str) and o.strip()]
-            offer_line = offer_variants[0] if offer_variants else _string(brief.get("offer_summary"))
-            primary_cta = _string(brief.get("primary_cta")) or master_contract["creative"]["primary_cta"]
+            hook = _sanitize_personal_reference(_string(family.get("primary_hook")) or master_contract["creative"]["opening_line"])
+            opening = _sanitize_personal_reference(_string(family.get("opening_line")) or hook)
+            angle = _sanitize_personal_reference(_string(family.get("angle")) or master_contract["creative"]["summary"])
+            proofs = [_sanitize_personal_reference(p) for p in (family.get("proof_variants") or []) if isinstance(p, str) and p.strip()]
+            offer_variants = [_sanitize_personal_reference(o) for o in (family.get("offer_variants") or []) if isinstance(o, str) and o.strip()]
+            offer_line = offer_variants[0] if offer_variants else _sanitize_personal_reference(_string(brief.get("offer_summary")))
+            primary_cta = _sanitize_personal_reference(_string(brief.get("primary_cta")) or master_contract["creative"]["primary_cta"])
             lines = [
-                f"Create a marketing video for {brand_slug}.",
+                f"Create a marketing video for {replacement_label}.",
                 f"Family: {family_name} ({funnel_stage})",
                 f"Core hook: {hook}",
                 f"Opening line: {opening}",
@@ -601,7 +642,7 @@ def main() -> int:
             if offer_line:
                 lines.append(f"Offer emphasis: {offer_line}")
             lines.append(f"Primary call to action at the end: {primary_cta}")
-            lines.append("Visual style: polished marketing, brand-forward, on-brand color palette, no text overlays.")
+            lines.append("Visual style: polished marketing, brand-forward, on-brand color palette, no text overlays, avoid depicting identifiable real people or celebrity likenesses.")
             return "\n".join(lines)
 
         aspect_groups: dict[str, list[dict]] = {}
@@ -613,8 +654,9 @@ def main() -> int:
         # then dispatch them via ThreadPoolExecutor. Veo 3.x's
         # predictLongRunning endpoint creates a server-side job counted
         # against concurrent render quota — preview models typically allow
-        # 2-5 concurrent jobs. Default LOBSTER_VIDEO_PARALLELISM=2 is
-        # conservative; tune via env if Google's project quota allows more.
+        # 2-5 concurrent jobs. Default LOBSTER_VIDEO_PARALLELISM=1 stays
+        # conservative on shared gateways; tune via env if Google's project
+        # quota allows more.
         # run_veo_render already retries 429/503 with exponential backoff, so
         # transient quota overshoot is handled inline.
         render_jobs: list[dict] = []
@@ -658,7 +700,7 @@ def main() -> int:
             )
             return {"job": job, "render_result": render_result}
 
-        video_parallelism_cap = positive_int_from_env("LOBSTER_VIDEO_PARALLELISM", 2)
+        video_parallelism_cap = positive_int_from_env("LOBSTER_VIDEO_PARALLELISM", 1)
         video_parallelism = max(1, min(video_parallelism_cap, len(render_jobs) or 1))
 
         render_outcomes: list[dict] = []
@@ -675,6 +717,7 @@ def main() -> int:
                     try:
                         render_outcomes.append(future.result())
                     except Exception as exc:  # noqa: BLE001
+                        render_failures.append(render_failure_record(job, exc))
                         if first_video_failure is None:
                             first_video_failure = exc
                         sys.stderr.write(
@@ -682,7 +725,16 @@ def main() -> int:
                         )
                         sys.stderr.flush()
         if first_video_failure is not None:
-            raise first_video_failure
+            non_rate_limited_failures = [failure for failure in render_failures if not failure["rate_limited"]]
+            allow_partial_rate_limit = bool_from_env("LOBSTER_VIDEO_ALLOW_PARTIAL_ON_RATE_LIMIT", True)
+            if non_rate_limited_failures or not allow_partial_rate_limit or not render_outcomes:
+                raise first_video_failure
+            render_status = "partial_rate_limited"
+            sys.stderr.write(
+                f"[veo] continuing with {len(render_outcomes)} rendered video job(s); "
+                f"{len(render_failures)} job(s) were skipped after rate limiting\n"
+            )
+            sys.stderr.flush()
 
         # Post-process: mirror each rendered mp4 to all platforms sharing its
         # aspect ratio, tagged with family_id. Done sequentially after all
@@ -800,8 +852,25 @@ def main() -> int:
                     encoding="utf-8",
                 )
 
+    for failure in render_failures:
+        contract_record = platform_contract_records.get(failure["canonical_platform_slug"])
+        if not contract_record:
+            continue
+        existing_failures = contract_record["contract"].setdefault("render_failures", [])
+        existing_failures.append(failure)
+        contract_record["contract"]["render_requested"] = render_enabled
+        contract_record["contract"]["render_status"] = "rate_limited" if failure["rate_limited"] else "failed"
+        contract_record["entry"]["render_status"] = contract_record["contract"]["render_status"]
+        contract_record["entry"]["render_failures"] = contract_record["contract"]["render_failures"]
+        contract_record["contract_path"].write_text(
+            json.dumps(contract_record["contract"], indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
     master_contract["render_requested"] = render_enabled
     master_contract["render_status"] = render_status
+    if render_failures:
+        master_contract["render_failures"] = render_failures
     master_contract["execution"]["mode"] = render_mode
     master_contract_path.write_text(json.dumps(master_contract, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     platform_index_path.write_text(json.dumps(platform_index, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -841,6 +910,7 @@ def main() -> int:
             "render_requested": render_enabled,
             "render_status": render_status,
             "rendered_videos": rendered_videos,
+            "render_failures": render_failures,
         },
         "handoff": {
             "type": "video_contract_handoff",

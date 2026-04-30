@@ -122,6 +122,39 @@ class FakeVeoRenderer:
         self.max_active = 0
         self.calls: list[dict] = []
 
+    def _record_call(
+        self,
+        prompt: str,
+        destination: Path,
+        aspect_ratio: str,
+        duration_seconds: int,
+        model: str | None,
+    ) -> dict:
+        call = {
+            "prompt": prompt,
+            "destination": str(destination),
+            "aspect_ratio": aspect_ratio,
+            "duration_seconds": duration_seconds,
+            "model": model,
+        }
+        self.calls.append(call)
+        return call
+
+    def _fake_success(self, destination: Path, model: str | None) -> dict:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(f"fake veo mp4 {destination.name}".encode("utf-8"))
+        return {
+            "executed": True,
+            "status": "fake_ok",
+            "stdout": "",
+            "stderr": "",
+            "returncode": 0,
+            "command": [model or "fake-veo"],
+            "output_path": str(destination),
+            "provider": "fake_veo",
+            "operation_name": f"fake/{destination.stem}",
+        }
+
     def __call__(
         self,
         prompt: str,
@@ -134,14 +167,7 @@ class FakeVeoRenderer:
             self.active += 1
             self.started += 1
             self.max_active = max(self.max_active, self.active)
-            call = {
-                "prompt": prompt,
-                "destination": str(destination),
-                "aspect_ratio": aspect_ratio,
-                "duration_seconds": duration_seconds,
-                "model": model,
-            }
-            self.calls.append(call)
+            self._record_call(prompt, destination, aspect_ratio, duration_seconds, model)
             self.condition.notify_all()
             released = self.condition.wait_for(lambda: self.started >= self.release_after, timeout=5.0)
             if not released:
@@ -160,23 +186,31 @@ class FakeVeoRenderer:
                 time.sleep(0.02)
             elif "Warm Proof" not in prompt:
                 time.sleep(0.01)
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_bytes(f"fake veo mp4 {destination.name}".encode("utf-8"))
-            return {
-                "executed": True,
-                "status": "fake_ok",
-                "stdout": "",
-                "stderr": "",
-                "returncode": 0,
-                "command": [model or "fake-veo"],
-                "output_path": str(destination),
-                "provider": "fake_veo",
-                "operation_name": f"fake/{destination.stem}",
-            }
+            return self._fake_success(destination, model)
         finally:
             with self.condition:
                 self.active -= 1
                 self.condition.notify_all()
+
+
+class RateLimitedLongformRenderer(FakeVeoRenderer):
+    def __init__(self) -> None:
+        super().__init__(release_after=1)
+
+    def __call__(
+        self,
+        prompt: str,
+        destination: Path,
+        aspect_ratio: str,
+        duration_seconds: int,
+        model: str | None = None,
+    ) -> dict:
+        self.started += 1
+        self.max_active = max(self.max_active, 1)
+        self._record_call(prompt, destination, aspect_ratio, duration_seconds, model)
+        if aspect_ratio == "16:9":
+            raise RuntimeError(f"video_generation_failed:{destination.stem}:HTTPError:HTTP Error 429: Too Many Requests")
+        return self._fake_success(destination, model)
 
 
 def run_veo_video_generator_with_fake_renderer(
@@ -388,6 +422,29 @@ class VeoVideoGeneratorRenderBatchTest(unittest.TestCase):
                 )
         self.assertEqual(len(all_pairs), 16)
         self.assertEqual(len(all_pairs), len(set(all_pairs)))
+
+    def test_rate_limited_longform_keeps_successful_shortform_and_returns_partial_payload(self) -> None:
+        renderer = RateLimitedLongformRenderer()
+        payload = run_veo_video_generator_with_fake_renderer(smoke_input(), renderer)
+
+        self.assertEqual(len(renderer.calls), 4)
+        video_assets = payload["video_assets"]
+        self.assertEqual(video_assets["render_status"], "partial_rate_limited")
+        self.assertEqual(len(video_assets["rendered_videos"]), 2)
+        self.assertEqual(len(video_assets["render_failures"]), 2)
+        self.assertTrue(all(failure["rate_limited"] for failure in video_assets["render_failures"]))
+        self.assertIn("continuing with 2 rendered video job(s)", payload["_stderr"])
+
+        platforms = {platform["platform_slug"]: platform for platform in video_assets["platform_contracts"]}
+        self.assertEqual(platforms["youtube-longform"]["render_status"], "rate_limited")
+        self.assertEqual(len(platforms["youtube-longform"]["render_failures"]), 2)
+        self.assertEqual(platforms["youtube-shorts"]["render_status"], "rendered")
+        self.assertTrue(
+            all(
+                payload["_video_paths_exist"][variant["video_path"]]
+                for variant in platforms["youtube-shorts"]["rendered_video_variants"]
+            )
+        )
 
     def test_duplicate_video_family_ids_fail_before_rendering(self) -> None:
         duplicated = json.loads(json.dumps(smoke_input()))
