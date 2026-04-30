@@ -74,7 +74,14 @@ jobs:
             exit 1
           fi
 
-          gh pr view "$pr_number" --json number,title,body,url,isDraft,headRefName,baseRefName,labels,reviewDecision,mergeStateStatus,mergeable,isCrossRepository,headRepositoryOwner,headRepository,author,files > /tmp/pr.json
+          gh pr view "$pr_number" --json number,title,body,url,state,isDraft,headRefName,baseRefName,labels,reviewDecision,mergeStateStatus,mergeable,isCrossRepository,headRepositoryOwner,headRepository,author,files > /tmp/pr.json
+
+          pr_state="$(jq -r '.state' /tmp/pr.json)"
+          if [ "$pr_state" = "MERGED" ] || [ "$pr_state" = "CLOSED" ]; then
+            echo "PR #$pr_number is already $pr_state; nothing to do."
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
           is_cross_repo="$(jq -r '.isCrossRepository' /tmp/pr.json)"
           if [ "$is_cross_repo" = "true" ]; then

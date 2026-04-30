@@ -133,6 +133,19 @@ test('agent automerge skips Claude action when the PR edits the agent workflow i
   );
 });
 
+test('agent automerge exits before checkout when a retrigger sees an already-terminal PR', () => {
+  assert.match(
+    prAgentWorkflow,
+    /gh pr view "\$pr_number" --json [^\n]*\bstate\b/,
+    'PR agent should request PR state before any checkout side effects',
+  );
+  assert.match(
+    prAgentWorkflow,
+    /pr_state="\$\(jq -r '\.state' \/tmp\/pr\.json\)"[\s\S]*?\[ "\$pr_state" = "MERGED" \] \|\| \[ "\$pr_state" = "CLOSED" \][\s\S]*?should_run=false[\s\S]*?exit 0[\s\S]*?is_cross_repo=/,
+    'PR agent should short-circuit merged or closed PRs before guardrails and checkout steps run',
+  );
+});
+
 test('deploy workflow builds and force-recreates the exact commit image', () => {
   assert.match(
     workflow,
