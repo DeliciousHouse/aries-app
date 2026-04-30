@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import React from 'react';
 
-import { MarketingNewJobScreenContent } from '../frontend/marketing/new-job';
+import { MarketingNewJobScreenContent, normalizeWebsiteUrlInput } from '../frontend/marketing/new-job';
 
 function flushMicrotasks() {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -63,4 +63,10 @@ test('MarketingNewJobScreen shows the backend error after a valid submit fails',
       globalWithWindow.window = previousWindow;
     }
   }
+});
+
+
+test('MarketingNewJobScreen normalizes bare website domains to HTTPS', () => {
+  assert.equal(normalizeWebsiteUrlInput('example.com'), 'https://example.com');
+  assert.equal(normalizeWebsiteUrlInput(' https://example.com '), 'https://example.com');
 });

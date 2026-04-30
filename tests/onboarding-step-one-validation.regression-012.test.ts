@@ -4,6 +4,7 @@ import test from 'node:test';
 import React from 'react';
 
 import {
+  normalizeHttpsUrlInput,
   stepReady,
   stepValidationMessage,
 } from '../frontend/aries-v1/onboarding-flow';
@@ -123,4 +124,22 @@ test('shared disabled helper keeps Continue disabled for invalid or busy onboard
     );
   });
   assert.equal(root.root.findByType('button').props.disabled, true);
+});
+
+
+test('onboarding website step accepts bare domains by normalizing to HTTPS', () => {
+  assert.equal(normalizeHttpsUrlInput('example.com'), 'https://example.com');
+  assert.equal(normalizeHttpsUrlInput(' https://example.com/path '), 'https://example.com/path');
+  assert.equal(
+    stepReady('website', {
+      businessName: '',
+      businessType: '',
+      websiteUrl: 'example.com',
+      selectedChannels: [],
+      goal: '',
+      customGoal: '',
+      offer: '',
+    }),
+    true,
+  );
 });

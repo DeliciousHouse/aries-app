@@ -187,9 +187,20 @@ function goalFromBusinessProfile(primaryGoal: string | null | undefined): string
   return primaryGoal?.trim() || '';
 }
 
+export function normalizeHttpsUrlInput(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+  return `https://${trimmed}`;
+}
+
 function isValidHttpsUrl(value: string): boolean {
   try {
-    const parsed = new URL(value.trim());
+    const parsed = new URL(normalizeHttpsUrlInput(value));
     return parsed.protocol === 'https:' && Boolean(parsed.hostname);
   } catch {
     return false;
@@ -217,8 +228,9 @@ function urlChipFromValue(value: string): UrlChipState {
   if (!trimmed) {
     return { kind: 'idle' };
   }
-  const hostname = hostnameFromUrl(trimmed);
-  if (!hostname || !isValidHttpsUrl(trimmed)) {
+  const normalized = normalizeHttpsUrlInput(trimmed);
+  const hostname = hostnameFromUrl(normalized);
+  if (!hostname || !isValidHttpsUrl(normalized)) {
     return { kind: 'invalid' };
   }
   return { kind: 'valid', hostname };
@@ -290,7 +302,7 @@ export function stepReady(stepKey: StepKey, values: {
     return values.businessName.trim().length > 0 && values.businessType.trim().length > 0;
   }
   if (stepKey === 'website' || stepKey === 'brand') {
-    return isValidHttpsUrl(values.websiteUrl);
+    return isValidHttpsUrl(normalizeHttpsUrlInput(values.websiteUrl));
   }
   if (stepKey === 'channels') {
     return values.selectedChannels.length > 0;
@@ -599,7 +611,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   const localSaveTimerRef = useRef<number | null>(null);
   const savedIndicatorTimerRef = useRef<number | null>(null);
   const submittingRef = useRef(false);
-  const deferredWebsiteUrl = useDeferredValue(websiteUrl.trim());
+  const deferredWebsiteUrl = useDeferredValue(normalizeHttpsUrlInput(websiteUrl));
 
   const markTouched = useCallback((field: keyof TouchedFields) => {
     setTouched((prev) => (prev[field] ? prev : { ...prev, [field]: true }));
@@ -657,6 +669,19 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   const finishDisabled = useDisabledUntilValid(canFinish, submitting || creatingDraft);
   const fieldInputClassName =
     'w-full rounded-[1rem] border border-white/12 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] px-4 py-3 text-white outline-none transition duration-200 placeholder:text-white/24 focus:border-[#b36cff] focus:shadow-[0_0_0_1px_rgba(179,108,255,0.24),0_0_24px_rgba(179,108,255,0.14)]';
+  const previousWebsiteUrl = normalizeHttpsUrlInput(profile?.websiteUrl || profile?.brandKit?.source_url || '');
+  const previousOffer = firstPresent(profile?.offer, profile?.brandIdentity?.offer, profile?.brandKit?.offer_summary);
+  const hasPreviousWebsiteChoice = Boolean(previousWebsiteUrl && previousWebsiteUrl !== normalizeHttpsUrlInput(websiteUrl));
+  const hasPreviousOfferChoice = Boolean(previousOffer && previousOffer !== offer.trim());
+
+  function applyWebsiteUrl(value: string) {
+    const normalized = normalizeHttpsUrlInput(value);
+    setWebsiteUrl(normalized);
+    setUrlPreview(null);
+    setPreviewError(null);
+    setWebsiteChip(urlChipFromValue(normalized));
+    markTouched('websiteUrl');
+  }
 
   useEffect(() => {
     setDraftId(draftParam);
@@ -730,7 +755,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
 
         const draft = response.draft;
         setBusinessName(draft.businessName);
-        setWebsiteUrl(draft.websiteUrl);
+        setWebsiteUrl(normalizeHttpsUrlInput(draft.websiteUrl));
         setBusinessType(draft.businessType);
         setApproverName(draft.approverName);
         setSelectedChannels(draft.channels);
@@ -760,7 +785,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   }, [ariesApi, draftId, loadedDraftId]);
 
   useEffect(() => {
-    if (!props.initialAuthenticated || draftId || profileHydrated) {
+    if (!props.initialAuthenticated || profileHydrated) {
       return;
     }
 
@@ -773,14 +798,16 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         }
 
         const nextProfile = result.profileResponse.profile;
-        setBusinessName(nextProfile.businessName?.trim() ? nextProfile.businessName.trim() : '');
-        setWebsiteUrl(nextProfile.websiteUrl || nextProfile.brandKit?.source_url || '');
-        setBusinessType(nextProfile.businessType || '');
-        setApproverName(nextProfile.launchApproverName || '');
-        setGoal(goalFromBusinessProfile(nextProfile.primaryGoal));
-        setOffer(nextProfile.offer || nextProfile.brandIdentity?.offer || nextProfile.brandKit?.offer_summary || '');
-        setCompetitorUrl(nextProfile.competitorUrl || '');
-        setSelectedChannels(nextProfile.channels.length > 0 ? nextProfile.channels : []);
+        if (!draftId) {
+          setBusinessName(nextProfile.businessName?.trim() ? nextProfile.businessName.trim() : '');
+          setWebsiteUrl(normalizeHttpsUrlInput(nextProfile.websiteUrl || nextProfile.brandKit?.source_url || ''));
+          setBusinessType(nextProfile.businessType || '');
+          setApproverName(nextProfile.launchApproverName || '');
+          setGoal(goalFromBusinessProfile(nextProfile.primaryGoal));
+          setOffer(nextProfile.offer || nextProfile.brandIdentity?.offer || nextProfile.brandKit?.offer_summary || '');
+          setCompetitorUrl(nextProfile.competitorUrl || '');
+          setSelectedChannels(nextProfile.channels.length > 0 ? nextProfile.channels : []);
+        }
         setProfileHydrated(true);
       })
       .catch(() => {
@@ -808,8 +835,9 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
 
     setSaveStatus('saving');
     const timer = window.setTimeout(() => {
+      const autosaveWebsiteUrl = normalizeHttpsUrlInput(websiteUrl);
       void ariesApi.updateOnboardingDraft(draftId, {
-        websiteUrl,
+        websiteUrl: autosaveWebsiteUrl,
         businessName,
         businessType,
         approverName,
@@ -819,9 +847,9 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         competitorUrl,
         preview: urlPreview,
         provenance: {
-          source_url: websiteUrl,
+          source_url: autosaveWebsiteUrl,
           canonical_url: urlPreview?.canonicalUrl || null,
-          source_fingerprint: urlPreview?.canonicalUrl || websiteUrl || null,
+          source_fingerprint: urlPreview?.canonicalUrl || autosaveWebsiteUrl || null,
         },
       })
         .then(() => {
@@ -1136,9 +1164,13 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
       }
 
       const resolvedGoal = goal === 'Other' ? customGoal.trim() : goal;
+      const normalizedWebsiteUrl = normalizeHttpsUrlInput(websiteUrl);
+      if (normalizedWebsiteUrl !== websiteUrl) {
+        setWebsiteUrl(normalizedWebsiteUrl);
+      }
       await ariesApi.updateOnboardingDraft(activeDraftId, {
         status: 'ready_for_auth',
-        websiteUrl,
+        websiteUrl: normalizeHttpsUrlInput(websiteUrl),
         businessName,
         businessType,
         approverName,
@@ -1148,9 +1180,9 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         competitorUrl: canonicalCompetitorUrl,
         preview: urlPreview,
         provenance: {
-          source_url: websiteUrl,
+          source_url: normalizeHttpsUrlInput(websiteUrl),
           canonical_url: urlPreview?.canonicalUrl || null,
-          source_fingerprint: urlPreview?.canonicalUrl || websiteUrl || null,
+          source_fingerprint: urlPreview?.canonicalUrl || normalizeHttpsUrlInput(websiteUrl) || null,
         },
       });
 
@@ -1179,7 +1211,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
       router.push(
         authRedirectHref({
           draftId: activeDraftId,
-          businessName: businessName || hostnameFromUrl(websiteUrl) || 'your business',
+          businessName: businessName || hostnameFromUrl(normalizedWebsiteUrl) || 'your business',
         }),
       );
     } catch (submissionError) {
@@ -1207,7 +1239,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
     ? 'untouched'
     : websiteUrl.trim().length === 0
       ? 'invalid'
-      : isValidHttpsUrl(websiteUrl)
+      : isValidHttpsUrl(normalizeHttpsUrlInput(websiteUrl))
         ? 'valid'
         : 'invalid';
   const competitorUrlValidation = validateCanonicalCompetitorUrl(competitorUrl);
@@ -1258,7 +1290,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         return goal.trim() ? null : 'Choose a business outcome before continuing.';
       case 'websiteUrl': {
         if (!websiteUrl.trim()) return 'Enter a website so Aries can analyze it.';
-        return isValidHttpsUrl(websiteUrl) ? null : 'Enter a valid HTTPS URL (e.g. https://yourbusiness.com).';
+        return isValidHttpsUrl(normalizeHttpsUrlInput(websiteUrl)) ? null : 'Enter a valid website URL (we will add https:// if you omit it).';
       }
       case 'competitorUrl': {
         if (!competitorUrl.trim()) return null; // optional
@@ -1404,7 +1436,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                       className={clsx(
                         'flex min-w-[126px] flex-1 items-center gap-2 rounded-full border px-3 py-2.5 text-[1.1rem] transition duration-300',
                         active
-                          ? 'border-[#a96cff]/45 bg-[linear-gradient(90deg,rgba(151,93,255,0.22),rgba(151,93,255,0.05))] text-white shadow-[inset_0_-1px_0_rgba(169,108,255,0.9),0_0_20px_rgba(169,108,255,0.15)]'
+                          ? 'border-[#a96cff]/45 bg-[linear-gradient(90deg,rgba(151,93,255,0.22),rgba(151,93,255,0.05))] font-bold text-white shadow-[inset_0_-1px_0_rgba(169,108,255,0.9),0_0_20px_rgba(169,108,255,0.15)]'
                           : 'border-white/8 bg-white/[0.02] text-white/50',
                       )}
                     >
@@ -1500,7 +1532,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                       <input
                         value={websiteUrl}
                         onChange={(event) => setWebsiteUrl(event.target.value)}
-                        onBlur={() => markTouched('websiteUrl')}
+                        onBlur={() => applyWebsiteUrl(websiteUrl)}
                         className={inputClassForValidity(websiteUrlValidity)}
                         placeholder="https://yourbusiness.com"
                       />
@@ -1542,10 +1574,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                           setPreviewError(null);
                           setWebsiteChip({ kind: 'idle' });
                         }}
-                        onBlur={() => {
-                          markTouched('websiteUrl');
-                          setWebsiteChip(urlChipFromValue(websiteUrl));
-                        }}
+                        onBlur={() => applyWebsiteUrl(websiteUrl)}
                         className={inputClassForValidity(websiteUrlValidity)}
                         placeholder="https://yourbusiness.com"
                       />
@@ -1553,6 +1582,15 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                         <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-medium">
                           <Check className="w-3.5 h-3.5" /> {websiteChip.hostname} — ready to analyze
                         </div>
+                      ) : null}
+                      {hasPreviousWebsiteChoice ? (
+                        <button
+                          type="button"
+                          onClick={() => applyWebsiteUrl(previousWebsiteUrl)}
+                          className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-white/72 transition hover:border-[#a96cff]/35 hover:text-white"
+                        >
+                          Use saved website · {hostnameFromUrl(previousWebsiteUrl) || previousWebsiteUrl}
+                        </button>
                       ) : null}
                       {websiteChip.kind === 'invalid' ? (
                         <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-medium">
@@ -1870,9 +1908,23 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                           <Check className="h-4 w-4 text-emerald-400" aria-hidden />
                         ) : null}
                       </div>
-                      <p className="text-xs leading-6 text-[#d6b8ff]">
-                        The more specific you are, the better Aries will do.
-                      </p>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <p className="text-xs leading-6 text-[#d6b8ff]">
+                          The more specific you are, the better Aries will do.
+                        </p>
+                        {hasPreviousOfferChoice ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOffer(previousOffer || '');
+                              markTouched('offer');
+                            }}
+                            className="rounded-full border border-white/12 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-white/72 transition hover:border-[#a96cff]/35 hover:text-white"
+                          >
+                            Use saved description
+                          </button>
+                        ) : null}
+                      </div>
                       <textarea
                         id="onboarding-core-offer"
                         value={offer}
