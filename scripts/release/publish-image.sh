@@ -36,7 +36,7 @@ fi
 # GHCR requires lowercase registry paths; normalize so GitHub org casing does not break pushes.
 GHCR_IMAGE="${GHCR_IMAGE,,}"
 
-if [[ -z "${IMAGE_DESCRIPTION:-}" ]]; then
+if [[ -z "${IMAGE_DESCRIPTION:-}" ]] && command -v python3 >/dev/null 2>&1; then
   IMAGE_DESCRIPTION="$(python3 - <<'PY'
 import json
 from pathlib import Path
@@ -50,7 +50,7 @@ else:
 PY
 )"
 fi
-if [[ -z "${IMAGE_DESCRIPTION}" ]]; then
+if [[ -z "${IMAGE_DESCRIPTION:-}" ]]; then
   IMAGE_DESCRIPTION="Aries marketing automation runtime"
 fi
 
