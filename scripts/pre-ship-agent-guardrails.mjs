@@ -78,14 +78,17 @@ function main() {
   }
 
   const remoteBase = `origin/${baseBranch}`;
-  const mergeBase = git(['merge-base', 'HEAD', remoteBase]);
+  const mergeBase = gitMaybe(['merge-base', 'HEAD', remoteBase]);
+  if (!mergeBase) {
+    warn(`no common ancestor found between HEAD and ${remoteBase}; branch may be on an orphaned history or already squash-merged`);
+  }
   const ahead = gitMaybe(['rev-list', '--count', `${remoteBase}..HEAD`]) ?? '0';
   const behind = gitMaybe(['rev-list', '--count', `HEAD..${remoteBase}`]) ?? '0';
   const diffStat = gitMaybe(['diff', '--stat', `${remoteBase}...HEAD`]) ?? '';
   const uniqueCommits = gitMaybe(['log', '--oneline', '--cherry-pick', '--right-only', `${remoteBase}...HEAD`]) ?? '';
   const possibleDuplicateCommits = gitMaybe(['log', '--oneline', '--cherry-pick', '--left-only', `${remoteBase}...HEAD`]) ?? '';
 
-  log(`merge-base: ${mergeBase}`);
+  log(`merge-base: ${mergeBase ?? '(none)'}`);
   log(`ahead of ${remoteBase}: ${ahead}`);
   log(`behind ${remoteBase}: ${behind}`);
 
