@@ -79,7 +79,7 @@ test('publish image script supports SHA-only deploy publishing', () => {
   );
   assert.match(
     publishImageScript,
-    /python3[\s\S]*?package\.json[\s\S]*?Aries marketing automation runtime/,
+    /command -v python3[\s\S]*?package\.json[\s\S]*?Aries marketing automation runtime/,
     'publish script should read package metadata without Node and fall back to a stable image description',
   );
   assert.match(
