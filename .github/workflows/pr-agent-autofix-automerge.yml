@@ -23,7 +23,7 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
-  actions: read
+  actions: write
   checks: read
   # anthropics/claude-code-action requests a GitHub OIDC token before agent mode.
   id-token: write
@@ -74,7 +74,7 @@ jobs:
             exit 1
           fi
 
-          gh pr view "$pr_number" --json number,title,body,url,isDraft,headRefName,baseRefName,labels,reviewDecision,mergeStateStatus,mergeable,isCrossRepository,headRepositoryOwner,headRepository,author > /tmp/pr.json
+          gh pr view "$pr_number" --json number,title,body,url,isDraft,headRefName,baseRefName,labels,reviewDecision,mergeStateStatus,mergeable,isCrossRepository,headRepositoryOwner,headRepository,author,files > /tmp/pr.json
 
           is_cross_repo="$(jq -r '.isCrossRepository' /tmp/pr.json)"
           if [ "$is_cross_repo" = "true" ]; then
@@ -91,10 +91,18 @@ jobs:
             exit 0
           fi
 
+          claude_allowed="true"
+          edits_agent_workflow="$(jq -r '[.files[].path] | any(. == ".github/workflows/pr-agent-autofix-automerge.yml")' /tmp/pr.json)"
+          if [[ "${edits_agent_workflow}" == "true" ]]; then
+            claude_allowed="false"
+            echo "PR #${pr_number} edits pr-agent-autofix-automerge.yml; skipping Claude action because modified Claude workflows cannot exchange app tokens until merged to default branch."
+          fi
+
           {
             echo "number=$pr_number"
             echo "head_ref=$head_ref"
             echo "should_run=true"
+            echo "claude_allowed=$claude_allowed"
             echo "url=$(jq -r '.url' /tmp/pr.json)"
           } >> "$GITHUB_OUTPUT"
 
@@ -146,7 +154,7 @@ jobs:
         run: npm ci
 
       - name: Claude PR autofix
-        if: steps.pr.outputs.should_run == 'true'
+        if: steps.pr.outputs.should_run == 'true' && steps.pr.outputs.claude_allowed == 'true'
         uses: anthropics/claude-code-action@v1
         env:
           GH_TOKEN: ${{ github.token }}
@@ -249,4 +257,24 @@ jobs:
             fi
           fi
 
-          gh pr comment "$PR_NUMBER" --body "Autonomous maintenance completed for ${pr_url}. ${merge_summary} Validations run: npm run workspace:verify, npm run validate:repo-boundary, npm run validate:banned-patterns, npm run verify."
+          merge_sha=""
+          for attempt in $(seq 1 60); do
+            gh pr view "$PR_NUMBER" --json state,mergeCommit,url > /tmp/pr-after-merge.json
+            state="$(jq -r '.state' /tmp/pr-after-merge.json)"
+            merge_sha="$(jq -r '.mergeCommit.oid // ""' /tmp/pr-after-merge.json)"
+            if [[ "${state}" == "MERGED" && -n "${merge_sha}" ]]; then
+              break
+            fi
+            echo "Waiting for PR #${PR_NUMBER} to merge before dispatching Deploy (${attempt}/60). Current state: ${state}."
+            sleep 30
+          done
+
+          if [[ -z "${merge_sha}" ]]; then
+            gh pr edit "$PR_NUMBER" --add-label agent:needs-attention || true
+            gh pr comment "$PR_NUMBER" --body "Autonomous maintenance validated this PR and requested merge, but the PR did not reach MERGED within 30 minutes. Deploy was not dispatched; added agent:needs-attention."
+            exit 1
+          fi
+
+          gh workflow run Deploy --ref master -f image_tag="${merge_sha}" -f git_ref="${merge_sha}"
+
+          gh pr comment "$PR_NUMBER" --body "Autonomous maintenance completed for ${pr_url}. ${merge_summary} Validations run: npm run workspace:verify, npm run validate:repo-boundary, npm run validate:banned-patterns, npm run verify. Dispatched Deploy for merge SHA ${merge_sha}."

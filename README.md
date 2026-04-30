@@ -183,9 +183,9 @@ The repo includes `docker-compose.yml`, `docker-compose.local.yml`, and a produc
 
 ### Production release
 
-Production deploy is triggered by pushing to `master`, but **only after** the GHCR image for that **exact commit SHA** is already published. The GitHub Actions Deploy workflow runs on the self-hosted deploy host, logs the local Docker daemon into GHCR, and then pulls `ghcr.io/<owner>/aries-app:<sha>`/`:latest` there; pushing `master` first without the image fails by design.
+Production deploy is handled by the GitHub Actions Deploy workflow on the self-hosted deploy host. On `master` pushes, and on agent automerge recovery dispatches, it builds and publishes `ghcr.io/<owner>/aries-app:<sha>` for the exact target commit, pulls that pinned image, and force-recreates the live `aries-app` container so new code and env take effect.
 
-Step-by-step commands and environment variables: see **`DOCKER.md`** → *Production release (GHCR image before `master`)*. A short operational summary also lives in **`docs/SYSTEM-REFERENCE.md`** → *Production release (operational)*.
+Step-by-step commands and environment variables: see **`DOCKER.md`** → *Production release*. A short operational summary also lives in **`docs/SYSTEM-REFERENCE.md`** → *Production release (operational)*.
 
 ### Production-style local container run
 

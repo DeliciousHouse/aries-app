@@ -2,7 +2,7 @@
 
 This workspace now includes runtime-error intake/repair automation alongside the other repo automations plus a ready-to-apply OpenClaw cron installer. The jobs are designed to run as **isolated cron agent turns** so each execution stays separate from the main conversation.
 
-**Production release** (GHCR image publish, then `master` push, GitHub Actions self-hosted deploy on the host) is **not** part of this cron runbook. See repository **`DOCKER.md`** (*Production release*) and **`docs/SYSTEM-REFERENCE.md`** (*Production release (operational)*).
+**Production release** (GitHub Actions Deploy builds/publishes the exact SHA image, then the self-hosted deploy host pulls it and force-recreates `aries-app`) is **not** part of this cron runbook. See repository **`DOCKER.md`** (*Production release*) and **`docs/SYSTEM-REFERENCE.md`** (*Production release (operational)*).
 
 ## Files added
 

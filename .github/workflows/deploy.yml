@@ -1,10 +1,11 @@
 name: Deploy
 
 # Operational contract (documented in DOCKER.md and docs/SYSTEM-REFERENCE.md):
-# - Pushes to master trigger this workflow and deploy the :latest GHCR image.
-# - The publish script (scripts/release/publish-image.sh) tags every build as :latest,
-#   :<commit-sha>, and :<branch>. The deploy workflow pulls :latest on push events.
-# - Manual workflow_dispatch deploys still accept an explicit image_tag (SHA or other tag).
+# - Pushes to master build/publish and deploy the exact merge commit SHA.
+# - Agent automerge uses GITHUB_TOKEN, so its merge push does not trigger push workflows;
+#   pr-agent-autofix-automerge dispatches this workflow manually with image_tag/git_ref
+#   pinned to the merge SHA.
+# - Manual workflow_dispatch deploys accept an explicit image_tag (SHA or other tag).
 # - If package linkage/permissions are not ready for GITHUB_TOKEN, set GHCR_WORKFLOW_TOKEN.
 
 on:
@@ -28,7 +29,7 @@ concurrency:
 
 permissions:
   contents: read
-  packages: read
+  packages: write
 
 env:
   REGISTRY: ghcr.io
@@ -78,7 +79,7 @@ jobs:
           owner_lc="${GITHUB_REPOSITORY_OWNER,,}"
 
           if [[ "${EVENT_NAME}" == "push" ]]; then
-            image_tag="latest"
+            image_tag="${CURRENT_SHA}"
             checkout_ref="${CURRENT_SHA}"
           else
             image_tag="${INPUT_IMAGE_TAG}"
@@ -107,6 +108,46 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_WORKFLOW_TOKEN || github.token }}
+
+      - name: Checkout deploy source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.resolve.outputs.checkout_ref }}
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Publish exact deploy image
+        env:
+          TARGET_IMAGE_TAG: ${{ steps.resolve.outputs.image_tag }}
+          GHCR_IMAGE: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          DEFAULT_BRANCH_NAME: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${TARGET_IMAGE_TAG}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Skipping image publish for non-SHA tag ${TARGET_IMAGE_TAG}; assuming it already exists."
+            exit 0
+          fi
+
+          checkout_sha="$(git rev-parse HEAD)"
+          if [[ "${checkout_sha}" != "${TARGET_IMAGE_TAG}" ]]; then
+            echo "ERROR: Ref checkout ${checkout_sha} does not match target image tag ${TARGET_IMAGE_TAG}." >&2
+            exit 1
+          fi
+
+          default_branch="${DEFAULT_BRANCH_NAME:-master}"
+          git fetch --no-tags origin "${default_branch}"
+          default_head="$(git rev-parse "origin/${default_branch}")"
+          publish_sha_only=0
+          if [[ "${TARGET_IMAGE_TAG}" != "${default_head}" ]]; then
+            publish_sha_only=1
+            echo "Publishing only ${TARGET_IMAGE_TAG}; not moving mutable aliases because origin/${default_branch} is ${default_head}."
+          else
+            echo "Publishing ${TARGET_IMAGE_TAG} plus ${default_branch}/latest aliases because it is the current default branch head."
+          fi
+
+          PUBLISH_SHA_ONLY="${publish_sha_only}" ./scripts/release/publish-image.sh
 
       - name: Deploy on host
         env:
@@ -183,7 +224,19 @@ jobs:
 
           cd "${repo_path}"
           ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose pull "${SERVICE_NAME}"
-          ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps "${SERVICE_NAME}"
+          ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always "${SERVICE_NAME}"
+
+          container_id="$(ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose ps -q "${SERVICE_NAME}")"
+          if [[ -z "${container_id}" ]]; then
+            echo "ERROR: Compose did not return a running container id for ${SERVICE_NAME}." >&2
+            exit 1
+          fi
+          target_image_id="$(docker image inspect -f '{{.Id}}' "${TARGET_IMAGE}")"
+          container_image_id="$(docker inspect -f '{{.Image}}' "${container_id}")"
+          if [[ "${container_image_id}" != "${target_image_id}" ]]; then
+            echo "ERROR: Running container image ${container_image_id} does not match target ${target_image_id}." >&2
+            exit 1
+          fi
 
           healthy=0
           for attempt in $(seq 1 30); do
