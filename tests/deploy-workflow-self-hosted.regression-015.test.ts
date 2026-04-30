@@ -136,6 +136,11 @@ test('deploy workflow builds and force-recreates the exact commit image', () => 
   );
   assert.match(
     workflow,
+    /actions\/setup-node@v4[\s\S]*?node-version-file: package\.json[\s\S]*?- name: Publish exact deploy image/,
+    'self-hosted deploy runner should install Node before publish-image reads package metadata',
+  );
+  assert.match(
+    workflow,
     /Publishing \$\{TARGET_IMAGE_TAG\} plus \$\{default_branch\}\/latest aliases because it is the current default branch head\./,
     'push deploys and current default-branch deploys should still update default-branch/latest aliases',
   );
