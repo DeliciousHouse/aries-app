@@ -444,7 +444,37 @@ def run_nano_banana(prompt: str, destination: Path, aspect_ratio: str) -> dict:
 VEO_MODEL_DEFAULT = "veo-3.1-fast-generate-preview"
 VEO_POLL_INTERVAL_SECONDS = 10
 VEO_POLL_TIMEOUT_SECONDS = 600
-VEO_MAX_ATTEMPTS = 2
+
+
+def _positive_int_env(name: str, default: int) -> int:
+    raw_value = os.environ.get(name, str(default)) or str(default)
+    try:
+        parsed = int(raw_value)
+    except ValueError as exc:
+        raise RuntimeError(f"invalid_positive_int_env:{name}:{raw_value}") from exc
+    if parsed < 1:
+        raise RuntimeError(f"invalid_positive_int_env:{name}:{raw_value}")
+    return parsed
+
+
+VEO_MAX_ATTEMPTS = _positive_int_env("LOBSTER_VIDEO_MAX_ATTEMPTS", 3)
+
+
+def _veo_retry_delay_seconds(exc: Exception, attempt: int) -> int:
+    """Return a conservative retry delay for transient Veo failures.
+
+    Google returns 429 when the project/model render quota is saturated. A
+    fixed 30s sleep hammers the same quota window, so honor Retry-After when
+    present and otherwise back off longer on each retry.
+    """
+    if isinstance(exc, urllib.error.HTTPError):
+        retry_after = exc.headers.get("Retry-After") if exc.headers else None
+        if retry_after:
+            try:
+                return max(1, min(int(retry_after), 300))
+            except ValueError:
+                pass
+    return min(300, 30 * (2 ** max(0, attempt - 1)))
 
 
 def veo_render_enabled() -> bool:
@@ -654,7 +684,12 @@ def run_veo_render(
                 raise RuntimeError(
                     f"video_generation_failed:{destination.stem}:{type(exc).__name__}:{message[:200]}"
                 ) from exc
-            time.sleep(30)
+            delay_seconds = _veo_retry_delay_seconds(exc, attempt)
+            sys.stderr.write(
+                f"[veo] transient failure stem={destination.stem}; retrying in {delay_seconds}s\n"
+            )
+            sys.stderr.flush()
+            time.sleep(delay_seconds)
     # Unreachable — the loop either returns a success or raises.
     raise RuntimeError(
         f"video_generation_failed:{destination.stem}:exhausted:{(last_error or {}).get('stderr', '')[:200]}"

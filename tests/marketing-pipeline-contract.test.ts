@@ -24,6 +24,7 @@ const BANNED_WORKFLOW_TOKENS = [
   /invoke_skill\.py/,
   /marketing-pipeline-compat/,
 ];
+const BANNED_WORKFLOW_ROOT_CWDS = [/^cwd:\s*lobster\s*$/m, /^cwd:\s*aries-app\/lobster\s*$/m];
 
 test('marketing pipeline uses local deterministic stage executables instead of invoke_skill bridge', () => {
   const pipelinePath = path.join(PROJECT_ROOT, 'lobster', 'marketing-pipeline.lobster');
@@ -49,6 +50,19 @@ test('canonical marketing workflow files contain zero banned legacy helper refer
     const content = readFileSync(workflowPath, 'utf8');
     for (const token of BANNED_WORKFLOW_TOKENS) {
       assert.doesNotMatch(content, token, `${path.basename(workflowPath)} must not reference ${token}`);
+    }
+  }
+});
+
+test('canonical marketing workflows do not override the gateway checkout root with a stale lobster cwd', () => {
+  for (const workflowPath of CANONICAL_MARKETING_WORKFLOWS) {
+    const content = readFileSync(workflowPath, 'utf8');
+    for (const token of BANNED_WORKFLOW_ROOT_CWDS) {
+      assert.doesNotMatch(
+        content,
+        token,
+        `${path.basename(workflowPath)} must not hardcode a root workflow cwd that re-roots execution into a different Lobster checkout`,
+      );
     }
   }
 });

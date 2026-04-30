@@ -24,7 +24,6 @@ args:
     default: client-brand
   job_id:
     default: ""
-cwd: lobster
 steps:
   - id: validate_root_args
     env:
