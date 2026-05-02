@@ -22,6 +22,13 @@ export {
 } from './workflow-catalog';
 
 export {
+  DEFAULT_EXECUTION_PROVIDER,
+  getExecutionProvider,
+  resolveExecutionProviderName,
+  type AriesExecutionProviderName,
+} from './provider-factory';
+
+export {
   LegacyOpenClawExecutionAdapter,
   mapLegacyOpenClawGatewayError,
   type LegacyOpenClawCancelInput,

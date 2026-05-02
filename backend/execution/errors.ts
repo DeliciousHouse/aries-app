@@ -16,7 +16,7 @@ export type ExecutionErrorCode =
   | 'response_invalid'
   | 'server_error';
 
-export type ExecutionProviderName = 'openclaw' | 'hermes' | (string & {});
+export type ExecutionProviderName = 'legacy-openclaw' | 'openclaw' | 'hermes' | (string & {});
 
 export interface ExecutionErrorInit {
   provider: ExecutionProviderName;

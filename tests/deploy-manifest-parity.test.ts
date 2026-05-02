@@ -24,6 +24,24 @@ test('tracked dist deploy shim uses the canonical runtime lobster cwd defaults',
   );
 });
 
+test('runtime env examples advertise optional execution-provider knobs without changing the legacy default', () => {
+  const composeSource = fs.readFileSync(path.join(repoRoot, 'docker-compose.yml'), 'utf8');
+  const envExampleSource = fs.readFileSync(path.join(repoRoot, '.env.example'), 'utf8');
+
+  assert.match(
+    composeSource,
+    /ARIES_EXECUTION_PROVIDER:\s*\$\{ARIES_EXECUTION_PROVIDER:-legacy-openclaw\}/,
+  );
+  assert.match(composeSource, /HERMES_GATEWAY_URL:\s*\$\{HERMES_GATEWAY_URL:-\}/);
+  assert.match(composeSource, /HERMES_GATEWAY_TOKEN:\s*\$\{HERMES_GATEWAY_TOKEN:-\}/);
+  assert.match(composeSource, /HERMES_SESSION_KEY:\s*\$\{HERMES_SESSION_KEY:-main\}/);
+
+  assert.match(envExampleSource, /^ARIES_EXECUTION_PROVIDER=legacy-openclaw$/m);
+  assert.match(envExampleSource, /^# HERMES_GATEWAY_URL=/m);
+  assert.match(envExampleSource, /^# HERMES_GATEWAY_TOKEN=/m);
+  assert.match(envExampleSource, /^# HERMES_SESSION_KEY=main$/m);
+});
+
 test('tracked dist deploy shim cannot reintroduce the stale public onboarding path', () => {
   assert.doesNotMatch(distComposeSource, /\/onboarding\/start/);
 });
