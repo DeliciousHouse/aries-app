@@ -1,4 +1,4 @@
-import { ARIES_OPENCLAW_WORKFLOWS } from '@/backend/openclaw/workflow-catalog';
+import { ARIES_WORKFLOWS } from '@/backend/execution/workflow-catalog';
 import { getTenantContext } from '@/lib/tenant-context';
 
 function json(body: unknown, status = 200) {
@@ -13,7 +13,7 @@ export async function GET() {
     return json({ error: error instanceof Error ? error.message : 'Authentication required.' }, 403);
   }
 
-  const workflows = Object.values(ARIES_OPENCLAW_WORKFLOWS).map((workflow) => ({
+  const workflows = Object.values(ARIES_WORKFLOWS).map((workflow) => ({
     id: workflow.key,
     tenant_id: tenantContext.tenantId,
     type: workflow.mode === 'real' ? 'openclaw' : 'openclaw_stub',
