@@ -1,5 +1,6 @@
 import { runAriesOpenClawWorkflow } from '../openclaw/aries-execution';
 import { ExecutionError } from './errors';
+import { mapLegacyOpenClawGatewayError } from './providers/legacy-openclaw';
 import type { ExecutionProvider, WorkflowExecutionResult } from './types';
 import type { AriesWorkflowKey } from './workflow-catalog';
 
@@ -31,11 +32,24 @@ export function resolveExecutionProviderName(
   }
 }
 
+// Note: the runtime provider identifier is 'openclaw' to match
+// LegacyOpenClawExecutionAdapter.name and the provider value used on
+// ExecutionError instances. DEFAULT_EXECUTION_PROVIDER ('legacy-openclaw') is
+// the config-level selector exposed via ARIES_EXECUTION_PROVIDER and is
+// intentionally distinct from the runtime provider name so that callers
+// branching on provider.name or error.provider see a single identifier.
 class LegacyOpenClawWorkflowProvider implements ExecutionProvider {
-  readonly name = DEFAULT_EXECUTION_PROVIDER;
+  readonly name = 'openclaw' as const;
 
-  runWorkflow(key: string, input: Record<string, unknown>): Promise<WorkflowExecutionResult> {
-    return runAriesOpenClawWorkflow(key as AriesWorkflowKey, input);
+  async runWorkflow(key: string, input: Record<string, unknown>): Promise<WorkflowExecutionResult> {
+    const result = await runAriesOpenClawWorkflow(key as AriesWorkflowKey, input);
+    if (result.kind === 'gateway_error') {
+      return {
+        kind: 'gateway_error',
+        error: mapLegacyOpenClawGatewayError(result.error),
+      };
+    }
+    return result;
   }
 }
 

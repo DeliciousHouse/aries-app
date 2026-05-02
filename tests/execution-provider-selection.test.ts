@@ -24,7 +24,10 @@ test('resolveExecutionProviderName accepts explicit legacy-openclaw selection', 
 test('getExecutionProvider returns the legacy provider when legacy-openclaw is selected', () => {
   const provider = getExecutionProvider({ ARIES_EXECUTION_PROVIDER: 'legacy-openclaw' });
 
-  assert.equal(provider.name, 'legacy-openclaw');
+  // The runtime provider identifier is 'openclaw' to match the
+  // LegacyOpenClawExecutionAdapter and the provider value used on
+  // ExecutionError instances. 'legacy-openclaw' is the config-level selector.
+  assert.equal(provider.name, 'openclaw');
   assert.equal(typeof provider.runWorkflow, 'function');
 });
 
@@ -48,4 +51,33 @@ test('getExecutionProvider returns a Hermes stub that explains missing Hermes co
   assert.match(result.error.message, /ARIES_EXECUTION_PROVIDER=hermes/);
   assert.match(result.error.message, /HERMES_GATEWAY_URL/);
   assert.match(result.error.message, /HERMES_GATEWAY_TOKEN/);
+});
+
+test('runAriesWorkflow honors ARIES_EXECUTION_PROVIDER=hermes through the exported route helper', async () => {
+  // Public-path integration: route helpers must actually consult the factory.
+  // Without this, ARIES_EXECUTION_PROVIDER has no runtime effect for any
+  // route handler that calls runAriesWorkflow.
+  const previous = process.env.ARIES_EXECUTION_PROVIDER;
+  process.env.ARIES_EXECUTION_PROVIDER = 'hermes';
+  try {
+    const { runAriesWorkflow } = await import('../backend/execution');
+    const result = await runAriesWorkflow(
+      'marketing_demo' as Parameters<typeof runAriesWorkflow>[0],
+      { tenantId: 'tenant_123' },
+    );
+
+    assert.equal(result.kind, 'gateway_error');
+    if (result.kind !== 'gateway_error') {
+      throw new Error('expected Hermes stub to return a gateway_error result via route helper');
+    }
+    assert.ok(result.error instanceof ExecutionError);
+    assert.equal(result.error.provider, 'hermes');
+    assert.equal(result.error.code, 'not_configured');
+  } finally {
+    if (previous === undefined) {
+      delete process.env.ARIES_EXECUTION_PROVIDER;
+    } else {
+      process.env.ARIES_EXECUTION_PROVIDER = previous;
+    }
+  }
 });
