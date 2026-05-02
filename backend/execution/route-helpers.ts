@@ -1,11 +1,11 @@
-import { runAriesOpenClawWorkflow } from '../openclaw/aries-execution';
 import { OpenClawGatewayError } from '../openclaw/gateway-client';
+import { ExecutionError } from './errors';
+import { getExecutionProvider } from './provider-factory';
 import {
   LegacyOpenClawExecutionAdapter,
   mapLegacyOpenClawGatewayError,
   type LegacyOpenClawCancelInput,
 } from './providers/legacy-openclaw';
-import { ExecutionError } from './errors';
 import type { WorkflowExecutionResult } from './types';
 import type { AriesWorkflowKey } from './workflow-catalog';
 
@@ -41,14 +41,12 @@ export async function runAriesWorkflow(
   key: AriesWorkflowKey,
   input: Record<string, unknown>,
 ): Promise<AriesRouteExecutionResult> {
-  const executed = await runAriesOpenClawWorkflow(key, input);
-  if (executed.kind === 'gateway_error') {
-    return {
-      kind: 'gateway_error',
-      error: mapLegacyOpenClawGatewayError(executed.error),
-    };
-  }
-  return executed;
+  // Route through the provider factory so ARIES_EXECUTION_PROVIDER actually
+  // controls runtime behavior. The legacy provider already maps OpenClaw
+  // gateway errors into provider-neutral ExecutionErrors, so this preserves
+  // the prior wire format while letting hermes/other providers slot in.
+  const provider = getExecutionProvider();
+  return provider.runWorkflow(key, input);
 }
 
 export function mapAriesExecutionError(
