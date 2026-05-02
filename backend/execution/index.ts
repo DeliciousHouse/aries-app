@@ -14,6 +14,14 @@ export {
 } from './errors';
 
 export {
+  ARIES_ATOMIC_MARKETING_WORKFLOW_KEYS,
+  ARIES_WORKFLOWS,
+  getAriesWorkflow,
+  type AriesWorkflowDef,
+  type AriesWorkflowKey,
+} from './workflow-catalog';
+
+export {
   LegacyOpenClawExecutionAdapter,
   mapLegacyOpenClawGatewayError,
   type LegacyOpenClawCancelInput,
