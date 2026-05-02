@@ -166,6 +166,83 @@ test('buildHermesRequestEnvelope defines the run request contract', () => {
   );
 });
 
+test('HermesExecutionAdapter surfaces tool-level ok:false payloads as gateway_error rather than success', async () => {
+  const adapter = new HermesExecutionAdapter(
+    {
+      HERMES_GATEWAY_URL: 'http://127.0.0.1:8787',
+      HERMES_GATEWAY_TOKEN: 'token-123',
+      HERMES_SESSION_KEY: 'campaign-runtime',
+    },
+    async () =>
+      new Response(
+        JSON.stringify({
+          ok: false,
+          error: { message: 'tool blew up: gateway refused workflow' },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+  );
+
+  const result = await adapter.runWorkflow('demo_start', {
+    user: { email: 'founder@example.com' },
+    surface: 'marketing-site',
+  });
+
+  assert.equal(result.kind, 'gateway_error');
+  if (result.kind !== 'gateway_error') {
+    assert.fail('expected gateway_error result for tool-level ok:false');
+  }
+  assert.ok(result.error instanceof ExecutionError);
+  assert.equal(result.error.provider, 'hermes');
+  assert.equal(result.error.code, 'response_invalid');
+  assert.equal(result.error.status, 200);
+  assert.match(result.error.message, /tool blew up/);
+});
+
+test('HermesExecutionAdapter surfaces ok:false with a string error as gateway_error', async () => {
+  const adapter = new HermesExecutionAdapter(
+    {
+      HERMES_GATEWAY_URL: 'http://127.0.0.1:8787',
+      HERMES_GATEWAY_TOKEN: 'token-123',
+    },
+    async () =>
+      new Response(JSON.stringify({ ok: false, error: 'workflow_unavailable' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+  );
+
+  const result = await adapter.runWorkflow('demo_start', { user: { email: 'a@b.co' } });
+
+  assert.equal(result.kind, 'gateway_error');
+  if (result.kind !== 'gateway_error') {
+    assert.fail('expected gateway_error result for tool-level ok:false');
+  }
+  assert.equal(result.error.message, 'workflow_unavailable');
+});
+
+test('HermesExecutionAdapter surfaces ok:false with no error detail as a generic tool failure', async () => {
+  const adapter = new HermesExecutionAdapter(
+    {
+      HERMES_GATEWAY_URL: 'http://127.0.0.1:8787',
+      HERMES_GATEWAY_TOKEN: 'token-123',
+    },
+    async () =>
+      new Response(JSON.stringify({ ok: false }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+  );
+
+  const result = await adapter.runWorkflow('demo_start', { user: { email: 'a@b.co' } });
+
+  assert.equal(result.kind, 'gateway_error');
+  if (result.kind !== 'gateway_error') {
+    assert.fail('expected gateway_error result for tool-level ok:false');
+  }
+  assert.match(result.error.message, /tool-level failure/);
+});
+
 test('buildHermesRequestEnvelope defines approval resume and cancel correlation fields', () => {
   assert.deepEqual(
     buildHermesRequestEnvelope({
