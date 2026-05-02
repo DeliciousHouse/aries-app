@@ -4,6 +4,8 @@ import test from 'node:test';
 import { ExecutionError, LegacyOpenClawExecutionAdapter } from '../backend/execution';
 import { OpenClawGatewayError } from '../backend/openclaw/gateway-client';
 
+const EXPECTED_SESSION_KEY = process.env.OPENCLAW_SESSION_KEY?.trim() || 'main';
+
 function setOpenClawTestInvoker(
   impl: (payload: Record<string, unknown>) => unknown | Promise<unknown>,
 ): void {
@@ -48,7 +50,7 @@ test('LegacyOpenClawExecutionAdapter.run delegates the legacy run payload shape 
     assert.equal(captured.length, 1);
     assert.deepEqual(captured[0], {
       tool: 'lobster',
-      sessionKey: 'main',
+      sessionKey: EXPECTED_SESSION_KEY,
       args: {
         action: 'run',
         pipeline: 'marketing-pipeline.lobster',
@@ -131,7 +133,7 @@ test('LegacyOpenClawExecutionAdapter.resume delegates the legacy resume payload 
     assert.equal(captured.length, 1);
     assert.deepEqual(captured[0], {
       tool: 'lobster',
-      sessionKey: 'main',
+      sessionKey: EXPECTED_SESSION_KEY,
       args: {
         action: 'resume',
         token: 'workflow_resume_run-123',
@@ -171,7 +173,7 @@ test('LegacyOpenClawExecutionAdapter.cancel delegates the legacy cancel payload 
     assert.equal(captured.length, 1);
     assert.deepEqual(captured[0], {
       tool: 'lobster',
-      sessionKey: 'main',
+      sessionKey: EXPECTED_SESSION_KEY,
       args: {
         action: 'cancel',
         correlationId: 'job-123',
