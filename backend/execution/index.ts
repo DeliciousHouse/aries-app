@@ -13,6 +13,14 @@ export {
   type ExecutionErrorInit,
 } from './errors';
 
+export {
+  LegacyOpenClawExecutionAdapter,
+  mapLegacyOpenClawGatewayError,
+  type LegacyOpenClawCancelInput,
+  type LegacyOpenClawResumeInput,
+  type LegacyOpenClawRunInput,
+} from './providers/legacy-openclaw';
+
 export type {
   ExecutionProvider,
   ExecutionProviderName,
