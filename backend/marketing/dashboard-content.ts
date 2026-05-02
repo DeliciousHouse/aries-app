@@ -1,11 +1,8 @@
 import crypto from 'node:crypto'
 import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import path from 'node:path'
 
-import { resolveCodePath, resolveCodeRoot, resolveDataRoot } from '@/lib/runtime-paths'
-
-import { remapHostOutputToMount } from './host-output-path'
+import { lobsterOutputRoots, resolveGeneratedAsset } from './artifact-store'
 import type { MarketingCampaignWindow } from './jobs-status'
 import { extractPublishReviewBundle } from './publish-review'
 import { publishReviewLinkedAssetId, publishReviewMediaAssetId } from './publish-review-asset-ids'
@@ -640,43 +637,6 @@ function statusLabel(status: MarketingDashboardItemStatus): string {
 
 async function rawPublishReviewBundle(runtimeDoc: MarketingJobRuntimeDocument): Promise<Record<string, unknown> | null> {
   return await extractPublishReviewBundle(runtimeDoc)
-}
-
-function envCacheRoot(stage: 1 | 2 | 3 | 4): string {
-  const envKey =
-    stage === 1
-      ? 'LOBSTER_STAGE1_CACHE_DIR'
-      : stage === 2
-        ? 'LOBSTER_STAGE2_CACHE_DIR'
-        : stage === 3
-          ? 'LOBSTER_STAGE3_CACHE_DIR'
-          : 'LOBSTER_STAGE4_CACHE_DIR'
-  const fallback =
-    stage === 1
-      ? 'lobster-stage1-cache'
-      : stage === 2
-        ? 'lobster-stage2-cache'
-        : stage === 3
-          ? 'lobster-stage3-cache'
-          : 'lobster-stage4-cache'
-  return process.env[envKey]?.trim() || path.join(tmpdir(), fallback)
-}
-
-function lobsterRoots(): string[] {
-  return uniqueStrings([
-    process.env.OPENCLAW_LOCAL_LOBSTER_CWD,
-    process.env.OPENCLAW_LOBSTER_CWD,
-    resolveCodePath('lobster'),
-  ]).map((root) => path.resolve(root))
-}
-
-function lobsterOutputRoots(): string[] {
-  // See real-artifacts.lobsterOutputRoots for why the host bind-mount is included.
-  const hostMount = process.env.ARIES_LOBSTER_HOST_OUTPUT_MOUNT?.trim()
-  return uniqueStrings([
-    ...lobsterRoots().map((root) => path.join(root, 'output')),
-    hostMount ? path.normalize(hostMount) : null,
-  ])
 }
 
 function collectVeoVideoPaths(
@@ -1614,22 +1574,6 @@ function resolveDashboardAssetFilePath(
   filePath: string | null | undefined,
   fallbackPaths: Array<string | null | undefined> = [],
 ): string | null {
-  const codeRoot = path.normalize(resolveCodeRoot())
-  const remapPrefixes = [
-    '/home/node/workspace/aries-app',
-    '/app/aries-app',
-    path.join(codeRoot, 'aries-app'),
-  ].map((prefix) => path.normalize(prefix))
-  const roots = [
-    resolveDataRoot(),
-    resolveCodeRoot(),
-    ...lobsterRoots(),
-    envCacheRoot(1),
-    envCacheRoot(2),
-    envCacheRoot(3),
-    envCacheRoot(4),
-  ]
-
   for (const rawPath of [filePath, ...fallbackPaths]) {
     const candidate = stringValue(rawPath)
     if (!candidate) {
@@ -1637,35 +1581,12 @@ function resolveDashboardAssetFilePath(
     }
 
     if (!path.isAbsolute(candidate)) {
-      for (const root of roots) {
-        const resolved = path.resolve(root, candidate)
-        if (existsSync(resolved)) {
-          return resolved
-        }
-      }
-      return candidate
+      return resolveGeneratedAsset(candidate) || candidate
     }
 
-    const normalized = path.normalize(candidate)
-    const compatibilityCandidates = new Set([normalized])
-    for (const prefix of remapPrefixes) {
-      if (normalized !== prefix && !normalized.startsWith(`${prefix}${path.sep}`)) {
-        continue
-      }
-
-      const suffix = normalized.slice(prefix.length).replace(/^[\\/]+/, '')
-      compatibilityCandidates.add(path.join(codeRoot, suffix))
-    }
-
-    const hostMountCandidate = remapHostOutputToMount(normalized)
-    if (hostMountCandidate) {
-      compatibilityCandidates.add(hostMountCandidate)
-    }
-
-    for (const compatibilityCandidate of compatibilityCandidates) {
-      if (existsSync(compatibilityCandidate)) {
-        return compatibilityCandidate
-      }
+    const resolved = resolveGeneratedAsset(candidate)
+    if (resolved) {
+      return resolved
     }
   }
 

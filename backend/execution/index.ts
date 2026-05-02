@@ -28,6 +28,16 @@ export {
 } from './provider-factory';
 
 export {
+  HermesExecutionAdapter,
+  buildHermesRequestEnvelope,
+  type HermesCancelRequestEnvelope,
+  type HermesRequestEnvelope,
+  type HermesRequestEnvelopeInput,
+  type HermesResumeRequestEnvelope,
+  type HermesRunRequestEnvelope,
+} from './providers/hermes';
+
+export {
   LegacyOpenClawExecutionAdapter,
   mapLegacyOpenClawGatewayError,
   type LegacyOpenClawCancelInput,

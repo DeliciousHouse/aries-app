@@ -57,8 +57,16 @@ test('runAriesWorkflow honors ARIES_EXECUTION_PROVIDER=hermes through the export
   // Public-path integration: route helpers must actually consult the factory.
   // Without this, ARIES_EXECUTION_PROVIDER has no runtime effect for any
   // route handler that calls runAriesWorkflow.
-  const previous = process.env.ARIES_EXECUTION_PROVIDER;
+  const previous = {
+    ARIES_EXECUTION_PROVIDER: process.env.ARIES_EXECUTION_PROVIDER,
+    HERMES_GATEWAY_URL: process.env.HERMES_GATEWAY_URL,
+    HERMES_GATEWAY_TOKEN: process.env.HERMES_GATEWAY_TOKEN,
+    HERMES_SESSION_KEY: process.env.HERMES_SESSION_KEY,
+  };
   process.env.ARIES_EXECUTION_PROVIDER = 'hermes';
+  delete process.env.HERMES_GATEWAY_URL;
+  delete process.env.HERMES_GATEWAY_TOKEN;
+  delete process.env.HERMES_SESSION_KEY;
   try {
     const { runAriesWorkflow } = await import('../backend/execution');
     const result = await runAriesWorkflow(
@@ -74,10 +82,12 @@ test('runAriesWorkflow honors ARIES_EXECUTION_PROVIDER=hermes through the export
     assert.equal(result.error.provider, 'hermes');
     assert.equal(result.error.code, 'not_configured');
   } finally {
-    if (previous === undefined) {
-      delete process.env.ARIES_EXECUTION_PROVIDER;
-    } else {
-      process.env.ARIES_EXECUTION_PROVIDER = previous;
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
     }
   }
 });

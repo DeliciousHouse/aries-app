@@ -1,11 +1,8 @@
-import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { resolveCodeRoot, resolveDataRoot } from '@/lib/runtime-paths';
-
+import { lobsterOutputRoots, resolveGeneratedAsset } from './artifact-store';
 import { listMarketingDashboardAssetsForJob } from './dashboard-content';
-import { remapHostOutputToMount } from './host-output-path';
 import { collectResearchStageArtifacts, collectStrategyReviewArtifacts } from './artifact-collector';
 import { createMarketingJobFacts, type MarketingJobFacts } from './job-facts';
 import {
@@ -34,87 +31,8 @@ export type MarketingAssetLink = {
   posterUrl?: string | null;
 };
 
-function resolveExistingAbsoluteAssetPath(filePath: string): string | null {
-  const normalizedPath = path.normalize(filePath);
-  const codeRoot = path.normalize(resolveCodeRoot());
-  const remapPrefixes = [
-    '/home/node/workspace/aries-app',
-    '/app/aries-app',
-    path.join(codeRoot, 'aries-app'),
-  ].map((prefix) => path.normalize(prefix));
-  const candidates = new Set([normalizedPath]);
-
-  for (const prefix of remapPrefixes) {
-    if (normalizedPath !== prefix && !normalizedPath.startsWith(`${prefix}${path.sep}`)) {
-      continue;
-    }
-
-    const suffix = normalizedPath.slice(prefix.length).replace(/^[\\/]+/, '');
-    candidates.add(path.join(codeRoot, suffix));
-  }
-
-  const hostMountCandidate = remapHostOutputToMount(normalizedPath);
-  if (hostMountCandidate) {
-    candidates.add(hostMountCandidate);
-  }
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return null;
-}
-
-function assetRoots(): string[] {
-  return Array.from(
-    new Set(
-      [
-        resolveDataRoot(),
-        resolveCodeRoot(),
-        process.env.OPENCLAW_LOCAL_LOBSTER_CWD?.trim(),
-        process.env.OPENCLAW_LOBSTER_CWD?.trim(),
-        process.env.LOBSTER_STAGE1_CACHE_DIR?.trim(),
-        process.env.LOBSTER_STAGE2_CACHE_DIR?.trim(),
-        process.env.LOBSTER_STAGE3_CACHE_DIR?.trim(),
-        process.env.LOBSTER_STAGE4_CACHE_DIR?.trim(),
-      ].filter((value): value is string => typeof value === 'string' && value.length > 0)
-    )
-  );
-}
-
 function outputRoots(): string[] {
-  // Include the host bind-mount (ARIES_LOBSTER_HOST_OUTPUT_MOUNT) so the
-  // container can resolve asset files the host's Lobster pipeline wrote to
-  // the host's lobster/output directory. Matches the roots resolved in
-  // real-artifacts.ts / dashboard-content.ts / public-pages.ts /
-  // stage-artifact-resolution.ts.
-  const hostMount = process.env.ARIES_LOBSTER_HOST_OUTPUT_MOUNT?.trim();
-  return Array.from(
-    new Set(
-      [
-        process.env.OPENCLAW_LOCAL_LOBSTER_CWD?.trim()
-          ? path.join(process.env.OPENCLAW_LOCAL_LOBSTER_CWD.trim(), 'output')
-          : null,
-        process.env.OPENCLAW_LOBSTER_CWD?.trim()
-          ? path.join(process.env.OPENCLAW_LOBSTER_CWD.trim(), 'output')
-          : null,
-        path.join(resolveCodeRoot(), 'lobster', 'output'),
-        hostMount ? path.normalize(hostMount) : null,
-      ].filter((value): value is string => typeof value === 'string' && value.length > 0),
-    ),
-  );
-}
-
-function resolveExistingRelativeAssetPath(filePath: string): string | null {
-  for (const root of assetRoots()) {
-    const candidate = path.resolve(root, filePath);
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-  return null;
+  return lobsterOutputRoots();
 }
 
 function stringValue(value: unknown, fallback = ''): string {
@@ -299,14 +217,7 @@ export async function buildMarketingAssetLibrary(
       .filter(Boolean);
 
     for (const candidate of candidates) {
-      if (!path.isAbsolute(candidate)) {
-        const resolved = resolveExistingRelativeAssetPath(candidate);
-        if (resolved) {
-          return resolved;
-        }
-        continue;
-      }
-      const resolved = resolveExistingAbsoluteAssetPath(candidate);
+      const resolved = resolveGeneratedAsset(candidate);
       if (resolved) {
         return resolved;
       }
@@ -371,8 +282,10 @@ export async function buildMarketingAssetLibrary(
   let websiteAnalysis: Record<string, unknown> | null = null;
   if (websiteAnalysisPath) {
     try {
-      const resolvedWebsiteAnalysisPath = resolveAssetPath(websiteAnalysisPath) || websiteAnalysisPath;
-      websiteAnalysis = recordValue(JSON.parse(await readFile(resolvedWebsiteAnalysisPath, 'utf8')));
+      const resolvedWebsiteAnalysisPath = resolveAssetPath(websiteAnalysisPath);
+      websiteAnalysis = resolvedWebsiteAnalysisPath
+        ? recordValue(JSON.parse(await readFile(resolvedWebsiteAnalysisPath, 'utf8')))
+        : null;
     } catch {
       websiteAnalysis = null;
     }

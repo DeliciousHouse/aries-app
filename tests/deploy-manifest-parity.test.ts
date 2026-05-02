@@ -2,26 +2,18 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const repoRoot = process.cwd();
 const distComposePath = path.join(repoRoot, 'dist', 'docker-compose.yml');
-const distComposeSource = fs.readFileSync(distComposePath, 'utf8');
 
-test('tracked dist deploy shim requires an explicit prebuilt Aries image and cannot build stale sources', () => {
-  assert.match(
-    distComposeSource,
-    /image:\s*\$\{ARIES_APP_IMAGE:\?Set ARIES_APP_IMAGE to a root-built Aries image tag\}/,
-  );
-  assert.doesNotMatch(distComposeSource, /^\s*build:\s*/m);
-  assert.doesNotMatch(distComposeSource, /^\s*-\s+\.\:\/app\/aries-app\s*$/m);
-});
+test('legacy dist deploy shim stays out of the tracked runtime surface', () => {
+  const trackedDistCompose = execFileSync('git', ['ls-files', '--', distComposePath], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+  }).trim();
 
-test('tracked dist deploy shim uses the canonical runtime lobster cwd defaults', () => {
-  assert.match(distComposeSource, /OPENCLAW_LOBSTER_CWD:\s*\$\{OPENCLAW_LOBSTER_CWD:-\/app\/lobster\}/);
-  assert.match(
-    distComposeSource,
-    /OPENCLAW_LOCAL_LOBSTER_CWD:\s*\$\{OPENCLAW_LOCAL_LOBSTER_CWD:-\/app\/lobster\}/,
-  );
+  assert.equal(trackedDistCompose, '');
 });
 
 test('runtime env examples advertise optional execution-provider knobs without changing the legacy default', () => {
@@ -42,6 +34,12 @@ test('runtime env examples advertise optional execution-provider knobs without c
   assert.match(envExampleSource, /^# HERMES_SESSION_KEY=main$/m);
 });
 
-test('tracked dist deploy shim cannot reintroduce the stale public onboarding path', () => {
+test('legacy dist deploy shim cannot reintroduce the stale public onboarding path', () => {
+  if (!fs.existsSync(distComposePath)) {
+    assert.ok(true);
+    return;
+  }
+
+  const distComposeSource = fs.readFileSync(distComposePath, 'utf8');
   assert.doesNotMatch(distComposeSource, /\/onboarding\/start/);
 });

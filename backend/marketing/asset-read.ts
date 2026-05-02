@@ -1,10 +1,7 @@
 import { readFile, realpath } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { resolveCodePath, resolveCodeRoot, resolveDataRoot } from '@/lib/runtime-paths';
-
-import { remapHostOutputToMount } from './host-output-path';
+import { generatedAssetCandidates, marketingAssetRoots } from './artifact-store';
 
 /**
  * Safe reader for files referenced by the marketing runtime documents.
@@ -110,52 +107,11 @@ function normalizeAssetPath(filePath: string): NormalizedAssetPath | null {
 }
 
 function trustedRoots(): string[] {
-  return Array.from(
-    new Set(
-      [
-        resolveDataRoot(),
-        resolveCodeRoot(),
-        resolveCodePath('lobster'),
-        process.env.OPENCLAW_LOCAL_LOBSTER_CWD?.trim(),
-        process.env.OPENCLAW_LOBSTER_CWD?.trim(),
-        // Host bind-mount of the host's lobster/output tree (creative
-        // images written by the host pipeline are only reachable from
-        // inside the container via this read-only mount).
-        process.env.ARIES_LOBSTER_HOST_OUTPUT_MOUNT?.trim(),
-        process.env.LOBSTER_STAGE1_CACHE_DIR?.trim() || path.join(tmpdir(), 'lobster-stage1-cache'),
-        process.env.LOBSTER_STAGE2_CACHE_DIR?.trim() || path.join(tmpdir(), 'lobster-stage2-cache'),
-        process.env.LOBSTER_STAGE3_CACHE_DIR?.trim() || path.join(tmpdir(), 'lobster-stage3-cache'),
-        process.env.LOBSTER_STAGE4_CACHE_DIR?.trim() || path.join(tmpdir(), 'lobster-stage4-cache'),
-      ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0),
-    ),
-  );
+  return marketingAssetRoots();
 }
 
 function absoluteCompatibilityCandidates(filePath: string): string[] {
-  const normalized = path.normalize(filePath);
-  const candidates = new Set([normalized]);
-  const codeRoot = path.normalize(resolveCodeRoot());
-  const remapPrefixes = [
-    '/home/node/workspace/aries-app',
-    '/app/aries-app',
-    path.join(codeRoot, 'aries-app'),
-  ].map((prefix) => path.normalize(prefix));
-
-  for (const prefix of remapPrefixes) {
-    if (normalized !== prefix && !normalized.startsWith(`${prefix}${path.sep}`)) {
-      continue;
-    }
-
-    const suffix = normalized.slice(prefix.length).replace(/^[\\/]+/, '');
-    candidates.add(path.join(codeRoot, suffix));
-  }
-
-  const hostMountCandidate = remapHostOutputToMount(normalized);
-  if (hostMountCandidate) {
-    candidates.add(hostMountCandidate);
-  }
-
-  return Array.from(candidates);
+  return generatedAssetCandidates(filePath);
 }
 
 /**
