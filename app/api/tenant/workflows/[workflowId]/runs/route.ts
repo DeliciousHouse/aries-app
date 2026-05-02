@@ -1,4 +1,4 @@
-import { mapOpenClawGatewayError, runAriesOpenClawWorkflow } from '@/backend/openclaw/aries-execution';
+import { mapAriesExecutionError, runAriesWorkflow } from '@/backend/execution';
 import { ARIES_WORKFLOWS, type AriesWorkflowKey } from '@/backend/execution/workflow-catalog';
 import { getTenantContext } from '@/lib/tenant-context';
 
@@ -28,7 +28,7 @@ export async function POST(req: Request, context: { params: Promise<{ workflowId
   }
   const key = workflowId as AriesWorkflowKey;
 
-  const executed = await runAriesOpenClawWorkflow(key, {
+  const executed = await runAriesWorkflow(key, {
     tenant_id: tenantContext.tenantId,
     actor_id: tenantContext.userId,
     inputs: payload.inputs || {},
@@ -36,7 +36,10 @@ export async function POST(req: Request, context: { params: Promise<{ workflowId
   }).catch((error) => ({ kind: 'gateway_error' as const, error }));
 
   if (executed.kind === 'gateway_error') {
-    const mapped = mapOpenClawGatewayError(executed.error);
+    const mapped = mapAriesExecutionError(executed.error);
+    if (!mapped) {
+      return json({ error: 'Execution failed.' }, 500);
+    }
     return json(mapped.body, mapped.status);
   }
   if (executed.kind === 'not_implemented') {

@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 
+import { mapAriesExecutionError } from '@/backend/execution';
 import { invalidateMarketingJobStatus } from '@/backend/marketing/jobs-status';
 import { approveMarketingJob } from '@/backend/marketing/orchestrator';
 import { loadMarketingJobRuntime } from '@/backend/marketing/runtime-state';
-import { OpenClawGatewayError } from '@/backend/openclaw/gateway-client';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
 const MARKETING_ONBOARDING_REQUIRED = {
@@ -132,20 +132,9 @@ export async function handleApproveMarketingJob(
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (error instanceof OpenClawGatewayError) {
-      const status =
-        error.code === 'openclaw_gateway_unauthorized'
-          ? 401
-          : error.code === 'openclaw_gateway_unreachable' || error.code === 'openclaw_gateway_not_configured'
-            ? 503
-            : error.status || 500;
-      return NextResponse.json(
-        {
-          error: error.message,
-          reason: error.code,
-        },
-        { status }
-      );
+    const mapped = mapAriesExecutionError(error);
+    if (mapped) {
+      return NextResponse.json(mapped.body, { status: mapped.status });
     }
     if (message.startsWith('workflow_missing_for_route:')) {
       return NextResponse.json(

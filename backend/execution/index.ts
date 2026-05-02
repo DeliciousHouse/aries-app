@@ -29,6 +29,13 @@ export {
   type LegacyOpenClawRunInput,
 } from './providers/legacy-openclaw';
 
+export {
+  cancelAriesWorkflow,
+  mapAriesExecutionError,
+  runAriesWorkflow,
+  type AriesRouteExecutionResult,
+} from './route-helpers';
+
 export type {
   ExecutionProvider,
   ExecutionProviderName,

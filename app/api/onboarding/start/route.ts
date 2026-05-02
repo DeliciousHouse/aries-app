@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
+import { mapAriesExecutionError } from '../../../../backend/execution';
 import { startOnboarding } from '../../../../backend/onboarding/start';
-import { OpenClawGatewayError } from '../../../../backend/openclaw/gateway-client';
 
 export async function POST(req: Request) {
   let payload: any = {};
@@ -14,20 +14,15 @@ export async function POST(req: Request) {
   try {
     result = await startOnboarding(payload);
   } catch (error) {
-    if (error instanceof OpenClawGatewayError) {
-      const status =
-        error.code === 'openclaw_gateway_unauthorized'
-          ? 401
-          : error.code === 'openclaw_gateway_unreachable' || error.code === 'openclaw_gateway_not_configured'
-            ? 503
-            : error.status || 500;
+    const mapped = mapAriesExecutionError(error);
+    if (mapped) {
       return NextResponse.json(
         {
           onboarding_status: 'error',
-          reason: error.code,
-          message: error.message,
+          reason: mapped.body.reason,
+          message: mapped.body.error,
         },
-        { status }
+        { status: mapped.status }
       );
     }
     throw error;
