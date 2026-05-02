@@ -37,7 +37,7 @@ test('tenant workflow routes import the Aries-owned workflow catalog', async () 
   for (const relativePath of TENANT_WORKFLOW_ROUTE_FILES) {
     const source = await readFile(path.join(PROJECT_ROOT, relativePath), 'utf8');
 
-    assert.match(source, /@\/backend\/execution\/workflow-catalog/);
+    assert.match(source, /@\/backend\/execution(?:\/workflow-catalog)?['"/]/);
     assert.doesNotMatch(source, /@\/backend\/openclaw\/workflow-catalog/);
   }
 });

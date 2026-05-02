@@ -23,7 +23,7 @@ export async function POST(req: Request, context: { params: Promise<{ workflowId
     payload = {};
   }
 
-  if (!(workflowId in ARIES_WORKFLOWS)) {
+  if (!Object.hasOwn(ARIES_WORKFLOWS, workflowId)) {
     return json({ error: 'not_found' }, 404);
   }
   const key = workflowId as AriesWorkflowKey;
