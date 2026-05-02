@@ -1,10 +1,8 @@
 import { existsSync } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { resolveCodePath } from '@/lib/runtime-paths';
-
+import { lobsterOutputRoots, stageCacheRoot } from './artifact-store';
 import type { MarketingJobRuntimeDocument, MarketingStage } from './runtime-state';
 
 export type MarketingArtifactStageNumber = 1 | 2 | 3 | 4;
@@ -45,48 +43,11 @@ function stageKey(stage: MarketingArtifactStageNumber): MarketingStage {
   return 'publish';
 }
 
-function cacheRoot(stage: MarketingArtifactStageNumber): string {
-  const envKey =
-    stage === 1
-      ? 'LOBSTER_STAGE1_CACHE_DIR'
-      : stage === 2
-        ? 'LOBSTER_STAGE2_CACHE_DIR'
-        : stage === 3
-          ? 'LOBSTER_STAGE3_CACHE_DIR'
-          : 'LOBSTER_STAGE4_CACHE_DIR';
-  const fallback =
-    stage === 1
-      ? 'lobster-stage1-cache'
-      : stage === 2
-        ? 'lobster-stage2-cache'
-        : stage === 3
-          ? 'lobster-stage3-cache'
-          : 'lobster-stage4-cache';
-  return process.env[envKey]?.trim() || path.join(tmpdir(), fallback);
-}
-
 function stageFolder(stage: MarketingArtifactStageNumber): string {
   if (stage === 1) return 'stage-1-research';
   if (stage === 2) return 'stage-2-strategy';
   if (stage === 3) return 'stage-3-production';
   return 'stage-4-publish-optimize';
-}
-
-function lobsterRoots(): string[] {
-  return uniqueStrings([
-    process.env.OPENCLAW_LOCAL_LOBSTER_CWD,
-    process.env.OPENCLAW_LOBSTER_CWD,
-    resolveCodePath('lobster'),
-  ]).map((root) => path.resolve(root));
-}
-
-function lobsterOutputRoots(): string[] {
-  // See real-artifacts.lobsterOutputRoots for why the host bind-mount is included.
-  const hostMount = process.env.ARIES_LOBSTER_HOST_OUTPUT_MOUNT?.trim();
-  return uniqueStrings([
-    ...lobsterRoots().map((root) => path.join(root, 'output')),
-    hostMount ? path.normalize(hostMount) : null,
-  ]);
 }
 
 async function readJsonIfExists(filePath: string | null | undefined): Promise<Record<string, unknown> | null> {
@@ -163,9 +124,9 @@ export async function inferMarketingStageRunId(
   const candidates: Array<{ runId: string; score: number; mtimeMs: number }> = [];
   const seenRunIds = new Set<string>();
 
-  const stageCacheRoot = cacheRoot(stage);
-  if (existsSync(stageCacheRoot)) {
-    for (const entry of await readdir(stageCacheRoot)) {
+  const cacheRoot = stageCacheRoot(stage);
+  if (existsSync(cacheRoot)) {
+    for (const entry of await readdir(cacheRoot)) {
       if (!prefixes.some((prefix) => entry.startsWith(`${prefix}-`))) {
         continue;
       }
@@ -173,7 +134,7 @@ export async function inferMarketingStageRunId(
         continue;
       }
       try {
-        const entryPath = path.join(stageCacheRoot, entry);
+        const entryPath = path.join(cacheRoot, entry);
         const stats = await stat(entryPath);
         if (!stats.isDirectory()) {
           continue;
@@ -235,7 +196,7 @@ export async function readMarketingStageStepPayload(
   ]);
 
   for (const runId of runIds) {
-    const cachePath = path.join(cacheRoot(stage), runId, `${stepName}.json`);
+    const cachePath = path.join(stageCacheRoot(stage), runId, `${stepName}.json`);
     const cached = await readJsonIfExists(cachePath);
     if (cached) {
       return {

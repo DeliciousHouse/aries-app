@@ -1,0 +1,171 @@
+import { existsSync, realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
+import { resolveCodePath, resolveCodeRoot, resolveDataRoot } from '@/lib/runtime-paths';
+
+import { remapHostOutputToMount } from './host-output-path';
+
+export type MarketingArtifactStageNumber = 1 | 2 | 3 | 4;
+
+const DEFAULT_HOST_OUTPUT_MOUNT = '/host-lobster-output';
+
+const STAGE_CACHE_DEFAULTS: Record<MarketingArtifactStageNumber, { envKey: string; folder: string }> = {
+  1: { envKey: 'LOBSTER_STAGE1_CACHE_DIR', folder: 'lobster-stage1-cache' },
+  2: { envKey: 'LOBSTER_STAGE2_CACHE_DIR', folder: 'lobster-stage2-cache' },
+  3: { envKey: 'LOBSTER_STAGE3_CACHE_DIR', folder: 'lobster-stage3-cache' },
+  4: { envKey: 'LOBSTER_STAGE4_CACHE_DIR', folder: 'lobster-stage4-cache' },
+};
+
+function stringValue(value: unknown): string {
+  return typeof value === 'string' && value.trim() ? value.trim() : '';
+}
+
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(values.map((value) => stringValue(value)).filter(Boolean)));
+}
+
+export function stageCacheRoot(stage: MarketingArtifactStageNumber): string {
+  const config = STAGE_CACHE_DEFAULTS[stage];
+  return stringValue(process.env[config.envKey]) || path.join(tmpdir(), config.folder);
+}
+
+export function hostOutputMount(): string {
+  return path.normalize(stringValue(process.env.ARIES_LOBSTER_HOST_OUTPUT_MOUNT) || DEFAULT_HOST_OUTPUT_MOUNT);
+}
+
+export function lobsterRoots(): string[] {
+  return uniqueStrings([
+    process.env.OPENCLAW_LOCAL_LOBSTER_CWD,
+    process.env.OPENCLAW_LOBSTER_CWD,
+    resolveCodePath('lobster'),
+  ]).map((root) => path.resolve(root));
+}
+
+export function lobsterOutputRoots(): string[] {
+  return uniqueStrings([
+    ...lobsterRoots().map((root) => path.join(root, 'output')),
+    hostOutputMount(),
+  ]);
+}
+
+export function marketingAssetRoots(): string[] {
+  return uniqueStrings([
+    resolveDataRoot(),
+    resolveCodeRoot(),
+    resolveCodePath('lobster'),
+    process.env.OPENCLAW_LOCAL_LOBSTER_CWD,
+    process.env.OPENCLAW_LOBSTER_CWD,
+    hostOutputMount(),
+    stageCacheRoot(1),
+    stageCacheRoot(2),
+    stageCacheRoot(3),
+    stageCacheRoot(4),
+  ]).map((root) => path.normalize(root));
+}
+
+function absoluteCompatibilityCandidates(filePath: string): string[] {
+  const normalized = path.normalize(filePath);
+  const codeRoot = path.normalize(resolveCodeRoot());
+  const candidates = new Set([normalized]);
+  const remapPrefixes = [
+    '/home/node/workspace/aries-app',
+    '/app/aries-app',
+    path.join(codeRoot, 'aries-app'),
+  ].map((prefix) => path.normalize(prefix));
+
+  for (const prefix of remapPrefixes) {
+    if (normalized !== prefix && !normalized.startsWith(`${prefix}${path.sep}`)) {
+      continue;
+    }
+
+    const suffix = normalized.slice(prefix.length).replace(/^[\\/]+/, '');
+    candidates.add(path.join(codeRoot, suffix));
+    for (const lobsterRoot of lobsterRoots()) {
+      if (suffix === 'lobster' || suffix.startsWith(`lobster${path.sep}`)) {
+        candidates.add(path.join(lobsterRoot, suffix.replace(/^lobster[\\/]+/, '')));
+      }
+    }
+  }
+
+  const hostMountCandidate = remapHostOutputToMount(normalized);
+  if (hostMountCandidate) {
+    candidates.add(hostMountCandidate);
+  }
+
+  return Array.from(candidates);
+}
+
+function relativeGeneratedAssetPath(filePath: string): string | null {
+  const segments = filePath.split(/[\\/]+/).filter(Boolean);
+  if (segments.length === 0) {
+    return null;
+  }
+  if (segments.some((segment) => segment === '.' || segment === '..' || segment.includes('\0'))) {
+    return null;
+  }
+  return path.join(...segments);
+}
+
+export function generatedAssetCandidates(filePath: string): string[] {
+  const raw = stringValue(filePath);
+  if (!raw) {
+    return [];
+  }
+
+  const normalized = path.normalize(raw);
+  if (path.isAbsolute(normalized)) {
+    return absoluteCompatibilityCandidates(normalized);
+  }
+
+  const relativePath = relativeGeneratedAssetPath(raw);
+  if (!relativePath) {
+    return [];
+  }
+
+  return marketingAssetRoots().map((root) => path.resolve(root, relativePath));
+}
+
+function resolvedPath(filePath: string): string | null {
+  try {
+    return realpathSync(filePath);
+  } catch {
+    return existsSync(filePath) ? path.resolve(filePath) : null;
+  }
+}
+
+function isWithinRoot(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function isTrustedGeneratedAssetPath(candidate: string): boolean {
+  const resolvedCandidate = resolvedPath(candidate);
+  if (!resolvedCandidate) {
+    return false;
+  }
+
+  for (const root of marketingAssetRoots()) {
+    const resolvedRoot = resolvedPath(root) || path.resolve(root);
+    if (isWithinRoot(resolvedRoot, resolvedCandidate)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function resolveGeneratedAsset(filePath: string | null | undefined): string | null {
+  const raw = stringValue(filePath);
+  if (!raw) {
+    return null;
+  }
+
+  for (const candidate of generatedAssetCandidates(raw)) {
+    if (existsSync(candidate) && isTrustedGeneratedAssetPath(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}

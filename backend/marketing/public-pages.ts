@@ -1,7 +1,7 @@
 import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 
-import { resolveCodePath } from '@/lib/runtime-paths';
+import { lobsterOutputRoots } from './artifact-store';
 
 type PublicMarketingArtifact = {
   body: string | Buffer;
@@ -39,28 +39,6 @@ function stringArray(value: unknown): string[] {
     : [];
 }
 
-function lobsterRoots(): string[] {
-  return Array.from(
-    new Set(
-      [
-        process.env.OPENCLAW_LOCAL_LOBSTER_CWD?.trim(),
-        process.env.OPENCLAW_LOBSTER_CWD?.trim(),
-        resolveCodePath('lobster'),
-      ].filter((value): value is string => typeof value === 'string' && value.length > 0)
-    )
-  ).map((root) => path.resolve(root));
-}
-
-function lobsterOutputRoots(): string[] {
-  // See real-artifacts.lobsterOutputRoots for why the host bind-mount is included.
-  const hostMount = process.env.ARIES_LOBSTER_HOST_OUTPUT_MOUNT?.trim();
-  const roots = lobsterRoots().map((root) => path.join(root, 'output'));
-  if (hostMount) {
-    roots.push(path.normalize(hostMount));
-  }
-  return Array.from(new Set(roots));
-}
-
 function readJsonIfExists(filePath: string | null | undefined): Record<string, unknown> | null {
   if (!filePath || !existsSync(filePath)) {
     return null;
@@ -78,16 +56,21 @@ function readJsonIfExists(filePath: string | null | undefined): Record<string, u
 
 function normalizePublicPath(pathname: string): string | null {
   const withoutQuery = pathname.split('?')[0] || pathname;
-  const segments = withoutQuery
-    .split('/')
-    .map((segment) => {
-      try {
-        return decodeURIComponent(segment);
-      } catch {
-        return segment;
-      }
-    })
-    .filter(Boolean);
+  const segments: string[] = [];
+
+  for (const segment of withoutQuery.split('/')) {
+    if (!segment) {
+      continue;
+    }
+    let decoded = segment;
+    try {
+      decoded = decodeURIComponent(segment);
+    } catch {}
+    if (decoded.includes('/') || decoded.includes('\\')) {
+      return null;
+    }
+    segments.push(decoded);
+  }
 
   if (segments.length === 0) {
     return null;

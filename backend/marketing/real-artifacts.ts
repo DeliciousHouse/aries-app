@@ -2,7 +2,11 @@ import { existsSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { resolveCodePath, resolveCodeRoot, resolveDataRoot } from '@/lib/runtime-paths';
+import {
+  lobsterOutputRoots as artifactStoreLobsterOutputRoots,
+  lobsterRoots as artifactStoreLobsterRoots,
+  resolveGeneratedAsset,
+} from './artifact-store';
 
 import type { MarketingJobRuntimeDocument } from './runtime-state';
 
@@ -31,10 +35,6 @@ function stringArray(value: unknown): string[] {
     : [];
 }
 
-function uniqueStrings(values: Array<string | null | undefined>): string[] {
-  return Array.from(new Set(values.map((value) => stringValue(value)).filter(Boolean)));
-}
-
 function slugify(value: string, fallback = 'campaign'): string {
   const normalized = value
     .toLowerCase()
@@ -43,89 +43,16 @@ function slugify(value: string, fallback = 'campaign'): string {
   return normalized || fallback;
 }
 
-function trustedRoots(): string[] {
-  return uniqueStrings([
-    resolveDataRoot(),
-    resolveCodeRoot(),
-    process.env.OPENCLAW_LOCAL_LOBSTER_CWD,
-    process.env.OPENCLAW_LOBSTER_CWD,
-    resolveCodePath('lobster'),
-    process.env.LOBSTER_STAGE1_CACHE_DIR,
-    process.env.LOBSTER_STAGE2_CACHE_DIR,
-    process.env.LOBSTER_STAGE3_CACHE_DIR,
-    process.env.LOBSTER_STAGE4_CACHE_DIR,
-  ]).map((root) => path.normalize(root));
-}
-
 export function lobsterRoots(): string[] {
-  return uniqueStrings([
-    process.env.OPENCLAW_LOCAL_LOBSTER_CWD,
-    process.env.OPENCLAW_LOBSTER_CWD,
-    resolveCodePath('lobster'),
-  ]).map((root) => path.normalize(root));
+  return artifactStoreLobsterRoots();
 }
 
 export function lobsterOutputRoots(): string[] {
-  // In the aries-app container the host's lobster/output dir is bind-mounted
-  // read-only at ARIES_LOBSTER_HOST_OUTPUT_MOUNT. Include it here so directory
-  // scans (landing-pages, ad-images, scripts, proposals) find the real files
-  // written by the host-side Lobster pipeline. Without this, campaignRootForBrand
-  // falls back to a path that only exists on the host, listFiles returns empty,
-  // and the dashboard shows zero creative assets even though the pipeline ran.
-  const hostMount = process.env.ARIES_LOBSTER_HOST_OUTPUT_MOUNT?.trim();
-  return uniqueStrings([
-    ...lobsterRoots().map((root) => path.join(root, 'output')),
-    hostMount ? path.normalize(hostMount) : null,
-  ]);
-}
-
-function absoluteCompatibilityCandidates(filePath: string): string[] {
-  const normalized = path.normalize(filePath);
-  const codeRoot = path.normalize(resolveCodeRoot());
-  const candidates = new Set([normalized]);
-  const remapPrefixes = [
-    '/home/node/workspace/aries-app',
-    '/app/aries-app',
-    path.join(codeRoot, 'aries-app'),
-  ].map((prefix) => path.normalize(prefix));
-
-  for (const prefix of remapPrefixes) {
-    if (normalized === prefix || normalized.startsWith(`${prefix}${path.sep}`)) {
-      const suffix = normalized.slice(prefix.length).replace(/^[\\/]+/, '');
-      candidates.add(path.join(codeRoot, suffix));
-      for (const lobsterRoot of lobsterRoots()) {
-        if (suffix === 'lobster' || suffix.startsWith(`lobster${path.sep}`)) {
-          candidates.add(path.join(lobsterRoot, suffix.replace(/^lobster[\\/]+/, '')));
-        }
-      }
-    }
-  }
-
-  return Array.from(candidates);
+  return artifactStoreLobsterOutputRoots();
 }
 
 export function resolveMarketingArtifactPath(filePath: string | null | undefined): string | null {
-  const raw = stringValue(filePath);
-  if (!raw) {
-    return null;
-  }
-
-  if (path.isAbsolute(raw)) {
-    for (const candidate of absoluteCompatibilityCandidates(raw)) {
-      if (existsSync(candidate)) {
-        return candidate;
-      }
-    }
-  }
-
-  for (const root of trustedRoots()) {
-    const candidate = path.resolve(root, raw);
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return null;
+  return resolveGeneratedAsset(filePath);
 }
 
 export async function readMarketingArtifactText(filePath: string | null | undefined): Promise<string | null> {

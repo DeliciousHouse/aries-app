@@ -1,5 +1,5 @@
 import { runAriesOpenClawWorkflow } from '../openclaw/aries-execution';
-import { ExecutionError } from './errors';
+import { HermesExecutionAdapter } from './providers/hermes';
 import { mapLegacyOpenClawGatewayError } from './providers/legacy-openclaw';
 import type { ExecutionProvider, WorkflowExecutionResult } from './types';
 import type { AriesWorkflowKey } from './workflow-catalog';
@@ -53,27 +53,10 @@ class LegacyOpenClawWorkflowProvider implements ExecutionProvider {
   }
 }
 
-class HermesExecutionProviderStub implements ExecutionProvider {
-  readonly name = 'hermes' as const;
-
-  async runWorkflow(): Promise<WorkflowExecutionResult> {
-    return {
-      kind: 'gateway_error',
-      error: new ExecutionError({
-        provider: 'hermes',
-        code: 'not_configured',
-        status: 503,
-        message:
-          'ARIES_EXECUTION_PROVIDER=hermes is not implemented yet. Set HERMES_GATEWAY_URL and HERMES_GATEWAY_TOKEN when the Hermes execution adapter lands; HERMES_SESSION_KEY stays optional.',
-      }),
-    };
-  }
-}
-
 export function getExecutionProvider(env: ExecutionProviderEnv = process.env): ExecutionProvider {
   const providerName = resolveExecutionProviderName(env);
   if (providerName === 'hermes') {
-    return new HermesExecutionProviderStub();
+    return new HermesExecutionAdapter(env);
   }
   return new LegacyOpenClawWorkflowProvider();
 }
