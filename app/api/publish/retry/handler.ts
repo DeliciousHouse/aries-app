@@ -1,5 +1,5 @@
 import { buildRetryEvent } from '../../../../backend/integrations/workflow-orchestrator';
-import { mapOpenClawGatewayError, runAriesOpenClawWorkflow } from '../../../../backend/openclaw/aries-execution';
+import { mapAriesExecutionError, runAriesWorkflow } from '../../../../backend/execution';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
 export async function handlePublishRetry(req: Request, tenantContextLoader?: TenantContextLoader) {
@@ -17,12 +17,18 @@ export async function handlePublishRetry(req: Request, tenantContextLoader?: Ten
 
   try {
     const event = buildRetryEvent({ tenant_id: tenantResult.tenantContext.tenantId, max_attempts: body.max_attempts });
-    const executed = await runAriesOpenClawWorkflow('publish_retry', {
+    const executed = await runAriesWorkflow('publish_retry', {
       tenant_id: tenantResult.tenantContext.tenantId,
       max_attempts: event.payload.max_attempts,
     });
     if (executed.kind === 'gateway_error') {
-      const mapped = mapOpenClawGatewayError(executed.error);
+      const mapped = mapAriesExecutionError(executed.error);
+      if (!mapped) {
+        return new Response(JSON.stringify({ status: 'error', reason: 'Execution failed.' }), {
+          status: 500,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
       return new Response(JSON.stringify(mapped.body), {
         status: mapped.status,
         headers: { 'content-type': 'application/json' },

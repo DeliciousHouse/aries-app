@@ -1,5 +1,5 @@
 import { normalizePublishDispatch } from '../../../../backend/integrations/workflow-orchestrator';
-import { mapOpenClawGatewayError, runAriesOpenClawWorkflow } from '../../../../backend/openclaw/aries-execution';
+import { mapAriesExecutionError, runAriesWorkflow } from '../../../../backend/execution';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
 export async function handlePublishDispatch(req: Request, tenantContextLoader?: TenantContextLoader) {
@@ -24,7 +24,7 @@ export async function handlePublishDispatch(req: Request, tenantContextLoader?: 
       media_urls: body.media_urls || [],
       scheduled_for: body.scheduled_for,
     });
-    const executed = await runAriesOpenClawWorkflow('publish_dispatch', {
+    const executed = await runAriesWorkflow('publish_dispatch', {
       tenant_id: tenantId,
       provider: event.provider,
       content_text: event.payload.content_text || '',
@@ -32,7 +32,13 @@ export async function handlePublishDispatch(req: Request, tenantContextLoader?: 
       scheduled_for: event.payload.scheduled_for || null,
     });
     if (executed.kind === 'gateway_error') {
-      const mapped = mapOpenClawGatewayError(executed.error);
+      const mapped = mapAriesExecutionError(executed.error);
+      if (!mapped) {
+        return new Response(JSON.stringify({ status: 'error', reason: 'Execution failed.' }), {
+          status: 500,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
       return new Response(JSON.stringify(mapped.body), {
         status: mapped.status,
         headers: { 'content-type': 'application/json' },

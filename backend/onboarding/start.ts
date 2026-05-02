@@ -4,8 +4,7 @@ import {
   resolveDraftRoot,
   resolveValidatedRoot
 } from '../../lib/runtime-paths';
-import { runAriesOpenClawWorkflow } from '../openclaw/aries-execution';
-import { OpenClawGatewayError } from '../openclaw/gateway-client';
+import { runAriesWorkflow } from '../execution';
 
 type Json = null | boolean | number | string | Json[] | { [k: string]: Json };
 
@@ -67,7 +66,7 @@ export async function startOnboarding(payload: StartRequest): Promise<StartResul
   const tenantType = payload.tenant_type!;
   const signupEventId = payload.signup_event_id!;
 
-  const executed = await runAriesOpenClawWorkflow('onboarding_start', {
+  const executed = await runAriesWorkflow('onboarding_start', {
     tenant_id: tenantId,
     tenant_type: tenantType,
     signup_event_id: signupEventId,

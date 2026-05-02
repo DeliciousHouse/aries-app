@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
+import { cancelAriesWorkflow } from '@/backend/execution';
 import { invalidateMarketingJobStatus } from '@/backend/marketing/jobs-status';
-import { cancelOpenClawLobsterWorkflow } from '@/backend/openclaw/gateway-client';
 import {
   isPipelineActive,
   loadMarketingJobRuntime,
@@ -128,7 +128,7 @@ export async function handleDeleteMarketingJob(
   // finish the current stage before the soft-cancel boundary check picks up.
   // The call swallows errors internally; soft-delete succeeds regardless.
   if (wasActive) {
-    await cancelOpenClawLobsterWorkflow({ correlationId: jobId }).catch(() => {});
+    await cancelAriesWorkflow({ correlationId: jobId }).catch(() => {});
   }
 
   invalidateMarketingJobStatus(jobId);
