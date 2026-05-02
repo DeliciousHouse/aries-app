@@ -1,11 +1,9 @@
 /**
  * Provider-neutral execution types for Aries.
  *
- * These mirror the runtime outcomes currently expressed by the OpenClaw-coupled
- * AriesWorkflowExecutionResult (backend/openclaw/aries-execution.ts) but use
- * provider-neutral names so future Hermes-native execution can share the same
- * contract. Adding these types is a no-op for runtime behavior; callers are
- * not migrated in this task.
+ * These mirror the runtime outcomes currently expressed by the legacy OpenClaw
+ * execution path, but use provider-neutral names so route handlers and future
+ * Hermes-native execution can share the same public contract.
  */
 
 import type { ExecutionError, ExecutionProviderName } from './errors';

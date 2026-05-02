@@ -1,5 +1,5 @@
 import { buildPayload, successResponse, errorResponse } from '../../../../lib/api-service';
-import { runAriesOpenClawWorkflow, mapOpenClawGatewayError } from '../../../../backend/openclaw/aries-execution';
+import { mapAriesExecutionError, runAriesWorkflow } from '../../../../backend/execution';
 
 /**
  * POST /api/sandbox/launch
@@ -27,14 +27,17 @@ export async function POST(req: Request) {
     details: (body.details as Record<string, string>) || {},
   } as any);
 
-  const executed = await runAriesOpenClawWorkflow('sandbox_launch', {
+  const executed = await runAriesWorkflow('sandbox_launch', {
     source: payload.source,
     surface: payload.surface,
     user: payload.user,
     details: payload.details ?? {},
   });
   if (executed.kind === 'gateway_error') {
-    const mapped = mapOpenClawGatewayError(executed.error);
+    const mapped = mapAriesExecutionError(executed.error);
+    if (!mapped) {
+      return errorResponse(500, 'Execution failed.');
+    }
     return new Response(JSON.stringify(mapped.body), {
       status: mapped.status,
       headers: { 'content-type': 'application/json' },

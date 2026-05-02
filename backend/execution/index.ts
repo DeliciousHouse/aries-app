@@ -1,10 +1,9 @@
 /**
  * Aries provider-neutral execution surface.
  *
- * This barrel exports the types and errors that callers should depend on
- * instead of importing provider-specific names (e.g. OpenClawGatewayError,
- * AriesWorkflowExecutionResult). Adding this module is a no-op for runtime
- * behavior; migration of existing callers happens in a later task.
+ * Route handlers and backend callers should import this surface instead of
+ * provider-specific modules. OpenClaw remains the current implementation behind
+ * these helpers, but callers should treat it as a swappable execution provider.
  */
 
 export {
@@ -28,6 +27,13 @@ export {
   type LegacyOpenClawResumeInput,
   type LegacyOpenClawRunInput,
 } from './providers/legacy-openclaw';
+
+export {
+  cancelAriesWorkflow,
+  mapAriesExecutionError,
+  runAriesWorkflow,
+  type AriesRouteExecutionResult,
+} from './route-helpers';
 
 export type {
   ExecutionProvider,

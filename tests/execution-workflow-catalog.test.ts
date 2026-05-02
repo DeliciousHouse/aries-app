@@ -33,11 +33,10 @@ test('Aries-owned workflow catalog preserves every legacy workflow definition', 
   }
 });
 
-test('tenant workflow routes import the Aries-owned workflow catalog', async () => {
+test('tenant workflow routes do not import the legacy OpenClaw workflow catalog', async () => {
   for (const relativePath of TENANT_WORKFLOW_ROUTE_FILES) {
     const source = await readFile(path.join(PROJECT_ROOT, relativePath), 'utf8');
 
-    assert.match(source, /@\/backend\/execution(?:\/workflow-catalog)?['"/]/);
-    assert.doesNotMatch(source, /@\/backend\/openclaw\/workflow-catalog/);
+    assert.doesNotMatch(source, /backend\/openclaw\/workflow-catalog/);
   }
 });

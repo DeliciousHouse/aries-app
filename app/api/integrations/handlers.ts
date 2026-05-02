@@ -4,7 +4,7 @@ import { oauthReconnect } from '../../../backend/integrations/reconnect';
 import { oauthStatusAsync } from '../../../backend/integrations/status';
 import { buildIntegrationSyncEvent } from '../../../backend/integrations/workflow-orchestrator';
 import { resolveTokenHealth } from '../../../backend/integrations/connection-schema';
-import { mapOpenClawGatewayError, runAriesOpenClawWorkflow } from '../../../backend/openclaw/aries-execution';
+import { mapAriesExecutionError, runAriesWorkflow } from '../../../backend/execution';
 import { PROVIDER_REGISTRY } from '../../../backend/integrations/provider-registry';
 import { buildOauthConnectInput } from '@/lib/oauth-connect-input';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
@@ -340,12 +340,18 @@ export async function handleIntegrationsSync(req: Request, tenantContextLoader?:
       tenant_id: tenantId,
       provider,
     });
-    const executed = await runAriesOpenClawWorkflow('integrations_sync', {
+    const executed = await runAriesWorkflow('integrations_sync', {
       tenant_id: tenantId,
       provider,
     });
     if (executed.kind === 'gateway_error') {
-      const mapped = mapOpenClawGatewayError(executed.error);
+      const mapped = mapAriesExecutionError(executed.error);
+      if (!mapped) {
+        return new Response(JSON.stringify({ status: 'error', reason: 'Execution failed.' }), {
+          status: 500,
+          headers: { 'content-type': 'application/json' }
+        });
+      }
       return new Response(JSON.stringify(mapped.body), {
         status: mapped.status,
         headers: { 'content-type': 'application/json' }
