@@ -42,6 +42,11 @@ function mapLegacyOpenClawCode(
       return 'response_invalid';
     case 'openclaw_gateway_server_error':
       return 'server_error';
+    default: {
+      const _exhaustive: never = code;
+      void _exhaustive;
+      return 'server_error';
+    }
   }
 }
 
