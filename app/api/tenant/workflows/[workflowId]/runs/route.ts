@@ -1,5 +1,5 @@
 import { mapOpenClawGatewayError, runAriesOpenClawWorkflow } from '@/backend/openclaw/aries-execution';
-import { ARIES_OPENCLAW_WORKFLOWS } from '@/backend/openclaw/workflow-catalog';
+import { ARIES_WORKFLOWS, type AriesWorkflowKey } from '@/backend/execution/workflow-catalog';
 import { getTenantContext } from '@/lib/tenant-context';
 
 function json(body: unknown, status = 200) {
@@ -23,10 +23,10 @@ export async function POST(req: Request, context: { params: Promise<{ workflowId
     payload = {};
   }
 
-  if (!(workflowId in ARIES_OPENCLAW_WORKFLOWS)) {
+  if (!Object.hasOwn(ARIES_WORKFLOWS, workflowId)) {
     return json({ error: 'not_found' }, 404);
   }
-  const key = workflowId as keyof typeof ARIES_OPENCLAW_WORKFLOWS;
+  const key = workflowId as AriesWorkflowKey;
 
   const executed = await runAriesOpenClawWorkflow(key, {
     tenant_id: tenantContext.tenantId,
