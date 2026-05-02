@@ -2,7 +2,7 @@
 
 > **For Hermes:** Use subagent-driven-development skill to implement this plan task-by-task.
 
-**Goal:** Move Aries/Ares runtime execution from OpenClaw/Lobster-owned contracts to Aries-owned interfaces backed by Hermes-compatible execution, without breaking marketing jobs, approval resumes, generated assets, Docker runtime, or live deployment.
+**Goal:** Move Aries runtime execution from OpenClaw/Lobster-owned contracts to Aries-owned interfaces backed by Hermes-compatible execution, without breaking marketing jobs, approval resumes, generated assets, Docker runtime, or live deployment.
 
 **Architecture:** Introduce an Aries-owned execution boundary first, then adapt the existing OpenClaw/Lobster implementation behind it as the legacy adapter. Add a Hermes adapter only after the Aries contract, runtime envelopes, approval tokens, cancellation, and artifact contracts are pinned by tests. Keep current OpenClaw/Lobster paths working until Hermes parity is proven route-by-route.
 
