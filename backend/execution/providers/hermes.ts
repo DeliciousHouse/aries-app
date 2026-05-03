@@ -9,6 +9,7 @@ const HERMES_SUPPORTED_RUN_WORKFLOWS = new Set(['demo_start']);
 
 const DEFAULT_RUN_TIMEOUT_MS = 60_000;
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
+const MIN_POLL_INTERVAL_MS = 50;
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'stopped']);
 
 type HermesRequestBase = {
@@ -98,8 +99,9 @@ function addOptionalRequestFields<T extends HermesRequestEnvelope>(
 
 /**
  * Internal request envelope shape. Retained as a stable serialization of the
- * Aries-side execution intent. It is JSON-encoded into the Hermes /v1/runs
- * `input` payload so the agent run sees the full workflow contract.
+ * Aries-side execution intent. `submitRun()` converts this to a human-readable
+ * prompt via `promptForWorkflow()` and per-workflow instructions via
+ * `instructionsForWorkflow()` before sending to the Hermes /v1/runs endpoint.
  */
 export function buildHermesRequestEnvelope(
   input: HermesRequestEnvelopeInput,
@@ -370,7 +372,10 @@ export class HermesExecutionAdapter {
 
   private async pollRunUntilTerminal(runId: string): Promise<WorkflowExecutionResult> {
     const timeoutMs = readEnvInt(this.env, 'HERMES_RUN_TIMEOUT_MS', DEFAULT_RUN_TIMEOUT_MS);
-    const intervalMs = readEnvInt(this.env, 'HERMES_POLL_INTERVAL_MS', DEFAULT_POLL_INTERVAL_MS);
+    const intervalMs = Math.max(
+      MIN_POLL_INTERVAL_MS,
+      readEnvInt(this.env, 'HERMES_POLL_INTERVAL_MS', DEFAULT_POLL_INTERVAL_MS),
+    );
     const deadline = Date.now() + timeoutMs;
 
     while (Date.now() <= deadline) {

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { LobsterEnvelope } from '../../openclaw/gateway-client';
 import type {
   MarketingExecutionPort,
@@ -46,13 +47,6 @@ export class HermesMarketingPort implements MarketingExecutionPort {
 }
 
 function hashToken(token: string): string {
-  // Truncated, non-reversible identifier so logs/envelopes can correlate
-  // resume attempts without leaking the full token. Order-preserving for
-  // identical inputs in the same process; not a cryptographic hash.
   if (!token) return '';
-  let h = 0;
-  for (let i = 0; i < token.length; i += 1) {
-    h = (h * 31 + token.charCodeAt(i)) | 0;
-  }
-  return `tok_${(h >>> 0).toString(16)}`;
+  return `tok_${createHash('sha1').update(token).digest('hex').slice(0, 12)}`;
 }
