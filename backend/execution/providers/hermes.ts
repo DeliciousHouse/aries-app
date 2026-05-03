@@ -310,6 +310,20 @@ export class HermesExecutionAdapter {
       }));
     }
 
+    if (responseRecord.ok === false) {
+      const errorRecord = recordValue(responseRecord.error);
+      const errorMessage =
+        (typeof responseRecord.error === 'string' && responseRecord.error) ||
+        (errorRecord && typeof errorRecord.message === 'string' && errorRecord.message) ||
+        'Hermes gateway reported a tool-level failure.';
+      return gatewayErrorResult(new ExecutionError({
+        provider: 'hermes',
+        code: 'response_invalid',
+        status: response.status,
+        message: errorMessage,
+      }));
+    }
+
     const workflowEnvelope = (recordValue(responseRecord.envelope) ?? responseRecord) as WorkflowEnvelope;
     return {
       kind: 'ok',
