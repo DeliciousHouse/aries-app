@@ -25,12 +25,12 @@ test('runtime env examples advertise optional execution-provider knobs without c
     /ARIES_EXECUTION_PROVIDER:\s*\$\{ARIES_EXECUTION_PROVIDER:-legacy-openclaw\}/,
   );
   assert.match(composeSource, /HERMES_GATEWAY_URL:\s*\$\{HERMES_GATEWAY_URL:-\}/);
-  assert.match(composeSource, /HERMES_GATEWAY_TOKEN:\s*\$\{HERMES_GATEWAY_TOKEN:-\}/);
+  assert.match(composeSource, /HERMES_API_SERVER_KEY:\s*\$\{HERMES_API_SERVER_KEY:-\}/);
   assert.match(composeSource, /HERMES_SESSION_KEY:\s*\$\{HERMES_SESSION_KEY:-main\}/);
 
   assert.match(envExampleSource, /^ARIES_EXECUTION_PROVIDER=legacy-openclaw$/m);
   assert.match(envExampleSource, /^# HERMES_GATEWAY_URL=/m);
-  assert.match(envExampleSource, /^# HERMES_GATEWAY_TOKEN=/m);
+  assert.match(envExampleSource, /^# HERMES_API_SERVER_KEY=/m);
   assert.match(envExampleSource, /^# HERMES_SESSION_KEY=main$/m);
 });
 

@@ -50,7 +50,7 @@ test('getExecutionProvider returns a Hermes stub that explains missing Hermes co
   assert.equal(result.error.code, 'not_configured');
   assert.match(result.error.message, /ARIES_EXECUTION_PROVIDER=hermes/);
   assert.match(result.error.message, /HERMES_GATEWAY_URL/);
-  assert.match(result.error.message, /HERMES_GATEWAY_TOKEN/);
+  assert.match(result.error.message, /HERMES_API_SERVER_KEY/);
 });
 
 test('runAriesWorkflow honors ARIES_EXECUTION_PROVIDER=hermes through the exported route helper', async () => {
@@ -60,12 +60,12 @@ test('runAriesWorkflow honors ARIES_EXECUTION_PROVIDER=hermes through the export
   const previous = {
     ARIES_EXECUTION_PROVIDER: process.env.ARIES_EXECUTION_PROVIDER,
     HERMES_GATEWAY_URL: process.env.HERMES_GATEWAY_URL,
-    HERMES_GATEWAY_TOKEN: process.env.HERMES_GATEWAY_TOKEN,
+    HERMES_API_SERVER_KEY: process.env.HERMES_API_SERVER_KEY,
     HERMES_SESSION_KEY: process.env.HERMES_SESSION_KEY,
   };
   process.env.ARIES_EXECUTION_PROVIDER = 'hermes';
   delete process.env.HERMES_GATEWAY_URL;
-  delete process.env.HERMES_GATEWAY_TOKEN;
+  delete process.env.HERMES_API_SERVER_KEY;
   delete process.env.HERMES_SESSION_KEY;
   try {
     const { runAriesWorkflow } = await import('../backend/execution');
