@@ -1594,6 +1594,41 @@ export async function recordMarketingReviewDecision(input: {
 
   const item = await resolveRuntimeReviewItem(jobId, input.reviewId);
   if (!item) {
+    // Idempotency: after the workflow completes (requiresApproval: null), the
+    // approval item no longer appears in the active review list. Re-surface the
+    // prior settled decision so duplicate POSTs / double-clicks get the record
+    // back instead of a 404-equivalent null.
+    const reviewState = loadReviewState(jobId, runtimeDoc.tenant_id);
+    const persistedSettled = reviewState.items[input.reviewId];
+    if (persistedSettled?.lastDecision) {
+      return {
+        id: input.reviewId,
+        jobId,
+        campaignId: jobId,
+        campaignName: stringValue(runtimeDoc.brand_kit?.brand_name, jobId),
+        reviewType: 'workflow_approval',
+        workflowState: 'published',
+        workflowStage: null,
+        title: 'Campaign approval',
+        channel: 'Campaign',
+        placement: 'Campaign review',
+        scheduledFor: 'Completed',
+        status: persistedSettled.status,
+        summary: '',
+        currentVersion: {
+          id: 'approval',
+          label: 'Current version',
+          headline: 'Campaign approval',
+          supportingText: '',
+          cta: 'Approved',
+          notes: [],
+        },
+        lastDecision: persistedSettled.lastDecision,
+        sections: [],
+        attachments: [],
+        history: [],
+      };
+    }
     return null;
   }
 
