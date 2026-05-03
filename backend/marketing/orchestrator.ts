@@ -17,10 +17,9 @@ import {
   isOpenClawLobsterResumeStateMissing,
   isOpenClawLobsterResumeStateRecoverable,
   resolveOpenClawLobsterRuntimeContext,
-  resumeOpenClawLobsterWorkflow,
-  runOpenClawLobsterWorkflow,
   type LobsterEnvelope,
 } from '../openclaw/gateway-client';
+import { getMarketingExecutionPort, type MarketingExecutionPort } from './execution-port';
 import {
   MarketingApprovalLockError,
   createMarketingApprovalRecord,
@@ -413,29 +412,31 @@ function summarizePublish(primaryOutput: Record<string, unknown>) {
   };
 }
 
+function resolveMarketingExecutionPort(): MarketingExecutionPort {
+  return getMarketingExecutionPort(() => {
+    const { gatewayCwd, localCwd } = resolveMarketingPipelineRuntimePaths();
+    return { gatewayCwd, localCwd };
+  });
+}
+
 async function runMarketingPipeline(doc: MarketingJobRuntimeDocument): Promise<LobsterEnvelope> {
-  const { gatewayCwd, localCwd } = resolveMarketingPipelineRuntimePaths();
-  return runOpenClawLobsterWorkflow({
-    pipeline: MARKETING_PIPELINE_FILE,
-    cwd: gatewayCwd,
-    localCwd,
+  const port = resolveMarketingExecutionPort();
+  return port.runPipeline({
+    jobId: doc.job_id,
+    doc,
     argsJson: JSON.stringify(marketingPipelineArgs(doc)),
     timeoutMs: marketingWorkflowTimeoutMs(),
     maxStdoutBytes: marketingWorkflowMaxStdoutBytes(),
-    allowLocalFallback: false,
   });
 }
 
 async function resumeMarketingPipeline(resumeToken: string, approve = true): Promise<LobsterEnvelope> {
-  const { gatewayCwd, localCwd } = resolveMarketingPipelineRuntimePaths();
-  return resumeOpenClawLobsterWorkflow({
-    token: resumeToken,
+  const port = resolveMarketingExecutionPort();
+  return port.resumePipeline({
+    resumeToken,
     approve,
-    cwd: gatewayCwd,
-    localCwd,
     timeoutMs: marketingWorkflowTimeoutMs(),
     maxStdoutBytes: marketingWorkflowMaxStdoutBytes(),
-    allowLocalFallback: false,
   });
 }
 
