@@ -91,7 +91,27 @@ function executionRunsRoot(): string {
 }
 
 export function executionRunPath(ariesRunId: string): string {
-  return path.join(executionRunsRoot(), `${ariesRunId}.json`);
+  // Reject anything that could escape the execution-runs directory at the
+  // input boundary. `path.join` would silently normalize values like
+  // `/etc/passwd` or `../foo` into a path that still resolves under root,
+  // so we must inspect the raw id before joining.
+  if (
+    !ariesRunId
+    || ariesRunId.includes('/')
+    || ariesRunId.includes('\\')
+    || ariesRunId.includes('\0')
+    || ariesRunId === '.'
+    || ariesRunId === '..'
+  ) {
+    throw new Error(`invalid ariesRunId: path traversal detected`);
+  }
+  const root = executionRunsRoot();
+  const filePath = path.join(root, `${ariesRunId}.json`);
+  // Defense-in-depth: resolved path must stay within the execution-runs directory.
+  if (!path.resolve(filePath).startsWith(path.resolve(root) + path.sep)) {
+    throw new Error(`invalid ariesRunId: path traversal detected`);
+  }
+  return filePath;
 }
 
 function executionRunLockPath(ariesRunId: string): string {

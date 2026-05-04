@@ -107,3 +107,23 @@ test('execution run submission preserves a status already advanced by callback',
     assert.equal(reloaded?.external_run_id, 'hermes-run-fast');
   });
 });
+
+test('executionRunPath throws on path traversal attempts', async () => {
+  await withDataRoot(async () => {
+    const { executionRunPath } = await import('../backend/execution/run-store');
+
+    const traversalIds = [
+      '../../etc/passwd',
+      '../arun_00000000-0000-0000-0000-000000000000',
+      '/etc/passwd',
+    ];
+
+    for (const id of traversalIds) {
+      assert.throws(
+        () => executionRunPath(id),
+        /path traversal/,
+        `expected throw for id=${JSON.stringify(id)}`,
+      );
+    }
+  });
+});

@@ -157,3 +157,28 @@ test('Hermes callback route rejects malformed approval payloads', async () => {
     });
   });
 });
+
+test('Hermes callback route rejects aries_run_id values with path traversal sequences', async () => {
+  await withCallbackEnv(async () => {
+    const { POST } = await import('../app/api/internal/hermes/runs/route');
+
+    const traversalIds = [
+      '../../etc/passwd',
+      '../arun_00000000-0000-0000-0000-000000000000',
+      'arun_00000000-0000-0000-0000-000000000000/../etc',
+      '/etc/passwd',
+    ];
+
+    for (const id of traversalIds) {
+      const response = await POST(callbackRequest({
+        event_id: 'evt-traversal',
+        aries_run_id: id,
+        status: 'completed',
+      }));
+      assert.equal(response.status, 400, `expected 400 for aries_run_id=${JSON.stringify(id)}`);
+      const body = await response.json() as { status: string; reason: string };
+      assert.equal(body.status, 'error');
+      assert.equal(body.reason, 'invalid_hermes_callback_payload');
+    }
+  });
+});
