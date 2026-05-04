@@ -91,7 +91,13 @@ function executionRunsRoot(): string {
 }
 
 export function executionRunPath(ariesRunId: string): string {
-  return path.join(executionRunsRoot(), `${ariesRunId}.json`);
+  const root = executionRunsRoot();
+  const filePath = path.join(root, `${ariesRunId}.json`);
+  // Prevent path traversal: resolved path must stay within the execution-runs directory.
+  if (!path.resolve(filePath).startsWith(path.resolve(root) + path.sep)) {
+    throw new Error(`invalid ariesRunId: path traversal detected`);
+  }
+  return filePath;
 }
 
 function executionRunLockPath(ariesRunId: string): string {
