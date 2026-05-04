@@ -125,6 +125,7 @@ export default function BusinessTypeCombobox({
     setIsOpen(false);
   };
 
+  // Only true when the listbox element is actually mounted in the DOM
   const listboxMounted = isOpen && filtered.length > 0;
   const activeDescendantId =
     listboxMounted && filtered[highlight] ? `${inputId}-option-${highlight}` : undefined;
