@@ -145,12 +145,12 @@ export function buildHermesRequestEnvelope(
   }
 }
 
-function missingHermesConfigError(keys: 'HERMES_GATEWAY_URL' | 'HERMES_GATEWAY_TOKEN' | 'HERMES_GATEWAY_URL and HERMES_GATEWAY_TOKEN'): ExecutionError {
+function missingHermesConfigError(keys: 'HERMES_GATEWAY_URL' | 'HERMES_API_SERVER_KEY' | 'HERMES_GATEWAY_URL and HERMES_API_SERVER_KEY'): ExecutionError {
   return new ExecutionError({
     provider: 'hermes',
     code: 'not_configured',
     status: 503,
-    message: `${keys} required when ARIES_EXECUTION_PROVIDER=hermes. Set the Hermes gateway URL and token, or set ARIES_EXECUTION_PROVIDER=legacy-openclaw to keep the current runtime.`,
+    message: `${keys} required when ARIES_EXECUTION_PROVIDER=hermes. Set HERMES_GATEWAY_URL and HERMES_API_SERVER_KEY (the value of API_SERVER_KEY from the Hermes .env), or set ARIES_EXECUTION_PROVIDER=legacy-openclaw to keep the current runtime.`,
   });
 }
 
@@ -274,16 +274,16 @@ export class HermesExecutionAdapter {
 
   private configurationError(): ExecutionError | null {
     const missingGatewayUrl = !readEnvValue(this.env, 'HERMES_GATEWAY_URL');
-    const missingGatewayToken = !readEnvValue(this.env, 'HERMES_GATEWAY_TOKEN');
+    const missingApiServerKey = !readEnvValue(this.env, 'HERMES_API_SERVER_KEY');
 
-    if (missingGatewayUrl && missingGatewayToken) {
-      return missingHermesConfigError('HERMES_GATEWAY_URL and HERMES_GATEWAY_TOKEN');
+    if (missingGatewayUrl && missingApiServerKey) {
+      return missingHermesConfigError('HERMES_GATEWAY_URL and HERMES_API_SERVER_KEY');
     }
     if (missingGatewayUrl) {
       return missingHermesConfigError('HERMES_GATEWAY_URL');
     }
-    if (missingGatewayToken) {
-      return missingHermesConfigError('HERMES_GATEWAY_TOKEN');
+    if (missingApiServerKey) {
+      return missingHermesConfigError('HERMES_API_SERVER_KEY');
     }
     return null;
   }
@@ -297,7 +297,7 @@ export class HermesExecutionAdapter {
   }
 
   private authHeader(): string {
-    return `Bearer ${readEnvValue(this.env, 'HERMES_GATEWAY_TOKEN')}`;
+    return `Bearer ${readEnvValue(this.env, 'HERMES_API_SERVER_KEY')}`;
   }
 
   private async invokeRun(envelope: HermesRunRequestEnvelope): Promise<WorkflowExecutionResult> {

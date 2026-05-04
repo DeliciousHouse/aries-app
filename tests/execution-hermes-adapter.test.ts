@@ -25,7 +25,7 @@ const NO_SLEEP = async () => {};
 
 test('HermesExecutionAdapter reports missing HERMES_GATEWAY_URL with an actionable ExecutionError', async () => {
   const adapter = new HermesExecutionAdapter({
-    HERMES_GATEWAY_TOKEN: 'token-123',
+    HERMES_API_SERVER_KEY: 'token-123',
   });
 
   const result = await adapter.runWorkflow('marketing_demo', { tenantId: 'tenant-123' });
@@ -43,9 +43,9 @@ test('HermesExecutionAdapter reports missing HERMES_GATEWAY_URL with an actionab
   assert.match(result.error.message, /ARIES_EXECUTION_PROVIDER=legacy-openclaw/);
 });
 
-test('HermesExecutionAdapter reports missing HERMES_GATEWAY_TOKEN with an actionable ExecutionError', async () => {
+test('HermesExecutionAdapter reports missing HERMES_API_SERVER_KEY with an actionable ExecutionError', async () => {
   const adapter = new HermesExecutionAdapter({
-    HERMES_GATEWAY_URL: 'http://127.0.0.1:8787',
+    HERMES_GATEWAY_URL: 'http://127.0.0.1:8642',
   });
 
   const result = await adapter.runWorkflow('marketing_demo', { tenantId: 'tenant-123' });
@@ -57,15 +57,15 @@ test('HermesExecutionAdapter reports missing HERMES_GATEWAY_TOKEN with an action
 
   assert.equal(result.error.provider, 'hermes');
   assert.equal(result.error.code, 'not_configured');
-  assert.match(result.error.message, /HERMES_GATEWAY_TOKEN/);
+  assert.match(result.error.message, /HERMES_API_SERVER_KEY/);
 });
 
 test('HermesExecutionAdapter returns not_implemented for unsupported workflows even when configured', async () => {
   let called = false;
   const adapter = new HermesExecutionAdapter(
     {
-      HERMES_GATEWAY_URL: 'http://127.0.0.1:8787',
-      HERMES_GATEWAY_TOKEN: 'token-123',
+      HERMES_GATEWAY_URL: 'http://127.0.0.1:8642',
+      HERMES_API_SERVER_KEY: 'token-123',
     },
     async () => {
       called = true;
@@ -107,8 +107,8 @@ test('HermesExecutionAdapter submits demo_start to /v1/runs and parses the polle
   ]);
   const adapter = new HermesExecutionAdapter(
     {
-      HERMES_GATEWAY_URL: 'http://127.0.0.1:8787/',
-      HERMES_GATEWAY_TOKEN: 'token-123',
+      HERMES_GATEWAY_URL: 'http://127.0.0.1:8642/',
+      HERMES_API_SERVER_KEY: 'token-123',
       HERMES_SESSION_KEY: 'campaign-runtime',
       HERMES_POLL_INTERVAL_MS: '0',
     },
@@ -128,7 +128,7 @@ test('HermesExecutionAdapter submits demo_start to /v1/runs and parses the polle
   assert.equal(result.envelope.run_id, 'run_abc');
 
   assert.equal(calls.length, 3);
-  assert.equal(calls[0].url, 'http://127.0.0.1:8787/v1/runs');
+  assert.equal(calls[0].url, 'http://127.0.0.1:8642/v1/runs');
   assert.equal(calls[0].init.method, 'POST');
   const headers0 = calls[0].init.headers as Record<string, string>;
   assert.equal(headers0.authorization, 'Bearer token-123');
@@ -139,9 +139,9 @@ test('HermesExecutionAdapter submits demo_start to /v1/runs and parses the polle
   assert.match(submitBody.input, /"user":\{"email":"founder@example.com"\}/);
   assert.match(submitBody.instructions, /Aries demo provisioning/);
 
-  assert.equal(calls[1].url, 'http://127.0.0.1:8787/v1/runs/run_abc');
+  assert.equal(calls[1].url, 'http://127.0.0.1:8642/v1/runs/run_abc');
   assert.equal(calls[1].init.method, 'GET');
-  assert.equal(calls[2].url, 'http://127.0.0.1:8787/v1/runs/run_abc');
+  assert.equal(calls[2].url, 'http://127.0.0.1:8642/v1/runs/run_abc');
 });
 
 test('HermesExecutionAdapter wraps non-JSON run output as a generic envelope without failing', async () => {
@@ -157,8 +157,8 @@ test('HermesExecutionAdapter wraps non-JSON run output as a generic envelope wit
   ]);
   const adapter = new HermesExecutionAdapter(
     {
-      HERMES_GATEWAY_URL: 'http://127.0.0.1:8787',
-      HERMES_GATEWAY_TOKEN: 'token-123',
+      HERMES_GATEWAY_URL: 'http://127.0.0.1:8642',
+      HERMES_API_SERVER_KEY: 'token-123',
       HERMES_POLL_INTERVAL_MS: '0',
     },
     fetchImpl,
@@ -188,8 +188,8 @@ test('HermesExecutionAdapter surfaces failed runs as gateway_error with the agen
   ]);
   const adapter = new HermesExecutionAdapter(
     {
-      HERMES_GATEWAY_URL: 'http://127.0.0.1:8787',
-      HERMES_GATEWAY_TOKEN: 'token-123',
+      HERMES_GATEWAY_URL: 'http://127.0.0.1:8642',
+      HERMES_API_SERVER_KEY: 'token-123',
       HERMES_POLL_INTERVAL_MS: '0',
     },
     fetchImpl,
@@ -209,7 +209,7 @@ test('HermesExecutionAdapter returns unreachable when /v1/runs submission throws
   const adapter = new HermesExecutionAdapter(
     {
       HERMES_GATEWAY_URL: 'http://127.0.0.1:65500',
-      HERMES_GATEWAY_TOKEN: 'token-123',
+      HERMES_API_SERVER_KEY: 'token-123',
       HERMES_POLL_INTERVAL_MS: '0',
     },
     async () => {
@@ -235,8 +235,8 @@ test('HermesExecutionAdapter surfaces non-2xx submission HTTP status as a struct
   ]);
   const adapter = new HermesExecutionAdapter(
     {
-      HERMES_GATEWAY_URL: 'http://127.0.0.1:8787',
-      HERMES_GATEWAY_TOKEN: 'token-bad',
+      HERMES_GATEWAY_URL: 'http://127.0.0.1:8642',
+      HERMES_API_SERVER_KEY: 'token-bad',
       HERMES_POLL_INTERVAL_MS: '0',
     },
     fetchImpl,
@@ -264,8 +264,8 @@ test('HermesExecutionAdapter times out runs that never reach a terminal status',
   ]);
   const adapter = new HermesExecutionAdapter(
     {
-      HERMES_GATEWAY_URL: 'http://127.0.0.1:8787',
-      HERMES_GATEWAY_TOKEN: 'token-123',
+      HERMES_GATEWAY_URL: 'http://127.0.0.1:8642',
+      HERMES_API_SERVER_KEY: 'token-123',
       HERMES_RUN_TIMEOUT_MS: '0',
       HERMES_POLL_INTERVAL_MS: '0',
     },
@@ -296,8 +296,8 @@ test('HermesExecutionAdapter strips JSON code fences from agent output', async (
   ]);
   const adapter = new HermesExecutionAdapter(
     {
-      HERMES_GATEWAY_URL: 'http://127.0.0.1:8787',
-      HERMES_GATEWAY_TOKEN: 'token-123',
+      HERMES_GATEWAY_URL: 'http://127.0.0.1:8642',
+      HERMES_API_SERVER_KEY: 'token-123',
       HERMES_POLL_INTERVAL_MS: '0',
     },
     fetchImpl,
