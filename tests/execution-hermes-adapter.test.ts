@@ -164,51 +164,55 @@ test('HermesExecutionAdapter submits demo_start once and returns an async run en
 });
 
 test('HermesExecutionAdapter returns unreachable when /v1/runs submission throws', async () => {
-  const adapter = new HermesExecutionAdapter(
-    {
-      HERMES_GATEWAY_URL: TEST_UNREACHABLE_URL,
-      HERMES_API_SERVER_KEY: 'token-123',
-      APP_BASE_URL: 'https://aries.example.com',
-      HERMES_POLL_INTERVAL_MS: '0',
-    },
-    async () => {
-      throw new Error('ECONNREFUSED');
-    },
-    NO_SLEEP,
-  );
+  await withDataRoot(async () => {
+    const adapter = new HermesExecutionAdapter(
+      {
+        HERMES_GATEWAY_URL: TEST_UNREACHABLE_URL,
+        HERMES_API_SERVER_KEY: 'token-123',
+        APP_BASE_URL: 'https://aries.example.com',
+        HERMES_POLL_INTERVAL_MS: '0',
+      },
+      async () => {
+        throw new Error('ECONNREFUSED');
+      },
+      NO_SLEEP,
+    );
 
-  const result = await adapter.runWorkflow('demo_start', { user: { email: 'a@b.co' } });
+    const result = await adapter.runWorkflow('demo_start', { user: { email: 'a@b.co' } });
 
-  assert.equal(result.kind, 'gateway_error');
-  if (result.kind !== 'gateway_error') assert.fail('expected gateway_error');
-  assert.equal(result.error.code, 'unreachable');
-  assert.equal(result.error.status, 503);
+    assert.equal(result.kind, 'gateway_error');
+    if (result.kind !== 'gateway_error') assert.fail('expected gateway_error');
+    assert.equal(result.error.code, 'unreachable');
+    assert.equal(result.error.status, 503);
+  });
 });
 
 test('HermesExecutionAdapter surfaces non-2xx submission HTTP status as a structured ExecutionError', async () => {
-  const { fetchImpl } = recordingFetchSequence([
-    () => new Response('{"error":{"message":"unauthorized"}}', {
-      status: 401,
-      headers: { 'content-type': 'application/json' },
-    }),
-  ]);
-  const adapter = new HermesExecutionAdapter(
-    {
-      HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL,
-      HERMES_API_SERVER_KEY: 'token-bad',
-      APP_BASE_URL: 'https://aries.example.com',
-      HERMES_POLL_INTERVAL_MS: '0',
-    },
-    fetchImpl,
-    NO_SLEEP,
-  );
+  await withDataRoot(async () => {
+    const { fetchImpl } = recordingFetchSequence([
+      () => new Response('{"error":{"message":"unauthorized"}}', {
+        status: 401,
+        headers: { 'content-type': 'application/json' },
+      }),
+    ]);
+    const adapter = new HermesExecutionAdapter(
+      {
+        HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL,
+        HERMES_API_SERVER_KEY: 'token-bad',
+        APP_BASE_URL: 'https://aries.example.com',
+        HERMES_POLL_INTERVAL_MS: '0',
+      },
+      fetchImpl,
+      NO_SLEEP,
+    );
 
-  const result = await adapter.runWorkflow('demo_start', { user: { email: 'a@b.co' } });
+    const result = await adapter.runWorkflow('demo_start', { user: { email: 'a@b.co' } });
 
-  assert.equal(result.kind, 'gateway_error');
-  if (result.kind !== 'gateway_error') assert.fail('expected gateway_error');
-  assert.equal(result.error.code, 'unauthorized');
-  assert.equal(result.error.status, 401);
+    assert.equal(result.kind, 'gateway_error');
+    if (result.kind !== 'gateway_error') assert.fail('expected gateway_error');
+    assert.equal(result.error.code, 'unauthorized');
+    assert.equal(result.error.status, 401);
+  });
 });
 
 test('buildHermesRequestEnvelope retains the run/resume/cancel contract for upstream callers', () => {
