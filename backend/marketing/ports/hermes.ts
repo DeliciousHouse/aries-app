@@ -85,11 +85,11 @@ function markSubmissionFailed(ariesRunId: string, code: string, message: string)
 }
 
 /**
- * Marketing execution port backed by Hermes callbacks.
+ * Marketing execution port backed by Hermes polling.
  *
- * Hermes is async: this adapter submits a run/resume request, persists the
- * Aries correlation id, and returns immediately. The callback route advances
- * marketing state when Hermes posts results back to Aries.
+ * Submits a run/resume request to the Hermes gateway, then polls
+ * GET /v1/runs/{id} until a terminal status is reached, and returns
+ * the parsed LobsterEnvelope from the agent's output.
  */
 export class HermesMarketingPort implements MarketingExecutionPort {
   readonly name = 'hermes' as const;
@@ -214,16 +214,21 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     }
 
     markExecutionRunSubmitted(run.aries_run_id, { externalRunId: hermesRunId });
-    return this.pollRunUntilTerminal(hermesRunId);
+    return this.pollRunUntilTerminal(hermesRunId, run.aries_run_id);
   }
 
-  private async pollRunUntilTerminal(runId: string): Promise<MarketingExecutionResult> {
+  private async pollRunUntilTerminal(runId: string, ariesRunId: string): Promise<MarketingExecutionResult> {
     const timeoutMs = readEnvInt(this.env, 'HERMES_RUN_TIMEOUT_MS', DEFAULT_RUN_TIMEOUT_MS);
     const intervalMs = Math.max(
       MIN_POLL_INTERVAL_MS,
       readEnvInt(this.env, 'HERMES_POLL_INTERVAL_MS', DEFAULT_POLL_INTERVAL_MS),
     );
     const deadline = Date.now() + timeoutMs;
+
+    const failRun = (code: string, message: string, detail?: Record<string, unknown>): MarketingExecutionResult => {
+      markSubmissionFailed(ariesRunId, code, message);
+      return gatewayErrorResult(code, message, detail);
+    };
 
     while (Date.now() <= deadline) {
       let pollResponse: Response;
@@ -233,53 +238,66 @@ export class HermesMarketingPort implements MarketingExecutionPort {
           { method: 'GET', headers: { authorization: this.authHeader() } },
         );
       } catch (error) {
-        return gatewayErrorResult('hermes_gateway_unreachable', 'Hermes gateway is unreachable while polling run status.', {
+        return failRun('hermes_gateway_unreachable', 'Hermes gateway is unreachable while polling run status.', {
           error: error instanceof Error ? error.message : String(error),
         });
       }
       if (!pollResponse.ok) {
-        return gatewayErrorResult(
+        return failRun(
           'hermes_gateway_request_failed',
           `Hermes gateway returned HTTP ${pollResponse.status} polling run ${runId}.`,
           { status: pollResponse.status },
         );
       }
       const record = await this.parseJsonBody(pollResponse);
-      const status = typeof record?.status === 'string' ? record.status : '';
-      if (TERMINAL_STATUSES.has(status)) {
-        return this.resultFromTerminalRun(runId, record ?? {});
+      if (!record || typeof record.status !== 'string') {
+        return failRun(
+          'hermes_gateway_response_invalid',
+          `Hermes poll response for run ${runId} is missing a status field.`,
+        );
+      }
+      if (TERMINAL_STATUSES.has(record.status)) {
+        return this.resultFromTerminalRun(runId, ariesRunId, record);
       }
       await this.sleep(intervalMs);
     }
 
-    return gatewayErrorResult(
+    return failRun(
       'hermes_gateway_timeout',
       `Hermes run ${runId} did not reach a terminal status within ${timeoutMs}ms.`,
     );
   }
 
-  private resultFromTerminalRun(runId: string, record: Record<string, unknown>): MarketingExecutionResult {
+  private resultFromTerminalRun(runId: string, ariesRunId: string, record: Record<string, unknown>): MarketingExecutionResult {
     const status = typeof record.status === 'string' ? record.status : '';
     if (status === 'failed') {
       const message = typeof record.error === 'string' && record.error
         ? record.error
         : `Hermes run ${runId} failed without an error message.`;
+      markSubmissionFailed(ariesRunId, 'hermes_run_failed', message);
       return gatewayErrorResult('hermes_run_failed', message, { run_id: runId });
     }
     if (status === 'cancelled' || status === 'stopped') {
-      return gatewayErrorResult('hermes_run_cancelled', `Hermes run ${runId} ended with status ${status}.`, { run_id: runId });
+      const message = `Hermes run ${runId} ended with status ${status}.`;
+      markSubmissionFailed(ariesRunId, 'hermes_run_cancelled', message);
+      return gatewayErrorResult('hermes_run_cancelled', message, { run_id: runId });
     }
 
+    // status === 'completed'
     const outputText = typeof record.output === 'string' ? record.output : '';
-    const parsed = tryParseJson(outputText);
-    const envelope: LobsterEnvelope = (
-      parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-        ? parsed as LobsterEnvelope
-        : { ok: true, status: 'completed', provider: 'hermes', run_id: runId, output_text: outputText }
-    );
-    if (typeof envelope.ok !== 'boolean') envelope.ok = true;
-    if (typeof envelope.status !== 'string') envelope.status = 'completed';
-    return { kind: 'completed', provider: 'hermes', envelope };
+    if (outputText) {
+      const parsed = tryParseJson(outputText);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        const message = `Hermes run ${runId} returned unparseable output.`;
+        markSubmissionFailed(ariesRunId, 'hermes_output_invalid', message);
+        return gatewayErrorResult('hermes_output_invalid', message, { run_id: runId });
+      }
+      const envelope = parsed as LobsterEnvelope;
+      if (typeof envelope.ok !== 'boolean') envelope.ok = true;
+      if (typeof envelope.status !== 'string') envelope.status = 'completed';
+      return { kind: 'completed', provider: 'hermes', envelope };
+    }
+    return { kind: 'completed', provider: 'hermes', envelope: { ok: true, status: 'completed', provider: 'hermes', run_id: runId } };
   }
 
   private async parseJsonBody(response: Response): Promise<Record<string, unknown> | null> {

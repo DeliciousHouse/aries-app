@@ -1,6 +1,7 @@
 import { ExecutionError } from '../errors';
 import {
   createExecutionRunRecord,
+  markExecutionRunFailed,
   markExecutionRunSubmitted,
 } from '../run-store';
 import type { WorkflowEnvelope, WorkflowExecutionResult } from '../types';
@@ -318,7 +319,7 @@ export class HermesExecutionAdapter {
       return submission.result;
     }
     markExecutionRunSubmitted(run.aries_run_id, { externalRunId: submission.runId });
-    return this.pollRunUntilTerminal(submission.runId);
+    return this.pollRunUntilTerminal(submission.runId, run.aries_run_id);
   }
 
   private async submitRun(
@@ -384,13 +385,22 @@ export class HermesExecutionAdapter {
     return { kind: 'submitted', runId };
   }
 
-  private async pollRunUntilTerminal(runId: string): Promise<WorkflowExecutionResult> {
+  private async pollRunUntilTerminal(runId: string, ariesRunId: string): Promise<WorkflowExecutionResult> {
     const timeoutMs = readEnvInt(this.env, 'HERMES_RUN_TIMEOUT_MS', DEFAULT_RUN_TIMEOUT_MS);
     const intervalMs = Math.max(
       MIN_POLL_INTERVAL_MS,
       readEnvInt(this.env, 'HERMES_POLL_INTERVAL_MS', DEFAULT_POLL_INTERVAL_MS),
     );
     const deadline = Date.now() + timeoutMs;
+
+    const failRun = (error: ExecutionError): WorkflowExecutionResult => {
+      markExecutionRunFailed(ariesRunId, {
+        code: error.code,
+        message: error.message,
+        retryable: error.code === 'unreachable',
+      });
+      return gatewayErrorResult(error);
+    };
 
     while (Date.now() <= deadline) {
       let response: Response;
@@ -400,7 +410,7 @@ export class HermesExecutionAdapter {
           headers: { authorization: this.authHeader() },
         });
       } catch (error) {
-        return gatewayErrorResult(new ExecutionError({
+        return failRun(new ExecutionError({
           provider: 'hermes',
           code: 'unreachable',
           status: 503,
@@ -409,7 +419,7 @@ export class HermesExecutionAdapter {
         }));
       }
       if (!response.ok) {
-        return gatewayErrorResult(new ExecutionError({
+        return failRun(new ExecutionError({
           provider: 'hermes',
           code: errorCodeForStatus(response.status),
           status: response.status,
@@ -418,17 +428,28 @@ export class HermesExecutionAdapter {
       }
       const parsed = await this.parseJsonBody(response);
       if (parsed.kind === 'error') {
+        markExecutionRunFailed(ariesRunId, {
+          code: parsed.result.kind === 'gateway_error' ? parsed.result.error.code : 'response_invalid',
+          message: parsed.result.kind === 'gateway_error' ? parsed.result.error.message : 'Hermes returned invalid JSON.',
+        });
         return parsed.result;
       }
       const record = recordValue(parsed.value);
-      const status = record && typeof record.status === 'string' ? record.status : '';
-      if (TERMINAL_STATUSES.has(status)) {
-        return this.resultFromTerminalRun(runId, record ?? {}, response.status);
+      if (!record || typeof record.status !== 'string') {
+        return failRun(new ExecutionError({
+          provider: 'hermes',
+          code: 'response_invalid',
+          status: response.status,
+          message: `Hermes poll response for run ${runId} is missing a status field.`,
+        }));
+      }
+      if (TERMINAL_STATUSES.has(record.status)) {
+        return this.resultFromTerminalRun(runId, ariesRunId, record, response.status);
       }
       await this.sleep(intervalMs);
     }
 
-    return gatewayErrorResult(new ExecutionError({
+    return failRun(new ExecutionError({
       provider: 'hermes',
       code: 'server_error',
       status: 504,
@@ -438,6 +459,7 @@ export class HermesExecutionAdapter {
 
   private resultFromTerminalRun(
     runId: string,
+    ariesRunId: string,
     record: Record<string, unknown>,
     httpStatus: number,
   ): WorkflowExecutionResult {
@@ -446,20 +468,14 @@ export class HermesExecutionAdapter {
       const errorText = typeof record.error === 'string' && record.error
         ? record.error
         : `Hermes run ${runId} failed without an error message.`;
-      return gatewayErrorResult(new ExecutionError({
-        provider: 'hermes',
-        code: 'server_error',
-        status: httpStatus,
-        message: errorText,
-      }));
+      const error = new ExecutionError({ provider: 'hermes', code: 'server_error', status: httpStatus, message: errorText });
+      markExecutionRunFailed(ariesRunId, { code: error.code, message: error.message });
+      return gatewayErrorResult(error);
     }
     if (status === 'cancelled' || status === 'stopped') {
-      return gatewayErrorResult(new ExecutionError({
-        provider: 'hermes',
-        code: 'server_error',
-        status: httpStatus,
-        message: `Hermes run ${runId} ended with status ${status}.`,
-      }));
+      const error = new ExecutionError({ provider: 'hermes', code: 'server_error', status: httpStatus, message: `Hermes run ${runId} ended with status ${status}.` });
+      markExecutionRunFailed(ariesRunId, { code: error.code, message: error.message });
+      return gatewayErrorResult(error);
     }
 
     // status === 'completed'
