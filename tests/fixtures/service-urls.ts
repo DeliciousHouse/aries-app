@@ -17,5 +17,5 @@ export const TEST_OPENCLAW_GATEWAY_URL = 'http://127.0.0.1:3456';
 export const TEST_HERMES_GATEWAY_URL = 'http://127.0.0.1:8642';
 export const TEST_APP_BASE_URL = 'http://127.0.0.1:3000';
 
-/** A guaranteed-unreachable URL for "service down" / unreachable-path tests. */
+/** A URL intended to be unreachable for "service down" / unreachable-path tests. */
 export const TEST_UNREACHABLE_URL = 'http://127.0.0.1:65500';
