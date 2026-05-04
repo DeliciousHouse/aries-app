@@ -91,7 +91,12 @@ function executionRunsRoot(): string {
 }
 
 export function executionRunPath(ariesRunId: string): string {
-  return path.join(executionRunsRoot(), `${ariesRunId}.json`);
+  const root = path.resolve(executionRunsRoot());
+  const resolved = path.resolve(root, `${ariesRunId}.json`);
+  if (!resolved.startsWith(root + path.sep)) {
+    throw new Error(`invalid aries_run_id: path escapes execution-runs directory`);
+  }
+  return resolved;
 }
 
 function executionRunLockPath(ariesRunId: string): string {
