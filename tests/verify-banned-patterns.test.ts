@@ -173,6 +173,7 @@ test('marketing job creation response omits banned runtime and tenant fields', a
             jobType: 'brand_campaign',
             payload: {
               brandUrl: 'https://brand.example',
+              businessType: 'Test vertical',
               competitorUrl: 'https://betterup.com',
             },
           }),

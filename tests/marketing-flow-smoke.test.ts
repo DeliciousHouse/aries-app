@@ -165,6 +165,7 @@ test('canonical client-facing marketing smoke flow stays on the monolithic pipel
       jobType: 'brand_campaign',
       payload: {
         brandUrl: 'https://brand.example',
+        businessType: 'Test vertical',
         competitorUrl: 'https://betterup.com',
       },
     });
@@ -270,6 +271,7 @@ test('startMarketingJob returns a failed campaign instead of throwing when the g
       jobType: 'brand_campaign',
       payload: {
         brandUrl: 'https://brand.example',
+        businessType: 'Test vertical',
         competitorUrl: 'https://betterup.com',
       },
     });

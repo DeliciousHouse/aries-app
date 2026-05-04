@@ -205,6 +205,7 @@ test('startMarketingJob rejects Facebook URLs in the canonical competitor field'
           jobType: 'brand_campaign',
           payload: {
             brandUrl: 'https://brand.example',
+            businessType: 'Test vertical',
             competitorUrl: 'https://www.facebook.com/betterupco',
           },
         }),
@@ -232,6 +233,7 @@ test('startMarketingJob keeps the client-facing marketing flow on the canonical 
       jobType: 'brand_campaign',
       payload: {
         brandUrl: 'https://brand.example',
+        businessType: 'Test vertical',
         competitorUrl: 'https://betterup.com',
       },
     });
@@ -347,6 +349,7 @@ test('approveMarketingJob advances strategy, production, and publish approvals t
       jobType: 'brand_campaign',
       payload: {
         brandUrl: 'https://brand.example',
+        businessType: 'Test vertical',
         competitorUrl: 'https://betterup.com',
       },
     });
@@ -532,6 +535,7 @@ test('approveMarketingJob preserves the second publish-as-paused approval checkp
       jobType: 'brand_campaign',
       payload: {
         brandUrl: 'https://brand.example',
+        businessType: 'Test vertical',
         competitorUrl: 'https://betterup.com',
       },
     });
@@ -634,6 +638,7 @@ test('approveMarketingJob preserves the active approval checkpoint when resume f
       jobType: 'brand_campaign',
       payload: {
         brandUrl: 'https://brand.example',
+        businessType: 'Test vertical',
         competitorUrl: 'https://betterup.com',
       },
     });
@@ -747,6 +752,7 @@ test('approveMarketingJob reseeds a missing Lobster resume state and retries the
       jobType: 'brand_campaign',
       payload: {
         brandUrl: 'https://brand.example',
+        businessType: 'Test vertical',
         competitorUrl: 'https://betterup.com',
       },
     });
@@ -873,6 +879,7 @@ test('approveMarketingJob reseeds an invalid Lobster resume state and retries th
       jobType: 'brand_campaign',
       payload: {
         brandUrl: 'https://brand.example',
+        businessType: 'Test vertical',
         competitorUrl: 'https://betterup.com',
       },
     });
@@ -965,6 +972,7 @@ test('approveMarketingJob backfills a missing brand kit for legacy runtime docum
         inputs: {
           request: {
             brandUrl: 'https://brand.example',
+            businessType: 'Test vertical',
             competitorUrl: 'https://betterup.com',
           },
           brand_url: 'https://brand.example',

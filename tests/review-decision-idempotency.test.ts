@@ -145,7 +145,7 @@ test('approve_stage_4_publish: duplicate recordMarketingReviewDecision does not 
       const started = await startMarketingJob({
         tenantId,
         jobType: 'brand_campaign',
-        payload: { brandUrl: 'https://brand.example', competitorUrl: 'https://betterup.com' },
+        payload: { brandUrl: 'https://brand.example', businessType: 'Test vertical', competitorUrl: 'https://betterup.com' },
       });
 
       const advance = async (stepId: string, stage: 'strategy' | 'production' | 'publish') => {

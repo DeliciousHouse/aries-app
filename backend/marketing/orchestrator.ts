@@ -189,10 +189,12 @@ function stringValue(value: unknown, fallback = ''): string {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback;
 }
 
-function ensureBrandCampaignInput(input: StartMarketingJobRequest): { brandUrl: string; competitorUrl: string } {
+function ensureBrandCampaignInput(input: StartMarketingJobRequest): { brandUrl: string; businessType: string; competitorUrl: string } {
   const brandUrl = stringValue(input.payload?.brandUrl);
+  const businessType = stringValue(input.payload?.businessType);
   const missing: string[] = [];
   if (!brandUrl) missing.push('payload.brandUrl');
+  if (!businessType) missing.push('payload.businessType');
   if (missing.length > 0) {
     throw new Error(`missing_required_fields:${missing.join(',')}`);
   }
@@ -205,6 +207,7 @@ function ensureBrandCampaignInput(input: StartMarketingJobRequest): { brandUrl: 
   }
   return {
     brandUrl,
+    businessType,
     competitorUrl: competitorValidation.normalized || brandUrl,
   };
 }

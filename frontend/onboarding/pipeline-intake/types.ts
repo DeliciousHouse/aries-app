@@ -4,6 +4,7 @@ export type ExecutionMode = "strategy_only" | "strategy_plus_assets" | "full_pip
 
 export interface PipelineInput {
   brand_url: string;
+  business_type: string;
   competitor_url: string;
   goal: Goal;
   channels: Channel[];
