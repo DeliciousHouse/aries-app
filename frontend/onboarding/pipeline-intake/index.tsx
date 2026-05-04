@@ -14,7 +14,7 @@ import type { Channel, ExecutionMode, Goal, PipelineInput } from './types';
 type StepIndex = 0 | 1 | 2 | 3 | 4;
 
 const LOCAL_DRAFT_KEY = 'aries:pipeline-intake-draft';
-const LOCAL_DRAFT_VERSION = 1;
+const LOCAL_DRAFT_VERSION = 2;
 
 const VALID_GOALS: readonly Goal[] = ['lead_generation', 'content_growth', 'product_sales', 'brand_awareness'];
 const VALID_CHANNELS: readonly Channel[] = ['tiktok', 'instagram', 'youtube', 'linkedin', 'x', 'meta-ads', 'email'];
@@ -35,6 +35,7 @@ function isExecutionMode(value: unknown): value is ExecutionMode {
 type LocalDraft = {
   version: number;
   brandUrl: string;
+  businessType: string;
   competitorUrl: string;
   goal: Goal | null;
   channels: Channel[];
@@ -54,6 +55,7 @@ function readLocalDraft(): LocalDraft | null {
     return {
       version: LOCAL_DRAFT_VERSION,
       brandUrl: typeof parsed.brandUrl === 'string' ? parsed.brandUrl : '',
+      businessType: typeof parsed.businessType === 'string' ? parsed.businessType : '',
       competitorUrl: typeof parsed.competitorUrl === 'string' ? parsed.competitorUrl : '',
       goal: isGoal(parsed.goal) ? parsed.goal : null,
       channels,
@@ -89,6 +91,7 @@ function hasDraftContent(draft: LocalDraft | null): boolean {
   if (!draft) return false;
   return Boolean(
     draft.brandUrl.trim() ||
+      draft.businessType.trim() ||
       draft.competitorUrl.trim() ||
       draft.goal ||
       (draft.channels && draft.channels.length > 0) ||
@@ -103,6 +106,7 @@ export default function PipelineIntake() {
 
   // Form state
   const [brandUrl, setBrandUrl] = useState('');
+  const [businessType, setBusinessType] = useState('');
   const [competitorUrl, setCompetitorUrl] = useState('');
   const [goal, setGoal] = useState<Goal | null>(null);
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -122,6 +126,7 @@ export default function PipelineIntake() {
     const snapshot = readLocalDraft();
     if (hasDraftContent(snapshot) && snapshot) {
       setBrandUrl(snapshot.brandUrl);
+      setBusinessType(snapshot.businessType);
       setCompetitorUrl(snapshot.competitorUrl);
       setGoal(snapshot.goal);
       setChannels(snapshot.channels);
@@ -154,7 +159,7 @@ export default function PipelineIntake() {
       window.clearTimeout(draftSaveTimer.current);
     }
     draftSaveTimer.current = window.setTimeout(() => {
-      const snapshot = { brandUrl, competitorUrl, goal, channels, mode };
+      const snapshot = { brandUrl, businessType, competitorUrl, goal, channels, mode };
       if (hasDraftContent({ version: LOCAL_DRAFT_VERSION, ...snapshot })) {
         writeLocalDraft(snapshot);
       } else {
@@ -168,7 +173,7 @@ export default function PipelineIntake() {
         draftSaveTimer.current = null;
       }
     };
-  }, [brandUrl, competitorUrl, goal, channels, mode, draftHydrated]);
+  }, [brandUrl, businessType, competitorUrl, goal, channels, mode, draftHydrated]);
 
   // Unmount cleanup — clears any pending redirect timer so the user doesn't
   // get pushed to a job-status URL after navigating away during transition.
@@ -208,6 +213,10 @@ export default function PipelineIntake() {
       setSubmitError('Enter your brand URL on Step 2 before launching.');
       return;
     }
+    if (!businessType.trim()) {
+      setSubmitError('Enter your business type on Step 2 before launching.');
+      return;
+    }
     if (!competitorUrl) {
       setSubmitError('Enter a competitor URL on Step 3 before launching.');
       return;
@@ -223,6 +232,7 @@ export default function PipelineIntake() {
 
     const payload: PipelineInput = {
       brand_url: brandUrl,
+      business_type: businessType,
       competitor_url: competitorUrl,
       goal,
       channels,
@@ -239,8 +249,9 @@ export default function PipelineIntake() {
         body: JSON.stringify({
           jobType: 'brand_campaign',
           payload: {
-            brandUrl: brandUrl,
-            competitorUrl: competitorUrl,
+            brandUrl,
+            businessType,
+            competitorUrl,
             goal,
             channels,
             mode,
@@ -360,6 +371,8 @@ export default function PipelineIntake() {
           <BrandStep
             brandUrl={brandUrl}
             onBrandUrlChange={setBrandUrl}
+            businessType={businessType}
+            onBusinessTypeChange={setBusinessType}
             onNext={goNext}
             onBack={goBack}
           />
