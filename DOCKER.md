@@ -38,15 +38,18 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml build
 - `ARIES_WEB_CONCURRENCY` (optional; default `2`, accepts a positive integer or `max`)
 - `ARIES_WORKER_MAX_RESTARTS` (optional; default `5`, exits the container if all workers exceed the restart cap)
 - `DB_POOL_MAX` (optional; default `20` per worker)
-- `OPENCLAW_GATEWAY_URL`
-- `OPENCLAW_GATEWAY_TOKEN`
-- `OPENCLAW_SESSION_KEY` (optional; default `main`)
-- `OPENCLAW_LOBSTER_CWD` (optional)
 - `ARIES_EXECUTION_PROVIDER` (optional; default `hermes`)
 - `ARIES_MARKETING_EXECUTION_PROVIDER` (optional; default `hermes`)
 - `HERMES_GATEWAY_URL`
-- `HERMES_API_SERVER_KEY`
+- `HERMES_API_SERVER_KEY` (outbound credential Aries sends to Hermes `/v1/runs`)
 - `INTERNAL_API_SECRET` (required for Hermes callbacks)
+- `HERMES_SESSION_KEY` (optional; default `main` in Compose, `marketing` for the marketing port when unset)
+- `HERMES_RUN_TIMEOUT_MS` (optional general workflow polling timeout)
+- `HERMES_POLL_INTERVAL_MS` (optional general workflow polling interval)
+- `OPENCLAW_GATEWAY_URL` (required only for legacy OpenClaw/Lobster execution or media gateway delegation)
+- `OPENCLAW_GATEWAY_TOKEN` (required only for legacy OpenClaw/Lobster execution or media gateway delegation)
+- `OPENCLAW_SESSION_KEY` (optional; default `main`)
+- `OPENCLAW_LOBSTER_CWD` (optional)
 - `LOBSTER_MEDIA_GATEWAY_ENABLED` (optional; set `1` to route Stage 4 image/video/text QA through OpenClaw)
 - `LOBSTER_VIDEO_RENDER_ENABLED` (optional; still required before video generation runs)
 - `LOBSTER_GATEWAY_IMAGE_MODEL` / `OPENCLAW_IMAGE_GENERATION_MODEL` (optional OpenClaw image model override)
@@ -68,6 +71,28 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml build
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
 ```
+
+### Hermes execution boundary
+
+Compose defaults both execution selectors to Hermes:
+
+```bash
+ARIES_EXECUTION_PROVIDER=hermes
+ARIES_MARKETING_EXECUTION_PROVIDER=hermes
+```
+
+Aries submits Hermes runs to `${HERMES_GATEWAY_URL}/v1/runs` with
+`Authorization: Bearer ${HERMES_API_SERVER_KEY}`. Hermes must call back to
+`${APP_BASE_URL}/api/internal/hermes/runs` with
+`Authorization: Bearer ${INTERNAL_API_SECRET}`. Keep those secrets distinct:
+`HERMES_API_SERVER_KEY` protects Aries-to-Hermes requests, while
+`INTERNAL_API_SECRET` protects Hermes-to-Aries callbacks.
+
+Use `ARIES_EXECUTION_PROVIDER=legacy-openclaw` or
+`ARIES_MARKETING_EXECUTION_PROVIDER=legacy-openclaw` only for flows that still
+need the legacy OpenClaw/Lobster runtime. The general Hermes workflow adapter
+currently supports the explicitly wired Hermes workflow set; marketing jobs use
+the separate marketing execution port and advance through async callbacks.
 
 ### OpenClaw media gateway
 

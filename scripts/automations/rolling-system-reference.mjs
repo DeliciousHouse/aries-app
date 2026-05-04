@@ -55,6 +55,7 @@ const knownIssues = [
   'Cron registration is prepared but not auto-enabled until backup remote and delivery targets are confirmed.',
   'Daily brief and system reference quality depends on current repo docs and task hygiene.',
   'Cross-project drift should be treated as a regression and removed instead of archived into active repo context.',
+  'The Hermes general execution adapter does not implement every legacy workflow; onboarding flows that still require the legacy Lobster workflow should run with `ARIES_EXECUTION_PROVIDER=legacy-openclaw`.',
 ]
 
 const markdown = [
@@ -67,7 +68,9 @@ const markdown = [
   '',
   '## Current architecture overview',
   '- Next.js App Router runtime serves the public site, authenticated operator shell, and browser-safe internal APIs.',
-  '- Backend domain logic lives under `backend/*` and routes long-running execution through OpenClaw Gateway.',
+  '- Backend domain logic lives under `backend/*` and routes long-running execution through Hermes by default.',
+  '- `backend/execution/*` owns the general execution provider boundary; the Hermes adapter currently wires the supported Hermes workflow set and the legacy OpenClaw/Lobster adapter remains available with `ARIES_EXECUTION_PROVIDER=legacy-openclaw`.',
+  '- Marketing pipeline execution uses `backend/marketing/execution-port.ts`; `ARIES_MARKETING_EXECUTION_PROVIDER=hermes` submits `marketing_pipeline` runs to Hermes and advances runtime state from authenticated `/api/internal/hermes/runs` callbacks.',
   '- Local runtime state and typed adapters live across `lib/*`, `hooks/*`, `specs/*`, and `workflows/*` to preserve contract boundaries.',
   '- Repo context and automation output should stay scoped to `aries-app` only.',
   '',

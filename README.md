@@ -101,6 +101,7 @@ Browser
 
 #### Tenant and internal support routes
 - `/api/demo`
+- `/api/internal/hermes/runs` (Hermes callback ingress; internal only)
 - `/api/internal/marketing/job-runtime`
 - `/api/sandbox/launch`
 - `/api/tenant/profiles`
@@ -114,7 +115,7 @@ Browser
 
 ```text
 app/         Next.js pages, layouts, and route handlers
-backend/     Server-side domain logic for onboarding, marketing, auth, integrations, and OpenClaw
+backend/     Server-side domain logic for onboarding, marketing, auth, integrations, and execution providers
 components/  Shared UI primitives and redesign components
 lib/         Shared runtime helpers, auth helpers, API utilities, and DB access
 scripts/     Startup, verification, DB init, and repo validation scripts
@@ -156,7 +157,7 @@ export APP_BASE_URL=http://localhost:3000 NEXTAUTH_URL=http://localhost:3000 AUT
 export MARKETING_STATUS_PUBLIC=1
 ```
 
-Hermes callbacks post to `${APP_BASE_URL}/api/internal/hermes/runs` with `Authorization: Bearer ${INTERNAL_API_SECRET}`. Keep `OPENCLAW_*` and `LOBSTER_*` values only when opting into `ARIES_EXECUTION_PROVIDER=legacy-openclaw` or `ARIES_MARKETING_EXECUTION_PROVIDER=legacy-openclaw`. Run `npm run validate:execution-provider` after Hermes callback changes; run `npm run validate:legacy-openclaw-lobster` after legacy gateway/config changes.
+Hermes callbacks post to `${APP_BASE_URL}/api/internal/hermes/runs` with `Authorization: Bearer ${INTERNAL_API_SECRET}`. Keep `OPENCLAW_*` and `LOBSTER_*` values when opting into `ARIES_EXECUTION_PROVIDER=legacy-openclaw`, `ARIES_MARKETING_EXECUTION_PROVIDER=legacy-openclaw`, or explicit OpenClaw media gateway delegation. Run `npm run validate:execution-provider` after Hermes callback changes; run `npm run validate:legacy-openclaw-lobster` after legacy gateway/config changes.
 
 ### 3) Start PostgreSQL
 
@@ -237,28 +238,35 @@ docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml
 
 ### Required for live execution
 
-- `OPENCLAW_GATEWAY_URL`
-- `OPENCLAW_GATEWAY_TOKEN`
 - `DB_HOST`
 - `DB_PORT`
 - `DB_USER`
 - `DB_PASSWORD`
 - `DB_NAME`
 - `APP_BASE_URL`
+- `HERMES_GATEWAY_URL`
+- `HERMES_API_SERVER_KEY`
+- `INTERNAL_API_SECRET`
 - `NEXTAUTH_URL`
 - `AUTH_URL`
 
 ### Common optional variables
 
+- `ARIES_EXECUTION_PROVIDER` (`hermes` by default; set `legacy-openclaw` for the legacy runtime)
+- `ARIES_MARKETING_EXECUTION_PROVIDER` (`hermes` by default; set `legacy-openclaw` for the legacy runtime)
 - `ARIES_PROCESS_MANAGER` (`cluster` by default; set `node` for one-process rollback)
 - `ARIES_WEB_CONCURRENCY` (`2` by default; positive integer or `max`)
 - `DB_POOL_MAX` (`20` by default, per worker)
 - `AUTH_TRUST_HOST`
+- `HERMES_SESSION_KEY`
+- `HERMES_RUN_TIMEOUT_MS`
+- `HERMES_POLL_INTERVAL_MS`
+- `OPENCLAW_GATEWAY_URL`
+- `OPENCLAW_GATEWAY_TOKEN`
 - `OPENCLAW_SESSION_KEY`
 - `OPENCLAW_GATEWAY_LOBSTER_CWD`
 - `OPENCLAW_LOCAL_LOBSTER_CWD`
 - `OPENCLAW_LOBSTER_CWD`
-- `INTERNAL_API_SECRET`
 - `LOG_LEVEL`
 - `OAUTH_TOKEN_ENCRYPTION_KEY`
 - OAuth client credentials:
@@ -276,6 +284,13 @@ Aries derives generic OAuth callbacks from `APP_BASE_URL` for non-Meta providers
 
 Meta publishing remains env-managed with `META_PAGE_ID` and `META_ACCESS_TOKEN`.
 
+Hermes uses two different secrets at the execution boundary:
+
+- `HERMES_API_SERVER_KEY` is the outbound credential Aries sends to Hermes when submitting `/v1/runs`.
+- `INTERNAL_API_SECRET` is the inbound callback credential Hermes sends back to Aries as `Authorization: Bearer <secret>` on `POST /api/internal/hermes/runs`.
+
+The general Aries execution provider currently supports the `demo_start` workflow through Hermes. Marketing jobs use the separate marketing execution port and submit the `marketing_pipeline` flow to Hermes asynchronously. Set the corresponding provider variable to `legacy-openclaw` only when intentionally running the old OpenClaw/Lobster path.
+
 ## Supported product flows
 
 ### Public marketing intake
@@ -284,7 +299,7 @@ The public client intake begins at `/onboarding/start`. The legacy `/onboarding/
 
 ### Tenant onboarding
 
-The internal tenant-onboarding API remains exposed through `/api/onboarding/start`. Aries validates required fields like `tenant_id`, `tenant_type`, and `signup_event_id`, then delegates the onboarding workflow to OpenClaw. Status is later read through `/api/onboarding/status/[tenantId]` using runtime-safe summaries rather than raw file paths.
+The internal tenant-onboarding API remains exposed through `/api/onboarding/start`. Aries validates required fields like `tenant_id`, `tenant_type`, and `signup_event_id`, then delegates through the configured Aries execution provider. The Hermes provider only wires the supported Hermes workflow set; use `ARIES_EXECUTION_PROVIDER=legacy-openclaw` when exercising onboarding flows that still depend on the legacy Lobster workflow. Status is later read through `/api/onboarding/status/[tenantId]` using runtime-safe summaries rather than raw file paths.
 
 ### Marketing job flow
 
@@ -432,5 +447,5 @@ If you are new to the project, the safest mental model is:
 2. Use Turbopack locally.
 3. Treat `app/api/*` as the browser contract.
 4. Treat `backend/*` and `lib/*` as the server-side application boundary.
-5. Treat OpenClaw as the execution engine beyond Aries.
+5. Treat Hermes callbacks as the default execution boundary beyond Aries; keep OpenClaw/Lobster as a legacy opt-in path.
 6. Use the test suite and verification scripts to keep code, docs, and route behavior in sync.

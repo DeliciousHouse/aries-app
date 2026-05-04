@@ -1,39 +1,37 @@
 # Aries System Reference
 
-Last refreshed Apr 20, 2026, 00:00 PDT.
+Last refreshed May 4, 2026, 16:00 UTC.
 
 ## What changed today
-- backend/marketing/asset-ingest.ts
-- backend/marketing/asset-library.ts
-- backend/marketing/dashboard-content.ts
-- frontend/components/media-preview.tsx
-- backend/marketing/runtime-state.ts
-- docker-compose.yml
-- scripts/backfill-asset-ingest.mjs
-- tests/asset-ingest.test.ts
+- README.md
+- DOCKER.md
+- docs/SYSTEM-REFERENCE.md
+- scripts/automations/rolling-system-reference.mjs
 
 ## Current architecture overview
 - Next.js App Router runtime serves the public site, authenticated operator shell, and browser-safe internal APIs.
-- Backend domain logic lives under `backend/*` and routes long-running execution through OpenClaw Gateway.
+- Backend domain logic lives under `backend/*` and routes long-running execution through Hermes by default.
+- `backend/execution/*` owns the general execution provider boundary; the Hermes adapter currently wires the supported Hermes workflow set and the legacy OpenClaw/Lobster adapter remains available with `ARIES_EXECUTION_PROVIDER=legacy-openclaw`.
+- Marketing pipeline execution uses `backend/marketing/execution-port.ts`; `ARIES_MARKETING_EXECUTION_PROVIDER=hermes` submits `marketing_pipeline` runs to Hermes and advances runtime state from authenticated `/api/internal/hermes/runs` callbacks.
 - Local runtime state and typed adapters live across `lib/*`, `hooks/*`, `specs/*`, and `workflows/*` to preserve contract boundaries.
 - Repo context and automation output should stay scoped to `aries-app` only.
 
 ## Module inventory
-- app/ 117 files
-- backend/ 77 files
-- components/ 14 files
+- app/ 130 files
+- backend/ 103 files
+- components/ 4 files
 - hooks/ 17 files
-- lib/ 25 files
-- scripts/ 32 files
-- skills/ 88 files
+- lib/ 28 files
+- scripts/ 38 files
+- skills/ 76 files
 - workflows/ 4 files
 
 ## Active cron jobs
 - Aries private repo backup — 15 */6 * * * America/Los_Angeles — Stage current repo changes, commit them to a backup branch, and create or update a backup pull request on the configured private GitHub remote.
 - Aries overnight self-improvement — 0 4 * * * America/Los_Angeles — Pick one small additive nightly improvement, validate it, and log the shipped result to the nightly build log plus daily memory.
 - Aries daily brief — 0 8 * * * America/Los_Angeles — Generate the morning priorities/overnight activity/pending actions brief.
-- Aries daily standup — 30 8,13,17 * * 1-5 America/Los_Angeles — Generate the board-derived Aries chief standup, write the transcript and per-chief reports to /home/node/.openclaw/projects/shared/teams, and announce the concise operational summary.
-- Aries standup watchdog — 50 8,13,17 * * 1-5 America/Los_Angeles — Verify that the current standup transcript and per-chief reports exist in /home/node/.openclaw/projects/shared/teams and that no forbidden local standup artifacts were recreated.
+- Aries daily standup — 30 8,13,17 * * 1-5 America/Los_Angeles — Generate the board-derived Aries chief standup, write the transcript and per-chief reports to /home/node/.openclaw/projects/shared/team/meetings, and announce the concise operational summary.
+- Aries standup watchdog — 50 8,13,17 * * 1-5 America/Los_Angeles — Verify that the current standup transcript and per-chief reports exist in /home/node/.openclaw/projects/shared/team/meetings and that no forbidden local standup artifacts were recreated.
 - Aries GitHub feedback connector — 0 7 * * * America/Los_Angeles — Sync GitHub issues, classify bug vs feature, route each pending item to the correct skill workflow, and update the processing log.
 - Aries GitHub feedback daily summary — 0 18 * * * America/Los_Angeles — Deliver the daily batch summary for non-critical GitHub feedback items that were processed and logged.
 - Aries CI watcher dispatcher — */15 * * * * America/Los_Angeles — Auto-spawn ao worker sessions for open ci-watcher issues filed by the remote CI watcher trigger, deduplicating against existing ao sessions by issue number.
@@ -77,9 +75,10 @@ Last refreshed Apr 20, 2026, 00:00 PDT.
 - Cron registration is prepared but not auto-enabled until backup remote and delivery targets are confirmed.
 - Daily brief and system reference quality depends on current repo docs and task hygiene.
 - Cross-project drift should be treated as a regression and removed instead of archived into active repo context.
+- The Hermes general execution adapter does not implement every legacy workflow; onboarding flows that still require the legacy Lobster workflow should run with `ARIES_EXECUTION_PROVIDER=legacy-openclaw`.
 
 ## Working tree snapshot
-- Working tree clean at refresh time.
+- Docs-only refresh branch updated `README.md`, `DOCKER.md`, and this reference.
 
 ## Reference date
-- 2026-04-20
+- 2026-05-04
