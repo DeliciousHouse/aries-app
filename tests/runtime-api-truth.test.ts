@@ -71,6 +71,7 @@ test('/api/marketing/jobs requires authenticated tenant context', async () => {
         jobType: 'brand_campaign',
         payload: {
           brandUrl: 'https://brand.example',
+          businessType: 'Test vertical',
           competitorUrl: 'https://betterup.com',
         },
       }),

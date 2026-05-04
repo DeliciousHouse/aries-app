@@ -72,6 +72,7 @@ test('/api/marketing/jobs reaches the first approval checkpoint through the real
           jobType: 'brand_campaign',
           payload: {
             brandUrl: 'https://brand.example/',
+            businessType: 'Test vertical',
             competitorUrl: 'https://betterup.com/',
           },
         }),

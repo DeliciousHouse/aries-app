@@ -45,6 +45,7 @@ test('/api/marketing/jobs rejects unauthenticated public create even when public
           payload: {
             brandUrl: 'https://theframex.com',
             businessName: 'The FrameX',
+            businessType: 'Boutique retail',
           },
         }),
       }),
