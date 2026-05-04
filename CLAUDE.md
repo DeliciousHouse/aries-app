@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Aries AI is a Next.js 16 App Router application for marketing automation. It combines a public marketing site, an authenticated operator shell, and browser-safe internal APIs that delegate workflow execution to an external OpenClaw Gateway while keeping runtime state on the server.
+Aries AI is a Next.js 16 App Router application for marketing automation. It combines a public marketing site, an authenticated operator shell, and browser-safe internal APIs that submit workflow execution to Hermes by default while keeping runtime state on the server. Legacy OpenClaw/Lobster execution remains available as an explicit opt-in fallback.
 
 ## Architecture
 
@@ -13,13 +13,13 @@ Browser
   -> Next.js pages (app/*)
   -> Next.js route handlers (app/api/*)
       -> Aries backend services (backend/*, lib/*)
-          -> OpenClaw Gateway for workflow execution (via CLI subprocess)
+ -> Hermes Gateway for workflow execution callbacks (legacy OpenClaw via CLI subprocess when opted in)
           -> PostgreSQL + runtime files under DATA_ROOT for state and read models
 ```
 
 **Key architectural rules:**
 - Aries owns the browser boundary. The UI talks only to Next.js route handlers.
-- Long-running/workflow execution is delegated through the OpenClaw Gateway — never exposed directly to the browser.
+- Long-running/workflow execution is delegated through Hermes callbacks by default — never exposed directly to the browser.
 - Route handlers return frontend-safe payloads; never leak raw runtime files or internal workflow details.
 - All marketing, integrations, and approval flows are tenant-aware and validated server-side.
 
@@ -27,7 +27,11 @@ Browser
 
 **Runtime paths:** `lib/runtime-paths.ts` resolves `CODE_ROOT` (repo checkout) and `DATA_ROOT` (generated runtime artifacts) with fallback logic for container vs local environments. Generated data lives under `DATA_ROOT/generated/` with `draft/` and `validated/` subdirectories.
 
-### Gateway Client Pattern
+### Execution Provider Pattern
+
+Hermes is the default provider (`ARIES_EXECUTION_PROVIDER=hermes`, `ARIES_MARKETING_EXECUTION_PROVIDER=hermes`). Aries creates an execution run record before submitting to Hermes, passes `${APP_BASE_URL}/api/internal/hermes/runs` as the callback URL, and authenticates callbacks with `INTERNAL_API_SECRET`. Hermes callbacks are idempotent and are the source of truth for marketing progress. Operators can opt into the legacy path with `legacy-openclaw`.
+
+### Legacy Gateway Client Pattern
 
 `backend/openclaw/gateway-client.ts` is the bridge to OpenClaw. It invokes the gateway via `execFile` (CLI subprocess), not HTTP. Key types: `LobsterEnvelope` (workflow result with optional `requiresApproval`), `OpenClawWorkflowCallInput` (run a pipeline), `OpenClawResumeCallInput` (resume after approval). When a stage returns `requiresApproval`, the orchestrator persists the paused envelope via `approval-store.ts` and later calls the gateway again with `OpenClawResumeCallInput` carrying the approval decision — callers should never assume a workflow ran to completion on a single invocation.
 

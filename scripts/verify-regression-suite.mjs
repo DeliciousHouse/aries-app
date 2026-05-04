@@ -34,8 +34,16 @@ const steps = [
     args: ['--test', 'tests/repo-boundary-guard.test.ts'],
   },
   {
-    name: 'OpenClaw Lobster live gateway availability smoke',
-    args: ['--test', 'tests/openclaw-lobster-gateway-availability.test.ts'],
+    name: 'execution provider and Hermes callback smoke tests',
+    args: [
+      '--test',
+      'tests/execution-provider-selection.test.ts',
+      'tests/execution-hermes-adapter.test.ts',
+      'tests/hermes-callback-route.test.ts',
+      'tests/execution-run-store.test.ts',
+      'tests/marketing-execution-port.test.ts',
+      'tests/marketing-hermes-callback-flow.test.ts',
+    ],
   },
   {
     name: 'targeted marketing-flow smoke tests',

@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import { ExecutionError } from '../backend/execution';
@@ -23,6 +26,24 @@ function recordingFetchSequence(responses: Array<() => Response>) {
 }
 
 const NO_SLEEP = async () => {};
+
+async function withDataRoot<T>(run: () => Promise<T>): Promise<T> {
+  const previousDataRoot = process.env.DATA_ROOT;
+  const previousAppBaseUrl = process.env.APP_BASE_URL;
+  const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-hermes-adapter-'));
+
+  process.env.DATA_ROOT = dataRoot;
+  process.env.APP_BASE_URL = 'https://aries.example.com';
+  try {
+    return await run();
+  } finally {
+    if (previousDataRoot === undefined) delete process.env.DATA_ROOT;
+    else process.env.DATA_ROOT = previousDataRoot;
+    if (previousAppBaseUrl === undefined) delete process.env.APP_BASE_URL;
+    else process.env.APP_BASE_URL = previousAppBaseUrl;
+    await rm(dataRoot, { recursive: true, force: true });
+  }
+}
 
 test('HermesExecutionAdapter reports missing HERMES_GATEWAY_URL with an actionable ExecutionError', async () => {
   const adapter = new HermesExecutionAdapter({
@@ -86,230 +107,112 @@ test('HermesExecutionAdapter returns not_implemented for unsupported workflows e
   assert.equal(result.payload.provider, 'hermes');
 });
 
-test('HermesExecutionAdapter submits demo_start to /v1/runs and parses the polled JSON output', async () => {
-  const completedJson = JSON.stringify({
-    status: 'ok',
-    output: [{ provisioned: true, lead_id: 'lead-123' }],
-    message: 'demo provisioned',
+test('HermesExecutionAdapter submits demo_start once and returns an async run envelope', async () => {
+  await withDataRoot(async () => {
+    const { loadExecutionRunRecord } = await import('../backend/execution/run-store');
+    const { calls, fetchImpl } = recordingFetchSequence([
+      () => new Response(JSON.stringify({ run_id: 'run_abc', status: 'started' }), {
+        status: 202,
+        headers: { 'content-type': 'application/json' },
+      }),
+    ]);
+    const adapter = new HermesExecutionAdapter(
+      {
+        HERMES_GATEWAY_URL: `${TEST_HERMES_GATEWAY_URL}/`,
+        HERMES_API_SERVER_KEY: 'token-123',
+        HERMES_SESSION_KEY: 'campaign-runtime',
+        APP_BASE_URL: 'https://aries.example.com',
+        HERMES_RUN_TIMEOUT_MS: '0',
+        HERMES_POLL_INTERVAL_MS: '0',
+      },
+      fetchImpl,
+      NO_SLEEP,
+    );
+
+    const result = await adapter.runWorkflow('demo_start', {
+      user: { email: 'founder@example.com' },
+      surface: 'marketing-site',
+    });
+
+    assert.equal(result.kind, 'ok');
+    if (result.kind !== 'ok') assert.fail('expected ok result');
+    assert.equal(result.primaryOutput, null);
+    assert.equal(result.envelope.status, 'accepted');
+    assert.equal(result.envelope.provider, 'hermes');
+    assert.equal(result.envelope.hermes_run_id, 'run_abc');
+    assert.match(String(result.envelope.aries_run_id), /^arun_/);
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, `${TEST_HERMES_GATEWAY_URL}/v1/runs`);
+    assert.equal(calls[0].init.method, 'POST');
+    const headers0 = calls[0].init.headers as Record<string, string>;
+    assert.equal(headers0.authorization, 'Bearer token-123');
+    assert.equal(headers0['content-type'], 'application/json');
+    const submitBody = JSON.parse(String(calls[0].init.body));
+    assert.equal(submitBody.session_id, 'campaign-runtime');
+    assert.equal(submitBody.callback_url, 'https://aries.example.com/api/internal/hermes/runs');
+    assert.match(submitBody.input, /Workflow: demo_start/);
+    assert.match(submitBody.input, /Aries run ID: arun_/);
+    assert.match(submitBody.input, /"user":\{"email":"founder@example.com"\}/);
+    assert.match(submitBody.instructions, /Aries demo provisioning/);
+
+    const stored = loadExecutionRunRecord(String(result.envelope.aries_run_id));
+    assert.equal(stored?.external_run_id, 'run_abc');
+    assert.equal(stored?.workflow_key, 'demo_start');
+    assert.equal(stored?.domain, 'route');
   });
-  const { calls, fetchImpl } = recordingFetchSequence([
-    () => new Response(JSON.stringify({ run_id: 'run_abc', status: 'started' }), {
-      status: 202,
-      headers: { 'content-type': 'application/json' },
-    }),
-    () => new Response(JSON.stringify({ run_id: 'run_abc', status: 'running' }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    }),
-    () => new Response(JSON.stringify({ run_id: 'run_abc', status: 'completed', output: completedJson }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    }),
-  ]);
-  const adapter = new HermesExecutionAdapter(
-    {
-      HERMES_GATEWAY_URL: `${TEST_HERMES_GATEWAY_URL}/`,
-      HERMES_API_SERVER_KEY: 'token-123',
-      HERMES_SESSION_KEY: 'campaign-runtime',
-      HERMES_POLL_INTERVAL_MS: '0',
-    },
-    fetchImpl,
-    NO_SLEEP,
-  );
-
-  const result = await adapter.runWorkflow('demo_start', {
-    user: { email: 'founder@example.com' },
-    surface: 'marketing-site',
-  });
-
-  assert.equal(result.kind, 'ok');
-  if (result.kind !== 'ok') assert.fail('expected ok result');
-  assert.deepEqual(result.primaryOutput, { provisioned: true, lead_id: 'lead-123' });
-  assert.equal(result.envelope.status, 'ok');
-  assert.equal(result.envelope.run_id, 'run_abc');
-
-  assert.equal(calls.length, 3);
-  assert.equal(calls[0].url, `${TEST_HERMES_GATEWAY_URL}/v1/runs`);
-  assert.equal(calls[0].init.method, 'POST');
-  const headers0 = calls[0].init.headers as Record<string, string>;
-  assert.equal(headers0.authorization, 'Bearer token-123');
-  assert.equal(headers0['content-type'], 'application/json');
-  const submitBody = JSON.parse(String(calls[0].init.body));
-  assert.equal(submitBody.session_id, 'campaign-runtime');
-  assert.match(submitBody.input, /Workflow: demo_start/);
-  assert.match(submitBody.input, /"user":\{"email":"founder@example.com"\}/);
-  assert.match(submitBody.instructions, /Aries demo provisioning/);
-
-  assert.equal(calls[1].url, `${TEST_HERMES_GATEWAY_URL}/v1/runs/run_abc`);
-  assert.equal(calls[1].init.method, 'GET');
-  assert.equal(calls[2].url, `${TEST_HERMES_GATEWAY_URL}/v1/runs/run_abc`);
-});
-
-test('HermesExecutionAdapter wraps non-JSON run output as a generic envelope without failing', async () => {
-  const { fetchImpl } = recordingFetchSequence([
-    () => new Response(JSON.stringify({ run_id: 'run_xyz', status: 'started' }), {
-      status: 202,
-      headers: { 'content-type': 'application/json' },
-    }),
-    () => new Response(JSON.stringify({ run_id: 'run_xyz', status: 'completed', output: 'plain text response' }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    }),
-  ]);
-  const adapter = new HermesExecutionAdapter(
-    {
-      HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL,
-      HERMES_API_SERVER_KEY: 'token-123',
-      HERMES_POLL_INTERVAL_MS: '0',
-    },
-    fetchImpl,
-    NO_SLEEP,
-  );
-
-  const result = await adapter.runWorkflow('demo_start', { user: { email: 'a@b.co' } });
-
-  assert.equal(result.kind, 'ok');
-  if (result.kind !== 'ok') assert.fail('expected ok result');
-  assert.equal(result.envelope.status, 'ok');
-  assert.equal(result.envelope.run_id, 'run_xyz');
-  assert.equal(result.envelope.output_text, 'plain text response');
-  assert.equal(result.primaryOutput, null);
-});
-
-test('HermesExecutionAdapter surfaces failed runs as gateway_error with the agent error text', async () => {
-  const { fetchImpl } = recordingFetchSequence([
-    () => new Response(JSON.stringify({ run_id: 'run_fail', status: 'started' }), {
-      status: 202,
-      headers: { 'content-type': 'application/json' },
-    }),
-    () => new Response(JSON.stringify({ run_id: 'run_fail', status: 'failed', error: 'agent crashed' }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    }),
-  ]);
-  const adapter = new HermesExecutionAdapter(
-    {
-      HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL,
-      HERMES_API_SERVER_KEY: 'token-123',
-      HERMES_POLL_INTERVAL_MS: '0',
-    },
-    fetchImpl,
-    NO_SLEEP,
-  );
-
-  const result = await adapter.runWorkflow('demo_start', { user: { email: 'a@b.co' } });
-
-  assert.equal(result.kind, 'gateway_error');
-  if (result.kind !== 'gateway_error') assert.fail('expected gateway_error');
-  assert.equal(result.error.provider, 'hermes');
-  assert.equal(result.error.code, 'server_error');
-  assert.match(result.error.message, /agent crashed/);
 });
 
 test('HermesExecutionAdapter returns unreachable when /v1/runs submission throws', async () => {
-  const adapter = new HermesExecutionAdapter(
-    {
-      HERMES_GATEWAY_URL: TEST_UNREACHABLE_URL,
-      HERMES_API_SERVER_KEY: 'token-123',
-      HERMES_POLL_INTERVAL_MS: '0',
-    },
-    async () => {
-      throw new Error('ECONNREFUSED');
-    },
-    NO_SLEEP,
-  );
+  await withDataRoot(async () => {
+    const adapter = new HermesExecutionAdapter(
+      {
+        HERMES_GATEWAY_URL: TEST_UNREACHABLE_URL,
+        HERMES_API_SERVER_KEY: 'token-123',
+        APP_BASE_URL: 'https://aries.example.com',
+        HERMES_POLL_INTERVAL_MS: '0',
+      },
+      async () => {
+        throw new Error('ECONNREFUSED');
+      },
+      NO_SLEEP,
+    );
 
-  const result = await adapter.runWorkflow('demo_start', { user: { email: 'a@b.co' } });
+    const result = await adapter.runWorkflow('demo_start', { user: { email: 'a@b.co' } });
 
-  assert.equal(result.kind, 'gateway_error');
-  if (result.kind !== 'gateway_error') assert.fail('expected gateway_error');
-  assert.equal(result.error.code, 'unreachable');
-  assert.equal(result.error.status, 503);
+    assert.equal(result.kind, 'gateway_error');
+    if (result.kind !== 'gateway_error') assert.fail('expected gateway_error');
+    assert.equal(result.error.code, 'unreachable');
+    assert.equal(result.error.status, 503);
+  });
 });
 
 test('HermesExecutionAdapter surfaces non-2xx submission HTTP status as a structured ExecutionError', async () => {
-  const { fetchImpl } = recordingFetchSequence([
-    () => new Response('{"error":{"message":"unauthorized"}}', {
-      status: 401,
-      headers: { 'content-type': 'application/json' },
-    }),
-  ]);
-  const adapter = new HermesExecutionAdapter(
-    {
-      HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL,
-      HERMES_API_SERVER_KEY: 'token-bad',
-      HERMES_POLL_INTERVAL_MS: '0',
-    },
-    fetchImpl,
-    NO_SLEEP,
-  );
+  await withDataRoot(async () => {
+    const { fetchImpl } = recordingFetchSequence([
+      () => new Response('{"error":{"message":"unauthorized"}}', {
+        status: 401,
+        headers: { 'content-type': 'application/json' },
+      }),
+    ]);
+    const adapter = new HermesExecutionAdapter(
+      {
+        HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL,
+        HERMES_API_SERVER_KEY: 'token-bad',
+        APP_BASE_URL: 'https://aries.example.com',
+        HERMES_POLL_INTERVAL_MS: '0',
+      },
+      fetchImpl,
+      NO_SLEEP,
+    );
 
-  const result = await adapter.runWorkflow('demo_start', { user: { email: 'a@b.co' } });
+    const result = await adapter.runWorkflow('demo_start', { user: { email: 'a@b.co' } });
 
-  assert.equal(result.kind, 'gateway_error');
-  if (result.kind !== 'gateway_error') assert.fail('expected gateway_error');
-  assert.equal(result.error.code, 'unauthorized');
-  assert.equal(result.error.status, 401);
-});
-
-test('HermesExecutionAdapter times out runs that never reach a terminal status', async () => {
-  const { fetchImpl } = recordingFetchSequence([
-    () => new Response(JSON.stringify({ run_id: 'run_slow', status: 'started' }), {
-      status: 202,
-      headers: { 'content-type': 'application/json' },
-    }),
-    () => new Response(JSON.stringify({ run_id: 'run_slow', status: 'running' }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    }),
-  ]);
-  const adapter = new HermesExecutionAdapter(
-    {
-      HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL,
-      HERMES_API_SERVER_KEY: 'token-123',
-      HERMES_RUN_TIMEOUT_MS: '0',
-      HERMES_POLL_INTERVAL_MS: '0',
-    },
-    fetchImpl,
-    NO_SLEEP,
-  );
-
-  const result = await adapter.runWorkflow('demo_start', { user: { email: 'a@b.co' } });
-
-  assert.equal(result.kind, 'gateway_error');
-  if (result.kind !== 'gateway_error') assert.fail('expected gateway_error');
-  assert.equal(result.error.code, 'server_error');
-  assert.equal(result.error.status, 504);
-  assert.match(result.error.message, /did not reach a terminal status/);
-});
-
-test('HermesExecutionAdapter strips JSON code fences from agent output', async () => {
-  const fenced = '```json\n{"status":"ok","output":[{"provisioned":true}]}\n```';
-  const { fetchImpl } = recordingFetchSequence([
-    () => new Response(JSON.stringify({ run_id: 'run_fenced', status: 'started' }), {
-      status: 202,
-      headers: { 'content-type': 'application/json' },
-    }),
-    () => new Response(JSON.stringify({ run_id: 'run_fenced', status: 'completed', output: fenced }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    }),
-  ]);
-  const adapter = new HermesExecutionAdapter(
-    {
-      HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL,
-      HERMES_API_SERVER_KEY: 'token-123',
-      HERMES_POLL_INTERVAL_MS: '0',
-    },
-    fetchImpl,
-    NO_SLEEP,
-  );
-
-  const result = await adapter.runWorkflow('demo_start', { user: { email: 'a@b.co' } });
-
-  assert.equal(result.kind, 'ok');
-  if (result.kind !== 'ok') assert.fail('expected ok result');
-  assert.deepEqual(result.primaryOutput, { provisioned: true });
+    assert.equal(result.kind, 'gateway_error');
+    if (result.kind !== 'gateway_error') assert.fail('expected gateway_error');
+    assert.equal(result.error.code, 'unauthorized');
+    assert.equal(result.error.status, 401);
+  });
 });
 
 test('buildHermesRequestEnvelope retains the run/resume/cancel contract for upstream callers', () => {

@@ -1,9 +1,9 @@
 import {
-  type LobsterEnvelope,
   resumeOpenClawLobsterWorkflow,
   runOpenClawLobsterWorkflow,
 } from '../../openclaw/gateway-client';
 import type {
+  MarketingExecutionResult,
   MarketingExecutionPort,
   MarketingPipelineResumeInput,
   MarketingPipelineRunInput,
@@ -28,9 +28,9 @@ export class LegacyOpenClawMarketingPort implements MarketingExecutionPort {
     private readonly resolvePaths: () => LegacyMarketingPortRuntimePaths,
   ) {}
 
-  async runPipeline(input: MarketingPipelineRunInput): Promise<LobsterEnvelope> {
+  async runPipeline(input: MarketingPipelineRunInput): Promise<MarketingExecutionResult> {
     const { gatewayCwd, localCwd } = this.resolvePaths();
-    return runOpenClawLobsterWorkflow({
+    const envelope = await runOpenClawLobsterWorkflow({
       pipeline: MARKETING_PIPELINE_FILE,
       cwd: gatewayCwd,
       localCwd,
@@ -39,11 +39,12 @@ export class LegacyOpenClawMarketingPort implements MarketingExecutionPort {
       maxStdoutBytes: input.maxStdoutBytes,
       allowLocalFallback: false,
     });
+    return { kind: 'completed', provider: this.name, envelope };
   }
 
-  async resumePipeline(input: MarketingPipelineResumeInput): Promise<LobsterEnvelope> {
+  async resumePipeline(input: MarketingPipelineResumeInput): Promise<MarketingExecutionResult> {
     const { gatewayCwd, localCwd } = this.resolvePaths();
-    return resumeOpenClawLobsterWorkflow({
+    const envelope = await resumeOpenClawLobsterWorkflow({
       token: input.resumeToken,
       approve: input.approve,
       cwd: gatewayCwd,
@@ -52,5 +53,6 @@ export class LegacyOpenClawMarketingPort implements MarketingExecutionPort {
       maxStdoutBytes: input.maxStdoutBytes,
       allowLocalFallback: false,
     });
+    return { kind: 'completed', provider: this.name, envelope };
   }
 }

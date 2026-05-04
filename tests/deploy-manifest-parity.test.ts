@@ -16,22 +16,30 @@ test('legacy dist deploy shim stays out of the tracked runtime surface', () => {
   assert.equal(trackedDistCompose, '');
 });
 
-test('runtime env examples advertise optional execution-provider knobs without changing the legacy default', () => {
+test('runtime env examples advertise Hermes defaults with legacy OpenClaw opt-in', () => {
   const composeSource = fs.readFileSync(path.join(repoRoot, 'docker-compose.yml'), 'utf8');
   const envExampleSource = fs.readFileSync(path.join(repoRoot, '.env.example'), 'utf8');
 
   assert.match(
     composeSource,
-    /ARIES_EXECUTION_PROVIDER:\s*\$\{ARIES_EXECUTION_PROVIDER:-legacy-openclaw\}/,
+    /ARIES_EXECUTION_PROVIDER:\s*\$\{ARIES_EXECUTION_PROVIDER:-hermes\}/,
+  );
+  assert.match(
+    composeSource,
+    /ARIES_MARKETING_EXECUTION_PROVIDER:\s*\$\{ARIES_MARKETING_EXECUTION_PROVIDER:-hermes\}/,
   );
   assert.match(composeSource, /HERMES_GATEWAY_URL:\s*\$\{HERMES_GATEWAY_URL:-\}/);
   assert.match(composeSource, /HERMES_API_SERVER_KEY:\s*\$\{HERMES_API_SERVER_KEY:-\}/);
   assert.match(composeSource, /HERMES_SESSION_KEY:\s*\$\{HERMES_SESSION_KEY:-main\}/);
+  assert.match(composeSource, /INTERNAL_API_SECRET:\s*\$\{INTERNAL_API_SECRET\}/);
 
-  assert.match(envExampleSource, /^ARIES_EXECUTION_PROVIDER=legacy-openclaw$/m);
-  assert.match(envExampleSource, /^# HERMES_GATEWAY_URL=/m);
-  assert.match(envExampleSource, /^# HERMES_API_SERVER_KEY=/m);
-  assert.match(envExampleSource, /^# HERMES_SESSION_KEY=main$/m);
+  assert.match(envExampleSource, /^ARIES_EXECUTION_PROVIDER=hermes$/m);
+  assert.match(envExampleSource, /^ARIES_MARKETING_EXECUTION_PROVIDER=hermes$/m);
+  assert.match(envExampleSource, /^# ARIES_EXECUTION_PROVIDER=legacy-openclaw$/m);
+  assert.match(envExampleSource, /^# ARIES_MARKETING_EXECUTION_PROVIDER=legacy-openclaw$/m);
+  assert.match(envExampleSource, /^HERMES_GATEWAY_URL=/m);
+  assert.match(envExampleSource, /^HERMES_API_SERVER_KEY=/m);
+  assert.match(envExampleSource, /^HERMES_SESSION_KEY=main$/m);
 });
 
 test('legacy dist deploy shim cannot reintroduce the stale public onboarding path', () => {
