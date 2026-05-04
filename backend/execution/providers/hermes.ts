@@ -274,15 +274,15 @@ export class HermesExecutionAdapter {
 
   private configurationError(): ExecutionError | null {
     const missingGatewayUrl = !readEnvValue(this.env, 'HERMES_GATEWAY_URL');
-    const missingGatewayToken = !readEnvValue(this.env, 'HERMES_API_SERVER_KEY');
+    const missingApiServerKey = !readEnvValue(this.env, 'HERMES_API_SERVER_KEY');
 
-    if (missingGatewayUrl && missingGatewayToken) {
+    if (missingGatewayUrl && missingApiServerKey) {
       return missingHermesConfigError('HERMES_GATEWAY_URL and HERMES_API_SERVER_KEY');
     }
     if (missingGatewayUrl) {
       return missingHermesConfigError('HERMES_GATEWAY_URL');
     }
-    if (missingGatewayToken) {
+    if (missingApiServerKey) {
       return missingHermesConfigError('HERMES_API_SERVER_KEY');
     }
     return null;
