@@ -4,16 +4,26 @@ import { useState } from 'react';
 import { Check } from 'lucide-react';
 import StepContainer from '../components/StepContainer';
 import UrlInputWithPreview from '../components/UrlInputWithPreview';
+import BusinessTypeCombobox from '../components/BusinessTypeCombobox';
 import type { UrlPreviewData } from '../types';
 
 interface BrandStepProps {
   brandUrl: string;
   onBrandUrlChange: (url: string) => void;
+  businessType: string;
+  onBusinessTypeChange: (next: string) => void;
   onNext: () => void;
   onBack?: () => void;
 }
 
-export default function BrandStep({ brandUrl, onBrandUrlChange, onNext, onBack }: BrandStepProps) {
+export default function BrandStep({
+  brandUrl,
+  onBrandUrlChange,
+  businessType,
+  onBusinessTypeChange,
+  onNext,
+  onBack,
+}: BrandStepProps) {
   const [preview, setPreview] = useState<UrlPreviewData | null>(null);
   const [blurChip, setBlurChip] = useState<{ kind: 'idle' | 'valid' | 'invalid'; hostname?: string }>({ kind: 'idle' });
 
@@ -35,13 +45,15 @@ export default function BrandStep({ brandUrl, onBrandUrlChange, onNext, onBack }
     }
   };
 
+  const businessTypeReady = businessType.trim().length > 0;
+
   return (
     <StepContainer
       stepNumber={2}
       totalSteps={5}
       title="Your Brand"
-      subtitle="Enter your brand's website URL. We'll analyse your positioning, voice, and visual identity."
-      canProceed={!!preview}
+      subtitle="Tell us about your business so we can tailor research, voice, and positioning."
+      canProceed={!!preview && businessTypeReady}
       onNext={onNext}
       onBack={onBack}
     >
@@ -74,6 +86,14 @@ export default function BrandStep({ brandUrl, onBrandUrlChange, onNext, onBack }
           Waiting for a valid, reachable HTTPS URL to proceed.
         </p>
       )}
+
+      <div className="mt-6">
+        <BusinessTypeCombobox
+          value={businessType}
+          onChange={onBusinessTypeChange}
+          required
+        />
+      </div>
     </StepContainer>
   );
 }
