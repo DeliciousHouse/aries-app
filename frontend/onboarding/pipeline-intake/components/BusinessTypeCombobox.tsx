@@ -63,6 +63,23 @@ export default function BusinessTypeCombobox({
     setIsOpen(false);
   };
 
+  // Ghost-text completion uses the trimmed prefix the suffix was computed
+  // against, so leading/trailing whitespace can't desync the committed string
+  // from what the user sees in the ghost overlay.
+  const acceptGhost = () => {
+    const trimmed = value.trim();
+    onChange(trimmed + ghostSuffix);
+    setIsOpen(false);
+  };
+
+  const caretAtEnd = () => {
+    const el = inputRef.current;
+    if (!el) return false;
+    const end = el.selectionEnd;
+    const start = el.selectionStart;
+    return start === end && end === el.value.length;
+  };
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'ArrowDown') {
       event.preventDefault();
@@ -86,17 +103,34 @@ export default function BusinessTypeCombobox({
       setIsOpen(false);
       return;
     }
-    if ((event.key === 'Tab' || event.key === 'ArrowRight') && ghostSuffix) {
+    // Tab: commit ghost text but allow native focus to advance — don't trap.
+    if (event.key === 'Tab' && ghostSuffix && caretAtEnd()) {
+      acceptGhost();
+      return;
+    }
+    // ArrowRight: only consume the keystroke when the caret is at the end of
+    // the input. Otherwise let the browser handle normal cursor movement so
+    // the user can edit mid-string.
+    if (event.key === 'ArrowRight' && ghostSuffix && caretAtEnd()) {
       event.preventDefault();
-      commit(value + ghostSuffix);
+      acceptGhost();
     }
   };
 
+  const handleBlur = (event: React.FocusEvent<HTMLDivElement>) => {
+    const next = event.relatedTarget as Node | null;
+    if (next && containerRef.current?.contains(next)) {
+      return;
+    }
+    setIsOpen(false);
+  };
+
+  const listboxMounted = isOpen && filtered.length > 0;
   const activeDescendantId =
-    isOpen && filtered[highlight] ? `${inputId}-option-${highlight}` : undefined;
+    listboxMounted && filtered[highlight] ? `${inputId}-option-${highlight}` : undefined;
 
   return (
-    <div ref={containerRef} className="relative">
+    <div ref={containerRef} className="relative" onBlur={handleBlur}>
       <label htmlFor={inputId} className="block text-xs uppercase tracking-wider text-[#888] mb-1.5">
         {label}{required ? ' *' : ''}
       </label>
@@ -117,7 +151,7 @@ export default function BusinessTypeCombobox({
           type="text"
           role="combobox"
           aria-expanded={isOpen}
-          aria-controls={listboxId}
+          aria-controls={listboxMounted ? listboxId : undefined}
           aria-autocomplete="list"
           aria-activedescendant={activeDescendantId}
           aria-required={required}
@@ -136,7 +170,7 @@ export default function BusinessTypeCombobox({
         />
       </div>
 
-      {isOpen && filtered.length > 0 && (
+      {listboxMounted && (
         <ul
           id={listboxId}
           role="listbox"
