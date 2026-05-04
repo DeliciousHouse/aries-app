@@ -1,4 +1,8 @@
 import { ExecutionError } from '../errors';
+import {
+  createExecutionRunRecord,
+  markExecutionRunSubmitted,
+} from '../run-store';
 import type { WorkflowEnvelope, WorkflowExecutionResult } from '../types';
 
 type HermesExecutionEnv = Partial<Record<string, string | undefined>>;
@@ -154,6 +158,15 @@ function missingHermesConfigError(keys: 'HERMES_GATEWAY_URL' | 'HERMES_API_SERVE
   });
 }
 
+function missingAppBaseUrlError(): ExecutionError {
+  return new ExecutionError({
+    provider: 'hermes',
+    code: 'not_configured',
+    status: 503,
+    message: 'APP_BASE_URL is required when ARIES_EXECUTION_PROVIDER=hermes so Hermes can POST run callbacks to Aries.',
+  });
+}
+
 function notImplementedResult(route: string): WorkflowExecutionResult {
   return {
     kind: 'not_implemented',
@@ -220,9 +233,10 @@ function instructionsForWorkflow(workflowId: string): string {
   return 'Reply with a single strict JSON object only — no prose, no markdown fences.';
 }
 
-function promptForWorkflow(envelope: HermesRunRequestEnvelope): string {
+function promptForWorkflow(envelope: HermesRunRequestEnvelope, ariesRunId: string): string {
   return [
     `Workflow: ${envelope.workflowId}`,
+    `Aries run ID: ${ariesRunId}`,
     `Args (JSON): ${envelope.argsJson}`,
     'Produce the JSON envelope for this workflow now.',
   ].join('\n');
@@ -296,20 +310,45 @@ export class HermesExecutionAdapter {
     return readEnvValue(this.env, 'HERMES_GATEWAY_URL').replace(/\/+$/, '');
   }
 
+  private callbackUrl(): string {
+    return `${readEnvValue(this.env, 'APP_BASE_URL').replace(/\/+$/, '')}/api/internal/hermes/runs`;
+  }
+
   private authHeader(): string {
     return `Bearer ${readEnvValue(this.env, 'HERMES_API_SERVER_KEY')}`;
   }
 
   private async invokeRun(envelope: HermesRunRequestEnvelope): Promise<WorkflowExecutionResult> {
-    const submission = await this.submitRun(envelope);
+    if (!readEnvValue(this.env, 'APP_BASE_URL')) {
+      return gatewayErrorResult(missingAppBaseUrlError());
+    }
+
+    const run = createExecutionRunRecord({
+      provider: 'hermes',
+      domain: 'route',
+      workflowKey: envelope.workflowId,
+      action: 'run',
+    });
+    const submission = await this.submitRun(envelope, run.aries_run_id);
     if (submission.kind !== 'submitted') {
       return submission.result;
     }
-    return this.pollRunUntilTerminal(submission.runId);
+    markExecutionRunSubmitted(run.aries_run_id, { externalRunId: submission.runId });
+    return {
+      kind: 'ok',
+      envelope: {
+        status: 'accepted',
+        provider: 'hermes',
+        aries_run_id: run.aries_run_id,
+        hermes_run_id: submission.runId,
+      },
+      primaryOutput: null,
+    };
   }
 
   private async submitRun(
     envelope: HermesRunRequestEnvelope,
+    ariesRunId: string,
   ): Promise<{ kind: 'submitted'; runId: string } | { kind: 'error'; result: WorkflowExecutionResult }> {
     let response: Response;
     try {
@@ -320,9 +359,15 @@ export class HermesExecutionAdapter {
           'content-type': 'application/json',
         },
         body: JSON.stringify({
-          input: promptForWorkflow(envelope),
+          input: promptForWorkflow(envelope, ariesRunId),
           instructions: instructionsForWorkflow(envelope.workflowId),
           session_id: this.sessionKey(),
+          callback_url: this.callbackUrl(),
+          metadata: {
+            aries_run_id: ariesRunId,
+            workflow_key: envelope.workflowId,
+            provider: 'hermes',
+          },
         }),
       });
     } catch (error) {

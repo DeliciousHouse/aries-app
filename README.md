@@ -1,6 +1,6 @@
 # Aries AI
 
-Aries AI is a Next.js App Router application for marketing automation. It combines a public marketing site, an authenticated operator shell, and browser-safe internal APIs that hand execution off to an external OpenClaw Gateway while keeping runtime state on the server. The current repository ships the web runtime, route handlers, backend service layer, local runtime state helpers, and tests for the supported route contract.
+Aries AI is a Next.js App Router application for marketing automation. It combines a public marketing site, an authenticated operator shell, and browser-safe internal APIs that hand execution off to Hermes by default while keeping runtime state on the server. The legacy OpenClaw/Lobster runtime remains available as an explicit fallback.
 
 ## What the project includes
 
@@ -8,7 +8,7 @@ Aries AI is a Next.js App Router application for marketing automation. It combin
 - **Authenticated operator pages** for dashboard, platforms, posts, calendar, and settings.
 - **Workflow UIs** for onboarding, marketing job creation/status/approval, and OAuth provider connection flows.
 - **Internal API routes** under `app/api/*` that validate requests, resolve auth and tenant context, and shape frontend-safe responses.
-- **Backend services** under `backend/*` for onboarding, marketing jobs, auth/session checks, platform integrations, OpenClaw handoff, and runtime state management.
+- **Backend services** under `backend/*` for onboarding, marketing jobs, auth/session checks, platform integrations, Hermes/OpenClaw handoff, and runtime state management.
 - **Local runtime persistence** backed by PostgreSQL plus generated files beneath `DATA_ROOT`.
 - **Regression tests** covering route rendering, frontend API contracts, tenant isolation, marketing flow behavior, OAuth wiring, and banned-pattern assertions.
 
@@ -19,14 +19,14 @@ Browser
   -> Next.js pages (`app/*`)
   -> Next.js route handlers (`app/api/*`)
       -> Aries backend services (`backend/*`, `lib/*`)
-          -> OpenClaw Gateway for workflow execution
+          -> Hermes callbacks for workflow execution
           -> PostgreSQL + runtime files under DATA_ROOT for state and read models
 ```
 
 ### Core runtime ideas
 
 1. **Aries owns the browser boundary.** The UI talks only to Next.js pages and route handlers in this repo.
-2. **Execution leaves through OpenClaw.** Long-running or workflow-style execution is delegated through the OpenClaw Gateway instead of exposing workflow infrastructure directly to the browser.
+2. **Execution leaves through Hermes.** Long-running or workflow-style execution is submitted to Hermes and advanced by authenticated callbacks instead of exposing workflow infrastructure directly to the browser. OpenClaw/Lobster is legacy opt-in.
 3. **The UI consumes safe read models.** Route handlers return frontend-safe payloads instead of leaking raw runtime files or internal workflow details.
 4. **Tenant context matters.** Marketing, integrations, and approval flows are tenant-aware and are validated server-side.
 
@@ -37,7 +37,7 @@ Browser
 - **UI:** React 18, Tailwind CSS v4, custom frontend screens/components
 - **Auth:** `next-auth` v5 beta plus tenant/auth runtime helpers
 - **Data/storage:** PostgreSQL (`pg`) plus generated runtime files under `DATA_ROOT`
-- **Execution boundary:** OpenClaw Gateway + Lobster workflow integration
+- **Execution boundary:** Hermes run submission + `/api/internal/hermes/runs` callbacks; legacy OpenClaw/Lobster fallback
 - **Testing:** Node.js built-in test runner via `tsx --test`
 - **Language/tooling:** TypeScript, tsx, PostCSS
 
@@ -130,7 +130,7 @@ skills/      Repository-specific skill docs
 - Node.js 18+
 - npm
 - PostgreSQL 16
-- OpenClaw Gateway credentials for live workflow execution
+- Hermes Gateway credentials and `INTERNAL_API_SECRET` for live callback execution
 
 ### 1) Install dependencies
 
@@ -146,6 +146,9 @@ NODE_ENV=development npm ci
 cp .env.example .env
 export DB_HOST=localhost DB_PORT=5432 DB_USER=aries_user DB_PASSWORD=aries_pass DB_NAME=aries_dev
 export CODE_ROOT=/home/node/aries-app DATA_ROOT=/tmp/aries-data NODE_ENV=development
+export ARIES_EXECUTION_PROVIDER=hermes ARIES_MARKETING_EXECUTION_PROVIDER=hermes
+export HERMES_GATEWAY_URL=http://127.0.0.1:8642 HERMES_API_SERVER_KEY=replace-me
+export APP_BASE_URL=http://localhost:3000 INTERNAL_API_SECRET=replace-me
 export OPENCLAW_GATEWAY_LOBSTER_CWD=aries-app/lobster  # installed OpenClaw gateway service from /home/node
 export OPENCLAW_LOCAL_LOBSTER_CWD=/home/node/aries-app/lobster
 export OPENCLAW_LOBSTER_CWD=/home/node/aries-app/lobster
@@ -153,7 +156,7 @@ export APP_BASE_URL=http://localhost:3000 NEXTAUTH_URL=http://localhost:3000 AUT
 export MARKETING_STATUS_PUBLIC=1
 ```
 
-Use `OPENCLAW_GATEWAY_LOBSTER_CWD` as the path to `lobster/` relative to the OpenClaw gateway process, not relative to the Aries process. Use `lobster` when you start OpenClaw from `/home/node/aries-app`; use `aries-app/lobster` for the installed host gateway service that starts from `/home/node`. Keep `OPENCLAW_LOCAL_LOBSTER_CWD` / `OPENCLAW_LOBSTER_CWD` pointed at the absolute checkout path for local file reads and compatibility tooling. Run `npm run validate:openclaw-lobster` after gateway/config changes; it writes a diagnostic report under `.artifacts/openclaw-lobster-availability/` and fails with the fix hint if the `lobster` tool disappears again.
+Hermes callbacks post to `${APP_BASE_URL}/api/internal/hermes/runs` with `Authorization: Bearer ${INTERNAL_API_SECRET}`. Keep `OPENCLAW_*` and `LOBSTER_*` values only when opting into `ARIES_EXECUTION_PROVIDER=legacy-openclaw` or `ARIES_MARKETING_EXECUTION_PROVIDER=legacy-openclaw`. Run `npm run validate:execution-provider` after Hermes callback changes; run `npm run validate:legacy-openclaw-lobster` after legacy gateway/config changes.
 
 ### 3) Start PostgreSQL
 
@@ -290,7 +293,7 @@ The canonical marketing flow currently centers on the `brand_campaign` job type.
 - `brandUrl`
 - `competitorUrl`
 
-Aries creates local runtime state for the job, delegates execution through OpenClaw, and exposes status/approval operations through:
+Aries creates local runtime state for the job, submits execution to Hermes, and treats idempotent Hermes callbacks as the source of truth for progress. Status/approval operations are exposed through:
 
 - `/api/marketing/jobs/[jobId]`
 - `/api/marketing/jobs/[jobId]/approve`
@@ -310,7 +313,7 @@ The runtime also includes route handlers for publishing dispatch/retry and calen
 - `/api/publish/retry`
 - `/api/calendar/sync`
 
-These routes keep the browser-facing contract inside Aries while workflow execution is handled behind the OpenClaw boundary.
+These routes keep the browser-facing contract inside Aries while workflow execution is handled behind the Hermes callback boundary.
 
 ## Validation and testing
 
@@ -371,7 +374,7 @@ Infrastructure and deploy:
 
 - Prefer the Next.js route handlers in `app/api/*` as the UI contract.
 - Keep browser-facing responses safe and typed; avoid leaking runtime internals.
-- Treat OpenClaw as the execution boundary.
+- Treat Hermes callbacks as the execution boundary; keep OpenClaw/Lobster behavior isolated to legacy opt-in paths.
 - Use the repo verification scripts and targeted tests to keep docs and implementation aligned.
 
 ## Project TODO list

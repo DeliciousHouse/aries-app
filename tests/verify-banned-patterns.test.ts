@@ -82,6 +82,7 @@ async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise
   const previousStage2CacheDir = process.env.LOBSTER_STAGE2_CACHE_DIR;
   const previousStage3CacheDir = process.env.LOBSTER_STAGE3_CACHE_DIR;
   const previousStage4CacheDir = process.env.LOBSTER_STAGE4_CACHE_DIR;
+  const previousMarketingProvider = process.env.ARIES_MARKETING_EXECUTION_PROVIDER;
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-verify-banned-'));
 
   process.env.CODE_ROOT = PROJECT_ROOT;
@@ -91,6 +92,7 @@ async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise
   process.env.LOBSTER_STAGE2_CACHE_DIR = path.join(dataRoot, 'lobster-stage2-cache');
   process.env.LOBSTER_STAGE3_CACHE_DIR = path.join(dataRoot, 'lobster-stage3-cache');
   process.env.LOBSTER_STAGE4_CACHE_DIR = path.join(dataRoot, 'lobster-stage4-cache');
+  process.env.ARIES_MARKETING_EXECUTION_PROVIDER = 'legacy-openclaw';
 
   try {
     return await run(dataRoot);
@@ -137,6 +139,12 @@ async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise
       delete process.env.LOBSTER_STAGE4_CACHE_DIR;
     } else {
       process.env.LOBSTER_STAGE4_CACHE_DIR = previousStage4CacheDir;
+    }
+
+    if (previousMarketingProvider === undefined) {
+      delete process.env.ARIES_MARKETING_EXECUTION_PROVIDER;
+    } else {
+      process.env.ARIES_MARKETING_EXECUTION_PROVIDER = previousMarketingProvider;
     }
 
     await rm(dataRoot, { recursive: true, force: true });

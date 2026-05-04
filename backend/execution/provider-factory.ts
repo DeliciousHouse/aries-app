@@ -4,9 +4,9 @@ import { mapLegacyOpenClawGatewayError } from './providers/legacy-openclaw';
 import type { ExecutionProvider, WorkflowExecutionResult } from './types';
 import type { AriesWorkflowKey } from './workflow-catalog';
 
-export const DEFAULT_EXECUTION_PROVIDER = 'legacy-openclaw' as const;
+export const DEFAULT_EXECUTION_PROVIDER = 'hermes' as const;
 
-export type AriesExecutionProviderName = typeof DEFAULT_EXECUTION_PROVIDER | 'hermes';
+export type AriesExecutionProviderName = typeof DEFAULT_EXECUTION_PROVIDER | 'legacy-openclaw';
 
 type ExecutionProviderEnv = Partial<Record<string, string | undefined>>;
 
@@ -22,9 +22,10 @@ export function resolveExecutionProviderName(
 
   switch (configured) {
     case '':
-    case 'openclaw':
-    case DEFAULT_EXECUTION_PROVIDER:
       return DEFAULT_EXECUTION_PROVIDER;
+    case 'openclaw':
+    case 'legacy-openclaw':
+      return 'legacy-openclaw';
     case 'hermes':
       return 'hermes';
     default:

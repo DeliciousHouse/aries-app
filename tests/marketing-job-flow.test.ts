@@ -25,11 +25,13 @@ async function withMarketingRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>)
   const previousCodeRoot = process.env.CODE_ROOT;
   const previousDataRoot = process.env.DATA_ROOT;
   const previousOpenClawLobsterCwd = process.env.OPENCLAW_LOBSTER_CWD;
+  const previousMarketingProvider = process.env.ARIES_MARKETING_EXECUTION_PROVIDER;
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-marketing-'));
 
   process.env.CODE_ROOT = PROJECT_ROOT;
   process.env.DATA_ROOT = dataRoot;
   process.env.OPENCLAW_LOBSTER_CWD = path.join(PROJECT_ROOT, 'lobster');
+  process.env.ARIES_MARKETING_EXECUTION_PROVIDER = 'legacy-openclaw';
   const restoreFetch = installBrandExampleFetchMock();
 
   try {
@@ -52,6 +54,12 @@ async function withMarketingRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>)
       delete process.env.OPENCLAW_LOBSTER_CWD;
     } else {
       process.env.OPENCLAW_LOBSTER_CWD = previousOpenClawLobsterCwd;
+    }
+
+    if (previousMarketingProvider === undefined) {
+      delete process.env.ARIES_MARKETING_EXECUTION_PROVIDER;
+    } else {
+      process.env.ARIES_MARKETING_EXECUTION_PROVIDER = previousMarketingProvider;
     }
 
     await rm(dataRoot, { recursive: true, force: true });

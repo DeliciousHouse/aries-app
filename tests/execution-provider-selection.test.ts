@@ -8,10 +8,10 @@ import {
   resolveExecutionProviderName,
 } from '../backend/execution';
 
-test('resolveExecutionProviderName defaults to legacy-openclaw when ARIES_EXECUTION_PROVIDER is unset', () => {
-  assert.equal(DEFAULT_EXECUTION_PROVIDER, 'legacy-openclaw');
-  assert.equal(resolveExecutionProviderName({}), 'legacy-openclaw');
-  assert.equal(resolveExecutionProviderName({ ARIES_EXECUTION_PROVIDER: '' }), 'legacy-openclaw');
+test('resolveExecutionProviderName defaults to hermes when ARIES_EXECUTION_PROVIDER is unset', () => {
+  assert.equal(DEFAULT_EXECUTION_PROVIDER, 'hermes');
+  assert.equal(resolveExecutionProviderName({}), 'hermes');
+  assert.equal(resolveExecutionProviderName({ ARIES_EXECUTION_PROVIDER: '' }), 'hermes');
 });
 
 test('resolveExecutionProviderName accepts explicit legacy-openclaw selection', () => {

@@ -19,7 +19,7 @@ import {
   resolveOpenClawLobsterRuntimeContext,
   type LobsterEnvelope,
 } from '../openclaw/gateway-client';
-import { getMarketingExecutionPort, type MarketingExecutionPort } from './execution-port';
+import { getMarketingExecutionPort, type MarketingExecutionPort, type MarketingExecutionResult } from './execution-port';
 import {
   MarketingApprovalLockError,
   createMarketingApprovalRecord,
@@ -422,7 +422,7 @@ function resolveMarketingExecutionPort(): MarketingExecutionPort {
   });
 }
 
-async function runMarketingPipeline(doc: MarketingJobRuntimeDocument): Promise<LobsterEnvelope> {
+async function runMarketingPipeline(doc: MarketingJobRuntimeDocument): Promise<MarketingExecutionResult> {
   const port = resolveMarketingExecutionPort();
   return port.runPipeline({
     jobId: doc.job_id,
@@ -433,14 +433,50 @@ async function runMarketingPipeline(doc: MarketingJobRuntimeDocument): Promise<L
   });
 }
 
-async function resumeMarketingPipeline(resumeToken: string, approve = true): Promise<LobsterEnvelope> {
+async function resumeMarketingPipeline(
+  resumeToken: string,
+  approve = true,
+  context: {
+    tenantId?: string | null;
+    jobId?: string | null;
+    approvalId?: string | null;
+    stage?: MarketingStage | null;
+    workflowStepId?: string | null;
+  } = {},
+): Promise<MarketingExecutionResult> {
   const port = resolveMarketingExecutionPort();
   return port.resumePipeline({
     resumeToken,
     approve,
     timeoutMs: marketingWorkflowTimeoutMs(),
     maxStdoutBytes: marketingWorkflowMaxStdoutBytes(),
+    tenantId: context.tenantId,
+    jobId: context.jobId,
+    approvalId: context.approvalId,
+    stage: context.stage,
+    workflowStepId: context.workflowStepId,
   });
+}
+
+function completedMarketingEnvelope(result: MarketingExecutionResult): LobsterEnvelope {
+  if (result.kind === 'completed') {
+    if (result.envelope.ok === false) {
+      const code = typeof result.envelope.code === 'string' ? result.envelope.code : 'hermes_marketing_execution_failed';
+      const message = typeof result.envelope.message === 'string' && result.envelope.message.trim().length > 0
+        ? result.envelope.message
+        : 'Hermes marketing execution failed before a run was accepted.';
+      throw new Error(`${code}:${message}`);
+    }
+    return result.envelope;
+  }
+  return {
+    ok: true,
+    status: 'submitted',
+    provider: 'hermes',
+    aries_run_id: result.ariesRunId,
+    hermes_run_id: result.hermesRunId,
+    output: [],
+  };
 }
 
 function stageApprovalMessage(
@@ -540,8 +576,8 @@ function createAndPersistApprovalCheckpoint(
     approvalId: approvalRecord.approval_id,
     correlationId: approvalRecord.correlation_id,
     traceId: approvalRecord.trace_id,
-    tokenFingerprint: approvalRecord.lobster_resume_token_fingerprint,
-    tokenStateKeys: approvalRecord.lobster_resume_state_keys,
+    tokenFingerprint: approvalRecord.execution_resume_token_fingerprint,
+    tokenStateKeys: approvalRecord.execution_resume_state_keys,
     sessionKey: approvalRecord.runtime_context.session_key,
     cwd: approvalRecord.runtime_context.cwd,
     stateDir: approvalRecord.runtime_context.state_dir,
@@ -582,7 +618,7 @@ async function replayMarketingPipelineToApprovalCheckpoint(
   doc: MarketingJobRuntimeDocument,
   workflowStepId: WorkflowApprovalStepId,
 ): Promise<string> {
-  let envelope = await runMarketingPipeline(doc);
+  let envelope = completedMarketingEnvelope(await runMarketingPipeline(doc));
   let resumeToken = envelope.requiresApproval?.resumeToken?.trim() || '';
   if (!resumeToken) {
     throw new Error(`marketing_pipeline_missing_resume_token:${workflowStepId}`);
@@ -592,7 +628,7 @@ async function replayMarketingPipelineToApprovalCheckpoint(
     return resumeToken;
   }
 
-  envelope = await resumeMarketingPipeline(resumeToken, true);
+  envelope = completedMarketingEnvelope(await resumeMarketingPipeline(resumeToken, true));
   resumeToken = envelope.requiresApproval?.resumeToken?.trim() || '';
   if (!resumeToken) {
     throw new Error(`marketing_pipeline_missing_resume_token:${workflowStepId}`);
@@ -602,7 +638,7 @@ async function replayMarketingPipelineToApprovalCheckpoint(
     return resumeToken;
   }
 
-  envelope = await resumeMarketingPipeline(resumeToken, true);
+  envelope = completedMarketingEnvelope(await resumeMarketingPipeline(resumeToken, true));
   resumeToken = envelope.requiresApproval?.resumeToken?.trim() || '';
   if (!resumeToken) {
     throw new Error(`marketing_pipeline_missing_resume_token:${workflowStepId}`);
@@ -612,7 +648,7 @@ async function replayMarketingPipelineToApprovalCheckpoint(
     return resumeToken;
   }
 
-  envelope = await resumeMarketingPipeline(resumeToken, true);
+  envelope = completedMarketingEnvelope(await resumeMarketingPipeline(resumeToken, true));
   resumeToken = envelope.requiresApproval?.resumeToken?.trim() || '';
   if (!resumeToken) {
     throw new Error(`marketing_pipeline_missing_resume_token:${workflowStepId}`);
@@ -623,7 +659,7 @@ async function replayMarketingPipelineToApprovalCheckpoint(
 
 function lobsterResumeStateKeysMissing(record: MarketingApprovalRecord): boolean {
   const stateDir = record.runtime_context.state_dir?.trim();
-  const stateKeys = record.lobster_resume_state_keys.filter((key) => key.trim().length > 0);
+  const stateKeys = record.execution_resume_state_keys.filter((key) => key.trim().length > 0);
   if (!stateDir || stateKeys.length === 0) {
     return false;
   }
@@ -647,13 +683,16 @@ async function reseedMarketingApprovalResumeToken(
     attemptCount: record.attempt_count,
     correlationId: record.correlation_id,
     traceId: record.trace_id,
-    tokenFingerprint: record.lobster_resume_token_fingerprint,
-    tokenStateKeys: record.lobster_resume_state_keys,
+    tokenFingerprint: record.execution_resume_token_fingerprint,
+    tokenStateKeys: record.execution_resume_state_keys,
     reason,
   });
 
   const freshResumeToken = await replayMarketingPipelineToApprovalCheckpoint(doc, workflowStepId);
   const descriptor = describeLobsterResumeToken(freshResumeToken);
+  record.execution_resume_token = freshResumeToken;
+  record.execution_resume_token_fingerprint = descriptor.fingerprint;
+  record.execution_resume_state_keys = descriptor.stateKeys;
   record.lobster_resume_token = freshResumeToken;
   record.lobster_resume_token_fingerprint = descriptor.fingerprint;
   record.lobster_resume_state_keys = descriptor.stateKeys;
@@ -687,8 +726,8 @@ async function reseedMarketingApprovalResumeToken(
     approvalId: record.approval_id,
     status: record.status,
     attemptCount: record.attempt_count,
-    tokenFingerprint: record.lobster_resume_token_fingerprint,
-    tokenStateKeys: record.lobster_resume_state_keys,
+    tokenFingerprint: record.execution_resume_token_fingerprint,
+    tokenStateKeys: record.execution_resume_state_keys,
     reseeded: true,
   });
 
@@ -734,8 +773,8 @@ function activeApprovalRecord(
       approvalId: record.approval_id,
       status: record.status,
       attemptCount: record.attempt_count,
-      tokenFingerprint: record.lobster_resume_token_fingerprint,
-      tokenStateKeys: record.lobster_resume_state_keys,
+      tokenFingerprint: record.execution_resume_token_fingerprint,
+      tokenStateKeys: record.execution_resume_state_keys,
     });
   }
 
@@ -806,7 +845,14 @@ async function runResearchStage(doc: MarketingJobRuntimeDocument): Promise<void>
     maxStdoutBytes: marketingWorkflowMaxStdoutBytes(),
   });
 
-  const envelope = await runMarketingPipeline(doc);
+  const execution = await runMarketingPipeline(doc);
+  if (execution.kind === 'submitted') {
+    appendHistory(doc, 'research stage submitted to Hermes', { stage: 'research' });
+    saveMarketingJobRuntime(doc.job_id, doc);
+    return;
+  }
+
+  const envelope = completedMarketingEnvelope(execution);
   const primaryOutput = primaryOutputRecord(envelope);
   const capture = await collectResearchStageArtifacts(
     createMarketingJobFacts(doc, runIdFromPrimaryOutput(primaryOutput)),
@@ -864,13 +910,27 @@ async function runResearchStage(doc: MarketingJobRuntimeDocument): Promise<void>
 
 async function finalizeStrategyAndRunProductionReview(
   doc: MarketingJobRuntimeDocument,
-  resumeToken: string
+  resumeToken: string,
+  context: { approvalId?: string | null; workflowStepId?: string | null } = {},
 ): Promise<void> {
   if (!resumeToken) {
     throw new Error('missing_strategy_resume_token');
   }
 
-  const envelope = await resumeMarketingPipeline(resumeToken);
+  const execution = await resumeMarketingPipeline(resumeToken, true, {
+    tenantId: doc.tenant_id,
+    jobId: doc.job_id,
+    approvalId: context.approvalId,
+    stage: 'strategy',
+    workflowStepId: context.workflowStepId,
+  });
+  if (execution.kind === 'submitted') {
+    appendHistory(doc, 'strategy approval submitted to Hermes', { stage: 'strategy' });
+    saveMarketingJobRuntime(doc.job_id, doc);
+    return;
+  }
+
+  const envelope = completedMarketingEnvelope(execution);
   const primaryOutput = primaryOutputRecord(envelope);
   const strategyReviewCapture = await collectStrategyReviewArtifacts(
     createMarketingJobFacts(doc, runIdFromPrimaryOutput(primaryOutput)),
@@ -930,13 +990,27 @@ async function finalizeStrategyAndRunProductionReview(
 
 async function finalizeProductionAndRunPublishReview(
   doc: MarketingJobRuntimeDocument,
-  resumeToken: string
+  resumeToken: string,
+  context: { approvalId?: string | null; workflowStepId?: string | null } = {},
 ): Promise<void> {
   if (!resumeToken) {
     throw new Error('missing_production_resume_token');
   }
 
-  const envelope = await resumeMarketingPipeline(resumeToken);
+  const execution = await resumeMarketingPipeline(resumeToken, true, {
+    tenantId: doc.tenant_id,
+    jobId: doc.job_id,
+    approvalId: context.approvalId,
+    stage: 'production',
+    workflowStepId: context.workflowStepId,
+  });
+  if (execution.kind === 'submitted') {
+    appendHistory(doc, 'production approval submitted to Hermes', { stage: 'production' });
+    saveMarketingJobRuntime(doc.job_id, doc);
+    return;
+  }
+
+  const envelope = completedMarketingEnvelope(execution);
   const primaryOutput = primaryOutputRecord(envelope);
   const productionReviewCapture = await collectProductionReviewArtifacts(
     createMarketingJobFacts(doc, runIdFromPrimaryOutput(primaryOutput)),
@@ -995,7 +1069,11 @@ async function finalizeProductionAndRunPublishReview(
   saveMarketingJobRuntime(doc.job_id, doc);
 }
 
-async function advancePublishStage(doc: MarketingJobRuntimeDocument, resumeToken: string): Promise<void> {
+async function advancePublishStage(
+  doc: MarketingJobRuntimeDocument,
+  resumeToken: string,
+  context: { approvalId?: string | null; workflowStepId?: string | null } = {},
+): Promise<void> {
   const publishStage = getStageRecord(doc, 'publish');
   if (!resumeToken) {
     throw new Error('missing_publish_resume_token');
@@ -1005,7 +1083,20 @@ async function advancePublishStage(doc: MarketingJobRuntimeDocument, resumeToken
   markStageInProgress(doc, 'publish');
   saveMarketingJobRuntime(doc.job_id, doc);
 
-  const envelope = await resumeMarketingPipeline(resumeToken);
+  const execution = await resumeMarketingPipeline(resumeToken, true, {
+    tenantId: doc.tenant_id,
+    jobId: doc.job_id,
+    approvalId: context.approvalId,
+    stage: 'publish',
+    workflowStepId: context.workflowStepId,
+  });
+  if (execution.kind === 'submitted') {
+    appendHistory(doc, 'publish approval submitted to Hermes', { stage: 'publish' });
+    saveMarketingJobRuntime(doc.job_id, doc);
+    return;
+  }
+
+  const envelope = completedMarketingEnvelope(execution);
   const primaryOutput = primaryOutputRecord(envelope);
   const publishReviewCapture = await collectPublishReviewArtifacts(primaryOutput, doc);
   const publish = summarizePublish(primaryOutput);
@@ -1403,7 +1494,7 @@ async function resolveMarketingApproval(
     return terminalApprovalResponse(input, approvalRecord);
   }
 
-  const resumeToken = approvalRecord.lobster_resume_token.trim() || checkpoint.resume_token?.trim() || '';
+  const resumeToken = approvalRecord.execution_resume_token.trim() || approvalRecord.lobster_resume_token?.trim() || checkpoint.resume_token?.trim() || '';
   const checkpointSnapshot = cloneApprovalCheckpoint(checkpoint);
   try {
     return await withMarketingApprovalLock(approvalRecord.approval_id, async () => {
@@ -1442,8 +1533,8 @@ async function resolveMarketingApproval(
         attemptCount: currentRecord.attempt_count,
         correlationId: currentRecord.correlation_id,
         traceId: currentRecord.trace_id,
-        tokenFingerprint: currentRecord.lobster_resume_token_fingerprint,
-        tokenStateKeys: currentRecord.lobster_resume_state_keys,
+        tokenFingerprint: currentRecord.execution_resume_token_fingerprint,
+        tokenStateKeys: currentRecord.execution_resume_state_keys,
         timeoutMs: marketingWorkflowTimeoutMs(),
         maxStdoutBytes: marketingWorkflowMaxStdoutBytes(),
       });
@@ -1452,7 +1543,32 @@ async function resolveMarketingApproval(
         activeResumeToken: string,
       ): Promise<{ resumedStage: MarketingStage | null; completed: boolean }> => {
         if (input.resolution === 'deny') {
-          const envelope = await resumeMarketingPipeline(activeResumeToken, false);
+          const execution = await resumeMarketingPipeline(activeResumeToken, false, {
+            tenantId: doc.tenant_id,
+            jobId: doc.job_id,
+            approvalId: checkpoint.approval_id ?? currentRecord.approval_id,
+            stage: checkpoint.stage,
+            workflowStepId: checkpoint.workflow_step_id ?? currentRecord.workflow_step_id,
+          });
+          if (execution.kind === 'submitted') {
+            recordApprovalDenied(doc, {
+              stage: checkpoint.stage,
+              deniedBy: input.actedBy.trim(),
+              message: checkpoint.message,
+              publishConfig: checkpoint.stage === 'publish' ? input.publishConfig : undefined,
+              approvalId: checkpoint.approval_id ?? currentRecord.approval_id,
+              workflowStepId: checkpoint.workflow_step_id ?? currentRecord.workflow_step_id,
+            });
+            clearApprovalCheckpoint(doc, `${checkpoint.stage} approval denied by ${input.actedBy.trim()}`);
+            doc.state = 'failed';
+            doc.status = 'failed';
+            saveMarketingJobRuntime(doc.job_id, doc);
+            return {
+              resumedStage: checkpoint.stage,
+              completed: false,
+            };
+          }
+          const envelope = completedMarketingEnvelope(execution);
           if (envelope.status !== 'cancelled') {
             throw new Error('workflow_deny_failed:workflow_did_not_cancel');
           }
@@ -1475,14 +1591,18 @@ async function resolveMarketingApproval(
         }
 
         let resumedStage: MarketingStage | null = null;
+        const resumeContext = {
+          approvalId: checkpoint.approval_id ?? currentRecord.approval_id,
+          workflowStepId: checkpoint.workflow_step_id ?? currentRecord.workflow_step_id,
+        };
         if (checkpoint.stage === 'strategy') {
-          await finalizeStrategyAndRunProductionReview(doc, activeResumeToken);
+          await finalizeStrategyAndRunProductionReview(doc, activeResumeToken, resumeContext);
           resumedStage = 'production';
         } else if (checkpoint.stage === 'production') {
-          await finalizeProductionAndRunPublishReview(doc, activeResumeToken);
+          await finalizeProductionAndRunPublishReview(doc, activeResumeToken, resumeContext);
           resumedStage = 'publish';
         } else {
-          await advancePublishStage(doc, activeResumeToken);
+          await advancePublishStage(doc, activeResumeToken, resumeContext);
           resumedStage = 'publish';
         }
 
@@ -1548,7 +1668,7 @@ async function resolveMarketingApproval(
         resumedStage,
         completed,
         attemptCount: currentRecord.attempt_count,
-        tokenFingerprint: currentRecord.lobster_resume_token_fingerprint,
+        tokenFingerprint: currentRecord.execution_resume_token_fingerprint,
       });
 
       return {
@@ -1598,7 +1718,7 @@ async function resolveMarketingApproval(
         approvalId: record.approval_id,
         resolution: input.resolution,
         attemptCount: record.attempt_count,
-        tokenFingerprint: record.lobster_resume_token_fingerprint,
+        tokenFingerprint: record.execution_resume_token_fingerprint,
         reason: record.last_error.message,
       });
     }

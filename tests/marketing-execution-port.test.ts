@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import {
@@ -9,6 +12,7 @@ import {
 import { HermesMarketingPort } from '../backend/marketing/ports/hermes';
 import { LegacyOpenClawMarketingPort } from '../backend/marketing/ports/legacy-openclaw';
 import type { MarketingJobRuntimeDocument } from '../backend/marketing/runtime-state';
+import { TEST_HERMES_GATEWAY_URL } from './fixtures/service-urls';
 
 const STUB_RUNTIME_PATHS = { gatewayCwd: 'lobster', localCwd: '/tmp/lobster' };
 
@@ -33,9 +37,37 @@ const STUB_RESUME_INPUT = {
   maxStdoutBytes: 65_536,
 };
 
-test('marketing port name defaults to legacy-openclaw when no env var is set', () => {
-  assert.equal(resolveMarketingExecutionPortName({}), 'legacy-openclaw');
-  assert.equal(DEFAULT_MARKETING_EXECUTION_PORT, 'legacy-openclaw');
+type FetchCall = { url: string; init: RequestInit };
+
+function recordingFetchSequence(responses: Array<() => Response>) {
+  const calls: FetchCall[] = [];
+  let i = 0;
+  const fetchImpl = async (url: string | URL, init?: RequestInit): Promise<Response> => {
+    calls.push({ url: String(url), init: init ?? {} });
+    const make = responses[i] ?? responses[responses.length - 1];
+    if (i < responses.length - 1) i += 1;
+    return make();
+  };
+  return { calls, fetchImpl };
+}
+
+async function withDataRoot<T>(run: () => Promise<T>): Promise<T> {
+  const previousDataRoot = process.env.DATA_ROOT;
+  const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-marketing-port-'));
+
+  process.env.DATA_ROOT = dataRoot;
+  try {
+    return await run();
+  } finally {
+    if (previousDataRoot === undefined) delete process.env.DATA_ROOT;
+    else process.env.DATA_ROOT = previousDataRoot;
+    await rm(dataRoot, { recursive: true, force: true });
+  }
+}
+
+test('marketing port name defaults to hermes when no env var is set', () => {
+  assert.equal(resolveMarketingExecutionPortName({}), 'hermes');
+  assert.equal(DEFAULT_MARKETING_EXECUTION_PORT, 'hermes');
 });
 
 test('marketing port name selects hermes only when ARIES_MARKETING_EXECUTION_PROVIDER=hermes', () => {
@@ -49,26 +81,24 @@ test('marketing port name selects hermes only when ARIES_MARKETING_EXECUTION_PRO
   );
 });
 
-test('marketing port name does NOT promote to hermes when only the global flag is set', () => {
-  // Marketing migration is opt-in; the global ARIES_EXECUTION_PROVIDER must
-  // not silently switch approval-bearing campaigns onto unimplemented Hermes.
+test('marketing port name accepts explicit legacy-openclaw selection', () => {
   assert.equal(
-    resolveMarketingExecutionPortName({ ARIES_EXECUTION_PROVIDER: 'hermes' }),
+    resolveMarketingExecutionPortName({ ARIES_MARKETING_EXECUTION_PROVIDER: 'legacy-openclaw' }),
     'legacy-openclaw',
   );
 });
 
-test('marketing port name falls back to legacy-openclaw on unknown values', () => {
+test('marketing port name falls back to hermes on unknown values', () => {
   assert.equal(
     resolveMarketingExecutionPortName({ ARIES_MARKETING_EXECUTION_PROVIDER: 'unsupported' }),
-    'legacy-openclaw',
+    'hermes',
   );
 });
 
-test('getMarketingExecutionPort returns the legacy port by default', () => {
+test('getMarketingExecutionPort returns the Hermes port by default', () => {
   const port = getMarketingExecutionPort(() => STUB_RUNTIME_PATHS, {});
-  assert.ok(port instanceof LegacyOpenClawMarketingPort);
-  assert.equal(port.name, 'legacy-openclaw');
+  assert.ok(port instanceof HermesMarketingPort);
+  assert.equal(port.name, 'hermes');
 });
 
 test('getMarketingExecutionPort returns the Hermes port when explicitly selected', () => {
@@ -80,34 +110,117 @@ test('getMarketingExecutionPort returns the Hermes port when explicitly selected
   assert.equal(port.name, 'hermes');
 });
 
-test('HermesMarketingPort.runPipeline returns an honest not_implemented envelope', async () => {
-  const port = new HermesMarketingPort();
-  const envelope = await port.runPipeline(STUB_RUN_INPUT);
+test('HermesMarketingPort.runPipeline submits a Hermes marketing run without polling', async () => {
+  await withDataRoot(async () => {
+    const { loadExecutionRunRecord } = await import('../backend/execution/run-store');
+    const { calls, fetchImpl } = recordingFetchSequence([
+      () => new Response(JSON.stringify({ run_id: 'hermes-marketing-run-1', status: 'started' }), {
+        status: 202,
+        headers: { 'content-type': 'application/json' },
+      }),
+    ]);
+    const port = new HermesMarketingPort(
+      {
+        HERMES_GATEWAY_URL: `${TEST_HERMES_GATEWAY_URL}/`,
+        HERMES_API_SERVER_KEY: 'token-123',
+        HERMES_SESSION_KEY: 'marketing-session',
+        APP_BASE_URL: 'https://aries.example.com',
+      },
+      fetchImpl,
+    );
+    const result = await port.runPipeline(STUB_RUN_INPUT);
 
-  assert.equal(envelope.ok, false);
-  assert.equal(envelope.status, 'not_implemented');
-  assert.equal(envelope.provider, 'hermes');
-  assert.equal(envelope.action, 'run');
-  assert.equal(envelope.code, 'hermes_marketing_pipeline_not_implemented');
-  assert.match(String(envelope.message), /Hermes marketing/);
-  assert.match(String(envelope.message), /ARIES_MARKETING_EXECUTION_PROVIDER=legacy-openclaw/);
-  assert.deepEqual(envelope.detail, { jobId: 'job_test' });
+    assert.equal(result.kind, 'submitted');
+    assert.equal(result.provider, 'hermes');
+    assert.equal(result.hermesRunId, 'hermes-marketing-run-1');
+    assert.match(result.ariesRunId, /^arun_/);
+    assert.equal(calls.length, 1);
+
+    const body = JSON.parse(String(calls[0].init.body));
+    assert.equal(body.callback_url, 'https://aries.example.com/api/internal/hermes/runs');
+    assert.equal(body.session_id, 'marketing-session');
+    assert.match(body.input, /Workflow: marketing_pipeline/);
+    assert.match(body.input, /Action: run/);
+    assert.match(body.input, /Aries run ID: arun_/);
+    assert.match(body.input, /"job_id":"job_test"/);
+
+    const stored = loadExecutionRunRecord(result.ariesRunId);
+    assert.equal(stored?.domain, 'marketing');
+    assert.equal(stored?.workflow_key, 'marketing_pipeline');
+    assert.equal(stored?.marketing_job_id, 'job_test');
+    assert.equal(stored?.stage, 'research');
+    assert.equal(stored?.external_run_id, 'hermes-marketing-run-1');
+  });
 });
 
-test('HermesMarketingPort.resumePipeline returns honest not_implemented and never leaks raw resume tokens', async () => {
-  const port = new HermesMarketingPort();
-  const envelope = await port.resumePipeline(STUB_RESUME_INPUT);
+test('HermesMarketingPort.resumePipeline submits a Hermes resume decision without polling', async () => {
+  await withDataRoot(async () => {
+    const { calls, fetchImpl } = recordingFetchSequence([
+      () => new Response(JSON.stringify({ run_id: 'hermes-resume-run-1', status: 'started' }), {
+        status: 202,
+        headers: { 'content-type': 'application/json' },
+      }),
+    ]);
+    const port = new HermesMarketingPort(
+      {
+        HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL,
+        HERMES_API_SERVER_KEY: 'token-123',
+        APP_BASE_URL: 'https://aries.example.com',
+      },
+      fetchImpl,
+    );
 
-  assert.equal(envelope.ok, false);
-  assert.equal(envelope.status, 'not_implemented');
-  assert.equal(envelope.action, 'resume');
-  const detail = envelope.detail as Record<string, unknown>;
-  assert.equal(detail.approve, true);
-  // Resume token must never appear in plain text on the envelope — only a
-  // truncated correlation id.
-  const detailJson = JSON.stringify(envelope);
-  assert.equal(detailJson.includes('opaque-token-123'), false);
-  assert.match(String(detail.resumeTokenFingerprint), /^tok_/);
+    const result = await port.resumePipeline(STUB_RESUME_INPUT);
+
+    assert.equal(result.kind, 'submitted');
+    assert.equal(result.provider, 'hermes');
+    assert.equal(result.hermesRunId, 'hermes-resume-run-1');
+    const body = JSON.parse(String(calls[0].init.body));
+    assert.match(body.input, /Action: resume/);
+    assert.match(body.input, /Approve: true/);
+    assert.match(body.input, /Resume token: opaque-token-123/);
+  });
+});
+
+test('HermesMarketingPort reports missing config as a completed error result', async () => {
+  const port = new HermesMarketingPort({ HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL });
+  const result = await port.runPipeline(STUB_RUN_INPUT);
+
+  assert.equal(result.kind, 'completed');
+  assert.equal(result.provider, 'hermes');
+  assert.equal(result.envelope.ok, false);
+  assert.equal(result.envelope.status, 'gateway_error');
+  assert.equal(result.envelope.code, 'hermes_gateway_not_configured');
+});
+
+test('HermesMarketingPort marks accepted Aries runs failed when Hermes submission fails', async () => {
+  await withDataRoot(async () => {
+    const { loadExecutionRunRecord } = await import('../backend/execution/run-store');
+    const { fetchImpl } = recordingFetchSequence([
+      () => new Response(JSON.stringify({ error: 'no capacity' }), {
+        status: 503,
+        headers: { 'content-type': 'application/json' },
+      }),
+    ]);
+    const port = new HermesMarketingPort(
+      {
+        HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL,
+        HERMES_API_SERVER_KEY: 'token-123',
+        APP_BASE_URL: 'https://aries.example.com',
+      },
+      fetchImpl,
+    );
+
+    const result = await port.runPipeline(STUB_RUN_INPUT);
+
+    assert.equal(result.kind, 'completed');
+    assert.equal(result.envelope.ok, false);
+    const detail = result.envelope.detail as Record<string, unknown>;
+    const ariesRunId = String(detail.aries_run_id);
+    const stored = loadExecutionRunRecord(ariesRunId);
+    assert.equal(stored?.status, 'failed');
+    assert.equal(stored?.last_error?.code, 'hermes_gateway_request_failed');
+  });
 });
 
 test('LegacyOpenClawMarketingPort delegates to the OpenClaw gateway client with the run-pipeline shape', async () => {
@@ -121,9 +234,11 @@ test('LegacyOpenClawMarketingPort delegates to the OpenClaw gateway client with 
   };
   try {
     const port = new LegacyOpenClawMarketingPort(() => STUB_RUNTIME_PATHS);
-    const envelope = await port.runPipeline(STUB_RUN_INPUT);
-    assert.equal(envelope.ok, true);
-    assert.equal(envelope.status, 'completed');
+    const result = await port.runPipeline(STUB_RUN_INPUT);
+    assert.equal(result.kind, 'completed');
+    assert.equal(result.provider, 'legacy-openclaw');
+    assert.equal(result.envelope.ok, true);
+    assert.equal(result.envelope.status, 'completed');
     assert.equal(calls.length, 1);
     const payload = calls[0];
     assert.equal(payload.tool, 'lobster');
@@ -150,8 +265,10 @@ test('LegacyOpenClawMarketingPort delegates to the OpenClaw gateway client with 
   };
   try {
     const port = new LegacyOpenClawMarketingPort(() => STUB_RUNTIME_PATHS);
-    const envelope = await port.resumePipeline(STUB_RESUME_INPUT);
-    assert.equal(envelope.ok, true);
+    const result = await port.resumePipeline(STUB_RESUME_INPUT);
+    assert.equal(result.kind, 'completed');
+    assert.equal(result.provider, 'legacy-openclaw');
+    assert.equal(result.envelope.ok, true);
     assert.equal(calls.length, 1);
     const payload = calls[0];
     assert.equal(payload.tool, 'lobster');

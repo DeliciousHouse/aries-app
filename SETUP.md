@@ -5,7 +5,7 @@
 This setup is for the current direct Aries architecture:
 - Next.js public pages and operator pages
 - internal `/api/*` route handlers
-- OpenClaw as the execution boundary
+- Hermes as the default execution boundary, with OpenClaw/Lobster as legacy opt-in
 - Postgres plus runtime files for persisted state and read models
 
 It does not document removed placeholder routes or legacy workflow-engine references.
@@ -15,7 +15,7 @@ It does not document removed placeholder routes or legacy workflow-engine refere
 - Node.js 18+
 - npm
 - PostgreSQL 16
-- OpenClaw Gateway credentials for live execution
+- Hermes Gateway credentials plus an internal callback secret for live execution
 
 ## Install
 
@@ -61,8 +61,12 @@ npm run dev
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `OPENCLAW_GATEWAY_URL` | ✅ | Base URL for Aries execution calls into OpenClaw |
-| `OPENCLAW_GATEWAY_TOKEN` | ✅ | Bearer token for OpenClaw Gateway |
+| `HERMES_GATEWAY_URL` | ✅ | Base URL for Aries execution submissions into Hermes |
+| `HERMES_API_SERVER_KEY` | ✅ | Bearer token for Hermes `/v1/runs` |
+| `ARIES_EXECUTION_PROVIDER` | Optional | Defaults to `hermes`; set `legacy-openclaw` to opt into OpenClaw |
+| `ARIES_MARKETING_EXECUTION_PROVIDER` | Optional | Defaults to `hermes`; set `legacy-openclaw` for Lobster marketing |
+| `OPENCLAW_GATEWAY_URL` | Legacy only | Base URL for legacy OpenClaw execution |
+| `OPENCLAW_GATEWAY_TOKEN` | Legacy only | Bearer token for OpenClaw Gateway |
 | `DB_HOST` | ✅ | Postgres host |
 | `DB_PORT` | ✅ | Postgres port |
 | `DB_USER` | ✅ | Postgres user |
@@ -74,7 +78,7 @@ npm run dev
 | `AUTH_TRUST_HOST` | Recommended | Trust forwarded host headers behind a proxy |
 | `OPENCLAW_SESSION_KEY` | Optional | OpenClaw session key; defaults to `main` |
 | `OPENCLAW_LOBSTER_CWD` | Optional | Workspace-relative directory for Lobster workflows |
-| `INTERNAL_API_SECRET` | Optional | Secret for trusted internal callbacks |
+| `INTERNAL_API_SECRET` | ✅ | Shared secret for Hermes callbacks to `/api/internal/hermes/runs` |
 | `LOG_LEVEL` | Optional | Runtime log level |
 
 ## Runtime execution model
@@ -84,7 +88,7 @@ Browser
   -> Next.js page route or /api route
   -> request validation + tenant/session resolution
   -> Aries service layer
-      -> OpenClaw Gateway for execution
+      -> Hermes /v1/runs and authenticated callbacks for execution
       -> Postgres/runtime files for state reads and writes
 ```
 

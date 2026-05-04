@@ -14,11 +14,13 @@ async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise
   const previousCodeRoot = process.env.CODE_ROOT;
   const previousDataRoot = process.env.DATA_ROOT;
   const previousOpenClawLobsterCwd = process.env.OPENCLAW_LOBSTER_CWD;
+  const previousMarketingProvider = process.env.ARIES_MARKETING_EXECUTION_PROVIDER;
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-approval-persistence-'));
 
   process.env.CODE_ROOT = PROJECT_ROOT;
   process.env.DATA_ROOT = dataRoot;
   process.env.OPENCLAW_LOBSTER_CWD = path.join(PROJECT_ROOT, 'lobster');
+  process.env.ARIES_MARKETING_EXECUTION_PROVIDER = 'legacy-openclaw';
   const restoreFetch = installBrandExampleFetchMock();
 
   try {
@@ -41,6 +43,12 @@ async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise
       delete process.env.OPENCLAW_LOBSTER_CWD;
     } else {
       process.env.OPENCLAW_LOBSTER_CWD = previousOpenClawLobsterCwd;
+    }
+
+    if (previousMarketingProvider === undefined) {
+      delete process.env.ARIES_MARKETING_EXECUTION_PROVIDER;
+    } else {
+      process.env.ARIES_MARKETING_EXECUTION_PROVIDER = previousMarketingProvider;
     }
 
     await rm(dataRoot, { recursive: true, force: true });
@@ -198,8 +206,45 @@ test('marketing approval records persist to disk with workflow context and reloa
     assert.equal(reloaded?.workflow_step_id, 'approve_stage_2');
     assert.equal(reloaded?.runtime_context.state_dir, '/home/node/.lobster');
     assert.equal(raw.workflow_name, 'marketing-pipeline');
+    assert.equal(raw.execution_provider, 'legacy-openclaw');
+    assert.equal(raw.execution_resume_token, 'resume_strategy');
+    assert.equal(raw.execution_resume_token_fingerprint, raw.lobster_resume_token_fingerprint);
     assert.equal(raw.lobster_resume_token, 'resume_strategy');
     assert.equal(raw.attempt_count, 0);
+  });
+});
+
+test('Hermes approval records persist provider-neutral resume tokens without Lobster aliases', async () => {
+  await withRuntimeEnv(async () => {
+  const { createMarketingApprovalRecord, saveMarketingApprovalRecord, loadMarketingApprovalRecord } =
+    await import('../backend/marketing/approval-store');
+
+    const record = createMarketingApprovalRecord({
+      tenantId: 'tenant-hermes',
+      marketingJobId: 'job-hermes',
+      workflowName: 'marketing-pipeline',
+      workflowStepId: 'approve_stage_3',
+      marketingStage: 'production',
+      executionProvider: 'hermes',
+      executionResumeToken: 'hermes-resume-token',
+      approvalPrompt: 'Approve production?',
+      runtimeContext: {
+        pipelinePath: 'hermes',
+        cwd: '/home/node/aries-app',
+        sessionKey: 'marketing',
+      },
+    });
+
+    const filePath = saveMarketingApprovalRecord(record);
+    const reloaded = loadMarketingApprovalRecord(record.approval_id);
+    const raw = JSON.parse(await readFile(filePath, 'utf8')) as Record<string, unknown>;
+
+    assert.equal(reloaded?.execution_provider, 'hermes');
+    assert.equal(reloaded?.execution_resume_token, 'hermes-resume-token');
+    assert.equal(raw.execution_provider, 'hermes');
+    assert.equal(raw.execution_resume_token, 'hermes-resume-token');
+    assert.equal(Object.prototype.hasOwnProperty.call(raw, 'lobster_resume_token'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(raw, 'lobster_resume_token_fingerprint'), false);
   });
 });
 
@@ -215,6 +260,7 @@ test('duplicate approval clicks return already_resolved after the checkpoint is 
       jobType: 'brand_campaign',
       payload: {
         brandUrl: 'https://brand.example',
+        businessType: 'performance marketing agency',
         competitorUrl: 'https://betterup.com',
       },
     });
@@ -276,6 +322,7 @@ test('approving the paused-publish checkpoint clears the active approval while t
       jobType: 'brand_campaign',
       payload: {
         brandUrl: 'https://brand.example',
+        businessType: 'performance marketing agency',
         competitorUrl: 'https://betterup.com',
       },
     });
@@ -368,6 +415,7 @@ test('marketing pipeline persists every approval checkpoint through the paused-p
       jobType: 'brand_campaign',
       payload: {
         brandUrl: 'https://brand.example',
+        businessType: 'performance marketing agency',
         competitorUrl: 'https://betterup.com',
       },
     });
@@ -464,6 +512,7 @@ test('marketing workflow uses an extended gateway budget for long-running paused
       jobType: 'brand_campaign',
       payload: {
         brandUrl: 'https://brand.example',
+        businessType: 'performance marketing agency',
         competitorUrl: 'https://betterup.com',
       },
     });
@@ -563,6 +612,7 @@ test('denying a workflow checkpoint persists a denied approval record and clears
       jobType: 'brand_campaign',
       payload: {
         brandUrl: 'https://brand.example',
+        businessType: 'performance marketing agency',
         competitorUrl: 'https://betterup.com',
       },
     });

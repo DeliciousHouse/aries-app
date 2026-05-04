@@ -42,6 +42,11 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml build
 - `OPENCLAW_GATEWAY_TOKEN`
 - `OPENCLAW_SESSION_KEY` (optional; default `main`)
 - `OPENCLAW_LOBSTER_CWD` (optional)
+- `ARIES_EXECUTION_PROVIDER` (optional; default `hermes`)
+- `ARIES_MARKETING_EXECUTION_PROVIDER` (optional; default `hermes`)
+- `HERMES_GATEWAY_URL`
+- `HERMES_API_SERVER_KEY`
+- `INTERNAL_API_SECRET` (required for Hermes callbacks)
 - `LOBSTER_MEDIA_GATEWAY_ENABLED` (optional; set `1` to route Stage 4 image/video/text QA through OpenClaw)
 - `LOBSTER_VIDEO_RENDER_ENABLED` (optional; still required before video generation runs)
 - `LOBSTER_GATEWAY_IMAGE_MODEL` / `OPENCLAW_IMAGE_GENERATION_MODEL` (optional OpenClaw image model override)
@@ -210,7 +215,7 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml down
 - Keep real secrets out of git.
 - The runtime contract remains `CODE_ROOT=/app` and `DATA_ROOT=/data`.
 - The main `aries-app` service publishes `${PORT:-3000}` from the base compose file; the local override merges into that same service instead of launching a duplicate production instance.
-- Workflow execution is delegated through OpenClaw.
+- Workflow execution is delegated through Hermes by default. Hermes posts idempotent run callbacks to `/api/internal/hermes/runs`, authenticated with `INTERNAL_API_SECRET`. Set `ARIES_EXECUTION_PROVIDER=legacy-openclaw` and/or `ARIES_MARKETING_EXECUTION_PROVIDER=legacy-openclaw` only when intentionally running the legacy OpenClaw/Lobster path.
 
 ## Lobster stage cache directories
 
