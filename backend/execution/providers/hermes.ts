@@ -158,14 +158,6 @@ function missingHermesConfigError(keys: 'HERMES_GATEWAY_URL' | 'HERMES_API_SERVE
   });
 }
 
-function missingAppBaseUrlError(): ExecutionError {
-  return new ExecutionError({
-    provider: 'hermes',
-    code: 'not_configured',
-    status: 503,
-    message: 'APP_BASE_URL is required when ARIES_EXECUTION_PROVIDER=hermes so Hermes can POST run callbacks to Aries.',
-  });
-}
 
 function notImplementedResult(route: string): WorkflowExecutionResult {
   return {
@@ -310,19 +302,11 @@ export class HermesExecutionAdapter {
     return readEnvValue(this.env, 'HERMES_GATEWAY_URL').replace(/\/+$/, '');
   }
 
-  private callbackUrl(): string {
-    return `${readEnvValue(this.env, 'APP_BASE_URL').replace(/\/+$/, '')}/api/internal/hermes/runs`;
-  }
-
   private authHeader(): string {
     return `Bearer ${readEnvValue(this.env, 'HERMES_API_SERVER_KEY')}`;
   }
 
   private async invokeRun(envelope: HermesRunRequestEnvelope): Promise<WorkflowExecutionResult> {
-    if (!readEnvValue(this.env, 'APP_BASE_URL')) {
-      return gatewayErrorResult(missingAppBaseUrlError());
-    }
-
     const run = createExecutionRunRecord({
       provider: 'hermes',
       domain: 'route',
@@ -334,16 +318,7 @@ export class HermesExecutionAdapter {
       return submission.result;
     }
     markExecutionRunSubmitted(run.aries_run_id, { externalRunId: submission.runId });
-    return {
-      kind: 'ok',
-      envelope: {
-        status: 'accepted',
-        provider: 'hermes',
-        aries_run_id: run.aries_run_id,
-        hermes_run_id: submission.runId,
-      },
-      primaryOutput: null,
-    };
+    return this.pollRunUntilTerminal(submission.runId);
   }
 
   private async submitRun(
@@ -362,12 +337,6 @@ export class HermesExecutionAdapter {
           input: promptForWorkflow(envelope, ariesRunId),
           instructions: instructionsForWorkflow(envelope.workflowId),
           session_id: this.sessionKey(),
-          callback_url: this.callbackUrl(),
-          metadata: {
-            aries_run_id: ariesRunId,
-            workflow_key: envelope.workflowId,
-            provider: 'hermes',
-          },
         }),
       });
     } catch (error) {
