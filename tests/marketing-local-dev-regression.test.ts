@@ -7,6 +7,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { resolveProjectRoot } from './helpers/project-root';
+import { TEST_OPENCLAW_GATEWAY_URL } from './fixtures/service-urls';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
@@ -22,7 +23,7 @@ test('runOpenClawLobsterWorkflow normalizes host-checkout absolute lobster cwd f
   const captured: Array<Record<string, unknown>> = [];
 
   process.env.CODE_ROOT = PROJECT_ROOT;
-  process.env.OPENCLAW_GATEWAY_URL = 'http://gateway.example.test';
+  process.env.OPENCLAW_GATEWAY_URL = TEST_OPENCLAW_GATEWAY_URL;
   process.env.OPENCLAW_GATEWAY_TOKEN = 'debug-token';
   process.env.OPENCLAW_GATEWAY_LOBSTER_CWD = path.join(PROJECT_ROOT, 'lobster');
   (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ = (payload: Record<string, unknown>) => {
