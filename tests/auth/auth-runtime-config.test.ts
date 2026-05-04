@@ -26,9 +26,9 @@ test("falls back to APP_BASE_URL when auth URLs are unset", () => {
 test("ignores loopback auth URLs during development so request host can drive callbacks", () => {
   const config = resolveAuthRuntimeConfig({
     NODE_ENV: "development",
-    NEXTAUTH_URL: "http://localhost:8100",
-    AUTH_URL: "http://localhost:8100",
-    APP_BASE_URL: "http://localhost:8100",
+    NEXTAUTH_URL: "http://localhost:3000",
+    AUTH_URL: "http://localhost:3000",
+    APP_BASE_URL: "http://localhost:3000",
   });
 
   assert.equal(config.authUrl, undefined);
