@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import { TEST_OPENCLAW_GATEWAY_URL } from './fixtures/service-urls';
+
 test('runOpenClawLobsterWorkflow logs missing gateway configuration before attempting local fallback', async () => {
   const previousGatewayUrl = process.env.OPENCLAW_GATEWAY_URL;
   const previousGatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN;
@@ -144,7 +146,7 @@ test('resumeOpenClawLobsterWorkflow preserves detailed gateway failure messages 
   const previousGatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN;
   const previousFetch = globalThis.fetch;
 
-  process.env.OPENCLAW_GATEWAY_URL = 'http://gateway.example.test';
+  process.env.OPENCLAW_GATEWAY_URL = TEST_OPENCLAW_GATEWAY_URL;
   process.env.OPENCLAW_GATEWAY_TOKEN = 'debug-token';
   globalThis.fetch = ((async () =>
     new Response(
@@ -202,7 +204,7 @@ test('runOpenClawLobsterWorkflow normalizes OPENCLAW_LOBSTER_CWD when gateway-sp
   const previousLobsterCwd = process.env.OPENCLAW_LOBSTER_CWD;
   const captured: Array<Record<string, unknown>> = [];
 
-  process.env.OPENCLAW_GATEWAY_URL = 'http://gateway.example.test';
+  process.env.OPENCLAW_GATEWAY_URL = TEST_OPENCLAW_GATEWAY_URL;
   process.env.OPENCLAW_GATEWAY_TOKEN = 'debug-token';
   delete process.env.OPENCLAW_GATEWAY_LOBSTER_CWD;
   process.env.OPENCLAW_LOBSTER_CWD = '/app/lobster';
@@ -254,7 +256,7 @@ test('runOpenClawLobsterWorkflow defaults to gateway-relative lobster cwd in con
   const captured: Array<Record<string, unknown>> = [];
 
   process.env.CODE_ROOT = '/app';
-  process.env.OPENCLAW_GATEWAY_URL = 'http://gateway.example.test';
+  process.env.OPENCLAW_GATEWAY_URL = TEST_OPENCLAW_GATEWAY_URL;
   process.env.OPENCLAW_GATEWAY_TOKEN = 'debug-token';
   delete process.env.OPENCLAW_GATEWAY_LOBSTER_CWD;
   delete process.env.OPENCLAW_LOBSTER_CWD;
@@ -310,7 +312,7 @@ test('runOpenClawLobsterWorkflow normalizes the bind-mounted /app/aries-app lobs
   const captured: Array<Record<string, unknown>> = [];
 
   process.env.CODE_ROOT = '/app';
-  process.env.OPENCLAW_GATEWAY_URL = 'http://gateway.example.test';
+  process.env.OPENCLAW_GATEWAY_URL = TEST_OPENCLAW_GATEWAY_URL;
   process.env.OPENCLAW_GATEWAY_TOKEN = 'debug-token';
   process.env.OPENCLAW_GATEWAY_LOBSTER_CWD = '/app/aries-app/lobster';
   (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ = (payload: Record<string, unknown>) => {
@@ -376,7 +378,7 @@ test('runOpenClawLobsterWorkflow keeps gateway cwd relative to the gateway root 
   ]);
 
   process.env.CODE_ROOT = fixtureRoot;
-  process.env.OPENCLAW_GATEWAY_URL = 'http://gateway.example.test';
+  process.env.OPENCLAW_GATEWAY_URL = TEST_OPENCLAW_GATEWAY_URL;
   process.env.OPENCLAW_GATEWAY_TOKEN = 'debug-token';
   process.env.OPENCLAW_GATEWAY_LOBSTER_CWD = path.join(appRoot, 'lobster');
   (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ = (payload: Record<string, unknown>) => {
@@ -504,7 +506,7 @@ test('resumeOpenClawLobsterWorkflow retries compatible Lobster state keys when r
   const previousGatewayLobsterCwd = process.env.OPENCLAW_GATEWAY_LOBSTER_CWD;
   const previousLobsterCwd = process.env.OPENCLAW_LOBSTER_CWD;
 
-  process.env.OPENCLAW_GATEWAY_URL = 'http://gateway.example.test';
+  process.env.OPENCLAW_GATEWAY_URL = TEST_OPENCLAW_GATEWAY_URL;
   process.env.OPENCLAW_GATEWAY_TOKEN = 'debug-token';
   delete process.env.OPENCLAW_GATEWAY_LOBSTER_CWD;
   process.env.OPENCLAW_LOBSTER_CWD = '/app/lobster';

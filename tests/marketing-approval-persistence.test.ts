@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import { installBrandExampleFetchMock } from './helpers/brand-example-fetch';
 import { resolveProjectRoot } from './helpers/project-root';
+import { TEST_OPENCLAW_GATEWAY_URL } from './fixtures/service-urls';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
@@ -184,7 +185,7 @@ test('marketing approval records persist to disk with workflow context and reloa
         cwd: path.join(PROJECT_ROOT, 'lobster'),
         stateDir: '/home/node/.lobster',
         sessionKey: 'main',
-        gatewayUrl: 'http://gateway.example.test',
+        gatewayUrl: TEST_OPENCLAW_GATEWAY_URL,
       },
     });
 
