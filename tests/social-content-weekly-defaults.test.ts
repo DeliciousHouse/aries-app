@@ -27,6 +27,15 @@ async function withRuntimeEnv<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
+function stringValues(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.flatMap((entry) => stringValues(entry));
+  if (value && typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>).flatMap((entry) => stringValues(entry));
+  }
+  return [];
+}
+
 test('weekly payload defaults campaign window to 7 days', () => {
   const normalized = normalizeWeeklySocialContentPayload({});
   assert.equal(normalized.campaignWindowDays, 7);
@@ -115,6 +124,37 @@ test('weekly workflow request uses default scope counts/channels', () => {
   assert.equal(request.input.scope.video_script_count, 1);
   assert.equal(request.input.scope.video_render_count, 0);
   assert.deepEqual(request.input.scope.channels, ['meta', 'instagram']);
+});
+
+test('weekly workflow request forwards normalized forbidden visual patterns', () => {
+  const doc = {
+    tenant_id: 'tenant_patterns',
+    job_id: 'mkt_patterns',
+    inputs: {
+      brand_url: 'https://brand.example',
+      competitor_url: '',
+      competitor_brand: '',
+      facebook_page_url: '',
+      ad_library_url: '',
+      request: {
+        forbiddenVisualPatterns: ['no split-screen', 'no fake UI screenshot'],
+      },
+    },
+    brand_kit: {
+      brand_name: 'Brand Name',
+    },
+  } as unknown as MarketingJobRuntimeDocument;
+
+  const request = buildSocialContentWeeklyRequest({
+    doc,
+    ariesRunId: 'arun_patterns',
+    callbackUrl: 'https://aries.example.com/api/internal/hermes/runs',
+  });
+
+  assert.deepEqual(request.input.constraints.forbidden_visual_patterns, [
+    'no split-screen',
+    'no fake UI screenshot',
+  ]);
 });
 
 test('weekly workflow request uses normalized window and strips token query params', () => {
@@ -304,6 +344,11 @@ test('social-content status response rewrites 30-day approval copy to weekly lan
 
     assert.match((body as { summary: { subheadline: string } }).summary.subheadline, /7-day content calendar/i);
     assert.doesNotMatch((body as { approval: { message: string } }).approval.message, /30-day/i);
+    const values = stringValues(body).join('\n');
+    assert.doesNotMatch(values, /Campaign accepted/i);
+    assert.doesNotMatch(values, /Campaign strategy is ready/i);
+    assert.doesNotMatch(values, /Launch review previews/i);
+    assert.doesNotMatch(values, /Launch review and publishing/i);
   });
 });
 

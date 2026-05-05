@@ -13,6 +13,7 @@ type UnknownRecord = Record<string, unknown>;
 type MarketingDocWithSocialRuntime = MarketingJobRuntimeDocument & {
   social_content_runtime?: unknown;
 };
+type SocialContentStageMap = Record<SocialContentStage, SocialContentStageRecord>;
 
 type WeeklyPost = {
   day: string;
@@ -157,11 +158,15 @@ function createEmptyStageRecord(stage: SocialContentStage): SocialContentStageRe
   };
 }
 
+function createEmptyStageMap(): SocialContentStageMap {
+  return Object.create(null) as SocialContentStageMap;
+}
+
 function ensureStageRecord(
   runtime: SocialContentRuntimeState,
   stage: SocialContentStage,
 ): SocialContentStageRecord {
-  if (!runtime.stages[stage]) {
+  if (!Object.hasOwn(runtime.stages, stage) || !runtime.stages[stage]) {
     runtime.stages[stage] = createEmptyStageRecord(stage);
   }
   return runtime.stages[stage];
@@ -247,7 +252,7 @@ function normalizeRuntime(
     schemaVersion: '1.0.0',
     currentStage: 'research',
     stageOrder: [...SOCIAL_CONTENT_STAGE_ORDER],
-    stages: {} as Record<SocialContentStage, SocialContentStageRecord>,
+    stages: createEmptyStageMap(),
     activeApproval: normalizeApproval(record.activeApproval),
     publishingRequested: typeof input.publishingRequested === 'boolean'
       ? input.publishingRequested
@@ -342,7 +347,7 @@ export function createSocialContentRuntimeState(
     schemaVersion: '1.0.0',
     currentStage: 'research',
     stageOrder: [...SOCIAL_CONTENT_STAGE_ORDER],
-    stages: {} as Record<SocialContentStage, SocialContentStageRecord>,
+    stages: createEmptyStageMap(),
     activeApproval: null,
     publishingRequested: input.publishingRequested ?? false,
     updatedAt: nowIso(),

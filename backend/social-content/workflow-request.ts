@@ -260,7 +260,9 @@ export function buildSocialContentWeeklyRequest(input: {
       constraints: {
         must_use_copy: stringValue(req.mustUseCopy),
         must_avoid_aesthetics: stringValue(req.mustAvoidAesthetics),
-        forbidden_visual_patterns: [...SOCIAL_CONTENT_FORBIDDEN_VISUAL_PATTERNS],
+        forbidden_visual_patterns: Array.isArray(req.forbiddenVisualPatterns) && req.forbiddenVisualPatterns.length > 0
+          ? [...req.forbiddenVisualPatterns]
+          : [...SOCIAL_CONTENT_FORBIDDEN_VISUAL_PATTERNS],
       },
       ...(mediaRequests.length > 0 ? { media_requests: mediaRequests } : {}),
     },

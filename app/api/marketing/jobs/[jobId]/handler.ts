@@ -61,9 +61,13 @@ function replaceCampaignTerms(value: string, calendarLabel = socialContentCalend
   return value
     .replace(/30-day launch calendar/gi, calendarLabel)
     .replace(/30-day content calendar/gi, calendarLabel)
+    .replace(/Launch review/gi, 'Content review')
+    .replace(/launch review/gi, 'content review')
     .replace(/launch calendar/gi, calendarLabel)
     .replace(/campaign window/gi, calendarLabel)
     .replace(/launch campaign/gi, 'Start weekly content plan')
+    .replace(/Lobster pipeline/gi, 'Hermes workflow')
+    .replace(/lobster pipeline/gi, 'Hermes workflow')
     .replace(/Campaign workspace/g, 'Content workspace')
     .replace(/Campaign brief/g, 'Content brief')
     .replace(/Campaign proposal/g, 'Weekly content plan')
@@ -108,6 +112,90 @@ function socialContentApproval(
     title: replaceCampaignTerms(approval.title, calendarLabel),
     message: replaceCampaignTerms(approval.message, calendarLabel),
     actionLabel: approval.actionLabel ? replaceCampaignTerms(approval.actionLabel, calendarLabel) : undefined,
+  };
+}
+
+function socialContentStageCards(
+  stageCards: MarketingJobStatusResponse['stageCards'],
+  durationDays: number | null,
+): MarketingJobStatusResponse['stageCards'] {
+  const calendarLabel = socialContentCalendarLabel(durationDays);
+  return stageCards.map((card) => ({
+    ...card,
+    label: replaceCampaignTerms(card.label, calendarLabel),
+    summary: replaceCampaignTerms(card.summary, calendarLabel),
+    highlight: card.highlight ? replaceCampaignTerms(card.highlight, calendarLabel) : undefined,
+  }));
+}
+
+function socialContentArtifacts(
+  artifacts: MarketingJobStatusResponse['artifacts'],
+  durationDays: number | null,
+): MarketingJobStatusResponse['artifacts'] {
+  const calendarLabel = socialContentCalendarLabel(durationDays);
+  return artifacts.map((artifact) => ({
+    ...artifact,
+    title: replaceCampaignTerms(artifact.title, calendarLabel),
+    category: replaceCampaignTerms(artifact.category, calendarLabel),
+    status: replaceCampaignTerms(artifact.status, calendarLabel),
+    summary: replaceCampaignTerms(artifact.summary, calendarLabel),
+    details: artifact.details.map((detail) => replaceCampaignTerms(detail, calendarLabel)),
+    actionLabel: artifact.actionLabel ? replaceCampaignTerms(artifact.actionLabel, calendarLabel) : undefined,
+  }));
+}
+
+function socialContentTimeline(
+  timeline: MarketingJobStatusResponse['timeline'],
+  durationDays: number | null,
+): MarketingJobStatusResponse['timeline'] {
+  const calendarLabel = socialContentCalendarLabel(durationDays);
+  return timeline.map((entry) => ({
+    ...entry,
+    label: replaceCampaignTerms(entry.label, calendarLabel),
+    description: replaceCampaignTerms(entry.description, calendarLabel),
+  }));
+}
+
+function socialContentStatusHistory(
+  statusHistory: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['statusHistory'],
+  durationDays: number | null,
+): Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['statusHistory'] {
+  const calendarLabel = socialContentCalendarLabel(durationDays);
+  return statusHistory.map((entry) => ({
+    ...entry,
+    note: entry.note ? replaceCampaignTerms(entry.note, calendarLabel) : entry.note,
+  }));
+}
+
+function socialContentDashboard(
+  dashboard: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['dashboard'],
+  durationDays: number | null,
+): Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['dashboard'] {
+  const calendarLabel = socialContentCalendarLabel(durationDays);
+  return {
+    ...dashboard,
+    campaign: dashboard.campaign
+      ? {
+          ...dashboard.campaign,
+          name: /^Campaign in progress$/i.test(dashboard.campaign.name)
+            ? 'Social content in progress'
+            : dashboard.campaign.name,
+          objective: /^Campaign in progress$/i.test(dashboard.campaign.objective)
+            ? 'Social content in progress'
+            : dashboard.campaign.objective,
+          summary: replaceCampaignTerms(dashboard.campaign.summary, calendarLabel),
+          stageLabel: replaceCampaignTerms(dashboard.campaign.stageLabel, calendarLabel),
+        }
+      : dashboard.campaign,
+    assets: dashboard.assets.map((asset) => ({
+      ...asset,
+      title: replaceCampaignTerms(asset.title, calendarLabel),
+      summary: replaceCampaignTerms(asset.summary, calendarLabel),
+    })),
+    calendarEvents: dashboard.calendarEvents.map((event) => ({
+      ...event,
+      statusLabel: replaceCampaignTerms(event.statusLabel, calendarLabel),
+    })),
   };
 }
 
@@ -162,11 +250,16 @@ function buildResponsePayload(
     jobType: 'weekly_social_content',
     summary: socialContentSummary(base.summary, base.durationDays),
     approval: socialContentApproval(base.approval, base.durationDays),
+    stageCards: socialContentStageCards(base.stageCards, base.durationDays),
+    artifacts: socialContentArtifacts(base.artifacts, base.durationDays),
+    timeline: socialContentTimeline(base.timeline, base.durationDays),
     social_content_job_state: base.marketing_job_state,
     social_content_job_status: base.marketing_job_status,
     social_content_stage: base.marketing_stage,
     social_content_stage_status: base.marketing_stage_status,
     contentBrief: base.campaignBrief,
+    statusHistory: socialContentStatusHistory(base.statusHistory, base.durationDays),
+    dashboard: socialContentDashboard(base.dashboard, base.durationDays),
   };
 
   return socialPayload;
