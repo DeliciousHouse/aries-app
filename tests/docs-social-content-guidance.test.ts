@@ -28,8 +28,6 @@ test('.env.example documents Hermes weekly social-content defaults', () => {
     'NEXTAUTH_SECRET',
     'AUTH_TRUST_HOST',
     'OAUTH_TOKEN_ENCRYPTION_KEY',
-    'OPENAI_CLIENT_ID',
-    'OPENAI_CLIENT_SECRET',
   ];
 
   for (const variable of requiredVars) {
@@ -37,10 +35,7 @@ test('.env.example documents Hermes weekly social-content defaults', () => {
   }
 
   assert.match(envExample, /Weekly social content integration requirements:/);
-  assert.match(envExample, /ChatGPT \/ OpenAI/i);
-  assert.match(envExample, /OPENAI_CLIENT_ID/);
-  assert.match(envExample, /OPENAI_CLIENT_SECRET/);
-  assert.match(envExample, /OAUTH_TOKEN_ENCRYPTION_KEY/);
+  assert.match(envExample, /Hermes owns ChatGPT\/OpenAI auth for weekly image\/video generation/i);
   assert.match(envExample, /openssl rand -base64 32/);
   assert.match(
     envExample,
@@ -85,11 +80,7 @@ test('docs describe Hermes social-content operational flow and avoid lobster wor
     .join('\n');
 
   assert.match(combinedSource, /Hermes-native|Hermes native/i);
-  assert.match(combinedSource, /ChatGPT \/ OpenAI/i);
-  assert.match(combinedSource, /OPENAI_CLIENT_ID/);
-  assert.match(combinedSource, /OPENAI_CLIENT_SECRET/);
-  assert.match(combinedSource, /OAUTH_TOKEN_ENCRYPTION_KEY/);
-  assert.match(combinedSource, /openssl rand -base64 32/);
+  assert.match(combinedSource, /Hermes owns ChatGPT\/OpenAI auth|Hermes-owned ChatGPT\/OpenAI auth/i);
   assert.doesNotMatch(combinedSource, /social-content[\s\S]{0,160}\.lobster/i);
   assert.doesNotMatch(combinedSource, /run .*\.lobster.*social-content/i);
 });
@@ -105,11 +96,11 @@ test('docs distinguish local Compose Postgres and social-content checks from leg
   assert.match(readme, /Production deploys may still use external PostgreSQL/i);
   assert.doesNotMatch(readme, /do \*\*not\*\* provision PostgreSQL/i);
   assert.doesNotMatch(readme, /do not provision PostgreSQL/i);
-  assert.match(readme, /Required for OpenAI media generation/);
-  assert.match(readme, /Text-only weekly planning can run with media generation disabled/);
+  assert.match(readme, /For weekly social content media generation, Hermes owns ChatGPT\/OpenAI auth/i);
+  assert.match(readme, /Text-only weekly planning can (still )?run when media generation is disabled/i);
   assert.match(compose, /DB_HOST:\s*postgres/);
-  assert.match(compose, /OPENAI_CLIENT_ID:\s*\$\{OPENAI_CLIENT_ID\}/);
-  assert.match(compose, /OPENAI_CLIENT_SECRET:\s*\$\{OPENAI_CLIENT_SECRET\}/);
+  assert.doesNotMatch(compose, /OPENAI_CLIENT_ID/);
+  assert.doesNotMatch(compose, /OPENAI_CLIENT_SECRET/);
 
   assert.match(setup, /Social-content smoke path/);
   assert.match(setup, /tests\/social-content-weekly-defaults\.test\.ts/);

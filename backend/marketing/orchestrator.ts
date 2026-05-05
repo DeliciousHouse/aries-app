@@ -3,7 +3,6 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 import { resolveCodePath, resolveCodeRoot } from '@/lib/runtime-paths';
-import { resolveOpenAiConnectionReference } from '@/backend/integrations/openai-connection';
 import { sanitizeWeeklySocialContentPayload } from '@/backend/social-content/payload';
 import {
   SOCIAL_CONTENT_DEFAULT_SCOPE,
@@ -246,7 +245,6 @@ function integerPayloadValue(value: unknown, fallback: number): number {
 function weeklyMediaDemand(payload: Record<string, unknown>): {
   imageCreativeCount: number;
   videoRenderCount: number;
-  requiresOpenAiConnection: boolean;
 } {
   const imageCreativeCount = Math.min(
     2,
@@ -271,42 +269,7 @@ function weeklyMediaDemand(payload: Record<string, unknown>): {
   return {
     imageCreativeCount,
     videoRenderCount,
-    requiresOpenAiConnection: imageCreativeCount > 0 || videoRenderCount > 0,
   };
-}
-
-function applyNeedsConnectionBlock(doc: MarketingJobRuntimeDocument, message: string): void {
-  const at = nowIso();
-  const code = 'openai_connection_required';
-  doc.state = 'needs_connection';
-  doc.status = 'needs_connection';
-  doc.current_stage = 'research';
-  const stage = getStageRecord(doc, 'research');
-  stage.status = 'failed';
-  stage.failed_at = at;
-  stage.summary = { summary: message, highlight: null };
-  const error = {
-    code,
-    message,
-    stage: 'research' as const,
-    retryable: true,
-    at,
-    details: { reason: code },
-  };
-  stage.errors.push(error);
-  doc.errors.push(error);
-  doc.last_error = error;
-  appendHistory(doc, 'social-content job blocked pending ChatGPT / OpenAI connection', {
-    state: 'needs_connection',
-    status: 'needs_connection',
-    stage: 'research',
-    at,
-  });
-  if (requestedJobTypeFromDoc(doc) === 'weekly_social_content') {
-    markSocialContentStageFailed(doc, 'research', message, {
-      reason: code,
-    });
-  }
 }
 
 /**
@@ -1422,20 +1385,12 @@ export async function startMarketingJob(input: StartMarketingJobRequest): Promis
     input.jobType === 'weekly_social_content'
       ? sanitizeWeeklySocialContentPayload(input.payload ?? {})
       : { ...(input.payload ?? {}) };
-  let needsOpenAiConnection = false;
   if (input.jobType === 'weekly_social_content') {
     const mediaDemand = weeklyMediaDemand(requestPayload);
     requestPayload.imageCreativeCount = mediaDemand.imageCreativeCount;
     requestPayload.imageCreativesCount = mediaDemand.imageCreativeCount;
     requestPayload.videoRenderCount = mediaDemand.videoRenderCount;
     requestPayload.renderVideoAfterApproval = mediaDemand.videoRenderCount > 0;
-    needsOpenAiConnection = mediaDemand.requiresOpenAiConnection;
-    if (needsOpenAiConnection) {
-      const reference = await resolveOpenAiConnectionReference(tenantId);
-      if (reference) {
-        requestPayload.openaiConnectionId = reference.connectionId;
-      }
-    }
     if (typeof input.createdBy === 'string' && input.createdBy.trim().length > 0) {
       requestPayload.userId = input.createdBy.trim();
     }
@@ -1459,28 +1414,6 @@ export async function startMarketingJob(input: StartMarketingJobRequest): Promis
     ensureSocialContentRuntimeState(doc);
   }
   saveMarketingJobRuntime(jobId, doc);
-
-  if (
-    input.jobType === 'weekly_social_content' &&
-    needsOpenAiConnection &&
-    typeof requestPayload.openaiConnectionId !== 'string'
-  ) {
-    const message = 'Connect ChatGPT / OpenAI before generating image or video assets.';
-    applyNeedsConnectionBlock(doc, message);
-    saveMarketingJobRuntime(jobId, doc);
-    return {
-      status: 'needs_connection',
-      reason: 'openai_connection_required',
-      message,
-      jobId,
-      tenantId: doc.tenant_id,
-      jobType: input.jobType,
-      runtimeArtifactPath: runtimeArtifactPath(jobId),
-      approvalRequired: false,
-      currentStage: doc.current_stage,
-      approval: null,
-    };
-  }
 
   try {
     await runResearchStage(doc);

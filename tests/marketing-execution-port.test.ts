@@ -200,27 +200,18 @@ test('HermesMarketingPort.runPipeline returns submitted immediately by default',
     assert.equal(body.input.scope.video_script_count, 1);
     assert.equal(body.input.scope.video_render_count, 1);
     assert.deepEqual(body.input.scope.channels, ['meta', 'instagram']);
-    assert.deepEqual(body.media_provider, {
-      provider: 'openai',
-      auth_mode: 'user_oauth',
-      tenant_id: 'tenant_test',
-      user_id: 'user_test',
-      connection_id: 'conn_openai_test',
-    });
+    assert.equal('media_provider' in body, false);
     assert.equal(Array.isArray(body.input.media_requests), true);
     assert.deepEqual(body.input.media_requests, [
       {
         type: 'image.generate',
-        provider: 'openai',
-        auth_mode: 'user_oauth',
         aspect_ratio: '4:5',
         count: 2,
+        target_channels: ['meta', 'instagram'],
         creative_briefs: ['Create on-brand weekly social image creative.'],
       },
       {
         type: 'video.generate',
-        provider: 'openai',
-        auth_mode: 'user_oauth',
         aspect_ratio: '9:16',
         count: 1,
         requires_human_approval: true,
@@ -228,6 +219,7 @@ test('HermesMarketingPort.runPipeline returns submitted immediately by default',
       },
     ]);
     const serialized = JSON.stringify(body);
+    assert.equal(serialized.includes('conn_openai_test'), false);
     assert.equal(serialized.includes('.lobster'), false);
     assert.equal(serialized.includes('marketing_pipeline'), false);
     assert.equal(serialized.toLowerCase().includes('openclaw'), false);

@@ -58,7 +58,7 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml build
 - `AUTH_TRUST_HOST`
 - `NEXTAUTH_SECRET`
 
-For weekly social content media generation, users must connect ChatGPT / OpenAI first. Text planning can run when media generation is disabled.
+For weekly social content media generation, Hermes owns ChatGPT/OpenAI auth and provider execution. Text planning can run when media generation is disabled.
 
 ## Run
 ```bash

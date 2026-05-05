@@ -399,7 +399,7 @@ test('/api/marketing/jobs remains backward-compatible alias with weekly_social_c
   });
 });
 
-test('/api/social-content/jobs blocks media generation when OpenAI is not connected', async () => {
+test('/api/social-content/jobs accepts media generation without Aries-side OpenAI connection state', async () => {
   await withMarketingRuntimeEnv(async () => {
     let invoked = false;
     (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ = () => {
@@ -439,9 +439,9 @@ test('/api/social-content/jobs blocks media generation when OpenAI is not connec
 
     assert.equal(response.status, 202);
     const body = (await response.json()) as Record<string, unknown>;
-    assert.equal(body.social_content_job_status, 'needs_connection');
-    assert.equal(body.reason, 'openai_connection_required');
-    assert.equal(body.message, 'Connect ChatGPT / OpenAI before generating image or video assets.');
+    assert.equal(body.social_content_job_status, 'accepted');
+    assert.equal(body.reason, undefined);
+    assert.equal(body.message, undefined);
     assert.equal(invoked, false);
   });
 });
@@ -513,7 +513,7 @@ test('/api/social-content/jobs strips token-shaped payload fields from runtime a
 
     assert.equal(response.status, 202);
     const body = (await response.json()) as Record<string, unknown>;
-    assert.equal(body.social_content_job_status, 'needs_connection');
+    assert.equal(body.social_content_job_status, 'accepted');
 
     const runtimeFile = path.join(dataRoot, 'generated', 'draft', 'marketing-jobs', `${String(body.jobId)}.json`);
     const runtimeJson = await readFile(runtimeFile, 'utf8');
@@ -539,7 +539,7 @@ test('/api/social-content/jobs strips token-shaped payload fields from runtime a
   });
 });
 
-test('/api/social-content/jobs rejects expired OpenAI connections before media generation', async () => {
+test('/api/social-content/jobs ignores expired Aries OpenAI connections for Hermes-owned media generation', async () => {
   await withMarketingRuntimeEnv(async (dataRoot) => {
     seedOpenAiConnection({
       tenantId: 'tenant_social_route_expired_openai',
@@ -584,8 +584,8 @@ test('/api/social-content/jobs rejects expired OpenAI connections before media g
 
     assert.equal(response.status, 202);
     const body = (await response.json()) as Record<string, unknown>;
-    assert.equal(body.social_content_job_status, 'needs_connection');
-    assert.equal(body.reason, 'openai_connection_required');
+    assert.equal(body.social_content_job_status, 'accepted');
+    assert.equal(body.reason, undefined);
     assert.equal(invoked, false);
 
     const runtimeFile = path.join(dataRoot, 'generated', 'draft', 'marketing-jobs', `${String(body.jobId)}.json`);

@@ -412,6 +412,12 @@ export function socialContentStageFromCallbackStage(stage: string | null | undef
   if (normalized === 'production') {
     return 'copy_production';
   }
+  if (normalized === 'image_creatives' || normalized === 'image_generation') {
+    return 'image_generation';
+  }
+  if (normalized === 'video_scripts') {
+    return 'video_script';
+  }
   if (normalized === 'approval') {
     return 'plan_review';
   }

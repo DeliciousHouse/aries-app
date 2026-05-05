@@ -113,6 +113,18 @@ function outputRunId(payload: HermesRunCallbackPayload, fallback: string | null)
     : fallback;
 }
 
+function isHermesMediaSetupError(payload: HermesRunCallbackPayload): boolean {
+  const code = payload.error?.code?.toLowerCase() ?? '';
+  const message = payload.error?.message.toLowerCase() ?? '';
+  return (
+    code === 'hermes_media_setup_required'
+    || code === 'media_setup_required'
+    || code === 'media_auth_required'
+    || message.includes('hermes media setup')
+    || message.includes('media configuration needs attention')
+  );
+}
+
 function socialApprovalTitle(step: SocialContentApprovalStep): string {
   if (step === 'approve_weekly_plan') return 'Approve weekly plan';
   if (step === 'approve_post_copy') return 'Approve post copy';
@@ -285,6 +297,32 @@ export async function applyHermesMarketingCallback(
   }
 
   if (payload.status === 'failed' || payload.status === 'cancelled') {
+    if (isSocialContentRun(run) && isHermesMediaSetupError(payload)) {
+      const error = {
+        code: payload.error?.code ?? 'hermes_media_setup_required',
+        message: payload.error?.message ?? 'Hermes media configuration needs attention before weekly media generation can continue.',
+        stage: targetStage,
+        retryable: payload.error?.retryable,
+        at: new Date().toISOString(),
+        details: { reason: 'hermes_media_setup_required' },
+      };
+      doc.state = 'needs_connection';
+      doc.status = 'needs_connection';
+      doc.current_stage = targetStage;
+      doc.last_error = error;
+      doc.errors.push(error);
+      const failedSocialStage =
+        socialContentStageFromCallbackStage(payload.stage) ?? socialStageForMarketingStage(targetStage);
+      markSocialContentStageFailed(
+        doc,
+        failedSocialStage,
+        error.message,
+        firstOutputRecord(payload),
+      );
+      saveMarketingJobRuntime(doc.job_id, doc);
+      return;
+    }
+
     recordStageFailure(doc, targetStage, {
       code: payload.error?.code ?? `hermes_${payload.status}`,
       message: payload.error?.message ?? `Hermes ${payload.status} the ${targetStage} stage.`,

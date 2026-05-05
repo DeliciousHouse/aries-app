@@ -97,6 +97,8 @@ npm run precheck
 - Many tests require `APP_BASE_URL=https://aries.example.com` to be set.
 - `npm run verify` wraps the fast regression suite with all needed env overrides and runs `npm run guardrails:agent` first.
 - `npm run test:concurrent` runs the full TypeScript test set with `--test-concurrency=8`; use it before shipping work that changes routes, backend services, process management, or shared helpers.
+- `npm run validate:execution-provider` is the focused Hermes callback/execution-port gate.
+- `npm run validate:social-content` is the focused weekly social-content gate.
 
 ## Active operational guardrails
 
@@ -142,7 +144,11 @@ This repo uses Conventional Commits with a scope (e.g. `fix(ci): ...`, `refactor
 
 ## Environment Variables
 
-Required: `OPENCLAW_GATEWAY_URL`, `OPENCLAW_GATEWAY_TOKEN`, `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `APP_BASE_URL`, `NEXTAUTH_URL`, `AUTH_URL`
+Required for Hermes-native local/runtime setup: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `APP_BASE_URL`, `HERMES_GATEWAY_URL`, `HERMES_API_SERVER_KEY`, `INTERNAL_API_SECRET`, `NEXTAUTH_URL`, `AUTH_URL`, `NEXTAUTH_SECRET`
+
+Optional for legacy compatibility only: `OPENCLAW_GATEWAY_URL`, `OPENCLAW_GATEWAY_TOKEN`, `OPENCLAW_SESSION_KEY`
+
+Required when working on Aries-managed OAuth providers: `OAUTH_TOKEN_ENCRYPTION_KEY`. Weekly social content media generation does not use an Aries-side OpenAI client or secret; Hermes owns media auth and execution.
 
 Local dev defaults:
 ```bash

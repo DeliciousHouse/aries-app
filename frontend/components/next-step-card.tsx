@@ -9,6 +9,7 @@ const copyByStep: Record<next_step, string> = {
   wait_for_completion: 'Wait for completion and check status again.',
   check_onboarding_status: 'Check onboarding status for updated provisioning details.',
   submit_approval: 'Submit approval to continue the workflow.',
+  check_hermes_media_setup: 'Check Hermes media configuration before retrying weekly image or video generation.',
   resume_approved_stages: 'Resume approved stages to continue processing.',
   invoke_marketing_repair: 'Invoke marketing repair and monitor retries.',
   retry_with_next_attempt: 'Retry using the next allowed attempt.',
@@ -21,6 +22,7 @@ const labelByStep: Record<next_step, string> = {
   wait_for_completion: 'Wait for completion',
   check_onboarding_status: 'Check onboarding status',
   submit_approval: 'Submit approval',
+  check_hermes_media_setup: 'Check Hermes media setup',
   resume_approved_stages: 'Resume approved stages',
   invoke_marketing_repair: 'Invoke marketing repair',
   retry_with_next_attempt: 'Retry with next attempt',
@@ -37,7 +39,7 @@ function urgencyFor(step: next_step): 'none' | 'low' | 'medium' | 'high' {
     return 'high';
   }
 
-  if (step === 'invoke_marketing_repair' || step === 'fix_publish_targets') {
+  if (step === 'check_hermes_media_setup' || step === 'invoke_marketing_repair' || step === 'fix_publish_targets') {
     return 'medium';
   }
 

@@ -450,7 +450,72 @@ test('custom weekly window copy uses the actual duration label', async () => {
   });
 });
 
-test('weekly workflow request includes OpenAI media provider reference and abstract media requests', () => {
+test('weekly needs-connection status points operators to Hermes media setup', async () => {
+  await withRuntimeEnv(async () => {
+    const {
+      createMarketingJobRuntimeDocument,
+      saveMarketingJobRuntime,
+    } = await import('@/backend/marketing/runtime-state');
+    const { handleGetMarketingJobStatus } = await import('@/app/api/marketing/jobs/[jobId]/handler');
+
+    const doc = createMarketingJobRuntimeDocument({
+      jobId: 'mkt_weekly_needs_connection',
+      tenantId: 'tenant_weekly_needs_connection',
+      payload: {
+        jobType: 'weekly_social_content',
+        brandUrl: 'https://brand.example',
+        businessType: 'local service',
+        primaryGoal: 'Book appointments',
+      },
+      brandKit: {
+        path: '/tmp/brand-kit.json',
+        source_url: 'https://brand.example',
+        canonical_url: 'https://brand.example',
+        brand_name: 'Brand',
+        logo_urls: [],
+        colors: { primary: null, secondary: null, accent: null, palette: [] },
+        font_families: [],
+        external_links: [],
+        extracted_at: new Date().toISOString(),
+        brand_voice_summary: null,
+        offer_summary: null,
+      },
+    });
+    doc.state = 'needs_connection';
+    doc.status = 'needs_connection';
+    doc.current_stage = 'research';
+    doc.last_error = {
+      code: 'hermes_media_setup_required',
+      message: 'Hermes media configuration needs attention before weekly media generation can continue.',
+      stage: 'research',
+      retryable: true,
+      at: new Date().toISOString(),
+      details: { reason: 'hermes_media_setup_required' },
+    };
+    saveMarketingJobRuntime(doc.job_id, doc);
+
+    const response = await handleGetMarketingJobStatus(
+      doc.job_id,
+      async () => ({
+        userId: 'user_weekly_needs_connection',
+        tenantId: doc.tenant_id,
+        tenantSlug: 'tenant-weekly-needs-connection',
+        role: 'tenant_admin',
+      }),
+      { responseDialect: 'social-content' },
+    );
+    const body = (await response.json()) as {
+      nextStep?: string;
+      summary?: { headline?: string; subheadline?: string };
+    };
+
+    assert.equal(body.nextStep, 'check_hermes_media_setup');
+    assert.equal(body.summary?.headline, 'Hermes media setup needs attention');
+    assert.match(body.summary?.subheadline ?? '', /Hermes media configuration needs attention/i);
+  });
+});
+
+test('weekly workflow request includes abstract Hermes-owned media requests', () => {
   const doc = {
     tenant_id: 'tenant_media',
     job_id: 'mkt_media',
@@ -480,28 +545,19 @@ test('weekly workflow request includes OpenAI media provider reference and abstr
     callbackUrl: 'https://aries.example.com/api/internal/hermes/runs',
   });
 
-  assert.deepEqual(request.media_provider, {
-    provider: 'openai',
-    auth_mode: 'user_oauth',
-    tenant_id: 'tenant_media',
-    user_id: 'user_media',
-    connection_id: 'conn_openai_media',
-  });
+  assert.equal('media_provider' in request, false);
   assert.equal(request.input.scope.image_creative_count, 2);
   assert.equal(request.input.scope.video_render_count, 1);
   assert.deepEqual(request.input.media_requests, [
     {
       type: 'image.generate',
-      provider: 'openai',
-      auth_mode: 'user_oauth',
       aspect_ratio: '4:5',
       count: 2,
+      target_channels: ['meta', 'instagram'],
       creative_briefs: ['Get more demo requests'],
     },
     {
       type: 'video.generate',
-      provider: 'openai',
-      auth_mode: 'user_oauth',
       aspect_ratio: '9:16',
       count: 1,
       requires_human_approval: true,
@@ -509,8 +565,44 @@ test('weekly workflow request includes OpenAI media provider reference and abstr
     },
   ]);
   const serialized = JSON.stringify(request);
+  assert.equal(serialized.includes('conn_openai_media'), false);
   assert.equal(serialized.includes('sk-live-should-never-leak'), false);
   assert.equal(/gemini|nano banana|lobster/i.test(serialized), false);
+});
+
+test('weekly workflow request filters image target channels to Hermes social channels', () => {
+  const doc = {
+    tenant_id: 'tenant_channels',
+    job_id: 'mkt_channels',
+    created_by: 'user_channels',
+    inputs: {
+      brand_url: 'https://brand.example',
+      competitor_url: '',
+      competitor_brand: '',
+      facebook_page_url: '',
+      ad_library_url: '',
+      request: {
+        channels: ['instagram', 'meta-ads', 'landing-page'],
+      },
+    },
+    brand_kit: {
+      brand_name: 'Brand Name',
+    },
+  } as unknown as MarketingJobRuntimeDocument;
+
+  const request = buildSocialContentWeeklyRequest({
+    doc,
+    ariesRunId: 'arun_channels',
+    callbackUrl: 'https://aries.example.com/api/internal/hermes/runs',
+  });
+
+  assert.deepEqual(request.input.media_requests?.[0], {
+    type: 'image.generate',
+    aspect_ratio: '4:5',
+    count: 2,
+    target_channels: ['instagram'],
+    creative_briefs: ['Create on-brand weekly social image creative.'],
+  });
 });
 
 test('weekly workflow request redacts token-like text and media values', () => {
