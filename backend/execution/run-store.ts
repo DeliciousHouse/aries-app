@@ -32,6 +32,7 @@ const CALLBACK_ADVANCED_STATUSES = new Set<ExecutionRunStatus>([
   'failed',
   'cancelled',
 ]);
+const TERMINAL_EXECUTION_STATUSES = new Set<ExecutionRunStatus>(['completed', 'failed', 'cancelled']);
 
 export type ExecutionRunRecord = {
   schema_name: 'aries_execution_run';
@@ -218,6 +219,7 @@ export function markExecutionRunEventApplied(
   input: {
     eventId: string;
     status: ExecutionRunStatus;
+    stage?: string;
     result?: unknown;
     error?: ExecutionRunRecord['last_error'];
     externalRunId?: string | null;
@@ -232,14 +234,27 @@ export function markExecutionRunEventApplied(
   }
 
   record.event_ids.push(input.eventId);
-  record.status = input.status;
+  const currentIsTerminal = TERMINAL_EXECUTION_STATUSES.has(record.status);
+  const shouldKeepCurrentStatus = (
+    // Once terminal, the run record is immutable for status/result/error.
+    currentIsTerminal
+    // Avoid regressing from awaiting approval to running due to out-of-order callbacks.
+    || (record.status === 'awaiting_approval' && input.status === 'running')
+  );
+  if (!shouldKeepCurrentStatus) {
+    record.status = input.status;
+  }
   if (input.externalRunId !== undefined) {
     record.external_run_id = nonEmpty(input.externalRunId);
   }
-  if (input.result !== undefined) {
+  if (input.result !== undefined && !shouldKeepCurrentStatus) {
     record.result = input.result;
   }
-  record.last_error = input.error ?? null;
+  if (input.error !== undefined && !shouldKeepCurrentStatus) {
+    record.last_error = input.error ?? null;
+  } else if (!shouldKeepCurrentStatus) {
+    record.last_error = null;
+  }
   saveExecutionRunRecord(record);
   return record;
 }

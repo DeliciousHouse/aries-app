@@ -17,6 +17,8 @@ const MARKETING_JOB_NOT_FOUND_RESPONSE = {
   reason: 'marketing_job_not_found',
 } as const;
 
+type ResponseDialect = 'marketing' | 'social-content';
+
 function alignApprovalWithWorkspace(
   approval: MarketingApprovalSummary | null,
   workflowState: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['workflowState'],
@@ -49,10 +51,226 @@ function alignNextStepWithWorkspace(
   return workflowState === 'revisions_requested' ? 'wait_for_completion' : nextStep;
 }
 
+function socialContentCalendarLabel(durationDays?: number | null): string {
+  return typeof durationDays === 'number' && Number.isFinite(durationDays) && durationDays > 0
+    ? `${durationDays}-day content calendar`
+    : 'weekly content calendar';
+}
+
+function replaceCampaignTerms(value: string, calendarLabel = socialContentCalendarLabel()): string {
+  return value
+    .replace(/30-day launch calendar/gi, calendarLabel)
+    .replace(/30-day content calendar/gi, calendarLabel)
+    .replace(/Launch review/gi, 'Content review')
+    .replace(/launch review/gi, 'content review')
+    .replace(/launch calendar/gi, calendarLabel)
+    .replace(/campaign window/gi, calendarLabel)
+    .replace(/launch campaign/gi, 'Start weekly content plan')
+    .replace(/Lobster pipeline/gi, 'Hermes workflow')
+    .replace(/lobster pipeline/gi, 'Hermes workflow')
+    .replace(/Campaign workspace/g, 'Content workspace')
+    .replace(/Campaign brief/g, 'Content brief')
+    .replace(/Campaign proposal/g, 'Weekly content plan')
+    .replace(/Launch calendar/g, calendarLabel)
+    .replace(/Marketing pipeline/g, 'Social content pipeline')
+    .replace(/marketing pipeline/g, 'social content pipeline')
+    .replace(/Marketing job/g, 'Social content job')
+    .replace(/marketing job/g, 'social content job')
+    .replace(/Ad creatives/g, 'Post creatives')
+    .replace(/ad creatives/g, 'post creatives')
+    .replace(/Campaign/g, 'Social content')
+    .replace(/campaign/g, 'social content');
+}
+
+function socialContentSummary(
+  summary: MarketingJobStatusResponse['summary'],
+  durationDays: number | null,
+): MarketingJobStatusResponse['summary'] {
+  const calendarLabel = socialContentCalendarLabel(durationDays);
+  const rewrittenSubheadline = replaceCampaignTerms(summary.subheadline, calendarLabel);
+  const weeklySubheadline = new RegExp(calendarLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(rewrittenSubheadline)
+    ? rewrittenSubheadline
+    : rewrittenSubheadline
+      ? `${rewrittenSubheadline} Weekly updates use a ${calendarLabel}.`
+      : `Weekly updates use a ${calendarLabel}.`;
+  return {
+    headline: replaceCampaignTerms(summary.headline, calendarLabel),
+    subheadline: weeklySubheadline,
+  };
+}
+
+function socialContentApproval(
+  approval: MarketingApprovalSummary | null,
+  durationDays: number | null,
+): MarketingApprovalSummary | null {
+  if (!approval) {
+    return null;
+  }
+  const calendarLabel = socialContentCalendarLabel(durationDays);
+  return {
+    ...approval,
+    title: replaceCampaignTerms(approval.title, calendarLabel),
+    message: replaceCampaignTerms(approval.message, calendarLabel),
+    actionLabel: approval.actionLabel ? replaceCampaignTerms(approval.actionLabel, calendarLabel) : undefined,
+  };
+}
+
+function socialContentStageCards(
+  stageCards: MarketingJobStatusResponse['stageCards'],
+  durationDays: number | null,
+): MarketingJobStatusResponse['stageCards'] {
+  const calendarLabel = socialContentCalendarLabel(durationDays);
+  return stageCards.map((card) => ({
+    ...card,
+    label: replaceCampaignTerms(card.label, calendarLabel),
+    summary: replaceCampaignTerms(card.summary, calendarLabel),
+    highlight: card.highlight ? replaceCampaignTerms(card.highlight, calendarLabel) : undefined,
+  }));
+}
+
+function socialContentArtifacts(
+  artifacts: MarketingJobStatusResponse['artifacts'],
+  durationDays: number | null,
+): MarketingJobStatusResponse['artifacts'] {
+  const calendarLabel = socialContentCalendarLabel(durationDays);
+  return artifacts.map((artifact) => ({
+    ...artifact,
+    title: replaceCampaignTerms(artifact.title, calendarLabel),
+    category: replaceCampaignTerms(artifact.category, calendarLabel),
+    status: replaceCampaignTerms(artifact.status, calendarLabel),
+    summary: replaceCampaignTerms(artifact.summary, calendarLabel),
+    details: artifact.details.map((detail) => replaceCampaignTerms(detail, calendarLabel)),
+    actionLabel: artifact.actionLabel ? replaceCampaignTerms(artifact.actionLabel, calendarLabel) : undefined,
+  }));
+}
+
+function socialContentTimeline(
+  timeline: MarketingJobStatusResponse['timeline'],
+  durationDays: number | null,
+): MarketingJobStatusResponse['timeline'] {
+  const calendarLabel = socialContentCalendarLabel(durationDays);
+  return timeline.map((entry) => ({
+    ...entry,
+    label: replaceCampaignTerms(entry.label, calendarLabel),
+    description: replaceCampaignTerms(entry.description, calendarLabel),
+  }));
+}
+
+function socialContentStatusHistory(
+  statusHistory: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['statusHistory'],
+  durationDays: number | null,
+): Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['statusHistory'] {
+  const calendarLabel = socialContentCalendarLabel(durationDays);
+  return statusHistory.map((entry) => ({
+    ...entry,
+    note: entry.note ? replaceCampaignTerms(entry.note, calendarLabel) : entry.note,
+  }));
+}
+
+function socialContentDashboard(
+  dashboard: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['dashboard'],
+  durationDays: number | null,
+): Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['dashboard'] {
+  const calendarLabel = socialContentCalendarLabel(durationDays);
+  return {
+    ...dashboard,
+    campaign: dashboard.campaign
+      ? {
+          ...dashboard.campaign,
+          name: /^Campaign in progress$/i.test(dashboard.campaign.name)
+            ? 'Social content in progress'
+            : dashboard.campaign.name,
+          objective: /^Campaign in progress$/i.test(dashboard.campaign.objective)
+            ? 'Social content in progress'
+            : dashboard.campaign.objective,
+          summary: replaceCampaignTerms(dashboard.campaign.summary, calendarLabel),
+          stageLabel: replaceCampaignTerms(dashboard.campaign.stageLabel, calendarLabel),
+        }
+      : dashboard.campaign,
+    assets: dashboard.assets.map((asset) => ({
+      ...asset,
+      title: replaceCampaignTerms(asset.title, calendarLabel),
+      summary: replaceCampaignTerms(asset.summary, calendarLabel),
+    })),
+    calendarEvents: dashboard.calendarEvents.map((event) => ({
+      ...event,
+      statusLabel: replaceCampaignTerms(event.statusLabel, calendarLabel),
+    })),
+  };
+}
+
+function buildResponsePayload(
+  dialect: ResponseDialect,
+  result: Awaited<ReturnType<typeof getMarketingJobStatusCached>>['payload'],
+  workspaceView: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>,
+) {
+  const base = {
+    jobId: result.jobId,
+    tenantName: result.tenantName,
+    brandWebsiteUrl: result.brandWebsiteUrl,
+    campaignWindow: result.campaignWindow,
+    durationDays: result.durationDays,
+    plannedPostCount: result.plannedPostCount,
+    createdPostCount: result.createdPostCount,
+    assetPreviewCards: result.assetPreviewCards,
+    calendarEvents: result.calendarEvents,
+    marketing_job_state: result.state,
+    marketing_job_status: result.status,
+    marketing_stage: result.currentStage,
+    marketing_stage_status: result.stageStatus,
+    updatedAt: result.updatedAt,
+    needs_attention: result.needsAttention,
+    approvalRequired: alignApprovalRequiredWithWorkspace(result.approvalRequired, workspaceView.workflowState),
+    summary: result.summary,
+    stageCards: result.stageCards,
+    artifacts: result.artifacts,
+    timeline: result.timeline,
+    approval: alignApprovalWithWorkspace(result.approval, workspaceView.workflowState, workspaceView.publishBlockedReason),
+    reviewBundle: result.reviewBundle,
+    campaignBrief: workspaceView.campaignBrief,
+    workflowState: workspaceView.workflowState,
+    statusHistory: workspaceView.statusHistory,
+    brandReview: workspaceView.brandReview,
+    strategyReview: workspaceView.strategyReview,
+    creativeReview: workspaceView.creativeReview,
+    publishConfig: result.publishConfig,
+    nextStep: alignNextStepWithWorkspace(result.nextStep, workspaceView.workflowState),
+    repairStatus: result.repairStatus,
+    reason: result.reason,
+    message: result.message,
+    dashboard: workspaceView.dashboard,
+  };
+
+  if (dialect === 'marketing') {
+    return base;
+  }
+
+  const socialPayload = {
+    ...base,
+    jobType: 'weekly_social_content',
+    summary: socialContentSummary(base.summary, base.durationDays),
+    approval: socialContentApproval(base.approval, base.durationDays),
+    stageCards: socialContentStageCards(base.stageCards, base.durationDays),
+    artifacts: socialContentArtifacts(base.artifacts, base.durationDays),
+    timeline: socialContentTimeline(base.timeline, base.durationDays),
+    social_content_job_state: base.marketing_job_state,
+    social_content_job_status: base.marketing_job_status,
+    social_content_stage: base.marketing_stage,
+    social_content_stage_status: base.marketing_stage_status,
+    contentBrief: base.campaignBrief,
+    statusHistory: socialContentStatusHistory(base.statusHistory, base.durationDays),
+    dashboard: socialContentDashboard(base.dashboard, base.durationDays),
+  };
+
+  return socialPayload;
+}
+
 export async function handleGetMarketingJobStatus(
   jobId: string,
-  tenantContextLoader?: TenantContextLoader
+  tenantContextLoader?: TenantContextLoader,
+  options?: { responseDialect?: ResponseDialect },
 ) {
+  const dialect = options?.responseDialect ?? 'marketing';
   const tenantResult = await loadTenantContextOrResponse(tenantContextLoader, {
     missingMembershipResponse: MARKETING_ONBOARDING_REQUIRED,
   });
@@ -73,49 +291,16 @@ export async function handleGetMarketingJobStatus(
     const { payload: result, cacheStatus } = await getMarketingJobStatusCached(tenantResult.tenantContext.tenantId, jobId);
     const workspaceView = await buildCampaignWorkspaceView(jobId);
 
-    return NextResponse.json(
-      {
-        jobId: result.jobId,
-        tenantName: result.tenantName,
-        brandWebsiteUrl: result.brandWebsiteUrl,
-        campaignWindow: result.campaignWindow,
-        durationDays: result.durationDays,
-        plannedPostCount: result.plannedPostCount,
-        createdPostCount: result.createdPostCount,
-        assetPreviewCards: result.assetPreviewCards,
-        calendarEvents: result.calendarEvents,
-        marketing_job_state: result.state,
-        marketing_job_status: result.status,
-        marketing_stage: result.currentStage,
-        marketing_stage_status: result.stageStatus,
-        updatedAt: result.updatedAt,
-        needs_attention: result.needsAttention,
-        approvalRequired: alignApprovalRequiredWithWorkspace(result.approvalRequired, workspaceView.workflowState),
-        summary: result.summary,
-        stageCards: result.stageCards,
-        artifacts: result.artifacts,
-        timeline: result.timeline,
-        approval: alignApprovalWithWorkspace(result.approval, workspaceView.workflowState, workspaceView.publishBlockedReason),
-        reviewBundle: result.reviewBundle,
-        campaignBrief: workspaceView.campaignBrief,
-        workflowState: workspaceView.workflowState,
-        statusHistory: workspaceView.statusHistory,
-        brandReview: workspaceView.brandReview,
-        strategyReview: workspaceView.strategyReview,
-        creativeReview: workspaceView.creativeReview,
-        publishConfig: result.publishConfig,
-        nextStep: alignNextStepWithWorkspace(result.nextStep, workspaceView.workflowState),
-        repairStatus: result.repairStatus,
-        dashboard: workspaceView.dashboard,
-      },
-      { status: 200, headers: { 'x-cache': cacheStatus } }
-    );
+    return NextResponse.json(buildResponsePayload(dialect, result, workspaceView), {
+      status: 200,
+      headers: { 'x-cache': cacheStatus },
+    });
   } catch (error) {
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : String(error),
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

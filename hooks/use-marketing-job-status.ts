@@ -12,6 +12,7 @@ import { useRequestState } from './use-request-state';
 
 export interface UseMarketingJobStatusOptions {
   baseUrl?: string;
+  jobStatusPath?: string;
   jobId?: string;
   autoLoad?: boolean;
 }
@@ -21,7 +22,7 @@ export interface LoadMarketingJobStatusOptions {
 }
 
 export function useMarketingJobStatus(options: UseMarketingJobStatusOptions = {}) {
-  const api = useMemo(() => createMarketingApi(options), [options.baseUrl]);
+  const api = useMemo(() => createMarketingApi(options), [options.baseUrl, options.jobStatusPath]);
   const state = useRequestState<MarketingResult<GetMarketingJobStatusResponse>>();
   const { reset, setError, setLoading, setSuccess } = state;
 

@@ -32,6 +32,9 @@ test('runtime env examples advertise Hermes defaults with legacy OpenClaw opt-in
   assert.match(composeSource, /HERMES_API_SERVER_KEY:\s*\$\{HERMES_API_SERVER_KEY:-\}/);
   assert.match(composeSource, /HERMES_SESSION_KEY:\s*\$\{HERMES_SESSION_KEY:-main\}/);
   assert.match(composeSource, /INTERNAL_API_SECRET:\s*\$\{INTERNAL_API_SECRET\}/);
+  assert.match(composeSource, /OPENAI_CLIENT_ID:\s*\$\{OPENAI_CLIENT_ID\}/);
+  assert.match(composeSource, /OPENAI_CLIENT_SECRET:\s*\$\{OPENAI_CLIENT_SECRET\}/);
+  assert.match(composeSource, /OAUTH_TOKEN_ENCRYPTION_KEY:\s*\$\{OAUTH_TOKEN_ENCRYPTION_KEY\}/);
 
   assert.match(envExampleSource, /^ARIES_EXECUTION_PROVIDER=hermes$/m);
   assert.match(envExampleSource, /^ARIES_MARKETING_EXECUTION_PROVIDER=hermes$/m);
@@ -40,6 +43,9 @@ test('runtime env examples advertise Hermes defaults with legacy OpenClaw opt-in
   assert.match(envExampleSource, /^HERMES_GATEWAY_URL=/m);
   assert.match(envExampleSource, /^HERMES_API_SERVER_KEY=/m);
   assert.match(envExampleSource, /^HERMES_SESSION_KEY=main$/m);
+  assert.match(envExampleSource, /^OPENAI_CLIENT_ID=/m);
+  assert.match(envExampleSource, /^OPENAI_CLIENT_SECRET=/m);
+  assert.match(envExampleSource, /^OAUTH_TOKEN_ENCRYPTION_KEY=/m);
 });
 
 test('legacy dist deploy shim cannot reintroduce the stale public onboarding path', () => {

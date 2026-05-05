@@ -1,4 +1,4 @@
-export type Platform = 'facebook' | 'instagram' | 'linkedin' | 'x' | 'youtube' | 'reddit' | 'tiktok';
+export type Platform = 'facebook' | 'instagram' | 'linkedin' | 'x' | 'youtube' | 'reddit' | 'tiktok' | 'openai';
 
 export type ConnectionStatus =
   | 'disconnected'

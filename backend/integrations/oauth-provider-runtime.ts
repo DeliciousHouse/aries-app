@@ -26,6 +26,7 @@ const PROVIDER_ENV_CONTRACT: Record<ProviderKey, ProviderEnvContract> = {
   youtube: { authEnv: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'], connectionMode: 'oauth' },
   reddit: { authEnv: ['REDDIT_CLIENT_ID', 'REDDIT_CLIENT_SECRET'], connectionMode: 'oauth' },
   tiktok: { authEnv: ['TIKTOK_CLIENT_KEY', 'TIKTOK_CLIENT_SECRET'], connectionMode: 'oauth' },
+  openai: { authEnv: ['OPENAI_CLIENT_ID', 'OPENAI_CLIENT_SECRET'], connectionMode: 'oauth' },
 };
 
 function readEnv(name: string): string {
@@ -55,6 +56,9 @@ function callbackPathFor(provider: ProviderKey): string {
 function buildMissingEnvMessage(provider: ProviderKey, missingEnv: string[]): string {
   if (provider === 'facebook' || provider === 'instagram') {
     return 'Meta publishing needs META_PAGE_ID and META_ACCESS_TOKEN.';
+  }
+  if (provider === 'openai') {
+    return 'ChatGPT / OpenAI connection is not configured yet.';
   }
   if (missingEnv.includes(SHARED_TOKEN_ENV)) {
     return 'Contact support to finish channel setup.';
@@ -142,6 +146,14 @@ export function xClientSecret(): string {
   return readEnv('X_CLIENT_SECRET');
 }
 
+export function openAiClientId(): string {
+  return readEnv('OPENAI_CLIENT_ID');
+}
+
+export function openAiClientSecret(): string {
+  return readEnv('OPENAI_CLIENT_SECRET');
+}
+
 export function googleClientCredentials(): { clientId: string; clientSecret: string } | null {
   const clientId = googleClientId();
   const clientSecret = googleClientSecret();
@@ -181,6 +193,15 @@ export function tikTokClientCredentials(): { clientId: string; clientSecret: str
 export function xClientCredentials(): { clientId: string; clientSecret: string } | null {
   const clientId = xClientId();
   const clientSecret = xClientSecret();
+  if (!clientId || !clientSecret) {
+    return null;
+  }
+  return { clientId, clientSecret };
+}
+
+export function openAiClientCredentials(): { clientId: string; clientSecret: string } | null {
+  const clientId = openAiClientId();
+  const clientSecret = openAiClientSecret();
   if (!clientId || !clientSecret) {
     return null;
   }

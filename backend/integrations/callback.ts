@@ -9,6 +9,7 @@ import {
   getProviderOAuthAvailability,
   linkedInClientCredentials,
   metaFacebookClientCredentials,
+  openAiClientCredentials,
   redditClientCredentials,
   tikTokClientCredentials,
   xClientCredentials,
@@ -132,6 +133,16 @@ type GoogleTokenResponse = {
   refresh_token?: string;
   scope?: string;
   token_type?: string;
+  error?: string;
+  error_description?: string;
+};
+
+type OpenAiTokenResponse = {
+  access_token?: string;
+  token_type?: string;
+  expires_in?: number;
+  refresh_token?: string;
+  scope?: string;
   error?: string;
   error_description?: string;
 };
@@ -568,6 +579,41 @@ async function exchangeGoogleCodeForToken(input: {
   };
 }
 
+async function exchangeOpenAiCodeForToken(input: {
+  code: string;
+  redirectUri: string;
+}): Promise<ExchangedOAuthToken> {
+  const creds = openAiClientCredentials();
+  if (!creds) {
+    throw new Error('openai_oauth_not_configured');
+  }
+
+  const body = new URLSearchParams();
+  body.set('client_id', creds.clientId);
+  body.set('client_secret', creds.clientSecret);
+  body.set('code', input.code);
+  body.set('grant_type', 'authorization_code');
+  body.set('redirect_uri', input.redirectUri);
+
+  const response = await fetch('https://auth.openai.com/oauth/token', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  });
+  const parsed = await parseJson<OpenAiTokenResponse>(response);
+  if (!response.ok || !parsed.access_token) {
+    throw new Error(responseErrorMessage(parsed as Record<string, unknown>, 'OpenAI OAuth token exchange failed.'));
+  }
+
+  return {
+    accessToken: parsed.access_token,
+    expiresIn: typeof parsed.expires_in === 'number' && parsed.expires_in > 0 ? parsed.expires_in : undefined,
+    refreshToken: typeof parsed.refresh_token === 'string' && parsed.refresh_token.length > 0 ? parsed.refresh_token : undefined,
+    scope: typeof parsed.scope === 'string' ? parsed.scope : undefined,
+    tokenType: typeof parsed.token_type === 'string' ? parsed.token_type : undefined,
+  };
+}
+
 export async function oauthCallback(provider: string, query: OAuthCallbackQuery): Promise<OAuthCallbackSuccess | OAuthBrokerError> {
   if (!isAllowedProvider(provider)) return brokerError('invalid_provider', { provider });
 
@@ -656,6 +702,12 @@ export async function oauthCallback(provider: string, query: OAuthCallbackQuery)
         break;
       case 'youtube':
         exchangedToken = await exchangeGoogleCodeForToken({
+          code: query.code.trim(),
+          redirectUri: pending.redirect_uri,
+        });
+        break;
+      case 'openai':
+        exchangedToken = await exchangeOpenAiCodeForToken({
           code: query.code.trim(),
           redirectUri: pending.redirect_uri,
         });

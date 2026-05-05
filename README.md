@@ -1,14 +1,14 @@
 # Aries AI
 
-Aries AI is a Next.js App Router application for marketing automation. It combines a public marketing site, an authenticated operator shell, and browser-safe internal APIs that hand execution off to Hermes by default while keeping runtime state on the server. The legacy OpenClaw/Lobster runtime remains available as an explicit fallback.
+Aries AI is a Next.js App Router application for weekly social content automation. It combines a public marketing site, an authenticated operator shell, and browser-safe internal APIs that hand execution off to Hermes while keeping runtime state on the server. The legacy OpenClaw/Lobster runtime remains available only as a deprecated fallback for older flows.
 
 ## What the project includes
 
 - **Public marketing pages** for the homepage, features, documentation, and API docs.
 - **Authenticated operator pages** for dashboard, platforms, posts, calendar, and settings.
-- **Workflow UIs** for onboarding, marketing job creation/status/approval, and OAuth provider connection flows.
+- **Workflow UIs** for onboarding, weekly social content creation/status/review, and OAuth provider connection flows.
 - **Internal API routes** under `app/api/*` that validate requests, resolve auth and tenant context, and shape frontend-safe responses.
-- **Backend services** under `backend/*` for onboarding, marketing jobs, auth/session checks, platform integrations, Hermes/OpenClaw handoff, and runtime state management.
+- **Backend services** under `backend/*` for onboarding, social content jobs, auth/session checks, platform integrations, Hermes execution handoff, and runtime state management.
 - **Local runtime persistence** backed by PostgreSQL plus generated files beneath `DATA_ROOT`.
 - **Regression tests** covering route rendering, frontend API contracts, tenant isolation, marketing flow behavior, OAuth wiring, and banned-pattern assertions.
 
@@ -37,7 +37,7 @@ Browser
 - **UI:** React 18, Tailwind CSS v4, custom frontend screens/components
 - **Auth:** `next-auth` v5 beta plus tenant/auth runtime helpers
 - **Data/storage:** PostgreSQL (`pg`) plus generated runtime files under `DATA_ROOT`
-- **Execution boundary:** Hermes run submission + `/api/internal/hermes/runs` callbacks; legacy OpenClaw/Lobster fallback
+- **Execution boundary:** Hermes run submission + `/api/internal/hermes/runs` callbacks; legacy OpenClaw/Lobster fallback (deprecated)
 - **Testing:** Node.js built-in test runner via `tsx --test`
 - **Language/tooling:** TypeScript, tsx, PostCSS
 
@@ -64,9 +64,12 @@ Browser
 - `/onboarding/start`
 - `/onboarding/pipeline-intake` (legacy redirect to `/onboarding/start`)
 - `/onboarding/status`
-- `/marketing/new-job`
-- `/marketing/job-status`
-- `/marketing/job-approve`
+- `/social-content/new`
+- `/social-content/status`
+- `/social-content/review`
+- `/marketing/new-job` (legacy redirect to `/social-content/new`)
+- `/marketing/job-status` (legacy redirect)
+- `/marketing/job-approve` (legacy redirect)
 - `/oauth/connect/[provider]`
 
 ### API routes
@@ -85,9 +88,12 @@ Browser
 #### Onboarding and marketing
 - `/api/onboarding/start`
 - `/api/onboarding/status/[tenantId]`
-- `/api/marketing/jobs`
-- `/api/marketing/jobs/[jobId]`
-- `/api/marketing/jobs/[jobId]/approve`
+- `/api/social-content/jobs`
+- `/api/social-content/jobs/[jobId]`
+- `/api/social-content/jobs/[jobId]/approve`
+- `/api/marketing/jobs` (legacy compatibility)
+- `/api/marketing/jobs/[jobId]` (legacy compatibility)
+- `/api/marketing/jobs/[jobId]/approve` (legacy compatibility)
 
 #### Integrations and publishing
 - `/api/integrations`
@@ -120,7 +126,7 @@ components/  Shared UI primitives and redesign components
 lib/         Shared runtime helpers, auth helpers, API utilities, and DB access
 scripts/     Startup, verification, DB init, and repo validation scripts
 tests/       Route, API, auth, and runtime regression coverage
-lobster/     Lobster workflow-related assets and docs
+lobster/     Legacy/deprecated Lobster compatibility assets and docs
 skills/      Repository-specific skill docs
 ```
 
@@ -149,15 +155,15 @@ export DB_HOST=localhost DB_PORT=5432 DB_USER=aries_user DB_PASSWORD=aries_pass 
 export CODE_ROOT=/home/node/aries-app DATA_ROOT=/tmp/aries-data NODE_ENV=development
 export ARIES_EXECUTION_PROVIDER=hermes ARIES_MARKETING_EXECUTION_PROVIDER=hermes
 export HERMES_GATEWAY_URL=http://127.0.0.1:8642 HERMES_API_SERVER_KEY=replace-me
+export HERMES_SESSION_KEY=main
 export APP_BASE_URL=http://localhost:3000 INTERNAL_API_SECRET=replace-me
-export OPENCLAW_GATEWAY_LOBSTER_CWD=aries-app/lobster  # installed OpenClaw gateway service from /home/node
-export OPENCLAW_LOCAL_LOBSTER_CWD=/home/node/aries-app/lobster
-export OPENCLAW_LOBSTER_CWD=/home/node/aries-app/lobster
-export APP_BASE_URL=http://localhost:3000 NEXTAUTH_URL=http://localhost:3000 AUTH_URL=http://localhost:3000 AUTH_TRUST_HOST=true
+export NEXTAUTH_URL=http://localhost:3000 AUTH_URL=http://localhost:3000 NEXTAUTH_SECRET=replace-me AUTH_TRUST_HOST=true
 export MARKETING_STATUS_PUBLIC=1
 ```
 
-Hermes callbacks post to `${APP_BASE_URL}/api/internal/hermes/runs` with `Authorization: Bearer ${INTERNAL_API_SECRET}`. Keep `OPENCLAW_*` and `LOBSTER_*` values when opting into `ARIES_EXECUTION_PROVIDER=legacy-openclaw`, `ARIES_MARKETING_EXECUTION_PROVIDER=legacy-openclaw`, or explicit OpenClaw media gateway delegation. Run `npm run validate:execution-provider` after Hermes callback changes; run `npm run validate:legacy-openclaw-lobster` after legacy gateway/config changes.
+Hermes callbacks post to `${APP_BASE_URL}/api/internal/hermes/runs` with `Authorization: Bearer ${INTERNAL_API_SECRET}`. Run `npm run validate:execution-provider` after Hermes callback changes.
+
+For weekly social content media generation, operators must connect ChatGPT / OpenAI before image or video work can run. Text-only weekly planning can still run when media generation is disabled.
 
 ### 3) Start PostgreSQL
 
@@ -179,11 +185,11 @@ Use **Turbopack**. In this repo, that is required for Tailwind CSS v4 processing
 npm run dev
 ```
 
-`MARKETING_STATUS_PUBLIC=1` is optional for local demo flows where teammates want to use the dashboard, campaign workspace, review queue, status pages, and asset routes without a full authenticated session. In that mode, Aries serves the latest runtime-backed marketing data directly so teammates can reproduce UI fixes locally instead of depending on a VM-only session.
+`MARKETING_STATUS_PUBLIC=1` is optional for local demo flows where teammates want to use the dashboard, social content workspace, review queue, status pages, and asset routes without a full authenticated session. In that mode, Aries serves the latest runtime-backed social content data directly so teammates can reproduce UI fixes locally instead of depending on a VM-only session.
 
 ## Docker Compose
 
-The repo includes `docker-compose.yml`, `docker-compose.local.yml`, and a production `Dockerfile`. These files run the Aries app container, but they do **not** provision PostgreSQL or OpenClaw for you, so `DB_*` and `OPENCLAW_*` values still need to point at working services.
+The repo includes `docker-compose.yml`, `docker-compose.local.yml`, and a production `Dockerfile`. Local Compose provisions a companion `postgres` service and wires the app to it with `DB_HOST=postgres`; production deploys may use external PostgreSQL instead. Hermes is always external, so `HERMES_*` and callback auth values still need to point at working services.
 
 ### Production release
 
@@ -205,7 +211,7 @@ cp .env.example .env
 docker network create docker-stack || true
 ```
 
-3. Start the app with the local overrides file so localhost-oriented URL defaults and `host.docker.internal` are applied for host-based OpenClaw access. The base compose file now owns the production port publish, so this override does not create a second app instance:
+3. Start the app with the local overrides file so localhost-oriented URL defaults are applied. Local Compose starts the companion `postgres` service from `docker-compose.yml`; the app container uses `DB_HOST=postgres` internally while `.env` supplies `DB_USER`, `DB_PASSWORD`, `DB_NAME`, and the host-published `DB_PORT`.
 
 ```bash
 docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml up --build -d aries-app
@@ -228,10 +234,10 @@ docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml
 
 ### Docker-specific notes
 
-- The app container stores generated runtime artifacts under `/data`, which is a bind mount from `${ARIES_SHARED_DATA_ROOT:-/home/node/data}` on the host. Using a bind mount (not a Docker-managed named volume) is intentional: it lets host-side OpenClaw/Lobster and the Aries container read and write the same files at the same absolute paths.
+- The app container stores generated runtime artifacts under `/data`, which is a bind mount from `${ARIES_SHARED_DATA_ROOT:-/home/node/data}` on the host.
 - `docker-compose.yml` now publishes `${PORT:-3000}` for the main `aries-app` service because both deploys and local production-style runs depend on that host port existing.
-- `docker-compose.local.yml` only layers in localhost-friendly URL defaults plus `OPENCLAW_GATEWAY_URL=http://host.docker.internal:3456`; it merges into the same `aries-app` service rather than creating a second production container.
-- The Compose setup expects an external PostgreSQL instance; it does not include a Postgres service.
+- `docker-compose.local.yml` layers in localhost-friendly URL defaults and merges into the same `aries-app` service rather than creating a second production container.
+- Local Compose includes a `postgres` service and wires the app container to it with `DB_HOST=postgres`. Production deploys may still use external PostgreSQL; in that case, configure the production environment/secret store with the external `DB_*` values instead of relying on local Compose defaults.
 - For production-style Compose runs, `NODE_ENV` is set to `production` and the container starts with `npm run start`.
 
 ## Environment variables
@@ -246,9 +252,21 @@ docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml
 - `APP_BASE_URL`
 - `HERMES_GATEWAY_URL`
 - `HERMES_API_SERVER_KEY`
+- `HERMES_SESSION_KEY`
 - `INTERNAL_API_SECRET`
 - `NEXTAUTH_URL`
 - `AUTH_URL`
+- `NEXTAUTH_SECRET`
+- `AUTH_TRUST_HOST`
+- `OAUTH_TOKEN_ENCRYPTION_KEY` (stable 32-byte base64 key; generate with `openssl rand -base64 32`)
+
+### Required for OpenAI media generation
+
+- `OPENAI_CLIENT_ID`
+- `OPENAI_CLIENT_SECRET`
+- `OAUTH_TOKEN_ENCRYPTION_KEY`
+
+These are required only when image/video generation is enabled. Text-only weekly planning can run with media generation disabled.
 
 ### Common optional variables
 
@@ -261,16 +279,10 @@ docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml
 - `HERMES_SESSION_KEY`
 - `HERMES_RUN_TIMEOUT_MS`
 - `HERMES_POLL_INTERVAL_MS`
-- `OPENCLAW_GATEWAY_URL`
-- `OPENCLAW_GATEWAY_TOKEN`
-- `OPENCLAW_SESSION_KEY`
-- `OPENCLAW_GATEWAY_LOBSTER_CWD`
-- `OPENCLAW_LOCAL_LOBSTER_CWD`
-- `OPENCLAW_LOBSTER_CWD`
 - `LOG_LEVEL`
-- `OAUTH_TOKEN_ENCRYPTION_KEY`
 - OAuth client credentials:
-  `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`,
+  `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+  `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`,
   `X_CLIENT_ID`, `X_CLIENT_SECRET`,
   `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`
 - Meta runtime values: `META_PAGE_ID` and `META_ACCESS_TOKEN`
@@ -283,13 +295,14 @@ Aries derives generic OAuth callbacks from `APP_BASE_URL` for non-Meta providers
 - `${APP_BASE_URL}/api/auth/oauth/youtube/callback`
 
 Meta publishing remains env-managed with `META_PAGE_ID` and `META_ACCESS_TOKEN`.
+OpenAI media generation requires `OPENAI_CLIENT_ID`, `OPENAI_CLIENT_SECRET`, and a stable `OAUTH_TOKEN_ENCRYPTION_KEY` so Aries can store OAuth tokens safely. Text-only weekly planning can run with media generation disabled.
 
 Hermes uses two different secrets at the execution boundary:
 
 - `HERMES_API_SERVER_KEY` is the outbound credential Aries sends to Hermes when submitting `/v1/runs`.
 - `INTERNAL_API_SECRET` is the inbound callback credential Hermes sends back to Aries as `Authorization: Bearer <secret>` on `POST /api/internal/hermes/runs`.
 
-The general Aries execution provider currently supports the `demo_start` workflow through Hermes. Marketing jobs use the separate marketing execution port and submit the `marketing_pipeline` flow to Hermes asynchronously. Set the corresponding provider variable to `legacy-openclaw` only when intentionally running the old OpenClaw/Lobster path.
+The general Aries execution provider currently supports the `demo_start` workflow through Hermes. Weekly social content runs submit through the marketing execution port and advance asynchronously through Hermes callbacks.
 
 ## Supported product flows
 
@@ -301,20 +314,24 @@ The public client intake begins at `/onboarding/start`. The legacy `/onboarding/
 
 The internal tenant-onboarding API remains exposed through `/api/onboarding/start`. Aries validates required fields like `tenant_id`, `tenant_type`, and `signup_event_id`, then delegates through the configured Aries execution provider. The Hermes provider only wires the supported Hermes workflow set; use `ARIES_EXECUTION_PROVIDER=legacy-openclaw` when exercising onboarding flows that still depend on the legacy Lobster workflow. Status is later read through `/api/onboarding/status/[tenantId]` using runtime-safe summaries rather than raw file paths.
 
-### Marketing job flow
+### Weekly social content flow (Hermes-native)
 
-The canonical marketing flow currently centers on the `brand_campaign` job type. A request to `/api/marketing/jobs` must provide both:
+The default workflow is weekly social content, started with `POST /api/social-content/jobs`.
 
-- `brandUrl`
-- `competitorUrl`
+Operational flow:
 
-Aries creates local runtime state for the job, submits execution to Hermes, and treats idempotent Hermes callbacks as the source of truth for progress. Status/approval operations are exposed through:
+1. Client submits `POST /api/social-content/jobs`.
+2. Aries validates tenant/request data and submits the run to Hermes.
+3. Hermes posts authenticated callbacks to `/api/internal/hermes/runs`.
+4. Aries updates runtime state and read-model status for the job.
+5. The user reviews weekly content in the social content status/review UI.
+6. The user approves optional video render/publish steps when needed.
 
-- `/api/marketing/jobs/[jobId]`
-- `/api/marketing/jobs/[jobId]/approve`
-- `/marketing/new-job`
-- `/marketing/job-status`
-- `/marketing/job-approve`
+For image/video generation, ChatGPT / OpenAI must be configured with `OPENAI_CLIENT_ID`, `OPENAI_CLIENT_SECRET`, and a stable `OAUTH_TOKEN_ENCRYPTION_KEY`, then connected first in Integrations. Text planning can proceed with media generation disabled.
+
+### Legacy brand campaign flow (deprecated)
+
+`/api/marketing/jobs` and related `/marketing/*` routes remain for backward compatibility with `brand_campaign` runtime data. Use this path only when intentionally running legacy compatibility flows.
 
 ### Platform integrations and OAuth
 
@@ -349,7 +366,8 @@ npm run validate:repo-boundary
 APP_BASE_URL=https://aries.example.com ./node_modules/.bin/tsx --test tests/**/*.test.ts
 ./node_modules/.bin/tsx --test tests/runtime-pages.test.ts
 node scripts/check-banned-patterns.mjs
-APP_BASE_URL=https://aries.example.com ./node_modules/.bin/tsx --test tests/marketing-job-flow.test.ts tests/onboarding-marketing-contracts.test.ts
+APP_BASE_URL=https://aries.example.com ./node_modules/.bin/tsx --test tests/social-content-weekly-defaults.test.ts tests/social-content-execution-contract.test.ts tests/marketing-job-route.smoke.test.ts
+APP_BASE_URL=https://aries.example.com ./node_modules/.bin/tsx --test tests/marketing-job-flow.test.ts tests/onboarding-marketing-contracts.test.ts # legacy compatibility
 ```
 
 ### Focused regression specs
@@ -360,11 +378,14 @@ Auth and signup:
 - `tests/forgot-password-form-validation.regression-011.test.ts` covers the same contract on the forgot-password screen.
 - `tests/signup-email-normalization.regression-017.test.ts` pins trim + lowercase email normalization before submission.
 
-Homepage and marketing surfaces:
+Homepage and social-content surfaces:
 - `tests/homepage-meet-aries-step-chips.regression-013.test.ts` keeps the homepage Meet Aries workflow steps non-interactive and exposed with list semantics.
 - `tests/homepage-request-access-validation.regression-013.test.ts` guards inline validation on the homepage request-access form.
 - `tests/homepage-request-access-loading.regression-016.test.ts` preserves the loading state and disable behavior during submission.
 - `tests/marketing-legacy-text-repair.regression-014.test.ts` covers legacy marketing-copy repair on workspace and business-profile read paths.
+- `tests/social-content-weekly-defaults.test.ts` covers weekly content defaults and generated status copy.
+- `tests/social-content-execution-contract.test.ts` covers the Hermes social-content execution contract.
+- `tests/marketing-job-route.smoke.test.ts` includes `/api/social-content/jobs` route smoke coverage.
 
 Onboarding and operator shell:
 - `tests/onboarding-step-one-validation.regression-012.test.ts` blocks empty submits on onboarding step one before they fire.
@@ -401,7 +422,7 @@ Infrastructure and deploy:
 - [ ] Add a concise architecture diagram for frontend engineers onboarding to the repo.
 - [ ] Add CI-visible checks that validate docs examples against the actual route/file surface.
 - [ ] Document provider-specific OAuth configuration and scopes for each supported integration.
-- [ ] Add examples for local OpenClaw development and failure-mode troubleshooting.
+- [ ] Add legacy/deprecated OpenClaw compatibility examples only if old `brand_campaign` support still needs public troubleshooting docs.
 - [ ] Publish sample request/response payloads for onboarding, marketing status, integrations, publish, and calendar flows.
 
 ## Project roadmap
@@ -417,8 +438,8 @@ Infrastructure and deploy:
 
 - Mature platform connection management with clearer token health, reconnect, and sync telemetry.
 - Broaden typed frontend API clients and shared response schemas.
-- Improve operator shell workflows for marketing job review, approvals, and recovery paths.
-- Add stronger observability around OpenClaw execution results, retries, and approval gates.
+- Improve operator shell workflows for weekly social content review, approvals, and recovery paths.
+- Add stronger observability around Hermes execution results, retries, and approval gates.
 
 ### Longer term
 
@@ -437,7 +458,7 @@ Infrastructure and deploy:
 - `PRODUCTION_HANDOFF.md` — concise production deployment runbook
 - `docs/SYSTEM-REFERENCE.md` — living architecture reference refreshed by the automation cron
 - `skills/README.md` — local skills documentation
-- `lobster/README.md` and `lobster/bin/README.md` — Lobster-related notes
+- `lobster/README.md` and `lobster/bin/README.md` — legacy Lobster notes (deprecated compatibility path)
 
 ## Summary
 
@@ -447,5 +468,5 @@ If you are new to the project, the safest mental model is:
 2. Use Turbopack locally.
 3. Treat `app/api/*` as the browser contract.
 4. Treat `backend/*` and `lib/*` as the server-side application boundary.
-5. Treat Hermes callbacks as the default execution boundary beyond Aries; keep OpenClaw/Lobster as a legacy opt-in path.
+5. Treat Hermes callbacks as the default execution boundary beyond Aries; keep OpenClaw/Lobster as a deprecated legacy opt-in path.
 6. Use the test suite and verification scripts to keep code, docs, and route behavior in sync.

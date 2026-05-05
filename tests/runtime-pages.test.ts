@@ -36,6 +36,9 @@ import OnboardingStatusPage from '../app/onboarding/status/page';
 import MarketingNewJobPage from '../app/marketing/new-job/page';
 import MarketingJobStatusPage from '../app/marketing/job-status/page';
 import MarketingJobApprovePage from '../app/marketing/job-approve/page';
+import SocialContentNewPage from '../app/social-content/new/page';
+import SocialContentStatusPage from '../app/social-content/status/page';
+import SocialContentReviewPage from '../app/social-content/review/page';
 import PlatformsPage from '../app/platforms/page';
 import SettingsPage from '../app/settings/page';
 import DonorHomePage from '../frontend/donor/marketing/home-page';
@@ -56,6 +59,7 @@ import OnboardingStatusScreen from '../frontend/onboarding/status';
 import MarketingNewJobScreen from '../frontend/marketing/new-job';
 import MarketingJobStatusScreen from '../frontend/marketing/job-status';
 import MarketingJobApproveScreen from '../frontend/marketing/job-approve';
+import SocialContentNewJobScreen from '../frontend/social-content/new-job';
 import AppShellLayout from '../frontend/app-shell/layout';
 import { buildLoginRedirect } from '../lib/auth/callback-url';
 import type { RuntimeReviewItem } from '../lib/api/aries-v1';
@@ -449,15 +453,19 @@ test('/onboarding/status preserves tenant_id and signup_event_id from the route 
   assert.equal(element.props.initialSignupEventId, 'signup_evt_456');
 });
 
-test('/marketing/new-job returns a renderable marketing creation screen', () => {
-  const element = MarketingNewJobPage();
-
-  assert.equal(isValidElement(element), true);
-  assert.equal(element.type, MarketingNewJobScreen);
+test('/marketing/new-job redirects to the social content intake route', () => {
+  expectRedirect(() => MarketingNewJobPage(), '/social-content/new');
 });
 
-test('/marketing/job-status preserves jobId from the route boundary', async () => {
-  const element = await MarketingJobStatusPage({
+test('/social-content/new returns a renderable social content creation screen', () => {
+  const element = SocialContentNewPage();
+
+  assert.equal(isValidElement(element), true);
+  assert.equal(element.type, SocialContentNewJobScreen);
+});
+
+test('/social-content/status preserves jobId from the route boundary', async () => {
+  const element = await SocialContentStatusPage({
     searchParams: Promise.resolve({
       jobId: 'mkt_123',
     }),
@@ -466,18 +474,136 @@ test('/marketing/job-status preserves jobId from the route boundary', async () =
   assert.equal(isValidElement(element), true);
   assert.equal(element.type, MarketingJobStatusScreen);
   assert.equal(element.props.defaultJobId, 'mkt_123');
+  assert.equal(element.props.jobStatusPath, '/api/social-content/jobs');
+  assert.equal(element.props.copyVariant, 'social-content');
 });
 
-test('/marketing/job-approve preserves the job id from the route boundary', async () => {
-  const element = await MarketingJobApprovePage({
+test('/social-content/review preserves jobId from the route boundary', async () => {
+  const element = await SocialContentReviewPage({
     searchParams: Promise.resolve({
-      jobId: 'mkt_123',
+      jobId: 'mkt_approve_123',
     }),
   });
 
   assert.equal(isValidElement(element), true);
   assert.equal(element.type, MarketingJobApproveScreen);
-  assert.equal(element.props.defaultJobId, 'mkt_123');
+  assert.equal(element.props.defaultJobId, 'mkt_approve_123');
+  assert.equal(element.props.jobApprovePath, '/api/social-content/jobs');
+  assert.equal(element.props.jobStatusPath, '/api/social-content/jobs');
+  assert.equal(element.props.copyVariant, 'social-content');
+});
+
+test('/social-content/status default render uses social-content wording', async () => {
+  const element = await SocialContentStatusPage({
+    searchParams: Promise.resolve({}),
+  });
+  const body = renderToStaticMarkup(element);
+
+  assert.doesNotMatch(body, /campaign/i);
+  assert.match(body, /weekly social content status/i);
+  assert.match(body, /content job/i);
+  assert.match(body, /weekly posts/i);
+});
+
+test('/social-content/status screen fetches the social-content job endpoint', async () => {
+  const previousFetch = globalThis.fetch;
+  const fetchUrls: string[] = [];
+
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    fetchUrls.push(typeof input === 'string' ? input : input.toString());
+    return new Response(JSON.stringify({
+      jobId: 'mkt_123',
+      tenantName: null,
+      brandWebsiteUrl: null,
+      campaignWindow: null,
+      durationDays: null,
+      plannedPostCount: null,
+      createdPostCount: null,
+      assetPreviewCards: [],
+      calendarEvents: [],
+      marketing_job_state: 'completed',
+      marketing_job_status: 'completed',
+      marketing_stage: null,
+      marketing_stage_status: {},
+      updatedAt: null,
+      needs_attention: false,
+      approvalRequired: false,
+      summary: {
+        headline: 'Weekly social content ready',
+        subheadline: 'Weekly posts are ready.',
+      },
+      stageCards: [],
+      artifacts: [],
+      timeline: [],
+      approval: null,
+      reviewBundle: null,
+      campaignBrief: null,
+      workflowState: 'approved',
+      statusHistory: [],
+      brandReview: null,
+      strategyReview: null,
+      creativeReview: null,
+      publishConfig: {
+        platforms: [],
+        livePublishPlatforms: [],
+        videoRenderPlatforms: [],
+      },
+      nextStep: 'wait_for_completion',
+      repairStatus: 'none',
+      dashboard: {
+        campaign: null,
+        posts: [],
+        assets: [],
+        publishItems: [],
+        calendarEvents: [],
+        statuses: { countsByStatus: {} },
+      },
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const element = await SocialContentStatusPage({
+      searchParams: Promise.resolve({ jobId: 'mkt_123' }),
+    });
+    const { act, create } = await import('react-test-renderer');
+
+    await act(async () => {
+      create(element);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    assert.deepEqual(fetchUrls, ['/api/social-content/jobs/mkt_123']);
+    assert.equal(fetchUrls.some((url) => url.includes('/api/marketing/jobs/')), false);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test('/marketing/job-status preserves jobId from the route boundary', async () => {
+  await expectAsyncRedirect(
+    () =>
+      MarketingJobStatusPage({
+        searchParams: Promise.resolve({
+          jobId: 'mkt_123',
+        }),
+      }),
+    '/social-content/status?jobId=mkt_123',
+  );
+});
+
+test('/marketing/job-approve preserves the job id from the route boundary', async () => {
+  await expectAsyncRedirect(
+    () =>
+      MarketingJobApprovePage({
+        searchParams: Promise.resolve({
+          jobId: 'mkt_123',
+        }),
+      }),
+    '/social-content/review?jobId=mkt_123',
+  );
 });
 
 test('/platforms redirects to the canonical dashboard settings route', () => {

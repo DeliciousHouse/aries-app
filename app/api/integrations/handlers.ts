@@ -9,7 +9,9 @@ import { PROVIDER_REGISTRY } from '../../../backend/integrations/provider-regist
 import { buildOauthConnectInput } from '@/lib/oauth-connect-input';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
-const platforms = Object.keys(PROVIDER_REGISTRY) as Array<keyof typeof PROVIDER_REGISTRY>;
+const platforms = (Object.keys(PROVIDER_REGISTRY) as Array<keyof typeof PROVIDER_REGISTRY>).filter(
+  (platform) => platform !== 'openai',
+);
 
 type IntegrationPageCard = {
   platform: string;

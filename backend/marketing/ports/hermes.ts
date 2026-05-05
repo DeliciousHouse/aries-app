@@ -1,27 +1,39 @@
-import type { LobsterEnvelope } from '../../openclaw/gateway-client';
 import {
   createExecutionRunRecord,
   markExecutionRunFailed,
   markExecutionRunSubmitted,
 } from '../../execution/run-store';
+import { SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY } from '../../social-content/defaults';
+import { approvalStepFromWorkflowStepId } from '../../social-content/runtime-state';
+import { buildSocialContentWeeklyRequest } from '../../social-content/workflow-request';
 import type {
+  HermesWorkflowOutput,
   MarketingExecutionResult,
   MarketingExecutionPort,
   MarketingPipelineResumeInput,
   MarketingPipelineRunInput,
 } from '../execution-port';
-import type { MarketingStage } from '../runtime-state';
+import type { MarketingJobRuntimeDocument, MarketingStage } from '../runtime-state';
+import type { SocialContentApprovalStep } from '@/backend/social-content/types';
 
 type HermesMarketingEnv = Partial<Record<string, string | undefined>>;
 type HermesMarketingFetch = (input: string | URL, init?: RequestInit) => Promise<Response>;
 type HermesMarketingSleep = (ms: number) => Promise<void>;
 
-const MARKETING_WORKFLOW_KEY = 'marketing_pipeline';
+const BRAND_CAMPAIGN_WORKFLOW_KEY = 'marketing_pipeline';
 
 const DEFAULT_RUN_TIMEOUT_MS = 120_000;
 const DEFAULT_POLL_INTERVAL_MS = 2_000;
 const MIN_POLL_INTERVAL_MS = 50;
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'stopped']);
+
+function isWeeklySocialContentRequest(doc?: MarketingJobRuntimeDocument): boolean {
+  const request = doc?.inputs?.request;
+  if (!request || typeof request !== 'object' || Array.isArray(request)) {
+    return false;
+  }
+  return (request as Record<string, unknown>).jobType === 'weekly_social_content';
+}
 
 function readEnvValue(env: HermesMarketingEnv, key: string): string {
   const value = env[key];
@@ -46,14 +58,22 @@ function tryParseJson(text: string): unknown {
   }
 }
 
-function providerErrorEnvelope(code: string, message: string, detail?: Record<string, unknown>): LobsterEnvelope {
+function providerErrorOutput(
+  code: string,
+  message: string,
+  detail?: Record<string, unknown>,
+  workflowKey = BRAND_CAMPAIGN_WORKFLOW_KEY,
+): HermesWorkflowOutput {
   return {
     ok: false,
-    status: 'gateway_error',
-    provider: 'hermes',
-    code,
-    message,
-    detail,
+    status: 'failed',
+    workflowKey,
+    error: {
+      code,
+      message,
+      retryable: code === 'hermes_gateway_unreachable' || code === 'hermes_gateway_request_failed',
+    },
+    output: detail,
   };
 }
 
@@ -61,18 +81,23 @@ function missingConfigResult(keys: string): MarketingExecutionResult {
   return {
     kind: 'completed',
     provider: 'hermes',
-    envelope: providerErrorEnvelope(
+    output: providerErrorOutput(
       'hermes_gateway_not_configured',
-      `${keys} required when ARIES_MARKETING_EXECUTION_PROVIDER=hermes. Set HERMES_GATEWAY_URL and HERMES_API_SERVER_KEY, or set ARIES_MARKETING_EXECUTION_PROVIDER=legacy-openclaw to keep the legacy runtime.`,
+      `${keys} required for Hermes social-content execution.`,
     ),
   };
 }
 
-function gatewayErrorResult(code: string, message: string, detail?: Record<string, unknown>): MarketingExecutionResult {
+function gatewayErrorResult(
+  code: string,
+  message: string,
+  detail?: Record<string, unknown>,
+  workflowKey = BRAND_CAMPAIGN_WORKFLOW_KEY,
+): MarketingExecutionResult {
   return {
     kind: 'completed',
     provider: 'hermes',
-    envelope: providerErrorEnvelope(code, message, detail),
+    output: providerErrorOutput(code, message, detail, workflowKey),
   };
 }
 
@@ -85,11 +110,14 @@ function markSubmissionFailed(ariesRunId: string, code: string, message: string)
 }
 
 /**
- * Marketing execution port backed by Hermes polling.
+ * Marketing execution port backed by Hermes submissions + callbacks.
  *
- * Submits a run/resume request to the Hermes gateway, then polls
- * GET /v1/runs/{id} until a terminal status is reached, and returns
- * the parsed LobsterEnvelope from the agent's output.
+ * By default, run/resume requests submit to Hermes and return immediately
+ * as `kind: 'submitted'`. Runtime progression is driven by authenticated
+ * callbacks to `/api/internal/hermes/runs`.
+ *
+ * Legacy sync polling is retained only for diagnostics/tests behind:
+ * `HERMES_SYNC_POLL_FOR_TESTS=1`.
  */
 export class HermesMarketingPort implements MarketingExecutionPort {
   readonly name = 'hermes' as const;
@@ -105,6 +133,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     return this.invoke('run', {
       jobId: input.jobId,
       tenantId: input.doc.tenant_id,
+      doc: input.doc,
       argsJson: input.argsJson,
       stage: 'research',
     });
@@ -117,13 +146,15 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       approvalId: input.approvalId ?? undefined,
       stage: input.stage ?? undefined,
       workflowStepId: input.workflowStepId ?? undefined,
+      approvalStep: input.approvalStep ?? undefined,
+      workflowKey: input.workflowKey ?? undefined,
       resumeToken: input.resumeToken,
       approve: input.approve,
     });
   }
 
   private configurationError(): MarketingExecutionResult | null {
-    const missing = ['HERMES_GATEWAY_URL', 'HERMES_API_SERVER_KEY']
+    const missing = ['HERMES_GATEWAY_URL', 'HERMES_API_SERVER_KEY', 'INTERNAL_API_SECRET', 'APP_BASE_URL']
       .filter((key) => !readEnvValue(this.env, key));
     return missing.length > 0 ? missingConfigResult(missing.join(', ')) : null;
   }
@@ -140,15 +171,27 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     return readEnvValue(this.env, 'HERMES_SESSION_KEY') || 'marketing';
   }
 
+  private callbackUrl(): string {
+    const appBaseUrl = readEnvValue(this.env, 'APP_BASE_URL').replace(/\/+$/, '');
+    return `${appBaseUrl}/api/internal/hermes/runs`;
+  }
+
+  private syncPollingEnabled(): boolean {
+    return readEnvValue(this.env, 'HERMES_SYNC_POLL_FOR_TESTS') === '1';
+  }
+
   private async invoke(
     action: 'run' | 'resume',
     input: {
       jobId?: string;
       tenantId?: string;
+      doc?: MarketingJobRuntimeDocument;
       argsJson?: string;
       stage?: MarketingStage;
       approvalId?: string;
       workflowStepId?: string;
+      approvalStep?: SocialContentApprovalStep;
+      workflowKey?: string;
       resumeToken?: string;
       approve?: boolean;
     },
@@ -157,11 +200,12 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     if (configError) {
       return configError;
     }
+    const workflowKey = this.workflowKeyFor(action, input);
 
     const run = createExecutionRunRecord({
       provider: 'hermes',
       domain: 'marketing',
-      workflowKey: MARKETING_WORKFLOW_KEY,
+      workflowKey,
       action,
       tenantId: input.tenantId,
       marketingJobId: input.jobId,
@@ -178,11 +222,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
           authorization: this.authHeader(),
           'content-type': 'application/json',
         },
-        body: JSON.stringify({
-          input: this.prompt(action, run.aries_run_id, input),
-          instructions: this.instructions(),
-          session_id: this.sessionKey(),
-        }),
+        body: JSON.stringify(this.submissionPayload(action, run.aries_run_id, input, workflowKey)),
       });
     } catch (error) {
       const message = 'Hermes gateway is unreachable.';
@@ -190,7 +230,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       return gatewayErrorResult('hermes_gateway_unreachable', message, {
         aries_run_id: run.aries_run_id,
         error: error instanceof Error ? error.message : String(error),
-      });
+      }, workflowKey);
     }
 
     if (!response.ok) {
@@ -200,6 +240,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         'hermes_gateway_request_failed',
         message,
         { status: response.status, aries_run_id: run.aries_run_id },
+        workflowKey,
       );
     }
 
@@ -210,11 +251,121 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       markSubmissionFailed(run.aries_run_id, 'hermes_gateway_response_invalid', message);
       return gatewayErrorResult('hermes_gateway_response_invalid', message, {
         aries_run_id: run.aries_run_id,
-      });
+      }, workflowKey);
     }
 
     markExecutionRunSubmitted(run.aries_run_id, { externalRunId: hermesRunId });
-    return this.pollRunUntilTerminal(hermesRunId, run.aries_run_id);
+    if (this.syncPollingEnabled()) {
+      return this.pollRunUntilTerminal(hermesRunId, run.aries_run_id);
+    }
+    return {
+      kind: 'submitted',
+      provider: 'hermes',
+      ariesRunId: run.aries_run_id,
+      hermesRunId,
+    };
+  }
+
+  private submissionPayload(
+    action: 'run' | 'resume',
+    ariesRunId: string,
+    input: {
+      jobId?: string;
+      tenantId?: string;
+      doc?: MarketingJobRuntimeDocument;
+      argsJson?: string;
+      stage?: MarketingStage;
+      approvalId?: string;
+      workflowStepId?: string;
+      approvalStep?: SocialContentApprovalStep;
+      workflowKey?: string;
+      resumeToken?: string;
+      approve?: boolean;
+    },
+    workflowKey: string,
+  ): Record<string, unknown> {
+    if (action === 'resume' && workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY) {
+      const approvalStep =
+        input.approvalStep ??
+        approvalStepFromWorkflowStepId(input.workflowStepId ?? '') ??
+        null;
+      return {
+        workflow_key: SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
+        action: 'resume',
+        aries_run_id: ariesRunId,
+        approval_step: approvalStep,
+        approval_id: input.approvalId ?? null,
+        resume_token: input.resumeToken ?? '',
+        approved: input.approve === true,
+        job_id: input.jobId ?? null,
+        tenant_id: input.tenantId ?? null,
+        callback_url: this.callbackUrl(),
+        callback_auth: {
+          type: 'internal_api_secret_bearer',
+          secret_ref: 'INTERNAL_API_SECRET',
+        },
+        callback_context: {
+          workflow_key: SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
+          aries_run_id: ariesRunId,
+          job_id: input.jobId ?? null,
+          tenant_id: input.tenantId ?? null,
+          approval_id: input.approvalId ?? null,
+          approval_step: approvalStep,
+        },
+      };
+    }
+
+    if (action === 'run' && input.doc && isWeeklySocialContentRequest(input.doc)) {
+      const request = buildSocialContentWeeklyRequest({
+        doc: input.doc,
+        ariesRunId,
+        callbackUrl: this.callbackUrl(),
+      });
+      return {
+        ...request,
+        session_id: this.sessionKey(),
+        callback_auth: {
+          type: 'internal_api_secret_bearer',
+          secret_ref: 'INTERNAL_API_SECRET',
+        },
+        callback_context: {
+          workflow_key: request.workflow_key,
+          workflow_version: request.workflow_version,
+          aries_run_id: request.aries_run_id,
+          job_id: request.job_id,
+          tenant_id: request.tenant_id,
+        },
+      };
+    }
+
+    return {
+      input: this.prompt(action, ariesRunId, input, workflowKey),
+      instructions: this.instructions(workflowKey),
+      session_id: this.sessionKey(),
+      callback_url: this.callbackUrl(),
+      callback_auth: {
+        type: 'internal_api_secret_bearer',
+        secret_ref: 'INTERNAL_API_SECRET',
+      },
+      callback_context: {
+        workflow_key: workflowKey,
+        aries_run_id: ariesRunId,
+        job_id: input.jobId ?? null,
+        tenant_id: input.tenantId ?? null,
+      },
+    };
+  }
+
+  private workflowKeyFor(
+    action: 'run' | 'resume',
+    input: { doc?: MarketingJobRuntimeDocument; workflowKey?: string },
+  ): string {
+    if (action === 'resume' && input.workflowKey && input.workflowKey.trim().length > 0) {
+      return input.workflowKey.trim();
+    }
+    return action === 'run' && input.doc && isWeeklySocialContentRequest(input.doc)
+      ? SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY
+      : BRAND_CAMPAIGN_WORKFLOW_KEY;
   }
 
   private async pollRunUntilTerminal(runId: string, ariesRunId: string): Promise<MarketingExecutionResult> {
@@ -268,7 +419,11 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     );
   }
 
-  private resultFromTerminalRun(runId: string, ariesRunId: string, record: Record<string, unknown>): MarketingExecutionResult {
+  private resultFromTerminalRun(
+    runId: string,
+    ariesRunId: string,
+    record: Record<string, unknown>,
+  ): MarketingExecutionResult {
     const status = typeof record.status === 'string' ? record.status : '';
     if (status === 'failed') {
       const message = typeof record.error === 'string' && record.error
@@ -284,21 +439,171 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     }
 
     // status === 'completed'
-    const outputText = typeof record.output === 'string' ? record.output : '';
-    if (outputText) {
-      const parsed = tryParseJson(outputText);
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        const message = `Hermes run ${runId} returned unparseable output.`;
-        markSubmissionFailed(ariesRunId, 'hermes_output_invalid', message);
-        return gatewayErrorResult('hermes_output_invalid', message, { run_id: runId });
-      }
-      const envelope = parsed as LobsterEnvelope;
-      if (typeof envelope.ok !== 'boolean') envelope.ok = true;
-      if (typeof envelope.status !== 'string') envelope.status = 'completed';
-      return { kind: 'completed', provider: 'hermes', envelope };
+    const output = this.workflowOutputFromRunRecord(runId, record);
+    if (!output) {
+      const message = `Hermes run ${runId} returned unparseable output.`;
+      markSubmissionFailed(ariesRunId, 'hermes_output_invalid', message);
+      return gatewayErrorResult('hermes_output_invalid', message, { run_id: runId });
     }
-    return { kind: 'completed', provider: 'hermes', envelope: { ok: true, status: 'completed', provider: 'hermes', run_id: runId } };
+    return { kind: 'completed', provider: 'hermes', output };
   }
+  private workflowOutputFromRunRecord(
+    runId: string,
+    record: Record<string, unknown>,
+  ): HermesWorkflowOutput | null {
+    const rawOutput = record.output;
+    const parsedOutput = typeof rawOutput === 'string' ? tryParseJson(rawOutput) : rawOutput;
+    if (parsedOutput == null) {
+      return {
+        ok: true,
+        status: 'completed',
+        workflowKey: BRAND_CAMPAIGN_WORKFLOW_KEY,
+        runId,
+      };
+    }
+
+    if (Array.isArray(parsedOutput)) {
+      return {
+        ok: true,
+        status: 'completed',
+        workflowKey: BRAND_CAMPAIGN_WORKFLOW_KEY,
+        runId,
+        output: parsedOutput.filter(
+          (entry): entry is Record<string, unknown> =>
+            !!entry && typeof entry === 'object' && !Array.isArray(entry),
+        ),
+      };
+    }
+
+    if (!parsedOutput || typeof parsedOutput !== 'object') {
+      return null;
+    }
+
+    const parsedRecord = parsedOutput as Record<string, unknown>;
+    const status = typeof parsedRecord.status === 'string'
+      ? parsedRecord.status
+      : 'completed';
+    const normalizedStatus: HermesWorkflowOutput['status'] = (
+      status === 'running'
+      || status === 'requires_approval'
+      || status === 'completed'
+      || status === 'failed'
+      || status === 'cancelled'
+    )
+      ? status
+      : 'completed';
+
+    const approval = (() => {
+      const documentedApproval = parsedRecord.approval;
+      if (documentedApproval && typeof documentedApproval === 'object' && !Array.isArray(documentedApproval)) {
+        return documentedApproval as Record<string, unknown>;
+      }
+      const legacyApproval = parsedRecord.requiresApproval;
+      return legacyApproval && typeof legacyApproval === 'object' && !Array.isArray(legacyApproval)
+        ? (legacyApproval as Record<string, unknown>)
+        : null;
+    })();
+    const approvalStage = typeof approval?.stage === 'string'
+      ? approval.stage
+      : typeof approval?.approval_stage === 'string'
+        ? approval.approval_stage
+        : typeof approval?.approvalStage === 'string'
+          ? approval.approvalStage
+          : undefined;
+    const approvalStep = typeof approval?.approval_step === 'string'
+      ? approval.approval_step
+      : typeof approval?.approvalStep === 'string'
+        ? approval.approvalStep
+        : undefined;
+    const workflowStepId = typeof approval?.workflowStepId === 'string'
+      ? approval.workflowStepId
+      : typeof approval?.workflow_step_id === 'string'
+        ? approval.workflow_step_id
+        : '';
+    const prompt = typeof approval?.prompt === 'string' ? approval.prompt : '';
+    const resumeToken = typeof approval?.resumeToken === 'string'
+      ? approval.resumeToken
+      : typeof approval?.resume_token === 'string'
+        ? approval.resume_token
+        : undefined;
+    const normalizedApprovalStage = (
+      approvalStage === 'plan'
+      || approvalStage === 'creative'
+      || approvalStage === 'video'
+      || approvalStage === 'publish'
+      || approvalStage === 'strategy'
+      || approvalStage === 'production'
+    )
+      ? approvalStage
+      : 'production';
+
+    const normalized: HermesWorkflowOutput = {
+      ok: typeof parsedRecord.ok === 'boolean' ? parsedRecord.ok : normalizedStatus !== 'failed',
+      status: normalizedStatus,
+      workflowKey: typeof parsedRecord.workflowKey === 'string' ? parsedRecord.workflowKey : BRAND_CAMPAIGN_WORKFLOW_KEY,
+      workflowVersion: typeof parsedRecord.workflowVersion === 'string' ? parsedRecord.workflowVersion : undefined,
+      runId: typeof parsedRecord.runId === 'string'
+        ? parsedRecord.runId
+        : typeof parsedRecord.run_id === 'string'
+          ? parsedRecord.run_id
+          : runId,
+      output: (() => {
+        const value = parsedRecord.output;
+        if (Array.isArray(value)) {
+          return value.filter(
+            (entry): entry is Record<string, unknown> =>
+              !!entry && typeof entry === 'object' && !Array.isArray(entry),
+          );
+        }
+        return value && typeof value === 'object' && !Array.isArray(value)
+          ? (value as Record<string, unknown>)
+          : undefined;
+      })(),
+      artifacts: undefined,
+      approval: (workflowStepId && prompt)
+        ? {
+            stage: normalizedApprovalStage,
+            workflowStepId,
+            prompt,
+            ...(approvalStep ? { approvalStep: approvalStep as SocialContentApprovalStep } : {}),
+            resumeToken,
+          }
+        : undefined,
+      error: parsedRecord.error && typeof parsedRecord.error === 'object'
+        ? (() => {
+            const err = parsedRecord.error as Record<string, unknown>;
+            const message = typeof err.message === 'string' ? err.message : '';
+            if (!message) return undefined;
+            return {
+              code: typeof err.code === 'string' ? err.code : undefined,
+              message,
+              retryable: typeof err.retryable === 'boolean' ? err.retryable : undefined,
+            };
+          })()
+        : undefined,
+    };
+
+    if (!normalized.output) {
+      const primary = { ...parsedRecord };
+      delete primary.ok;
+      delete primary.status;
+      delete primary.workflowKey;
+      delete primary.workflowVersion;
+      delete primary.runId;
+      delete primary.run_id;
+      delete primary.output;
+      delete primary.artifacts;
+      delete primary.approval;
+      delete primary.error;
+      delete primary.requiresApproval;
+      if (Object.keys(primary).length > 0) {
+        normalized.output = primary;
+      }
+    }
+
+    return normalized;
+  }
+
 
   private async parseJsonBody(response: Response): Promise<Record<string, unknown> | null> {
     try {
@@ -322,10 +627,11 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       resumeToken?: string;
       approve?: boolean;
     },
+    workflowKey: string,
   ): string {
     if (action === 'run') {
       return [
-        'Workflow: marketing_pipeline',
+        `Workflow: ${workflowKey}`,
         'Action: run',
         `Aries run ID: ${ariesRunId}`,
         `Job ID: ${input.jobId ?? ''}`,
@@ -334,7 +640,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     }
 
     return [
-      'Workflow: marketing_pipeline',
+      `Workflow: ${workflowKey}`,
       'Action: resume',
       `Aries run ID: ${ariesRunId}`,
       `Job ID: ${input.jobId ?? ''}`,
@@ -345,13 +651,12 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     ].join('\n');
   }
 
-  private instructions(): string {
+  private instructions(workflowKey: string): string {
     return [
-      'You are the Aries marketing pipeline execution agent.',
-      'Do not rely on Lobster runtime files.',
+      'You are the Aries marketing execution agent.',
       'Reply with a single strict JSON object only — no prose, no markdown fences.',
-      'Required schema: {"ok":true,"status":"completed","output":[{...}]}.',
-      'If approval is required, set status to "requires_approval" and include a "requiresApproval" field with resumeToken, stage, and prompt.',
+      `Required schema: {"ok":true,"status":"completed","workflowKey":"${workflowKey}","output":[{...}]}.`,
+      'If approval is required, set status to "requires_approval" and include approval.stage, approval.workflowStepId, approval.prompt, and approval.resumeToken.',
     ].join(' ');
   }
 }

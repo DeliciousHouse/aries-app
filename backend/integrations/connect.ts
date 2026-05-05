@@ -72,7 +72,7 @@ type PendingAuthRecord = {
   code_verifier?: string;
 };
 
-const PROVIDERS = ['facebook', 'instagram', 'linkedin', 'x', 'youtube', 'reddit', 'tiktok'] as const;
+const PROVIDERS = ['facebook', 'instagram', 'linkedin', 'x', 'youtube', 'reddit', 'tiktok', 'openai'] as const;
 
 function nowIso(): string {
   return new Date().toISOString();

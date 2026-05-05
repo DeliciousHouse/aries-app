@@ -1,37 +1,120 @@
-import { oauthStatus } from '../../../backend/integrations/status';
-import { PROVIDER_REGISTRY } from '../../../backend/integrations/provider-registry';
 import { resolveTokenHealth } from '../../../backend/integrations/connection-schema';
+import { resolveOpenAiConnectionReference } from '@/backend/integrations/openai-connection';
+import { oauthStore } from '@/backend/integrations/oauth-memory-store';
+import { oauthStatusAsync } from '../../../backend/integrations/status';
+import { PROVIDER_REGISTRY, type ProviderKey } from '@/backend/integrations/provider-registry';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
+type BrowserSafeConnectionStatus = {
+  provider: 'openai';
+  label: 'ChatGPT / OpenAI';
+  connected: boolean;
+  tokenHealth: 'unknown' | 'valid' | 'expired' | 'error';
+  lastCheckedAt: string | null;
+};
+type PlatformConnectionStatus = {
+  provider: Exclude<ProviderKey, 'openai'>;
+  tenant_id: string;
+  connection_id?: string;
+  connection_status: string;
+  token_health: 'healthy' | 'expiring_soon' | 'expired' | 'unknown';
+  expires_at?: string;
+  updated_at: string;
+};
+type PlatformConnectionsPayload = {
+  status: 'ok';
+  connections: Array<PlatformConnectionStatus | BrowserSafeConnectionStatus>;
+};
 
-const platforms = Object.keys(PROVIDER_REGISTRY) as Array<keyof typeof PROVIDER_REGISTRY>;
+const PLATFORM_CONNECTION_PROVIDERS = Object.keys(PROVIDER_REGISTRY) as ProviderKey[];
 
-export function buildPlatformConnectionsPayload(tenantId: string) {
-  const connections = platforms.map((provider) => {
-    const state = oauthStatus(provider, tenantId);
-    if ('broker_status' in state) return null;
-    return {
-      schema_name: 'aries_platform_connection',
-      schema_version: '1.0.0',
-      tenant_id: tenantId,
+function mapTokenHealth(input: {
+  connection_status: string;
+  token_expires_at?: string;
+}): BrowserSafeConnectionStatus['tokenHealth'] {
+  if (input.connection_status === 'connected') {
+    const health = resolveTokenHealth(input.token_expires_at);
+    if (health === 'expired') {
+      return 'expired';
+    }
+    return health === 'unknown' ? 'unknown' : 'valid';
+  }
+  if (input.connection_status === 'token_expired') {
+    return 'expired';
+  }
+  if (
+    input.connection_status === 'misconfigured' ||
+    input.connection_status === 'revoked' ||
+    input.connection_status === 'permission_denied' ||
+    input.connection_status === 'error'
+  ) {
+    return 'error';
+  }
+  return 'unknown';
+}
+
+export async function buildPlatformConnectionsPayload(tenantId: string): Promise<{
+  status: 'ok';
+  connections: Array<PlatformConnectionStatus | BrowserSafeConnectionStatus>;
+}> {
+  const now = new Date().toISOString();
+  const connections: PlatformConnectionsPayload['connections'] = [];
+
+  for (const provider of PLATFORM_CONNECTION_PROVIDERS) {
+    if (provider === 'openai') {
+      const reference = await resolveOpenAiConnectionReference(tenantId);
+      const memoryRecord = reference
+        ? oauthStore().connectionsById.get(reference.connectionId)
+        : null;
+      connections.push({
+        provider: 'openai',
+        label: 'ChatGPT / OpenAI',
+        connected: !!reference,
+        tokenHealth: memoryRecord ? mapTokenHealth(memoryRecord) : reference ? 'unknown' : 'unknown',
+        lastCheckedAt: memoryRecord?.updated_at || now,
+      });
+      continue;
+    }
+
+    let status: Awaited<ReturnType<typeof oauthStatusAsync>>;
+    try {
+      status = await oauthStatusAsync(provider, tenantId);
+    } catch {
+      connections.push({
+        provider,
+        tenant_id: tenantId,
+        connection_status: 'error',
+        token_health: 'unknown',
+        updated_at: now,
+      });
+      continue;
+    }
+
+    if ('broker_status' in status) {
+      connections.push({
+        provider,
+        tenant_id: tenantId,
+        connection_status: 'error',
+        token_health: 'unknown',
+        updated_at: now,
+      });
+      continue;
+    }
+
+    connections.push({
       provider,
-      connection_id: state.integration_id || `pending_${provider}`,
-      status:
-        state.connection_status === 'connected'
-          ? 'connected'
-          : state.connection_status === 'pending_oauth'
-            ? 'pending'
-            : state.connection_status === 'token_expired' ||
-                state.connection_status === 'revoked' ||
-                state.connection_status === 'permission_denied'
-              ? 'reauthorization_required'
-              : 'disconnected',
-      token_health: resolveTokenHealth(state.token_expires_at),
-      expires_at: state.token_expires_at,
-      updated_at: state.updated_at
-    };
-  }).filter(Boolean);
+      tenant_id: status.tenant_id,
+      connection_id: status.integration_id,
+      connection_status: status.connection_status,
+      token_health: resolveTokenHealth(status.token_expires_at),
+      expires_at: status.token_expires_at,
+      updated_at: status.updated_at || now,
+    });
+  }
 
-  return { status: 'ok', connections };
+  return {
+    status: 'ok',
+    connections,
+  };
 }
 
 export async function handlePlatformConnectionsGet(tenantContextLoader?: TenantContextLoader) {
@@ -40,7 +123,7 @@ export async function handlePlatformConnectionsGet(tenantContextLoader?: TenantC
     return tenantResult.response;
   }
 
-  return new Response(JSON.stringify(buildPlatformConnectionsPayload(tenantResult.tenantContext.tenantId)), {
+  return new Response(JSON.stringify(await buildPlatformConnectionsPayload(tenantResult.tenantContext.tenantId)), {
     status: 200,
     headers: { 'content-type': 'application/json' }
   });

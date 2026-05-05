@@ -12,6 +12,7 @@ import {
   marketingPayloadDefaultsFromBusinessProfile,
   persistBusinessProfileFieldsFromMarketingPayload,
 } from '@/backend/tenant/business-profile';
+import { normalizeWeeklySocialContentPayload } from '@/backend/social-content/payload';
 import { normalizeMarketingWebsiteUrl } from '@/lib/marketing-public-mode';
 import {
   COMPETITOR_URL_INVALID_ERROR,
@@ -27,6 +28,9 @@ const MARKETING_ONBOARDING_REQUIRED = {
   reason: 'onboarding_required',
   message: 'Complete tenant onboarding before starting a brand campaign.',
 } as const;
+
+type PublicJobType = 'brand_campaign' | 'weekly_social_content';
+type ResponseDialect = 'marketing' | 'social-content';
 
 function coerceFieldValue(value: FormDataEntryValue | null): string {
   return typeof value === 'string' ? value.trim() : '';
@@ -220,7 +224,8 @@ async function parseCreateJobRequest(req: Request): Promise<{
         metaPageId: coerceFieldValue(formData.get('metaPageId')),
         businessName: coerceFieldValue(formData.get('businessName')),
         businessType: coerceFieldValue(formData.get('businessType')),
-        launchApproverName: coerceFieldValue(formData.get('launchApproverName')) || coerceFieldValue(formData.get('approverName')),
+        launchApproverName:
+          coerceFieldValue(formData.get('launchApproverName')) || coerceFieldValue(formData.get('approverName')),
         approverName: coerceFieldValue(formData.get('approverName')),
         brandVoice: coerceFieldValue(formData.get('brandVoice')),
         styleVibe: coerceFieldValue(formData.get('styleVibe')),
@@ -231,8 +236,19 @@ async function parseCreateJobRequest(req: Request): Promise<{
         primaryGoal: coerceFieldValue(formData.get('primaryGoal')) || coerceFieldValue(formData.get('goal')),
         goal: coerceFieldValue(formData.get('goal')),
         offer: coerceFieldValue(formData.get('offer')),
+        audience: coerceFieldValue(formData.get('audience')),
         mode: coerceFieldValue(formData.get('mode')),
         channels: parseStringListField(formData.getAll('channels')),
+        forbiddenVisualPatterns: parseStringListField(formData.getAll('forbiddenVisualPatterns')),
+        staticPostCount: coerceFieldValue(formData.get('staticPostCount')),
+        imageCreativeCount: coerceFieldValue(formData.get('imageCreativeCount')),
+        videoScriptCount: coerceFieldValue(formData.get('videoScriptCount')),
+        videoRenderCount: coerceFieldValue(formData.get('videoRenderCount')),
+        campaignWindowDays: coerceFieldValue(formData.get('campaignWindowDays')),
+        staticPostsCount: coerceFieldValue(formData.get('staticPostsCount')),
+        imageCreativesCount: coerceFieldValue(formData.get('imageCreativesCount')),
+        videoScriptsCount: coerceFieldValue(formData.get('videoScriptsCount')),
+        renderVideoAfterApproval: coerceFieldValue(formData.get('renderVideoAfterApproval')),
       },
       uploads,
     };
@@ -252,14 +268,69 @@ async function parseCreateJobRequest(req: Request): Promise<{
   };
 }
 
+function resolveRequestedJobType(rawJobType: unknown, dialect: ResponseDialect): PublicJobType {
+  if (dialect === 'social-content') {
+    return 'weekly_social_content';
+  }
+  if (typeof rawJobType === 'string' && rawJobType.trim().length > 0) {
+    return rawJobType.trim() as PublicJobType;
+  }
+  return 'brand_campaign';
+}
+
+function buildCreateResponse(
+  dialect: ResponseDialect,
+  requestedJobType: PublicJobType,
+  result: Awaited<ReturnType<typeof startMarketingJob>>,
+) {
+  const encodedId = encodeURIComponent(result.jobId);
+
+  if (dialect === 'social-content') {
+    return {
+      social_content_job_status: result.status,
+      social_content_stage: result.currentStage,
+      jobId: result.jobId,
+      jobType: requestedJobType,
+      approvalRequired: result.approvalRequired,
+      approval: result.approval,
+      reason: result.reason,
+      message: result.message,
+      jobStatusUrl: `/social-content/status?jobId=${encodedId}`,
+    };
+  }
+
+  return {
+    marketing_job_status: result.status,
+    jobId: result.jobId,
+    jobType: result.jobType,
+    marketing_stage: result.currentStage,
+    approvalRequired: result.approvalRequired,
+    approval: result.approval,
+    reason: result.reason,
+    message: result.message,
+    jobStatusUrl: `/marketing/job-status?jobId=${encodedId}`,
+  };
+}
+
 export async function handlePostMarketingJobs(
   req: Request,
-  tenantContextLoader?: TenantContextLoader
+  tenantContextLoader?: TenantContextLoader,
+  options?: { responseDialect?: ResponseDialect },
 ) {
+  const dialect: ResponseDialect = options?.responseDialect ?? 'marketing';
   const requestBody = await parseCreateJobRequest(req);
+  const requestedJobType = resolveRequestedJobType(requestBody.jobType, dialect);
+
+  if (requestedJobType !== 'brand_campaign' && requestedJobType !== 'weekly_social_content') {
+    return NextResponse.json({ error: `unsupported_job_type:${String(requestBody.jobType ?? '')}` }, { status: 400 });
+  }
+
   let normalizedPayload: Record<string, unknown>;
   try {
     normalizedPayload = normalizeJobPayload(requestBody.payload ?? {});
+    if (requestedJobType === 'weekly_social_content') {
+      normalizedPayload = normalizeWeeklySocialContentPayload(normalizedPayload);
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message === COMPETITOR_URL_SOCIAL_ERROR || message === COMPETITOR_URL_INVALID_ERROR) {
@@ -286,16 +357,18 @@ export async function handlePostMarketingJobs(
   try {
     persistBusinessProfileFieldsFromMarketingPayload({
       tenantId: resolvedTenantId,
-      tenantSlug:
-        tenantResult.tenantContext.tenantSlug,
+      tenantSlug: tenantResult.tenantContext.tenantSlug,
       payload: normalizedPayload,
     });
     const hydratedPayload = await enrichPayloadFromBusinessProfile(resolvedTenantId, normalizedPayload);
     const result = await startMarketingJob({
       tenantId: resolvedTenantId,
-      jobType: requestBody.jobType as 'brand_campaign',
+      jobType: requestedJobType,
       createdBy: tenantResult.tenantContext.userId ?? null,
-      payload: hydratedPayload,
+      payload: {
+        ...hydratedPayload,
+        jobType: requestedJobType,
+      },
     });
     const workspace = await ensureCampaignWorkspaceRecord({
       jobId: result.jobId,
@@ -308,18 +381,7 @@ export async function handlePostMarketingJobs(
 
     invalidateMarketingJobStatus(result.jobId);
 
-    return NextResponse.json(
-      {
-        marketing_job_status: result.status,
-        jobId: result.jobId,
-        jobType: result.jobType,
-        marketing_stage: result.currentStage,
-        approvalRequired: result.approvalRequired,
-        approval: result.approval,
-        jobStatusUrl: `/marketing/job-status?jobId=${encodeURIComponent(result.jobId)}`,
-      },
-      { status: 202 }
-    );
+    return NextResponse.json(buildCreateResponse(dialect, requestedJobType, result), { status: 202 });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const mapped = mapAriesExecutionError(error);
@@ -349,7 +411,7 @@ export async function handlePostMarketingJobs(
       {
         error: message,
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

@@ -15,6 +15,7 @@ import path from 'node:path';
 
 import { resolveDataPath } from '@/lib/runtime-paths';
 import type { MarketingPublishConfig, MarketingStage } from './runtime-state';
+import type { SocialContentApprovalStep } from '@/backend/social-content/types';
 
 export type MarketingApprovalStatus = 'pending' | 'approved' | 'denied' | 'consumed' | 'expired' | 'failed';
 
@@ -28,6 +29,7 @@ export type MarketingApprovalRecord = {
   marketing_job_id: string;
   workflow_name: string;
   workflow_step_id: string;
+  social_content_approval_step: SocialContentApprovalStep | null;
   marketing_stage: Extract<MarketingStage, 'strategy' | 'production' | 'publish'>;
   execution_provider: 'legacy-openclaw' | 'hermes';
   execution_resume_token: string;
@@ -103,6 +105,7 @@ export function createMarketingApprovalRecord(input: {
   marketingJobId: string;
   workflowName: string;
   workflowStepId: string;
+  socialContentApprovalStep?: SocialContentApprovalStep | null;
   marketingStage: Extract<MarketingStage, 'strategy' | 'production' | 'publish'>;
   executionProvider?: 'legacy-openclaw' | 'hermes';
   executionResumeToken?: string;
@@ -135,6 +138,7 @@ export function createMarketingApprovalRecord(input: {
     marketing_job_id: input.marketingJobId,
     workflow_name: input.workflowName,
     workflow_step_id: input.workflowStepId,
+    social_content_approval_step: input.socialContentApprovalStep ?? null,
     marketing_stage: input.marketingStage,
     execution_provider: executionProvider,
     execution_resume_token: executionResumeToken,
@@ -203,6 +207,16 @@ function normalizeMarketingApprovalRecord(record: MarketingApprovalRecord): Mark
     record.lobster_resume_token = token;
     record.lobster_resume_token_fingerprint = fingerprint;
     record.lobster_resume_state_keys = stateKeys;
+  }
+  if (
+    record.social_content_approval_step !== 'approve_weekly_plan'
+    && record.social_content_approval_step !== 'approve_post_copy'
+    && record.social_content_approval_step !== 'approve_image_creatives'
+    && record.social_content_approval_step !== 'approve_video_script'
+    && record.social_content_approval_step !== 'approve_video_render'
+    && record.social_content_approval_step !== 'approve_publish'
+  ) {
+    record.social_content_approval_step = null;
   }
   return record;
 }

@@ -1054,7 +1054,9 @@ async function workflowApprovalItem(
 
   const firstCheckpoint = isApproveStage2Checkpoint(status);
   const workflowStepId = stringValue(status.approval?.workflowStepId);
-  const isLaunchReviewCheckpoint = workflowStepId === 'approve_stage_4';
+  const requestedJobType = stringValue(recordValue(runtimeDoc.inputs.request)?.jobType).toLowerCase();
+  const isWeeklySocialContent = requestedJobType === 'weekly_social_content';
+  const isLaunchReviewCheckpoint = workflowStepId === 'approve_stage_4' && !isWeeklySocialContent;
   const launchReviewSections = isLaunchReviewCheckpoint
     ? launchReviewApprovalSections(runtimeDoc)
     : [];

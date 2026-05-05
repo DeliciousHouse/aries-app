@@ -16,8 +16,8 @@ const LEGACY_MARKETING_RUNTIME_SCHEMA_NAME = 'job_runtime_state_schema';
 const MARKETING_RUNTIME_SCHEMA_VERSION = '1.0.0';
 
 export type MarketingStage = 'research' | 'strategy' | 'production' | 'publish';
-export type MarketingJobState = 'queued' | 'running' | 'approval_required' | 'completed' | 'failed';
-export type MarketingJobStatus = 'pending' | 'running' | 'awaiting_approval' | 'completed' | 'failed';
+export type MarketingJobState = 'queued' | 'running' | 'approval_required' | 'completed' | 'failed' | 'needs_connection';
+export type MarketingJobStatus = 'pending' | 'running' | 'awaiting_approval' | 'completed' | 'failed' | 'needs_connection';
 export type MarketingStageStatus = 'not_started' | 'in_progress' | 'awaiting_approval' | 'completed' | 'failed' | 'skipped';
 
 type MarketingStageArtifactBase = {
@@ -154,6 +154,8 @@ export type MarketingJobRuntimeDocument = {
   history: MarketingHistoryEntry[];
   created_at: string;
   updated_at: string;
+  /** Optional projection used by Hermes weekly social-content flows. */
+  social_content_runtime?: Record<string, unknown> | null;
   /** Optional. When set, identifies the user that originated the campaign.
    * Used by the campaign delete permission check (tenant_admin OR creator).
    * Existing campaigns predating this field have `created_by === null` and
@@ -321,6 +323,7 @@ export function createMarketingJobRuntimeDocument(input: {
     ],
     created_at: ts,
     updated_at: ts,
+    social_content_runtime: null,
     created_by: input.createdBy ?? null,
     deleted_at: null,
     deleted_by: null,
