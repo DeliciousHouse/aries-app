@@ -8,6 +8,8 @@ import {
   withExecutionRunLock,
 } from './run-store';
 import { applyHermesMarketingCallback } from '../marketing/hermes-callbacks';
+import { SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY } from '../social-content/defaults';
+import { approvalStepFromWorkflowStepId } from '../social-content/runtime-state';
 
 export type HermesRunCallbackStatus =
   | 'running'
@@ -21,11 +23,37 @@ export type HermesRunCallbackPayload = {
   aries_run_id: string;
   hermes_run_id?: string;
   status: HermesRunCallbackStatus;
+  stage?:
+    | 'intake'
+    | 'research'
+    | 'planning'
+    | 'plan_review'
+    | 'copy_production'
+    | 'image_briefing'
+    | 'image_generation'
+    | 'creative_review'
+    | 'video_script'
+    | 'video_review'
+    | 'video_render'
+    | 'publish_review'
+    | 'completed'
+    | 'failed'
+    | 'production'
+    | 'approval'
+    | 'publish'
+    | 'strategy';
   output?: Record<string, unknown> | Record<string, unknown>[];
   artifacts?: unknown[];
   approval?: {
-    stage: 'strategy' | 'production' | 'publish';
-    workflow_step_id: 'approve_stage_2' | 'approve_stage_3' | 'approve_stage_4' | 'approve_stage_4_publish';
+    stage: 'plan' | 'creative' | 'video' | 'publish' | 'strategy' | 'production';
+    approval_step?:
+      | 'approve_weekly_plan'
+      | 'approve_post_copy'
+      | 'approve_image_creatives'
+      | 'approve_video_script'
+      | 'approve_video_render'
+      | 'approve_publish';
+    workflow_step_id: string;
     prompt: string;
     resume_token?: string;
   };
@@ -64,23 +92,35 @@ function isCallbackStatus(value: string): value is HermesRunCallbackStatus {
 }
 
 function isApprovalStage(value: string): value is HermesRunApproval['stage'] {
-  return value === 'strategy' || value === 'production' || value === 'publish';
+  return value === 'plan'
+    || value === 'creative'
+    || value === 'video'
+    || value === 'publish'
+    || value === 'strategy'
+    || value === 'production';
 }
 
-function isApprovalWorkflowStep(value: string): value is HermesRunApproval['workflow_step_id'] {
-  return value === 'approve_stage_2'
-    || value === 'approve_stage_3'
-    || value === 'approve_stage_4'
-    || value === 'approve_stage_4_publish';
-}
-
-function approvalMatchesStage(
-  stage: HermesRunApproval['stage'],
-  workflowStepId: HermesRunApproval['workflow_step_id'],
-): boolean {
-  if (stage === 'strategy') return workflowStepId === 'approve_stage_2';
-  if (stage === 'production') return workflowStepId === 'approve_stage_3';
-  return workflowStepId === 'approve_stage_4' || workflowStepId === 'approve_stage_4_publish';
+function isCallbackStage(
+  value: string,
+): value is NonNullable<HermesRunCallbackPayload['stage']> {
+  return value === 'intake'
+    || value === 'research'
+    || value === 'planning'
+    || value === 'plan_review'
+    || value === 'copy_production'
+    || value === 'image_briefing'
+    || value === 'image_generation'
+    || value === 'creative_review'
+    || value === 'video_script'
+    || value === 'video_review'
+    || value === 'video_render'
+    || value === 'publish_review'
+    || value === 'completed'
+    || value === 'failed'
+    || value === 'production'
+    || value === 'approval'
+    || value === 'publish'
+    || value === 'strategy';
 }
 
 function parseApproval(value: unknown): HermesRunCallbackPayload['approval'] | undefined {
@@ -92,16 +132,34 @@ function parseApproval(value: unknown): HermesRunCallbackPayload['approval'] | u
   const workflowStepId = stringValue(record.workflow_step_id);
   const prompt = stringValue(record.prompt);
   const resumeToken = stringValue(record.resume_token);
+  const explicitApprovalStep = stringValue(record.approval_step || record.approvalStep);
+  const approvalStep = (
+    explicitApprovalStep === 'approve_weekly_plan'
+    || explicitApprovalStep === 'approve_post_copy'
+    || explicitApprovalStep === 'approve_image_creatives'
+    || explicitApprovalStep === 'approve_video_script'
+    || explicitApprovalStep === 'approve_video_render'
+    || explicitApprovalStep === 'approve_publish'
+  )
+    ? explicitApprovalStep
+    : approvalStepFromWorkflowStepId(workflowStepId);
   if (
-    !isApprovalStage(stage)
-    || !isApprovalWorkflowStep(workflowStepId)
-    || !approvalMatchesStage(stage, workflowStepId)
+    !workflowStepId
     || !prompt
+    || (!isApprovalStage(stage) && !approvalStep)
   ) {
     return undefined;
   }
+  const normalizedStage = isApprovalStage(stage)
+    ? stage
+    : approvalStep === 'approve_weekly_plan'
+      ? 'strategy'
+      : approvalStep === 'approve_publish'
+        ? 'publish'
+        : 'production';
   return {
-    stage,
+    stage: normalizedStage,
+    approval_step: approvalStep ?? undefined,
     workflow_step_id: workflowStepId,
     prompt,
     resume_token: resumeToken || undefined,
@@ -137,6 +195,7 @@ export function parseHermesRunCallbackPayload(value: unknown): HermesRunCallback
   const eventId = stringValue(record.event_id);
   const ariesRunId = stringValue(record.aries_run_id);
   const status = stringValue(record.status);
+  const stage = stringValue(record.stage);
   if (!eventId || !ariesRunId || !isCallbackStatus(status) || !isValidAriesRunId(ariesRunId)) {
     return null;
   }
@@ -146,6 +205,7 @@ export function parseHermesRunCallbackPayload(value: unknown): HermesRunCallback
     aries_run_id: ariesRunId,
     hermes_run_id: stringValue(record.hermes_run_id) || undefined,
     status,
+    stage: isCallbackStage(stage) ? stage : undefined,
     output: Array.isArray(record.output) || recordValue(record.output)
       ? (record.output as HermesRunCallbackPayload['output'])
       : undefined,
@@ -184,10 +244,22 @@ function validateApprovalTransition(
   if (run.domain !== 'marketing') {
     return { status: 'error', reason: 'approval_not_supported_for_domain' };
   }
-  if (run.stage === 'research' && payload.approval.stage !== 'strategy') {
+  if (run.workflow_key === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY) {
+    return null;
+  }
+  if (
+    run.stage === 'research'
+    && payload.approval.stage !== 'strategy'
+    && payload.approval.stage !== 'plan'
+  ) {
     return { status: 'error', reason: 'approval_stage_mismatch' };
   }
-  if (run.stage === 'strategy' && payload.approval.stage !== 'production') {
+  if (
+    run.stage === 'strategy'
+    && payload.approval.stage !== 'production'
+    && payload.approval.stage !== 'creative'
+    && payload.approval.stage !== 'video'
+  ) {
     return { status: 'error', reason: 'approval_stage_mismatch' };
   }
   if (run.stage === 'production' && payload.approval.stage !== 'publish') {
@@ -231,6 +303,7 @@ export async function handleHermesRunCallback(
       markExecutionRunEventApplied(payload.aries_run_id, {
         eventId: payload.event_id,
         status: executionStatus(payload.status),
+        stage: payload.stage,
         result: payload.output ?? payload.approval ?? null,
         externalRunId: payload.hermes_run_id,
         error: payload.error

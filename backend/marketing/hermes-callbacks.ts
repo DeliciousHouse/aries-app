@@ -1,5 +1,16 @@
 import type { HermesRunCallbackPayload } from '@/backend/execution/hermes-callbacks';
 import type { ExecutionRunRecord } from '@/backend/execution/run-store';
+import { SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY } from '@/backend/social-content/defaults';
+import {
+  approvalStepFromWorkflowStepId,
+  isSocialContentPublishApprovalRequired,
+  markSocialContentStageAwaitingApproval,
+  markSocialContentStageCompleted,
+  markSocialContentStageFailed,
+  markSocialContentStageRunning,
+  socialContentStageFromCallbackStage,
+} from '@/backend/social-content/runtime-state';
+import type { SocialContentApprovalStep, SocialContentArtifact, SocialContentStage } from '@/backend/social-content/types';
 
 import {
   createMarketingApprovalRecord,
@@ -15,6 +26,65 @@ import {
   type MarketingJobRuntimeDocument,
   type MarketingStage,
 } from './runtime-state';
+
+const STAGE_ORDER: MarketingStage[] = ['research', 'strategy', 'production', 'publish'];
+
+function normalizeCallbackStage(stage: HermesRunCallbackPayload['stage']): MarketingStage | null {
+  if (stage === 'research') return 'research';
+  if (stage === 'planning' || stage === 'strategy') return 'strategy';
+  if (stage === 'production') return 'production';
+  if (stage === 'publish' || stage === 'approval') return 'publish';
+  return null;
+}
+
+function normalizeApprovalStage(
+  stage: NonNullable<HermesRunCallbackPayload['approval']>['stage'],
+): Extract<MarketingStage, 'strategy' | 'production' | 'publish'> {
+  if (stage === 'plan' || stage === 'strategy') return 'strategy';
+  if (stage === 'creative' || stage === 'video' || stage === 'production') return 'production';
+  return 'publish';
+}
+
+function isSocialContentRun(run: ExecutionRunRecord): boolean {
+  return run.workflow_key === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY;
+}
+
+function socialStageForMarketingStage(stage: MarketingStage): SocialContentStage {
+  if (stage === 'research') return 'research';
+  if (stage === 'strategy') return 'planning';
+  if (stage === 'production') return 'copy_production';
+  return 'publish_review';
+}
+
+function marketingStageForSocialApprovalStep(
+  step: SocialContentApprovalStep,
+): Extract<MarketingStage, 'strategy' | 'production' | 'publish'> {
+  if (step === 'approve_weekly_plan') return 'strategy';
+  if (step === 'approve_publish') return 'publish';
+  return 'production';
+}
+
+function normalizeSocialApprovalStep(payload: HermesRunCallbackPayload): SocialContentApprovalStep | null {
+  const approval = payload.approval;
+  if (!approval) {
+    return null;
+  }
+  if (
+    approval.approval_step === 'approve_weekly_plan'
+    || approval.approval_step === 'approve_post_copy'
+    || approval.approval_step === 'approve_image_creatives'
+    || approval.approval_step === 'approve_video_script'
+    || approval.approval_step === 'approve_video_render'
+    || approval.approval_step === 'approve_publish'
+  ) {
+    return approval.approval_step;
+  }
+  return approvalStepFromWorkflowStepId(approval.workflow_step_id);
+}
+
+function stageRank(stage: MarketingStage): number {
+  return STAGE_ORDER.indexOf(stage);
+}
 
 function firstOutputRecord(payload: HermesRunCallbackPayload): Record<string, unknown> | null {
   if (Array.isArray(payload.output)) {
@@ -41,6 +111,50 @@ function outputRunId(payload: HermesRunCallbackPayload, fallback: string | null)
   return typeof output?.run_id === 'string' && output.run_id.trim().length > 0
     ? output.run_id.trim()
     : fallback;
+}
+
+function socialApprovalTitle(step: SocialContentApprovalStep): string {
+  if (step === 'approve_weekly_plan') return 'Approve weekly plan';
+  if (step === 'approve_post_copy') return 'Approve post copy';
+  if (step === 'approve_image_creatives') return 'Approve image creatives';
+  if (step === 'approve_video_script') return 'Approve video script';
+  if (step === 'approve_video_render') return 'Approve video render';
+  return 'Approve publish';
+}
+
+function socialApprovalActionLabel(step: SocialContentApprovalStep): string {
+  if (step === 'approve_weekly_plan') return 'Approve weekly plan';
+  if (step === 'approve_post_copy') return 'Approve copy';
+  if (step === 'approve_image_creatives') return 'Approve creatives';
+  if (step === 'approve_video_script') return 'Approve script';
+  if (step === 'approve_video_render') return 'Approve render';
+  return 'Approve publish';
+}
+
+function normalizeArtifacts(value: unknown): SocialContentArtifact[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((entry, index) => {
+    const record = entry && typeof entry === 'object' && !Array.isArray(entry)
+      ? (entry as Record<string, unknown>)
+      : {};
+    return {
+      id: typeof record.id === 'string' && record.id.trim().length > 0
+        ? record.id.trim()
+        : `artifact-${index + 1}`,
+      type: typeof record.type === 'string' ? record.type : 'artifact',
+      title: typeof record.title === 'string' ? record.title : 'Social content artifact',
+      status: typeof record.status === 'string' ? record.status : 'created',
+      summary: typeof record.summary === 'string' ? record.summary : null,
+      url: typeof record.url === 'string'
+        ? record.url
+        : typeof record.artifact_url === 'string'
+          ? record.artifact_url
+          : null,
+      metadata: record,
+    };
+  });
 }
 
 function approvalTitle(stage: 'strategy' | 'production' | 'publish'): string {
@@ -77,18 +191,24 @@ function createApprovalCheckpoint(
   doc: MarketingJobRuntimeDocument,
   run: ExecutionRunRecord,
   payload: HermesRunCallbackPayload,
+  socialApprovalStep: SocialContentApprovalStep | null,
+  completedSocialStage: SocialContentStage | null,
 ): void {
   const approval = payload.approval;
   if (!approval) {
     return;
   }
 
+  const marketingApprovalStage = socialApprovalStep
+    ? marketingStageForSocialApprovalStep(socialApprovalStep)
+    : normalizeApprovalStage(approval.stage);
   const approvalRecord = createMarketingApprovalRecord({
     tenantId: doc.tenant_id,
     marketingJobId: doc.job_id,
     workflowName: run.workflow_key,
     workflowStepId: approval.workflow_step_id,
-    marketingStage: approval.stage,
+    socialContentApprovalStep: socialApprovalStep,
+    marketingStage: marketingApprovalStage,
     executionProvider: 'hermes',
     executionResumeToken: approval.resume_token ?? '',
     approvalPrompt: approval.prompt,
@@ -102,15 +222,15 @@ function createApprovalCheckpoint(
 
   markStageAwaitingApproval(
     doc,
-    approval.stage,
+    marketingApprovalStage,
     {
       approval_id: approvalRecord.approval_id,
       workflow_name: run.workflow_key,
       workflow_step_id: approval.workflow_step_id,
-      title: approvalTitle(approval.stage),
+      title: approvalTitle(marketingApprovalStage),
       message: approval.prompt,
       resume_token: approval.resume_token ?? null,
-      action_label: actionLabel(approval.stage),
+      action_label: actionLabel(marketingApprovalStage),
     },
     {
       runId: outputRunId(payload, payload.hermes_run_id ?? null),
@@ -118,6 +238,19 @@ function createApprovalCheckpoint(
       primaryOutput: firstOutputRecord(payload),
     },
   );
+
+  if (socialApprovalStep) {
+    markSocialContentStageAwaitingApproval(doc, {
+      approvalStep: socialApprovalStep,
+      approvalId: approvalRecord.approval_id,
+      workflowStepId: approval.workflow_step_id,
+      resumeToken: approval.resume_token ?? null,
+      summary: outputSummary(payload)?.summary ?? approval.prompt,
+      output: firstOutputRecord(payload),
+      completedStage: completedSocialStage,
+      artifacts: normalizeArtifacts(payload.artifacts),
+    });
+  }
 }
 
 export async function applyHermesMarketingCallback(
@@ -133,29 +266,116 @@ export async function applyHermesMarketingCallback(
     return;
   }
 
+  const callbackStage = normalizeCallbackStage(payload.stage);
+  const runStageRank = stageRank(run.stage);
+  const callbackStageRank = callbackStage ? stageRank(callbackStage) : runStageRank;
+  const targetStage = run.stage;
+  const stageRecord = doc.stages[targetStage];
+  const isTerminalDoc = doc.state === 'completed' || doc.state === 'failed';
+  const isTerminalStage = stageRecord.status === 'completed' || stageRecord.status === 'failed';
+
+  // Ignore callbacks that would regress state (late/duplicate/out-of-order).
+  if (
+    callbackStageRank < runStageRank
+    || isTerminalDoc
+    || isTerminalStage
+    || (stageRecord.status === 'awaiting_approval' && payload.status === 'running')
+  ) {
+    return;
+  }
+
   if (payload.status === 'failed' || payload.status === 'cancelled') {
-    recordStageFailure(doc, run.stage, {
+    recordStageFailure(doc, targetStage, {
       code: payload.error?.code ?? `hermes_${payload.status}`,
-      message: payload.error?.message ?? `Hermes ${payload.status} the ${run.stage} stage.`,
+      message: payload.error?.message ?? `Hermes ${payload.status} the ${targetStage} stage.`,
       retryable: payload.error?.retryable,
     });
+    if (isSocialContentRun(run)) {
+      const failedSocialStage =
+        socialContentStageFromCallbackStage(payload.stage) ?? socialStageForMarketingStage(targetStage);
+      markSocialContentStageFailed(
+        doc,
+        failedSocialStage,
+        payload.error?.message ?? `Hermes ${payload.status} callback received.`,
+        firstOutputRecord(payload),
+      );
+    }
+    saveMarketingJobRuntime(doc.job_id, doc);
+    return;
+  }
+
+  if (payload.status === 'running') {
+    if (stageRecord.status === 'not_started') {
+      stageRecord.status = 'in_progress';
+      if (!stageRecord.started_at) {
+        stageRecord.started_at = new Date().toISOString();
+      }
+      doc.state = 'running';
+      doc.status = 'running';
+      doc.current_stage = targetStage;
+    }
+    if (isSocialContentRun(run)) {
+      const runningSocialStage =
+        socialContentStageFromCallbackStage(payload.stage) ?? socialStageForMarketingStage(targetStage);
+      markSocialContentStageRunning(doc, runningSocialStage, firstOutputRecord(payload));
+    }
     saveMarketingJobRuntime(doc.job_id, doc);
     return;
   }
 
   if (payload.status === 'requires_approval') {
-    markStageCompleted(doc, run.stage, {
+    const socialApprovalStep = isSocialContentRun(run) ? normalizeSocialApprovalStep(payload) : null;
+    const completedSocialStage = isSocialContentRun(run)
+      ? socialContentStageFromCallbackStage(payload.stage) ?? socialStageForMarketingStage(targetStage)
+      : null;
+    markStageCompleted(doc, targetStage, {
       runId: outputRunId(payload, payload.hermes_run_id ?? null),
       summary: outputSummary(payload),
       primaryOutput: firstOutputRecord(payload),
     });
-    createApprovalCheckpoint(doc, run, payload);
+    if (
+      socialApprovalStep === 'approve_publish'
+      && isSocialContentRun(run)
+      && !isSocialContentPublishApprovalRequired(doc)
+    ) {
+      if (completedSocialStage) {
+        markSocialContentStageCompleted(doc, completedSocialStage, {
+          summary: outputSummary(payload)?.summary ?? 'Publish approval skipped.',
+          output: firstOutputRecord(payload),
+          artifacts: normalizeArtifacts(payload.artifacts),
+        });
+      }
+      markSocialContentStageCompleted(doc, 'completed', {
+        summary: 'Publish approval skipped because publishing is not requested.',
+      });
+      doc.state = 'completed';
+      doc.status = 'completed';
+      doc.current_stage = 'publish';
+      clearApprovalCheckpoint(doc, 'publish approval skipped because publishing is disabled');
+      saveMarketingJobRuntime(doc.job_id, doc);
+      return;
+    }
+    createApprovalCheckpoint(doc, run, payload, socialApprovalStep, completedSocialStage);
     saveMarketingJobRuntime(doc.job_id, doc);
     return;
   }
 
   if (payload.status === 'completed') {
-    markJobCompleted(doc, run.stage, payload);
+    markJobCompleted(doc, targetStage, payload);
+    if (isSocialContentRun(run)) {
+      const completedSocialStage =
+        socialContentStageFromCallbackStage(payload.stage) ?? socialStageForMarketingStage(targetStage);
+      markSocialContentStageCompleted(doc, completedSocialStage, {
+        summary: outputSummary(payload)?.summary ?? null,
+        output: firstOutputRecord(payload),
+        artifacts: normalizeArtifacts(payload.artifacts),
+      });
+      if (completedSocialStage === 'publish_review' || targetStage === 'publish') {
+        markSocialContentStageCompleted(doc, 'completed', {
+          summary: outputSummary(payload)?.summary ?? 'Weekly social content workflow completed.',
+        });
+      }
+    }
     saveMarketingJobRuntime(doc.job_id, doc);
   }
 }

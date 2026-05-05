@@ -7,7 +7,8 @@ export type IntegrationPlatform =
   | 'x'
   | 'youtube'
   | 'reddit'
-  | 'tiktok';
+  | 'tiktok'
+  | 'openai';
 
 export type IntegrationsPageState = 'idle' | 'loading' | 'ready' | 'refreshing' | 'error';
 export type PlatformFilter = 'all' | 'connected' | 'not_connected' | 'attention_required';

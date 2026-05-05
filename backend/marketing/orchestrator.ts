@@ -3,6 +3,19 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 import { resolveCodePath, resolveCodeRoot } from '@/lib/runtime-paths';
+import { resolveOpenAiConnectionReference } from '@/backend/integrations/openai-connection';
+import { sanitizeWeeklySocialContentPayload } from '@/backend/social-content/payload';
+import {
+  SOCIAL_CONTENT_DEFAULT_SCOPE,
+  SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
+} from '@/backend/social-content/defaults';
+import {
+  approvalStepFromWorkflowStepId,
+  ensureSocialContentRuntimeState,
+  markSocialContentApprovalResolutionSubmitted,
+  markSocialContentStageFailed,
+} from '@/backend/social-content/runtime-state';
+import type { SocialContentApprovalStep } from '@/backend/social-content/types';
 import {
   COMPETITOR_URL_INVALID_ERROR,
   COMPETITOR_URL_SOCIAL_ERROR,
@@ -20,6 +33,7 @@ import {
   type LobsterEnvelope,
 } from '../openclaw/gateway-client';
 import { getMarketingExecutionPort, type MarketingExecutionPort, type MarketingExecutionResult } from './execution-port';
+import { LegacyOpenClawMarketingPort } from './ports/legacy-openclaw';
 import {
   MarketingApprovalLockError,
   createMarketingApprovalRecord,
@@ -71,7 +85,7 @@ import { invalidateValidatedProfilesIfSourceChanged } from './validated-profile-
 
 export type StartMarketingJobRequest = {
   tenantId: string;
-  jobType: 'brand_campaign';
+  jobType: 'brand_campaign' | 'weekly_social_content';
   /** Optional. User id of the authenticated caller that initiated the
    * campaign. Persisted on the runtime document so the campaign delete
    * permission check can allow the creator to delete their own campaigns
@@ -90,14 +104,16 @@ export type StartMarketingJobRequest = {
 };
 
 export type StartMarketingJobResponse = {
-  status: 'accepted';
+  status: 'accepted' | 'needs_connection';
   jobId: string;
   tenantId: string;
-  jobType: 'brand_campaign';
+  jobType: 'brand_campaign' | 'weekly_social_content';
   runtimeArtifactPath: string;
   approvalRequired: boolean;
   currentStage: MarketingStage;
   approval: MarketingApprovalCheckpoint | null;
+  reason?: string;
+  message?: string;
 };
 
 export type ApproveMarketingJobRequest = {
@@ -106,6 +122,8 @@ export type ApproveMarketingJobRequest = {
   approvedBy: string;
   approvedStages?: Array<'research' | 'strategy' | 'production' | 'publish'>;
   approvalId?: string;
+  approvalStep?: SocialContentApprovalStep;
+  approved?: boolean;
   resumePublishIfNeeded?: boolean;
   publishConfig?: Partial<MarketingPublishConfig>;
 };
@@ -210,6 +228,85 @@ function ensureBrandCampaignInput(input: StartMarketingJobRequest): { brandUrl: 
     businessType,
     competitorUrl: competitorValidation.normalized || brandUrl,
   };
+}
+
+function integerPayloadValue(value: unknown, fallback: number): number {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+    return Math.floor(value);
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return parsed;
+    }
+  }
+  return fallback;
+}
+
+function weeklyMediaDemand(payload: Record<string, unknown>): {
+  imageCreativeCount: number;
+  videoRenderCount: number;
+  requiresOpenAiConnection: boolean;
+} {
+  const imageCreativeCount = Math.min(
+    2,
+    integerPayloadValue(
+      payload.imageCreativeCount ?? payload.imageCreativesCount,
+      SOCIAL_CONTENT_DEFAULT_SCOPE.image_creative_count,
+    ),
+  );
+  const renderFlag =
+    typeof payload.renderVideoAfterApproval === 'boolean'
+      ? payload.renderVideoAfterApproval
+      : typeof payload.renderVideoAfterApproval === 'string'
+        ? payload.renderVideoAfterApproval.trim().toLowerCase() === 'true'
+        : false;
+  const videoRenderCount = Math.min(
+    1,
+    integerPayloadValue(
+      payload.videoRenderCount ?? (renderFlag ? 1 : undefined),
+      SOCIAL_CONTENT_DEFAULT_SCOPE.video_render_count,
+    ),
+  );
+  return {
+    imageCreativeCount,
+    videoRenderCount,
+    requiresOpenAiConnection: imageCreativeCount > 0 || videoRenderCount > 0,
+  };
+}
+
+function applyNeedsConnectionBlock(doc: MarketingJobRuntimeDocument, message: string): void {
+  const at = nowIso();
+  const code = 'openai_connection_required';
+  doc.state = 'needs_connection';
+  doc.status = 'needs_connection';
+  doc.current_stage = 'research';
+  const stage = getStageRecord(doc, 'research');
+  stage.status = 'failed';
+  stage.failed_at = at;
+  stage.summary = { summary: message, highlight: null };
+  const error = {
+    code,
+    message,
+    stage: 'research' as const,
+    retryable: true,
+    at,
+    details: { reason: code },
+  };
+  stage.errors.push(error);
+  doc.errors.push(error);
+  doc.last_error = error;
+  appendHistory(doc, 'social-content job blocked pending ChatGPT / OpenAI connection', {
+    state: 'needs_connection',
+    status: 'needs_connection',
+    stage: 'research',
+    at,
+  });
+  if (requestedJobTypeFromDoc(doc) === 'weekly_social_content') {
+    markSocialContentStageFailed(doc, 'research', message, {
+      reason: code,
+    });
+  }
 }
 
 /**
@@ -415,7 +512,41 @@ function summarizePublish(primaryOutput: Record<string, unknown>) {
   };
 }
 
-function resolveMarketingExecutionPort(): MarketingExecutionPort {
+function requestedJobTypeFromDoc(doc: MarketingJobRuntimeDocument): 'brand_campaign' | 'weekly_social_content' {
+  const request = doc.inputs.request;
+  if (request && typeof request === 'object' && !Array.isArray(request)) {
+    const value = (request as Record<string, unknown>).jobType;
+    if (value === 'weekly_social_content') {
+      return 'weekly_social_content';
+    }
+  }
+  return 'brand_campaign';
+}
+
+function marketingStageFromSocialApprovalStep(step: SocialContentApprovalStep): Extract<MarketingStage, 'strategy' | 'production' | 'publish'> {
+  if (step === 'approve_weekly_plan') {
+    return 'strategy';
+  }
+  if (step === 'approve_publish') {
+    return 'publish';
+  }
+  return 'production';
+}
+
+function resolveMarketingExecutionPortForDoc(doc: MarketingJobRuntimeDocument): MarketingExecutionPort {
+  if (requestedJobTypeFromDoc(doc) === 'weekly_social_content') {
+    return getMarketingExecutionPort(() => {
+      const { gatewayCwd, localCwd } = resolveMarketingPipelineRuntimePaths();
+      return { gatewayCwd, localCwd };
+    });
+  }
+  const provider = process.env.ARIES_MARKETING_EXECUTION_PROVIDER?.trim().toLowerCase();
+  if (provider === 'legacy-openclaw') {
+    return new LegacyOpenClawMarketingPort(() => {
+      const { gatewayCwd, localCwd } = resolveMarketingPipelineRuntimePaths();
+      return { gatewayCwd, localCwd };
+    }) as unknown as MarketingExecutionPort;
+  }
   return getMarketingExecutionPort(() => {
     const { gatewayCwd, localCwd } = resolveMarketingPipelineRuntimePaths();
     return { gatewayCwd, localCwd };
@@ -423,7 +554,7 @@ function resolveMarketingExecutionPort(): MarketingExecutionPort {
 }
 
 async function runMarketingPipeline(doc: MarketingJobRuntimeDocument): Promise<MarketingExecutionResult> {
-  const port = resolveMarketingExecutionPort();
+  const port = resolveMarketingExecutionPortForDoc(doc);
   return port.runPipeline({
     jobId: doc.job_id,
     doc,
@@ -436,15 +567,18 @@ async function runMarketingPipeline(doc: MarketingJobRuntimeDocument): Promise<M
 async function resumeMarketingPipeline(
   resumeToken: string,
   approve = true,
+  doc: MarketingJobRuntimeDocument,
   context: {
     tenantId?: string | null;
     jobId?: string | null;
     approvalId?: string | null;
     stage?: MarketingStage | null;
     workflowStepId?: string | null;
+    approvalStep?: SocialContentApprovalStep | null;
+    workflowKey?: string | null;
   } = {},
 ): Promise<MarketingExecutionResult> {
-  const port = resolveMarketingExecutionPort();
+  const port = resolveMarketingExecutionPortForDoc(doc);
   return port.resumePipeline({
     resumeToken,
     approve,
@@ -455,19 +589,61 @@ async function resumeMarketingPipeline(
     approvalId: context.approvalId,
     stage: context.stage,
     workflowStepId: context.workflowStepId,
+    approvalStep: context.approvalStep,
+    workflowKey: context.workflowKey,
   });
 }
 
 function completedMarketingEnvelope(result: MarketingExecutionResult): LobsterEnvelope {
+  const legacyEnvelope = (result as { envelope?: unknown }).envelope;
+  if (legacyEnvelope && typeof legacyEnvelope === 'object' && !Array.isArray(legacyEnvelope)) {
+    return legacyEnvelope as LobsterEnvelope;
+  }
+
   if (result.kind === 'completed') {
-    if (result.envelope.ok === false) {
-      const code = typeof result.envelope.code === 'string' ? result.envelope.code : 'hermes_marketing_execution_failed';
-      const message = typeof result.envelope.message === 'string' && result.envelope.message.trim().length > 0
-        ? result.envelope.message
+    const workflowOutput = result.output;
+    if (workflowOutput.ok === false) {
+      const code = typeof workflowOutput.error?.code === 'string'
+        ? workflowOutput.error.code
+        : 'hermes_marketing_execution_failed';
+      const message = typeof workflowOutput.error?.message === 'string' && workflowOutput.error.message.trim().length > 0
+        ? workflowOutput.error.message
         : 'Hermes marketing execution failed before a run was accepted.';
       throw new Error(`${code}:${message}`);
     }
-    return result.envelope;
+
+    const normalizedOutput = Array.isArray(workflowOutput.output)
+      ? workflowOutput.output
+      : workflowOutput.output
+        ? [workflowOutput.output]
+        : [];
+    const runId = workflowOutput.runId;
+    const providerEnvelope: LobsterEnvelope = {
+      ok: workflowOutput.ok,
+      status: workflowOutput.status,
+      provider: 'hermes',
+      run_id: runId ?? undefined,
+      output: normalizedOutput,
+    };
+
+    if (workflowOutput.approval) {
+      providerEnvelope.requiresApproval = {
+        stage: workflowOutput.approval.stage,
+        workflowStepId: workflowOutput.approval.workflowStepId,
+        prompt: workflowOutput.approval.prompt,
+        resumeToken: workflowOutput.approval.resumeToken,
+      };
+    }
+
+    if (workflowOutput.error) {
+      providerEnvelope.code = workflowOutput.error.code;
+      providerEnvelope.message = workflowOutput.error.message;
+      providerEnvelope.detail = {
+        retryable: workflowOutput.error.retryable,
+      };
+    }
+
+    return providerEnvelope;
   }
   return {
     ok: true,
@@ -553,6 +729,7 @@ function createAndPersistApprovalCheckpoint(
     marketingJobId: doc.job_id,
     workflowName,
     workflowStepId: input.workflowStepId,
+    socialContentApprovalStep: approvalStepFromWorkflowStepId(input.workflowStepId),
     marketingStage: input.stage,
     lobsterResumeToken: input.resumeToken,
     lobsterResumeStateKeys: descriptor.stateKeys,
@@ -628,7 +805,7 @@ async function replayMarketingPipelineToApprovalCheckpoint(
     return resumeToken;
   }
 
-  envelope = completedMarketingEnvelope(await resumeMarketingPipeline(resumeToken, true));
+  envelope = completedMarketingEnvelope(await resumeMarketingPipeline(resumeToken, true, doc));
   resumeToken = envelope.requiresApproval?.resumeToken?.trim() || '';
   if (!resumeToken) {
     throw new Error(`marketing_pipeline_missing_resume_token:${workflowStepId}`);
@@ -638,7 +815,7 @@ async function replayMarketingPipelineToApprovalCheckpoint(
     return resumeToken;
   }
 
-  envelope = completedMarketingEnvelope(await resumeMarketingPipeline(resumeToken, true));
+  envelope = completedMarketingEnvelope(await resumeMarketingPipeline(resumeToken, true, doc));
   resumeToken = envelope.requiresApproval?.resumeToken?.trim() || '';
   if (!resumeToken) {
     throw new Error(`marketing_pipeline_missing_resume_token:${workflowStepId}`);
@@ -648,7 +825,7 @@ async function replayMarketingPipelineToApprovalCheckpoint(
     return resumeToken;
   }
 
-  envelope = completedMarketingEnvelope(await resumeMarketingPipeline(resumeToken, true));
+  envelope = completedMarketingEnvelope(await resumeMarketingPipeline(resumeToken, true, doc));
   resumeToken = envelope.requiresApproval?.resumeToken?.trim() || '';
   if (!resumeToken) {
     throw new Error(`marketing_pipeline_missing_resume_token:${workflowStepId}`);
@@ -831,19 +1008,30 @@ async function runResearchStage(doc: MarketingJobRuntimeDocument): Promise<void>
   markStageInProgress(doc, 'research');
   saveMarketingJobRuntime(doc.job_id, doc);
 
-  const { runtime, pipelinePath } = marketingWorkflowRuntimeContext();
-  approvalLifecycleLog('workflow-run', {
-    jobId: doc.job_id,
-    tenantId: doc.tenant_id,
-    stage: 'research',
-    workflowName: MARKETING_WORKFLOW_NAME,
-    pipelinePath,
-    sessionKey: runtime.sessionKey,
-    cwd: runtime.cwd,
-    stateDir: runtime.stateDir,
-    timeoutMs: marketingWorkflowTimeoutMs(),
-    maxStdoutBytes: marketingWorkflowMaxStdoutBytes(),
-  });
+  if (requestedJobTypeFromDoc(doc) === 'weekly_social_content') {
+    approvalLifecycleLog('workflow-run', {
+      jobId: doc.job_id,
+      tenantId: doc.tenant_id,
+      stage: 'research',
+      workflowName: SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
+      timeoutMs: marketingWorkflowTimeoutMs(),
+      maxStdoutBytes: marketingWorkflowMaxStdoutBytes(),
+    });
+  } else {
+    const { runtime, pipelinePath } = marketingWorkflowRuntimeContext();
+    approvalLifecycleLog('workflow-run', {
+      jobId: doc.job_id,
+      tenantId: doc.tenant_id,
+      stage: 'research',
+      workflowName: MARKETING_WORKFLOW_NAME,
+      pipelinePath,
+      sessionKey: runtime.sessionKey,
+      cwd: runtime.cwd,
+      stateDir: runtime.stateDir,
+      timeoutMs: marketingWorkflowTimeoutMs(),
+      maxStdoutBytes: marketingWorkflowMaxStdoutBytes(),
+    });
+  }
 
   const execution = await runMarketingPipeline(doc);
   if (execution.kind === 'submitted') {
@@ -911,18 +1099,25 @@ async function runResearchStage(doc: MarketingJobRuntimeDocument): Promise<void>
 async function finalizeStrategyAndRunProductionReview(
   doc: MarketingJobRuntimeDocument,
   resumeToken: string,
-  context: { approvalId?: string | null; workflowStepId?: string | null } = {},
+  context: {
+    approvalId?: string | null;
+    workflowStepId?: string | null;
+    approvalStep?: SocialContentApprovalStep | null;
+    workflowKey?: string | null;
+  } = {},
 ): Promise<void> {
   if (!resumeToken) {
     throw new Error('missing_strategy_resume_token');
   }
 
-  const execution = await resumeMarketingPipeline(resumeToken, true, {
+  const execution = await resumeMarketingPipeline(resumeToken, true, doc, {
     tenantId: doc.tenant_id,
     jobId: doc.job_id,
     approvalId: context.approvalId,
     stage: 'strategy',
     workflowStepId: context.workflowStepId,
+    approvalStep: context.approvalStep,
+    workflowKey: context.workflowKey,
   });
   if (execution.kind === 'submitted') {
     appendHistory(doc, 'strategy approval submitted to Hermes', { stage: 'strategy' });
@@ -991,18 +1186,25 @@ async function finalizeStrategyAndRunProductionReview(
 async function finalizeProductionAndRunPublishReview(
   doc: MarketingJobRuntimeDocument,
   resumeToken: string,
-  context: { approvalId?: string | null; workflowStepId?: string | null } = {},
+  context: {
+    approvalId?: string | null;
+    workflowStepId?: string | null;
+    approvalStep?: SocialContentApprovalStep | null;
+    workflowKey?: string | null;
+  } = {},
 ): Promise<void> {
   if (!resumeToken) {
     throw new Error('missing_production_resume_token');
   }
 
-  const execution = await resumeMarketingPipeline(resumeToken, true, {
+  const execution = await resumeMarketingPipeline(resumeToken, true, doc, {
     tenantId: doc.tenant_id,
     jobId: doc.job_id,
     approvalId: context.approvalId,
     stage: 'production',
     workflowStepId: context.workflowStepId,
+    approvalStep: context.approvalStep,
+    workflowKey: context.workflowKey,
   });
   if (execution.kind === 'submitted') {
     appendHistory(doc, 'production approval submitted to Hermes', { stage: 'production' });
@@ -1072,7 +1274,12 @@ async function finalizeProductionAndRunPublishReview(
 async function advancePublishStage(
   doc: MarketingJobRuntimeDocument,
   resumeToken: string,
-  context: { approvalId?: string | null; workflowStepId?: string | null } = {},
+  context: {
+    approvalId?: string | null;
+    workflowStepId?: string | null;
+    approvalStep?: SocialContentApprovalStep | null;
+    workflowKey?: string | null;
+  } = {},
 ): Promise<void> {
   const publishStage = getStageRecord(doc, 'publish');
   if (!resumeToken) {
@@ -1083,12 +1290,14 @@ async function advancePublishStage(
   markStageInProgress(doc, 'publish');
   saveMarketingJobRuntime(doc.job_id, doc);
 
-  const execution = await resumeMarketingPipeline(resumeToken, true, {
+  const execution = await resumeMarketingPipeline(resumeToken, true, doc, {
     tenantId: doc.tenant_id,
     jobId: doc.job_id,
     approvalId: context.approvalId,
     stage: 'publish',
     workflowStepId: context.workflowStepId,
+    approvalStep: context.approvalStep,
+    workflowKey: context.workflowKey,
   });
   if (execution.kind === 'submitted') {
     appendHistory(doc, 'publish approval submitted to Hermes', { stage: 'publish' });
@@ -1202,13 +1411,35 @@ export async function startMarketingJob(input: StartMarketingJobRequest): Promis
   if (!input?.tenantId || typeof input.tenantId !== 'string' || input.tenantId.trim().length === 0) {
     throw new Error('missing_required_fields:tenantId');
   }
-  if (input.jobType !== 'brand_campaign') {
+  if (input.jobType !== 'brand_campaign' && input.jobType !== 'weekly_social_content') {
     throw new Error(`unsupported_job_type:${input.jobType}`);
   }
   const brandCampaignInput = ensureBrandCampaignInput(input);
 
   const jobId = makeMarketingJobId();
   const tenantId = input.tenantId.trim();
+  const requestPayload =
+    input.jobType === 'weekly_social_content'
+      ? sanitizeWeeklySocialContentPayload(input.payload ?? {})
+      : { ...(input.payload ?? {}) };
+  let needsOpenAiConnection = false;
+  if (input.jobType === 'weekly_social_content') {
+    const mediaDemand = weeklyMediaDemand(requestPayload);
+    requestPayload.imageCreativeCount = mediaDemand.imageCreativeCount;
+    requestPayload.imageCreativesCount = mediaDemand.imageCreativeCount;
+    requestPayload.videoRenderCount = mediaDemand.videoRenderCount;
+    requestPayload.renderVideoAfterApproval = mediaDemand.videoRenderCount > 0;
+    needsOpenAiConnection = mediaDemand.requiresOpenAiConnection;
+    if (needsOpenAiConnection) {
+      const reference = await resolveOpenAiConnectionReference(tenantId);
+      if (reference) {
+        requestPayload.openaiConnectionId = reference.connectionId;
+      }
+    }
+    if (typeof input.createdBy === 'string' && input.createdBy.trim().length > 0) {
+      requestPayload.userId = input.createdBy.trim();
+    }
+  }
   // Quarantine tenant-scoped validated docs (brand-profile / website-analysis /
   // business-profile) from a prior campaign so they cannot bleed into the new
   // campaign's approval payloads when the brand URL has changed.
@@ -1220,11 +1451,36 @@ export async function startMarketingJob(input: StartMarketingJobRequest): Promis
   const doc = createMarketingJobRuntimeDocument({
     jobId,
     tenantId,
-    payload: input.payload,
+    payload: requestPayload,
     brandKit: runtimeBrandKitReference(brandKit, filePath),
     createdBy: input.createdBy ?? null,
   });
+  if (input.jobType === 'weekly_social_content') {
+    ensureSocialContentRuntimeState(doc);
+  }
   saveMarketingJobRuntime(jobId, doc);
+
+  if (
+    input.jobType === 'weekly_social_content' &&
+    needsOpenAiConnection &&
+    typeof requestPayload.openaiConnectionId !== 'string'
+  ) {
+    const message = 'Connect ChatGPT / OpenAI before generating image or video assets.';
+    applyNeedsConnectionBlock(doc, message);
+    saveMarketingJobRuntime(jobId, doc);
+    return {
+      status: 'needs_connection',
+      reason: 'openai_connection_required',
+      message,
+      jobId,
+      tenantId: doc.tenant_id,
+      jobType: input.jobType,
+      runtimeArtifactPath: runtimeArtifactPath(jobId),
+      approvalRequired: false,
+      currentStage: doc.current_stage,
+      approval: null,
+    };
+  }
 
   try {
     await runResearchStage(doc);
@@ -1242,7 +1498,7 @@ export async function startMarketingJob(input: StartMarketingJobRequest): Promis
     status: 'accepted',
     jobId,
     tenantId: doc.tenant_id,
-    jobType: doc.job_type,
+    jobType: input.jobType,
     runtimeArtifactPath: runtimeArtifactPath(jobId),
     approvalRequired: !!doc.approvals.current,
     currentStage: doc.current_stage,
@@ -1359,6 +1615,7 @@ function backfillApprovalRecordFromCheckpoint(doc: MarketingJobRuntimeDocument, 
     marketingJobId: doc.job_id,
     workflowName: checkpoint.workflow_name?.trim() || workflowName,
     workflowStepId: inferredWorkflowStepId(checkpoint),
+    socialContentApprovalStep: approvalStepFromWorkflowStepId(checkpoint.workflow_step_id ?? ''),
     marketingStage: checkpoint.stage,
     lobsterResumeToken: resumeToken,
     lobsterResumeStateKeys: descriptor.stateKeys,
@@ -1401,6 +1658,7 @@ async function resolveMarketingApproval(
     actedBy: string;
     approvedStages?: Array<'research' | 'strategy' | 'production' | 'publish'>;
     approvalId?: string;
+    approvalStep?: SocialContentApprovalStep;
     publishConfig?: Partial<MarketingPublishConfig>;
     resolution: MarketingApprovalResolution;
   },
@@ -1442,7 +1700,7 @@ async function resolveMarketingApproval(
     });
 
   if (!checkpoint) {
-    if (targetedRecord) {
+    if (targetedRecord && (targetedRecord.status === 'approved' || targetedRecord.status === 'denied' || targetedRecord.status === 'consumed')) {
       return terminalApprovalResponse(input, targetedRecord);
     }
     return {
@@ -1455,7 +1713,7 @@ async function resolveMarketingApproval(
     };
   }
   if (input.approvalId?.trim() && checkpoint.approval_id?.trim() && input.approvalId.trim() !== checkpoint.approval_id.trim()) {
-    if (targetedRecord) {
+    if (targetedRecord && (targetedRecord.status === 'approved' || targetedRecord.status === 'denied' || targetedRecord.status === 'consumed')) {
       return terminalApprovalResponse(input, targetedRecord);
     }
     return {
@@ -1467,7 +1725,16 @@ async function resolveMarketingApproval(
       reason: 'approval_not_available',
     };
   }
-  if (Array.isArray(input.approvedStages) && input.approvedStages.length > 0 && !input.approvedStages.includes(checkpoint.stage)) {
+  const checkpointApprovalStep = input.approvalStep ??
+    approvalStepFromWorkflowStepId(checkpoint.workflow_step_id ?? '');
+  const checkpointStageForValidation = checkpointApprovalStep
+    ? marketingStageFromSocialApprovalStep(checkpointApprovalStep)
+    : checkpoint.stage;
+  if (
+    Array.isArray(input.approvedStages)
+    && input.approvedStages.length > 0
+    && !input.approvedStages.includes(checkpointStageForValidation)
+  ) {
     return {
       status: 'error',
       jobId: input.jobId,
@@ -1480,6 +1747,24 @@ async function resolveMarketingApproval(
 
   const approvalRecord = activeOrBackfilledApprovalRecord(doc, { approvalId: input.approvalId });
   if (!approvalRecord) {
+    return {
+      status: 'error',
+      jobId: input.jobId,
+      tenantId: input.tenantId,
+      resumedStage: null,
+      completed: false,
+      reason: 'approval_not_available',
+    };
+  }
+
+  const activeApprovalStep = input.approvalStep
+    ?? approvalRecord.social_content_approval_step
+    ?? approvalStepFromWorkflowStepId(checkpoint.workflow_step_id ?? approvalRecord.workflow_step_id);
+  if (
+    input.approvalStep
+    && approvalRecord.social_content_approval_step
+    && input.approvalStep !== approvalRecord.social_content_approval_step
+  ) {
     return {
       status: 'error',
       jobId: input.jobId,
@@ -1543,12 +1828,16 @@ async function resolveMarketingApproval(
         activeResumeToken: string,
       ): Promise<{ resumedStage: MarketingStage | null; completed: boolean }> => {
         if (input.resolution === 'deny') {
-          const execution = await resumeMarketingPipeline(activeResumeToken, false, {
+          const execution = await resumeMarketingPipeline(activeResumeToken, false, doc, {
             tenantId: doc.tenant_id,
             jobId: doc.job_id,
             approvalId: checkpoint.approval_id ?? currentRecord.approval_id,
             stage: checkpoint.stage,
             workflowStepId: checkpoint.workflow_step_id ?? currentRecord.workflow_step_id,
+            approvalStep: activeApprovalStep,
+            workflowKey: requestedJobTypeFromDoc(doc) === 'weekly_social_content'
+              ? SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY
+              : undefined,
           });
           if (execution.kind === 'submitted') {
             recordApprovalDenied(doc, {
@@ -1594,6 +1883,10 @@ async function resolveMarketingApproval(
         const resumeContext = {
           approvalId: checkpoint.approval_id ?? currentRecord.approval_id,
           workflowStepId: checkpoint.workflow_step_id ?? currentRecord.workflow_step_id,
+          approvalStep: activeApprovalStep,
+          workflowKey: requestedJobTypeFromDoc(doc) === 'weekly_social_content'
+            ? SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY
+            : undefined,
         };
         if (checkpoint.stage === 'strategy') {
           await finalizeStrategyAndRunProductionReview(doc, activeResumeToken, resumeContext);
@@ -1645,6 +1938,14 @@ async function resolveMarketingApproval(
         );
         checkpointSnapshot.resume_token = freshResumeToken;
         ({ resumedStage, completed } = await applyResolution(freshResumeToken));
+      }
+
+      if (activeApprovalStep && requestedJobTypeFromDoc(doc) === 'weekly_social_content') {
+        markSocialContentApprovalResolutionSubmitted(doc, {
+          approvalStep: activeApprovalStep,
+          approved: input.resolution === 'approve',
+        });
+        saveMarketingJobRuntime(doc.job_id, doc);
       }
 
       currentRecord.status = input.resolution === 'approve' ? 'approved' : 'denied';
@@ -1736,6 +2037,7 @@ export async function approveMarketingJob(
     actedBy: input.approvedBy,
     approvedStages: input.approvedStages,
     approvalId: input.approvalId,
+    approvalStep: input.approvalStep,
     publishConfig: input.publishConfig,
     resolution: 'approve',
   }, doc);

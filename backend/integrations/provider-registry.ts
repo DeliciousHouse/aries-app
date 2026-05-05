@@ -1,8 +1,16 @@
-export type ProviderKey = 'facebook' | 'instagram' | 'linkedin' | 'x' | 'youtube' | 'tiktok' | 'reddit';
+export type ProviderKey =
+  | 'facebook'
+  | 'instagram'
+  | 'linkedin'
+  | 'x'
+  | 'youtube'
+  | 'tiktok'
+  | 'reddit'
+  | 'openai';
 
 export interface ProviderConfig {
   key: ProviderKey;
-  family: 'meta' | 'linkedin' | 'x' | 'youtube' | 'tiktok' | 'reddit';
+  family: 'meta' | 'linkedin' | 'x' | 'youtube' | 'tiktok' | 'reddit' | 'openai';
   display_name: string;
   default_scopes: string[];
   adapter: string;
@@ -27,5 +35,12 @@ export const PROVIDER_REGISTRY: Record<ProviderKey, ProviderConfig> = {
     adapter: 'youtube',
   },
   tiktok: { key: 'tiktok', family: 'tiktok', display_name: 'TikTok', default_scopes: ['video.publish'], adapter: 'tiktok' },
-  reddit: { key: 'reddit', family: 'reddit', display_name: 'Reddit', default_scopes: ['submit'], adapter: 'reddit' }
+  reddit: { key: 'reddit', family: 'reddit', display_name: 'Reddit', default_scopes: ['submit'], adapter: 'reddit' },
+  openai: {
+    key: 'openai',
+    family: 'openai',
+    display_name: 'ChatGPT / OpenAI',
+    default_scopes: ['openid', 'profile'],
+    adapter: 'openai',
+  },
 };

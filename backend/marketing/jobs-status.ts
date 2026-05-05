@@ -26,6 +26,13 @@ import {
   normalizeArtifactText,
 } from './real-artifacts';
 import { loadValidatedMarketingProfileSnapshot } from './validated-profile-store';
+import { SOCIAL_CONTENT_DEFAULT_SCOPE } from '@/backend/social-content/defaults';
+import { clampWeeklyWindowDays } from '@/backend/social-content/payload';
+import {
+  parseSocialContentWorkflowOutput,
+  readSocialContentRuntimeState,
+  type SocialContentWorkflowProjection,
+} from '@/backend/social-content/runtime-state';
 
 type TimelineTone = 'info' | 'success' | 'warning' | 'danger';
 
@@ -157,6 +164,20 @@ export type MarketingCalendarEvent = {
   assetPreviewId: string | null;
 };
 
+export type SocialContentCalendarEvent = {
+  id: string;
+  jobId: string;
+  dayIndex: number;
+  startsAt: string;
+  endsAt: string | null;
+  platform: string;
+  platformLabel: string;
+  title: string;
+  postType: 'static' | 'image' | 'video_script' | 'video_render' | 'publish';
+  status: 'draft' | 'needs_review' | 'approved' | 'scheduled' | 'published';
+  assetPreviewId: string | null;
+};
+
 export type MarketingJobStatusResponse = {
   jobId: string;
   tenantId: string | null;
@@ -167,7 +188,7 @@ export type MarketingJobStatusResponse = {
   plannedPostCount: number | null;
   createdPostCount: number | null;
   assetPreviewCards: MarketingAssetPreviewCard[];
-  calendarEvents: MarketingCalendarEvent[];
+  calendarEvents: Array<MarketingCalendarEvent | SocialContentCalendarEvent>;
   state: string;
   status: string;
   currentStage: string | null;
@@ -188,6 +209,8 @@ export type MarketingJobStatusResponse = {
   };
   nextStep: string;
   repairStatus: string;
+  reason?: string;
+  message?: string;
 };
 
 type CacheEntry = {
@@ -452,6 +475,17 @@ function deriveState(
     };
   }
 
+  if (runtimeDoc.status === 'needs_connection' || runtimeDoc.state === 'needs_connection') {
+    return {
+      state: 'needs_connection',
+      status: 'needs_connection',
+      currentStage: runtimeDoc.current_stage,
+      nextStep: 'connect_openai',
+      repairStatus: 'not_required',
+      needsAttention: true,
+    };
+  }
+
   if (runtimeDoc.status === 'failed' || runtimeDoc.state === 'failed') {
     return {
       state: runtimeDoc.state,
@@ -516,6 +550,14 @@ function buildSummary(
   }
 
   if (state.needsAttention) {
+    if (state.status === 'needs_connection') {
+      return {
+        headline: 'Connect ChatGPT / OpenAI to continue',
+        subheadline:
+          runtimeDoc.last_error?.message ||
+          'Connect ChatGPT / OpenAI before generating image or video assets.',
+      };
+    }
     return {
       headline: 'Campaign needs operator attention',
       subheadline: 'The pipeline reported a failure or blocked state. Review the latest artifacts and next action before retrying.',
@@ -995,6 +1037,337 @@ async function publishReviewSource(
   return (await resolvePublishReviewBundle(runtimeDoc, facts)).source;
 }
 
+function requestedJobTypeFromDoc(doc: MarketingJobRuntimeDocument): 'brand_campaign' | 'weekly_social_content' {
+  const request = doc.inputs.request;
+  if (request && typeof request === 'object' && !Array.isArray(request)) {
+    const value = (request as Record<string, unknown>).jobType;
+    if (value === 'weekly_social_content') {
+      return 'weekly_social_content';
+    }
+  }
+  return 'brand_campaign';
+}
+
+function parsePositiveInteger(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(0, Math.floor(value));
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const parsed = Number.parseInt(trimmed, 10);
+    return Number.isFinite(parsed) ? Math.max(0, parsed) : null;
+  }
+  return null;
+}
+
+type WeeklyScopeConfig = {
+  windowDays: number;
+  staticPostCount: number;
+  imageCreativeCount: number;
+  videoScriptCount: number;
+  videoRenderCount: number;
+  channels: string[];
+};
+
+function socialWeeklyScopeConfig(runtimeDoc: MarketingJobRuntimeDocument): WeeklyScopeConfig {
+  const request = recordValue(runtimeDoc.inputs.request) ?? {};
+  const scope = recordValue(request.scope) ?? {};
+  const windowDays = clampWeeklyWindowDays(
+    request.campaignWindowDays ?? request.windowDays ?? scope.window_days ?? SOCIAL_CONTENT_DEFAULT_SCOPE.window_days,
+  );
+  const staticPostCount =
+    parsePositiveInteger(request.staticPostCount ?? scope.static_post_count) ??
+    SOCIAL_CONTENT_DEFAULT_SCOPE.static_post_count;
+  const imageCreativeCount =
+    parsePositiveInteger(request.imageCreativeCount ?? scope.image_creative_count) ??
+    SOCIAL_CONTENT_DEFAULT_SCOPE.image_creative_count;
+  const videoScriptCount =
+    parsePositiveInteger(request.videoScriptCount ?? scope.video_script_count) ??
+    SOCIAL_CONTENT_DEFAULT_SCOPE.video_script_count;
+  const videoRenderCount =
+    parsePositiveInteger(request.videoRenderCount ?? scope.video_render_count) ??
+    SOCIAL_CONTENT_DEFAULT_SCOPE.video_render_count;
+  const channels = (() => {
+    const requestChannels = stringArray(request.channels);
+    if (requestChannels.length > 0) return requestChannels;
+    const scopeChannels = stringArray(scope.channels);
+    if (scopeChannels.length > 0) return scopeChannels;
+    return [...SOCIAL_CONTENT_DEFAULT_SCOPE.channels];
+  })();
+  return { windowDays, staticPostCount, imageCreativeCount, videoScriptCount, videoRenderCount, channels };
+}
+
+function socialPlatformLabel(platform: string): string {
+  const normalized = platform.trim().toLowerCase();
+  if (normalized === 'meta') return 'Meta';
+  if (normalized === 'instagram') return 'Instagram';
+  if (normalized === 'linkedin') return 'LinkedIn';
+  if (normalized === 'tiktok') return 'TikTok';
+  if (normalized === 'youtube') return 'YouTube';
+  if (normalized === 'x') return 'X';
+  return platform ? platform.charAt(0).toUpperCase() + platform.slice(1) : 'Social';
+}
+
+function normalizeSocialPostType(value: string): SocialContentCalendarEvent['postType'] {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'image') return 'image';
+  if (normalized === 'video_render' || normalized === 'video') return 'video_render';
+  if (normalized === 'publish') return 'publish';
+  if (normalized === 'video_script' || normalized === 'script') return 'video_script';
+  return 'static';
+}
+
+function normalizeSocialStatus(value: string, fallback: SocialContentCalendarEvent['status']): SocialContentCalendarEvent['status'] {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'needs_review' || normalized === 'in_review' || normalized === 'generated') return 'needs_review';
+  if (normalized === 'approved' || normalized === 'ready') return 'approved';
+  if (normalized === 'scheduled') return 'scheduled';
+  if (normalized === 'published') return 'published';
+  if (normalized === 'draft') return 'draft';
+  return fallback;
+}
+
+function evenlySpacedDayIndexes(count: number, windowDays: number): number[] {
+  if (count <= 0) return [];
+  if (count === 1) return [Math.min(windowDays, Math.ceil(windowDays / 2))];
+  const slots: number[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const ratio = index / Math.max(1, count - 1);
+    const day = Math.round(1 + ratio * Math.max(0, windowDays - 1));
+    slots.push(Math.min(windowDays, Math.max(1, day)));
+  }
+  return slots;
+}
+
+function weeklyWindowStart(runtimeDoc: MarketingJobRuntimeDocument): Date {
+  const seed = Date.parse(runtimeDoc.created_at);
+  const source = Number.isFinite(seed) ? new Date(seed) : new Date();
+  return new Date(Date.UTC(source.getUTCFullYear(), source.getUTCMonth(), source.getUTCDate()));
+}
+
+function startsAtForDay(windowStart: Date, dayIndex: number): string {
+  const date = new Date(windowStart.getTime() + (dayIndex - 1) * 24 * 60 * 60 * 1000);
+  return date.toISOString();
+}
+
+function parseDayIndex(day: string, windowStart: Date, windowDays: number): number | null {
+  const trimmed = day.trim();
+  if (!trimmed) return null;
+  const dayLabel = trimmed.match(/^day\s*(\d+)$/i) ?? trimmed.match(/^(\d+)$/);
+  if (dayLabel) {
+    const parsed = Number.parseInt(dayLabel[1], 10);
+    if (Number.isFinite(parsed)) {
+      return Math.min(windowDays, Math.max(1, parsed));
+    }
+  }
+  const parsedDate = Date.parse(trimmed);
+  if (!Number.isFinite(parsedDate)) return null;
+  const diffDays = Math.floor((parsedDate - windowStart.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+  if (!Number.isFinite(diffDays) || diffDays < 1 || diffDays > windowDays) return null;
+  return diffDays;
+}
+
+function hasSocialProjectionData(value: SocialContentWorkflowProjection): boolean {
+  const plan = value.weekly_content_plan;
+  return (
+    plan.window_days !== null ||
+    plan.posts.length > 0 ||
+    plan.image_creatives.length > 0 ||
+    plan.video_scripts.length > 0
+  );
+}
+
+function latestSocialProjection(runtimeDoc: MarketingJobRuntimeDocument): SocialContentWorkflowProjection | null {
+  const runtime = readSocialContentRuntimeState(runtimeDoc);
+  if (!runtime) {
+    return null;
+  }
+  let latest: SocialContentWorkflowProjection | null = null;
+  for (const stage of runtime.stageOrder) {
+    const output = runtime.stages[stage]?.output;
+    const projection = parseSocialContentWorkflowOutput(output);
+    if (projection && hasSocialProjectionData(projection)) {
+      latest = projection;
+    }
+  }
+  return latest;
+}
+
+type WeeklyCalendarSnapshot = {
+  campaignWindow: MarketingCampaignWindow;
+  durationDays: number;
+  calendarEvents: SocialContentCalendarEvent[];
+  plannedPostCount: number;
+  createdPostCount: number;
+};
+
+function buildWeeklyCalendarSnapshot(runtimeDoc: MarketingJobRuntimeDocument): WeeklyCalendarSnapshot {
+  const scope = socialWeeklyScopeConfig(runtimeDoc);
+  const projection = latestSocialProjection(runtimeDoc);
+  const windowStart = weeklyWindowStart(runtimeDoc);
+  const windowEnd = new Date(windowStart.getTime() + scope.windowDays * 24 * 60 * 60 * 1000 - 1);
+  const staticDaySlots = evenlySpacedDayIndexes(scope.staticPostCount, scope.windowDays);
+  const midpointDay = Math.min(scope.windowDays, Math.ceil(scope.windowDays / 2));
+  const plan = projection?.weekly_content_plan;
+  const imageIds = (plan?.image_creatives ?? [])
+    .filter((creative) => {
+      const id = creative.id.trim();
+      if (!id) return false;
+      const status = creative.status.trim().toLowerCase();
+      return (
+        creative.artifact_url.trim().length > 0 ||
+        ['generated', 'ready', 'approved', 'needs_review', 'scheduled', 'published'].includes(status)
+      );
+    })
+    .map((creative) => creative.id.trim());
+  const imageIdSet = new Set(imageIds);
+  const remainingImageIds = [...imageIds];
+  const consumeImageId = (preferred: string): string | null => {
+    const normalizedPreferred = preferred.trim();
+    if (normalizedPreferred && imageIdSet.has(normalizedPreferred)) {
+      imageIdSet.delete(normalizedPreferred);
+      const index = remainingImageIds.indexOf(normalizedPreferred);
+      if (index >= 0) remainingImageIds.splice(index, 1);
+      return normalizedPreferred;
+    }
+    return remainingImageIds.shift() ?? null;
+  };
+
+  const events: SocialContentCalendarEvent[] = [];
+  let generatedId = 0;
+  const pushEvent = (
+    event: Omit<SocialContentCalendarEvent, 'id' | 'jobId'> & { idPrefix: string },
+  ): void => {
+    generatedId += 1;
+    events.push({
+      id: `${event.idPrefix}-${generatedId}`,
+      jobId: runtimeDoc.job_id,
+      dayIndex: event.dayIndex,
+      startsAt: event.startsAt,
+      endsAt: event.endsAt,
+      platform: event.platform,
+      platformLabel: event.platformLabel,
+      title: event.title,
+      postType: event.postType,
+      status: event.status,
+      assetPreviewId: event.assetPreviewId,
+    });
+  };
+
+  const plannedPosts = plan?.posts ?? [];
+  for (let index = 0; index < plannedPosts.length; index += 1) {
+    const post = plannedPosts[index];
+    const postType = normalizeSocialPostType(post.post_type);
+    const dayIndex =
+      parseDayIndex(post.day, windowStart, scope.windowDays) ??
+      (postType === 'video_script' ? midpointDay : staticDaySlots[index] ?? Math.min(scope.windowDays, index + 1));
+    const platform = (post.platforms.find((entry) => entry.trim().length > 0) ?? scope.channels[index] ?? 'meta').toLowerCase();
+    const platformLabel = socialPlatformLabel(platform);
+    const status = normalizeSocialStatus(post.status, postType === 'static' ? 'needs_review' : 'draft');
+    const title =
+      post.title.trim() ||
+      (postType === 'video_script'
+        ? 'Weekly video script'
+        : postType === 'video_render'
+          ? 'Weekly video render'
+          : 'Weekly social post');
+    const assetPreviewId =
+      postType === 'static' || postType === 'image' ? consumeImageId(post.creative_brief_id) : null;
+    pushEvent({
+      idPrefix: `social-event-${postType}`,
+      dayIndex,
+      startsAt: startsAtForDay(windowStart, dayIndex),
+      endsAt: null,
+      platform,
+      platformLabel,
+      title,
+      postType,
+      status,
+      assetPreviewId,
+    });
+  }
+
+  const existingStatic = events.filter((event) => event.postType === 'static').length;
+  for (let index = existingStatic; index < scope.staticPostCount; index += 1) {
+    const dayIndex = staticDaySlots[index] ?? Math.min(scope.windowDays, index + 1);
+    const platform = (scope.channels[index % scope.channels.length] ?? 'meta').toLowerCase();
+    pushEvent({
+      idPrefix: 'social-static',
+      dayIndex,
+      startsAt: startsAtForDay(windowStart, dayIndex),
+      endsAt: null,
+      platform,
+      platformLabel: socialPlatformLabel(platform),
+      title: `Weekly social post ${index + 1}`,
+      postType: 'static',
+      status: 'draft',
+      assetPreviewId: consumeImageId(''),
+    });
+  }
+
+  const existingScripts = events.filter((event) => event.postType === 'video_script').length;
+  for (let index = existingScripts; index < scope.videoScriptCount; index += 1) {
+    const platform = (scope.channels[index % scope.channels.length] ?? 'meta').toLowerCase();
+    pushEvent({
+      idPrefix: 'social-video-script',
+      dayIndex: midpointDay,
+      startsAt: startsAtForDay(windowStart, midpointDay),
+      endsAt: null,
+      platform,
+      platformLabel: socialPlatformLabel(platform),
+      title: `Video script ${index + 1}`,
+      postType: 'video_script',
+      status: 'draft',
+      assetPreviewId: null,
+    });
+  }
+
+  const existingRenders = events.filter((event) => event.postType === 'video_render').length;
+  for (let index = existingRenders; index < scope.videoRenderCount; index += 1) {
+    const dayIndex = Math.min(scope.windowDays, midpointDay + index);
+    const platform = (scope.channels[index % scope.channels.length] ?? 'meta').toLowerCase();
+    pushEvent({
+      idPrefix: 'social-video-render',
+      dayIndex,
+      startsAt: startsAtForDay(windowStart, dayIndex),
+      endsAt: null,
+      platform,
+      platformLabel: socialPlatformLabel(platform),
+      title: `Video render ${index + 1}`,
+      postType: 'video_render',
+      status: 'draft',
+      assetPreviewId: null,
+    });
+  }
+
+  events.sort((left, right) => {
+    if (left.dayIndex !== right.dayIndex) {
+      return left.dayIndex - right.dayIndex;
+    }
+    return left.id.localeCompare(right.id);
+  });
+
+  const plannedPostCount = scope.staticPostCount + scope.videoScriptCount + scope.videoRenderCount;
+  const createdPostCount = events.filter((event) => {
+    if (event.postType !== 'static' && event.postType !== 'video_script' && event.postType !== 'video_render') {
+      return false;
+    }
+    return event.status !== 'draft';
+  }).length;
+
+  return {
+    campaignWindow: {
+      start: windowStart.toISOString(),
+      end: windowEnd.toISOString(),
+    },
+    durationDays: scope.windowDays,
+    calendarEvents: events,
+    plannedPostCount,
+    createdPostCount,
+  };
+}
+
 async function buildCampaignWindow(
   runtimeDoc: MarketingJobRuntimeDocument,
   facts: MarketingJobFacts,
@@ -1148,11 +1521,18 @@ async function buildMarketingJobStatus(jobId: string): Promise<MarketingJobStatu
   const state = deriveState(runtimeDoc, stageStatus);
   const approval = buildApproval(jobId, runtimeDoc);
   const reviewBundle = await buildReviewBundle(runtimeDoc, facts);
-  const campaignWindow = await buildCampaignWindow(runtimeDoc, facts);
-  const durationDays = buildDurationDays(campaignWindow);
   const assetPreviewCards = buildAssetPreviewCards(jobId, reviewBundle);
-  const calendarEvents = await buildCalendarEvents(runtimeDoc, facts);
-  const postCounts = await buildPostCounts(runtimeDoc, facts, reviewBundle, calendarEvents);
+  const isWeeklySocialContent = requestedJobTypeFromDoc(runtimeDoc) === 'weekly_social_content';
+  const weeklySnapshot = isWeeklySocialContent ? buildWeeklyCalendarSnapshot(runtimeDoc) : null;
+  const campaignWindow = weeklySnapshot?.campaignWindow ?? (await buildCampaignWindow(runtimeDoc, facts));
+  const durationDays = weeklySnapshot?.durationDays ?? buildDurationDays(campaignWindow);
+  const calendarEvents = weeklySnapshot?.calendarEvents ?? (await buildCalendarEvents(runtimeDoc, facts));
+  const postCounts = weeklySnapshot
+    ? {
+        plannedPostCount: weeklySnapshot.plannedPostCount,
+        createdPostCount: weeklySnapshot.createdPostCount,
+      }
+    : await buildPostCounts(runtimeDoc, facts, reviewBundle, calendarEvents as MarketingCalendarEvent[]);
   const validatedProfile = await loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
     currentSourceUrl: runtimeDoc.inputs.brand_url || null,
   });
@@ -1197,6 +1577,8 @@ async function buildMarketingJobStatus(jobId: string): Promise<MarketingJobStatu
     },
     nextStep: state.nextStep,
     repairStatus: state.repairStatus,
+    reason: runtimeDoc.last_error?.code ?? undefined,
+    message: runtimeDoc.last_error?.message ?? undefined,
   };
 }
 

@@ -9,7 +9,7 @@
 ## Deployment contract
 - Application code is baked into the image and mounted internally at `/app`.
 - Writable runtime data lives under `/data` only.
-- Production Compose mounts `/data` from `${ARIES_SHARED_DATA_ROOT:-/home/node/data}` so Lobster caches and generated assets survive container replacement.
+- Production Compose mounts `/data` from `${ARIES_SHARED_DATA_ROOT:-/home/node/data}` so generated artifacts survive container replacement.
 - Source bind mounts are development-only.
 
 ## Production release
@@ -43,18 +43,9 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml build
 - `HERMES_GATEWAY_URL`
 - `HERMES_API_SERVER_KEY` (outbound credential Aries sends to Hermes `/v1/runs`)
 - `INTERNAL_API_SECRET` (required for Hermes callbacks)
-- `HERMES_SESSION_KEY` (optional; default `main` in Compose, `marketing` for the marketing port when unset)
+- `HERMES_SESSION_KEY`
 - `HERMES_RUN_TIMEOUT_MS` (optional general workflow polling timeout)
 - `HERMES_POLL_INTERVAL_MS` (optional general workflow polling interval)
-- `OPENCLAW_GATEWAY_URL` (required only for legacy OpenClaw/Lobster execution or media gateway delegation)
-- `OPENCLAW_GATEWAY_TOKEN` (required only for legacy OpenClaw/Lobster execution or media gateway delegation)
-- `OPENCLAW_SESSION_KEY` (optional; default `main`)
-- `OPENCLAW_LOBSTER_CWD` (optional)
-- `LOBSTER_MEDIA_GATEWAY_ENABLED` (optional; set `1` to route Stage 4 image/video/text QA through OpenClaw)
-- `LOBSTER_VIDEO_RENDER_ENABLED` (optional; still required before video generation runs)
-- `LOBSTER_GATEWAY_IMAGE_MODEL` / `OPENCLAW_IMAGE_GENERATION_MODEL` (optional OpenClaw image model override)
-- `LOBSTER_GATEWAY_VIDEO_MODEL` / `OPENCLAW_VIDEO_GENERATION_MODEL` (optional OpenClaw video model override)
-- `LOBSTER_MEDIA_GATEWAY_ALLOW_DIRECT_FALLBACK` (optional local/dev escape hatch only)
 - `DB_HOST`
 - `DB_PORT`
 - `DB_USER`
@@ -66,6 +57,8 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml build
 - `AUTH_URL`
 - `AUTH_TRUST_HOST`
 - `NEXTAUTH_SECRET`
+
+For weekly social content media generation, users must connect ChatGPT / OpenAI first. Text planning can run when media generation is disabled.
 
 ## Run
 ```bash
@@ -94,7 +87,18 @@ need the legacy OpenClaw/Lobster runtime. The general Hermes workflow adapter
 currently supports the explicitly wired Hermes workflow set; marketing jobs use
 the separate marketing execution port and advance through async callbacks.
 
-### OpenClaw media gateway
+### Weekly social content operational flow
+
+1. Client submits `POST /api/social-content/jobs`.
+2. Aries submits run creation to Hermes (`/v1/runs`).
+3. Hermes sends authenticated callbacks to `POST /api/internal/hermes/runs`.
+4. Aries updates runtime state and status read models.
+5. User reviews weekly social posts/content calendar.
+6. User approves optional video render/publish steps.
+
+### Legacy OpenClaw/Lobster compatibility (deprecated)
+
+The variables below are only needed for deprecated compatibility flows such as legacy `brand_campaign` jobs:
 
 `OPENCLAW_GATEWAY_URL`, `OPENCLAW_GATEWAY_TOKEN`, and `OPENCLAW_SESSION_KEY`
 only make the gateway reachable. They do not enable Lobster Stage 4 media
@@ -178,21 +182,21 @@ Readiness/liveness:
 
 ### Job endpoint benchmark
 
-Use an authenticated cookie jar for the tenant that owns the campaign job:
+Use an authenticated cookie jar for the tenant that owns the weekly social content job:
 
 ```bash
 BASE_URL="https://<aries-host>"
-JOB_ID="<campaign-job-id>"
+JOB_ID="<social-content-job-id>"
 COOKIE_JAR="cookies.txt"
 
 curl -b "$COOKIE_JAR" -o /dev/null -sS \
   -w "serial: status=%{http_code} total=%{time_total}s\n" \
-  "$BASE_URL/api/marketing/jobs/$JOB_ID"
+  "$BASE_URL/api/social-content/jobs/$JOB_ID"
 
 seq 1 8 | xargs -I{} -P8 sh -c '
   curl -b "$0" -o /dev/null -sS \
     -w "parallel {}: status=%{http_code} total=%{time_total}s\\n" \
-    "$1/api/marketing/jobs/$2"
+    "$1/api/social-content/jobs/$2"
 ' "$COOKIE_JAR" "$BASE_URL" "$JOB_ID"
 ```
 
@@ -220,7 +224,7 @@ seq 1 50 | xargs -I{} -P50 sh -c '
 seq 1 50 | xargs -I{} -P50 sh -c '
   curl -b "$0" -o /dev/null -sS \
     -w "job {}: status=%{http_code} total=%{time_total}s\\n" \
-    "$1/api/marketing/jobs/$2"
+    "$1/api/social-content/jobs/$2"
 ' "$COOKIE_JAR" "$BASE_URL" "$JOB_ID"
 ```
 
@@ -242,7 +246,7 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml down
 - The main `aries-app` service publishes `${PORT:-3000}` from the base compose file; the local override merges into that same service instead of launching a duplicate production instance.
 - Workflow execution is delegated through Hermes by default. Hermes posts idempotent run callbacks to `/api/internal/hermes/runs`, authenticated with `INTERNAL_API_SECRET`. Set `ARIES_EXECUTION_PROVIDER=legacy-openclaw` and/or `ARIES_MARKETING_EXECUTION_PROVIDER=legacy-openclaw` only when intentionally running the legacy OpenClaw/Lobster path.
 
-## Lobster stage cache directories
+## Lobster stage cache directories (legacy/deprecated)
 
 Lobster writes stage artifacts (images, `.mp4` videos, review packages) to the
 `$LOBSTER_STAGE{1..4}_CACHE_DIR` paths. Because OpenClaw + Lobster run on the

@@ -1,9 +1,9 @@
-import MarketingNewJobScreen from '../../../frontend/marketing/new-job';
+import { redirect } from "next/navigation";
 
 export const metadata = {
-  title: 'New Campaign · Aries AI',
+  title: "Create Weekly Social Posts · Aries AI",
 };
 
 export default function MarketingNewJobPage() {
-  return <MarketingNewJobScreen />;
+  redirect("/social-content/new");
 }

@@ -1,16 +1,16 @@
-import React from 'react';
-import MarketingJobStatusScreen from '../../../frontend/marketing/job-status';
+import { redirect } from 'next/navigation';
 
 export const metadata = {
   title: 'Campaign Status · Aries AI',
 };
 
 export default async function MarketingJobStatusPage({
-  searchParams
+  searchParams,
 }: {
   searchParams?: Promise<{ jobId?: string }>;
 }) {
   const resolved = await searchParams;
   const jobId = resolved?.jobId || '';
-  return <MarketingJobStatusScreen defaultJobId={jobId} />;
+  const query = jobId ? `?jobId=${encodeURIComponent(jobId)}` : '';
+  redirect(`/social-content/status${query}`);
 }

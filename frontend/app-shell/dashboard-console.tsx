@@ -7,6 +7,7 @@ import { useIntegrations } from '@/hooks/use-integrations';
 import { useLatestMarketingJob } from '@/hooks/use-latest-marketing-job';
 import { useTenantWorkflows } from '@/hooks/use-tenant-workflows';
 import StatusBadge from '@/frontend/components/status-badge';
+import type { SocialContentCalendarEvent } from '@/lib/api/marketing';
 
 function statusBadgeForConnectionState(connectionState: string): 'completed' | 'required' | 'accepted' {
   if (connectionState === 'connected') {
@@ -36,6 +37,53 @@ function MetricCard({
   );
 }
 
+function contentCalendarLabel(isWeeklyMode: boolean, durationDays?: number | null): string {
+  if (!isWeeklyMode) {
+    return 'Campaign window';
+  }
+  return typeof durationDays === 'number' && Number.isFinite(durationDays) && durationDays > 0
+    ? `${durationDays}-day content calendar`
+    : 'weekly content calendar';
+}
+
+export function dashboardWeeklyCreativeReadyCount(events: SocialContentCalendarEvent[]): number {
+  return events.filter(
+    (event) =>
+      (event.postType === 'static' || event.postType === 'image') &&
+      !!event.assetPreviewId,
+  ).length;
+}
+
+export function dashboardConsoleCopyForMode(isWeeklyMode: boolean, durationDays?: number | null): Record<string, string> {
+  const calendarLabel = contentCalendarLabel(isWeeklyMode, durationDays);
+  return {
+    plannedPostsLabel: isWeeklyMode ? 'Posts planned' : 'Planned posts',
+    plannedPostsMeta: isWeeklyMode
+      ? 'Weekly content plan items scheduled in the current window.'
+      : 'Calendar-backed posts planned for the current tenant campaign.',
+    createdAssetsLabel: isWeeklyMode ? 'Creatives ready' : 'Created assets',
+    createdAssetsMeta: isWeeklyMode
+      ? 'Image creatives attached to weekly posts and ready for review.'
+      : 'Generated or prepared posts/assets currently available for review.',
+    durationLabel: isWeeklyMode ? 'Video script ready' : 'Campaign days',
+    durationMeta: isWeeklyMode
+      ? 'Video scripts completed and available in the weekly plan.'
+      : 'Inclusive duration of the current campaign window.',
+    approvalLabel: isWeeklyMode ? calendarLabel : 'Approval required',
+    approvalMeta: isWeeklyMode
+      ? 'Current weekly calendar length in days.'
+      : 'Whether the latest campaign is waiting on an operator checkpoint.',
+    tenantTitle: isWeeklyMode ? 'Weekly content plan' : 'Latest brand campaign',
+    emptyDescription: isWeeklyMode
+      ? 'Start a weekly content plan to populate the dashboard with real creatives, dates, and post counts.'
+      : 'Launch the canonical brand campaign to populate the dashboard with real creatives, dates, and post counts.',
+    emptyActionLabel: isWeeklyMode ? 'Start weekly content plan' : 'Launch campaign',
+    windowLabel: calendarLabel,
+    statusActionLabel: isWeeklyMode ? 'Open weekly content plan' : 'Open campaign status',
+    newActionLabel: isWeeklyMode ? 'Start weekly content plan' : 'Launch campaign',
+  };
+}
+
 export default function DashboardConsole(): JSX.Element {
   const integrations = useIntegrations();
   const tenantWorkflows = useTenantWorkflows();
@@ -49,6 +97,16 @@ export default function DashboardConsole(): JSX.Element {
   const workflows = tenantWorkflows.list.data ?? [];
   const campaign = latestJob.data;
   const gallery = campaign?.reviewBundle?.platformPreviews ?? [];
+  const weeklyEvents = (campaign?.calendarEvents ?? []).filter(
+    (event): event is SocialContentCalendarEvent =>
+      typeof event === 'object' && event !== null && 'dayIndex' in event && 'postType' in event,
+  );
+  const isWeeklyMode = weeklyEvents.length > 0;
+  const weeklyCreativeReadyCount = dashboardWeeklyCreativeReadyCount(weeklyEvents);
+  const weeklyVideoScriptReadyCount = weeklyEvents.filter(
+    (event) => event.postType === 'video_script' && event.status !== 'draft',
+  ).length;
+  const copy = dashboardConsoleCopyForMode(isWeeklyMode, campaign?.durationDays ?? null);
   const strategyLinks =
     campaign?.artifacts
       ?.filter((artifact) => artifact.stage === 'strategy' && artifact.actionHref && artifact.actionLabel)
@@ -59,24 +117,24 @@ export default function DashboardConsole(): JSX.Element {
     <div className="space-y-8">
       <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-6">
         <MetricCard
-          label="Planned posts"
+          label={copy.plannedPostsLabel}
           value={String(campaign?.plannedPostCount ?? 0)}
-          meta="Calendar-backed posts planned for the current tenant campaign."
+          meta={copy.plannedPostsMeta}
         />
         <MetricCard
-          label="Created assets"
-          value={String(campaign?.createdPostCount ?? 0)}
-          meta="Generated or prepared posts/assets currently available for review."
+          label={copy.createdAssetsLabel}
+          value={String(isWeeklyMode ? weeklyCreativeReadyCount : campaign?.createdPostCount ?? 0)}
+          meta={copy.createdAssetsMeta}
         />
         <MetricCard
-          label="Campaign days"
-          value={String(campaign?.durationDays ?? 0)}
-          meta="Inclusive duration of the current campaign window."
+          label={copy.durationLabel}
+          value={String(isWeeklyMode ? weeklyVideoScriptReadyCount : campaign?.durationDays ?? 0)}
+          meta={copy.durationMeta}
         />
         <MetricCard
-          label="Approval required"
-          value={approvalRequired}
-          meta="Whether the latest campaign is waiting on an operator checkpoint."
+          label={copy.approvalLabel}
+          value={isWeeklyMode ? String(campaign?.durationDays ?? 0) : approvalRequired}
+          meta={copy.approvalMeta}
         />
       </div>
 
@@ -88,7 +146,7 @@ export default function DashboardConsole(): JSX.Element {
             </div>
             <div>
               <p className="text-xs uppercase tracking-[0.24em] text-white/35">Tenant campaign</p>
-              <h2 className="text-2xl font-bold">Latest brand campaign</h2>
+              <h2 className="text-2xl font-bold">{copy.tenantTitle}</h2>
             </div>
           </div>
 
@@ -104,10 +162,10 @@ export default function DashboardConsole(): JSX.Element {
             <div className="rounded-[1.75rem] border border-white/10 bg-white/5 p-8 space-y-5">
               <h3 className="text-xl font-semibold">No campaign has been launched yet</h3>
               <p className="text-white/60 leading-relaxed">
-                Launch the canonical brand campaign to populate the dashboard with real creatives, dates, and post counts.
+                {copy.emptyDescription}
               </p>
               <Link href="/marketing/new-job" className="inline-flex items-center gap-2 px-6 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20">
-                Launch campaign <ArrowRight className="w-4 h-4" />
+                {copy.emptyActionLabel} <ArrowRight className="w-4 h-4" />
               </Link>
             </div>
           ) : (
@@ -124,7 +182,9 @@ export default function DashboardConsole(): JSX.Element {
                 {campaign.campaignWindow ? (
                   <div className="grid md:grid-cols-2 gap-4 mt-6">
                     <div className="rounded-[1.25rem] border border-white/10 bg-black/20 p-4">
-                      <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-2">Campaign window</p>
+                      <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-2">
+                        {copy.windowLabel}
+                      </p>
                       <p className="text-white/80">{campaign.campaignWindow.start || 'n/a'} to {campaign.campaignWindow.end || 'n/a'}</p>
                     </div>
                     <div className="rounded-[1.25rem] border border-white/10 bg-black/20 p-4">
@@ -257,7 +317,7 @@ export default function DashboardConsole(): JSX.Element {
                 Start brand + competitor research <ArrowRight className="w-4 h-4" />
               </Link>
               <Link href={campaign ? `/marketing/job-status?jobId=${encodeURIComponent(campaign.jobId)}` : '/marketing/new-job'} className="px-6 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 flex items-center justify-center gap-2">
-                {campaign ? 'Open campaign status' : 'Launch campaign'} <ArrowRight className="w-4 h-4" />
+                {campaign ? copy.statusActionLabel : copy.newActionLabel} <ArrowRight className="w-4 h-4" />
               </Link>
               {campaign?.approval?.actionHref ? (
                 <Link href={campaign.approval.actionHref} className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all flex items-center justify-center gap-2">

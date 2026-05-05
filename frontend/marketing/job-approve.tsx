@@ -22,13 +22,70 @@ import StatusBadge from '../components/status-badge';
 
 type ApproveResult = ApproveJobResult | MarketingApiError;
 type JobStatusResult = GetMarketingJobStatusResponse | MarketingApiError;
+type MarketingJobApproveScreenVariant = 'marketing' | 'social-content';
 const PLATFORM_VALUES = ['meta-ads', 'instagram', 'x', 'tiktok', 'youtube', 'linkedin', 'reddit'] as const;
 
 export interface MarketingJobApproveScreenProps {
   baseUrl?: string;
   defaultJobId?: string;
   defaultApprovedBy?: string;
+  copyVariant?: MarketingJobApproveScreenVariant;
+  jobStatusPath?: string;
+  jobApprovePath?: string;
 }
+
+const APPROVE_SCREEN_COPY: Record<
+  MarketingJobApproveScreenVariant,
+  {
+    headerEyebrow: string;
+    headerTitle: string;
+    headerDescription: string;
+    controlTitle: string;
+    controlDescription: string;
+    jobHint: string;
+    notHoldingToken: string;
+    loadingStatus: string;
+    loadErrorTitle: string;
+    idleHint: string;
+    noApprovalText: string;
+    approveSubmittedText: string;
+    approveResumedText: string;
+    approveAlreadyResolvedText: string;
+  }
+> = {
+  marketing: {
+    headerEyebrow: 'Campaign approval',
+    headerTitle: 'Approval package',
+    headerDescription: 'Review the current package, confirm what is ready, and move the campaign into the next approved stage.',
+    controlTitle: 'Confirm the current campaign package',
+    controlDescription: 'Record the decision, keep the current package visible, and refresh the latest campaign status from the same screen.',
+    jobHint: 'Use the current campaign identifier.',
+    notHoldingToken: 'This campaign is not holding an active launch approval token, so there is nothing real to resume yet.',
+    loadingStatus: 'Loading campaign status…',
+    loadErrorTitle: 'Could not load campaign',
+    idleHint: 'Load a campaign to review its launch state before approving.',
+    noApprovalText: 'This campaign does not currently require approval. The workflow may have already progressed or been resolved.',
+    approveSubmittedText: 'Approval submitted and the workflow is resuming.',
+    approveResumedText: 'Approval succeeded and resume was accepted.',
+    approveAlreadyResolvedText: 'This approval was already resolved, so nothing new was consumed.',
+  },
+  'social-content': {
+    headerEyebrow: 'Weekly social content review',
+    headerTitle: 'Review social content',
+    headerDescription: 'Review the current weekly content plan, confirm what is ready, and move the content job into the next approved stage.',
+    controlTitle: 'Confirm the current weekly content plan',
+    controlDescription: 'Record the decision, keep the current package visible, and refresh the latest content job status from the same screen.',
+    jobHint: 'Use the current content job identifier.',
+    notHoldingToken: 'This content job is not holding an active approval token, so there is nothing real to resume yet.',
+    loadingStatus: 'Loading content job status…',
+    loadErrorTitle: 'Could not load content job',
+    idleHint: 'Load a content job to review its weekly posts before approving.',
+    noApprovalText: 'This content job does not currently require approval. The workflow may have already progressed or been resolved.',
+    approveSubmittedText: 'Approval submitted. The weekly content job is now resuming.',
+    approveResumedText: 'Approval succeeded and the content job resume was accepted.',
+    approveAlreadyResolvedText: 'This content approval was already resolved, so nothing new was consumed.',
+  },
+};
 
 function isErrorResult(value: unknown): value is MarketingApiError {
   return !!value && typeof value === 'object' && 'error' in value;
@@ -338,10 +395,17 @@ function Field({
 }
 
 export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps) {
-  const marketingApprove = useMarketingJobApprove({ baseUrl: props.baseUrl });
+  const copy = APPROVE_SCREEN_COPY[props.copyVariant ?? 'marketing'];
+  const marketingApprove = useMarketingJobApprove({
+    baseUrl: props.baseUrl,
+    jobApprovePath:
+      props.jobApprovePath ?? (props.copyVariant === 'social-content' ? '/api/social-content/jobs' : undefined),
+  });
   const marketingStatus = useMarketingJobStatus({
     baseUrl: props.baseUrl,
     jobId: props.defaultJobId,
+    jobStatusPath:
+      props.jobStatusPath ?? (props.copyVariant === 'social-content' ? '/api/social-content/jobs' : undefined),
     autoLoad: false,
   });
 
@@ -460,14 +524,17 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
     if (approveResult.reason === 'approval_not_available') {
       return {
         tone: 'danger',
-        text: 'This campaign is not holding an active launch approval token, so there is nothing real to resume yet.',
+        text: copy.notHoldingToken,
       };
     }
+    if (approveResult.approval_status === 'submitted') {
+      return { tone: 'success', text: copy.approveSubmittedText };
+    }
     if (approveResult.approval_status === 'resumed') {
-      return { tone: 'success', text: 'Approval succeeded and resume was accepted.' };
+      return { tone: 'success', text: copy.approveResumedText };
     }
     if (approveResult.approval_status === 'already_resolved') {
-      return { tone: 'success', text: 'This approval was already resolved, so nothing new was consumed.' };
+      return { tone: 'success', text: copy.approveAlreadyResolvedText };
     }
     return { tone: 'danger', text: `Approval failed: ${approveResult.approval_status}` };
   })();
@@ -500,9 +567,9 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
     <div className="min-h-screen bg-background px-6 py-10 md:px-8 lg:px-10">
       <div className="max-w-7xl mx-auto grid gap-6">
         <div className="glass rounded-[2.5rem] p-8 md:p-10">
-          <p className="text-xs uppercase tracking-[0.3em] text-primary mb-3">Campaign approval</p>
-          <h1 className="text-4xl font-bold mb-3">Approval package</h1>
-          <p className="text-white/60">Review the current package, confirm what is ready, and move the campaign into the next approved stage.</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-primary mb-3">{copy.headerEyebrow}</p>
+          <h1 className="text-4xl font-bold mb-3">{copy.headerTitle}</h1>
+          <p className="text-white/60">{copy.headerDescription}</p>
         </div>
 
         <div className="grid xl:grid-cols-2 gap-6">
@@ -510,13 +577,13 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
         <div className="grid gap-5">
           <div>
             <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-3">Approval control</p>
-            <h1 className="text-3xl font-bold mb-3">Confirm the current campaign package</h1>
+            <h1 className="text-3xl font-bold mb-3">{copy.controlTitle}</h1>
             <p className="text-white/60">
-              Record the decision, keep the current package visible, and refresh the latest campaign status from the same screen.
+              {copy.controlDescription}
             </p>
           </div>
 
-            <Field label="Job ID" hint="Use the current campaign identifier.">
+            <Field label="Job ID" hint={copy.jobHint}>
               <input
                 value={jobId}
                 onChange={(event) => handleJobIdChange(event.target.value)}
@@ -651,13 +718,13 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
           <p className="text-xs uppercase tracking-[0.24em] text-white/35">Outcome</p>
 
             {loadingStatus ? (
-              <p className="text-white/60">Loading campaign status…</p>
+              <p className="text-white/60">{copy.loadingStatus}</p>
             ) : null}
 
             {loadOrActionFailed ? (
               <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-5 text-red-100">
                 <strong className="block mb-1">
-                  {jobStatus && isErrorResult(jobStatus) ? 'Could not load campaign' : 'Request failed'}
+                  {jobStatus && isErrorResult(jobStatus) ? copy.loadErrorTitle : 'Request failed'}
                 </strong>
                 <span>
                   {marketingApprove.error?.message ||
@@ -686,13 +753,13 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
             ) : null}
 
             {showIdleHint ? (
-              <p className="text-white/60">Load a campaign to review its launch state before approving.</p>
+              <p className="text-white/60">{copy.idleHint}</p>
             ) : null}
 
             {statusSuccess && !statusSuccess.approval?.required ? (
               <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-5 text-blue-100">
                 <strong className="block mb-1">No approval required</strong>
-                <span>This campaign does not currently require approval. The workflow may have already progressed or been resolved.</span>
+                <span>{copy.noApprovalText}</span>
               </div>
             ) : null}
 
