@@ -62,6 +62,7 @@ export const next_step_values = [
   'wait_for_completion',
   'check_onboarding_status',
   'submit_approval',
+  'check_hermes_media_setup',
   'resume_approved_stages',
   'invoke_marketing_repair',
   'retry_with_next_attempt',

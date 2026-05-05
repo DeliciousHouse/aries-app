@@ -480,7 +480,7 @@ function deriveState(
       state: 'needs_connection',
       status: 'needs_connection',
       currentStage: runtimeDoc.current_stage,
-      nextStep: 'connect_openai',
+      nextStep: 'check_hermes_media_setup',
       repairStatus: 'not_required',
       needsAttention: true,
     };

@@ -450,6 +450,71 @@ test('custom weekly window copy uses the actual duration label', async () => {
   });
 });
 
+test('weekly needs-connection status points operators to Hermes media setup', async () => {
+  await withRuntimeEnv(async () => {
+    const {
+      createMarketingJobRuntimeDocument,
+      saveMarketingJobRuntime,
+    } = await import('@/backend/marketing/runtime-state');
+    const { handleGetMarketingJobStatus } = await import('@/app/api/marketing/jobs/[jobId]/handler');
+
+    const doc = createMarketingJobRuntimeDocument({
+      jobId: 'mkt_weekly_needs_connection',
+      tenantId: 'tenant_weekly_needs_connection',
+      payload: {
+        jobType: 'weekly_social_content',
+        brandUrl: 'https://brand.example',
+        businessType: 'local service',
+        primaryGoal: 'Book appointments',
+      },
+      brandKit: {
+        path: '/tmp/brand-kit.json',
+        source_url: 'https://brand.example',
+        canonical_url: 'https://brand.example',
+        brand_name: 'Brand',
+        logo_urls: [],
+        colors: { primary: null, secondary: null, accent: null, palette: [] },
+        font_families: [],
+        external_links: [],
+        extracted_at: new Date().toISOString(),
+        brand_voice_summary: null,
+        offer_summary: null,
+      },
+    });
+    doc.state = 'needs_connection';
+    doc.status = 'needs_connection';
+    doc.current_stage = 'research';
+    doc.last_error = {
+      code: 'hermes_media_setup_required',
+      message: 'Hermes media configuration needs attention before weekly media generation can continue.',
+      stage: 'research',
+      retryable: true,
+      at: new Date().toISOString(),
+      details: { reason: 'hermes_media_setup_required' },
+    };
+    saveMarketingJobRuntime(doc.job_id, doc);
+
+    const response = await handleGetMarketingJobStatus(
+      doc.job_id,
+      async () => ({
+        userId: 'user_weekly_needs_connection',
+        tenantId: doc.tenant_id,
+        tenantSlug: 'tenant-weekly-needs-connection',
+        role: 'tenant_admin',
+      }),
+      { responseDialect: 'social-content' },
+    );
+    const body = (await response.json()) as {
+      nextStep?: string;
+      summary?: { headline?: string; subheadline?: string };
+    };
+
+    assert.equal(body.nextStep, 'check_hermes_media_setup');
+    assert.equal(body.summary?.headline, 'Hermes media setup needs attention');
+    assert.match(body.summary?.subheadline ?? '', /Hermes media configuration needs attention/i);
+  });
+});
+
 test('weekly workflow request includes abstract Hermes-owned media requests', () => {
   const doc = {
     tenant_id: 'tenant_media',

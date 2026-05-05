@@ -78,6 +78,8 @@ export function nextStepGuidance(nextStep: string | undefined): string | null {
       return 'Workflow is still running. Reload status in a few moments.';
     case 'submit_approval':
       return 'Approval is required. Continue in the approval screen.';
+    case 'check_hermes_media_setup':
+      return 'Hermes media configuration needs attention before weekly image or video work can continue.';
     case 'resume_approved_stages':
       return 'The job can resume after approval. Submit approval when ready.';
     case 'invoke_marketing_repair':
