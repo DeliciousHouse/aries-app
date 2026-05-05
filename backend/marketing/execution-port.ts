@@ -1,17 +1,44 @@
-import type { LobsterEnvelope } from '../openclaw/gateway-client';
-
 import { HermesMarketingPort } from './ports/hermes';
-import { LegacyOpenClawMarketingPort, type LegacyMarketingPortRuntimePaths } from './ports/legacy-openclaw';
-import type { MarketingJobRuntimeDocument, MarketingStage } from './runtime-state';
+import type { MarketingJobRuntimeDocument, MarketingStage, MarketingStageArtifact } from './runtime-state';
+import type { SocialContentApprovalStep } from '@/backend/social-content/types';
 
 /**
- * Provider-neutral execution port for marketing pipeline run/resume.
- *
- * Legacy OpenClaw returns completed Lobster envelopes synchronously. Hermes
- * submits work and returns an Aries/Hermes run correlation pair; callbacks
- * later advance the runtime document.
+ * Hermes-native execution contract for the social-content workflow.
  */
-export type MarketingExecutionPortName = 'legacy-openclaw' | 'hermes';
+export type MarketingExecutionPortName = 'hermes';
+
+export type SocialContentStage = MarketingStage;
+export type SocialContentApprovalStage =
+  | 'plan'
+  | 'creative'
+  | 'video'
+  | 'publish'
+  | 'strategy'
+  | 'production';
+export type SocialContentArtifact = MarketingStageArtifact;
+
+export type HermesWorkflowOutput = {
+  ok: boolean;
+  status: 'running' | 'requires_approval' | 'completed' | 'failed' | 'cancelled';
+  workflowKey: string;
+  workflowVersion?: string;
+  runId?: string;
+  stage?: SocialContentStage;
+  output?: Record<string, unknown> | Record<string, unknown>[];
+  artifacts?: SocialContentArtifact[];
+  approval?: {
+    stage: SocialContentApprovalStage;
+    workflowStepId: string;
+    prompt: string;
+    approvalStep?: SocialContentApprovalStep;
+    resumeToken?: string;
+  };
+  error?: {
+    code?: string;
+    message: string;
+    retryable?: boolean;
+  };
+};
 
 export type MarketingPipelineRunInput = {
   jobId: string;
@@ -31,10 +58,12 @@ export type MarketingPipelineResumeInput = {
   approvalId?: string | null;
   stage?: MarketingStage | null;
   workflowStepId?: string | null;
+  approvalStep?: SocialContentApprovalStep | null;
+  workflowKey?: string | null;
 };
 
 export type MarketingExecutionResult =
-  | { kind: 'completed'; provider: MarketingExecutionPortName; envelope: LobsterEnvelope }
+  | { kind: 'completed'; provider: 'hermes'; output: HermesWorkflowOutput }
   | { kind: 'submitted'; provider: 'hermes'; ariesRunId: string; hermesRunId?: string };
 
 export interface MarketingExecutionPort {
@@ -50,9 +79,8 @@ export const DEFAULT_MARKETING_EXECUTION_PORT: MarketingExecutionPortName = 'her
 /**
  * Resolve the configured marketing execution port name.
  *
- * Hermes is the default marketing execution provider. Operators can still opt
- * into the legacy OpenClaw/Lobster runtime with
- * `ARIES_MARKETING_EXECUTION_PROVIDER=legacy-openclaw`.
+ * Social-content execution is Hermes-only. Unknown/legacy values resolve to
+ * Hermes for backwards-safe configuration handling.
  */
 export function resolveMarketingExecutionPortName(
   env: MarketingExecutionPortEnv = process.env,
@@ -61,15 +89,13 @@ export function resolveMarketingExecutionPortName(
     ? env.ARIES_MARKETING_EXECUTION_PROVIDER.trim().toLowerCase()
     : '';
   if (value === 'hermes' || value === '') return 'hermes';
-  if (value === 'legacy-openclaw' || value === 'openclaw') return 'legacy-openclaw';
   return DEFAULT_MARKETING_EXECUTION_PORT;
 }
 
 export function getMarketingExecutionPort(
-  resolveLegacyPaths: () => LegacyMarketingPortRuntimePaths,
+  _resolveLegacyPaths: () => unknown,
   env: MarketingExecutionPortEnv = process.env,
 ): MarketingExecutionPort {
-  const name = resolveMarketingExecutionPortName(env);
-  if (name === 'hermes') return new HermesMarketingPort(env);
-  return new LegacyOpenClawMarketingPort(resolveLegacyPaths);
+  resolveMarketingExecutionPortName(env);
+  return new HermesMarketingPort(env);
 }

@@ -17,11 +17,58 @@ import { useMarketingJobStatus } from '@/hooks/use-marketing-job-status';
 import StatusBadge from '../components/status-badge';
 
 type JobStatusResult = GetMarketingJobStatusResponse | MarketingApiError;
+type MarketingJobStatusScreenVariant = 'marketing' | 'social-content';
 
 export interface MarketingJobStatusScreenProps {
   baseUrl?: string;
   defaultJobId?: string;
+  jobStatusPath?: string;
+  copyVariant?: MarketingJobStatusScreenVariant;
 }
+
+const STATUS_SCREEN_COPY: Record<
+  MarketingJobStatusScreenVariant,
+  {
+    headerEyebrow: string;
+    headerTitle: string;
+    headerDescription: string;
+    overviewEyebrow: string;
+    overviewTitle: string;
+    overviewDescription: string;
+    autoRefreshSuffix: string;
+    loadingTitle: string;
+    errorTitle: string;
+    emptyTitle: string;
+    pipelineTitle: string;
+  }
+> = {
+  marketing: {
+    headerEyebrow: 'Campaign status',
+    headerTitle: 'Campaign status',
+    headerDescription: 'Track progress, review what is ready, and move the campaign forward when a decision is needed.',
+    overviewEyebrow: 'Campaign status',
+    overviewTitle: 'Live campaign overview',
+    overviewDescription: 'Refresh the latest stage progress, review supporting materials, and open the current approval package when it is ready.',
+    autoRefreshSuffix: ' Auto-refresh is active while the campaign is still changing.',
+    loadingTitle: 'Loading campaign',
+    errorTitle: 'Could not load campaign',
+    emptyTitle: 'No campaign loaded',
+    pipelineTitle: 'Campaign Pipeline',
+  },
+  'social-content': {
+    headerEyebrow: 'Weekly social content status',
+    headerTitle: 'Weekly social content status',
+    headerDescription: 'Track progress, review what is ready, and move the weekly content plan forward when a decision is needed.',
+    overviewEyebrow: 'Content job status',
+    overviewTitle: 'Live weekly posts overview',
+    overviewDescription: 'Refresh the latest stage progress, review supporting materials, and open the current approval package when it is ready.',
+    autoRefreshSuffix: ' Auto-refresh is active while the content job is still changing.',
+    loadingTitle: 'Loading content job',
+    errorTitle: 'Could not load content job',
+    emptyTitle: 'No content job loaded',
+    pipelineTitle: 'Weekly Content Plan',
+  },
+};
 
 export function normalizeMarketingJobId(jobId?: string): string {
   return jobId?.trim() || '';
@@ -189,8 +236,11 @@ function ReviewPreviewGallery({ previews }: { previews: MarketingReviewPreviewCa
 }
 
 export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
+  const copy = STATUS_SCREEN_COPY[props.copyVariant ?? 'marketing'];
   const marketingStatus = useMarketingJobStatus({
     baseUrl: props.baseUrl,
+    jobStatusPath:
+      props.jobStatusPath ?? (props.copyVariant === 'social-content' ? '/api/social-content/jobs' : undefined),
     jobId: props.defaultJobId,
     autoLoad: false,
   });
@@ -263,19 +313,19 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
     <div className="min-h-screen bg-background px-6 py-10 md:px-8 lg:px-10">
       <div className="max-w-7xl mx-auto space-y-6">
         <div className="glass rounded-[2.5rem] p-8 md:p-10">
-          <p className="text-xs uppercase tracking-[0.3em] text-primary mb-3">Campaign status</p>
-          <h1 className="text-4xl font-bold mb-3">Campaign status</h1>
-          <p className="text-white/60">Track progress, review what is ready, and move the campaign forward when a decision is needed.</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-primary mb-3">{copy.headerEyebrow}</p>
+          <h1 className="text-4xl font-bold mb-3">{copy.headerTitle}</h1>
+          <p className="text-white/60">{copy.headerDescription}</p>
         </div>
 
       <div className="grid xl:grid-cols-2 gap-6">
         <div className="glass rounded-[2.5rem] p-8">
           <div className="grid gap-5">
             <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-3">Campaign status</p>
-              <h1 className="text-3xl font-bold mb-3">Live campaign overview</h1>
+              <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-3">{copy.overviewEyebrow}</p>
+              <h1 className="text-3xl font-bold mb-3">{copy.overviewTitle}</h1>
               <p className="text-white/60">
-                Refresh the latest stage progress, review supporting materials, and open the current approval package when it is ready.
+                {copy.overviewDescription}
               </p>
             </div>
 
@@ -309,7 +359,7 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
               <p className="text-white/60">
                 Last synced {new Date(lastRefreshedAt).toLocaleTimeString()}.
                 {successResult && isActiveStatus(successResult.marketing_job_status)
-                  ? ' Auto-refresh is active while the campaign is still changing.'
+                  ? copy.autoRefreshSuffix
                   : ''}
               </p>
             ) : null}
@@ -329,12 +379,12 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
         <div className="glass rounded-[2.5rem] p-8">
           {loading && !successResult ? (
             <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-8 min-h-[280px] flex flex-col items-center justify-center text-center text-white/60">
-              <strong className="text-white text-lg mb-2">Loading campaign</strong>
+              <strong className="text-white text-lg mb-2">{copy.loadingTitle}</strong>
               <p>Fetching status from the server…</p>
             </div>
           ) : statusLoadFailed ? (
             <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-8 min-h-[280px] flex flex-col items-center justify-center text-center">
-              <strong className="text-red-100 text-lg mb-2">Could not load campaign</strong>
+              <strong className="text-red-100 text-lg mb-2">{copy.errorTitle}</strong>
               <p className="text-red-100/90">
                 {marketingStatus.error?.message ||
                   (result && isErrorResult(result) ? result.error : null) ||
@@ -343,7 +393,7 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
             </div>
           ) : !successResult ? (
             <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-8 min-h-[280px] flex flex-col items-center justify-center text-center text-white/60">
-              <strong className="text-white text-lg mb-2">No campaign loaded</strong>
+              <strong className="text-white text-lg mb-2">{copy.emptyTitle}</strong>
               <p>
                 {!normalizeMarketingJobId(jobId)
                   ? 'Enter a job ID, then use Refresh status to load this workspace.'
@@ -354,7 +404,7 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
             <div className="grid gap-5">
               <div>
                 <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-3">Current state</p>
-                <h2 className="text-3xl font-bold mb-3">Campaign Pipeline</h2>
+                <h2 className="text-3xl font-bold mb-3">{copy.pipelineTitle}</h2>
               </div>
               <div className="space-y-3">
                 <div className="rounded-[1.5rem] border border-white/10 bg-white/5 px-5 py-4 flex items-center justify-between gap-4">

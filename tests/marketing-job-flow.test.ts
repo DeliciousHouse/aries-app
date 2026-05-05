@@ -6,11 +6,18 @@ import test from 'node:test';
 import { isValidElement } from 'react';
 
 import MarketingNewJobPage from '../app/marketing/new-job/page';
-import MarketingNewJobScreen from '../frontend/marketing/new-job';
 import { installBrandExampleFetchMock } from './helpers/brand-example-fetch';
 import { resolveProjectRoot } from './helpers/project-root';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
+
+function expectRedirect(callable: () => unknown, location: string) {
+  assert.throws(callable, (error: unknown) => {
+    assert.equal(error instanceof Error ? error.message : String(error), 'NEXT_REDIRECT');
+    assert.equal((error as { digest?: string }).digest, `NEXT_REDIRECT;replace;${location};307;`);
+    return true;
+  });
+}
 
 async function loadMarketingOrchestrator() {
   return import('../backend/marketing/orchestrator');
@@ -177,11 +184,8 @@ function installMarketingPipelineInvoker(
   });
 }
 
-test('/marketing/new-job uses the canonical MarketingNewJobScreen', () => {
-  const element = MarketingNewJobPage();
-
-  assert.equal(isValidElement(element), true);
-  assert.equal(element.type, MarketingNewJobScreen);
+test('/marketing/new-job redirects to the social-content intake route', () => {
+  expectRedirect(() => MarketingNewJobPage(), '/social-content/new');
 });
 
 test('startMarketingJob rejects brand_campaign requests without a brand URL', async () => {

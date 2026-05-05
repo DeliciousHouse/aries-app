@@ -20,7 +20,7 @@ test('route-level metadata stays specific for QA-regressed pages', () => {
   assert.equal(publishStatusMetadata.title, 'Publish Status · Aries AI');
   assert.equal(dashboardCampaignsMetadata.title, 'Campaigns · Aries AI');
   assert.equal(dashboardNewCampaignMetadata.title, 'New Campaign · Aries AI');
-  assert.equal(marketingNewJobMetadata.title, 'New Campaign · Aries AI');
+  assert.equal(marketingNewJobMetadata.title, 'Create Weekly Social Posts · Aries AI');
   assert.equal(marketingJobStatusMetadata.title, 'Campaign Status · Aries AI');
   assert.equal(marketingJobApproveMetadata.title, 'Campaign Approval · Aries AI');
 });

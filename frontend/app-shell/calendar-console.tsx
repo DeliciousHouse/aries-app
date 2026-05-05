@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
 import { CalendarDays, Sparkles } from 'lucide-react';
 
-import type { MarketingCalendarEvent } from '@/lib/api/marketing';
+import type { MarketingCalendarEvent, SocialContentCalendarEvent } from '@/lib/api/marketing';
 import { useCalendarSync } from '@/hooks/use-calendar-sync';
 import { useLatestMarketingJob } from '@/hooks/use-latest-marketing-job';
 
@@ -42,18 +42,46 @@ function buildCalendarDays(startIso?: string | null, endIso?: string | null): Da
   return iterateUtcDaysInclusive(start, end);
 }
 
+function contentCalendarLabel(isWeeklyMode: boolean, durationDays?: number | null): string {
+  if (!isWeeklyMode) {
+    return 'Campaign calendar';
+  }
+  return typeof durationDays === 'number' && Number.isFinite(durationDays) && durationDays > 0
+    ? `${durationDays}-day content calendar`
+    : 'weekly content calendar';
+}
+
+export function calendarConsoleCopyForMode(isWeeklyMode: boolean, durationDays?: number | null): Record<string, string> {
+  return {
+    eyebrow: contentCalendarLabel(isWeeklyMode, durationDays),
+    title: isWeeklyMode ? 'Weekly content plan' : 'Monthly content view',
+    description: isWeeklyMode
+      ? 'Review the weekly plan, scheduled posts, and linked preview assets for the current tenant.'
+      : 'Review the live campaign window, scheduled posts, and linked preview assets for the current tenant.',
+    daysLabel: isWeeklyMode ? 'Days in plan' : 'Days in campaign',
+    statusActionLabel: isWeeklyMode ? 'Open weekly content plan' : 'Open campaign status',
+    newActionLabel: isWeeklyMode ? 'Start weekly content plan' : 'Launch campaign',
+  };
+}
+
 export default function CalendarConsole(): JSX.Element {
   const calendarSync = useCalendarSync();
   const latestJob = useLatestMarketingJob({ autoLoad: true });
   const [windowStart, setWindowStart] = useState('');
   const [windowEnd, setWindowEnd] = useState('');
   const campaign = latestJob.data;
+  const weeklyEvents = (campaign?.calendarEvents ?? []).filter(
+    (event): event is SocialContentCalendarEvent =>
+      typeof event === 'object' && event !== null && 'dayIndex' in event && 'postType' in event,
+  );
+  const isWeeklyMode = weeklyEvents.length > 0;
+  const copy = calendarConsoleCopyForMode(isWeeklyMode, campaign?.durationDays ?? null);
   const days = buildCalendarDays(campaign?.campaignWindow?.start, campaign?.campaignWindow?.end);
   const windowLabel = campaign?.campaignWindow?.start && campaign?.campaignWindow?.end
     ? `${campaign.campaignWindow.start} to ${campaign.campaignWindow.end}`
     : `${days[0]?.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) ?? 'Current month'}`;
 
-  const eventsByDay = new Map<string, MarketingCalendarEvent[]>();
+  const eventsByDay = new Map<string, Array<MarketingCalendarEvent | SocialContentCalendarEvent>>();
   for (const event of campaign?.calendarEvents ?? []) {
     const key = event.startsAt.slice(0, 10);
     const existing = eventsByDay.get(key) ?? [];
@@ -74,14 +102,18 @@ export default function CalendarConsole(): JSX.Element {
       <div className="glass rounded-[2.5rem] p-8">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-3">Campaign calendar</p>
-            <h2 className="text-3xl font-bold mb-3">Monthly content view</h2>
+            <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-3">
+              {copy.eyebrow}
+            </p>
+            <h2 className="text-3xl font-bold mb-3">
+              {copy.title}
+            </h2>
             <p className="text-white/60 leading-relaxed max-w-2xl">
-              Review the live campaign window, scheduled posts, and linked preview assets for the current tenant.
+              {copy.description}
             </p>
           </div>
           <div className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/70">
-            Days in campaign: <strong className="text-white">{campaign?.durationDays ?? 0}</strong>
+            {copy.daysLabel}: <strong className="text-white">{campaign?.durationDays ?? 0}</strong>
           </div>
         </div>
       </div>
@@ -200,7 +232,7 @@ export default function CalendarConsole(): JSX.Element {
             <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-3">Campaign actions</p>
             <div className="flex flex-col gap-3">
               <Link href={campaign ? `/marketing/job-status?jobId=${encodeURIComponent(campaign.jobId)}` : '/marketing/new-job'} className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all text-center">
-                {campaign ? 'Open campaign status' : 'Launch campaign'}
+                {campaign ? copy.statusActionLabel : copy.newActionLabel}
               </Link>
               {campaign?.approval?.actionHref ? (
                 <Link href={campaign.approval.actionHref} className="px-6 py-4 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-all text-center">

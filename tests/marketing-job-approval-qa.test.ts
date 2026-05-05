@@ -329,6 +329,90 @@ test('MarketingJobApproveScreen keeps approval disabled when loaded status has n
   }
 });
 
+test('MarketingJobApproveScreen treats submitted social-content approval as success', async () => {
+  const previousFetch = globalThis.fetch;
+  const globalWithWindow = globalThis as Record<string, unknown>;
+  const previousWindow = globalWithWindow.window;
+  const calls: string[] = [];
+
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const method = init?.method || 'GET';
+    calls.push(method);
+
+    if (method === 'POST') {
+      return new Response(JSON.stringify({
+        approval_status: 'submitted',
+        jobId: 'mkt_social_submitted',
+        resumedStage: 'strategy',
+        completed: false,
+      }), {
+        status: 202,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
+    return new Response(JSON.stringify(baseStatus({
+      jobId: 'mkt_social_submitted',
+      approval: {
+        required: true,
+        status: 'awaiting_approval',
+        approvalId: 'mkta_social_submitted',
+        workflowStepId: 'approve_weekly_plan',
+        title: 'Weekly content approval required',
+        message: 'Review social content before continuing.',
+        actionLabel: 'Review social content',
+        actionHref: '/social-content/review?jobId=mkt_social_submitted',
+      },
+    })), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+  globalWithWindow.window = globalThis;
+
+  try {
+    const { act, create } = await import('react-test-renderer');
+    let root!: import('react-test-renderer').ReactTestRenderer;
+
+    await act(async () => {
+      root = create(
+        React.createElement(MarketingJobApproveScreen, {
+          baseUrl: 'http://localhost',
+          defaultJobId: 'mkt_social_submitted',
+          defaultApprovedBy: 'Reviewer',
+          copyVariant: 'social-content',
+          jobApprovePath: '/api/social-content/jobs',
+          jobStatusPath: '/api/social-content/jobs',
+        }),
+      );
+      await flushMicrotasks();
+      await flushMicrotasks();
+    });
+
+    const approveButton = findApproveButton(root);
+    assert.equal(approveButton.props.disabled, false);
+
+    await act(async () => {
+      await approveButton.props.onClick();
+      await flushMicrotasks();
+      await flushMicrotasks();
+      await flushMicrotasks();
+    });
+
+    const body = JSON.stringify(root.toJSON());
+    assert.match(body, /Approval submitted\. The weekly content job is now resuming\./);
+    assert.doesNotMatch(body, /Approval failed: submitted/);
+    assert.equal(calls.includes('POST'), true);
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousWindow === undefined) {
+      delete globalWithWindow.window;
+    } else {
+      globalWithWindow.window = previousWindow;
+    }
+  }
+});
+
 test('/api/marketing/jobs/:jobId/approve authenticates before revealing runtime job existence', async () => {
   await withRuntimeEnv(async () => {
     const { handleGetMarketingJobStatus } = await import('../app/api/marketing/jobs/[jobId]/handler');

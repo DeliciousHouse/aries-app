@@ -1,37 +1,72 @@
-import { oauthStatus } from '../../../backend/integrations/status';
-import { PROVIDER_REGISTRY } from '../../../backend/integrations/provider-registry';
 import { resolveTokenHealth } from '../../../backend/integrations/connection-schema';
+import { oauthStatusAsync } from '../../../backend/integrations/status';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
+type BrowserSafeConnectionStatus = {
+  provider: 'openai';
+  label: 'ChatGPT / OpenAI';
+  connected: boolean;
+  tokenHealth: 'unknown' | 'valid' | 'expired' | 'error';
+  lastCheckedAt: string | null;
+};
 
-const platforms = Object.keys(PROVIDER_REGISTRY) as Array<keyof typeof PROVIDER_REGISTRY>;
+function mapTokenHealth(input: {
+  connection_status: string;
+  token_expires_at?: string;
+}): BrowserSafeConnectionStatus['tokenHealth'] {
+  if (input.connection_status === 'connected') {
+    const health = resolveTokenHealth(input.token_expires_at);
+    if (health === 'expired') {
+      return 'expired';
+    }
+    return health === 'unknown' ? 'unknown' : 'valid';
+  }
+  if (input.connection_status === 'token_expired') {
+    return 'expired';
+  }
+  if (
+    input.connection_status === 'misconfigured' ||
+    input.connection_status === 'revoked' ||
+    input.connection_status === 'permission_denied' ||
+    input.connection_status === 'error'
+  ) {
+    return 'error';
+  }
+  return 'unknown';
+}
 
-export function buildPlatformConnectionsPayload(tenantId: string) {
-  const connections = platforms.map((provider) => {
-    const state = oauthStatus(provider, tenantId);
-    if ('broker_status' in state) return null;
+export async function buildPlatformConnectionsPayload(tenantId: string): Promise<{
+  status: 'ok';
+  connections: BrowserSafeConnectionStatus[];
+}> {
+  const status = await oauthStatusAsync('openai', tenantId);
+  const now = new Date().toISOString();
+  if ('broker_status' in status) {
     return {
-      schema_name: 'aries_platform_connection',
-      schema_version: '1.0.0',
-      tenant_id: tenantId,
-      provider,
-      connection_id: state.integration_id || `pending_${provider}`,
-      status:
-        state.connection_status === 'connected'
-          ? 'connected'
-          : state.connection_status === 'pending_oauth'
-            ? 'pending'
-            : state.connection_status === 'token_expired' ||
-                state.connection_status === 'revoked' ||
-                state.connection_status === 'permission_denied'
-              ? 'reauthorization_required'
-              : 'disconnected',
-      token_health: resolveTokenHealth(state.token_expires_at),
-      expires_at: state.token_expires_at,
-      updated_at: state.updated_at
+      status: 'ok',
+      connections: [
+        {
+          provider: 'openai',
+          label: 'ChatGPT / OpenAI',
+          connected: false,
+          tokenHealth: 'error',
+          lastCheckedAt: now,
+        },
+      ],
     };
-  }).filter(Boolean);
+  }
 
-  return { status: 'ok', connections };
+  return {
+    status: 'ok',
+    connections: [
+      {
+        provider: 'openai',
+        label: 'ChatGPT / OpenAI',
+        connected: status.connection_status === 'connected',
+        tokenHealth: mapTokenHealth(status),
+        lastCheckedAt: status.updated_at || now,
+      },
+    ],
+  };
 }
 
 export async function handlePlatformConnectionsGet(tenantContextLoader?: TenantContextLoader) {
@@ -40,7 +75,7 @@ export async function handlePlatformConnectionsGet(tenantContextLoader?: TenantC
     return tenantResult.response;
   }
 
-  return new Response(JSON.stringify(buildPlatformConnectionsPayload(tenantResult.tenantContext.tenantId)), {
+  return new Response(JSON.stringify(await buildPlatformConnectionsPayload(tenantResult.tenantContext.tenantId)), {
     status: 200,
     headers: { 'content-type': 'application/json' }
   });

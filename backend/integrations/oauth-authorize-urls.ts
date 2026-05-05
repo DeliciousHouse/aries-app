@@ -5,6 +5,7 @@ import {
   googleClientId,
   linkedInClientId,
   metaAppId,
+  openAiClientId,
   redditClientId,
   tikTokClientKey,
   xClientId,
@@ -139,6 +140,22 @@ export function buildProviderAuthorizationUrl(input: BuildAuthorizeUrlInput): UR
       }
       const url = new URL('https://www.tiktok.com/v2/auth/authorize/');
       url.searchParams.set('client_key', clientKey);
+      url.searchParams.set('response_type', 'code');
+      url.searchParams.set('redirect_uri', redirectUri);
+      url.searchParams.set('state', state);
+      if (scopes.length > 0) {
+        url.searchParams.set('scope', scopes.join(' '));
+      }
+      return url;
+    }
+
+    case 'openai': {
+      const clientId = openAiClientId();
+      if (!clientId) {
+        throw new Error('openai_oauth_not_configured');
+      }
+      const url = new URL('https://auth.openai.com/oauth/authorize');
+      url.searchParams.set('client_id', clientId);
       url.searchParams.set('response_type', 'code');
       url.searchParams.set('redirect_uri', redirectUri);
       url.searchParams.set('state', state);

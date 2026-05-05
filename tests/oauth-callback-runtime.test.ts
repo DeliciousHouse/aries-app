@@ -16,6 +16,8 @@ const OAUTH_ENV_KEYS = [
   'META_AD_ACCOUNT_ID',
   'META_ACCESS_TOKEN',
   'META_PAGE_ID',
+  'OPENAI_CLIENT_ID',
+  'OPENAI_CLIENT_SECRET',
   'OAUTH_TOKEN_ENCRYPTION_KEY',
   'REDDIT_CLIENT_ID',
   'REDDIT_CLIENT_SECRET',
@@ -177,7 +179,7 @@ const providerCases: Array<{
   fetchImpl: (url: string) => Response;
   expectedAccessToken: string;
   expectedRefreshToken?: string;
-  expectedExternalAccountId: string;
+  expectedExternalAccountId?: string;
   expectedExternalAccountName?: string;
 }> = [
   {
@@ -207,6 +209,29 @@ const providerCases: Array<{
     expectedAccessToken: 'facebook-access-token',
     expectedExternalAccountId: 'fb-page-123',
     expectedExternalAccountName: 'Meta Test Page',
+  },
+  {
+    provider: 'openai',
+    env: {
+      OPENAI_CLIENT_ID: 'openai-client-id',
+      OPENAI_CLIENT_SECRET: 'openai-client-secret',
+      OAUTH_TOKEN_ENCRYPTION_KEY: BASE64_KEY,
+    },
+    scopes: ['openid', 'profile'],
+    fetchImpl(url) {
+      if (url.includes('auth.openai.com/oauth/token')) {
+        return Response.json({
+          access_token: 'openai-access-token',
+          refresh_token: 'openai-refresh-token',
+          token_type: 'Bearer',
+          expires_in: 3600,
+          scope: 'openid profile',
+        });
+      }
+      throw new Error(`Unexpected fetch URL for openai test: ${url}`);
+    },
+    expectedAccessToken: 'openai-access-token',
+    expectedRefreshToken: 'openai-refresh-token',
   },
   {
     provider: 'reddit',
@@ -330,7 +355,7 @@ for (const providerCase of providerCases) {
       const [connection] = [...db.connections.values()];
       assert.equal(connection.provider, providerCase.provider);
       assert.equal(connection.status, 'connected');
-      assert.equal(connection.external_account_id, providerCase.expectedExternalAccountId);
+      assert.equal(connection.external_account_id ?? undefined, providerCase.expectedExternalAccountId);
       assert.equal(connection.external_account_name ?? undefined, providerCase.expectedExternalAccountName);
 
       const token = db.tokens[0];

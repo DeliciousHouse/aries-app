@@ -46,6 +46,21 @@ const steps = [
     ],
   },
   {
+    name: 'social-content migration regression tests',
+    args: [
+      '--test',
+      'tests/social-content-execution-contract.test.ts',
+      'tests/social-content-weekly-defaults.test.ts',
+      'tests/social-content-approve-route.test.ts',
+      'tests/integrations-openai-safety.test.ts',
+      'tests/social-content-new-job-screen.test.ts',
+      'tests/marketing-job-route.smoke.test.ts',
+      'tests/runtime-pages.test.ts',
+      'tests/docs-social-content-guidance.test.ts',
+      'tests/social-content-public-copy.test.ts',
+    ],
+  },
+  {
     name: 'targeted marketing-flow smoke tests',
     args: ['--test', 'tests/marketing-flow-smoke.test.ts'],
   },

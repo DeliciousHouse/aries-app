@@ -13,10 +13,11 @@ import { useAsyncAction } from './use-request-state';
 
 export interface UseMarketingJobApproveOptions {
   baseUrl?: string;
+  jobApprovePath?: string;
 }
 
 export function useMarketingJobApprove(options: UseMarketingJobApproveOptions = {}) {
-  const api = useMemo(() => createMarketingApi(options), [options.baseUrl]);
+  const api = useMemo(() => createMarketingApi(options), [options.baseUrl, options.jobApprovePath]);
   const state = useAsyncAction<MarketingResult<ApproveJobResult>>();
 
   return {

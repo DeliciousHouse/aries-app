@@ -49,8 +49,14 @@ export interface BrandCampaignPayload {
   goal?: string;
   launchApproverName?: string;
   offer?: string;
+  audience?: string;
   channels?: string[];
   mode?: string;
+  forbiddenVisualPatterns?: string[];
+  staticPostsCount?: number | string;
+  imageCreativesCount?: number | string;
+  videoScriptsCount?: number | string;
+  renderVideoAfterApproval?: boolean | string;
 }
 
 export interface PostMarketingJobsRequest {
@@ -59,12 +65,14 @@ export interface PostMarketingJobsRequest {
 }
 
 export interface StartJobAccepted {
-  marketing_job_status: 'accepted';
+  marketing_job_status: 'accepted' | 'needs_connection';
   jobId: string;
   jobType: MarketingJobType;
   marketing_stage: MarketingStage;
   approvalRequired: boolean;
   approval?: MarketingApprovalSummary | null;
+  reason?: string;
+  message?: string;
   jobStatusUrl: string;
 }
 
@@ -134,6 +142,20 @@ export interface MarketingCalendarEvent {
   platform: string;
   title: string;
   status: string;
+  assetPreviewId: string | null;
+}
+
+export interface SocialContentCalendarEvent {
+  id: string;
+  jobId: string;
+  dayIndex: number;
+  startsAt: string;
+  endsAt: string | null;
+  platform: string;
+  platformLabel: string;
+  title: string;
+  postType: 'static' | 'image' | 'video_script' | 'video_render' | 'publish';
+  status: 'draft' | 'needs_review' | 'approved' | 'scheduled' | 'published';
   assetPreviewId: string | null;
 }
 
@@ -542,7 +564,7 @@ export interface GetMarketingJobStatusResponse {
   plannedPostCount: number | null;
   createdPostCount: number | null;
   assetPreviewCards: MarketingAssetPreviewCard[];
-  calendarEvents: MarketingCalendarEvent[];
+  calendarEvents: Array<MarketingCalendarEvent | SocialContentCalendarEvent>;
   marketing_job_state: string;
   marketing_job_status: string;
   marketing_stage: string | null;
@@ -579,6 +601,14 @@ export type GetMarketingPostsResponse = MarketingDashboardContent;
 
 export interface PostMarketingJobApproveRequest {
   approvedBy: string;
+  approved?: boolean;
+  approvalStep?:
+    | 'approve_weekly_plan'
+    | 'approve_post_copy'
+    | 'approve_image_creatives'
+    | 'approve_video_script'
+    | 'approve_video_render'
+    | 'approve_publish';
   approvedStages?: MarketingStage[];
   approvalId?: string;
   resumePublishIfNeeded?: boolean;
@@ -590,7 +620,7 @@ export interface PostMarketingJobApproveRequest {
 }
 
 export interface ApproveJobResult {
-  approval_status: 'resumed' | 'already_resolved' | 'denied' | 'error';
+  approval_status: 'submitted' | 'resumed' | 'already_resolved' | 'denied' | 'error';
   jobId: string;
   resumedStage: string | null;
   completed: boolean;
@@ -608,7 +638,15 @@ export interface MarketingApiError {
 
 export type MarketingResult<TData> = TData | MarketingApiError;
 
-export function createMarketingApi(options: ApiClientOptions = {}) {
+export interface MarketingApiClientOptions extends ApiClientOptions {
+  jobStatusPath?: string;
+  jobApprovePath?: string;
+}
+
+export function createMarketingApi(options: MarketingApiClientOptions = {}) {
+  const jobStatusPath = options.jobStatusPath ?? '/api/marketing/jobs';
+  const jobApprovePath = options.jobApprovePath ?? '/api/marketing/jobs';
+
   return {
     createJob(body: PostMarketingJobsRequest | FormData) {
       return requestJson<MarketingResult<StartJobAccepted>>(
@@ -623,7 +661,7 @@ export function createMarketingApi(options: ApiClientOptions = {}) {
 
     getJob(jobId: string) {
       return requestJson<MarketingResult<GetMarketingJobStatusResponse>>(
-        `/api/marketing/jobs/${encodeURIComponent(jobId)}`,
+        `${jobStatusPath}/${encodeURIComponent(jobId)}`,
         { method: 'GET' },
         options
       );
@@ -647,7 +685,7 @@ export function createMarketingApi(options: ApiClientOptions = {}) {
 
     approveJob(jobId: string, body: PostMarketingJobApproveRequest) {
       return requestJson<MarketingResult<ApproveJobResult>>(
-        `/api/marketing/jobs/${encodeURIComponent(jobId)}/approve`,
+        `${jobApprovePath}/${encodeURIComponent(jobId)}/approve`,
         {
           method: 'POST',
           body: JSON.stringify(body),

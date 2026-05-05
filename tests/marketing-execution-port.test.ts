@@ -10,7 +10,6 @@ import {
   resolveMarketingExecutionPortName,
 } from '../backend/marketing/execution-port';
 import { HermesMarketingPort } from '../backend/marketing/ports/hermes';
-import { LegacyOpenClawMarketingPort } from '../backend/marketing/ports/legacy-openclaw';
 import type { MarketingJobRuntimeDocument } from '../backend/marketing/runtime-state';
 import { TEST_HERMES_GATEWAY_URL } from './fixtures/service-urls';
 
@@ -19,13 +18,50 @@ const STUB_RUNTIME_PATHS = { gatewayCwd: 'lobster', localCwd: '/tmp/lobster' };
 const STUB_DOC = {
   job_id: 'job_test',
   tenant_id: 'tenant_test',
-  inputs: {},
+  created_by: 'user_test',
+  inputs: {
+    brand_url: 'https://brand.example',
+    competitor_url: 'https://competitor.example',
+    competitor_brand: 'Competitor',
+    facebook_page_url: 'https://facebook.com/competitor',
+    ad_library_url: 'https://facebook.com/ads/library',
+    request: {
+      jobType: 'weekly_social_content',
+      imageCreativeCount: 9,
+      videoRenderCount: 7,
+      openaiConnectionId: 'conn_openai_test',
+      openaiAccessToken: 'sk-live-should-not-appear',
+    },
+  },
+  brand_kit: {
+    brand_name: 'Brand Co',
+  },
 } as unknown as MarketingJobRuntimeDocument;
 
 const STUB_RUN_INPUT = {
   jobId: 'job_test',
   doc: STUB_DOC,
   argsJson: '{"job_id":"job_test"}',
+  timeoutMs: 1_000,
+  maxStdoutBytes: 65_536,
+};
+
+const BRAND_CAMPAIGN_DOC = {
+  job_id: 'job_brand',
+  tenant_id: 'tenant_brand',
+  inputs: {
+    brand_url: 'https://brand.example',
+    competitor_url: 'https://competitor.example',
+    request: {
+      jobType: 'brand_campaign',
+    },
+  },
+} as unknown as MarketingJobRuntimeDocument;
+
+const BRAND_CAMPAIGN_RUN_INPUT = {
+  jobId: 'job_brand',
+  doc: BRAND_CAMPAIGN_DOC,
+  argsJson: '{"job_id":"job_brand"}',
   timeoutMs: 1_000,
   maxStdoutBytes: 65_536,
 };
@@ -81,10 +117,10 @@ test('marketing port name selects hermes only when ARIES_MARKETING_EXECUTION_PRO
   );
 });
 
-test('marketing port name accepts explicit legacy-openclaw selection', () => {
+test('marketing port name maps explicit legacy-openclaw selection to hermes', () => {
   assert.equal(
     resolveMarketingExecutionPortName({ ARIES_MARKETING_EXECUTION_PROVIDER: 'legacy-openclaw' }),
-    'legacy-openclaw',
+    'hermes',
   );
 });
 
@@ -110,17 +146,12 @@ test('getMarketingExecutionPort returns the Hermes port when explicitly selected
   assert.equal(port.name, 'hermes');
 });
 
-test('HermesMarketingPort.runPipeline submits and polls until completed', async () => {
+test('HermesMarketingPort.runPipeline returns submitted immediately by default', async () => {
   await withDataRoot(async () => {
     const { loadExecutionRunRecord } = await import('../backend/execution/run-store');
-    const completedOutput = JSON.stringify({ ok: true, status: 'completed', output: [{ stage: 'research', summary: 'done' }] });
     const { calls, fetchImpl } = recordingFetchSequence([
       () => new Response(JSON.stringify({ run_id: 'hermes-marketing-run-1', status: 'started' }), {
         status: 202,
-        headers: { 'content-type': 'application/json' },
-      }),
-      () => new Response(JSON.stringify({ run_id: 'hermes-marketing-run-1', status: 'completed', output: completedOutput }), {
-        status: 200,
         headers: { 'content-type': 'application/json' },
       }),
     ]);
@@ -129,42 +160,130 @@ test('HermesMarketingPort.runPipeline submits and polls until completed', async 
       {
         HERMES_GATEWAY_URL: `${TEST_HERMES_GATEWAY_URL}/`,
         HERMES_API_SERVER_KEY: 'token-123',
+        INTERNAL_API_SECRET: 'internal-secret',
+        APP_BASE_URL: 'https://aries.example.com',
         HERMES_SESSION_KEY: 'marketing-session',
-        HERMES_RUN_TIMEOUT_MS: '30000',
-        HERMES_POLL_INTERVAL_MS: '0',
       },
       fetchImpl,
       NO_SLEEP,
     );
     const result = await port.runPipeline(STUB_RUN_INPUT);
 
-    assert.equal(result.kind, 'completed');
+    assert.equal(result.kind, 'submitted');
     assert.equal(result.provider, 'hermes');
-    assert.equal(result.envelope.ok, true);
-    assert.equal(result.envelope.status, 'completed');
-    assert.equal(calls.length, 2);
+    assert.equal(result.hermesRunId, 'hermes-marketing-run-1');
+    assert.equal(calls.length, 1);
 
     const body = JSON.parse(String(calls[0].init.body));
-    assert.equal(body.callback_url, undefined);
+    assert.equal(body.callback_url, 'https://aries.example.com/api/internal/hermes/runs');
+    assert.deepEqual(body.callback_auth, {
+      type: 'internal_api_secret_bearer',
+      secret_ref: 'INTERNAL_API_SECRET',
+    });
+    assert.deepEqual(body.callback_context, {
+      workflow_key: 'social_content_weekly',
+      workflow_version: '2026-05-social-content-weekly-v1',
+      aries_run_id: result.ariesRunId,
+      job_id: 'job_test',
+      tenant_id: 'tenant_test',
+    });
     assert.equal(body.session_id, 'marketing-session');
-    assert.match(body.input, /Workflow: marketing_pipeline/);
-    assert.match(body.input, /Action: run/);
-    assert.match(body.input, /Aries run ID: arun_/);
-    assert.match(body.input, /"job_id":"job_test"/);
-    assert.equal(calls[1].url, `${TEST_HERMES_GATEWAY_URL}/v1/runs/hermes-marketing-run-1`);
+    assert.equal(body.workflow_key, 'social_content_weekly');
+    assert.equal(body.workflow_version, '2026-05-social-content-weekly-v1');
+    assert.equal(body.aries_run_id, result.ariesRunId);
+    assert.equal(body.tenant_id, 'tenant_test');
+    assert.equal(body.job_id, 'job_test');
+    assert.equal(body.callback_url, 'https://aries.example.com/api/internal/hermes/runs');
+    assert.equal(body.input.scope.window_days, 7);
+    assert.equal(body.input.scope.static_post_count, 3);
+    assert.equal(body.input.scope.image_creative_count, 2);
+    assert.equal(body.input.scope.video_script_count, 1);
+    assert.equal(body.input.scope.video_render_count, 1);
+    assert.deepEqual(body.input.scope.channels, ['meta', 'instagram']);
+    assert.deepEqual(body.media_provider, {
+      provider: 'openai',
+      auth_mode: 'user_oauth',
+      tenant_id: 'tenant_test',
+      user_id: 'user_test',
+      connection_id: 'conn_openai_test',
+    });
+    assert.equal(Array.isArray(body.input.media_requests), true);
+    assert.deepEqual(body.input.media_requests, [
+      {
+        type: 'image.generate',
+        provider: 'openai',
+        auth_mode: 'user_oauth',
+        aspect_ratio: '4:5',
+        count: 2,
+        creative_briefs: ['Create on-brand weekly social image creative.'],
+      },
+      {
+        type: 'video.generate',
+        provider: 'openai',
+        auth_mode: 'user_oauth',
+        aspect_ratio: '9:16',
+        count: 1,
+        requires_human_approval: true,
+        script_id: 'weekly_primary',
+      },
+    ]);
+    const serialized = JSON.stringify(body);
+    assert.equal(serialized.includes('.lobster'), false);
+    assert.equal(serialized.includes('marketing_pipeline'), false);
+    assert.equal(serialized.toLowerCase().includes('openclaw'), false);
+    assert.equal(serialized.includes('sk-live-should-not-appear'), false);
+    assert.equal(/gemini|nano banana/i.test(serialized), false);
 
-    const ariesRunIdMatch = String(body.input).match(/Aries run ID: (arun_[^\n]+)/);
-    const ariesRunId = ariesRunIdMatch?.[1] ?? '';
+    const ariesRunId = String(body.aries_run_id);
     const stored = loadExecutionRunRecord(ariesRunId);
     assert.equal(stored?.domain, 'marketing');
-    assert.equal(stored?.workflow_key, 'marketing_pipeline');
+    assert.equal(stored?.workflow_key, 'social_content_weekly');
     assert.equal(stored?.marketing_job_id, 'job_test');
     assert.equal(stored?.stage, 'research');
     assert.equal(stored?.external_run_id, 'hermes-marketing-run-1');
   });
 });
 
-test('HermesMarketingPort.resumePipeline submits and polls until completed', async () => {
+test('HermesMarketingPort preserves brand campaign workflow key for non-weekly runs', async () => {
+  await withDataRoot(async () => {
+    const { loadExecutionRunRecord } = await import('../backend/execution/run-store');
+    const { calls, fetchImpl } = recordingFetchSequence([
+      () => new Response(JSON.stringify({ run_id: 'hermes-brand-run-1', status: 'started' }), {
+        status: 202,
+        headers: { 'content-type': 'application/json' },
+      }),
+    ]);
+    const port = new HermesMarketingPort(
+      {
+        HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL,
+        HERMES_API_SERVER_KEY: 'token-123',
+        INTERNAL_API_SECRET: 'internal-secret',
+        APP_BASE_URL: 'https://aries.example.com',
+      },
+      fetchImpl,
+    );
+
+    const result = await port.runPipeline(BRAND_CAMPAIGN_RUN_INPUT);
+
+    assert.equal(result.kind, 'submitted');
+    assert.equal(calls.length, 1);
+    const body = JSON.parse(String(calls[0].init.body));
+    assert.equal(body.workflow_key, undefined);
+    assert.equal(body.workflow_version, undefined);
+    assert.equal(body.callback_context.workflow_key, 'marketing_pipeline');
+    assert.equal(body.callback_context.workflow_version, undefined);
+    assert.match(body.input, /Workflow: marketing_pipeline/);
+    assert.doesNotMatch(body.input, /Workflow: social_content_weekly/);
+    assert.match(body.input, /"job_id":"job_brand"/);
+
+    const ariesRunIdMatch = String(body.input).match(/Aries run ID: (arun_[^\n]+)/);
+    const stored = loadExecutionRunRecord(ariesRunIdMatch?.[1] ?? '');
+    assert.equal(stored?.workflow_key, 'marketing_pipeline');
+    assert.equal(stored?.marketing_job_id, 'job_brand');
+  });
+});
+
+test('HermesMarketingPort polls only when HERMES_SYNC_POLL_FOR_TESTS=1', async () => {
   await withDataRoot(async () => {
     const completedOutput = JSON.stringify({ ok: true, status: 'completed', output: [] });
     const { calls, fetchImpl } = recordingFetchSequence([
@@ -182,6 +301,9 @@ test('HermesMarketingPort.resumePipeline submits and polls until completed', asy
       {
         HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL,
         HERMES_API_SERVER_KEY: 'token-123',
+        INTERNAL_API_SECRET: 'internal-secret',
+        APP_BASE_URL: 'https://aries.example.com',
+        HERMES_SYNC_POLL_FOR_TESTS: '1',
         HERMES_RUN_TIMEOUT_MS: '30000',
         HERMES_POLL_INTERVAL_MS: '0',
       },
@@ -193,7 +315,8 @@ test('HermesMarketingPort.resumePipeline submits and polls until completed', asy
 
     assert.equal(result.kind, 'completed');
     assert.equal(result.provider, 'hermes');
-    assert.equal(result.envelope.ok, true);
+    assert.equal(result.output.ok, true);
+    assert.equal(result.output.status, 'completed');
     assert.equal(calls.length, 2);
     const body = JSON.parse(String(calls[0].init.body));
     assert.match(body.input, /Action: resume/);
@@ -203,15 +326,132 @@ test('HermesMarketingPort.resumePipeline submits and polls until completed', asy
   });
 });
 
+test('HermesMarketingPort social-content resume includes callback correlation metadata', async () => {
+  await withDataRoot(async () => {
+    const { calls, fetchImpl } = recordingFetchSequence([
+      () => new Response(JSON.stringify({ run_id: 'hermes-social-resume-1', status: 'started' }), {
+        status: 202,
+        headers: { 'content-type': 'application/json' },
+      }),
+    ]);
+    const port = new HermesMarketingPort(
+      {
+        HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL,
+        HERMES_API_SERVER_KEY: 'token-123',
+        INTERNAL_API_SECRET: 'raw-internal-secret-must-not-leak',
+        APP_BASE_URL: 'https://aries.example.com',
+      },
+      fetchImpl,
+    );
+
+    const result = await port.resumePipeline({
+      ...STUB_RESUME_INPUT,
+      tenantId: 'tenant_test',
+      jobId: 'job_test',
+      approvalId: 'mkta_test',
+      workflowStepId: 'approve_weekly_plan',
+      approvalStep: 'approve_weekly_plan',
+      workflowKey: 'social_content_weekly',
+    });
+
+    assert.equal(result.kind, 'submitted');
+    assert.equal(calls.length, 1);
+    const body = JSON.parse(String(calls[0].init.body));
+    assert.equal(body.workflow_key, 'social_content_weekly');
+    assert.equal(body.action, 'resume');
+    assert.equal(body.aries_run_id, result.ariesRunId);
+    assert.equal(body.callback_url, 'https://aries.example.com/api/internal/hermes/runs');
+    assert.deepEqual(body.callback_auth, {
+      type: 'internal_api_secret_bearer',
+      secret_ref: 'INTERNAL_API_SECRET',
+    });
+    assert.deepEqual(body.callback_context, {
+      workflow_key: 'social_content_weekly',
+      aries_run_id: result.ariesRunId,
+      job_id: 'job_test',
+      tenant_id: 'tenant_test',
+      approval_id: 'mkta_test',
+      approval_step: 'approve_weekly_plan',
+    });
+    assert.equal(JSON.stringify(body).includes('raw-internal-secret-must-not-leak'), false);
+  });
+});
+
+test('HermesMarketingPort sync polling preserves documented approval payloads', async () => {
+  await withDataRoot(async () => {
+    const approvalOutput = JSON.stringify({
+      ok: true,
+      status: 'requires_approval',
+      workflowKey: 'marketing_pipeline',
+      approval: {
+        stage: 'production',
+        workflow_step_id: 'approve_stage_3',
+        prompt: 'Approve production assets?',
+        resume_token: 'resume-production-123',
+      },
+      output: [],
+    });
+    const { calls, fetchImpl } = recordingFetchSequence([
+      () => new Response(JSON.stringify({ run_id: 'hermes-approval-run-1', status: 'started' }), {
+        status: 202,
+        headers: { 'content-type': 'application/json' },
+      }),
+      () => new Response(JSON.stringify({ run_id: 'hermes-approval-run-1', status: 'completed', output: approvalOutput }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    ]);
+    const port = new HermesMarketingPort(
+      {
+        HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL,
+        HERMES_API_SERVER_KEY: 'token-123',
+        INTERNAL_API_SECRET: 'internal-secret',
+        APP_BASE_URL: 'https://aries.example.com',
+        HERMES_SYNC_POLL_FOR_TESTS: '1',
+        HERMES_RUN_TIMEOUT_MS: '30000',
+        HERMES_POLL_INTERVAL_MS: '0',
+      },
+      fetchImpl,
+      async () => {},
+    );
+
+    const result = await port.resumePipeline(STUB_RESUME_INPUT);
+
+    assert.equal(result.kind, 'completed');
+    assert.equal(result.output.status, 'requires_approval');
+    assert.deepEqual(result.output.approval, {
+      stage: 'production',
+      workflowStepId: 'approve_stage_3',
+      prompt: 'Approve production assets?',
+      resumeToken: 'resume-production-123',
+    });
+    assert.equal(calls.length, 2);
+  });
+});
+
 test('HermesMarketingPort reports missing config as a completed error result', async () => {
   const port = new HermesMarketingPort({ HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL }); // missing HERMES_API_SERVER_KEY
   const result = await port.runPipeline(STUB_RUN_INPUT);
 
   assert.equal(result.kind, 'completed');
   assert.equal(result.provider, 'hermes');
-  assert.equal(result.envelope.ok, false);
-  assert.equal(result.envelope.status, 'gateway_error');
-  assert.equal(result.envelope.code, 'hermes_gateway_not_configured');
+  assert.equal(result.output.ok, false);
+  assert.equal(result.output.status, 'failed');
+  assert.equal(result.output.error?.code, 'hermes_gateway_not_configured');
+});
+
+test('HermesMarketingPort requires INTERNAL_API_SECRET for social-content execution', async () => {
+  const port = new HermesMarketingPort({
+    HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL,
+    HERMES_API_SERVER_KEY: 'token-123',
+    APP_BASE_URL: 'https://aries.example.com',
+  });
+  const result = await port.runPipeline(STUB_RUN_INPUT);
+
+  assert.equal(result.kind, 'completed');
+  assert.equal(result.output.ok, false);
+  assert.equal(result.output.error?.code, 'hermes_gateway_not_configured');
+  assert.match(result.output.error?.message ?? '', /INTERNAL_API_SECRET/);
 });
 
 test('HermesMarketingPort marks accepted Aries runs failed when Hermes submission fails', async () => {
@@ -227,6 +467,8 @@ test('HermesMarketingPort marks accepted Aries runs failed when Hermes submissio
       {
         HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL,
         HERMES_API_SERVER_KEY: 'token-123',
+        INTERNAL_API_SECRET: 'internal-secret',
+        APP_BASE_URL: 'https://aries.example.com',
       },
       fetchImpl,
     );
@@ -234,71 +476,11 @@ test('HermesMarketingPort marks accepted Aries runs failed when Hermes submissio
     const result = await port.runPipeline(STUB_RUN_INPUT);
 
     assert.equal(result.kind, 'completed');
-    assert.equal(result.envelope.ok, false);
-    const detail = result.envelope.detail as Record<string, unknown>;
+    assert.equal(result.output.ok, false);
+    const detail = result.output.output as Record<string, unknown>;
     const ariesRunId = String(detail.aries_run_id);
     const stored = loadExecutionRunRecord(ariesRunId);
     assert.equal(stored?.status, 'failed');
     assert.equal(stored?.last_error?.code, 'hermes_gateway_request_failed');
   });
-});
-
-test('LegacyOpenClawMarketingPort delegates to the OpenClaw gateway client with the run-pipeline shape', async () => {
-  const calls: Array<Record<string, unknown>> = [];
-  const previousInvoker = (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__;
-  (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ = (
-    payload: Record<string, unknown>,
-  ) => {
-    calls.push(payload);
-    return { ok: true, status: 'completed', output: [{ marker: 'legacy-port' }] };
-  };
-  try {
-    const port = new LegacyOpenClawMarketingPort(() => STUB_RUNTIME_PATHS);
-    const result = await port.runPipeline(STUB_RUN_INPUT);
-    assert.equal(result.kind, 'completed');
-    assert.equal(result.provider, 'legacy-openclaw');
-    assert.equal(result.envelope.ok, true);
-    assert.equal(result.envelope.status, 'completed');
-    assert.equal(calls.length, 1);
-    const payload = calls[0];
-    assert.equal(payload.tool, 'lobster');
-    const args = payload.args as Record<string, unknown>;
-    assert.equal(args.action, 'run');
-    assert.equal(args.pipeline, 'marketing-pipeline.lobster');
-    assert.equal(args.cwd, 'lobster');
-    assert.equal(args.argsJson, '{"job_id":"job_test"}');
-    assert.equal(args.timeoutMs, 1_000);
-    assert.equal(args.maxStdoutBytes, 65_536);
-  } finally {
-    (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ = previousInvoker;
-  }
-});
-
-test('LegacyOpenClawMarketingPort delegates to the OpenClaw gateway client with the resume-pipeline shape', async () => {
-  const calls: Array<Record<string, unknown>> = [];
-  const previousInvoker = (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__;
-  (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ = (
-    payload: Record<string, unknown>,
-  ) => {
-    calls.push(payload);
-    return { ok: true, status: 'completed' };
-  };
-  try {
-    const port = new LegacyOpenClawMarketingPort(() => STUB_RUNTIME_PATHS);
-    const result = await port.resumePipeline(STUB_RESUME_INPUT);
-    assert.equal(result.kind, 'completed');
-    assert.equal(result.provider, 'legacy-openclaw');
-    assert.equal(result.envelope.ok, true);
-    assert.equal(calls.length, 1);
-    const payload = calls[0];
-    assert.equal(payload.tool, 'lobster');
-    const args = payload.args as Record<string, unknown>;
-    assert.equal(args.action, 'resume');
-    assert.equal(args.token, 'opaque-token-123');
-    assert.equal(args.approve, true);
-    assert.equal(args.cwd, 'lobster');
-    assert.equal(args.timeoutMs, 1_000);
-  } finally {
-    (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ = previousInvoker;
-  }
 });
