@@ -84,13 +84,6 @@ export type SocialContentWeeklyRequest = {
   tenant_id: string;
   job_id: string;
   callback_url: string;
-  media_provider?: {
-    provider: 'openai';
-    auth_mode: 'user_oauth';
-    tenant_id: string;
-    user_id: string;
-    connection_id: string;
-  };
   input: {
     brand: {
       url: string;
@@ -127,16 +120,13 @@ export type SocialContentWeeklyRequest = {
     media_requests?: Array<
       | {
           type: 'image.generate';
-          provider: 'openai';
-          auth_mode: 'user_oauth';
           aspect_ratio: '4:5';
           count: number;
+          target_channels: string[];
           creative_briefs: string[];
         }
       | {
           type: 'video.generate';
-          provider: 'openai';
-          auth_mode: 'user_oauth';
           aspect_ratio: '9:16';
           count: number;
           requires_human_approval: true;
@@ -190,36 +180,21 @@ export function buildSocialContentWeeklyRequest(input: {
   if (imageCreativeCount > 0) {
     mediaRequests.push({
       type: 'image.generate',
-      provider: 'openai',
-      auth_mode: 'user_oauth',
       aspect_ratio: '4:5',
       count: imageCreativeCount,
+      target_channels: configuredChannels.length > 0 ? [...configuredChannels] : [...SOCIAL_CONTENT_DEFAULT_SCOPE.channels],
       creative_briefs: resolveCreativeBriefs(req),
     });
   }
   if (videoRenderCount > 0) {
     mediaRequests.push({
       type: 'video.generate',
-      provider: 'openai',
-      auth_mode: 'user_oauth',
       aspect_ratio: '9:16',
       count: videoRenderCount,
       requires_human_approval: true,
       script_id: stringValue(req.videoScriptId) || 'weekly_primary',
     });
   }
-  const openAiConnectionId = stringValue(req.openaiConnectionId);
-  const requestedMedia = mediaRequests.length > 0;
-  const mediaProvider =
-    requestedMedia && openAiConnectionId
-      ? {
-          provider: 'openai' as const,
-          auth_mode: 'user_oauth' as const,
-          tenant_id: input.doc.tenant_id,
-          user_id: stringValue(input.doc.created_by) || stringValue(req.userId) || 'unknown',
-          connection_id: openAiConnectionId,
-        }
-      : undefined;
 
   return {
     workflow_key: SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
@@ -228,7 +203,6 @@ export function buildSocialContentWeeklyRequest(input: {
     tenant_id: input.doc.tenant_id,
     job_id: input.doc.job_id,
     callback_url: input.callbackUrl,
-    ...(mediaProvider ? { media_provider: mediaProvider } : {}),
     input: {
       brand: {
         url: stringValue(input.doc.inputs.brand_url),

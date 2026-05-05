@@ -163,7 +163,7 @@ export MARKETING_STATUS_PUBLIC=1
 
 Hermes callbacks post to `${APP_BASE_URL}/api/internal/hermes/runs` with `Authorization: Bearer ${INTERNAL_API_SECRET}`. Run `npm run validate:execution-provider` after Hermes callback changes.
 
-For weekly social content media generation, operators must connect ChatGPT / OpenAI before image or video work can run. Text-only weekly planning can still run when media generation is disabled.
+For weekly social content media generation, Hermes owns ChatGPT/OpenAI auth and provider execution. Aries submits abstract media requests and receives authenticated callbacks. Text-only weekly planning can still run when media generation is disabled.
 
 ### 3) Start PostgreSQL
 
@@ -258,15 +258,16 @@ docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml
 - `AUTH_URL`
 - `NEXTAUTH_SECRET`
 - `AUTH_TRUST_HOST`
-- `OAUTH_TOKEN_ENCRYPTION_KEY` (stable 32-byte base64 key; generate with `openssl rand -base64 32`)
 
-### Required for OpenAI media generation
+### Generic OpenAI OAuth support
 
 - `OPENAI_CLIENT_ID`
 - `OPENAI_CLIENT_SECRET`
 - `OAUTH_TOKEN_ENCRYPTION_KEY`
 
-These are required only when image/video generation is enabled. Text-only weekly planning can run with media generation disabled.
+Generate `OAUTH_TOKEN_ENCRYPTION_KEY` with `openssl rand -base64 32`.
+
+These are required only for Aries-managed OpenAI OAuth surfaces. Weekly social content media generation does not depend on an Aries-side OpenAI connection.
 
 ### Common optional variables
 
@@ -295,7 +296,7 @@ Aries derives generic OAuth callbacks from `APP_BASE_URL` for non-Meta providers
 - `${APP_BASE_URL}/api/auth/oauth/youtube/callback`
 
 Meta publishing remains env-managed with `META_PAGE_ID` and `META_ACCESS_TOKEN`.
-OpenAI media generation requires `OPENAI_CLIENT_ID`, `OPENAI_CLIENT_SECRET`, and a stable `OAUTH_TOKEN_ENCRYPTION_KEY` so Aries can store OAuth tokens safely. Text-only weekly planning can run with media generation disabled.
+Aries-managed OpenAI OAuth requires `OPENAI_CLIENT_ID`, `OPENAI_CLIENT_SECRET`, and a stable `OAUTH_TOKEN_ENCRYPTION_KEY` so Aries can store OAuth tokens safely when that integration surface is used.
 
 Hermes uses two different secrets at the execution boundary:
 
@@ -327,7 +328,7 @@ Operational flow:
 5. The user reviews weekly content in the social content status/review UI.
 6. The user approves optional video render/publish steps when needed.
 
-For image/video generation, ChatGPT / OpenAI must be configured with `OPENAI_CLIENT_ID`, `OPENAI_CLIENT_SECRET`, and a stable `OAUTH_TOKEN_ENCRYPTION_KEY`, then connected first in Integrations. Text planning can proceed with media generation disabled.
+For weekly social content image/video generation, Hermes owns ChatGPT/OpenAI auth for the connected agent. Aries sends abstract media requests, Hermes executes them, and callbacks update Aries job state. Text planning can proceed with media generation disabled.
 
 ### Legacy brand campaign flow (deprecated)
 

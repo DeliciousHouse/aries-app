@@ -32,14 +32,19 @@ Required variables for Hermes-native weekly social content:
 - `AUTH_URL`
 - `NEXTAUTH_SECRET`
 - `AUTH_TRUST_HOST`
+
+Optional for Aries-managed OAuth surfaces outside weekly social content:
+
 - `OAUTH_TOKEN_ENCRYPTION_KEY`
+- `OPENAI_CLIENT_ID`
+- `OPENAI_CLIENT_SECRET`
 
 Media generation requirement:
 
-- [ ] Configure `OPENAI_CLIENT_ID` and `OPENAI_CLIENT_SECRET` for the ChatGPT / OpenAI integration.
-- [ ] Set a stable 32-byte base64 `OAUTH_TOKEN_ENCRYPTION_KEY` before any OAuth connections are created; generate one with `openssl rand -base64 32`.
-- [ ] Confirm ChatGPT / OpenAI integration is connected before enabling image/video generation.
-- [ ] If OpenAI is not connected, run text-only planning (media disabled) until connection is fixed.
+- [ ] Confirm Hermes is reachable from Aries via `HERMES_GATEWAY_URL` and authenticated with `HERMES_API_SERVER_KEY`.
+- [ ] Confirm Hermes is configured with the ChatGPT/OpenAI-capable agent account used for weekly media work.
+- [ ] Confirm `INTERNAL_API_SECRET` matches the callback secret Hermes uses for `POST /api/internal/hermes/runs`.
+- [ ] If Hermes media capability is unavailable, run text-only planning (media disabled) until Hermes is fixed.
 
 ### Database
 - [ ] Export `DB_*` variables.
@@ -66,5 +71,5 @@ Media generation requirement:
 ## Troubleshooting
 - Database issues: verify `DB_*` settings.
 - Workflow issues: verify `HERMES_GATEWAY_URL`, `HERMES_API_SERVER_KEY`, and `INTERNAL_API_SECRET`.
-- Media-generation issues: verify `OPENAI_CLIENT_ID`, `OPENAI_CLIENT_SECRET`, `OAUTH_TOKEN_ENCRYPTION_KEY`, and ChatGPT / OpenAI connection status in Integrations.
+- Media-generation issues: verify `HERMES_GATEWAY_URL`, `HERMES_API_SERVER_KEY`, `INTERNAL_API_SECRET`, and the Hermes-side ChatGPT/OpenAI agent connection.
 - UI drift: run `npm run typecheck` and `npm run verify`.

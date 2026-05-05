@@ -13,7 +13,7 @@ Last refreshed May 4, 2026, 16:00 UTC.
 - Backend domain logic lives under `backend/*` and routes long-running execution through Hermes by default.
 - `backend/execution/*` owns the general execution provider boundary; the Hermes adapter currently wires the supported Hermes workflow set and the legacy OpenClaw/Lobster adapter remains available with `ARIES_EXECUTION_PROVIDER=legacy-openclaw`.
 - Social content execution uses `backend/marketing/execution-port.ts`; `ARIES_MARKETING_EXECUTION_PROVIDER=hermes` submits `social_content_weekly` runs (version `2026-05-social-content-weekly-v1`) to Hermes and advances runtime state from authenticated `/api/internal/hermes/runs` callbacks.
-- Weekly media generation requires a connected ChatGPT / OpenAI integration; text planning can still run without media generation.
+- Weekly media generation is Hermes-native: Aries sends abstract media requests, Hermes owns ChatGPT/OpenAI auth, and text planning can still run without media generation.
 - Local runtime state and typed adapters live across `lib/*`, `hooks/*`, `specs/*`, and `workflows/*` to preserve contract boundaries.
 - Repo context and automation output should stay scoped to `aries-app` only.
 
@@ -57,6 +57,8 @@ Last refreshed May 4, 2026, 16:00 UTC.
 - verify: node scripts/verify-regression-suite.mjs
 - validate:public-routes: tsx --test tests/runtime-pages.test.ts tests/public-marketing-pages.test.ts
 - validate:banned-patterns: node scripts/check-banned-patterns.mjs
+- validate:execution-provider: APP_BASE_URL=https://aries.example.com tsx --test tests/execution-provider-selection.test.ts tests/execution-hermes-adapter.test.ts tests/hermes-callback-route.test.ts tests/execution-run-store.test.ts tests/marketing-execution-port.test.ts tests/marketing-hermes-callback-flow.test.ts tests/social-content-execution-contract.test.ts
+- validate:social-content: APP_BASE_URL=https://aries.example.com tsx --test tests/social-content-execution-contract.test.ts tests/social-content-weekly-defaults.test.ts tests/social-content-approve-route.test.ts tests/integrations-openai-safety.test.ts tests/social-content-new-job-screen.test.ts tests/marketing-job-route.smoke.test.ts tests/runtime-pages.test.ts tests/docs-social-content-guidance.test.ts tests/social-content-public-copy.test.ts
 - validate:marketing-flow: APP_BASE_URL=https://aries.example.com tsx --test tests/marketing-job-flow.test.ts tests/onboarding-marketing-contracts.test.ts
 - validate:repo-boundary: node scripts/check-repo-boundary.mjs
 - validate:homepage-perf: mkdir -p .artifacts && CI=1 npx --yes lighthouse http://127.0.0.1:3000 --only-categories=performance --preset=desktop --no-enable-error-reporting --chrome-flags='--headless=new --no-sandbox --disable-dev-shm-usage' --output=json --output-path=.artifacts/lighthouse-homepage.json

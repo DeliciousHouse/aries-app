@@ -450,7 +450,7 @@ test('custom weekly window copy uses the actual duration label', async () => {
   });
 });
 
-test('weekly workflow request includes OpenAI media provider reference and abstract media requests', () => {
+test('weekly workflow request includes abstract Hermes-owned media requests', () => {
   const doc = {
     tenant_id: 'tenant_media',
     job_id: 'mkt_media',
@@ -480,28 +480,19 @@ test('weekly workflow request includes OpenAI media provider reference and abstr
     callbackUrl: 'https://aries.example.com/api/internal/hermes/runs',
   });
 
-  assert.deepEqual(request.media_provider, {
-    provider: 'openai',
-    auth_mode: 'user_oauth',
-    tenant_id: 'tenant_media',
-    user_id: 'user_media',
-    connection_id: 'conn_openai_media',
-  });
+  assert.equal('media_provider' in request, false);
   assert.equal(request.input.scope.image_creative_count, 2);
   assert.equal(request.input.scope.video_render_count, 1);
   assert.deepEqual(request.input.media_requests, [
     {
       type: 'image.generate',
-      provider: 'openai',
-      auth_mode: 'user_oauth',
       aspect_ratio: '4:5',
       count: 2,
+      target_channels: ['meta', 'instagram'],
       creative_briefs: ['Get more demo requests'],
     },
     {
       type: 'video.generate',
-      provider: 'openai',
-      auth_mode: 'user_oauth',
       aspect_ratio: '9:16',
       count: 1,
       requires_human_approval: true,
@@ -509,6 +500,7 @@ test('weekly workflow request includes OpenAI media provider reference and abstr
     },
   ]);
   const serialized = JSON.stringify(request);
+  assert.equal(serialized.includes('conn_openai_media'), false);
   assert.equal(serialized.includes('sk-live-should-never-leak'), false);
   assert.equal(/gemini|nano banana|lobster/i.test(serialized), false);
 });

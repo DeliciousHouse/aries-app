@@ -36,11 +36,16 @@ export CODE_ROOT=/home/node/aries-app DATA_ROOT=/tmp/aries-data NODE_ENV=develop
 export ARIES_EXECUTION_PROVIDER=hermes ARIES_MARKETING_EXECUTION_PROVIDER=hermes
 export HERMES_GATEWAY_URL=http://127.0.0.1:8642 HERMES_API_SERVER_KEY=replace-me HERMES_SESSION_KEY=main
 export INTERNAL_API_SECRET=replace-me
-export OAUTH_TOKEN_ENCRYPTION_KEY="$(openssl rand -base64 32)"
-export OPENAI_CLIENT_ID=replace-me OPENAI_CLIENT_SECRET=replace-me
 export APP_BASE_URL=http://localhost:3000 NEXTAUTH_URL=http://localhost:3000 AUTH_URL=http://localhost:3000 AUTH_TRUST_HOST=true
 export NEXTAUTH_SECRET=replace-me
 export MARKETING_STATUS_PUBLIC=1
+```
+
+If you are also testing Aries-managed OpenAI OAuth surfaces, add:
+
+```bash
+export OAUTH_TOKEN_ENCRYPTION_KEY="$(openssl rand -base64 32)"
+export OPENAI_CLIENT_ID=replace-me OPENAI_CLIENT_SECRET=replace-me
 ```
 
 ## Database
@@ -81,15 +86,15 @@ npm run dev
 | `NEXTAUTH_SECRET` | ✅ | Auth.js signing secret |
 | `AUTH_TRUST_HOST` | ✅ | Trust forwarded host headers behind a proxy |
 | `OAUTH_TOKEN_ENCRYPTION_KEY` | ✅ for OAuth media integrations | Stable 32-byte base64 key for encrypting OAuth tokens; generate with `openssl rand -base64 32` |
-| `OPENAI_CLIENT_ID` | ✅ for OpenAI media generation | OpenAI OAuth client ID used by the ChatGPT/OpenAI integration |
-| `OPENAI_CLIENT_SECRET` | ✅ for OpenAI media generation | OpenAI OAuth client secret used by the ChatGPT/OpenAI integration |
+| `OPENAI_CLIENT_ID` | ✅ for Aries-managed OpenAI OAuth | OpenAI OAuth client ID for Aries integration surfaces that still use OpenAI OAuth |
+| `OPENAI_CLIENT_SECRET` | ✅ for Aries-managed OpenAI OAuth | OpenAI OAuth client secret for Aries integration surfaces that still use OpenAI OAuth |
 | `ARIES_EXECUTION_PROVIDER` | Optional | Defaults to `hermes`; set `legacy-openclaw` only for deprecated flows |
 | `ARIES_MARKETING_EXECUTION_PROVIDER` | Optional | Defaults to `hermes`; set `legacy-openclaw` only for deprecated flows |
 | `LOG_LEVEL` | Optional | Runtime log level |
 
-### ChatGPT/OpenAI integration requirement
+### Weekly media auth boundary
 
-- Weekly social content image/video generation requires `OPENAI_CLIENT_ID`, `OPENAI_CLIENT_SECRET`, a stable `OAUTH_TOKEN_ENCRYPTION_KEY`, and a connected ChatGPT / OpenAI integration.
+- Weekly social content image/video generation does not require an Aries-side ChatGPT / OpenAI connection. Hermes owns ChatGPT/OpenAI auth for weekly media work.
 - Text planning can run without media generation when image/video is disabled in the request.
 
 ### Legacy OpenClaw/Lobster variables (deprecated)
@@ -151,6 +156,8 @@ Browser
 ## Verification
 
 Prefer `npm run verify` for a single fast regression gate; it runs the first three checks with deterministic environment overrides.
+
+Use `npm run validate:execution-provider` after changing Hermes callback, run-store, or marketing execution-port behavior. Use `npm run validate:social-content` after changing weekly social-content payloads, routes, or operator copy.
 
 ### 1. Public-route smoke checks
 ```bash
