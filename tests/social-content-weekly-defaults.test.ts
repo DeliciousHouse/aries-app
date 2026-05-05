@@ -570,6 +570,41 @@ test('weekly workflow request includes abstract Hermes-owned media requests', ()
   assert.equal(/gemini|nano banana|lobster/i.test(serialized), false);
 });
 
+test('weekly workflow request filters image target channels to Hermes social channels', () => {
+  const doc = {
+    tenant_id: 'tenant_channels',
+    job_id: 'mkt_channels',
+    created_by: 'user_channels',
+    inputs: {
+      brand_url: 'https://brand.example',
+      competitor_url: '',
+      competitor_brand: '',
+      facebook_page_url: '',
+      ad_library_url: '',
+      request: {
+        channels: ['instagram', 'meta-ads', 'landing-page'],
+      },
+    },
+    brand_kit: {
+      brand_name: 'Brand Name',
+    },
+  } as unknown as MarketingJobRuntimeDocument;
+
+  const request = buildSocialContentWeeklyRequest({
+    doc,
+    ariesRunId: 'arun_channels',
+    callbackUrl: 'https://aries.example.com/api/internal/hermes/runs',
+  });
+
+  assert.deepEqual(request.input.media_requests?.[0], {
+    type: 'image.generate',
+    aspect_ratio: '4:5',
+    count: 2,
+    target_channels: ['instagram'],
+    creative_briefs: ['Create on-brand weekly social image creative.'],
+  });
+});
+
 test('weekly workflow request redacts token-like text and media values', () => {
   const doc = {
     tenant_id: 'tenant_token_text',

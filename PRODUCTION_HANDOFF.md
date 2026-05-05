@@ -36,8 +36,6 @@ Required variables for Hermes-native weekly social content:
 Optional for Aries-managed OAuth surfaces outside weekly social content:
 
 - `OAUTH_TOKEN_ENCRYPTION_KEY`
-- `OPENAI_CLIENT_ID`
-- `OPENAI_CLIENT_SECRET`
 
 Media generation requirement:
 

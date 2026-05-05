@@ -41,11 +41,10 @@ export NEXTAUTH_SECRET=replace-me
 export MARKETING_STATUS_PUBLIC=1
 ```
 
-If you are also testing Aries-managed OpenAI OAuth surfaces, add:
+If you are also testing Aries-managed OAuth providers, add:
 
 ```bash
 export OAUTH_TOKEN_ENCRYPTION_KEY="$(openssl rand -base64 32)"
-export OPENAI_CLIENT_ID=replace-me OPENAI_CLIENT_SECRET=replace-me
 ```
 
 ## Database
@@ -85,9 +84,7 @@ npm run dev
 | `AUTH_URL` | ✅ | Alias for the Auth.js public origin |
 | `NEXTAUTH_SECRET` | ✅ | Auth.js signing secret |
 | `AUTH_TRUST_HOST` | ✅ | Trust forwarded host headers behind a proxy |
-| `OAUTH_TOKEN_ENCRYPTION_KEY` | ✅ for OAuth media integrations | Stable 32-byte base64 key for encrypting OAuth tokens; generate with `openssl rand -base64 32` |
-| `OPENAI_CLIENT_ID` | ✅ for Aries-managed OpenAI OAuth | OpenAI OAuth client ID for Aries integration surfaces that still use OpenAI OAuth |
-| `OPENAI_CLIENT_SECRET` | ✅ for Aries-managed OpenAI OAuth | OpenAI OAuth client secret for Aries integration surfaces that still use OpenAI OAuth |
+| `OAUTH_TOKEN_ENCRYPTION_KEY` | ✅ for Aries-managed OAuth providers | Stable 32-byte base64 key for encrypting OAuth tokens; generate with `openssl rand -base64 32` |
 | `ARIES_EXECUTION_PROVIDER` | Optional | Defaults to `hermes`; set `legacy-openclaw` only for deprecated flows |
 | `ARIES_MARKETING_EXECUTION_PROVIDER` | Optional | Defaults to `hermes`; set `legacy-openclaw` only for deprecated flows |
 | `LOG_LEVEL` | Optional | Runtime log level |

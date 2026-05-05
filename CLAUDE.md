@@ -148,7 +148,7 @@ Required for Hermes-native local/runtime setup: `DB_HOST`, `DB_PORT`, `DB_USER`,
 
 Optional for legacy compatibility only: `OPENCLAW_GATEWAY_URL`, `OPENCLAW_GATEWAY_TOKEN`, `OPENCLAW_SESSION_KEY`
 
-Optional for Aries-managed OpenAI OAuth surfaces: `OPENAI_CLIENT_ID`, `OPENAI_CLIENT_SECRET`, `OAUTH_TOKEN_ENCRYPTION_KEY`
+Required when working on Aries-managed OAuth providers: `OAUTH_TOKEN_ENCRYPTION_KEY`. Weekly social content media generation does not use an Aries-side OpenAI client or secret; Hermes owns media auth and execution.
 
 Local dev defaults:
 ```bash

@@ -30,6 +30,7 @@ publish/*.js.map
 .DS_Store
 
 # Local assistant / workspace notes
+.opencode/
 
 # Environment files
 .env

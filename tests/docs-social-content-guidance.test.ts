@@ -28,8 +28,6 @@ test('.env.example documents Hermes weekly social-content defaults', () => {
     'NEXTAUTH_SECRET',
     'AUTH_TRUST_HOST',
     'OAUTH_TOKEN_ENCRYPTION_KEY',
-    'OPENAI_CLIENT_ID',
-    'OPENAI_CLIENT_SECRET',
   ];
 
   for (const variable of requiredVars) {
@@ -101,8 +99,8 @@ test('docs distinguish local Compose Postgres and social-content checks from leg
   assert.match(readme, /For weekly social content media generation, Hermes owns ChatGPT\/OpenAI auth/i);
   assert.match(readme, /Text-only weekly planning can (still )?run when media generation is disabled/i);
   assert.match(compose, /DB_HOST:\s*postgres/);
-  assert.match(compose, /OPENAI_CLIENT_ID:\s*\$\{OPENAI_CLIENT_ID\}/);
-  assert.match(compose, /OPENAI_CLIENT_SECRET:\s*\$\{OPENAI_CLIENT_SECRET\}/);
+  assert.doesNotMatch(compose, /OPENAI_CLIENT_ID/);
+  assert.doesNotMatch(compose, /OPENAI_CLIENT_SECRET/);
 
   assert.match(setup, /Social-content smoke path/);
   assert.match(setup, /tests\/social-content-weekly-defaults\.test\.ts/);

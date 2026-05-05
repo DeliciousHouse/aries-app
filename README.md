@@ -259,15 +259,11 @@ docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml
 - `NEXTAUTH_SECRET`
 - `AUTH_TRUST_HOST`
 
-### Generic OpenAI OAuth support
+### Aries-managed OAuth support
 
-- `OPENAI_CLIENT_ID`
-- `OPENAI_CLIENT_SECRET`
 - `OAUTH_TOKEN_ENCRYPTION_KEY`
 
-Generate `OAUTH_TOKEN_ENCRYPTION_KEY` with `openssl rand -base64 32`.
-
-These are required only for Aries-managed OpenAI OAuth surfaces. Weekly social content media generation does not depend on an Aries-side OpenAI connection.
+Generate `OAUTH_TOKEN_ENCRYPTION_KEY` with `openssl rand -base64 32`. Aries uses this shared key to encrypt tokens for Aries-managed OAuth providers such as LinkedIn, X, YouTube, Reddit, and TikTok. Weekly social content media generation does not use an Aries-side OpenAI client or secret; Hermes owns media auth and execution.
 
 ### Common optional variables
 
@@ -295,8 +291,7 @@ Aries derives generic OAuth callbacks from `APP_BASE_URL` for non-Meta providers
 - `${APP_BASE_URL}/api/auth/oauth/x/callback`
 - `${APP_BASE_URL}/api/auth/oauth/youtube/callback`
 
-Meta publishing remains env-managed with `META_PAGE_ID` and `META_ACCESS_TOKEN`.
-Aries-managed OpenAI OAuth requires `OPENAI_CLIENT_ID`, `OPENAI_CLIENT_SECRET`, and a stable `OAUTH_TOKEN_ENCRYPTION_KEY` so Aries can store OAuth tokens safely when that integration surface is used.
+Meta publishing remains env-managed with `META_PAGE_ID` and `META_ACCESS_TOKEN`. Aries-managed OAuth providers use a stable `OAUTH_TOKEN_ENCRYPTION_KEY` so Aries can store OAuth tokens safely. Weekly social content media generation does not use an Aries-side OpenAI client or secret.
 
 Hermes uses two different secrets at the execution boundary:
 

@@ -153,6 +153,12 @@ function resolveCreativeBriefs(req: UnknownRecord): string[] {
   return ['Create on-brand weekly social image creative.'];
 }
 
+function weeklySocialChannels(value: string[]): string[] {
+  const allowedChannels = new Set<string>(SOCIAL_CONTENT_DEFAULT_SCOPE.channels);
+  const channels = value.filter((channel) => allowedChannels.has(channel));
+  return channels.length > 0 ? channels : [...SOCIAL_CONTENT_DEFAULT_SCOPE.channels];
+}
+
 export function buildSocialContentWeeklyRequest(input: {
   doc: MarketingJobRuntimeDocument;
   ariesRunId: string;
@@ -160,6 +166,7 @@ export function buildSocialContentWeeklyRequest(input: {
 }): SocialContentWeeklyRequest {
   const req = requestRecord(input.doc);
   const configuredChannels = stringArray(req.channels);
+  const imageTargetChannels = weeklySocialChannels(configuredChannels);
   const visualReferences = stringArray(req.visualReferences)
     .map(sanitizeReference)
     .filter((entry) => entry.length > 0);
@@ -182,7 +189,7 @@ export function buildSocialContentWeeklyRequest(input: {
       type: 'image.generate',
       aspect_ratio: '4:5',
       count: imageCreativeCount,
-      target_channels: configuredChannels.length > 0 ? [...configuredChannels] : [...SOCIAL_CONTENT_DEFAULT_SCOPE.channels],
+      target_channels: imageTargetChannels,
       creative_briefs: resolveCreativeBriefs(req),
     });
   }

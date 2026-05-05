@@ -31,6 +31,7 @@ export const marketing_job_status_values = [
   'blocked',
   'ready',
   'awaiting_approval',
+  'needs_connection',
   'needs_repair',
   'ready_for_production',
   'resumed',
