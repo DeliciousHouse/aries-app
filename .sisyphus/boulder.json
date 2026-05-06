@@ -8,5 +8,16 @@
     "ses_202493e93ffeFSRsfwnxI5MtVK": "direct"
   },
   "plan_name": "weekly-social-content-pipeline",
-  "agent": "atlas"
+  "agent": "atlas",
+  "task_sessions": {
+    "todo:9": {
+      "task_key": "todo:9",
+      "task_label": "9",
+      "task_title": "**Per-channel aspect-ratio matrix in media_requests**",
+      "session_id": "ses_20203c4caffeoEDAsog5dlRnTK",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-05-06T15:52:45.894Z"
+    }
+  }
 }

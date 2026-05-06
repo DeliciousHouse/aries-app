@@ -556,7 +556,7 @@ Parallel Speedup: ~65% faster than fully sequential
 
   **Commit**: YES (T4) — `feat(callback): per-run callback token defense in depth`
 
-- [ ] **T5. Publish-dispatch tenant-ownership validation of `media_urls`** (tests-first)
+- [x] **T5. Publish-dispatch tenant-ownership validation of `media_urls`** (tests-first)
 
   **What to do**:
   - In `app/api/publish/dispatch/handler.ts` `handlePublishDispatch`: before calling `runAriesWorkflow('publish_dispatch')`, validate every URL in `body.media_urls`.
