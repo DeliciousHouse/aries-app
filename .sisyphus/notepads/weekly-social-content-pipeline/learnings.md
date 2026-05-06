@@ -896,280 +896,121 @@ Current `fix/live-qa-blockers` HEAD only contained T3 (`82cc550`), T8 (`7c062aa`
 - The sweeper is invocation-only — no daemon/cron/scheduler in T26 per task spec. F2/F3 operational reliability checks should call this script from whatever scheduler the host environment provides (systemd timer, k8s CronJob, etc.) rather than embedding scheduling here.
 - The dedup audit key is `tenant_id + event_type + occurred_at`. If a future task adds tenant-scoped warning suppression (e.g., user opted out), prefer a separate `oauth.reconnect_warning.suppressed` audit event over piggy-backing on `.sent`.
 
-## [2026-05-06] T18 — "Generate this week" manual trigger UI + handler
+## [2026-05-06] T28 — End-to-end weekly social-content smoke script
 
-### Module split
-- NEW `frontend/aries-v1/generate-this-week.ts` — single pure helper module hosting (a) the exact button label `"Generate this week's content"`, (b) the gate evaluator `evaluateGenerateThisWeekGate`, (c) the request body builder, (d) `submitGenerateThisWeek(fetch, baseUrl)`, and (e) `customerSafeGenerateThisWeekError`. Importing only from this single module keeps the React parent + view-model + presenter wired through one seam, which made the focused tests trivial.
-- View-model gets a new `generateThisWeek` section computed from the same inputs it already had (`profile`, `integrationCards`, `integrationsPending`, `campaigns`). No new view-model inputs were required — the gate is a pure projection of existing state.
-- Submit lives in the parent (`home-dashboard.tsx`) via `useState` + `useCallback`. Presenter receives an optional `generateThisWeek={ submitting, errorMessage, onTrigger }` prop. When the prop is omitted (e.g., a future SSR snapshot or storybook), the button renders disabled — never crashes.
+### Module shape (`scripts/smoke-weekly-pipeline.mjs`)
+- Pure ESM `.mjs` so the script stays out of the TypeScript graph and avoids the pre-existing `tests/social-content-approve-route.test.ts` typecheck noise on this branch.
+- CLI surface is exactly `--tenant <id> --website <url> --auto-approve` per plan T28; `--help` / `-h` prints the usage block. Equals-form (`--tenant=foo`, `--website=https://x`) is also accepted. Missing/invalid args -> `SmokeError(step=0, ...)` -> exit 1, no soft-fail and no `--skip-*` flags.
+- Required env (validated up-front, all 9 names): `APP_BASE_URL`, `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `META_TEST_PAGE_ID`, `META_TEST_PAGE_ACCESS_TOKEN`, `OAUTH_TOKEN_ENCRYPTION_KEY`. Optional: `META_GRAPH_API_VERSION` (defaults to `v21.0`). The script intentionally uses `META_TEST_*` names and the focused test asserts the script source does NOT reference the production `META_PAGE_ID` / `META_ACCESS_TOKEN` env names anywhere.
+- Live execution is guarded by an `import.meta.url` check — the helpers (`parseArgs`, `validateArgs`, `validateEnv`, `encryptOAuthToken`, `buildUsageText`, `isAtApproval`, `isCompleted`, `STEP_LABELS`, `REQUIRED_ENV`, `EVIDENCE_PATHS`, `SmokeError`, `runSmoke`, `main`) are all named exports so tests can import them without spawning the full smoke run.
 
-### Gate semantics (matches plan + dashboard runtime quirk)
-- In-progress detection looks at `status ∈ {draft,in_review}` OR `dashboardStatus ∈ {draft,in_review}` OR `approvalRequired === true`. Any of those alone counts. The dashboard projection emits `draft`/`in_review` for submitted/running/requires_approval jobs, so this is the only reliable client-side double-trigger guard.
-- `in_progress` outranks `profile_incomplete` and `no_meta_connection`. Rationale: if a run is still going, blocking the new trigger is more important than telling the user to fix profile/channels first.
-- Profile-unavailable (`profile === null`) and profile-incomplete are split because the disabled-reason copy differs.
-- `integrations_loading` only applies when `integrationsPending === true` AND no other gate fired — prevents flicker between "Loading…" and "Connect a Facebook…" while integrations hydrate.
+### 14-step assertion roster (numbered PASS lines on a green run)
+- 1 signup tenant — direct `pg` insert into `organizations` + `users` (bcrypt-hashed password) because there is no public signup endpoint in this repo.
+- 2 submit business profile via `/api/onboarding/start` AND persist the `business_profiles` row directly so the T16 onboarding gate accepts the tenant immediately (the `/api/onboarding/start` workflow is async).
+- 3 connect Meta — direct `pg` upsert of `oauth_connections` (facebook + instagram, status=connected) plus encrypted `oauth_tokens` rows. The Page Access Token is encrypted inline with the same AES-256-GCM JSON envelope `backend/integrations/oauth-crypto.ts` produces, verified by an explicit round-trip test against `decryptToken()`.
+- 4 trigger `POST /api/social-content/jobs` with `jobType: 'weekly_social_content'` after authenticating via NextAuth credentials (`/api/auth/csrf` then `/api/auth/callback/credentials`).
+- 5/7/9 wait for `approval.approvalStep === approve_weekly_plan|approve_image_creatives|approve_publish` (60s each).
+- 6/8/10 POST `/api/social-content/jobs/{id}/approve` with `approvedBy: 'smoke-script'` and the captured `approvalId` (200 or 202 accepted).
+- 11 wait until `social_content_job_state === 'completed'` (180s).
+- 12 SQL: `SELECT id, platform_post_id, published_status FROM posts WHERE tenant_id = $1 AND published_at IS NOT NULL` — fail if any row has `platform_post_id IS NULL`.
+- 13 `GET https://graph.facebook.com/{META_GRAPH_API_VERSION}/{platform_post_id}?access_token=...` for each post; expect 200 with `body.id === platform_post_id` (id-mismatch is treated as failure, mirroring T24's verification semantics).
+- 14 dynamic-import `playwright`, log in via the NextAuth cookie jar, navigate to `/dashboard/posts`, screenshot to `.sisyphus/evidence/final-qa/dashboard-posts-<slug>.png`, fail if any `<img>` has `naturalWidth <= 0`.
 
-### Server-defaults contract
-- The trigger POSTs `{ jobType: 'weekly_social_content', payload: {} }` to `/api/social-content/jobs`. The handler resolves dialect → `weekly_social_content` and applies server defaults (7 days / 3 static / 2 image / 1 script / 0 render) in `normalizeWeeklySocialContentPayload`. The dashboard MUST NOT reimplement those numbers; the helper docstring calls this out explicitly because it would be trivial for a future contributor to "helpfully" add them client-side.
+### Evidence paths (contract documented and exported)
+- `EVIDENCE_PATHS.smokeGreenFile` -> `.sisyphus/evidence/task-28-smoke-green.txt` (written on green run)
+- `EVIDENCE_PATHS.finalQaDir`     -> `.sisyphus/evidence/final-qa/` (graph-verify.txt + dashboard-posts-<slug>.png/json)
+- `EVIDENCE_PATHS.evidenceDir`    -> `.sisyphus/evidence/`
+- The committed `.sisyphus/evidence/task-28-smoke-green.txt` is the implementation evidence; the live `final-qa/*` artifacts are emitted by the script during a real green run and are NOT pre-committed.
 
-### Navigation
-- Response shape from `/api/social-content/jobs` (social-content dialect) returns `jobStatusUrl: '/social-content/status?jobId=…'`. The parent prefers that field, falls back to constructing the URL from `jobId`, and only shows the fallback error if neither is present (defense against malformed responses).
+### Auth seam
+- The smoke script reuses the NextAuth Credentials provider (no special test bypass) — it captures `Set-Cookie` from `/api/auth/callback/credentials` and replays the session cookie on every subsequent request. Playwright is seeded with the same cookies via `context.addCookies` so the `/dashboard/posts` page renders for the test tenant without going through Google OAuth.
 
-### Customer-safe error redaction
-- Reused `customerSafeUiErrorMessage` / `customerSafeActionErrorMessage` from `frontend/aries-v1/customer-safe-copy.ts`. Internal-sounding tokens (`oauth`, `internal_error`, `provider_unavailable`, stack/trace, env-var names) collapse to the generic fallback. Short, friendly server messages pass through unchanged. The trigger's fallback copy is `"We could not start this week's social content run. Please try again in a moment."`.
-
-### File-permission gotcha
-- `frontend/aries-v1/{view-models/dashboard-home.ts, home-dashboard.tsx, presenters/dashboard-home-presenter.tsx}` are owned by `github-runner:github-runner` with mode 664 and ACLs that exclude the `node` user. Editing them requires `sudo setfacl -m u:node:rw <file>` first, otherwise the `Edit` tool returns `PermissionDenied: FileSystem.writeFile`. Worked around with `sudo setfacl -R -m u:node:rwX frontend/aries-v1 tests .sisyphus`. Future tasks editing existing dashboard or test files may hit the same wall — set the ACL before the first Edit.
-
-### LSP cache stale on freshly-rewritten files
-- After writing/rewriting a TS file, `lsp_diagnostics` sometimes reports errors against names that never existed on disk (e.g., it claimed `GENERATE_THIS_WEEK_FALLBACK_ERROR` was missing when no such symbol was ever in any file). Always cross-check with `./node_modules/.bin/tsc --noEmit -p .` before treating LSP output as ground truth.
-
-### Tests (`tests/dashboard-generate-week-trigger.test.ts`, 18 tests)
-- Pure-helper coverage: 9 gate states (ready, profile_incomplete, no_meta_connection, IG-only-OK, integrations_loading, in_progress via draft/in_review/approvalRequired, in_progress outranks all, live/scheduled does NOT block).
-- Wire-format: label string equality, busy label, endpoint constant, request body shape (jobType + empty payload).
-- Submit fetch: POST method, content-type, URL, body JSON, success path response parsing, non-2xx error surfacing.
-- Customer-safe redaction: internal token collapse, short copy passthrough, null fallback.
-- Tests use `tsx --test` and a synthetic `fakeFetch` — no react-test-renderer needed because the behavior under test lives in pure helpers + the view-model.
-
-### Files added/changed (T18-only diff)
-- NEW `frontend/aries-v1/generate-this-week.ts` (~205 lines)
-- NEW `tests/dashboard-generate-week-trigger.test.ts` (18 tests)
-- MOD `frontend/aries-v1/view-models/dashboard-home.ts` (added import + `generateThisWeek` view-model section + populator)
-- MOD `frontend/aries-v1/home-dashboard.tsx` (added `useRouter`, submit state, `onGenerateThisWeek` callback, presenter prop)
-- MOD `frontend/aries-v1/presenters/dashboard-home-presenter.tsx` (added `generateThisWeek` optional prop + trigger card inside Working Now section)
+### Test seam (`tests/smoke-weekly-pipeline.test.ts`)
+- 14 unit tests covering: `parseArgs` (CLI + equals form + help + -h), `validateArgs` (missing/invalid/blank), `validateEnv` (per-key + blank), `encryptOAuthToken` round-trip via `backend/integrations/oauth-crypto.decryptToken`, `encryptOAuthToken` rejects empty / wrong-length keys, `buildUsageText` enumerates 1..14, `STEP_LABELS` shape, `isAtApproval` step matching, `isCompleted` dialect detection, CLI exits 1 on missing args, CLI `--help` exits 0, banned-pattern compliance of script source (no `--skip-*`, no `softFail|soft_fail`, no `META_PAGE_ID`/`META_ACCESS_TOKEN`, no `as any`/`@ts-ignore`/`@ts-expect-error`), `SmokeError.step` propagates, `EVIDENCE_PATHS` points at the documented locations.
+- The `.mjs` module is loaded via a `new Function('specifier', 'return import(specifier)')` shim so `tsc --noEmit` does not try to resolve declarations for a runtime-only file. The local `SmokeModule` type alias declares only the public surface the tests use.
 
 ### Validation
-- `tests/dashboard-generate-week-trigger.test.ts + dashboard-home-view-model.test.ts + social-content-new-job-screen.test.ts` -> 24/24 pass
-- `npm run typecheck` -> clean
-- `node scripts/check-banned-patterns.mjs` -> ok
-- `node scripts/check-repo-boundary.mjs` -> ok
+- `node --check scripts/smoke-weekly-pipeline.mjs` -> ok
+- `tsx --test tests/smoke-weekly-pipeline.test.ts` -> 14/14 pass
+- `node scripts/check-banned-patterns.mjs` -> ok (8 files / 10 patterns)
+- `node scripts/check-repo-boundary.mjs` -> ok (628 files)
+- `lsp_diagnostics` clean on both new files; `tsc --noEmit` reports 0 new errors (the only remaining errors are pre-existing in `tests/social-content-approve-route.test.ts`, unrelated to T28).
 
-## [2026-05-06] T18 follow-up — visible status link after successful run
+### Gotchas for downstream agents
+- The Page Access Token used in the script must be the test Page Access Token (`META_TEST_PAGE_ACCESS_TOKEN`); a real-tenant Page token would publish to a production Page. The validateEnv check + the test-source banned-pattern assertion are the two enforced guards.
+- `META_GRAPH_API_VERSION` must match what `backend/integrations/publish-verification.ts` uses; if the app overrides it via env on the server side, set the same value when running the smoke script so the verification GET hits the same `vN` endpoint.
+- The script needs `playwright` installed but does not declare it as a project dependency. Operators run `npm install --no-save playwright` (or set `PLAYWRIGHT_BROWSERS_PATH`) before running T28; missing playwright fails step 14 with a clear message.
+- Hermes must be reachable and configured to send authenticated callbacks to `${APP_BASE_URL}/api/internal/hermes/runs`. If Hermes is missing the script will time out at step 5 (60s) or step 11 (180s). That is the intended behavior — the script does not poll Hermes directly.
+- The script never deletes the test tenant on success; cleanup is the orchestrator's responsibility (run against a disposable test DB or schema).
 
-### Acceptance gap closed
-- Plan acceptance line 954 demanded "UI shows generating… with status link", and plan line 950 demanded "Shows live status via existing /social-content/status page link." The original implementation only called `router.push(target)`, which navigated away with no in-DOM link to assert against. F1/F4 reviewers (or any pure-render test) had no observable status link to verify.
-- Fix: state shape now includes `jobStatusUrl: string | null`. On a successful POST, set the URL FIRST, then call `router.push(target)`. In production both happen (link briefly visible then auto-navigate). In SSR/tests with no `router.push` side effect, the link stays in the DOM and is observable.
+### Recovery note
+- The first attempt at T28 was lost in the workspace (files vanished between sessions); the git working tree had no T28 changes when Atlas re-checked. The recreate path used `mcp_Write` for both files and verified existence with `ls -la` immediately after each write. Future Sisyphus runs should `ls` the target path right after `mcp_Write` returns to catch this class of workspace-state loss before reporting completion.
 
-### Disable-on-success guard
-- The trigger button is now also disabled when `jobStatusUrl !== null` (in addition to `submitting === true` and gate failures). This prevents a double-fire if the user clicks again before the dashboard runtime catches up and the campaigns refetch flips the gate to `in_progress`. The success block (with the link) becomes the next visible action.
+## [2026-05-06] T28 fix — preserve raw POST body in `buildHttp.post()`
 
-### SSR test pattern (motion/react workaround)
-- `react-test-renderer` cannot render the presenter: motion/react needs `target.addEventListener` and `self`/`window` globals that aren't present under `tsx --test`, even after stubbing. Faking the entire DOM surface is a deeper rabbit hole than this task warranted.
-- Fix: use `renderToStaticMarkup(React.createElement(DashboardHomePresenter, props))` instead. SSR doesn't trigger `useEffect`, so motion's window-bound setup is bypassed, and `motion.div` etc. degrade to plain HTML elements. Markup-level regex assertions check the rendered link (`href`, `data-testid`, copy "View status") and the `disabled` / `aria-disabled` / `aria-busy` button states.
-- Caveat: react-dom/server emits boolean attributes as `disabled=""` (empty string, not bare `disabled`), and attribute order is React-determined. Substring assertions on the captured `<button …>` tag are order-agnostic and safe; positional regexes like `data-testid=… disabled` are fragile.
-- Same pattern is used by `tests/runtime-pages.test.ts` and `tests/social-content-public-copy.test.ts` for similar render assertions — keep this in mind for future presenter-only tests.
-
-### Tests added (5 new render tests, 23 total in this file)
-- `presenter renders the visible status link after a successful run` — asserts `data-testid="generate-this-week-status-link"`, `href="/social-content/status?jobId=job_xyz"`, copy `View status`, and the surrounding success block.
-- `presenter does NOT render the status link when no jobStatusUrl is set` — negative assertion.
-- `presenter disables the trigger button while a status link is showing` — guards the double-fire prevention.
-- `presenter shows the busy label and no status link while submitting` — pins the busy state contract.
-- `presenter renders the disabled trigger when generateThisWeek prop is omitted` — pins SSR-safe degraded behavior when the parent doesn't wire the trigger (e.g., future SSR snapshots).
-
-### Files touched
-- MOD `frontend/aries-v1/home-dashboard.tsx` (state shape + handler set jobStatusUrl)
-- MOD `frontend/aries-v1/presenters/dashboard-home-presenter.tsx` (prop + render of success block with `<Link>`)
-- MOD `tests/dashboard-generate-week-trigger.test.ts` (5 new SSR-based render tests)
-
-### Validation
-- `tests/dashboard-generate-week-trigger.test.ts + dashboard-home-view-model.test.ts + social-content-new-job-screen.test.ts` -> 29/29 pass.
-- `npm run typecheck` -> clean.
-- `node scripts/check-banned-patterns.mjs` + `node scripts/check-repo-boundary.mjs` -> ok.
-
-## T20 - Regenerate / upload-replace drawer in review UI (2026-05-06)
-
-### Files
-- `frontend/aries-v1/creative-action-drawer.tsx` (new): drawer + `canShowCreativeActionDrawer` gate + pure URL/FormData builders + `readQaPayload`.
-- `frontend/aries-v1/review-item.tsx`: imports drawer, adds `Image actions` trigger button in the image-preview branch, mounts the drawer, calls `review.load()` on success.
-- `tests/review-creative-action-drawer.test.ts` (new): 14 tests covering gate matrix + URL contracts + FormData shape + QA payload parsing.
-
-### Pattern: drawer trigger gate
-- `canShowCreativeActionDrawer({ reviewType, contentType, assetId })` is a pure exported helper — single source of truth for "is this an image creative we can act on".
-- Gate matrix tested explicitly: image yes (png/jpeg/webp/IMAGE-uppercase), video no, pdf no, html no, null contentType no, missing assetId no, non-creative reviewType no, null/undefined input no.
-- Both the trigger button and the drawer mount use the same gate, so non-image rows have no DOM footprint at all.
-
-### Pattern: pure request builders
-- `regenerateCreativeUrl(jobId, creativeId)` and `uploadReplaceCreativeUrl(jobId, creativeId)` use `encodeURIComponent` so jobIds/creativeIds with `/` or spaces don't break the path.
-- `buildUploadReplaceFormData(file, override?)` is the contract surface: clean upload omits `operator_override`/`tos_acknowledged`; override upload sets BOTH to `'true'` (matches `coerceBoolean` in T15 handler which accepts string `'true'`).
-
-### Pattern: ToS / operator override gate
-- Override UI is only rendered when the previous upload returned `qa.verdict === 'fail'` (status 422).
-- The override section requires an explicit checkbox (`creative-action-upload-override-checkbox`) before the override submit button is enabled. A clean upload never sends override flags.
-- File ref is held in `lastFileRef` so the override re-POST sends the exact same bytes the user originally chose.
-
-### Pattern: customer-safe error surface
-- All error paths route through `customerSafeUiErrorMessage` so raw provider/internal codes never reach the UI.
-- Refresh-on-success failures are intentionally swallowed (the action already succeeded server-side; a noisy refresh toast would mislead users).
-
-### Test approach
-- Tests focus on PURE helpers (gate, URL builders, FormData builder, QA payload parser). React rendering is intentionally not tested in node:test (no jsdom in repo); the drawer's contract surface IS the pure helpers, so the helper tests pin behavior the drawer relies on.
-- The `fetchImpl?: typeof fetch` prop on the drawer was added so future component tests (with a test runner that has DOM) can inject a fetch stub without monkey-patching globals.
-
-### Validation
-- `./node_modules/.bin/tsx --test tests/review-creative-action-drawer.test.ts tests/regenerate-creative.test.ts tests/upload-replace-nsfw-gate.test.ts` -> 32/32 pass.
-- `npm run typecheck` -> clean.
-
-### Gotcha: Next.js 16 71007 LSP warnings on callback props
-- New default-export client components with callback props (`onClose: () => void`, `onSuccess?: () => void`) trigger LSP warning 71007 ("Props must be serializable for components in the 'use client' entry file ...").
-- `tsc --noEmit` PASSES; these are next-plugin LSP-only warnings.
-- Existing `frontend/aries-v1/reschedule-drawer.tsx` has the same `onClose: () => void` + `onSaved?: (detail) => void` pattern with no warnings (its plugin cache is just warm). Renaming to `*Action` would break repo convention; leaving as-is.
-
-## T20 follow-up - customer-safe error sanitization (2026-05-06)
-
-### Problem found in Atlas review
-- The original drawer passed raw `body.error` (e.g. `hermes_regenerate_run_failed`, `storage_failure`, `provider_timeout`, `aries_run_failed`, `database_unavailable`) into `customerSafeUiErrorMessage`.
-- That redactor only catches `internal_error|validation_error|provider_unavailable` plus secret/auth keywords. Codes like `hermes_regenerate_run_failed` slipped through and would have been displayed verbatim in the drawer error UI.
+### Bug
+- `buildHttp.post(stepIndex, p, body, init)` always wrote `body: payload` (where `payload = body == null ? undefined : JSON.stringify(body)`) into the request init, so the spread `{ ...init, body: payload }` overwrote any caller-supplied `init.body`. When `body=null`, this silently dropped the URL-encoded form text passed by `authenticateSession()` to `/api/auth/callback/credentials`, breaking the live NextAuth credentials sign-in.
 
 ### Fix
-- Added `creativeActionSafeErrorMessage(raw, fallback?)` in `frontend/aries-v1/creative-action-drawer.tsx`. Three-layer sanitization:
-  1. **Curated whitelist** (`CREATIVE_ACTION_USER_ERROR_COPY`) of safe codes mapped to user copy: `unsupported_mime_type`, `unsupported_media_type`, `file_too_large`, `missing_file`, `invalid_multipart`, `override_requires_tos_acknowledgement`, `nsfw_detected`, `creative_not_found`, `social_content_job_not_found`, `missing_creative_id`, `missing_source_run_id`.
-  2. **Internal-pattern denylist** (`CREATIVE_ACTION_INTERNAL_PATTERNS`): `hermes`, `provider`, `storage`, `\bdb_|database`, `upstream`, `timeout`, `aries_run`, `workflow`, `gateway`, `regenerate_run`, `run_submission`, plus `(_|^)(failed|failure|unavailable|unauthorized|forbidden|error)$` suffix.
-  3. **Snake_case-by-default**: any uncurated identifier matching `^[a-z][a-z0-9]*(_[a-z0-9]+)+$` is treated as internal and routed to fallback.
-- Falls back to `customerSafeUiErrorMessage` for plain prose so existing auth/secret keyword redaction still applies.
-- Both regenerate AND upload error paths now route through the new helper (4 call sites total).
+- Branch on `body == null`: pass `init` through unchanged (raw-body path) so caller-provided `init.body` and `content-type: application/x-www-form-urlencoded` survive. When `body` is an object, JSON-stringify it and overwrite any prior `init.body` (JSON path). Net diff is one helper:
+  ```js
+  post: (stepIndex, p, body, init = {}) => {
+    if (body == null) {
+      return request(stepIndex, 'POST', p, init);
+    }
+    return request(stepIndex, 'POST', p, { ...init, body: JSON.stringify(body) });
+  },
+  ```
 
-### Test coverage added
-- `creativeActionSafeErrorMessage: blocks raw provider/internal codes that previously slipped through` — explicitly tests all 4 listed leak codes plus 11 other internal-shaped codes.
-- `creativeActionSafeErrorMessage: returns fallback for empty / null / whitespace input`.
-- `creativeActionSafeErrorMessage: curated codes return curated user-facing copy` — pins exact UI copy for 7 curated codes (including case-insensitivity).
-- `creativeActionSafeErrorMessage: any unknown snake_case identifier defaults to fallback`.
-- `creativeActionSafeErrorMessage: defers to customer-safe redactor for plain prose`.
-- `creativeActionSafeErrorMessage: still redacts secret/auth keywords via customer-safe layer`.
-- `creativeActionSafeErrorMessage: defaults fallback to drawer generic when omitted`.
-- `production error path: regenerate 502 with hermes_regenerate_run_failed never leaks raw code` — uses a stub `Response` with the production error body shape and asserts the message the drawer would derive does NOT contain `hermes` or `regenerate_run_failed`.
-- `production error path: upload 500 with storage_failure never leaks raw code` — same pattern for upload.
-- `production error path: thrown Error.message containing provider_timeout never leaks raw code` — covers the `catch` branch.
-
-### Validation
-- `./node_modules/.bin/tsx --test tests/review-creative-action-drawer.test.ts tests/regenerate-creative.test.ts tests/upload-replace-nsfw-gate.test.ts` -> 42/42 pass (24 drawer + 8 regenerate + 10 upload-replace).
-- `npm run typecheck` -> clean.
-- Banned-pattern grep on changed files -> no matches.
-
-### Decision rationale
-- Allowlist > denylist for SAFE codes. Default-deny snake_case eliminates whole classes of future leak codes without code changes.
-- Helper lives in the drawer module because it's the only consumer; promoting to `customer-safe-copy.ts` would risk other callers picking up curated copy that doesn't fit their context.
-- Curated copy strings are owned here, not in i18n yet, matching the rest of the drawer's hardcoded English UI copy.
-
-## [2026-05-06] T22 — per-platform preview UI (IG single/carousel + FB feed/link card)
-
-### Module split
-- `frontend/aries-v1/post-preview/shared.tsx` — primitives only: `PostFrame`, `PostHeader`, `PreviewImage`, `CaptionRenderer`, `truncateCaption`, `captionWithHashtags`, aspect-ratio constants/types, and per-platform truncation thresholds.
-- One file per platform/post-type: `InstagramFeedSingle.tsx`, `InstagramFeedCarousel.tsx`, `FacebookFeedSingle.tsx`, `FacebookFeedLinkCard.tsx`. Each is a default-export `'use client'` component built on `shared.tsx` primitives — zero cross-component imports.
-- `index.ts` re-exports the four default components plus the shared primitives + types so callers `import { InstagramFeedSingle } from '@/frontend/aries-v1/post-preview'`.
-
-### Aspect-ratio contract (locked per T9 matrix)
-- IG single: prop `aspectRatio?: '4:5' | '1:1'`, default `'4:5'`. Operator opt-in via `aspectRatio="1:1"`.
-- IG carousel: hard-coded `'1:1'` (matches T9 `instagram + carousel`); the prop type is fixed to that string in the rendered `data-aspect-ratio`.
-- FB single: hard-coded `'1:1'` (matches T9 `meta + single_image`).
-- FB link card: hard-coded `'1.91:1'` (matches T9 `meta + link_card`, Open Graph standard).
-- Aspect classes via Tailwind 4 arbitrary values: `aspect-[4/5]`, `aspect-square`, `aspect-[1.91/1]`. Verified by tests asserting the className regex.
-
-### `next/image` usage (T6 dependency)
-- Every preview image goes through `<Image fill sizes="..." unoptimized />` inside a positioned aspect-ratio frame. `fill` is required because Hermes-generated URLs do not carry width/height metadata in the runtime doc; the parent frame supplies layout via the aspect class.
-- `unoptimized` is set so previews work even when the source URL host is not yet in `next.config.mjs` `remotePatterns` — T6's whitelist still gates production optimization, but local previews never throw.
-- `sizes` defaults to `'(min-width: 640px) 480px, 100vw'` (matches the `max-w-md` frame), overrideable per-component if needed.
-- Probed: `next/image` with `fill` renders as `<img data-nimg="fill" loading="lazy" decoding="async" src="..." srcset="..." sizes="..." alt="..." />` in `react-test-renderer`. Tests assert `props['data-nimg'] === 'fill'` to prove the path goes through `next/image` rather than a raw `<img>`.
-
-### Caption truncation
-- IG: `INSTAGRAM_CAPTION_TRUNCATE_AT = 125`, `INSTAGRAM_MORE_LABEL = '...more'`.
-- FB: `FACEBOOK_CAPTION_TRUNCATE_AT = 480`, `FACEBOOK_MORE_LABEL = '...See more'`.
-- `truncateCaption(text, limit, moreLabel)` returns `{ visible, fullText, isTruncated, moreLabel, limit }`. Word-boundary heuristic: if the last space lands within the bottom 20% of the limit, truncate at the space; otherwise hard cut at the limit. Trailing whitespace is stripped from `visible`.
-- `CaptionRenderer` writes the FULL caption into `data-full-caption="..."` so QA/F3 tests can verify the un-truncated text was preserved without trying to reconstruct it from the visible+more pieces.
-- `data-truncated="true"|"false"`, `data-caption-limit`, `data-caption-more-label` are all on the caption `<p>` so brittle text-content matching is not required.
-
-### Hashtag styling
-- Pattern: `(#[A-Za-z0-9_]+)`. Each hashtag becomes `<span data-role="post-hashtag" data-hashtag="<tag>" className="text-blue-500 no-underline">#tag</span>`. Surrounding text becomes `<Fragment>` children — never raw text nodes that React might wrap inconsistently.
-- `data-hashtag` carries the tag WITHOUT the `#` prefix so tests can do `props['data-hashtag'] === 'autumn'` rather than parsing the leading `#`.
-
-### Stable test markers (`data-role`/`data-testid`)
-- Every observable surface gets a `data-role` attribute (kebab-case, prefixed by purpose): `post-preview`, `post-header`, `post-author-name`, `post-author-handle`, `post-timestamp`, `post-image`, `post-caption`, `post-caption-author`, `post-caption-visible`, `post-caption-more`, `post-actions`, `post-likes`, `post-engagement-counts`, `post-reactions`, `post-comments`, `post-shares`, `post-hashtag`, `post-carousel`, `carousel-slide`, `carousel-counter`, `carousel-dots`, `carousel-dot`, `link-card`, `link-card-image`, `link-card-meta`, `link-card-host`, `link-card-title`, `link-card-description`.
-- The four top-level frames also get a `data-testid`: `post-preview-instagram-single | post-preview-instagram-carousel | post-preview-facebook-single | post-preview-facebook-link-card`. F3 Playwright can `page.locator('[data-testid="post-preview-instagram-single"]')` deterministically.
-
-### Carousel state model
-- `useState<number>` for active slide index. Slides render in document order with `hidden={index !== activeIndex}` so the DOM still contains every slide for SSR/snapshot fidelity, but only the active one paints. The first slide is `priority={true}` so above-the-fold rendering is fast.
-- `data-slide-active="true"|"false"` per slide and `data-dot-active="true"|"false"` per nav dot drive both visual styling and tests.
-- `clampIndex` defends against `initialSlideIndex` out-of-range / NaN / negative inputs.
-
-### Link card chrome
-- `extractDomain(rawUrl)` (exported from `FacebookFeedLinkCard.tsx` and re-exported via `index.ts`): strips `www.` and uppercases the hostname. Returns the upper-cased input verbatim if URL parsing fails — never throws.
-- The card itself is an `<a target="_blank" rel="noopener noreferrer">` so the host `data-link-host` attribute is observable from tests AND the click target is real for F3 visual QA.
-
-### Test pattern (`tests/post-preview-components.test.ts`, 18 tests)
-- Two layers:
-  1. Source-level (`readFileSync` + regex): asserts every preview file does NOT contain raw `<img`, does NOT contain `no-img-element`, does NOT contain `as any|@ts-ignore|@ts-expect-error|console.log|TODO|FIXME|HACK|catch{}`, does NOT contain user-facing `campaign` copy. `shared.tsx` is also asserted to import from `next/image`.
-  2. Render-level (`react-test-renderer` `act` + `create`): asserts platform/post-type/aspect-ratio data attributes, `next/image` markers (`data-nimg === 'fill'` on every rendered `img`), caption truncation state + full-text preservation, hashtag span styling + `data-hashtag` extraction, link-card chrome + host extraction.
-- `findByDataRole(root, 'role')` helper uses `root.root.findByProps({ 'data-role': role })` — robust against className changes.
-- `getTextContent(node)` recursively concatenates text children so the caption-more affordance can be asserted as exact string match without DOM-tree walking.
-- Test runner: `./node_modules/.bin/tsx --test tests/post-preview-components.test.ts` (no Vitest/Jest, matches repo convention).
-
-### Files added
-- `frontend/aries-v1/post-preview/shared.tsx` (~225 lines)
-- `frontend/aries-v1/post-preview/InstagramFeedSingle.tsx`
-- `frontend/aries-v1/post-preview/InstagramFeedCarousel.tsx`
-- `frontend/aries-v1/post-preview/FacebookFeedSingle.tsx`
-- `frontend/aries-v1/post-preview/FacebookFeedLinkCard.tsx`
-- `frontend/aries-v1/post-preview/index.ts`
-- `tests/post-preview-components.test.ts` (18 tests)
+### Regression coverage
+- Added 4 tests against `buildHttp` using a `withStubbedFetch(responder, fn)` helper that captures every fetch call's `url` + `init`:
+  1. `http.post serializes JSON bodies and sets application/json content-type` — confirms JSON path still works.
+  2. `http.post preserves caller-provided raw body when body arg is null` — fails on the broken version (`init.body === undefined`); passes after fix (`init.body === formText`). Asserts `email=`, `csrfToken=`, `json=true` survive in the URL-encoded form.
+  3. `http.post defaults to undefined body when caller passes neither body nor init.body` — defends the no-body path used by CSRF preflight.
+  4. `http.post merges init headers without dropping caller content-type when sending JSON body` — guards a future regression where someone sends JSON with a non-default `content-type` (e.g., `application/json; charset=utf-8`).
+- The bug-prevention test was confirmed: temporarily reverting the helper to the broken version produces `not ok 16 - http.post preserves caller-provided raw body when body arg is null`; the rest stay green. Restoring the fix restores 18/18 pass.
 
 ### Validation
-- `./node_modules/.bin/tsx --test tests/post-preview-components.test.ts` -> 18/18 pass
-- `./node_modules/.bin/tsc --noEmit -p .` -> exit 0 (full repo typecheck clean)
-- `lsp_diagnostics` clean on all 6 new files (only `act`/`create` deprecation HINTS from `react-test-renderer`, matching the existing repo pattern in `tests/media-preview.test.ts` + 9 others)
-- Banned-pattern grep on `frontend/aries-v1/post-preview/`: 0 hits
+- `node --check scripts/smoke-weekly-pipeline.mjs` -> ok
+- `tsx --test tests/smoke-weekly-pipeline.test.ts` -> 18/18 pass
+- `node scripts/check-banned-patterns.mjs` -> ok (8 files / 10 patterns)
+- `node scripts/check-repo-boundary.mjs` -> ok (628 files)
+- `lsp_diagnostics` clean on both new files.
 
-### Hooks for downstream tasks
-- F3 should locate previews by `data-testid` (e.g., `post-preview-instagram-single`), then assert `naturalWidth > 0` on the rendered `img` to satisfy plan acceptance line 1027 "assert img.naturalWidth>0". The `next/image` rendered `img` exposes `naturalWidth` exactly like a raw `<img>` would.
-- T20 (creative action drawer) and T21 (reschedule drawer) can mount these previews inside review-item without further wiring — props are flat objects, no context provider required.
-- The `aspectClass(ratio)` and `aspectNumeric(ratio)` helpers are exported from `index.ts` so future code that needs to compute or reuse aspect ratios doesn't have to redeclare the constants.
-- The truncation thresholds (`INSTAGRAM_CAPTION_TRUNCATE_AT = 125`, `FACEBOOK_CAPTION_TRUNCATE_AT = 480`) are intentionally NOT the same as T11's hard publish limits (IG 2200, FB 63206). T11 enforces what Meta will accept on the wire; T22 mirrors what users see in the platform feed before the more affordance. Both are correct and serve different layers.
-- Link card chrome is intentionally minimal (host + title + optional description) to match the plan "looks-like, not is-the-platform" rule. Future tasks adding share-attribution or like-counts should keep the same pure-display posture — no interactive likes/comments UI in v1.
+### Gotchas
+- The pre-existing banned-pattern test still asserts the script source contains none of the forbidden tokens (`as any`, `@ts-ignore`, `softFail`, `META_PAGE_ID`, etc.). The literal regex sources in the test file deliberately spell those tokens; this is fine because the test runs against the SCRIPT source, not its own file. Future audits searching for those literals in the test file should treat the regex array as expected.
+- The `HttpClient` interface is now a typed exported shape in the test module — keep it in sync if `buildHttp` ever returns more methods (e.g., `delete`, `put`).
 
-## [2026-05-06] T22 follow-up — strip interactive chrome (Atlas review fix)
+## [2026-05-06] F2 Code Quality Review (verdict)
 
-### Problem
-- Initial T22 implementation rendered real `<button>` elements for More options, Like, Comment, Share, and the carousel dots, plus a `useState` + `onClick` click-to-switch handler on the IG carousel. That violated the plan's explicit Must NOT: "No interactive comments/likes UI" + "No pixel-perfect 1:1 platform skin (looks-like, not is-the-platform)".
-- The plan acceptance also calls for a "static platform-style chrome only" preview — the `<button>` chrome was crossing into "is-the-platform" territory.
+### Mandated commands (8/8 executed)
+- `npm run typecheck` -> PASS (0 errors)
+- `npm run test` -> 1038 pass / 51 fail (51 fail = pre-existing baseline; stash-test confirmed 1020 pass / 51 fail before T28)
+- `npm run verify` -> PASS ("Verification suite passed.")
+- `npm run validate:repo-boundary` -> PASS ({ ok: true, filesChecked: 628 })
+- `npm run validate:banned-patterns` -> PASS ({ ok: true, files_checked: 8, banned_patterns: 10 })
+- `npm run validate:social-content` -> PASS (87/87)
+- `npm run validate:execution-provider` -> PASS (40/40)
+- `npm run validate:marketing-flow` -> PASS (14/14)
 
-### Fix
-- Replaced every `<button>` in the four preview components with non-interactive elements:
-  - More-options icon: `<span data-role="post-more-affordance" aria-hidden="true">` containing `MoreHorizontal`. Carries a stable data-role for tests but is decorative.
-  - IG single + carousel action row (Heart/MessageCircle/Send/Bookmark): the wrapping `<div data-role="post-actions">` now has `aria-hidden="true"` and the icons inside dropped their per-icon `aria-hidden` (the parent wrapper carries it).
-  - FB single + link-card action row (Like/Comment/Share): replaced each `<button>` with `<span data-role="post-action-{like|comment|share}">` so individual actions are still queryable from tests but cannot be clicked.
-  - Carousel dots: replaced `<button onClick=...>` with `<span data-role="carousel-dot">`. The active-dot styling stays driven by `data-dot-active`.
-  - Carousel counter pill: kept the same content but added `aria-hidden="true"` since it is decorative chrome, not a control.
+### Code quality audit (111 changed source files vs 0e5029b)
+- 0 hits for `as any` in changed files (the 2 ts-ignore/expect-error hits in tests/smoke-weekly-pipeline.test.ts are regex literals inside the banned-pattern compliance test that ASSERTS those tokens are absent from the script source).
+- 0 empty catch blocks. Every catch handles error meaningfully.
+- 0 production `console.log`. Only structured `console.info` for marketing-runtime-schema + asset-ingest path rewrites; CLI scripts (init-db.js) use console.log for setup output (allowed for scripts).
+- 0 TODO/FIXME/HACK/XXX markers.
+- 0 Lobster/OpenClaw imports in changed production code.
+- Comment density 0%-6.2% across changed files (T28 files 0%, vision-qa.ts 0%, dashboard-projection.ts 0%; upload-replace.ts highest at 6.2%, all explanatory not slop).
+- Function names are descriptive (handlePublishDispatch, handleRegenerateCreative, ensureFreshBrandKitForWeeklyRun, etc.). No do*/process* generic placeholders.
+- The remaining "campaign" string hits in changed files (handler.ts:13, asset-library.ts, runtime-views.ts) are all in the LEGACY brand_campaign compat surface, which AGENTS.md explicitly preserves.
 
-### Carousel state model — prop-controlled, no local click state
-- Removed `useState` + `setActiveIndex` from `InstagramFeedCarousel`. Active slide is now resolved purely from the `initialSlideIndex` prop via `clampIndex(value, totalSlides)`. The prop name `initialSlideIndex` is kept for API compatibility with the prior session's signature; semantically it now functions as `activeSlideIndex` because there is no internal state to mutate.
-- Tests added a positive case asserting `initialSlideIndex={2}` lights the third slide and the third dot — proves the prop drives the active state directly.
+### Pre-existing test failures (51) categorized
+- Tenant context legacy isolation tests (34/35/42-73)
+- Legacy `/api/marketing/jobs` hydration + brand-review tests (307/309/323-353)
+- Legacy openclaw gateway tests (271/679/687)
+- Legacy brand identity / business-profile tests (417/418/446/455/456/559)
+- Legacy approval-stage workflow tests (784-879)
+- Pre-existing infra/docs tests (719/724/822)
+None of these are in the T1-T28 surface; pre-T28 stash test reproduced the same 51 failure count.
 
-### What stayed
-- `<a>` on the FB link card is preserved because the link card itself IS the previewed content (the linked URL is what the post is about). Tests still assert `target="_blank"` + `rel="noopener noreferrer"` + `data-link-host`.
-- `<a>` on the FB link card is the only remaining interactive element across all four previews.
-- All four `'use client'` directives stay in place — the components live in a client-component subtree and removing the directive wouldn't change behavior.
-
-### New test coverage
-- `previews render no interactive controls (no <button> chrome for likes/comments/shares/dots)`: instantiates each of the four components and asserts:
-  1. `root.root.findAllByType('button').length === 0`.
-  2. `root.root.findAll(node => node.props.onClick || .onSubmit || .onChange).length === 0`.
-  3. `findByDataRole(root, 'post-actions').props['aria-hidden'] === 'true'`.
-- `source: no preview file uses <button or onClick chrome`: source-level guard. Greps each of the four chrome files for `<button\b` and `\bonClick=`. Both must be absent.
-- `InstagramFeedCarousel: initialSlideIndex prop drives the active slide (no click state)`: positive case for the prop-driven active slide rendering.
-
-### Files changed
-- `frontend/aries-v1/post-preview/InstagramFeedSingle.tsx` — More-options + actions row stripped to static chrome.
-- `frontend/aries-v1/post-preview/InstagramFeedCarousel.tsx` — Removed `useState`, `onClick`, all `<button>`s. Carousel + dots are now prop-driven static elements.
-- `frontend/aries-v1/post-preview/FacebookFeedSingle.tsx` — More-options + Like/Comment/Share row stripped to static spans.
-- `frontend/aries-v1/post-preview/FacebookFeedLinkCard.tsx` — Same Like/Comment/Share strip; FB link `<a>` preserved (it IS the previewed content).
-- `tests/post-preview-components.test.ts` — Added 3 tests (initialSlideIndex prop, no interactive controls render-level, source-level no `<button>`/`onClick`).
-- `frontend/aries-v1/post-preview/shared.tsx` — unchanged (the `PostHeader` and `PreviewImage` primitives never had buttons; only the platform chrome did).
-- `frontend/aries-v1/post-preview/index.ts` — unchanged.
-
-### Validation
-- `./node_modules/.bin/tsx --test tests/post-preview-components.test.ts` -> 21/21 pass (was 18/18, +3 new tests, no regressions).
-- `./node_modules/.bin/tsc --noEmit -p .` -> exit 0 (full repo typecheck clean).
-- `grep -rnE "<button|onClick|<img|no-img-element|as any|@ts-ignore|@ts-expect-error|console\.log|TODO|FIXME|HACK|catch\\s*\\{\\s*\\}" frontend/aries-v1/post-preview/` -> exit 1 (no matches).
-
-### Gotchas / hooks for downstream tasks
-- The carousel is now stateless. If a future task wants click-to-switch behavior in a *different* surface (e.g., an authoring preview that lets the operator cycle slides during review), it should compose its own controlled wrapper around `InstagramFeedCarousel` and pass the resulting `initialSlideIndex` — do NOT reintroduce `useState` inside the preview component itself, because the plan rule "looks-like, not is-the-platform" applies to all preview surfaces.
-- `data-role="carousel-dot"` and `data-role="post-actions"` markers are preserved exactly so any prior consumers (if any) keep working.
-- Switching from `<button>` to `<span>` removes the implicit ARIA "button" role and focus-stop. Screen readers will skip the chrome entirely (which matches the design intent — these are decorative previews, not controls). The `aria-hidden="true"` on the parent action row makes that explicit.
+### Verdict rationale
+Per task instruction "Treat tests that fail as a rejection unless you can prove the command is invalid/unavailable and the plan allows that," the npm run test command IS valid and IS available, but reports 51 failing tests. The plan's L102 acceptance criterion explicitly requires `npm run test` to pass; that bar is not met. Therefore F2 returns REJECT, with the supporting evidence that (a) all 7 other mandated commands pass, (b) code quality on the 111 changed files is clean, and (c) the 51 failures are pre-existing baseline unrelated to T1-T28.
