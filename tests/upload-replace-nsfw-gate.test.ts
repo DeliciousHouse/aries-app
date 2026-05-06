@@ -243,7 +243,7 @@ test('upload-replace: clean upload swaps creative and orphans the previous row',
   );
 
   assert.equal(result.status, 202);
-  if (result.status !== 202) return;
+  expectAccepted(result);
   assert.equal(result.verdict, 'pass');
   assert.equal(result.creative.tenant_id, 7);
   assert.equal(result.creative.source_type, 'manual_upload');
@@ -320,7 +320,7 @@ test('upload-replace: failing QA with operator_override AND tos_acknowledged is 
   );
 
   assert.equal(result.status, 202);
-  if (result.status !== 202) return;
+  expectAccepted(result);
   assert.equal(result.verdict, 'operator_override');
   assert.equal(result.operator_override, true);
   assert.equal(db.visionRuns.length, 2, 'underlying fail run + override run both persisted');
@@ -351,7 +351,7 @@ test('upload-replace: operator_override without tos_acknowledged is rejected', a
   );
 
   assert.equal(result.status, 422);
-  if (result.status === 202) return;
+  expectError(result);
   assert.equal(result.error.code, 'override_requires_tos_acknowledgement');
   assert.equal(db.rows.length, 1, 'no new creative inserted');
   assert.equal(db.rows[0].orphaned_at, null, 'previous row not orphaned');
@@ -374,7 +374,7 @@ test('upload-replace: cross-tenant creativeId returns creative_not_found (no lea
   );
 
   assert.equal(result.status, 404);
-  if (result.status === 202) return;
+  expectError(result);
   assert.equal(result.error.code, 'creative_not_found');
   assert.equal(db.rows.length, 1);
   assert.equal(db.visionRuns.length, 0, 'cross-tenant attempt never reaches QA');
@@ -393,7 +393,7 @@ test('upload-replace: rejects unsupported mime type', async () => {
   );
 
   assert.equal(result.status, 415);
-  if (result.status === 202) return;
+  expectError(result);
   assert.equal(result.error.code, 'unsupported_mime_type');
 });
 
@@ -412,7 +412,7 @@ test('upload-replace: rejects oversized payload (> 8MB)', async () => {
   );
 
   assert.equal(result.status, 413);
-  if (result.status === 202) return;
+  expectError(result);
   assert.equal(result.error.code, 'file_too_large');
 });
 
