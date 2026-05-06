@@ -177,9 +177,19 @@ test('deploy workflow builds and force-recreates the exact commit image', () => 
     /docker compose up -d --no-deps --force-recreate --pull always "\$\{SERVICE_NAME\}"/,
     'deploy workflow should force-recreate the live app so new image and env take effect',
   );
-  assert.doesNotMatch(
-    workflow,
-    /image_tag="latest"/,
-    'deploy workflow should not deploy mutable :latest for push events',
-  );
-});
+   assert.doesNotMatch(
+     workflow,
+     /image_tag="latest"/,
+     'deploy workflow should not deploy mutable :latest for push events',
+   );
+   assert.match(
+     publishImageScript,
+     /PUBLISH_SHA_ONLY="\$\{PUBLISH_SHA_ONLY:-0\}"/,
+     'publish script should support SHA-only publishes for rollback-safe deploys',
+   );
+   assert.match(
+     publishImageScript,
+     /if \[\[ "\$\{PUBLISH_SHA_ONLY\}" != "1" \]\]; then[\s\S]*?-t "\$\{GHCR_IMAGE\}:\$\{DEFAULT_BRANCH\}"[\s\S]*?-t "\$\{GHCR_IMAGE\}:latest"/,
+     'publish script should only update branch/latest tags when SHA-only mode is disabled',
+   );
+ });
