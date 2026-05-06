@@ -91,7 +91,12 @@ type DbHarness = {
   install: (t: TestContext) => void;
 };
 
-function createDbHarness(): DbHarness {
+type DbHarnessOptions = {
+  failOnSql?: string;
+  failWith?: Error;
+};
+
+function createDbHarness(options: DbHarnessOptions = {}): DbHarness {
   const pendingStates = new Map<string, PendingStateRow>();
   const connections = new Map<string, ConnectionRow>();
   const tokens: TokenRow[] = [];
@@ -105,6 +110,10 @@ function createDbHarness(): DbHarness {
 
   function handleQuery(rawSql: unknown, params: unknown[]): { rows: unknown[]; rowCount: number } {
     const text = String(rawSql);
+
+    if (options.failOnSql && text.includes(options.failOnSql)) {
+      throw options.failWith ?? new Error(`Simulated database failure for ${options.failOnSql}`);
+    }
 
     if (text.includes('DELETE FROM oauth_pending_states')) {
       pendingStates.delete(String(params[0]));
@@ -546,5 +555,53 @@ test('handleMetaSelectPageHttp: rejects when tenant context does not match pendi
       }),
     });
     assert.equal(res.status, 403);
+  });
+});
+
+test('handleMetaSelectPageHttp: redacts internal error details from clients', async (t) => {
+  await withEnv(META_ENV, async () => {
+    const db = createDbHarness({
+      failOnSql: 'INSERT INTO oauth_tokens',
+      failWith: new Error('database host=private.internal password=super-secret stack trace'),
+    });
+    db.pendingStates.set('state_internal_error', {
+      state: 'state_internal_error',
+      tenant_id: '7',
+      provider: 'facebook',
+      redirect_uri: 'https://aries.example.com/api/auth/oauth/facebook/callback',
+      scopes: ['pages_manage_posts'],
+      connection_id: null,
+      code_verifier: null,
+      picker_payload: {
+        pages: [{ id: 'page_secret', name: 'Secret Page', pageAccessToken: 'page-token-secret', instagramBusinessAccountId: null }],
+      },
+      expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
+      created_at: new Date().toISOString(),
+    });
+    db.install(t);
+    t.mock.method(console, 'error', () => undefined);
+
+    const req = new Request('https://aries.example.com/api/oauth/meta/select-page', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ state: 'state_internal_error', page_id: 'page_secret' }),
+    });
+    const res = await handleMetaSelectPageHttp(req, {
+      tenantContextLoader: async () => ({
+        userId: 'user-1',
+        tenantId: '7',
+        tenantSlug: 'test',
+        role: 'tenant_admin',
+      }),
+    });
+
+    assert.equal(res.status, 500);
+    const body = (await res.json()) as { status: string; reason: string; message?: string };
+    assert.deepEqual(body, {
+      status: 'error',
+      reason: 'internal_error',
+      message: 'Unable to complete Meta page selection.',
+    });
+    assert.doesNotMatch(JSON.stringify(body), /super-secret|private\.internal|stack trace/);
   });
 });

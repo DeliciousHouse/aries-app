@@ -176,7 +176,14 @@ export async function handleMetaSelectPageHttp(
       200,
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return jsonResponse({ status: 'error', reason: 'internal_error', message }, 500);
+    console.error('Failed to complete Meta page selection', error);
+    return jsonResponse(
+      {
+        status: 'error',
+        reason: 'internal_error',
+        message: 'Unable to complete Meta page selection.',
+      },
+      500,
+    );
   }
 }
