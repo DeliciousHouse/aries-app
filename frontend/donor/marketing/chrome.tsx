@@ -182,7 +182,7 @@ export function DonorFooter() {
           <div className="col-span-2">
             <AriesWordmark className="mb-6" />
             <p className="text-white/50 max-w-xs mb-8 leading-relaxed">
-              A calm marketing workspace where small businesses plan campaigns, approve creative, launch safely, and see what worked.
+              A calm social content workspace where small businesses plan weekly posts, approve creative, publish safely, and see what worked.
             </p>
             <div className="flex gap-4 text-sm text-white/60">
               <a href="/#how-it-works" className="hover:text-white transition-colors">How it works</a>
@@ -198,7 +198,7 @@ export function DonorFooter() {
             <ul className="space-y-4 text-white/50 text-sm">
               <li><a href="/#how-it-works" className="hover:text-white transition-colors">How it works</a></li>
               <li><a href="/dashboard" className="hover:text-white transition-colors">Dashboard</a></li>
-              <li><a href="/campaigns" className="hover:text-white transition-colors">Campaigns</a></li>
+              <li><a href="/social-content/new" className="hover:text-white transition-colors">Weekly content</a></li>
               <li><a href="/review" className="hover:text-white transition-colors">Review queue</a></li>
             </ul>
           </div>

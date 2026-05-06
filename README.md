@@ -189,7 +189,7 @@ npm run dev
 
 ## Docker Compose
 
-The repo includes `docker-compose.yml`, `docker-compose.local.yml`, and a production `Dockerfile`. Local Compose provisions a companion `postgres` service and wires the app to it with `DB_HOST=postgres`; production deploys may use external PostgreSQL instead. Hermes is always external, so `HERMES_*` and callback auth values still need to point at working services.
+The repo includes `docker-compose.yml`, `docker-compose.local.yml`, and a production `Dockerfile`. Compose expects an external PostgreSQL database and passes through the `DB_*` values from `.env` or the production secret store; it does not provision Postgres or pgAdmin containers. Hermes is always external, so `HERMES_*` and callback auth values still need to point at working services.
 
 ### Production release
 
@@ -211,7 +211,7 @@ cp .env.example .env
 docker network create docker-stack || true
 ```
 
-3. Start the app with the local overrides file so localhost-oriented URL defaults are applied. Local Compose starts the companion `postgres` service from `docker-compose.yml`; the app container uses `DB_HOST=postgres` internally while `.env` supplies `DB_USER`, `DB_PASSWORD`, `DB_NAME`, and the host-published `DB_PORT`.
+3. Start the app with the local overrides file so localhost-oriented URL defaults are applied. Before starting Compose, make sure `.env` points `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, and `DB_NAME` at an existing PostgreSQL database reachable from the container.
 
 ```bash
 docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml up --build -d aries-app
@@ -237,7 +237,7 @@ docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml
 - The app container stores generated runtime artifacts under `/data`, which is a bind mount from `${ARIES_SHARED_DATA_ROOT:-/home/node/data}` on the host.
 - `docker-compose.yml` now publishes `${PORT:-3000}` for the main `aries-app` service because both deploys and local production-style runs depend on that host port existing.
 - `docker-compose.local.yml` layers in localhost-friendly URL defaults and merges into the same `aries-app` service rather than creating a second production container.
-- Local Compose includes a `postgres` service and wires the app container to it with `DB_HOST=postgres`. Production deploys may still use external PostgreSQL; in that case, configure the production environment/secret store with the external `DB_*` values instead of relying on local Compose defaults.
+- Compose does **not** provision PostgreSQL or pgAdmin. Configure `.env` locally, or the production environment/secret store in deploys, with external `DB_*` values that the app container can reach.
 - For production-style Compose runs, `NODE_ENV` is set to `production` and the container starts with `npm run start`.
 
 ## Environment variables

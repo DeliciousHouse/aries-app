@@ -16,11 +16,11 @@ const ROUTE_GROUPS: Array<{ title: string; routes: Array<{ href: string; label: 
     ],
   },
   {
-    title: 'Campaign',
+    title: 'Social content',
     routes: [
-      { href: '/marketing/new-job', label: 'New campaign' },
-      { href: '/marketing/job-status', label: 'Campaign status' },
-      { href: '/marketing/job-approve', label: 'Campaign approval' },
+      { href: '/social-content/new', label: 'New weekly social posts' },
+      { href: '/social-content/status', label: 'Social content status' },
+      { href: '/social-content/review', label: 'Social content review' },
       { href: '/onboarding/start', label: 'Brand and competitor research intake' },
     ],
   },
@@ -28,8 +28,7 @@ const ROUTE_GROUPS: Array<{ title: string; routes: Array<{ href: string; label: 
     title: 'Operator',
     routes: [
       { href: '/dashboard', label: 'Dashboard' },
-      { href: '/dashboard/campaigns', label: 'Campaigns' },
-      { href: '/dashboard/posts', label: 'Posts' },
+      { href: '/dashboard/posts', label: 'Weekly posts' },
       { href: '/dashboard/calendar', label: 'Calendar' },
       { href: '/dashboard/results', label: 'Results' },
       { href: '/dashboard/settings', label: 'Settings' },
@@ -53,7 +52,7 @@ export default function SiteMapPage() {
           <div className="glass rounded-[2.5rem] p-8 md:p-10">
             <p className="text-xs uppercase tracking-[0.3em] text-primary mb-3">Navigation</p>
             <h1 className="text-4xl font-bold mb-3">Sitemap</h1>
-            <p className="text-white/60">Browse all primary Aries routes by workflow area.</p>
+            <p className="text-white/60">Browse primary Aries routes by workflow area.</p>
           </div>
           <div className="grid md:grid-cols-2 gap-6">
             {ROUTE_GROUPS.map((group) => (

@@ -29,8 +29,8 @@ const PIPELINE_STAGES: PipelineStage[] = [
     modes: ['strategy_only', 'strategy_plus_assets', 'full_pipeline'],
   },
   {
-    id: 'campaign_strategy',
-    label: 'Campaign Strategy',
+    id: 'social_content_strategy',
+    label: 'Social Content Strategy',
     description: 'Funnel design, audience targeting, and messaging framework',
     modes: ['strategy_only', 'strategy_plus_assets', 'full_pipeline'],
   },
@@ -49,7 +49,7 @@ const PIPELINE_STAGES: PipelineStage[] = [
   {
     id: 'landing_pages',
     label: 'Landing Pages',
-    description: 'Conversion-optimised pages for each campaign angle',
+    description: 'Conversion-optimised pages for each content angle',
     modes: ['strategy_plus_assets', 'full_pipeline'],
   },
   {

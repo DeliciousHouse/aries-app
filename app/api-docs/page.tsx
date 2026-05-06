@@ -25,7 +25,7 @@ const ENDPOINTS = [
   {
     method: 'POST',
     path: '/api/marketing/jobs',
-    desc: 'Create a new marketing campaign.',
+    desc: 'Create a new weekly social content plan.',
     body:
       '{ "jobType": "brand_campaign", "payload": { "brandUrl", "competitorUrl"?, "competitorBrand"?, "facebookPageUrl"?, "adLibraryUrl"?, "metaPageId"? } }',
     response:
@@ -34,7 +34,7 @@ const ENDPOINTS = [
   {
     method: 'GET',
     path: '/api/marketing/jobs/:jobId',
-    desc: 'Read the current state of a marketing campaign.',
+    desc: 'Read the current state of a weekly social content plan.',
     body: '\u2014',
     response:
       '{ "jobId": "...", "marketing_job_state": "...", "marketing_job_status": "...", "marketing_stage": "...", "approvalRequired": true, "summary": { ... }, "stageCards": [...], "artifacts": [...], "timeline": [...], "approval": { ... }, "nextStep": "submit_approval" }',
@@ -42,7 +42,7 @@ const ENDPOINTS = [
   {
     method: 'POST',
     path: '/api/marketing/jobs/:jobId/approve',
-    desc: 'Approve a campaign checkpoint and resume the next stage.',
+    desc: 'Approve a social content checkpoint and resume the next stage.',
     body:
       '{ "approvedBy", "approvedStages"?: ["strategy"|"production"|"publish"], "resumePublishIfNeeded"?: true, "publishConfig"?: { ... } }',
     response:

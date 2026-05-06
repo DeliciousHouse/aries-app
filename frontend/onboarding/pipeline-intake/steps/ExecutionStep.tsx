@@ -10,7 +10,7 @@ const MODE_OPTIONS: SelectionOption[] = [
   {
     value: 'strategy_only',
     label: 'Strategy Only',
-    description: 'Research + brand analysis + campaign strategy',
+    description: 'Research + brand analysis + weekly social content strategy',
     icon: <BookOpen className="w-5 h-5" />,
   },
   {

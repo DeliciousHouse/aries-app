@@ -206,7 +206,7 @@ export default function PipelineIntake() {
 
   const handleSubmit = async () => {
     if (!goal) {
-      setSubmitError('Select a campaign goal on Step 1 before launching.');
+      setSubmitError('Select a social content goal on Step 1 before launching.');
       return;
     }
     if (!brandUrl) {
@@ -283,7 +283,7 @@ export default function PipelineIntake() {
       }
       clearLocalDraft();
       // Show a brief transition screen so the user sees a clear "we've got
-      // it, building your first campaign" state before the redirect. Timer
+      // it, building your first weekly social content plan" state before the redirect. Timer
       // is tracked in a ref so unmount can cancel it.
       setShowTransition(true);
       transitionTimer.current = window.setTimeout(() => {
@@ -307,7 +307,7 @@ export default function PipelineIntake() {
           <div className="flex items-center justify-center gap-3 mb-5">
             <Loader2 aria-hidden="true" className="w-5 h-5 text-aries-crimson animate-spin" />
             <p className="text-xs uppercase tracking-[0.2em] text-[#888] font-medium">
-              Building your first campaign
+              Building your first weekly social content plan
             </p>
           </div>
           <h2 className="text-xl font-semibold text-white mb-3">
