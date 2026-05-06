@@ -19,6 +19,7 @@ import type {
   MarketingExecutionPort,
   MarketingPipelineResumeInput,
   MarketingPipelineRunInput,
+  RegenerateCreativeContext,
 } from '../execution-port';
 import type { MarketingJobRuntimeDocument, MarketingStage } from '../runtime-state';
 import type { SocialContentApprovalStep } from '@/backend/social-content/types';
@@ -159,6 +160,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       doc: input.doc,
       argsJson: input.argsJson,
       stage: 'research',
+      regenerateCreative: input.regenerateCreative,
     });
   }
 
@@ -243,6 +245,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       workflowKey?: string;
       resumeToken?: string;
       approve?: boolean;
+      regenerateCreative?: RegenerateCreativeContext;
     },
   ): Promise<MarketingExecutionResult> {
     const configError = this.configurationError();
@@ -343,6 +346,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       workflowKey?: string;
       resumeToken?: string;
       approve?: boolean;
+      regenerateCreative?: RegenerateCreativeContext;
     },
     workflowKey: string,
     callbackToken: string,
@@ -388,6 +392,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         doc: input.doc,
         ariesRunId,
         callbackUrl: this.callbackUrl(),
+        regenerateCreative: input.regenerateCreative,
       });
       const idempotencyKey = generateIdempotencyKey(ariesRunId, request.workflow_version, input.tenantId ?? '');
       return {
@@ -400,6 +405,14 @@ export class HermesMarketingPort implements MarketingExecutionPort {
           aries_run_id: request.aries_run_id,
           job_id: request.job_id,
           tenant_id: request.tenant_id,
+          ...(input.regenerateCreative
+            ? {
+                regenerate_creative: {
+                  source_run_id: input.regenerateCreative.source_run_id,
+                  source_creative_id: input.regenerateCreative.source_creative_id,
+                },
+              }
+            : {}),
         },
         idempotency_key: idempotencyKey,
       };

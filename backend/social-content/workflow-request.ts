@@ -105,6 +105,11 @@ export type SocialContentWeeklyBrandPayload = {
   must_avoid_aesthetics: string[];
 };
 
+export type SocialContentRegenerateCreativeContext = {
+  source_run_id: string;
+  source_creative_id: string;
+};
+
 export type SocialContentWeeklyRequest = {
   workflow_key: string;
   workflow_version: string;
@@ -154,6 +159,7 @@ export type SocialContentWeeklyRequest = {
           script_id: string;
         }
     >;
+    regenerate_creative?: SocialContentRegenerateCreativeContext;
   };
 };
 
@@ -251,6 +257,7 @@ export function buildSocialContentWeeklyRequest(input: {
   doc: MarketingJobRuntimeDocument;
   ariesRunId: string;
   callbackUrl: string;
+  regenerateCreative?: SocialContentRegenerateCreativeContext;
 }): SocialContentWeeklyRequest {
   const req = requestRecord(input.doc);
   const brandKit = input.doc.brand_kit ?? null;
@@ -346,6 +353,14 @@ export function buildSocialContentWeeklyRequest(input: {
           : [...SOCIAL_CONTENT_FORBIDDEN_VISUAL_PATTERNS],
       },
       ...(mediaRequests.length > 0 ? { media_requests: mediaRequests } : {}),
+      ...(input.regenerateCreative
+        ? {
+            regenerate_creative: {
+              source_run_id: input.regenerateCreative.source_run_id,
+              source_creative_id: input.regenerateCreative.source_creative_id,
+            },
+          }
+        : {}),
     },
   };
 }

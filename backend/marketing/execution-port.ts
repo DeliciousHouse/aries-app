@@ -40,12 +40,24 @@ export type HermesWorkflowOutput = {
   };
 };
 
+export type RegenerateCreativeContext = {
+  source_run_id: string;
+  source_creative_id: string;
+};
+
 export type MarketingPipelineRunInput = {
   jobId: string;
   doc: MarketingJobRuntimeDocument;
   argsJson: string;
   timeoutMs: number;
   maxStdoutBytes: number;
+  /**
+   * When set, scopes the new aries_run to a single creative regeneration
+   * instead of a full pipeline. Hermes uses this to redo just the targeted
+   * creative; the original aries_run remains untouched (no callback
+   * stage-regression). Owned by T14 (regenerate creative).
+   */
+  regenerateCreative?: RegenerateCreativeContext;
 };
 
 export type MarketingPipelineResumeInput = {
