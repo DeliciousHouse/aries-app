@@ -840,3 +840,58 @@ Current `fix/live-qa-blockers` HEAD only contained T3 (`82cc550`), T8 (`7c062aa`
 - Edit overrides survive `mergeReviewState`'s source-hash bust because they live in a different file. If T20 (regenerate creative) replaces the underlying creative, `applyReviewItemEdits` will keep applying the prior copy edits to the new creative — T20 must explicitly clear the edit row when regenerating, or downstream operators should treat the persisted edit as canonical.
 - `AUTOSAVE_DEBOUNCE_MS = 500` is exported from the module via a top-level const, not configurable per call. T20 / T21 drawer flows can read the same constant when they wire their own autosave loops to keep cadence consistent.
 - The route returns the *fully-rebuilt* review item via `rebuilder` so the UI can replace its local state from the response. If the rebuild can't find the item (race against approval/reject), the route falls back to applying the edit overlay to the currently-resolved item; either way the response always carries a `review` field.
+
+## [2026-05-06] T26 — OAuth refresh sweeper + day-50 reconnect-warning email
+
+### Module split
+- `backend/integrations/refresh-sweeper.ts` — pure async `runOAuthRefreshSweep(options)` returning a `SweeperReport`. No CLI concerns; takes `client`, `refresh`, `sendWarning`, `audit`, `now` as injectable deps.
+- `scripts/oauth-refresh-sweep.ts` — CLI wrapper following the T25 reaper pattern: defaults to `--dry-run`, `--apply` mutates, plus `--refresh-horizon-hours`, `--warning-window-days`, `--warning-cooldown-hours`, `--app-base-url`. Exports `oauthRefreshSweepCli` + `parseArgs` for tests.
+- `tests/oauth-refresh-sweep.test.ts` — 9 tests against an in-memory queryable harness; never touches `lib/db`.
+
+### Candidate selection (DB store, not token-store Map)
+- Refresh: `oauth_connections` rows with `status = 'connected' AND token_expires_at IS NOT NULL AND token_expires_at < now() + refresh_horizon_hours`. Includes already-expired rows because the sweeper still tries to recover them via the standard refresh path.
+- Warning (Meta): same table, restricted to `provider IN ('facebook','instagram') AND token_expires_at > now() AND token_expires_at < now() + warning_window_days`. The strict `> now()` bound prevents re-warning a tenant whose token already expired (those become refresh candidates).
+- Operator email: `LEFT JOIN LATERAL` on `users WHERE organization_id = oc.tenant_id` ranking `tenant_admin` first by `CASE WHEN role = 'tenant_admin' THEN 0 ELSE 1 END`.
+
+### Sweeper does NOT mutate connection status itself
+- The sweeper invokes `oauthRefresh(provider, tenantId)` from T2 and observes the broker result. The `unauthorized` → `reauthorization_required` transition happens INSIDE `oauthRefresh` via `updateConnectionAfterFailure`. The sweeper just records its own audit (`oauth.refresh_sweep.failed`) plus the outcome enum; this prevents duplicate state mutations.
+- Outcome kinds: `refreshed`, `skipped_unchanged` (concurrent refresh single-flight), `reauth_required` (broker reason `provider_callback_error` or `connection_not_found`), `unknown_failure`.
+
+### Day-50 warning dedup (two layers)
+1. Per-run in-memory `Set<tenantId>` — Meta + Instagram share one operator inbox, so one warning per tenant per run covers both rows.
+2. Per-tenant audit-event lookup — `SELECT 1 FROM oauth_audit_events WHERE tenant_id = $1 AND event_type = 'oauth.reconnect_warning.sent' AND occurred_at > now() - cooldown_hours`. Default cooldown is 24h. Without this, the sweeper would re-send daily until reconnect.
+
+### Reconnect URL
+- `${APP_BASE_URL}/platforms` (the operator platforms page). Matches the test fixture URL pattern in `tests/email-notifications.test.ts`. When `APP_BASE_URL` is unset the URL is the relative `/platforms` (still readable in HTML emails clients that absolute-resolve against the message recipient's web app).
+
+### Audit event taxonomy added
+- `oauth.refresh_sweep.refreshed` (status=ok) — sweeper-driven refresh succeeded.
+- `oauth.refresh_sweep.failed` (status=error) — broker error or thrown exception inside `runOAuthRefreshSweep`.
+- `oauth.reconnect_warning.sent` (status=ok) — also acts as the dedup key.
+- `oauth.reconnect_warning.failed` (status=error) — email send threw.
+- All audits go through the existing `dbAuditEvent` writer; in tests we inject a stub `audit` fn.
+
+### Type seam: SweeperQueryable
+- Defined `export type SweeperQueryable = { query(sql, params?): Promise<{ rows: unknown[]; rowCount: number | null }> }` instead of reusing the strict `Pick<PoolClient, 'query'>` from `oauth-tokens-db.ts`. The PoolClient `query` overloads are too strict to satisfy with a simple test stub; the structural type lets the test harness provide a one-overload mock without `as unknown as` casts. Production callers (default `pool`) still satisfy it because Pool has a structurally compatible `query`.
+
+### Test pattern
+- Single `createHarness({connections, users, audits})` returns `{client, audit, audits, ...}`. The query handler dispatches by SQL fragments: `provider IN ('facebook','instagram')` → warning candidates, plain `status = 'connected' AND token_expires_at <` → refresh candidates, `oauth_audit_events` + `reconnect_warning.sent` → dedup lookup. No SQL parser, just substring routing — same approach as `tests/oauth-refresh-meta.test.ts`.
+- `FIXED_NOW = 2026-05-06T12:00:00Z` + `expiresInHours` / `expiresInDays` helpers keep the tests deterministic regardless of wall clock.
+
+### Files added/changed
+- NEW `backend/integrations/refresh-sweeper.ts`
+- NEW `scripts/oauth-refresh-sweep.ts`
+- NEW `tests/oauth-refresh-sweep.test.ts`
+- NEW `.sisyphus/evidence/task-26-dry.txt`
+- NEW `.sisyphus/evidence/task-26-warn.txt`
+
+### Validation
+- `tests/oauth-refresh-sweep.test.ts` → 9/9 pass
+- `tests/oauth-refresh-{meta,concurrency,failure}.test.ts` → 6/6 pass (no T2 regression)
+- `tests/email-notifications.test.ts` → 17/17 pass (no T27 regression)
+- `tsc --noEmit` clean on all changed files (only pre-existing merge-marker errors in unrelated dirty files)
+- `node scripts/check-banned-patterns.mjs` ok; `node scripts/check-repo-boundary.mjs` ok
+
+### Gotchas for downstream tasks
+- The sweeper is invocation-only — no daemon/cron/scheduler in T26 per task spec. F2/F3 operational reliability checks should call this script from whatever scheduler the host environment provides (systemd timer, k8s CronJob, etc.) rather than embedding scheduling here.
+- The dedup audit key is `tenant_id + event_type + occurred_at`. If a future task adds tenant-scoped warning suppression (e.g., user opted out), prefer a separate `oauth.reconnect_warning.suppressed` audit event over piggy-backing on `.sent`.

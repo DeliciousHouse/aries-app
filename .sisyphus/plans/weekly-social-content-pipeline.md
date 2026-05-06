@@ -791,7 +791,7 @@ Parallel Speedup: ~65% faster than fully sequential
 
   **Commit**: YES (T8) — `feat(hermes): inject full brand kit into social_content_weekly payload`
 
-- [ ] 9. **Per-channel aspect-ratio matrix in media_requests**
+- [x] 9. **Per-channel aspect-ratio matrix in media_requests**
 
   **What**: Replace hardcoded `aspect_ratio: '4:5'` in `backend/social-content/workflow-request.ts:124` with `resolveAspectRatio({ channel, post_type, image_count })`. Build matrix table: instagram_feed/single → '4:5' or '1:1' (operator-pickable, default 4:5); instagram_feed/carousel (image_count>=2) → '1:1'; facebook_feed/single → '1:1'; facebook_feed/link_card → '1.91:1'. Module exports getAspectMatrix() and getDefaultAspectFor(channel, postType).
   **Must NOT**: Build aspect logic for TikTok/YouTube (excluded). No 9:16 vertical for v1.
@@ -810,7 +810,7 @@ Parallel Speedup: ~65% faster than fully sequential
   ```
   **Commit**: YES (T9) — `feat(hermes): per-channel aspect-ratio matrix in media_requests`
 
-- [ ] 10. **Idempotency key in Hermes submission**
+- [x] 10. **Idempotency key in Hermes submission**
 
   **What**: In `backend/marketing/ports/hermes.ts` `submissionPayload`, add `idempotency_key: hash(aries_run_id + workflow_version + tenant_id)` (sha256 hex). Hermes deduplicates twin submissions on retry. Also add `Idempotency-Key` HTTP header.
   **Must NOT**: Drop or rename existing `aries_run_id` (callback handlers depend on it).
@@ -913,7 +913,7 @@ Parallel Speedup: ~65% faster than fully sequential
   ```
   **Commit**: YES (T15) — `feat(creatives): upload-replace with vision QA gate + orphan GC`
 
-- [ ] 16. **Onboarding hard gate middleware**
+- [x] 16. **Onboarding hard gate middleware**
 
   **What**: Update `lib/auth-user-journey.ts:resolvePostLoginDestinationForUser` AND add a server component guard in `app/dashboard/layout.tsx`: if `business_profiles.incomplete === true` OR `oauth_connections WHERE status='connected' COUNT < 1` → redirect to `/onboarding/start`. The middleware/`middleware.ts` should ALSO enforce on /dashboard/*, /posts/*, /calendar/*, /platforms/*, /social-content/* paths. Public pages (/, /features, /documentation, /api-docs, /login, /onboarding/*) unaffected.
   **Must NOT**: Block /onboarding/* itself (operator must reach it). No flash-of-unredirected content.
@@ -1047,7 +1047,7 @@ Parallel Speedup: ~65% faster than fully sequential
   ```
   **Commit**: YES (T23) — `chore(api): remove dead 501 approval-requests stubs`
 
-- [ ] 24. **Publish dispatcher confirms platform_post_id + GET-verifies (tests-first)**
+- [x] 24. **Publish dispatcher confirms platform_post_id + GET-verifies (tests-first)**
 
   **What**: Modify `app/api/publish/dispatch/handler.ts` post-Hermes-callback path to: (1) capture `platform_post_id` from publish callback payload, (2) persist to `posts.platform_post_id` + `published_at`, (3) within 30s of publish, fire a verification GET to `https://graph.facebook.com/v21.0/{platform_post_id}?access_token={page_token}` (use stored Page token from T3) and assert 200 + matching id. On 404/error within 30s window: mark `published_status='unverified'` and trigger F3 alert. Publish succeeds only when GET-verified.
   **Must NOT**: Block dispatch on verification (verification is async post-callback). No hard re-publish on unverified (operator decides).
@@ -1065,7 +1065,7 @@ Parallel Speedup: ~65% faster than fully sequential
   ```
   **Commit**: YES (T24) — `feat(publish): platform_post_id capture + Graph API GET-verification`
 
-- [ ] 25. **Stale-run reaper**
+- [x] 25. **Stale-run reaper**
 
   **What**: New script `scripts/reap-stale-runs.ts`. Sweeps marketing-job runtime docs in DATA_ROOT/generated/draft/marketing-jobs; for each with status in (`submitted`,`running`) where `(now() - last_callback_at)` > 2× expected_stage_duration_ms (lookup from workflow defaults; fallback 30min), mark `status='failed_stale'` with `failure_reason='stale_run_reaper'`. Idempotent. Runs as `--dry-run` by default; CI/cron later (out of v1, but script must exist and be testable).
   **Must NOT**: Auto-restart reaped runs (operator decides). No deletion of runtime docs (audit trail).
@@ -1102,7 +1102,7 @@ Parallel Speedup: ~65% faster than fully sequential
   ```
   **Commit**: YES (T26) — `chore(oauth): refresh sweeper + day-50 warning email`
 
-- [ ] 27. **Notification email templates (plan-ready, approval-needed, publish-failed, reconnect-warning)**
+- [x] 27. **Notification email templates (plan-ready, approval-needed, publish-failed, reconnect-warning)**
 
   **What**: Add 4 templates to `lib/email.ts`: `sendPlanReadyEmail({to, tenantSlug, jobId})`, `sendApprovalNeededEmail({to, tenantSlug, approvalId, step})`, `sendPublishFailedEmail({to, tenantSlug, postId, errorReason})`, `sendMetaReconnectWarningEmail({to, tenantSlug, daysUntilExpiry})`. Plain text + HTML body via Resend. Wire into Hermes callback handler (plan-ready when stage moves to plan_review; approval-needed when requires_approval), publish handler (failure path), and T26 sweeper.
   **Must NOT**: Templating engine (use template literals); no localization (English only); no operator preferences UI yet (always send if email known).
