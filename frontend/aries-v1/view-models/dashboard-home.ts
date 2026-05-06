@@ -8,6 +8,11 @@ import type {
   RuntimeReviewItem,
 } from '@/lib/api/aries-v1';
 import type { DashboardHeroMetric } from '@/frontend/aries-v1/components';
+import {
+  GENERATE_THIS_WEEK_LABEL,
+  evaluateGenerateThisWeekGate,
+  type GenerateThisWeekGate,
+} from '@/frontend/aries-v1/generate-this-week';
 
 type DashboardHomePreviewItem = {
   id: string;
@@ -101,6 +106,13 @@ export interface DashboardHomeViewModel {
     totalCount: number;
     attentionCount: number;
     items: AriesChannelConnection[];
+  };
+  generateThisWeek: {
+    label: string;
+    gate: GenerateThisWeekGate;
+    enabled: boolean;
+    inProgress: boolean;
+    disabledReason: string | null;
   };
 }
 
@@ -450,6 +462,19 @@ export function createDashboardHomeViewModel(args: {
       totalCount: channelItems.length,
       attentionCount,
       items: channelItems,
+    },
+    generateThisWeek: {
+      label: GENERATE_THIS_WEEK_LABEL,
+      ...evaluateGenerateThisWeekGate({
+        profile: args.profile,
+        integrationCards: args.integrationCards,
+        integrationsPending: args.integrationsPending,
+        campaigns: args.campaigns.map((campaign) => ({
+          status: campaign.status,
+          dashboardStatus: campaign.dashboardStatus,
+          approvalRequired: campaign.approvalRequired,
+        })),
+      }),
     },
   };
 }

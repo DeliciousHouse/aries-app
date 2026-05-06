@@ -16,6 +16,7 @@ import {
 
 import { ShellPanel, StatusChip } from '@/frontend/aries-v1/components';
 import type { DashboardHomeViewModel } from '@/frontend/aries-v1/view-models/dashboard-home';
+import { GENERATE_THIS_WEEK_BUSY_LABEL } from '@/frontend/aries-v1/generate-this-week';
 
 export interface DashboardHomePresenterProps {
   model: DashboardHomeViewModel;
@@ -25,6 +26,13 @@ export interface DashboardHomePresenterProps {
   onChannelDisconnect?: (channelId: string) => void;
   /** e.g. `instagram:disconnect` while a disconnect request is in flight */
   channelsBusyAction?: string | null;
+  /** Manual weekly-content trigger wiring. When omitted the trigger renders disabled. */
+  generateThisWeek?: {
+    submitting: boolean;
+    errorMessage: string | null;
+    jobStatusUrl: string | null;
+    onTrigger: () => void;
+  };
 }
 
 type OrbitSurface = {
@@ -41,6 +49,7 @@ export default function DashboardHomePresenter({
   channelsErrorMessage,
   onChannelDisconnect,
   channelsBusyAction,
+  generateThisWeek,
 }: DashboardHomePresenterProps) {
   const surfaces = useMemo<OrbitSurface[]>(() => {
     const metricByLabel = (label: string) =>
@@ -287,6 +296,78 @@ export default function DashboardHomePresenter({
 
           <div className="space-y-4 p-6">
             <p className="text-[15px] leading-relaxed text-white/60">{model.workingNow.summary}</p>
+
+            {(() => {
+              const successJobStatusUrl = generateThisWeek?.jobStatusUrl ?? null;
+              const buttonDisabled =
+                !model.generateThisWeek.enabled ||
+                generateThisWeek === undefined ||
+                generateThisWeek.submitting === true ||
+                successJobStatusUrl !== null;
+              const buttonLabel = generateThisWeek?.submitting
+                ? GENERATE_THIS_WEEK_BUSY_LABEL
+                : model.generateThisWeek.label;
+              const helper = generateThisWeek?.errorMessage ?? model.generateThisWeek.disabledReason;
+              return (
+                <div
+                  className="rounded-2xl border border-white/[0.06] bg-[#13101b] p-5"
+                  data-testid="generate-this-week-card"
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <h4 className="text-[15px] font-semibold text-white">{model.generateThisWeek.label}</h4>
+                      <p className="mt-1 text-[13px] leading-relaxed text-white/50">
+                        Aries plans the week using your business profile and connected channels. Server defaults
+                        cover 7 days, 3 static posts, 2 image creatives, and 1 video script.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={buttonDisabled}
+                      onClick={() => generateThisWeek?.onTrigger()}
+                      data-testid="generate-this-week-button"
+                      aria-disabled={buttonDisabled}
+                      aria-busy={generateThisWeek?.submitting === true}
+                      className="inline-flex shrink-0 items-center justify-center gap-2 rounded-full border border-white/15 bg-white px-5 py-2 text-sm font-medium text-black transition-colors hover:bg-white/85 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-white/20 disabled:text-white/55"
+                    >
+                      {buttonLabel}
+                    </button>
+                  </div>
+                  {successJobStatusUrl ? (
+                    <div
+                      className="mt-3 flex flex-col gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-3 sm:flex-row sm:items-center sm:justify-between"
+                      data-testid="generate-this-week-success"
+                    >
+                      <p className="text-[13px] leading-relaxed text-emerald-100/80">
+                        This week’s social content run is on its way.
+                      </p>
+                      <Link
+                        href={successJobStatusUrl}
+                        data-testid="generate-this-week-status-link"
+                        className="inline-flex shrink-0 items-center gap-1 text-[13px] font-medium text-emerald-200 transition-colors hover:text-emerald-100"
+                      >
+                        View status
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
+                    </div>
+                  ) : null}
+                  {helper ? (
+                    <p
+                      data-testid={
+                        generateThisWeek?.errorMessage
+                          ? 'generate-this-week-error'
+                          : 'generate-this-week-helper'
+                      }
+                      className={`mt-3 text-[13px] leading-relaxed ${
+                        generateThisWeek?.errorMessage ? 'text-rose-300' : 'text-white/40'
+                      }`}
+                    >
+                      {helper}
+                    </p>
+                  ) : null}
+                </div>
+              );
+            })()}
 
             {model.workingNow.items.length > 0 ? (
               <div className="space-y-3">
