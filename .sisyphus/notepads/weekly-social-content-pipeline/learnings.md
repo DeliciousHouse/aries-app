@@ -579,3 +579,52 @@ Current `fix/live-qa-blockers` HEAD only contained T3 (`82cc550`), T8 (`7c062aa`
 - Extended `scripts/init-db.js` posts CHECK constraint to include `'unverified'` via idempotent `DROP CONSTRAINT IF EXISTS posts_published_status_check; ADD CONSTRAINT ... CHECK (... 'unverified')`. Two ALTERs after the original ADD COLUMN keep T7's original column-creation untouched while adding the new value as a follow-on migration.
 - `types/posts.ts` `publishedStatuses` array gained `'unverified'` so the canonical type union includes it. The narrow `PublishedStatus = 'published' | 'unverified'` in `publish-verification.ts` is intentionally a subset (only the two states this module emits) — both members are still valid in the canonical type.
 - Decision rationale: The closest existing schema-supported value would be `'failed'`, but that semantically means "the publish failed (post was NOT published)". Verification 404 means the opposite — the post exists in the dispatch result but couldn't be confirmed via Graph API. Conflating the two would mislead operators and break the plan invariant "No hard re-publish on unverified (operator decides)". Adding `'unverified'` keeps the audit trail honest.
+
+## [2026-05-06] T16 — Onboarding hard gate middleware (COMPLETED)
+
+### Architecture
+- Edge middleware (`middleware.ts`) cannot use the `pg` driver. The gate must run in server components / RSC layouts where the full PoolClient is available. Settled on layout.tsx-per-prefix instead of a single Edge middleware.
+- 5 new layouts under `app/{dashboard,posts,calendar,platforms,social-content}/layout.tsx`. Each one calls `enforceOnboardingGate()` (server-only) and renders `<>{children}</>`. Subroutes (e.g. `/dashboard/campaigns/[id]`) inherit the guard automatically via Next App Router cascading layouts.
+- `/onboarding/*` deliberately has no layout guard, so the redirect target is always reachable — no flash-of-unredirected content and no redirect loop.
+
+### Module shape
+- `lib/onboarding-gate.ts` (pure logic, isomorphic): `evaluateOnboardingGate({ client, tenantId, profileIncompleteResolver?, connectionCounter? })` returns `{ allowed, reason: 'allowed'|'profile_incomplete'|'meta_not_connected', redirectTo: '/onboarding/start'|null }`. Exports `GUARDED_OPERATOR_PATH_PREFIXES`, `GATE_REDIRECT_DESTINATION`, `shouldGuardPathname(pathname)`, `countConnectedMetaPlatforms(client, tenantId)` for direct reuse.
+- `lib/onboarding-gate-server.ts` (`'server-only'`): `enforceOnboardingGate()` resolves session via `auth()`, opens a pool client, resolves tenant via `resolveTenantContextForSession`, and calls the pure gate. Honors `MARKETING_STATUS_PUBLIC=1` for the demo flow (returns early without redirecting).
+
+### Connection query
+- SQL: `SELECT COUNT(*)::int AS connected_count FROM oauth_connections WHERE tenant_id = $1 AND status = 'connected' AND provider IN ('facebook', 'instagram')`. Tenant id is normalized to a positive integer or short-circuits to 0; bypasses the query for invalid input.
+- Provider list is intentionally Meta+Instagram only. LinkedIn/X/TikTok/YouTube/Reddit do NOT satisfy the gate per the user decision.
+
+### Fail-closed semantics
+- The profile-incomplete resolver is wrapped in try/catch — any throw flips `profileIncomplete = true`, redirecting through the gate. The catch is intentional and security-critical (commented inline as the only retained comment in the module). Without this, a transient DB error or a missing tenant row would have let an operator slip past the gate.
+- Tenant-context resolution failure (TenantContextError) also redirects to `/onboarding/start` rather than throwing 500 — operators with broken tenant claims are sent into onboarding instead of seeing a runtime error.
+
+### Post-login destination integration
+- `lib/auth-user-journey.ts` adds `isTenantReadyForDashboard(client, tenantId)` that wraps the gate evaluation. `resolvePostLoginDestinationForUser` now sends users to `/onboarding/start` when the gate fails, even if `business_profiles.incomplete = false`. The `users.onboarding_completed_at` flag is only set when the FULL gate passes (profile + ≥1 Meta connection), so legacy users who lost their connections get correctly redirected back into onboarding.
+
+### Test pattern
+- `tests/onboarding-gate.test.ts` (12 tests): pure-logic tests with injected resolvers — no real DB, no `auth()` import. Covers all 3 acceptance scenarios (incomplete → redirect, complete + 0 conns → redirect, complete + ≥1 conn → allowed), plus path-prefix matching, fail-closed behavior, and SQL-shape verification.
+- Integration test for the actual SQL (`evaluateOnboardingGate uses real connection-count SQL when no counter override is supplied`) asserts the exact SQL fragments and the parameter is the numeric tenant id.
+
+### Files added
+- `lib/onboarding-gate.ts` (pure logic, 132 lines)
+- `lib/onboarding-gate-server.ts` (RSC wrapper, 39 lines)
+- `app/dashboard/layout.tsx`, `app/posts/layout.tsx`, `app/calendar/layout.tsx`, `app/platforms/layout.tsx`, `app/social-content/layout.tsx` (8 lines each)
+- `tests/onboarding-gate.test.ts` (12 tests, 165 lines)
+- `.sisyphus/evidence/task-16-redirect.txt` (test output + layout listing + reachability proof)
+
+### Files changed
+- `lib/auth-user-journey.ts` — added `isTenantReadyForDashboard`; `resolvePostLoginDestinationForUser` now uses dashboardReady for both the redirect decision and the `onboarding_completed_at` write gate.
+
+### Validation
+- `./node_modules/.bin/tsx --test tests/onboarding-gate.test.ts` → 12/12 pass
+- `tests/runtime-pages.test.ts` → 41/41 pass (no regression in page rendering)
+- `tests/onboarding-flow-auth-hardening.test.ts` + `tests/onboarding-resume.test.ts` → 4/4 pass
+- `npm run validate:repo-boundary` → ok (606 files)
+- `node scripts/check-banned-patterns.mjs` → ok (8 files, 10 patterns)
+- LSP diagnostics clean on all 9 changed files
+
+### Gotchas for downstream tasks
+- `MARKETING_STATUS_PUBLIC=1` bypasses the gate. T17/T18 must NOT rely on the gate firing in public-mode local demos.
+- The gate redirects at request time (RSC). It does not run on client-side `next/link` prefetch unless the link target is a guarded prefix. Operators clicking from `/onboarding/start` to `/dashboard` via a real navigation will hit the redirect.
+- T17 (connect Meta/IG step) needs to ensure the operator can navigate from `/onboarding/*` to a successful Meta callback and back to `/dashboard` without re-triggering the gate. Because the OAuth callback writes `oauth_connections.status='connected'`, the next render of `/dashboard` will see ≥1 connected and allow through. No additional plumbing needed.
