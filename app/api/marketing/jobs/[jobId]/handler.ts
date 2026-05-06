@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { buildSocialContentDashboardProjection } from '@/backend/social-content/dashboard-projection';
 import type { MarketingApprovalSummary, MarketingJobStatusResponse } from '@/backend/marketing/jobs-status';
 import { getMarketingJobStatusCached } from '@/backend/marketing/jobs-status';
 import { loadMarketingJobRuntime } from '@/backend/marketing/runtime-state';
@@ -167,7 +168,7 @@ function socialContentStatusHistory(
   }));
 }
 
-function socialContentDashboard(
+function socialContentCopyDashboard(
   dashboard: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['dashboard'],
   durationDays: number | null,
 ): Awaited<ReturnType<typeof buildCampaignWorkspaceView>>['dashboard'] {
@@ -179,10 +180,10 @@ function socialContentDashboard(
           ...dashboard.campaign,
           name: /^Campaign in progress$/i.test(dashboard.campaign.name)
             ? 'Social content in progress'
-            : dashboard.campaign.name,
+            : replaceCampaignTerms(dashboard.campaign.name, calendarLabel),
           objective: /^Campaign in progress$/i.test(dashboard.campaign.objective)
             ? 'Social content in progress'
-            : dashboard.campaign.objective,
+            : replaceCampaignTerms(dashboard.campaign.objective, calendarLabel),
           summary: replaceCampaignTerms(dashboard.campaign.summary, calendarLabel),
           stageLabel: replaceCampaignTerms(dashboard.campaign.stageLabel, calendarLabel),
         }
@@ -192,8 +193,19 @@ function socialContentDashboard(
       title: replaceCampaignTerms(asset.title, calendarLabel),
       summary: replaceCampaignTerms(asset.summary, calendarLabel),
     })),
+    posts: dashboard.posts.map((post) => ({
+      ...post,
+      title: replaceCampaignTerms(post.title, calendarLabel),
+      summary: replaceCampaignTerms(post.summary, calendarLabel),
+    })),
+    publishItems: dashboard.publishItems.map((item) => ({
+      ...item,
+      title: replaceCampaignTerms(item.title, calendarLabel),
+      summary: replaceCampaignTerms(item.summary, calendarLabel),
+    })),
     calendarEvents: dashboard.calendarEvents.map((event) => ({
       ...event,
+      title: replaceCampaignTerms(event.title, calendarLabel),
       statusLabel: replaceCampaignTerms(event.statusLabel, calendarLabel),
     })),
   };
@@ -203,6 +215,7 @@ function buildResponsePayload(
   dialect: ResponseDialect,
   result: Awaited<ReturnType<typeof getMarketingJobStatusCached>>['payload'],
   workspaceView: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>,
+  runtimeDoc: NonNullable<Awaited<ReturnType<typeof loadMarketingJobRuntime>>>,
 ) {
   const base = {
     jobId: result.jobId,
@@ -259,7 +272,10 @@ function buildResponsePayload(
     social_content_stage_status: base.marketing_stage_status,
     contentBrief: base.campaignBrief,
     statusHistory: socialContentStatusHistory(base.statusHistory, base.durationDays),
-    dashboard: socialContentDashboard(base.dashboard, base.durationDays),
+    dashboard: buildSocialContentDashboardProjection(
+      runtimeDoc,
+      socialContentCopyDashboard(base.dashboard, base.durationDays),
+    ),
   };
 
   return socialPayload;
@@ -291,7 +307,7 @@ export async function handleGetMarketingJobStatus(
     const { payload: result, cacheStatus } = await getMarketingJobStatusCached(tenantResult.tenantContext.tenantId, jobId);
     const workspaceView = await buildCampaignWorkspaceView(jobId);
 
-    return NextResponse.json(buildResponsePayload(dialect, result, workspaceView), {
+    return NextResponse.json(buildResponsePayload(dialect, result, workspaceView, runtimeDoc), {
       status: 200,
       headers: { 'x-cache': cacheStatus },
     });
