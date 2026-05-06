@@ -760,3 +760,83 @@ Current `fix/live-qa-blockers` HEAD only contained T3 (`82cc550`), T8 (`7c062aa`
 - `lsp_diagnostics` clean on both `frame-overlay.ts` and `frame-overlay.test.ts`.
 - Banned-pattern grep on changed files: 0 hits (no `as any`, `@ts-ignore`, `@ts-expect-error`, `TODO`, `FIXME`, `HACK`, `console.log`, user-facing `campaign`).
 - Full `npm run typecheck` is still blocked by pre-existing conflict markers in `tests/deploy-workflow-self-hosted.regression-015.test.ts` — out of scope for T13 per task spec.
+
+## [2026-05-06] T21 — Reschedule per-post drawer
+
+### Pattern: route handler with optional `queryable` for testability
+- The PATCH handler `handlePatchScheduleSocialContentPost(jobId, postId, req, options)` accepts an optional `queryable` so tests can inject a fake `pg` client without mocking the global pool. Real production calls go through `pool.connect()` and `release()`.
+- This complements the `tenantContextLoader` injection pattern already used by `handleApproveMarketingJob` and friends.
+
+### Pattern: tenant-guarded upsert via `ON CONFLICT ... WHERE`
+- `INSERT INTO scheduled_posts (...) ON CONFLICT (post_id) DO UPDATE ... WHERE scheduled_posts.tenant_id = EXCLUDED.tenant_id` — cross-tenant overwrites silently no-op (zero `rowCount`). The helper raises a typed `ScheduledPostTenantMismatchError` so the route returns 404 instead of leaking the mismatch.
+- The handler also runs an explicit `SELECT id FROM posts WHERE id = $1 AND tenant_id = $2 LIMIT 1` ownership check before the upsert. Defense-in-depth.
+
+### Pattern: pg query type-bridging
+- The existing `Queryable`-style minimal type collides with `pg.PoolClient`'s overloaded `query` signature. Wrap with `((sql, params) => pooled.query(sql, params)) as unknown as ...` to bridge. (See `app/api/social-content/jobs/[jobId]/posts/[postId]/schedule/route.ts`.)
+
+### Coordination with T19
+- `frontend/aries-v1/review-item.tsx` was already dirty in this workspace with T19's inline copy editor work. To keep T21 atomic and avoid colliding with T19's diff, the drawer ships as a **standalone** component (`frontend/aries-v1/reschedule-drawer.tsx`) that T19/F-wave can wire into review-item.tsx during their own commits.
+- Drawer API: default export, props `{ jobId, postId, defaultScheduledAt?, defaultPlatforms?, timezoneLabel?, onClose, onSaved? }`. Submit posts to `/api/social-content/jobs/{jobId}/posts/{postId}/schedule` and calls `onSaved` with the persisted record.
+
+### date-fns
+- `date-fns@^4.1.0` is in `package.json` but no other app code imports from it yet. Use named imports (`import { format } from 'date-fns'`).
+
+### Native `<input type="datetime-local">`
+- Avoids a heavy date-picker dep. The browser returns local-time string `YYYY-MM-DDTHH:mm`; `new Date(value).toISOString()` converts to UTC for the wire format. Tenant timezone label is purely UI copy until business_profiles exposes a timezone column.
+
+## [2026-05-06] T19 — Inline copy edit with autosave (single-writer)
+
+### Module shape
+- New `backend/marketing/runtime-edit-state.ts` exports `recordReviewItemEdit` + `getReviewItemEdit` + `loadReviewEditState`. Storage at `${DATA_ROOT}/generated/draft/marketing-review-edits/${jobId}.json` keyed by `reviewId`. Single-writer last-write-wins; previous override is archived in `previous` (one level deep) so the UI can diff source vs current without a version-history surface.
+- `runtime-views.ts` now exports `recordReviewItemCopyEdit` + `captionChannelForReviewItem` + `applyReviewItemEdits` (private; consumed by `buildReviewItemsForJob`). Edits override `currentVersion.headline` + `currentVersion.supportingText` and update the `summary` mirror so the existing review UI reads consistent state on every refresh.
+- Test seam: `recordReviewItemCopyEdit` accepts an optional `RecordReviewItemCopyEditOptions = { runtimeDocLoader, resolver, rebuilder }`. The route handler `handlePatchSocialContentPost` accepts the same options as a 5th arg so unit tests can stub the runtime doc + resolver without setting up a full marketing job fixture.
+
+### API route
+- `PATCH /api/social-content/jobs/[jobId]/posts/[postId]` at `app/api/social-content/jobs/[jobId]/posts/[postId]/route.ts`.
+- Body shape: `{ headline?: string | null, supportingText?: string | null, editedBy?: string | null }`. `null` = clear override; `undefined` = leave unchanged. At least one of `headline` / `supportingText` is required (otherwise `400 no_edit_fields`).
+- Uses `loadTenantContextOrResponse` for auth (403 on missing tenant). Cross-tenant + missing review both resolve to `404 review_not_found` for safety. Caption-validator failures return `400 caption_invalid` with `validation_errors: string[]`.
+- `invalidateMarketingJobStatus(review.jobId)` is called after a successful edit so the review queue and status surfaces re-fetch fresh data.
+
+### Channel inference
+- `captionChannelForReviewItem(item)` checks `channel + placement + workflowStage` (lowercased) for `instagram` / `ig ` / `facebook` / `fb ` / `meta` substrings.
+- `instagram` wins when both match (matches the T9 "Instagram-priority tie-break" pattern).
+- Returns `null` for brand/strategy/workflow_approval items so the validator is skipped for non-creative review items (we don't want to block a brand-direction review for hashtag count).
+
+### Frontend wiring (`frontend/aries-v1/review-item.tsx`)
+- New `InlineCopyEditor` component renders inline `<input>` (headline) + `<textarea>` (caption) bound to `currentVersion.headline` / `currentVersion.supportingText`.
+- Autosave fires on `onBlur` AND on a 500ms debounce (`AUTOSAVE_DEBOUNCE_MS = 500`). Both paths funnel through a single `persist(headline, supportingText)` callback that early-exits when nothing changed since the last successful save (`lastSavedRef`).
+- Status pill ("Saving…" / "Saved" / "Save failed" / "Up to date") is data-testid'd `inline-edit-status` for QA.
+- Validation errors surface inline via `data-testid="inline-edit-validation"` with friendly copy from `CAPTION_VALIDATION_MESSAGES`. Server errors render through `customerSafeUiErrorMessage` to keep AGENTS.md banned-pattern guard happy.
+- Editor is read-only when `reviewItem.status` is `approved | rejected | live | scheduled` (so terminal-state items can't be silently mutated).
+- Character counter mirrors the active channel limit (Instagram 2200, Facebook 63206) and trips amber at 90% / rose-300 over limit.
+
+### Hook + API client
+- `useRuntimeReviewItem` exposes `updateCopy(jobId, postId, body)` alongside the existing `submitDecision`. Reuses `useAsyncAction` so the existing double-submit safety patterns apply.
+- `lib/api/aries-v1.ts` adds `updateReviewItemCopy(jobId, postId, body)` calling the new PATCH endpoint with `requestJson` (no retry — edits are last-write-wins, retry could bury an in-flight write).
+
+### Test pattern (`tests/review-inline-edit.test.ts`, 10 tests)
+- 3 `runtime-edit-state` unit tests (first edit / archive / undefined leaves unchanged).
+- 7 PATCH route tests (no-edit-fields / IG happy / IG too-long / FB happy long / cross-tenant 404 / missing 404 / persists overlay file).
+- All use `withDataRoot` helper that mints a tempdir and points `DATA_ROOT` at it; restored on cleanup.
+- All route tests stub `runtimeDocLoader` + `resolver` + `rebuilder` via the new options seam — no live marketing-jobs fixtures required.
+
+### Files added/changed (T19-only diff)
+- NEW `backend/marketing/runtime-edit-state.ts` (~125 lines)
+- NEW `app/api/social-content/jobs/[jobId]/posts/[postId]/route.ts` (~99 lines)
+- NEW `tests/review-inline-edit.test.ts` (10 tests)
+- NEW `.sisyphus/evidence/task-19-edit.txt`, `.sisyphus/evidence/task-19-validator.txt`
+- MOD `backend/marketing/runtime-views.ts` (added imports, `applyReviewItemEdits`, `captionChannelForReviewItem`, `recordReviewItemCopyEdit` with test-seam options)
+- MOD `frontend/aries-v1/review-item.tsx` (added `InlineCopyEditor` + integration)
+- MOD `hooks/use-runtime-review-item.ts` (added `updateCopy`)
+- MOD `lib/api/aries-v1.ts` (added `ReviewItemCopyEditRequest`/`Response` + `updateReviewItemCopy`)
+
+### Validation
+- `tests/review-inline-edit.test.ts` -> 10/10 pass
+- Combined with T11 `tests/caption-validator.test.ts` -> 21/21 pass (no regression)
+- `lsp_diagnostics` clean on all touched files (one stale TS server entry for the new route file disagrees with the actual on-disk source; the test run proves the type wiring is correct).
+
+### Gotchas / hooks for downstream tasks
+- `RuntimeReviewStateFile.items` (decisions) and the new `ReviewEditStateFile.items` (copy edits) are SEPARATE files keyed by reviewId. Approve/reject decisions DO NOT clear edits; if a reviewer approves an edited post, the edit persists (matches "what they saw is what they approved").
+- Edit overrides survive `mergeReviewState`'s source-hash bust because they live in a different file. If T20 (regenerate creative) replaces the underlying creative, `applyReviewItemEdits` will keep applying the prior copy edits to the new creative — T20 must explicitly clear the edit row when regenerating, or downstream operators should treat the persisted edit as canonical.
+- `AUTOSAVE_DEBOUNCE_MS = 500` is exported from the module via a top-level const, not configurable per call. T20 / T21 drawer flows can read the same constant when they wire their own autosave loops to keep cadence consistent.
+- The route returns the *fully-rebuilt* review item via `rebuilder` so the UI can replace its local state from the response. If the rebuild can't find the item (race against approval/reject), the route falls back to applying the edit overlay to the currently-resolved item; either way the response always carries a `review` field.
