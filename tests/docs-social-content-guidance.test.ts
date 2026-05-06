@@ -85,20 +85,20 @@ test('docs describe Hermes social-content operational flow and avoid lobster wor
   assert.doesNotMatch(combinedSource, /run .*\.lobster.*social-content/i);
 });
 
-test('docs distinguish local Compose Postgres and social-content checks from legacy marketing checks', () => {
+test('docs distinguish external Postgres Compose config and social-content checks from legacy marketing checks', () => {
   const readme = readRepoFile('README.md');
   const setup = readRepoFile('SETUP.md');
   const compose = readRepoFile('docker-compose.yml');
 
-  assert.match(readme, /Local Compose includes a `postgres` service/i);
-  assert.match(readme, /Local Compose provisions a companion `postgres` service/i);
-  assert.match(readme, /DB_HOST=postgres/i);
-  assert.match(readme, /Production deploys may still use external PostgreSQL/i);
-  assert.doesNotMatch(readme, /do \*\*not\*\* provision PostgreSQL/i);
-  assert.doesNotMatch(readme, /do not provision PostgreSQL/i);
+  assert.match(readme, /Compose expects an external PostgreSQL database/i);
+  assert.match(readme, /does \*\*not\*\* provision PostgreSQL or pgAdmin/i);
+  assert.match(readme, /external `DB_\*` values/i);
+  assert.doesNotMatch(readme, /DB_HOST=postgres/i);
   assert.match(readme, /For weekly social content media generation, Hermes owns ChatGPT\/OpenAI auth/i);
   assert.match(readme, /Text-only weekly planning can (still )?run when media generation is disabled/i);
-  assert.match(compose, /DB_HOST:\s*postgres/);
+  assert.doesNotMatch(compose, /DB_HOST:\s*postgres/);
+  assert.doesNotMatch(compose, /postgres:16/);
+  assert.doesNotMatch(compose, /pgadmin/i);
   assert.doesNotMatch(compose, /OPENAI_CLIENT_ID/);
   assert.doesNotMatch(compose, /OPENAI_CLIENT_SECRET/);
 

@@ -1,13 +1,6 @@
 import type { MetadataRoute } from 'next';
 
-function siteUrl(): string {
-  return (
-    process.env.APP_BASE_URL ||
-    process.env.NEXTAUTH_URL ||
-    process.env.AUTH_URL ||
-    'https://aries.sugarandleather.com'
-  ).replace(/\/+$/, '');
-}
+import { metadataSiteOrigin } from '@/lib/metadata-site-url';
 
 const PUBLIC_ROUTES = [
   '/',
@@ -25,7 +18,7 @@ const PUBLIC_ROUTES = [
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const baseUrl = siteUrl();
+  const baseUrl = metadataSiteOrigin();
   const now = new Date();
 
   return PUBLIC_ROUTES.map((route) => ({

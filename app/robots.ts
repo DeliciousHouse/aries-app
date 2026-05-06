@@ -1,22 +1,15 @@
 import type { MetadataRoute } from 'next';
 
-function siteUrl(): string {
-  return (
-    process.env.APP_BASE_URL ||
-    process.env.NEXTAUTH_URL ||
-    process.env.AUTH_URL ||
-    'https://aries.sugarandleather.com'
-  ).replace(/\/+$/, '');
-}
+import { metadataSiteOrigin } from '@/lib/metadata-site-url';
 
 export default function robots(): MetadataRoute.Robots {
-  const baseUrl = siteUrl();
+  const baseUrl = metadataSiteOrigin();
 
   return {
     rules: {
       userAgent: '*',
       allow: '/',
-      disallow: ['/api/', '/dashboard/', '/review/', '/settings/'],
+      disallow: ['/api', '/dashboard', '/review', '/settings'],
     },
     sitemap: `${baseUrl}/sitemap.xml`,
   };
