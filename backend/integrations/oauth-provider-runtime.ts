@@ -19,7 +19,7 @@ export type ProviderOAuthAvailability = {
 const SHARED_TOKEN_ENV = 'OAUTH_TOKEN_ENCRYPTION_KEY';
 
 const PROVIDER_ENV_CONTRACT: Record<ProviderKey, ProviderEnvContract> = {
-  facebook: { authEnv: ['META_PAGE_ID', 'META_ACCESS_TOKEN'], connectionMode: 'env_managed' },
+  facebook: { authEnv: ['META_APP_ID', 'META_APP_SECRET'], connectionMode: 'oauth' },
   instagram: { authEnv: ['META_PAGE_ID', 'META_ACCESS_TOKEN'], connectionMode: 'env_managed' },
   linkedin: { authEnv: ['LINKEDIN_CLIENT_ID', 'LINKEDIN_CLIENT_SECRET'], connectionMode: 'oauth' },
   x: { authEnv: ['X_CLIENT_ID', 'X_CLIENT_SECRET'], connectionMode: 'oauth' },
@@ -54,8 +54,11 @@ function callbackPathFor(provider: ProviderKey): string {
 }
 
 function buildMissingEnvMessage(provider: ProviderKey, missingEnv: string[]): string {
-  if (provider === 'facebook' || provider === 'instagram') {
-    return 'Meta publishing needs META_PAGE_ID and META_ACCESS_TOKEN.';
+  if (provider === 'facebook') {
+    return `Meta OAuth is not configured: missing ${missingEnv.join(', ')} (META_APP_ID and META_APP_SECRET required).`;
+  }
+  if (provider === 'instagram') {
+    return 'Instagram is connected automatically when Meta OAuth completes with an Instagram Business Account.';
   }
   if (provider === 'openai') {
     return 'ChatGPT / OpenAI connection is not configured yet.';

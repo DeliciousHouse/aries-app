@@ -103,6 +103,8 @@ async function initDb() {
 
       ALTER TABLE oauth_pending_states
         ADD COLUMN IF NOT EXISTS code_verifier TEXT;
+      ALTER TABLE oauth_pending_states
+        ADD COLUMN IF NOT EXISTS picker_payload JSONB;
       CREATE TABLE IF NOT EXISTS oauth_audit_events (
         id BIGSERIAL PRIMARY KEY,
         tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
