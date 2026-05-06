@@ -1117,7 +1117,7 @@ Parallel Speedup: ~65% faster than fully sequential
   ```
   **Commit**: YES (T27) — `feat(notifications): plan-ready, approval-needed, publish-failed, reconnect-warning emails`
 
-- [ ] 28. **End-to-end smoke script**
+- [x] 28. **End-to-end smoke script**
 
   **What**: New `scripts/smoke-weekly-pipeline.mjs`. Argv: `--tenant <id> --website <url> --auto-approve`. Steps (each asserts inside): (1) signup new test tenant; (2) submit business profile via /api/onboarding; (3) connect Meta (uses test app token from .env.test); (4) trigger /api/social-content/jobs; (5) poll runtime state until plan_review (60s timeout); (6) auto-approve plan; (7) wait for creative_review; (8) auto-approve creatives; (9) wait for publish_review; (10) auto-approve publish; (11) wait for completed (180s timeout); (12) assert posts.platform_post_id captured for each post; (13) GET https://graph.facebook.com/v21.0/{id} returns 200; (14) Playwright navigate /dashboard/posts and assert <img> has naturalWidth>0 for each post. Exit 0 on full green; non-zero on any assertion failure.
   **Must NOT**: Use production Meta credentials. No skip-flags. No "soft fail" mode.

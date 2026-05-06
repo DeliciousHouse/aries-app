@@ -1,0 +1,13 @@
+Source: browse snapshot -i -d 3 against http://localhost:3000/signup
+Date:   2026-05-06
+Result: HTTP 200, signup form rendered. Confirms local app boots, but does
+        NOT exercise F3 steps 3-14 (Meta connect through publish + image render).
+
+  @e1 [textbox] "Full Name"
+  @e2 [textbox] "Organization (Optional)"
+  @e3 [textbox] "Email Address"
+  @e4 [textbox] "Password"
+  @e5 [button]  "Show password"
+  @e6 [button]  "Create account" [disabled]
+  @e7 [button]  "Google"
+  @e8 [button]  "Sign In"
