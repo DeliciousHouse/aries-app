@@ -628,3 +628,36 @@ Current `fix/live-qa-blockers` HEAD only contained T3 (`82cc550`), T8 (`7c062aa`
 - `MARKETING_STATUS_PUBLIC=1` bypasses the gate. T17/T18 must NOT rely on the gate firing in public-mode local demos.
 - The gate redirects at request time (RSC). It does not run on client-side `next/link` prefetch unless the link target is a guarded prefix. Operators clicking from `/onboarding/start` to `/dashboard` via a real navigation will hit the redirect.
 - T17 (connect Meta/IG step) needs to ensure the operator can navigate from `/onboarding/*` to a successful Meta callback and back to `/dashboard` without re-triggering the gate. Because the OAuth callback writes `oauth_connections.status='connected'`, the next render of `/dashboard` will see ≥1 connected and allow through. No additional plumbing needed.
+
+## [2026-05-06] T27 — notification email templates
+
+### Functions added to lib/email.ts
+- `sendPlanReadyEmail(PlanReadyEmailParams)` — plan ready for review
+- `sendApprovalNeededEmail(ApprovalNeededEmailParams)` — posts need approval
+- `sendPublishFailedEmail(PublishFailedEmailParams)` — publish failure with retry URL
+- `sendMetaReconnectWarningEmail(MetaReconnectWarningEmailParams)` — Meta token expiry warning
+
+### Architecture
+- All 4 functions route through a shared `sendEmail(NotificationEmailPayload)` helper
+- `NotificationEmailPayload` is exported so tests can type the hook captures
+- Test hook: `globalThis.__ARIES_NOTIFICATION_EMAIL_TEST_HOOK__` — same pattern as existing `__ARIES_EMAIL_TEST_HOOK__` for password reset
+- Missing RESEND_API_KEY: logs warn/error (matching existing behavior) and returns without throwing
+- HTML uses shared `renderEmailHtml` shell + `renderCtaButton` helper; text is plain join
+
+### Test pattern
+- `withHook(calls)` installs the globalThis hook, returns a restore function
+- All tests use `try/finally { restore() }` to clean up
+- No real Resend SDK calls in tests — hook intercepts before any network I/O
+- 17/17 pass; lsp_diagnostics clean on both files
+
+### Terminology compliance
+- All subject lines, html, and text use "posts" / "weekly posts" — no "campaign"
+- Verified by dedicated `doesNotMatch(/campaign/i)` assertions in every describe block
+
+### Files changed
+- `lib/email.ts` — added 4 param interfaces, `NotificationEmailPayload`, notification hook, `sendEmail` helper, 4 render pairs, 4 exported functions
+- `tests/email-notifications.test.ts` — new file (17 tests)
+- `.sisyphus/evidence/task-27-emails.txt` — test output evidence
+
+### Commit
+- `feat(email): weekly social content notification templates`
