@@ -1,0 +1,1 @@
+HTTP 403 on cross-tenant media_url - assertMediaUrlsBelongToTenant validates ownership before Hermes execution

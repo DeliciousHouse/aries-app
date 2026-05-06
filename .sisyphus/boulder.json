@@ -1,0 +1,12 @@
+{
+  "active_plan": "/home/node/aries-app/.sisyphus/plans/weekly-social-content-pipeline.md",
+  "started_at": "2026-05-06T15:39:22.048Z",
+  "session_ids": [
+    "ses_202493e93ffeFSRsfwnxI5MtVK"
+  ],
+  "session_origins": {
+    "ses_202493e93ffeFSRsfwnxI5MtVK": "direct"
+  },
+  "plan_name": "weekly-social-content-pipeline",
+  "agent": "atlas"
+}
