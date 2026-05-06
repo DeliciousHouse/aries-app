@@ -220,9 +220,10 @@ test('plan approval submits Hermes resume request body', async () => {
       assert.equal(calls[0].body.job_id, jobId);
       assert.equal(calls[0].body.tenant_id, 'tenant-social-approve');
       assert.equal(calls[0].body.callback_url, 'https://aries.example.com/api/internal/hermes/runs');
-      assert.equal(calls[0].body.callback_auth.type, 'internal_api_secret_bearer');
-      assert.equal(calls[0].body.callback_auth.secret_ref, 'INTERNAL_API_SECRET');
-      assert.match(String(calls[0].body.callback_auth.callback_token), /^[0-9a-f]{64}$/);
+      const callbackAuth = calls[0].body.callback_auth as Record<string, unknown>;
+      assert.equal(callbackAuth.type, 'internal_api_secret_bearer');
+      assert.equal(callbackAuth.secret_ref, 'INTERNAL_API_SECRET');
+      assert.match(String(callbackAuth.callback_token), /^[0-9a-f]{64}$/);
       assert.deepEqual(calls[0].body.callback_context, {
         workflow_key: 'social_content_weekly',
         aries_run_id: calls[0].body.aries_run_id,
