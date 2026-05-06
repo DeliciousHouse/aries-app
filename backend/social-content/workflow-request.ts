@@ -10,6 +10,11 @@ import {
 } from '@/backend/social-content/payload';
 
 import {
+  resolveDominantImageChannel,
+  resolveSocialContentAspectRatio,
+  type SocialContentAspectRatio,
+} from './aspect-matrix';
+import {
   SOCIAL_CONTENT_DEFAULT_SCOPE,
   SOCIAL_CONTENT_FORBIDDEN_VISUAL_PATTERNS,
   SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
@@ -136,7 +141,7 @@ export type SocialContentWeeklyRequest = {
     media_requests?: Array<
       | {
           type: 'image.generate';
-          aspect_ratio: '4:5';
+          aspect_ratio: SocialContentAspectRatio;
           count: number;
           target_channels: string[];
           creative_briefs: string[];
@@ -269,9 +274,13 @@ export function buildSocialContentWeeklyRequest(input: {
   );
   const mediaRequests: NonNullable<SocialContentWeeklyRequest['input']['media_requests']> = [];
   if (imageCreativeCount > 0) {
+    const imageChannel = resolveDominantImageChannel(imageTargetChannels);
     mediaRequests.push({
       type: 'image.generate',
-      aspect_ratio: '4:5',
+      aspect_ratio: resolveSocialContentAspectRatio({
+        channel: imageChannel,
+        postType: 'single_image',
+      }),
       count: imageCreativeCount,
       target_channels: imageTargetChannels,
       creative_briefs: resolveCreativeBriefs(req),

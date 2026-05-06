@@ -343,3 +343,128 @@ npm run validate:marketing-flow
 - All 10 caption-validator tests PASS
 - No dependencies added
 - No anti-patterns (no `as any`, no empty catches, no console.log)
+
+## [2026-05-06] Branch stabilization (cherry-pick reconciliation)
+
+### Problem
+Current `fix/live-qa-blockers` HEAD only contained T3 (`82cc550`), T8 (`7c062aa`), and T10-test-only (`5bbca17`). Completed task commits T1, T2, T4, T5, T6, T7, T11, T23 (+ a docs follow-up) existed in git but were not ancestors of HEAD, so the branch was missing real implementation content.
+
+### Approach
+1. Backed HEAD up to `refs/backup/pre-stabilize`, stashed the 3 unrelated dirty files (`.github/workflows/deploy.yml`, `scripts/release/publish-image.sh`, `tests/deploy-workflow-self-hosted.regression-015.test.ts`), and temporarily moved `.sisyphus/run-continuation/ses_*.json` aside (cherry-pick of T5 collided with the live session file).
+2. Cherry-picked the linear chain `0e5029b..5868a0f` (9 commits) on top of T3 in chronological order: T5 → T6 → T7 → T23 → docs → T1 → T4 → T11 → T2.
+3. Three real conflicts encountered:
+   - T5 add/add on `.sisyphus/notepads/weekly-social-content-pipeline/{learnings,issues}.md` because T10 had created stub versions. Resolved by taking the union: full T5 content + the existing T3/T8/T10 sections from HEAD.
+   - T23 deleted two `app/api/tenant/approval-requests/[approvalRequestId]/{approve,reject}/route.ts` files that were owned by `github-runner` (group r-x), so unlink failed under the `node` user. Resolved with `sudo rm` after the cherry-pick committed; index already had the deletion.
+   - T4 collided with T8 on `backend/marketing/ports/hermes.ts` constructor: both added a 4th parameter. Resolved by keeping both — `brandKitRefresher` (T8) at position 4, `callbackTokenClient` (T4) at position 5; tests already use 4-arg form so default `pool` for callback client.
+4. Excluded `.sisyphus/run-continuation/ses_*.json` from the T5 cherry-pick commit per the stabilization contract; restored the local session file as untracked afterwards.
+5. Popped the stash to put the 3 unrelated dirty files back exactly as they were.
+
+### Verification
+- `git grep` finds no `^<<<<<<< | >>>>>>> | =======$` outside the 3 known dirty files.
+- `tsc --noEmit` errors only on the 3 pre-existing dirty conflict markers (TS1185 in `tests/deploy-workflow-self-hosted.regression-015.test.ts`); 0 new type errors anywhere else.
+- Targeted task tests after reconciliation:
+  - T1 asset-tenant-isolation: 3/3 pass
+  - T5 publish-tenant-isolation: 5/5 pass
+  - T11 caption-validator: 11/11 pass
+  - T4 callback-token: 6/6 pass
+  - T2 oauth-refresh-meta: 3/3 pass; oauth-refresh-concurrency: 1/1 pass; oauth-refresh-failure: 2/2 pass
+- Regression for preserved HEAD work:
+  - T3 oauth-meta-callback: 6/6 pass; oauth-callback-runtime: 6/6 pass
+  - T8 social-content-brand-kit-injection: 12/12 pass; marketing-execution-port: 14/14 pass; hermes-callback-route: 5/5 pass
+- T10 hermes-idempotency: 0/3 pass — confirms `5bbca17` only landed the test file, never the `Idempotency-Key`/`idempotency_key` implementation in `hermes.ts`. T10 must NOT be marked complete; needs a follow-up that lands the impl.
+
+### New SHA → original task SHA mapping
+- `0ddf8d3` ← `98dd2e8` T5 fix(publish): validate media_urls tenant ownership
+- `e66a223` ← `cb2f726` T6 fix(images): images.remotePatterns whitelist + dev fallback
+- `2ef5f19` ← `b9b8bf5` T7 feat(db): posts/vision_qa_runs/scheduled_posts/oauth_callback_tokens
+- `a52cc41` ← `6393c1a` T23 chore(api): remove dead 501 approval-requests stubs
+- `c28de88` ← `9b3596d` docs: remove dead approval-requests routes from README
+- `f8123dd` ← `8918499` T1 fix(assets): tenant-prefix storage keys + migration script
+- `cc9a76b` ← `91b58bd` T4 feat(callback): per-run callback token defense in depth
+- `c459b1f` ← `290eac6` T11 feat(social-content): per-platform caption validator
+- `82e45a5` ← `5868a0f` T2 feat(oauth): real refresh + Meta long-lived exchange + concurrency lock
+
+### Gotchas for next runs
+- `app/api/tenant/approval-requests/[approvalRequestId]/` parent dir is owned by `github-runner` with group `r-x`, so the `node` user cannot delete files in it without `sudo`. Future cherry-picks that touch that path must plan for elevated cleanup.
+- Cherry-picking a notepad-creating commit on top of a HEAD that already has the same notepad file will trigger an add/add conflict; take the union of HEAD's later sessions and the incoming commit's foundation rather than dropping either side.
+- `HermesMarketingPort` constructor positional order is now `(env, fetchImpl, sleep, brandKitRefresher, callbackTokenClient)`. Any new test or call site must respect that order or use `undefined` to fall through to defaults.
+- Backup ref `refs/backup/pre-stabilize` left in place for safety; can be removed once stabilization is verified outside this workspace.
+
+## [2026-05-06] T10 — idempotency_key in Hermes submission (COMPLETED)
+
+### Implementation
+- Added `generateIdempotencyKey(ariesRunId, workflowVersion, tenantId)` helper function
+  - Algorithm: SHA-256 hash of `${ariesRunId}|${workflowVersion}|${tenantId}` (pipe delimiter prevents ambiguity)
+  - Output: 64-character hex string
+  - Deterministic: identical inputs always produce identical key
+
+### Payload integration
+- Added `idempotency_key` field to all three submissionPayload cases:
+  1. Resume case (social content weekly) — uses `SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY`
+  2. Run case (social content weekly) — uses `request.workflow_version` from buildSocialContentWeeklyRequest
+  3. Fallback case (other workflows) — uses `workflowKey` param
+- Key is extracted from payload and added as `Idempotency-Key` HTTP header on POST to `/v1/runs`
+
+### Test results
+- `tests/hermes-idempotency.test.ts` — 3/3 pass:
+  1. Deterministic key generation (verifies hash matches expected value)
+  2. HTTP header inclusion (verifies header present and matches payload key)
+  3. Key changes with aries_run_id (verifies different run IDs produce different keys)
+- Related tests: 32/32 pass (marketing-execution-port, callback-token, social-content-brand-kit-injection)
+- No regressions
+
+### Files changed
+- `backend/marketing/ports/hermes.ts` — added import, helper function, payload integration, header addition
+- `.sisyphus/evidence/task-10-key.txt` — evidence file with test output and verification
+
+### Commit
+- `25cc808` feat(hermes): add idempotency key to run submissions
+
+## [2026-05-06] T9 — per-channel aspect-ratio matrix in social-content media_requests
+
+### Module design
+- `backend/social-content/aspect-matrix.ts` — pure resolver, zero deps.
+- Two exports: `resolveSocialContentAspectRatio({channel, postType})` (matrix lookup) and `resolveDominantImageChannel(channels)` (tie-break for bundled requests).
+- Channel/post-type unions are explicit literal types: `SocialContentImageChannel = 'meta' | 'instagram'`, `SocialContentMediaPostType = 'single_image' | 'carousel' | 'link_card' | 'video'`. v2 grows by extending the union, not via abstraction.
+
+### Matrix values (pinned to Meta Graph API supported aspect ratios)
+- instagram + single_image -> 4:5 (portrait feed crop, strictest)
+- instagram + carousel -> 1:1
+- instagram + link_card -> 1.91:1
+- instagram + video -> 9:16
+- meta + single_image -> 1:1 (Facebook feed square)
+- meta + carousel -> 1:1
+- meta + link_card -> 1.91:1 (Open Graph)
+- meta + video -> 9:16
+
+### Tie-break: Instagram wins on bundled channels
+- `resolveDominantImageChannel(['meta', 'instagram'])` -> `'instagram'`.
+- Geometric reason: a 4:5 image center-crops cleanly to a Meta 1:1 square, but a 1:1 image cannot be expanded to 4:5 without bleeding generated content. So choosing Instagram-first preserves visual fidelity across both feeds for the v1 Meta+Instagram bundle.
+- This priority preserves backward compat with existing tests at `tests/social-content-weekly-defaults.test.ts:552-559` and `tests/marketing-execution-port.test.ts:207-222` which assert `aspect_ratio: '4:5'` for the default `target_channels: ['meta', 'instagram']` shape.
+
+### Workflow-request integration
+- `backend/social-content/workflow-request.ts:280` replaced `aspect_ratio: '4:5'` literal with `resolveSocialContentAspectRatio({channel: resolveDominantImageChannel(imageTargetChannels), postType: 'single_image'})`.
+- Image union type widened from `'4:5'` literal to `SocialContentAspectRatio = '4:5' | '1:1' | '1.91:1' | '9:16'`.
+- Video request kept as literal `'9:16'` per task spec ("preserve existing video request behavior").
+- No new field added to media_requests shape — `target_channels` already carries the per-channel context Hermes needs; the resolver picks the strictest aspect for whatever bundle is given.
+
+### Test pattern
+- 16 tests in `tests/social-content-aspect-ratio-matrix.test.ts` — 8 matrix unit tests, 4 dominant-channel tests, 4 workflow-request integration tests.
+- Used `as unknown as MarketingJobRuntimeDocument` cast pattern from existing weekly-defaults tests.
+- Type-guarded `imageRequest.type === 'image.generate'` before asserting `aspect_ratio` because `media_requests` is a discriminated union.
+
+### Files changed
+- NEW `backend/social-content/aspect-matrix.ts` (48 lines)
+- MOD `backend/social-content/workflow-request.ts` (3-line import + matrix call replaces literal)
+- NEW `tests/social-content-aspect-ratio-matrix.test.ts` (16 tests)
+
+### Validation
+- `tests/social-content-aspect-ratio-matrix.test.ts` -> 16/16 pass
+- `tests/social-content-weekly-defaults.test.ts` + `tests/social-content-brand-kit-injection.test.ts` -> 31/31 pass (no regression)
+- `tests/marketing-execution-port.test.ts` -> 14/14 pass (Instagram-priority tie-break preserves '4:5' assertion)
+- `lsp_diagnostics` clean on all 3 changed files
+- Grep proof: no `aspect_ratio: '4:5'` literal driving image requests in workflow-request.ts.
+
+### Gotchas for downstream tasks (T12-T15)
+- `SocialContentMediaPostType` already encodes `carousel` and `link_card` even though the v1 workflow-request only emits `single_image`. T12 (vision QA) and T13 (frame overlay) can pass the post_type to the matrix without extending it.
+- Resolver returns the literal `SocialContentAspectRatio` union, not `string`. New media_request entries that want narrower aspect-ratio types should keep using the literal '9:16' for video (since the matrix's wider return is incompatible with the narrower video literal); the type system enforces this.
