@@ -179,10 +179,9 @@ test('HermesMarketingPort.runPipeline returns submitted immediately by default',
 
     const body = JSON.parse(String(calls[0].init.body));
     assert.equal(body.callback_url, 'https://aries.example.com/api/internal/hermes/runs');
-    assert.deepEqual(body.callback_auth, {
-      type: 'internal_api_secret_bearer',
-      secret_ref: 'INTERNAL_API_SECRET',
-    });
+    assert.equal(body.callback_auth.type, 'internal_api_secret_bearer');
+    assert.equal(body.callback_auth.secret_ref, 'INTERNAL_API_SECRET');
+    assert.match(String(body.callback_auth.callback_token), /^[0-9a-f]{64}$/);
     assert.deepEqual(body.callback_context, {
       workflow_key: 'social_content_weekly',
       workflow_version: '2026-05-social-content-weekly-v1',
@@ -361,10 +360,9 @@ test('HermesMarketingPort social-content resume includes callback correlation me
     assert.equal(body.action, 'resume');
     assert.equal(body.aries_run_id, result.ariesRunId);
     assert.equal(body.callback_url, 'https://aries.example.com/api/internal/hermes/runs');
-    assert.deepEqual(body.callback_auth, {
-      type: 'internal_api_secret_bearer',
-      secret_ref: 'INTERNAL_API_SECRET',
-    });
+    assert.equal(body.callback_auth.type, 'internal_api_secret_bearer');
+    assert.equal(body.callback_auth.secret_ref, 'INTERNAL_API_SECRET');
+    assert.match(String(body.callback_auth.callback_token), /^[0-9a-f]{64}$/);
     assert.deepEqual(body.callback_context, {
       workflow_key: 'social_content_weekly',
       aries_run_id: result.ariesRunId,
