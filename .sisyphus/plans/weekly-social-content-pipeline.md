@@ -346,7 +346,7 @@ Parallel Speedup: ~65% faster than fully sequential
   - Files: `backend/marketing/asset-library.ts`, `backend/marketing/asset-ingest.ts`, `backend/marketing/asset-read.ts`, `scripts/migrate-asset-tenant-prefix.ts`, `tests/asset-tenant-isolation.test.ts`
   - Pre-commit: `npm run test -- --test-name-pattern="asset.*tenant"` && `npm run typecheck`
 
-- [ ] **T2. Real OAuth refresh per provider + Meta long-lived exchange + concurrency lock** (tests-first)
+- [x] **T2. Real OAuth refresh per provider + Meta long-lived exchange + concurrency lock** (tests-first)
 
   **What to do**:
   - Replace the 48-line stub `backend/integrations/refresh.ts`. Build a real per-provider refresh dispatcher.

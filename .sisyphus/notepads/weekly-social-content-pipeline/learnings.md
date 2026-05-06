@@ -259,6 +259,54 @@ npm run validate:marketing-flow
 - `npm run validate:banned-patterns` → ok
 - `npm run validate:repo-boundary` → ok
 
+## [2026-05-06] T2 — real OAuth refresh + Meta long-lived exchange + FOR UPDATE lock
+
+### Per-provider refresh dispatcher
+- `backend/integrations/refresh.ts` replaces the 48-line stub with a real per-provider dispatcher built on `withConnectionLock` (BEGIN + SELECT ... FOR UPDATE).
+- `callProviderRefresh(provider, latestToken)` switches on `DbProvider`: facebook/instagram → `refreshMetaLongLived`; linkedin/x/youtube/tiktok/reddit → corresponding provider modules; openai + unknown → `ProviderRefreshError('configuration_error')`.
+- v1 only exercises the Meta path; the other modules are real implementations (configured via `*ClientCredentials()` env getters) so v2 can plug them in without code changes — unconfigured providers throw `configuration_error` on call rather than silently succeeding.
+
+### Meta exchange-not-refresh
+- `refresh-meta.ts` calls `https://graph.facebook.com/oauth/access_token?grant_type=fb_exchange_token&client_id=…&client_secret=…&fb_exchange_token=<short_lived>` and treats the response identically to a refresh — emits `{accessToken, expiresInSeconds, tokenType}`.
+- 401/403 → `ProviderRefreshError('unauthorized')` → connection moves to `reauthorization_required`.
+- 5xx → `ProviderRefreshError('transient_provider_error')` → status stays `connected` (no reauth churn on transient outages); errored audit row still written.
+- Long-lived tokens are re-exchanged BEFORE expiry by the same call when the sweeper detects `expiring_soon` — same code path drives both initial and re-exchange.
+
+### Concurrency single-flight via row lock
+- `withConnectionLock` opens a `BEGIN` transaction, runs `SELECT … FROM oauth_connections WHERE id = $1 FOR UPDATE`, then yields the locked client to the callback. All token I/O inside the callback uses that locked client, so concurrent `oauthRefresh` calls on the same `connection.id` serialize at the row.
+- `shouldSkipDueToConcurrentRefresh(latestToken, startedAtMs)` defends the second waiter: once the first refresh completes and the second waiter takes the lock, we re-read the latest token; if it was issued at or after our start time (within `FRESHNESS_TOLERANCE_MS=5_000`), we return the existing token handle with `refreshed: false` rather than firing another provider call.
+- Concurrency test (5 parallel `oauthRefresh` calls): exactly 1 provider fetch, exactly 1 new token row, 4 callers receive `refreshed: false`.
+
+### Failure semantics
+- `unauthorized` (401/403/`invalid_grant`) → `oauth_connections.status = 'reauthorization_required'`, `last_error_code` populated (provider code or kind), `last_error_message` from provider; `oauth_audit_events` row of type `oauth.refresh.failed` with status `error`.
+- `transient_provider_error` (5xx, network errors) → status stays `connected` (transient); same audit row type, no token rotation.
+- `configuration_error` → returned as broker `provider_unavailable`; `provider_error` → returned as `provider_callback_error`.
+
+### Token rotation
+- New row inserted via `dbInsertOAuthToken` with encrypted access/refresh tokens (AES-256-GCM via `oauth-crypto.ts`), `rotated_from_token_id` FK pointing at old token; old token revoked via `dbRevokeOAuthTokenById` (sets `revoked_at`).
+- Schema unchanged; no new columns added.
+
+### Test pattern
+- `withEnv` clears all `META_APP_ID`, `META_APP_SECRET`, `OAUTH_TOKEN_ENCRYPTION_KEY` before applying test-only values to avoid leaks across tests.
+- `createDbHarness` mocks both `pool.query` and `pool.connect` with an in-memory `Map<id, ConnectionRow>` + `TokenRow[]`. The harness handles BEGIN/COMMIT/ROLLBACK as no-ops, FOR UPDATE selects, latest-token lookup by `connection_id ORDER BY created_at DESC`, INSERT/UPDATE on tokens, and connection updates.
+- Concurrency harness adds a `SerialLock` so `FOR UPDATE` actually blocks: each fake client acquires the lock on FOR UPDATE, releases on COMMIT/ROLLBACK.
+- `t.mock.method(globalThis, 'fetch', …)` mocks the provider HTTP call.
+
+### Files changed
+- `backend/integrations/refresh.ts` — replaced stub with provider dispatcher + lock + rotation + audit
+- `backend/integrations/refresh-meta.ts` — Meta long-lived `fb_exchange_token` exchange (NEW)
+- `backend/integrations/refresh-{linkedin,x,google,tiktok,reddit}.ts` — provider refresh implementations (NEW)
+- `backend/integrations/oauth-tokens-db.ts` — added `withConnectionLock`, `LockedConnectionRow`, `dbRevokeOAuthTokenById`, `rotated_from_token_id` insert support
+- `tests/oauth-refresh-meta.test.ts` — long-lived exchange happy + 401 + 5xx (NEW)
+- `tests/oauth-refresh-concurrency.test.ts` — 5-way Promise.all single-flight assert (NEW)
+- `tests/oauth-refresh-failure.test.ts` — 401 → reauthorization_required + connection_not_found (NEW)
+
+### Validation
+- `npm run typecheck` → 0 errors
+- `tests/oauth-refresh-{meta,concurrency,failure}.test.ts` → 6/6 pass
+- `npm run validate:banned-patterns` → ok
+- `npm run validate:repo-boundary` → ok
+
 ## [2026-05-06] T11 — per-platform caption validator
 
 ### Module design

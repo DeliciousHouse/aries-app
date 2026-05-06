@@ -1,5 +1,8 @@
+import type { PoolClient } from 'pg';
 import pool from '@/lib/db';
 import { decryptToken, encryptToken } from './oauth-crypto';
+
+type Queryable = Pick<PoolClient, 'query'> | typeof pool;
 
 export type StoredOAuthToken = {
   id: string;
@@ -23,20 +26,25 @@ function toConnectionIdInt(connectionId: string): number {
   return parsed;
 }
 
-export async function dbInsertOAuthToken(args: {
-  connectionId: string;
-  accessToken?: string | null;
-  refreshToken?: string | null;
-  tokenType?: string | null;
-  scope?: string | null;
-  expiresAt?: string | null;
-  refreshExpiresAt?: string | null;
-  issuedAt?: string | null;
-  rotatedFromTokenId?: string | null;
-}): Promise<{ id: string }> {
+export async function dbInsertOAuthToken(
+  args: {
+    connectionId: string;
+    accessToken?: string | null;
+    refreshToken?: string | null;
+    tokenType?: string | null;
+    scope?: string | null;
+    expiresAt?: string | null;
+    refreshExpiresAt?: string | null;
+    issuedAt?: string | null;
+    rotatedFromTokenId?: string | null;
+  },
+  client: Queryable = pool,
+): Promise<{ id: string }> {
   const connectionIdInt = toConnectionIdInt(args.connectionId);
-  const rotatedFromIdInt = args.rotatedFromTokenId ? Number.parseInt(String(args.rotatedFromTokenId).trim(), 10) : null;
-  const res = await pool.query(
+  const rotatedFromIdInt = args.rotatedFromTokenId
+    ? Number.parseInt(String(args.rotatedFromTokenId).trim(), 10)
+    : null;
+  const res = await client.query(
     `
       INSERT INTO oauth_tokens (
         connection_id,
@@ -68,9 +76,9 @@ export async function dbInsertOAuthToken(args: {
   return res.rows[0] as { id: string };
 }
 
-export async function dbRevokeTokensForConnection(connectionId: string): Promise<void> {
+export async function dbRevokeTokensForConnection(connectionId: string, client: Queryable = pool): Promise<void> {
   const connectionIdInt = toConnectionIdInt(connectionId);
-  await pool.query(
+  await client.query(
     `
       UPDATE oauth_tokens
       SET revoked_at = COALESCE(revoked_at, now())
@@ -80,9 +88,27 @@ export async function dbRevokeTokensForConnection(connectionId: string): Promise
   );
 }
 
-export async function dbGetLatestOAuthToken(connectionId: string): Promise<StoredOAuthToken | null> {
+export async function dbRevokeOAuthTokenById(tokenId: string, client: Queryable = pool): Promise<void> {
+  const tokenIdInt = Number.parseInt(String(tokenId).trim(), 10);
+  if (!Number.isFinite(tokenIdInt) || tokenIdInt <= 0) {
+    throw new Error('validation_error:token_id');
+  }
+  await client.query(
+    `
+      UPDATE oauth_tokens
+      SET revoked_at = COALESCE(revoked_at, now())
+      WHERE id = $1
+    `,
+    [tokenIdInt],
+  );
+}
+
+export async function dbGetLatestOAuthToken(
+  connectionId: string,
+  client: Queryable = pool,
+): Promise<StoredOAuthToken | null> {
   const connectionIdInt = toConnectionIdInt(connectionId);
-  const res = await pool.query(
+  const res = await client.query(
     `
       SELECT
         id::text,
@@ -132,3 +158,61 @@ export async function dbGetLatestOAuthToken(connectionId: string): Promise<Store
   };
 }
 
+export type LockedConnectionRow = {
+  id: string;
+  tenant_id: string;
+  provider: string;
+  status: string;
+  granted_scopes: string[];
+  token_expires_at: string | null;
+  refresh_expires_at: string | null;
+  external_account_id: string | null;
+  external_account_name: string | null;
+  last_error_code: string | null;
+  last_error_message: string | null;
+};
+
+export async function withConnectionLock<T>(
+  connectionId: string,
+  fn: (client: PoolClient, locked: LockedConnectionRow | null) => Promise<T>,
+): Promise<T> {
+  const connectionIdInt = toConnectionIdInt(connectionId);
+  const client = (await pool.connect()) as PoolClient;
+  try {
+    await client.query('BEGIN');
+    const lockResult = await client.query(
+      `
+        SELECT
+          id::text,
+          tenant_id::text,
+          provider,
+          status,
+          granted_scopes,
+          token_expires_at,
+          refresh_expires_at,
+          external_account_id,
+          external_account_name,
+          last_error_code,
+          last_error_message
+        FROM oauth_connections
+        WHERE id = $1
+        FOR UPDATE
+      `,
+      [connectionIdInt],
+    );
+    const locked =
+      (lockResult.rows[0] as LockedConnectionRow | undefined) ?? null;
+    const result = await fn(client, locked);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackError) {
+      console.error('[oauth-tokens-db] rollback failed', rollbackError);
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
