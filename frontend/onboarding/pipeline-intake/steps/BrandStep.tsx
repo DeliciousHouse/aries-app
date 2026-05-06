@@ -50,7 +50,7 @@ export default function BrandStep({
   return (
     <StepContainer
       stepNumber={2}
-      totalSteps={5}
+      totalSteps={6}
       title="Your Brand"
       subtitle="Tell us about your business so we can tailor research, voice, and positioning."
       canProceed={!!preview && businessTypeReady}
