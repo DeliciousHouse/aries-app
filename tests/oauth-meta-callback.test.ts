@@ -5,6 +5,7 @@ import pool from '../lib/db';
 import { decryptToken } from '../backend/integrations/oauth-crypto';
 import { oauthCallback } from '../backend/integrations/callback';
 import { handleMetaSelectPageHttp } from '../backend/integrations/meta/select-page';
+import { TenantContextError } from '../lib/tenant-context';
 
 const BASE64_KEY = Buffer.alloc(32, 7).toString('base64');
 
@@ -465,6 +466,42 @@ test('meta callback: multi-page returns picker_required and stashes pages in pen
     assert.equal(payload.pages?.length, 3);
     const stashedDelta = payload.pages?.find((p) => p.id === 'page_delta');
     assert.equal(stashedDelta?.instagramBusinessAccountId, null);
+  });
+});
+
+test('handleMetaSelectPageHttp: returns sanitized tenant context errors and logs details', async (t) => {
+  await withEnv(META_ENV, async () => {
+    const logged: unknown[] = [];
+    t.mock.method(console, 'warn', (...args: unknown[]) => {
+      logged.push(args);
+    });
+
+    const req = new Request('https://aries.example.com/api/oauth/meta/select-page', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ state: 'state_auth_error', page_id: 'page_x' }),
+    });
+    const res = await handleMetaSelectPageHttp(req, {
+      tenantContextLoader: async () => {
+        throw new TenantContextError(
+          'tenant_claims_incomplete',
+          'Sensitive tenant lookup failed at stack frame /internal/path.ts:42',
+          ['tenantId'],
+        );
+      },
+    });
+
+    assert.equal(res.status, 401);
+    const body = (await res.json()) as { status: string; reason: string; message?: string };
+    assert.deepEqual(body, {
+      status: 'error',
+      reason: 'not_authenticated',
+      message: 'tenant_claims_incomplete',
+    });
+    assert.doesNotMatch(JSON.stringify(body), /Sensitive tenant lookup|internal\/path|stack frame/);
+    assert.equal(logged.length, 1);
+    assert.match(String(logged[0]), /Meta page selection request missing tenant context/);
+    assert.match(String(logged[0]), /Sensitive tenant lookup failed/);
   });
 });
 

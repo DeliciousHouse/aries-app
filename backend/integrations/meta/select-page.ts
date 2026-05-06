@@ -80,11 +80,12 @@ export async function handleMetaSelectPageHttp(
     tenantContext = await loader();
   } catch (error) {
     const reason = error instanceof TenantContextError ? error.reason : 'tenant_context_required';
+    console.warn('Meta page selection request missing tenant context', error);
     return jsonResponse(
       {
         status: 'error',
         reason: 'not_authenticated',
-        message: error instanceof Error ? error.message : reason,
+        message: reason,
       },
       401,
     );
