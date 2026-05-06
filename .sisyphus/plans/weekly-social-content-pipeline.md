@@ -840,7 +840,7 @@ Parallel Speedup: ~65% faster than fully sequential
   ```
   **Commit**: YES (T11) — `feat(social-content): per-platform caption validator`
 
-- [ ] 12. **Vision-model post-gen QA service**
+- [x] 12. **Vision-model post-gen QA service**
 
   **What**: New module `backend/creative-memory/vision-qa.ts` exports `runVisionQA({ assetUrl, brandKit, channel })` returning `{ verdict: 'pass'|'fail', scores: { brand_color_match, text_legibility, brand_violation, forbidden_pattern_hits }, retry_eligible: boolean, reasons: string[] }`. Thresholds: `brand_color_match >= 0.6` (Lab ΔE < 25 vs nearest palette color in dominant region using sharp + delta-e calc), `text_legibility >= 0.8` (vision model: "is any text readable"), `forbidden_pattern_hits == 0` (vision model checks FORBIDDEN_VISUAL_PATTERNS), `brand_violation < 0.3` (vision model: "does this contradict brand voice"). All four must hold for pass. Persist results to `vision_qa_runs` table (T7). Max 3 retries per creative before forcing operator decision.
   **Must NOT**: Self-host or fine-tune vision model. Use Hermes-provided vision endpoint (Hermes calls OpenAI vision per AGENTS.md). No CRDT for scores. No human-loop training set yet.
