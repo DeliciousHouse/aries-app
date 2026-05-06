@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 import pool from '@/lib/db';
 import { hashCallbackToken } from '@/lib/internal-callback-auth';
@@ -71,6 +71,12 @@ function tryParseJson(text: string): unknown {
   } catch {
     return null;
   }
+}
+
+function generateIdempotencyKey(ariesRunId: string, workflowVersion: string, tenantId: string): string {
+  return createHash('sha256')
+    .update(`${ariesRunId}|${workflowVersion}|${tenantId}`)
+    .digest('hex');
 }
 
 function providerErrorOutput(
@@ -266,6 +272,9 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     const callbackToken = randomBytes(32).toString('hex');
     await this.persistCallbackTokenHash(run.aries_run_id, input.tenantId, callbackToken);
 
+    const payload = this.submissionPayload(action, run.aries_run_id, input, workflowKey, callbackToken);
+    const idempotencyKey = typeof payload.idempotency_key === 'string' ? payload.idempotency_key : '';
+
     let response: Response;
     try {
       response = await this.fetchImpl(`${this.gatewayUrl()}/v1/runs`, {
@@ -273,8 +282,9 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         headers: {
           authorization: this.authHeader(),
           'content-type': 'application/json',
+          'idempotency-key': idempotencyKey,
         },
-        body: JSON.stringify(this.submissionPayload(action, run.aries_run_id, input, workflowKey, callbackToken)),
+        body: JSON.stringify(payload),
       });
     } catch (error) {
       const message = 'Hermes gateway is unreachable.';
@@ -348,6 +358,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         input.approvalStep ??
         approvalStepFromWorkflowStepId(input.workflowStepId ?? '') ??
         null;
+      const idempotencyKey = generateIdempotencyKey(ariesRunId, SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY, input.tenantId ?? '');
       return {
         workflow_key: SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
         action: 'resume',
@@ -368,6 +379,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
           approval_id: input.approvalId ?? null,
           approval_step: approvalStep,
         },
+        idempotency_key: idempotencyKey,
       };
     }
 
@@ -377,6 +389,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         ariesRunId,
         callbackUrl: this.callbackUrl(),
       });
+      const idempotencyKey = generateIdempotencyKey(ariesRunId, request.workflow_version, input.tenantId ?? '');
       return {
         ...request,
         session_id: this.sessionKey(),
@@ -388,9 +401,11 @@ export class HermesMarketingPort implements MarketingExecutionPort {
           job_id: request.job_id,
           tenant_id: request.tenant_id,
         },
+        idempotency_key: idempotencyKey,
       };
     }
 
+    const idempotencyKey = generateIdempotencyKey(ariesRunId, workflowKey, input.tenantId ?? '');
     return {
       input: this.prompt(action, ariesRunId, input, workflowKey),
       instructions: this.instructions(workflowKey),
@@ -403,6 +418,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         job_id: input.jobId ?? null,
         tenant_id: input.tenantId ?? null,
       },
+      idempotency_key: idempotencyKey,
     };
   }
 

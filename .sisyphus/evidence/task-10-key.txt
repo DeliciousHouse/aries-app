@@ -1,78 +1,65 @@
-# T10 Evidence: Idempotency Key in Hermes Submission
+T10: Idempotency key in Hermes submission
+==========================================
 
-## Implementation Summary
+TASK: Implement missing idempotency-key behavior in Hermes submission.
 
-Added deterministic idempotency key generation to Hermes submission payload and HTTP headers.
+IMPLEMENTATION SUMMARY:
+- Added generateIdempotencyKey(ariesRunId, workflowVersion, tenantId) helper
+  - Algorithm: SHA-256 hash of `${ariesRunId}|${workflowVersion}|${tenantId}`
+  - Output: 64-character hex string
+  - Deterministic: identical inputs always produce identical key
 
-### Key Generation
+- Added idempotency_key field to all three submissionPayload cases:
+  1. Resume case (social content weekly) — uses SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY
+  2. Run case (social content weekly) — uses request.workflow_version from buildSocialContentWeeklyRequest
+  3. Fallback case (other workflows) — uses workflowKey param
 
-- **Function**: `generateIdempotencyKey(ariesRunId, workflowVersion, tenantId)`
-- **Algorithm**: SHA-256 hash of `${ariesRunId}|${workflowVersion}|${tenantId}`
-- **Output**: 64-character hex string (sha256)
-- **Deterministic**: Same inputs always produce identical key
+- Added Idempotency-Key HTTP header to POST /v1/runs request
+  - Header value extracted from payload.idempotency_key
+  - Matches payload key exactly
 
-### Changes Made
+FILES MODIFIED:
+- backend/marketing/ports/hermes.ts
 
-1. **backend/marketing/ports/hermes.ts**
-   - Added `createHash` import from `node:crypto`
-   - Added `generateIdempotencyKey()` helper function
-   - Modified `submissionPayload()` to include `idempotency_key` field in all three cases:
-     - Resume case (social content weekly)
-     - Run case (social content weekly)
-     - Fallback case (other workflows)
-   - Modified `invoke()` to extract idempotency key from payload and add `Idempotency-Key` HTTP header
+TEST RESULTS:
+============
 
-2. **tests/hermes-idempotency.test.ts** (new file)
-   - Test: Deterministic key generation from aries_run_id + workflow_version + tenant_id
-   - Test: Idempotency-Key HTTP header included in submission
-   - Test: Different aries_run_id produces different key
+hermes-idempotency.test.ts (3/3 PASS):
+✓ HermesMarketingPort generates deterministic idempotency_key from aries_run_id + workflow_version + tenant_id
+✓ HermesMarketingPort includes Idempotency-Key HTTP header in submission
+✓ HermesMarketingPort idempotency_key changes when aries_run_id changes
 
-### Test Results
+Related tests (32/32 PASS):
+✓ marketing-execution-port.test.ts (14 tests)
+✓ callback-token.test.ts (6 tests)
+✓ social-content-brand-kit-injection.test.ts (12 tests)
 
-All 3 idempotency tests pass:
-- ✓ HermesMarketingPort generates deterministic idempotency_key from aries_run_id + workflow_version + tenant_id
-- ✓ HermesMarketingPort includes Idempotency-Key HTTP header in submission
-- ✓ HermesMarketingPort idempotency_key changes when aries_run_id changes
+VERIFICATION:
+=============
 
-### Validation
+1. Grep for idempotency markers in hermes.ts:
+   - generateIdempotencyKey function: ✓ present
+   - idempotency_key in resume payload: ✓ present
+   - idempotency_key in run payload: ✓ present
+   - idempotency_key in fallback payload: ✓ present
+   - Idempotency-Key HTTP header: ✓ present
 
-- `npm run typecheck` → 0 errors
-- `npm run test -- --test-name-pattern="HermesMarketingPort.*idempotency"` → 3/3 pass
-- No breaking changes to existing tests (828 pass, 52 fail - same as before T10)
+2. TypeScript compilation:
+   - No new errors introduced
+   - Pre-existing conflict markers in unrelated files only
 
-### Payload Example
+3. Test execution:
+   - All 3 idempotency tests pass
+   - All 32 related tests pass
+   - No regressions
 
-```json
-{
-  "workflow_key": "social_content_weekly",
-  "workflow_version": "2026-05-social-content-weekly-v1",
-  "aries_run_id": "run_abc123",
-  "idempotency_key": "a1fe8598eb1f57e026a5102225a304dd1af0aa2168b57730015955cbdab714c9",
-  "callback_auth": {
-    "type": "internal_api_secret_bearer",
-    "secret_ref": "INTERNAL_API_SECRET",
-    "callback_token": "..."
-  },
-  ...
-}
-```
+DETERMINISM VERIFICATION:
+=========================
 
-### HTTP Headers
+Test confirms that:
+- Same ariesRunId + workflowVersion + tenantId → same idempotency_key
+- Different ariesRunId → different idempotency_key
+- Key is 64-character hex string (SHA-256)
+- Header value matches payload value exactly
 
-```
-POST /v1/runs HTTP/1.1
-Authorization: Bearer <HERMES_API_SERVER_KEY>
-Content-Type: application/json
-Idempotency-Key: a1fe8598eb1f57e026a5102225a304dd1af0aa2168b57730015955cbdab714c9
-```
-
-## Compliance
-
-- ✓ Deterministic key: same inputs → same key
-- ✓ Idempotency-Key header: included on every submission
-- ✓ aries_run_id preserved: not renamed or dropped
-- ✓ callback_token logic preserved: T4 changes intact
-- ✓ No new dependencies added
-- ✓ No `as any`, `@ts-ignore`, or `@ts-expect-error`
-- ✓ Tests pass
-- ✓ Typecheck clean
+IMPLEMENTATION COMPLETE ✓
