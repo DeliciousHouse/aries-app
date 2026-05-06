@@ -447,9 +447,17 @@ async function initDb() {
       ALTER TABLE creative_assets
         ADD COLUMN IF NOT EXISTS superseded_by BIGINT;
 
+      -- T15: orphan retention for upload-replace. When an upload-replace
+      -- supersedes a previous creative the previous row is marked
+      -- orphaned_at = now(); scripts/gc-orphan-uploads.ts deletes assets
+      -- whose orphaned_at is older than 24h.
+      ALTER TABLE creative_assets
+        ADD COLUMN IF NOT EXISTS orphaned_at TIMESTAMPTZ;
+
       CREATE INDEX IF NOT EXISTS idx_posts_tenant_created ON posts (tenant_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_vision_qa_runs_tenant_post ON vision_qa_runs (tenant_id, post_id);
       CREATE INDEX IF NOT EXISTS idx_scheduled_posts_tenant_scheduled ON scheduled_posts (tenant_id, scheduled_for);
+      CREATE INDEX IF NOT EXISTS idx_creative_assets_tenant_orphaned_at ON creative_assets (tenant_id, orphaned_at) WHERE orphaned_at IS NOT NULL;
     `);
 
     console.log('Database initialized successfully.');
