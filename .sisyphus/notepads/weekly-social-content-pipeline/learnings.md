@@ -715,3 +715,48 @@ Current `fix/live-qa-blockers` HEAD only contained T3 (`82cc550`), T8 (`7c062aa`
 ### Gotchas for downstream tasks
 - The reaper does NOT advance `social_content_runtime` substages — it only flips the top-level `state`/`status`/`last_error`. Downstream UI reading the social content runtime view will still show the last-known sub-stage state, which is the correct audit-trail behavior for a "we lost the callback" failure.
 - T26 (OAuth refresh sweeper) follows the same pattern: pure function + thin CLI + tests against tmpdir.
+
+## [2026-05-06] T13 — brand frame overlay (sharp-based)
+
+### Eligibility contract
+- `applyBrandFrame({ assetBuffer, brandKit, channel, postType })` only frames `postType === 'single_image'` AND `channel ∈ {'instagram', 'meta'}` (FB feed = `meta` per `aspect-matrix.ts`).
+- All other combos (carousel, link_card, video) return the **same buffer reference** unchanged. Tests verify `result.buffer === input` and `Buffer.compare(skipped, input) === 0` so downstream artifact pipes are byte-identical.
+- `applyBrandFrameDetailed` returns `{ buffer, applied, reason, borderHex, fallbackBorderUsed }` for diagnostics; `applyBrandFrame` returns `Buffer` only (matches plan signature).
+
+### Composition
+- 2px inner border via SVG `<rect>` with stroke offset by `FRAME_BORDER_PX/2` so the entire stroke lands INSIDE the canvas — output `metadata().width/height` exactly equals input dimensions (asserted in 3 separate tests, plus the malformed-logo test).
+- Logo footprint: `LOGO_RELATIVE_WIDTH = 0.12` (12% of canvas width), 24px margin from bottom-right.
+- Output format: PNG (re-encoded via sharp) — output bytes differ from input even on color-only frame (demonstrates re-encode in evidence file).
+
+### Brand-kit fallback
+- Primary color falls back to `#0f172a` (slate-900) when `brandKit.colors.primary` is null/missing/non-hex/3-digit-hex. Fallback flagged via `result.fallbackBorderUsed = true` so callers can surface "no brand color" in operator UI later.
+- Hex pattern is strict 6-digit `^#[0-9a-f]{6}$` (lowercased).
+
+### Logo loader seam
+- `logoLoader: (url) => Promise<Buffer | null>` is the test seam. Tests inject deterministic loaders that return generated PNGs, `null`, or garbage bytes — never reach `defaultLogoLoader`.
+- `defaultLogoLoader` supports: `data:` URIs (base64 + URL-encoded utf-8), `file://` URLs, absolute filesystem paths. HTTP(S) and relative URLs return `null` so default behavior is offline-only and safe for tests/local runs.
+- Malformed logo bytes are swallowed via `prepareLogoOverlay` returning `null`; the frame still gets the border (`reason: 'framed_without_logo'`).
+
+### Sharp availability
+- `sharp@0.34.5` was already in `node_modules` as a transitive dep of `next@16.2.3`.
+- Added explicit `"sharp": "^0.34.5"` to `package.json` `dependencies` — lockfile already pinned, so no `npm install` needed for the runtime to pick it up. This keeps the dependency declared instead of relying on Next's transitive presence.
+
+### Tests
+- `tests/frame-overlay.test.ts` — 16 tests, all pass via `./node_modules/.bin/tsx --test tests/frame-overlay.test.ts`. Covers: IG/FB happy paths, all 6 skip combos, top-level export shape, 4 invalid-color fallback cases, null-loader, malformed-logo swallow, raw pixel diff in border region, default loader for data URI / HTTP / unknown.
+- All test images generated in-test via `sharp({ create: ... })` — zero fixture files, zero network.
+
+### Evidence
+- `.sisyphus/evidence/task-13-ig-single.png` — 1080×1350 framed PNG (31,962 bytes).
+- `.sisyphus/evidence/task-13-link-skip.txt` — confirms skipped link_card is reference-equal to input buffer.
+
+### Files changed
+- `backend/creative-memory/frame-overlay.ts` (new)
+- `tests/frame-overlay.test.ts` (new)
+- `package.json` (added `sharp` to dependencies)
+- `.sisyphus/evidence/task-13-ig-single.png`, `.sisyphus/evidence/task-13-link-skip.txt` (new)
+- `.sisyphus/notepads/weekly-social-content-pipeline/learnings.md` (this entry)
+
+### Validation
+- `lsp_diagnostics` clean on both `frame-overlay.ts` and `frame-overlay.test.ts`.
+- Banned-pattern grep on changed files: 0 hits (no `as any`, `@ts-ignore`, `@ts-expect-error`, `TODO`, `FIXME`, `HACK`, `console.log`, user-facing `campaign`).
+- Full `npm run typecheck` is still blocked by pre-existing conflict markers in `tests/deploy-workflow-self-hosted.regression-015.test.ts` — out of scope for T13 per task spec.
