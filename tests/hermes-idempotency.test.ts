@@ -23,6 +23,7 @@ function recordingFetchSequence(responses: Array<() => Response>) {
 }
 
 const NO_SLEEP = async () => {};
+const NO_OP_BRAND_KIT_REFRESHER = async () => ({ refreshed: false });
 
 async function withDataRoot<T>(run: () => Promise<T>): Promise<T> {
   const previousDataRoot = process.env.DATA_ROOT;
@@ -88,6 +89,7 @@ test('HermesMarketingPort generates deterministic idempotency_key from aries_run
       },
       fetchImpl1,
       NO_SLEEP,
+      NO_OP_BRAND_KIT_REFRESHER,
     );
 
     const result1 = await port1.runPipeline(STUB_RUN_INPUT);
@@ -127,6 +129,7 @@ test('HermesMarketingPort includes Idempotency-Key HTTP header in submission', a
       },
       fetchImpl,
       NO_SLEEP,
+      NO_OP_BRAND_KIT_REFRESHER,
     );
 
     const result = await port.runPipeline(STUB_RUN_INPUT);
@@ -161,6 +164,7 @@ test('HermesMarketingPort idempotency_key changes when aries_run_id changes', as
       },
       fetchImpl1,
       NO_SLEEP,
+      NO_OP_BRAND_KIT_REFRESHER,
     );
 
     const result1 = await port1.runPipeline(STUB_RUN_INPUT);
@@ -184,6 +188,7 @@ test('HermesMarketingPort idempotency_key changes when aries_run_id changes', as
       },
       fetchImpl2,
       NO_SLEEP,
+      NO_OP_BRAND_KIT_REFRESHER,
     );
 
     const result2 = await port2.runPipeline(STUB_RUN_INPUT);

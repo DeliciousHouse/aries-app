@@ -5,7 +5,10 @@ import {
 } from '../../execution/run-store';
 import { SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY } from '../../social-content/defaults';
 import { approvalStepFromWorkflowStepId } from '../../social-content/runtime-state';
-import { buildSocialContentWeeklyRequest } from '../../social-content/workflow-request';
+import {
+  buildSocialContentWeeklyRequest,
+  ensureFreshBrandKitForWeeklyRun,
+} from '../../social-content/workflow-request';
 import type {
   HermesWorkflowOutput,
   MarketingExecutionResult,
@@ -19,6 +22,10 @@ import type { SocialContentApprovalStep } from '@/backend/social-content/types';
 type HermesMarketingEnv = Partial<Record<string, string | undefined>>;
 type HermesMarketingFetch = (input: string | URL, init?: RequestInit) => Promise<Response>;
 type HermesMarketingSleep = (ms: number) => Promise<void>;
+type HermesBrandKitRefresher = (input: {
+  doc: MarketingJobRuntimeDocument;
+  fetchImpl?: typeof fetch;
+}) => Promise<{ refreshed: boolean }>;
 
 const BRAND_CAMPAIGN_WORKFLOW_KEY = 'marketing_pipeline';
 
@@ -127,6 +134,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     private readonly fetchImpl: HermesMarketingFetch = globalThis.fetch,
     private readonly sleep: HermesMarketingSleep = (ms: number) =>
       new Promise((resolve) => setTimeout(resolve, ms)),
+    private readonly brandKitRefresher: HermesBrandKitRefresher = ensureFreshBrandKitForWeeklyRun,
   ) {}
 
   async runPipeline(input: MarketingPipelineRunInput): Promise<MarketingExecutionResult> {
@@ -137,6 +145,32 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       argsJson: input.argsJson,
       stage: 'research',
     });
+  }
+
+  private async refreshBrandKitOrFail(
+    doc: MarketingJobRuntimeDocument,
+  ): Promise<MarketingExecutionResult | null> {
+    try {
+      await this.brandKitRefresher({ doc });
+      return null;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const code = message.startsWith('needs_brand_kit') ? 'needs_brand_kit' : 'brand_kit_unavailable';
+      return {
+        kind: 'completed',
+        provider: 'hermes',
+        output: {
+          ok: false,
+          status: 'failed',
+          workflowKey: SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
+          error: {
+            code,
+            message,
+            retryable: true,
+          },
+        },
+      };
+    }
   }
 
   async resumePipeline(input: MarketingPipelineResumeInput): Promise<MarketingExecutionResult> {
@@ -199,6 +233,12 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     const configError = this.configurationError();
     if (configError) {
       return configError;
+    }
+    if (action === 'run' && input.doc && isWeeklySocialContentRequest(input.doc)) {
+      const brandKitFailure = await this.refreshBrandKitOrFail(input.doc);
+      if (brandKitFailure) {
+        return brandKitFailure;
+      }
     }
     const workflowKey = this.workflowKeyFor(action, input);
 

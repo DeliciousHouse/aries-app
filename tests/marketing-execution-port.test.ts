@@ -15,6 +15,8 @@ import { TEST_HERMES_GATEWAY_URL } from './fixtures/service-urls';
 
 const STUB_RUNTIME_PATHS = { gatewayCwd: 'lobster', localCwd: '/tmp/lobster' };
 
+const NO_OP_BRAND_KIT_REFRESHER = async () => ({ refreshed: false });
+
 const STUB_DOC = {
   job_id: 'job_test',
   tenant_id: 'tenant_test',
@@ -166,6 +168,7 @@ test('HermesMarketingPort.runPipeline returns submitted immediately by default',
       },
       fetchImpl,
       NO_SLEEP,
+      NO_OP_BRAND_KIT_REFRESHER,
     );
     const result = await port.runPipeline(STUB_RUN_INPUT);
 
@@ -253,6 +256,8 @@ test('HermesMarketingPort preserves brand campaign workflow key for non-weekly r
         APP_BASE_URL: 'https://aries.example.com',
       },
       fetchImpl,
+      undefined,
+      NO_OP_BRAND_KIT_REFRESHER,
     );
 
     const result = await port.runPipeline(BRAND_CAMPAIGN_RUN_INPUT);
@@ -301,6 +306,7 @@ test('HermesMarketingPort polls only when HERMES_SYNC_POLL_FOR_TESTS=1', async (
       },
       fetchImpl,
       NO_SLEEP,
+      NO_OP_BRAND_KIT_REFRESHER,
     );
 
     const result = await port.resumePipeline(STUB_RESUME_INPUT);
@@ -334,6 +340,8 @@ test('HermesMarketingPort social-content resume includes callback correlation me
         APP_BASE_URL: 'https://aries.example.com',
       },
       fetchImpl,
+      undefined,
+      NO_OP_BRAND_KIT_REFRESHER,
     );
 
     const result = await port.resumePipeline({
@@ -405,6 +413,7 @@ test('HermesMarketingPort sync polling preserves documented approval payloads', 
       },
       fetchImpl,
       async () => {},
+      NO_OP_BRAND_KIT_REFRESHER,
     );
 
     const result = await port.resumePipeline(STUB_RESUME_INPUT);
@@ -463,6 +472,8 @@ test('HermesMarketingPort marks accepted Aries runs failed when Hermes submissio
         APP_BASE_URL: 'https://aries.example.com',
       },
       fetchImpl,
+      undefined,
+      NO_OP_BRAND_KIT_REFRESHER,
     );
 
     const result = await port.runPipeline(STUB_RUN_INPUT);
