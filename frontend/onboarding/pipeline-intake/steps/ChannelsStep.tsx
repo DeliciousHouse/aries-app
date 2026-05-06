@@ -45,7 +45,7 @@ const CHANNEL_OPTIONS: SelectionOption[] = [
   {
     value: 'email',
     label: 'Email Marketing',
-    description: 'Automated email campaigns and sequences.',
+    description: 'Automated email content and sequences.',
     icon: <span className="text-base">✉️</span>,
   },
 ];
@@ -68,7 +68,7 @@ export default function ChannelsStep({
       stepNumber={4}
       totalSteps={5}
       title="Target Channels"
-      subtitle="Select the platforms where your campaign will run. You can choose multiple."
+      subtitle="Select the platforms where your weekly social content will run. You can choose multiple."
       canProceed={channels.length > 0}
       onNext={onNext}
       onBack={onBack}

@@ -25,19 +25,19 @@ test('contentTypeForAsset returns video/* for common video extensions', async ()
     const ogv = path.join(dir, 'nonexistent.ogv');
     const ogg = path.join(dir, 'nonexistent.ogg');
 
-    assert.equal(contentTypeForAsset(mp4), 'video/mp4');
-    assert.equal(contentTypeForAsset(mov), 'video/quicktime');
-    assert.equal(contentTypeForAsset(m4v), 'video/x-m4v');
-    assert.equal(contentTypeForAsset(webm), 'video/webm');
-    assert.equal(contentTypeForAsset(ogv), 'video/ogg');
-    assert.equal(contentTypeForAsset(ogg), 'video/ogg');
+    assert.equal(await contentTypeForAsset(mp4), 'video/mp4');
+    assert.equal(await contentTypeForAsset(mov), 'video/quicktime');
+    assert.equal(await contentTypeForAsset(m4v), 'video/x-m4v');
+    assert.equal(await contentTypeForAsset(webm), 'video/webm');
+    assert.equal(await contentTypeForAsset(ogv), 'video/ogg');
+    assert.equal(await contentTypeForAsset(ogg), 'video/ogg');
   });
 });
 
 test('contentTypeForAsset falls back to application/octet-stream for unknown extensions', async () => {
   await withScratchDir(async (dir) => {
     const unknown = path.join(dir, 'nonexistent.bin');
-    assert.equal(contentTypeForAsset(unknown), 'application/octet-stream');
+    assert.equal(await contentTypeForAsset(unknown), 'application/octet-stream');
   });
 });
 
@@ -52,7 +52,7 @@ test('contentTypeForAsset sniffs ftyp magic bytes to classify ISOBMFF as video/m
     ]);
     await writeFile(mislabeled, buffer);
 
-    assert.equal(contentTypeForAsset(mislabeled), 'video/mp4');
+    assert.equal(await contentTypeForAsset(mislabeled), 'video/mp4');
   });
 });
 
@@ -69,7 +69,7 @@ test('contentTypeForAsset keeps .mov as video/quicktime even though the file car
     ]);
     await writeFile(movFile, buffer);
 
-    assert.equal(contentTypeForAsset(movFile), 'video/quicktime');
+    assert.equal(await contentTypeForAsset(movFile), 'video/quicktime');
   });
 });
 
@@ -80,7 +80,7 @@ test('contentTypeForAsset keeps sniffing image magic bytes when extension is mis
     const buffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
     await writeFile(pngLike, buffer);
 
-    assert.equal(contentTypeForAsset(pngLike), 'image/png');
+    assert.equal(await contentTypeForAsset(pngLike), 'image/png');
   });
 });
 
@@ -91,6 +91,6 @@ test('contentTypeForAsset trusts image bytes over a drifted extension (JPEG byte
     const drifted = path.join(dir, 'meta-preview.png');
     await writeFile(drifted, Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00]));
 
-    assert.equal(contentTypeForAsset(drifted), 'image/jpeg');
+    assert.equal(await contentTypeForAsset(drifted), 'image/jpeg');
   });
 });

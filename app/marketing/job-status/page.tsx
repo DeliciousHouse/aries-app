@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 
 export const metadata = {
-  title: 'Campaign Status · Aries AI',
+  title: 'Weekly Social Content Status · Aries AI',
 };
 
 export default async function MarketingJobStatusPage({

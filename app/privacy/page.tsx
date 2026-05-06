@@ -5,8 +5,8 @@ export const metadata = {
 };
 
 const PRINCIPLES = [
-  'We only collect the information needed to run your campaigns and show you the status of your work.',
-  'Your campaign data stays tied to your account — other customers cannot see it.',
+  'We only collect the information needed to run your weekly social content and show you the status of your work.',
+  'Your social content data stays tied to your account — other customers cannot see it.',
   'Drafts, generated assets, and approval history are kept in secure storage that only your team can access.',
   'We never publish or launch anything without your explicit approval.',
 ] as const;
@@ -20,7 +20,7 @@ export default function PrivacyPage() {
             <p className="text-xs uppercase tracking-[0.3em] text-primary mb-3">Legal</p>
             <h1 className="text-4xl font-bold mb-3">Privacy Policy</h1>
             <p className="text-white/60">
-              This policy explains what information Aries collects to run your marketing campaigns and how it&apos;s protected.
+              This policy explains what information Aries collects to run your weekly social content and how it&apos;s protected.
             </p>
           </div>
           <div className="glass rounded-[2rem] p-6">

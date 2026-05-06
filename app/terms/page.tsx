@@ -7,7 +7,7 @@ export const metadata = {
 const SECTIONS = [
   {
     title: 'What Aries does',
-    body: 'Aries plans, creates, and helps you launch marketing campaigns. You can review every piece of work before anything goes live.',
+    body: 'Aries plans, creates, and helps you publish weekly social content. You can review every piece of work before anything goes live.',
   },
   {
     title: 'Acceptable use',
@@ -15,7 +15,7 @@ const SECTIONS = [
   },
   {
     title: 'Your data',
-    body: 'We use the information you provide to generate campaigns and show you the status of your work. We don\u2019t share your campaign data with other customers, and we don\u2019t sell it.',
+    body: 'We use the information you provide to generate weekly social content and show you the status of your work. We don\u2019t share your content data with other customers, and we don\u2019t sell it.',
   },
   {
     title: 'Changes to these terms',

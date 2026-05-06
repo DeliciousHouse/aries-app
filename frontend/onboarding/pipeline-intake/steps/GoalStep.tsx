@@ -9,7 +9,7 @@ const GOAL_OPTIONS: SelectionOption[] = [
   {
     value: 'lead_generation',
     label: 'Lead Generation',
-    description: 'Capture qualified leads through targeted campaigns',
+    description: 'Capture qualified leads through targeted social content',
     icon: <Target className="w-5 h-5" />,
   },
   {
@@ -44,8 +44,8 @@ export default function GoalStep({ goal, onGoalChange, onNext, onBack }: GoalSte
     <StepContainer
       stepNumber={1}
       totalSteps={5}
-      title="Campaign Goal"
-      subtitle="What's the primary objective of this campaign? This shapes the entire strategy and creative direction."
+      title="Social Content Goal"
+      subtitle="What's the primary objective of this weekly social content plan? This shapes the entire strategy and creative direction."
       canProceed={!!goal}
       onNext={onNext}
       onBack={onBack}
@@ -55,7 +55,7 @@ export default function GoalStep({ goal, onGoalChange, onNext, onBack }: GoalSte
         selected={goal ?? ''}
         onChange={(val) => onGoalChange(val as Goal)}
         multi={false}
-        ariaLabel="Campaign goal"
+        ariaLabel="Social content goal"
       />
     </StepContainer>
   );

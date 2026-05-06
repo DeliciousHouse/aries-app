@@ -19,8 +19,8 @@ const manrope = Manrope({
 });
 
 export const metadata: Metadata = {
-  title: 'Aries AI - Marketing Operating System',
-  description: 'A premium, approval-safe marketing operating system for small businesses. Plan campaigns, approve creative, launch safely, and see what worked.',
+  title: 'Aries AI - Weekly Social Content Operating System',
+  description: 'A premium, approval-safe social content operating system for small businesses. Plan weekly posts, approve creative, publish safely, and see what worked.',
   icons: {
     icon: [
       { url: ARIES_FAVICON_ICO_PATH, type: 'image/x-icon' },

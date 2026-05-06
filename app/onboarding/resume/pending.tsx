@@ -37,7 +37,7 @@ export default function OnboardingResumePending(): JSX.Element {
           {stuck ? (
             <>
               <h1 className="mt-4 text-4xl font-normal tracking-[-0.04em] text-white">
-                The campaign service is taking longer than expected
+                The social content service is taking longer than expected
               </h1>
               <p className="mt-4 max-w-xl text-sm leading-7 text-white/65">
                 The workspace handoff hasn&apos;t completed yet. Your draft is saved. Try again,
@@ -47,11 +47,11 @@ export default function OnboardingResumePending(): JSX.Element {
           ) : (
             <>
               <h1 className="mt-4 text-4xl font-normal tracking-[-0.04em] text-white">
-                Building your first campaign plan
+                Building your first weekly social content plan
               </h1>
               <p className="mt-4 max-w-xl text-sm leading-7 text-white/65">
                 Aries is finishing the workspace handoff now. This page will refresh automatically and open the live
-                workspace as soon as the campaign is ready.
+                workspace as soon as the social content plan is ready.
               </p>
             </>
           )}
