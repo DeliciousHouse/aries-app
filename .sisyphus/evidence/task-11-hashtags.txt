@@ -1,0 +1,53 @@
+T11 — Per-platform caption validator
+=====================================
+
+Test Results
+============
+
+All 10 caption-validator tests PASSED:
+
+✓ Instagram: empty caption fails
+✓ Instagram: 2200 chars passes
+✓ Instagram: 2201 chars fails
+✓ Instagram: 30 hashtags passes
+✓ Instagram: 31 hashtags fails
+✓ Instagram: both length and hashtag violations
+✓ Facebook: 63206 chars passes
+✓ Facebook: 63207 chars fails
+✓ Facebook: no hashtag limit
+✓ Facebook: empty caption fails
+
+Implementation Details
+======================
+
+Module: backend/social-content/caption-validator.ts
+- Exports validateCaption({ channel, text, hashtags? }) function
+- Returns { ok: boolean, errors: string[] }
+
+Platform Rules Implemented:
+- Instagram (instagram_feed):
+  * Max 2200 characters
+  * Max 30 hashtags
+  
+- Facebook (facebook_feed):
+  * Max 63206 characters
+  * No hashtag limit
+
+Error Codes:
+- caption_empty: when text is empty
+- caption_too_long: when text exceeds platform limit
+- too_many_hashtags: when hashtag count exceeds platform limit (IG only)
+
+Validation Approach:
+- Simple, deterministic validation
+- No external dependencies
+- Supports multiple simultaneous violations
+- Returns all errors in single call
+
+Test Coverage:
+- Boundary cases: exact limits (2200, 30, 63206) and +1 over
+- Edge cases: empty captions, multiple violations
+- Platform-specific: IG hashtag limit, FB no limit
+- All tests use node:test native framework
+
+Typecheck Status: ✓ CLEAN (0 errors)

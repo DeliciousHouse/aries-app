@@ -175,3 +175,123 @@ npm run validate:marketing-flow
 - `tests/social-content-weekly-defaults.test.ts` + `tests/marketing-execution-port.test.ts` → 45/45 pass after no-op refresher injection
 - `npm run validate:social-content` → 87/87 pass
 - `lsp_diagnostics` clean on all 5 changed files
+
+## [2026-05-06] T1 — tenant-prefix asset storage keys
+
+### Storage scheme
+- New layout: `${DATA_ROOT}/ingested-assets/{tenant_id}/{sha[0:2]}/{sha}.{ext}`
+- Tenant segment is FIRST, before sha-prefix — enforces cross-tenant boundary at the path level
+- Within-tenant dedup preserved (same tenant + same bytes = same path)
+- Cross-tenant: same bytes from different tenants = different paths (no shared file)
+- Sentinel `_unscoped_` for legacy callers without tenant context (real tenant IDs are SERIAL integers from `organizations.id`, so collision impossible)
+
+### Public API additions
+- `ingestRuntimeDocAssets(doc, tenantId?)` — explicit param wins; falls back to `doc.tenant_id`; both absent → `_unscoped_`
+- `ingestSinglePath(original, tenantId?)` — same fallback policy
+- `readMarketingAssetWithinAllowedRoots(filePath, options?)` — new `options.tenantId` enforces tenant prefix when path is within `${DATA_ROOT}/ingested-assets/`
+- `findMarketingAsset/buildMarketingAssetLibrary/buildMarketingAssetLinks(jobId, runtimeDoc, facts?, options?)` — new `options.tenantId` asserts equality with `runtimeDoc.tenant_id` (defense-in-depth)
+
+### Migration script
+- `scripts/migrate-asset-tenant-prefix.ts` — exports `runAssetTenantPrefixMigration({dryRun, db, dataRoot?})` for tests; CLI entrypoint uses `lib/db.pool`
+- Defaults to `--dry-run`; pass `--commit` to apply
+- Detects legacy by segment-count after `ingested-assets/`: 2 segments = legacy, 3 = migrated
+- Atomic move: `renameSync` with per-source `.migrating.lock` (wx-flag, EEXIST-skip)
+- Idempotent: second run finds zero pending rows
+
+### Test pattern
+- `withScratch` + `withEnv` helpers replicate the `tests/asset-ingest.test.ts` style
+- Migration tests use a stub `MigrationDb` (single `query` method returning `{rows, rowCount}`) — no live DB required
+- `MigrationDb.query` typed non-generic (`rows: unknown[]`) so test stubs satisfy the interface without TS generic-instantiation errors
+
+### Files changed
+- `backend/marketing/asset-ingest.ts` — tenant param, `destinationFor` includes tenant segment
+- `backend/marketing/asset-read.ts` — `tenantPrefixViolates` guard added to read loop
+- `backend/marketing/asset-library.ts` — `assertRuntimeDocTenantMatches` added to library functions
+- `scripts/migrate-asset-tenant-prefix.ts` — new file
+- `tests/asset-tenant-isolation.test.ts` — new file (3 tests)
+
+### Validation
+- `npm run typecheck` → 0 errors
+- All 25 asset-related tests green (`asset-tenant-isolation`, `asset-ingest`, `asset-library-content-type`, `marketing-artifact-store`)
+
+## [2026-05-06] T4 — per-run callback_token defense in depth
+
+### Token lifecycle
+- Generated at submission time in `HermesMarketingPort.invoke()` via `randomBytes(32).toString('hex')` — 64 hex chars
+- Plaintext sent ONLY in submission payload `callback_auth.callback_token` field; never logged
+- SHA-256 hash persisted to `oauth_callback_tokens` table BEFORE the Hermes fetch (so callbacks can never race the insert)
+- `INSERT INTO oauth_callback_tokens (token_hash, aries_run_id, tenant_id) VALUES ($1,$2,$3) ON CONFLICT (token_hash) DO NOTHING`
+- Insert wrapped in try/catch with `console.error` — failures don't block submission; defense-in-depth bearer auth still protects
+
+### Verification path
+- `verifyCallbackToken(ariesRunId, token, dbClient)` exported from `lib/internal-callback-auth.ts`
+- Uses `timingSafeEqual` on stored vs candidate SHA-256 hashes
+- Also asserts `stored.aries_run_id === requested.aries_run_id` to prevent token cross-run reuse
+- Returns 403 `missing_callback_token` when absent, 403 `invalid_callback_token` when mismatched
+
+### Route integration
+- Bearer check first (`verifyInternalCallbackRequest`), THEN payload parse, THEN `verifyCallbackToken`
+- Defense in depth: ALL three required, in order
+- Only applied to `app/api/internal/hermes/runs/route.ts` (not other internal callbacks)
+
+### Tenant id constraint
+- `oauth_callback_tokens.tenant_id INTEGER NOT NULL REFERENCES organizations(id)`
+- Port skips insert when `tenantId` is non-numeric (test stubs use `'tenant_test'` etc.) — test-only paths still send token in payload but verify will fail without seeded DB row
+- Production tenants are SERIAL integers from organizations.id, so insert always succeeds
+
+### Test pattern
+- Mock `pool.query` via `t.mock.method(pool, 'query', handler)` — returns `{rows, rowCount}` shape
+- `seedCallbackToken(t, ariesRunId)` helper installs a mock that returns the seeded token's hash on lookup
+- `tests/hermes-callback-route.test.ts` updated to seed tokens (3 tests touched)
+- `tests/marketing-execution-port.test.ts` updated: callback_auth assertions changed from `deepEqual` to per-field + regex (token is random per run)
+
+### Files changed
+- `lib/internal-callback-auth.ts` — added `hashCallbackToken`, `verifyCallbackToken`
+- `backend/marketing/ports/hermes.ts` — added `randomBytes` token gen, `persistCallbackTokenHash` method, optional `callbackTokenClient` ctor param
+- `app/api/internal/hermes/runs/route.ts` — added `verifyCallbackToken` step after payload parse
+- `tests/callback-token.test.ts` — new file (6 tests)
+- `tests/hermes-callback-route.test.ts` — updated 3 tests for new token requirement
+- `tests/marketing-execution-port.test.ts` — relaxed callback_auth assertions
+
+### Validation
+- `npm run typecheck` → 0 errors
+- `npm run validate:execution-provider` → 40/40 pass
+- `npm run validate:banned-patterns` → ok
+- `npm run validate:repo-boundary` → ok
+
+## [2026-05-06] T11 — per-platform caption validator
+
+### Module design
+- `backend/social-content/caption-validator.ts` exports `validateCaption({ channel, text, hashtags? })`
+- Returns `{ ok: boolean, errors: string[] }` — supports multiple simultaneous violations
+- No external dependencies; pure validation logic
+
+### Platform constraints (Meta Graph API specs)
+- Instagram (instagram_feed):
+  * Max 2200 characters (per Meta IG Graph API docs)
+  * Max 30 hashtags (per Meta IG Graph API docs)
+- Facebook (facebook_feed):
+  * Max 63206 characters (per Meta FB Graph API docs)
+  * No hashtag limit
+
+### Error codes
+- `caption_empty` — when text is empty string
+- `caption_too_long` — when text exceeds platform character limit
+- `too_many_hashtags` — when hashtag count exceeds 30 (Instagram only)
+
+### Test coverage
+- 10 tests in `tests/caption-validator.test.ts`
+- Boundary cases: exact limits (2200, 30, 63206) and +1 over each
+- Edge cases: empty captions, multiple simultaneous violations
+- Platform-specific: IG hashtag limit, FB no limit
+- All tests use native `node:test` framework
+
+### Files created
+- `backend/social-content/caption-validator.ts` — validator module
+- `tests/caption-validator.test.ts` — 10 test cases
+
+### Validation
+- `npm run typecheck` → 0 errors
+- All 10 caption-validator tests PASS
+- No dependencies added
+- No anti-patterns (no `as any`, no empty catches, no console.log)

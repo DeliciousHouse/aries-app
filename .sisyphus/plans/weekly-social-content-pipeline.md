@@ -271,7 +271,7 @@ Parallel Speedup: ~65% faster than fully sequential
 
 ## TODOs
 
-- [ ] **T1. Audit + tenant-prefix asset storage keys + migration** (P0 — tests-first)
+- [x] **T1. Audit + tenant-prefix asset storage keys + migration** (P0 — tests-first)
 
   **What to do**:
   - Read `backend/marketing/asset-library.ts`, `backend/marketing/asset-ingest.ts`, `backend/marketing/asset-read.ts`. Determine the current storage path scheme (currently `DATA_ROOT/ingested-assets/{sha[0:2]}/{sha}/`).
@@ -495,7 +495,7 @@ Parallel Speedup: ~65% faster than fully sequential
 
   **Commit**: YES (T3) — `feat(oauth-meta): long-lived exchange + IG Business Account discovery + page picker`
 
-- [ ] **T4. Per-run callback_token in Hermes submission + verification on receipt** (tests-first)
+- [x] **T4. Per-run callback_token in Hermes submission + verification on receipt** (tests-first)
 
   **What to do**:
   - In `backend/marketing/ports/hermes.ts` `submissionPayload`: generate a per-run `callback_token` (32-byte random hex). Include in `callback_auth` payload (extend the schema): `{type:'internal_api_secret_bearer', secret_ref:'INTERNAL_API_SECRET', callback_token:'<token>'}`.
@@ -617,7 +617,7 @@ Parallel Speedup: ~65% faster than fully sequential
 
   **Commit**: YES (T5) — `fix(publish): validate media_urls tenant ownership`
 
-- [ ] **T6. `next.config.mjs` `images.remotePatterns` whitelist + dev fallback**
+- [x] **T6. `next.config.mjs` `images.remotePatterns` whitelist + dev fallback**
 
   **What to do**:
   - Update `next.config.mjs` (currently 8 lines) to add `images.remotePatterns` for: the Hermes media domain (resolved at config load from `process.env.HERMES_MEDIA_HOST` or `HERMES_GATEWAY_URL` host), the `APP_BASE_URL` host (for self-served signed URLs), and any CDN host (env-var `IMAGES_CDN_HOST`, optional).
@@ -671,7 +671,7 @@ Parallel Speedup: ~65% faster than fully sequential
 
   **Commit**: YES (T6) — `fix(images): images.remotePatterns whitelist + dev fallback`
 
-- [ ] **T7. DB schema migration: posts/vision_qa_runs/scheduled_posts/oauth_callback_tokens**
+- [x] **T7. DB schema migration: posts/vision_qa_runs/scheduled_posts/oauth_callback_tokens**
 
   **What to do**:
   - Update `scripts/init-db.js` (raw SQL, no ORM) to add:
@@ -825,7 +825,7 @@ Parallel Speedup: ~65% faster than fully sequential
   ```
   **Commit**: YES (T10) — `feat(hermes): idempotency_key in submission`
 
-- [ ] 11. **Per-platform caption validator**
+- [x] 11. **Per-platform caption validator**
 
   **What**: New module `backend/social-content/caption-validator.ts` exports `validateCaption({ channel, text, hashtags? })` returning `{ ok: boolean, errors: string[] }`. Rules: instagram_feed → max 2200 chars, max 30 hashtags; facebook_feed → max 63206 chars, no hashtag limit. Used by review handler (T19) and pre-publish guard (T24).
   **Must NOT**: Validate other platforms (LinkedIn/X/TikTok deferred).
@@ -1032,7 +1032,7 @@ Parallel Speedup: ~65% faster than fully sequential
   ```
   **Commit**: YES (T22) — `feat(review): per-platform preview components`
 
-- [ ] 23. **Implement (or delete) approval-requests 501 stubs**
+- [x] 23. **Implement (or delete) approval-requests 501 stubs**
 
   **What**: `app/api/tenant/approval-requests/[approvalRequestId]/{approve,reject}/route.ts` currently return 501. Decision: DELETE both routes (and the `/approval-requests` directory if empty after) — they are dead code; the marketing approval pathway is `/api/marketing/jobs/[jobId]/approve` and `/api/marketing/reviews/[reviewId]/decision`. Remove route files; update any references in codebase via grep.
   **Must NOT**: Implement new approval logic here (canonical path is marketing/reviews). No URL redirects from old → new (no callers exist per research).
