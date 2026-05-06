@@ -84,7 +84,7 @@ export async function handleMetaSelectPageHttp(
       {
         status: 'error',
         reason: 'not_authenticated',
-        message: error instanceof Error ? error.message : reason,
+        message: reason,
       },
       401,
     );
