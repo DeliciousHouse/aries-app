@@ -2,6 +2,7 @@ import { normalizePublishDispatch } from '../../../../backend/integrations/workf
 import { mapAriesExecutionError, runAriesWorkflow } from '../../../../backend/execution';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 import { assertMediaUrlsBelongToTenant } from '../../../../backend/integrations/media-url-ownership';
+import { runPublishVerification } from '../../../../backend/integrations/publish-verification';
 import { pool } from '@/lib/db';
 
 export async function handlePublishDispatch(req: Request, tenantContextLoader?: TenantContextLoader) {
@@ -75,12 +76,39 @@ export async function handlePublishDispatch(req: Request, tenantContextLoader?: 
       });
     }
 
+    let verification = null as null | Awaited<ReturnType<typeof runPublishVerification>>;
+    try {
+      const verificationContent = typeof event.payload.content_text === 'string'
+        ? event.payload.content_text
+        : body.content || '';
+      verification = await runPublishVerification({
+        tenantId,
+        provider: event.provider ?? '',
+        content: verificationContent,
+        primaryOutput: executed.primaryOutput,
+        pool,
+      });
+    } catch (verificationError) {
+      verification = {
+        status: 'unverified',
+        platformPostId: null,
+        postId: null,
+        reason: 'persistence_error',
+      };
+      console.error('[publish-dispatch] verification step failed', {
+        tenantId,
+        provider: event.provider,
+        error: String((verificationError as Error).message || verificationError),
+      });
+    }
+
     return new Response(JSON.stringify({
       status: 'accepted',
       workflow_id: 'publish_dispatch',
       workflow_status: executed.envelope.status,
       event,
       result: executed.primaryOutput,
+      publish_verification: verification,
     }), {
       status: 202,
       headers: { 'content-type': 'application/json' },

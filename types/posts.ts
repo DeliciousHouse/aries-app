@@ -7,6 +7,7 @@ export const publishedStatuses = [
   'published',
   'failed',
   'rolled_back',
+  'unverified',
 ] as const;
 
 export type PublishedStatus = typeof publishedStatuses[number];

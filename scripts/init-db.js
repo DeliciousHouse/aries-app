@@ -399,6 +399,12 @@ async function initDb() {
       ALTER TABLE posts
         ADD COLUMN IF NOT EXISTS published_status TEXT DEFAULT 'draft' CHECK (published_status IN ('draft','in_review','approved','scheduled','publishing','published','failed','rolled_back'));
 
+      ALTER TABLE posts
+        DROP CONSTRAINT IF EXISTS posts_published_status_check;
+
+      ALTER TABLE posts
+        ADD CONSTRAINT posts_published_status_check CHECK (published_status IN ('draft','in_review','approved','scheduled','publishing','published','failed','rolled_back','unverified'));
+
       -- Vision QA runs table for brand compliance checks
       CREATE TABLE IF NOT EXISTS vision_qa_runs (
         id BIGSERIAL PRIMARY KEY,
