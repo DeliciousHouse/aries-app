@@ -2,7 +2,7 @@
 
 import { Check } from 'lucide-react';
 
-const STEPS = ['Goal', 'Brand', 'Competitor', 'Channels', 'Execution'];
+const STEPS = ['Goal', 'Brand', 'Competitor', 'Channels', 'Connect', 'Execution'];
 
 interface ProgressIndicatorProps {
   currentStep: number; // 0-indexed
