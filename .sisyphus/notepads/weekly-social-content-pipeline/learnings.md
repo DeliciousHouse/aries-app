@@ -661,3 +661,57 @@ Current `fix/live-qa-blockers` HEAD only contained T3 (`82cc550`), T8 (`7c062aa`
 
 ### Commit
 - `feat(email): weekly social content notification templates`
+
+## [2026-05-06] T25 — stale-run reaper script
+
+### Module design
+- Pure async `runStaleRunReaper({ dataRoot, dryRun, now?, thresholdMs? })` in `backend/marketing/stale-run-reaper.ts` — no `lib/db` dependency, no real DATA_ROOT requirement (caller passes any path).
+- CLI wrapper `scripts/reap-stale-runs.ts` defaults to `--dry-run`; mutations require explicit `--apply`. Supports `--data-root` and `--threshold-ms` overrides.
+- Threshold env: `STALE_RUN_REAPER_THRESHOLD_MS` (positive int ms); fallback `30 * 60 * 1000` ms = 2× the `DEFAULT_MARKETING_WORKFLOW_TIMEOUT_MS = 15min` private constant in orchestrator.ts (NOT exported, so reaper redeclares to avoid coupling).
+
+### What "stale" actually means in this repo
+- Runtime docs live at `${DATA_ROOT}/generated/draft/marketing-jobs/<jobId>.json`.
+- The doc has no `last_callback_at` field; `updated_at` is the closest proxy because every Hermes callback persistence path runs through `saveMarketingJobRuntime` which sets `doc.updated_at = nowIso()`.
+- "Submitted/running" maps to `state ∈ {queued, running, approval_required}` OR `status ∈ {pending, running, awaiting_approval}` (in-flight).
+- Terminal states `{completed, failed, needs_connection}` are skipped. Already-reaped (`status='failed_stale'` OR `failure_reason='stale_run_reaper'` OR `last_error.code='stale_run_reaper'`) are skipped — that triple-check guarantees idempotency even if status was hand-edited.
+
+### Type-system edits (minimal surface)
+- `MarketingJobStatus` extended with `'failed_stale'`. Existing consumers (`runtime-views.ts`, `jobs-status.ts`, etc.) only structurally read the field — no exhaustive switch was broken.
+- New optional field `MarketingJobRuntimeDocument.failure_reason?: string | null`. Both edits are additive and have docstrings warning future devs that `failed_stale` is reaper-only and not produced by orchestrator/callback handlers.
+- `MarketingJobState` was NOT extended. Reaped runs land in `state='failed'` (existing valid value) so all the `state === 'failed'` checks (which exist in many UI/API readers) keep working.
+
+### Mutation contract (when --apply runs)
+- `state ← 'failed'`
+- `status ← 'failed_stale'`
+- `failure_reason ← 'stale_run_reaper'`
+- `last_error ← { code:'stale_run_reaper', message:..., stage:current_stage, retryable:false, details:{previous_state, previous_status, silent_ms, threshold_ms, previous_updated_at}, at:now }`
+- `errors[]` and `history[]` get one new entry each
+- `updated_at ← now`
+- Files are NEVER deleted; only the JSON content is rewritten.
+
+### Test pattern
+- `tests/reap-stale-runs.test.ts` uses `mkdtemp` per test (no real DATA_ROOT) and injects a fixed `now` for deterministic stale-window math. 11 tests covering: env defaults, env override, missing-dir no-op, dry-run no mutation, apply mutation, idempotent re-apply, fresh skip, terminal skip, awaiting_approval reap, already-reaped skip, unparseable timestamp skip, foreign schema skip.
+- Test stub builds a minimum runtime doc that satisfies the file scanner (`schema_name`, `job_id`, `tenant_id`, `state`, `status`, `current_stage`, `updated_at`) without touching `assertMarketingRuntimeDocument` (the reaper writes through `writeFile`, not `saveMarketingJobRuntime`, so brand-kit invariant assertions are bypassed — that's intentional: the reaper is a recovery tool, not a normal write path).
+
+### Idempotency — three independent guards
+1. `isTerminalDoc(state, status)` returns true once `state='failed'`.
+2. `alreadyReaped(doc)` returns true if `status==='failed_stale'` OR `failure_reason==='stale_run_reaper'` OR `last_error.code==='stale_run_reaper'`.
+3. The mutation also bumps `updated_at` to `now`, so the freshness window resets — even if guards 1+2 somehow failed, the next reaper pass would see a non-stale doc.
+
+### Files
+- NEW `backend/marketing/stale-run-reaper.ts`
+- NEW `scripts/reap-stale-runs.ts`
+- NEW `tests/reap-stale-runs.test.ts`
+- MOD `backend/marketing/runtime-state.ts` (additive: `'failed_stale'` in MarketingJobStatus, optional `failure_reason` field)
+- NEW `.sisyphus/evidence/task-25-dry.txt`
+
+### Validation
+- `lsp_diagnostics` clean on all changed files
+- `tests/reap-stale-runs.test.ts` → 11/11 pass
+- `tests/marketing-execution-port.test.ts + social-content-weekly-defaults.test.ts` → 33/33 pass (no regression)
+- `node scripts/check-banned-patterns.mjs` → ok
+- `node scripts/check-repo-boundary.mjs` → ok
+
+### Gotchas for downstream tasks
+- The reaper does NOT advance `social_content_runtime` substages — it only flips the top-level `state`/`status`/`last_error`. Downstream UI reading the social content runtime view will still show the last-known sub-stage state, which is the correct audit-trail behavior for a "we lost the callback" failure.
+- T26 (OAuth refresh sweeper) follows the same pattern: pure function + thin CLI + tests against tmpdir.
