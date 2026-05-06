@@ -18,29 +18,16 @@ import { resolveDataRoot } from '@/lib/runtime-paths';
 
 /**
  * Ingest any absolute file paths embedded in a marketing runtime document so
- * that every referenced asset ends up inside DATA_ROOT and the document only
+ * every referenced asset ends up inside DATA_ROOT and the document only
  * stores paths the aries-app container can read.
  *
- * Background: OpenClaw/Lobster runs on the host and, by default, writes
- * generated assets under `/home/node/aries-app/lobster/output/...`. The
- * source-of-truth host prefix is `ARIES_LOBSTER_HOST_OUTPUT_DIR`; host paths are
- * invisible inside the aries-app container (different filesystem namespace),
- * so `readMarketingAssetWithinAllowedRoots` correctly refuses to serve them
- * and the asset routes 404. We fix this at the ingest boundary — the single
- * `saveMarketingJobRuntime` call that every runtime mutation funnels through —
- * by copying bytes into DATA_ROOT and rewriting the embedded path.
- *
- * Strategy:
- *   1. Walk the doc. For every string that looks like an absolute filesystem
- *      path, attempt ingest.
- *   2. If the path is already inside DATA_ROOT, leave it alone.
- *   3. If the path has a host-output prefix, remap it to the container-side
- *      mount (ARIES_LOBSTER_HOST_OUTPUT_MOUNT, default /host-lobster-output).
- *   4. If the resulting path is readable, copy the bytes to a content-
- *      addressed location under DATA_ROOT/ingested-assets/{sha[0:2]}/{sha}/
- *      and rewrite the string in place.
- *   5. If the source is unreadable, leave the original string unchanged
- *      (same failure mode as before — no new regression).
+ * Storage layout: `DATA_ROOT/ingested-assets/{tenant_id}/{sha[0:2]}/{sha}.{ext}`.
+ * The tenant_id segment is mandatory — two tenants uploading byte-identical
+ * files MUST land in distinct paths so a path leak in one tenant cannot be
+ * replayed against another. Within a single tenant, content-addressed dedup
+ * still holds: re-uploading the same bytes hits the same path. Documents
+ * passed through `ingestRuntimeDocAssets` carry `doc.tenant_id`; the explicit
+ * `tenantId` argument is the contract for callers without a doc context.
  *
  * Idempotent: content-addressed destination dedupes; subsequent saves of the
  * same doc are cheap (stat-only). Memoized per-call so one save hashes each
@@ -49,6 +36,10 @@ import { resolveDataRoot } from '@/lib/runtime-paths';
 
 const DEFAULT_HOST_OUTPUT_MOUNT = '/host-lobster-output';
 const INGEST_SUBDIR = 'ingested-assets';
+// Sentinel used only when an ingest is invoked without any tenant context —
+// keeps existing test fixtures compiling but never collides with a real
+// numeric or slug tenant id, so production cross-tenant isolation is intact.
+const UNSCOPED_TENANT_SEGMENT = '_unscoped_';
 
 export interface AssetIngestRewrite {
   from: string;
@@ -65,17 +56,31 @@ interface IngestContext {
   dataRoot: string;
   hostOutputDir: string | null;
   hostOutputMount: string;
+  tenantSegment: string;
   cache: Map<string, string>;
   result: AssetIngestResult;
 }
 
-function buildContext(): IngestContext {
+function normalizeTenantSegment(raw: unknown): string {
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (trimmed) return trimmed;
+  }
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return String(raw);
+  }
+  return '';
+}
+
+function buildContext(tenantId: string): IngestContext {
   const hostOutputDir = process.env.ARIES_LOBSTER_HOST_OUTPUT_DIR?.trim();
   const hostOutputMount = process.env.ARIES_LOBSTER_HOST_OUTPUT_MOUNT?.trim() || DEFAULT_HOST_OUTPUT_MOUNT;
+  const tenantSegment = tenantId || UNSCOPED_TENANT_SEGMENT;
   return {
     dataRoot: path.normalize(resolveDataRoot()),
     hostOutputDir: hostOutputDir ? path.normalize(hostOutputDir) : null,
     hostOutputMount: path.normalize(hostOutputMount),
+    tenantSegment,
     cache: new Map(),
     result: { rewrites: [], skipped: [] },
   };
@@ -111,10 +116,17 @@ function remapHostPath(absPath: string, ctx: IngestContext): string {
 }
 
 function destinationFor(ctx: IngestContext, sha: string, ext: string): string {
-  // Content-addressed: identical bytes land in the same file regardless of the
-  // source filename. Extension is preserved so readers that dispatch on `.ext`
-  // (content-type sniffing, Next.js `<Image>`, etc.) still work.
-  return path.join(ctx.dataRoot, INGEST_SUBDIR, sha.slice(0, 2), `${sha}${ext}`);
+  // Tenant-prefixed, then content-addressed: identical bytes from different
+  // tenants land in distinct files (no cross-tenant leak); identical bytes
+  // from the same tenant land in the same file (within-tenant dedup).
+  // Extension is preserved so readers that dispatch on `.ext` still work.
+  return path.join(
+    ctx.dataRoot,
+    INGEST_SUBDIR,
+    ctx.tenantSegment,
+    sha.slice(0, 2),
+    `${sha}${ext}`,
+  );
 }
 
 function ingestOne(original: string, ctx: IngestContext): string {
@@ -262,21 +274,30 @@ function walkAndRewrite(node: unknown, ctx: IngestContext): unknown {
 }
 
 /**
- * Mutates `doc` in place: rewrites embedded absolute paths to DATA_ROOT
- * locations and copies bytes as needed. Safe to call on any JSON-shaped
- * value. Returns a summary for logging.
+ * Mutates `doc` in place: rewrites embedded absolute paths into DATA_ROOT
+ * tenant-prefixed locations and copies bytes as needed. Tenant id is taken
+ * from the explicit `tenantId` argument when supplied, else from
+ * `doc.tenant_id`; both absent triggers an unscoped fallback that is safe
+ * but never used in production (saveMarketingJobRuntime always passes a
+ * tenant-bearing doc).
  */
-export function ingestRuntimeDocAssets<T extends Record<string, unknown>>(doc: T): AssetIngestResult {
-  const ctx = buildContext();
+export function ingestRuntimeDocAssets<T extends Record<string, unknown>>(
+  doc: T,
+  tenantId?: string,
+): AssetIngestResult {
+  const tenantSegment = normalizeTenantSegment(tenantId) || normalizeTenantSegment(doc.tenant_id);
+  const ctx = buildContext(tenantSegment);
   walkAndRewrite(doc, ctx);
   return ctx.result;
 }
 
 /**
- * Exposed for tests + backfill script. Does not require a doc — just rewrites
- * a single path string using the same policy.
+ * Single-path ingest variant for tests and the backfill script. Tenant id
+ * is required for production callers; the optional signature exists only to
+ * preserve backward compatibility with pre-tenant-prefix call sites that
+ * still get the unscoped fallback path.
  */
-export function ingestSinglePath(original: string): string {
-  const ctx = buildContext();
+export function ingestSinglePath(original: string, tenantId?: string): string {
+  const ctx = buildContext(normalizeTenantSegment(tenantId));
   return ingestOne(original, ctx);
 }

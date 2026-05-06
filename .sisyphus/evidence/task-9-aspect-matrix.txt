@@ -1,0 +1,131 @@
+T9: Per-channel aspect-ratio matrix in social-content media_requests
+=====================================================================
+
+Date: 2026-05-06
+Branch: fix/live-qa-blockers
+
+Files added/modified
+--------------------
+NEW: backend/social-content/aspect-matrix.ts
+MOD: backend/social-content/workflow-request.ts (replaced hardcoded image '4:5'
+     with resolveSocialContentAspectRatio + resolveDominantImageChannel)
+NEW: tests/social-content-aspect-ratio-matrix.test.ts (16 tests)
+
+
+Grep proof: hardcoded image-only "aspect_ratio: '4:5'" no longer drives image requests
+--------------------------------------------------------------------------------------
+$ grep -n "aspect_ratio: '4:5'" backend/social-content/workflow-request.ts
+NO_HARDCODED_4_5_DRIVING_IMAGE_REQUESTS  (no matches)
+
+$ grep -n "aspect_ratio" backend/social-content/workflow-request.ts
+144:          aspect_ratio: SocialContentAspectRatio;
+151:          aspect_ratio: '9:16';            <- video literal preserved
+280:      aspect_ratio: resolveSocialContentAspectRatio({   <- image driven by matrix
+292:      aspect_ratio: '9:16',                <- video literal preserved
+
+
+Matrix encoded in backend/social-content/aspect-matrix.ts
+---------------------------------------------------------
+  instagram + single_image  -> 4:5     (portrait feed crop, strictest)
+  instagram + carousel      -> 1:1
+  instagram + link_card     -> 1.91:1
+  instagram + video         -> 9:16
+  meta      + single_image  -> 1:1
+  meta      + carousel      -> 1:1
+  meta      + link_card     -> 1.91:1  (Open Graph link card)
+  meta      + video         -> 9:16
+
+resolveDominantImageChannel(channels): when an image media_request bundles
+multiple channels, Instagram wins on a tie because 4:5 center-crops cleanly
+to Meta 1:1, but 1:1 cannot be expanded to 4:5 without generated bleed.
+
+
+Test command
+------------
+$ APP_BASE_URL=https://aries.example.com NODE_ENV=development \
+    ./node_modules/.bin/tsx --test \
+    tests/social-content-aspect-ratio-matrix.test.ts \
+    tests/social-content-weekly-defaults.test.ts \
+    tests/social-content-brand-kit-injection.test.ts
+
+
+Test output (47/47 pass, 0 fail)
+--------------------------------
+ok 1 - matrix: instagram + single_image -> 4:5 (portrait feed crop)
+ok 2 - matrix: instagram + carousel -> 1:1 (square)
+ok 3 - matrix: meta + single_image -> 1:1 (Facebook feed square)
+ok 4 - matrix: meta + link_card -> 1.91:1 (Open Graph)
+ok 5 - matrix: instagram + link_card -> 1.91:1 (Open Graph)
+ok 6 - matrix: meta + carousel -> 1:1 (Facebook carousel square)
+ok 7 - matrix: instagram + video -> 9:16 (Reels vertical)
+ok 8 - matrix: meta + video -> 9:16 (Reels vertical)
+ok 9 - dominant channel resolves to instagram when both meta and instagram are bundled
+ok 10 - dominant channel resolves to instagram for instagram-only target
+ok 11 - dominant channel resolves to meta for meta-only target
+ok 12 - dominant channel falls back to instagram for empty/unknown channels
+ok 13 - weekly workflow request emits 1:1 for meta-only image target channel
+ok 14 - weekly workflow request emits 4:5 for instagram-only image target channel
+ok 15 - weekly workflow request emits 4:5 for bundled meta+instagram (Instagram priority)
+ok 16 - weekly workflow request preserves video aspect_ratio at 9:16 regardless of channel mix
+ok 17 - weekly payload includes logo_urls, colors, fonts from brand kit
+ok 18 - weekly payload prefers operator brandVoice but falls back to brand-kit summary
+ok 19 - weekly payload prefers operator offer but falls back to brand-kit summary
+ok 20 - weekly payload combines operator must-avoid input with FORBIDDEN_VISUAL_PATTERNS
+ok 21 - weekly payload tolerates brand_kit with only brand_name
+ok 22 - weekly payload sanitizes logo URLs but preserves data: SVG entries
+ok 23 - ensureFreshBrandKitForWeeklyRun reuses persisted fresh kit and updates doc.brand_kit reference
+ok 24 - ensureFreshBrandKitForWeeklyRun re-extracts when persisted kit is stale
+ok 25 - ensureFreshBrandKitForWeeklyRun throws needs_brand_kit when brand_url is missing
+ok 26 - ensureFreshBrandKitForWeeklyRun throws needs_brand_kit when extraction fails
+ok 27 - HermesMarketingPort surfaces needs_brand_kit when refresher rejects with that prefix
+ok 28 - HermesMarketingPort skips brand-kit refresh for non-weekly runs
+ok 29 - weekly payload defaults campaign window to 7 days
+ok 30 - weekly payload clamps campaign window to 1-14 days
+ok 31 - weekly payload caps image/video generation counts
+ok 32 - weekly payload redacts token-like primitive strings without dropping references
+ok 33 - weekly workflow request uses default scope counts/channels
+ok 34 - weekly workflow request forwards normalized forbidden visual patterns
+ok 35 - weekly workflow request uses normalized window and strips token query params
+ok 36 - weekly job status defaults to a 7-day calendar and keeps events in range
+ok 37 - weekly job status planned count equals requested static + script/render items
+ok 38 - social-content status response rewrites 30-day approval copy to weekly language
+ok 39 - weekly dashboard and calendar UI copy uses content-plan labels
+ok 40 - weekly dashboard counts backend-vetted image-creative IDs as ready
+ok 41 - custom weekly window copy uses the actual duration label
+ok 42 - weekly needs-connection status points operators to Hermes media setup
+ok 43 - weekly workflow request includes abstract Hermes-owned media requests
+ok 44 - weekly workflow request filters image target channels to Hermes social channels
+ok 45 - weekly workflow request redacts token-like text and media values
+ok 46 - social content dashboard projection shows unique tenant-safe image previews linked to posts and publish queue
+ok 47 - social content dashboard projection keeps rich weekly output when a later stage only reports the window
+1..47
+# tests 47
+# pass 47
+# fail 0
+# duration_ms 678.835062
+
+
+Regression check on marketing-execution-port.test.ts
+----------------------------------------------------
+14/14 pass — existing assertion at line 207-222 (default Meta+Instagram bundle
+expects aspect_ratio='4:5') still satisfied because Instagram-priority
+tie-break preserves '4:5' when both channels are bundled.
+
+
+lsp_diagnostics
+---------------
+backend/social-content/aspect-matrix.ts        : No diagnostics found
+backend/social-content/workflow-request.ts     : No diagnostics found
+tests/social-content-aspect-ratio-matrix.test.ts : No diagnostics found
+
+
+Constraints honored
+-------------------
+- Meta + Instagram only (no LinkedIn/TikTok/X handling).
+- No IPlatformAdapter abstraction; resolver is a pure function over a typed literal.
+- T8 brand fields preserved (logo_urls, colors, font_families, offer,
+  must_avoid_aesthetics) — verified by social-content-brand-kit-injection
+  tests 17-28 still passing.
+- T10 idempotency untouched — backend/marketing/ports/hermes.ts not modified.
+- Weekly defaults preserved (7d, 3 static, 2 image, 1 script, 0 render).
+- Video request literal '9:16' preserved per task spec.

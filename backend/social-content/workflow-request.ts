@@ -1,10 +1,19 @@
-import type { MarketingJobRuntimeDocument } from '@/backend/marketing/runtime-state';
+import { extractAndSaveTenantBrandKit, tenantBrandKitPath } from '@/backend/marketing/brand-kit';
+import type {
+  MarketingBrandKitReference,
+  MarketingJobRuntimeDocument,
+} from '@/backend/marketing/runtime-state';
 import {
   clampWeeklyWindowDays,
   redactTokenLikeString,
   sanitizeWeeklySocialContentPayload,
 } from '@/backend/social-content/payload';
 
+import {
+  resolveDominantImageChannel,
+  resolveSocialContentAspectRatio,
+  type SocialContentAspectRatio,
+} from './aspect-matrix';
 import {
   SOCIAL_CONTENT_DEFAULT_SCOPE,
   SOCIAL_CONTENT_FORBIDDEN_VISUAL_PATTERNS,
@@ -77,6 +86,30 @@ function requestRecord(doc: MarketingJobRuntimeDocument): UnknownRecord {
     : {};
 }
 
+export type SocialContentWeeklyBrandPayload = {
+  url: string;
+  name: string;
+  business_type: string;
+  voice: string;
+  style_vibe: string;
+  visual_references: string[];
+  logo_urls: string[];
+  colors: {
+    primary: string | null;
+    secondary: string | null;
+    accent: string | null;
+    palette: string[];
+  };
+  font_families: string[];
+  offer: string;
+  must_avoid_aesthetics: string[];
+};
+
+export type SocialContentRegenerateCreativeContext = {
+  source_run_id: string;
+  source_creative_id: string;
+};
+
 export type SocialContentWeeklyRequest = {
   workflow_key: string;
   workflow_version: string;
@@ -85,14 +118,7 @@ export type SocialContentWeeklyRequest = {
   job_id: string;
   callback_url: string;
   input: {
-    brand: {
-      url: string;
-      name: string;
-      business_type: string;
-      voice: string;
-      style_vibe: string;
-      visual_references: string[];
-    };
+    brand: SocialContentWeeklyBrandPayload;
     objective: {
       primary_goal: string;
       offer: string;
@@ -120,7 +146,7 @@ export type SocialContentWeeklyRequest = {
     media_requests?: Array<
       | {
           type: 'image.generate';
-          aspect_ratio: '4:5';
+          aspect_ratio: SocialContentAspectRatio;
           count: number;
           target_channels: string[];
           creative_briefs: string[];
@@ -133,6 +159,7 @@ export type SocialContentWeeklyRequest = {
           script_id: string;
         }
     >;
+    regenerate_creative?: SocialContentRegenerateCreativeContext;
   };
 };
 
@@ -159,12 +186,81 @@ function weeklySocialChannels(value: string[]): string[] {
   return channels.length > 0 ? channels : [...SOCIAL_CONTENT_DEFAULT_SCOPE.channels];
 }
 
+function dedupeStrings(values: Iterable<string>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const trimmed = typeof value === 'string' ? value.trim() : '';
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+  }
+  return out;
+}
+
+function brandKitColors(brandKit: MarketingBrandKitReference | null | undefined): {
+  primary: string | null;
+  secondary: string | null;
+  accent: string | null;
+  palette: string[];
+} {
+  return {
+    primary: brandKit?.colors?.primary ?? null,
+    secondary: brandKit?.colors?.secondary ?? null,
+    accent: brandKit?.colors?.accent ?? null,
+    palette: Array.isArray(brandKit?.colors?.palette) ? [...brandKit.colors.palette] : [],
+  };
+}
+
+function brandKitLogoUrls(brandKit: MarketingBrandKitReference | null | undefined): string[] {
+  if (!Array.isArray(brandKit?.logo_urls)) return [];
+  // sanitizeReference rejects data: URIs (inline SVG logos) by URL-parse
+  // failure, so we pass them through verbatim and only sanitize http(s) URLs.
+  return brandKit.logo_urls
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter((entry) => entry.length > 0)
+    .map((entry) => (entry.startsWith('data:') ? entry : sanitizeReference(entry)))
+    .filter((entry) => entry.length > 0);
+}
+
+function brandKitFontFamilies(brandKit: MarketingBrandKitReference | null | undefined): string[] {
+  if (!Array.isArray(brandKit?.font_families)) return [];
+  return dedupeStrings(brandKit.font_families);
+}
+
+function resolveBrandVoice(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
+  const operatorVoice = stringValue(req.brandVoice);
+  if (operatorVoice) return operatorVoice;
+  const summary = brandKit?.brand_voice_summary;
+  return typeof summary === 'string' ? stringValue(summary) : '';
+}
+
+function resolveBrandOffer(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
+  const operatorOffer = stringValue(req.offer);
+  if (operatorOffer) return operatorOffer;
+  const summary = brandKit?.offer_summary;
+  return typeof summary === 'string' ? stringValue(summary) : '';
+}
+
+function resolveMustAvoidAesthetics(req: UnknownRecord): string[] {
+  const operatorRaw = typeof req.mustAvoidAesthetics === 'string' ? req.mustAvoidAesthetics : '';
+  const operatorEntries = operatorRaw
+    .split(/[\n;,]/)
+    .map((entry) => stringValue(entry))
+    .filter((entry) => entry.length > 0);
+  return dedupeStrings([...operatorEntries, ...SOCIAL_CONTENT_FORBIDDEN_VISUAL_PATTERNS]);
+}
+
 export function buildSocialContentWeeklyRequest(input: {
   doc: MarketingJobRuntimeDocument;
   ariesRunId: string;
   callbackUrl: string;
+  regenerateCreative?: SocialContentRegenerateCreativeContext;
 }): SocialContentWeeklyRequest {
   const req = requestRecord(input.doc);
+  const brandKit = input.doc.brand_kit ?? null;
   const configuredChannels = stringArray(req.channels);
   const imageTargetChannels = weeklySocialChannels(configuredChannels);
   const visualReferences = stringArray(req.visualReferences)
@@ -185,9 +281,13 @@ export function buildSocialContentWeeklyRequest(input: {
   );
   const mediaRequests: NonNullable<SocialContentWeeklyRequest['input']['media_requests']> = [];
   if (imageCreativeCount > 0) {
+    const imageChannel = resolveDominantImageChannel(imageTargetChannels);
     mediaRequests.push({
       type: 'image.generate',
-      aspect_ratio: '4:5',
+      aspect_ratio: resolveSocialContentAspectRatio({
+        channel: imageChannel,
+        postType: 'single_image',
+      }),
       count: imageCreativeCount,
       target_channels: imageTargetChannels,
       creative_briefs: resolveCreativeBriefs(req),
@@ -203,6 +303,8 @@ export function buildSocialContentWeeklyRequest(input: {
     });
   }
 
+  const resolvedOffer = resolveBrandOffer(req, brandKit);
+
   return {
     workflow_key: SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
     workflow_version: SOCIAL_CONTENT_WEEKLY_WORKFLOW_VERSION,
@@ -213,15 +315,20 @@ export function buildSocialContentWeeklyRequest(input: {
     input: {
       brand: {
         url: stringValue(input.doc.inputs.brand_url),
-        name: stringValue(req.businessName) || stringValue(input.doc.brand_kit?.brand_name),
+        name: stringValue(req.businessName) || stringValue(brandKit?.brand_name),
         business_type: stringValue(req.businessType),
-        voice: stringValue(req.brandVoice),
+        voice: resolveBrandVoice(req, brandKit),
         style_vibe: stringValue(req.styleVibe),
         visual_references: visualReferences,
+        logo_urls: brandKitLogoUrls(brandKit),
+        colors: brandKitColors(brandKit),
+        font_families: brandKitFontFamilies(brandKit),
+        offer: resolvedOffer,
+        must_avoid_aesthetics: resolveMustAvoidAesthetics(req),
       },
       objective: {
         primary_goal: stringValue(req.primaryGoal) || stringValue(req.goal),
-        offer: stringValue(req.offer),
+        offer: resolvedOffer,
         audience: stringValue(req.audience),
       },
       competitor: {
@@ -246,6 +353,67 @@ export function buildSocialContentWeeklyRequest(input: {
           : [...SOCIAL_CONTENT_FORBIDDEN_VISUAL_PATTERNS],
       },
       ...(mediaRequests.length > 0 ? { media_requests: mediaRequests } : {}),
+      ...(input.regenerateCreative
+        ? {
+            regenerate_creative: {
+              source_run_id: input.regenerateCreative.source_run_id,
+              source_creative_id: input.regenerateCreative.source_creative_id,
+            },
+          }
+        : {}),
     },
   };
+}
+
+// Refresh the tenant brand kit before weekly submission. Mutates doc.brand_kit
+// in place. Throws Error('needs_brand_kit:<reason>') on any failure so the port
+// surfaces an operator-actionable error instead of crashing the run.
+export async function ensureFreshBrandKitForWeeklyRun(input: {
+  doc: MarketingJobRuntimeDocument;
+  fetchImpl?: typeof fetch;
+}): Promise<{ refreshed: boolean }> {
+  const brandUrl = typeof input.doc.inputs.brand_url === 'string' ? input.doc.inputs.brand_url.trim() : '';
+  if (!brandUrl) {
+    throw new Error('needs_brand_kit:brand_url_missing');
+  }
+
+  const beforeExtractedAt = input.doc.brand_kit?.extracted_at ?? null;
+  const beforeSourceUrl = input.doc.brand_kit?.source_url ?? null;
+
+  let result;
+  try {
+    result = await extractAndSaveTenantBrandKit({
+      tenantId: input.doc.tenant_id,
+      brandUrl,
+      fetchImpl: input.fetchImpl,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`needs_brand_kit:${message}`);
+  }
+
+  const filePath = result.filePath || tenantBrandKitPath(input.doc.tenant_id);
+  input.doc.brand_kit = {
+    path: filePath,
+    source_url: result.brandKit.source_url,
+    canonical_url: result.brandKit.canonical_url,
+    brand_name: result.brandKit.brand_name,
+    logo_urls: [...result.brandKit.logo_urls],
+    colors: {
+      primary: result.brandKit.colors.primary,
+      secondary: result.brandKit.colors.secondary,
+      accent: result.brandKit.colors.accent,
+      palette: [...result.brandKit.colors.palette],
+    },
+    font_families: [...result.brandKit.font_families],
+    external_links: result.brandKit.external_links.map((entry) => ({ ...entry })),
+    extracted_at: result.brandKit.extracted_at,
+    brand_voice_summary: result.brandKit.brand_voice_summary,
+    offer_summary: result.brandKit.offer_summary,
+  };
+
+  const refreshed =
+    beforeExtractedAt !== result.brandKit.extracted_at || beforeSourceUrl !== result.brandKit.source_url;
+
+  return { refreshed };
 }

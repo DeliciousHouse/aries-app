@@ -43,7 +43,7 @@ export default function GoalStep({ goal, onGoalChange, onNext, onBack }: GoalSte
   return (
     <StepContainer
       stepNumber={1}
-      totalSteps={5}
+      totalSteps={6}
       title="Social Content Goal"
       subtitle="What's the primary objective of this weekly social content plan? This shapes the entire strategy and creative direction."
       canProceed={!!goal}

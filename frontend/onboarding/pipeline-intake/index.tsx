@@ -8,10 +8,11 @@ import BrandStep from './steps/BrandStep';
 import CompetitorStep from './steps/CompetitorStep';
 import GoalStep from './steps/GoalStep';
 import ChannelsStep from './steps/ChannelsStep';
+import ConnectPlatformsStep from './steps/ConnectPlatformsStep';
 import ExecutionStep from './steps/ExecutionStep';
 import type { Channel, ExecutionMode, Goal, PipelineInput } from './types';
 
-type StepIndex = 0 | 1 | 2 | 3 | 4;
+type StepIndex = 0 | 1 | 2 | 3 | 4 | 5;
 
 const LOCAL_DRAFT_KEY = 'aries:pipeline-intake-draft';
 const LOCAL_DRAFT_VERSION = 2;
@@ -196,7 +197,7 @@ export default function PipelineIntake() {
 
   const goNext = () => {
     setDirection('forward');
-    setStep((s) => Math.min(s + 1, 4) as StepIndex);
+    setStep((s) => Math.min(s + 1, 5) as StepIndex);
   };
 
   const goBack = () => {
@@ -226,7 +227,7 @@ export default function PipelineIntake() {
       return;
     }
     if (!mode) {
-      setSubmitError('Pick an execution mode on Step 5 before launching.');
+      setSubmitError('Pick an execution mode on Step 6 before launching.');
       return;
     }
 
@@ -395,6 +396,12 @@ export default function PipelineIntake() {
           />
         )}
         {step === 4 && (
+          <ConnectPlatformsStep
+            onNext={goNext}
+            onBack={goBack}
+          />
+        )}
+        {step === 5 && (
           <ExecutionStep
             mode={mode}
             channels={channels}

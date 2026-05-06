@@ -31,6 +31,25 @@ export type MarketingAssetLink = {
   posterUrl?: string | null;
 };
 
+export type MarketingAssetTenantOptions = {
+  tenantId?: string;
+};
+
+function assertRuntimeDocTenantMatches(
+  runtimeDoc: MarketingJobRuntimeDocument,
+  tenantId: string | undefined,
+): void {
+  if (tenantId === undefined) {
+    return;
+  }
+  const docTenant = typeof runtimeDoc.tenant_id === 'string' ? runtimeDoc.tenant_id.trim() : '';
+  if (docTenant !== tenantId) {
+    throw new Error(
+      `marketing_asset_tenant_mismatch:expected=${tenantId} actual=${docTenant || '<empty>'}`,
+    );
+  }
+}
+
 function outputRoots(): string[] {
   return lobsterOutputRoots();
 }
@@ -204,7 +223,9 @@ export async function buildMarketingAssetLibrary(
   jobId: string,
   runtimeDoc: MarketingJobRuntimeDocument,
   facts?: MarketingJobFacts,
+  options: MarketingAssetTenantOptions = {},
 ): Promise<MarketingAssetDescriptor[]> {
+  assertRuntimeDocTenantMatches(runtimeDoc, options.tenantId);
   const assets: MarketingAssetDescriptor[] = [];
   const assetById = new Map<string, MarketingAssetDescriptor>();
   const resolvedFacts = facts ?? createMarketingJobFacts(runtimeDoc, null);
@@ -454,8 +475,10 @@ export async function buildMarketingAssetLinks(
   jobId: string,
   runtimeDoc: MarketingJobRuntimeDocument,
   facts?: MarketingJobFacts,
+  options: MarketingAssetTenantOptions = {},
 ): Promise<MarketingAssetLink[]> {
-  return (await buildMarketingAssetLibrary(jobId, runtimeDoc, facts)).map((asset) => ({
+  assertRuntimeDocTenantMatches(runtimeDoc, options.tenantId);
+  return (await buildMarketingAssetLibrary(jobId, runtimeDoc, facts, options)).map((asset) => ({
     id: asset.id,
     url: marketingAssetUrl(jobId, asset.id),
     label: asset.label,
@@ -468,9 +491,11 @@ export async function findMarketingAsset(
   runtimeDoc: MarketingJobRuntimeDocument,
   assetId: string,
   facts?: MarketingJobFacts,
+  options: MarketingAssetTenantOptions = {},
 ): Promise<MarketingAssetDescriptor | null> {
+  assertRuntimeDocTenantMatches(runtimeDoc, options.tenantId);
   const resolvedFacts = facts ?? createMarketingJobFacts(runtimeDoc, null);
-  const assets = await buildMarketingAssetLibrary(jobId, runtimeDoc, resolvedFacts);
+  const assets = await buildMarketingAssetLibrary(jobId, runtimeDoc, resolvedFacts, options);
   const directMatch = assets.find((asset) => asset.id === assetId);
   if (directMatch) {
     return directMatch;

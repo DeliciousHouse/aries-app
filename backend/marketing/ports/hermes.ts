@@ -1,3 +1,7 @@
+import { createHash, randomBytes } from 'node:crypto';
+
+import pool from '@/lib/db';
+import { hashCallbackToken } from '@/lib/internal-callback-auth';
 import {
   createExecutionRunRecord,
   markExecutionRunFailed,
@@ -5,20 +9,32 @@ import {
 } from '../../execution/run-store';
 import { SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY } from '../../social-content/defaults';
 import { approvalStepFromWorkflowStepId } from '../../social-content/runtime-state';
-import { buildSocialContentWeeklyRequest } from '../../social-content/workflow-request';
+import {
+  buildSocialContentWeeklyRequest,
+  ensureFreshBrandKitForWeeklyRun,
+} from '../../social-content/workflow-request';
 import type {
   HermesWorkflowOutput,
   MarketingExecutionResult,
   MarketingExecutionPort,
   MarketingPipelineResumeInput,
   MarketingPipelineRunInput,
+  RegenerateCreativeContext,
 } from '../execution-port';
 import type { MarketingJobRuntimeDocument, MarketingStage } from '../runtime-state';
 import type { SocialContentApprovalStep } from '@/backend/social-content/types';
 
+type HermesCallbackTokenClient = {
+  query(sql: string, params: unknown[]): Promise<{ rows: Array<Record<string, unknown>>; rowCount: number | null }>;
+};
+
 type HermesMarketingEnv = Partial<Record<string, string | undefined>>;
 type HermesMarketingFetch = (input: string | URL, init?: RequestInit) => Promise<Response>;
 type HermesMarketingSleep = (ms: number) => Promise<void>;
+type HermesBrandKitRefresher = (input: {
+  doc: MarketingJobRuntimeDocument;
+  fetchImpl?: typeof fetch;
+}) => Promise<{ refreshed: boolean }>;
 
 const BRAND_CAMPAIGN_WORKFLOW_KEY = 'marketing_pipeline';
 
@@ -56,6 +72,12 @@ function tryParseJson(text: string): unknown {
   } catch {
     return null;
   }
+}
+
+function generateIdempotencyKey(ariesRunId: string, workflowVersion: string, tenantId: string): string {
+  return createHash('sha256')
+    .update(`${ariesRunId}|${workflowVersion}|${tenantId}`)
+    .digest('hex');
 }
 
 function providerErrorOutput(
@@ -127,6 +149,8 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     private readonly fetchImpl: HermesMarketingFetch = globalThis.fetch,
     private readonly sleep: HermesMarketingSleep = (ms: number) =>
       new Promise((resolve) => setTimeout(resolve, ms)),
+    private readonly brandKitRefresher: HermesBrandKitRefresher = ensureFreshBrandKitForWeeklyRun,
+    private readonly callbackTokenClient: HermesCallbackTokenClient = pool,
   ) {}
 
   async runPipeline(input: MarketingPipelineRunInput): Promise<MarketingExecutionResult> {
@@ -136,7 +160,34 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       doc: input.doc,
       argsJson: input.argsJson,
       stage: 'research',
+      regenerateCreative: input.regenerateCreative,
     });
+  }
+
+  private async refreshBrandKitOrFail(
+    doc: MarketingJobRuntimeDocument,
+  ): Promise<MarketingExecutionResult | null> {
+    try {
+      await this.brandKitRefresher({ doc });
+      return null;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const code = message.startsWith('needs_brand_kit') ? 'needs_brand_kit' : 'brand_kit_unavailable';
+      return {
+        kind: 'completed',
+        provider: 'hermes',
+        output: {
+          ok: false,
+          status: 'failed',
+          workflowKey: SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
+          error: {
+            code,
+            message,
+            retryable: true,
+          },
+        },
+      };
+    }
   }
 
   async resumePipeline(input: MarketingPipelineResumeInput): Promise<MarketingExecutionResult> {
@@ -194,11 +245,18 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       workflowKey?: string;
       resumeToken?: string;
       approve?: boolean;
+      regenerateCreative?: RegenerateCreativeContext;
     },
   ): Promise<MarketingExecutionResult> {
     const configError = this.configurationError();
     if (configError) {
       return configError;
+    }
+    if (action === 'run' && input.doc && isWeeklySocialContentRequest(input.doc)) {
+      const brandKitFailure = await this.refreshBrandKitOrFail(input.doc);
+      if (brandKitFailure) {
+        return brandKitFailure;
+      }
     }
     const workflowKey = this.workflowKeyFor(action, input);
 
@@ -214,6 +272,12 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       workflowStepId: input.workflowStepId,
     });
 
+    const callbackToken = randomBytes(32).toString('hex');
+    await this.persistCallbackTokenHash(run.aries_run_id, input.tenantId, callbackToken);
+
+    const payload = this.submissionPayload(action, run.aries_run_id, input, workflowKey, callbackToken);
+    const idempotencyKey = typeof payload.idempotency_key === 'string' ? payload.idempotency_key : '';
+
     let response: Response;
     try {
       response = await this.fetchImpl(`${this.gatewayUrl()}/v1/runs`, {
@@ -221,8 +285,9 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         headers: {
           authorization: this.authHeader(),
           'content-type': 'application/json',
+          'idempotency-key': idempotencyKey,
         },
-        body: JSON.stringify(this.submissionPayload(action, run.aries_run_id, input, workflowKey)),
+        body: JSON.stringify(payload),
       });
     } catch (error) {
       const message = 'Hermes gateway is unreachable.';
@@ -281,14 +346,23 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       workflowKey?: string;
       resumeToken?: string;
       approve?: boolean;
+      regenerateCreative?: RegenerateCreativeContext;
     },
     workflowKey: string,
+    callbackToken: string,
   ): Record<string, unknown> {
+    const callbackAuth = {
+      type: 'internal_api_secret_bearer',
+      secret_ref: 'INTERNAL_API_SECRET',
+      callback_token: callbackToken,
+    };
+
     if (action === 'resume' && workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY) {
       const approvalStep =
         input.approvalStep ??
         approvalStepFromWorkflowStepId(input.workflowStepId ?? '') ??
         null;
+      const idempotencyKey = generateIdempotencyKey(ariesRunId, SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY, input.tenantId ?? '');
       return {
         workflow_key: SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
         action: 'resume',
@@ -300,10 +374,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         job_id: input.jobId ?? null,
         tenant_id: input.tenantId ?? null,
         callback_url: this.callbackUrl(),
-        callback_auth: {
-          type: 'internal_api_secret_bearer',
-          secret_ref: 'INTERNAL_API_SECRET',
-        },
+        callback_auth: callbackAuth,
         callback_context: {
           workflow_key: SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
           aries_run_id: ariesRunId,
@@ -312,6 +383,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
           approval_id: input.approvalId ?? null,
           approval_step: approvalStep,
         },
+        idempotency_key: idempotencyKey,
       };
     }
 
@@ -320,40 +392,70 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         doc: input.doc,
         ariesRunId,
         callbackUrl: this.callbackUrl(),
+        regenerateCreative: input.regenerateCreative,
       });
+      const idempotencyKey = generateIdempotencyKey(ariesRunId, request.workflow_version, input.tenantId ?? '');
       return {
         ...request,
         session_id: this.sessionKey(),
-        callback_auth: {
-          type: 'internal_api_secret_bearer',
-          secret_ref: 'INTERNAL_API_SECRET',
-        },
+        callback_auth: callbackAuth,
         callback_context: {
           workflow_key: request.workflow_key,
           workflow_version: request.workflow_version,
           aries_run_id: request.aries_run_id,
           job_id: request.job_id,
           tenant_id: request.tenant_id,
+          ...(input.regenerateCreative
+            ? {
+                regenerate_creative: {
+                  source_run_id: input.regenerateCreative.source_run_id,
+                  source_creative_id: input.regenerateCreative.source_creative_id,
+                },
+              }
+            : {}),
         },
+        idempotency_key: idempotencyKey,
       };
     }
 
+    const idempotencyKey = generateIdempotencyKey(ariesRunId, workflowKey, input.tenantId ?? '');
     return {
       input: this.prompt(action, ariesRunId, input, workflowKey),
       instructions: this.instructions(workflowKey),
       session_id: this.sessionKey(),
       callback_url: this.callbackUrl(),
-      callback_auth: {
-        type: 'internal_api_secret_bearer',
-        secret_ref: 'INTERNAL_API_SECRET',
-      },
+      callback_auth: callbackAuth,
       callback_context: {
         workflow_key: workflowKey,
         aries_run_id: ariesRunId,
         job_id: input.jobId ?? null,
         tenant_id: input.tenantId ?? null,
       },
+      idempotency_key: idempotencyKey,
     };
+  }
+
+  private async persistCallbackTokenHash(
+    ariesRunId: string,
+    tenantId: string | undefined,
+    plaintextToken: string,
+  ): Promise<void> {
+    const tenantIdInt = Number.parseInt(tenantId ?? '', 10);
+    if (!Number.isFinite(tenantIdInt) || tenantIdInt <= 0) {
+      return;
+    }
+    const tokenHash = hashCallbackToken(plaintextToken);
+    try {
+      await this.callbackTokenClient.query(
+        `INSERT INTO oauth_callback_tokens (token_hash, aries_run_id, tenant_id) VALUES ($1, $2, $3) ON CONFLICT (token_hash) DO NOTHING`,
+        [tokenHash, ariesRunId, tenantIdInt],
+      );
+    } catch (error) {
+      console.error('[hermes-port] failed to persist callback token hash', {
+        aries_run_id: ariesRunId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private workflowKeyFor(

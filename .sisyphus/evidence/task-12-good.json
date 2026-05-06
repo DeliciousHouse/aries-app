@@ -1,0 +1,49 @@
+{
+  "scenario": "runVisionQA: known-good branded image passes all four thresholds",
+  "test_runner": "node:test via tsx --test tests/vision-qa-thresholds.test.ts",
+  "test_name": "runVisionQA: known-good image passes when all four thresholds hold",
+  "input": {
+    "assetUrl": "https://cdn.example.com/branded.png",
+    "channel": "instagram",
+    "brandKit": {
+      "name": "Sample Brand",
+      "logo_urls": ["https://cdn.example.com/logo.png"],
+      "colors": {
+        "primary": "#FF6B35",
+        "secondary": "#2EC4B6",
+        "accent": "#011627",
+        "palette": ["#FF6B35", "#2EC4B6", "#011627"]
+      },
+      "font_families": ["Inter", "Playfair Display"],
+      "voice": "warm, direct, plainspoken",
+      "offer": "weekly coaching membership"
+    },
+    "vision_client_response": {
+      "brand_color_match": 0.92,
+      "text_legibility": 0.95,
+      "brand_violation": 0.05,
+      "forbidden_patterns_detected": []
+    }
+  },
+  "thresholds": {
+    "brand_color_match": ">= 0.6",
+    "text_legibility": ">= 0.8",
+    "brand_violation": "< 0.3",
+    "forbidden_pattern_hits": "== 0"
+  },
+  "result": {
+    "verdict": "pass",
+    "scores": {
+      "brand_color_match": 0.92,
+      "text_legibility": 0.95,
+      "brand_violation": 0.05,
+      "forbidden_pattern_hits": 0
+    },
+    "reasons": [],
+    "retry_eligible": false,
+    "attempt_number": 1,
+    "model_version": "vision-qa-test-1"
+  },
+  "tap_status": "ok 2 - runVisionQA: known-good image passes when all four thresholds hold",
+  "summary_total": "18 pass / 0 fail"
+}

@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
+import { createHash, randomBytes } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+
+import pool from '../lib/db';
 
 async function withCallbackEnv<T>(run: () => Promise<T>): Promise<T> {
   const previousDataRoot = process.env.DATA_ROOT;
@@ -33,7 +36,27 @@ function callbackRequest(body: unknown, token = 'internal-secret'): Request {
   });
 }
 
-test('Hermes callback route authenticates and applies run events idempotently', async () => {
+function sha256Hex(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function seedCallbackToken(t: { mock: { method: typeof import('node:test').mock.method } }, ariesRunId: string): string {
+  const plaintext = randomBytes(32).toString('hex');
+  const hash = sha256Hex(plaintext);
+  t.mock.method(pool, 'query', (async (sql: string, params: unknown[] = []) => {
+    if (String(sql).includes('FROM oauth_callback_tokens')) {
+      const requested = String(params[0]);
+      if (requested === hash) {
+        return { rows: [{ token_hash: hash, aries_run_id: ariesRunId }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    }
+    return { rows: [], rowCount: 0 };
+  }) as typeof pool.query);
+  return plaintext;
+}
+
+test('Hermes callback route authenticates and applies run events idempotently', async (t) => {
   await withCallbackEnv(async () => {
     const { createExecutionRunRecord, loadExecutionRunRecord } = await import('../backend/execution/run-store');
     const { POST } = await import('../app/api/internal/hermes/runs/route');
@@ -46,12 +69,14 @@ test('Hermes callback route authenticates and applies run events idempotently', 
       tenantId: 'tenant-123',
     });
 
+    const callbackToken = seedCallbackToken(t, record.aries_run_id);
     const payload = {
       event_id: 'evt-1',
       aries_run_id: record.aries_run_id,
       hermes_run_id: 'hermes-run-1',
       status: 'completed',
       output: [{ provisioned: true }],
+      callback_token: callbackToken,
     };
 
     const first = await POST(callbackRequest(payload));
@@ -93,7 +118,7 @@ test('Hermes callback route rejects missing and invalid internal secrets', async
   });
 });
 
-test('Hermes callback route rejects callbacks with mismatched Hermes run ids', async () => {
+test('Hermes callback route rejects callbacks with mismatched Hermes run ids', async (t) => {
   await withCallbackEnv(async () => {
     const {
       createExecutionRunRecord,
@@ -109,12 +134,14 @@ test('Hermes callback route rejects callbacks with mismatched Hermes run ids', a
     });
     markExecutionRunSubmitted(record.aries_run_id, { externalRunId: 'hermes-run-expected' });
 
+    const callbackToken = seedCallbackToken(t, record.aries_run_id);
     const response = await POST(callbackRequest({
       event_id: 'evt-mismatch',
       aries_run_id: record.aries_run_id,
       hermes_run_id: 'hermes-run-other',
       status: 'completed',
       output: [{ ok: true }],
+      callback_token: callbackToken,
     }));
 
     assert.equal(response.status, 400);
@@ -125,7 +152,7 @@ test('Hermes callback route rejects callbacks with mismatched Hermes run ids', a
   });
 });
 
-test('Hermes callback route rejects malformed approval payloads', async () => {
+test('Hermes callback route rejects malformed approval payloads', async (t) => {
   await withCallbackEnv(async () => {
     const { createExecutionRunRecord } = await import('../backend/execution/run-store');
     const { POST } = await import('../app/api/internal/hermes/runs/route');
@@ -139,6 +166,7 @@ test('Hermes callback route rejects malformed approval payloads', async () => {
       stage: 'research',
     });
 
+    const callbackToken = seedCallbackToken(t, record.aries_run_id);
     const response = await POST(callbackRequest({
       event_id: 'evt-bad-approval',
       aries_run_id: record.aries_run_id,
@@ -148,6 +176,7 @@ test('Hermes callback route rejects malformed approval payloads', async () => {
         workflow_step_id: 'approve_stage_2',
         prompt: '',
       },
+      callback_token: callbackToken,
     }));
 
     assert.equal(response.status, 400);

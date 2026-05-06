@@ -29,6 +29,7 @@ export type DbPendingStateRow = {
   scopes: string[];
   connection_id: string | null;
   code_verifier: string | null;
+  picker_payload: unknown | null;
   expires_at: string;
   created_at: string;
 };
@@ -257,6 +258,7 @@ export async function dbGetPendingState(state: string): Promise<DbPendingStateRo
         scopes,
         connection_id::text,
         code_verifier,
+        picker_payload,
         expires_at,
         created_at
       FROM oauth_pending_states
@@ -266,6 +268,13 @@ export async function dbGetPendingState(state: string): Promise<DbPendingStateRo
     [state],
   );
   return (result.rows[0] as DbPendingStateRow | undefined) ?? null;
+}
+
+export async function dbSetPendingStatePicker(state: string, picker: unknown): Promise<void> {
+  await pool.query(
+    `UPDATE oauth_pending_states SET picker_payload = $1::jsonb WHERE state = $2`,
+    [picker == null ? null : JSON.stringify(picker), state],
+  );
 }
 
 export async function dbDeletePendingState(state: string): Promise<void> {

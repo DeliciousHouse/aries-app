@@ -1,7 +1,33 @@
 import { readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
+import { resolveDataRoot } from '@/lib/runtime-paths';
 import { generatedAssetCandidates, marketingAssetRoots } from './artifact-store';
+
+const INGEST_SUBDIR = 'ingested-assets';
+
+export type ReadMarketingAssetOptions = {
+  tenantId?: string;
+};
+
+function tenantPrefixViolates(
+  candidate: string,
+  tenantId: string | undefined,
+): boolean {
+  if (tenantId === undefined) {
+    return false;
+  }
+  const ingestRoot = path.join(path.normalize(resolveDataRoot()), INGEST_SUBDIR);
+  const rel = path.relative(ingestRoot, candidate);
+  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) {
+    return false;
+  }
+  const segments = rel.split(path.sep).filter(Boolean);
+  if (segments.length === 0) {
+    return false;
+  }
+  return segments[0] !== tenantId;
+}
 
 /**
  * Safe reader for files referenced by the marketing runtime documents.
@@ -35,6 +61,7 @@ import { generatedAssetCandidates, marketingAssetRoots } from './artifact-store'
  */
 export async function readMarketingAssetWithinAllowedRoots(
   filePath: string,
+  options: ReadMarketingAssetOptions = {},
 ): Promise<Buffer | null> {
   const normalizedPath = normalizeAssetPath(filePath);
   if (!normalizedPath) {
@@ -58,6 +85,14 @@ export async function readMarketingAssetWithinAllowedRoots(
           realpath(candidate),
         ]);
         if (!isWithinRoot(resolvedRoot, resolvedCandidate)) {
+          continue;
+        }
+        // When the resolved candidate lives under DATA_ROOT/ingested-assets,
+        // the first path segment is the owning tenant. A read scoped to a
+        // different tenantId (or an empty one) must be denied even if the
+        // path is otherwise within trusted roots — that's the cross-tenant
+        // boundary this helper enforces.
+        if (tenantPrefixViolates(resolvedCandidate, options.tenantId)) {
           continue;
         }
         return await readFile(resolvedCandidate);

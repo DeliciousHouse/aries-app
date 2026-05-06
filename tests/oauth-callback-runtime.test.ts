@@ -183,34 +183,6 @@ const providerCases: Array<{
   expectedExternalAccountName?: string;
 }> = [
   {
-    provider: 'facebook',
-    env: {
-      META_APP_ID: 'meta-app-id',
-      META_APP_SECRET: 'meta-app-secret',
-      OAUTH_TOKEN_ENCRYPTION_KEY: BASE64_KEY,
-    },
-    scopes: ['pages_manage_posts'],
-    fetchImpl(url) {
-      if (url.includes('/oauth/access_token')) {
-        const parsed = new URL(url);
-        assert.equal(parsed.searchParams.get('client_id'), 'meta-app-id');
-        assert.equal(parsed.searchParams.get('client_secret'), 'meta-app-secret');
-        return Response.json({
-          access_token: 'facebook-access-token',
-          token_type: 'bearer',
-          expires_in: 3600,
-        });
-      }
-      if (url.includes('/me?fields=id,name')) {
-        return Response.json({ id: 'fb-page-123', name: 'Meta Test Page' });
-      }
-      throw new Error(`Unexpected fetch URL for facebook test: ${url}`);
-    },
-    expectedAccessToken: 'facebook-access-token',
-    expectedExternalAccountId: 'fb-page-123',
-    expectedExternalAccountName: 'Meta Test Page',
-  },
-  {
     provider: 'openai',
     env: {
       OPENAI_CLIENT_ID: 'openai-client-id',

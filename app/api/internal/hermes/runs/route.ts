@@ -4,12 +4,23 @@ import {
   handleHermesRunCallback,
   parseHermesRunCallbackPayload,
 } from '@/backend/execution/hermes-callbacks';
-import { verifyInternalCallbackRequest } from '@/lib/internal-callback-auth';
+import {
+  verifyCallbackToken,
+  verifyInternalCallbackRequest,
+} from '@/lib/internal-callback-auth';
 
 function errorStatus(reason: string): 400 | 404 | 409 {
   if (reason === 'execution_run_not_found') return 404;
   if (reason === 'execution_run_locked') return 409;
   return 400;
+}
+
+function readCallbackToken(body: unknown): string | null {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return null;
+  }
+  const value = (body as Record<string, unknown>).callback_token;
+  return typeof value === 'string' ? value : null;
 }
 
 export async function POST(req: Request) {
@@ -28,6 +39,14 @@ export async function POST(req: Request) {
   const payload = parseHermesRunCallbackPayload(body);
   if (!payload) {
     return NextResponse.json({ status: 'error', reason: 'invalid_hermes_callback_payload' }, { status: 400 });
+  }
+
+  const tokenResult = await verifyCallbackToken(payload.aries_run_id, readCallbackToken(body));
+  if (!tokenResult.ok) {
+    return NextResponse.json(
+      { status: 'error', reason: tokenResult.reason },
+      { status: tokenResult.status },
+    );
   }
 
   const result = await handleHermesRunCallback(payload);

@@ -1,0 +1,65 @@
+T10: Idempotency key in Hermes submission
+==========================================
+
+TASK: Implement missing idempotency-key behavior in Hermes submission.
+
+IMPLEMENTATION SUMMARY:
+- Added generateIdempotencyKey(ariesRunId, workflowVersion, tenantId) helper
+  - Algorithm: SHA-256 hash of `${ariesRunId}|${workflowVersion}|${tenantId}`
+  - Output: 64-character hex string
+  - Deterministic: identical inputs always produce identical key
+
+- Added idempotency_key field to all three submissionPayload cases:
+  1. Resume case (social content weekly) — uses SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY
+  2. Run case (social content weekly) — uses request.workflow_version from buildSocialContentWeeklyRequest
+  3. Fallback case (other workflows) — uses workflowKey param
+
+- Added Idempotency-Key HTTP header to POST /v1/runs request
+  - Header value extracted from payload.idempotency_key
+  - Matches payload key exactly
+
+FILES MODIFIED:
+- backend/marketing/ports/hermes.ts
+
+TEST RESULTS:
+============
+
+hermes-idempotency.test.ts (3/3 PASS):
+✓ HermesMarketingPort generates deterministic idempotency_key from aries_run_id + workflow_version + tenant_id
+✓ HermesMarketingPort includes Idempotency-Key HTTP header in submission
+✓ HermesMarketingPort idempotency_key changes when aries_run_id changes
+
+Related tests (32/32 PASS):
+✓ marketing-execution-port.test.ts (14 tests)
+✓ callback-token.test.ts (6 tests)
+✓ social-content-brand-kit-injection.test.ts (12 tests)
+
+VERIFICATION:
+=============
+
+1. Grep for idempotency markers in hermes.ts:
+   - generateIdempotencyKey function: ✓ present
+   - idempotency_key in resume payload: ✓ present
+   - idempotency_key in run payload: ✓ present
+   - idempotency_key in fallback payload: ✓ present
+   - Idempotency-Key HTTP header: ✓ present
+
+2. TypeScript compilation:
+   - No new errors introduced
+   - Pre-existing conflict markers in unrelated files only
+
+3. Test execution:
+   - All 3 idempotency tests pass
+   - All 32 related tests pass
+   - No regressions
+
+DETERMINISM VERIFICATION:
+=========================
+
+Test confirms that:
+- Same ariesRunId + workflowVersion + tenantId → same idempotency_key
+- Different ariesRunId → different idempotency_key
+- Key is 64-character hex string (SHA-256)
+- Header value matches payload value exactly
+
+IMPLEMENTATION COMPLETE ✓

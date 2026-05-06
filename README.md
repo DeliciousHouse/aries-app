@@ -114,8 +114,6 @@ Browser
 - `/api/tenant/profiles/[userId]`
 - `/api/tenant/workflows`
 - `/api/tenant/workflows/[workflowId]/runs`
-- `/api/tenant/approval-requests/[approvalRequestId]/approve`
-- `/api/tenant/approval-requests/[approvalRequestId]/reject`
 
 ## Repository layout
 

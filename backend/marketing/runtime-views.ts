@@ -46,6 +46,12 @@ import {
   setCreativeAssetDecision,
   setStageReviewDecision,
 } from './workspace-store';
+import {
+  getReviewItemEdit,
+  recordReviewItemEdit as recordReviewItemEditState,
+  type ReviewItemEdit,
+} from './runtime-edit-state';
+import { validateCaption, type Channel as CaptionChannel } from '@/backend/social-content/caption-validator';
 
 export type RuntimeCampaignStatus =
   | 'draft'
@@ -1251,7 +1257,132 @@ async function buildReviewItemsForJob(jobId: string): Promise<RuntimeReviewItem[
     items.push(approvalItem);
   }
 
-  return mergeReviewState(jobId, runtimeDoc.tenant_id, items);
+  const merged = mergeReviewState(jobId, runtimeDoc.tenant_id, items);
+  return applyReviewItemEdits(merged, jobId, runtimeDoc.tenant_id);
+}
+
+function applyReviewItemEdits(
+  items: RuntimeReviewItem[],
+  jobId: string,
+  tenantId: string,
+): RuntimeReviewItem[] {
+  return items.map((item) => {
+    const edit = getReviewItemEdit(jobId, tenantId, item.id);
+    if (!edit) {
+      return item;
+    }
+    const headline = edit.headline ?? item.currentVersion.headline;
+    const supportingText = edit.supportingText ?? item.currentVersion.supportingText;
+    if (headline === item.currentVersion.headline && supportingText === item.currentVersion.supportingText) {
+      return item;
+    }
+    const previous = item.previousVersion ?? {
+      id: `${item.currentVersion.id}::source`,
+      label: 'Previous draft',
+      headline: item.currentVersion.headline,
+      supportingText: item.currentVersion.supportingText,
+      cta: item.currentVersion.cta,
+      notes: item.currentVersion.notes,
+    };
+    return {
+      ...item,
+      summary: supportingText || item.summary,
+      currentVersion: {
+        ...item.currentVersion,
+        headline,
+        supportingText,
+      },
+      previousVersion: previous,
+    };
+  });
+}
+
+export function captionChannelForReviewItem(item: RuntimeReviewItem): CaptionChannel | null {
+  const haystack = `${item.channel || ''} ${item.placement || ''} ${item.workflowStage || ''}`.toLowerCase();
+  if (haystack.includes('instagram') || haystack.includes('ig ')) {
+    return 'instagram_feed';
+  }
+  if (haystack.includes('facebook') || haystack.includes('fb ') || haystack.includes('meta')) {
+    return 'facebook_feed';
+  }
+  return null;
+}
+
+export type RecordReviewItemCopyEditInput = {
+  tenantId: string;
+  jobId: string;
+  reviewId: string;
+  headline?: string | null;
+  supportingText?: string | null;
+  editedBy?: string | null;
+};
+
+export type RecordReviewItemCopyEditOptions = {
+  runtimeDocLoader?: (jobId: string) => Promise<{ tenant_id: string } | null>;
+  resolver?: (jobId: string, reviewId: string) => Promise<RuntimeReviewItem | null>;
+  rebuilder?: (jobId: string) => Promise<RuntimeReviewItem[]>;
+};
+
+export type RecordReviewItemCopyEditResult =
+  | { status: 'ok'; review: RuntimeReviewItem; edit: ReviewItemEdit }
+  | { status: 'missing' }
+  | { status: 'wrong_workspace' }
+  | { status: 'invalid'; errors: string[] };
+
+export async function recordReviewItemCopyEdit(
+  input: RecordReviewItemCopyEditInput,
+  options: RecordReviewItemCopyEditOptions = {},
+): Promise<RecordReviewItemCopyEditResult> {
+  const docLoader = options.runtimeDocLoader ?? loadMarketingJobRuntime;
+  const resolver = options.resolver ?? resolveRuntimeReviewItem;
+  const rebuilder = options.rebuilder ?? buildReviewItemsForJob;
+
+  const runtimeDoc = await docLoader(input.jobId);
+  if (!runtimeDoc) {
+    return { status: 'missing' };
+  }
+  if (runtimeDoc.tenant_id !== input.tenantId) {
+    return { status: 'wrong_workspace' };
+  }
+
+  const item = await resolver(input.jobId, input.reviewId);
+  if (!item) {
+    return { status: 'missing' };
+  }
+
+  const channel = captionChannelForReviewItem(item);
+  const candidateText =
+    input.supportingText !== undefined && input.supportingText !== null
+      ? input.supportingText
+      : item.currentVersion.supportingText;
+
+  if (channel && typeof candidateText === 'string' && candidateText.length > 0) {
+    const validation = validateCaption({ channel, text: candidateText });
+    if (!validation.ok) {
+      return { status: 'invalid', errors: validation.errors };
+    }
+  }
+
+  const edit = recordReviewItemEditState({
+    jobId: input.jobId,
+    tenantId: input.tenantId,
+    reviewId: input.reviewId,
+    headline: input.headline,
+    supportingText: input.supportingText,
+    editedBy: input.editedBy ?? null,
+  });
+
+  const updatedItems = await rebuilder(input.jobId);
+  const updated = updatedItems.find((entry) => entry.id === input.reviewId) ?? null;
+  if (!updated) {
+    return {
+      status: 'ok',
+      review: applyReviewItemEdits([item], input.jobId, input.tenantId)[0] ?? item,
+      edit,
+    };
+  }
+
+  return { status: 'ok', review: updated, edit };
 }
 
 async function resolveRuntimeReviewItem(jobId: string, reviewId: string): Promise<RuntimeReviewItem | null> {

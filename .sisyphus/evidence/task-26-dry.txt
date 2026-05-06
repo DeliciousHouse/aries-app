@@ -1,0 +1,36 @@
+=== Task 26 — OAuth refresh sweeper, dry-run evidence ===
+
+--- CLI usage (default --dry-run) ---
+Usage: tsx scripts/oauth-refresh-sweep.ts [--apply] [--dry-run] [--refresh-horizon-hours <int>] [--warning-window-days <int>] [--warning-cooldown-hours <int>] [--app-base-url <url>]
+
+Sweeps oauth_connections for tokens within the refresh horizon and Meta/Instagram
+long-lived tokens within the day-50 reconnect-warning window. Defaults to --dry-run.
+
+In --apply mode:
+  - Connections with token_expires_at < now()+refresh-horizon-hours are refreshed
+    via the standard oauth refresh path. Unauthorized refresh failures flip the
+    connection to reauthorization_required (handled inside oauthRefresh).
+  - Meta/Instagram connections within warning-window-days of expiry trigger
+    sendMetaReconnectWarningEmail to the tenant_admin email; deduplicated within
+    warning-cooldown-hours via oauth_audit_events.
+
+This script is invocation-only — there is no daemon, cron, or scheduler.
+
+--- All sweeper tests (9/9 pass) ---
+ok 1 - dry-run lists refresh + warning candidates and writes no audit, calls no refresh, sends no email
+ok 2 - apply: refresh candidate triggers oauth refresh and audit on success
+ok 3 - apply: refresh broker error (provider_callback_error) records reauth_required outcome and audit
+ok 4 - apply: day-50 warning sends email with right params and writes audit
+ok 5 - apply: day-50 warning is deduped per tenant when both facebook and instagram qualify
+ok 6 - apply: warning skipped when prior audit within cooldown exists
+ok 7 - apply: warning skipped when tenant has no operator email
+ok 8 - non-Meta providers do not appear in warning candidates even when within window
+ok 9 - tokens already expired do not appear in warning candidates (must be > now)
+# tests 9
+# pass 9
+# fail 0
+
+--- Targeted dry-run test ---
+ok 1 - dry-run lists refresh + warning candidates and writes no audit, calls no refresh, sends no email
+# tests 1
+# pass 1

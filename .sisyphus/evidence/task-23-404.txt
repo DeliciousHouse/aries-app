@@ -1,0 +1,1 @@
+Deleted 501 stubs at app/api/tenant/approval-requests/[approvalRequestId]/{approve,reject}/route.ts. No callers found. Typecheck passes.

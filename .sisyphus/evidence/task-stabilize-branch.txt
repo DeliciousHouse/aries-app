@@ -1,0 +1,389 @@
+===== git log --oneline --decorate -20 (after stabilize) =====
+82e45a5 (HEAD -> fix/live-qa-blockers) feat(oauth): real refresh + Meta long-lived exchange + concurrency lock
+c459b1f feat(social-content): per-platform caption validator
+cc9a76b feat(callback): per-run callback token defense in depth
+f8123dd fix(assets): tenant-prefix storage keys + migration script
+c28de88 docs: remove dead approval-requests routes from README
+a52cc41 chore(api): remove dead 501 approval-requests stubs
+2ef5f19 feat(db): posts.platform_post_id/published_at/scheduled_at + vision_qa_runs + scheduled_posts + oauth_callback_tokens
+e66a223 fix(images): images.remotePatterns whitelist + dev fallback
+0ddf8d3 fix(publish): validate media_urls tenant ownership
+82cc550 feat(oauth-meta): long-lived exchange + IG Business Account discovery + page picker
+7c062aa feat(hermes): inject full brand kit into social_content_weekly payload
+5bbca17 feat(hermes): idempotency_key in submission
+a5c4f47 (origin/master, origin/HEAD) feat(social-content): project weekly dashboard previews (#268)
+0e5029b fix: resolve live QA blockers (#267)
+0912295 (master) feat(social-content): align Hermes-owned weekly media contract (#266)
+b02578a (preserve/chatgpt-oauth-mcp-submission-20260505, feat/hermes-weekly-social-content) feat(social-content): run weekly posts through Hermes (#264)
+c85df64 docs(execution): align Hermes provider runbooks (#262)
+0a6ae93 refactor(execution): switch Hermes provider from callback to polling (#263)
+4e3bf5d fix(security): prevent path traversal via aries_run_id in Hermes callback (#260)
+a2f6a51 feat(execution): make Hermes callbacks the default (#258)
+
+===== git status --short =====
+ M .github/workflows/deploy.yml
+ M scripts/release/publish-image.sh
+ M tests/deploy-workflow-self-hosted.regression-015.test.ts
+?? .sisyphus/evidence/task-stabilize-branch.txt
+?? .sisyphus/run-continuation/
+
+===== ANCESTRY CHECK =====
+8918499 ancestor=no
+91b58bd ancestor=no
+98dd2e8 ancestor=no
+cb2f726 ancestor=no
+b9b8bf5 ancestor=no
+6393c1a ancestor=no
+9b3596d ancestor=no
+5868a0f ancestor=no
+290eac6 ancestor=no
+5bbca17 ancestor=yes
+7c062aa ancestor=yes
+82cc550 ancestor=yes
+
+===== T1 tests/asset-tenant-isolation.test.ts =====
+TAP version 13
+# Subtest: tenant isolation: two tenants ingesting identical bytes land in distinct paths
+ok 1 - tenant isolation: two tenants ingesting identical bytes land in distinct paths
+  ---
+  duration_ms: 14.800493
+  type: 'test'
+  ...
+# Subtest: tenant isolation: cross-tenant read of another tenant path is denied
+ok 2 - tenant isolation: cross-tenant read of another tenant path is denied
+  ---
+  duration_ms: 13.479351
+  type: 'test'
+  ...
+# [migrate-asset-tenant-prefix] summary {"dryRun":false,"scanned":1,"moved":1,"updated":1,"skipped":0,"errors":0}
+# [migrate-asset-tenant-prefix] summary {"dryRun":false,"scanned":0,"moved":0,"updated":0,"skipped":0,"errors":0}
+# Subtest: migration: tenant-prefix migration is idempotent on re-run
+ok 3 - migration: tenant-prefix migration is idempotent on re-run
+  ---
+  duration_ms: 11.296811
+  type: 'test'
+  ...
+1..3
+# tests 3
+# suites 0
+# pass 3
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 211.683246
+exit=0
+
+===== T5 tests/publish-tenant-isolation.test.ts =====
+TAP version 13
+# Subtest: assertMediaUrlsBelongToTenant: own tenant asset passes
+ok 1 - assertMediaUrlsBelongToTenant: own tenant asset passes
+  ---
+  duration_ms: 0.828137
+  type: 'test'
+  ...
+# Subtest: assertMediaUrlsBelongToTenant: other tenant asset throws
+ok 2 - assertMediaUrlsBelongToTenant: other tenant asset throws
+  ---
+  duration_ms: 0.170622
+  type: 'test'
+  ...
+# Subtest: assertMediaUrlsBelongToTenant: external URL throws
+ok 3 - assertMediaUrlsBelongToTenant: external URL throws
+  ---
+  duration_ms: 0.101983
+  type: 'test'
+  ...
+# Subtest: assertMediaUrlsBelongToTenant: missing asset throws
+ok 4 - assertMediaUrlsBelongToTenant: missing asset throws
+  ---
+  duration_ms: 0.092236
+  type: 'test'
+  ...
+# Subtest: assertMediaUrlsBelongToTenant: empty URLs array passes
+ok 5 - assertMediaUrlsBelongToTenant: empty URLs array passes
+  ---
+  duration_ms: 0.071468
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 171.176137
+exit=0
+
+===== T11 tests/caption-validator.test.ts =====
+      duration_ms: 0.186183
+      type: 'test'
+      ...
+    # Subtest: Facebook: no hashtag limit
+    ok 9 - Facebook: no hashtag limit
+      ---
+      duration_ms: 0.255841
+      type: 'test'
+      ...
+    # Subtest: Facebook: empty caption fails
+    ok 10 - Facebook: empty caption fails
+      ---
+      duration_ms: 0.149653
+      type: 'test'
+      ...
+    1..10
+ok 1 - caption-validator
+  ---
+  duration_ms: 4.701294
+  type: 'test'
+  ...
+1..1
+# tests 11
+# suites 0
+# pass 11
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 168.975445
+exit=0
+
+===== T4 tests/callback-token.test.ts =====
+TAP version 13
+# Subtest: callback rejected with 403 when callback_token missing from body
+ok 1 - callback rejected with 403 when callback_token missing from body
+  ---
+  duration_ms: 79.332832
+  type: 'test'
+  ...
+# Subtest: callback rejected with 403 when callback_token does not match stored hash
+ok 2 - callback rejected with 403 when callback_token does not match stored hash
+  ---
+  duration_ms: 6.30075
+  type: 'test'
+  ...
+# Subtest: callback accepted with 200 when callback_token matches stored hash
+ok 3 - callback accepted with 200 when callback_token matches stored hash
+  ---
+  duration_ms: 6.161447
+  type: 'test'
+  ...
+# Subtest: callback re-delivery accepted with 200 (event_id dedup) even after token is consumed
+ok 4 - callback re-delivery accepted with 200 (event_id dedup) even after token is consumed
+  ---
+  duration_ms: 6.572885
+  type: 'test'
+  ...
+# Subtest: callback rejected with 403 when callback_token is correct but for a different aries_run_id
+ok 5 - callback rejected with 403 when callback_token is correct but for a different aries_run_id
+  ---
+  duration_ms: 4.701784
+  type: 'test'
+  ...
+# Subtest: Hermes submission generates a per-run callback_token and stores its SHA-256 hash
+ok 6 - Hermes submission generates a per-run callback_token and stores its SHA-256 hash
+  ---
+  duration_ms: 112.538322
+  type: 'test'
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 6
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 410.840333
+exit=0
+
+===== T2 tests/oauth-refresh-meta.test.ts tests/oauth-refresh-concurrency.test.ts tests/oauth-refresh-failure.test.ts =====
+  ...
+# Subtest: Provider 401 sets connection status to reauthorization_required and writes audit row
+ok 2 - Provider 401 sets connection status to reauthorization_required and writes audit row
+  ---
+  duration_ms: 27.873315
+  type: 'test'
+  ...
+# Subtest: Refresh on a connection that does not exist returns connection_not_found
+ok 3 - Refresh on a connection that does not exist returns connection_not_found
+  ---
+  duration_ms: 0.465901
+  type: 'test'
+  ...
+# Subtest: Meta refresh: long-lived exchange persists new token row and revokes old
+ok 4 - Meta refresh: long-lived exchange persists new token row and revokes old
+  ---
+  duration_ms: 27.596718
+  type: 'test'
+  ...
+# Subtest: Meta refresh: 401 from provider marks connection reauthorization_required
+ok 5 - Meta refresh: 401 from provider marks connection reauthorization_required
+  ---
+  duration_ms: 2.909492
+  type: 'test'
+  ...
+# Subtest: Meta refresh: 5xx from provider does not change connection status
+ok 6 - Meta refresh: 5xx from provider does not change connection status
+  ---
+  duration_ms: 1.822656
+  type: 'test'
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 6
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 267.395755
+exit=0
+----- tests/oauth-refresh-meta.test.ts -----
+ok 1 - Meta refresh: long-lived exchange persists new token row and revokes old
+ok 2 - Meta refresh: 401 from provider marks connection reauthorization_required
+ok 3 - Meta refresh: 5xx from provider does not change connection status
+# tests 3
+# pass 3
+# fail 0
+# duration_ms 240.44315
+----- tests/oauth-refresh-concurrency.test.ts -----
+ok 1 - Concurrent oauthRefresh of the same connection: only one new token row is created
+# tests 1
+# pass 1
+# fail 0
+# duration_ms 222.262075
+----- tests/oauth-refresh-failure.test.ts -----
+ok 1 - Provider 401 sets connection status to reauthorization_required and writes audit row
+ok 2 - Refresh on a connection that does not exist returns connection_not_found
+# tests 2
+# pass 2
+# fail 0
+# duration_ms 222.975573
+
+===== Regression: T3 + T8 + idempotency tests still green =====
+----- tests/oauth-meta-callback.test.ts -----
+# tests 6
+# pass 6
+# fail 0
+# duration_ms 380.319309
+----- tests/oauth-callback-runtime.test.ts -----
+# tests 6
+# pass 6
+# fail 0
+# duration_ms 234.770872
+----- tests/social-content-brand-kit-injection.test.ts -----
+# tests 12
+# pass 12
+# fail 0
+# duration_ms 266.414887
+----- tests/marketing-execution-port.test.ts -----
+# tests 14
+# pass 14
+# fail 0
+# duration_ms 374.493509
+----- tests/hermes-callback-route.test.ts -----
+# tests 5
+# pass 5
+# fail 0
+# duration_ms 284.654809
+
+===== T10 (5bbca17) DIAGNOSIS =====
+T10 commit message claims 'feat(hermes): idempotency_key in submission'.
+Cherry-picked + merged backend/marketing/ports/hermes.ts grep for impl markers:
+
+tests/hermes-idempotency.test.ts result: 0/3 pass (3 failing)
+VERDICT: T10 implementation is missing in this branch. Do NOT mark T10 complete.
+Follow-up required to land idempotency_key + Idempotency-Key header in hermes.ts.
+
+===== Final conflict-marker scan =====
+  no <<<<<<< or >>>>>>> conflict markers outside known dirty files
+  no ======= conflict markers outside known dirty files
+
+===== Final git status --short =====
+ M .github/workflows/deploy.yml
+ M scripts/release/publish-image.sh
+ M tests/deploy-workflow-self-hosted.regression-015.test.ts
+?? .sisyphus/evidence/task-stabilize-branch.txt
+?? .sisyphus/run-continuation/
+
+===== Final git log --oneline --decorate -20 =====
+82e45a5 (HEAD -> fix/live-qa-blockers) feat(oauth): real refresh + Meta long-lived exchange + concurrency lock
+c459b1f feat(social-content): per-platform caption validator
+cc9a76b feat(callback): per-run callback token defense in depth
+f8123dd fix(assets): tenant-prefix storage keys + migration script
+c28de88 docs: remove dead approval-requests routes from README
+a52cc41 chore(api): remove dead 501 approval-requests stubs
+2ef5f19 feat(db): posts.platform_post_id/published_at/scheduled_at + vision_qa_runs + scheduled_posts + oauth_callback_tokens
+e66a223 fix(images): images.remotePatterns whitelist + dev fallback
+0ddf8d3 fix(publish): validate media_urls tenant ownership
+82cc550 feat(oauth-meta): long-lived exchange + IG Business Account discovery + page picker
+7c062aa feat(hermes): inject full brand kit into social_content_weekly payload
+5bbca17 feat(hermes): idempotency_key in submission
+a5c4f47 (origin/master, origin/HEAD) feat(social-content): project weekly dashboard previews (#268)
+0e5029b fix: resolve live QA blockers (#267)
+0912295 (master) feat(social-content): align Hermes-owned weekly media contract (#266)
+b02578a (preserve/chatgpt-oauth-mcp-submission-20260505, feat/hermes-weekly-social-content) feat(social-content): run weekly posts through Hermes (#264)
+c85df64 docs(execution): align Hermes provider runbooks (#262)
+0a6ae93 refactor(execution): switch Hermes provider from callback to polling (#263)
+4e3bf5d fix(security): prevent path traversal via aries_run_id in Hermes callback (#260)
+a2f6a51 feat(execution): make Hermes callbacks the default (#258)
+
+===== HEAD vs backup/pre-stabilize =====
+Backup ref:
+82cc5503e84ab5703ba558f5640cb9010d504b7d
+HEAD:
+82e45a59df74fbefde343df0772828cb1f362264
+Commits added on top of backup:
+82e45a5 feat(oauth): real refresh + Meta long-lived exchange + concurrency lock
+c459b1f feat(social-content): per-platform caption validator
+cc9a76b feat(callback): per-run callback token defense in depth
+f8123dd fix(assets): tenant-prefix storage keys + migration script
+c28de88 docs: remove dead approval-requests routes from README
+a52cc41 chore(api): remove dead 501 approval-requests stubs
+2ef5f19 feat(db): posts.platform_post_id/published_at/scheduled_at + vision_qa_runs + scheduled_posts + oauth_callback_tokens
+e66a223 fix(images): images.remotePatterns whitelist + dev fallback
+0ddf8d3 fix(publish): validate media_urls tenant ownership
+
+===== Reintegrated commits (new SHA -> original task SHA) =====
+0ddf8d3 -> 98dd2e8 T5 fix(publish): validate media_urls tenant ownership
+e66a223 -> cb2f726 T6 fix(images): images.remotePatterns whitelist + dev fallback
+2ef5f19 -> b9b8bf5 T7 feat(db): posts.platform_post_id/published_at/scheduled_at + vision_qa_runs + scheduled_posts + oauth_callback_tokens
+a52cc41 -> 6393c1a T23 chore(api): remove dead 501 approval-requests stubs
+c28de88 -> 9b3596d docs: remove dead approval-requests routes from README
+f8123dd -> 8918499 T1 fix(assets): tenant-prefix storage keys + migration script
+cc9a76b -> 91b58bd T4 feat(callback): per-run callback token defense in depth
+c459b1f -> 290eac6 T11 feat(social-content): per-platform caption validator
+82e45a5 -> 5868a0f T2 feat(oauth): real refresh + Meta long-lived exchange + concurrency lock
+
+===== Preserved HEAD ancestor commits (T3, T8, T10) =====
+82cc550 ancestor=yes (preserved)
+7c062aa ancestor=yes (preserved)
+5bbca17 ancestor=yes (preserved)
+
+===== Targeted test pass rate =====
+T1 tests/asset-tenant-isolation.test.ts: 3/3 pass
+T5 tests/publish-tenant-isolation.test.ts: 5/5 pass
+T11 tests/caption-validator.test.ts: 11/11 pass (10 subtests + 1 suite)
+T4 tests/callback-token.test.ts: 6/6 pass
+T2 tests/oauth-refresh-meta.test.ts: 3/3 pass
+T2 tests/oauth-refresh-concurrency.test.ts: 1/1 pass
+T2 tests/oauth-refresh-failure.test.ts: 2/2 pass
+Regression T3 tests/oauth-meta-callback.test.ts: 6/6 pass
+Regression T3 tests/oauth-callback-runtime.test.ts: 6/6 pass
+Regression T8 tests/social-content-brand-kit-injection.test.ts: 12/12 pass
+Regression tests/marketing-execution-port.test.ts: 14/14 pass
+Regression tests/hermes-callback-route.test.ts: 5/5 pass
+T10 tests/hermes-idempotency.test.ts: 0/3 pass (impl missing — diagnosed)
+
+===== Pre-existing unrelated dirty files (preserved as-is) =====
+ .github/workflows/deploy.yml                             |  4 ++++
+ scripts/release/publish-image.sh                         |  3 +++
+ tests/deploy-workflow-self-hosted.regression-015.test.ts | 14 ++++++++++++++
+ 3 files changed, 21 insertions(+)
+  conflict markers in working tree only; never staged or committed
+
+===== Final tsc result =====
+exit=1, errors only in tests/deploy-workflow-self-hosted.regression-015.test.ts (pre-existing dirty conflict markers); 0 new errors
