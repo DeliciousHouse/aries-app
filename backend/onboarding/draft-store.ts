@@ -37,6 +37,10 @@ export type OnboardingDraftPreview = {
     extractedAt: string;
     brandVoiceSummary: string | null;
     offerSummary: string | null;
+    positioning: string | null;
+    audience: string | null;
+    toneOfVoice: string | null;
+    styleVibe: string | null;
   } | null;
 };
 
@@ -191,6 +195,10 @@ function sanitizePreview(value: unknown): OnboardingDraftPreview | null {
           extractedAt: stringValue(brandKitPreview.extractedAt),
           brandVoiceSummary: stringOrNull(brandKitPreview.brandVoiceSummary),
           offerSummary: stringOrNull(brandKitPreview.offerSummary),
+          positioning: stringOrNull(brandKitPreview.positioning),
+          audience: stringOrNull(brandKitPreview.audience),
+          toneOfVoice: stringOrNull(brandKitPreview.toneOfVoice),
+          styleVibe: stringOrNull(brandKitPreview.styleVibe),
         }
       : null,
   };
