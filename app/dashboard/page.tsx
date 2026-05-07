@@ -7,7 +7,7 @@ export const metadata = {
 
 export default function DashboardPage() {
   return (
-    <AppShellLayout currentRouteId="home">
+    <AppShellLayout currentRouteId="home" loginRedirectPath="/dashboard">
       <AriesHomeDashboard />
     </AppShellLayout>
   );

@@ -12,8 +12,11 @@ test('ensureTenantAccessForUser provisions organization and role for local-dev u
   const queryable = {
     async query(sql: string, params: unknown[]) {
       calls.push({ sql, params });
+      if (/from organizations/i.test(sql) && /where slug/i.test(sql)) {
+        return { rowCount: 0, rows: [] };
+      }
       if (/insert into organizations/i.test(sql)) {
-        return { rowCount: 1, rows: [{ id: 6 }] };
+        return { rowCount: 1, rows: [{ id: 6, slug: params[1] }] };
       }
       return { rowCount: 1, rows: [] };
     },
@@ -31,13 +34,15 @@ test('ensureTenantAccessForUser provisions organization and role for local-dev u
     { NODE_ENV: 'development' } as NodeJS.ProcessEnv,
   );
 
-  assert.equal(calls.length, 3);
-  assert.match(calls[0].sql, /insert into organizations/i);
-  assert.deepEqual(calls[0].params, ['Rohan Choudhary', 'rohan-choudhary']);
-  assert.match(calls[1].sql, /update users set organization_id/i);
-  assert.deepEqual(calls[1].params, [6, 6]);
-  assert.match(calls[2].sql, /update users set role/i);
-  assert.deepEqual(calls[2].params, ['tenant_admin', 6]);
+  assert.equal(calls.length, 4);
+  assert.match(calls[0].sql, /from organizations/i);
+  assert.deepEqual(calls[0].params, ['rohan-choudhary']);
+  assert.match(calls[1].sql, /insert into organizations/i);
+  assert.deepEqual(calls[1].params, ['Rohan Choudhary', 'rohan-choudhary']);
+  assert.match(calls[2].sql, /update users set organization_id/i);
+  assert.deepEqual(calls[2].params, [6, 6]);
+  assert.match(calls[3].sql, /update users set role/i);
+  assert.deepEqual(calls[3].params, ['tenant_admin', 6]);
 });
 
 test('ensureTenantAccessForUser does not auto-assign a role outside local dev', async () => {
@@ -45,8 +50,11 @@ test('ensureTenantAccessForUser does not auto-assign a role outside local dev', 
   const queryable = {
     async query(sql: string, params: unknown[]) {
       calls.push({ sql, params });
+      if (/from organizations/i.test(sql) && /where slug/i.test(sql)) {
+        return { rowCount: 0, rows: [] };
+      }
       if (/insert into organizations/i.test(sql)) {
-        return { rowCount: 1, rows: [{ id: 12 }] };
+        return { rowCount: 1, rows: [{ id: 12, slug: params[1] }] };
       }
       return { rowCount: 1, rows: [] };
     },
@@ -64,9 +72,10 @@ test('ensureTenantAccessForUser does not auto-assign a role outside local dev', 
     { NODE_ENV: 'production' } as NodeJS.ProcessEnv,
   );
 
-  assert.equal(calls.length, 2);
-  assert.match(calls[0].sql, /insert into organizations/i);
-  assert.match(calls[1].sql, /update users set organization_id/i);
+  assert.equal(calls.length, 3);
+  assert.match(calls[0].sql, /from organizations/i);
+  assert.match(calls[1].sql, /insert into organizations/i);
+  assert.match(calls[2].sql, /update users set organization_id/i);
 });
 
 test('missingTenantClaims and redirect encoding expose the exact missing fields', () => {

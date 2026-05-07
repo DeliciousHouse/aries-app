@@ -137,10 +137,18 @@ function createDraftDbMock(): QueryHandler {
 async function withDraftEnv<T>(run: () => Promise<T>): Promise<T> {
   const previousCodeRoot = process.env.CODE_ROOT;
   const previousDataRoot = process.env.DATA_ROOT;
+  const previousDbHost = process.env.DB_HOST;
+  const previousDbUser = process.env.DB_USER;
+  const previousDbPassword = process.env.DB_PASSWORD;
+  const previousDbName = process.env.DB_NAME;
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-onboarding-draft-route-'));
 
   process.env.CODE_ROOT = PROJECT_ROOT;
   process.env.DATA_ROOT = dataRoot;
+  delete process.env.DB_HOST;
+  delete process.env.DB_USER;
+  delete process.env.DB_PASSWORD;
+  delete process.env.DB_NAME;
 
   try {
     return await run();
@@ -149,6 +157,14 @@ async function withDraftEnv<T>(run: () => Promise<T>): Promise<T> {
     else process.env.CODE_ROOT = previousCodeRoot;
     if (previousDataRoot === undefined) delete process.env.DATA_ROOT;
     else process.env.DATA_ROOT = previousDataRoot;
+    if (previousDbHost === undefined) delete process.env.DB_HOST;
+    else process.env.DB_HOST = previousDbHost;
+    if (previousDbUser === undefined) delete process.env.DB_USER;
+    else process.env.DB_USER = previousDbUser;
+    if (previousDbPassword === undefined) delete process.env.DB_PASSWORD;
+    else process.env.DB_PASSWORD = previousDbPassword;
+    if (previousDbName === undefined) delete process.env.DB_NAME;
+    else process.env.DB_NAME = previousDbName;
     await rm(dataRoot, { recursive: true, force: true });
   }
 }

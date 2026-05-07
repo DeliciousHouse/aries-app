@@ -3,7 +3,7 @@ import AriesResultsScreen from '@/frontend/aries-v1/results-screen';
 
 export default function DashboardResultsPage() {
   return (
-    <AppShellLayout currentRouteId="results">
+    <AppShellLayout currentRouteId="results" loginRedirectPath="/dashboard/results">
       <AriesResultsScreen />
     </AppShellLayout>
   );

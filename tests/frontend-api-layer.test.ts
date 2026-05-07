@@ -9,15 +9,41 @@ import { GET as getOnboardingStatus } from '../app/api/onboarding/status/[tenant
 import { resolveProjectRoot } from './helpers/project-root';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
+let previousExecutionProviderForOpenClawTestInvoker: string | undefined | null = null;
+let previousMarketingExecutionProviderForOpenClawTestInvoker: string | undefined | null = null;
 
 function setOpenClawTestInvoker(
   impl: (payload: Record<string, unknown>) => unknown | Promise<unknown>
 ): void {
+  if (previousExecutionProviderForOpenClawTestInvoker === null) {
+    previousExecutionProviderForOpenClawTestInvoker = process.env.ARIES_EXECUTION_PROVIDER;
+  }
+  if (previousMarketingExecutionProviderForOpenClawTestInvoker === null) {
+    previousMarketingExecutionProviderForOpenClawTestInvoker = process.env.ARIES_MARKETING_EXECUTION_PROVIDER;
+  }
+  process.env.ARIES_EXECUTION_PROVIDER = 'legacy-openclaw';
+  process.env.ARIES_MARKETING_EXECUTION_PROVIDER = 'legacy-openclaw';
   (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ = impl;
 }
 
 function clearOpenClawTestInvoker(): void {
   delete (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__;
+  if (previousExecutionProviderForOpenClawTestInvoker !== null) {
+    if (previousExecutionProviderForOpenClawTestInvoker === undefined) {
+      delete process.env.ARIES_EXECUTION_PROVIDER;
+    } else {
+      process.env.ARIES_EXECUTION_PROVIDER = previousExecutionProviderForOpenClawTestInvoker;
+    }
+    previousExecutionProviderForOpenClawTestInvoker = null;
+  }
+  if (previousMarketingExecutionProviderForOpenClawTestInvoker !== null) {
+    if (previousMarketingExecutionProviderForOpenClawTestInvoker === undefined) {
+      delete process.env.ARIES_MARKETING_EXECUTION_PROVIDER;
+    } else {
+      process.env.ARIES_MARKETING_EXECUTION_PROVIDER = previousMarketingExecutionProviderForOpenClawTestInvoker;
+    }
+    previousMarketingExecutionProviderForOpenClawTestInvoker = null;
+  }
 }
 
 function createFetchResponse(body: string, contentType: string): Response {
@@ -83,6 +109,8 @@ async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise
   const previousDataRoot = process.env.DATA_ROOT;
   const previousLocalLobsterCwd = process.env.OPENCLAW_LOCAL_LOBSTER_CWD;
   const previousOpenClawLobsterCwd = process.env.OPENCLAW_LOBSTER_CWD;
+  const previousExecutionProvider = process.env.ARIES_EXECUTION_PROVIDER;
+  const previousMarketingExecutionProvider = process.env.ARIES_MARKETING_EXECUTION_PROVIDER;
   const previousStage1CacheDir = process.env.LOBSTER_STAGE1_CACHE_DIR;
   const previousStage2CacheDir = process.env.LOBSTER_STAGE2_CACHE_DIR;
   const previousStage3CacheDir = process.env.LOBSTER_STAGE3_CACHE_DIR;
@@ -94,6 +122,8 @@ async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise
   process.env.DATA_ROOT = dataRoot;
   process.env.OPENCLAW_LOCAL_LOBSTER_CWD = lobsterRoot;
   process.env.OPENCLAW_LOBSTER_CWD = lobsterRoot;
+  process.env.ARIES_EXECUTION_PROVIDER = 'legacy-openclaw';
+  process.env.ARIES_MARKETING_EXECUTION_PROVIDER = 'legacy-openclaw';
   process.env.LOBSTER_STAGE1_CACHE_DIR = path.join(dataRoot, 'lobster-stage1-cache');
   process.env.LOBSTER_STAGE2_CACHE_DIR = path.join(dataRoot, 'lobster-stage2-cache');
   process.env.LOBSTER_STAGE3_CACHE_DIR = path.join(dataRoot, 'lobster-stage3-cache');
@@ -124,6 +154,18 @@ async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise
       delete process.env.OPENCLAW_LOBSTER_CWD;
     } else {
       process.env.OPENCLAW_LOBSTER_CWD = previousOpenClawLobsterCwd;
+    }
+
+    if (previousExecutionProvider === undefined) {
+      delete process.env.ARIES_EXECUTION_PROVIDER;
+    } else {
+      process.env.ARIES_EXECUTION_PROVIDER = previousExecutionProvider;
+    }
+
+    if (previousMarketingExecutionProvider === undefined) {
+      delete process.env.ARIES_MARKETING_EXECUTION_PROVIDER;
+    } else {
+      process.env.ARIES_MARKETING_EXECUTION_PROVIDER = previousMarketingExecutionProvider;
     }
 
     if (previousStage1CacheDir === undefined) {
@@ -372,6 +414,11 @@ test('/api/marketing/jobs resolves tenant context server-side and returns a fron
             jobType: 'brand_campaign',
             payload: {
               brandUrl: 'https://brand.example',
+              businessName: 'Brand Example',
+              businessType: 'B2B growth studio',
+              approverName: 'Avery Approver',
+              goal: 'Book more proof-led strategy calls',
+              offer: 'Premium growth planning',
               competitorUrl: 'https://betterup.com',
               competitorBrand: 'BetterUp',
               competitorFacebookUrl: 'https://facebook.com/betterupco',
@@ -392,7 +439,7 @@ test('/api/marketing/jobs resolves tenant context server-side and returns a fron
       assert.equal(response.status, 202);
       assert.equal(body.marketing_job_status, 'accepted');
       assert.equal(body.jobType, 'brand_campaign');
-      assert.equal(body.marketing_stage, 'strategy');
+      assert.equal(body.marketing_stage, 'research');
       assert.equal(body.approvalRequired, true);
       assert.equal((body.approval as { stage?: string }).stage, 'strategy');
       assert.equal(typeof body.jobStatusUrl, 'string');
@@ -5657,6 +5704,11 @@ test('/api/marketing/jobs/:jobId/approve resolves tenant context server-side and
             jobType: 'brand_campaign',
             payload: {
               brandUrl: 'https://brand.example',
+              businessName: 'Brand Example',
+              businessType: 'B2B growth studio',
+              approverName: 'Avery Approver',
+              goal: 'Book more proof-led strategy calls',
+              offer: 'Premium growth planning',
               competitorUrl: 'https://betterup.com',
             },
           }),

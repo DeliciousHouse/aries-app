@@ -1,7 +1,11 @@
 import crypto from 'node:crypto';
+import { mkdir, open, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import * as path from 'node:path';
 
 import pool from '@/lib/db';
 import { normalizeMarketingWebsiteUrl } from '@/lib/marketing-public-mode';
+import { resolveDataPath } from '@/lib/runtime-paths';
 
 export type OnboardingDraftStatus =
   | 'draft'
@@ -326,27 +330,137 @@ function draftToRow(draft: OnboardingDraft) {
   };
 }
 
+function hasDatabaseConfig(): boolean {
+  return Boolean(
+    process.env.DB_HOST?.trim() &&
+      process.env.DB_USER?.trim() &&
+      process.env.DB_PASSWORD !== undefined &&
+      process.env.DB_NAME?.trim(),
+  );
+}
+
+function shouldUseFallbackDraftStore(error: unknown): boolean {
+  const code = (error as { code?: unknown }).code;
+  return (
+    // Schema drift during deploys should not block public onboarding intake.
+    code === '42P01' ||
+    code === '42703' ||
+    // Shared Postgres can be temporarily unavailable while the owning compose
+    // stack is restarted or DNS/service aliases settle. Drafts are pre-auth
+    // intake records, so falling back to DATA_ROOT is safer than hard-blocking
+    // the first-run onboarding flow.
+    code === 'ECONNREFUSED' ||
+    code === 'ENOTFOUND' ||
+    code === 'EAI_AGAIN' ||
+    code === 'ETIMEDOUT' ||
+    code === 'ECONNRESET' ||
+    code === '08000' ||
+    code === '08001' ||
+    code === '08003' ||
+    code === '08006' ||
+    code === '53300' ||
+    code === '57P01' ||
+    code === '57P02' ||
+    code === '57P03'
+  );
+}
+
+function fallbackDraftDirs(): string[] {
+  return [
+    resolveDataPath('onboarding-drafts'),
+    path.join(tmpdir(), 'aries-data', 'onboarding-drafts'),
+  ];
+}
+
+function fallbackDraftPath(dir: string, draftId: string): string {
+  const normalizedDraftId = normalizeDraftId(draftId).toLowerCase();
+  const safeDraftId = path.basename(normalizedDraftId);
+  if (safeDraftId !== normalizedDraftId) {
+    throw new Error('invalid_draft_token');
+  }
+
+  const baseDir = path.resolve(dir);
+  const draftPath = path.resolve(baseDir, `${safeDraftId}.json`);
+  if (!draftPath.startsWith(`${baseDir}${path.sep}`)) {
+    throw new Error('invalid_draft_token');
+  }
+
+  return draftPath;
+}
+
+async function writeFallbackDraft(draft: OnboardingDraft): Promise<OnboardingDraft> {
+  let lastError: unknown;
+  for (const dir of fallbackDraftDirs()) {
+    try {
+      await mkdir(dir, { recursive: true });
+      const finalPath = fallbackDraftPath(dir, draft.draftId);
+      const tmpPath = `${finalPath}.tmp`;
+      try {
+        await writeFile(tmpPath, `${JSON.stringify(draft, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+        await rename(tmpPath, finalPath);
+      } catch (writeError) {
+        await unlink(tmpPath).catch(() => undefined);
+        throw writeError;
+      }
+      return draft;
+    } catch (error) {
+      lastError = error;
+      if ((error as NodeJS.ErrnoException).code !== 'EACCES') {
+        throw error;
+      }
+    }
+  }
+  throw lastError;
+}
+
+async function readFallbackDraft(draftId: string): Promise<OnboardingDraft | null> {
+  for (const dir of fallbackDraftDirs()) {
+    try {
+      const parsed = JSON.parse(await readFile(fallbackDraftPath(dir, draftId), 'utf8')) as Partial<OnboardingDraft>;
+      return emptyDraft(parsed);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        continue;
+      }
+      throw error;
+    }
+  }
+  return null;
+}
+
 export function draftTenantId(draftId: string): string {
   return `draft_${normalizeDraftId(draftId).replace(/-/g, '')}`;
 }
 
 export async function createOnboardingDraft(initial?: Partial<OnboardingDraft>): Promise<OnboardingDraft> {
   const draft = emptyDraft(initial);
+  if (!hasDatabaseConfig()) {
+    return writeFallbackDraft(draft);
+  }
+
   const row = draftToRow(draft);
 
-  const result = await pool.query<DraftRow>(
-    `INSERT INTO onboarding_drafts (
-      draft_id, status, website_url, business_name, business_type,
-      approver_name, channels, goal, offer, competitor_url,
-      preview, provenance, materialized_tenant_id, materialized_job_id
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-    RETURNING *`,
-    [
-      row.draft_id, row.status, row.website_url, row.business_name, row.business_type,
-      row.approver_name, row.channels, row.goal, row.offer, row.competitor_url,
-      row.preview, row.provenance, row.materialized_tenant_id, row.materialized_job_id,
-    ],
-  );
+  let result;
+  try {
+    result = await pool.query<DraftRow>(
+      `INSERT INTO onboarding_drafts (
+        draft_id, status, website_url, business_name, business_type,
+        approver_name, channels, goal, offer, competitor_url,
+        preview, provenance, materialized_tenant_id, materialized_job_id
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+      RETURNING *`,
+      [
+        row.draft_id, row.status, row.website_url, row.business_name, row.business_type,
+        row.approver_name, row.channels, row.goal, row.offer, row.competitor_url,
+        row.preview, row.provenance, row.materialized_tenant_id, row.materialized_job_id,
+      ],
+    );
+  } catch (error) {
+    if (shouldUseFallbackDraftStore(error)) {
+      return writeFallbackDraft(draft);
+    }
+    throw error;
+  }
 
   return rowToDraft(result.rows[0]);
 }
@@ -359,10 +473,22 @@ export async function getOnboardingDraft(draftId: string): Promise<OnboardingDra
     return null;
   }
 
-  const result = await pool.query<DraftRow>(
-    'SELECT * FROM onboarding_drafts WHERE draft_id = $1',
-    [normalized],
-  );
+  if (!hasDatabaseConfig()) {
+    return readFallbackDraft(normalized);
+  }
+
+  let result;
+  try {
+    result = await pool.query<DraftRow>(
+      'SELECT * FROM onboarding_drafts WHERE draft_id = $1',
+      [normalized],
+    );
+  } catch (error) {
+    if (shouldUseFallbackDraftStore(error)) {
+      return readFallbackDraft(normalized);
+    }
+    throw error;
+  }
 
   if (result.rowCount === 0) {
     return null;
@@ -379,18 +505,71 @@ export async function requireOnboardingDraft(draftId: string): Promise<Onboardin
   return draft;
 }
 
+async function claimFallbackMaterialization(
+  normalized: string,
+): Promise<{ draft: OnboardingDraft; claimed: boolean }> {
+  // Use exclusive file creation as a per-draft CAS guard so two concurrent
+  // requests cannot both observe `ready_for_auth` and both claim. Mirrors the
+  // atomicity of `UPDATE ... WHERE status = 'ready_for_auth'` in Postgres.
+  for (const dir of fallbackDraftDirs()) {
+    const draftPath = fallbackDraftPath(dir, normalized);
+    const lockPath = `${draftPath}.lock`;
+    let lockHandle;
+    try {
+      lockHandle = await open(lockPath, 'wx');
+    } catch (lockError) {
+      const code = (lockError as NodeJS.ErrnoException).code;
+      if (code === 'EEXIST') {
+        // Another request holds the claim lock — report unclaimed
+        const draft = await requireOnboardingDraft(normalized);
+        return { draft, claimed: false };
+      }
+      if (code === 'ENOENT' || code === 'EACCES') continue;
+      throw lockError;
+    }
+    try {
+      const draft = await requireOnboardingDraft(normalized);
+      if (draft.status !== 'ready_for_auth') {
+        return { draft, claimed: false };
+      }
+      const claimedDraft = await writeFallbackDraft({
+        ...draft,
+        status: 'materializing',
+        updatedAt: new Date().toISOString(),
+      });
+      return { draft: claimedDraft, claimed: true };
+    } finally {
+      await lockHandle.close();
+      await unlink(lockPath).catch(() => undefined);
+    }
+  }
+  throw new Error('draft_not_found');
+}
+
 export async function claimOnboardingDraftMaterialization(
   draftId: string,
 ): Promise<{ draft: OnboardingDraft; claimed: boolean }> {
   const normalized = normalizeDraftId(draftId);
 
-  const result = await pool.query<DraftRow>(
-    `UPDATE onboarding_drafts
-      SET status = 'materializing', updated_at = now()
-    WHERE draft_id = $1 AND status = 'ready_for_auth'
-    RETURNING *`,
-    [normalized],
-  );
+  if (!hasDatabaseConfig()) {
+    return claimFallbackMaterialization(normalized);
+  }
+
+  let result;
+  try {
+    result = await pool.query<DraftRow>(
+      `UPDATE onboarding_drafts
+        SET status = 'materializing', updated_at = now()
+      WHERE draft_id = $1 AND status = 'ready_for_auth'
+      RETURNING *`,
+      [normalized],
+    );
+  } catch (error) {
+    if (shouldUseFallbackDraftStore(error)) {
+      return claimFallbackMaterialization(normalized);
+    }
+    throw error;
+  }
 
   if ((result.rowCount ?? 0) > 0) {
     return {
@@ -411,22 +590,34 @@ export async function updateOnboardingDraft(
 ): Promise<OnboardingDraft> {
   const current = await requireOnboardingDraft(draftId);
   const next = applyDraftMutation(current, mutation);
+  if (!hasDatabaseConfig()) {
+    return writeFallbackDraft({ ...next, updatedAt: new Date().toISOString() });
+  }
+
   const row = draftToRow(next);
 
-  const result = await pool.query<DraftRow>(
-    `UPDATE onboarding_drafts SET
-      status = $2, website_url = $3, business_name = $4, business_type = $5,
-      approver_name = $6, channels = $7, goal = $8, offer = $9, competitor_url = $10,
-      preview = $11, provenance = $12, materialized_tenant_id = $13,
-      materialized_job_id = $14, updated_at = now()
-    WHERE draft_id = $1
-    RETURNING *`,
-    [
-      row.draft_id, row.status, row.website_url, row.business_name, row.business_type,
-      row.approver_name, row.channels, row.goal, row.offer, row.competitor_url,
-      row.preview, row.provenance, row.materialized_tenant_id, row.materialized_job_id,
-    ],
-  );
+  let result;
+  try {
+    result = await pool.query<DraftRow>(
+      `UPDATE onboarding_drafts SET
+        status = $2, website_url = $3, business_name = $4, business_type = $5,
+        approver_name = $6, channels = $7, goal = $8, offer = $9, competitor_url = $10,
+        preview = $11, provenance = $12, materialized_tenant_id = $13,
+        materialized_job_id = $14, updated_at = now()
+      WHERE draft_id = $1
+      RETURNING *`,
+      [
+        row.draft_id, row.status, row.website_url, row.business_name, row.business_type,
+        row.approver_name, row.channels, row.goal, row.offer, row.competitor_url,
+        row.preview, row.provenance, row.materialized_tenant_id, row.materialized_job_id,
+      ],
+    );
+  } catch (error) {
+    if (shouldUseFallbackDraftStore(error)) {
+      return writeFallbackDraft({ ...next, updatedAt: new Date().toISOString() });
+    }
+    throw error;
+  }
 
   return rowToDraft(result.rows[0]);
 }

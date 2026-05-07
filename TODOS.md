@@ -38,6 +38,8 @@
 **Priority:** P0
 **Depends on:** None
 
+**/qa note 2026-05-07:** Partially addressed for onboarding drafts on `chore/preserve-local-pgadmin-compose` by `ab4fa6a` and regression-covered by `0680b67`; `POST /api/onboarding/draft` now falls back to `DATA_ROOT` when configured Postgres is unreachable. The broader auth/OAuth and missing-package failures in this TODO remain open.
+
 ### Repair public-surface contract tests for review copy and fallback responses
 
 **What:** Bring the public review/copy contract tests back into sync with the shipped copy or restore the intended copy contract.
