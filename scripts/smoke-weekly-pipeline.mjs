@@ -176,10 +176,30 @@ export function buildHttp(baseUrl) {
   const fetchImpl = ensureFetch();
   const cookieJar = new Map();
 
+  function splitSetCookieHeader(header) {
+    const entries = [];
+    let start = 0;
+    for (let index = 0; index < header.length; index += 1) {
+      if (header[index] !== ',') continue;
+      const nextCookiePair = /^\s*[^=;,\s]+=/.test(header.slice(index + 1));
+      if (!nextCookiePair) continue;
+      entries.push(header.slice(start, index).trim());
+      start = index + 1;
+    }
+    entries.push(header.slice(start).trim());
+    return entries.filter(Boolean);
+  }
+
+  function getSetCookieHeaders(headers) {
+    if (typeof headers.getSetCookie === 'function') {
+      return headers.getSetCookie();
+    }
+    const raw = headers.get('set-cookie');
+    return raw ? splitSetCookieHeader(raw) : [];
+  }
+
   function setCookiesFromResponse(response) {
-    const raw = typeof response.headers.getSetCookie === 'function'
-      ? response.headers.getSetCookie()
-      : [];
+    const raw = getSetCookieHeaders(response.headers);
     for (const entry of raw) {
       const semi = entry.indexOf(';');
       const pair = (semi >= 0 ? entry.slice(0, semi) : entry).trim();
@@ -678,8 +698,7 @@ async function step14CheckDashboardImages(http, baseUrl, tenant) {
   const stepIndex = 14;
   let chromium;
   try {
-    const dynamicImport = new Function('specifier', 'return import(specifier)');
-    ({ chromium } = await dynamicImport('playwright'));
+    ({ chromium } = await import('playwright'));
   } catch (error) {
     throw new SmokeError(
       stepIndex,

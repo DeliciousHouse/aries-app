@@ -3,11 +3,11 @@ import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPT_PATH = path.join(REPO_ROOT, 'scripts', 'smoke-weekly-pipeline.mjs');
-const SCRIPT_URL = `file://${SCRIPT_PATH}`;
+const SCRIPT_URL = pathToFileURL(SCRIPT_PATH).href;
 
 type ParsedArgs = {
   tenant: string | null;
@@ -51,11 +51,9 @@ type SmokeModule = {
 let cachedModule: SmokeModule | null = null;
 async function loadSmoke(): Promise<SmokeModule> {
   if (cachedModule) return cachedModule;
-  const dynamicImport = new Function('specifier', 'return import(specifier)') as (
-    specifier: string,
-  ) => Promise<SmokeModule>;
-  cachedModule = await dynamicImport(SCRIPT_URL);
-  return cachedModule;
+  const smoke = await import(SCRIPT_URL);
+  cachedModule = smoke;
+  return smoke;
 }
 
 test('parseArgs accepts exact CLI form and rejects malformed input', async () => {
