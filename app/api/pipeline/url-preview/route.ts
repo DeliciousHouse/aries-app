@@ -73,9 +73,10 @@ export async function GET(req: NextRequest) {
     });
     const enrichment = enrichmentResult.ok ? enrichmentResult.enrichment : null;
     if (!enrichmentResult.ok && enrichmentResult.reason !== 'disabled' && enrichmentResult.reason !== 'not_configured') {
-      console.warn(
-        `[url-preview] brand enrichment failed (${enrichmentResult.reason})${enrichmentResult.detail ? `: ${enrichmentResult.detail}` : ''}`,
-      );
+      console.warn('[url-preview] brand enrichment failed', {
+        reason: enrichmentResult.reason,
+        detail: enrichmentResult.detail,
+      });
     }
 
     const response = {

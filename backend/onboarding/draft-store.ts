@@ -513,6 +513,8 @@ export async function requireOnboardingDraft(draftId: string): Promise<Onboardin
   return draft;
 }
 
+const LOCK_STALE_TTL_MS = 30_000;
+
 async function claimFallbackMaterialization(
   normalized: string,
 ): Promise<{ draft: OnboardingDraft; claimed: boolean }> {
@@ -523,18 +525,41 @@ async function claimFallbackMaterialization(
     const draftPath = fallbackDraftPath(dir, normalized);
     const lockPath = `${draftPath}.lock`;
     let lockHandle;
-    try {
-      lockHandle = await open(lockPath, 'wx');
-    } catch (lockError) {
-      const code = (lockError as NodeJS.ErrnoException).code;
-      if (code === 'EEXIST') {
-        // Another request holds the claim lock — report unclaimed
-        const draft = await requireOnboardingDraft(normalized);
-        return { draft, claimed: false };
+
+    // Allow one stale-lock recovery attempt per directory.
+    for (let pass = 0; pass < 2; pass++) {
+      try {
+        lockHandle = await open(lockPath, 'wx');
+        // Write creation timestamp so a future recovery pass can detect stale locks
+        // left by processes that crashed before the finally cleanup ran.
+        await lockHandle.writeFile(String(Date.now()));
+        break;
+      } catch (lockError) {
+        const code = (lockError as NodeJS.ErrnoException).code;
+        if (code === 'EEXIST') {
+          if (pass === 0) {
+            // Check whether the existing lock was left by a crashed process.
+            const lockContent = await readFile(lockPath, 'utf8').catch(() => '');
+            const lockTimestamp = Number(lockContent);
+            if (lockContent && Number.isFinite(lockTimestamp) && Date.now() - lockTimestamp > LOCK_STALE_TTL_MS) {
+              await unlink(lockPath).catch(() => undefined);
+              continue; // retry lock acquisition for this dir
+            }
+          }
+          // Fresh lock — another request holds the claim lock
+          const draft = await requireOnboardingDraft(normalized);
+          return { draft, claimed: false };
+        }
+        if (code === 'ENOENT' || code === 'EACCES') {
+          lockHandle = undefined;
+          break; // try next dir
+        }
+        throw lockError;
       }
-      if (code === 'ENOENT' || code === 'EACCES') continue;
-      throw lockError;
     }
+
+    if (!lockHandle) continue;
+
     try {
       const draft = await requireOnboardingDraft(normalized);
       if (draft.status !== 'ready_for_auth') {
