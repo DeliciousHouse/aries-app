@@ -1730,6 +1730,18 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                             label="Offer summary"
                             value={preview?.offerSummary || offer || (props.initialAuthenticated && !draftId ? profile?.offer : null) || 'The offer summary will appear here once the website provides enough signal.'}
                           />
+                          {preview?.positioning ? (
+                            <PreviewStat label="Positioning" value={preview.positioning} />
+                          ) : null}
+                          {preview?.audience ? (
+                            <PreviewStat label="Audience" value={preview.audience} />
+                          ) : null}
+                          {preview?.toneOfVoice ? (
+                            <PreviewStat label="Tone of voice" value={preview.toneOfVoice} />
+                          ) : null}
+                          {preview?.styleVibe ? (
+                            <PreviewStat label="Style vibe" value={preview.styleVibe} />
+                          ) : null}
                         </div>
                       </div>
 

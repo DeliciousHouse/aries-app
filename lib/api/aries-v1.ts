@@ -176,6 +176,10 @@ export type UrlPreviewBrandKitPreview = {
   extractedAt: string;
   brandVoiceSummary: string | null;
   offerSummary: string | null;
+  positioning: string | null;
+  audience: string | null;
+  toneOfVoice: string | null;
+  styleVibe: string | null;
 };
 
 export type UrlPreviewResponse = {
