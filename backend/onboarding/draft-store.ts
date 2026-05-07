@@ -373,7 +373,19 @@ function fallbackDraftDirs(): string[] {
 }
 
 function fallbackDraftPath(dir: string, draftId: string): string {
-  return path.join(dir, `${normalizeDraftId(draftId)}.json`);
+  const normalizedDraftId = normalizeDraftId(draftId).toLowerCase();
+  const safeDraftId = path.basename(normalizedDraftId);
+  if (safeDraftId !== normalizedDraftId) {
+    throw new Error('invalid_draft_token');
+  }
+
+  const baseDir = path.resolve(dir);
+  const draftPath = path.resolve(baseDir, `${safeDraftId}.json`);
+  if (!draftPath.startsWith(`${baseDir}${path.sep}`)) {
+    throw new Error('invalid_draft_token');
+  }
+
+  return draftPath;
 }
 
 async function writeFallbackDraft(draft: OnboardingDraft): Promise<OnboardingDraft> {
