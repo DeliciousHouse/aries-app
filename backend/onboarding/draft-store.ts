@@ -560,6 +560,7 @@ async function claimFallbackMaterialization(
 
     if (!lockHandle) continue;
 
+
     try {
       const draft = await requireOnboardingDraft(normalized);
       if (draft.status !== 'ready_for_auth') {
