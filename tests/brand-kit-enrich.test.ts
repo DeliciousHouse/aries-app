@@ -23,16 +23,62 @@ const HTML_RESPONSE = new Response(
   { status: 200, headers: { 'content-type': 'text/html' } },
 );
 
+test('enrichBrandKitWithGemini strips malformed script/style closing tags before prompting', async () => {
+  const prompts: string[] = [];
+  const html = new Response(
+    '<html><body><script>secretScript()</script\t\n junk><style>.secret{color:red}</style bad><p>Visible copy.</p></body></html>',
+    { status: 200, headers: { 'content-type': 'text/html' } },
+  );
+  const completedOutput = JSON.stringify({
+    output: [
+      {
+        brandVoiceSummary: 'Visible.',
+        offerSummary: null,
+        positioning: null,
+        audience: null,
+        toneOfVoice: null,
+        styleVibe: null,
+      },
+    ],
+  });
+  const fetchImpl = makeFetchSequence([
+    async () => html.clone(),
+    async (_input?: string | URL, init?: RequestInit) => {
+      prompts.push(String((JSON.parse(String(init?.body)) as { input: string }).input));
+      return jsonResponse({ run_id: 'run-malformed-html' });
+    },
+    async () => jsonResponse({ status: 'completed', output: completedOutput }),
+  ]);
+
+  const result = await enrichBrandKitWithGemini({
+    brandUrl: 'https://example.com/',
+    scrapedBrandKit: SCRAPED,
+    env: {
+      ARIES_BRAND_ENRICHMENT_ENABLED: '1',
+      HERMES_GATEWAY_URL: 'http://hermes.test',
+      HERMES_API_SERVER_KEY: 'k',
+      HERMES_POLL_INTERVAL_MS: '0',
+    },
+    fetchImpl,
+    sleep: async () => undefined,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(prompts.length, 1);
+  assert.match(prompts[0], /Visible copy/);
+  assert.doesNotMatch(prompts[0], /secretScript|secret\{color:red\}/);
+});
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
 
-function makeFetchSequence(responses: Array<() => Promise<Response>>): typeof globalThis.fetch {
+function makeFetchSequence(responses: Array<(input: string | URL, init?: RequestInit) => Promise<Response>>): typeof globalThis.fetch {
   let i = 0;
-  return (async (_input: string | URL, _init?: RequestInit) => {
+  return (async (input: string | URL, init?: RequestInit) => {
     const next = responses[i++];
     if (!next) throw new Error(`fetch called more than expected (${i})`);
-    return next();
+    return next(input, init);
   }) as typeof globalThis.fetch;
 }
 

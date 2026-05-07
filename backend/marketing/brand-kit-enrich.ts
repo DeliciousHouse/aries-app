@@ -51,11 +51,52 @@ function trimToBudget(value: string, budget: number): string {
   return `${value.slice(0, budget)}…`;
 }
 
+function stripRawTextElementBlocks(html: string, tagName: 'script' | 'style'): string {
+  let output = '';
+  let cursor = 0;
+  const lowerHtml = html.toLowerCase();
+  const openNeedle = `<${tagName}`;
+  const closeNeedle = `</${tagName}`;
+
+  while (cursor < html.length) {
+    const openStart = lowerHtml.indexOf(openNeedle, cursor);
+    if (openStart < 0) {
+      output += html.slice(cursor);
+      break;
+    }
+
+    output += html.slice(cursor, openStart);
+    const openEnd = html.indexOf('>', openStart + openNeedle.length);
+    if (openEnd < 0) {
+      output += ' ';
+      break;
+    }
+
+    const closeStart = lowerHtml.indexOf(closeNeedle, openEnd + 1);
+    if (closeStart < 0) {
+      output += ' ';
+      break;
+    }
+
+    const closeEnd = html.indexOf('>', closeStart + closeNeedle.length);
+    if (closeEnd < 0) {
+      output += ' ';
+      break;
+    }
+
+    output += ' ';
+    cursor = closeEnd + 1;
+  }
+
+  return output;
+}
+
 function htmlToText(html: string): string {
   // Strip script/style blocks first so their contents do not leak into the prompt.
-  // \s* before > matches closing tags with trailing whitespace, e.g. </script >.
-  const withoutScripts = html.replace(/<script[\s\S]*?<\/script\s*>/gi, ' ');
-  const withoutStyles = withoutScripts.replace(/<style[\s\S]*?<\/style\s*>/gi, ' ');
+  // Use a scanner instead of a tag-filtering regexp so malformed closing tags like
+  // </script\t junk> are removed without triggering CodeQL's js/bad-tag-filter.
+  const withoutScripts = stripRawTextElementBlocks(html, 'script');
+  const withoutStyles = stripRawTextElementBlocks(withoutScripts, 'style');
   const stripped = withoutStyles.replace(/<[^>]+>/g, ' ');
   return stripped.replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
 }
