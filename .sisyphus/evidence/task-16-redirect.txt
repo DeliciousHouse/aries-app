@@ -1,0 +1,92 @@
+TAP version 13
+# Subtest: shouldGuardPathname returns true for guarded operator route prefixes
+ok 1 - shouldGuardPathname returns true for guarded operator route prefixes
+  ---
+  duration_ms: 1.044704
+  type: 'test'
+  ...
+# Subtest: shouldGuardPathname returns false for public and onboarding paths
+ok 2 - shouldGuardPathname returns false for public and onboarding paths
+  ---
+  duration_ms: 0.17599
+  type: 'test'
+  ...
+# Subtest: shouldGuardPathname returns false for empty pathname
+ok 3 - shouldGuardPathname returns false for empty pathname
+  ---
+  duration_ms: 0.078997
+  type: 'test'
+  ...
+# Subtest: countConnectedMetaPlatforms returns 0 for invalid tenant id
+ok 4 - countConnectedMetaPlatforms returns 0 for invalid tenant id
+  ---
+  duration_ms: 0.168541
+  type: 'test'
+  ...
+# Subtest: countConnectedMetaPlatforms returns count from query result
+ok 5 - countConnectedMetaPlatforms returns count from query result
+  ---
+  duration_ms: 0.218434
+  type: 'test'
+  ...
+# Subtest: countConnectedMetaPlatforms returns 0 when query returns empty rows
+ok 6 - countConnectedMetaPlatforms returns 0 when query returns empty rows
+  ---
+  duration_ms: 0.114709
+  type: 'test'
+  ...
+# Subtest: evaluateOnboardingGate redirects when business profile is incomplete
+ok 7 - evaluateOnboardingGate redirects when business profile is incomplete
+  ---
+  duration_ms: 0.244707
+  type: 'test'
+  ...
+# Subtest: evaluateOnboardingGate redirects when profile is complete but no Meta/IG connections exist
+ok 8 - evaluateOnboardingGate redirects when profile is complete but no Meta/IG connections exist
+  ---
+  duration_ms: 0.176504
+  type: 'test'
+  ...
+# Subtest: evaluateOnboardingGate allows access when profile is complete and one Meta/IG connection exists
+ok 9 - evaluateOnboardingGate allows access when profile is complete and one Meta/IG connection exists
+  ---
+  duration_ms: 0.209574
+  type: 'test'
+  ...
+# Subtest: evaluateOnboardingGate allows access with multiple connections
+ok 10 - evaluateOnboardingGate allows access with multiple connections
+  ---
+  duration_ms: 0.311396
+  type: 'test'
+  ...
+# Subtest: evaluateOnboardingGate treats profile resolver throw as incomplete
+ok 11 - evaluateOnboardingGate treats profile resolver throw as incomplete
+  ---
+  duration_ms: 0.172736
+  type: 'test'
+  ...
+# Subtest: evaluateOnboardingGate uses real connection-count SQL when no counter override is supplied
+ok 12 - evaluateOnboardingGate uses real connection-count SQL when no counter override is supplied
+  ---
+  duration_ms: 0.679437
+  type: 'test'
+  ...
+1..12
+# tests 12
+# suites 0
+# pass 12
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 250.81393
+---
+GUARDED LAYOUTS:
+app/calendar/layout.tsx
+app/dashboard/layout.tsx
+app/platforms/layout.tsx
+app/posts/layout.tsx
+app/social-content/layout.tsx
+---
+REDIRECT TARGET REACHABLE (no loop): /onboarding/start has no layout.tsx guard
+ls: cannot access 'app/onboarding/layout.tsx': No such file or directory

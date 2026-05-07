@@ -140,6 +140,9 @@ function nextStepDetail(nextStep: string): string | null {
   if (nextStep === 'submit_approval') {
     return 'The next step is waiting on an approval checkpoint.';
   }
+  if (nextStep === 'check_hermes_media_setup') {
+    return 'Hermes media configuration needs attention before weekly media generation can continue.';
+  }
   if (nextStep === 'wait_for_completion') {
     return 'Aries is still preparing the next package.';
   }

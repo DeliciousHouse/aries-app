@@ -15,6 +15,8 @@ import { TEST_HERMES_GATEWAY_URL } from './fixtures/service-urls';
 
 const STUB_RUNTIME_PATHS = { gatewayCwd: 'lobster', localCwd: '/tmp/lobster' };
 
+const NO_OP_BRAND_KIT_REFRESHER = async () => ({ refreshed: false });
+
 const STUB_DOC = {
   job_id: 'job_test',
   tenant_id: 'tenant_test',
@@ -166,6 +168,7 @@ test('HermesMarketingPort.runPipeline returns submitted immediately by default',
       },
       fetchImpl,
       NO_SLEEP,
+      NO_OP_BRAND_KIT_REFRESHER,
     );
     const result = await port.runPipeline(STUB_RUN_INPUT);
 
@@ -176,10 +179,9 @@ test('HermesMarketingPort.runPipeline returns submitted immediately by default',
 
     const body = JSON.parse(String(calls[0].init.body));
     assert.equal(body.callback_url, 'https://aries.example.com/api/internal/hermes/runs');
-    assert.deepEqual(body.callback_auth, {
-      type: 'internal_api_secret_bearer',
-      secret_ref: 'INTERNAL_API_SECRET',
-    });
+    assert.equal(body.callback_auth.type, 'internal_api_secret_bearer');
+    assert.equal(body.callback_auth.secret_ref, 'INTERNAL_API_SECRET');
+    assert.match(String(body.callback_auth.callback_token), /^[0-9a-f]{64}$/);
     assert.deepEqual(body.callback_context, {
       workflow_key: 'social_content_weekly',
       workflow_version: '2026-05-social-content-weekly-v1',
@@ -200,27 +202,18 @@ test('HermesMarketingPort.runPipeline returns submitted immediately by default',
     assert.equal(body.input.scope.video_script_count, 1);
     assert.equal(body.input.scope.video_render_count, 1);
     assert.deepEqual(body.input.scope.channels, ['meta', 'instagram']);
-    assert.deepEqual(body.media_provider, {
-      provider: 'openai',
-      auth_mode: 'user_oauth',
-      tenant_id: 'tenant_test',
-      user_id: 'user_test',
-      connection_id: 'conn_openai_test',
-    });
+    assert.equal('media_provider' in body, false);
     assert.equal(Array.isArray(body.input.media_requests), true);
     assert.deepEqual(body.input.media_requests, [
       {
         type: 'image.generate',
-        provider: 'openai',
-        auth_mode: 'user_oauth',
         aspect_ratio: '4:5',
         count: 2,
+        target_channels: ['meta', 'instagram'],
         creative_briefs: ['Create on-brand weekly social image creative.'],
       },
       {
         type: 'video.generate',
-        provider: 'openai',
-        auth_mode: 'user_oauth',
         aspect_ratio: '9:16',
         count: 1,
         requires_human_approval: true,
@@ -228,6 +221,7 @@ test('HermesMarketingPort.runPipeline returns submitted immediately by default',
       },
     ]);
     const serialized = JSON.stringify(body);
+    assert.equal(serialized.includes('conn_openai_test'), false);
     assert.equal(serialized.includes('.lobster'), false);
     assert.equal(serialized.includes('marketing_pipeline'), false);
     assert.equal(serialized.toLowerCase().includes('openclaw'), false);
@@ -261,6 +255,8 @@ test('HermesMarketingPort preserves brand campaign workflow key for non-weekly r
         APP_BASE_URL: 'https://aries.example.com',
       },
       fetchImpl,
+      undefined,
+      NO_OP_BRAND_KIT_REFRESHER,
     );
 
     const result = await port.runPipeline(BRAND_CAMPAIGN_RUN_INPUT);
@@ -309,6 +305,7 @@ test('HermesMarketingPort polls only when HERMES_SYNC_POLL_FOR_TESTS=1', async (
       },
       fetchImpl,
       NO_SLEEP,
+      NO_OP_BRAND_KIT_REFRESHER,
     );
 
     const result = await port.resumePipeline(STUB_RESUME_INPUT);
@@ -342,6 +339,8 @@ test('HermesMarketingPort social-content resume includes callback correlation me
         APP_BASE_URL: 'https://aries.example.com',
       },
       fetchImpl,
+      undefined,
+      NO_OP_BRAND_KIT_REFRESHER,
     );
 
     const result = await port.resumePipeline({
@@ -361,10 +360,9 @@ test('HermesMarketingPort social-content resume includes callback correlation me
     assert.equal(body.action, 'resume');
     assert.equal(body.aries_run_id, result.ariesRunId);
     assert.equal(body.callback_url, 'https://aries.example.com/api/internal/hermes/runs');
-    assert.deepEqual(body.callback_auth, {
-      type: 'internal_api_secret_bearer',
-      secret_ref: 'INTERNAL_API_SECRET',
-    });
+    assert.equal(body.callback_auth.type, 'internal_api_secret_bearer');
+    assert.equal(body.callback_auth.secret_ref, 'INTERNAL_API_SECRET');
+    assert.match(String(body.callback_auth.callback_token), /^[0-9a-f]{64}$/);
     assert.deepEqual(body.callback_context, {
       workflow_key: 'social_content_weekly',
       aries_run_id: result.ariesRunId,
@@ -413,6 +411,7 @@ test('HermesMarketingPort sync polling preserves documented approval payloads', 
       },
       fetchImpl,
       async () => {},
+      NO_OP_BRAND_KIT_REFRESHER,
     );
 
     const result = await port.resumePipeline(STUB_RESUME_INPUT);
@@ -471,6 +470,8 @@ test('HermesMarketingPort marks accepted Aries runs failed when Hermes submissio
         APP_BASE_URL: 'https://aries.example.com',
       },
       fetchImpl,
+      undefined,
+      NO_OP_BRAND_KIT_REFRESHER,
     );
 
     const result = await port.runPipeline(STUB_RUN_INPUT);

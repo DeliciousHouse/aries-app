@@ -114,8 +114,6 @@ Browser
 - `/api/tenant/profiles/[userId]`
 - `/api/tenant/workflows`
 - `/api/tenant/workflows/[workflowId]/runs`
-- `/api/tenant/approval-requests/[approvalRequestId]/approve`
-- `/api/tenant/approval-requests/[approvalRequestId]/reject`
 
 ## Repository layout
 
@@ -163,7 +161,7 @@ export MARKETING_STATUS_PUBLIC=1
 
 Hermes callbacks post to `${APP_BASE_URL}/api/internal/hermes/runs` with `Authorization: Bearer ${INTERNAL_API_SECRET}`. Run `npm run validate:execution-provider` after Hermes callback changes.
 
-For weekly social content media generation, operators must connect ChatGPT / OpenAI before image or video work can run. Text-only weekly planning can still run when media generation is disabled.
+For weekly social content media generation, Hermes owns ChatGPT/OpenAI auth and provider execution. Aries submits abstract media requests and receives authenticated callbacks. Text-only weekly planning can still run when media generation is disabled.
 
 ### 3) Start PostgreSQL
 
@@ -189,7 +187,7 @@ npm run dev
 
 ## Docker Compose
 
-The repo includes `docker-compose.yml`, `docker-compose.local.yml`, and a production `Dockerfile`. Local Compose provisions a companion `postgres` service and wires the app to it with `DB_HOST=postgres`; production deploys may use external PostgreSQL instead. Hermes is always external, so `HERMES_*` and callback auth values still need to point at working services.
+The repo includes `docker-compose.yml`, `docker-compose.local.yml`, and a production `Dockerfile`. Compose expects an external PostgreSQL database and passes through the `DB_*` values from `.env` or the production secret store; it does not provision Postgres or pgAdmin containers. Hermes is always external, so `HERMES_*` and callback auth values still need to point at working services.
 
 ### Production release
 
@@ -211,7 +209,7 @@ cp .env.example .env
 docker network create docker-stack || true
 ```
 
-3. Start the app with the local overrides file so localhost-oriented URL defaults are applied. Local Compose starts the companion `postgres` service from `docker-compose.yml`; the app container uses `DB_HOST=postgres` internally while `.env` supplies `DB_USER`, `DB_PASSWORD`, `DB_NAME`, and the host-published `DB_PORT`.
+3. Start the app with the local overrides file so localhost-oriented URL defaults are applied. Before starting Compose, make sure `.env` points `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, and `DB_NAME` at an existing PostgreSQL database reachable from the container.
 
 ```bash
 docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml up --build -d aries-app
@@ -237,7 +235,7 @@ docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml
 - The app container stores generated runtime artifacts under `/data`, which is a bind mount from `${ARIES_SHARED_DATA_ROOT:-/home/node/data}` on the host.
 - `docker-compose.yml` now publishes `${PORT:-3000}` for the main `aries-app` service because both deploys and local production-style runs depend on that host port existing.
 - `docker-compose.local.yml` layers in localhost-friendly URL defaults and merges into the same `aries-app` service rather than creating a second production container.
-- Local Compose includes a `postgres` service and wires the app container to it with `DB_HOST=postgres`. Production deploys may still use external PostgreSQL; in that case, configure the production environment/secret store with the external `DB_*` values instead of relying on local Compose defaults.
+- Compose does **not** provision PostgreSQL or pgAdmin. Configure `.env` locally, or the production environment/secret store in deploys, with external `DB_*` values that the app container can reach.
 - For production-style Compose runs, `NODE_ENV` is set to `production` and the container starts with `npm run start`.
 
 ## Environment variables
@@ -258,15 +256,12 @@ docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml
 - `AUTH_URL`
 - `NEXTAUTH_SECRET`
 - `AUTH_TRUST_HOST`
-- `OAUTH_TOKEN_ENCRYPTION_KEY` (stable 32-byte base64 key; generate with `openssl rand -base64 32`)
 
-### Required for OpenAI media generation
+### Aries-managed OAuth support
 
-- `OPENAI_CLIENT_ID`
-- `OPENAI_CLIENT_SECRET`
 - `OAUTH_TOKEN_ENCRYPTION_KEY`
 
-These are required only when image/video generation is enabled. Text-only weekly planning can run with media generation disabled.
+Generate `OAUTH_TOKEN_ENCRYPTION_KEY` with `openssl rand -base64 32`. Aries uses this shared key to encrypt tokens for Aries-managed OAuth providers such as LinkedIn, X, YouTube, Reddit, and TikTok. Weekly social content media generation does not use an Aries-side OpenAI client or secret; Hermes owns media auth and execution.
 
 ### Common optional variables
 
@@ -294,8 +289,7 @@ Aries derives generic OAuth callbacks from `APP_BASE_URL` for non-Meta providers
 - `${APP_BASE_URL}/api/auth/oauth/x/callback`
 - `${APP_BASE_URL}/api/auth/oauth/youtube/callback`
 
-Meta publishing remains env-managed with `META_PAGE_ID` and `META_ACCESS_TOKEN`.
-OpenAI media generation requires `OPENAI_CLIENT_ID`, `OPENAI_CLIENT_SECRET`, and a stable `OAUTH_TOKEN_ENCRYPTION_KEY` so Aries can store OAuth tokens safely. Text-only weekly planning can run with media generation disabled.
+Meta publishing remains env-managed with `META_PAGE_ID` and `META_ACCESS_TOKEN`. Aries-managed OAuth providers use a stable `OAUTH_TOKEN_ENCRYPTION_KEY` so Aries can store OAuth tokens safely. Weekly social content media generation does not use an Aries-side OpenAI client or secret.
 
 Hermes uses two different secrets at the execution boundary:
 
@@ -327,7 +321,7 @@ Operational flow:
 5. The user reviews weekly content in the social content status/review UI.
 6. The user approves optional video render/publish steps when needed.
 
-For image/video generation, ChatGPT / OpenAI must be configured with `OPENAI_CLIENT_ID`, `OPENAI_CLIENT_SECRET`, and a stable `OAUTH_TOKEN_ENCRYPTION_KEY`, then connected first in Integrations. Text planning can proceed with media generation disabled.
+For weekly social content image/video generation, Hermes owns ChatGPT/OpenAI auth for the connected agent. Aries sends abstract media requests, Hermes executes them, and callbacks update Aries job state. Text planning can proceed with media generation disabled.
 
 ### Legacy brand campaign flow (deprecated)
 

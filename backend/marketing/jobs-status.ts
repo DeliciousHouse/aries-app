@@ -480,7 +480,7 @@ function deriveState(
       state: 'needs_connection',
       status: 'needs_connection',
       currentStage: runtimeDoc.current_stage,
-      nextStep: 'connect_openai',
+      nextStep: 'check_hermes_media_setup',
       repairStatus: 'not_required',
       needsAttention: true,
     };
@@ -552,10 +552,10 @@ function buildSummary(
   if (state.needsAttention) {
     if (state.status === 'needs_connection') {
       return {
-        headline: 'Connect ChatGPT / OpenAI to continue',
+        headline: 'Hermes media setup needs attention',
         subheadline:
           runtimeDoc.last_error?.message ||
-          'Connect ChatGPT / OpenAI before generating image or video assets.',
+          'Hermes owns ChatGPT media auth for weekly image and video work. Check Hermes media configuration or run text-only planning.',
       };
     }
     return {

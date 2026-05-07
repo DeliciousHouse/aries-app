@@ -2,11 +2,137 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import test, { type TestContext } from 'node:test';
+
+import pool from '../lib/db';
 
 import { resolveProjectRoot } from './helpers/project-root';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
+
+type DraftRow = {
+  draft_id: string;
+  status: string;
+  website_url: string;
+  business_name: string;
+  business_type: string;
+  approver_name: string;
+  channels: string[];
+  goal: string;
+  offer: string;
+  competitor_url: string;
+  preview: unknown;
+  provenance: unknown;
+  materialized_tenant_id: string | null;
+  materialized_job_id: string | null;
+  created_at: Date;
+  updated_at: Date;
+};
+
+type QueryResult<T = Record<string, unknown>> = { rows: T[]; rowCount: number };
+type QueryHandler = (sql: string, params?: unknown[]) => Promise<QueryResult> | QueryResult;
+
+function installDbMock(t: TestContext, handler: QueryHandler): void {
+  t.mock.method(pool, 'query', (async (sql: string, params?: unknown[]) =>
+    handler(String(sql), params ?? [])) as typeof pool.query);
+}
+
+function createDraftDbMock(): QueryHandler {
+  const drafts = new Map<string, DraftRow>();
+
+  return (sql, params = []) => {
+    const text = sql.trim();
+    const now = new Date();
+
+    if (text.startsWith('INSERT INTO onboarding_drafts')) {
+      const [
+        draftId,
+        status,
+        websiteUrl,
+        businessName,
+        businessType,
+        approverName,
+        channels,
+        goal,
+        offer,
+        competitorUrl,
+        preview,
+        provenance,
+        materializedTenantId,
+        materializedJobId,
+      ] = params as [string, string, string, string, string, string, string[], string, string, string, unknown, unknown, string | null, string | null];
+      const row: DraftRow = {
+        draft_id: draftId,
+        status,
+        website_url: websiteUrl,
+        business_name: businessName,
+        business_type: businessType,
+        approver_name: approverName,
+        channels,
+        goal,
+        offer,
+        competitor_url: competitorUrl,
+        preview,
+        provenance,
+        materialized_tenant_id: materializedTenantId,
+        materialized_job_id: materializedJobId,
+        created_at: now,
+        updated_at: now,
+      };
+      drafts.set(draftId, row);
+      return { rows: [row], rowCount: 1 };
+    }
+
+    if (text.startsWith('SELECT * FROM onboarding_drafts WHERE draft_id = $1')) {
+      const draftId = String(params[0] ?? '');
+      const row = drafts.get(draftId);
+      return { rows: row ? [row] : [], rowCount: row ? 1 : 0 };
+    }
+
+    if (text.startsWith('UPDATE onboarding_drafts SET')) {
+      const [
+        draftId,
+        status,
+        websiteUrl,
+        businessName,
+        businessType,
+        approverName,
+        channels,
+        goal,
+        offer,
+        competitorUrl,
+        preview,
+        provenance,
+        materializedTenantId,
+        materializedJobId,
+      ] = params as [string, string, string, string, string, string, string[], string, string, string, unknown, unknown, string | null, string | null];
+      const current = drafts.get(draftId);
+      if (!current) return { rows: [], rowCount: 0 };
+      const row: DraftRow = {
+        ...current,
+        status,
+        website_url: websiteUrl,
+        business_name: businessName,
+        business_type: businessType,
+        approver_name: approverName,
+        channels,
+        goal,
+        offer,
+        competitor_url: competitorUrl,
+        preview,
+        provenance,
+        materialized_tenant_id: materializedTenantId,
+        materialized_job_id: materializedJobId,
+        updated_at: now,
+      };
+      drafts.set(draftId, row);
+      return { rows: [row], rowCount: 1 };
+    }
+
+    throw new Error(`unexpected query: ${text}`);
+  };
+}
+
 
 async function withDraftEnv<T>(run: () => Promise<T>): Promise<T> {
   const previousCodeRoot = process.env.CODE_ROOT;
@@ -43,8 +169,9 @@ async function withDraftEnv<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
-test('/api/onboarding/draft creates, reads, and updates an onboarding draft by explicit token', async () => {
+test('/api/onboarding/draft creates, reads, and updates an onboarding draft by explicit token', async (t) => {
   await withDraftEnv(async () => {
+    installDbMock(t, createDraftDbMock());
     const route = await import('../app/api/onboarding/draft/route');
 
     const createdResponse = await route.POST();
@@ -92,8 +219,9 @@ test('/api/onboarding/draft creates, reads, and updates an onboarding draft by e
   });
 });
 
-test('/api/onboarding/draft rejects reads and writes without an explicit draft token', async () => {
+test('/api/onboarding/draft rejects reads and writes without an explicit draft token', async (t) => {
   await withDraftEnv(async () => {
+    installDbMock(t, createDraftDbMock());
     const route = await import('../app/api/onboarding/draft/route');
 
     const getResponse = await route.GET(new Request('http://localhost/api/onboarding/draft'));
@@ -111,5 +239,22 @@ test('/api/onboarding/draft rejects reads and writes without an explicit draft t
     const patchBody = (await patchResponse.json()) as { error: string };
     assert.equal(patchResponse.status, 400);
     assert.equal(patchBody.error, 'draft_token_required');
+  });
+});
+
+
+test('/api/onboarding/draft returns a safe unavailable error when persistence fails', async (t) => {
+  await withDraftEnv(async () => {
+    installDbMock(t, () => {
+      throw new Error('connect ECONNREFUSED 127.0.0.1:5432 password=secret');
+    });
+    const route = await import('../app/api/onboarding/draft/route');
+
+    const createdResponse = await route.POST();
+    const createdBody = (await createdResponse.json()) as { error: string };
+
+    assert.equal(createdResponse.status, 503);
+    assert.equal(createdBody.error, 'onboarding_draft_unavailable');
+    assert.doesNotMatch(createdBody.error, /ECONNREFUSED|127\.0\.0\.1|password|secret/i);
   });
 });

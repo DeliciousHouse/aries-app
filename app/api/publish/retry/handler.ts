@@ -16,7 +16,9 @@ export async function handlePublishRetry(req: Request, tenantContextLoader?: Ten
   }
 
   try {
-    const event = buildRetryEvent({ tenant_id: tenantResult.tenantContext.tenantId, max_attempts: body.max_attempts });
+    const tenantId = tenantResult.tenantContext.tenantId;
+
+    const event = buildRetryEvent({ tenant_id: tenantId, max_attempts: body.max_attempts });
     const executed = await runAriesWorkflow('publish_retry', {
       tenant_id: tenantResult.tenantContext.tenantId,
       max_attempts: event.payload.max_attempts,

@@ -63,24 +63,24 @@ const STEP_DEFINITIONS: StepDefinition[] = [
     key: 'business',
     label: 'Business',
     title: 'Set the business Aries will represent.',
-    description: 'Set the operating basics once so every campaign starts from the same clear foundation.',
+    description: 'Set the operating basics once so every weekly social content plan starts from the same clear foundation.',
   },
   {
     key: 'website',
     label: 'Website',
     title: 'Use the live website as the current source of truth.',
-    description: 'Aries uses the website to understand the offer, the conversion path, and the visible brand cues before any campaign work begins.',
+    description: 'Aries uses the website to understand the offer, the conversion path, and the visible brand cues before any weekly social content work begins.',
   },
   {
     key: 'brand',
     label: 'Brand identity',
-    title: 'Review the brand snapshot before the first campaign opens.',
+    title: 'Review the brand snapshot before the first weekly content plan opens.',
     description: 'This is the client-facing preview Aries will use to frame voice, offer, and visual direction.',
   },
   {
     key: 'channels',
     label: 'Channels',
-    title: 'Choose where the first campaign should show up.',
+    title: 'Choose where the first weekly social content should show up.',
     description: 'Start with the channels that matter now. The rest can be added later without rebuilding the profile.',
   },
 ];
@@ -99,7 +99,7 @@ const CHANNEL_OPTIONS: ChannelOption[] = [
   {
     id: 'email',
     label: 'Email Marketing',
-    description: 'Automated email campaigns and sequences.',
+    description: 'Automated email sequences and lifecycle content.',
   },
   {
     id: 'tiktok',
@@ -1196,7 +1196,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
       clearLocalDraft();
 
       if (props.initialAuthenticated) {
-        // Show the full-screen "Building your first campaign plan" state and
+        // Show the full-screen "Building your first weekly social content plan" state and
         // navigate immediately. The transition component stays mounted until
         // Next.js finishes server-rendering /onboarding/resume (which can
         // take 10-30s while the marketing job materializes), so the user
@@ -1218,7 +1218,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
       setError(
         submissionError instanceof Error
           ? submissionError.message
-          : 'We could not save setup for the first campaign.',
+          : 'We could not save setup for the first weekly social content plan.',
       );
     } finally {
       setSubmitting(false);
@@ -1322,7 +1322,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
             <div className="flex items-center gap-3">
               <Loader2 aria-hidden="true" className="h-5 w-5 animate-spin text-[#c8a6ff]" />
               <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#ba8cff]">
-                Building your first campaign plan
+                Building your first weekly social content plan
               </p>
             </div>
             <h2 className="text-2xl font-semibold tracking-[-0.02em] text-white">
@@ -1414,7 +1414,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                   Launch from it every time.
                 </h1>
                 <p className="w-full max-w-none text-base leading-8 text-white/68 lg:pr-6 lg:pt-2 lg:text-[1.05rem]">
-                  Aries uses this intake to prepare the first campaign, shape the review package, and keep approvals visible from the start.
+                  Aries uses this intake to prepare the first weekly social content plan, shape the review package, and keep approvals visible from the start.
                 </p>
               </div>
             </div>
@@ -1525,7 +1525,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                     </Field>
                     <Field
                       label="Current source"
-                      hint="Enter the website Aries should treat as the active brand source for this campaign."
+                      hint="Enter the website Aries should treat as the active brand source for this weekly content plan."
                       validity={websiteUrlValidity}
                       error={fieldErrorMessage('websiteUrl')}
                     >
@@ -1542,7 +1542,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                   <div className="grid gap-4 lg:mt-6">
                     <EditorialPanel
                       eyebrow="What this powers"
-                      title="One intake feeds the full campaign flow."
+                      title="One intake feeds the full weekly social content flow."
                       description="The business profile, brand review, strategy review, creative package, and launch status all start from this operating baseline."
                     />
                     <EditorialList
@@ -1550,7 +1550,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                       items={[
                         'A current-source review built from the live website.',
                         'A brand identity snapshot the client can actually approve.',
-                        'A first campaign plan aligned to the selected goal and channels.',
+                        'A first weekly social content plan aligned to the selected goal and channels.',
                       ]}
                     />
                   </div>
@@ -1562,7 +1562,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                   <div className="space-y-5">
                     <Field
                       label="Website"
-                      hint="Use the current live website. Aries treats this as the active brand source for the first campaign."
+                      hint="Use the current live website. Aries treats this as the active brand source for the first weekly social content plan."
                       validity={websiteUrlValidity}
                       error={fieldErrorMessage('websiteUrl')}
                     >
@@ -1609,7 +1609,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                           Visual identity cues like logos, palette, and typography
                         </div>
                         <div className="rounded-[1rem] border border-white/10 bg-white/[0.03] px-4 py-4">
-                          The current source URL that must stay attached to the campaign
+                          The current source URL that must stay attached to the weekly social content plan
                         </div>
                       </div>
                     </div>
@@ -1769,14 +1769,14 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
               {currentStep.key === 'channels' ? (
                 <div className="space-y-5">
                   <p className="max-w-3xl text-sm leading-7 text-white/65">
-                    Choose the channels Aries should prioritize first. The initial set stays lightweight so the first campaign is easy to approve and launch.
+                    Choose the channels Aries should prioritize first. The initial set stays lightweight so the first weekly social content plan is easy to approve and launch.
                   </p>
                   {channelsRecommendationShown && businessType.trim() ? (
                     <p className="max-w-3xl text-xs font-medium uppercase tracking-[0.22em] text-[#ba8cff]">
                       Recommended for {businessType.trim()}
                     </p>
                   ) : null}
-                  <div className="grid gap-4 md:grid-cols-2" role="group" aria-label="Campaign channels">
+                  <div className="grid gap-4 md:grid-cols-2" role="group" aria-label="Social content channels">
                     {CHANNEL_OPTIONS.map((channel) => {
                       const selected = selectedChannels.includes(channel.id);
                       return (
@@ -1821,7 +1821,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                     <div
                       className="grid gap-3"
                       role="radiogroup"
-                      aria-label="Campaign goal"
+                      aria-label="Social content goal"
                       aria-invalid={goalError ? true : undefined}
                       aria-describedby={goalError ? 'onboarding-goal-error' : undefined}
                     >
@@ -1965,7 +1965,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                     </Field>
 
                     <div className="rounded-[1.5rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] p-5 text-sm leading-7 text-white/65">
-                      Aries will save this operating profile, open the first campaign workspace, and carry the same brand identity through review instead of rebuilding it from scratch.
+                      Aries will save this operating profile, open the first weekly social content workspace, and carry the same brand identity through review instead of rebuilding it from scratch.
                     </div>
 
                   </div>
@@ -2030,7 +2030,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                 <span className="font-medium">Approval stays visible from the first plan through launch.</span>
               </div>
               <p className="mt-3 text-white/62">
-                Nothing goes live without a clear review step. The source website stays attached to the campaign so stale brand material does not leak forward.
+                Nothing goes live without a clear review step. The source website stays attached to the weekly social content plan so stale brand material does not leak forward.
               </p>
             </div>
                 </section>

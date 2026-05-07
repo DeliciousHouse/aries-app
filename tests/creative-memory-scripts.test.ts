@@ -14,5 +14,5 @@ test('Creative Memory scripts are intentionally scoped', () => {
   assert.match(seed,/ON CONFLICT/);
   assert.doesNotMatch(seed,/INSERT INTO business_profiles/);
   assert.match(backfill,/noop-v1/);
-  assert.match(smoke,/Campaign Learning/);
+  assert.match(smoke,/Content Learning/);
 });

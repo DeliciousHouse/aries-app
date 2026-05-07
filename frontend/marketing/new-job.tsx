@@ -49,7 +49,7 @@ const SUBMIT_PROGRESS_MESSAGES = [
   'Uploading brand assets',
   'Preparing workspace',
   'Starting review flow',
-  'Starting campaign',
+  'Starting social content run',
 ];
 
 const FINAL_SUBMIT_PROGRESS_INDEX = SUBMIT_PROGRESS_MESSAGES.length - 1;

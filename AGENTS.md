@@ -62,7 +62,7 @@ Use these checks to keep the repo clean:
 - Weekly social-content defaults are 7 days, 3 static posts, up to 2 image creatives, 1 video script, and 0 rendered videos until explicit approval.
 - Social-content execution should submit Hermes runs asynchronously and rely on authenticated, idempotent callbacks at `/api/internal/hermes/runs`; it should not poll Hermes to terminal completion.
 - Hermes social-content workflows should use `social_content_weekly` with version `2026-05-social-content-weekly-v1`; new social-content code should not depend on Lobster/OpenClaw.
-- Aries should pass abstract media-generation requests and OAuth connection references to Hermes; Hermes owns provider execution and raw OpenAI/ChatGPT token usage.
+- Aries should pass abstract media-generation requests to Hermes; Hermes owns provider execution and raw OpenAI/ChatGPT token usage for weekly social content.
 - Global `context-mode` is installed under `/home/node/.hermes/node`; Cursor hooks, MCP, and statusline configs should use `/home/node/.hermes/node/bin/context-mode` unless that bin directory is on `PATH`.
 - `context-mode` is not a local `aries-app` dependency by default, so project-relative `node_modules/context-mode/...` config paths only work after a local install; global config files live under `$(npm root -g)/context-mode/...`.
 - Cursor-visible skill duplication was cleaned up to canonical roots around `/home/node/.claude/skills`, `/home/node/.cursor/plugins/cache`, and `/home/node/.cursor/skills-cursor`; stale high UI counts usually require restarting Cursor to re-index.

@@ -4,6 +4,7 @@ import type {
   MarketingDashboardAsset,
   MarketingDashboardCalendarEvent,
   MarketingDashboardCampaign,
+  MarketingDashboardCampaignCompatibilityStatus,
   MarketingDashboardCampaignContent,
   MarketingDashboardItemStatus,
   MarketingDashboardPost,
@@ -26,10 +27,14 @@ const STATUS_KEYS: MarketingDashboardItemStatus[] = [
   'scheduled',
   'live',
 ];
+const DASHBOARD_REDACTED_VALUE = '[redacted]';
+const DASHBOARD_SENSITIVE_ASSIGNMENT_PATTERN =
+  /\b(access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|clientSecret|api[_-]?key|apiKey|access[_-]?key|accessKey|AWSAccessKeyId|authorization|password|passwd|token|signature|sig|secret|key)\b\s*[:=]\s*(Bearer\s+)?[^\s&;,'"<>]+/gi;
 
 type UnknownRecord = Record<string, unknown>;
 
 type SocialImageCreative = SocialContentWorkflowProjection['weekly_content_plan']['image_creatives'][number];
+type SocialVideoScript = SocialContentWorkflowProjection['weekly_content_plan']['video_scripts'][number];
 type SocialWeeklyPost = SocialContentWorkflowProjection['weekly_content_plan']['posts'][number];
 
 function recordValue(value: unknown): UnknownRecord | null {
@@ -37,9 +42,153 @@ function recordValue(value: unknown): UnknownRecord | null {
 }
 
 function stringValue(value: unknown, fallback = ''): string {
-  if (typeof value === 'string') return redactTokenLikeString(value).trim() || fallback;
+  if (typeof value === 'string') {
+    const redacted = redactTokenLikeString(value).replace(
+      DASHBOARD_SENSITIVE_ASSIGNMENT_PATTERN,
+      (_match, key: string) => `${key}=${DASHBOARD_REDACTED_VALUE}`,
+    );
+    return redacted.trim() || fallback;
+  }
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   return fallback;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function containsTenantId(doc: MarketingJobRuntimeDocument, value: string): boolean {
+  const tenantId = typeof doc.tenant_id === 'string' ? doc.tenant_id.trim() : '';
+  return tenantId.length > 0 && value.includes(tenantId);
+}
+
+function tenantSafeString(doc: MarketingJobRuntimeDocument, value: unknown, fallback = ''): string {
+  const tenantId = typeof doc.tenant_id === 'string' ? doc.tenant_id.trim() : '';
+  const redacted = stringValue(value, fallback);
+  if (!tenantId) return redacted;
+  return redacted.replace(new RegExp(escapeRegExp(tenantId), 'g'), 'tenant');
+}
+
+function publicId(doc: MarketingJobRuntimeDocument, value: unknown, fallback: string): string {
+  const raw = stringValue(value);
+  if (!raw) return fallback;
+  if (containsTenantId(doc, raw)) {
+    return `${fallback}-${safeHash(doc.job_id, raw).slice(0, 8)}`;
+  }
+  return raw;
+}
+
+function safeDashboardUrl(doc: MarketingJobRuntimeDocument, value: unknown): string | null {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (raw) {
+    try {
+      const rawUrl = new URL(raw);
+      if (hasSensitiveQueryParams(rawUrl)) return null;
+    } catch {
+      return null;
+    }
+  }
+  const redacted = stringValue(value);
+  if (!redacted || containsTenantId(doc, redacted)) return null;
+  try {
+    const url = new URL(redacted);
+    if (isPublicHttpUrl(url)) return url.toString();
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function safeImagePreviewUrl(doc: MarketingJobRuntimeDocument, value: unknown): string | null {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (raw) {
+    try {
+      const rawUrl = new URL(raw);
+      if (hasSensitiveQueryParams(rawUrl)) return null;
+    } catch {
+      return null;
+    }
+  }
+  const redacted = stringValue(value);
+  if (!redacted || containsTenantId(doc, redacted)) return null;
+  try {
+    const url = new URL(redacted);
+    if (isPublicHttpUrl(url)) return url.toString();
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function contentTypeForPreviewUrl(previewUrl: string): string {
+  const dataMatch = previewUrl.match(/^data:(image\/[a-z0-9.+-]+);base64,/i);
+  if (dataMatch) return dataMatch[1].toLowerCase();
+  return 'image/png';
+}
+
+function hasSensitiveQueryParams(url: URL): boolean {
+  for (const key of Array.from(url.searchParams.keys())) {
+    const normalized = key.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+    const compact = key.toLowerCase().replace(/[^a-z0-9]+/g, '');
+    if (
+      normalized.includes('token') ||
+      normalized.includes('secret') ||
+      normalized.includes('password') ||
+      normalized.includes('passwd') ||
+      normalized.includes('signature') ||
+      normalized.includes('credential') ||
+      normalized.includes('authorization') ||
+      normalized === 'sig' ||
+      normalized === 'key' ||
+      normalized === 'api_key' ||
+      normalized.endsWith('_key') ||
+      normalized.includes('policy') ||
+      compact.includes('apikey') ||
+      compact.includes('accesskey') ||
+      compact.includes('awsaccesskeyid')
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isPrivateIpv4(hostname: string): boolean {
+  const match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!match) return false;
+  const octets = match.slice(1).map((part) => Number.parseInt(part, 10));
+  if (octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) return false;
+  const [first, second] = octets;
+  return (
+    first === 0 ||
+    first === 10 ||
+    first === 127 ||
+    (first === 169 && second === 254) ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168)
+  );
+}
+
+function isPublicHttpUrl(url: URL): boolean {
+  const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/g, '');
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+  if (url.username || url.password) return false;
+  if (hostname.includes(':')) return false;
+  if (!hostname || hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local') || hostname.endsWith('.internal')) return false;
+  if (isPrivateIpv4(hostname)) return false;
+  if (hasSensitiveQueryParams(url)) return false;
+  return true;
+}
+
+function tenantSafeDashboardValue<T>(doc: MarketingJobRuntimeDocument, value: T): T {
+  if (typeof value === 'string') return tenantSafeString(doc, value) as T;
+  if (Array.isArray(value)) return value.map((entry) => tenantSafeDashboardValue(doc, entry)) as T;
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, entry]) => [key, tenantSafeDashboardValue(doc, entry)]),
+    ) as T;
+  }
+  return value;
 }
 
 function stringArray(value: unknown): string[] {
@@ -59,19 +208,34 @@ function latestSocialProjection(runtimeDoc: MarketingJobRuntimeDocument): Social
   const runtime = readSocialContentRuntimeState(runtimeDoc);
   if (!runtime) return null;
 
-  let latest: SocialContentWorkflowProjection | null = null;
+  let summary = '';
+  let windowDays: number | null = null;
+  let posts: SocialContentWorkflowProjection['weekly_content_plan']['posts'] = [];
+  let imageCreatives: SocialContentWorkflowProjection['weekly_content_plan']['image_creatives'] = [];
+  let videoScripts: SocialContentWorkflowProjection['weekly_content_plan']['video_scripts'] = [];
+
   for (const stage of runtime.stageOrder) {
     const projection = parseSocialContentWorkflowOutput(runtime.stages[stage]?.output);
-    const plan = projection?.weekly_content_plan;
-    if (
-      projection &&
-      plan &&
-      (plan.window_days !== null || plan.posts.length > 0 || plan.image_creatives.length > 0 || plan.video_scripts.length > 0)
-    ) {
-      latest = projection;
-    }
+    if (!projection) continue;
+    const plan = projection.weekly_content_plan;
+    if (projection.summary) summary = projection.summary;
+    if (plan.window_days !== null) windowDays = plan.window_days;
+    if (plan.posts.length > 0) posts = plan.posts;
+    if (plan.image_creatives.length > 0) imageCreatives = plan.image_creatives;
+    if (plan.video_scripts.length > 0) videoScripts = plan.video_scripts;
   }
-  return latest;
+
+  const hasProjection = windowDays !== null || posts.length > 0 || imageCreatives.length > 0 || videoScripts.length > 0;
+  if (!hasProjection) return null;
+  return {
+    summary,
+    weekly_content_plan: {
+      window_days: windowDays,
+      posts,
+      image_creatives: imageCreatives,
+      video_scripts: videoScripts,
+    },
+  };
 }
 
 function safeHash(...parts: string[]): string {
@@ -82,21 +246,27 @@ function publicCampaignId(jobId: string): string {
   return `social-${safeHash(jobId).slice(0, 12)}`;
 }
 
+function safeHexColor(value: string, fallback: string): string {
+  const normalized = value.trim();
+  if (/^#[0-9a-f]{6}$/i.test(normalized) || /^#[0-9a-f]{3}$/i.test(normalized)) return normalized;
+  return fallback;
+}
+
 function brandPalette(doc: MarketingJobRuntimeDocument): { primary: string; secondary: string; accent: string } {
   const colors = recordValue(doc.brand_kit?.colors);
   const palette = stringArray(colors?.palette);
-  const primary = stringValue(colors?.primary) || palette[0] || '#14151f';
-  const secondary = stringValue(colors?.secondary) || palette[1] || '#f3c969';
-  const accent = stringValue(colors?.accent) || palette[2] || '#f8f4ea';
+  const primary = safeHexColor(tenantSafeString(doc, colors?.primary) || palette[0] || '', '#14151f');
+  const secondary = safeHexColor(tenantSafeString(doc, colors?.secondary) || palette[1] || '', '#f3c969');
+  const accent = safeHexColor(tenantSafeString(doc, colors?.accent) || palette[2] || '', '#f8f4ea');
   return { primary, secondary, accent };
 }
 
 function brandName(doc: MarketingJobRuntimeDocument): string {
   const request = recordValue(doc.inputs?.request);
   return (
-    stringValue(request?.businessName) ||
-    stringValue(request?.brandName) ||
-    stringValue(doc.brand_kit?.brand_name) ||
+    tenantSafeString(doc, request?.businessName) ||
+    tenantSafeString(doc, request?.brandName) ||
+    tenantSafeString(doc, doc.brand_kit?.brand_name) ||
     'Weekly social content'
   );
 }
@@ -127,8 +297,8 @@ function socialPreviewDataUri(input: {
   const seedA = Number.parseInt(hash.slice(0, 2), 16);
   const seedB = Number.parseInt(hash.slice(2, 4), 16);
   const seedC = Number.parseInt(hash.slice(4, 6), 16);
-  const title = escapeSvgText(shortText(input.creative.title || `Image creative ${input.index + 1}`, 42));
-  const prompt = escapeSvgText(shortText(input.creative.prompt, 86));
+  const title = escapeSvgText(shortText(tenantSafeString(input.doc, input.creative.title, `Image creative ${input.index + 1}`), 42));
+  const prompt = escapeSvgText(shortText(tenantSafeString(input.doc, input.creative.prompt), 86));
   const brand = escapeSvgText(shortText(input.brand, 36));
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1500" viewBox="0 0 1200 1500" role="img" aria-label="${title}">
   <defs>
@@ -208,15 +378,35 @@ function emptyCounts(): Record<MarketingDashboardItemStatus, number> {
 
 function recountStatuses(input: {
   posts: MarketingDashboardPost[];
-  assets: MarketingDashboardAsset[];
   publishItems: MarketingDashboardPublishItem[];
-  calendarEvents: MarketingDashboardCalendarEvent[];
 }): Record<MarketingDashboardItemStatus, number> {
   const counts = emptyCounts();
-  for (const item of [...input.posts, ...input.assets, ...input.publishItems, ...input.calendarEvents]) {
+  for (const item of [...input.posts, ...input.publishItems]) {
     counts[item.status] += 1;
   }
   return counts;
+}
+
+function compatibilityStatusFor(status: MarketingDashboardItemStatus): MarketingDashboardCampaignCompatibilityStatus {
+  if (status === 'live') return 'live';
+  if (status === 'scheduled') return 'scheduled';
+  if (status === 'published_to_meta_paused' || status === 'ready_to_publish' || status === 'ready') return 'approved';
+  if (status === 'in_review') return 'in_review';
+  return 'draft';
+}
+
+function aggregateCampaignStatus(input: {
+  posts: MarketingDashboardPost[];
+  publishItems: MarketingDashboardPublishItem[];
+}): MarketingDashboardItemStatus {
+  const items = [...input.publishItems, ...input.posts];
+  if (items.some((item) => item.status === 'live')) return 'live';
+  if (items.some((item) => item.status === 'scheduled')) return 'scheduled';
+  if (items.some((item) => item.status === 'published_to_meta_paused')) return 'published_to_meta_paused';
+  if (items.some((item) => item.status === 'ready_to_publish')) return 'ready_to_publish';
+  if (items.some((item) => item.status === 'ready')) return 'ready';
+  if (items.some((item) => item.status === 'in_review')) return 'in_review';
+  return 'draft';
 }
 
 function mergeById<T extends { id: string }>(existing: T[], additions: T[]): T[] {
@@ -226,8 +416,12 @@ function mergeById<T extends { id: string }>(existing: T[], additions: T[]): T[]
   return Array.from(byId.values());
 }
 
-function imageAssetId(creative: SocialImageCreative, index: number): string {
-  return stringValue(creative.id) || `social-image-${index + 1}`;
+function imageAssetId(doc: MarketingJobRuntimeDocument, creative: SocialImageCreative, index: number): string {
+  return publicId(doc, creative.id, `social-image-${index + 1}`);
+}
+
+function videoScriptAssetId(doc: MarketingJobRuntimeDocument, script: SocialVideoScript, index: number): string {
+  return publicId(doc, script.id, `social-video-script-${index + 1}`);
 }
 
 function createAssets(input: {
@@ -237,32 +431,31 @@ function createAssets(input: {
   campaignName: string;
   objective: string;
 }): MarketingDashboardAsset[] {
-  return input.projection.weekly_content_plan.image_creatives.map((creative, index) => {
-    const id = imageAssetId(creative, index);
-    const title = stringValue(creative.title) || `Weekly image creative ${index + 1}`;
-    const previewUrl = stringValue(creative.artifact_url) || socialPreviewDataUri({
+  const imageAssets = input.projection.weekly_content_plan.image_creatives.map((creative, index) => {
+    const id = imageAssetId(input.doc, creative, index);
+    const title = tenantSafeString(input.doc, creative.title) || `Weekly image creative ${index + 1}`;
+    const previewUrl = safeImagePreviewUrl(input.doc, creative.artifact_url) || socialPreviewDataUri({
       doc: input.doc,
       creative,
       index,
       brand: input.campaignName,
     });
-    const generatedPreview = previewUrl.startsWith('data:image/svg+xml;base64,');
     return {
       id,
       campaignId: input.campaignId,
       jobId: input.doc.job_id,
       type: 'image_ad',
       title,
-      summary: stringValue(creative.prompt) || title,
+      summary: tenantSafeString(input.doc, creative.prompt) || title,
       platform: 'social',
       platformLabel: 'Social content',
       campaignName: input.campaignName,
       funnelStage: 'weekly_content',
       objective: input.objective,
-      destinationUrl: stringValue(input.doc.inputs?.brand_url) || null,
+      destinationUrl: safeDashboardUrl(input.doc, input.doc.inputs?.brand_url),
       previewUrl,
       thumbnailUrl: previewUrl,
-      contentType: generatedPreview ? 'image/svg+xml' : 'image/png',
+      contentType: contentTypeForPreviewUrl(previewUrl),
       status: normalizeDashboardStatus(creative.status, 'in_review'),
       createdAt: input.doc.updated_at || input.doc.created_at || null,
       relatedPostIds: [],
@@ -270,12 +463,43 @@ function createAssets(input: {
       provenance: provenance('production'),
     } satisfies MarketingDashboardAsset;
   });
+
+  const scriptAssets = input.projection.weekly_content_plan.video_scripts.map((script, index) => {
+    const id = videoScriptAssetId(input.doc, script, index);
+    const title = tenantSafeString(input.doc, script.title) || `Weekly video script ${index + 1}`;
+    const duration = script.duration_seconds ? `${script.duration_seconds}s` : 'Short-form';
+    return {
+      id,
+      campaignId: input.campaignId,
+      jobId: input.doc.job_id,
+      type: 'script',
+      title,
+      summary: tenantSafeString(input.doc, script.script_markdown) || `${duration} weekly social video script ready for review.`,
+      platform: 'social',
+      platformLabel: 'Social content',
+      campaignName: input.campaignName,
+      funnelStage: 'weekly_content',
+      objective: input.objective,
+      destinationUrl: safeDashboardUrl(input.doc, input.doc.inputs?.brand_url),
+      previewUrl: null,
+      thumbnailUrl: null,
+      contentType: 'text/markdown',
+      status: normalizeDashboardStatus(script.status, 'in_review'),
+      createdAt: input.doc.updated_at || input.doc.created_at || null,
+      relatedPostIds: [],
+      relatedPublishItemIds: [],
+      provenance: provenance('production'),
+    } satisfies MarketingDashboardAsset;
+  });
+
+  return [...imageAssets, ...scriptAssets];
 }
 
-function resolvePostAssetId(post: SocialWeeklyPost, assets: MarketingDashboardAsset[], index: number): string | null {
-  const preferred = stringValue(post.creative_brief_id);
-  if (preferred && assets.some((asset) => asset.id === preferred)) return preferred;
-  return assets[index % Math.max(1, assets.length)]?.id ?? null;
+function resolvePostAssetId(doc: MarketingJobRuntimeDocument, post: SocialWeeklyPost, assets: MarketingDashboardAsset[], index: number): string | null {
+  const previewAssets = assets.filter((asset) => asset.type === 'image_ad' && Boolean(asset.previewUrl || asset.thumbnailUrl));
+  const preferred = publicId(doc, post.creative_brief_id, `social-image-${index + 1}`);
+  if (preferred && previewAssets.some((asset) => asset.id === preferred)) return preferred;
+  return previewAssets[index % Math.max(1, previewAssets.length)]?.id ?? null;
 }
 
 function createPosts(input: {
@@ -288,24 +512,24 @@ function createPosts(input: {
 }): MarketingDashboardPost[] {
   return input.projection.weekly_content_plan.posts.map((post, index) => {
     const platform = (post.platforms.find(Boolean) || 'meta').toLowerCase();
-    const previewAssetId = resolvePostAssetId(post, input.assets, index);
+    const previewAssetId = resolvePostAssetId(input.doc, post, input.assets, index);
     return {
       id: `social-post-${index + 1}`,
       campaignId: input.campaignId,
       jobId: input.doc.job_id,
       type: 'platform_post',
-      title: stringValue(post.title) || `Weekly social post ${index + 1}`,
-      summary: stringValue(post.caption) || stringValue(post.post_type) || 'Weekly social post ready for review.',
+      title: tenantSafeString(input.doc, post.title) || `Weekly social post ${index + 1}`,
+      summary: tenantSafeString(input.doc, post.caption) || tenantSafeString(input.doc, post.post_type) || 'Weekly social post ready for review.',
       platform,
       platformLabel: platformLabel(platform),
       campaignName: input.campaignName,
       funnelStage: 'weekly_content',
       objective: input.objective,
-      destinationUrl: stringValue(input.doc.inputs?.brand_url) || null,
+      destinationUrl: safeDashboardUrl(input.doc, input.doc.inputs?.brand_url),
       previewAssetId,
       status: normalizeDashboardStatus(post.status, 'in_review'),
       createdAt: input.doc.updated_at || input.doc.created_at || null,
-      conceptId: stringValue(post.creative_brief_id) || null,
+      conceptId: previewAssetId,
       relatedAssetIds: previewAssetId ? [previewAssetId] : [],
       relatedPublishItemIds: [],
       provenance: provenance('production'),
@@ -370,7 +594,7 @@ function createCalendarEvents(input: {
       campaignName: input.campaignName,
       funnelStage: 'weekly_content',
       objective: input.objective,
-      destinationUrl: linkedPost?.destinationUrl || stringValue(input.doc.inputs?.brand_url) || null,
+      destinationUrl: linkedPost?.destinationUrl || safeDashboardUrl(input.doc, input.doc.inputs?.brand_url),
       previewAssetId: linkedPost?.previewAssetId || null,
       sourcePostId: linkedPost?.id || null,
       sourcePublishItemId: null,
@@ -391,31 +615,33 @@ function createCampaign(input: {
   calendarEvents: MarketingDashboardCalendarEvent[];
 }): MarketingDashboardCampaign | null {
   const existing = input.dashboard.campaign;
+  const statusCounts = recountStatuses({ posts: input.posts, publishItems: input.publishItems });
+  const campaignStatus = aggregateCampaignStatus({ posts: input.posts, publishItems: input.publishItems });
   const counts = {
     posts: input.posts.length,
     landingPages: existing?.counts.landingPages ?? 0,
     imageAds: input.assets.filter((asset) => asset.type === 'image_ad').length,
     videoAds: existing?.counts.videoAds ?? 0,
-    scripts: existing?.counts.scripts ?? 0,
+    scripts: input.assets.filter((asset) => asset.type === 'script').length,
     publishItems: input.publishItems.length,
     proposalConcepts: existing?.counts.proposalConcepts ?? 0,
-    ready: input.assets.filter((asset) => asset.status === 'ready').length + input.posts.filter((post) => post.status === 'ready').length,
-    readyToPublish: input.publishItems.filter((item) => item.status === 'ready_to_publish').length,
-    pausedMetaAds: existing?.counts.pausedMetaAds ?? 0,
-    scheduled: input.publishItems.filter((item) => item.status === 'scheduled').length,
-    live: input.publishItems.filter((item) => item.status === 'live').length,
+    ready: statusCounts.ready,
+    readyToPublish: statusCounts.ready_to_publish,
+    pausedMetaAds: statusCounts.published_to_meta_paused,
+    scheduled: statusCounts.scheduled,
+    live: statusCounts.live,
   };
   return {
-    id: existing?.id || input.campaignId,
+    id: input.campaignId,
     jobId: input.doc.job_id,
-    externalCampaignId: existing?.externalCampaignId || input.campaignId,
+    externalCampaignId: existing?.externalCampaignId && !containsTenantId(input.doc, existing.externalCampaignId) ? existing.externalCampaignId : input.campaignId,
     name: input.campaignName,
     objective: input.objective,
     funnelStage: 'weekly_content',
     summary: `${input.posts.length} weekly posts with ${input.assets.length} unique image previews.`,
     stageLabel: 'Weekly social content',
-    status: input.publishItems.length > 0 ? 'ready_to_publish' : input.posts.length > 0 ? 'in_review' : 'draft',
-    compatibilityStatus: input.publishItems.length > 0 ? 'approved' : 'in_review',
+    status: campaignStatus,
+    compatibilityStatus: compatibilityStatusFor(campaignStatus),
     campaignWindow: existing?.campaignWindow ?? null,
     updatedAt: input.doc.updated_at || input.doc.created_at || null,
     approvalRequired: existing?.approvalRequired ?? false,
@@ -444,13 +670,14 @@ export function buildSocialContentDashboardProjection(
   }
 
   const runtime = readSocialContentRuntimeState(runtimeDoc);
-  const campaignId = dashboard.campaign?.id || publicCampaignId(runtimeDoc.job_id);
-  const campaignName = dashboard.campaign?.name || brandName(runtimeDoc);
+  const existingCampaignId = dashboard.campaign?.id || '';
+  const campaignId = existingCampaignId && !containsTenantId(runtimeDoc, existingCampaignId) ? existingCampaignId : publicCampaignId(runtimeDoc.job_id);
+  const campaignName = tenantSafeString(runtimeDoc, dashboard.campaign?.name) || brandName(runtimeDoc);
   const request = recordValue(runtimeDoc.inputs?.request);
   const objective =
-    dashboard.campaign?.objective ||
-    stringValue(request?.primaryGoal) ||
-    stringValue(request?.goal) ||
+    tenantSafeString(runtimeDoc, dashboard.campaign?.objective) ||
+    tenantSafeString(runtimeDoc, request?.primaryGoal) ||
+    tenantSafeString(runtimeDoc, request?.goal) ||
     'Weekly social content';
 
   const assets = createAssets({ doc: runtimeDoc, projection, campaignId, campaignName, objective });
@@ -475,7 +702,7 @@ export function buildSocialContentDashboardProjection(
     calendarEvents: mergedCalendarEvents,
   });
 
-  return {
+  return tenantSafeDashboardValue(runtimeDoc, {
     campaign,
     posts: mergedPosts,
     assets: mergedAssets,
@@ -484,10 +711,8 @@ export function buildSocialContentDashboardProjection(
     statuses: {
       countsByStatus: recountStatuses({
         posts: mergedPosts,
-        assets: mergedAssets,
         publishItems: mergedPublishItems,
-        calendarEvents: mergedCalendarEvents,
       }),
     },
-  };
+  });
 }

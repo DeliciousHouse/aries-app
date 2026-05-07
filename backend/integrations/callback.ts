@@ -3,7 +3,14 @@ import {
   isAllowedProvider,
   type OAuthBrokerError
 } from './connect';
-import { dbAuditEvent, dbDeletePendingState, dbGetPendingState, dbUpsertConnection } from './oauth-db';
+import {
+  dbAuditEvent,
+  dbDeletePendingState,
+  dbGetPendingState,
+  dbSetPendingStatePicker,
+  dbUpsertConnection,
+  type DbPendingStateRow,
+} from './oauth-db';
 import {
   googleClientCredentials,
   getProviderOAuthAvailability,
@@ -15,6 +22,13 @@ import {
   xClientCredentials,
 } from './oauth-provider-runtime';
 import { dbInsertOAuthToken } from './oauth-tokens-db';
+import {
+  discoverMetaPages,
+  exchangeMetaAuthorizationCode,
+  exchangeMetaShortForLongLived,
+  MetaDiscoveryError,
+  type DiscoveredPage,
+} from './meta/discover';
 
 type OAuthCallbackQuery = {
   code?: string;
@@ -32,6 +46,18 @@ type OAuthCallbackSuccess = {
   connection_status: 'connected';
   connected_at?: string;
   granted_scopes?: string[];
+};
+
+export type OAuthCallbackPickerRequired = {
+  broker_status: 'picker_required';
+  provider: 'facebook';
+  state: string;
+  picker_url: string;
+  pages: Array<{
+    id: string;
+    name: string;
+    has_instagram: boolean;
+  }>;
 };
 
 type XTokenResponse = {
@@ -614,7 +640,219 @@ async function exchangeOpenAiCodeForToken(input: {
   };
 }
 
-export async function oauthCallback(provider: string, query: OAuthCallbackQuery): Promise<OAuthCallbackSuccess | OAuthBrokerError> {
+function pickerRedirectUrl(state: string): string {
+  const base = process.env.APP_BASE_URL?.trim();
+  const path = `/onboarding/connect/meta/select-page?state=${encodeURIComponent(state)}`;
+  if (!base) return path;
+  try {
+    return new URL(path, base).toString();
+  } catch {
+    return path;
+  }
+}
+
+async function persistMetaPageConnections(args: {
+  pending: DbPendingStateRow;
+  page: DiscoveredPage;
+  state: string;
+  flow: 'auto_single_page' | 'meta_page_picker';
+}): Promise<OAuthCallbackSuccess> {
+  const connectedAt = nowIso();
+  const facebookConnection = await dbUpsertConnection({
+    tenantId: args.pending.tenant_id,
+    provider: 'facebook',
+    status: 'connected',
+    grantedScopes: args.pending.scopes,
+    externalAccountId: args.page.id,
+    externalAccountName: args.page.name,
+    connectedAt,
+    disconnectedAt: null,
+    lastErrorCode: null,
+    lastErrorMessage: null,
+  });
+  await dbInsertOAuthToken({
+    connectionId: facebookConnection.id,
+    accessToken: args.page.pageAccessToken,
+    tokenType: 'page',
+    issuedAt: connectedAt,
+  });
+
+  let instagramConnectionId: string | null = null;
+  if (args.page.instagramBusinessAccountId) {
+    const instagramConnection = await dbUpsertConnection({
+      tenantId: args.pending.tenant_id,
+      provider: 'instagram',
+      status: 'connected',
+      grantedScopes: args.pending.scopes,
+      externalAccountId: args.page.instagramBusinessAccountId,
+      externalAccountName: args.page.name,
+      connectedAt,
+      disconnectedAt: null,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+    });
+    await dbInsertOAuthToken({
+      connectionId: instagramConnection.id,
+      accessToken: args.page.pageAccessToken,
+      tokenType: 'page',
+      issuedAt: connectedAt,
+    });
+    instagramConnectionId = instagramConnection.id;
+  }
+
+  await dbDeletePendingState(args.state);
+  await dbAuditEvent({
+    tenantId: args.pending.tenant_id,
+    connectionId: facebookConnection.id,
+    provider: 'facebook',
+    eventType: 'oauth.callback.connected',
+    eventStatus: 'ok',
+    detail: {
+      selected_page_id: args.page.id,
+      instagram_connection_id: instagramConnectionId,
+      flow: args.flow,
+    },
+  });
+
+  return {
+    broker_status: 'ok',
+    provider: 'facebook',
+    connection_id: facebookConnection.id,
+    connection_status: 'connected',
+    connected_at: connectedAt,
+    granted_scopes: args.pending.scopes,
+  };
+}
+
+async function runFacebookCallbackFlow(
+  state: string,
+  code: string,
+  pending: DbPendingStateRow,
+): Promise<OAuthCallbackSuccess | OAuthCallbackPickerRequired | OAuthBrokerError> {
+  let shortLivedAccessToken: string;
+  try {
+    const exchange = await exchangeMetaAuthorizationCode({ code, redirectUri: pending.redirect_uri });
+    shortLivedAccessToken = exchange.shortLivedAccessToken;
+  } catch (error) {
+    return handleMetaCallbackException(state, pending, error);
+  }
+
+  let longLivedAccessToken: string;
+  try {
+    const longLived = await exchangeMetaShortForLongLived(shortLivedAccessToken);
+    longLivedAccessToken = longLived.longLivedAccessToken;
+  } catch (error) {
+    return handleMetaCallbackException(state, pending, error);
+  }
+
+  let discovery;
+  try {
+    discovery = await discoverMetaPages(longLivedAccessToken);
+  } catch (error) {
+    return handleMetaCallbackException(state, pending, error);
+  }
+
+  if (discovery.kind === 'no_pages') {
+    await dbUpsertConnection({
+      tenantId: pending.tenant_id,
+      provider: 'facebook',
+      status: 'error',
+      grantedScopes: pending.scopes,
+      lastErrorCode: 'meta_no_pages_available',
+      lastErrorMessage:
+        'The Meta account did not return any Pages. Connect a Facebook account that owns at least one Page with admin role.',
+      disconnectedAt: null,
+    });
+    await dbDeletePendingState(state);
+    await dbAuditEvent({
+      tenantId: pending.tenant_id,
+      connectionId: pending.connection_id,
+      provider: 'facebook',
+      eventType: 'oauth.callback.no_pages',
+      eventStatus: 'error',
+      detail: { reason: 'meta_no_pages_available' },
+    });
+    return brokerError('provider_callback_error', {
+      provider: 'facebook',
+      message: 'meta_no_pages_available: connect a Facebook account that owns at least one Page.',
+    });
+  }
+
+  if (discovery.kind === 'single_page') {
+    return persistMetaPageConnections({
+      pending,
+      page: discovery.page,
+      state,
+      flow: 'auto_single_page',
+    });
+  }
+
+  const stashedPages = discovery.pages.map((page) => ({
+    id: page.id,
+    name: page.name,
+    pageAccessToken: page.pageAccessToken,
+    instagramBusinessAccountId: page.instagramBusinessAccountId,
+  }));
+  await dbSetPendingStatePicker(state, { pages: stashedPages });
+  await dbAuditEvent({
+    tenantId: pending.tenant_id,
+    connectionId: pending.connection_id,
+    provider: 'facebook',
+    eventType: 'oauth.callback.picker_required',
+    eventStatus: 'ok',
+    detail: { page_count: stashedPages.length },
+  });
+
+  return {
+    broker_status: 'picker_required',
+    provider: 'facebook',
+    state,
+    picker_url: pickerRedirectUrl(state),
+    pages: discovery.pages.map((page) => ({
+      id: page.id,
+      name: page.name,
+      has_instagram: page.instagramBusinessAccountId != null,
+    })),
+  };
+}
+
+async function handleMetaCallbackException(
+  state: string,
+  pending: DbPendingStateRow,
+  error: unknown,
+): Promise<OAuthBrokerError> {
+  const message = error instanceof Error ? error.message : String(error);
+  const isProviderUnavailable =
+    /_oauth_not_(configured|supported)$/.test(message) || message.includes('OAUTH_TOKEN_ENCRYPTION_KEY');
+  const isUnauthorized =
+    error instanceof MetaDiscoveryError && error.kind === 'unauthorized';
+  const normalizedMessage =
+    isProviderUnavailable
+      ? getProviderOAuthAvailability('facebook').message || message
+      : message;
+  await dbDeletePendingState(state);
+  await dbAuditEvent({
+    tenantId: pending.tenant_id,
+    connectionId: pending.connection_id,
+    provider: 'facebook',
+    eventType: 'oauth.callback.exchange_failed',
+    eventStatus: 'error',
+    detail: { message: normalizedMessage },
+  });
+  return brokerError(
+    isProviderUnavailable
+      ? 'provider_unavailable'
+      : isUnauthorized
+        ? 'authorization_denied'
+        : 'provider_callback_error',
+    { provider: 'facebook', message: normalizedMessage },
+  );
+}
+
+export async function oauthCallback(
+  provider: string,
+  query: OAuthCallbackQuery,
+): Promise<OAuthCallbackSuccess | OAuthCallbackPickerRequired | OAuthBrokerError> {
   if (!isAllowedProvider(provider)) return brokerError('invalid_provider', { provider });
 
   if (!query.state || query.state.trim().length < 8) {
@@ -653,6 +891,10 @@ export async function oauthCallback(provider: string, query: OAuthCallbackQuery)
     return brokerError('missing_required_fields', { provider, message: 'missing_required_fields:code' });
   }
 
+  if (provider === 'facebook') {
+    return runFacebookCallbackFlow(state, query.code.trim(), pending);
+  }
+
   const connectedAt = nowIso();
   let accessTtlSeconds = parsePositiveInt(query.expires_in);
   const refreshTtlSeconds = parsePositiveInt(query.refresh_expires_in);
@@ -676,12 +918,6 @@ export async function oauthCallback(provider: string, query: OAuthCallbackQuery)
       }
       case 'linkedin':
         exchangedToken = await exchangeLinkedInCodeForToken({
-          code: query.code.trim(),
-          redirectUri: pending.redirect_uri,
-        });
-        break;
-      case 'facebook':
-        exchangedToken = await exchangeFacebookCodeForToken({
           code: query.code.trim(),
           redirectUri: pending.redirect_uri,
         });
@@ -811,6 +1047,13 @@ export async function handleOauthCallbackHttp(req: Request, providerFromPath?: s
 
   const result = await oauthCallback(provider, query);
   if (shouldRedirectToUi(req)) {
+    if (result.broker_status === 'picker_required') {
+      const pickerUrl = new URL(
+        `/onboarding/connect/meta/select-page?state=${encodeURIComponent(result.state)}`,
+        resolveBaseUrl(req),
+      );
+      return Response.redirect(pickerUrl.toString(), 302);
+    }
     const redirectUrl = new URL(`/oauth/connect/${encodeURIComponent(provider)}`, resolveBaseUrl(req));
     if (result.broker_status === 'ok') {
       redirectUrl.searchParams.set('result', 'connected');
@@ -828,6 +1071,8 @@ export async function handleOauthCallbackHttp(req: Request, providerFromPath?: s
   const status =
     result.broker_status === 'ok'
       ? 200
+      : result.broker_status === 'picker_required'
+        ? 200
       : result.reason === 'provider_unavailable'
         ? 503
       : result.reason === 'invalid_provider' || result.reason === 'missing_required_fields' || result.reason === 'invalid_state'

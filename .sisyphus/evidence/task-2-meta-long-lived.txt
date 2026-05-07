@@ -1,0 +1,28 @@
+TAP version 13
+# Subtest: Meta refresh: long-lived exchange persists new token row and revokes old
+ok 1 - Meta refresh: long-lived exchange persists new token row and revokes old
+  ---
+  duration_ms: 16.775241
+  type: 'test'
+  ...
+# Subtest: Meta refresh: 401 from provider marks connection reauthorization_required
+ok 2 - Meta refresh: 401 from provider marks connection reauthorization_required
+  ---
+  duration_ms: 1.292129
+  type: 'test'
+  ...
+# Subtest: Meta refresh: 5xx from provider does not change connection status
+ok 3 - Meta refresh: 5xx from provider does not change connection status
+  ---
+  duration_ms: 0.938827
+  type: 'test'
+  ...
+1..3
+# tests 3
+# suites 0
+# pass 3
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 185.796614

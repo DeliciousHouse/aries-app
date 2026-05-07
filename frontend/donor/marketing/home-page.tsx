@@ -62,7 +62,7 @@ function EarlyAccessCopy({
         Sign in to get <span className="text-gradient">early access</span>
       </HeadingTag>
       <p className="mt-6 max-w-2xl text-lg leading-8 text-white/62">
-        Join the first group of businesses getting Aries for campaign planning, approval-safe creative, launch scheduling, and clear weekly results.
+        Join the first group of businesses getting Aries for weekly social content planning, approval-safe creative, launch scheduling, and clear weekly results.
       </p>
 
       <div className="mt-[50px] grid w-full gap-4 sm:grid-cols-3">
@@ -664,7 +664,7 @@ function Hero() {
             }}
             className="max-w-2xl mx-auto text-[1rem] text-white/60 mb-12"
           >
-            Plan campaigns, approve creative, launch safely. Nothing goes live without your approval — and you always know what is running, what needs your sign-off, and how your campaigns are performing.
+            Plan weekly social content, approve creative, publish safely. Nothing goes live without your approval — and you always know what is running, what needs your sign-off, and how your posts are performing.
           </motion.p>
 
           <motion.div
@@ -847,7 +847,7 @@ function Problem() {
     {
       icon: <TrendingDown className="w-6 h-6 text-red-400" />,
       title: 'Missed launches',
-      description: 'Without a clear schedule, campaigns slip and opportunities pass before you notice.',
+      description: 'Without a clear schedule, weekly posts slip and opportunities pass before you notice.',
     },
     {
       icon: <AlertCircle className="w-6 h-6 text-orange-400" />,
@@ -857,12 +857,12 @@ function Problem() {
     {
       icon: <Clock className="w-6 h-6 text-yellow-400" />,
       title: 'Scattered results',
-      description: 'Checking five different dashboards to answer one question: \u2018are my campaigns delivering results?\u2019',
+      description: 'Checking five different dashboards to answer one question: \u2018are my weekly posts delivering results?\u2019',
     },
     {
       icon: <Layers className="w-6 h-6 text-blue-400" />,
       title: 'No clear next step',
-      description: 'Finishing a campaign and having no idea what to do next to keep momentum going.',
+      description: 'Finishing a week of content and having no idea what to do next to keep momentum going.',
     },
   ];
 
@@ -916,8 +916,8 @@ function Features() {
   const features = [
     {
       icon: <Share2 className="w-6 h-6" />,
-      title: 'Campaign planning',
-      description: 'Turn your business goals into a clear campaign plan you can read in seconds.',
+      title: 'Weekly content planning',
+      description: 'Turn your business goals into a clear weekly social content plan you can read in seconds.',
       color: 'from-blue-500/20 to-blue-600/20',
     },
     {
@@ -1007,7 +1007,7 @@ function HowItWorks() {
     {
       icon: <Lightbulb className="w-6 h-6 text-secondary" />,
       title: 'Review the plan',
-      description: 'See a clear campaign plan in plain English before anything is created.',
+      description: 'See a clear weekly social content plan in plain English before anything is created.',
     },
     {
       icon: <Zap className="w-6 h-6 text-yellow-400" />,
@@ -1084,10 +1084,10 @@ const CONTENT_CALENDAR_SCHEDULE = [
     day: 'Wed',
     date: '8',
     posts: [
-      { title: 'Spring Campaign Case Study', platform: 'LinkedIn', time: '11:00', status: 'Published' },
+      { title: 'Spring Product Story', platform: 'LinkedIn', time: '11:00', status: 'Published' },
       { title: 'Facebook Ads Mastery Course', platform: 'Facebook', time: '15:30', status: 'Published' },
-      { title: 'Pinterest: Campaign Moodboard', platform: 'Pinterest', time: '18:00', status: 'Published' },
-      { title: 'YouTube: Campaign Review Short', platform: 'YouTube', time: '21:00', status: 'Published' },
+      { title: 'Pinterest: Weekly Moodboard', platform: 'Pinterest', time: '18:00', status: 'Published' },
+      { title: 'YouTube: Content Review Short', platform: 'YouTube', time: '21:00', status: 'Published' },
     ],
   },
   {
@@ -1166,7 +1166,7 @@ const CONTENT_CALENDAR_SCHEDULE = [
     date: '17',
     posts: [
       { title: 'Quarterly Growth Planning', platform: 'LinkedIn', time: '09:00', status: 'Scheduled' },
-      { title: 'X Thread: Campaign Lessons', platform: 'X / Twitter', time: '14:30', status: 'Scheduled' },
+      { title: 'X Thread: Content Lessons', platform: 'X / Twitter', time: '14:30', status: 'Scheduled' },
       { title: 'Pinterest: Strategy Template Pin', platform: 'Pinterest', time: '18:45', status: 'Scheduled' },
     ],
   },
@@ -1585,14 +1585,14 @@ function Pricing() {
       name: 'Starter',
       price: '49',
       description: 'For one business with a few active channels.',
-      features: ['3 Connected Channels', 'Campaign Planning', 'Approval Queue', 'Weekly Results'],
+      features: ['3 Connected Channels', 'Weekly Content Planning', 'Approval Queue', 'Weekly Results'],
       highlight: false,
     },
     {
       name: 'Growth',
       price: '149',
-      description: 'For businesses ready to run consistent campaigns.',
-      features: ['Unlimited Channels', 'Full Campaign Workspace', 'Detailed Results', 'Next-Step Recommendations', 'Priority Support'],
+      description: 'For businesses ready to publish consistent weekly social content.',
+      features: ['Unlimited Channels', 'Full Social Content Workspace', 'Detailed Results', 'Next-Step Recommendations', 'Priority Support'],
       highlight: true,
     },
     {
@@ -1672,7 +1672,7 @@ function Pricing() {
 function FeatureShowcaseFallback() {
   const panels = [
     {
-      title: 'Campaign clarity',
+      title: 'Content clarity',
       description: 'Aries keeps your plan, creative, schedule, and results in one place so you never lose track of what is running or what needs attention.',
       icon: <Zap className="w-5 h-5 text-primary" />,
     },
@@ -1683,7 +1683,7 @@ function FeatureShowcaseFallback() {
     },
     {
       title: 'Results you can act on',
-      description: 'Every campaign summary ends with a clear next step instead of a wall of charts, so you always know what to do next.',
+      description: 'Every weekly content summary ends with a clear next step instead of a wall of charts, so you always know what to do next.',
       icon: <BarChart3 className="w-5 h-5 text-primary" />,
     },
   ];
@@ -1852,7 +1852,7 @@ export default function DonorHomePage() {
       <section className="py-16 border-y border-white/5 bg-black/50">
         <div className="container mx-auto px-6 text-center max-w-2xl">
           <blockquote className="text-lg text-white/80 italic leading-relaxed">
-            "Aries helped me go from idea to approved campaign in 2 hours."
+            "Aries helped me go from idea to approved weekly content plan in 2 hours."
           </blockquote>
           <p className="mt-4 text-sm text-white/40 font-medium uppercase tracking-wider">
             Early access user
@@ -1873,7 +1873,7 @@ export default function DonorHomePage() {
             <div className="max-w-4xl mx-auto">
               <h2 className="text-4xl md:text-[48px] leading-tight font-bold mb-8">Meet Aries</h2>
               <p className="text-xl text-white/60 mb-12 leading-relaxed">
-                A calm workspace where you plan campaigns, approve creative, launch safely, and see what delivered results &mdash; without learning marketing software.
+                A calm workspace where you plan weekly social content, approve creative, publish safely, and see what delivered results &mdash; without learning marketing software.
               </p>
             </div>
 

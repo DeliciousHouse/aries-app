@@ -165,9 +165,9 @@ export default function CreativeMemoryPage() {
           <p className="text-xs font-semibold uppercase tracking-[0.4em] text-cyan-300">Creative Memory</p>
           <div className="mt-4 grid gap-6 lg:grid-cols-[1.35fr_0.65fr] lg:items-end">
             <div>
-              <h1 className="text-4xl font-semibold tracking-tight text-white md:text-6xl">Campaign Learning</h1>
+              <h1 className="text-4xl font-semibold tracking-tight text-white md:text-6xl">Content Learning</h1>
               <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-300">
-                Prove each campaign gets sharper: inspect retrieved memory, compare baseline vs memory-assisted prompts, approve the selected pattern, review results, and write outcome labels back into Aries.
+                Prove each week of social content gets sharper: inspect retrieved memory, compare baseline vs memory-assisted prompts, approve the selected pattern, review results, and write outcome labels back into Aries.
               </p>
             </div>
             <div className="rounded-3xl border border-slate-700 bg-slate-900/80 p-5" aria-label="Memory trust lifecycle">
@@ -190,8 +190,8 @@ export default function CreativeMemoryPage() {
 
         <section className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]" aria-label="Golden path">
           <div className="rounded-3xl border border-slate-800 bg-slate-950 p-6">
-            <h2 className="text-2xl font-semibold">Campaign brief</h2>
-            <p className="mt-2 text-sm text-slate-400">Select a campaign, choose a brief, then let Aries retrieve only the memory that matters.</p>
+            <h2 className="text-2xl font-semibold">Content brief</h2>
+            <p className="mt-2 text-sm text-slate-400">Select a content plan, choose a brief, then let Aries retrieve only the memory that matters.</p>
             <div className="mt-5 grid gap-4">
               {[
                 ['Objective', brief.objective],
@@ -251,7 +251,7 @@ export default function CreativeMemoryPage() {
           {[
             ['Inspect retrieved context', 'View selected pattern, examples, excluded candidates, permissions, and why each signal was chosen.'],
             ['Generate two variants', 'Create baseline and memory-assisted variants for the same brief so improvement is visible.'],
-            ['Review and label outcome', 'Approve, reject, regenerate, mark used in campaign, or label winner/loser for learning.'],
+            ['Review and label outcome', 'Approve, reject, regenerate, mark used in weekly content, or label winner/loser for learning.'],
           ].map(([title, body]) => (
             <article key={title} className="rounded-3xl border border-slate-800 bg-slate-950 p-6">
               <h2 className="text-xl font-semibold">{title}</h2>

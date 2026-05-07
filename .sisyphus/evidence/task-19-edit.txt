@@ -1,0 +1,70 @@
+TAP version 13
+# Subtest: runtime-edit-state: first edit creates file with previous=null
+ok 1 - runtime-edit-state: first edit creates file with previous=null
+  ---
+  duration_ms: 11.448395
+  type: 'test'
+  ...
+# Subtest: runtime-edit-state: second edit archives previous override
+ok 2 - runtime-edit-state: second edit archives previous override
+  ---
+  duration_ms: 4.351734
+  type: 'test'
+  ...
+# Subtest: runtime-edit-state: undefined input leaves prior override unchanged
+ok 3 - runtime-edit-state: undefined input leaves prior override unchanged
+  ---
+  duration_ms: 3.779667
+  type: 'test'
+  ...
+# Subtest: PATCH /api/social-content/jobs/[jobId]/posts/[postId]: rejects request with no edit fields
+ok 4 - PATCH /api/social-content/jobs/[jobId]/posts/[postId]: rejects request with no edit fields
+  ---
+  duration_ms: 209.238124
+  type: 'test'
+  ...
+# Subtest: PATCH route: persists valid Instagram caption edit
+ok 5 - PATCH route: persists valid Instagram caption edit
+  ---
+  duration_ms: 4.904498
+  type: 'test'
+  ...
+# Subtest: PATCH route: rejects too-long Instagram caption with caption_too_long
+ok 6 - PATCH route: rejects too-long Instagram caption with caption_too_long
+  ---
+  duration_ms: 2.749038
+  type: 'test'
+  ...
+# Subtest: PATCH route: accepts Facebook caption longer than IG limit
+ok 7 - PATCH route: accepts Facebook caption longer than IG limit
+  ---
+  duration_ms: 4.288646
+  type: 'test'
+  ...
+# Subtest: PATCH route: cross-tenant attempt resolves to 404
+ok 8 - PATCH route: cross-tenant attempt resolves to 404
+  ---
+  duration_ms: 3.425756
+  type: 'test'
+  ...
+# Subtest: PATCH route: review item not found resolves to 404
+ok 9 - PATCH route: review item not found resolves to 404
+  ---
+  duration_ms: 2.406942
+  type: 'test'
+  ...
+# Subtest: PATCH route: writes edit override file under DATA_ROOT
+ok 10 - PATCH route: writes edit override file under DATA_ROOT
+  ---
+  duration_ms: 4.399882
+  type: 'test'
+  ...
+1..10
+# tests 10
+# suites 0
+# pass 10
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 410.456127

@@ -292,3 +292,48 @@ test('execution run records ignore late terminal callbacks after completion', as
     ]);
   });
 });
+
+test('Hermes media setup failures move social content jobs to needs_connection', async () => {
+  await withRuntimeEnv(async () => {
+    const { createExecutionRunRecord } = await import('../backend/execution/run-store');
+    const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
+    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const doc = await seedMarketingJob();
+
+    const run = createExecutionRunRecord({
+      provider: 'hermes',
+      domain: 'marketing',
+      workflowKey: 'social_content_weekly',
+      action: 'run',
+      tenantId: doc.tenant_id,
+      marketingJobId: doc.job_id,
+      stage: 'production',
+    });
+
+    await handleHermesRunCallback({
+      event_id: 'evt-media-setup-required',
+      aries_run_id: run.aries_run_id,
+      hermes_run_id: 'hermes-media-setup-1',
+      status: 'failed',
+      stage: 'image_creatives',
+      error: {
+        code: 'hermes_media_setup_required',
+        message: 'Hermes media setup must be completed before image generation can continue.',
+        retryable: true,
+      },
+    });
+
+    const afterFailure = await loadMarketingJobRuntime(doc.job_id);
+    assert.equal(afterFailure?.state, 'needs_connection');
+    assert.equal(afterFailure?.status, 'needs_connection');
+    assert.equal(afterFailure?.current_stage, 'production');
+    assert.equal(afterFailure?.last_error?.code, 'hermes_media_setup_required');
+    assert.match(afterFailure?.last_error?.message ?? '', /Hermes media setup/i);
+    assert.equal(afterFailure?.stages.production.status, 'not_started');
+    assert.equal(
+      (afterFailure?.social_content_runtime as { stages?: Record<string, { status?: string }> } | undefined)
+        ?.stages?.image_generation?.status,
+      'failed',
+    );
+  });
+});

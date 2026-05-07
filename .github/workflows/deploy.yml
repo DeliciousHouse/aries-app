@@ -123,6 +123,7 @@ jobs:
           TARGET_IMAGE_TAG: ${{ steps.resolve.outputs.image_tag }}
           GHCR_IMAGE: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
           DEFAULT_BRANCH_NAME: ${{ github.event.repository.default_branch }}
+          PUBLISH_SHA_ONLY: "1"
         run: |
           set -euo pipefail
           if [[ ! "${TARGET_IMAGE_TAG}" =~ ^[0-9a-f]{40}$ ]]; then

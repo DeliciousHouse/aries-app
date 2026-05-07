@@ -34,9 +34,33 @@ function draftIdFrom(req: Request): string | null {
   return draftId?.trim() || null;
 }
 
+function redactDiagnostic(value: string): string {
+  return value
+    .replace(/password=[^\s&]+/gi, 'password=[REDACTED]')
+    .replace(/postgres(?:ql)?:\/\/[^\s@]+@/gi, 'postgres://[REDACTED]@');
+}
+
+function onboardingDraftErrorResponse(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (message === 'draft_not_found') {
+    return NextResponse.json({ error: 'draft_not_found' }, { status: 404 });
+  }
+  if (message === 'invalid_draft_token') {
+    return NextResponse.json({ error: 'invalid_draft_token' }, { status: 400 });
+  }
+
+  console.error('[onboarding-draft] persistence error', redactDiagnostic(message));
+  return NextResponse.json({ error: 'onboarding_draft_unavailable' }, { status: 503 });
+}
+
 export async function POST() {
-  const draft = await createOnboardingDraft();
-  return NextResponse.json({ draft }, { status: 201 });
+  try {
+    const draft = await createOnboardingDraft();
+    return NextResponse.json({ draft }, { status: 201 });
+  } catch (error) {
+    return onboardingDraftErrorResponse(error);
+  }
 }
 
 export async function GET(req: Request) {
@@ -45,12 +69,16 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'draft_token_required' }, { status: 400 });
   }
 
-  const draft = await getOnboardingDraft(draftId);
-  if (!draft) {
-    return NextResponse.json({ error: 'draft_not_found' }, { status: 404 });
-  }
+  try {
+    const draft = await getOnboardingDraft(draftId);
+    if (!draft) {
+      return NextResponse.json({ error: 'draft_not_found' }, { status: 404 });
+    }
 
-  return NextResponse.json({ draft }, { status: 200 });
+    return NextResponse.json({ draft }, { status: 200 });
+  } catch (error) {
+    return onboardingDraftErrorResponse(error);
+  }
 }
 
 export async function PATCH(req: Request) {
@@ -92,8 +120,6 @@ export async function PATCH(req: Request) {
 
     return NextResponse.json({ draft }, { status: 200 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const status = message === 'draft_not_found' ? 404 : message === 'invalid_draft_token' ? 400 : 500;
-    return NextResponse.json({ error: message }, { status });
+    return onboardingDraftErrorResponse(error);
   }
 }

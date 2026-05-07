@@ -1,6 +1,9 @@
 import { normalizePublishDispatch } from '../../../../backend/integrations/workflow-orchestrator';
 import { mapAriesExecutionError, runAriesWorkflow } from '../../../../backend/execution';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
+import { assertMediaUrlsBelongToTenant } from '../../../../backend/integrations/media-url-ownership';
+import { runPublishVerification } from '../../../../backend/integrations/publish-verification';
+import { pool } from '@/lib/db';
 
 export async function handlePublishDispatch(req: Request, tenantContextLoader?: TenantContextLoader) {
   const tenantResult = await loadTenantContextOrResponse(tenantContextLoader);
@@ -17,11 +20,28 @@ export async function handlePublishDispatch(req: Request, tenantContextLoader?: 
 
   try {
     const tenantId = tenantResult.tenantContext.tenantId;
+    const mediaUrls = body.media_urls || [];
+
+    try {
+      await assertMediaUrlsBelongToTenant(tenantId, mediaUrls, pool);
+    } catch (error) {
+      const message = String((error as Error).message || error);
+      const urlMatch = message.match(/media_url_tenant_mismatch:(.+)/);
+      const offendingUrl = urlMatch ? urlMatch[1] : mediaUrls[0] || 'unknown';
+      return new Response(JSON.stringify({
+        error: 'media_url_tenant_mismatch',
+        detail: { url: offendingUrl },
+      }), {
+        status: 403,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
     const event = normalizePublishDispatch({
       tenant_id: tenantId,
       provider: String(body.provider || '').toLowerCase(),
       content: body.content || '',
-      media_urls: body.media_urls || [],
+      media_urls: mediaUrls,
       scheduled_for: body.scheduled_for,
     });
     const executed = await runAriesWorkflow('publish_dispatch', {
@@ -56,12 +76,39 @@ export async function handlePublishDispatch(req: Request, tenantContextLoader?: 
       });
     }
 
+    let verification = null as null | Awaited<ReturnType<typeof runPublishVerification>>;
+    try {
+      const verificationContent = typeof event.payload.content_text === 'string'
+        ? event.payload.content_text
+        : body.content || '';
+      verification = await runPublishVerification({
+        tenantId,
+        provider: event.provider ?? '',
+        content: verificationContent,
+        primaryOutput: executed.primaryOutput,
+        pool,
+      });
+    } catch (verificationError) {
+      verification = {
+        status: 'unverified',
+        platformPostId: null,
+        postId: null,
+        reason: 'persistence_error',
+      };
+      console.error('[publish-dispatch] verification step failed', {
+        tenantId,
+        provider: event.provider,
+        error: String((verificationError as Error).message || verificationError),
+      });
+    }
+
     return new Response(JSON.stringify({
       status: 'accepted',
       workflow_id: 'publish_dispatch',
       workflow_status: executed.envelope.status,
       event,
       result: executed.primaryOutput,
+      publish_verification: verification,
     }), {
       status: 202,
       headers: { 'content-type': 'application/json' },

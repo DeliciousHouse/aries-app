@@ -26,7 +26,7 @@ Do not upgrade remembered context into current repo truth without checking.
 ## Social-content execution default
 
 - Aries weekly social content runs are Hermes-native by default (`POST /api/social-content/jobs` -> Hermes -> `/api/internal/hermes/runs`).
-- ChatGPT / OpenAI integration is required before image/video generation is enabled.
+- Hermes owns ChatGPT/OpenAI auth before image/video generation is enabled for weekly social content.
 - Legacy OpenClaw/Lobster references should be labeled deprecated and kept only for compatibility paths.
 
 ## Validation shortcuts

@@ -9,8 +9,8 @@ export const metadata = {
 const FEATURES = [
   {
     icon: '◈',
-    title: 'Campaign Planning',
-    desc: 'Turn your business goals into a clear campaign plan with messaging, channels, and timing you can review in seconds.',
+    title: 'Weekly Content Planning',
+    desc: 'Turn your business goals into a clear weekly social content plan with messaging, channels, and timing you can review in seconds.',
   },
   {
     icon: '◎',
@@ -50,7 +50,7 @@ const FEATURES = [
   {
     icon: '◷',
     title: 'Next-Step Recommendations',
-    desc: 'Every campaign result ends with a recommended next action so you always know where to focus.',
+    desc: 'Every weekly content result ends with a recommended next action so you always know where to focus.',
   },
 ];
 
@@ -88,7 +88,7 @@ export default function FeaturesPage() {
           <div className="glass rounded-[3rem] p-10 md:p-14 text-center max-w-5xl mx-auto">
             <h2 className="text-4xl md:text-5xl font-bold mb-5">Ready to see how it works?</h2>
             <p className="text-white/60 text-lg mb-8 max-w-3xl mx-auto">
-              Set up your business, review your first campaign plan, and approve what ships before anything goes live.
+              Set up your business, review your first weekly social content plan, and approve what ships before anything goes live.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Link href="/onboarding/start" className="px-8 py-4 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20">

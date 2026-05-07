@@ -103,6 +103,8 @@ async function initDb() {
 
       ALTER TABLE oauth_pending_states
         ADD COLUMN IF NOT EXISTS code_verifier TEXT;
+      ALTER TABLE oauth_pending_states
+        ADD COLUMN IF NOT EXISTS picker_payload JSONB;
       CREATE TABLE IF NOT EXISTS oauth_audit_events (
         id BIGSERIAL PRIMARY KEY,
         tenant_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
@@ -373,6 +375,89 @@ async function initDb() {
 
       CREATE INDEX IF NOT EXISTS idx_password_resets_email_created
         ON password_resets (email, created_at DESC);
+    `);
+
+    await client.query(`
+      -- Posts table columns for weekly social content
+      CREATE TABLE IF NOT EXISTS posts (
+        id BIGSERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        content TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+
+      ALTER TABLE posts
+        ADD COLUMN IF NOT EXISTS platform_post_id TEXT;
+
+      ALTER TABLE posts
+        ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ;
+
+      ALTER TABLE posts
+        ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMPTZ;
+
+      ALTER TABLE posts
+        ADD COLUMN IF NOT EXISTS published_status TEXT DEFAULT 'draft' CHECK (published_status IN ('draft','in_review','approved','scheduled','publishing','published','failed','rolled_back'));
+
+      ALTER TABLE posts
+        DROP CONSTRAINT IF EXISTS posts_published_status_check;
+
+      ALTER TABLE posts
+        ADD CONSTRAINT posts_published_status_check CHECK (published_status IN ('draft','in_review','approved','scheduled','publishing','published','failed','rolled_back','unverified'));
+
+      -- Vision QA runs table for brand compliance checks
+      CREATE TABLE IF NOT EXISTS vision_qa_runs (
+        id BIGSERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        post_id BIGINT,
+        creative_id BIGINT,
+        attempt_number INTEGER NOT NULL DEFAULT 1,
+        brand_color_match_score NUMERIC,
+        text_legibility_score NUMERIC,
+        forbidden_pattern_hits INTEGER,
+        brand_violation_score NUMERIC,
+        verdict TEXT CHECK (verdict IN ('pass','fail','operator_override')),
+        model_version TEXT,
+        raw_model_output JSONB,
+        created_at TIMESTAMPTZ DEFAULT now()
+      );
+
+      -- Scheduled posts table for publication scheduling
+      CREATE TABLE IF NOT EXISTS scheduled_posts (
+        id BIGSERIAL PRIMARY KEY,
+        post_id BIGINT UNIQUE,
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        scheduled_for TIMESTAMPTZ NOT NULL,
+        target_platforms TEXT[] NOT NULL DEFAULT '{}',
+        updated_at TIMESTAMPTZ DEFAULT now()
+      );
+
+      -- OAuth callback tokens for secure state management
+      CREATE TABLE IF NOT EXISTS oauth_callback_tokens (
+        token_hash CHAR(64) PRIMARY KEY,
+        aries_run_id TEXT NOT NULL,
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        issued_at TIMESTAMPTZ DEFAULT now(),
+        consumed_at TIMESTAMPTZ
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_oauth_callback_tokens_aries_run_id ON oauth_callback_tokens(aries_run_id);
+
+      -- Add superseded_by column to creative_assets for regeneration tracking
+      ALTER TABLE creative_assets
+        ADD COLUMN IF NOT EXISTS superseded_by BIGINT;
+
+      -- T15: orphan retention for upload-replace. When an upload-replace
+      -- supersedes a previous creative the previous row is marked
+      -- orphaned_at = now(); scripts/gc-orphan-uploads.ts deletes assets
+      -- whose orphaned_at is older than 24h.
+      ALTER TABLE creative_assets
+        ADD COLUMN IF NOT EXISTS orphaned_at TIMESTAMPTZ;
+
+      CREATE INDEX IF NOT EXISTS idx_posts_tenant_created ON posts (tenant_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_vision_qa_runs_tenant_post ON vision_qa_runs (tenant_id, post_id);
+      CREATE INDEX IF NOT EXISTS idx_scheduled_posts_tenant_scheduled ON scheduled_posts (tenant_id, scheduled_for);
+      CREATE INDEX IF NOT EXISTS idx_creative_assets_tenant_orphaned_at ON creative_assets (tenant_id, orphaned_at) WHERE orphaned_at IS NOT NULL;
     `);
 
     console.log('Database initialized successfully.');

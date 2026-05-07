@@ -26,7 +26,7 @@ export default function StepContainer({
   totalSteps,
   isLast = false,
 }: StepContainerProps) {
-  const resolvedTotalSteps = totalSteps ?? 5;
+  const resolvedTotalSteps = totalSteps ?? 6;
   return (
     <div className="w-full max-w-2xl mx-auto">
       {/* Header */}

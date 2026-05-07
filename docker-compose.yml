@@ -41,12 +41,8 @@ services:
       LOBSTER_GATEWAY_VIDEO_MODEL: ${LOBSTER_GATEWAY_VIDEO_MODEL:-}
       OPENCLAW_VIDEO_GENERATION_MODEL: ${OPENCLAW_VIDEO_GENERATION_MODEL:-}
       LOBSTER_VIDEO_GATEWAY_TIMEOUT_SECONDS: ${LOBSTER_VIDEO_GATEWAY_TIMEOUT_SECONDS:-}
-      # DB_HOST points at the shared postgres alias on the external docker-stack
-      # network. The Postgres container is now owned by the Honcho compose stack
-      # so pgvector is baked into the database image while Aries keeps using the
-      # same aries_pg_data volume and service-discovery name.
-      DB_HOST: postgres
-      DB_PORT: 5432
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
       DB_POOL_MAX: ${DB_POOL_MAX:-20}
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
@@ -56,8 +52,6 @@ services:
       OAUTH_TOKEN_ENCRYPTION_KEY: ${OAUTH_TOKEN_ENCRYPTION_KEY}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
-      # OPENAI_CLIENT_ID: ${OPENAI_CLIENT_ID}
-      # OPENAI_CLIENT_SECRET: ${OPENAI_CLIENT_SECRET}
       META_ACCESS_TOKEN: ${META_ACCESS_TOKEN}
       META_AD_ACCOUNT_ID: ${META_AD_ACCOUNT_ID}
       META_PAGE_ID: ${META_PAGE_ID}
@@ -107,6 +101,7 @@ services:
     volumes:
       - ${ARIES_SHARED_DATA_ROOT:-/home/node/data}:/data
       - ${ARIES_LOBSTER_HOST_OUTPUT_DIR:-/home/node/aries-app/lobster/output}:${ARIES_LOBSTER_HOST_OUTPUT_MOUNT:-/host-lobster-output}:ro
+      - gh_config:/home/node/.config/gh
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:${PORT:-3000}/ >/dev/null"]
@@ -116,37 +111,12 @@ services:
       start_period: 30s
     networks:
       - docker_stack
-    # Postgres is intentionally not defined in this Aries compose file anymore.
-    # Honcho's compose stack owns the shared Postgres container and attaches it
-    # to docker-stack with aliases `postgres` and `aries-app-postgres-1`.
-    # Keeping a local depends_on here would make `docker compose up` try to start
-    # a second database service or fail when the service is absent.
-
-  # postgres:
-  #   image: postgres:16-alpine
-  #   environment:
-  #     POSTGRES_USER: ${DB_USER}
-  #     POSTGRES_PASSWORD: ${DB_PASSWORD}
-  #     POSTGRES_DB: ${DB_NAME}
-  #   ports:
-  #     - "${DB_PORT:-5432}:5432"
-  #   volumes:
-  #     - aries_pg_data:/var/lib/postgresql/data
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 10
-  #     start_period: 20s
-  #   restart: unless-stopped
-  #   networks:
-  #     - docker_stack
-
 networks:
   docker_stack:
     external: true
     name: docker-stack
 
 volumes:
-  aries_pg_data:
-    name: aries_pg_data
+  gh_config:
+    name: aries-app_gh_config
+    external: true

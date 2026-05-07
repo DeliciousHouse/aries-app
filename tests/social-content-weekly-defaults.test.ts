@@ -451,7 +451,72 @@ test('custom weekly window copy uses the actual duration label', async () => {
   });
 });
 
-test('weekly workflow request includes OpenAI media provider reference and abstract media requests', () => {
+test('weekly needs-connection status points operators to Hermes media setup', async () => {
+  await withRuntimeEnv(async () => {
+    const {
+      createMarketingJobRuntimeDocument,
+      saveMarketingJobRuntime,
+    } = await import('@/backend/marketing/runtime-state');
+    const { handleGetMarketingJobStatus } = await import('@/app/api/marketing/jobs/[jobId]/handler');
+
+    const doc = createMarketingJobRuntimeDocument({
+      jobId: 'mkt_weekly_needs_connection',
+      tenantId: 'tenant_weekly_needs_connection',
+      payload: {
+        jobType: 'weekly_social_content',
+        brandUrl: 'https://brand.example',
+        businessType: 'local service',
+        primaryGoal: 'Book appointments',
+      },
+      brandKit: {
+        path: '/tmp/brand-kit.json',
+        source_url: 'https://brand.example',
+        canonical_url: 'https://brand.example',
+        brand_name: 'Brand',
+        logo_urls: [],
+        colors: { primary: null, secondary: null, accent: null, palette: [] },
+        font_families: [],
+        external_links: [],
+        extracted_at: new Date().toISOString(),
+        brand_voice_summary: null,
+        offer_summary: null,
+      },
+    });
+    doc.state = 'needs_connection';
+    doc.status = 'needs_connection';
+    doc.current_stage = 'research';
+    doc.last_error = {
+      code: 'hermes_media_setup_required',
+      message: 'Hermes media configuration needs attention before weekly media generation can continue.',
+      stage: 'research',
+      retryable: true,
+      at: new Date().toISOString(),
+      details: { reason: 'hermes_media_setup_required' },
+    };
+    saveMarketingJobRuntime(doc.job_id, doc);
+
+    const response = await handleGetMarketingJobStatus(
+      doc.job_id,
+      async () => ({
+        userId: 'user_weekly_needs_connection',
+        tenantId: doc.tenant_id,
+        tenantSlug: 'tenant-weekly-needs-connection',
+        role: 'tenant_admin',
+      }),
+      { responseDialect: 'social-content' },
+    );
+    const body = (await response.json()) as {
+      nextStep?: string;
+      summary?: { headline?: string; subheadline?: string };
+    };
+
+    assert.equal(body.nextStep, 'check_hermes_media_setup');
+    assert.equal(body.summary?.headline, 'Hermes media setup needs attention');
+    assert.match(body.summary?.subheadline ?? '', /Hermes media configuration needs attention/i);
+  });
+});
+
+test('weekly workflow request includes abstract Hermes-owned media requests', () => {
   const doc = {
     tenant_id: 'tenant_media',
     job_id: 'mkt_media',
@@ -481,28 +546,19 @@ test('weekly workflow request includes OpenAI media provider reference and abstr
     callbackUrl: 'https://aries.example.com/api/internal/hermes/runs',
   });
 
-  assert.deepEqual(request.media_provider, {
-    provider: 'openai',
-    auth_mode: 'user_oauth',
-    tenant_id: 'tenant_media',
-    user_id: 'user_media',
-    connection_id: 'conn_openai_media',
-  });
+  assert.equal('media_provider' in request, false);
   assert.equal(request.input.scope.image_creative_count, 2);
   assert.equal(request.input.scope.video_render_count, 1);
   assert.deepEqual(request.input.media_requests, [
     {
       type: 'image.generate',
-      provider: 'openai',
-      auth_mode: 'user_oauth',
       aspect_ratio: '4:5',
       count: 2,
+      target_channels: ['meta', 'instagram'],
       creative_briefs: ['Get more demo requests'],
     },
     {
       type: 'video.generate',
-      provider: 'openai',
-      auth_mode: 'user_oauth',
       aspect_ratio: '9:16',
       count: 1,
       requires_human_approval: true,
@@ -510,8 +566,44 @@ test('weekly workflow request includes OpenAI media provider reference and abstr
     },
   ]);
   const serialized = JSON.stringify(request);
+  assert.equal(serialized.includes('conn_openai_media'), false);
   assert.equal(serialized.includes('sk-live-should-never-leak'), false);
   assert.equal(/gemini|nano banana|lobster/i.test(serialized), false);
+});
+
+test('weekly workflow request filters image target channels to Hermes social channels', () => {
+  const doc = {
+    tenant_id: 'tenant_channels',
+    job_id: 'mkt_channels',
+    created_by: 'user_channels',
+    inputs: {
+      brand_url: 'https://brand.example',
+      competitor_url: '',
+      competitor_brand: '',
+      facebook_page_url: '',
+      ad_library_url: '',
+      request: {
+        channels: ['instagram', 'meta-ads', 'landing-page'],
+      },
+    },
+    brand_kit: {
+      brand_name: 'Brand Name',
+    },
+  } as unknown as MarketingJobRuntimeDocument;
+
+  const request = buildSocialContentWeeklyRequest({
+    doc,
+    ariesRunId: 'arun_channels',
+    callbackUrl: 'https://aries.example.com/api/internal/hermes/runs',
+  });
+
+  assert.deepEqual(request.input.media_requests?.[0], {
+    type: 'image.generate',
+    aspect_ratio: '4:5',
+    count: 2,
+    target_channels: ['instagram'],
+    creative_briefs: ['Create on-brand weekly social image creative.'],
+  });
 });
 
 test('weekly workflow request redacts token-like text and media values', () => {
@@ -674,10 +766,119 @@ test('social content dashboard projection shows unique tenant-safe image preview
   assert.equal(dashboard.posts[0].previewAssetId, 'image-founder-story');
   assert.equal(dashboard.publishItems[0].previewAssetId, 'image-founder-story');
   assert.equal(dashboard.assets.every((asset) => asset.contentType === 'image/svg+xml'), true);
+  assert.equal(dashboard.statuses.countsByStatus.ready, 2);
+  assert.equal(dashboard.statuses.countsByStatus.ready_to_publish, 2);
+  assert.equal(dashboard.statuses.countsByStatus.in_review, 0);
   assert.equal(dashboard.assets.every((asset) => asset.previewUrl?.startsWith('data:image/svg+xml;base64,')), true);
   assert.notEqual(dashboard.assets[0].previewUrl, dashboard.assets[1].previewUrl);
   const serialized = JSON.stringify(dashboard);
   assert.equal(serialized.includes('tenant_dashboard_projection'), false);
   assert.equal(serialized.includes('sk-dashboard-secret-should-not-leak'), false);
   assert.equal(/generic ai|ai-generated|stock office/i.test(serialized), false);
+});
+
+test('social content dashboard projection keeps rich weekly output when a later stage only reports the window', () => {
+  const doc = {
+    tenant_id: 'tenant_dashboard_partial_stage',
+    job_id: 'mkt_dashboard_partial_stage',
+    created_at: '2026-05-06T00:00:00.000Z',
+    updated_at: '2026-05-06T00:00:00.000Z',
+    inputs: {
+      brand_url: 'https://brand.example',
+      request: {
+        jobType: 'weekly_social_content',
+        businessName: 'Bright Studio',
+      },
+    },
+    brand_kit: {
+      brand_name: 'Bright Studio',
+    },
+    social_content_runtime: {
+      stageOrder: ['planning', 'video_script', 'publish_review'],
+      stages: {
+        planning: {
+          output: {
+            weekly_content_plan: {
+              window_days: 7,
+              posts: [
+                {
+                  day: 'Day 2',
+                  platforms: ['instagram'],
+                  post_type: 'static',
+                  title: 'Studio proof',
+                  caption: 'Show a specific customer result.',
+                  creative_brief_id: 'tenant_dashboard_partial_stage-image',
+                  status: 'approved',
+                },
+              ],
+              image_creatives: [
+                {
+                  id: 'tenant_dashboard_partial_stage-image',
+                  title: 'tenant_dashboard_partial_stage proof detail',
+                  aspect_ratio: '4:5',
+                  prompt: 'Macro detail of the finished product beside handwritten customer notes for tenant_dashboard_partial_stage with apiKey=dashboardTextSecret123.',
+                  status: 'generated',
+                  artifact_url: 'http://localhost./render.png?api_key=abc123',
+                },
+              ],
+              video_scripts: [],
+            },
+          },
+        },
+        video_script: {
+          output: {
+            weekly_content_plan: {
+              video_scripts: [
+                {
+                  id: 'tenant_dashboard_partial_stage-video',
+                  title: 'Weekly proof reel',
+                  duration_seconds: 30,
+                  script_markdown: 'Open on product detail, cut to customer note, close with booking CTA.',
+                  status: 'approved',
+                },
+              ],
+            },
+          },
+        },
+        publish_review: {
+          output: {
+            weekly_content_plan: {
+              window_days: 7,
+            },
+          },
+        },
+      },
+      publishingRequested: true,
+    },
+  } as unknown as MarketingJobRuntimeDocument;
+
+  const dashboard = buildSocialContentDashboardProjection(doc, {
+    campaign: null,
+    posts: [],
+    assets: [],
+    publishItems: [],
+    calendarEvents: [],
+    statuses: {
+      countsByStatus: {
+        draft: 0,
+        in_review: 0,
+        ready: 0,
+        ready_to_publish: 0,
+        published_to_meta_paused: 0,
+        scheduled: 0,
+        live: 0,
+      },
+    },
+  });
+
+  assert.equal(dashboard.posts.length, 1);
+  assert.equal(dashboard.assets.length, 2);
+  assert.equal(dashboard.publishItems.length, 1);
+  assert.equal(dashboard.campaign?.counts.scripts, 1);
+  assert.notEqual(dashboard.assets[0].id, 'tenant_dashboard_partial_stage-image');
+  assert.equal(dashboard.posts[0].previewAssetId, dashboard.assets[0].id);
+  assert.equal(dashboard.assets[0].previewUrl?.startsWith('data:image/svg+xml;base64,'), true);
+  assert.equal(JSON.stringify(dashboard).includes('api_key'), false);
+  assert.equal(JSON.stringify(dashboard).includes('dashboardTextSecret123'), false);
+  assert.equal(JSON.stringify(dashboard).includes('tenant_dashboard_partial_stage'), false);
 });

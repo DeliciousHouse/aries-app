@@ -51,8 +51,45 @@ function videoLike(src: string | null | undefined, contentType?: string | null):
   return /\.(mp4|mov|webm|m4v|ogv|ogg)$/i.test(stripUrlSuffix(src));
 }
 
+function isHostInRemotePatterns(src: string): boolean {
+  try {
+    const url = new URL(src);
+    const hostname = url.hostname;
+    // Check against known patterns: localhost, HERMES_GATEWAY_URL, APP_BASE_URL, IMAGES_CDN_HOST
+    const allowedHosts = new Set<string>();
+    allowedHosts.add('localhost');
+
+    if (process.env.NEXT_PUBLIC_HERMES_GATEWAY_URL) {
+      try {
+        const hermesUrl = new URL(process.env.NEXT_PUBLIC_HERMES_GATEWAY_URL);
+        allowedHosts.add(hermesUrl.hostname);
+      } catch (e) {
+        // Invalid URL, skip
+      }
+    }
+
+    if (process.env.NEXT_PUBLIC_APP_BASE_URL) {
+      try {
+        const appUrl = new URL(process.env.NEXT_PUBLIC_APP_BASE_URL);
+        allowedHosts.add(appUrl.hostname);
+      } catch (e) {
+        // Invalid URL, skip
+      }
+    }
+
+    if (process.env.NEXT_PUBLIC_IMAGES_CDN_HOST) {
+      allowedHosts.add(process.env.NEXT_PUBLIC_IMAGES_CDN_HOST);
+    }
+
+    return allowedHosts.has(hostname);
+  } catch (e) {
+    return false;
+  }
+}
+
 export default function MediaPreview(props: MediaPreviewProps) {
   const [failed, setFailed] = useState(false);
+  const [useNativeFallback, setUseNativeFallback] = useState(false);
 
   const mode = useMemo<'image' | 'video' | 'fallback'>(() => {
     if (!props.src || failed) return 'fallback';
@@ -60,6 +97,21 @@ export default function MediaPreview(props: MediaPreviewProps) {
     if (imageLike(props.src, props.contentType)) return 'image';
     return 'fallback';
   }, [failed, props.contentType, props.src]);
+
+  // Check if src host is in remotePatterns; if not, warn in dev and use native fallback
+  useMemo(() => {
+    if (props.src && imageLike(props.src, props.contentType) && !isHostInRemotePatterns(props.src)) {
+      if (process.env.NODE_ENV === 'development') {
+        try {
+          const url = new URL(props.src);
+          console.warn('[media-preview] URL host not in remotePatterns:', url.hostname);
+        } catch (e) {
+          console.warn('[media-preview] Invalid URL:', props.src);
+        }
+      }
+      setUseNativeFallback(true);
+    }
+  }, [props.src, props.contentType]);
 
   const fallbackPresentation = useMemo(() => {
     if (!props.src) {
@@ -96,6 +148,7 @@ export default function MediaPreview(props: MediaPreviewProps) {
     <img
       src={props.src}
       alt={props.alt}
+      data-fallback={useNativeFallback ? 'true' : undefined}
       className={props.imageClassName || 'h-full w-full object-cover'}
       onError={() => setFailed(true)}
     />

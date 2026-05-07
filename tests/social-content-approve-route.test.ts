@@ -55,6 +55,12 @@ function marketingStageForStep(step: SocialApprovalStep): 'strategy' | 'producti
   return 'production';
 }
 
+function assertPlainRecord(value: unknown, label: string): asserts value is Record<string, unknown> {
+  assert.equal(typeof value, 'object', `${label} must be an object`);
+  assert.notEqual(value, null, `${label} must not be null`);
+  assert.equal(Array.isArray(value), false, `${label} must not be an array`);
+}
+
 async function seedWeeklyApproval(input: {
   jobId: string;
   tenantId: string;
@@ -220,10 +226,11 @@ test('plan approval submits Hermes resume request body', async () => {
       assert.equal(calls[0].body.job_id, jobId);
       assert.equal(calls[0].body.tenant_id, 'tenant-social-approve');
       assert.equal(calls[0].body.callback_url, 'https://aries.example.com/api/internal/hermes/runs');
-      assert.deepEqual(calls[0].body.callback_auth, {
-        type: 'internal_api_secret_bearer',
-        secret_ref: 'INTERNAL_API_SECRET',
-      });
+      const callbackAuth = calls[0].body.callback_auth;
+      assertPlainRecord(callbackAuth, 'callback_auth');
+      assert.equal(callbackAuth.type, 'internal_api_secret_bearer');
+      assert.equal(callbackAuth.secret_ref, 'INTERNAL_API_SECRET');
+      assert.match(String(callbackAuth.callback_token), /^[0-9a-f]{64}$/);
       assert.deepEqual(calls[0].body.callback_context, {
         workflow_key: 'social_content_weekly',
         aries_run_id: calls[0].body.aries_run_id,

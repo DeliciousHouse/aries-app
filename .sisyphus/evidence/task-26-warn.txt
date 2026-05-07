@@ -1,0 +1,36 @@
+=== Task 26 — OAuth day-50 reconnect-warning email evidence ===
+
+--- Targeted day-50 warning tests ---
+TAP version 13
+# Subtest: apply: day-50 warning sends email with right params and writes audit
+ok 1 - apply: day-50 warning sends email with right params and writes audit
+  ---
+  duration_ms: 1.602436
+  type: 'test'
+  ...
+# Subtest: apply: day-50 warning is deduped per tenant when both facebook and instagram qualify
+ok 2 - apply: day-50 warning is deduped per tenant when both facebook and instagram qualify
+  ---
+  duration_ms: 5.11858
+  type: 'test'
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 212.249192
+
+--- Targeted warning skip tests (cooldown + no email) ---
+ok 1 - apply: warning skipped when prior audit within cooldown exists
+ok 2 - apply: warning skipped when tenant has no operator email
+# tests 2
+# pass 2
+
+--- T27 sendMetaReconnectWarningEmail unit tests still green ---
+ok 1 - email-notifications
+# tests 6
+# pass 6

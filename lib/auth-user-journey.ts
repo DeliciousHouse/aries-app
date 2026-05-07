@@ -1,6 +1,7 @@
 import type { PoolClient } from 'pg';
 
 import { getBusinessProfileWithDiagnostics } from '@/backend/tenant/business-profile';
+import { evaluateOnboardingGate } from '@/lib/onboarding-gate';
 
 export type PostLoginDestination = '/onboarding/start' | '/dashboard';
 
@@ -70,6 +71,22 @@ export async function isTenantOnboardingComplete(
   }
 }
 
+export async function isTenantReadyForDashboard(
+  client: PoolClient,
+  tenantId: string | null | undefined,
+): Promise<boolean> {
+  if (!tenantId) {
+    return false;
+  }
+
+  try {
+    const decision = await evaluateOnboardingGate({ client, tenantId: String(tenantId) });
+    return decision.allowed;
+  } catch {
+    return false;
+  }
+}
+
 function normalizeTenantId(value: string | number | null | undefined): string | null {
   if (value === null || value === undefined) {
     return null;
@@ -104,17 +121,18 @@ export async function resolvePostLoginDestinationForUser(
     throw new Error(`Unable to resolve onboarding journey for missing user ${userId}.`);
   }
 
-  const onboardingCompleted = await isTenantOnboardingComplete(
-    client,
-    normalizeTenantId(row.organization_id),
-  );
+  const tenantId = normalizeTenantId(row.organization_id);
+  const onboardingCompleted = await isTenantOnboardingComplete(client, tenantId);
+  const dashboardReady = onboardingCompleted
+    ? await isTenantReadyForDashboard(client, tenantId)
+    : false;
   const needsOnboarding = shouldRequireOnboarding({
     onboardingRequired: row.onboarding_required,
     onboardingCompletedAt: row.onboarding_completed_at,
-    onboardingCompleted,
+    onboardingCompleted: dashboardReady,
   });
 
-  if (onboardingCompleted && (row.onboarding_required || !row.onboarding_completed_at)) {
+  if (dashboardReady && (row.onboarding_required || !row.onboarding_completed_at)) {
     await client.query(
       `
         UPDATE users

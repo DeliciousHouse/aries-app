@@ -231,6 +231,21 @@ export type ReviewDecisionRequest = {
   note?: string;
   approvalId?: string;
 };
+export type ReviewItemCopyEditRequest = {
+  headline?: string | null;
+  supportingText?: string | null;
+  editedBy?: string | null;
+};
+export type ReviewItemCopyEditResponse = {
+  review: RuntimeReviewItem;
+  edit: {
+    headline: string | null;
+    supportingText: string | null;
+    updatedAt: string;
+    editedBy: string | null;
+    previous: { headline: string | null; supportingText: string | null } | null;
+  };
+};
 export type BusinessProfileResponse = { profile: BusinessProfileView };
 export type OnboardingDraftResponse = { draft: OnboardingDraft };
 export type BusinessProfilePatch = {
@@ -361,6 +376,16 @@ export function createAriesV1Api(options: ApiClientOptions = {}) {
           body: JSON.stringify(body),
         },
         { retryOn: [502, 503, 504], maxAttempts: 2, backoffMs: 500 },
+        options,
+      );
+    },
+    updateReviewItemCopy(jobId: string, postId: string, body: ReviewItemCopyEditRequest) {
+      return requestJson<ReviewItemCopyEditResponse>(
+        `/api/social-content/jobs/${encodeURIComponent(jobId)}/posts/${encodeURIComponent(postId)}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(body),
+        },
         options,
       );
     },

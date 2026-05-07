@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import Link from 'next/link';
-import { ArrowUpRight, CheckCircle2, LoaderCircle, MessageSquareText, XCircle } from 'lucide-react';
+import { ArrowUpRight, CheckCircle2, ImageIcon, LoaderCircle, MessageSquareText, XCircle } from 'lucide-react';
 
 import MediaPreview from '@/frontend/components/media-preview';
 import { useRuntimeReviewItem } from '@/hooks/use-runtime-review-item';
@@ -12,6 +12,22 @@ import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { getReviewRecoveryState } from './review-recovery';
 import { isDestructiveActionBlocked } from './review-destructive-guard';
 import { EmptyStatePanel, LoadingStateGrid, ShellPanel, StatusChip } from './components';
+import CreativeActionDrawer, { canShowCreativeActionDrawer } from './creative-action-drawer';
+
+const AUTOSAVE_DEBOUNCE_MS = 500;
+
+const CAPTION_VALIDATION_MESSAGES: Record<string, string> = {
+  caption_too_long: 'Caption is too long for this channel.',
+  too_many_hashtags: 'Too many hashtags for Instagram (max 30).',
+  caption_empty: 'Caption cannot be empty.',
+};
+
+function inferCaptionChannel(channel: string | null | undefined, placement: string | null | undefined): 'instagram' | 'facebook' | null {
+  const haystack = `${channel || ''} ${placement || ''}`.toLowerCase();
+  if (haystack.includes('instagram') || haystack.includes('ig ')) return 'instagram';
+  if (haystack.includes('facebook') || haystack.includes('fb ') || haystack.includes('meta')) return 'facebook';
+  return null;
+}
 
 type DecisionActionKind = 'approve' | 'changes_requested' | 'reject';
 
@@ -63,6 +79,211 @@ function brandKitFontStyle(family: string): CSSProperties {
   };
 }
 
+type InlineCopyEditorProps = {
+  jobId: string;
+  reviewId: string;
+  initialHeadline: string;
+  initialSupportingText: string;
+  channelHint: 'instagram' | 'facebook' | null;
+  isReadonly: boolean;
+  onSave: (
+    jobId: string,
+    postId: string,
+    body: { headline?: string | null; supportingText?: string | null },
+  ) => Promise<{ review: { currentVersion: { headline: string; supportingText: string } } } | null | undefined>;
+};
+
+function InlineCopyEditor(props: InlineCopyEditorProps) {
+  const [headline, setHeadline] = useState(props.initialHeadline);
+  const [supportingText, setSupportingText] = useState(props.initialSupportingText);
+  const [savingState, setSavingState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [serverError, setServerError] = useState<string | null>(null);
+  const debounceRef = useRef<number | null>(null);
+  const lastSavedRef = useRef<{ headline: string; supportingText: string }>({
+    headline: props.initialHeadline,
+    supportingText: props.initialSupportingText,
+  });
+
+  useEffect(() => {
+    setHeadline(props.initialHeadline);
+    setSupportingText(props.initialSupportingText);
+    lastSavedRef.current = { headline: props.initialHeadline, supportingText: props.initialSupportingText };
+  }, [props.reviewId, props.initialHeadline, props.initialSupportingText]);
+
+  const persist = useCallback(async (nextHeadline: string, nextSupporting: string) => {
+    if (props.isReadonly) return;
+    if (
+      nextHeadline === lastSavedRef.current.headline &&
+      nextSupporting === lastSavedRef.current.supportingText
+    ) {
+      return;
+    }
+    setSavingState('saving');
+    setServerError(null);
+    setValidationErrors([]);
+    try {
+      const result = await props.onSave(props.jobId, props.reviewId, {
+        headline: nextHeadline,
+        supportingText: nextSupporting,
+      });
+      if (!result) {
+        setSavingState('error');
+        setServerError('Failed to save copy edits.');
+        return;
+      }
+      lastSavedRef.current = { headline: nextHeadline, supportingText: nextSupporting };
+      setSavingState('saved');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save.';
+      const captionFailure =
+        message.includes('caption_invalid') ||
+        message.includes('caption_too_long') ||
+        message.includes('caption_empty') ||
+        message.includes('too_many_hashtags');
+      if (captionFailure) {
+        const codes = ['caption_too_long', 'too_many_hashtags', 'caption_empty'].filter((code) =>
+          message.includes(code),
+        );
+        setValidationErrors(codes.length > 0 ? codes : ['caption_invalid']);
+        setSavingState('error');
+        return;
+      }
+      setSavingState('error');
+      setServerError(message);
+    }
+  }, [props]);
+
+  const scheduleDebouncedSave = useCallback((nextHeadline: string, nextSupporting: string) => {
+    if (props.isReadonly) return;
+    if (debounceRef.current !== null) {
+      window.clearTimeout(debounceRef.current);
+    }
+    debounceRef.current = window.setTimeout(() => {
+      void persist(nextHeadline, nextSupporting);
+    }, AUTOSAVE_DEBOUNCE_MS);
+  }, [persist, props.isReadonly]);
+
+  const flush = useCallback(() => {
+    if (debounceRef.current !== null) {
+      window.clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    void persist(headline, supportingText);
+  }, [headline, persist, supportingText]);
+
+  useEffect(() => () => {
+    if (debounceRef.current !== null) {
+      window.clearTimeout(debounceRef.current);
+    }
+  }, []);
+
+  const charLimit = props.channelHint === 'instagram' ? 2200 : props.channelHint === 'facebook' ? 63206 : null;
+  const characterCount = supportingText.length;
+  const overLimit = charLimit !== null && characterCount > charLimit;
+
+  return (
+    <ShellPanel eyebrow="Edit" title="Caption and copy">
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs uppercase tracking-[0.18em] text-white/40">
+            Inline edits autosave. Last write wins.
+          </p>
+          <span
+            data-testid="inline-edit-status"
+            className={
+              savingState === 'saving'
+                ? 'inline-flex items-center gap-1.5 text-xs text-white/65'
+                : savingState === 'saved'
+                ? 'inline-flex items-center gap-1.5 text-xs text-emerald-300/85'
+                : savingState === 'error'
+                ? 'inline-flex items-center gap-1.5 text-xs text-rose-300/85'
+                : 'inline-flex items-center gap-1.5 text-xs text-white/45'
+            }
+          >
+            {savingState === 'saving' ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : null}
+            {savingState === 'saving'
+              ? 'Saving…'
+              : savingState === 'saved'
+              ? 'Saved'
+              : savingState === 'error'
+              ? 'Save failed'
+              : 'Up to date'}
+          </span>
+        </div>
+
+        <div>
+          <label htmlFor="inline-edit-headline" className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/45">
+            Headline
+          </label>
+          <input
+            id="inline-edit-headline"
+            data-testid="inline-edit-headline"
+            type="text"
+            value={headline}
+            disabled={props.isReadonly}
+            onChange={(event) => {
+              const next = event.target.value;
+              setHeadline(next);
+              scheduleDebouncedSave(next, supportingText);
+            }}
+            onBlur={flush}
+            className="mt-1.5 w-full rounded-[1.25rem] border border-white/10 bg-black/15 px-4 py-3 text-sm text-white placeholder:text-white/30 disabled:opacity-60"
+            placeholder="Headline"
+            maxLength={300}
+          />
+        </div>
+
+        <div>
+          <label htmlFor="inline-edit-caption" className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/45">
+            Caption
+          </label>
+          <textarea
+            id="inline-edit-caption"
+            data-testid="inline-edit-caption"
+            value={supportingText}
+            disabled={props.isReadonly}
+            onChange={(event) => {
+              const next = event.target.value;
+              setSupportingText(next);
+              scheduleDebouncedSave(headline, next);
+            }}
+            onBlur={flush}
+            rows={6}
+            className="mt-1.5 w-full rounded-[1.25rem] border border-white/10 bg-black/15 px-4 py-3 text-sm leading-7 text-white placeholder:text-white/30 disabled:opacity-60"
+            placeholder="Write the caption clients will see"
+          />
+          {charLimit !== null ? (
+            <p
+              className={`mt-1.5 text-right text-xs tabular-nums ${overLimit ? 'text-rose-300/85' : characterCount >= charLimit * 0.9 ? 'text-amber-300/80' : 'text-white/35'}`}
+            >
+              {characterCount.toLocaleString()} / {charLimit.toLocaleString()}
+              {props.channelHint === 'instagram' ? ' · Instagram' : props.channelHint === 'facebook' ? ' · Facebook' : ''}
+            </p>
+          ) : null}
+        </div>
+
+        {validationErrors.length > 0 ? (
+          <ul
+            data-testid="inline-edit-validation"
+            className="space-y-1 rounded-[1rem] border border-rose-300/30 bg-rose-300/8 px-4 py-3 text-sm text-rose-100"
+          >
+            {validationErrors.map((code) => (
+              <li key={code}>{CAPTION_VALIDATION_MESSAGES[code] ?? `Caption error: ${code}`}</li>
+            ))}
+          </ul>
+        ) : null}
+
+        {serverError ? (
+          <p className="text-sm text-rose-200/90" data-testid="inline-edit-server-error">
+            {customerSafeUiErrorMessage(serverError, 'Could not save edits right now.')}
+          </p>
+        ) : null}
+      </div>
+    </ShellPanel>
+  );
+}
+
 export default function AriesReviewItemScreen(props: { reviewId: string; initialData?: ReviewItemResponse | null }) {
   const review = useRuntimeReviewItem(props.reviewId, { autoLoad: true, initialData: props.initialData });
   const item = review.data?.review ?? props.initialData?.review ?? null;
@@ -70,6 +291,7 @@ export default function AriesReviewItemScreen(props: { reviewId: string; initial
   const [note, setNote] = useState('');
   const [activeAction, setActiveAction] = useState<DecisionActionKind>('approve');
   const [progressIndex, setProgressIndex] = useState(0);
+  const [imageActionDrawerOpen, setImageActionDrawerOpen] = useState(false);
   const busy = review.decision.isLoading;
   // Synchronous double-submit lock. `busy` / `disabled` aren't enough because
   // React state updates are async — a fast second click or effect re-invocation
@@ -144,6 +366,12 @@ export default function AriesReviewItemScreen(props: { reviewId: string; initial
   const reviewItem = item;
   const activeProgressLabel = busy ? DECISION_PROGRESS_LABELS[activeAction][progressIndex] : null;
   const noteIsEmpty = note.trim().length === 0;
+  const channelHint = inferCaptionChannel(reviewItem.channel, reviewItem.placement);
+  const editIsReadonly =
+    reviewItem.status === 'approved' ||
+    reviewItem.status === 'rejected' ||
+    reviewItem.status === 'live' ||
+    reviewItem.status === 'scheduled';
 
   async function applyDecision(action: 'approve' | 'changes_requested' | 'reject') {
     // Destructive actions require a non-empty comment so the actor provides
@@ -272,12 +500,37 @@ export default function AriesReviewItemScreen(props: { reviewId: string; initial
                       <ArrowUpRight className="h-4 w-4" />
                     </a>
                   ) : null}
+                  {canShowCreativeActionDrawer({
+                    reviewType: reviewItem.reviewType,
+                    contentType: reviewItem.contentType,
+                    assetId: reviewItem.assetId,
+                  }) ? (
+                    <button
+                      type="button"
+                      onClick={() => setImageActionDrawerOpen(true)}
+                      data-testid="creative-action-drawer-trigger"
+                      className="inline-flex items-center gap-2 rounded-full border border-white/12 px-4 py-2.5 text-sm font-medium text-white/80 transition hover:border-white/20 hover:text-white"
+                    >
+                      <ImageIcon className="h-4 w-4" />
+                      Image actions
+                    </button>
+                  ) : null}
                 </div>
               </div>
             </ShellPanel>
           )}
         </>
       ) : null}
+
+      <InlineCopyEditor
+        jobId={reviewItem.jobId}
+        reviewId={reviewItem.id}
+        initialHeadline={reviewItem.currentVersion.headline}
+        initialSupportingText={reviewItem.currentVersion.supportingText}
+        channelHint={channelHint}
+        isReadonly={editIsReadonly}
+        onSave={review.updateCopy}
+      />
 
       {reviewItem.sections.length > 0 ? (
         <div className="grid gap-4">
@@ -459,6 +712,22 @@ export default function AriesReviewItemScreen(props: { reviewId: string; initial
           Open campaign
         </Link>
       </div>
+
+      {canShowCreativeActionDrawer({
+        reviewType: reviewItem.reviewType,
+        contentType: reviewItem.contentType,
+        assetId: reviewItem.assetId,
+      }) && reviewItem.assetId ? (
+        <CreativeActionDrawer
+          jobId={reviewItem.jobId}
+          creativeId={reviewItem.assetId}
+          isOpen={imageActionDrawerOpen}
+          onClose={() => setImageActionDrawerOpen(false)}
+          onSuccess={() => {
+            void review.load();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

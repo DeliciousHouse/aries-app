@@ -10,7 +10,7 @@ const MODE_OPTIONS: SelectionOption[] = [
   {
     value: 'strategy_only',
     label: 'Strategy Only',
-    description: 'Research + brand analysis + campaign strategy',
+    description: 'Research + brand analysis + weekly social content strategy',
     icon: <BookOpen className="w-5 h-5" />,
   },
   {
@@ -46,8 +46,8 @@ export default function ExecutionStep({
 }: ExecutionStepProps) {
   return (
     <StepContainer
-      stepNumber={5}
-      totalSteps={5}
+      stepNumber={6}
+      totalSteps={6}
       title="Execution Mode"
       subtitle="Choose how far the pipeline runs. You can always upgrade later."
       canProceed={!!mode && !isSubmitting}
