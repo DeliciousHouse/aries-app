@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import { buildSocialContentDashboardProjection } from '@/backend/social-content/dashboard-projection';
 import { normalizeWeeklySocialContentPayload } from '@/backend/social-content/payload';
 import { buildSocialContentWeeklyRequest } from '@/backend/social-content/workflow-request';
 import type { SocialContentCalendarEvent } from '@/backend/marketing/jobs-status';
@@ -567,4 +568,116 @@ test('weekly workflow request redacts token-like text and media values', () => {
     'https://assets.example/image.png?width=1024',
     'id_token=[redacted]',
   ]);
+});
+
+test('social content dashboard projection shows unique tenant-safe image previews linked to posts and publish queue', () => {
+  const doc = {
+    tenant_id: 'tenant_dashboard_projection',
+    job_id: 'mkt_dashboard_projection',
+    created_at: '2026-05-06T00:00:00.000Z',
+    updated_at: '2026-05-06T00:00:00.000Z',
+    inputs: {
+      brand_url: 'https://brand.example',
+      request: {
+        jobType: 'weekly_social_content',
+        businessName: 'Bright Studio',
+        primaryGoal: 'Book discovery calls',
+        openaiAccessToken: 'sk-dashboard-secret-should-not-leak',
+      },
+    },
+    brand_kit: {
+      brand_name: 'Bright Studio',
+      colors: {
+        primary: '#14213d',
+        secondary: '#fca311',
+        accent: '#e5e5e5',
+        palette: ['#14213d', '#fca311', '#e5e5e5'],
+      },
+    },
+    social_content_runtime: {
+      stageOrder: ['planning', 'creative_review', 'publish_review'],
+      stages: {
+        planning: {
+          output: {
+            summary: 'Weekly plan ready.',
+            weekly_content_plan: {
+              window_days: 7,
+              posts: [
+                {
+                  day: 'Day 1',
+                  platforms: ['instagram'],
+                  post_type: 'static',
+                  title: 'Founder story',
+                  caption: 'Show the workshop ritual.',
+                  creative_brief_id: 'image-founder-story',
+                  status: 'approved',
+                },
+                {
+                  day: 'Day 4',
+                  platforms: ['meta'],
+                  post_type: 'static',
+                  title: 'Proof carousel',
+                  caption: 'Share outcome proof.',
+                  creative_brief_id: 'image-proof-carousel',
+                  status: 'approved',
+                },
+              ],
+              image_creatives: [
+                {
+                  id: 'image-founder-story',
+                  title: 'Workshop ritual still life',
+                  aspect_ratio: '4:5',
+                  prompt: 'Close-up of leather tools on warm bench, client initials embossed, no generic office.',
+                  status: 'generated',
+                  artifact_url: '',
+                },
+                {
+                  id: 'image-proof-carousel',
+                  title: 'Client proof wall',
+                  aspect_ratio: '4:5',
+                  prompt: 'Editorial wall of handwritten customer notes and product detail, no fake UI screenshot.',
+                  status: 'generated',
+                  artifact_url: '',
+                },
+              ],
+              video_scripts: [],
+            },
+          },
+        },
+      },
+      publishingRequested: true,
+    },
+  } as unknown as MarketingJobRuntimeDocument;
+
+  const dashboard = buildSocialContentDashboardProjection(doc, {
+    campaign: null,
+    posts: [],
+    assets: [],
+    publishItems: [],
+    calendarEvents: [],
+    statuses: {
+      countsByStatus: {
+        draft: 0,
+        in_review: 0,
+        ready: 0,
+        ready_to_publish: 0,
+        published_to_meta_paused: 0,
+        scheduled: 0,
+        live: 0,
+      },
+    },
+  });
+
+  assert.equal(dashboard.assets.length, 2);
+  assert.equal(dashboard.posts.length, 2);
+  assert.equal(dashboard.publishItems.length, 2);
+  assert.equal(dashboard.posts[0].previewAssetId, 'image-founder-story');
+  assert.equal(dashboard.publishItems[0].previewAssetId, 'image-founder-story');
+  assert.equal(dashboard.assets.every((asset) => asset.contentType === 'image/svg+xml'), true);
+  assert.equal(dashboard.assets.every((asset) => asset.previewUrl?.startsWith('data:image/svg+xml;base64,')), true);
+  assert.notEqual(dashboard.assets[0].previewUrl, dashboard.assets[1].previewUrl);
+  const serialized = JSON.stringify(dashboard);
+  assert.equal(serialized.includes('tenant_dashboard_projection'), false);
+  assert.equal(serialized.includes('sk-dashboard-secret-should-not-leak'), false);
+  assert.equal(/generic ai|ai-generated|stock office/i.test(serialized), false);
 });

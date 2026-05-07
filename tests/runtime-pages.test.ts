@@ -151,6 +151,8 @@ test('/dashboard wraps the Home screen in the app shell', () => {
   assert.equal(isValidElement(element), true);
   assert.equal(element.type, AppShellLayout);
   assert.equal(element.props.currentRouteId, 'home');
+  assert.equal(element.props.loginRedirectPath, '/dashboard');
+  assert.equal(buildLoginRedirect(element.props.loginRedirectPath), '/login?callbackUrl=%2Fdashboard');
   assert.equal(isValidElement(element.props.children), true);
   assert.equal(element.props.children.type, AriesHomeDashboard);
 });
@@ -161,6 +163,8 @@ test('/dashboard/campaigns wraps the campaign list in the app shell', () => {
   assert.equal(isValidElement(element), true);
   assert.equal(element.type, AppShellLayout);
   assert.equal(element.props.currentRouteId, 'campaigns');
+  assert.equal(element.props.loginRedirectPath, '/dashboard/campaigns');
+  assert.equal(buildLoginRedirect(element.props.loginRedirectPath), '/login?callbackUrl=%2Fdashboard%2Fcampaigns');
   assert.equal(isValidElement(element.props.children), true);
   assert.equal(element.props.children.type, AriesCampaignListScreen);
 });
@@ -318,6 +322,8 @@ test('/dashboard/calendar wraps the calendar screen in the app shell', () => {
   assert.equal(isValidElement(element), true);
   assert.equal(element.type, AppShellLayout);
   assert.equal(element.props.currentRouteId, 'calendar');
+  assert.equal(element.props.loginRedirectPath, '/dashboard/calendar');
+  assert.equal(buildLoginRedirect(element.props.loginRedirectPath), '/login?callbackUrl=%2Fdashboard%2Fcalendar');
   assert.equal(isValidElement(element.props.children), true);
   assert.equal(element.props.children.type, AriesCalendarScreen);
 });
@@ -390,6 +396,8 @@ test('/dashboard/results wraps the results screen in the app shell', () => {
   assert.equal(isValidElement(element), true);
   assert.equal(element.type, AppShellLayout);
   assert.equal(element.props.currentRouteId, 'results');
+  assert.equal(element.props.loginRedirectPath, '/dashboard/results');
+  assert.equal(buildLoginRedirect(element.props.loginRedirectPath), '/login?callbackUrl=%2Fdashboard%2Fresults');
   assert.equal(isValidElement(element.props.children), true);
   assert.equal(element.props.children.type, AriesResultsScreen);
 });

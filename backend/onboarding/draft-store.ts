@@ -1,7 +1,11 @@
 import crypto from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import * as path from 'node:path';
 
 import pool from '@/lib/db';
 import { normalizeMarketingWebsiteUrl } from '@/lib/marketing-public-mode';
+import { resolveDataPath } from '@/lib/runtime-paths';
 
 export type OnboardingDraftStatus =
   | 'draft'
@@ -326,27 +330,96 @@ function draftToRow(draft: OnboardingDraft) {
   };
 }
 
+function hasDatabaseConfig(): boolean {
+  return Boolean(
+    process.env.DB_HOST?.trim() &&
+      process.env.DB_USER?.trim() &&
+      process.env.DB_PASSWORD !== undefined &&
+      process.env.DB_NAME?.trim(),
+  );
+}
+
+function shouldUseFallbackDraftStore(error: unknown): boolean {
+  const code = (error as { code?: unknown }).code;
+  return code === '42P01' || code === '42703';
+}
+
+function fallbackDraftDirs(): string[] {
+  return [
+    resolveDataPath('onboarding-drafts'),
+    path.join(tmpdir(), 'aries-data', 'onboarding-drafts'),
+  ];
+}
+
+function fallbackDraftPath(dir: string, draftId: string): string {
+  return path.join(dir, `${normalizeDraftId(draftId)}.json`);
+}
+
+async function writeFallbackDraft(draft: OnboardingDraft): Promise<OnboardingDraft> {
+  let lastError: unknown;
+  for (const dir of fallbackDraftDirs()) {
+    try {
+      await mkdir(dir, { recursive: true });
+      await writeFile(fallbackDraftPath(dir, draft.draftId), `${JSON.stringify(draft, null, 2)}\n`, 'utf8');
+      return draft;
+    } catch (error) {
+      lastError = error;
+      if ((error as NodeJS.ErrnoException).code !== 'EACCES') {
+        throw error;
+      }
+    }
+  }
+  throw lastError;
+}
+
+async function readFallbackDraft(draftId: string): Promise<OnboardingDraft | null> {
+  for (const dir of fallbackDraftDirs()) {
+    try {
+      const parsed = JSON.parse(await readFile(fallbackDraftPath(dir, draftId), 'utf8')) as Partial<OnboardingDraft>;
+      return emptyDraft(parsed);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        continue;
+      }
+      throw error;
+    }
+  }
+  return null;
+}
+
 export function draftTenantId(draftId: string): string {
   return `draft_${normalizeDraftId(draftId).replace(/-/g, '')}`;
 }
 
 export async function createOnboardingDraft(initial?: Partial<OnboardingDraft>): Promise<OnboardingDraft> {
   const draft = emptyDraft(initial);
+  if (!hasDatabaseConfig()) {
+    return writeFallbackDraft(draft);
+  }
+
   const row = draftToRow(draft);
 
-  const result = await pool.query<DraftRow>(
-    `INSERT INTO onboarding_drafts (
-      draft_id, status, website_url, business_name, business_type,
-      approver_name, channels, goal, offer, competitor_url,
-      preview, provenance, materialized_tenant_id, materialized_job_id
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-    RETURNING *`,
-    [
-      row.draft_id, row.status, row.website_url, row.business_name, row.business_type,
-      row.approver_name, row.channels, row.goal, row.offer, row.competitor_url,
-      row.preview, row.provenance, row.materialized_tenant_id, row.materialized_job_id,
-    ],
-  );
+  let result;
+  try {
+    result = await pool.query<DraftRow>(
+      `INSERT INTO onboarding_drafts (
+        draft_id, status, website_url, business_name, business_type,
+        approver_name, channels, goal, offer, competitor_url,
+        preview, provenance, materialized_tenant_id, materialized_job_id
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+      RETURNING *`,
+      [
+        row.draft_id, row.status, row.website_url, row.business_name, row.business_type,
+        row.approver_name, row.channels, row.goal, row.offer, row.competitor_url,
+        row.preview, row.provenance, row.materialized_tenant_id, row.materialized_job_id,
+      ],
+    );
+  } catch (error) {
+    if (shouldUseFallbackDraftStore(error)) {
+      return writeFallbackDraft(draft);
+    }
+    throw error;
+  }
 
   return rowToDraft(result.rows[0]);
 }
@@ -359,10 +432,22 @@ export async function getOnboardingDraft(draftId: string): Promise<OnboardingDra
     return null;
   }
 
-  const result = await pool.query<DraftRow>(
-    'SELECT * FROM onboarding_drafts WHERE draft_id = $1',
-    [normalized],
-  );
+  if (!hasDatabaseConfig()) {
+    return readFallbackDraft(normalized);
+  }
+
+  let result;
+  try {
+    result = await pool.query<DraftRow>(
+      'SELECT * FROM onboarding_drafts WHERE draft_id = $1',
+      [normalized],
+    );
+  } catch (error) {
+    if (shouldUseFallbackDraftStore(error)) {
+      return readFallbackDraft(normalized);
+    }
+    throw error;
+  }
 
   if (result.rowCount === 0) {
     return null;
@@ -384,13 +469,37 @@ export async function claimOnboardingDraftMaterialization(
 ): Promise<{ draft: OnboardingDraft; claimed: boolean }> {
   const normalized = normalizeDraftId(draftId);
 
-  const result = await pool.query<DraftRow>(
-    `UPDATE onboarding_drafts
-      SET status = 'materializing', updated_at = now()
-    WHERE draft_id = $1 AND status = 'ready_for_auth'
-    RETURNING *`,
-    [normalized],
-  );
+  if (!hasDatabaseConfig()) {
+    const draft = await requireOnboardingDraft(normalized);
+    if (draft.status !== 'ready_for_auth') {
+      return { draft, claimed: false };
+    }
+
+    const claimedDraft = await writeFallbackDraft(applyDraftMutation(draft, { status: 'materializing' }));
+    return { draft: claimedDraft, claimed: true };
+  }
+
+  let result;
+  try {
+    result = await pool.query<DraftRow>(
+      `UPDATE onboarding_drafts
+        SET status = 'materializing', updated_at = now()
+      WHERE draft_id = $1 AND status = 'ready_for_auth'
+      RETURNING *`,
+      [normalized],
+    );
+  } catch (error) {
+    if (shouldUseFallbackDraftStore(error)) {
+      const draft = await requireOnboardingDraft(normalized);
+      if (draft.status !== 'ready_for_auth') {
+        return { draft, claimed: false };
+      }
+
+      const claimedDraft = await writeFallbackDraft(applyDraftMutation(draft, { status: 'materializing' }));
+      return { draft: claimedDraft, claimed: true };
+    }
+    throw error;
+  }
 
   if ((result.rowCount ?? 0) > 0) {
     return {
@@ -411,22 +520,34 @@ export async function updateOnboardingDraft(
 ): Promise<OnboardingDraft> {
   const current = await requireOnboardingDraft(draftId);
   const next = applyDraftMutation(current, mutation);
+  if (!hasDatabaseConfig()) {
+    return writeFallbackDraft(next);
+  }
+
   const row = draftToRow(next);
 
-  const result = await pool.query<DraftRow>(
-    `UPDATE onboarding_drafts SET
-      status = $2, website_url = $3, business_name = $4, business_type = $5,
-      approver_name = $6, channels = $7, goal = $8, offer = $9, competitor_url = $10,
-      preview = $11, provenance = $12, materialized_tenant_id = $13,
-      materialized_job_id = $14, updated_at = now()
-    WHERE draft_id = $1
-    RETURNING *`,
-    [
-      row.draft_id, row.status, row.website_url, row.business_name, row.business_type,
-      row.approver_name, row.channels, row.goal, row.offer, row.competitor_url,
-      row.preview, row.provenance, row.materialized_tenant_id, row.materialized_job_id,
-    ],
-  );
+  let result;
+  try {
+    result = await pool.query<DraftRow>(
+      `UPDATE onboarding_drafts SET
+        status = $2, website_url = $3, business_name = $4, business_type = $5,
+        approver_name = $6, channels = $7, goal = $8, offer = $9, competitor_url = $10,
+        preview = $11, provenance = $12, materialized_tenant_id = $13,
+        materialized_job_id = $14, updated_at = now()
+      WHERE draft_id = $1
+      RETURNING *`,
+      [
+        row.draft_id, row.status, row.website_url, row.business_name, row.business_type,
+        row.approver_name, row.channels, row.goal, row.offer, row.competitor_url,
+        row.preview, row.provenance, row.materialized_tenant_id, row.materialized_job_id,
+      ],
+    );
+  } catch (error) {
+    if (shouldUseFallbackDraftStore(error)) {
+      return writeFallbackDraft(next);
+    }
+    throw error;
+  }
 
   return rowToDraft(result.rows[0]);
 }
