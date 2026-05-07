@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -393,7 +393,15 @@ async function writeFallbackDraft(draft: OnboardingDraft): Promise<OnboardingDra
   for (const dir of fallbackDraftDirs()) {
     try {
       await mkdir(dir, { recursive: true });
-      await writeFile(fallbackDraftPath(dir, draft.draftId), `${JSON.stringify(draft, null, 2)}\n`, 'utf8');
+      const finalPath = fallbackDraftPath(dir, draft.draftId);
+      const tmpPath = `${finalPath}.tmp`;
+      try {
+        await writeFile(tmpPath, `${JSON.stringify(draft, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+        await rename(tmpPath, finalPath);
+      } catch (writeError) {
+        await unlink(tmpPath).catch(() => undefined);
+        throw writeError;
+      }
       return draft;
     } catch (error) {
       lastError = error;
@@ -497,19 +505,54 @@ export async function requireOnboardingDraft(draftId: string): Promise<Onboardin
   return draft;
 }
 
+async function claimFallbackMaterialization(
+  normalized: string,
+): Promise<{ draft: OnboardingDraft; claimed: boolean }> {
+  // Use exclusive file creation as a per-draft CAS guard so two concurrent
+  // requests cannot both observe `ready_for_auth` and both claim. Mirrors the
+  // atomicity of `UPDATE ... WHERE status = 'ready_for_auth'` in Postgres.
+  for (const dir of fallbackDraftDirs()) {
+    const draftPath = fallbackDraftPath(dir, normalized);
+    const lockPath = `${draftPath}.lock`;
+    let lockHandle;
+    try {
+      lockHandle = await open(lockPath, 'wx');
+    } catch (lockError) {
+      const code = (lockError as NodeJS.ErrnoException).code;
+      if (code === 'EEXIST') {
+        // Another request holds the claim lock — report unclaimed
+        const draft = await requireOnboardingDraft(normalized);
+        return { draft, claimed: false };
+      }
+      if (code === 'ENOENT' || code === 'EACCES') continue;
+      throw lockError;
+    }
+    try {
+      const draft = await requireOnboardingDraft(normalized);
+      if (draft.status !== 'ready_for_auth') {
+        return { draft, claimed: false };
+      }
+      const claimedDraft = await writeFallbackDraft({
+        ...draft,
+        status: 'materializing',
+        updatedAt: new Date().toISOString(),
+      });
+      return { draft: claimedDraft, claimed: true };
+    } finally {
+      await lockHandle.close();
+      await unlink(lockPath).catch(() => undefined);
+    }
+  }
+  throw new Error('draft_not_found');
+}
+
 export async function claimOnboardingDraftMaterialization(
   draftId: string,
 ): Promise<{ draft: OnboardingDraft; claimed: boolean }> {
   const normalized = normalizeDraftId(draftId);
 
   if (!hasDatabaseConfig()) {
-    const draft = await requireOnboardingDraft(normalized);
-    if (draft.status !== 'ready_for_auth') {
-      return { draft, claimed: false };
-    }
-
-    const claimedDraft = await writeFallbackDraft(applyDraftMutation(draft, { status: 'materializing' }));
-    return { draft: claimedDraft, claimed: true };
+    return claimFallbackMaterialization(normalized);
   }
 
   let result;
@@ -523,13 +566,7 @@ export async function claimOnboardingDraftMaterialization(
     );
   } catch (error) {
     if (shouldUseFallbackDraftStore(error)) {
-      const draft = await requireOnboardingDraft(normalized);
-      if (draft.status !== 'ready_for_auth') {
-        return { draft, claimed: false };
-      }
-
-      const claimedDraft = await writeFallbackDraft(applyDraftMutation(draft, { status: 'materializing' }));
-      return { draft: claimedDraft, claimed: true };
+      return claimFallbackMaterialization(normalized);
     }
     throw error;
   }
@@ -554,7 +591,7 @@ export async function updateOnboardingDraft(
   const current = await requireOnboardingDraft(draftId);
   const next = applyDraftMutation(current, mutation);
   if (!hasDatabaseConfig()) {
-    return writeFallbackDraft(next);
+    return writeFallbackDraft({ ...next, updatedAt: new Date().toISOString() });
   }
 
   const row = draftToRow(next);
@@ -577,7 +614,7 @@ export async function updateOnboardingDraft(
     );
   } catch (error) {
     if (shouldUseFallbackDraftStore(error)) {
-      return writeFallbackDraft(next);
+      return writeFallbackDraft({ ...next, updatedAt: new Date().toISOString() });
     }
     throw error;
   }

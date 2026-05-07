@@ -32,6 +32,7 @@ async function withUnreachableDatabaseEnv<T>(run: () => Promise<T>): Promise<T> 
     try {
       const db = await import('../lib/db');
       await db.pool.end();
+      delete (globalThis as { __ariesPgPool?: unknown }).__ariesPgPool;
     } catch {
       // The test may fail before the pool module is imported.
     }

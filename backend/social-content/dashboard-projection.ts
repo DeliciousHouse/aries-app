@@ -352,7 +352,7 @@ function createCalendarEvents(input: {
   campaignName: string;
   objective: string;
 }): MarketingDashboardCalendarEvent[] {
-  const windowDays = input.projection.weekly_content_plan.window_days ?? 7;
+  const windowDays = Math.max(1, input.projection.weekly_content_plan.window_days ?? 7);
   return input.projection.weekly_content_plan.posts.map((post, index) => {
     const linkedPost = input.posts[index];
     const day = dayIndex(post.day, index + 1, windowDays);
