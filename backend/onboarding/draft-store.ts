@@ -341,7 +341,28 @@ function hasDatabaseConfig(): boolean {
 
 function shouldUseFallbackDraftStore(error: unknown): boolean {
   const code = (error as { code?: unknown }).code;
-  return code === '42P01' || code === '42703';
+  return (
+    // Schema drift during deploys should not block public onboarding intake.
+    code === '42P01' ||
+    code === '42703' ||
+    // Shared Postgres can be temporarily unavailable while the owning compose
+    // stack is restarted or DNS/service aliases settle. Drafts are pre-auth
+    // intake records, so falling back to DATA_ROOT is safer than hard-blocking
+    // the first-run onboarding flow.
+    code === 'ECONNREFUSED' ||
+    code === 'ENOTFOUND' ||
+    code === 'EAI_AGAIN' ||
+    code === 'ETIMEDOUT' ||
+    code === 'ECONNRESET' ||
+    code === '08000' ||
+    code === '08001' ||
+    code === '08003' ||
+    code === '08006' ||
+    code === '53300' ||
+    code === '57P01' ||
+    code === '57P02' ||
+    code === '57P03'
+  );
 }
 
 function fallbackDraftDirs(): string[] {
