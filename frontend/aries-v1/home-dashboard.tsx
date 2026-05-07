@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 import { useIntegrations } from '@/hooks/use-integrations';
 import { useBusinessProfile } from '@/hooks/use-business-profile';
@@ -12,12 +13,22 @@ import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { LoadingStateGrid } from './components';
 import DashboardHomePresenter from './presenters/dashboard-home-presenter';
 import { createDashboardHomeViewModel } from './view-models/dashboard-home';
+import {
+  customerSafeGenerateThisWeekError,
+  submitGenerateThisWeek,
+} from './generate-this-week';
 
 export default function AriesHomeDashboard() {
+  const router = useRouter();
   const campaigns = useRuntimeCampaigns({ autoLoad: true });
   const reviews = useRuntimeReviews({ autoLoad: true });
   const profile = useBusinessProfile({ autoLoad: true });
   const integrations = useIntegrations({ autoLoad: true });
+  const [generateState, setGenerateState] = useState<{
+    submitting: boolean;
+    errorMessage: string | null;
+    jobStatusUrl: string | null;
+  }>({ submitting: false, errorMessage: null, jobStatusUrl: null });
 
   // Review queue data is useful, but it should not block the dashboard shell.
   // A slow reviews fetch can happen when runtime review hydration needs to scan
@@ -41,6 +52,44 @@ export default function AriesHomeDashboard() {
       }),
     [campaignList, integrationCards, integrationsPending, profileData, reviewList],
   );
+
+  const onGenerateThisWeek = useCallback(async () => {
+    if (generateState.submitting || !model.generateThisWeek.enabled) {
+      return;
+    }
+    setGenerateState({ submitting: true, errorMessage: null, jobStatusUrl: null });
+    try {
+      const result = await submitGenerateThisWeek();
+      if (!result.ok) {
+        setGenerateState({
+          submitting: false,
+          errorMessage: customerSafeGenerateThisWeekError(result.errorMessage),
+          jobStatusUrl: null,
+        });
+        return;
+      }
+      const target =
+        result.jobStatusUrl ??
+        (result.jobId ? `/social-content/status?jobId=${encodeURIComponent(result.jobId)}` : null);
+      if (!target) {
+        setGenerateState({
+          submitting: false,
+          errorMessage: customerSafeGenerateThisWeekError(null),
+          jobStatusUrl: null,
+        });
+        return;
+      }
+      setGenerateState({ submitting: false, errorMessage: null, jobStatusUrl: target });
+      router.push(target);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : null;
+      setGenerateState({
+        submitting: false,
+        errorMessage: customerSafeGenerateThisWeekError(message),
+        jobStatusUrl: null,
+      });
+    }
+  }, [generateState.submitting, model.generateThisWeek.enabled, router]);
 
   if (loading) {
     return <LoadingStateGrid />;
@@ -66,6 +115,12 @@ export default function AriesHomeDashboard() {
       onChannelDisconnect={(channelId) =>
         void integrations.runAction('disconnect', { platform: channelId as IntegrationPlatform })
       }
+      generateThisWeek={{
+        submitting: generateState.submitting,
+        errorMessage: generateState.errorMessage,
+        jobStatusUrl: generateState.jobStatusUrl,
+        onTrigger: onGenerateThisWeek,
+      }}
     />
   );
 }

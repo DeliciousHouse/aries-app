@@ -895,3 +895,122 @@ Current `fix/live-qa-blockers` HEAD only contained T3 (`82cc550`), T8 (`7c062aa`
 ### Gotchas for downstream tasks
 - The sweeper is invocation-only — no daemon/cron/scheduler in T26 per task spec. F2/F3 operational reliability checks should call this script from whatever scheduler the host environment provides (systemd timer, k8s CronJob, etc.) rather than embedding scheduling here.
 - The dedup audit key is `tenant_id + event_type + occurred_at`. If a future task adds tenant-scoped warning suppression (e.g., user opted out), prefer a separate `oauth.reconnect_warning.suppressed` audit event over piggy-backing on `.sent`.
+
+## [2026-05-06] T28 — End-to-end weekly social-content smoke script
+
+### Module shape (`scripts/smoke-weekly-pipeline.mjs`)
+- Pure ESM `.mjs` so the script stays out of the TypeScript graph and avoids the pre-existing `tests/social-content-approve-route.test.ts` typecheck noise on this branch.
+- CLI surface is exactly `--tenant <id> --website <url> --auto-approve` per plan T28; `--help` / `-h` prints the usage block. Equals-form (`--tenant=foo`, `--website=https://x`) is also accepted. Missing/invalid args -> `SmokeError(step=0, ...)` -> exit 1, no soft-fail and no `--skip-*` flags.
+- Required env (validated up-front, all 9 names): `APP_BASE_URL`, `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `META_TEST_PAGE_ID`, `META_TEST_PAGE_ACCESS_TOKEN`, `OAUTH_TOKEN_ENCRYPTION_KEY`. Optional: `META_GRAPH_API_VERSION` (defaults to `v21.0`). The script intentionally uses `META_TEST_*` names and the focused test asserts the script source does NOT reference the production `META_PAGE_ID` / `META_ACCESS_TOKEN` env names anywhere.
+- Live execution is guarded by an `import.meta.url` check — the helpers (`parseArgs`, `validateArgs`, `validateEnv`, `encryptOAuthToken`, `buildUsageText`, `isAtApproval`, `isCompleted`, `STEP_LABELS`, `REQUIRED_ENV`, `EVIDENCE_PATHS`, `SmokeError`, `runSmoke`, `main`) are all named exports so tests can import them without spawning the full smoke run.
+
+### 14-step assertion roster (numbered PASS lines on a green run)
+- 1 signup tenant — direct `pg` insert into `organizations` + `users` (bcrypt-hashed password) because there is no public signup endpoint in this repo.
+- 2 submit business profile via `/api/onboarding/start` AND persist the `business_profiles` row directly so the T16 onboarding gate accepts the tenant immediately (the `/api/onboarding/start` workflow is async).
+- 3 connect Meta — direct `pg` upsert of `oauth_connections` (facebook + instagram, status=connected) plus encrypted `oauth_tokens` rows. The Page Access Token is encrypted inline with the same AES-256-GCM JSON envelope `backend/integrations/oauth-crypto.ts` produces, verified by an explicit round-trip test against `decryptToken()`.
+- 4 trigger `POST /api/social-content/jobs` with `jobType: 'weekly_social_content'` after authenticating via NextAuth credentials (`/api/auth/csrf` then `/api/auth/callback/credentials`).
+- 5/7/9 wait for `approval.approvalStep === approve_weekly_plan|approve_image_creatives|approve_publish` (60s each).
+- 6/8/10 POST `/api/social-content/jobs/{id}/approve` with `approvedBy: 'smoke-script'` and the captured `approvalId` (200 or 202 accepted).
+- 11 wait until `social_content_job_state === 'completed'` (180s).
+- 12 SQL: `SELECT id, platform_post_id, published_status FROM posts WHERE tenant_id = $1 AND published_at IS NOT NULL` — fail if any row has `platform_post_id IS NULL`.
+- 13 `GET https://graph.facebook.com/{META_GRAPH_API_VERSION}/{platform_post_id}?access_token=...` for each post; expect 200 with `body.id === platform_post_id` (id-mismatch is treated as failure, mirroring T24's verification semantics).
+- 14 dynamic-import `playwright`, log in via the NextAuth cookie jar, navigate to `/dashboard/posts`, screenshot to `.sisyphus/evidence/final-qa/dashboard-posts-<slug>.png`, fail if any `<img>` has `naturalWidth <= 0`.
+
+### Evidence paths (contract documented and exported)
+- `EVIDENCE_PATHS.smokeGreenFile` -> `.sisyphus/evidence/task-28-smoke-green.txt` (written on green run)
+- `EVIDENCE_PATHS.finalQaDir`     -> `.sisyphus/evidence/final-qa/` (graph-verify.txt + dashboard-posts-<slug>.png/json)
+- `EVIDENCE_PATHS.evidenceDir`    -> `.sisyphus/evidence/`
+- The committed `.sisyphus/evidence/task-28-smoke-green.txt` is the implementation evidence; the live `final-qa/*` artifacts are emitted by the script during a real green run and are NOT pre-committed.
+
+### Auth seam
+- The smoke script reuses the NextAuth Credentials provider (no special test bypass) — it captures `Set-Cookie` from `/api/auth/callback/credentials` and replays the session cookie on every subsequent request. Playwright is seeded with the same cookies via `context.addCookies` so the `/dashboard/posts` page renders for the test tenant without going through Google OAuth.
+
+### Test seam (`tests/smoke-weekly-pipeline.test.ts`)
+- 14 unit tests covering: `parseArgs` (CLI + equals form + help + -h), `validateArgs` (missing/invalid/blank), `validateEnv` (per-key + blank), `encryptOAuthToken` round-trip via `backend/integrations/oauth-crypto.decryptToken`, `encryptOAuthToken` rejects empty / wrong-length keys, `buildUsageText` enumerates 1..14, `STEP_LABELS` shape, `isAtApproval` step matching, `isCompleted` dialect detection, CLI exits 1 on missing args, CLI `--help` exits 0, banned-pattern compliance of script source (no `--skip-*`, no `softFail|soft_fail`, no `META_PAGE_ID`/`META_ACCESS_TOKEN`, no `as any`/`@ts-ignore`/`@ts-expect-error`), `SmokeError.step` propagates, `EVIDENCE_PATHS` points at the documented locations.
+- The `.mjs` module is loaded via a `new Function('specifier', 'return import(specifier)')` shim so `tsc --noEmit` does not try to resolve declarations for a runtime-only file. The local `SmokeModule` type alias declares only the public surface the tests use.
+
+### Validation
+- `node --check scripts/smoke-weekly-pipeline.mjs` -> ok
+- `tsx --test tests/smoke-weekly-pipeline.test.ts` -> 14/14 pass
+- `node scripts/check-banned-patterns.mjs` -> ok (8 files / 10 patterns)
+- `node scripts/check-repo-boundary.mjs` -> ok (628 files)
+- `lsp_diagnostics` clean on both new files; `tsc --noEmit` reports 0 new errors (the only remaining errors are pre-existing in `tests/social-content-approve-route.test.ts`, unrelated to T28).
+
+### Gotchas for downstream agents
+- The Page Access Token used in the script must be the test Page Access Token (`META_TEST_PAGE_ACCESS_TOKEN`); a real-tenant Page token would publish to a production Page. The validateEnv check + the test-source banned-pattern assertion are the two enforced guards.
+- `META_GRAPH_API_VERSION` must match what `backend/integrations/publish-verification.ts` uses; if the app overrides it via env on the server side, set the same value when running the smoke script so the verification GET hits the same `vN` endpoint.
+- The script needs `playwright` installed but does not declare it as a project dependency. Operators run `npm install --no-save playwright` (or set `PLAYWRIGHT_BROWSERS_PATH`) before running T28; missing playwright fails step 14 with a clear message.
+- Hermes must be reachable and configured to send authenticated callbacks to `${APP_BASE_URL}/api/internal/hermes/runs`. If Hermes is missing the script will time out at step 5 (60s) or step 11 (180s). That is the intended behavior — the script does not poll Hermes directly.
+- The script never deletes the test tenant on success; cleanup is the orchestrator's responsibility (run against a disposable test DB or schema).
+
+### Recovery note
+- The first attempt at T28 was lost in the workspace (files vanished between sessions); the git working tree had no T28 changes when Atlas re-checked. The recreate path used `mcp_Write` for both files and verified existence with `ls -la` immediately after each write. Future Sisyphus runs should `ls` the target path right after `mcp_Write` returns to catch this class of workspace-state loss before reporting completion.
+
+## [2026-05-06] T28 fix — preserve raw POST body in `buildHttp.post()`
+
+### Bug
+- `buildHttp.post(stepIndex, p, body, init)` always wrote `body: payload` (where `payload = body == null ? undefined : JSON.stringify(body)`) into the request init, so the spread `{ ...init, body: payload }` overwrote any caller-supplied `init.body`. When `body=null`, this silently dropped the URL-encoded form text passed by `authenticateSession()` to `/api/auth/callback/credentials`, breaking the live NextAuth credentials sign-in.
+
+### Fix
+- Branch on `body == null`: pass `init` through unchanged (raw-body path) so caller-provided `init.body` and `content-type: application/x-www-form-urlencoded` survive. When `body` is an object, JSON-stringify it and overwrite any prior `init.body` (JSON path). Net diff is one helper:
+  ```js
+  post: (stepIndex, p, body, init = {}) => {
+    if (body == null) {
+      return request(stepIndex, 'POST', p, init);
+    }
+    return request(stepIndex, 'POST', p, { ...init, body: JSON.stringify(body) });
+  },
+  ```
+
+### Regression coverage
+- Added 4 tests against `buildHttp` using a `withStubbedFetch(responder, fn)` helper that captures every fetch call's `url` + `init`:
+  1. `http.post serializes JSON bodies and sets application/json content-type` — confirms JSON path still works.
+  2. `http.post preserves caller-provided raw body when body arg is null` — fails on the broken version (`init.body === undefined`); passes after fix (`init.body === formText`). Asserts `email=`, `csrfToken=`, `json=true` survive in the URL-encoded form.
+  3. `http.post defaults to undefined body when caller passes neither body nor init.body` — defends the no-body path used by CSRF preflight.
+  4. `http.post merges init headers without dropping caller content-type when sending JSON body` — guards a future regression where someone sends JSON with a non-default `content-type` (e.g., `application/json; charset=utf-8`).
+- The bug-prevention test was confirmed: temporarily reverting the helper to the broken version produces `not ok 16 - http.post preserves caller-provided raw body when body arg is null`; the rest stay green. Restoring the fix restores 18/18 pass.
+
+### Validation
+- `node --check scripts/smoke-weekly-pipeline.mjs` -> ok
+- `tsx --test tests/smoke-weekly-pipeline.test.ts` -> 18/18 pass
+- `node scripts/check-banned-patterns.mjs` -> ok (8 files / 10 patterns)
+- `node scripts/check-repo-boundary.mjs` -> ok (628 files)
+- `lsp_diagnostics` clean on both new files.
+
+### Gotchas
+- The pre-existing banned-pattern test still asserts the script source contains none of the forbidden tokens (`as any`, `@ts-ignore`, `softFail`, `META_PAGE_ID`, etc.). The literal regex sources in the test file deliberately spell those tokens; this is fine because the test runs against the SCRIPT source, not its own file. Future audits searching for those literals in the test file should treat the regex array as expected.
+- The `HttpClient` interface is now a typed exported shape in the test module — keep it in sync if `buildHttp` ever returns more methods (e.g., `delete`, `put`).
+
+## [2026-05-06] F2 Code Quality Review (verdict)
+
+### Mandated commands (8/8 executed)
+- `npm run typecheck` -> PASS (0 errors)
+- `npm run test` -> 1038 pass / 51 fail (51 fail = pre-existing baseline; stash-test confirmed 1020 pass / 51 fail before T28)
+- `npm run verify` -> PASS ("Verification suite passed.")
+- `npm run validate:repo-boundary` -> PASS ({ ok: true, filesChecked: 628 })
+- `npm run validate:banned-patterns` -> PASS ({ ok: true, files_checked: 8, banned_patterns: 10 })
+- `npm run validate:social-content` -> PASS (87/87)
+- `npm run validate:execution-provider` -> PASS (40/40)
+- `npm run validate:marketing-flow` -> PASS (14/14)
+
+### Code quality audit (111 changed source files vs 0e5029b)
+- 0 hits for `as any` in changed files (the 2 ts-ignore/expect-error hits in tests/smoke-weekly-pipeline.test.ts are regex literals inside the banned-pattern compliance test that ASSERTS those tokens are absent from the script source).
+- 0 empty catch blocks. Every catch handles error meaningfully.
+- 0 production `console.log`. Only structured `console.info` for marketing-runtime-schema + asset-ingest path rewrites; CLI scripts (init-db.js) use console.log for setup output (allowed for scripts).
+- 0 TODO/FIXME/HACK/XXX markers.
+- 0 Lobster/OpenClaw imports in changed production code.
+- Comment density 0%-6.2% across changed files (T28 files 0%, vision-qa.ts 0%, dashboard-projection.ts 0%; upload-replace.ts highest at 6.2%, all explanatory not slop).
+- Function names are descriptive (handlePublishDispatch, handleRegenerateCreative, ensureFreshBrandKitForWeeklyRun, etc.). No do*/process* generic placeholders.
+- The remaining "campaign" string hits in changed files (handler.ts:13, asset-library.ts, runtime-views.ts) are all in the LEGACY brand_campaign compat surface, which AGENTS.md explicitly preserves.
+
+### Pre-existing test failures (51) categorized
+- Tenant context legacy isolation tests (34/35/42-73)
+- Legacy `/api/marketing/jobs` hydration + brand-review tests (307/309/323-353)
+- Legacy openclaw gateway tests (271/679/687)
+- Legacy brand identity / business-profile tests (417/418/446/455/456/559)
+- Legacy approval-stage workflow tests (784-879)
+- Pre-existing infra/docs tests (719/724/822)
+None of these are in the T1-T28 surface; pre-T28 stash test reproduced the same 51 failure count.
+
+### Verdict rationale
+Per task instruction "Treat tests that fail as a rejection unless you can prove the command is invalid/unavailable and the plan allows that," the npm run test command IS valid and IS available, but reports 51 failing tests. The plan's L102 acceptance criterion explicitly requires `npm run test` to pass; that bar is not met. Therefore F2 returns REJECT, with the supporting evidence that (a) all 7 other mandated commands pass, (b) code quality on the 111 changed files is clean, and (c) the 51 failures are pre-existing baseline unrelated to T1-T28.

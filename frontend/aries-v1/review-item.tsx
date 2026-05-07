@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import Link from 'next/link';
-import { ArrowUpRight, CheckCircle2, LoaderCircle, MessageSquareText, XCircle } from 'lucide-react';
+import { ArrowUpRight, CheckCircle2, ImageIcon, LoaderCircle, MessageSquareText, XCircle } from 'lucide-react';
 
 import MediaPreview from '@/frontend/components/media-preview';
 import { useRuntimeReviewItem } from '@/hooks/use-runtime-review-item';
@@ -12,6 +12,7 @@ import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { getReviewRecoveryState } from './review-recovery';
 import { isDestructiveActionBlocked } from './review-destructive-guard';
 import { EmptyStatePanel, LoadingStateGrid, ShellPanel, StatusChip } from './components';
+import CreativeActionDrawer, { canShowCreativeActionDrawer } from './creative-action-drawer';
 
 const AUTOSAVE_DEBOUNCE_MS = 500;
 
@@ -290,6 +291,7 @@ export default function AriesReviewItemScreen(props: { reviewId: string; initial
   const [note, setNote] = useState('');
   const [activeAction, setActiveAction] = useState<DecisionActionKind>('approve');
   const [progressIndex, setProgressIndex] = useState(0);
+  const [imageActionDrawerOpen, setImageActionDrawerOpen] = useState(false);
   const busy = review.decision.isLoading;
   // Synchronous double-submit lock. `busy` / `disabled` aren't enough because
   // React state updates are async — a fast second click or effect re-invocation
@@ -498,6 +500,21 @@ export default function AriesReviewItemScreen(props: { reviewId: string; initial
                       <ArrowUpRight className="h-4 w-4" />
                     </a>
                   ) : null}
+                  {canShowCreativeActionDrawer({
+                    reviewType: reviewItem.reviewType,
+                    contentType: reviewItem.contentType,
+                    assetId: reviewItem.assetId,
+                  }) ? (
+                    <button
+                      type="button"
+                      onClick={() => setImageActionDrawerOpen(true)}
+                      data-testid="creative-action-drawer-trigger"
+                      className="inline-flex items-center gap-2 rounded-full border border-white/12 px-4 py-2.5 text-sm font-medium text-white/80 transition hover:border-white/20 hover:text-white"
+                    >
+                      <ImageIcon className="h-4 w-4" />
+                      Image actions
+                    </button>
+                  ) : null}
                 </div>
               </div>
             </ShellPanel>
@@ -695,6 +712,22 @@ export default function AriesReviewItemScreen(props: { reviewId: string; initial
           Open campaign
         </Link>
       </div>
+
+      {canShowCreativeActionDrawer({
+        reviewType: reviewItem.reviewType,
+        contentType: reviewItem.contentType,
+        assetId: reviewItem.assetId,
+      }) && reviewItem.assetId ? (
+        <CreativeActionDrawer
+          jobId={reviewItem.jobId}
+          creativeId={reviewItem.assetId}
+          isOpen={imageActionDrawerOpen}
+          onClose={() => setImageActionDrawerOpen(false)}
+          onSuccess={() => {
+            void review.load();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

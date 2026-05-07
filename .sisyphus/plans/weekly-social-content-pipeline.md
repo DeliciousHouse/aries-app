@@ -860,7 +860,7 @@ Parallel Speedup: ~65% faster than fully sequential
   ```
   **Commit**: YES (T12) — `feat(vision-qa): post-gen QA service with 4 thresholds`
 
-- [ ] 13. **Frame/template overlay (sharp-based)**
+- [x] 13. **Frame/template overlay (sharp-based)**
 
   **What**: New module `backend/creative-memory/frame-overlay.ts` exports `applyBrandFrame({ assetBuffer, brandKit, channel, postType })` returning Buffer. Uses sharp to composite a corner logo (bottom-right, 8% width) and a thin 2px border in primary brand color. Apply only when `channel in ['instagram_feed','facebook_feed']` AND `post_type === 'static'` (NOT link cards). Called after vision QA passes; output saved as new asset row `source: 'frame_overlaid'`.
   **Must NOT**: Add frames to videos, link cards, or carousel internal slides (carousel uses single frame only on cover). No drop shadows, no watermark text.
@@ -879,7 +879,7 @@ Parallel Speedup: ~65% faster than fully sequential
   ```
   **Commit**: YES (T13) — `feat(creative-memory): brand frame overlay for IG/FB feed static`
 
-- [ ] 14. **Regenerate as new aries_run (NOT back-step)**
+- [x] 14. **Regenerate as new aries_run (NOT back-step)**
 
   **What**: New endpoint `POST /api/social-content/jobs/[jobId]/creatives/[creativeId]/regenerate` calls `startMarketingJob` with workflow scope `{ regenerate_creative: { source_run_id, source_creative_id } }`. Hermes returns a new run with single image-creative output. Old creative is preserved with `superseded_by` pointer; new becomes default for review. Aries does NOT replay or back-step the original run (callback handler at `backend/marketing/hermes-callbacks.ts:289` rejects regression).
   **Must NOT**: Modify `applyHermesMarketingCallback` to accept stage regression. No reuse of original run_id.
@@ -895,7 +895,7 @@ Parallel Speedup: ~65% faster than fully sequential
   ```
   **Commit**: YES (T14) — `feat(social-content): regenerate creative as new aries_run`
 
-- [ ] 15. **Upload-replace UI + backend with NSFW QA gate + 24h orphan retention**
+- [x] 15. **Upload-replace UI + backend with NSFW QA gate + 24h orphan retention**
 
   **What**: New endpoint `POST /api/social-content/jobs/[jobId]/creatives/[creativeId]/upload-replace` accepts multipart image (max 8MB jpg/png/webp, IG limit). Pipeline: validate mime/size → run T12 vision QA (NSFW + brand_violation) → if pass, replace creative.asset_url and mark previous as `orphaned_at = now()` → if fail, surface errors to operator with override option (operator-acknowledged ToS click stores `operator_override: true` in vision_qa_runs row). Background sweep `scripts/gc-orphan-uploads.ts` deletes assets where `orphaned_at < now() - 24h`.
   **Must NOT**: Bypass vision QA silently. No cross-tenant orphan visibility. No automatic publish of overridden uploads (still require approval).
@@ -930,7 +930,7 @@ Parallel Speedup: ~65% faster than fully sequential
   ```
   **Commit**: YES (T16) — `feat(onboarding): hard gate on profile + ≥1 connected platform`
 
-- [ ] 17. **Connect Meta/IG step in onboarding wizard**
+- [x] 17. **Connect Meta/IG step in onboarding wizard**
 
   **What**: New step in `frontend/onboarding/pipeline-intake/index.tsx` (or new wizard component if pipeline-intake is wrong wizard — verify in research) titled "Connect your social accounts". Embeds connection cards for Meta (FB) and IG that link to `/oauth/connect/meta`. After return, show connection state (connected/error) inline; allow proceed once ≥1 connected. Wire to T16 gate (operator cannot finish onboarding without connection).
   **Must NOT**: Show all 7 platforms (only Meta + IG in this step; LinkedIn/X/etc deferred to /platforms post-onboarding). No silent retries on connection error.
@@ -945,7 +945,7 @@ Parallel Speedup: ~65% faster than fully sequential
   ```
   **Commit**: YES (T17) — `feat(onboarding): connect Meta + IG step`
 
-- [ ] 18. **"Generate this week" manual trigger UI + handler**
+- [x] 18. **"Generate this week" manual trigger UI + handler**
 
   **What**: New button on `/dashboard` ("Generate this week's content") that POSTs to existing `/api/social-content/jobs` with default payload from `backend/social-content/defaults.ts` (7d, 3 static, ≤2 images, 1 video script, 0 video render). Disabled when: another run is in progress for tenant (status in submitted/running/requires_approval), OR profile/connection gate not met. Shows live status via existing `/social-content/status` page link.
   **Must NOT**: Add cron / scheduler (out of v1). No bulk generate. No video render trigger.
@@ -963,7 +963,7 @@ Parallel Speedup: ~65% faster than fully sequential
   ```
   **Commit**: YES (T18) — `feat(dashboard): generate-this-week manual trigger`
 
-- [ ] 19. **Inline copy edit with autosave (single-writer)**
+- [x] 19. **Inline copy edit with autosave (single-writer)**
 
   **What**: Replace read-only copy display in `frontend/aries-v1/review-item.tsx` with native textarea (or contenteditable) for `post_copy.text`. Autosave on blur AND debounce-500ms during typing. New endpoint `PATCH /api/social-content/jobs/[jobId]/posts/[postId]` accepts `{ text, hashtags? }`, validates via T11 caption-validator, persists to runtime-state, updates RuntimeReviewItem.currentVersion. Last-write-wins (no optimistic concurrency); stale `previousVersion` archived.
   **Must NOT**: TipTap/rich-text editor. No version history UI. No keystroke-level history. No bulk edit. No multi-user OT/CRDT.
@@ -981,7 +981,7 @@ Parallel Speedup: ~65% faster than fully sequential
   ```
   **Commit**: YES (T19) — `feat(review): inline copy edit with autosave + caption validator`
 
-- [ ] 20. **Regenerate / upload-replace drawer in review UI**
+- [x] 20. **Regenerate / upload-replace drawer in review UI**
 
   **What**: New drawer component `frontend/aries-v1/creative-action-drawer.tsx` triggered from each image in review-item. Two actions: "Regenerate this image" → POST T14 endpoint; "Upload your own" → file picker → POST T15 endpoint. Show vision QA results inline (4 score bars + verdict). On regenerate, show progress spinner until callback updates state. On upload, show vision QA result; if fail, allow operator override with explicit ToS click.
   **Must NOT**: Show regenerate/upload for video scripts (out of v1). No regenerate budget UI yet (3-retry limit enforced server-side, T12).
@@ -999,7 +999,7 @@ Parallel Speedup: ~65% faster than fully sequential
   ```
   **Commit**: YES (T20) — `feat(review): creative action drawer (regenerate + upload-replace)`
 
-- [ ] 21. **Reschedule per-post drawer**
+- [x] 21. **Reschedule per-post drawer**
 
   **What**: Add reschedule control to review-item: date+time picker per post + per-platform target toggles (FB-only / IG-only / both). Endpoint `PATCH /api/social-content/jobs/[jobId]/posts/[postId]/schedule` accepts `{ scheduled_at: ISO, platforms: string[] }`. Persists to `scheduled_posts` table (T7). Uses `date-fns` (already a dep).
   **Must NOT**: Calendar drag-and-drop. No timezone picker (use tenant-local timezone from business_profiles or default America/New_York).
@@ -1014,7 +1014,7 @@ Parallel Speedup: ~65% faster than fully sequential
   ```
   **Commit**: YES (T21) — `feat(review): reschedule + platform-target drawer`
 
-- [ ] 22. **Per-platform preview UI (IG single/carousel + FB feed/link card)**
+- [x] 22. **Per-platform preview UI (IG single/carousel + FB feed/link card)**
 
   **What**: New components `frontend/aries-v1/post-preview/{InstagramFeedSingle,InstagramFeedCarousel,FacebookFeedSingle,FacebookFeedLinkCard}.tsx`. Each renders a faithful platform-style preview with correct aspect ratio (T9 matrix), brand-frame applied (T13), caption truncation per platform (IG 125 chars before "...more", FB 480 chars). Uses next/image with whitelisted domains (T6).
   **Must NOT**: Pixel-perfect 1:1 platform skin (looks-like, not is-the-platform). No interactive comments/likes UI.
@@ -1082,7 +1082,7 @@ Parallel Speedup: ~65% faster than fully sequential
   ```
   **Commit**: YES (T25) — `chore(ops): stale-run reaper script`
 
-- [ ] 26. **OAuth refresh sweeper + day-50 reconnect-warning email**
+- [x] 26. **OAuth refresh sweeper + day-50 reconnect-warning email**
 
   **What**: New script `scripts/oauth-refresh-sweep.ts` (idempotent). For each `oauth_connections` row where `token_expires_at < now() + 24h` AND `status='connected'`: trigger T2 refresh path. For Meta long-lived tokens (60d expiry) where `token_expires_at < now() + 10d`: send reconnect-warning email via Resend (T27 template). For refresh failures: mark `status='reauthorization_required'`. Logs to oauth_audit_events.
   **Must NOT**: Run automatic re-auth (security). No SMS / push notifications (Resend only). No background daemon (script invocation model).
@@ -1117,7 +1117,7 @@ Parallel Speedup: ~65% faster than fully sequential
   ```
   **Commit**: YES (T27) — `feat(notifications): plan-ready, approval-needed, publish-failed, reconnect-warning emails`
 
-- [ ] 28. **End-to-end smoke script**
+- [x] 28. **End-to-end smoke script**
 
   **What**: New `scripts/smoke-weekly-pipeline.mjs`. Argv: `--tenant <id> --website <url> --auto-approve`. Steps (each asserts inside): (1) signup new test tenant; (2) submit business profile via /api/onboarding; (3) connect Meta (uses test app token from .env.test); (4) trigger /api/social-content/jobs; (5) poll runtime state until plan_review (60s timeout); (6) auto-approve plan; (7) wait for creative_review; (8) auto-approve creatives; (9) wait for publish_review; (10) auto-approve publish; (11) wait for completed (180s timeout); (12) assert posts.platform_post_id captured for each post; (13) GET https://graph.facebook.com/v21.0/{id} returns 200; (14) Playwright navigate /dashboard/posts and assert <img> has naturalWidth>0 for each post. Exit 0 on full green; non-zero on any assertion failure.
   **Must NOT**: Use production Meta credentials. No skip-flags. No "soft fail" mode.
