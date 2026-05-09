@@ -51,10 +51,52 @@ function trimToBudget(value: string, budget: number): string {
   return `${value.slice(0, budget)}…`;
 }
 
+function stripRawTextElementBlocks(html: string, tagName: 'script' | 'style'): string {
+  let output = '';
+  let cursor = 0;
+  const lowerHtml = html.toLowerCase();
+  const openNeedle = `<${tagName}`;
+  const closeNeedle = `</${tagName}`;
+
+  while (cursor < html.length) {
+    const openStart = lowerHtml.indexOf(openNeedle, cursor);
+    if (openStart < 0) {
+      output += html.slice(cursor);
+      break;
+    }
+
+    output += html.slice(cursor, openStart);
+    const openEnd = html.indexOf('>', openStart + openNeedle.length);
+    if (openEnd < 0) {
+      output += ' ';
+      break;
+    }
+
+    const closeStart = lowerHtml.indexOf(closeNeedle, openEnd + 1);
+    if (closeStart < 0) {
+      output += ' ';
+      break;
+    }
+
+    const closeEnd = html.indexOf('>', closeStart + closeNeedle.length);
+    if (closeEnd < 0) {
+      output += ' ';
+      break;
+    }
+
+    output += ' ';
+    cursor = closeEnd + 1;
+  }
+
+  return output;
+}
+
 function htmlToText(html: string): string {
   // Strip script/style blocks first so their contents do not leak into the prompt.
-  const withoutScripts = html.replace(/<script[\s\S]*?<\/script>/gi, ' ');
-  const withoutStyles = withoutScripts.replace(/<style[\s\S]*?<\/style>/gi, ' ');
+  // Use a scanner instead of a tag-filtering regexp so malformed closing tags like
+  // </script\t junk> are removed without triggering CodeQL's js/bad-tag-filter.
+  const withoutScripts = stripRawTextElementBlocks(html, 'script');
+  const withoutStyles = stripRawTextElementBlocks(withoutScripts, 'style');
   const stripped = withoutStyles.replace(/<[^>]+>/g, ' ');
   return stripped.replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -87,7 +129,7 @@ function instructionsBlock(): string {
     'You are a brand identity analyst. Read the website source text and the existing scraped brand kit, then return ONE strict JSON object describing the brand.',
     'No prose, no markdown fences. Reply with JSON only.',
     'Schema:',
-    '{"status":"ok","output":[{"brandVoiceSummary":string,"offerSummary":string,"positioning":string,"audience":string,"toneOfVoice":string,"styleVibe":string}]}',
+    '{"status":"ok","output":[{"brandVoiceSummary":string|null,"offerSummary":string|null,"positioning":string|null,"audience":string|null,"toneOfVoice":string|null,"styleVibe":string|null}]}',
     'Field guidance:',
     '- brandVoiceSummary: 1-2 sentences describing how the brand speaks (tone, register, energy).',
     '- offerSummary: 1-2 sentences describing the core offer/product.',
@@ -146,6 +188,8 @@ function trimmedString(value: unknown): string | null {
 function enrichmentFromOutput(value: unknown): BrandKitEnrichment | null {
   const envelope = recordOrNull(value);
   if (!envelope) return null;
+  // Reject error envelopes so a garbled output field isn't silently accepted.
+  if (typeof envelope.status === 'string' && envelope.status !== 'ok') return null;
   const output = envelope.output;
   const first = Array.isArray(output) ? recordOrNull(output[0]) : recordOrNull(output);
   if (!first) return null;
@@ -211,11 +255,19 @@ export async function enrichBrandKitWithGemini(input: EnrichBrandKitInput): Prom
 
   let runId: string;
   try {
-    const submit = await fetchImpl(`${gatewayUrl}/v1/runs`, {
-      method: 'POST',
-      headers: { authorization: auth, 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    const submitController = new AbortController();
+    const submitTimer = setTimeout(() => submitController.abort(), timeoutMs);
+    let submit: Response;
+    try {
+      submit = await fetchImpl(`${gatewayUrl}/v1/runs`, {
+        method: 'POST',
+        headers: { authorization: auth, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: submitController.signal,
+      });
+    } finally {
+      clearTimeout(submitTimer);
+    }
     if (!submit.ok) {
       return { ok: false, reason: 'submit_rejected', detail: `HTTP ${submit.status}` };
     }
@@ -233,10 +285,20 @@ export async function enrichBrandKitWithGemini(input: EnrichBrandKitInput): Prom
   while (Date.now() <= deadline) {
     let pollJson: Record<string, unknown> | null;
     try {
-      const poll = await fetchImpl(`${gatewayUrl}/v1/runs/${encodeURIComponent(runId)}`, {
-        method: 'GET',
-        headers: { authorization: auth },
-      });
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      const pollController = new AbortController();
+      const pollTimer = setTimeout(() => pollController.abort(), remaining);
+      let poll: Response;
+      try {
+        poll = await fetchImpl(`${gatewayUrl}/v1/runs/${encodeURIComponent(runId)}`, {
+          method: 'GET',
+          headers: { authorization: auth },
+          signal: pollController.signal,
+        });
+      } finally {
+        clearTimeout(pollTimer);
+      }
       if (!poll.ok) {
         return { ok: false, reason: 'poll_rejected', detail: `HTTP ${poll.status}` };
       }
