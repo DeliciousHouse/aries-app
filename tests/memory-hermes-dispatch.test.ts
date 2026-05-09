@@ -55,7 +55,7 @@ test('outbound payload has correct callback URL', async () => {
   );
 
   const payload = captured as Record<string, unknown>;
-  assert.equal(payload.callbackUrl, 'https://aries.example.com/api/internal/hermes/runs');
+  assert.equal(payload.callbackUrl, 'https://aries.example.com/api/internal/aries-research/callback');
 });
 
 test('outbound request uses HERMES_API_SERVER_KEY as Bearer token', async () => {

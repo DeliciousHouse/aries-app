@@ -48,7 +48,7 @@ export async function dispatchResearchJob(
     taskSpec: input.taskSpec,
     tenantPseudonym,
     memoryContext: input.memoryContext,
-    callbackUrl: `${appBaseUrl}/api/internal/hermes/runs`,
+    callbackUrl: `${appBaseUrl.replace(/\/$/, '')}/api/internal/aries-research/callback`,
     callbackToken: input.callbackToken,
   };
 

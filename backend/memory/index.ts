@@ -54,6 +54,11 @@ export type {
 } from './research-jobs';
 export { dispatchResearchJob } from './hermes-dispatch';
 export type { DispatchResearchJobInput, DispatchResearchJobResult } from './hermes-dispatch';
+export { submitMarketingResearchMemoryJob } from './submit-marketing-research-job';
+export type {
+  MarketingResearchBridgeInput,
+  SubmitMarketingResearchMemoryResult,
+} from './submit-marketing-research-job';
 export { archiveTenantMemory } from './tenant-deletion';
 export type { TenantDeletionResult } from './tenant-deletion';
 export { seedOnboardingMemory } from './onboarding-seed';

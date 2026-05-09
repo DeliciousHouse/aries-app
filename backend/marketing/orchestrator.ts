@@ -81,6 +81,7 @@ import {
   type TenantBrandKit,
 } from './brand-kit';
 import { invalidateValidatedProfilesIfSourceChanged } from './validated-profile-store';
+import { submitMarketingResearchMemoryJob } from '@/backend/memory/submit-marketing-research-job';
 
 export type StartMarketingJobRequest = {
   tenantId: string;
@@ -967,6 +968,38 @@ async function applySoftCancelIfRequested(doc: MarketingJobRuntimeDocument): Pro
 
 async function runResearchStage(doc: MarketingJobRuntimeDocument): Promise<void> {
   await applySoftCancelIfRequested(doc);
+
+  const researchBridge = await submitMarketingResearchMemoryJob(
+    {
+      tenantId: doc.tenant_id,
+      tenantSlug: '',
+      userId: doc.created_by && String(doc.created_by).trim() ? String(doc.created_by) : 'system',
+      role: 'tenant_admin',
+    },
+    {
+      marketingJobId: doc.job_id,
+      jobType: requestedJobTypeFromDoc(doc),
+      brandUrl: doc.inputs.brand_url,
+      competitorUrl: doc.inputs.competitor_url,
+      competitorBrand: doc.inputs.competitor_brand,
+    },
+  );
+  if (researchBridge.ok) {
+    console.info('[aries-research]', {
+      event: 'marketing_research_submit_succeeded',
+      marketingJobId: doc.job_id,
+      tenantId: doc.tenant_id,
+      ariesResearchJobId: researchBridge.jobId,
+    });
+  } else if (!('skipped' in researchBridge && researchBridge.skipped)) {
+    console.info('[aries-research]', {
+      event: 'marketing_research_submit_failed',
+      marketingJobId: doc.job_id,
+      tenantId: doc.tenant_id,
+      error: 'error' in researchBridge ? researchBridge.error : 'unknown',
+    });
+  }
+
   setJobRunning(doc, 'research', 'running research stage');
   markStageInProgress(doc, 'research');
   saveMarketingJobRuntime(doc.job_id, doc);
