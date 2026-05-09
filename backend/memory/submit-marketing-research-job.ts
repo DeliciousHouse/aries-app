@@ -6,6 +6,7 @@ import { TenantMemoryClient } from './honcho-client';
 import { HonchoHttpTransport } from './honcho-http-transport';
 import { dispatchResearchJob } from './hermes-dispatch';
 import { createMemoryOrchestrator } from './orchestrator';
+import { isAriesResearchEnabled } from './research-env';
 import { createJob, ensureResearchJobSchema, setStatus } from './research-jobs';
 
 export type MarketingResearchBridgeInput = {
@@ -23,11 +24,6 @@ export type SubmitMarketingResearchMemoryResult =
   | { ok: false; skipped: true; reason: string }
   | { ok: false; error: string };
 
-function researchEnabled(env: Partial<Record<string, string | undefined>>): boolean {
-  const v = env.ARIES_RESEARCH_ENABLED?.trim().toLowerCase();
-  return v === '1' || v === 'true' || v === 'yes';
-}
-
 function readTokenBudget(env: Partial<Record<string, string | undefined>>): number {
   const raw = env.ARIES_RESEARCH_MEMORY_TOKEN_BUDGET?.trim();
   const n = raw ? Number(raw) : NaN;
@@ -44,7 +40,7 @@ export async function submitMarketingResearchMemoryJob(
   input: MarketingResearchBridgeInput,
   env: Partial<Record<string, string | undefined>> = process.env,
 ): Promise<SubmitMarketingResearchMemoryResult> {
-  if (!researchEnabled(env)) {
+  if (!isAriesResearchEnabled(env)) {
     return { ok: false, skipped: true, reason: 'aries_research_disabled' };
   }
 

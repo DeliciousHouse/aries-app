@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
-import { createHash } from 'node:crypto';
 
-import { verifyInternalCallbackRequest } from '@/lib/internal-callback-auth';
+import { verifyInternalCallbackRequest, verifyPlaintextMatchesCallbackTokenHash } from '@/lib/internal-callback-auth';
 import { createMemoryOrchestrator } from '@/backend/memory/orchestrator';
 import { TenantMemoryClient } from '@/backend/memory/honcho-client';
 import type { HonchoTransport } from '@/backend/memory/honcho-client';
@@ -26,10 +25,6 @@ function isResearchEnvelope(value: unknown): value is ResearchEnvelope {
 function readField<T>(body: unknown, key: string): T | undefined {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return undefined;
   return (body as Record<string, unknown>)[key] as T | undefined;
-}
-
-function hashToken(token: string): string {
-  return createHash('sha256').update(token).digest('hex');
 }
 
 function deriveJobStatus(
@@ -78,8 +73,7 @@ export async function POST(req: Request, opts?: { transport?: HonchoTransport })
     return NextResponse.json({ status: 'error', reason: 'job_not_found' }, { status: 404 });
   }
 
-  const incomingHash = hashToken(callbackToken.trim());
-  if (incomingHash !== job.callback_token_hash) {
+  if (!verifyPlaintextMatchesCallbackTokenHash(callbackToken, job.callback_token_hash)) {
     return NextResponse.json({ status: 'error', reason: 'invalid_callback_token' }, { status: 403 });
   }
 

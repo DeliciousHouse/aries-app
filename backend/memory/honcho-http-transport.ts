@@ -5,18 +5,38 @@ const DEFAULT_HONCHO_BASE_URL = 'http://host.docker.internal:8000';
 
 type TransportArgs = Parameters<HonchoTransport['request']>[0];
 
+function usesControlPlaneCredential(args: TransportArgs): boolean {
+  if (args.method === 'POST' && args.path === '/v3/workspaces') {
+    return true;
+  }
+  if (args.method === 'DELETE' && /^\/v3\/workspaces\/[^/]+$/.test(args.path)) {
+    return true;
+  }
+  return false;
+}
+
 export class HonchoHttpTransport implements HonchoTransport {
   private readonly baseUrl: string;
-  private readonly bearerToken: string | null;
+  private readonly controlPlaneToken: string | null;
+  private readonly dataPlaneToken: string | null;
   private readonly fetchImpl: typeof fetch;
 
   constructor(
     env: Partial<Record<string, string | undefined>> = process.env,
     fetchImpl: typeof fetch = globalThis.fetch,
   ) {
-    this.baseUrl = (env.HONCHO_BASE_URL ?? DEFAULT_HONCHO_BASE_URL).replace(/\/$/, '');
-    this.bearerToken = env.HONCHO_CONTROL_PLANE_JWT?.trim() || null;
+    const rawBase = (env.HONCHO_BASE_URL ?? '').trim();
+    this.baseUrl = (rawBase || DEFAULT_HONCHO_BASE_URL).replace(/\/$/, '');
+    this.controlPlaneToken = env.HONCHO_CONTROL_PLANE_JWT?.trim() || null;
+    this.dataPlaneToken = env.HONCHO_DATA_PLANE_JWT?.trim() || null;
     this.fetchImpl = fetchImpl;
+  }
+
+  private bearerTokenFor(args: TransportArgs): string | null {
+    if (usesControlPlaneCredential(args)) {
+      return this.controlPlaneToken ?? this.dataPlaneToken;
+    }
+    return this.dataPlaneToken ?? this.controlPlaneToken;
   }
 
   async request<T>(args: TransportArgs): Promise<T> {
@@ -26,8 +46,9 @@ export class HonchoHttpTransport implements HonchoTransport {
       'content-type': 'application/json',
       'accept': 'application/json',
     };
-    if (this.bearerToken) {
-      headers['authorization'] = `Bearer ${this.bearerToken}`;
+    const bearer = this.bearerTokenFor(args);
+    if (bearer) {
+      headers['authorization'] = `Bearer ${bearer}`;
     }
 
     const init: RequestInit = {

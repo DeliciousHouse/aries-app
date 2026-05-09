@@ -46,11 +46,13 @@ export {
   setStatus,
   getJob,
   getJobById,
+  listQueuedResearchFindingsForTenant,
 } from './research-jobs';
 export type {
   ResearchJob,
   ResearchFinding,
   ResearchJobStatus,
+  ResearchFindingRow,
 } from './research-jobs';
 export { dispatchResearchJob } from './hermes-dispatch';
 export type { DispatchResearchJobInput, DispatchResearchJobResult } from './hermes-dispatch';
@@ -63,3 +65,5 @@ export { archiveTenantMemory } from './tenant-deletion';
 export type { TenantDeletionResult } from './tenant-deletion';
 export { seedOnboardingMemory } from './onboarding-seed';
 export type { OnboardingSeedInput, OnboardingSeedResult, OnboardingSeedFindingResult } from './onboarding-seed';
+export { buildOnboardingCandidatesFromProfile } from './build-onboarding-candidates';
+export { maybeSeedOnboardingMemoryForTenant, ensureOnboardingMemorySeedColumn } from './onboarding-memory-hook';

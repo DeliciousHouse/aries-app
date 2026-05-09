@@ -61,6 +61,15 @@ export async function seedOnboardingMemory(
         approved++;
         continue;
       }
+
+      const queuedOutcome: CuratorOutcome = {
+        decision: 'queue_for_review',
+        peer: outcome.peer,
+        reason: 'auto_approve_peer_not_supported_for_onboarding_append',
+      };
+      results.push({ finding: candidate, outcome: queuedOutcome });
+      queued++;
+      continue;
     }
 
     results.push({ finding: candidate, outcome });

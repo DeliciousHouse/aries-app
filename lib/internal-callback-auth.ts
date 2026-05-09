@@ -47,6 +47,27 @@ export function hashCallbackToken(plaintext: string): string {
   return createHash('sha256').update(plaintext).digest('hex');
 }
 
+/**
+ * Timing-safe compare of a plaintext callback token to a stored SHA-256 hex digest.
+ */
+export function verifyPlaintextMatchesCallbackTokenHash(
+  plaintext: string,
+  storedSha256Hex: string,
+): boolean {
+  const digest = hashCallbackToken(plaintext.trim());
+  const stored = storedSha256Hex.trim().toLowerCase();
+  try {
+    const a = Buffer.from(digest, 'hex');
+    const b = Buffer.from(stored, 'hex');
+    if (a.length !== 32 || b.length !== 32 || a.length !== b.length) {
+      return false;
+    }
+    return timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
 export async function verifyCallbackToken(
   ariesRunId: string,
   receivedToken: string | undefined | null,
