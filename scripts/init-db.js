@@ -44,6 +44,9 @@ async function initDb() {
       ALTER TABLE users
         ADD COLUMN IF NOT EXISTS onboarding_completed_at TIMESTAMPTZ;
 
+      ALTER TABLE organizations
+        ADD COLUMN IF NOT EXISTS onboarding_memory_seeded_at TIMESTAMPTZ;
+
       CREATE TABLE IF NOT EXISTS early_access_signups (
         id BIGSERIAL PRIMARY KEY,
         email TEXT UNIQUE NOT NULL,

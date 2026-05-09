@@ -1,6 +1,8 @@
 import type { PoolClient } from 'pg';
 
+import { maybeSeedOnboardingMemoryForTenant } from '@/backend/memory/onboarding-memory-hook';
 import { getBusinessProfileWithDiagnostics } from '@/backend/tenant/business-profile';
+import { loadTenantContextForUser } from '@/lib/tenant-context';
 import { evaluateOnboardingGate } from '@/lib/onboarding-gate';
 
 export type PostLoginDestination = '/onboarding/start' | '/dashboard';
@@ -142,6 +144,13 @@ export async function resolvePostLoginDestinationForUser(
       `,
       [Number(row.id)],
     );
+
+    try {
+      const tenantCtx = await loadTenantContextForUser(client, String(row.id));
+      await maybeSeedOnboardingMemoryForTenant(client, tenantCtx);
+    } catch (err) {
+      console.error('[onboarding-memory-seed] skipped after dashboard gate', err);
+    }
   }
 
   return resolvePostLoginDestination(needsOnboarding);

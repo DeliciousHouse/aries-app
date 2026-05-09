@@ -56,6 +56,8 @@
 
 Design reference and full backlog: `docs/plans/2026-05-08-aries-hermes-honcho-architecture.md`.
 
-**2026-05-09:** `.env.example` and `docker-compose.yml` document/pass Honcho + `ARIES_RESEARCH_*` + `HERMES_RESEARCH_*` vars. `backend/marketing/orchestrator.ts` `runResearchStage` calls `submitMarketingResearchMemoryJob` when `ARIES_RESEARCH_ENABLED` is truthy. `dispatchResearchJob` posts `callbackUrl` to `/api/internal/aries-research/callback` (matches `app/api/internal/aries-research/callback`). Remaining plan work: onboarding seed, tenant deletion hook, review queue, data-plane JWT minting, Hermes `aries-research` profile (cross-repo), live verification harnesses.
+**2026-05-09:** `.env.example` and `docker-compose.yml` document/pass Honcho + `ARIES_RESEARCH_*` + `HERMES_RESEARCH_*` vars. `backend/marketing/orchestrator.ts` `runResearchStage` calls `submitMarketingResearchMemoryJob` when `ARIES_RESEARCH_ENABLED` is truthy. `dispatchResearchJob` posts `callbackUrl` to `/api/internal/aries-research/callback` (matches `app/api/internal/aries-research/callback`).
+
+**2026-05-09 (architecture rollout):** Onboarding Honcho seed runs once per org after the dashboard gate (`lib/auth-user-journey.ts` → `maybeSeedOnboardingMemoryForTenant`, column `organizations.onboarding_memory_seeded_at`). Review queue: `GET /api/tenant/research/review-queue` (tenant_admin) lists `aries_research_findings` with `queue_for_review`. `HonchoHttpTransport` uses `HONCHO_DATA_PLANE_JWT` for routine paths when set, control-plane JWT for workspace create/delete. `backend/tenant/organization-lifecycle.ts` exposes `archiveHonchoWorkspaceForOrganizationId` for tenant teardown ordering. Remaining: server-side JWT minting (if Honcho exposes a mint endpoint), Hermes `aries-research` profile (cross-repo), full verification harness suite from the plan doc.
 
 ## Completed

@@ -170,6 +170,56 @@ export async function getJob(
   return rowToJob(row);
 }
 
+export type ResearchFindingRow = {
+  id: string;
+  job_id: string;
+  raw: Record<string, unknown>;
+  curator_decision: string;
+  peer: string | null;
+  approved_message_id: string | null;
+  created_at: string;
+  job_status: ResearchJobStatus | null;
+};
+
+export async function listQueuedResearchFindingsForTenant(
+  tenantId: string,
+  options: { limit?: number } = {},
+  client: Queryable = pool,
+): Promise<ResearchFindingRow[]> {
+  const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
+  const result = await client.query(
+    `
+    SELECT
+      f.id,
+      f.job_id,
+      f.raw,
+      f.curator_decision,
+      f.peer,
+      f.approved_message_id,
+      f.created_at,
+      j.status AS job_status
+    FROM aries_research_findings f
+    INNER JOIN aries_research_jobs j ON j.id = f.job_id
+    WHERE j.tenant_id = $1
+      AND f.curator_decision = 'queue_for_review'
+    ORDER BY f.created_at DESC
+    LIMIT $2
+    `,
+    [String(tenantId), limit],
+  );
+
+  return result.rows.map((row: Record<string, unknown>) => ({
+    id: String(row.id),
+    job_id: String(row.job_id),
+    raw: (row.raw ?? {}) as Record<string, unknown>,
+    curator_decision: String(row.curator_decision),
+    peer: row.peer == null ? null : String(row.peer),
+    approved_message_id: row.approved_message_id == null ? null : String(row.approved_message_id),
+    created_at: String(row.created_at),
+    job_status: (row.job_status == null ? null : String(row.job_status)) as ResearchJobStatus | null,
+  }));
+}
+
 export async function getJobById(
   jobId: string,
   client: Queryable = pool,
