@@ -40,8 +40,8 @@ function deriveJobStatus(
 ): ResearchJobStatus {
   if (envelopeStatus === 'failed') return 'failed';
   if (queued > 0) return 'needs_review';
-  if (approved === 0 && dropped > 0) return 'completed';
   if (envelopeStatus === 'partial') return 'partial';
+  if (approved === 0 && dropped > 0) return 'completed';
   return 'completed';
 }
 

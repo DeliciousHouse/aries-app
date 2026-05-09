@@ -305,7 +305,7 @@ test('unknown jobId returns 404', async (t) => {
   });
 });
 
-test('missing INTERNAL_API_SECRET bearer returns 401 or 503', async (t) => {
+test('missing INTERNAL_API_SECRET bearer returns 401 or 403', async (t) => {
   await withEnv(async () => {
     const job = makeJob(CALLBACK_TOKEN);
     const harness = makeDbHarness(job);

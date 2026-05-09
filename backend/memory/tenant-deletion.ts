@@ -87,7 +87,7 @@ async function checkGone(
     if (err instanceof MemoryError && err.code === 'workspace_not_found') {
       return true;
     }
-    return true;
+    return false;
   }
 }
 
@@ -105,6 +105,6 @@ async function checkEmpty(
     if (err instanceof MemoryError && (err.code === 'workspace_not_found' || err.status === 404)) {
       return true;
     }
-    return true;
+    return false;
   }
 }
