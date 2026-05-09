@@ -25,7 +25,8 @@ export class HonchoHttpTransport implements HonchoTransport {
     env: Partial<Record<string, string | undefined>> = process.env,
     fetchImpl: typeof fetch = globalThis.fetch,
   ) {
-    this.baseUrl = (env.HONCHO_BASE_URL ?? DEFAULT_HONCHO_BASE_URL).replace(/\/$/, '');
+    const rawBase = (env.HONCHO_BASE_URL ?? '').trim();
+    this.baseUrl = (rawBase || DEFAULT_HONCHO_BASE_URL).replace(/\/$/, '');
     this.controlPlaneToken = env.HONCHO_CONTROL_PLANE_JWT?.trim() || null;
     this.dataPlaneToken = env.HONCHO_DATA_PLANE_JWT?.trim() || null;
     this.fetchImpl = fetchImpl;

@@ -21,7 +21,8 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const limitRaw = url.searchParams.get('limit');
-  const limit = limitRaw ? Number.parseInt(limitRaw, 10) : undefined;
+  const parsed = limitRaw ? Number.parseInt(limitRaw, 10) : undefined;
+  const limit = parsed !== undefined && Number.isFinite(parsed) ? parsed : undefined;
 
   const client = await pool.connect();
   try {

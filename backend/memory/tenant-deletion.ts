@@ -87,6 +87,9 @@ async function checkGone(
     if (err instanceof MemoryError && err.code === 'workspace_not_found') {
       return true;
     }
+    if (err instanceof MemoryError && (err.code === 'honcho_unavailable' || err.code === 'honcho_unauthorized')) {
+      throw err;
+    }
     return false;
   }
 }
@@ -104,6 +107,9 @@ async function checkEmpty(
   } catch (err) {
     if (err instanceof MemoryError && (err.code === 'workspace_not_found' || err.status === 404)) {
       return true;
+    }
+    if (err instanceof MemoryError && (err.code === 'honcho_unavailable' || err.code === 'honcho_unauthorized')) {
+      throw err;
     }
     return false;
   }

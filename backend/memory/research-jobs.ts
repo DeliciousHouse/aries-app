@@ -186,7 +186,9 @@ export async function listQueuedResearchFindingsForTenant(
   options: { limit?: number } = {},
   client: Queryable = pool,
 ): Promise<ResearchFindingRow[]> {
-  const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
+  const rawLimit = options.limit ?? 50;
+  const finiteLimit = Number.isFinite(rawLimit) ? rawLimit : 50;
+  const limit = Math.min(Math.max(finiteLimit, 1), 200);
   const result = await client.query(
     `
     SELECT

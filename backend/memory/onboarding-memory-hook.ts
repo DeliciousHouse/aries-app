@@ -7,12 +7,7 @@ import { buildOnboardingCandidatesFromProfile } from './build-onboarding-candida
 import { TenantMemoryClient } from './honcho-client';
 import { HonchoHttpTransport } from './honcho-http-transport';
 import { seedOnboardingMemory } from './onboarding-seed';
-
-function isTruthyEnv(value: string | undefined): boolean {
-  if (!value) return false;
-  const v = value.trim().toLowerCase();
-  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
-}
+import { isAriesResearchEnabled } from './research-env';
 
 type MinimalCtx = Pick<TenantContext, 'tenantId' | 'tenantSlug' | 'userId' | 'role'>;
 
@@ -34,7 +29,7 @@ export async function maybeSeedOnboardingMemoryForTenant(
   client: PoolClient,
   tenantCtx: MinimalCtx,
 ): Promise<void> {
-  if (!isTruthyEnv(process.env.ARIES_RESEARCH_ENABLED)) {
+  if (!isAriesResearchEnabled(process.env)) {
     return;
   }
 
@@ -45,12 +40,16 @@ export async function maybeSeedOnboardingMemoryForTenant(
 
   await ensureOnboardingMemorySeedColumn(client);
 
-  const lock = await client.query(
-    `SELECT onboarding_memory_seeded_at FROM organizations WHERE id = $1 LIMIT 1`,
+  const claim = await client.query(
+    `
+    UPDATE organizations
+    SET onboarding_memory_seeded_at = NOW()
+    WHERE id = $1 AND onboarding_memory_seeded_at IS NULL
+    RETURNING id
+    `,
     [orgId],
   );
-  const row = lock.rows[0] as { onboarding_memory_seeded_at?: string | null } | undefined;
-  if (row?.onboarding_memory_seeded_at) {
+  if (claim.rowCount === 0) {
     return;
   }
 
@@ -58,7 +57,6 @@ export async function maybeSeedOnboardingMemoryForTenant(
   const candidates = buildOnboardingCandidatesFromProfile(resolved.profile);
 
   if (candidates.length === 0) {
-    await client.query(`UPDATE organizations SET onboarding_memory_seeded_at = NOW() WHERE id = $1`, [orgId]);
     return;
   }
 
@@ -71,9 +69,7 @@ export async function maybeSeedOnboardingMemoryForTenant(
       memClient,
     );
   } catch (err) {
+    await client.query(`UPDATE organizations SET onboarding_memory_seeded_at = NULL WHERE id = $1`, [orgId]);
     console.error('[onboarding-memory-seed] Honcho seed failed', err);
-    return;
   }
-
-  await client.query(`UPDATE organizations SET onboarding_memory_seeded_at = NOW() WHERE id = $1`, [orgId]);
 }

@@ -41,7 +41,15 @@ export async function dispatchResearchJob(
     return { ok: false, error: 'APP_BASE_URL not configured' };
   }
 
-  const tenantPseudonym = pseudonymForTenant(ctx.tenantId, env);
+  let tenantPseudonym: string;
+  try {
+    tenantPseudonym = pseudonymForTenant(ctx.tenantId, env);
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 
   const payload = {
     jobId: input.jobId,
