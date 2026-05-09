@@ -30,6 +30,7 @@ test('enrichBrandKitWithGemini strips malformed script/style closing tags before
     { status: 200, headers: { 'content-type': 'text/html' } },
   );
   const completedOutput = JSON.stringify({
+    status: 'ok',
     output: [
       {
         brandVoiceSummary: 'Visible.',

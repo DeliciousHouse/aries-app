@@ -52,4 +52,10 @@
 **Priority:** P0
 **Depends on:** None
 
+## Aries × Hermes × Honcho architecture rollout
+
+Design reference and full backlog: `docs/plans/2026-05-08-aries-hermes-honcho-architecture.md`.
+
+**2026-05-09:** `.env.example` and `docker-compose.yml` document/pass Honcho + `ARIES_RESEARCH_*` + `HERMES_RESEARCH_*` vars. `backend/marketing/orchestrator.ts` `runResearchStage` calls `submitMarketingResearchMemoryJob` when `ARIES_RESEARCH_ENABLED` is truthy. `dispatchResearchJob` posts `callbackUrl` to `/api/internal/aries-research/callback` (matches `app/api/internal/aries-research/callback`). Remaining plan work: onboarding seed, tenant deletion hook, review queue, data-plane JWT minting, Hermes `aries-research` profile (cross-repo), live verification harnesses.
+
 ## Completed
