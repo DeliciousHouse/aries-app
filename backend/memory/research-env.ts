@@ -1,6 +1,7 @@
 /**
- * Shared truthiness for {@link ARIES_RESEARCH_ENABLED} across onboarding seed,
- * marketing research dispatch, and post-login hooks.
+ * Sub-gate for dispatching research jobs to Hermes via
+ * {@link submitMarketingResearchMemoryJob}. Requires {@link HONCHO_ENABLED}
+ * to also be true — see honcho-env.ts for the master Honcho gate.
  */
 export function isAriesResearchEnabled(
   env: Partial<Record<string, string | undefined>> = process.env,

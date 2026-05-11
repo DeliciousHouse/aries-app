@@ -5,6 +5,7 @@ import type { TenantContext } from '@/lib/tenant-context';
 import { TenantMemoryClient } from './honcho-client';
 import { HonchoHttpTransport } from './honcho-http-transport';
 import { dispatchResearchJob } from './hermes-dispatch';
+import { isHonchoEnabled } from './honcho-env';
 import { createMemoryOrchestrator } from './orchestrator';
 import { isAriesResearchEnabled } from './research-env';
 import { createJob, ensureResearchJobSchema, setStatus } from './research-jobs';
@@ -40,6 +41,9 @@ export async function submitMarketingResearchMemoryJob(
   input: MarketingResearchBridgeInput,
   env: Partial<Record<string, string | undefined>> = process.env,
 ): Promise<SubmitMarketingResearchMemoryResult> {
+  if (!isHonchoEnabled(env)) {
+    return { ok: false, skipped: true, reason: 'honcho_disabled' };
+  }
   if (!isAriesResearchEnabled(env)) {
     return { ok: false, skipped: true, reason: 'aries_research_disabled' };
   }
