@@ -64,7 +64,7 @@ The `TenantMemoryClient` enforces that all paths start with `aries-tenant-` befo
 1. Ensure Honcho is running: `docker ps | grep honcho-api`
 2. Verify health: `curl http://localhost:8000/health`
 3. Start Aries: `docker compose up aries-app`
-4. Trigger a marketing run with a brand URL; the onboarding seed will fire after the dashboard gate if `HONCHO_ENABLED=true` and the org has not been seeded yet.
+4. Trigger a marketing run with a brand URL; the onboarding seed will fire after the dashboard gate if `HONCHO_ENABLED=true` (checked in both the post-login auth journey hook and `maybeSeedOnboardingMemoryForTenant`) and the org has not been seeded yet.
 
 ## Verifying Writes
 

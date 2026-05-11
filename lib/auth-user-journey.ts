@@ -1,7 +1,7 @@
 import type { PoolClient } from 'pg';
 
 import { maybeSeedOnboardingMemoryForTenant } from '@/backend/memory/onboarding-memory-hook';
-import { isAriesResearchEnabled } from '@/backend/memory/research-env';
+import { isHonchoEnabled } from '@/backend/memory/honcho-env';
 import { getBusinessProfileWithDiagnostics } from '@/backend/tenant/business-profile';
 import { loadTenantContextForUser } from '@/lib/tenant-context';
 import { evaluateOnboardingGate } from '@/lib/onboarding-gate';
@@ -146,7 +146,7 @@ export async function resolvePostLoginDestinationForUser(
       [Number(row.id)],
     );
 
-    if (isAriesResearchEnabled()) {
+    if (isHonchoEnabled()) {
       try {
         const tenantCtx = await loadTenantContextForUser(client, String(row.id));
         await maybeSeedOnboardingMemoryForTenant(client, tenantCtx);

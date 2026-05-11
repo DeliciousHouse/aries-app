@@ -23,7 +23,7 @@ export async function ensureOnboardingMemorySeedColumn(client: Pick<PoolClient, 
 
 /**
  * After dashboard onboarding gate passes, promote first-party profile facts into
- * Honcho tenant memory once per organization (gated by ARIES_RESEARCH_ENABLED).
+ * Honcho tenant memory once per organization (gated by HONCHO_ENABLED).
  */
 export async function maybeSeedOnboardingMemoryForTenant(
   client: PoolClient,

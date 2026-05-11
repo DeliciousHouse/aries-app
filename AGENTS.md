@@ -66,7 +66,7 @@ Use these checks to keep the repo clean:
 - Aries should pass abstract media-generation requests to Hermes; Hermes owns provider execution and raw OpenAI/ChatGPT token usage for weekly social content.
 - Marketing research memory: when `ARIES_RESEARCH_ENABLED` is truthy (`1`, `true`, `yes`, or `on`), `runResearchStage` can submit Hermes work through `submitMarketingResearchMemoryJob` with idempotent, secret-authenticated callbacks at `/api/internal/aries-research/callback` (not the generic Hermes marketing run callback).
 - Honcho access uses split JWTs in `HonchoHttpTransport`: `HONCHO_CONTROL_PLANE_JWT` for workspace create/delete, and `HONCHO_DATA_PLANE_JWT` for routine Honcho API calls when set (otherwise the control-plane token is used for all calls in dev).
-- Onboarding Honcho memory seeds at most once per organization after the dashboard gate when research is enabled, tracked by `organizations.onboarding_memory_seeded_at`.
+- Onboarding Honcho memory seeds at most once per organization after the dashboard gate when `HONCHO_ENABLED` is truthy, tracked by `organizations.onboarding_memory_seeded_at`. `ARIES_RESEARCH_ENABLED` is the sub-gate for Hermes research dispatch only.
 - Tenant admins can list research findings awaiting review via `GET /api/tenant/research/review-queue` (queued `queue_for_review` rows).
 - Global `context-mode` is installed under `/home/node/.hermes/node`; Cursor hooks, MCP, and statusline configs should use `/home/node/.hermes/node/bin/context-mode` unless that bin directory is on `PATH`.
 - `context-mode` is not a local `aries-app` dependency by default, so project-relative `node_modules/context-mode/...` config paths only work after a local install; global config files live under `$(npm root -g)/context-mode/...`.
