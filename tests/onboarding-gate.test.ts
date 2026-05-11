@@ -129,7 +129,11 @@ test('evaluateOnboardingGate redirects to Meta connect page when profile is comp
   assert.equal(decision.allowed, false);
   assert.equal(decision.reason, 'meta_not_connected');
   assert.equal(decision.redirectTo, META_CONNECT_REDIRECT_DESTINATION);
-  assert.equal(decision.redirectTo, '/onboarding/connect/meta/select-page');
+  // Pin the literal value so a future rename has to update the literal here too.
+  // The OAuth provider entrypoint that renders the connect screen with no
+  // required query params — unlike /onboarding/connect/meta/select-page which
+  // requires `state` and bounces to /onboarding/start without it.
+  assert.equal(decision.redirectTo, '/oauth/connect/facebook');
   assert.notEqual(decision.redirectTo, GATE_REDIRECT_DESTINATION);
 });
 

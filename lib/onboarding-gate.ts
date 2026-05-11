@@ -3,7 +3,12 @@ import type { PoolClient } from 'pg';
 import { getBusinessProfileWithDiagnostics } from '@/backend/tenant/business-profile';
 
 export const GATE_REDIRECT_DESTINATION = '/onboarding/start' as const;
-export const META_CONNECT_REDIRECT_DESTINATION = '/onboarding/connect/meta/select-page' as const;
+// Entry point that renders the OAuth connect screen and starts the Facebook
+// authorization flow. Do not redirect to `/onboarding/connect/meta/select-page`:
+// that route requires a `state` query param (issued during the OAuth callback)
+// and bounces to `/onboarding/start` when missing, which would loop with the
+// gate forever for any user who is `meta_not_connected`.
+export const META_CONNECT_REDIRECT_DESTINATION = '/oauth/connect/facebook' as const;
 
 export const GUARDED_OPERATOR_PATH_PREFIXES: ReadonlyArray<string> = Object.freeze([
   '/dashboard',
