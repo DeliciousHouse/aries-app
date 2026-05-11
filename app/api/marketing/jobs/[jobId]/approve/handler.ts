@@ -4,6 +4,7 @@ import { mapAriesExecutionError } from '@/backend/execution';
 import { invalidateMarketingJobStatus } from '@/backend/marketing/jobs-status';
 import { approveMarketingJob, denyMarketingJob } from '@/backend/marketing/orchestrator';
 import { loadMarketingJobRuntime } from '@/backend/marketing/runtime-state';
+import { isApprovalDenialReasonCode } from '@/backend/memory/curator';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
 const MARKETING_ONBOARDING_REQUIRED = {
@@ -103,6 +104,10 @@ export async function handleApproveMarketingJob(
     approvedStages?: Array<'research' | 'strategy' | 'production' | 'publish'>;
     approvalId?: unknown;
     resumePublishIfNeeded?: boolean;
+    denialReasonCode?: unknown;
+    denialNote?: unknown;
+    note?: unknown;
+    memoryActorUserId?: unknown;
     publishConfig?: {
       platforms?: string[];
       livePublishPlatforms?: string[];
@@ -123,6 +128,23 @@ export async function handleApproveMarketingJob(
       return tenantResult.response;
     }
     const resolvedTenantId = tenantResult.tenantContext.tenantId;
+    const memoryActorUserId =
+      typeof payload.memoryActorUserId === 'string' && payload.memoryActorUserId.trim().length > 0
+        ? payload.memoryActorUserId.trim()
+        : tenantResult.tenantContext.userId;
+    const tenantSlug = tenantResult.tenantContext.tenantSlug;
+    const memoryActorRole = tenantResult.tenantContext.role;
+    const rawDenialCode = typeof payload.denialReasonCode === 'string' ? payload.denialReasonCode.trim() : '';
+    const denialReasonCode =
+      rawDenialCode && isApprovalDenialReasonCode(rawDenialCode) ? rawDenialCode : undefined;
+    const denialNoteRaw =
+      typeof payload.denialNote === 'string'
+        ? payload.denialNote
+        : typeof payload.note === 'string'
+          ? payload.note
+          : undefined;
+    const denialNote =
+      typeof denialNoteRaw === 'string' && denialNoteRaw.trim().length > 0 ? denialNoteRaw.trim() : undefined;
 
     const doc = await loadMarketingJobRuntime(jobId);
     if (!doc) {
@@ -165,6 +187,9 @@ export async function handleApproveMarketingJob(
                 video_render_platforms: payload.publishConfig.videoRenderPlatforms,
               }
             : undefined,
+          memoryActorUserId,
+          tenantSlug,
+          memoryActorRole,
         },
         doc,
       )
@@ -174,6 +199,8 @@ export async function handleApproveMarketingJob(
           tenantId: resolvedTenantId,
           deniedBy: typeof payload.approvedBy === 'string' ? payload.approvedBy : '',
           approvalId: typeof payload.approvalId === 'string' ? payload.approvalId : undefined,
+          denialReasonCode,
+          denialNote,
           publishConfig: payload.publishConfig
             ? {
                 platforms: payload.publishConfig.platforms,
@@ -181,6 +208,9 @@ export async function handleApproveMarketingJob(
                 video_render_platforms: payload.publishConfig.videoRenderPlatforms,
               }
             : undefined,
+          memoryActorUserId,
+          tenantSlug,
+          memoryActorRole,
         },
         doc,
       );

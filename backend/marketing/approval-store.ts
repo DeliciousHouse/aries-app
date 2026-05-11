@@ -63,6 +63,9 @@ export type MarketingApprovalRecord = {
     resumed_stage: MarketingStage | null;
     completed: boolean;
     outcome: string | null;
+    /** Present when resolution was deny; stored in Aries only, not sent to Honcho. */
+    denial_reason_code?: string | null;
+    denial_note?: string | null;
   } | null;
   created_at: string;
   updated_at: string;

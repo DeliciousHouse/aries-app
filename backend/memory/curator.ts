@@ -34,6 +34,17 @@ const PROMPT_INJECTION_HINTS: RegExp[] = [
 const FIRST_PARTY_PEERS: PeerKind[] = ['brand', 'policy', 'user'];
 const THIRD_PARTY_PEERS: PeerKind[] = ['competitor', 'market_signal'];
 
+export const APPROVAL_DENIAL_REASON_CODES = [
+  'wrong-tone',
+  'wrong-colors',
+  'off-brand',
+  'factually-wrong',
+  'legal-concern',
+  'other',
+] as const;
+
+export type ApprovalDenialReasonCode = (typeof APPROVAL_DENIAL_REASON_CODES)[number];
+
 export type CurateOptions = {
   jobId: string;
   approvedBy?: string;
@@ -42,6 +53,37 @@ export type CurateOptions = {
    */
   foreignTenantPseudonyms?: string[];
 };
+
+export function parseStructuredDenialClaim(claim: string): {
+  denial_reason_code?: string;
+  stage?: string;
+  research_job_id?: string;
+} | null {
+  try {
+    const parsed = JSON.parse(claim) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== 'object') return null;
+    return {
+      denial_reason_code: typeof parsed.denial_reason_code === 'string' ? parsed.denial_reason_code : undefined,
+      stage: typeof parsed.stage === 'string' ? parsed.stage : undefined,
+      research_job_id: typeof parsed.research_job_id === 'string' ? parsed.research_job_id : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function isApprovalDenialReasonCode(value: string): value is ApprovalDenialReasonCode {
+  return (APPROVAL_DENIAL_REASON_CODES as readonly string[]).includes(value);
+}
+
+function explicitOperatorDenialRejectedAngle(opts: CurateOptions, finding: CandidateFinding): boolean {
+  if (finding.kind !== 'rejected_angle') return false;
+  const by = opts.approvedBy?.trim();
+  if (!by || by === 'system') return false;
+  const meta = parseStructuredDenialClaim(finding.claim);
+  const code = meta?.denial_reason_code;
+  return typeof code === 'string' && isApprovalDenialReasonCode(code);
+}
 
 export function curateFinding(
   finding: CandidateFinding,
@@ -73,11 +115,11 @@ export function curateFinding(
   const peer = mapPeer(finding);
   if (!peer) return { decision: 'drop', reason: 'no_peer_mapping' };
 
-  if (shouldQueueForReview(finding, peer)) {
+  if (shouldQueueForReview(finding, peer, opts)) {
     return { decision: 'queue_for_review', peer, reason: queueReason(finding, peer) };
   }
 
-  if (eligibleForAutoApprove(finding, peer)) {
+  if (eligibleForAutoApprove(finding, peer, opts)) {
     return {
       decision: 'auto_approve',
       peer,
@@ -133,16 +175,28 @@ function allFirstParty(sources: FindingSource[]): boolean {
   return sources.length > 0 && sources.every(s => s.trust === 'first_party');
 }
 
-function shouldQueueForReview(f: CandidateFinding, peer: PeerKind): boolean {
+function shouldQueueForReview(f: CandidateFinding, peer: PeerKind, opts: CurateOptions): boolean {
   if (THIRD_PARTY_PEERS.includes(peer)) return true;
   if (peer === 'audience') return true;
   if (f.kind === 'research_conclusion') return true;
-  if (f.kind === 'rejected_angle') return true;
+  if (f.kind === 'rejected_angle') {
+    if (explicitOperatorDenialRejectedAngle(opts, f)) return false;
+    return true;
+  }
   if (!allFirstParty(f.sources)) return true;
   return false;
 }
 
-function eligibleForAutoApprove(f: CandidateFinding, peer: PeerKind): boolean {
+function eligibleForAutoApprove(f: CandidateFinding, peer: PeerKind, opts: CurateOptions): boolean {
+  if (peer === 'approver' && f.kind === 'fact') {
+    return allFirstParty(f.sources) && f.confidence >= AUTO_APPROVE_CONFIDENCE;
+  }
+  if (f.kind === 'rejected_angle' && explicitOperatorDenialRejectedAngle(opts, f)) {
+    if (peer !== 'brand' && peer !== 'policy') return false;
+    if (!allFirstParty(f.sources)) return false;
+    if (f.confidence < AUTO_APPROVE_CONFIDENCE) return false;
+    return true;
+  }
   if (!FIRST_PARTY_PEERS.includes(peer)) return false;
   if (f.kind !== 'fact' && f.kind !== 'preference' && f.kind !== 'constraint') return false;
   if (!allFirstParty(f.sources)) return false;

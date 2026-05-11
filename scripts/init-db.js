@@ -461,6 +461,11 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_vision_qa_runs_tenant_post ON vision_qa_runs (tenant_id, post_id);
       CREATE INDEX IF NOT EXISTS idx_scheduled_posts_tenant_scheduled ON scheduled_posts (tenant_id, scheduled_for);
       CREATE INDEX IF NOT EXISTS idx_creative_assets_tenant_orphaned_at ON creative_assets (tenant_id, orphaned_at) WHERE orphaned_at IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS honcho_write_idempotency_keys (
+        key TEXT PRIMARY KEY,
+        written_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
     `);
 
     console.log('Database initialized successfully.');

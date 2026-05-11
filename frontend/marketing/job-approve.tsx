@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import MediaPreview from '@/frontend/components/media-preview';
+import { APPROVAL_DENIAL_REASON_CODES } from '@/backend/memory/curator';
 import type {
   ApproveJobResult,
   MarketingArtifactCard,
@@ -51,6 +52,7 @@ const APPROVE_SCREEN_COPY: Record<
     approveSubmittedText: string;
     approveResumedText: string;
     approveAlreadyResolvedText: string;
+    denyRecordedText: string;
   }
 > = {
   marketing: {
@@ -68,6 +70,7 @@ const APPROVE_SCREEN_COPY: Record<
     approveSubmittedText: 'Approval submitted and the workflow is resuming.',
     approveResumedText: 'Approval succeeded and resume was accepted.',
     approveAlreadyResolvedText: 'This approval was already resolved, so nothing new was consumed.',
+    denyRecordedText: 'Denial recorded; the job was stopped. Structured reasons sync to memory when enabled.',
   },
   'social-content': {
     headerEyebrow: 'Weekly social content review',
@@ -84,6 +87,7 @@ const APPROVE_SCREEN_COPY: Record<
     approveSubmittedText: 'Approval submitted. The weekly content job is now resuming.',
     approveResumedText: 'Approval succeeded and the content job resume was accepted.',
     approveAlreadyResolvedText: 'This content approval was already resolved, so nothing new was consumed.',
+    denyRecordedText: 'Denial recorded; the weekly content job was stopped.',
   },
 };
 
@@ -416,6 +420,8 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
   const [platforms, setPlatforms] = useState<string[]>([]);
   const [livePublishPlatforms, setLivePublishPlatforms] = useState<string[]>([]);
   const [videoRenderPlatforms, setVideoRenderPlatforms] = useState<string[]>([]);
+  const [denialReasonCode, setDenialReasonCode] = useState<string>('');
+  const [denialNote, setDenialNote] = useState('');
 
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -483,11 +489,12 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
     );
   }
 
-  async function handleApprove() {
+  async function submitApprovalDecision(approved: boolean) {
     if (!canSubmit) return;
 
     const body: PostMarketingJobApproveRequest = {
       approvedBy: approvedBy.trim(),
+      approved,
       approvedStages: approvedStages.length > 0 ? approvedStages : undefined,
       approvalId: !isErrorResult(jobStatus) ? jobStatus?.approval?.approvalId : undefined,
       resumePublishIfNeeded,
@@ -496,6 +503,12 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
         livePublishPlatforms,
         videoRenderPlatforms,
       },
+      ...(approved
+        ? {}
+        : {
+            denialReasonCode: (denialReasonCode || undefined) as PostMarketingJobApproveRequest['denialReasonCode'],
+            denialNote: denialNote.trim() || undefined,
+          }),
     };
 
     setSubmitting(true);
@@ -514,6 +527,14 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function handleApprove() {
+    await submitApprovalDecision(true);
+  }
+
+  async function handleDeny() {
+    await submitApprovalDecision(false);
   }
 
   const approvalMessage = (() => {
@@ -535,6 +556,9 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
     }
     if (approveResult.approval_status === 'already_resolved') {
       return { tone: 'success', text: copy.approveAlreadyResolvedText };
+    }
+    if (approveResult.approval_status === 'denied') {
+      return { tone: 'warning', text: copy.denyRecordedText };
     }
     return { tone: 'danger', text: `Approval failed: ${approveResult.approval_status}` };
   })();
@@ -684,6 +708,31 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
               Resume publish if needed
             </label>
 
+            <Field label="Denial reason (optional)" hint="Structured codes mirror to tenant memory when enabled; notes stay in Aries only.">
+              <select
+                value={denialReasonCode}
+                onChange={(event) => setDenialReasonCode(event.target.value)}
+                className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50"
+              >
+                <option value="">No structured reason</option>
+                {APPROVAL_DENIAL_REASON_CODES.map((code) => (
+                  <option key={code} value={code}>
+                    {code}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="Internal denial note (optional)" hint="Stored in Aries only; never sent to memory providers.">
+              <textarea
+                value={denialNote}
+                onChange={(event) => setDenialNote(event.target.value)}
+                rows={3}
+                placeholder="Context for your team…"
+                className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+              />
+            </Field>
+
             <div className="flex flex-wrap gap-3">
               <button
                 type="button"
@@ -700,6 +749,14 @@ export function MarketingJobApproveScreen(props: MarketingJobApproveScreenProps)
                 className="px-6 py-3 rounded-full bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-xl shadow-primary/20 disabled:opacity-60"
               >
                 {submitting ? 'Approving…' : 'Approve and Resume'}
+              </button>
+              <button
+                type="button"
+                onClick={handleDeny}
+                disabled={!canSubmit}
+                className="px-6 py-3 rounded-full bg-white/5 border border-red-500/40 text-red-100 font-semibold hover:bg-red-500/10 transition-all disabled:opacity-60"
+              >
+                {submitting ? 'Denying…' : 'Deny and stop job'}
               </button>
             </div>
 

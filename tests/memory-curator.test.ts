@@ -126,3 +126,37 @@ test('constraint auto-approves to peer-policy', () => {
   assert.equal(out.decision, 'auto_approve');
   if (out.decision === 'auto_approve') assert.equal(out.peer, 'policy');
 });
+
+test('rejected_angle with explicit denial_reason_code and user approved_by auto-approves', () => {
+  const claim = JSON.stringify({
+    denial_reason_code: 'wrong-tone',
+    stage: 'strategy',
+    research_job_id: 'job-1',
+  });
+  const f: CandidateFinding = {
+    kind: 'rejected_angle',
+    claim,
+    sources: [{ url: 'https://aries.example.com/', fetched_at: NOW, trust: 'first_party' }],
+    confidence: 0.9,
+    peerHint: 'brand',
+  };
+  const out = curateFinding(f, { jobId: 'job-1', approvedBy: 'a'.repeat(32) });
+  assert.equal(out.decision, 'auto_approve');
+  if (out.decision === 'auto_approve') {
+    assert.equal(out.peer, 'brand');
+    assert.equal(out.approved.kind, 'rejected_angle');
+  }
+});
+
+test('rejected_angle without structured denial_reason_code queues for review', () => {
+  const claim = JSON.stringify({ stage: 'strategy', research_job_id: 'job-1' });
+  const f: CandidateFinding = {
+    kind: 'rejected_angle',
+    claim,
+    sources: [{ url: 'https://aries.example.com/', fetched_at: NOW, trust: 'first_party' }],
+    confidence: 0.9,
+    peerHint: 'brand',
+  };
+  const out = curateFinding(f, { jobId: 'job-1', approvedBy: 'a'.repeat(32) });
+  assert.equal(out.decision, 'queue_for_review');
+});
