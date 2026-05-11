@@ -6,7 +6,7 @@ import type { TenantContext } from '@/lib/tenant-context';
 import { curateFinding, isApprovalDenialReasonCode, type CurateOptions } from './curator';
 import { HonchoHttpTransport } from './honcho-http-transport';
 import { isHonchoEnabled, isHonchoWriteApprovalsEnabled } from './honcho-env';
-import { TenantMemoryClient, type PeerRef, type SessionRef } from './honcho-client';
+import { TenantMemoryClient, type HonchoTransport, type PeerRef, type SessionRef } from './honcho-client';
 import { pseudonymForUser } from './pseudonym';
 import { ensureMarketingMemoryQueueJob, recordFinding } from './research-jobs';
 import type { ApprovedMessage, CandidateFinding, CuratorOutcome, FindingSource } from './types';
@@ -61,25 +61,23 @@ function idempotencyKey(parts: string[]): string {
   return createHash('sha256').update(parts.join('|')).digest('hex');
 }
 
-async function ensureHonchoWriteIdempotencySchema(client: typeof pool): Promise<void> {
-  await client.query(
-    `
-    CREATE TABLE IF NOT EXISTS honcho_write_idempotency_keys (
-      key TEXT PRIMARY KEY,
-      written_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-    `,
-    [],
+/**
+ * Atomically claim an idempotency key. Returns `true` when this caller is the
+ * unique winner (key inserted), `false` if another writer already claimed it.
+ *
+ * Uses INSERT … ON CONFLICT DO NOTHING RETURNING to atomically claim the key
+ * in a single round-trip, eliminating the TOCTOU race of a separate SELECT
+ * then INSERT. The table is created at startup by scripts/init-db.js — no
+ * per-call DDL here.
+ */
+async function claimIdempotencyKey(key: string, client: typeof pool = pool): Promise<boolean> {
+  const r = await client.query(
+    `INSERT INTO honcho_write_idempotency_keys (key) VALUES ($1)
+     ON CONFLICT (key) DO NOTHING
+     RETURNING key`,
+    [key],
   );
-}
-
-async function hasIdempotencyKey(key: string, client: typeof pool = pool): Promise<boolean> {
-  const r = await client.query(`SELECT 1 FROM honcho_write_idempotency_keys WHERE key = $1 LIMIT 1`, [key]);
   return r.rows.length > 0;
-}
-
-async function insertIdempotencyKey(key: string, client: typeof pool = pool): Promise<void> {
-  await client.query(`INSERT INTO honcho_write_idempotency_keys (key) VALUES ($1)`, [key]);
 }
 
 function firstPartyAriesSource(): FindingSource {
@@ -129,28 +127,46 @@ async function appendHonchoApproved(args: {
   });
 }
 
-function peerRefForAutoApprove(outcome: Extract<CuratorOutcome, { decision: 'auto_approve' }>): PeerRef | null {
+/**
+ * Map a curator auto-approve outcome to a PeerRef for Honcho writes.
+ *
+ * Phase 1 supports only 'brand' and 'policy'. Unhandled peers throw so that
+ * Phase 2/3 code that wires new peers without updating this function produces
+ * a loud, visible error rather than a silent no-op.
+ */
+function peerRefForAutoApprove(outcome: Extract<CuratorOutcome, { decision: 'auto_approve' }>): PeerRef {
   if (outcome.peer === 'brand') return { kind: 'brand' };
   if (outcome.peer === 'policy') return { kind: 'policy' };
-  return null;
+  throw new Error(
+    `[honcho-write-events] peerRefForAutoApprove: peer '${outcome.peer}' not yet supported in Phase 1. Phase 2/3 must extend this.`,
+  );
 }
 
 /**
- * Strategy gate approval → Honcho `peer-brand` / `session-strategy-<jobId>` (Phase 1).
+ * Mirror a stage approval event into Honcho memory.
+ *
+ * All stages are valid inputs; Phase 1 scope filtering is handled by the
+ * scheduler (`scheduleMarketingApprovalHonchoWrites`) before this function is
+ * called, so callers should not assume stage filtering happens here.
+ *
+ * Phase 1: strategy approvals → Honcho `peer-brand` / `session-strategy-<jobId>`.
  */
-export async function recordApprovalEvent(input: RecordApprovalHonchoEventInput, client = pool): Promise<void> {
+export async function recordApprovalEvent(
+  input: RecordApprovalHonchoEventInput,
+  client = pool,
+  opts?: { transport?: HonchoTransport },
+): Promise<void> {
   if (!isHonchoEnabled() || !isHonchoWriteApprovalsEnabled()) return;
   const actor = input.memoryActorUserId?.trim();
   if (!actor) {
     console.warn('[honcho-write-events] recordApprovalEvent skipped: memoryActorUserId missing');
     return;
   }
-  if (input.stage !== 'strategy') return;
 
-  await ensureHonchoWriteIdempotencySchema(client);
   const userPseudonym = pseudonymForUser(actor);
   const key = idempotencyKey([input.jobId, input.stage, 'approve_strategy', userPseudonym, input.eventDateYmd]);
-  if (await hasIdempotencyKey(key, client)) return;
+  const claimed = await claimIdempotencyKey(key, client);
+  if (!claimed) return;
 
   const finding: CandidateFinding = {
     kind: 'fact',
@@ -166,13 +182,12 @@ export async function recordApprovalEvent(input: RecordApprovalHonchoEventInput,
   const curateOpts: CurateOptions = { jobId: input.jobId, approvedBy: userPseudonym };
   const outcome = curateFinding(finding, curateOpts);
 
-  const transport = new HonchoHttpTransport(process.env, fetchWithTimeout(HONCHO_WRITE_FETCH_TIMEOUT_MS));
+  const transport = opts?.transport ?? new HonchoHttpTransport(process.env, fetchWithTimeout(HONCHO_WRITE_FETCH_TIMEOUT_MS));
   const mem = new TenantMemoryClient(transport);
 
   try {
     if (outcome.decision === 'auto_approve') {
       const peerRef = peerRefForAutoApprove(outcome);
-      if (!peerRef) return;
       const session: SessionRef = { kind: 'strategy', jobId: input.jobId };
       await appendHonchoApproved({
         ctx: input.tenantCtx,
@@ -181,12 +196,10 @@ export async function recordApprovalEvent(input: RecordApprovalHonchoEventInput,
         session,
         message: outcome.approved,
       });
-      await insertIdempotencyKey(key, client);
       return;
     }
     if (outcome.decision === 'queue_for_review') {
       await persistQueuedFinding(String(input.tenantCtx.tenantId), input.jobId, finding, outcome);
-      await insertIdempotencyKey(key, client);
     }
   } catch (err) {
     console.error('[honcho-write-events] recordApprovalEvent failed', err);
@@ -195,8 +208,15 @@ export async function recordApprovalEvent(input: RecordApprovalHonchoEventInput,
 
 /**
  * Denial → content `rejected_angle` on `peer-brand`/`peer-policy` + audit `fact` on `peer-approver-*`.
+ *
+ * Content and audit writes each use their own idempotency key; one can succeed
+ * while the other is already claimed by a concurrent caller.
  */
-export async function recordDenialEvent(input: RecordDenialHonchoEventInput, client = pool): Promise<void> {
+export async function recordDenialEvent(
+  input: RecordDenialHonchoEventInput,
+  client = pool,
+  opts?: { transport?: HonchoTransport },
+): Promise<void> {
   if (!isHonchoEnabled() || !isHonchoWriteApprovalsEnabled()) return;
   const actor = input.memoryActorUserId?.trim();
   if (!actor) {
@@ -204,9 +224,8 @@ export async function recordDenialEvent(input: RecordDenialHonchoEventInput, cli
     return;
   }
 
-  await ensureHonchoWriteIdempotencySchema(client);
   const userPseudonym = pseudonymForUser(actor);
-  const transport = new HonchoHttpTransport(process.env, fetchWithTimeout(HONCHO_WRITE_FETCH_TIMEOUT_MS));
+  const transport = opts?.transport ?? new HonchoHttpTransport(process.env, fetchWithTimeout(HONCHO_WRITE_FETCH_TIMEOUT_MS));
   const mem = new TenantMemoryClient(transport);
 
   const contentKey = idempotencyKey([input.jobId, input.stage, 'deny_rejected_angle', userPseudonym, input.eventDateYmd]);
@@ -235,28 +254,25 @@ export async function recordDenialEvent(input: RecordDenialHonchoEventInput, cli
   const contentOpts: CurateOptions = { jobId: input.jobId, approvedBy: userPseudonym };
   const contentOutcome = curateFinding(contentFinding, contentOpts);
 
-  try {
-    if (!(await hasIdempotencyKey(contentKey, client))) {
+  const contentClaimed = await claimIdempotencyKey(contentKey, client);
+  if (contentClaimed) {
+    try {
       if (contentOutcome.decision === 'auto_approve') {
         const peerRef = peerRefForAutoApprove(contentOutcome);
-        if (peerRef) {
-          const session: SessionRef = { kind: 'curated', jobId: input.jobId };
-          await appendHonchoApproved({
-            ctx: input.tenantCtx,
-            client: mem,
-            peer: peerRef,
-            session,
-            message: contentOutcome.approved,
-          });
-        }
-        await insertIdempotencyKey(contentKey, client);
+        const session: SessionRef = { kind: 'curated', jobId: input.jobId };
+        await appendHonchoApproved({
+          ctx: input.tenantCtx,
+          client: mem,
+          peer: peerRef,
+          session,
+          message: contentOutcome.approved,
+        });
       } else if (contentOutcome.decision === 'queue_for_review') {
         await persistQueuedFinding(String(input.tenantCtx.tenantId), input.jobId, contentFinding, contentOutcome);
-        await insertIdempotencyKey(contentKey, client);
       }
+    } catch (err) {
+      console.error('[honcho-write-events] recordDenialEvent content failed', err);
     }
-  } catch (err) {
-    console.error('[honcho-write-events] recordDenialEvent content failed', err);
   }
 
   const auditClaim = JSON.stringify({
@@ -274,8 +290,9 @@ export async function recordDenialEvent(input: RecordDenialHonchoEventInput, cli
   };
   const auditOutcome = curateFinding(auditFinding, { jobId: input.jobId, approvedBy: 'system' });
 
-  try {
-    if (!(await hasIdempotencyKey(auditKey, client))) {
+  const auditClaimed = await claimIdempotencyKey(auditKey, client);
+  if (auditClaimed) {
+    try {
       if (auditOutcome.decision === 'auto_approve') {
         await appendHonchoApproved({
           ctx: input.tenantCtx,
@@ -284,14 +301,12 @@ export async function recordDenialEvent(input: RecordDenialHonchoEventInput, cli
           session: { kind: 'curated', jobId: input.jobId },
           message: auditOutcome.approved,
         });
-        await insertIdempotencyKey(auditKey, client);
       } else if (auditOutcome.decision === 'queue_for_review') {
         await persistQueuedFinding(String(input.tenantCtx.tenantId), input.jobId, auditFinding, auditOutcome);
-        await insertIdempotencyKey(auditKey, client);
       }
+    } catch (err) {
+      console.error('[honcho-write-events] recordDenialEvent audit failed', err);
     }
-  } catch (err) {
-    console.error('[honcho-write-events] recordDenialEvent audit failed', err);
   }
 }
 
@@ -299,6 +314,10 @@ export function scheduleMarketingApprovalHonchoWrites(input: MarketingApprovalHo
   if (!isHonchoEnabled() || !isHonchoWriteApprovalsEnabled()) return;
   if (!input.memoryActorUserId?.trim()) {
     console.warn('[honcho-write-events] schedule skipped: memoryActorUserId missing');
+    return;
+  }
+  if (input.resolution === 'approve' && input.stage !== 'strategy') {
+    // Phase 1 only mirrors strategy approvals. Production/publish approvals land in Phase 2.
     return;
   }
   setImmediate(() => {
