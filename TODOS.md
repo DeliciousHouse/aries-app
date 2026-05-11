@@ -104,4 +104,16 @@ _Effort revised from M after eng review locked in 7 architecture decisions._
 **Priority:** P2
 **Depends on:** Phase 2 complete
 
+### Honcho preference label scrub — narrow over-aggressive name redaction
+
+**What:** Replace or narrow the `[A-Z][a-z]+\s+[A-Z][a-z]+` heuristic in `scrubPreferenceLabelForHoncho` (`backend/memory/write-events.ts`). Today any two title-cased words become `[redacted_name]` before the Honcho claim is written.
+
+**Why:** Operator-authored creative voice labels are descriptors, not user PII. Real values like `Bold Minimalist`, `Modern Bauhaus`, `Dark Academia`, `Quiet Luxury` get silently scrubbed before reaching memory, weakening retrieval signal for future creative work. DB and UI keep the real label, so it's invisible to the operator — only memory matching degrades.
+
+**Context:** Surfaced in post-hoc review of PR #293 (2026-05-11). Drawer placeholder is lowercase so happy-path testing missed it. Consider dropping the name-scrub entirely (this field is not user-authored) or replacing with a stricter signal (e.g. only redact when adjacent to other PII markers).
+
+**Effort:** XS
+**Priority:** P3
+**Depends on:** None
+
 ## Completed
