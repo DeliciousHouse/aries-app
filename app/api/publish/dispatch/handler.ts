@@ -3,6 +3,7 @@ import { mapAriesExecutionError, runAriesWorkflow } from '../../../../backend/ex
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 import { assertMediaUrlsBelongToTenant } from '../../../../backend/integrations/media-url-ownership';
 import { runPublishVerification } from '../../../../backend/integrations/publish-verification';
+import { schedulePublishVerificationHonchoWrite } from '@/backend/memory/write-events';
 import { pool } from '@/lib/db';
 
 export async function handlePublishDispatch(req: Request, tenantContextLoader?: TenantContextLoader) {
@@ -11,7 +12,15 @@ export async function handlePublishDispatch(req: Request, tenantContextLoader?: 
     return tenantResult.response;
   }
 
-  let body: { tenant_id?: string; provider?: string; content?: string; media_urls?: string[]; scheduled_for?: string } = {};
+  let body: {
+    tenant_id?: string;
+    provider?: string;
+    content?: string;
+    media_urls?: string[];
+    scheduled_for?: string;
+    marketing_job_id?: string;
+    job_id?: string;
+  } = {};
   try {
     body = await req.json();
   } catch {
@@ -37,12 +46,21 @@ export async function handlePublishDispatch(req: Request, tenantContextLoader?: 
       });
     }
 
+    const marketingJobIdRaw =
+      typeof body.marketing_job_id === 'string'
+        ? body.marketing_job_id.trim()
+        : typeof body.job_id === 'string'
+          ? body.job_id.trim()
+          : '';
+    const marketingJobId = marketingJobIdRaw.length > 0 ? marketingJobIdRaw : undefined;
+
     const event = normalizePublishDispatch({
       tenant_id: tenantId,
       provider: String(body.provider || '').toLowerCase(),
       content: body.content || '',
       media_urls: mediaUrls,
       scheduled_for: body.scheduled_for,
+      marketing_job_id: marketingJobId,
     });
     const executed = await runAriesWorkflow('publish_dispatch', {
       tenant_id: tenantId,
@@ -94,11 +112,32 @@ export async function handlePublishDispatch(req: Request, tenantContextLoader?: 
         platformPostId: null,
         postId: null,
         reason: 'persistence_error',
+        publishedAt: null,
       };
       console.error('[publish-dispatch] verification step failed', {
         tenantId,
         provider: event.provider,
         error: String((verificationError as Error).message || verificationError),
+      });
+    }
+
+    if (
+      verification
+      && verification.status === 'published'
+      && marketingJobId
+      && verification.publishedAt
+    ) {
+      const publishedYmd = verification.publishedAt.slice(0, 10).replace(/-/g, '');
+      schedulePublishVerificationHonchoWrite({
+        tenantCtx: {
+          tenantId,
+          tenantSlug: tenantResult.tenantContext.tenantSlug,
+          userId: tenantResult.tenantContext.userId,
+          role: tenantResult.tenantContext.role,
+        },
+        jobId: marketingJobId,
+        platform: String(event.provider ?? body.provider ?? '').toLowerCase(),
+        publishedAtYmd: publishedYmd,
       });
     }
 

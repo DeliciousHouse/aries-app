@@ -152,6 +152,8 @@ export type PublishVerificationResult = {
   platformPostId: string | null;
   postId: string | null;
   reason: PublishVerificationReason | null;
+  /** ISO timestamp used when persisting a `posts` row (for Honcho idempotency keys). */
+  publishedAt: string | null;
 };
 
 async function defaultPageTokenLookup(tenantId: string, provider: string): Promise<string | null> {
@@ -165,16 +167,16 @@ export async function runPublishVerification(
 ): Promise<PublishVerificationResult> {
   const platformPostId = extractPlatformPostId(args.primaryOutput);
   if (!platformPostId) {
-    return { status: 'skipped', platformPostId: null, postId: null, reason: null };
+    return { status: 'skipped', platformPostId: null, postId: null, reason: null, publishedAt: null };
   }
 
   if (!META_PROVIDERS.has(args.provider)) {
-    return { status: 'skipped', platformPostId, postId: null, reason: null };
+    return { status: 'skipped', platformPostId, postId: null, reason: null, publishedAt: null };
   }
 
   const tenantIdNum = Number.parseInt(args.tenantId, 10);
   if (!Number.isFinite(tenantIdNum) || tenantIdNum < 1) {
-    return { status: 'skipped', platformPostId, postId: null, reason: null };
+    return { status: 'skipped', platformPostId, postId: null, reason: null, publishedAt: null };
   }
 
   const lookup = args.pageTokenLookup ?? defaultPageTokenLookup;
@@ -198,6 +200,7 @@ export async function runPublishVerification(
       platformPostId,
       postId: persisted.postId,
       reason: 'page_token_unavailable',
+      publishedAt: publishedAt.toISOString(),
     };
   }
 
@@ -225,6 +228,7 @@ export async function runPublishVerification(
       platformPostId,
       postId: persisted.postId,
       reason: null,
+      publishedAt: publishedAt.toISOString(),
     };
   }
 
@@ -233,5 +237,6 @@ export async function runPublishVerification(
     platformPostId,
     postId: persisted.postId,
     reason: verification.reason,
+    publishedAt: publishedAt.toISOString(),
   };
 }

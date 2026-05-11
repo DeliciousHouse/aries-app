@@ -20,6 +20,12 @@ export function isHonchoWriteApprovalsEnabled(env: Env = process.env): boolean {
   return v === '1' || v === 'true' || v === 'yes' || v === 'on';
 }
 
+/** Phase 2: publish verification, schedule, Hermes publish performance → Honcho. */
+export function isHonchoWritePublishEnabled(env: Env = process.env): boolean {
+  const v = env.HONCHO_WRITE_PUBLISH_ENABLED?.trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+}
+
 /**
  * Throws when HONCHO_ENABLED=true but required config is absent.
  * Must be called at startup (e.g. in health-check or route handler init)
