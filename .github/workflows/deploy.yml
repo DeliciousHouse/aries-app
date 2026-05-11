@@ -124,6 +124,9 @@ jobs:
           GHCR_IMAGE: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
           DEFAULT_BRANCH_NAME: ${{ github.event.repository.default_branch }}
           PUBLISH_SHA_ONLY: "1"
+          # Production runs amd64 only. Skip arm64 to avoid QEMU emulation cost
+          # (10-20x slower) on x86_64 self-hosted runners.
+          PLATFORMS: linux/amd64
         run: |
           set -euo pipefail
           if [[ ! "${TARGET_IMAGE_TAG}" =~ ^[0-9a-f]{40}$ ]]; then
