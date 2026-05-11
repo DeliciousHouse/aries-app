@@ -15,6 +15,8 @@ const ONBOARDING_REQUIRED = {
   message: 'Complete tenant onboarding before changing creative preferences.',
 } as const;
 
+export const VOICE_STYLE_LABEL_MAX_LENGTH = 200;
+
 const JOB_NOT_FOUND = {
   status: 'error' as const,
   error: 'Social content job not found.',
@@ -96,7 +98,21 @@ export async function handlePutCreativeVoicePreference(
   }
 
   const rawLabel = body.voice_style_label ?? body.voiceStyleLabel;
-  const voiceLabel = typeof rawLabel === 'string' ? rawLabel : null;
+  let voiceLabel: string | null = null;
+  if (typeof rawLabel === 'string') {
+    const trimmed = rawLabel.trim();
+    if (trimmed.length > VOICE_STYLE_LABEL_MAX_LENGTH) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          error: `voice_style_label must be ${VOICE_STYLE_LABEL_MAX_LENGTH} characters or fewer.`,
+          reason: 'voice_style_label_too_long',
+        },
+        { status: 400 },
+      );
+    }
+    voiceLabel = trimmed.length > 0 ? trimmed : null;
+  }
 
   const saved = await upsertOperatorCreativePreferences(
     {

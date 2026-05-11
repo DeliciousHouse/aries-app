@@ -702,7 +702,8 @@ export default function CreativeActionDrawer(props: CreativeActionDrawerProps) {
                 type="text"
                 value={voicePref.label}
                 disabled={!voicePref.loaded || voicePrefSaving}
-                onChange={(event) => setVoicePref((prev) => ({ ...prev, label: event.target.value }))}
+                maxLength={200}
+                onChange={(event) => setVoicePref((prev) => ({ ...prev, label: event.target.value.slice(0, 200) }))}
                 placeholder="e.g. bold minimal captions"
                 data-testid="creative-action-voice-pref-label"
                 className="w-full rounded-xl border border-white/12 bg-black/35 px-3 py-2 text-sm text-white placeholder:text-white/35 focus:border-white/25 focus:outline-none disabled:opacity-50"
