@@ -13,6 +13,12 @@ export type FindingSource = {
   trust: SourceTrust;
 };
 
+/** Optional curator metadata (Honcho append uses claim only; this gates auto-approve). */
+export type CandidateFindingMetadata = {
+  /** When true, a `preference` may auto-approve (explicit UI save path only). */
+  explicit_user_intent?: boolean;
+};
+
 export type CandidateFinding = {
   kind: FindingKind;
   claim: string;
@@ -20,6 +26,7 @@ export type CandidateFinding = {
   confidence: number;
   uncertainty?: string;
   peerHint?: PeerKind;
+  metadata?: CandidateFindingMetadata;
 };
 
 export type PeerKind =

@@ -7,6 +7,7 @@ import {
   LoaderCircle,
   RefreshCw,
   ShieldAlert,
+  Sparkles,
   Upload,
   X,
 } from 'lucide-react';
@@ -108,6 +109,10 @@ export function regenerateCreativeUrl(jobId: string, creativeId: string): string
 
 export function uploadReplaceCreativeUrl(jobId: string, creativeId: string): string {
   return `/api/social-content/jobs/${encodeURIComponent(jobId)}/creatives/${encodeURIComponent(creativeId)}/upload-replace`;
+}
+
+export function creativeVoicePreferenceUrl(jobId: string): string {
+  return `/api/social-content/jobs/${encodeURIComponent(jobId)}/creative-voice-preference`;
 }
 
 export type UploadReplaceOverrideInput = {
@@ -265,6 +270,14 @@ export default function CreativeActionDrawer(props: CreativeActionDrawerProps) {
   const [regen, setRegen] = useState<RegenerateState>({ kind: 'idle' });
   const [upload, setUpload] = useState<UploadState>({ kind: 'idle' });
   const [tosChecked, setTosChecked] = useState(false);
+  const [voicePref, setVoicePref] = useState<{
+    always: boolean;
+    label: string;
+    loaded: boolean;
+  }>({ always: false, label: '', loaded: false });
+  const [voicePrefSaving, setVoicePrefSaving] = useState(false);
+  const [voicePrefMessage, setVoicePrefMessage] = useState<string | null>(null);
+  const [voicePrefError, setVoicePrefError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastFileRef = useRef<File | null>(null);
 
@@ -274,12 +287,44 @@ export default function CreativeActionDrawer(props: CreativeActionDrawerProps) {
       setRegen({ kind: 'idle' });
       setUpload({ kind: 'idle' });
       setTosChecked(false);
+      setVoicePref({ always: false, label: '', loaded: false });
+      setVoicePrefSaving(false);
+      setVoicePrefMessage(null);
+      setVoicePrefError(null);
       lastFileRef.current = null;
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
     }
   }, [props.isOpen]);
+
+  useEffect(() => {
+    if (!props.isOpen || !fetcher) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetcher(creativeVoicePreferenceUrl(props.jobId));
+        const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+        if (cancelled) return;
+        if (res.ok && body.status === 'ok') {
+          setVoicePref({
+            always: Boolean(body.always_match_creative_voice),
+            label: typeof body.voice_style_label === 'string' ? body.voice_style_label : '',
+            loaded: true,
+          });
+        } else {
+          setVoicePref((prev) => ({ ...prev, loaded: true }));
+        }
+      } catch {
+        if (!cancelled) {
+          setVoicePref((prev) => ({ ...prev, loaded: true }));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [props.isOpen, props.jobId, fetcher]);
 
   const triggerSuccessRefresh = useCallback(async () => {
     if (props.onSuccess) {
@@ -393,6 +438,47 @@ export default function CreativeActionDrawer(props: CreativeActionDrawerProps) {
     if (!tosChecked) return;
     await submitUpload(file, { operatorOverride: true, tosAcknowledged: true });
   }, [submitUpload, tosChecked]);
+
+  const handleSaveVoicePreference = useCallback(async () => {
+    if (!fetcher) {
+      setVoicePrefError(DRAWER_GENERIC_ERROR);
+      return;
+    }
+    setVoicePrefSaving(true);
+    setVoicePrefError(null);
+    setVoicePrefMessage(null);
+    try {
+      const response = await fetcher(creativeVoicePreferenceUrl(props.jobId), {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          always_match_creative_voice: voicePref.always,
+          voice_style_label: voicePref.label.trim() ? voicePref.label.trim() : null,
+        }),
+      });
+      const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!response.ok || body.status !== 'ok') {
+        const message = creativeActionSafeErrorMessage(
+          typeof body.error === 'string' ? body.error : null,
+          DRAWER_GENERIC_ERROR,
+        );
+        setVoicePrefError(message);
+        return;
+      }
+      setVoicePref({
+        always: Boolean(body.always_match_creative_voice),
+        label: typeof body.voice_style_label === 'string' ? body.voice_style_label : '',
+        loaded: true,
+      });
+      setVoicePrefMessage('Preference saved for this workspace.');
+    } catch (error) {
+      setVoicePrefError(
+        creativeActionSafeErrorMessage(error instanceof Error ? error.message : null, DRAWER_GENERIC_ERROR),
+      );
+    } finally {
+      setVoicePrefSaving(false);
+    }
+  }, [fetcher, props.jobId, voicePref.always, voicePref.label]);
 
   if (!props.isOpen) {
     return null;
@@ -578,6 +664,71 @@ export default function CreativeActionDrawer(props: CreativeActionDrawerProps) {
               >
                 <AlertTriangle className="h-3.5 w-3.5" />
                 {upload.message}
+              </p>
+            ) : null}
+          </section>
+
+          <section
+            className="space-y-3 rounded-[1.25rem] border border-white/10 bg-black/20 px-5 py-5"
+            data-testid="creative-action-voice-preference"
+          >
+            <div className="flex items-start gap-3">
+              <Sparkles className="mt-0.5 h-4 w-4 text-white/70" />
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-white">Creative voice preference</p>
+                <p className="text-xs text-white/60">
+                  When enabled, Aries remembers you want future creative work to match this job&apos;s voice and style.
+                  Only saved preferences are sent to memory — not individual clicks elsewhere.
+                </p>
+              </div>
+            </div>
+            <label className="flex items-start gap-2 text-xs text-white/85">
+              <input
+                type="checkbox"
+                checked={voicePref.always}
+                disabled={!voicePref.loaded || voicePrefSaving}
+                onChange={(event) => setVoicePref((prev) => ({ ...prev, always: event.target.checked }))}
+                data-testid="creative-action-voice-pref-toggle"
+                className="mt-0.5 h-4 w-4 rounded border-white/20 bg-black/40"
+              />
+              <span>Always match this job&apos;s creative voice and style</span>
+            </label>
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-medium uppercase tracking-[0.14em] text-white/45" htmlFor="voice-pref-label">
+                Optional label
+              </label>
+              <input
+                id="voice-pref-label"
+                type="text"
+                value={voicePref.label}
+                disabled={!voicePref.loaded || voicePrefSaving}
+                maxLength={200}
+                onChange={(event) => setVoicePref((prev) => ({ ...prev, label: event.target.value.slice(0, 200) }))}
+                placeholder="e.g. bold minimal captions"
+                data-testid="creative-action-voice-pref-label"
+                className="w-full rounded-xl border border-white/12 bg-black/35 px-3 py-2 text-sm text-white placeholder:text-white/35 focus:border-white/25 focus:outline-none disabled:opacity-50"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleSaveVoicePreference()}
+              disabled={!voicePref.loaded || voicePrefSaving}
+              data-testid="creative-action-voice-pref-save"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2.5 text-sm font-semibold text-white transition hover:border-white/25 disabled:opacity-50"
+            >
+              {voicePrefSaving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              {voicePrefSaving ? 'Saving…' : 'Save preference'}
+            </button>
+            {voicePrefMessage ? (
+              <p className="flex items-center gap-2 text-xs text-emerald-200/90" data-testid="creative-action-voice-pref-success">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                {voicePrefMessage}
+              </p>
+            ) : null}
+            {voicePrefError ? (
+              <p className="flex items-center gap-2 text-xs text-rose-200/90" data-testid="creative-action-voice-pref-error">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                {voicePrefError}
               </p>
             ) : null}
           </section>
