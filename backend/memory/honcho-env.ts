@@ -26,6 +26,12 @@ export function isHonchoWritePublishEnabled(env: Env = process.env): boolean {
   return v === '1' || v === 'true' || v === 'yes' || v === 'on';
 }
 
+/** Phase 3: explicit operator creative voice/style preference toggle → Honcho. */
+export function isHonchoWritePreferencesEnabled(env: Env = process.env): boolean {
+  const v = env.HONCHO_WRITE_PREFERENCES_ENABLED?.trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+}
+
 /**
  * Throws when HONCHO_ENABLED=true but required config is absent.
  * Must be called at startup (e.g. in health-check or route handler init)

@@ -462,6 +462,15 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_scheduled_posts_tenant_scheduled ON scheduled_posts (tenant_id, scheduled_for);
       CREATE INDEX IF NOT EXISTS idx_creative_assets_tenant_orphaned_at ON creative_assets (tenant_id, orphaned_at) WHERE orphaned_at IS NOT NULL;
 
+      CREATE TABLE IF NOT EXISTS marketing_operator_creative_preferences (
+        tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        always_match_creative_voice BOOLEAN NOT NULL DEFAULT FALSE,
+        voice_style_label TEXT,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (tenant_id, user_id)
+      );
+
       CREATE TABLE IF NOT EXISTS honcho_write_idempotency_keys (
         key TEXT PRIMARY KEY,
         written_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

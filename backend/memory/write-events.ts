@@ -8,7 +8,12 @@ import type { MarketingJobRuntimeDocument } from '@/backend/marketing/runtime-st
 import { curateFinding, type CurateOptions } from './curator';
 import { isApprovalDenialReasonCode } from '@/lib/marketing/approval-denial-reason-codes';
 import { HonchoHttpTransport } from './honcho-http-transport';
-import { isHonchoEnabled, isHonchoWriteApprovalsEnabled, isHonchoWritePublishEnabled } from './honcho-env';
+import {
+  isHonchoEnabled,
+  isHonchoWriteApprovalsEnabled,
+  isHonchoWritePreferencesEnabled,
+  isHonchoWritePublishEnabled,
+} from './honcho-env';
 import { TenantMemoryClient, type HonchoTransport, type PeerRef, type SessionRef } from './honcho-client';
 import { pseudonymForUser } from './pseudonym';
 import { ensureMarketingMemoryQueueJob, recordFinding } from './research-jobs';
@@ -101,6 +106,7 @@ function candidateToRaw(f: CandidateFinding): Record<string, unknown> {
     confidence: f.confidence,
     uncertainty: f.uncertainty,
     peerHint: f.peerHint,
+    metadata: f.metadata,
   };
 }
 
@@ -138,11 +144,23 @@ async function appendHonchoApproved(args: {
  * Phase 2/3 code that wires new peers without updating this function produces
  * a loud, visible error rather than a silent no-op.
  */
-function peerRefForAutoApprove(outcome: Extract<CuratorOutcome, { decision: 'auto_approve' }>): PeerRef {
+function peerRefForAutoApprove(
+  outcome: Extract<CuratorOutcome, { decision: 'auto_approve' }>,
+  ctx?: { preferenceActorUserId?: string },
+): PeerRef {
   if (outcome.peer === 'brand') return { kind: 'brand' };
   if (outcome.peer === 'policy') return { kind: 'policy' };
+  if (outcome.peer === 'user') {
+    const actor = ctx?.preferenceActorUserId?.trim();
+    if (!actor) {
+      throw new Error(
+        `[honcho-write-events] peerRefForAutoApprove: peer 'user' requires preferenceActorUserId (Phase 3).`,
+      );
+    }
+    return { kind: 'user', userId: actor };
+  }
   throw new Error(
-    `[honcho-write-events] peerRefForAutoApprove: peer '${outcome.peer}' not yet supported in Phase 1. Phase 2/3 must extend this.`,
+    `[honcho-write-events] peerRefForAutoApprove: peer '${outcome.peer}' not yet supported for Honcho append.`,
   );
 }
 
@@ -197,7 +215,7 @@ export async function recordApprovalEvent(
 
   try {
     if (outcome.decision === 'auto_approve') {
-      const peerRef = peerRefForAutoApprove(outcome);
+      const peerRef = peerRefForAutoApprove(outcome, undefined);
       const session: SessionRef = { kind: 'strategy', jobId: input.jobId };
       await appendHonchoApproved({
         ctx: input.tenantCtx,
@@ -272,7 +290,7 @@ export async function recordDenialEvent(
   if (contentClaimed) {
     try {
       if (contentOutcome.decision === 'auto_approve') {
-        const peerRef = peerRefForAutoApprove(contentOutcome);
+        const peerRef = peerRefForAutoApprove(contentOutcome, undefined);
         const session: SessionRef = { kind: 'curated', jobId: input.jobId };
         await appendHonchoApproved({
           ctx: input.tenantCtx,
@@ -505,7 +523,7 @@ export async function recordPublishEvent(
       return;
     }
     if (outcome.decision === 'auto_approve') {
-      const peerRef = peerRefForAutoApprove(outcome);
+      const peerRef = peerRefForAutoApprove(outcome, undefined);
       await appendHonchoApproved({
         ctx: input.tenantCtx,
         client: mem,
@@ -585,7 +603,7 @@ export async function recordScheduleEvent(
 
   try {
     if (outcome.decision === 'auto_approve') {
-      const peerRef = peerRefForAutoApprove(outcome);
+      const peerRef = peerRefForAutoApprove(outcome, undefined);
       await appendHonchoApproved({
         ctx: input.tenantCtx,
         client: mem,
@@ -724,6 +742,129 @@ export function scheduleHermesPublishPerformanceHonchoWrite(input: {
         });
       } catch (err) {
         console.error('[honcho-write-events] scheduled recordPerformanceEvent failed', err);
+      }
+    })();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3 — explicit operator creative voice / style preference (UI toggle)
+// ---------------------------------------------------------------------------
+
+/**
+ * Redact obvious PII from free-text preference labels before they enter Honcho claims.
+ */
+export function scrubPreferenceLabelForHoncho(label: string | null | undefined): string {
+  let s = typeof label === 'string' ? label : '';
+  s = s.replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, '[redacted_email]');
+  s = s.replace(/\b[A-Z][a-z]+\s+[A-Z][a-z]+\b/g, '[redacted_name]');
+  return s;
+}
+
+export type RecordCreativeVoicePreferenceHonchoWriteInput = {
+  tenantCtx: MinimalTenantCtx;
+  memoryActorUserId: string;
+  jobId: string;
+  alwaysMatchCreativeVoice: boolean;
+  voiceStyleLabel?: string | null;
+  /** UTC calendar day (YYYYMMDD). */
+  eventDateYmd: string;
+  /** Must be true (explicit UI save); inferred paths must not call this writer. */
+  explicitUserIntent: boolean;
+};
+
+/**
+ * Persist explicit creative voice preference to Honcho `peer-user-*`, `session-curated-<jobId>`.
+ */
+export async function recordCreativeVoicePreferenceEvent(
+  input: RecordCreativeVoicePreferenceHonchoWriteInput,
+  client = pool,
+  opts?: { transport?: HonchoTransport },
+): Promise<void> {
+  if (!isHonchoEnabled() || !isHonchoWritePreferencesEnabled()) return;
+  if (!input.explicitUserIntent) return;
+
+  const actor = input.memoryActorUserId?.trim();
+  if (!actor) {
+    console.warn('[honcho-write-events] recordCreativeVoicePreferenceEvent skipped: memoryActorUserId missing');
+    return;
+  }
+
+  const jobId = input.jobId?.trim();
+  if (!jobId) {
+    console.warn('[honcho-write-events] recordCreativeVoicePreferenceEvent skipped: jobId missing');
+    return;
+  }
+
+  const ymd = input.eventDateYmd?.trim();
+  if (!ymd || !/^\d{8}$/.test(ymd)) {
+    console.warn('[honcho-write-events] recordCreativeVoicePreferenceEvent skipped: invalid eventDateYmd');
+    return;
+  }
+
+  const userPseudonym = pseudonymForUser(actor);
+  const scrubbedLabel = scrubPreferenceLabelForHoncho(input.voiceStyleLabel ?? null);
+  const labelPrint = scrubbedLabel.trim().length > 0 ? createHash('sha256').update(scrubbedLabel).digest('hex').slice(0, 16) : 'none';
+  const enabledFlag = input.alwaysMatchCreativeVoice ? '1' : '0';
+  const key = idempotencyKey([jobId, 'voice_pref', userPseudonym, enabledFlag, labelPrint, ymd]);
+  const claimed = await claimIdempotencyKey(key, client);
+  if (!claimed) return;
+
+  const claimPayload: Record<string, unknown> = {
+    event: 'creative_voice_style_preference',
+    research_job_id: jobId,
+    always_match_creative_voice: input.alwaysMatchCreativeVoice,
+    explicit_user_intent: true,
+  };
+  if (scrubbedLabel.trim().length > 0) {
+    claimPayload.creative_voice_style_label = scrubbedLabel.trim();
+  }
+
+  const finding: CandidateFinding = {
+    kind: 'preference',
+    claim: JSON.stringify(claimPayload),
+    sources: [firstPartyAriesSource()],
+    confidence: 0.92,
+    peerHint: 'user',
+    metadata: { explicit_user_intent: true },
+  };
+
+  const outcome = curateFinding(finding, { jobId, approvedBy: userPseudonym });
+  const transport = opts?.transport ?? new HonchoHttpTransport(process.env, fetchWithTimeout(HONCHO_WRITE_FETCH_TIMEOUT_MS));
+  const mem = new TenantMemoryClient(transport);
+
+  try {
+    if (outcome.decision === 'auto_approve') {
+      const peerRef = peerRefForAutoApprove(outcome, { preferenceActorUserId: actor });
+      await appendHonchoApproved({
+        ctx: input.tenantCtx,
+        client: mem,
+        peer: peerRef,
+        session: { kind: 'curated', jobId },
+        message: outcome.approved,
+      });
+      return;
+    }
+    if (outcome.decision === 'queue_for_review') {
+      await persistQueuedFinding(String(input.tenantCtx.tenantId), jobId, finding, outcome, client);
+    }
+  } catch (err) {
+    console.error('[honcho-write-events] recordCreativeVoicePreferenceEvent failed', err);
+  }
+}
+
+export function scheduleCreativeVoicePreferenceHonchoWrite(input: RecordCreativeVoicePreferenceHonchoWriteInput): void {
+  if (!isHonchoEnabled() || !isHonchoWritePreferencesEnabled()) return;
+  if (!input.memoryActorUserId?.trim()) {
+    console.warn('[honcho-write-events] scheduleCreativeVoicePreferenceHonchoWrite skipped: memoryActorUserId missing');
+    return;
+  }
+  setImmediate(() => {
+    void (async () => {
+      try {
+        await recordCreativeVoicePreferenceEvent(input);
+      } catch (err) {
+        console.error('[honcho-write-events] scheduled recordCreativeVoicePreferenceEvent failed', err);
       }
     })();
   });

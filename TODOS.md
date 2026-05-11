@@ -92,14 +92,16 @@ _Effort revised from M after eng review locked in 7 architecture decisions._
 
 ### Honcho write Phase 3 — Explicit UI preference signals
 
-**What:** Wire Honcho writes when a user saves an explicit creative preference via a dedicated toggle (not yet built). Write `kind=preference` to `peer-user-<userPseudonym>` under `session-curated-<jobId>`, auto-approved only if `explicit_user_intent=true` is present in the finding metadata. Extend curator (`backend/memory/curator.ts`) to gate on `explicit_user_intent`. Gate behind `HONCHO_WRITE_PREFERENCES_ENABLED`. Phase 3 is blocked on UI work: the preference toggle surface must exist before this can ship.
+**2026-05-11 (shipped on branch):** Toggle + save in `frontend/aries-v1/creative-action-drawer.tsx`; `GET`/`PUT` `/api/social-content/jobs/:jobId/creative-voice-preference` persists to `marketing_operator_creative_preferences` (`scripts/init-db.js`). Honcho path: `recordCreativeVoicePreferenceEvent` / `scheduleCreativeVoicePreferenceHonchoWrite` in `backend/memory/write-events.ts` behind `HONCHO_WRITE_PREFERENCES_ENABLED`; curator requires `metadata.explicit_user_intent` for `preference` auto-approve; `scrubPreferenceLabelForHoncho` on labels. Tests: `tests/memory-write-events.test.ts` (Phase 3 block).
+
+**What:** Wire Honcho writes when a user saves an explicit creative preference via a dedicated toggle. Write `kind=preference` to `peer-user-<userPseudonym>` under `session-curated-<jobId>`, auto-approved only if `explicit_user_intent=true` is present in the finding metadata. Extend curator (`backend/memory/curator.ts`) to gate on `explicit_user_intent`. Gate behind `HONCHO_WRITE_PREFERENCES_ENABLED`.
 
 **Why:** User-stated creative preferences (voice, style, direction) are high-value first-party signal that should persist across campaigns. Inferring them from behavior is explicitly out of scope. This phase only ships when the operator has a clear affordance to express intent, so the writes are unambiguous.
 
-**Context:** Plan: `docs/plans/2026-05-11-aries-honcho-continuous-profile-writes.md`, Phase 3. No current UI surface in `frontend/aries-v1/creative-action-drawer.tsx` supports this. Verification assertions V10-V12 in the plan. Do not implement the write path until the toggle UI exists and is merged.
+**Context:** Plan: `docs/plans/2026-05-11-aries-honcho-continuous-profile-writes.md`, Phase 3. Verification assertions V12–V14 in the plan.
 
-**Effort:** S (write path only, after UI exists)
+**Effort:** S
 **Priority:** P2
-**Depends on:** Phase 2 complete, preference toggle UI built and merged
+**Depends on:** Phase 2 complete
 
 ## Completed

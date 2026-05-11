@@ -77,6 +77,10 @@ function explicitOperatorDenialRejectedAngle(opts: CurateOptions, finding: Candi
   return typeof code === 'string' && isApprovalDenialReasonCode(code);
 }
 
+function preferenceHasExplicitUserIntent(finding: CandidateFinding): boolean {
+  return finding.metadata?.explicit_user_intent === true;
+}
+
 export function curateFinding(
   finding: CandidateFinding,
   opts: CurateOptions,
@@ -146,9 +150,14 @@ function validateSchema(f: CandidateFinding): string | null {
 }
 
 function buildHaystack(f: CandidateFinding): string {
+  const meta =
+    f.metadata && typeof f.metadata === 'object'
+      ? JSON.stringify(f.metadata, Object.keys(f.metadata).sort())
+      : '';
   return [
     f.claim ?? '',
     f.uncertainty ?? '',
+    meta,
     ...(f.sources ?? []).map(s => `${s.url} ${s.fetched_at} ${s.trust}`),
   ].join('\n');
 }
@@ -171,6 +180,7 @@ function shouldQueueForReview(f: CandidateFinding, peer: PeerKind, opts: CurateO
   if (THIRD_PARTY_PEERS.includes(peer)) return true;
   if (peer === 'audience') return true;
   if (f.kind === 'research_conclusion') return true;
+  if (f.kind === 'preference' && !preferenceHasExplicitUserIntent(f)) return true;
   if (f.kind === 'rejected_angle') {
     if (explicitOperatorDenialRejectedAngle(opts, f)) return false;
     return true;
@@ -189,8 +199,15 @@ function eligibleForAutoApprove(f: CandidateFinding, peer: PeerKind, opts: Curat
     if (f.confidence < AUTO_APPROVE_CONFIDENCE) return false;
     return true;
   }
+  if (f.kind === 'preference') {
+    if (!preferenceHasExplicitUserIntent(f)) return false;
+    if (peer !== 'user') return false;
+    if (!allFirstParty(f.sources)) return false;
+    if (f.confidence < AUTO_APPROVE_CONFIDENCE) return false;
+    return true;
+  }
   if (!FIRST_PARTY_PEERS.includes(peer)) return false;
-  if (f.kind !== 'fact' && f.kind !== 'preference' && f.kind !== 'constraint') return false;
+  if (f.kind !== 'fact' && f.kind !== 'constraint') return false;
   if (!allFirstParty(f.sources)) return false;
   if (f.confidence < AUTO_APPROVE_CONFIDENCE) return false;
   return true;

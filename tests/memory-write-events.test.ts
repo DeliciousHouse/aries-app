@@ -1,14 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { curateFinding } from '../backend/memory/curator';
 import {
   recordApprovalEvent,
+  recordCreativeVoicePreferenceEvent,
   recordDenialEvent,
   recordPerformanceEvent,
   recordPublishEvent,
   recordScheduleEvent,
+  scheduleCreativeVoicePreferenceHonchoWrite,
   scheduleMarketingApprovalHonchoWrites,
   scrubPlatformIdsFromPerformancePayload,
+  scrubPreferenceLabelForHoncho,
 } from '../backend/memory/write-events';
 import type { HonchoTransport } from '../backend/memory/honcho-client';
 
@@ -478,3 +482,177 @@ test('Phase 2 — recordPerformanceEvent requires https source_url', () =>
       assert.equal(findings, 1);
     },
   ));
+
+// ---------------------------------------------------------------------------
+// Phase 3 — explicit creative voice preference (HONCHO_WRITE_PREFERENCES_ENABLED)
+// ---------------------------------------------------------------------------
+
+const FP_SOURCE = {
+  url: 'https://aries.example.com/',
+  fetched_at: new Date().toISOString(),
+  trust: 'first_party' as const,
+};
+
+test('Phase 3 — curator queues preference without explicit_user_intent metadata', () => {
+  const outcome = curateFinding(
+    {
+      kind: 'preference',
+      claim: JSON.stringify({ event: 'x' }),
+      sources: [FP_SOURCE],
+      confidence: 0.92,
+      peerHint: 'user',
+    },
+    { jobId: 'job-pref', approvedBy: 'someone' },
+  );
+  assert.equal(outcome.decision, 'queue_for_review');
+});
+
+test('Phase 3 — curator auto_approves preference with explicit_user_intent', () => {
+  const outcome = curateFinding(
+    {
+      kind: 'preference',
+      claim: JSON.stringify({
+        event: 'creative_voice_style_preference',
+        research_job_id: 'job-pref',
+        always_match_creative_voice: true,
+      }),
+      sources: [FP_SOURCE],
+      confidence: 0.92,
+      peerHint: 'user',
+      metadata: { explicit_user_intent: true },
+    },
+    { jobId: 'job-pref', approvedBy: 'pseud' },
+  );
+  assert.equal(outcome.decision, 'auto_approve');
+  if (outcome.decision === 'auto_approve') {
+    assert.equal(outcome.peer, 'user');
+  }
+});
+
+test('Phase 3 — scrubPreferenceLabelForHoncho redacts name-like and email tokens', () => {
+  const s = scrubPreferenceLabelForHoncho('Use Jane Smith voice; ping me at ops@example.com');
+  assert.ok(!s.includes('ops@example.com'));
+  assert.ok(s.includes('[redacted_email]'));
+  assert.ok(s.includes('[redacted_name]'));
+});
+
+test('Phase 3 — recordCreativeVoicePreferenceEvent is a no-op when preferences gate is off', () =>
+  withEnv(
+    {
+      HONCHO_ENABLED: 'true',
+      HONCHO_WRITE_PREFERENCES_ENABLED: 'false',
+      ARIES_TENANT_PSEUDONYM_SALT: TEST_SALT,
+      APP_BASE_URL: 'https://aries.example.com',
+    },
+    async () => {
+      let idem = 0;
+      const mockPool = buildMockPool((sql) => {
+        if (sql.includes('honcho_write_idempotency_keys')) idem++;
+        return { rows: [] };
+      });
+      const { transport, calls } = buildStubTransport();
+      await recordCreativeVoicePreferenceEvent(
+        {
+          tenantCtx: TENANT_CTX,
+          memoryActorUserId: '42',
+          jobId: 'job-vp',
+          alwaysMatchCreativeVoice: true,
+          voiceStyleLabel: 'bold',
+          eventDateYmd: '20260520',
+          explicitUserIntent: true,
+        },
+        mockPool as never,
+        { transport },
+      );
+      assert.equal(idem, 0);
+      const msgCalls = calls.filter(c => c.method === 'POST' && c.path.includes('/messages'));
+      assert.equal(msgCalls.length, 0);
+    },
+  ));
+
+test('Phase 3 — recordCreativeVoicePreferenceEvent skips Honcho when explicitUserIntent is false', () =>
+  withEnv(
+    {
+      HONCHO_ENABLED: 'true',
+      HONCHO_WRITE_PREFERENCES_ENABLED: 'true',
+      ARIES_TENANT_PSEUDONYM_SALT: TEST_SALT,
+      APP_BASE_URL: 'https://aries.example.com',
+    },
+    async () => {
+      let idem = 0;
+      const mockPool = buildMockPool((sql) => {
+        if (sql.includes('honcho_write_idempotency_keys')) idem++;
+        return { rows: [{ key: 'k' }] };
+      });
+      const { transport, calls } = buildStubTransport();
+      await recordCreativeVoicePreferenceEvent(
+        {
+          tenantCtx: TENANT_CTX,
+          memoryActorUserId: '42',
+          jobId: 'job-vp2',
+          alwaysMatchCreativeVoice: true,
+          eventDateYmd: '20260521',
+          explicitUserIntent: false,
+        },
+        mockPool as never,
+        { transport },
+      );
+      assert.equal(idem, 0);
+      assert.equal(calls.filter(c => c.method === 'POST' && c.path.includes('/messages')).length, 0);
+    },
+  ));
+
+test('Phase 3 — recordCreativeVoicePreferenceEvent appends peer-user preference when gate on', () =>
+  withEnv(
+    {
+      HONCHO_ENABLED: 'true',
+      HONCHO_WRITE_PREFERENCES_ENABLED: 'true',
+      ARIES_TENANT_PSEUDONYM_SALT: TEST_SALT,
+      APP_BASE_URL: 'https://aries.example.com',
+    },
+    async () => {
+      const mockPool = buildMockPool((sql) => {
+        if (sql.includes('ON CONFLICT') && sql.includes('RETURNING')) {
+          return { rows: [{ key: 'claimed' }] };
+        }
+        return { rows: [] };
+      });
+      const { transport, calls } = buildStubTransport();
+      await recordCreativeVoicePreferenceEvent(
+        {
+          tenantCtx: TENANT_CTX,
+          memoryActorUserId: '42',
+          jobId: 'job-vp3',
+          alwaysMatchCreativeVoice: true,
+          voiceStyleLabel: 'minimal',
+          eventDateYmd: '20260522',
+          explicitUserIntent: true,
+        },
+        mockPool as never,
+        { transport },
+      );
+      const msgCalls = calls.filter(c => c.method === 'POST' && c.path.includes('/messages'));
+      assert.equal(msgCalls.length, 1);
+      const body = msgCalls[0]!.body as Record<string, unknown>;
+      assert.ok(String(body.peer_id).startsWith('peer-user-'));
+      assert.ok(String(msgCalls[0]!.path).includes('session-curated-job-vp3'));
+    },
+  ));
+
+test('Phase 3 — scheduleCreativeVoicePreferenceHonchoWrite with gate off does not touch transport', () =>
+  withEnv({ HONCHO_ENABLED: 'true', HONCHO_WRITE_PREFERENCES_ENABLED: 'false' }, async () => {
+    const { transport, calls } = buildStubTransport();
+    scheduleCreativeVoicePreferenceHonchoWrite({
+      tenantCtx: TENANT_CTX,
+      memoryActorUserId: '1',
+      jobId: 'j',
+      alwaysMatchCreativeVoice: true,
+      eventDateYmd: '20260523',
+      explicitUserIntent: true,
+    });
+    await new Promise<void>((resolve) => {
+      setImmediate(() => resolve());
+    });
+    assert.equal(calls.length, 0);
+    assert.ok(transport);
+  }));

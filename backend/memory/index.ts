@@ -2,6 +2,7 @@ export { MemoryError } from './errors';
 export {
   isHonchoEnabled,
   isHonchoWriteApprovalsEnabled,
+  isHonchoWritePreferencesEnabled,
   isHonchoWritePublishEnabled,
   validateHonchoConfig,
 } from './honcho-env';
@@ -28,6 +29,7 @@ export type {
 export type {
   ApprovedMessage,
   CandidateFinding,
+  CandidateFindingMetadata,
   CuratorOutcome,
   FindingKind,
   FindingSource,
@@ -85,6 +87,9 @@ export {
   scheduleHermesPublishPerformanceHonchoWrite,
   topicPseudonymHexForPerformanceMemory,
   scrubPlatformIdsFromPerformancePayload,
+  recordCreativeVoicePreferenceEvent,
+  scheduleCreativeVoicePreferenceHonchoWrite,
+  scrubPreferenceLabelForHoncho,
 } from './write-events';
 export type {
   MarketingApprovalMemoryStage,
@@ -94,4 +99,5 @@ export type {
   RecordPublishVerificationHonchoWriteInput,
   RecordScheduledPostHonchoWriteInput,
   RecordPublishPerformanceHonchoWriteInput,
+  RecordCreativeVoicePreferenceHonchoWriteInput,
 } from './write-events';
