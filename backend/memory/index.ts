@@ -1,4 +1,5 @@
 export { MemoryError } from './errors';
+export { isHonchoEnabled, validateHonchoConfig } from './honcho-env';
 export type { MemoryErrorCode } from './errors';
 export {
   ARIES_TENANT_WORKSPACE_PREFIX,

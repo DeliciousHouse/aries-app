@@ -4,10 +4,10 @@ import { getBusinessProfileWithDiagnostics } from '@/backend/tenant/business-pro
 import type { TenantContext } from '@/lib/tenant-context';
 
 import { buildOnboardingCandidatesFromProfile } from './build-onboarding-candidates';
+import { isHonchoEnabled } from './honcho-env';
 import { TenantMemoryClient } from './honcho-client';
 import { HonchoHttpTransport } from './honcho-http-transport';
 import { seedOnboardingMemory } from './onboarding-seed';
-import { isAriesResearchEnabled } from './research-env';
 
 type MinimalCtx = Pick<TenantContext, 'tenantId' | 'tenantSlug' | 'userId' | 'role'>;
 
@@ -29,7 +29,7 @@ export async function maybeSeedOnboardingMemoryForTenant(
   client: PoolClient,
   tenantCtx: MinimalCtx,
 ): Promise<void> {
-  if (!isAriesResearchEnabled(process.env)) {
+  if (!isHonchoEnabled(process.env)) {
     return;
   }
 

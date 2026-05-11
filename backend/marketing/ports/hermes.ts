@@ -7,6 +7,11 @@ import {
   markExecutionRunFailed,
   markExecutionRunSubmitted,
 } from '../../execution/run-store';
+import { isHonchoEnabled } from '../../memory/honcho-env';
+import { TenantMemoryClient } from '../../memory/honcho-client';
+import { HonchoHttpTransport } from '../../memory/honcho-http-transport';
+import { createMemoryOrchestrator } from '../../memory/orchestrator';
+import type { ResearchMemoryContextEntry } from '../../memory/orchestrator';
 import { SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY } from '../../social-content/defaults';
 import { approvalStepFromWorkflowStepId } from '../../social-content/runtime-state';
 import {
@@ -204,6 +209,26 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     });
   }
 
+  private async loadMemoryContext(
+    tenantId: string | undefined,
+  ): Promise<ResearchMemoryContextEntry[] | undefined> {
+    if (!isHonchoEnabled(this.env)) return undefined;
+    if (!tenantId) return undefined;
+    try {
+      const transport = new HonchoHttpTransport(this.env);
+      const client = new TenantMemoryClient(transport);
+      const orchestrator = createMemoryOrchestrator(client);
+      const ctx = { tenantId, tenantSlug: '', userId: 'system', role: 'tenant_admin' as const };
+      const { memoryContext } = await orchestrator.loadResearchMemoryContext(ctx, {
+        peers: [{ kind: 'brand' }, { kind: 'policy' }],
+        tokenBudget: 2048,
+      });
+      return memoryContext.length > 0 ? memoryContext : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   private configurationError(): MarketingExecutionResult | null {
     const missing = ['HERMES_GATEWAY_URL', 'HERMES_API_SERVER_KEY', 'INTERNAL_API_SECRET', 'APP_BASE_URL']
       .filter((key) => !readEnvValue(this.env, key));
@@ -260,6 +285,10 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     }
     const workflowKey = this.workflowKeyFor(action, input);
 
+    const memoryContextSnapshot = action === 'run'
+      ? await this.loadMemoryContext(input.tenantId)
+      : undefined;
+
     const run = createExecutionRunRecord({
       provider: 'hermes',
       domain: 'marketing',
@@ -275,7 +304,9 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     const callbackToken = randomBytes(32).toString('hex');
     await this.persistCallbackTokenHash(run.aries_run_id, input.tenantId, callbackToken);
 
-    const payload = this.submissionPayload(action, run.aries_run_id, input, workflowKey, callbackToken);
+    const payload = this.submissionPayload(
+      action, run.aries_run_id, input, workflowKey, callbackToken, memoryContextSnapshot,
+    );
     const idempotencyKey = typeof payload.idempotency_key === 'string' ? payload.idempotency_key : '';
 
     let response: Response;
@@ -350,6 +381,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     },
     workflowKey: string,
     callbackToken: string,
+    memoryContextSnapshot?: ResearchMemoryContextEntry[],
   ): Record<string, unknown> {
     const callbackAuth = {
       type: 'internal_api_secret_bearer',
@@ -397,6 +429,9 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       const idempotencyKey = generateIdempotencyKey(ariesRunId, request.workflow_version, input.tenantId ?? '');
       return {
         ...request,
+        ...(memoryContextSnapshot && memoryContextSnapshot.length > 0
+          ? { memory_context: memoryContextSnapshot }
+          : {}),
         session_id: this.sessionKey(),
         callback_auth: callbackAuth,
         callback_context: {
@@ -419,8 +454,12 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     }
 
     const idempotencyKey = generateIdempotencyKey(ariesRunId, workflowKey, input.tenantId ?? '');
+    const basePrompt = this.prompt(action, ariesRunId, input, workflowKey);
+    const promptWithMemory = memoryContextSnapshot && memoryContextSnapshot.length > 0
+      ? `${basePrompt}\n\nMemory context (approved brand/policy findings):\n${JSON.stringify(memoryContextSnapshot)}`
+      : basePrompt;
     return {
-      input: this.prompt(action, ariesRunId, input, workflowKey),
+      input: promptWithMemory,
       instructions: this.instructions(workflowKey),
       session_id: this.sessionKey(),
       callback_url: this.callbackUrl(),
