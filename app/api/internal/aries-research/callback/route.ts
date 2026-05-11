@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 import { verifyInternalCallbackRequest, verifyPlaintextMatchesCallbackTokenHash } from '@/lib/internal-callback-auth';
 import { createMemoryOrchestrator } from '@/backend/memory/orchestrator';
@@ -40,7 +40,7 @@ function deriveJobStatus(
   return 'completed';
 }
 
-export async function POST(req: Request, opts?: { transport?: HonchoTransport }) {
+export async function handleResearchCallback(req: Request, opts?: { transport?: HonchoTransport }) {
   const authResult = verifyInternalCallbackRequest(req);
   if (!authResult.ok) {
     return NextResponse.json({ status: 'error', reason: authResult.reason }, { status: authResult.status });
@@ -119,4 +119,8 @@ export async function POST(req: Request, opts?: { transport?: HonchoTransport })
     ok: true,
     counts: { approved, queued, dropped },
   });
+}
+
+export async function POST(req: NextRequest) {
+  return handleResearchCallback(req);
 }

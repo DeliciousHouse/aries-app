@@ -179,7 +179,7 @@ test('happy path: correct counts, Honcho write for auto-approved only, status be
 
     t.mock.method(pool, 'query', harness.query as typeof pool.query);
 
-    const { POST } = await import('../app/api/internal/aries-research/callback/route');
+    const { handleResearchCallback: POST } = await import('../app/api/internal/aries-research/callback/route');
 
     const req = callbackRequest({
       jobId: job.id,
@@ -206,7 +206,7 @@ test('all 4 findings recorded in aries_research_findings', async (t) => {
 
     t.mock.method(pool, 'query', harness.query as typeof pool.query);
 
-    const { POST } = await import('../app/api/internal/aries-research/callback/route');
+    const { handleResearchCallback: POST } = await import('../app/api/internal/aries-research/callback/route');
 
     await POST(callbackRequest({
       jobId: job.id,
@@ -226,7 +226,7 @@ test('only auto-approved finding reaches Honcho transport', async (t) => {
 
     t.mock.method(pool, 'query', harness.query as typeof pool.query);
 
-    const { POST } = await import('../app/api/internal/aries-research/callback/route');
+    const { handleResearchCallback: POST } = await import('../app/api/internal/aries-research/callback/route');
 
     await POST(callbackRequest({
       jobId: job.id,
@@ -250,7 +250,7 @@ test('job status flips to needs_review when something is queued', async (t) => {
 
     t.mock.method(pool, 'query', harness.query as typeof pool.query);
 
-    const { POST } = await import('../app/api/internal/aries-research/callback/route');
+    const { handleResearchCallback: POST } = await import('../app/api/internal/aries-research/callback/route');
 
     await POST(callbackRequest({
       jobId: job.id,
@@ -271,7 +271,7 @@ test('wrong callback token returns 403', async (t) => {
 
     t.mock.method(pool, 'query', harness.query as typeof pool.query);
 
-    const { POST } = await import('../app/api/internal/aries-research/callback/route');
+    const { handleResearchCallback: POST } = await import('../app/api/internal/aries-research/callback/route');
 
     const res = await POST(callbackRequest({
       jobId: job.id,
@@ -293,7 +293,7 @@ test('unknown jobId returns 404', async (t) => {
 
     t.mock.method(pool, 'query', harness.query as typeof pool.query);
 
-    const { POST } = await import('../app/api/internal/aries-research/callback/route');
+    const { handleResearchCallback: POST } = await import('../app/api/internal/aries-research/callback/route');
 
     const res = await POST(callbackRequest({
       jobId: randomUUID(),
@@ -313,7 +313,7 @@ test('missing INTERNAL_API_SECRET bearer returns 401 or 403', async (t) => {
 
     t.mock.method(pool, 'query', harness.query as typeof pool.query);
 
-    const { POST } = await import('../app/api/internal/aries-research/callback/route');
+    const { handleResearchCallback: POST } = await import('../app/api/internal/aries-research/callback/route');
 
     const res = await POST(callbackRequest({
       jobId: job.id,
