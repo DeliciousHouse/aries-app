@@ -26,6 +26,7 @@ ENV DATA_ROOT=/data
 ENV HOME=/home/node
 
 RUN set -eux; \
+  echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4; \
   apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
