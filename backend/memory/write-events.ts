@@ -3,7 +3,8 @@ import { createHash } from 'node:crypto';
 import pool from '@/lib/db';
 import type { TenantContext } from '@/lib/tenant-context';
 
-import { curateFinding, isApprovalDenialReasonCode, type CurateOptions } from './curator';
+import { curateFinding, type CurateOptions } from './curator';
+import { isApprovalDenialReasonCode } from '@/lib/marketing/approval-denial-reason-codes';
 import { HonchoHttpTransport } from './honcho-http-transport';
 import { isHonchoEnabled, isHonchoWriteApprovalsEnabled } from './honcho-env';
 import { TenantMemoryClient, type HonchoTransport, type PeerRef, type SessionRef } from './honcho-client';
@@ -231,7 +232,11 @@ export async function recordDenialEvent(
   const contentKey = idempotencyKey([input.jobId, input.stage, 'deny_rejected_angle', userPseudonym, input.eventDateYmd]);
   const auditKey = idempotencyKey([input.jobId, input.stage, 'deny_audit', userPseudonym, input.eventDateYmd]);
 
-  const isoDate = new Date().toISOString().slice(0, 10);
+  // eventDateYmd is YYYYMMDD — convert to YYYY-MM-DD for the audit record so the
+  // audit date aligns with the idempotency key date across timezones and delayed flushes.
+  const isoDate = /^\d{8}$/.test(input.eventDateYmd)
+    ? `${input.eventDateYmd.slice(0, 4)}-${input.eventDateYmd.slice(4, 6)}-${input.eventDateYmd.slice(6, 8)}`
+    : (console.warn('[honcho-write-events] eventDateYmd format unexpected, falling back to now'), new Date().toISOString().slice(0, 10));
   const reason =
     typeof input.denialReasonCode === 'string' && isApprovalDenialReasonCode(input.denialReasonCode)
       ? input.denialReasonCode

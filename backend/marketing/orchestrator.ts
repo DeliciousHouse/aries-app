@@ -128,7 +128,7 @@ export type ApproveMarketingJobRequest = {
   approved?: boolean;
   resumePublishIfNeeded?: boolean;
   publishConfig?: Partial<MarketingPublishConfig>;
-  /** Session user id for Honcho pseudonym writes; defaults to API handler session user when omitted. */
+  /** Server-derived from tenant context. Never read from request body. */
   memoryActorUserId?: string;
   tenantSlug?: string;
   memoryActorRole?: TenantRole;
@@ -152,6 +152,7 @@ export type DenyMarketingJobRequest = {
   note?: string;
   denialReasonCode?: string | null;
   denialNote?: string | null;
+  /** Server-derived from tenant context. Never read from request body. */
   memoryActorUserId?: string;
   tenantSlug?: string;
   memoryActorRole?: TenantRole;
@@ -1969,7 +1970,10 @@ async function resolveMarketingApproval(
 
       const honchoStage = marketingStageForHonchoMirror(checkpoint.stage);
       const slug = input.tenantSlug?.trim();
-      const actor = input.memoryActorUserId?.trim() || input.actedBy.trim();
+      const actor = input.memoryActorUserId?.trim();
+      if (!actor) {
+        console.warn('[orchestrator] Honcho mirror skipped: memoryActorUserId missing');
+      }
       if (honchoStage && slug && actor && currentRecord.resolved_at) {
         scheduleMarketingApprovalHonchoWrites({
           tenantCtx: {

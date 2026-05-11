@@ -1,4 +1,5 @@
 import type { CandidateFinding, CuratorOutcome, FindingSource, PeerKind } from './types';
+import { isApprovalDenialReasonCode } from '@/lib/marketing/approval-denial-reason-codes';
 
 const AUTO_APPROVE_CONFIDENCE = 0.85;
 const HARD_FLOOR_CONFIDENCE = 0.5;
@@ -34,16 +35,11 @@ const PROMPT_INJECTION_HINTS: RegExp[] = [
 const FIRST_PARTY_PEERS: PeerKind[] = ['brand', 'policy', 'user'];
 const THIRD_PARTY_PEERS: PeerKind[] = ['competitor', 'market_signal'];
 
-export const APPROVAL_DENIAL_REASON_CODES = [
-  'wrong-tone',
-  'wrong-colors',
-  'off-brand',
-  'factually-wrong',
-  'legal-concern',
-  'other',
-] as const;
-
-export type ApprovalDenialReasonCode = (typeof APPROVAL_DENIAL_REASON_CODES)[number];
+export {
+  APPROVAL_DENIAL_REASON_CODES,
+  isApprovalDenialReasonCode,
+  type ApprovalDenialReasonCode,
+} from '@/lib/marketing/approval-denial-reason-codes';
 
 export type CurateOptions = {
   jobId: string;
@@ -70,10 +66,6 @@ export function parseStructuredDenialClaim(claim: string): {
   } catch {
     return null;
   }
-}
-
-export function isApprovalDenialReasonCode(value: string): value is ApprovalDenialReasonCode {
-  return (APPROVAL_DENIAL_REASON_CODES as readonly string[]).includes(value);
 }
 
 function explicitOperatorDenialRejectedAngle(opts: CurateOptions, finding: CandidateFinding): boolean {

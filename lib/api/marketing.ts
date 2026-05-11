@@ -626,9 +626,6 @@ export interface PostMarketingJobApproveRequest {
     | 'legal-concern'
     | 'other';
   denialNote?: string;
-  memoryActorUserId?: string;
-  tenantSlug?: string;
-  memoryActorRole?: 'tenant_admin' | 'tenant_analyst' | 'tenant_viewer';
 }
 
 export interface ApproveJobResult {

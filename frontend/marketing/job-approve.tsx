@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import MediaPreview from '@/frontend/components/media-preview';
-import { APPROVAL_DENIAL_REASON_CODES } from '@/backend/memory/curator';
+import { APPROVAL_DENIAL_REASON_CODES } from '@/lib/marketing/approval-denial-reason-codes';
 import type {
   ApproveJobResult,
   MarketingArtifactCard,
