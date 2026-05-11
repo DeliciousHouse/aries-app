@@ -1,8 +1,13 @@
 "use server";
 
-import pool from '@/lib/db';
+import { cookies } from 'next/headers';
 import bcrypt from 'bcryptjs';
+
+import { enqueuePartnerAttribution } from '@/backend/partners/outbox';
 import { ensureUserJourneySchema } from '@/lib/auth-user-journey';
+import pool from '@/lib/db';
+import { partnerAttributionDeliveryConfigured } from '@/lib/partner-attribution-env';
+import { PARTNER_REF_COOKIE_NAME, parsePartnerRefCookie } from '@/lib/partner-ref-cookie';
 
 export async function userExists(email: string): Promise<boolean> {
   const client = await pool.connect();
@@ -22,34 +27,36 @@ export async function userExists(email: string): Promise<boolean> {
 
 export async function registerUserAction(formData: any) {
   const { email, password, fullName, orgName } = formData;
-  
+
+  const cookieStore = await cookies();
+  const rawRef = cookieStore.get(PARTNER_REF_COOKIE_NAME)?.value;
+  const partnerRef = rawRef ? parsePartnerRefCookie(rawRef) : null;
+
   let client;
   try {
     client = await pool.connect();
     await ensureUserJourneySchema(client);
-    
-    // 1. Check if user already exists
+
     const existingUser = await client.query('SELECT 1 FROM users WHERE email = $1', [email]);
     if (existingUser.rowCount && existingUser.rowCount > 0) {
       return { success: false, error: 'User already exists' };
     }
 
-    // 2. Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // 3. Create organization if it doesn't exist
-    let orgId = null;
-    if (orgName) {
-      const orgResult = await client.query(
-        'INSERT INTO organizations (name) VALUES ($1) RETURNING id',
-        [orgName]
-      );
-      orgId = orgResult.rows[0].id;
-    }
+    await client.query('BEGIN');
+    try {
+      let orgId = null;
+      if (orgName) {
+        const orgResult = await client.query(
+          'INSERT INTO organizations (name) VALUES ($1) RETURNING id',
+          [orgName]
+        );
+        orgId = orgResult.rows[0].id;
+      }
 
-    // 4. Create user
-    const userResult = await client.query(
-      `
+      const userResult = await client.query(
+        `
         INSERT INTO users (
           email,
           password_hash,
@@ -61,10 +68,34 @@ export async function registerUserAction(formData: any) {
         VALUES ($1, $2, $3, $4, TRUE, NULL)
         RETURNING id
       `,
-      [email, hashedPassword, fullName, orgId]
-    );
+        [email, hashedPassword, fullName, orgId]
+      );
 
-    return { success: true, userId: userResult.rows[0].id };
+      const userId = String(userResult.rows[0].id);
+      const emailDomain = typeof email === 'string' && email.includes('@') ? email.split('@')[1] : null;
+
+      if (partnerRef && partnerAttributionDeliveryConfigured()) {
+        await enqueuePartnerAttribution(client, {
+          userId,
+          refCode: partnerRef,
+          name: typeof fullName === 'string' ? fullName : '',
+          email,
+          company: typeof orgName === 'string' && orgName.trim() ? orgName.trim() : null,
+          domain: emailDomain,
+        });
+      }
+
+      await client.query('COMMIT');
+
+      if (partnerRef && partnerAttributionDeliveryConfigured()) {
+        cookieStore.delete(PARTNER_REF_COOKIE_NAME);
+      }
+
+      return { success: true, userId };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    }
   } catch (err: any) {
     console.error('Registration error:', err);
     return { success: false, error: err.message || 'Registration failed' };

@@ -2,6 +2,9 @@ import NextAuth, { CredentialsSignin } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import bcrypt from "bcryptjs";
+import { cookies } from "next/headers";
+
+import { enqueuePartnerAttribution } from "@/backend/partners/outbox";
 import pool from "./lib/db";
 import { resolveAuthRuntimeConfig } from "./lib/auth-runtime-config";
 import {
@@ -19,6 +22,8 @@ import {
   normalizeEmail,
   tenantClaimsErrorRedirect,
 } from "./lib/auth-tenant-membership";
+import { partnerAttributionDeliveryConfigured } from "./lib/partner-attribution-env";
+import { PARTNER_REF_COOKIE_NAME, parsePartnerRefCookie } from "./lib/partner-ref-cookie";
 
 const authRuntime = resolveAuthRuntimeConfig(process.env);
 
@@ -158,8 +163,17 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         if (account.provider === "google") {
           if ((existingUser.rowCount ?? 0) === 0) {
-            const inserted = await client.query(
-              `
+            const cookieStore = await cookies();
+            const rawRef = cookieStore.get(PARTNER_REF_COOKIE_NAME)?.value;
+            const partnerRef = rawRef ? parsePartnerRefCookie(rawRef) : null;
+            const emailDomain = normalizedEmail.includes("@")
+              ? normalizedEmail.split("@")[1] ?? null
+              : null;
+
+            await client.query("BEGIN");
+            try {
+              const inserted = await client.query(
+                `
                 INSERT INTO users (
                   email,
                   full_name,
@@ -170,13 +184,33 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
                 VALUES ($1, $2, $3, TRUE, NULL)
                 RETURNING id, organization_id, role
               `,
-              [normalizedEmail, user.name || "", "oauth_managed"],
-            );
-            authenticatedUser = inserted.rows[0] as {
-              id: string | number;
-              organization_id?: string | number | null;
-              role?: string | null;
-            };
+                [normalizedEmail, user.name || "", "oauth_managed"],
+              );
+              authenticatedUser = inserted.rows[0] as {
+                id: string | number;
+                organization_id?: string | number | null;
+                role?: string | null;
+              };
+
+              if (partnerRef && partnerAttributionDeliveryConfigured()) {
+                await enqueuePartnerAttribution(client, {
+                  userId: String(authenticatedUser.id),
+                  refCode: partnerRef,
+                  name: user.name || "",
+                  email: normalizedEmail,
+                  domain: emailDomain,
+                });
+              }
+
+              await client.query("COMMIT");
+            } catch (insertErr) {
+              await client.query("ROLLBACK");
+              throw insertErr;
+            }
+
+            if (partnerRef && partnerAttributionDeliveryConfigured()) {
+              cookieStore.delete(PARTNER_REF_COOKIE_NAME);
+            }
           }
         } else if ((existingUser.rowCount ?? 0) === 0) {
           return false;
