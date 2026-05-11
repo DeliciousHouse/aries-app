@@ -142,6 +142,13 @@ This repo uses Conventional Commits with a scope (e.g. `fix(ci): ...`, `refactor
 
 - **OpenClaw** is Brendan-only for writes. Agents may read/inspect/analyze but not modify gateway config, cron/scheduler, agent registration, or runtime config without explicit approval.
 
+## Deploy Configuration
+
+- platform: docker (self-hosted via GitHub Actions Deploy workflow)
+- production.url: https://aries.sugarandleather.com
+- deploy.workflow: .github/workflows/deploy.yml
+- health.check: curl -sf https://aries.sugarandleather.com -o /dev/null -w "%{http_code}"
+
 ## Environment Variables
 
 Required for Hermes-native local/runtime setup: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `APP_BASE_URL`, `HERMES_GATEWAY_URL`, `HERMES_API_SERVER_KEY`, `INTERNAL_API_SECRET`, `NEXTAUTH_URL`, `AUTH_URL`, `NEXTAUTH_SECRET`
