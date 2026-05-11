@@ -161,6 +161,12 @@ export async function recordApprovalEvent(
   opts?: { transport?: HonchoTransport },
 ): Promise<void> {
   if (!isHonchoEnabled() || !isHonchoWriteApprovalsEnabled()) return;
+  if (input.stage !== 'strategy') {
+    // Phase 1 only mirrors strategy approvals. Production/publish approvals
+    // are handled by their own writers (Phase 2+) — refuse here so callers
+    // cannot mislabel non-strategy events as `strategy_stage_approved`.
+    return;
+  }
   const actor = input.memoryActorUserId?.trim();
   if (!actor) {
     console.warn('[honcho-write-events] recordApprovalEvent skipped: memoryActorUserId missing');

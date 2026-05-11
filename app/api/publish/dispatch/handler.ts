@@ -47,11 +47,7 @@ export async function handlePublishDispatch(req: Request, tenantContextLoader?: 
     }
 
     const marketingJobIdRaw =
-      typeof body.marketing_job_id === 'string'
-        ? body.marketing_job_id.trim()
-        : typeof body.job_id === 'string'
-          ? body.job_id.trim()
-          : '';
+      typeof body.marketing_job_id === 'string' ? body.marketing_job_id.trim() : '';
     const marketingJobId = marketingJobIdRaw.length > 0 ? marketingJobIdRaw : undefined;
 
     const event = normalizePublishDispatch({
