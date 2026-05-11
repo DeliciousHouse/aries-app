@@ -60,4 +60,44 @@ Design reference and full backlog: `docs/plans/2026-05-08-aries-hermes-honcho-ar
 
 **2026-05-09 (architecture rollout):** Onboarding Honcho seed runs once per org after the dashboard gate (`lib/auth-user-journey.ts` → `maybeSeedOnboardingMemoryForTenant`, column `organizations.onboarding_memory_seeded_at`). Review queue: `GET /api/tenant/research/review-queue` (tenant_admin) lists `aries_research_findings` with `queue_for_review`. `HonchoHttpTransport` uses `HONCHO_DATA_PLANE_JWT` for routine paths when set, control-plane JWT for workspace create/delete. `backend/tenant/organization-lifecycle.ts` exposes `archiveHonchoWorkspaceForOrganizationId` for tenant teardown ordering. Remaining: server-side JWT minting (if Honcho exposes a mint endpoint), Hermes `aries-research` profile (cross-repo), full verification harness suite from the plan doc.
 
+**2026-05-11:** v2 continuous-profile-writes plan authored. Four write surfaces identified (creative approvals/rejections, social publishing/performance, UI preference signals, pipeline stages 2-4). Three rollout phases defined. See `docs/plans/2026-05-11-aries-honcho-continuous-profile-writes.md`.
+
+### Honcho write Phase 1 — Strategy approvals and creative rejections
+
+**What:** Wire Honcho writes at two explicit approval events: (1) user approves the strategy stage (`approveMarketingJob` in `backend/marketing/orchestrator.ts:1996`), writing `kind=fact` to `session-strategy-<jobId>` against `peer-brand`; (2) user denies any stage (`denyMarketingJob`, `orchestrator.ts:2012`), two writes: content record to `peer-brand`/`peer-policy` and audit record to `peer-approver-<userPseudonym>`. Denial form uses structured `denial_reason_code` enum — no free text reaches Honcho. Add idempotency via `honcho_write_idempotency_keys` Postgres table. Implement `backend/memory/write-events.ts` as the single ingestion module with off-response-path writes (2s timeout). Extend `pseudonymForUser` in `backend/memory/pseudonym.ts` to use `'aries-user:'` domain separator. Extend curator (`backend/memory/curator.ts`) to conditionally auto-approve `rejected_angle` when the user supplied an explicit `denial_reason_code`. Gate behind `HONCHO_WRITE_APPROVALS_ENABLED`.
+
+**Why:** These are the lowest-risk write surfaces. Both have explicit user intent. Both flow through existing approval infrastructure (`approval-store.ts`). They produce the highest-value signal for future research context: what creative directions were rejected and what strategy facts the operator approved.
+
+**Context:** Plan: `docs/plans/2026-05-11-aries-honcho-continuous-profile-writes.md`, Phase 1. Write entry points: `backend/marketing/orchestrator.ts:1996` (approve) and `backend/marketing/orchestrator.ts:2012` (deny). Curator: `backend/memory/curator.ts:136-151`. Verification assertions V0-V6 in the plan. Tests: `tests/memory-write-events.test.ts`.
+
+**Effort:** L
+**Priority:** P1
+**Depends on:** `HONCHO_ENABLED=true` (already live in prod)
+
+_Effort revised from M after eng review locked in 7 architecture decisions._
+
+### Honcho write Phase 2 — Publishing events and performance feedback
+
+**What:** Wire Honcho writes at three publish-surface events: (1) `runPublishVerification` returns `verified` in `app/api/publish/dispatch/handler.ts:83`, writing `kind=constraint` to `peer-policy` (queued for review); (2) `upsertScheduledPost` succeeds in `app/api/social-content/jobs/[jobId]/posts/[postId]/schedule/route.ts:142`, writing `kind=constraint` to `peer-policy` (auto-approve, first-party explicit action); (3) Hermes publish-stage callback `markJobCompleted` in `backend/marketing/hermes-callbacks.ts:188`, writing `kind=research_conclusion` to `peer-market-signal-<topicPseudonym>` (queue for review). Add idempotency keying: `sha256(jobId + stage + platform + publishedAtDate)`. Add platform-post-ID scrubber before curator. Gate behind `HONCHO_WRITE_PUBLISH_ENABLED`.
+
+**Why:** Publishing and performance data are the most operationally durable signals in the pipeline. A record of which content was approved for which channel on which date, and what performance it produced, is exactly the kind of constraint that should influence future strategy and production stage runs.
+
+**Context:** Plan: `docs/plans/2026-05-11-aries-honcho-continuous-profile-writes.md`, Phase 2. Verification assertions V6-V9 in the plan. Higher write volume than Phase 1, hence the idempotency requirement. Honcho unavailability must remain a silent degradation, not a user-visible error.
+
+**Effort:** M
+**Priority:** P2
+**Depends on:** Phase 1 complete, `HONCHO_WRITE_APPROVALS_ENABLED=true` validated in prod
+
+### Honcho write Phase 3 — Explicit UI preference signals
+
+**What:** Wire Honcho writes when a user saves an explicit creative preference via a dedicated toggle (not yet built). Write `kind=preference` to `peer-user-<userPseudonym>` under `session-curated-<jobId>`, auto-approved only if `explicit_user_intent=true` is present in the finding metadata. Extend curator (`backend/memory/curator.ts`) to gate on `explicit_user_intent`. Gate behind `HONCHO_WRITE_PREFERENCES_ENABLED`. Phase 3 is blocked on UI work: the preference toggle surface must exist before this can ship.
+
+**Why:** User-stated creative preferences (voice, style, direction) are high-value first-party signal that should persist across campaigns. Inferring them from behavior is explicitly out of scope. This phase only ships when the operator has a clear affordance to express intent, so the writes are unambiguous.
+
+**Context:** Plan: `docs/plans/2026-05-11-aries-honcho-continuous-profile-writes.md`, Phase 3. No current UI surface in `frontend/aries-v1/creative-action-drawer.tsx` supports this. Verification assertions V10-V12 in the plan. Do not implement the write path until the toggle UI exists and is merged.
+
+**Effort:** S (write path only, after UI exists)
+**Priority:** P2
+**Depends on:** Phase 2 complete, preference toggle UI built and merged
+
 ## Completed
