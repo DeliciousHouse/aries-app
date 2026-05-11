@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   GATE_REDIRECT_DESTINATION,
   GUARDED_OPERATOR_PATH_PREFIXES,
+  META_CONNECT_REDIRECT_DESTINATION,
   countConnectedMetaPlatforms,
   evaluateOnboardingGate,
   shouldGuardPathname,
@@ -115,7 +116,10 @@ test('evaluateOnboardingGate redirects when business profile is incomplete', asy
   );
 });
 
-test('evaluateOnboardingGate redirects when profile is complete but no Meta/IG connections exist', async () => {
+test('evaluateOnboardingGate redirects to Meta connect page when profile is complete but no Meta/IG connections exist', async () => {
+  // Profile-complete users must NOT be sent back to /onboarding/start — that
+  // makes them redo step 1 forever in a loop. Send them to the Meta connect
+  // page so the next step is the next step.
   const decision = await evaluateOnboardingGate({
     client: makeQueryable(() => ({ rows: [], rowCount: 0 })),
     tenantId: '42',
@@ -124,7 +128,9 @@ test('evaluateOnboardingGate redirects when profile is complete but no Meta/IG c
   });
   assert.equal(decision.allowed, false);
   assert.equal(decision.reason, 'meta_not_connected');
-  assert.equal(decision.redirectTo, '/onboarding/start');
+  assert.equal(decision.redirectTo, META_CONNECT_REDIRECT_DESTINATION);
+  assert.equal(decision.redirectTo, '/onboarding/connect/meta/select-page');
+  assert.notEqual(decision.redirectTo, GATE_REDIRECT_DESTINATION);
 });
 
 test('evaluateOnboardingGate allows access when profile is complete and one Meta/IG connection exists', async () => {

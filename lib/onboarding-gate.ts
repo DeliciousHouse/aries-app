@@ -3,6 +3,7 @@ import type { PoolClient } from 'pg';
 import { getBusinessProfileWithDiagnostics } from '@/backend/tenant/business-profile';
 
 export const GATE_REDIRECT_DESTINATION = '/onboarding/start' as const;
+export const META_CONNECT_REDIRECT_DESTINATION = '/onboarding/connect/meta/select-page' as const;
 
 export const GUARDED_OPERATOR_PATH_PREFIXES: ReadonlyArray<string> = Object.freeze([
   '/dashboard',
@@ -20,7 +21,10 @@ export type OnboardingGateReason =
 export type OnboardingGateDecision = {
   allowed: boolean;
   reason: OnboardingGateReason;
-  redirectTo: typeof GATE_REDIRECT_DESTINATION | null;
+  redirectTo:
+    | typeof GATE_REDIRECT_DESTINATION
+    | typeof META_CONNECT_REDIRECT_DESTINATION
+    | null;
 };
 
 export type OnboardingGateQueryable = Pick<PoolClient, 'query'>;
@@ -116,7 +120,7 @@ export async function evaluateOnboardingGate(args: {
     return {
       allowed: false,
       reason: 'meta_not_connected',
-      redirectTo: GATE_REDIRECT_DESTINATION,
+      redirectTo: META_CONNECT_REDIRECT_DESTINATION,
     };
   }
 
