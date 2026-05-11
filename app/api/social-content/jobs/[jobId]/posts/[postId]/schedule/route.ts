@@ -12,6 +12,7 @@ import {
   loadTenantContextOrResponse,
   type TenantContextLoader,
 } from '@/lib/tenant-context-http';
+import { scheduleScheduledPostHonchoWrite } from '@/backend/memory/write-events';
 
 const ONBOARDING_REQUIRED = {
   status: 409,
@@ -144,6 +145,19 @@ export async function handlePatchScheduleSocialContentPost(
       postId: postIdInt,
       scheduledFor,
       platforms: normalizedPlatforms,
+    });
+
+    scheduleScheduledPostHonchoWrite({
+      tenantCtx: {
+        tenantId: String(tenantResult.tenantContext.tenantId),
+        tenantSlug: tenantResult.tenantContext.tenantSlug,
+        userId: tenantResult.tenantContext.userId,
+        role: tenantResult.tenantContext.role,
+      },
+      jobId,
+      postId: String(persisted.postId),
+      platforms: persisted.platforms,
+      scheduledForIso: persisted.scheduledFor,
     });
 
     return NextResponse.json(

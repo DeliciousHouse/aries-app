@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { recordApprovalEvent, recordDenialEvent, scheduleMarketingApprovalHonchoWrites } from '../backend/memory/write-events';
+import {
+  recordApprovalEvent,
+  recordDenialEvent,
+  recordPerformanceEvent,
+  recordPublishEvent,
+  recordScheduleEvent,
+  scheduleMarketingApprovalHonchoWrites,
+  scrubPlatformIdsFromPerformancePayload,
+} from '../backend/memory/write-events';
 import type { HonchoTransport } from '../backend/memory/honcho-client';
 
 // ---------------------------------------------------------------------------
@@ -291,5 +299,182 @@ test('V2 — recordDenialEvent: strategy denial writes rejected_angle to peer-br
       const auditMsg = JSON.parse(auditBody.content as string) as Record<string, unknown>;
       assert.equal(auditMsg.kind, 'fact', 'audit message kind must be fact');
       assert.equal(auditMsg.research_job_id, 'job-v2', 'audit research_job_id must match jobId');
+    },
+  ));
+
+// ---------------------------------------------------------------------------
+// Phase 2 — publish / schedule / performance (HONCHO_WRITE_PUBLISH_ENABLED)
+// ---------------------------------------------------------------------------
+
+test('Phase 2 — scrubPlatformIdsFromPerformancePayload strips platform post ids', () => {
+  const scrubbed = scrubPlatformIdsFromPerformancePayload({
+    platform_post_id: '1234567890',
+    reach: 100,
+    nested: { post_id: '9999999999999', ok: true },
+  });
+  assert.equal(scrubbed.platform_post_id, undefined);
+  assert.equal(scrubbed.reach, 100);
+  assert.equal((scrubbed.nested as Record<string, unknown>).post_id, undefined);
+  assert.equal((scrubbed.nested as Record<string, unknown>).ok, true);
+});
+
+test('Phase 2 — recordPublishEvent skips when publish gate is off', () =>
+  withEnv(
+    {
+      HONCHO_ENABLED: 'true',
+      HONCHO_WRITE_PUBLISH_ENABLED: 'false',
+      ARIES_TENANT_PSEUDONYM_SALT: TEST_SALT,
+    },
+    async () => {
+      const queries: string[] = [];
+      const mockPool = {
+        query: async (sql: string) => {
+          queries.push(sql);
+          return { rows: [] };
+        },
+      };
+      await recordPublishEvent(
+        {
+          tenantCtx: TENANT_CTX,
+          jobId: 'job-pub',
+          platform: 'facebook',
+          publishedAtYmd: '20260511',
+        },
+        mockPool as never,
+      );
+      assert.equal(queries.length, 0);
+    },
+  ));
+
+test('Phase 2 — recordPublishEvent idempotency: second call short-circuits', () =>
+  withEnv(
+    {
+      HONCHO_ENABLED: 'true',
+      HONCHO_WRITE_PUBLISH_ENABLED: 'true',
+      ARIES_TENANT_PSEUDONYM_SALT: TEST_SALT,
+      APP_BASE_URL: 'https://aries.example.com',
+    },
+    async () => {
+      let idem = 0;
+      const findingInserts: string[] = [];
+      const mockPool = buildMockPool((sql) => {
+        if (sql.includes('honcho_write_idempotency_keys')) {
+          idem++;
+          return idem === 1 ? { rows: [{ key: 'claimed' }] } : { rows: [] };
+        }
+        if (sql.includes('INSERT INTO aries_research_findings')) {
+          findingInserts.push(sql);
+          return { rows: [] };
+        }
+        return { rows: [] };
+      });
+
+      await recordPublishEvent(
+        {
+          tenantCtx: TENANT_CTX,
+          jobId: 'job-pub2',
+          platform: 'facebook',
+          publishedAtYmd: '20260512',
+        },
+        mockPool as never,
+      );
+      await recordPublishEvent(
+        {
+          tenantCtx: TENANT_CTX,
+          jobId: 'job-pub2',
+          platform: 'facebook',
+          publishedAtYmd: '20260512',
+        },
+        mockPool as never,
+      );
+      assert.equal(findingInserts.length, 1, 'queued finding persisted once');
+    },
+  ));
+
+test('Phase 2 — recordScheduleEvent auto-approves to peer-policy', () =>
+  withEnv(
+    {
+      HONCHO_ENABLED: 'true',
+      HONCHO_WRITE_PUBLISH_ENABLED: 'true',
+      ARIES_TENANT_PSEUDONYM_SALT: TEST_SALT,
+      APP_BASE_URL: 'https://aries.example.com',
+    },
+    async () => {
+      const mockPool = buildMockPool((sql) => {
+        if (sql.includes('ON CONFLICT') && sql.includes('RETURNING')) {
+          return { rows: [{ key: 'claimed' }] };
+        }
+        return { rows: [] };
+      });
+      const { transport, calls } = buildStubTransport();
+      await recordScheduleEvent(
+        {
+          tenantCtx: TENANT_CTX,
+          jobId: 'job-sch',
+          postId: '42',
+          platforms: ['facebook'],
+          scheduledForIso: '2026-06-01T12:00:00.000Z',
+        },
+        mockPool as never,
+        { transport },
+      );
+      const msgCalls = calls.filter(c => c.method === 'POST' && c.path.includes('/messages'));
+      assert.equal(msgCalls.length, 1);
+      const body = msgCalls[0]!.body as Record<string, unknown>;
+      assert.equal(body.peer_id, 'peer-policy');
+      assert.ok(String(msgCalls[0]!.path).includes('session-curated-job-sch'));
+    },
+  ));
+
+test('Phase 2 — recordPerformanceEvent requires https source_url', () =>
+  withEnv(
+    {
+      HONCHO_ENABLED: 'true',
+      HONCHO_WRITE_PUBLISH_ENABLED: 'true',
+      ARIES_TENANT_PSEUDONYM_SALT: TEST_SALT,
+      APP_BASE_URL: 'https://aries.example.com',
+    },
+    async () => {
+      let findings = 0;
+      const trackingPool = buildMockPool((sql) => {
+        if (sql.includes('honcho_write_idempotency_keys')) {
+          return { rows: [{ key: 'claimed' }] };
+        }
+        if (sql.includes('INSERT INTO aries_research_findings')) {
+          findings++;
+          return { rows: [] };
+        }
+        return { rows: [] };
+      });
+
+      await recordPerformanceEvent(
+        {
+          tenantCtx: TENANT_CTX,
+          jobId: 'job-perf',
+          topicPseudonymHex: 'abcdabcdabcdabcdabcdabcdabcdabcd',
+          publishedAtYmd: '20260515',
+          platform: 'facebook',
+          payloadRecord: { impressions: 1, platform_post_id: 'should-strip' },
+        },
+        trackingPool as never,
+      );
+      assert.equal(findings, 0, 'no source_url → no write');
+
+      await recordPerformanceEvent(
+        {
+          tenantCtx: TENANT_CTX,
+          jobId: 'job-perf2',
+          topicPseudonymHex: 'abcdabcdabcdabcdabcdabcdabcdabcd',
+          publishedAtYmd: '20260516',
+          platform: 'facebook',
+          payloadRecord: {
+            impressions: 10,
+            source_url: 'https://www.facebook.com/insights/deleted/',
+            platform_post_id: 'secret-post',
+          },
+        },
+        trackingPool as never,
+      );
+      assert.equal(findings, 1);
     },
   ));

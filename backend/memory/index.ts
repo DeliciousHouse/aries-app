@@ -1,5 +1,10 @@
 export { MemoryError } from './errors';
-export { isHonchoEnabled, isHonchoWriteApprovalsEnabled, validateHonchoConfig } from './honcho-env';
+export {
+  isHonchoEnabled,
+  isHonchoWriteApprovalsEnabled,
+  isHonchoWritePublishEnabled,
+  validateHonchoConfig,
+} from './honcho-env';
 export type { MemoryErrorCode } from './errors';
 export {
   ARIES_TENANT_WORKSPACE_PREFIX,
@@ -72,10 +77,21 @@ export {
   recordApprovalEvent,
   recordDenialEvent,
   scheduleMarketingApprovalHonchoWrites,
+  recordPublishEvent,
+  schedulePublishVerificationHonchoWrite,
+  recordScheduleEvent,
+  scheduleScheduledPostHonchoWrite,
+  recordPerformanceEvent,
+  scheduleHermesPublishPerformanceHonchoWrite,
+  topicPseudonymHexForPerformanceMemory,
+  scrubPlatformIdsFromPerformancePayload,
 } from './write-events';
 export type {
   MarketingApprovalMemoryStage,
   RecordApprovalHonchoEventInput,
   RecordDenialHonchoEventInput,
   MarketingApprovalHonchoMirrorInput,
+  RecordPublishVerificationHonchoWriteInput,
+  RecordScheduledPostHonchoWriteInput,
+  RecordPublishPerformanceHonchoWriteInput,
 } from './write-events';

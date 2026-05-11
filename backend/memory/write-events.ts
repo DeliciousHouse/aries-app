@@ -3,10 +3,12 @@ import { createHash } from 'node:crypto';
 import pool from '@/lib/db';
 import type { TenantContext } from '@/lib/tenant-context';
 
+import type { MarketingJobRuntimeDocument } from '@/backend/marketing/runtime-state';
+
 import { curateFinding, type CurateOptions } from './curator';
 import { isApprovalDenialReasonCode } from '@/lib/marketing/approval-denial-reason-codes';
 import { HonchoHttpTransport } from './honcho-http-transport';
-import { isHonchoEnabled, isHonchoWriteApprovalsEnabled } from './honcho-env';
+import { isHonchoEnabled, isHonchoWriteApprovalsEnabled, isHonchoWritePublishEnabled } from './honcho-env';
 import { TenantMemoryClient, type HonchoTransport, type PeerRef, type SessionRef } from './honcho-client';
 import { pseudonymForUser } from './pseudonym';
 import { ensureMarketingMemoryQueueJob, recordFinding } from './research-jobs';
@@ -107,9 +109,10 @@ async function persistQueuedFinding(
   jobId: string,
   finding: CandidateFinding,
   outcome: CuratorOutcome,
+  client: typeof pool = pool,
 ): Promise<void> {
-  const queueJobId = await ensureMarketingMemoryQueueJob(tenantId, jobId);
-  await recordFinding(queueJobId, candidateToRaw(finding), outcome, null);
+  const queueJobId = await ensureMarketingMemoryQueueJob(tenantId, jobId, client);
+  await recordFinding(queueJobId, candidateToRaw(finding), outcome, null, client);
 }
 
 async function appendHonchoApproved(args: {
@@ -158,6 +161,12 @@ export async function recordApprovalEvent(
   opts?: { transport?: HonchoTransport },
 ): Promise<void> {
   if (!isHonchoEnabled() || !isHonchoWriteApprovalsEnabled()) return;
+  if (input.stage !== 'strategy') {
+    // Phase 1 only mirrors strategy approvals. Production/publish approvals
+    // are handled by their own writers (Phase 2+) — refuse here so callers
+    // cannot mislabel non-strategy events as `strategy_stage_approved`.
+    return;
+  }
   const actor = input.memoryActorUserId?.trim();
   if (!actor) {
     console.warn('[honcho-write-events] recordApprovalEvent skipped: memoryActorUserId missing');
@@ -200,7 +209,7 @@ export async function recordApprovalEvent(
       return;
     }
     if (outcome.decision === 'queue_for_review') {
-      await persistQueuedFinding(String(input.tenantCtx.tenantId), input.jobId, finding, outcome);
+      await persistQueuedFinding(String(input.tenantCtx.tenantId), input.jobId, finding, outcome, client);
     }
   } catch (err) {
     console.error('[honcho-write-events] recordApprovalEvent failed', err);
@@ -273,7 +282,7 @@ export async function recordDenialEvent(
           message: contentOutcome.approved,
         });
       } else if (contentOutcome.decision === 'queue_for_review') {
-        await persistQueuedFinding(String(input.tenantCtx.tenantId), input.jobId, contentFinding, contentOutcome);
+        await persistQueuedFinding(String(input.tenantCtx.tenantId), input.jobId, contentFinding, contentOutcome, client);
       }
     } catch (err) {
       console.error('[honcho-write-events] recordDenialEvent content failed', err);
@@ -307,7 +316,7 @@ export async function recordDenialEvent(
           message: auditOutcome.approved,
         });
       } else if (auditOutcome.decision === 'queue_for_review') {
-        await persistQueuedFinding(String(input.tenantCtx.tenantId), input.jobId, auditFinding, auditOutcome);
+        await persistQueuedFinding(String(input.tenantCtx.tenantId), input.jobId, auditFinding, auditOutcome, client);
       }
     } catch (err) {
       console.error('[honcho-write-events] recordDenialEvent audit failed', err);
@@ -348,6 +357,373 @@ export function scheduleMarketingApprovalHonchoWrites(input: MarketingApprovalHo
         }
       } catch (err) {
         console.error('[honcho-write-events] scheduled flush failed', err);
+      }
+    })();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2 — publish verification, schedule, Hermes publish performance
+// ---------------------------------------------------------------------------
+
+/** Stable hex pseudonym for `peer-market-signal-*` (Honcho peer id constraint). */
+export function topicPseudonymHexForPerformanceMemory(jobId: string, competitorUrl?: string | null): string {
+  const hint =
+    typeof competitorUrl === 'string' && competitorUrl.trim().length > 0
+      ? competitorUrl.trim()
+      : `aries-job-topic:${jobId}`;
+  return createHash('sha256').update(hint).digest('hex').slice(0, 32);
+}
+
+function publishVerificationThirdPartySource(provider: string): FindingSource {
+  const raw = (process.env.META_GRAPH_API_VERSION || 'v21.0').trim();
+  const ver = raw.startsWith('v') ? raw : `v${raw}`;
+  const p = String(provider || 'facebook').toLowerCase();
+  const base =
+    p === 'instagram' || p === 'facebook' || p === 'meta'
+      ? `https://graph.facebook.com/${ver}/`
+      : `https://publish.local/platform/${encodeURIComponent(p)}`;
+  return { url: base, fetched_at: new Date().toISOString(), trust: 'third_party' };
+}
+
+const PERF_SOURCE_KEYS = ['source_url', 'permalink', 'insights_url', 'metrics_url', 'canonical_url'] as const;
+
+/**
+ * Strip platform post identifiers from Hermes performance payloads before the curator.
+ * Exported for unit tests (plan V11 scrub assertion).
+ */
+export function scrubPlatformIdsFromPerformancePayload(input: Record<string, unknown>): Record<string, unknown> {
+  const stripKey = (k: string) => {
+    const l = k.toLowerCase();
+    return (
+      l === 'platform_post_id'
+      || l === 'post_id'
+      || l === 'fb_post_id'
+      || l === 'instagram_media_id'
+      || l.endsWith('_post_id')
+      || l.includes('platform_post')
+    );
+  };
+
+  const walk = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(walk);
+    if (value && typeof value === 'object') {
+      const o = value as Record<string, unknown>;
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(o)) {
+        if (stripKey(k)) continue;
+        out[k] = walk(v);
+      }
+      return out;
+    }
+    if (typeof value === 'string' && /^\d{10,20}$/.test(value.trim())) {
+      return '[redacted_numeric_id]';
+    }
+    return value;
+  };
+
+  const walked = walk(input) as Record<string, unknown>;
+  return walked && typeof walked === 'object' && !Array.isArray(walked) ? walked : {};
+}
+
+export function extractPerformanceMetricsSourceUrl(input: Record<string, unknown>): string | null {
+  for (const key of PERF_SOURCE_KEYS) {
+    const v = input[key];
+    if (typeof v === 'string' && /^https:\/\//i.test(v.trim())) {
+      return v.trim();
+    }
+  }
+  const nested = input.metrics;
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+    return extractPerformanceMetricsSourceUrl(nested as Record<string, unknown>);
+  }
+  return null;
+}
+
+async function resolveTenantSlugForMemoryWrite(tenantId: string, client: typeof pool): Promise<string> {
+  const id = Number.parseInt(tenantId, 10);
+  if (!Number.isFinite(id) || id < 1) {
+    return `tenant-${tenantId}`;
+  }
+  const r = await client.query<{ slug: string }>('SELECT slug FROM organizations WHERE id = $1 LIMIT 1', [id]);
+  const slug = r.rows[0]?.slug?.trim();
+  return slug && slug.length > 0 ? slug : `tenant-${tenantId}`;
+}
+
+export type RecordPublishVerificationHonchoWriteInput = {
+  tenantCtx: MinimalTenantCtx;
+  jobId: string;
+  platform: string;
+  /** UTC calendar day of publish verification (YYYYMMDD). */
+  publishedAtYmd: string;
+};
+
+/**
+ * Third-party publish verification succeeded → `constraint` on `peer-policy`, queued for review.
+ */
+export async function recordPublishEvent(
+  input: RecordPublishVerificationHonchoWriteInput,
+  client = pool,
+  opts?: { transport?: HonchoTransport },
+): Promise<void> {
+  if (!isHonchoEnabled() || !isHonchoWritePublishEnabled()) return;
+  const jobId = input.jobId?.trim();
+  if (!jobId) {
+    console.warn('[honcho-write-events] recordPublishEvent skipped: jobId missing');
+    return;
+  }
+  const platform = String(input.platform || 'unknown').toLowerCase();
+  const ymd = input.publishedAtYmd?.trim();
+  if (!ymd || !/^\d{8}$/.test(ymd)) {
+    console.warn('[honcho-write-events] recordPublishEvent skipped: invalid publishedAtYmd');
+    return;
+  }
+
+  const key = idempotencyKey([jobId, 'publish_verification', platform, ymd]);
+  const claimed = await claimIdempotencyKey(key, client);
+  if (!claimed) return;
+
+  const claim = JSON.stringify({
+    event: 'publish_platform_verified',
+    research_job_id: jobId,
+    provider: platform,
+  });
+  const finding: CandidateFinding = {
+    kind: 'constraint',
+    claim,
+    sources: [publishVerificationThirdPartySource(platform)],
+    confidence: 0.88,
+    peerHint: 'policy',
+  };
+  const outcome = curateFinding(finding, { jobId, approvedBy: 'system' });
+  const transport = opts?.transport ?? new HonchoHttpTransport(process.env, fetchWithTimeout(HONCHO_WRITE_FETCH_TIMEOUT_MS));
+  const mem = new TenantMemoryClient(transport);
+
+  try {
+    if (outcome.decision === 'queue_for_review') {
+      await persistQueuedFinding(String(input.tenantCtx.tenantId), jobId, finding, outcome, client);
+      return;
+    }
+    if (outcome.decision === 'auto_approve') {
+      const peerRef = peerRefForAutoApprove(outcome);
+      await appendHonchoApproved({
+        ctx: input.tenantCtx,
+        client: mem,
+        peer: peerRef,
+        session: { kind: 'curated', jobId },
+        message: outcome.approved,
+      });
+    }
+  } catch (err) {
+    console.error('[honcho-write-events] recordPublishEvent failed', err);
+  }
+}
+
+export function schedulePublishVerificationHonchoWrite(input: RecordPublishVerificationHonchoWriteInput): void {
+  if (!isHonchoEnabled() || !isHonchoWritePublishEnabled()) return;
+  setImmediate(() => {
+    void (async () => {
+      try {
+        await recordPublishEvent(input);
+      } catch (err) {
+        console.error('[honcho-write-events] scheduled recordPublishEvent failed', err);
+      }
+    })();
+  });
+}
+
+export type RecordScheduledPostHonchoWriteInput = {
+  tenantCtx: MinimalTenantCtx;
+  jobId: string;
+  postId: string;
+  platforms: string[];
+  /** ISO 8601 scheduled time (used for idempotency day). */
+  scheduledForIso: string;
+};
+
+/**
+ * Operator scheduled a post → first-party `constraint` on `peer-policy`, auto-approved.
+ */
+export async function recordScheduleEvent(
+  input: RecordScheduledPostHonchoWriteInput,
+  client = pool,
+  opts?: { transport?: HonchoTransport },
+): Promise<void> {
+  if (!isHonchoEnabled() || !isHonchoWritePublishEnabled()) return;
+  const jobId = input.jobId?.trim();
+  const postId = input.postId?.trim();
+  if (!jobId || !postId) {
+    console.warn('[honcho-write-events] recordScheduleEvent skipped: jobId or postId missing');
+    return;
+  }
+  const day = input.scheduledForIso?.trim().slice(0, 10).replace(/-/g, '');
+  if (!day || day.length !== 8) {
+    console.warn('[honcho-write-events] recordScheduleEvent skipped: invalid scheduledForIso');
+    return;
+  }
+  const platformsKey = [...input.platforms].map(p => String(p).toLowerCase()).sort().join(',');
+  const key = idempotencyKey([jobId, 'schedule_post', postId, day, platformsKey]);
+  const claimed = await claimIdempotencyKey(key, client);
+  if (!claimed) return;
+
+  const claim = JSON.stringify({
+    event: 'social_post_scheduled',
+    research_job_id: jobId,
+    post_id: postId,
+    platforms: input.platforms,
+  });
+  const finding: CandidateFinding = {
+    kind: 'constraint',
+    claim,
+    sources: [firstPartyAriesSource()],
+    confidence: 0.9,
+    peerHint: 'policy',
+  };
+  const outcome = curateFinding(finding, { jobId, approvedBy: 'system' });
+  const transport = opts?.transport ?? new HonchoHttpTransport(process.env, fetchWithTimeout(HONCHO_WRITE_FETCH_TIMEOUT_MS));
+  const mem = new TenantMemoryClient(transport);
+
+  try {
+    if (outcome.decision === 'auto_approve') {
+      const peerRef = peerRefForAutoApprove(outcome);
+      await appendHonchoApproved({
+        ctx: input.tenantCtx,
+        client: mem,
+        peer: peerRef,
+        session: { kind: 'curated', jobId },
+        message: outcome.approved,
+      });
+      return;
+    }
+    if (outcome.decision === 'queue_for_review') {
+      await persistQueuedFinding(String(input.tenantCtx.tenantId), jobId, finding, outcome, client);
+    }
+  } catch (err) {
+    console.error('[honcho-write-events] recordScheduleEvent failed', err);
+  }
+}
+
+export function scheduleScheduledPostHonchoWrite(input: RecordScheduledPostHonchoWriteInput): void {
+  if (!isHonchoEnabled() || !isHonchoWritePublishEnabled()) return;
+  setImmediate(() => {
+    void (async () => {
+      try {
+        await recordScheduleEvent(input);
+      } catch (err) {
+        console.error('[honcho-write-events] scheduled recordScheduleEvent failed', err);
+      }
+    })();
+  });
+}
+
+export type RecordPublishPerformanceHonchoWriteInput = {
+  tenantCtx: MinimalTenantCtx;
+  jobId: string;
+  /** Hex topic pseudonym for `peer-market-signal-*`. */
+  topicPseudonymHex: string;
+  /** Calendar day for idempotency (YYYYMMDD, UTC). */
+  publishedAtYmd: string;
+  platform: string;
+  /** First output record from Hermes callback (metrics, etc.). */
+  payloadRecord: Record<string, unknown> | null;
+};
+
+/**
+ * Hermes publish stage completed with performance-shaped output → `research_conclusion` on market-signal peer (queued).
+ */
+export async function recordPerformanceEvent(
+  input: RecordPublishPerformanceHonchoWriteInput,
+  client = pool,
+): Promise<void> {
+  if (!isHonchoEnabled() || !isHonchoWritePublishEnabled()) return;
+  const jobId = input.jobId?.trim();
+  if (!jobId) return;
+  const ymd = input.publishedAtYmd?.trim();
+  if (!ymd || !/^\d{8}$/.test(ymd)) {
+    console.warn('[honcho-write-events] recordPerformanceEvent skipped: invalid publishedAtYmd');
+    return;
+  }
+  const platform = String(input.platform || 'unknown').toLowerCase();
+  const topic = input.topicPseudonymHex?.trim();
+  if (!topic || !/^[a-f0-9]{8,64}$/i.test(topic)) {
+    console.warn('[honcho-write-events] recordPerformanceEvent skipped: invalid topicPseudonymHex');
+    return;
+  }
+
+  const raw = input.payloadRecord && typeof input.payloadRecord === 'object' ? input.payloadRecord : {};
+  const scrubbed = scrubPlatformIdsFromPerformancePayload(raw);
+  const sourceUrl = extractPerformanceMetricsSourceUrl(scrubbed) ?? extractPerformanceMetricsSourceUrl(raw);
+  if (!sourceUrl || !/^https:\/\//i.test(sourceUrl)) {
+    console.warn('[honcho-write-events] recordPerformanceEvent skipped: no verifiable https source_url');
+    return;
+  }
+
+  const key = idempotencyKey([jobId, 'publish', platform, ymd]);
+  const claimed = await claimIdempotencyKey(key, client);
+  if (!claimed) return;
+
+  const claim = JSON.stringify({
+    event: 'publish_stage_performance',
+    research_job_id: jobId,
+    provider: platform,
+    metrics: scrubbed,
+    source_url: sourceUrl,
+  });
+  const finding: CandidateFinding = {
+    kind: 'research_conclusion',
+    claim,
+    sources: [{ url: sourceUrl, fetched_at: new Date().toISOString(), trust: 'third_party' }],
+    confidence: 0.88,
+    peerHint: 'market_signal',
+  };
+  const outcome = curateFinding(finding, { jobId, approvedBy: 'system' });
+
+  try {
+    if (outcome.decision === 'queue_for_review') {
+      await persistQueuedFinding(String(input.tenantCtx.tenantId), jobId, finding, outcome, client);
+    }
+  } catch (err) {
+    console.error('[honcho-write-events] recordPerformanceEvent failed', err);
+  }
+}
+
+export function scheduleHermesPublishPerformanceHonchoWrite(input: {
+  doc: MarketingJobRuntimeDocument;
+  payloadRecord: Record<string, unknown> | null;
+}): void {
+  if (!isHonchoEnabled() || !isHonchoWritePublishEnabled()) return;
+  setImmediate(() => {
+    void (async () => {
+      try {
+        const tenantId = String(input.doc.tenant_id);
+        const slug = await resolveTenantSlugForMemoryWrite(tenantId, pool);
+        const topicHex = topicPseudonymHexForPerformanceMemory(
+          input.doc.job_id,
+          input.doc.inputs?.competitor_url ?? null,
+        );
+        const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        const platform =
+          typeof input.payloadRecord?.platform === 'string'
+            ? input.payloadRecord.platform
+            : typeof input.payloadRecord?.provider === 'string'
+              ? input.payloadRecord.provider
+              : 'aggregate';
+        const tenantCtx: MinimalTenantCtx = {
+          tenantId,
+          tenantSlug: slug,
+          userId: tenantId,
+          role: 'tenant_admin',
+        };
+        await recordPerformanceEvent({
+          tenantCtx,
+          jobId: input.doc.job_id,
+          topicPseudonymHex: topicHex,
+          publishedAtYmd: ymd,
+          platform,
+          payloadRecord: input.payloadRecord,
+        });
+      } catch (err) {
+        console.error('[honcho-write-events] scheduled recordPerformanceEvent failed', err);
       }
     })();
   });

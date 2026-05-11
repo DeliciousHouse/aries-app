@@ -5,6 +5,9 @@ export interface PublishDispatchRequest {
   content: string;
   media_urls?: string[];
   scheduled_for?: string;
+  /** When set, verified publish outcomes can mirror to Honcho under this marketing job id. */
+  marketing_job_id?: string;
+  job_id?: string;
 }
 
 export interface PublishDispatchResponse {

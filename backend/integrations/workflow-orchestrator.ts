@@ -36,6 +36,10 @@ export function normalizePublishDispatch(event: PublishDispatchEvent): Orchestra
   if (!adapter) throw new Error('validation_error:unsupported_provider');
 
   const normalized = adapter.normalizePublishEvent(event);
+  const marketingJobId =
+    typeof event.marketing_job_id === 'string' && event.marketing_job_id.trim().length > 0
+      ? event.marketing_job_id.trim()
+      : undefined;
 
   return {
     schema_name: 'aries_orchestration_event',
@@ -45,7 +49,10 @@ export function normalizePublishDispatch(event: PublishDispatchEvent): Orchestra
     provider: event.provider,
     event_id: randomId('evt'),
     occurred_at: new Date().toISOString(),
-    payload: normalized.payload
+    payload: {
+      ...normalized.payload,
+      ...(marketingJobId ? { marketing_job_id: marketingJobId } : {}),
+    },
   };
 }
 

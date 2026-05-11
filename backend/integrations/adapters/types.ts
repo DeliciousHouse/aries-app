@@ -4,6 +4,8 @@ export interface PublishDispatchEvent {
   content: string;
   media_urls?: string[];
   scheduled_for?: string;
+  /** When set, verified publish-dispatch outcomes mirror to Honcho `session-curated-<id>`. */
+  marketing_job_id?: string;
 }
 
 export interface NormalizedPublishPayload {

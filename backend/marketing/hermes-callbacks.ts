@@ -26,6 +26,7 @@ import {
   type MarketingJobRuntimeDocument,
   type MarketingStage,
 } from './runtime-state';
+import { scheduleHermesPublishPerformanceHonchoWrite } from '@/backend/memory/write-events';
 
 const STAGE_ORDER: MarketingStage[] = ['research', 'strategy', 'production', 'publish'];
 
@@ -400,6 +401,12 @@ export async function applyHermesMarketingCallback(
 
   if (payload.status === 'completed') {
     markJobCompleted(doc, targetStage, payload);
+    if (targetStage === 'publish') {
+      scheduleHermesPublishPerformanceHonchoWrite({
+        doc,
+        payloadRecord: firstOutputRecord(payload),
+      });
+    }
     if (isSocialContentRun(run)) {
       const completedSocialStage =
         socialContentStageFromCallbackStage(payload.stage) ?? socialStageForMarketingStage(targetStage);

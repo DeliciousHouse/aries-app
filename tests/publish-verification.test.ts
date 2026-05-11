@@ -194,6 +194,7 @@ test('runPublishVerification: happy path persists published + verifies', async (
   assert.equal(result.status, 'published');
   assert.equal(result.platformPostId, '123_456');
   assert.equal(result.postId, '777');
+  assert.ok(result.publishedAt && /^\d{4}-\d{2}-\d{2}T/.test(result.publishedAt), 'publishedAt ISO');
   assert.ok(fetchedUrl.includes('123_456'));
   assert.ok(calls.some((c) => c.sql.includes('INSERT INTO posts')), 'INSERT runs first to claim the row');
   assert.ok(calls.some((c) => c.sql.includes('UPDATE posts')), 'UPDATE bumps status to published after verification');
@@ -222,6 +223,7 @@ test('runPublishVerification: 404 path persists unverified', async () => {
   assert.equal(result.status, 'unverified');
   assert.equal(result.platformPostId, 'doesnt_exist');
   assert.equal(result.reason, 'graph_404');
+  assert.ok(result.publishedAt && /^\d{4}-\d{2}-\d{2}T/.test(result.publishedAt));
   const insert = calls.find((c) => c.sql.includes('INSERT INTO posts'));
   assert.ok(insert);
   assert.equal(insert?.params[4], 'unverified', 'persisted row carries unverified status');
@@ -249,6 +251,7 @@ test('runPublishVerification: missing page token marks unverified', async () => 
 
   assert.equal(result.status, 'unverified');
   assert.equal(result.reason, 'page_token_unavailable');
+  assert.ok(result.publishedAt && /^\d{4}-\d{2}-\d{2}T/.test(result.publishedAt));
   const insert = calls.find((c) => c.sql.includes('INSERT INTO posts'));
   assert.ok(insert);
   assert.equal(insert?.params[4], 'unverified');
@@ -271,6 +274,7 @@ test('runPublishVerification: missing platform_post_id returns skipped', async (
 
   assert.equal(result.status, 'skipped');
   assert.equal(result.platformPostId, null);
+  assert.equal(result.publishedAt, null);
   assert.equal(calls.length, 0, 'should not write or fetch when no id');
 });
 
@@ -290,5 +294,6 @@ test('runPublishVerification: non-meta providers are skipped (verification is me
   });
 
   assert.equal(result.status, 'skipped');
+  assert.equal(result.publishedAt, null);
   assert.equal(calls.length, 0);
 });

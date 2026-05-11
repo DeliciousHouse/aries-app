@@ -1,4 +1,5 @@
 import { requestJson, type ApiClientOptions } from './http';
+import type { ApprovalDenialReasonCode } from '@/lib/marketing/approval-denial-reason-codes';
 
 export type MarketingJobType = 'brand_campaign';
 export type MarketingStage = 'research' | 'strategy' | 'production' | 'publish';
@@ -618,13 +619,7 @@ export interface PostMarketingJobApproveRequest {
     videoRenderPlatforms?: string[];
   };
   /** Structured denial reason for Honcho mirror; optional free-text goes in denialNote only (Aries DB). */
-  denialReasonCode?:
-    | 'wrong-tone'
-    | 'wrong-colors'
-    | 'off-brand'
-    | 'factually-wrong'
-    | 'legal-concern'
-    | 'other';
+  denialReasonCode?: ApprovalDenialReasonCode;
   denialNote?: string;
 }
 
