@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import pool from '@/lib/db';
 import type { TenantContext } from '@/lib/tenant-context';
 import type { CuratorOutcome, ResearchEnvelope } from './types';
@@ -74,6 +74,46 @@ export async function ensureResearchJobSchema(client: Queryable = pool): Promise
     `CREATE INDEX IF NOT EXISTS idx_aries_research_findings_job_id ON aries_research_findings(job_id)`,
     [],
   );
+}
+
+const MARKETING_MEMORY_QUEUE_SEED_VERSION = 'aries-marketing-memory-queue-v1';
+
+/**
+ * Deterministic UUID for a synthetic `aries_research_jobs` row used only to attach
+ * queued marketing-approval memory findings to the tenant review queue.
+ */
+export function marketingMemoryQueueJobUuid(tenantId: string, marketingJobId: string): string {
+  const seed = `${MARKETING_MEMORY_QUEUE_SEED_VERSION}:${tenantId}:${marketingJobId}`;
+  const hash = createHash('sha256').update(seed).digest();
+  const bytes = Uint8Array.from(hash.subarray(0, 16));
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = Buffer.from(bytes).toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+export async function ensureMarketingMemoryQueueJob(
+  tenantId: string,
+  marketingJobId: string,
+  client: Queryable = pool,
+): Promise<string> {
+  await ensureResearchJobSchema(client);
+  const id = marketingMemoryQueueJobUuid(tenantId, marketingJobId);
+  const tokenHash = createHash('sha256').update(`aries:mmq:${id}`).digest('hex');
+  await client.query(
+    `
+    INSERT INTO aries_research_jobs (id, tenant_id, status, task_spec, callback_token_hash, created_at, updated_at)
+    VALUES ($1::uuid, $2, 'completed', $3::jsonb, $4, NOW(), NOW())
+    ON CONFLICT (id) DO NOTHING
+    `,
+    [
+      id,
+      String(tenantId),
+      JSON.stringify({ kind: 'marketing_memory_queue', marketing_job_id: marketingJobId }),
+      tokenHash,
+    ],
+  );
+  return id;
 }
 
 export async function createJob(

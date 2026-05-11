@@ -617,6 +617,15 @@ export interface PostMarketingJobApproveRequest {
     livePublishPlatforms?: string[];
     videoRenderPlatforms?: string[];
   };
+  /** Structured denial reason for Honcho mirror; optional free-text goes in denialNote only (Aries DB). */
+  denialReasonCode?:
+    | 'wrong-tone'
+    | 'wrong-colors'
+    | 'off-brand'
+    | 'factually-wrong'
+    | 'legal-concern'
+    | 'other';
+  denialNote?: string;
 }
 
 export interface ApproveJobResult {

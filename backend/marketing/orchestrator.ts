@@ -82,6 +82,8 @@ import {
 } from './brand-kit';
 import { invalidateValidatedProfilesIfSourceChanged } from './validated-profile-store';
 import { submitMarketingResearchMemoryJob } from '@/backend/memory/submit-marketing-research-job';
+import type { TenantRole } from '@/lib/tenant-context';
+import { scheduleMarketingApprovalHonchoWrites } from '@/backend/memory/write-events';
 
 export type StartMarketingJobRequest = {
   tenantId: string;
@@ -126,6 +128,10 @@ export type ApproveMarketingJobRequest = {
   approved?: boolean;
   resumePublishIfNeeded?: boolean;
   publishConfig?: Partial<MarketingPublishConfig>;
+  /** Server-derived from tenant context. Never read from request body. */
+  memoryActorUserId?: string;
+  tenantSlug?: string;
+  memoryActorRole?: TenantRole;
 };
 
 export type ApproveMarketingJobResponse = {
@@ -144,8 +150,21 @@ export type DenyMarketingJobRequest = {
   deniedBy: string;
   approvalId?: string;
   note?: string;
+  denialReasonCode?: string | null;
+  denialNote?: string | null;
+  /** Server-derived from tenant context. Never read from request body. */
+  memoryActorUserId?: string;
+  tenantSlug?: string;
+  memoryActorRole?: TenantRole;
   publishConfig?: Partial<MarketingPublishConfig>;
 };
+
+function marketingStageForHonchoMirror(
+  stage: MarketingStage,
+): 'strategy' | 'production' | 'publish' | null {
+  if (stage === 'strategy' || stage === 'production' || stage === 'publish') return stage;
+  return null;
+}
 
 type WorkflowApprovalStepId =
   | 'approve_stage_2'
@@ -1627,6 +1646,11 @@ async function resolveMarketingApproval(
     approvalStep?: SocialContentApprovalStep;
     publishConfig?: Partial<MarketingPublishConfig>;
     resolution: MarketingApprovalResolution;
+    tenantSlug?: string;
+    memoryActorUserId?: string;
+    memoryActorRole?: TenantRole;
+    denialReasonCode?: string | null;
+    denialNote?: string | null;
   },
   doc: MarketingJobRuntimeDocument,
 ): Promise<ApproveMarketingJobResponse> {
@@ -1921,6 +1945,12 @@ async function resolveMarketingApproval(
         resumed_stage: resumedStage,
         completed,
         outcome: input.resolution === 'approve' ? 'workflow_resumed' : 'workflow_cancelled',
+        ...(input.resolution === 'deny'
+          ? {
+              denial_reason_code: input.denialReasonCode?.trim() ? input.denialReasonCode.trim() : null,
+              denial_note: input.denialNote?.trim() ? input.denialNote.trim() : null,
+            }
+          : {}),
       };
       currentRecord.last_error = null;
       saveMarketingApprovalRecord(currentRecord);
@@ -1937,6 +1967,29 @@ async function resolveMarketingApproval(
         attemptCount: currentRecord.attempt_count,
         tokenFingerprint: currentRecord.execution_resume_token_fingerprint,
       });
+
+      const honchoStage = marketingStageForHonchoMirror(checkpoint.stage);
+      const slug = input.tenantSlug?.trim();
+      const actor = input.memoryActorUserId?.trim();
+      if (!actor) {
+        console.warn('[orchestrator] Honcho mirror skipped: memoryActorUserId missing');
+      }
+      if (honchoStage && slug && actor && currentRecord.resolved_at) {
+        scheduleMarketingApprovalHonchoWrites({
+          tenantCtx: {
+            tenantId: input.tenantId,
+            tenantSlug: slug,
+            userId: actor,
+            role: input.memoryActorRole ?? 'tenant_admin',
+          },
+          memoryActorUserId: actor,
+          jobId: input.jobId,
+          stage: honchoStage,
+          resolution: input.resolution === 'approve' ? 'approve' : 'deny',
+          denialReasonCode: input.resolution === 'deny' ? input.denialReasonCode ?? null : undefined,
+          eventDateYmd: currentRecord.resolved_at.slice(0, 10).replace(/-/g, ''),
+        });
+      }
 
       return {
         status: input.resolution === 'approve' ? 'resumed' : 'denied',
@@ -2006,6 +2059,9 @@ export async function approveMarketingJob(
     approvalStep: input.approvalStep,
     publishConfig: input.publishConfig,
     resolution: 'approve',
+    tenantSlug: input.tenantSlug,
+    memoryActorUserId: input.memoryActorUserId,
+    memoryActorRole: input.memoryActorRole,
   }, doc);
 }
 
@@ -2020,5 +2076,10 @@ export async function denyMarketingJob(
     approvalId: input.approvalId,
     publishConfig: input.publishConfig,
     resolution: 'deny',
+    tenantSlug: input.tenantSlug,
+    memoryActorUserId: input.memoryActorUserId,
+    memoryActorRole: input.memoryActorRole,
+    denialReasonCode: input.denialReasonCode,
+    denialNote: input.denialNote ?? input.note,
   }, doc);
 }

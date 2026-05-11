@@ -27,12 +27,15 @@ export function pseudonymForTenant(
   return createHmac('sha256', readSalt(env)).update(id).digest('hex').slice(0, PSEUDONYM_HEX_LENGTH);
 }
 
-export function pseudonymForUser(userId: string | number): string {
+export function pseudonymForUser(
+  userId: string | number,
+  env: Partial<Record<string, string | undefined>> = process.env,
+): string {
   const id = String(userId ?? '').trim();
   if (!id) {
     throw new MemoryError('invalid_request', 'userId required for pseudonymization.', 400);
   }
-  return createHmac('sha256', readSalt()).update(`user:${id}`).digest('hex').slice(0, PSEUDONYM_HEX_LENGTH);
+  return createHmac('sha256', readSalt(env)).update(`aries-user:${id}`).digest('hex').slice(0, PSEUDONYM_HEX_LENGTH);
 }
 
 export function workspaceIdForTenant(

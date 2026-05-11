@@ -1,5 +1,5 @@
 export { MemoryError } from './errors';
-export { isHonchoEnabled, validateHonchoConfig } from './honcho-env';
+export { isHonchoEnabled, isHonchoWriteApprovalsEnabled, validateHonchoConfig } from './honcho-env';
 export type { MemoryErrorCode } from './errors';
 export {
   ARIES_TENANT_WORKSPACE_PREFIX,
@@ -68,3 +68,14 @@ export { seedOnboardingMemory } from './onboarding-seed';
 export type { OnboardingSeedInput, OnboardingSeedResult, OnboardingSeedFindingResult } from './onboarding-seed';
 export { buildOnboardingCandidatesFromProfile } from './build-onboarding-candidates';
 export { maybeSeedOnboardingMemoryForTenant, ensureOnboardingMemorySeedColumn } from './onboarding-memory-hook';
+export {
+  recordApprovalEvent,
+  recordDenialEvent,
+  scheduleMarketingApprovalHonchoWrites,
+} from './write-events';
+export type {
+  MarketingApprovalMemoryStage,
+  RecordApprovalHonchoEventInput,
+  RecordDenialHonchoEventInput,
+  MarketingApprovalHonchoMirrorInput,
+} from './write-events';
