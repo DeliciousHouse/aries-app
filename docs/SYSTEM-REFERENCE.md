@@ -9,13 +9,20 @@ Last refreshed May 4, 2026, 16:00 UTC.
 - scripts/automations/rolling-system-reference.mjs
 
 ## Current architecture overview
+
+### Hermes-Native Execution (Default)
 - Next.js App Router runtime serves the public site, authenticated operator shell, and browser-safe internal APIs.
 - Backend domain logic lives under `backend/*` and routes long-running execution through Hermes by default.
-- `backend/execution/*` owns the general execution provider boundary; the Hermes adapter currently wires the supported Hermes workflow set and the legacy OpenClaw/Lobster adapter remains available with `ARIES_EXECUTION_PROVIDER=legacy-openclaw`.
-- Social content execution uses `backend/marketing/execution-port.ts`; `ARIES_MARKETING_EXECUTION_PROVIDER=hermes` submits `social_content_weekly` runs (version `2026-05-social-content-weekly-v1`) to Hermes and advances runtime state from authenticated `/api/internal/hermes/runs` callbacks.
+- `backend/execution/*` owns the general execution provider boundary; the Hermes adapter wires the supported Hermes workflow set and is the default for all active workflows.
+- Social content execution uses `backend/marketing/execution-port.ts`; `ARIES_MARKETING_EXECUTION_PROVIDER=hermes` (the default) submits `social_content_weekly` runs (version `2026-05-social-content-weekly-v1`) to Hermes and advances runtime state from authenticated `/api/internal/hermes/runs` callbacks.
 - Weekly media generation is Hermes-native: Aries sends abstract media requests, Hermes owns ChatGPT/OpenAI auth, and text planning can still run without media generation.
 - Local runtime state and typed adapters live across `lib/*`, `hooks/*`, `specs/*`, and `workflows/*` to preserve contract boundaries.
 - Repo context and automation output should stay scoped to `aries-app` only.
+
+### Provider Compatibility (Legacy)
+- The legacy OpenClaw/Lobster adapter is **opt-in only**, kept for backward-compatibility and not used in active workflows.
+- Enable explicitly with `ARIES_EXECUTION_PROVIDER=legacy-openclaw` (general execution) or `ARIES_MARKETING_EXECUTION_PROVIDER=legacy-openclaw` (marketing). When unset, Hermes is selected.
+- The legacy adapter is reserved for onboarding or `brand_campaign` compatibility paths that have not yet been migrated. New code should not depend on it.
 
 ## Module inventory
 - app/ 130 files
@@ -78,7 +85,7 @@ Last refreshed May 4, 2026, 16:00 UTC.
 - Cron registration is prepared but not auto-enabled until backup remote and delivery targets are confirmed.
 - Daily brief and system reference quality depends on current repo docs and task hygiene.
 - Cross-project drift should be treated as a regression and removed instead of archived into active repo context.
-- The Hermes general execution adapter does not implement every legacy workflow; onboarding or `brand_campaign` compatibility paths that still require Lobster should run with `ARIES_EXECUTION_PROVIDER=legacy-openclaw`.
+- The Hermes general execution adapter does not implement every legacy workflow; onboarding or `brand_campaign` compatibility paths that still require Lobster should opt in explicitly via `ARIES_EXECUTION_PROVIDER=legacy-openclaw`. See the "Provider Compatibility (Legacy)" section above.
 
 ## Working tree snapshot
 - Docs-only refresh branch updated setup/runtime docs for Hermes-native weekly social content and kept legacy OpenClaw/Lobster notes in deprecated sections.

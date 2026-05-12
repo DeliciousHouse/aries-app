@@ -1,5 +1,7 @@
 # Hermes-Native Aries Execution Migration Plan
 
+> **Status: Historical — Migration Completed May 10, 2026.** This plan is preserved for reference. The current architecture is documented in `docs/product/aries-ai-prd.md` (Sec 8.6).
+
 > **For Hermes:** Use subagent-driven-development skill to implement this plan task-by-task.
 
 **Goal:** Move Aries runtime execution from OpenClaw/Lobster-owned contracts to Aries-owned interfaces backed by Hermes-compatible execution, without breaking marketing jobs, approval resumes, generated assets, Docker runtime, or live deployment.
