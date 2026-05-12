@@ -8,9 +8,9 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import HomePage from '../app/page';
 import DashboardPage from '../app/dashboard/page';
 import DashboardBrandReviewPage from '../app/dashboard/brand-review/page';
-import DashboardCampaignsPage from '../app/dashboard/campaigns/page';
-import DashboardNewCampaignPage from '../app/dashboard/campaigns/new/page';
-import DashboardCampaignWorkspacePage from '../app/dashboard/campaigns/[campaignId]/page';
+import DashboardCampaignsPage from '../app/dashboard/social-content/page';
+import DashboardNewCampaignPage from '../app/dashboard/social-content/new/page';
+import DashboardCampaignWorkspacePage from '../app/dashboard/social-content/[campaignId]/page';
 import DashboardCalendarPage from '../app/dashboard/calendar/page';
 import DashboardCreativeReviewPage from '../app/dashboard/creative-review/page';
 import DashboardPublishStatusPage from '../app/dashboard/publish-status/page';
@@ -39,7 +39,6 @@ import MarketingJobApprovePage from '../app/marketing/job-approve/page';
 import SocialContentNewPage from '../app/social-content/new/page';
 import SocialContentStatusPage from '../app/social-content/status/page';
 import SocialContentReviewPage from '../app/social-content/review/page';
-import PlatformsPage from '../app/platforms/page';
 import SettingsPage from '../app/settings/page';
 import DonorHomePage from '../frontend/donor/marketing/home-page';
 import AriesHomeDashboard from '../frontend/aries-v1/home-dashboard';
@@ -67,18 +66,18 @@ import { resolveProjectRoot } from './helpers/project-root';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
-function expectRedirect(callable: () => unknown, location: string) {
+function expectRedirect(callable: () => unknown, location: string, statusCode = 307) {
   assert.throws(callable, (error: unknown) => {
     assert.equal(error instanceof Error ? error.message : String(error), 'NEXT_REDIRECT');
-    assert.equal((error as { digest?: string }).digest, `NEXT_REDIRECT;replace;${location};307;`);
+    assert.equal((error as { digest?: string }).digest, `NEXT_REDIRECT;replace;${location};${statusCode};`);
     return true;
   });
 }
 
-async function expectAsyncRedirect(callable: () => Promise<unknown>, location: string) {
+async function expectAsyncRedirect(callable: () => Promise<unknown>, location: string, statusCode = 307) {
   await assert.rejects(callable, (error: unknown) => {
     assert.equal(error instanceof Error ? error.message : String(error), 'NEXT_REDIRECT');
-    assert.equal((error as { digest?: string }).digest, `NEXT_REDIRECT;replace;${location};307;`);
+    assert.equal((error as { digest?: string }).digest, `NEXT_REDIRECT;replace;${location};${statusCode};`);
     return true;
   });
 }
@@ -157,19 +156,19 @@ test('/dashboard wraps the Home screen in the app shell', () => {
   assert.equal(element.props.children.type, AriesHomeDashboard);
 });
 
-test('/dashboard/campaigns wraps the campaign list in the app shell', () => {
+test('/dashboard/social-content wraps the campaign list in the app shell', () => {
   const element = DashboardCampaignsPage();
 
   assert.equal(isValidElement(element), true);
   assert.equal(element.type, AppShellLayout);
   assert.equal(element.props.currentRouteId, 'campaigns');
-  assert.equal(element.props.loginRedirectPath, '/dashboard/campaigns');
-  assert.equal(buildLoginRedirect(element.props.loginRedirectPath), '/login?callbackUrl=%2Fdashboard%2Fcampaigns');
+  assert.equal(element.props.loginRedirectPath, '/dashboard/social-content');
+  assert.equal(buildLoginRedirect(element.props.loginRedirectPath), '/login?callbackUrl=%2Fdashboard%2Fsocial-content');
   assert.equal(isValidElement(element.props.children), true);
   assert.equal(element.props.children.type, AriesCampaignListScreen);
 });
 
-test('/dashboard/campaigns/new wraps the new campaign flow in the app shell', () => {
+test('/dashboard/social-content/new wraps the new campaign flow in the app shell', () => {
   const element = DashboardNewCampaignPage();
 
   assert.equal(isValidElement(element), true);
@@ -180,10 +179,10 @@ test('/dashboard/campaigns/new wraps the new campaign flow in the app shell', ()
 });
 
 test('/campaigns redirects to the canonical dashboard campaigns route', () => {
-  expectRedirect(() => CampaignsPage(), '/dashboard/campaigns');
+  expectRedirect(() => CampaignsPage(), '/dashboard/social-content');
 });
 
-test('/dashboard/campaigns/[campaignId] preserves the campaign id for the workspace', async () => {
+test('/dashboard/social-content/[campaignId] preserves the campaign id for the workspace', async () => {
   const element = await DashboardCampaignWorkspacePage({
     params: Promise.resolve({
       campaignId: 'spring-atelier-launch',
@@ -199,7 +198,7 @@ test('/dashboard/campaigns/[campaignId] preserves the campaign id for the worksp
   assert.equal(element.props.children.props.campaignId, 'spring-atelier-launch');
 });
 
-test('/dashboard/campaigns/[campaignId] forwards the selected review view into the workspace', async () => {
+test('/dashboard/social-content/[campaignId] forwards the selected review view into the workspace', async () => {
   const element = await DashboardCampaignWorkspacePage({
     params: Promise.resolve({
       campaignId: 'spring-atelier-launch',
@@ -222,7 +221,7 @@ test('/campaigns/[campaignId] redirects to the canonical dashboard campaign work
         campaignId: 'spring-atelier-launch',
       }),
     }),
-    '/dashboard/campaigns/spring-atelier-launch',
+    '/dashboard/social-content/spring-atelier-launch',
   );
 });
 
@@ -461,8 +460,8 @@ test('/onboarding/status preserves tenant_id and signup_event_id from the route 
   assert.equal(element.props.initialSignupEventId, 'signup_evt_456');
 });
 
-test('/marketing/new-job redirects to the social content intake route', () => {
-  expectRedirect(() => MarketingNewJobPage(), '/social-content/new');
+test('/marketing/new-job 308-redirects to the social content intake route', () => {
+  expectRedirect(() => MarketingNewJobPage(), '/social-content/new', 308);
 });
 
 test('/social-content/new returns a renderable social content creation screen', () => {
@@ -599,6 +598,7 @@ test('/marketing/job-status preserves jobId from the route boundary', async () =
         }),
       }),
     '/social-content/status?jobId=mkt_123',
+    308,
   );
 });
 
@@ -611,11 +611,8 @@ test('/marketing/job-approve preserves the job id from the route boundary', asyn
         }),
       }),
     '/social-content/review?jobId=mkt_123',
+    308,
   );
-});
-
-test('/platforms redirects to the canonical dashboard settings route', () => {
-  expectRedirect(() => PlatformsPage(), '/dashboard/settings');
 });
 
 test('/dashboard/settings wraps the settings screen in the app shell', () => {

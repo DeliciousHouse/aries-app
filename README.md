@@ -106,10 +106,8 @@ Browser
 - `/api/calendar/sync`
 
 #### Tenant and internal support routes
-- `/api/demo`
 - `/api/internal/hermes/runs` (Hermes callback ingress; internal only)
 - `/api/internal/marketing/job-runtime`
-- `/api/sandbox/launch`
 - `/api/tenant/profiles`
 - `/api/tenant/profiles/[userId]`
 - `/api/tenant/workflows`

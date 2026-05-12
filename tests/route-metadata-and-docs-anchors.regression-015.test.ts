@@ -4,8 +4,8 @@ import test from 'node:test';
 import { metadata as sitemapMetadata } from '../app/sitemap/page';
 import { metadata as reviewMetadata } from '../app/review/page';
 import { metadata as publishStatusMetadata } from '../app/dashboard/publish-status/page';
-import { metadata as dashboardCampaignsMetadata } from '../app/dashboard/campaigns/page';
-import { metadata as dashboardNewCampaignMetadata } from '../app/dashboard/campaigns/new/page';
+import { metadata as dashboardCampaignsMetadata } from '../app/dashboard/social-content/page';
+import { metadata as dashboardNewCampaignMetadata } from '../app/dashboard/social-content/new/page';
 import { metadata as marketingNewJobMetadata } from '../app/marketing/new-job/page';
 import { metadata as marketingJobStatusMetadata } from '../app/marketing/job-status/page';
 import { metadata as marketingJobApproveMetadata } from '../app/marketing/job-approve/page';
@@ -21,8 +21,8 @@ test('route-level metadata stays specific for QA-regressed pages', () => {
   assert.equal(dashboardCampaignsMetadata.title, 'Campaigns · Aries AI');
   assert.equal(dashboardNewCampaignMetadata.title, 'New Campaign · Aries AI');
   assert.equal(marketingNewJobMetadata.title, 'Create Weekly Social Posts · Aries AI');
-  assert.equal(marketingJobStatusMetadata.title, 'Campaign Status · Aries AI');
-  assert.equal(marketingJobApproveMetadata.title, 'Campaign Approval · Aries AI');
+  assert.equal(marketingJobStatusMetadata.title, 'Weekly Social Content Status · Aries AI');
+  assert.equal(marketingJobApproveMetadata.title, 'Weekly Social Content Review · Aries AI');
 });
 
 test('documentation anchors keep a top offset for clean in-page navigation', () => {

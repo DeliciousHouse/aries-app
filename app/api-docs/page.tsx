@@ -8,14 +8,6 @@ export const metadata = {
 const ENDPOINTS = [
   {
     method: 'POST',
-    path: '/api/contact',
-    desc: 'Submit a contact request. Returns an explicit unavailable response until a contact handler is configured.',
-    body: '{ "name", "email", "message" }',
-    response:
-      '{ "status": "error", "reason": "contact_not_configured", "message": "Contact intake is not configured yet.", "request": { "name": "...", "email": "...", "message_present": true } }',
-  },
-  {
-    method: 'POST',
     path: '/api/onboarding/start',
     desc: 'Start business onboarding and set up the workspace.',
     body: '{ "tenant_id", "tenant_type", "signup_event_id" }',

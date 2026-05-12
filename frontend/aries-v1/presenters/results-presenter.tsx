@@ -117,7 +117,7 @@ export default function ResultsPresenter({ model }: ResultsPresenterProps) {
               Campaign results will begin to appear here once runtime-backed campaigns are created and start moving through the workflow.
             </p>
             <Link
-              href="/dashboard/campaigns"
+              href="/dashboard/social-content"
               className="mt-6 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-medium text-white shadow-[0_0_20px_rgba(123,97,255,0.3)]"
             >
               Open campaign list
@@ -273,7 +273,7 @@ export default function ResultsPresenter({ model }: ResultsPresenterProps) {
                 <div className="mb-6 flex items-center justify-between gap-4">
                   <h2 className="text-lg font-semibold text-white">Campaign roster</h2>
                   <Link
-                    href="/dashboard/campaigns"
+                    href="/dashboard/social-content"
                     className="inline-flex items-center gap-2 text-sm font-medium text-white transition-colors hover:text-white/75"
                   >
                     Open campaigns

@@ -6,5 +6,5 @@ export default async function CampaignWorkspacePage({
   params: Promise<{ campaignId: string }>;
 }) {
   const { campaignId } = await params;
-  redirect(`/dashboard/campaigns/${encodeURIComponent(campaignId)}`);
+  redirect(`/dashboard/social-content/${encodeURIComponent(campaignId)}`);
 }

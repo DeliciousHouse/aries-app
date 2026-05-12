@@ -7,7 +7,7 @@ export const metadata = {
 
 export default function DashboardCampaignsPage() {
   return (
-    <AppShellLayout currentRouteId="campaigns" loginRedirectPath="/dashboard/campaigns">
+    <AppShellLayout currentRouteId="campaigns" loginRedirectPath="/dashboard/social-content">
       <AriesCampaignListScreen />
     </AppShellLayout>
   );

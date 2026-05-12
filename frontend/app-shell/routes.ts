@@ -33,7 +33,7 @@ export const APP_ROUTES: readonly AppRoute[] = [
   {
     id: 'newCampaign',
     title: 'New Campaign',
-    href: '/dashboard/campaigns/new',
+    href: '/dashboard/social-content/new',
     section: 'primary',
     description: 'Start a campaign with a persisted brief, uploads, and review-ready workflow state.'
   },
@@ -68,7 +68,7 @@ export const APP_ROUTES: readonly AppRoute[] = [
   {
     id: 'campaigns',
     title: 'Campaigns',
-    href: '/dashboard/campaigns',
+    href: '/dashboard/social-content',
     section: 'utility',
     description: 'Campaign list and direct links into each campaign workspace.'
   },

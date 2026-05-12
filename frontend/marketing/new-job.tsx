@@ -167,7 +167,7 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
       if (props.redirectMode === 'dashboard') {
         setSubmitProgress({ stepIndex: FINAL_SUBMIT_PROGRESS_INDEX, dotCount: 1 });
         shouldResetSubmitting = false;
-        router.push(`/dashboard/campaigns/${encodeURIComponent(response.jobId)}?view=brand`);
+        router.push(`/dashboard/social-content/${encodeURIComponent(response.jobId)}?view=brand`);
         return;
       }
 

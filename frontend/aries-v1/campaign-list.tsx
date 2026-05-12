@@ -39,7 +39,7 @@ export default function AriesCampaignListScreen() {
         description="Aries will turn your business and goals into a review-ready marketing plan once you create your first campaign."
         action={
           <Link
-            href="/dashboard/campaigns/new"
+            href="/dashboard/social-content/new"
             className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] transition-colors"
           >
             Create first campaign
@@ -57,7 +57,7 @@ export default function AriesCampaignListScreen() {
         title="Every campaign in one place"
         action={
           <Link
-            href="/dashboard/campaigns/new"
+            href="/dashboard/social-content/new"
             className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-semibold text-[#11161c] transition-colors"
           >
             <Plus className="h-4 w-4" />
@@ -110,7 +110,7 @@ function CampaignRow(props: {
     <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] px-6 py-5 transition hover:border-white/16 hover:bg-white/[0.06]">
       <div className="mb-4 flex items-start justify-between gap-3">
         <Link
-          href={`/dashboard/campaigns/${campaign.id}`}
+          href={`/dashboard/social-content/${campaign.id}`}
           className="flex-1 space-y-3"
         >
           <div className="flex flex-wrap items-center gap-3">
@@ -127,7 +127,7 @@ function CampaignRow(props: {
       </div>
 
       <Link
-        href={`/dashboard/campaigns/${campaign.id}`}
+        href={`/dashboard/social-content/${campaign.id}`}
         className="block"
       >
         <div className="grid gap-5 xl:grid-cols-[1.15fr_0.9fr]">

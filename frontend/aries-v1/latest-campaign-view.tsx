@@ -22,7 +22,7 @@ export default function AriesLatestCampaignView(props: {
     if (!latestCampaign) {
       return;
     }
-    router.replace(`/dashboard/campaigns/${encodeURIComponent(latestCampaign.id)}?view=${props.view}`);
+    router.replace(`/dashboard/social-content/${encodeURIComponent(latestCampaign.id)}?view=${props.view}`);
   }, [latestCampaign, props.view, router]);
 
   if (campaigns.isLoading) {
@@ -44,7 +44,7 @@ export default function AriesLatestCampaignView(props: {
         description={props.description}
         action={
           <Link
-            href="/dashboard/campaigns/new"
+            href="/dashboard/social-content/new"
             className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#11161c] transition-colors"
           >
             New Campaign

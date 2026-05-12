@@ -11,10 +11,10 @@ import { resolveProjectRoot } from './helpers/project-root';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
-function expectRedirect(callable: () => unknown, location: string) {
+function expectRedirect(callable: () => unknown, location: string, statusCode = 307) {
   assert.throws(callable, (error: unknown) => {
     assert.equal(error instanceof Error ? error.message : String(error), 'NEXT_REDIRECT');
-    assert.equal((error as { digest?: string }).digest, `NEXT_REDIRECT;replace;${location};307;`);
+    assert.equal((error as { digest?: string }).digest, `NEXT_REDIRECT;replace;${location};${statusCode};`);
     return true;
   });
 }
@@ -184,8 +184,8 @@ function installMarketingPipelineInvoker(
   });
 }
 
-test('/marketing/new-job redirects to the social-content intake route', () => {
-  expectRedirect(() => MarketingNewJobPage(), '/social-content/new');
+test('/marketing/new-job 308-redirects to the social-content intake route', () => {
+  expectRedirect(() => MarketingNewJobPage(), '/social-content/new', 308);
 });
 
 test('startMarketingJob rejects brand_campaign requests without a brand URL', async () => {

@@ -14,7 +14,6 @@ export const GUARDED_OPERATOR_PATH_PREFIXES: ReadonlyArray<string> = Object.free
   '/dashboard',
   '/posts',
   '/calendar',
-  '/platforms',
   '/social-content',
 ]);
 

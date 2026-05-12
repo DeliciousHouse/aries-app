@@ -38,22 +38,22 @@ test('rejects non-absolute paths', () => {
 
 test('encodes a simple protected path as callbackUrl', () => {
   assert.equal(
-    buildLoginRedirect('/dashboard/campaigns'),
-    '/login?callbackUrl=%2Fdashboard%2Fcampaigns',
+    buildLoginRedirect('/dashboard/social-content'),
+    '/login?callbackUrl=%2Fdashboard%2Fsocial-content',
   );
 });
 
 test('preserves query string when provided with leading ?', () => {
   assert.equal(
-    buildLoginRedirect('/dashboard/campaigns', '?tab=active&sort=recent'),
-    '/login?callbackUrl=%2Fdashboard%2Fcampaigns%3Ftab%3Dactive%26sort%3Drecent',
+    buildLoginRedirect('/dashboard/social-content', '?tab=active&sort=recent'),
+    '/login?callbackUrl=%2Fdashboard%2Fsocial-content%3Ftab%3Dactive%26sort%3Drecent',
   );
 });
 
 test('preserves query string when provided without leading ?', () => {
   assert.equal(
-    buildLoginRedirect('/dashboard/campaigns', 'tab=active'),
-    '/login?callbackUrl=%2Fdashboard%2Fcampaigns%3Ftab%3Dactive',
+    buildLoginRedirect('/dashboard/social-content', 'tab=active'),
+    '/login?callbackUrl=%2Fdashboard%2Fsocial-content%3Ftab%3Dactive',
   );
 });
 
