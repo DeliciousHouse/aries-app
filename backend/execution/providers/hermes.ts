@@ -5,12 +5,17 @@ import {
   markExecutionRunSubmitted,
 } from '../run-store';
 import type { WorkflowEnvelope, WorkflowExecutionResult } from '../types';
+import { ARIES_WORKFLOWS } from '../workflow-catalog';
 
 type HermesExecutionEnv = Partial<Record<string, string | undefined>>;
 type HermesFetch = (input: string | URL, init?: RequestInit) => Promise<Response>;
 type HermesSleep = (ms: number) => Promise<void>;
 
-const HERMES_SUPPORTED_RUN_WORKFLOWS = new Set(['demo_start']);
+// Derived from the canonical workflow catalog so any new key added to
+// ARIES_WORKFLOWS is automatically reachable through Hermes. Before this was
+// hardcoded to ['demo_start'], which silently 501'd every other route after
+// PR #258 made Hermes the default provider.
+const HERMES_SUPPORTED_RUN_WORKFLOWS = new Set<string>(Object.keys(ARIES_WORKFLOWS));
 
 const DEFAULT_RUN_TIMEOUT_MS = 60_000;
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
@@ -168,7 +173,7 @@ function notImplementedResult(route: string): WorkflowExecutionResult {
       code: 'workflow_missing_for_route',
       route,
       message:
-        'Hermes execution adapter does not yet wire this workflow. Only demo_start is supported.',
+        'Hermes execution adapter rejected workflow: key is not in ARIES_WORKFLOWS catalog.',
       provider: 'hermes',
     },
   };
@@ -223,7 +228,12 @@ function instructionsForWorkflow(workflowId: string): string {
       'The first output entry should describe the provisioned demo (e.g. provisioned: true, lead_id, next_step).',
     ].join(' ');
   }
-  return 'Reply with a single strict JSON object only — no prose, no markdown fences.';
+  return [
+    `You are the Aries ${workflowId} workflow agent.`,
+    'Reply with a single strict JSON object only — no prose, no markdown fences.',
+    'Required schema: {"status":"ok","output":[{...}],"message":"..."}.',
+    'The first output entry should describe the result of this workflow run.',
+  ].join(' ');
 }
 
 function promptForWorkflow(envelope: HermesRunRequestEnvelope, ariesRunId: string): string {

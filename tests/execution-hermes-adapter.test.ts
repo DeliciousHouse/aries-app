@@ -78,7 +78,7 @@ test('HermesExecutionAdapter reports missing HERMES_API_SERVER_KEY with an actio
   assert.match(result.error.message, /HERMES_API_SERVER_KEY/);
 });
 
-test('HermesExecutionAdapter returns not_implemented for unsupported workflows even when configured', async () => {
+test('HermesExecutionAdapter returns not_implemented for workflows outside the catalog even when configured', async () => {
   let called = false;
   const adapter = new HermesExecutionAdapter(
     {
@@ -92,15 +92,60 @@ test('HermesExecutionAdapter returns not_implemented for unsupported workflows e
     NO_SLEEP,
   );
 
-  const result = await adapter.runWorkflow('calendar_sync', { tenant_id: 'tenant-123' });
+  // Pick a key that is NOT in ARIES_WORKFLOWS so the guard fires. All catalog
+  // keys (e.g. calendar_sync) are now reachable through Hermes.
+  const result = await adapter.runWorkflow('not_a_real_workflow_key', { tenant_id: 'tenant-123' });
 
   assert.equal(called, false);
   assert.equal(result.kind, 'not_implemented');
   if (result.kind !== 'not_implemented') {
     assert.fail('expected not_implemented result');
   }
-  assert.equal(result.payload.route, 'calendar_sync');
+  assert.equal(result.payload.route, 'not_a_real_workflow_key');
   assert.equal(result.payload.provider, 'hermes');
+});
+
+test('HermesExecutionAdapter submits non-demo catalog workflows (regression guard against demo_start-only allowlist)', async () => {
+  await withDataRoot(async () => {
+    const completedOutput = JSON.stringify({ status: 'ok', provider: 'hermes', output: [{ synced: true }] });
+    const { calls, fetchImpl } = recordingFetchSequence([
+      () => new Response(JSON.stringify({ run_id: 'run_xyz', status: 'started' }), {
+        status: 202,
+        headers: { 'content-type': 'application/json' },
+      }),
+      () => new Response(JSON.stringify({ run_id: 'run_xyz', status: 'completed', output: completedOutput }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    ]);
+    const adapter = new HermesExecutionAdapter(
+      {
+        HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL,
+        HERMES_API_SERVER_KEY: 'token-123',
+        HERMES_RUN_TIMEOUT_MS: '30000',
+        HERMES_POLL_INTERVAL_MS: '0',
+      },
+      fetchImpl,
+      NO_SLEEP,
+    );
+
+    // calendar_sync is a real ARIES_WORKFLOWS catalog key. Before the allowlist
+    // was derived from the catalog (PR #304), this returned not_implemented and
+    // fetch was never called, silently 501-ing the /api/calendar/sync route.
+    const result = await adapter.runWorkflow('calendar_sync', {
+      tenant_id: 'tenant-123',
+      window_start: null,
+      window_end: null,
+    });
+
+    assert.notEqual(result.kind, 'not_implemented');
+    assert.equal(result.kind, 'ok');
+    assert.ok(calls.length >= 1, 'adapter must hit /v1/runs for catalog keys');
+    assert.equal(calls[0].url, `${TEST_HERMES_GATEWAY_URL}/v1/runs`);
+    const submitBody = JSON.parse(String(calls[0].init.body));
+    assert.match(submitBody.input, /Workflow: calendar_sync/);
+    assert.match(submitBody.instructions, /calendar_sync workflow agent/);
+  });
 });
 
 test('HermesExecutionAdapter submits demo_start and polls until completed', async () => {
