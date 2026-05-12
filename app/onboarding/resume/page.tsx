@@ -102,7 +102,7 @@ export default async function OnboardingResumePage(
 
   const claim = await claimOnboardingDraftMaterialization(draftId);
   if (claim.draft.status === 'materialized' && claim.draft.materializedJobId) {
-    redirect(`/dashboard/campaigns/${encodeURIComponent(claim.draft.materializedJobId)}?welcome=1`);
+    redirect(`/dashboard/social-content/${encodeURIComponent(claim.draft.materializedJobId)}?welcome=1`);
   }
 
   if (!claim.claimed) {
@@ -169,7 +169,7 @@ export default async function OnboardingResumePage(
       materializedJobId: result.jobId,
     });
 
-    redirect(`/dashboard/campaigns/${encodeURIComponent(result.jobId)}?welcome=1`);
+    redirect(`/dashboard/social-content/${encodeURIComponent(result.jobId)}?welcome=1`);
   } catch (error) {
     await updateOnboardingDraft(draftId, { status: 'ready_for_auth' });
     throw error;

@@ -139,7 +139,7 @@ test('calendar view-model uses runtime calendar events for the month grid', () =
     model.events.map((event) => event.dayKey),
     ['2026-04-15', '2026-04-20'],
   );
-  assert.equal(model.events[0].href, '/dashboard/campaigns/campaign-1');
+  assert.equal(model.events[0].href, '/dashboard/social-content/campaign-1');
   assert.match(model.events[0].scheduledFor, /Spring Launch/);
   assert.equal(model.hero.metrics[0]?.value, '2');
 });

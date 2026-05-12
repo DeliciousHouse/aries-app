@@ -67,7 +67,7 @@ export function createCalendarViewModel(campaigns: RuntimeCampaignListItem[]): C
         platform: normalizeCalendarPlatformLabel(event.platformLabel),
         scheduledFor: formatScheduledLabel(event.startsAt, event.campaignName, event.statusLabel),
         status: event.status,
-        href: `/dashboard/campaigns/${campaign.id}`,
+        href: `/dashboard/social-content/${campaign.id}`,
         timestamp,
         dayKey: event.startsAt.slice(0, 10),
       };
@@ -128,7 +128,7 @@ export function createCalendarViewModel(campaigns: RuntimeCampaignListItem[]): C
       nextScheduled: campaign.nextScheduled,
       stageLabel: campaign.stageLabel,
       pendingApprovals: String(campaign.pendingApprovals),
-      href: `/dashboard/campaigns/${campaign.id}`,
+      href: `/dashboard/social-content/${campaign.id}`,
     })),
   };
 }

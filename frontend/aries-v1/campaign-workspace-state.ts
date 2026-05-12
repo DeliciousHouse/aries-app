@@ -111,7 +111,7 @@ function normalizedDomain(value: string | null | undefined): string | null {
 }
 
 function currentStageHref(campaignId: string, view: WorkspaceView): string {
-  return `/dashboard/campaigns/${encodeURIComponent(campaignId)}?view=${view}`;
+  return `/dashboard/social-content/${encodeURIComponent(campaignId)}?view=${view}`;
 }
 
 function stageForView(view: WorkspaceView): MarketingStageCard['stage'] {

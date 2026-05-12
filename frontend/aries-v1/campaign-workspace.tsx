@@ -118,7 +118,7 @@ function formatDecisionTimestamp(value: string): string {
 }
 
 function currentStageHref(campaignId: string, view: WorkspaceView): string {
-  return `/dashboard/campaigns/${encodeURIComponent(campaignId)}?view=${view}`;
+  return `/dashboard/social-content/${encodeURIComponent(campaignId)}?view=${view}`;
 }
 
 function normalizeWebsiteUrlInput(value: string): string {
@@ -276,7 +276,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
         description="We couldn't find a campaign with that id. It may have been removed or never existed."
         action={
           <Link
-            href="/dashboard/campaigns"
+            href="/dashboard/social-content"
             className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-4 py-2 text-sm font-medium text-white/80 transition hover:border-white/25 hover:text-white"
           >
             Back to campaigns
@@ -442,7 +442,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
                 ? () => void submitReviewDecision(status.brandReview!.reviewId, 'changes_requested')
                 : undefined
             }
-            nextStageHref={`/dashboard/campaigns/${encodeURIComponent(props.campaignId)}?view=strategy`}
+            nextStageHref={`/dashboard/social-content/${encodeURIComponent(props.campaignId)}?view=strategy`}
             nextStageLabel="Go to Strategy Review"
           />
         </div>
@@ -469,7 +469,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
               ? () => void submitReviewDecision(status.strategyReview!.reviewId, 'changes_requested', status.approval?.approvalId)
               : undefined
           }
-          nextStageHref={`/dashboard/campaigns/${encodeURIComponent(props.campaignId)}?view=creative`}
+          nextStageHref={`/dashboard/social-content/${encodeURIComponent(props.campaignId)}?view=creative`}
           nextStageLabel="Go to Creative Review"
         />
       ) : null}
@@ -502,7 +502,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
 
       <ShellPanel eyebrow="Shortcuts" title="Next steps">
         <div className="flex flex-wrap gap-3">
-          <SectionLink href="/dashboard/campaigns/new" label="New campaign" />
+          <SectionLink href="/dashboard/social-content/new" label="New campaign" />
           <SectionLink href="/dashboard/brand-review" label="Brand review" />
           <SectionLink href="/dashboard/strategy-review" label="Strategy review" />
           <SectionLink href="/dashboard/creative-review" label="Creative review" />

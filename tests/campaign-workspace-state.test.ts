@@ -96,7 +96,7 @@ test('deriveGateFallbackState routes downstream gates back to the blocking revie
 
   assert.equal(fallback.title, 'Strategy Review is blocking this gate');
   assert.equal(fallback.action?.label, 'Open Strategy Review');
-  assert.equal(fallback.action?.href, '/dashboard/campaigns/mkt_123?view=strategy');
+  assert.equal(fallback.action?.href, '/dashboard/social-content/mkt_123?view=strategy');
 });
 
 test('deriveGateFallbackState does not block creative when a stale strategy gate is already approved', () => {

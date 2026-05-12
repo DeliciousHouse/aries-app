@@ -708,7 +708,7 @@ export default function AriesReviewItemScreen(props: { reviewId: string; initial
         <Link href="/review" className="rounded-full border border-white/12 px-4 py-2.5 text-sm font-medium text-white/75 transition hover:border-white/20 hover:text-white">
           Back to queue
         </Link>
-        <Link href={`/dashboard/campaigns/${item.campaignId}`} className="rounded-full border border-white/12 px-4 py-2.5 text-sm font-medium text-white/75 transition hover:border-white/20 hover:text-white">
+        <Link href={`/dashboard/social-content/${item.campaignId}`} className="rounded-full border border-white/12 px-4 py-2.5 text-sm font-medium text-white/75 transition hover:border-white/20 hover:text-white">
           Open campaign
         </Link>
       </div>

@@ -95,7 +95,7 @@ export function createCampaignListViewModel(campaigns: RuntimeCampaignListItem[]
       pendingApprovals: String(campaign.pendingApprovals),
       stageLabel: campaign.stageLabel,
       updatedLabel: formatUpdatedLabel(campaign.updatedAt),
-      href: `/dashboard/campaigns/${campaign.id}`,
+      href: `/dashboard/social-content/${campaign.id}`,
       needsApproval: campaign.pendingApprovals > 0 || campaign.status === 'in_review',
     })),
   };

@@ -31,7 +31,7 @@ export function getReviewRecoveryState(error: ApiError | null): ReviewRecoverySt
     },
     secondaryAction: {
       label: 'Open campaigns',
-      href: '/dashboard/campaigns',
+      href: '/dashboard/social-content',
     },
   };
 }

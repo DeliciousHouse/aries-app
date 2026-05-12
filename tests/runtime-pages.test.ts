@@ -8,9 +8,9 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import HomePage from '../app/page';
 import DashboardPage from '../app/dashboard/page';
 import DashboardBrandReviewPage from '../app/dashboard/brand-review/page';
-import DashboardCampaignsPage from '../app/dashboard/campaigns/page';
-import DashboardNewCampaignPage from '../app/dashboard/campaigns/new/page';
-import DashboardCampaignWorkspacePage from '../app/dashboard/campaigns/[campaignId]/page';
+import DashboardCampaignsPage from '../app/dashboard/social-content/page';
+import DashboardNewCampaignPage from '../app/dashboard/social-content/new/page';
+import DashboardCampaignWorkspacePage from '../app/dashboard/social-content/[campaignId]/page';
 import DashboardCalendarPage from '../app/dashboard/calendar/page';
 import DashboardCreativeReviewPage from '../app/dashboard/creative-review/page';
 import DashboardPublishStatusPage from '../app/dashboard/publish-status/page';
@@ -156,19 +156,19 @@ test('/dashboard wraps the Home screen in the app shell', () => {
   assert.equal(element.props.children.type, AriesHomeDashboard);
 });
 
-test('/dashboard/campaigns wraps the campaign list in the app shell', () => {
+test('/dashboard/social-content wraps the campaign list in the app shell', () => {
   const element = DashboardCampaignsPage();
 
   assert.equal(isValidElement(element), true);
   assert.equal(element.type, AppShellLayout);
   assert.equal(element.props.currentRouteId, 'campaigns');
-  assert.equal(element.props.loginRedirectPath, '/dashboard/campaigns');
+  assert.equal(element.props.loginRedirectPath, '/dashboard/social-content');
   assert.equal(buildLoginRedirect(element.props.loginRedirectPath), '/login?callbackUrl=%2Fdashboard%2Fcampaigns');
   assert.equal(isValidElement(element.props.children), true);
   assert.equal(element.props.children.type, AriesCampaignListScreen);
 });
 
-test('/dashboard/campaigns/new wraps the new campaign flow in the app shell', () => {
+test('/dashboard/social-content/new wraps the new campaign flow in the app shell', () => {
   const element = DashboardNewCampaignPage();
 
   assert.equal(isValidElement(element), true);
@@ -179,10 +179,10 @@ test('/dashboard/campaigns/new wraps the new campaign flow in the app shell', ()
 });
 
 test('/campaigns redirects to the canonical dashboard campaigns route', () => {
-  expectRedirect(() => CampaignsPage(), '/dashboard/campaigns');
+  expectRedirect(() => CampaignsPage(), '/dashboard/social-content');
 });
 
-test('/dashboard/campaigns/[campaignId] preserves the campaign id for the workspace', async () => {
+test('/dashboard/social-content/[campaignId] preserves the campaign id for the workspace', async () => {
   const element = await DashboardCampaignWorkspacePage({
     params: Promise.resolve({
       campaignId: 'spring-atelier-launch',
@@ -198,7 +198,7 @@ test('/dashboard/campaigns/[campaignId] preserves the campaign id for the worksp
   assert.equal(element.props.children.props.campaignId, 'spring-atelier-launch');
 });
 
-test('/dashboard/campaigns/[campaignId] forwards the selected review view into the workspace', async () => {
+test('/dashboard/social-content/[campaignId] forwards the selected review view into the workspace', async () => {
   const element = await DashboardCampaignWorkspacePage({
     params: Promise.resolve({
       campaignId: 'spring-atelier-launch',
@@ -221,7 +221,7 @@ test('/campaigns/[campaignId] redirects to the canonical dashboard campaign work
         campaignId: 'spring-atelier-launch',
       }),
     }),
-    '/dashboard/campaigns/spring-atelier-launch',
+    '/dashboard/social-content/spring-atelier-launch',
   );
 });
 

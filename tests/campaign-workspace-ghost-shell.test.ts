@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 // Regression coverage for ISSUE-W2-M2 — visiting
-// /dashboard/campaigns/<unknown-id> rendered a fully populated campaign
+// /dashboard/social-content/<unknown-id> rendered a fully populated campaign
 // shell (heading, Draft chip, zero counters, working tabs) instead of a
 // not-found panel. Root cause: the server-side getMarketingJobStatus
 // returns a synthetic `{ marketing_job_state: 'not_found' }` payload with
@@ -40,7 +40,7 @@ test('campaign-workspace renders a branded "Campaign not found" panel with a bac
   assert.ok(guardMatch, 'expected an if (!status || marketing_job_state === "not_found") guard');
   const block = guardMatch[1];
   assert.match(block, /Campaign not found/, 'guard must render the branded "Campaign not found" title');
-  assert.match(block, /\/dashboard\/campaigns/, 'guard must link back to /dashboard/campaigns');
+  assert.match(block, /\/dashboard\/campaigns/, 'guard must link back to /dashboard/social-content');
   assert.match(block, /EmptyStatePanel/, 'guard should reuse the branded EmptyStatePanel');
 });
 

@@ -26,6 +26,6 @@ test('review recovery state exposes actionable links for wrong-workspace deep li
   assert.equal(recovery.primaryAction.label, 'Open review queue');
   assert.equal(recovery.primaryAction.href, '/review');
   assert.equal(recovery.secondaryAction.label, 'Open campaigns');
-  assert.equal(recovery.secondaryAction.href, '/dashboard/campaigns');
+  assert.equal(recovery.secondaryAction.href, '/dashboard/social-content');
   assert.match(recovery.guidance, /sign out and reopen the same link/i);
 });

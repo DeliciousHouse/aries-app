@@ -124,7 +124,7 @@ function isScheduledValue(value: string): boolean {
 }
 
 function campaignHref(campaignId: string): string {
-  return `/dashboard/campaigns/${campaignId}`;
+  return `/dashboard/social-content/${campaignId}`;
 }
 
 function formatUpdatedLabel(updatedAt: string | null): string {
@@ -187,7 +187,7 @@ function nextActionFor(
       title: 'Create your first campaign',
       summary:
         'Aries will turn your business and goals into a campaign you can review before anything goes live.',
-      href: '/dashboard/campaigns/new',
+      href: '/dashboard/social-content/new',
       label: 'New Campaign',
     };
   }
@@ -305,7 +305,7 @@ export function createDashboardHomeViewModel(args: {
               activeCampaign !== null
                 ? 'Aries will summarize launch momentum and next actions here as soon as a campaign is live.'
                 : 'Create a campaign and Aries will start grounding this surface in live runtime data.',
-            href: activeCampaign !== null ? campaignHref(activeCampaign.id) : '/dashboard/campaigns/new',
+            href: activeCampaign !== null ? campaignHref(activeCampaign.id) : '/dashboard/social-content/new',
             label: activeCampaign !== null ? 'Open campaign' : 'Create campaign',
             items: [],
           };

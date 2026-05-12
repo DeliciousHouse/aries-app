@@ -48,6 +48,11 @@ const nextConfig = {
       // bounced to /dashboard/settings. Replace the page-level redirect with a
       // proper config-level 307 so the route is not in the auth-gate list.
       { source: '/platforms', destination: '/dashboard/settings', permanent: false },
+      // QA 2026-05-12 ISSUE-010 (PRD-audit rename): "campaign" -> "social
+      // content". Legacy URL still resolves for outstanding bookmarks/emails.
+      // 308 permanent so caches and intermediaries adopt the new canonical.
+      { source: '/dashboard/campaigns', destination: '/dashboard/social-content', permanent: true },
+      { source: '/dashboard/campaigns/:path*', destination: '/dashboard/social-content/:path*', permanent: true },
     ];
   },
 };
