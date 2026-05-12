@@ -190,21 +190,36 @@ test('HermesMarketingPort.runPipeline returns submitted immediately by default',
       tenant_id: 'tenant_test',
     });
     assert.equal(body.session_id, 'marketing-session');
-    assert.equal(body.workflow_key, 'social_content_weekly');
-    assert.equal(body.workflow_version, '2026-05-social-content-weekly-v1');
-    assert.equal(body.aries_run_id, result.ariesRunId);
-    assert.equal(body.tenant_id, 'tenant_test');
-    assert.equal(body.job_id, 'job_test');
-    assert.equal(body.callback_url, 'https://aries.example.com/api/internal/hermes/runs');
-    assert.equal(body.input.scope.window_days, 7);
-    assert.equal(body.input.scope.static_post_count, 3);
-    assert.equal(body.input.scope.image_creative_count, 2);
-    assert.equal(body.input.scope.video_script_count, 1);
-    assert.equal(body.input.scope.video_render_count, 1);
-    assert.deepEqual(body.input.scope.channels, ['meta', 'instagram']);
-    assert.equal('media_provider' in body, false);
-    assert.equal(Array.isArray(body.input.media_requests), true);
-    assert.deepEqual(body.input.media_requests, [
+    // Hermes /v1/runs requires `input` to be a string (it's an OpenAI-style
+    // chat-completions API). The structured workflow request is embedded in
+    // the prompt string and parsed by the gateway agent. Top-level
+    // `workflow_key`/`workflow_version` etc. are no longer sent as bare fields
+    // — the gateway gets them from `callback_context` and from the prompt.
+    assert.equal(typeof body.input, 'string');
+    assert.match(body.input, /Workflow: social_content_weekly/);
+    assert.match(body.input, /Workflow version: 2026-05-social-content-weekly-v1/);
+    assert.match(body.input, /Aries run ID: arun_/);
+    assert.match(body.input, /Job ID: job_test/);
+    assert.match(body.input, /Tenant ID: tenant_test/);
+    assert.match(body.input, /Callback URL: https:\/\/aries\.example\.com\/api\/internal\/hermes\/runs/);
+    assert.match(body.input, /Request \(JSON\): /);
+    const requestJsonMatch = body.input.match(/Request \(JSON\): (.+)$/s);
+    if (!requestJsonMatch) assert.fail('expected serialized request JSON in input prompt');
+    const embeddedRequest = JSON.parse(requestJsonMatch[1]);
+    assert.equal(embeddedRequest.workflow_key, 'social_content_weekly');
+    assert.equal(embeddedRequest.workflow_version, '2026-05-social-content-weekly-v1');
+    assert.equal(embeddedRequest.aries_run_id, result.ariesRunId);
+    assert.equal(embeddedRequest.tenant_id, 'tenant_test');
+    assert.equal(embeddedRequest.job_id, 'job_test');
+    assert.equal(embeddedRequest.callback_url, 'https://aries.example.com/api/internal/hermes/runs');
+    assert.equal(embeddedRequest.input.scope.window_days, 7);
+    assert.equal(embeddedRequest.input.scope.static_post_count, 3);
+    assert.equal(embeddedRequest.input.scope.image_creative_count, 2);
+    assert.equal(embeddedRequest.input.scope.video_script_count, 1);
+    assert.equal(embeddedRequest.input.scope.video_render_count, 1);
+    assert.deepEqual(embeddedRequest.input.scope.channels, ['meta', 'instagram']);
+    assert.equal(Array.isArray(embeddedRequest.input.media_requests), true);
+    assert.deepEqual(embeddedRequest.input.media_requests, [
       {
         type: 'image.generate',
         aspect_ratio: '4:5',
@@ -220,15 +235,19 @@ test('HermesMarketingPort.runPipeline returns submitted immediately by default',
         script_id: 'weekly_primary',
       },
     ]);
+    assert.equal('media_provider' in embeddedRequest, false);
     const serialized = JSON.stringify(body);
     assert.equal(serialized.includes('conn_openai_test'), false);
     assert.equal(serialized.includes('.lobster'), false);
-    assert.equal(serialized.includes('marketing_pipeline'), false);
     assert.equal(serialized.toLowerCase().includes('openclaw'), false);
     assert.equal(serialized.includes('sk-live-should-not-appear'), false);
     assert.equal(/gemini|nano banana/i.test(serialized), false);
+    // Top-level callback_url and idempotency_key are still sent so Hermes can
+    // route the callback and dedupe submissions.
+    assert.equal(body.callback_url, 'https://aries.example.com/api/internal/hermes/runs');
+    assert.equal(typeof body.idempotency_key, 'string');
 
-    const ariesRunId = String(body.aries_run_id);
+    const ariesRunId = String(body.callback_context.aries_run_id);
     const stored = loadExecutionRunRecord(ariesRunId);
     assert.equal(stored?.domain, 'marketing');
     assert.equal(stored?.workflow_key, 'social_content_weekly');
