@@ -263,6 +263,7 @@ test('/api/social-content/jobs submits Hermes only even when legacy-openclaw is 
     process.env.ARIES_MARKETING_EXECUTION_PROVIDER = 'legacy-openclaw';
     process.env.HERMES_GATEWAY_URL = 'https://hermes.example.com';
     process.env.HERMES_API_SERVER_KEY = 'hermes-api-key';
+    process.env.HERMES_POLL_BRIDGE_ENABLED = '0';
     process.env.HERMES_SESSION_KEY = 'weekly-social-content-test';
     process.env.INTERNAL_API_SECRET = 'internal-secret';
     process.env.APP_BASE_URL = 'https://aries.example.com';

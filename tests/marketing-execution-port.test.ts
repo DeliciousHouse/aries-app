@@ -162,6 +162,7 @@ test('HermesMarketingPort.runPipeline returns submitted immediately by default',
       {
         HERMES_GATEWAY_URL: `${TEST_HERMES_GATEWAY_URL}/`,
         HERMES_API_SERVER_KEY: 'token-123',
+        HERMES_POLL_BRIDGE_ENABLED: '0',
         INTERNAL_API_SECRET: 'internal-secret',
         APP_BASE_URL: 'https://aries.example.com',
         HERMES_SESSION_KEY: 'marketing-session',
@@ -270,6 +271,7 @@ test('HermesMarketingPort preserves brand campaign workflow key for non-weekly r
       {
         HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL,
         HERMES_API_SERVER_KEY: 'token-123',
+        HERMES_POLL_BRIDGE_ENABLED: '0',
         INTERNAL_API_SECRET: 'internal-secret',
         APP_BASE_URL: 'https://aries.example.com',
       },
@@ -316,6 +318,7 @@ test('HermesMarketingPort polls only when HERMES_SYNC_POLL_FOR_TESTS=1', async (
       {
         HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL,
         HERMES_API_SERVER_KEY: 'token-123',
+        HERMES_POLL_BRIDGE_ENABLED: '0',
         INTERNAL_API_SECRET: 'internal-secret',
         APP_BASE_URL: 'https://aries.example.com',
         HERMES_SYNC_POLL_FOR_TESTS: '1',
@@ -354,6 +357,7 @@ test('HermesMarketingPort social-content resume includes callback correlation me
       {
         HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL,
         HERMES_API_SERVER_KEY: 'token-123',
+        HERMES_POLL_BRIDGE_ENABLED: '0',
         INTERNAL_API_SECRET: 'raw-internal-secret-must-not-leak',
         APP_BASE_URL: 'https://aries.example.com',
       },
@@ -422,6 +426,7 @@ test('HermesMarketingPort sync polling preserves documented approval payloads', 
       {
         HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL,
         HERMES_API_SERVER_KEY: 'token-123',
+        HERMES_POLL_BRIDGE_ENABLED: '0',
         INTERNAL_API_SECRET: 'internal-secret',
         APP_BASE_URL: 'https://aries.example.com',
         HERMES_SYNC_POLL_FOR_TESTS: '1',
@@ -462,6 +467,7 @@ test('HermesMarketingPort requires INTERNAL_API_SECRET for social-content execut
   const port = new HermesMarketingPort({
     HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL,
     HERMES_API_SERVER_KEY: 'token-123',
+        HERMES_POLL_BRIDGE_ENABLED: '0',
     APP_BASE_URL: 'https://aries.example.com',
   });
   const result = await port.runPipeline(STUB_RUN_INPUT);
@@ -485,6 +491,7 @@ test('HermesMarketingPort marks accepted Aries runs failed when Hermes submissio
       {
         HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL,
         HERMES_API_SERVER_KEY: 'token-123',
+        HERMES_POLL_BRIDGE_ENABLED: '0',
         INTERNAL_API_SECRET: 'internal-secret',
         APP_BASE_URL: 'https://aries.example.com',
       },
