@@ -427,12 +427,31 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         regenerateCreative: input.regenerateCreative,
       });
       const idempotencyKey = generateIdempotencyKey(ariesRunId, request.workflow_version, input.tenantId ?? '');
+      // Hermes /v1/runs is an OpenAI-style chat-completions endpoint: `input`
+      // MUST be a string (or list of role/content messages). The structured
+      // workflow request {brand, objective, competitor, ...} object that
+      // `buildSocialContentWeeklyRequest` returns cannot go directly in `input`
+      // — Hermes evaluates it as `not (str or list)` and 400s with
+      // "No user message found in input". Serialize the full request into
+      // a prompt string, same shape brand_campaign uses via `prompt()`.
+      const prompt = [
+        `Workflow: ${request.workflow_key}`,
+        `Workflow version: ${request.workflow_version}`,
+        'Action: run',
+        `Aries run ID: ${request.aries_run_id}`,
+        `Job ID: ${request.job_id}`,
+        `Tenant ID: ${request.tenant_id}`,
+        `Callback URL: ${request.callback_url}`,
+        `Request (JSON): ${JSON.stringify(request)}`,
+      ].join('\n');
+      const promptWithMemory = memoryContextSnapshot && memoryContextSnapshot.length > 0
+        ? `${prompt}\n\nMemory context (approved brand/policy findings):\n${JSON.stringify(memoryContextSnapshot)}`
+        : prompt;
       return {
-        ...request,
-        ...(memoryContextSnapshot && memoryContextSnapshot.length > 0
-          ? { memory_context: memoryContextSnapshot }
-          : {}),
+        input: promptWithMemory,
+        instructions: this.instructions(request.workflow_key),
         session_id: this.sessionKey(),
+        callback_url: request.callback_url,
         callback_auth: callbackAuth,
         callback_context: {
           workflow_key: request.workflow_key,

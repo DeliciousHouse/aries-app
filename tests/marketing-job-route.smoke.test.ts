@@ -329,8 +329,14 @@ test('/api/social-content/jobs submits Hermes only even when legacy-openclaw is 
       assert.equal(hermesCalls[0].url, 'https://hermes.example.com/v1/runs');
       assert.equal(hermesCalls[0].method, 'POST');
       assert.equal(hermesCalls.some((call) => call.method === 'GET'), false);
-      assert.equal(hermesCalls[0].body?.workflow_key, 'social_content_weekly');
-      assert.equal(hermesCalls[0].body?.workflow_version, '2026-05-social-content-weekly-v1');
+      // Workflow key + version are now in the serialized prompt + callback_context
+      // (Hermes /v1/runs requires `input` to be a string, not a structured object).
+      const submission = hermesCalls[0].body as Record<string, unknown>;
+      const callbackContext = submission.callback_context as Record<string, unknown>;
+      assert.equal(callbackContext.workflow_key, 'social_content_weekly');
+      assert.equal(callbackContext.workflow_version, '2026-05-social-content-weekly-v1');
+      assert.equal(typeof submission.input, 'string');
+      assert.match(String(submission.input), /Workflow: social_content_weekly/);
     } finally {
       globalThis.fetch = previousFetch;
       for (const [key, value] of Object.entries(previousEnv)) {
