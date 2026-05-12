@@ -1,7 +1,10 @@
 import type { Pool, PoolClient } from 'pg';
 
 import { postAriesSignup, type AriesSignupPayload, type VmsPostResult } from '@/backend/partners/vms-client';
-import { partnerAttributionDeliveryConfigured } from '@/lib/partner-attribution-env';
+import {
+  partnerAttributionDeliveryConfigured,
+  partnerAttributionEnabled,
+} from '@/lib/partner-attribution-env';
 
 export type PartnerAttributionEnqueueInput = {
   userId: string;
@@ -12,11 +15,18 @@ export type PartnerAttributionEnqueueInput = {
   domain?: string | null;
 };
 
+/**
+ * Capture the partner-attribution intent at signup time. Only gated on the
+ * light feature flag — we want the row written even if the VMS delivery
+ * config (base URL + webhook secret) isn't set yet, so a later config fix
+ * delivers the backlog instead of silently losing attributions. The worker
+ * checks the full delivery config at drain time.
+ */
 export async function enqueuePartnerAttribution(
   client: PoolClient,
   input: PartnerAttributionEnqueueInput,
 ): Promise<void> {
-  if (!partnerAttributionDeliveryConfigured()) {
+  if (!partnerAttributionEnabled()) {
     return;
   }
 

@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import cluster from 'node:cluster';
 import os from 'node:os';
 import path from 'node:path';
@@ -35,6 +35,27 @@ const runtimeEnv = {
   NODE_ENV: process.env.NODE_ENV || 'production',
   PORT: String(parsedPort),
 };
+
+// Apply DB schema before forking any workers. init-db.js uses `CREATE TABLE
+// IF NOT EXISTS` / `ALTER ... IF NOT EXISTS`, so this is idempotent and safe
+// to re-run on every container start. We block here because feature code
+// (e.g. partner_attribution_outbox enqueue) assumes the schema exists; if
+// init-db fails we don't want to fork workers and serve traffic that will
+// roll back transactions.
+const skipInit = (process.env.ARIES_SKIP_DB_INIT ?? '').trim().toLowerCase();
+if (skipInit !== '1' && skipInit !== 'true') {
+  const initDbPath = path.join(projectRoot, 'scripts', 'init-db.js');
+  const initResult = spawnSync(process.execPath, [initDbPath], {
+    stdio: 'inherit',
+    env: runtimeEnv,
+  });
+  if (initResult.status !== 0) {
+    console.error(
+      `[runtime] init-db.js exited with code=${String(initResult.status)} signal=${String(initResult.signal ?? '')}; refusing to start workers`,
+    );
+    process.exit(1);
+  }
+}
 
 if (processManager === 'cluster') {
   startClusterRuntime();

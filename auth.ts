@@ -22,7 +22,7 @@ import {
   normalizeEmail,
   tenantClaimsErrorRedirect,
 } from "./lib/auth-tenant-membership";
-import { partnerAttributionDeliveryConfigured } from "./lib/partner-attribution-env";
+import { partnerAttributionEnabled } from "./lib/partner-attribution-env";
 import { PARTNER_REF_COOKIE_NAME, parsePartnerRefCookie } from "./lib/partner-ref-cookie";
 
 const authRuntime = resolveAuthRuntimeConfig(process.env);
@@ -192,7 +192,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
                 role?: string | null;
               };
 
-              if (partnerRef && partnerAttributionDeliveryConfigured()) {
+              if (partnerRef && partnerAttributionEnabled()) {
                 await enqueuePartnerAttribution(client, {
                   userId: String(authenticatedUser.id),
                   refCode: partnerRef,
@@ -208,7 +208,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
               throw insertErr;
             }
 
-            if (partnerRef && partnerAttributionDeliveryConfigured()) {
+            // Cookie is single-use intent; clear whenever we parsed a valid
+            // ref and successfully created the user, regardless of whether
+            // the outbox row got written (delivery config can be partial).
+            if (partnerRef) {
               cookieStore.delete(PARTNER_REF_COOKIE_NAME);
             }
           }

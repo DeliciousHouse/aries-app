@@ -48,8 +48,34 @@ test('enqueuePartnerAttribution inserts when delivery is configured', async () =
   assert.ok(statements.some((s) => s.includes('INSERT INTO partner_attribution_outbox')));
 });
 
-test('enqueuePartnerAttribution is a no-op when delivery is not configured', async () => {
+test('enqueuePartnerAttribution still inserts when feature enabled but VMS delivery not yet configured', async () => {
+  // This is the load-bearing outbox semantic: capture intent at signup time
+  // even if the VMS base URL / webhook secret isn't propagated to this env
+  // yet. The worker picks up the backlog once delivery is configured. The
+  // previous behaviour silently dropped attributions on deploys that
+  // shipped PARTNER_ATTRIBUTION_ENABLED=true ahead of VMS_WEBHOOK_SECRET.
   delete process.env.VMS_WEBHOOK_SECRET;
+  let inserted = false;
+  const client = {
+    async query(sql: string) {
+      if (sql.includes('INSERT INTO partner_attribution_outbox')) {
+        inserted = true;
+      }
+      return { rowCount: 1, rows: [] };
+    },
+  } as unknown as PoolClient;
+
+  await enqueuePartnerAttribution(client, {
+    userId: '1',
+    refCode: 'ref9',
+    name: 'N',
+    email: 'e@x.com',
+  });
+  assert.equal(inserted, true);
+});
+
+test('enqueuePartnerAttribution is a no-op when the feature flag itself is disabled', async () => {
+  delete process.env.PARTNER_ATTRIBUTION_ENABLED;
   let called = false;
   const client = {
     async query() {
@@ -65,6 +91,23 @@ test('enqueuePartnerAttribution is a no-op when delivery is not configured', asy
     email: 'e@x.com',
   });
   assert.equal(called, false);
+});
+
+test('drainPartnerAttributionOutboxOnce skips when VMS delivery is not configured', async () => {
+  delete process.env.VMS_WEBHOOK_SECRET;
+  let queried = false;
+  const client = {
+    async query() {
+      queried = true;
+      return { rowCount: 0, rows: [] };
+    },
+  } as unknown as PoolClient;
+
+  const n = await drainPartnerAttributionOutboxOnce(client, async () => ({ ok: true, status: 201 }));
+  assert.equal(n, 0);
+  // The worker MUST NOT open a transaction or pick rows when it can't deliver
+  // them; backlog stays in `pending` for the next tick after config lands.
+  assert.equal(queried, false);
 });
 
 test('drainPartnerAttributionOutboxOnce marks delivered on 201', async () => {
