@@ -21,7 +21,7 @@ export type ReadMarketingAssetOptions = {
  * source, raw Lobster output logs) and must NOT be rejected here — that
  * would block legitimate reads.
  */
-function tenantScopedRoots(): string[] {
+function tenantScopedRootCandidates(): string[] {
   return [
     path.join(path.normalize(resolveDataRoot()), INGEST_SUBDIR),
     path.normalize(stageCacheRoot(1)),
@@ -31,14 +31,35 @@ function tenantScopedRoots(): string[] {
   ];
 }
 
-function tenantPrefixViolates(
+/**
+ * Resolve each tenant-scoped root to its realpath when possible so the
+ * tenant-prefix check below operates in the same coordinate system as the
+ * resolved candidate. Without this, a symlinked DATA_ROOT or
+ * LOBSTER_STAGE*_CACHE_DIR makes `path.relative(normalizedRoot, realpathCandidate)`
+ * start with `..` and the check silently skips that subtree, leaving a
+ * false-negative on the cross-tenant boundary.
+ *
+ * Roots that do not exist on disk yet (fresh deploy, no cache populated)
+ * fall back to the normalized path — realpath of a missing dir throws, and
+ * a non-existent root can't host a cross-tenant read anyway.
+ */
+async function resolvedTenantScopedRoots(): Promise<string[]> {
+  return Promise.all(
+    tenantScopedRootCandidates().map((root) =>
+      realpath(root).catch(() => root),
+    ),
+  );
+}
+
+async function tenantPrefixViolates(
   candidate: string,
   tenantId: string | undefined,
-): boolean {
+): Promise<boolean> {
   if (tenantId === undefined) {
     return false;
   }
-  for (const tenantRoot of tenantScopedRoots()) {
+  const tenantRoots = await resolvedTenantScopedRoots();
+  for (const tenantRoot of tenantRoots) {
     const rel = path.relative(tenantRoot, candidate);
     if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) {
       continue;
@@ -117,7 +138,7 @@ export async function readMarketingAssetWithinAllowedRoots(
         // different tenantId (or an empty one) must be denied even if the
         // path is otherwise within trusted roots — that's the cross-tenant
         // boundary this helper enforces.
-        if (tenantPrefixViolates(resolvedCandidate, options.tenantId)) {
+        if (await tenantPrefixViolates(resolvedCandidate, options.tenantId)) {
           continue;
         }
         return await readFile(resolvedCandidate);
