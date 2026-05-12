@@ -173,7 +173,7 @@ function notImplementedResult(route: string): WorkflowExecutionResult {
       code: 'workflow_missing_for_route',
       route,
       message:
-        'Hermes execution adapter does not yet wire this workflow. Only demo_start is supported.',
+        'Hermes execution adapter rejected workflow: key is not in ARIES_WORKFLOWS catalog.',
       provider: 'hermes',
     },
   };
