@@ -440,11 +440,19 @@ export function deriveGateFallbackState(
     };
   }
 
+  // QA 2026-05-12 ISSUE-009: when no approval is queued and no upstream
+  // blocker is in play, the page previously rendered only the "will open
+  // here" copy with no primary action. Surface a sensible default CTA —
+  // jump to the runtime status view where the operator can see live progress
+  // and decide whether to wait or escalate.
   return {
     title: defaultCopy.title,
     description: stageSummary || defaultCopy.description,
     detail: stageHighlight || nextStepDetail(status.nextStep),
-    action: null,
+    action: {
+      label: 'View runtime status',
+      href: `/social-content/status?jobId=${encodeURIComponent(campaignId)}`,
+    },
   };
 }
 
