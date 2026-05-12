@@ -39,7 +39,6 @@ import MarketingJobApprovePage from '../app/marketing/job-approve/page';
 import SocialContentNewPage from '../app/social-content/new/page';
 import SocialContentStatusPage from '../app/social-content/status/page';
 import SocialContentReviewPage from '../app/social-content/review/page';
-import PlatformsPage from '../app/platforms/page';
 import SettingsPage from '../app/settings/page';
 import DonorHomePage from '../frontend/donor/marketing/home-page';
 import AriesHomeDashboard from '../frontend/aries-v1/home-dashboard';
@@ -67,18 +66,18 @@ import { resolveProjectRoot } from './helpers/project-root';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
-function expectRedirect(callable: () => unknown, location: string) {
+function expectRedirect(callable: () => unknown, location: string, statusCode = 307) {
   assert.throws(callable, (error: unknown) => {
     assert.equal(error instanceof Error ? error.message : String(error), 'NEXT_REDIRECT');
-    assert.equal((error as { digest?: string }).digest, `NEXT_REDIRECT;replace;${location};307;`);
+    assert.equal((error as { digest?: string }).digest, `NEXT_REDIRECT;replace;${location};${statusCode};`);
     return true;
   });
 }
 
-async function expectAsyncRedirect(callable: () => Promise<unknown>, location: string) {
+async function expectAsyncRedirect(callable: () => Promise<unknown>, location: string, statusCode = 307) {
   await assert.rejects(callable, (error: unknown) => {
     assert.equal(error instanceof Error ? error.message : String(error), 'NEXT_REDIRECT');
-    assert.equal((error as { digest?: string }).digest, `NEXT_REDIRECT;replace;${location};307;`);
+    assert.equal((error as { digest?: string }).digest, `NEXT_REDIRECT;replace;${location};${statusCode};`);
     return true;
   });
 }
@@ -461,8 +460,8 @@ test('/onboarding/status preserves tenant_id and signup_event_id from the route 
   assert.equal(element.props.initialSignupEventId, 'signup_evt_456');
 });
 
-test('/marketing/new-job redirects to the social content intake route', () => {
-  expectRedirect(() => MarketingNewJobPage(), '/social-content/new');
+test('/marketing/new-job 308-redirects to the social content intake route', () => {
+  expectRedirect(() => MarketingNewJobPage(), '/social-content/new', 308);
 });
 
 test('/social-content/new returns a renderable social content creation screen', () => {
@@ -599,6 +598,7 @@ test('/marketing/job-status preserves jobId from the route boundary', async () =
         }),
       }),
     '/social-content/status?jobId=mkt_123',
+    308,
   );
 });
 
@@ -611,11 +611,8 @@ test('/marketing/job-approve preserves the job id from the route boundary', asyn
         }),
       }),
     '/social-content/review?jobId=mkt_123',
+    308,
   );
-});
-
-test('/platforms redirects to the canonical dashboard settings route', () => {
-  expectRedirect(() => PlatformsPage(), '/dashboard/settings');
 });
 
 test('/dashboard/settings wraps the settings screen in the app shell', () => {
