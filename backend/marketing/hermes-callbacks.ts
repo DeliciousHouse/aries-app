@@ -87,6 +87,89 @@ function stageRank(stage: MarketingStage): number {
   return STAGE_ORDER.indexOf(stage);
 }
 
+function marketingStageFromOutputStage(value: unknown): MarketingStage | null {
+  if (typeof value !== 'string') return null;
+  if (value === 'research') return 'research';
+  if (value === 'strategy' || value === 'planning' || value === 'plan_review') return 'strategy';
+  if (
+    value === 'production'
+    || value === 'copy_production'
+    || value === 'image_briefing'
+    || value === 'image_creatives'
+    || value === 'image_generation'
+    || value === 'creative_review'
+    || value === 'video_script'
+    || value === 'video_review'
+    || value === 'video_render'
+  ) return 'production';
+  if (value === 'publish' || value === 'publish_review') return 'publish';
+  return null;
+}
+
+type StageOutputBundle = {
+  runId: string | null;
+  summary: { summary: string } | null;
+  primaryOutput: Record<string, unknown> | null;
+};
+
+function bundleFromStageRecord(
+  record: Record<string, unknown>,
+  fallbackRunId: string | null,
+): StageOutputBundle {
+  const summary = typeof record.summary === 'string' && record.summary.trim().length > 0
+    ? record.summary.trim()
+    : '';
+  const runId = typeof record.run_id === 'string' && record.run_id.trim().length > 0
+    ? record.run_id.trim()
+    : fallbackRunId;
+  return {
+    runId,
+    summary: summary ? { summary } : null,
+    primaryOutput: record,
+  };
+}
+
+// Detect a one-shot Hermes completion that carries per-stage outputs for
+// multiple marketing stages in a single callback. Supports two shapes:
+//   output: [{ stage: 'research', ... }, { stage: 'strategy', ... }, ...]
+//   output: [{ stages: { research: {...}, strategy: {...}, ... } }]
+// Returns null if fewer than two distinct stages are present, so single-stage
+// callbacks continue down the existing path unchanged.
+function extractMultiStageOutputs(
+  payload: HermesRunCallbackPayload,
+): Map<MarketingStage, StageOutputBundle> | null {
+  const fallbackRunId = payload.hermes_run_id ?? null;
+  const map = new Map<MarketingStage, StageOutputBundle>();
+
+  const considerEntry = (entry: unknown): void => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return;
+    const record = entry as Record<string, unknown>;
+    const stage = marketingStageFromOutputStage(record.stage);
+    if (stage && !map.has(stage)) {
+      map.set(stage, bundleFromStageRecord(record, fallbackRunId));
+    }
+  };
+
+  if (Array.isArray(payload.output)) {
+    for (const entry of payload.output) considerEntry(entry);
+  }
+
+  const first = firstOutputRecord(payload);
+  const stagesField = first?.stages;
+  if (Array.isArray(stagesField)) {
+    for (const entry of stagesField) considerEntry(entry);
+  } else if (stagesField && typeof stagesField === 'object') {
+    for (const [key, value] of Object.entries(stagesField as Record<string, unknown>)) {
+      const stage = marketingStageFromOutputStage(key);
+      if (stage && !map.has(stage) && value && typeof value === 'object' && !Array.isArray(value)) {
+        map.set(stage, bundleFromStageRecord(value as Record<string, unknown>, fallbackRunId));
+      }
+    }
+  }
+
+  return map.size >= 2 ? map : null;
+}
+
 function firstOutputRecord(payload: HermesRunCallbackPayload): Record<string, unknown> | null {
   if (Array.isArray(payload.output)) {
     const first = payload.output[0];
@@ -400,6 +483,33 @@ export async function applyHermesMarketingCallback(
   }
 
   if (payload.status === 'completed') {
+    const multiStage = extractMultiStageOutputs(payload);
+    if (multiStage) {
+      for (const stage of STAGE_ORDER) {
+        const bundle = multiStage.get(stage);
+        if (!bundle) continue;
+        const record = doc.stages[stage];
+        if (record.status === 'completed' || record.status === 'failed') continue;
+        markStageCompleted(doc, stage, {
+          runId: bundle.runId,
+          summary: bundle.summary,
+          primaryOutput: bundle.primaryOutput,
+        });
+      }
+      clearApprovalCheckpoint(doc, 'multi-stage Hermes completion fan-out');
+      if (multiStage.has('publish') && doc.stages.publish.status === 'completed') {
+        doc.state = 'completed';
+        doc.status = 'completed';
+        doc.current_stage = 'publish';
+        scheduleHermesPublishPerformanceHonchoWrite({
+          doc,
+          payloadRecord: multiStage.get('publish')?.primaryOutput ?? firstOutputRecord(payload),
+        });
+      }
+      saveMarketingJobRuntime(doc.job_id, doc);
+      return;
+    }
+
     markJobCompleted(doc, targetStage, payload);
     if (targetStage === 'publish') {
       scheduleHermesPublishPerformanceHonchoWrite({

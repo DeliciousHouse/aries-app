@@ -337,3 +337,59 @@ test('Hermes media setup failures move social content jobs to needs_connection',
     );
   });
 });
+
+test('Hermes one-shot multi-stage completion fans out into all four marketing stages', async () => {
+  await withRuntimeEnv(async () => {
+    const { createExecutionRunRecord } = await import('../backend/execution/run-store');
+    const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
+    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const doc = await seedMarketingJob();
+
+    const run = createExecutionRunRecord({
+      provider: 'hermes',
+      domain: 'marketing',
+      workflowKey: 'marketing_pipeline',
+      action: 'run',
+      tenantId: doc.tenant_id,
+      marketingJobId: doc.job_id,
+      stage: 'research',
+    });
+
+    const result = await handleHermesRunCallback({
+      event_id: 'evt-oneshot',
+      aries_run_id: run.aries_run_id,
+      hermes_run_id: 'hermes-oneshot-1',
+      status: 'completed',
+      output: [
+        { stage: 'research', run_id: 'rs-1', summary: 'Research done' },
+        { stage: 'strategy', run_id: 'st-1', summary: 'Strategy done' },
+        { stage: 'production', run_id: 'pr-1', summary: 'Production done' },
+        { stage: 'publish', run_id: 'pb-1', summary: 'Publish done' },
+      ],
+    });
+
+    assert.deepEqual(result, {
+      status: 'accepted',
+      ariesRunId: run.aries_run_id,
+      duplicate: false,
+    });
+
+    const after = await loadMarketingJobRuntime(doc.job_id);
+    assert.equal(after?.stages.research.status, 'completed');
+    assert.equal(after?.stages.research.run_id, 'rs-1');
+    assert.equal(after?.stages.research.summary?.summary, 'Research done');
+    assert.equal(after?.stages.strategy.status, 'completed');
+    assert.equal(after?.stages.strategy.run_id, 'st-1');
+    assert.equal(after?.stages.strategy.summary?.summary, 'Strategy done');
+    assert.equal(after?.stages.production.status, 'completed');
+    assert.equal(after?.stages.production.run_id, 'pr-1');
+    assert.equal(after?.stages.production.summary?.summary, 'Production done');
+    assert.equal(after?.stages.publish.status, 'completed');
+    assert.equal(after?.stages.publish.run_id, 'pb-1');
+    assert.equal(after?.stages.publish.summary?.summary, 'Publish done');
+    assert.equal(after?.state, 'completed');
+    assert.equal(after?.status, 'completed');
+    assert.equal(after?.current_stage, 'publish');
+    assert.equal(after?.approvals.current, null);
+  });
+});
