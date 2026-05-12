@@ -25,6 +25,9 @@ import {
 
 import { AriesMark } from '@/frontend/donor/ui';
 import { getRouteById, type AppRouteId } from '@/frontend/app-shell/routes';
+import type { OnboardingAdvisory } from '@/lib/onboarding-gate';
+
+import OnboardingNudgeBanner from './onboarding-nudge-banner';
 
 const ICONS: Record<AppRouteId, typeof LayoutDashboard> = {
   home: LayoutDashboard,
@@ -59,6 +62,8 @@ interface AppShellClientProps {
     email?: string | null;
   };
   logoutAction: (formData: FormData) => void | Promise<void>;
+  onboardingAdvisories?: ReadonlyArray<OnboardingAdvisory>;
+  tenantId?: string | null;
 }
 
 export default function AppShellClient({
@@ -67,6 +72,8 @@ export default function AppShellClient({
   reviewCount,
   user,
   logoutAction,
+  onboardingAdvisories,
+  tenantId,
 }: AppShellClientProps) {
   const pathname = usePathname();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -869,6 +876,12 @@ export default function AppShellClient({
                 transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
                 className="flex w-full flex-1 flex-col"
               >
+                {onboardingAdvisories && onboardingAdvisories.length > 0 ? (
+                  <OnboardingNudgeBanner
+                    advisories={onboardingAdvisories}
+                    tenantId={tenantId ?? null}
+                  />
+                ) : null}
                 {children}
               </motion.div>
             </AnimatePresence>

@@ -32,7 +32,18 @@ export type MarketingJobStatus =
   | 'failed'
   | 'needs_connection'
   | 'failed_stale';
-export type MarketingStageStatus = 'not_started' | 'in_progress' | 'awaiting_approval' | 'completed' | 'failed' | 'skipped';
+export type MarketingStageStatus =
+  | 'not_started'
+  | 'in_progress'
+  | 'awaiting_approval'
+  | 'completed'
+  | 'failed'
+  | 'skipped'
+  // Stage is gated on a channel (Meta/IG/etc) being connected. Used by Stage 4
+  // when the operator has not yet connected a publishing channel. Stages 1-3
+  // artifacts are preserved; the stage is paused with an informational status,
+  // not an approval pause.
+  | 'requires_channel_connection';
 
 type MarketingStageArtifactBase = {
   id: string;
@@ -862,6 +873,67 @@ export function markStageCompleted(
   return record;
 }
 
+export function markStageRequiresChannelConnection(
+  doc: MarketingJobRuntimeDocument,
+  stage: MarketingStage,
+  input: {
+    summary?: MarketingStageSummary | null;
+    artifactId?: string;
+    artifactTitle?: string;
+    outputs?: Record<string, unknown>;
+    artifacts?: MarketingStageArtifact[];
+  } = {}
+): MarketingStageRecord {
+  const record = getStageRecord(doc, stage);
+  if (!record.started_at) {
+    record.started_at = nowIso();
+  }
+  // Clear terminal timestamps and errors so a stage transitioning into
+  // requires_channel_connection from a previously completed or failed state
+  // doesn't appear simultaneously completed/failed AND awaiting a connection.
+  // Timeline derivations and status badges both branch on these fields.
+  record.completed_at = null;
+  record.failed_at = null;
+  record.errors = [];
+  record.status = 'requires_channel_connection';
+  record.summary = input.summary ?? record.summary ?? {
+    summary: 'Connect a publishing channel to enable auto-publish.',
+    highlight: null,
+  };
+  if (input.outputs) {
+    record.outputs = input.outputs;
+  }
+  if (input.artifacts && input.artifacts.length > 0) {
+    record.artifacts = input.artifacts;
+  } else {
+    const id = input.artifactId ?? 'publish-needs-channel';
+    const title = input.artifactTitle ?? 'Connect a publishing channel';
+    const existing = record.artifacts.findIndex((a) => a.id === id);
+    const artifact: MarketingStageArtifact = {
+      id,
+      stage,
+      title,
+      category: 'channel_connection',
+      status: 'requires_channel_connection',
+      summary:
+        input.summary?.summary ??
+        'Stage is ready. Connect Meta in Settings to enable auto-publish.',
+      details: [],
+      action_label: 'Connect Meta',
+      action_href: '/dashboard/settings/channel-integrations',
+    };
+    if (existing >= 0) {
+      record.artifacts[existing] = artifact;
+    } else {
+      record.artifacts.push(artifact);
+    }
+  }
+  doc.state = 'needs_connection';
+  doc.status = 'needs_connection';
+  doc.current_stage = stage;
+  return record;
+}
+
 export function markStageAwaitingApproval(
   doc: MarketingJobRuntimeDocument,
   stage: Extract<MarketingStage, 'strategy' | 'production' | 'publish'>,
@@ -1042,6 +1114,8 @@ export function responseStageStatus(record: MarketingStageRecord): string {
       return 'failed';
     case 'skipped':
       return 'skipped';
+    case 'requires_channel_connection':
+      return 'requires_channel_connection';
     default:
       return 'ready';
   }

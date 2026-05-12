@@ -8,6 +8,7 @@ import { getRouteById, type AppRouteId } from '@/frontend/app-shell/routes';
 import { buildLoginRedirect } from '@/lib/auth/callback-url';
 import pool from '@/lib/db';
 import { shouldRequireOnboarding, getUserJourneyRow, isTenantOnboardingComplete } from '@/lib/auth-user-journey';
+import { evaluateOnboardingGate, type OnboardingAdvisory } from '@/lib/onboarding-gate';
 import { loadTenantContextForUser } from '@/lib/tenant-context';
 
 import AppShellClient from './app-shell-client';
@@ -81,6 +82,7 @@ export default async function RedesignAppShell({
   }
 
   let liveTenantId: string | null = session.user.tenantId ? String(session.user.tenantId) : null;
+  let advisories: ReadonlyArray<OnboardingAdvisory> = [];
   if (!skipOnboardingGate) {
     const client = await pool.connect();
     let shouldRedirectToOnboarding = false;
@@ -108,6 +110,23 @@ export default async function RedesignAppShell({
           onboardingCompletedAt: row.onboarding_completed_at,
           onboardingCompleted,
         });
+      }
+
+      // Run the gate once per render server-side so the banner gets a
+      // structured advisory list without per-component round-trips. The gate
+      // itself queries (business profile + oauth_connections) — this is the
+      // only place that pays that cost; the banner just consumes the result.
+      // Only meaningful when the user is not being bounced to onboarding.
+      if (!shouldRedirectToOnboarding && liveTenantId) {
+        try {
+          const decision = await evaluateOnboardingGate({ client, tenantId: liveTenantId });
+          advisories = decision.advisories;
+        } catch (error) {
+          console.warn('[app-shell] Unable to resolve onboarding advisories.', {
+            tenantId: liveTenantId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
     } finally {
       client.release();
@@ -157,6 +176,8 @@ export default async function RedesignAppShell({
         email: session.user.email,
       }}
       logoutAction={logoutAction}
+      onboardingAdvisories={advisories}
+      tenantId={liveTenantId}
     >
       {children}
     </AppShellClient>

@@ -10,6 +10,7 @@ import {
   shouldGuardPathname,
   type OnboardingGateQueryable,
 } from '../lib/onboarding-gate';
+import { tenantNeedsMetaConnection } from '../lib/tenant-needs-meta-connection';
 
 type FakeRow = Record<string, unknown>;
 
@@ -109,6 +110,7 @@ test('evaluateOnboardingGate redirects when business profile is incomplete', asy
   assert.equal(decision.reason, 'profile_incomplete');
   assert.equal(decision.redirectTo, GATE_REDIRECT_DESTINATION);
   assert.equal(decision.redirectTo, '/onboarding/start');
+  assert.deepEqual(decision.advisories, []);
   assert.equal(
     connectionCounterCalled,
     false,
@@ -116,25 +118,28 @@ test('evaluateOnboardingGate redirects when business profile is incomplete', asy
   );
 });
 
-test('evaluateOnboardingGate redirects to Meta connect page when profile is complete but no Meta/IG connections exist', async () => {
-  // Profile-complete users must NOT be sent back to /onboarding/start — that
-  // makes them redo step 1 forever in a loop. Send them to the Meta connect
-  // page so the next step is the next step.
+test('evaluateOnboardingGate allows access but emits meta_not_connected advisory when profile is complete and no Meta/IG connections exist', async () => {
+  // Soft gate: profile-complete users get the dashboard with a soft advisory
+  // banner. The previous hard redirect to META_CONNECT_REDIRECT_DESTINATION
+  // would loop users who disconnected Meta back through the OAuth screen.
   const decision = await evaluateOnboardingGate({
     client: makeQueryable(() => ({ rows: [], rowCount: 0 })),
     tenantId: '42',
     profileIncompleteResolver: async () => false,
     connectionCounter: async () => 0,
   });
-  assert.equal(decision.allowed, false);
+  assert.equal(decision.allowed, true);
   assert.equal(decision.reason, 'meta_not_connected');
-  assert.equal(decision.redirectTo, META_CONNECT_REDIRECT_DESTINATION);
-  // Pin the literal value so a future rename has to update the literal here too.
-  // The OAuth provider entrypoint that renders the connect screen with no
-  // required query params — unlike /onboarding/connect/meta/select-page which
-  // requires `state` and bounces to /onboarding/start without it.
-  assert.equal(decision.redirectTo, '/oauth/connect/facebook');
-  assert.notEqual(decision.redirectTo, GATE_REDIRECT_DESTINATION);
+  assert.equal(decision.redirectTo, null);
+  assert.equal(decision.advisories.length, 1);
+  const advisory = decision.advisories[0];
+  assert.equal(advisory.kind, 'meta_not_connected');
+  assert.equal(advisory.severity, 'warning');
+  assert.equal(advisory.ctaHref, '/dashboard/settings/channel-integrations');
+  assert.ok(typeof advisory.message === 'string' && advisory.message.length > 0);
+  // META_CONNECT_REDIRECT_DESTINATION still exists for CTA deep-links but is
+  // never the redirectTo for a gate decision after the soft-gate flip.
+  assert.equal(META_CONNECT_REDIRECT_DESTINATION, '/oauth/connect/facebook');
 });
 
 test('evaluateOnboardingGate allows access when profile is complete and one Meta/IG connection exists', async () => {
@@ -147,6 +152,7 @@ test('evaluateOnboardingGate allows access when profile is complete and one Meta
   assert.equal(decision.allowed, true);
   assert.equal(decision.reason, 'allowed');
   assert.equal(decision.redirectTo, null);
+  assert.equal(decision.advisories.length, 0);
 });
 
 test('evaluateOnboardingGate allows access with multiple connections', async () => {
@@ -158,6 +164,7 @@ test('evaluateOnboardingGate allows access with multiple connections', async () 
   });
   assert.equal(decision.allowed, true);
   assert.equal(decision.reason, 'allowed');
+  assert.equal(decision.advisories.length, 0);
 });
 
 test('evaluateOnboardingGate treats profile resolver throw as incomplete', async () => {
@@ -200,4 +207,26 @@ test('evaluateOnboardingGate uses real connection-count SQL when no counter over
   assert.match(sqlText, /'instagram'/);
   assert.match(sqlText, /tenant_id\s*=\s*\$1/);
   assert.deepEqual(observedParams, [42]);
+});
+
+test('tenantNeedsMetaConnection returns true when zero connections exist', async () => {
+  const queryable = makeQueryable(() => ({ rows: [], rowCount: 0 }));
+  const result = await tenantNeedsMetaConnection(queryable, '42', async () => 0);
+  assert.equal(result, true);
+});
+
+test('tenantNeedsMetaConnection returns false when at least one connection exists', async () => {
+  const queryable = makeQueryable(() => ({ rows: [], rowCount: 0 }));
+  const result = await tenantNeedsMetaConnection(queryable, '42', async () => 1);
+  assert.equal(result, false);
+});
+
+test('tenantNeedsMetaConnection returns true for invalid tenant id (fail-safe)', async () => {
+  const queryable = makeQueryable(() => {
+    throw new Error('should not query for invalid tenant');
+  });
+  // Uses real countConnectedMetaPlatforms, which short-circuits to 0 for
+  // invalid ids, so tenantNeedsMetaConnection returns true (needs to connect).
+  assert.equal(await tenantNeedsMetaConnection(queryable, ''), true);
+  assert.equal(await tenantNeedsMetaConnection(queryable, '-1'), true);
 });

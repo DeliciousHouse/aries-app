@@ -3,11 +3,11 @@ import type { PoolClient } from 'pg';
 import { getBusinessProfileWithDiagnostics } from '@/backend/tenant/business-profile';
 
 export const GATE_REDIRECT_DESTINATION = '/onboarding/start' as const;
-// Entry point that renders the OAuth connect screen and starts the Facebook
-// authorization flow. Do not redirect to `/onboarding/connect/meta/select-page`:
-// that route requires a `state` query param (issued during the OAuth callback)
-// and bounces to `/onboarding/start` when missing, which would loop with the
-// gate forever for any user who is `meta_not_connected`.
+// Deep-link target for the "Connect Meta" CTA on the dashboard nudge banner and
+// the channel-integrations screen. This constant is informational-only:
+// `evaluateOnboardingGate` no longer redirects to it. The gate softening turned
+// `meta_not_connected` from a hard redirect reason into a soft UI advisory.
+// The constant stays exported so CTAs and OAuth links keep one canonical URL.
 export const META_CONNECT_REDIRECT_DESTINATION = '/oauth/connect/facebook' as const;
 
 export const GUARDED_OPERATOR_PATH_PREFIXES: ReadonlyArray<string> = Object.freeze([
@@ -23,13 +23,34 @@ export type OnboardingGateReason =
   | 'profile_incomplete'
   | 'meta_not_connected';
 
+/**
+ * Onboarding advisories are soft UI signals attached to a gate decision when
+ * `allowed === true`. They are how the gate communicates "user can enter the
+ * dashboard, but something is worth nudging them about" without taking a hard
+ * redirect. Designed extensibly so future advisories (Slack-not-connected,
+ * billing-overdue, etc.) snap in without churning the shape.
+ *
+ * Each advisory carries a `kind` discriminator, a `severity` for UI styling,
+ * a default `message` (UI may override with its own copy), and a `ctaHref`
+ * deep-link to the appropriate settings or connect screen.
+ */
+export type OnboardingAdvisoryKind =
+  | 'meta_not_connected';
+
+export type OnboardingAdvisorySeverity = 'info' | 'warning';
+
+export type OnboardingAdvisory = {
+  kind: OnboardingAdvisoryKind;
+  severity: OnboardingAdvisorySeverity;
+  message: string;
+  ctaHref: string;
+};
+
 export type OnboardingGateDecision = {
   allowed: boolean;
   reason: OnboardingGateReason;
-  redirectTo:
-    | typeof GATE_REDIRECT_DESTINATION
-    | typeof META_CONNECT_REDIRECT_DESTINATION
-    | null;
+  redirectTo: typeof GATE_REDIRECT_DESTINATION | null;
+  advisories: ReadonlyArray<OnboardingAdvisory>;
 };
 
 export type OnboardingGateQueryable = Pick<PoolClient, 'query'>;
@@ -93,6 +114,16 @@ async function defaultProfileIncompleteResolver(
   return Boolean(resolved.profile.incomplete);
 }
 
+function metaNotConnectedAdvisory(): OnboardingAdvisory {
+  return {
+    kind: 'meta_not_connected',
+    severity: 'warning',
+    message:
+      'Connect Meta to publish automatically. Aries can plan, draft, and review without it.',
+    ctaHref: '/dashboard/settings/channel-integrations',
+  };
+}
+
 export async function evaluateOnboardingGate(args: {
   client: OnboardingGateQueryable;
   tenantId: string | number;
@@ -117,19 +148,24 @@ export async function evaluateOnboardingGate(args: {
       allowed: false,
       reason: 'profile_incomplete',
       redirectTo: GATE_REDIRECT_DESTINATION,
+      advisories: [],
     };
   }
 
   const connectedCount = await connectionCounter(args.client, tenantIdString);
   if (connectedCount < 1) {
+    // Soft gate: profile is complete, but no Meta/IG connection yet. Let the
+    // user into the dashboard and surface a banner advisory rather than
+    // looping them back to the OAuth connect screen.
     return {
-      allowed: false,
+      allowed: true,
       reason: 'meta_not_connected',
-      redirectTo: META_CONNECT_REDIRECT_DESTINATION,
+      redirectTo: null,
+      advisories: [metaNotConnectedAdvisory()],
     };
   }
 
-  return { allowed: true, reason: 'allowed', redirectTo: null };
+  return { allowed: true, reason: 'allowed', redirectTo: null, advisories: [] };
 }
 
 export function shouldGuardPathname(pathname: string): boolean {
