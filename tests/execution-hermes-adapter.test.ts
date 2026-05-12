@@ -78,7 +78,7 @@ test('HermesExecutionAdapter reports missing HERMES_API_SERVER_KEY with an actio
   assert.match(result.error.message, /HERMES_API_SERVER_KEY/);
 });
 
-test('HermesExecutionAdapter returns not_implemented for unsupported workflows even when configured', async () => {
+test('HermesExecutionAdapter returns not_implemented for workflows outside the catalog even when configured', async () => {
   let called = false;
   const adapter = new HermesExecutionAdapter(
     {
@@ -92,14 +92,16 @@ test('HermesExecutionAdapter returns not_implemented for unsupported workflows e
     NO_SLEEP,
   );
 
-  const result = await adapter.runWorkflow('calendar_sync', { tenant_id: 'tenant-123' });
+  // Pick a key that is NOT in ARIES_WORKFLOWS so the guard fires. All catalog
+  // keys (e.g. calendar_sync) are now reachable through Hermes.
+  const result = await adapter.runWorkflow('not_a_real_workflow_key', { tenant_id: 'tenant-123' });
 
   assert.equal(called, false);
   assert.equal(result.kind, 'not_implemented');
   if (result.kind !== 'not_implemented') {
     assert.fail('expected not_implemented result');
   }
-  assert.equal(result.payload.route, 'calendar_sync');
+  assert.equal(result.payload.route, 'not_a_real_workflow_key');
   assert.equal(result.payload.provider, 'hermes');
 });
 
