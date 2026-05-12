@@ -61,6 +61,7 @@ import {
   markStageAwaitingApproval,
   markStageCompleted,
   markStageInProgress,
+  markStageRequiresChannelConnection,
   nowIso,
   recordApproval,
   recordApprovalDenied,
@@ -74,6 +75,8 @@ import {
   type MarketingStageRecord,
   type MarketingStage,
 } from './runtime-state';
+import pool from '@/lib/db';
+import { tenantNeedsMetaConnection } from '@/lib/tenant-needs-meta-connection';
 import {
   extractAndSaveTenantBrandKit,
   loadTenantBrandKit,
@@ -1286,6 +1289,38 @@ async function finalizeProductionAndRunPublishReview(
   saveMarketingJobRuntime(doc.job_id, doc);
 }
 
+/**
+ * Injectable gate for `advancePublishStage`. Returns `true` when the tenant
+ * has no connected publish channel (Meta/IG) and Stage 4 should short-circuit
+ * to `requires_channel_connection`. Shares semantics with the dashboard
+ * `meta_not_connected` advisory via `tenantNeedsMetaConnection` — when the
+ * gate emits the advisory, this returns `true`.
+ */
+export type PublishStageChannelGate = (tenantId: string) => Promise<boolean>;
+
+async function defaultPublishStageChannelGate(tenantId: string): Promise<boolean> {
+  const client = await pool.connect();
+  try {
+    return await tenantNeedsMetaConnection(client, tenantId);
+  } finally {
+    client.release();
+  }
+}
+
+let publishStageChannelGate: PublishStageChannelGate = defaultPublishStageChannelGate;
+
+/** Test seam: override the publish-stage channel gate. */
+export function __setPublishStageChannelGateForTests(gate: PublishStageChannelGate | null): void {
+  publishStageChannelGate = gate ?? defaultPublishStageChannelGate;
+}
+
+/** Test seam: exposes the internal `advancePublishStage` for unit testing. */
+export const __advancePublishStageForTests = (
+  doc: MarketingJobRuntimeDocument,
+  resumeToken: string,
+  context: Parameters<typeof advancePublishStage>[2] = {},
+): Promise<void> => advancePublishStage(doc, resumeToken, context);
+
 async function advancePublishStage(
   doc: MarketingJobRuntimeDocument,
   resumeToken: string,
@@ -1299,6 +1334,41 @@ async function advancePublishStage(
   const publishStage = getStageRecord(doc, 'publish');
   if (!resumeToken) {
     throw new Error('missing_publish_resume_token');
+  }
+
+  // Channel-connection precheck. If the tenant has no Meta/IG connection, we
+  // do NOT submit Stage 4 to Hermes. Stages 1-3 artifacts are preserved on
+  // the doc, the publish stage is marked `requires_channel_connection`, and
+  // we clear any approval checkpoint so the UI surfaces "connect Meta to
+  // enable auto-publish" instead of an approval prompt.
+  try {
+    const needsConnection = await publishStageChannelGate(String(doc.tenant_id));
+    if (needsConnection) {
+      markStageRequiresChannelConnection(doc, 'publish', {
+        summary: {
+          summary:
+            'Stage 4 is ready. Connect Meta in Settings to enable auto-publish.',
+          highlight: null,
+        },
+        artifactId: 'publish-needs-channel',
+        artifactTitle: 'Connect Meta to publish',
+        outputs: publishStage.outputs,
+      });
+      clearApprovalCheckpoint(doc, 'publish stage waiting on channel connection');
+      appendHistory(doc, 'publish stage paused: no Meta connection', {
+        stage: 'publish',
+        state: doc.state,
+        status: doc.status,
+      });
+      saveMarketingJobRuntime(doc.job_id, doc);
+      return;
+    }
+  } catch (error) {
+    console.warn('[marketing-orchestrator] publish-stage channel gate failed; proceeding', {
+      jobId: doc.job_id,
+      tenantId: doc.tenant_id,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 
   setJobRunning(doc, 'publish', 'running publish finalize stage');
