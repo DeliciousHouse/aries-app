@@ -32,6 +32,7 @@ import {
   type LobsterEnvelope,
 } from '../openclaw/gateway-client';
 import { getMarketingExecutionPort, type MarketingExecutionPort, type MarketingExecutionResult } from './execution-port';
+import { assertMarketingExecutionPortConfigured, resolveMarketingProviderName } from './provider-guard';
 import { LegacyOpenClawMarketingPort } from './ports/legacy-openclaw';
 import {
   MarketingApprovalLockError,
@@ -304,23 +305,6 @@ function weeklyMediaDemand(payload: Record<string, unknown>): {
 export const MARKETING_CLIENT_EXECUTION_MODEL = 'marketing_pipeline_run_resume';
 export const MARKETING_PIPELINE_FILE = 'marketing-pipeline.lobster';
 export const MARKETING_WORKFLOW_NAME = 'marketing-pipeline';
-const DEFAULT_MARKETING_WORKFLOW_TIMEOUT_MS = 15 * 60 * 1000;
-const DEFAULT_MARKETING_WORKFLOW_MAX_STDOUT_BYTES = 8 * 1024 * 1024;
-
-function positiveIntegerEnv(key: string, fallback: number): number {
-  const raw = process.env[key]?.trim();
-  if (!raw) {
-    return fallback;
-  }
-
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return fallback;
-  }
-
-  return parsed;
-}
-
 function defaultMarketingPipelineGatewayCwd(): string {
   return resolveCodeRoot() === '/app' ? 'lobster' : resolveCodePath('lobster');
 }
@@ -354,7 +338,6 @@ function marketingPipelineArgs(doc: MarketingJobRuntimeDocument): Record<string,
     competitor_facebook_url: facebookPageUrl,
     brand_slug: doc.tenant_id,
     job_id: doc.job_id,
-    agent_id: process.env.OPENCLAW_SESSION_KEY?.trim() || 'main',
     // Correlation id the gateway uses to target a cancel signal at this
     // specific in-flight run. Kept identical to the marketing job id so
     // `cancelOpenClawLobsterWorkflow({ correlationId: jobId })` aborts
@@ -363,23 +346,6 @@ function marketingPipelineArgs(doc: MarketingJobRuntimeDocument): Record<string,
   };
 }
 
-function marketingPipelinePath(): string {
-  return path.join(marketingPipelineLocalCwd(), MARKETING_PIPELINE_FILE);
-}
-
-function marketingWorkflowTimeoutMs(): number {
-  return positiveIntegerEnv(
-    'OPENCLAW_MARKETING_WORKFLOW_TIMEOUT_MS',
-    DEFAULT_MARKETING_WORKFLOW_TIMEOUT_MS,
-  );
-}
-
-function marketingWorkflowMaxStdoutBytes(): number {
-  return positiveIntegerEnv(
-    'OPENCLAW_MARKETING_WORKFLOW_MAX_STDOUT_BYTES',
-    DEFAULT_MARKETING_WORKFLOW_MAX_STDOUT_BYTES,
-  );
-}
 
 export function resolveMarketingPipelineRuntimePaths() {
   const gatewayCwd = marketingPipelineGatewayCwd();
@@ -520,19 +486,30 @@ function marketingStageFromSocialApprovalStep(step: SocialContentApprovalStep): 
 }
 
 function resolveMarketingExecutionPortForDoc(doc: MarketingJobRuntimeDocument): MarketingExecutionPort {
+  // Fail fast: ensure the environment is configured for at least one provider
+  // before attempting execution. This surfaces misconfigured deployments with a
+  // clear error rather than a silent Hermes configuration-error result buried
+  // in the response. Social-content is Hermes-only and always requires this check.
+  assertMarketingExecutionPortConfigured(process.env);
+
+  const providerName = resolveMarketingProviderName(process.env);
+
+  // Weekly social-content is Hermes-only regardless of the general provider
+  // setting. The legacy path does not support social-content workflows.
   if (requestedJobTypeFromDoc(doc) === 'weekly_social_content') {
     return getMarketingExecutionPort(() => {
       const { gatewayCwd, localCwd } = resolveMarketingPipelineRuntimePaths();
       return { gatewayCwd, localCwd };
     });
   }
-  const provider = process.env.ARIES_MARKETING_EXECUTION_PROVIDER?.trim().toLowerCase();
-  if (provider === 'legacy-openclaw') {
+
+  if (providerName === 'legacy-openclaw') {
     return new LegacyOpenClawMarketingPort(() => {
       const { gatewayCwd, localCwd } = resolveMarketingPipelineRuntimePaths();
       return { gatewayCwd, localCwd };
     }) as unknown as MarketingExecutionPort;
   }
+
   return getMarketingExecutionPort(() => {
     const { gatewayCwd, localCwd } = resolveMarketingPipelineRuntimePaths();
     return { gatewayCwd, localCwd };
@@ -545,8 +522,6 @@ async function runMarketingPipeline(doc: MarketingJobRuntimeDocument): Promise<M
     jobId: doc.job_id,
     doc,
     argsJson: JSON.stringify(marketingPipelineArgs(doc)),
-    timeoutMs: marketingWorkflowTimeoutMs(),
-    maxStdoutBytes: marketingWorkflowMaxStdoutBytes(),
   });
 }
 
@@ -568,8 +543,6 @@ async function resumeMarketingPipeline(
   return port.resumePipeline({
     resumeToken,
     approve,
-    timeoutMs: marketingWorkflowTimeoutMs(),
-    maxStdoutBytes: marketingWorkflowMaxStdoutBytes(),
     tenantId: context.tenantId,
     jobId: context.jobId,
     approvalId: context.approvalId,
@@ -1032,8 +1005,7 @@ async function runResearchStage(doc: MarketingJobRuntimeDocument): Promise<void>
       tenantId: doc.tenant_id,
       stage: 'research',
       workflowName: SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
-      timeoutMs: marketingWorkflowTimeoutMs(),
-      maxStdoutBytes: marketingWorkflowMaxStdoutBytes(),
+      provider: 'hermes',
     });
   } else {
     const { runtime, pipelinePath } = marketingWorkflowRuntimeContext();
@@ -1046,8 +1018,7 @@ async function runResearchStage(doc: MarketingJobRuntimeDocument): Promise<void>
       sessionKey: runtime.sessionKey,
       cwd: runtime.cwd,
       stateDir: runtime.stateDir,
-      timeoutMs: marketingWorkflowTimeoutMs(),
-      maxStdoutBytes: marketingWorkflowMaxStdoutBytes(),
+      provider: resolveMarketingProviderName(process.env),
     });
   }
 
@@ -1880,8 +1851,7 @@ async function resolveMarketingApproval(
         traceId: currentRecord.trace_id,
         tokenFingerprint: currentRecord.execution_resume_token_fingerprint,
         tokenStateKeys: currentRecord.execution_resume_state_keys,
-        timeoutMs: marketingWorkflowTimeoutMs(),
-        maxStdoutBytes: marketingWorkflowMaxStdoutBytes(),
+        provider: resolveMarketingProviderName(process.env),
       });
 
       const applyResolution = async (
