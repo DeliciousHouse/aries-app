@@ -17,6 +17,7 @@ async function withRuntimeEnv<T>(run: () => Promise<T>): Promise<T> {
   process.env.DATA_ROOT = dataRoot;
   process.env.HERMES_GATEWAY_URL = 'https://hermes.example.com';
   process.env.HERMES_API_SERVER_KEY = 'hermes-key';
+  process.env.HERMES_POLL_BRIDGE_ENABLED = '0';
   process.env.INTERNAL_API_SECRET = 'internal-secret';
   process.env.APP_BASE_URL = 'https://aries.example.com';
 

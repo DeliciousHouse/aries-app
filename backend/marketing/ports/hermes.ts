@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
 import pool from '@/lib/db';
 import { hashCallbackToken } from '@/lib/internal-callback-auth';
@@ -7,6 +7,11 @@ import {
   markExecutionRunFailed,
   markExecutionRunSubmitted,
 } from '../../execution/run-store';
+import {
+  handleHermesRunCallback,
+  type HermesRunCallbackPayload,
+  type HermesRunCallbackStatus,
+} from '../../execution/hermes-callbacks';
 import { isHonchoEnabled } from '../../memory/honcho-env';
 import { TenantMemoryClient } from '../../memory/honcho-client';
 import { HonchoHttpTransport } from '../../memory/honcho-http-transport';
@@ -354,12 +359,157 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     if (this.syncPollingEnabled()) {
       return this.pollRunUntilTerminal(hermesRunId, run.aries_run_id);
     }
+    // Hermes /v1/runs is a polled API — it never invokes the `callback_url`
+    // field on the submission body. Without this bridge, marketing pipelines
+    // submit successfully and then wait forever for a callback that the
+    // gateway will not send. The bridge polls Hermes in the background until
+    // the run reaches a terminal status, then invokes the callback handler
+    // directly (we are already inside the trusted backend, so we skip the
+    // HTTP route + auth and call the handler as a function).
+    if (this.pollBridgeEnabled()) {
+      const stage = input.stage ?? 'research';
+      void this.runPollBridge(hermesRunId, run.aries_run_id, workflowKey, stage).catch((error) => {
+        console.error('[hermes-port] poll-bridge failed', {
+          aries_run_id: run.aries_run_id,
+          hermes_run_id: hermesRunId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
     return {
       kind: 'submitted',
       provider: 'hermes',
       ariesRunId: run.aries_run_id,
       hermesRunId,
     };
+  }
+
+  private pollBridgeEnabled(): boolean {
+    const raw = readEnvValue(this.env, 'HERMES_POLL_BRIDGE_ENABLED');
+    // Default-on: Hermes /v1/runs does not fire callbacks. Set
+    // HERMES_POLL_BRIDGE_ENABLED=0 to disable (e.g. for tests that don't
+    // want background fetches).
+    return raw !== '0' && raw !== 'false';
+  }
+
+  private async runPollBridge(
+    hermesRunId: string,
+    ariesRunId: string,
+    workflowKey: string,
+    stage: MarketingStage,
+  ): Promise<void> {
+    // Reuse the existing terminal-poller to drive Hermes to completion.
+    // pollRunUntilTerminal already handles failure paths via markSubmissionFailed.
+    const terminal = await this.pollRunUntilTerminal(hermesRunId, ariesRunId);
+
+    const payload = this.buildBridgeCallbackPayload(
+      ariesRunId,
+      hermesRunId,
+      workflowKey,
+      stage,
+      terminal,
+    );
+    if (!payload) {
+      return;
+    }
+
+    const result = await handleHermesRunCallback(payload);
+    if (result.status === 'error') {
+      console.error('[hermes-port] poll-bridge callback rejected', {
+        aries_run_id: ariesRunId,
+        hermes_run_id: hermesRunId,
+        reason: result.reason,
+      });
+    }
+  }
+
+  private buildBridgeCallbackPayload(
+    ariesRunId: string,
+    hermesRunId: string,
+    workflowKey: string,
+    stage: MarketingStage,
+    terminal: MarketingExecutionResult,
+  ): HermesRunCallbackPayload | null {
+    const eventId = `bridge-${randomUUID()}`;
+    const callbackStage = this.callbackStageForMarketingStage(stage);
+
+    if (terminal.kind !== 'completed') {
+      // pollRunUntilTerminal already marked the run failed via run-store.
+      // Surface the failure to the orchestrator via the callback handler so
+      // the stage record gets the error and history is appended.
+      const errorMessage = 'Hermes run did not reach a successful terminal status.';
+      return {
+        event_id: eventId,
+        aries_run_id: ariesRunId,
+        hermes_run_id: hermesRunId,
+        status: 'failed',
+        stage: callbackStage,
+        error: { code: 'hermes_run_terminal_error', message: errorMessage, retryable: false },
+      };
+    }
+
+    const output = terminal.output;
+    if (output.ok === false) {
+      return {
+        event_id: eventId,
+        aries_run_id: ariesRunId,
+        hermes_run_id: hermesRunId,
+        status: 'failed',
+        stage: callbackStage,
+        error: {
+          code: typeof output.error?.code === 'string' ? output.error.code : 'hermes_run_failed',
+          message:
+            typeof output.error?.message === 'string' && output.error.message.length > 0
+              ? output.error.message
+              : 'Hermes run failed without an error message.',
+          retryable: output.error?.retryable === true,
+        },
+      };
+    }
+
+    const status: HermesRunCallbackStatus =
+      output.approval && output.approval.workflowStepId
+        ? 'requires_approval'
+        : 'completed';
+
+    const approval = output.approval && status === 'requires_approval'
+      ? {
+          stage: output.approval.stage,
+          approval_step: output.approval.approvalStep,
+          workflow_step_id: output.approval.workflowStepId,
+          prompt: output.approval.prompt,
+          resume_token: output.approval.resumeToken,
+        }
+      : undefined;
+
+    const outputArray = Array.isArray(output.output) ? output.output : undefined;
+
+    return {
+      event_id: eventId,
+      aries_run_id: ariesRunId,
+      hermes_run_id: hermesRunId,
+      status,
+      stage: callbackStage,
+      output: outputArray,
+      ...(approval ? { approval } : {}),
+    };
+  }
+
+  private callbackStageForMarketingStage(
+    stage: MarketingStage,
+  ): NonNullable<HermesRunCallbackPayload['stage']> {
+    switch (stage) {
+      case 'research':
+        return 'research';
+      case 'strategy':
+        return 'strategy';
+      case 'production':
+        return 'production';
+      case 'publish':
+        return 'publish';
+      default:
+        return 'research';
+    }
   }
 
   private submissionPayload(
