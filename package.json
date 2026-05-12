@@ -63,7 +63,8 @@
     "sharp": "^0.34.5",
     "tailwind-merge": "^3.5.0",
     "tailwindcss-animate": "^1.0.7",
-    "three": "^0.183.2"
+    "three": "^0.183.2",
+    "tsx": "^4.21.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.1",
@@ -78,7 +79,6 @@
     "postcss": "^8.5.11",
     "react-test-renderer": "18.3.1",
     "tailwindcss": "^4.2.1",
-    "tsx": "^4.21.0",
     "typescript": "5.7.3"
   }
 }

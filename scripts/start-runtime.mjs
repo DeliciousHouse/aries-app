@@ -11,6 +11,8 @@ const defaultWorkerMaxRestarts = 5;
 const shutdownTimeoutMs = 10_000;
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDir, '..');
+/** @type {import('node:child_process').ChildProcess | null} */
+let partnerOutboxChild = null;
 const rawPort = process.env.PORT?.trim();
 const parsedPort = rawPort ? Number(rawPort) : defaultPort;
 const isValidPort = Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535;
@@ -38,6 +40,42 @@ if (processManager === 'cluster') {
   startClusterRuntime();
 } else {
   startSingleNodeRuntime();
+}
+
+function partnerAttributionWorkerEnabled() {
+  const v = process.env.PARTNER_ATTRIBUTION_ENABLED?.trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+}
+
+function spawnPartnerOutboxWorker() {
+  if (!partnerAttributionWorkerEnabled()) {
+    return;
+  }
+  const tsx = path.join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+  const worker = path.join(projectRoot, 'scripts', 'partner-attribution-outbox-worker.ts');
+  try {
+    partnerOutboxChild = spawn(process.execPath, [tsx, worker], {
+      stdio: 'inherit',
+      env: { ...runtimeEnv },
+      detached: false,
+    });
+    partnerOutboxChild.on('exit', (code, signal) => {
+      partnerOutboxChild = null;
+      console.error(
+        `[runtime] partner attribution outbox worker exited code=${String(code)} signal=${String(signal ?? '')}`,
+      );
+    });
+    console.log('[runtime] started partner attribution outbox worker');
+  } catch (error) {
+    console.error('[runtime] failed to start partner attribution outbox worker', error);
+  }
+}
+
+function stopPartnerOutboxWorker() {
+  if (partnerOutboxChild && !partnerOutboxChild.killed) {
+    partnerOutboxChild.kill('SIGTERM');
+    partnerOutboxChild = null;
+  }
 }
 
 function normalizeProcessManager(rawValue) {
@@ -76,6 +114,8 @@ function startClusterRuntime() {
     forkWorker(instanceId);
   }
 
+  spawnPartnerOutboxWorker();
+
   cluster.on('exit', (worker, code, signal) => {
     const instanceId = workerInstanceIds.get(worker.id) ?? 0;
     workerInstanceIds.delete(worker.id);
@@ -108,6 +148,7 @@ function startClusterRuntime() {
 
   registerSignalHandlers((signal) => {
     shuttingDown = true;
+    stopPartnerOutboxWorker();
     const workers = Object.values(cluster.workers ?? {}).filter(Boolean);
     if (workers.length === 0) {
       process.exit(0);
@@ -118,6 +159,7 @@ function startClusterRuntime() {
     }
 
     const forceExitTimer = setTimeout(() => {
+      stopPartnerOutboxWorker();
       for (const worker of Object.values(cluster.workers ?? {}).filter(Boolean)) {
         worker.kill('SIGKILL');
       }
@@ -136,6 +178,8 @@ function startClusterRuntime() {
 }
 
 function startSingleNodeRuntime() {
+  spawnPartnerOutboxWorker();
+
   const child = spawn(process.execPath, [nextCliPath(), 'start', '-p', String(parsedPort)], {
     stdio: 'inherit',
     env: {
@@ -147,6 +191,7 @@ function startSingleNodeRuntime() {
   const forwardedSignals = new Set();
   registerSignalHandlers((signal) => {
     forwardedSignals.add(signal);
+    stopPartnerOutboxWorker();
     if (!child.killed) {
       child.kill(signal);
     }
