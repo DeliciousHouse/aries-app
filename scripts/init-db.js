@@ -496,6 +496,17 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_partner_attribution_outbox_pending
         ON partner_attribution_outbox (next_attempt_at)
         WHERE status = 'pending';
+
+      -- Phase 4 PR1: Slack Events API inbound dedupe. Every delivery has a
+      -- stable event_id; the webhook inserts ON CONFLICT DO NOTHING to drop
+      -- retries before any business logic runs. Optional 30-day retention
+      -- prune is scheduled separately.
+      CREATE TABLE IF NOT EXISTS slack_event_ids (
+        event_id TEXT PRIMARY KEY,
+        received_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_slack_event_ids_received_at
+        ON slack_event_ids (received_at);
     `);
 
     console.log('Database initialized successfully.');
