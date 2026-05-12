@@ -458,12 +458,12 @@ async function initDb() {
         ADD COLUMN IF NOT EXISTS orphaned_at TIMESTAMPTZ;
 
       -- Backfill columns that may be missing on databases provisioned before
-      -- these tables got their full schemas. `CREATE TABLE IF NOT EXISTS`
+      -- these tables got their full schemas. CREATE TABLE IF NOT EXISTS
       -- above is a no-op when the table already exists, so older deployments
       -- end up with stub schemas missing the columns the CREATE INDEX below
       -- requires. ADD COLUMN IF NOT EXISTS is idempotent on fresh tables.
       -- Without these, init-db.js crashes at boot with
-      -- `error: column "post_id" does not exist` and the container restarts
+      -- "error: column post_id does not exist" and the container restarts
       -- forever (observed: PR #297 and PR #298 prod deploys, 2026-05-12).
       ALTER TABLE vision_qa_runs ADD COLUMN IF NOT EXISTS post_id BIGINT;
       ALTER TABLE vision_qa_runs ADD COLUMN IF NOT EXISTS creative_id BIGINT;
