@@ -112,6 +112,15 @@ export const automationJobs = [
     purpose: 'Generate a board-based daily standup transcript with per-lane chief reports, workspace verification, and blocker visibility.',
   },
   {
+    id: 'aries-nightly-marketing-synthetic',
+    name: 'Aries nightly marketing pipeline synthetic',
+    cron: '0 2 * * *',
+    tz: 'America/Los_Angeles',
+    message:
+      `Work in ${repoRoot}. Run node scripts/automations/nightly-marketing-synthetic.mjs. The script verifies prod liveness (home + /api/health/db), runs validate:marketing-flow (orchestrator + Hermes four-stage fan-out contract), and runs validate:execution-provider (Hermes adapter + callback route contract). Exit 0 = pass, 1 = fail. Return only the trailing JSON summary line from stdout (status, prod_url, liveness, suites, duration_ms).`,
+    purpose: 'Nightly regression gate for the marketing content-creation pipeline: prod liveness check plus in-process validation of the orchestrator, Hermes one-shot multi-stage fan-out, and execution provider contracts.',
+  },
+  {
     id: 'aries-weekly-review',
     name: 'Aries weekly review',
     cron: '0 14 * * 5',

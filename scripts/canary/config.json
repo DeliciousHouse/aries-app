@@ -1,0 +1,36 @@
+{
+  "$schema": "https://gstack.dev/schemas/canary-config.json",
+  "production": {
+    "url": "https://aries.sugarandleather.com",
+    "health_check": "curl -sf https://aries.sugarandleather.com -o /dev/null -w \"%{http_code}\""
+  },
+  "pages": [
+    { "path": "/", "name": "home", "auth_required": false },
+    { "path": "/signup", "name": "signup", "auth_required": false },
+    { "path": "/dashboard", "name": "dashboard", "auth_required": true },
+    { "path": "/dashboard/posts", "name": "posts", "auth_required": true },
+    { "path": "/marketing/new-job", "name": "new-marketing-job", "auth_required": true },
+    { "path": "/onboarding", "name": "onboarding", "auth_required": true }
+  ],
+  "api_health": [
+    { "path": "/api/health", "expect_status": 200 },
+    { "path": "/api/marketing/jobs/health", "expect_status": [200, 401] }
+  ],
+  "thresholds": {
+    "lcp_ms_max": 3500,
+    "fcp_ms_max": 2000,
+    "perf_regression_multiplier": 2.0,
+    "console_error_allowlist": [
+      "Failed to load resource: net::ERR_BLOCKED_BY_CLIENT",
+      "favicon.ico"
+    ],
+    "alert_on_new_5xx": true,
+    "alert_on_new_404": true
+  },
+  "default_duration": "10m",
+  "invocation_examples": {
+    "baseline": "/canary https://aries.sugarandleather.com --baseline --pages /,/dashboard,/dashboard/posts,/marketing/new-job",
+    "post_deploy_watch": "/canary https://aries.sugarandleather.com --duration 10m --pages /,/dashboard,/dashboard/posts,/marketing/new-job",
+    "quick_health": "/canary https://aries.sugarandleather.com --quick --pages /,/dashboard"
+  }
+}
