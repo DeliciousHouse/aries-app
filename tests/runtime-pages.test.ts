@@ -163,7 +163,7 @@ test('/dashboard/social-content wraps the campaign list in the app shell', () =>
   assert.equal(element.type, AppShellLayout);
   assert.equal(element.props.currentRouteId, 'campaigns');
   assert.equal(element.props.loginRedirectPath, '/dashboard/social-content');
-  assert.equal(buildLoginRedirect(element.props.loginRedirectPath), '/login?callbackUrl=%2Fdashboard%2Fcampaigns');
+  assert.equal(buildLoginRedirect(element.props.loginRedirectPath), '/login?callbackUrl=%2Fdashboard%2Fsocial-content');
   assert.equal(isValidElement(element.props.children), true);
   assert.equal(element.props.children.type, AriesCampaignListScreen);
 });

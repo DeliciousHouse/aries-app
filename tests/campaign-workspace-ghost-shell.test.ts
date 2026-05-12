@@ -40,7 +40,7 @@ test('campaign-workspace renders a branded "Campaign not found" panel with a bac
   assert.ok(guardMatch, 'expected an if (!status || marketing_job_state === "not_found") guard');
   const block = guardMatch[1];
   assert.match(block, /Campaign not found/, 'guard must render the branded "Campaign not found" title');
-  assert.match(block, /\/dashboard\/campaigns/, 'guard must link back to /dashboard/social-content');
+  assert.match(block, /\/dashboard\/social-content/, 'guard must link back to /dashboard/social-content');
   assert.match(block, /EmptyStatePanel/, 'guard should reuse the branded EmptyStatePanel');
 });
 
