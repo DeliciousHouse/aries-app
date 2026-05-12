@@ -92,7 +92,9 @@ export default async function MaterialsViewerPage({
   // reach identical to the API's — a malformed or out-of-root filePath in
   // the runtime doc cannot coerce the viewer into reading an arbitrary
   // file on disk.
-  const rawBuffer = await readMarketingAssetWithinAllowedRoots(asset.filePath);
+  const rawBuffer = await readMarketingAssetWithinAllowedRoots(asset.filePath, {
+    tenantId: runtimeDoc.tenant_id,
+  });
   if (!rawBuffer) {
     notFound();
   }

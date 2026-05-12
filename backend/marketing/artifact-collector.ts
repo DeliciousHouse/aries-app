@@ -36,7 +36,17 @@ function cacheRoot(envKey: string, fallbackFolder: string): string {
   return process.env[envKey]?.trim() || path.join(tmpdir(), fallbackFolder);
 }
 
-function stepPayloadPath(stage: 1 | 2 | 3 | 4, runId: string, stepName: string): string {
+function stepPayloadPath(
+  stage: 1 | 2 | 3 | 4,
+  runId: string,
+  stepName: string,
+  tenantId: string,
+): string {
+  if (!tenantId) {
+    // Fail closed: callers that lost the tenant context must not surface a
+    // shared-root cache path.
+    throw new Error(`stepPayloadPath requires a non-empty tenantId (stage=${stage}, run=${runId})`);
+  }
   const root =
     stage === 1
       ? cacheRoot('LOBSTER_STAGE1_CACHE_DIR', 'lobster-stage1-cache')
@@ -45,7 +55,7 @@ function stepPayloadPath(stage: 1 | 2 | 3 | 4, runId: string, stepName: string):
         : stage === 3
           ? cacheRoot('LOBSTER_STAGE3_CACHE_DIR', 'lobster-stage3-cache')
           : cacheRoot('LOBSTER_STAGE4_CACHE_DIR', 'lobster-stage4-cache');
-  return path.join(root, runId, `${stepName}.json`);
+  return path.join(root, tenantId, runId, `${stepName}.json`);
 }
 
 async function readJsonIfExists(filePath: string): Promise<Record<string, unknown> | null> {
@@ -251,8 +261,9 @@ export async function collectResearchStageArtifacts(
   primaryOutput: Record<string, unknown> | null,
 ): Promise<StageCapture> {
   const runId = (await resolveRunId(primaryOutput, facts.runtimeDoc, 1)) || facts.runId;
-  const compilePath = runId ? stepPayloadPath(1, runId, 'ads_analyst_compile') : '';
-  const extractorPath = runId ? stepPayloadPath(1, runId, 'meta_ads_extractor') : '';
+  const tenantId = stringValue(facts.runtimeDoc?.tenant_id);
+  const compilePath = runId && tenantId ? stepPayloadPath(1, runId, 'ads_analyst_compile', tenantId) : '';
+  const extractorPath = runId && tenantId ? stepPayloadPath(1, runId, 'meta_ads_extractor', tenantId) : '';
   const [compile, extractor] = await Promise.all([
     facts.stagePayload('research', 'ads_analyst_compile'),
     facts.stagePayload('research', 'meta_ads_extractor'),
@@ -315,16 +326,17 @@ export async function collectStrategyReviewArtifacts(
     facts.stagePayload('strategy', 'strategy_review_preview'),
   ]);
   const runId = (await resolveRunId(primaryOutput, runtimeDoc, 2)) || facts.runId || null;
+  const tenantId = stringValue(runtimeDoc?.tenant_id);
   const websitePath =
     stringValue(asRecord(primaryOutput)?.validated_website_analysis_path) ||
     validatedDocs?.paths.websiteAnalysis ||
-    (runId ? stepPayloadPath(2, runId, 'website_brand_analysis') : '');
+    (runId && tenantId ? stepPayloadPath(2, runId, 'website_brand_analysis', tenantId) : '');
   const brandProfilePath =
     stringValue(asRecord(primaryOutput)?.validated_brand_profile_path) ||
     validatedDocs?.paths.brandProfile ||
     null;
-  const plannerPath = runId ? stepPayloadPath(2, runId, 'campaign_planner') : '';
-  const reviewPath = runId ? stepPayloadPath(2, runId, 'strategy_review_preview') : '';
+  const plannerPath = runId && tenantId ? stepPayloadPath(2, runId, 'campaign_planner', tenantId) : '';
+  const reviewPath = runId && tenantId ? stepPayloadPath(2, runId, 'strategy_review_preview', tenantId) : '';
   const rawRunWebsite = websiteStep || (websitePath ? await facts.jsonAtPath(websitePath) : null);
   const runWebsite = sourceMatchedRecord(
     rawRunWebsite,
@@ -426,9 +438,10 @@ export async function collectProductionReviewArtifacts(
     facts.stagePayload('production', 'veo_video_generator'),
   ]);
   const runId = (await resolveRunId(primaryOutput, runtimeDoc, 3)) || facts.runId || null;
-  const reviewPath = runId ? stepPayloadPath(3, runId, 'production_review_preview') : '';
-  const finalizePath = runId ? stepPayloadPath(3, runId, 'creative_director_finalize') : '';
-  const videoPath = runId ? stepPayloadPath(3, runId, 'veo_video_generator') : '';
+  const tenantId = stringValue(runtimeDoc?.tenant_id);
+  const reviewPath = runId && tenantId ? stepPayloadPath(3, runId, 'production_review_preview', tenantId) : '';
+  const finalizePath = runId && tenantId ? stepPayloadPath(3, runId, 'creative_director_finalize', tenantId) : '';
+  const videoPath = runId && tenantId ? stepPayloadPath(3, runId, 'veo_video_generator', tenantId) : '';
   const review = reviewStep || (reviewPath ? await facts.jsonAtPath(reviewPath) : null);
   const video = videoStep || (videoPath ? await facts.jsonAtPath(videoPath) : null);
   const jobId = runtimeDoc?.job_id || stringValue(primaryOutput?.job_id) || null;
@@ -512,8 +525,9 @@ export async function collectPublishReviewArtifacts(
     preflightStep?.runId ||
     reviewStep?.runId ||
     null;
-  const preflightPath = preflightStep?.path || (runId ? stepPayloadPath(4, runId, 'performance_marketer_preflight') : '');
-  const reviewPath = reviewStep?.path || (runId ? stepPayloadPath(4, runId, 'launch_review_preview') : '');
+  const tenantId = stringValue(runtimeDoc?.tenant_id);
+  const preflightPath = preflightStep?.path || (runId && tenantId ? stepPayloadPath(4, runId, 'performance_marketer_preflight', tenantId) : '');
+  const reviewPath = reviewStep?.path || (runId && tenantId ? stepPayloadPath(4, runId, 'launch_review_preview', tenantId) : '');
   const preflight = preflightStep?.payload || (preflightPath ? await readJsonIfExists(preflightPath) : null);
   const resolvedPublishReview = runtimeDoc ? await resolvePublishReviewBundle(runtimeDoc) : { reviewPayload: null, reviewBundle: null };
   // In docker setups, the lobster step cache lives on the gateway host (a different
@@ -680,9 +694,13 @@ export async function collectPublishReviewArtifacts(
   };
 }
 
-export async function collectPublishFinalizeArtifacts(primaryOutput: Record<string, unknown> | null): Promise<StageCapture> {
+export async function collectPublishFinalizeArtifacts(
+  primaryOutput: Record<string, unknown> | null,
+  runtimeDoc?: MarketingJobRuntimeDocument | null,
+): Promise<StageCapture> {
   const runId = await resolveRunId(primaryOutput);
-  const summaryPath = runId ? stepPayloadPath(4, runId, 'performance_marketer_summary') : '';
+  const tenantId = stringValue(runtimeDoc?.tenant_id);
+  const summaryPath = runId && tenantId ? stepPayloadPath(4, runId, 'performance_marketer_summary', tenantId) : '';
   const summaryPayload = summaryPath ? await readJsonIfExists(summaryPath) : null;
   const publisherSteps = [
     'meta_ads_publisher',
@@ -698,9 +716,9 @@ export async function collectPublishFinalizeArtifacts(primaryOutput: Record<stri
     payloadPath: string;
     payload: Record<string, unknown>;
   }> = [];
-  if (runId) {
+  if (runId && tenantId) {
     for (const stepName of publisherSteps) {
-      const payloadPath = stepPayloadPath(4, runId, stepName);
+      const payloadPath = stepPayloadPath(4, runId, stepName, tenantId);
       const payload = await readJsonIfExists(payloadPath);
       if (payload) {
         publisherPayloads.push({ stepName, payloadPath, payload });

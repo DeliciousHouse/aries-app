@@ -6,6 +6,7 @@ import path from 'node:path';
 import type { MarketingJobFacts } from './job-facts';
 import type { MarketingJobRuntimeDocument, MarketingVideoStageArtifact } from './runtime-state';
 import { readMarketingStageStepPayload } from './stage-artifact-resolution';
+import { legacyStageCacheReadFallbackEnabled } from './artifact-store';
 import {
   ARTIFACT_INCOMPLETE_TEXT,
   ARTIFACT_UNAVAILABLE_TEXT,
@@ -126,9 +127,26 @@ type PublishStepPayloadCandidate = {
 };
 
 async function readExactPublishStepPayload(runtimeDoc: MarketingJobRuntimeDocument, stepName: string, runId: string): Promise<PublishStepPayloadCandidate | null> {
-  const cachePath = path.join(cacheRoot('LOBSTER_STAGE4_CACHE_DIR', 'lobster-stage4-cache'), runId, `${stepName}.json`);
-  const cached = await readJsonIfExists(cachePath);
-  if (cached) {
+  const tenantId = stringValue(runtimeDoc.tenant_id);
+  if (!tenantId) {
+    // Fail closed when there's no tenant; stage cache reads must never
+    // cross-trust a shared root.
+    return null;
+  }
+
+  const stage4CacheRoot = cacheRoot('LOBSTER_STAGE4_CACHE_DIR', 'lobster-stage4-cache');
+  const tenantScopedCandidates = [
+    path.join(stage4CacheRoot, tenantId, runId, `${stepName}.json`),
+  ];
+  if (legacyStageCacheReadFallbackEnabled()) {
+    tenantScopedCandidates.push(path.join(stage4CacheRoot, runId, `${stepName}.json`));
+  }
+
+  for (const cachePath of tenantScopedCandidates) {
+    const cached = await readJsonIfExists(cachePath);
+    if (!cached) {
+      continue;
+    }
     try {
       return {
         runId,
@@ -226,7 +244,13 @@ async function collectFallbackPublishStepPayloadCandidates(
   const candidates: PublishStepPayloadCandidate[] = [];
   const seenPaths = new Set<string>();
 
-  const cacheDir = cacheRoot('LOBSTER_STAGE4_CACHE_DIR', 'lobster-stage4-cache');
+  const tenantId = stringValue(runtimeDoc.tenant_id);
+  if (!tenantId) {
+    // Inference fallback must not scan a shared cache root across tenants.
+    return [];
+  }
+
+  const cacheDir = path.join(cacheRoot('LOBSTER_STAGE4_CACHE_DIR', 'lobster-stage4-cache'), tenantId);
   if (existsSync(cacheDir)) {
     for (const entry of await readdir(cacheDir)) {
       if (!entry.startsWith(`${prefix}-`)) {
