@@ -1,10 +1,46 @@
+const SECURITY_HEADERS = [
+  // Force HTTPS for one year incl. subdomains. Two-year preload-eligible value
+  // is intentionally not used here yet — confirm subdomain HTTPS coverage first.
+  { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
+  // Block framing entirely; CSP frame-ancestors is the modern equivalent but
+  // X-Frame-Options is still respected by older Safari/IE chains.
+  { key: 'X-Frame-Options', value: 'DENY' },
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+  // Disable common high-risk APIs nobody on this app uses today.
+  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=()' },
+  // Report-only first. Promote to enforced CSP once Next.js inline-bootstrap
+  // and image domains are confirmed compatible.
+  {
+    key: 'Content-Security-Policy-Report-Only',
+    value: [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: https:",
+      "font-src 'self' data:",
+      "connect-src 'self' https:",
+      "frame-ancestors 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+    ].join('; '),
+  },
+];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Suppress `x-powered-by: Next.js` info-disclosure header.
+  poweredByHeader: false,
   turbopack: {
     root: process.cwd(),
   },
   images: {
     remotePatterns: buildRemotePatterns(),
+  },
+  async headers() {
+    return [
+      { source: '/:path*', headers: SECURITY_HEADERS },
+    ];
   },
 };
 
