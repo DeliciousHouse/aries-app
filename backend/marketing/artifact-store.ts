@@ -25,9 +25,53 @@ function uniqueStrings(values: Array<string | null | undefined>): string[] {
   return Array.from(new Set(values.map((value) => stringValue(value)).filter(Boolean)));
 }
 
+/**
+ * Returns the base directory that holds stage cache runs for a given stage,
+ * before tenant scoping. Prefer `stageCacheRootForTenant` at call sites that
+ * have a tenant in scope; this raw root remains exported for inference
+ * fallbacks that scan the directory tree (the inference layer applies the
+ * tenant filter itself).
+ */
 export function stageCacheRoot(stage: MarketingArtifactStageNumber): string {
   const config = STAGE_CACHE_DEFAULTS[stage];
   return stringValue(process.env[config.envKey]) || path.join(tmpdir(), config.folder);
+}
+
+/**
+ * Tenant-scoped stage cache root: `<cacheRoot>/<tenantId>`.
+ *
+ * Two tenants targeting the same competitor (e.g. nike.com) used to collide
+ * on `<cacheRoot>/<runId>/<step>.json` because runId derives from a slug of
+ * the competitor URL. Inserting `<tenantId>` as a path segment makes the
+ * filesystem layout itself tenant-isolated, complementing the runId
+ * inference check in stage-artifact-resolution.ts.
+ *
+ * Fails closed when tenantId is empty/whitespace — background workers that
+ * cannot resolve a tenant must not silently fall back to a shared root.
+ */
+export function stageCacheRootForTenant(
+  stage: MarketingArtifactStageNumber,
+  tenantId: string,
+): string {
+  const normalized = stringValue(tenantId);
+  if (!normalized) {
+    throw new Error(
+      `stageCacheRootForTenant requires a non-empty tenantId (stage=${stage})`,
+    );
+  }
+  return path.join(stageCacheRoot(stage), normalized);
+}
+
+/**
+ * Legacy fallback read gate. When set to "1", reads will fall back to the
+ * pre-tenant-segment layout `<cacheRoot>/<runId>/<step>.json` if the tenant-
+ * scoped path misses. Writes are NEVER routed to the legacy layout.
+ *
+ * TODO(stage-cache-tenant-prefix): remove this gate after the next full
+ * pipeline cycle for all tenants has populated tenant-scoped caches.
+ */
+export function legacyStageCacheReadFallbackEnabled(): boolean {
+  return stringValue(process.env.ARIES_STAGE_CACHE_LEGACY_READ_FALLBACK) === '1';
 }
 
 export function hostOutputMount(): string {

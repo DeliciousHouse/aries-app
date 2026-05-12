@@ -343,7 +343,15 @@ function stageLogRoot(stage: 1 | 2 | 3 | 4): string {
   return resolveCodePath('lobster', 'output', 'logs', '{runId}', stageFolder);
 }
 
-function stepPayloadPath(stage: 1 | 2 | 3 | 4, runId: string, stepName: string): string {
+function stepPayloadPath(
+  stage: 1 | 2 | 3 | 4,
+  runId: string,
+  stepName: string,
+  tenantId: string,
+): string {
+  if (!tenantId) {
+    throw new Error(`stepPayloadPath requires a non-empty tenantId (stage=${stage}, run=${runId})`);
+  }
   const root =
     stage === 1
       ? cacheRoot('LOBSTER_STAGE1_CACHE_DIR', 'lobster-stage1-cache')
@@ -352,7 +360,7 @@ function stepPayloadPath(stage: 1 | 2 | 3 | 4, runId: string, stepName: string):
         : stage === 3
           ? cacheRoot('LOBSTER_STAGE3_CACHE_DIR', 'lobster-stage3-cache')
           : cacheRoot('LOBSTER_STAGE4_CACHE_DIR', 'lobster-stage4-cache');
-  const primary = path.join(root, runId, `${stepName}.json`);
+  const primary = path.join(root, tenantId, runId, `${stepName}.json`);
   if (existsSync(primary)) {
     return primary;
   }

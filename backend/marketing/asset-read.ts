@@ -2,13 +2,34 @@ import { readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 import { resolveDataRoot } from '@/lib/runtime-paths';
-import { generatedAssetCandidates, marketingAssetRoots } from './artifact-store';
+import { generatedAssetCandidates, marketingAssetRoots, stageCacheRoot } from './artifact-store';
 
 const INGEST_SUBDIR = 'ingested-assets';
 
 export type ReadMarketingAssetOptions = {
   tenantId?: string;
 };
+
+/**
+ * Returns the set of subtrees whose first segment under the root is the
+ * owning tenantId. Two families are currently tenant-scoped on disk:
+ *
+ *   1. `DATA_ROOT/ingested-assets/<tenantId>/...`  (user-uploaded media)
+ *   2. `<stageCacheRoot>/<tenantId>/<runId>/...`   (per-stage Lobster cache)
+ *
+ * Paths outside these subtrees are not tenant-scoped (workflow specs, repo
+ * source, raw Lobster output logs) and must NOT be rejected here — that
+ * would block legitimate reads.
+ */
+function tenantScopedRoots(): string[] {
+  return [
+    path.join(path.normalize(resolveDataRoot()), INGEST_SUBDIR),
+    path.normalize(stageCacheRoot(1)),
+    path.normalize(stageCacheRoot(2)),
+    path.normalize(stageCacheRoot(3)),
+    path.normalize(stageCacheRoot(4)),
+  ];
+}
 
 function tenantPrefixViolates(
   candidate: string,
@@ -17,16 +38,20 @@ function tenantPrefixViolates(
   if (tenantId === undefined) {
     return false;
   }
-  const ingestRoot = path.join(path.normalize(resolveDataRoot()), INGEST_SUBDIR);
-  const rel = path.relative(ingestRoot, candidate);
-  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) {
-    return false;
+  for (const tenantRoot of tenantScopedRoots()) {
+    const rel = path.relative(tenantRoot, candidate);
+    if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) {
+      continue;
+    }
+    const segments = rel.split(path.sep).filter(Boolean);
+    if (segments.length === 0) {
+      continue;
+    }
+    if (segments[0] !== tenantId) {
+      return true;
+    }
   }
-  const segments = rel.split(path.sep).filter(Boolean);
-  if (segments.length === 0) {
-    return false;
-  }
-  return segments[0] !== tenantId;
+  return false;
 }
 
 /**

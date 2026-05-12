@@ -255,7 +255,13 @@ export async function handleGetMarketingJobAsset(
     return assetNotFoundResponse(jobId, assetId, 'asset_descriptor_missing');
   }
 
-  const buffer = await readMarketingAssetWithinAllowedRoots(asset.filePath);
+  // Always pass the runtime doc's tenant_id (not the caller's tenant context)
+  // so cross-tenant boundary checks fire even on public-mode reads where the
+  // caller may not have a tenant. The runtime doc's tenant_id already passed
+  // the requiresTenantContext check above for authenticated reads.
+  const buffer = await readMarketingAssetWithinAllowedRoots(asset.filePath, {
+    tenantId: runtimeDoc.tenant_id,
+  });
   if (!buffer) {
     return assetNotFoundResponse(jobId, assetId, 'asset_file_missing');
   }
