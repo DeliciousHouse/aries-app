@@ -130,6 +130,33 @@ test('verifySlackSignature reports missing headers with structured reasons', () 
   if (!noSecret.ok) assert.equal(noSecret.reason, 'missing_signing_secret');
 });
 
+test('verifySlackSignature rejects a length-mismatched signature', () => {
+  // Same v0= prefix and a valid timestamp, but the signature digest is the
+  // wrong length. Must surface as length_mismatch (not signature_mismatch) so
+  // we never feed unequal-length buffers to timingSafeEqual, which throws.
+  const result = verifySlackSignature({
+    signingSecret: SIGNING_SECRET,
+    rawBody: '{}',
+    timestamp: freshTimestamp(),
+    signature: 'v0=deadbeef',
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.reason, 'length_mismatch');
+});
+
+test('verifySlackSignature rejects a non-numeric timestamp', () => {
+  // Slack always sends seconds since epoch. A bogus "abc" timestamp must be
+  // caught explicitly so the freshness check never operates on NaN.
+  const result = verifySlackSignature({
+    signingSecret: SIGNING_SECRET,
+    rawBody: '{}',
+    timestamp: 'not-a-number',
+    signature: 'v0=' + 'a'.repeat(64),
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.reason, 'bad_timestamp');
+});
+
 function signedRequest(opts: {
   rawBody: string;
   signingSecret?: string;
