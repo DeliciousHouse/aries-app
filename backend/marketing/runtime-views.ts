@@ -409,7 +409,19 @@ function nextScheduledTextFromDashboard(events: MarketingDashboardCalendarEvent[
 }
 
 function campaignName(status: MarketingJobStatusResponse, view: CampaignWorkspaceView): string {
-  return view.dashboard.campaign?.name || status.reviewBundle?.campaignName || status.tenantName || `Campaign ${status.jobId}`;
+  // QA 2026-05-12 ISSUE-007: when a tenant has multiple campaigns that haven't
+  // been named by the runtime yet, every fallback used the same tenant name
+  // and the cards rendered identically. Append a short ID suffix to the
+  // tenant-name fallback so two un-named campaigns are still distinguishable
+  // at a glance, and use it as the unique-enough default when nothing else
+  // is available.
+  const idSuffix = status.jobId ? status.jobId.slice(-6) : '';
+  const runtimeName = view.dashboard.campaign?.name || status.reviewBundle?.campaignName;
+  if (runtimeName) return runtimeName;
+  if (status.tenantName) {
+    return idSuffix ? `${status.tenantName} · ${idSuffix}` : status.tenantName;
+  }
+  return idSuffix ? `Campaign ${idSuffix}` : `Campaign ${status.jobId}`;
 }
 
 function campaignObjective(status: MarketingJobStatusResponse, view: CampaignWorkspaceView): string {
