@@ -42,6 +42,14 @@ const nextConfig = {
       { source: '/:path*', headers: SECURITY_HEADERS },
     ];
   },
+  async redirects() {
+    return [
+      // QA 2026-05-12 ISSUE-003: /platforms was an auth-gated stub that just
+      // bounced to /dashboard/settings. Replace the page-level redirect with a
+      // proper config-level 307 so the route is not in the auth-gate list.
+      { source: '/platforms', destination: '/dashboard/settings', permanent: false },
+    ];
+  },
 };
 
 function buildRemotePatterns() {
