@@ -155,6 +155,9 @@ Required for Hermes-native local/runtime setup: `DB_HOST`, `DB_PORT`, `DB_USER`,
 
 Optional for legacy compatibility only: `OPENCLAW_GATEWAY_URL`, `OPENCLAW_GATEWAY_TOKEN`, `OPENCLAW_SESSION_KEY`
 
+Optional safety flags:
+- `ARIES_MEMORY_LABEL_REDACTION_V2=1` — switches `scrubPreferenceLabelForHoncho` (`backend/memory/write-events.ts`) from the legacy broad `[A-Z][a-z]+\s+[A-Z][a-z]+` regex to a narrow first-name-denylist heuristic. Preserves creative descriptors like "Bold Minimalist" / "Quiet Luxury" while still scrubbing `<FirstName> <LastName>` pairs. Default OFF (legacy behavior) until rollout. Email redaction is unchanged in both modes.
+
 Required when working on Aries-managed OAuth providers: `OAUTH_TOKEN_ENCRYPTION_KEY`. Weekly social content media generation does not use an Aries-side OpenAI client or secret; Hermes owns media auth and execution.
 
 Local dev defaults:

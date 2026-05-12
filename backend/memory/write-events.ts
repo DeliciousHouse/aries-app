@@ -752,12 +752,130 @@ export function scheduleHermesPublishPerformanceHonchoWrite(input: {
 // ---------------------------------------------------------------------------
 
 /**
+ * Common first-name denylist used by the v2 narrow redactor. Intentionally small
+ * and high-frequency — the goal is to catch obvious `<FirstName> <LastName>`
+ * patterns ("John Smith") without scrubbing legitimate operator-authored
+ * creative descriptors ("Bold Minimalist", "Quiet Luxury", "Dark Academia").
+ *
+ * Keep entries lower-cased; matching is performed against the first token's
+ * lowercased form so casing in the label does not matter.
+ */
+const COMMON_FIRST_NAMES_V2: ReadonlySet<string> = new Set([
+  'john',
+  'jane',
+  'mary',
+  'michael',
+  'david',
+  'sarah',
+  'james',
+  'robert',
+  'william',
+  'richard',
+  'thomas',
+  'charles',
+  'joseph',
+  'christopher',
+  'daniel',
+  'matthew',
+  'anthony',
+  'mark',
+  'donald',
+  'steven',
+  'paul',
+  'andrew',
+  'joshua',
+  'kenneth',
+  'kevin',
+  'brian',
+  'george',
+  'edward',
+  'ronald',
+  'timothy',
+  'jason',
+  'jeffrey',
+  'ryan',
+  'jacob',
+  'gary',
+  'nicholas',
+  'eric',
+  'jonathan',
+  'stephen',
+  'larry',
+  'justin',
+  'scott',
+  'brandon',
+  'benjamin',
+  'samuel',
+  'frank',
+  'gregory',
+  'patricia',
+  'linda',
+  'barbara',
+  'elizabeth',
+  'jennifer',
+  'maria',
+  'susan',
+  'margaret',
+  'dorothy',
+  'lisa',
+  'nancy',
+  'karen',
+  'betty',
+  'helen',
+  'sandra',
+  'donna',
+  'carol',
+  'ruth',
+  'sharon',
+  'michelle',
+  'laura',
+  'emily',
+  'kimberly',
+  'deborah',
+  'jessica',
+  'shirley',
+  'cynthia',
+  'angela',
+  'melissa',
+  'amy',
+  'rebecca',
+  'virginia',
+  'kathleen',
+  'amanda',
+  'ashley',
+  'stephanie',
+]);
+
+function isLabelRedactionV2Enabled(): boolean {
+  return process.env.ARIES_MEMORY_LABEL_REDACTION_V2 === '1';
+}
+
+/**
  * Redact obvious PII from free-text preference labels before they enter Honcho claims.
+ *
+ * Two modes:
+ *  - Default (legacy): redact any pair of title-cased words via a broad regex.
+ *    This over-scrubs aesthetic descriptors like "Bold Minimalist".
+ *  - v2 (ARIES_MEMORY_LABEL_REDACTION_V2=1): only redact when the first token
+ *    matches a curated denylist of common first names AND the second token is
+ *    a title-cased word. This preserves creative descriptors while still
+ *    catching `<FirstName> <LastName>` style PII.
+ *
+ * Email redaction is unchanged in both modes — that pattern is unambiguous.
+ *
+ * Security note: we do not log raw label values from this function. Callers
+ * that want telemetry should log only the redaction decision flag.
  */
 export function scrubPreferenceLabelForHoncho(label: string | null | undefined): string {
   let s = typeof label === 'string' ? label : '';
   s = s.replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, '[redacted_email]');
-  s = s.replace(/\b[A-Z][a-z]+\s+[A-Z][a-z]+\b/g, '[redacted_name]');
+  if (isLabelRedactionV2Enabled()) {
+    s = s.replace(/\b([A-Z][a-z]+)\s+([A-Z][a-z]+)\b/g, (match, first: string, _second: string) => {
+      return COMMON_FIRST_NAMES_V2.has(first.toLowerCase()) ? '[redacted_name]' : match;
+    });
+  } else {
+    s = s.replace(/\b[A-Z][a-z]+\s+[A-Z][a-z]+\b/g, '[redacted_name]');
+  }
   return s;
 }
 
