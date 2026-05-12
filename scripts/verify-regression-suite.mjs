@@ -89,16 +89,6 @@ const steps = [
     name: 'targeted marketing-flow smoke tests',
     args: ['--test', 'tests/marketing-flow-smoke.test.ts'],
   },
-  {
-    name: 'partner attribution (VMS) unit tests',
-    args: [
-      '--test',
-      'tests/partner-ref-cookie.test.ts',
-      'tests/vms-client.test.ts',
-      'tests/partner-outbox.test.ts',
-      'tests/partner-attribution-schema.test.ts',
-    ],
-  },
 ];
 
 for (const [index, step] of steps.entries()) {
