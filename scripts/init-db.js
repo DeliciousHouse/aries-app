@@ -457,6 +457,27 @@ async function initDb() {
       ALTER TABLE creative_assets
         ADD COLUMN IF NOT EXISTS orphaned_at TIMESTAMPTZ;
 
+      -- Backfill columns that may be missing on databases provisioned before
+      -- these tables got their full schemas. `CREATE TABLE IF NOT EXISTS`
+      -- above is a no-op when the table already exists, so older deployments
+      -- end up with stub schemas missing the columns the CREATE INDEX below
+      -- requires. ADD COLUMN IF NOT EXISTS is idempotent on fresh tables.
+      -- Without these, init-db.js crashes at boot with
+      -- `error: column "post_id" does not exist` and the container restarts
+      -- forever (observed: PR #297 and PR #298 prod deploys, 2026-05-12).
+      ALTER TABLE vision_qa_runs ADD COLUMN IF NOT EXISTS post_id BIGINT;
+      ALTER TABLE vision_qa_runs ADD COLUMN IF NOT EXISTS creative_id BIGINT;
+      ALTER TABLE vision_qa_runs ADD COLUMN IF NOT EXISTS attempt_number INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE vision_qa_runs ADD COLUMN IF NOT EXISTS brand_color_match_score NUMERIC;
+      ALTER TABLE vision_qa_runs ADD COLUMN IF NOT EXISTS text_legibility_score NUMERIC;
+      ALTER TABLE vision_qa_runs ADD COLUMN IF NOT EXISTS forbidden_pattern_hits INTEGER;
+      ALTER TABLE vision_qa_runs ADD COLUMN IF NOT EXISTS brand_violation_score NUMERIC;
+      ALTER TABLE vision_qa_runs ADD COLUMN IF NOT EXISTS verdict TEXT;
+      ALTER TABLE vision_qa_runs ADD COLUMN IF NOT EXISTS model_version TEXT;
+      ALTER TABLE vision_qa_runs ADD COLUMN IF NOT EXISTS raw_model_output JSONB;
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS post_id BIGINT;
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS target_platforms TEXT[] NOT NULL DEFAULT '{}';
+
       CREATE INDEX IF NOT EXISTS idx_posts_tenant_created ON posts (tenant_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_vision_qa_runs_tenant_post ON vision_qa_runs (tenant_id, post_id);
       CREATE INDEX IF NOT EXISTS idx_scheduled_posts_tenant_scheduled ON scheduled_posts (tenant_id, scheduled_for);
