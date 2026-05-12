@@ -3,9 +3,11 @@
 Read-only verification of three `(?)` critical findings against the actual
 source at `/home/node/docker-stack/aries-app`. No files were modified.
 
-Note: the referenced source doc `docs/product/aries-ai-prd-audit.md` does not
-exist in this repo; verdicts below are based solely on the claims supplied in
-the verification request and a direct read of the implementation.
+Note: at write time, the referenced source doc `docs/product/aries-ai-prd-audit.md`
+did not yet exist in the repo (the verification agent ran in a separate worktree
+from the agent that wrote the audit). Both docs are now landing together in this
+PR. Verdicts below were based on the claims supplied in the verification request
+and a direct read of the implementation — they remain authoritative.
 
 ## Finding 1: Tenant isolation in artifact storage
 

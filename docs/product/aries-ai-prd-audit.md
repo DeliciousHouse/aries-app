@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-The codebase is substantially PRD-aligned on core infrastructure (tenant isolation, provider abstraction, execution callbacks, approval gates, memory pseudonymization). Five critical findings emerge:
+The codebase is substantially PRD-aligned on core infrastructure (tenant isolation, provider abstraction, execution callbacks, approval gates, memory pseudonymization). The audit produced 28 findings total (full counts in the Summary Statistics section at the end: 5 Critical, 8 High, 10 Medium, 5 Low). The 5 below are the most operationally important from a fix-now standpoint — they drive Q3 batch sequencing — though some of the originally Critical-tagged items were later DISMISSED by the deeper code read in `aries-ai-prd-audit-critical-verification.md`. Read both docs together.
 
 1. **Terminology drift:** "campaign" terminology persists in routes, UI, and database identifiers despite PRD's shift to "posts" / "social content" concept. 150+ files use `campaign` in URLs and identifiers. This confuses contributors and blocks consistent mental models.
 
@@ -16,11 +16,11 @@ The codebase is substantially PRD-aligned on core infrastructure (tenant isolati
 
 3. **Over-aggressive memory redaction regex:** The `[A-Z][a-z]+\s+[A-Z][a-z]+` pattern in `scrubPreferenceLabelForHoncho` blanket-redacts legitimate operator-authored creative voice descriptors (e.g., "Bold Minimalist", "Quiet Luxury") before memory write, degrading future retrieval. Already logged in TODOS.md but scope is wider than assumed.
 
-4. **Missing material-edit approval re-trigger:** PRD Section 13 mandates auto-triggering review when an approved creative is mutated. Current code shows no hook that returns an approved artifact to review queue on edit. Approval records are immutable, so edits bypass approval chain.
+4. **~~Missing material-edit approval re-trigger~~ — DISMISSED by verification:** Originally flagged here. `aries-ai-prd-audit-critical-verification.md` confirmed `reviewItemSourceHash` in `runtime-views.ts:1147-1153` already flips `approved → in_review` on any material content hash change; upload-replace inserts a new row and regenerate spawns a new run. Both edit paths trip the re-review. Kept in the highlighted list as historical context. Action item reduced to a regression test (Batch 3a).
 
 5. **Approval resume token format underdocumented:** `LobsterEnvelope.requiresApproval.resumeToken` shapes the entire approval/resume contract, but no schema enforces its structure. Orchestrator treats it as opaque string. Risk: if token format shifts, approval state machinery silently breaks.
 
-**Severity breakdown:** 1 Critical, 2 High, 2 Medium.  
+**Severity totals across the full audit:** 5 Critical, 8 High, 10 Medium, 5 Low (see Summary Statistics at the bottom). Of the 5 originally Critical items, 2 were DISMISSED by the verification doc (Material-edit approval bypass, Hermes callback tenant trust), 1 was PARTIALLY CONFIRMED with a narrowed scope (Stage-cache tenant isolation — addressed in PR #302). The remaining 23 findings are unchanged.  
 **Recommended quick-start:** Batch 1 (terminology + docs), then Batch 2 (provider abstraction edge cases).
 
 ---
@@ -200,11 +200,13 @@ The codebase is substantially PRD-aligned on core infrastructure (tenant isolati
 
 ## Critical Issues to Address Now
 
-1. **Tenant isolation in artifact storage (Dimension 4, Batch 4b):** If Lobster cache does not namespace by tenant, this is a critical data-isolation bug. Audit immediately.
+> **Note:** This section is the originally flagged list as of the audit's first pass. Two of the three were DISMISSED by the deeper code read in `aries-ai-prd-audit-critical-verification.md`. The verdicts are inlined below — read them as the current source of truth.
 
-2. **Material-edit approval bypass (Dimension 5, Batch 3a):** Approved creatives can be edited without re-triggering review. This violates PRD Sec 13.1 and creates a publish-gating bypass. Add guard before next release.
+1. **Tenant isolation in artifact storage (Dimension 4, Batch 4b)** — **PARTIALLY CONFIRMED.** Verification confirmed stage caches at `/tmp/lobster-stage{1..4}-cache/<runId>/` lack a tenant segment and `tenantPrefixViolates` only covers `DATA_ROOT/ingested-assets`. Two tenants targeting the same competitor URL can collide on the runId-inference fallback. Defense-in-depth gap, not an active exploit. Addressed in PR #302 (`fix/stage-cache-tenant-prefix`).
 
-3. **Callback handler tenant derivation (Dimension 4, Batch 3b):** If `handleHermesRunCallback` derives tenant from callback payload instead of job record, that's a critical tenant isolation breach. Verify immediately.
+2. ~~**Material-edit approval bypass (Dimension 5, Batch 3a)**~~ — **DISMISSED.** Verification (file:line cited in `aries-ai-prd-audit-critical-verification.md`) confirmed `reviewItemSourceHash` in `backend/marketing/runtime-views.ts:1147-1153` flips `approved → in_review` on any content hash change. Upload-replace creates a new row, regenerate spawns a new run — both trip the re-review. The bypass scenario doesn't exist. Reduced to "add a regression test so a future refactor doesn't silently break the trigger."
+
+3. ~~**Callback handler tenant derivation (Dimension 4, Batch 3b)**~~ — **DISMISSED.** Verification confirmed the Hermes callback payload schema in `backend/execution/hermes-callbacks.ts:21-62` has no `tenant_id` field at all. Tenant comes from the DB run record keyed by HMAC-authenticated `aries_run_id` (`backend/marketing/hermes-callbacks.ts:219`). Clean by construction. Reduced to "add a code-comment near the schema warning future maintainers not to add a tenant field."
 
 ---
 
