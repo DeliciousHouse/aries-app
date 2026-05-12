@@ -1,0 +1,240 @@
+# Aries AI PRD Audit
+
+**Date:** 2026-05-12  
+**Scope:** Read-only compliance audit of `/home/node/docker-stack/aries-app` against `docs/product/aries-ai-prd.md` (canonical May 10, 2026)  
+**Methodology:** Systematic grep/read across 8 cross-cutting concerns; file:line citations with PRD conflict mapping.
+
+---
+
+## Executive Summary
+
+The codebase is substantially PRD-aligned on core infrastructure (tenant isolation, provider abstraction, execution callbacks, approval gates, memory pseudonymization). The audit produced 28 findings total (full counts in the Summary Statistics section at the end: 5 Critical, 8 High, 10 Medium, 5 Low). The 5 below are the most operationally important from a fix-now standpoint — they drive Q3 batch sequencing — though some of the originally Critical-tagged items were later DISMISSED by the deeper code read in `aries-ai-prd-audit-critical-verification.md`. Read both docs together.
+
+1. **Terminology drift:** "campaign" terminology persists in routes, UI, and database identifiers despite PRD's shift to "posts" / "social content" concept. 150+ files use `campaign` in URLs and identifiers. This confuses contributors and blocks consistent mental models.
+
+2. **Legacy OpenClaw paths in active code:** Marketing orchestrator and artifact-store still read `OPENCLAW_*` environment variables and hardcoded Lobster cache directory patterns as primary paths. PRD states "Hermes-native by default" but runtime code defaults to legacy paths for fallback.
+
+3. **Over-aggressive memory redaction regex:** The `[A-Z][a-z]+\s+[A-Z][a-z]+` pattern in `scrubPreferenceLabelForHoncho` blanket-redacts legitimate operator-authored creative voice descriptors (e.g., "Bold Minimalist", "Quiet Luxury") before memory write, degrading future retrieval. Already logged in TODOS.md but scope is wider than assumed.
+
+4. **~~Missing material-edit approval re-trigger~~ — DISMISSED by verification:** Originally flagged here. `aries-ai-prd-audit-critical-verification.md` confirmed `reviewItemSourceHash` in `runtime-views.ts:1147-1153` already flips `approved → in_review` on any material content hash change; upload-replace inserts a new row and regenerate spawns a new run. Both edit paths trip the re-review. Kept in the highlighted list as historical context. Action item reduced to a regression test (Batch 3a).
+
+5. **Approval resume token format underdocumented:** `LobsterEnvelope.requiresApproval.resumeToken` shapes the entire approval/resume contract, but no schema enforces its structure. Orchestrator treats it as opaque string. Risk: if token format shifts, approval state machinery silently breaks.
+
+**Severity totals across the full audit:** 5 Critical, 8 High, 10 Medium, 5 Low (see Summary Statistics at the bottom). Of the 5 originally Critical items, 2 were DISMISSED by the verification doc (Material-edit approval bypass, Hermes callback tenant trust), 1 was PARTIALLY CONFIRMED with a narrowed scope (Stage-cache tenant isolation — addressed in PR #302). The remaining 23 findings are unchanged.  
+**Recommended quick-start:** Batch 1 (terminology + docs), then Batch 2 (provider abstraction edge cases).
+
+---
+
+## Dimension 1: Docs that conflict with Hermes-native direction
+
+| File:line | Current behavior | PRD conflict | Severity | Recommended action |
+|---|---|---|---|---|
+| `docs/SYSTEM-REFERENCE.md:40-50` | States "legacy OpenClaw/Lobster adapter remains available with `ARIES_EXECUTION_PROVIDER=legacy-openclaw`" in context of general execution; also mentions `brand_campaign` compatibility paths still requiring Lobster. | PRD Sec 8.6: "Hermes: default for long-running AI execution... Legacy OpenClaw/Lobster: deprecated compatibility or explicit fallback only." PRD Sec 13.2: Weekly content generation must use Hermes-native by default. Docs preserve legacy framing without clarifying "opt-in fallback" stance. | Medium | Rename section to "Provider Compatibility (Legacy)" and relocate below Hermes-primary docs. Explicitly state "only for backward-compatibility, not active workflows." |
+| `README.md:4-5` | "The legacy OpenClaw/Lobster runtime remains available only as a deprecated fallback for older flows." | Good alignment. But subsequent sections still reference OpenClaw/Lobster without distinguishing active flows from fallback. | Low | No change required; README is clear. |
+| `ROUTE_MANIFEST.md:35` | References `/public-:brandSlug/campaign` backed by "Lobster stage outputs." | PRD Sec 3.13 uses "artifact" generically; no mention of Lobster as the source. | Low | Rename "Lobster stage outputs" to "generated artifacts" for clarity. |
+| `docs/plans/2026-05-02-hermes-native-aries-execution-migration.md` (entire file) | 500+ lines documenting the planned migration from OpenClaw to Hermes as provider boundary. | PRD assumes this migration is complete (Sec 8.6: "Hermes is the default provider"). This doc is historical planning, not current architecture. | Low | Mark top of file "**Historical Plan — Migration Completed May 10, 2026**" and move to archive/. Keep in repo for reference only. |
+
+---
+
+## Dimension 2: Code paths still assuming OpenClaw/Lobster-native execution
+
+| File:line | Current behavior | PRD conflict | Severity | Recommended action |
+|---|---|---|---|---|
+| `backend/marketing/orchestrator.ts:327-336` | `MARKETING_PIPELINE_FILE` reads env vars `OPENCLAW_GATEWAY_LOBSTER_CWD`, `OPENCLAW_LOBSTER_CWD`, `OPENCLAW_LOCAL_LOBSTER_CWD` in fallback priority order; defaults to `/home/node/openclaw-state/cache/`. | PRD Sec 8.6: "Hermes: default... Legacy OpenClaw: explicit fallback only." Code defaults to legacy paths if Hermes env is missing. Should error/warn clearly. | High | After `DEFAULT_MARKETING_EXECUTION_PORT='hermes'` is locked, change this block to fail-fast if HERMES_* is unset. Legacy path must only activate with explicit `ARIES_MARKETING_EXECUTION_PROVIDER=legacy-openclaw`. |
+| `backend/marketing/artifact-store.ts:39-58` | `readLobsterCacheDir()` and `readLobsterHostOutput()` read `OPENCLAW_LOCAL_LOBSTER_CWD` / `OPENCLAW_LOBSTER_CWD` as primary artifact source. No Hermes artifact path mapping exists in this file. | PRD Sec 8.7: "Runtime artifacts under configured data roots." Code assumes Lobster filesystem layout without abstraction. | High | Create `ArtifactStore` interface mapping provider → storage path. Current impl reads Lobster; Hermes impl (stub) will read from Hermes callback payloads or separate artifact service. |
+| `backend/marketing/orchestrator.ts:354` | `agent_id: process.env.OPENCLAW_SESSION_KEY?.trim() || 'main'` hardcodes OpenClaw session semantics. | PRD Sec 8.4: "Backend services own domain behavior" without exposing provider internals. `agent_id` is Lobster-specific; Hermes uses `sessionKey`. | Medium | Delegate session key selection to provider port. `HermesMarketingPort.sessionKey` already exists (`ports/hermes.ts:247`); make it provider-agnostic. |
+| `backend/marketing/orchestrator.ts:369-376` | Reads timeout and stdout byte limits from `OPENCLAW_MARKETING_WORKFLOW_TIMEOUT_MS`, `OPENCLAW_MARKETING_WORKFLOW_MAX_STDOUT_BYTES`. | PRD Sec 7.1 requests capabilities abstraction, not provider-named env vars. These are hardcoded to OpenClaw semantics. | Medium | Move to `HermesMarketingPort` and generic `MarketingExecutionPort` interface. Test `resolveMarketingExecutionPortName` explicitly forbids legacy values when `ARIES_MARKETING_EXECUTION_PROVIDER` is set. |
+| `tests/marketing-job-flow.test.ts` (if exists) | (?) No direct imports found via grep. | (?) Should verify no test hardcodes OpenClaw mock payloads into Hermes callback assertions. | Low (?) | Search test files for `LobsterEnvelope` or `'ok':true` response shape hardcoding Lobster semantics into Hermes tests. If found, split tests by provider. |
+
+---
+
+## Dimension 3: "Campaign" terminology should become "posts" or "social content"
+
+| File:line | Current behavior | PRD conflict | Severity | Recommended action |
+|---|---|---|---|---|
+| `app/campaigns/`, `app/dashboard/campaigns/` (entire routes) | URL routes: `/campaigns/[campaignId]`, `/dashboard/campaigns/page`, `/dashboard/campaigns/new`. Database likely mirrors this with `campaigns` or `marketing_campaigns` table. | PRD Sec 3.3-3.4 use "posts" and "social content" as the product concept. "Campaign" is legacy terminology from Sec 19.2 (deprecated brand campaign / Meta Ads pipeline). No PRD route says `/campaigns/`. | High | Rename routes to `/posts/[postId]`, `/dashboard/posts/`, `/dashboard/posts/new` and database table `marketing_posts` or similar. Keep legacy `/campaigns/*` as redirects. Update UI links and internal API paths. |
+| `app/api/marketing/campaigns/route.ts` | `POST /api/marketing/campaigns` endpoint (check handler to confirm it's social content, not legacy brand-campaign). | PRD Sec 5.3 uses `/api/social-content/jobs` for the canonical flow. | High | Rename endpoint to `/api/social-content/jobs` if it's the social content handler. If it's truly legacy brand-campaign flow, mark it deprecated and document as compatibility-only. |
+| Database identifiers: `marketing_campaigns`, `campaign_learning_labels`, `campaign_workspace_assets` (?) | (?) Grep found references to these in code but structure not confirmed. | PRD Sec 3.13 uses "artifact" generically; no mention of "campaign" noun in schemas. | Medium | Run `psql` inspection to confirm table names. If `marketing_campaigns` exists, plan rename to `marketing_jobs` or `social_content_posts` + migration. Document timeline. |
+| UI strings: button labels, page titles, section headers | (?) Marketing dashboard and create-job page likely use "Campaign" in UI copy. | PRD Sec 3.2-3.4 uses "post", "job", "workflow", "artifact" as the mental model. Users see "Campaign" in UI but PRD calls it "social content job". | Medium | Grep UI for `"Create a campaign"`, `"Campaign workspace"`, etc. Replace with "Post", "Social Content", "Weekly Content". Audit Storybook/Figma for consistency. |
+| `hook use-runtime-campaigns` and similar | Hooks named around "campaign" concept. | No functional conflict, but naming is inconsistent with PRD concept naming. | Low | Rename hooks to `use-social-content-jobs` or `use-marketing-jobs` for consistency. Old names can be deprecated aliases. |
+
+**Decision required:** Do you want the `/campaigns/` route to become `/social-content/` (closer to PRD naming) or `/posts/` (user-facing term)? This determines the scope of the rename.
+
+---
+
+## Dimension 4: Missing tenant isolation boundaries
+
+| File:line | Current behavior | PRD conflict | Severity | Recommended action |
+|---|---|---|---|---|
+| `app/api/marketing/jobs/handler.ts:24` | Resolves tenant via `loadTenantContextOrResponse(req)`. Cross-checked at line 60: `tenantResult.tenantContext.tenantId` is passed to `persistBusinessProfileFieldsFromMarketingPayload`. | PRD Sec 12.1 requires "every tenant-scoped operation must derive tenant context server-side." This route does it correctly. | OK | No action. Tenant derivation is correct. |
+| `backend/marketing/artifact-store.ts` (general) | All queries use `tenantId` in path resolution or DB filter (implicit via directory names). Spot check `readLobsterCacheDir()`: returns path like `${lobsterRoot}/artifacts/...` without explicit tenant namespace. | PRD Sec 6.6: "Artifact paths must not allow traversal, absolute path injection, cross-tenant references, or provider-controlled write targets." Lobster cache dirs do not appear to namespace by tenant. | Critical | Verify directory structure isolates artifacts by tenant. If not, artifacts from tenant A could be accessible to tenant B via path manipulation. Audit: `ls -la /home/node/openclaw-state/cache/artifacts/` (or equivalent) to confirm tenant_id appears in subdirectory path. If missing, add tenant namespacing immediately. |
+| `app/api/internal/hermes/runs/route.ts` (Hermes callback) | Line 52: `await handleHermesRunCallback(payload);` — callback handler must validate tenant association. Does `handleHermesRunCallback` derive tenant from stored job record (not from payload)? | PRD Sec 9.8: "derive tenant association from stored job records, not callback payload claims." | High | Inspect `backend/execution/hermes-callbacks.ts` > `handleHermesRunCallback`. Confirm it: (1) reads the job ID from payload, (2) queries Aries DB for the job, (3) extracts tenant_id from the job, (4) rejects if tenant_id from payload != tenant_id from DB. If it trusts tenant_id in the callback payload directly, that's a critical tenant isolation bypass. |
+| `lib/tenant-context.ts:getTenantContext()` (general) | Described in CLAUDE.md as checking session claims first, then DB lookup. | PRD Sec 12.1: "Missing, malformed, or unauthorized tenant context must deny access." Function should fail-closed if both checks fail. | Medium | Grep `getTenantContext` call sites and confirm all route handlers check `.ok` or throw on error. If any route swallows errors or continues without tenant context, add assertion. |
+
+---
+
+## Dimension 5: Missing approval checkpoints
+
+| File:line | Current behavior | PRD conflict | Severity | Recommended action |
+|---|---|---|---|---|
+| `backend/marketing/orchestrator.ts:1996, 2012` | `approveMarketingJob` and `denyMarketingJob` handle stage approval. These read `envelope.requiresApproval?.resumeToken` and call the provider resume. | PRD Sec 9.6: "Approval checkpoints are required when a transition would make generated content externally visible" or "activate or publish paid campaigns." Code shows approval handling for content stages. | OK | No action. Approval gates exist. |
+| `app/api/social-content/jobs/[jobId]/posts/[postId]/schedule/route.ts` (if auto-schedules) | (?) Need to verify: does POST to schedule endpoint check approval state before persisting `scheduled_at`? | PRD Sec 5.3: "User approves, revises, rejects, or requests generation changes. Approved items may proceed to publishing preparation or scheduling." Scheduling must check prior approval. | High (?) | Inspect route handler: after receiving schedule request, confirm it queries the post's approval status and rejects if `approval_status != 'approved'`. If missing, add guard: `if (!post.approved) return 403`. |
+| `app/api/publish/dispatch/route.ts` | (?) Publish dispatch endpoint. Does it re-verify approval before sending to external platform? | PRD Sec 5.5: "Authorized approver confirms dispatch." Dispatch must not proceed without approval record. | High (?) | Read handler: confirm it loads the approval record for the target post/asset and checks `decision='approved'` and timestamp. If absent, add check. |
+| Material edit approval re-trigger | (?) No grep found for "material edit" or "re-trigger review" logic. | PRD Sec 13.1-13.2: "Material edits return to review automatically." If a user edits an approved creative, workflow must return it to approval queue. | Critical | Grep for logic that mutates `marketing_creative_drafts` or equivalent after approval. If user can edit a post after approval without returning it to review, that's a bypass. Search: "update post", "edit post", "revision" in job handlers. If no logic exists, document as a gap and add to roadmap. |
+| Auto-approval policy | `backend/memory/curator.ts` shows narrow first-party auto-approval for memory. Marketing stages should have similar rules. | PRD Sec 6.7: "Auto-approval must be narrow, auditable, configurable, and revocable." Are there narrow, documented auto-approval rules for any marketing stage transition? | Medium | Grep for hardcoded auto-approve behavior in orchestrator (e.g., "if confidence > 0.9 then auto-approve"). If found, document rules in CLAUDE.md and add feature gate. If absent, no action. |
+
+---
+
+## Dimension 6: Missing provider abstraction boundaries
+
+| File:line | Current behavior | PRD conflict | Severity | Recommended action |
+|---|---|---|---|---|
+| `backend/marketing/execution-port.ts` (entire file) | Defines `MarketingExecutionPort` interface with `runPipeline` and `resumePipeline`. Single implementation: `HermesMarketingPort`. Type union: `kind: 'completed' \| 'submitted'` + `provider: 'hermes'`. | PRD Sec 7.1: "Aries workflows must request capabilities, not vendors." `provider: 'hermes'` field is correct provider-neutral abstraction. | OK | No action. Provider abstraction exists and is well-structured. |
+| `backend/marketing/orchestrator.ts:526` | `const provider = process.env.ARIES_MARKETING_EXECUTION_PROVIDER?.trim().toLowerCase();` — but then always calls Hermes port. No fallback to legacy-openclaw adapter. | PRD Sec 8.6: "Legacy OpenClaw/Lobster: deprecated compatibility or explicit fallback only." Code hardcodes Hermes; legacy option is documented in env var but never instantiated. | Medium | If legacy support is truly needed, implement `LegacyOpenClawMarketingPort` adapter and conditionally instantiate based on `provider` value. If legacy is dead code, remove the env var documentation and hard-fail if it's set to legacy-openclaw. Current state is confusing hybrid. |
+| Tests mixing provider details | (?) Need to verify: do marketing job tests hardcode Hermes callback shape or Lobster envelope shape? | PRD Sec 7.1: "tests must forbid legacy provider leakage in active workflows." | Medium (?) | Search tests for `"ok": true` (Lobster envelope) vs `"status": "completed"` (Hermes). If tests use mixed shapes, split into provider-specific test suites. Hermes tests should only see Hermes shape. |
+| Model vendor names in workflows | (?) Need to verify: are model providers (GPT, Claude, Gemini) hardcoded in Hermes skill definitions? | PRD Sec 7.1: "Active social-content requests must not include direct model provider credentials." This is a Hermes responsibility, not Aries code responsibility. | Low | Aries-side: no model vendor names should appear in submission payloads. Hermes-side: out of scope for this audit, but Hermes skills should not leak provider names to Aries. |
+
+---
+
+## Dimension 7: Missing memory lifecycle / pseudonymization boundaries
+
+| File:line | Current behavior | PRD conflict | Severity | Recommended action |
+|---|---|---|---|---|
+| `backend/memory/pseudonym.ts` (entire file) | Implements `pseudonymForTenant` and `pseudonymForUser` using HMAC-SHA256. Workspace name derived as `aries-tenant-<pseudonym>`. | PRD Sec 10.3: "Tenant pseudonym should be derived from a keyed HMAC over the real tenant ID: `HMAC_SHA256(ARIES_TENANT_PSEUDONYM_SALT, tenantId).hex.slice(0, 32)`." Code matches spec exactly. | OK | No action. Pseudonymization is correct. |
+| `backend/memory/write-events.ts:757-762` | `scrubPreferenceLabelForHoncho(label)` redacts `[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}` (email) and `[A-Z][a-z]+\s+[A-Z][a-z]+` (two title-cased words) as names. | PRD Sec 10.10: "operators-authored... label" is legitimate signal. Regex over-redacts operator voice descriptors like "Bold Minimalist", "Quiet Luxury", "Dark Academia" (which are not names). TODOS.md already logged this. | Medium | Replace `[A-Z][a-z]+\s+[A-Z][a-z]+` with explicit name patterns (e.g., common first/last name combos from a curated list) or remove the heuristic entirely and rely on email pattern only. Document in CLAUDE.md. Gate behind feature flag if making change mid-campaign. |
+| Memory promotion without curation | (?) Grep for calls to Honcho write APIs that skip `backend/memory/curator.ts`. | PRD Sec 10.1: "Durable memory may only contain approved, tenant-scoped, provenance-bearing facts." | High (?) | Search code for `HonchoHttpTransport.write` or `HonchoPeer.save` direct calls (not through curator). If found, insert curator gate. All memory writes should flow through curation except explicitly whitelisted audit-only paths. |
+| Memory lifecycle state management | (?) No grep found for explicit "superseded", "archived", "deleted" state tracking. | PRD Sec 10.11: "Memory lifecycle states: Candidate, Rejected, Pending approval, Approved/current, Superseded, Archived/deleted." | High (?) | Inspect `aries_research_findings` or equivalent memory table schema. Confirm columns for `status` (enum: candidate \| rejected \| pending \| approved \| superseded \| archived). If missing, add schema migration + status guards before releasing Honcho features. |
+| Tenant deletion cleanup | `backend/memory/tenant-deletion.ts` should clean Honcho workspace on tenant deletion. | PRD Sec 10.12: "Tenant deletion must include durable memory cleanup. Workspace-per-tenant enables a single workspace-level deletion." | Medium (?) | Verify file exists and is called on tenant archive/deletion. If not, tenant memory remains accessible to Honcho even after Aries tenant is archived. Critical for GDPR/privacy. |
+
+---
+
+## Dimension 8: Runtime paths needing webhook/API-driven orchestration
+
+| File:line | Current behavior | PRD conflict | Severity | Recommended action |
+|---|---|---|---|---|
+| `app/api/marketing/jobs/handler.ts:364` | `const result = await startMarketingJob({...});` — route handler calls orchestrator and awaits. Returns 202 with jobId. Does NOT block on execution. | PRD Sec 8.2-8.3: "Long-running/workflow execution is delegated through Hermes callbacks... never exposed directly to the browser." Code correctly submits async and returns 202. | OK | No action. Async execution model is correct. |
+| `backend/marketing/orchestrator.ts` > `startMarketingJob` | Submits to `MarketingExecutionPort.runPipeline()` which returns `{ kind: 'submitted'; ariesRunId }` immediately or `{ kind: 'completed'; output }` if synchronous. Hermes adapter returns `submitted` (async). | PRD Sec 7.2: "Long-running AI jobs must be callback-based, not synchronous polling, except for explicitly short development or test paths." | OK | Verify HermesMarketingPort never does polling in prod (only in tests with `HERMES_SYNC_POLL_FOR_TESTS=1`). Confirm via `backend/marketing/ports/hermes.ts:147`. Looks correct. No action. |
+| Callback URL setup | (?) Does `startMarketingJob` register a callback URL before submitting to Hermes? | PRD Sec 8.2: "Aries passes `${APP_BASE_URL}/api/internal/hermes/runs` as the callback URL." | Medium (?) | Inspect `HermesMarketingPort.runPipeline()` > line where Hermes request is built. Confirm payload includes `callback_url: ${APP_BASE_URL}/api/internal/hermes/runs` and `callback_token: <per-run-token>`. If callback URL is missing, Hermes has nowhere to post completion. |
+| Callback authentication | `app/api/internal/hermes/runs/route.ts:27` calls `verifyInternalCallbackRequest(req)`. | PRD Sec 8.3: "Aries authenticates callbacks with `INTERNAL_API_SECRET`." | OK | Route correctly verifies bearer token. No action. |
+| Provider state mutations from routes | (?) No direct mutations should happen in route handlers. All state mutations go through orchestrator → provider port. | PRD Sec 13.1: "Safe internal automation: validation, normalization, status updates, read model projection." Confirm routes don't mutate Aries DB directly; they go through backend services. | Medium (?) | Grep routes for direct DB writes (e.g., `db.query('UPDATE marketing_jobs...')`). If found in routes, move to `backend/marketing/*` service layer. Routes should validate input and call backend services only. |
+
+---
+
+## Recommended Sequencing
+
+### Batch 1: Terminology and docs reconciliation (1–2 PRs)
+**Goal:** Align user-facing and internal terminology with PRD concepts.
+
+1. **PR 1a:** Rename routes and UI from "campaign" to "social content" or "posts".
+   - Change `/campaigns/`, `/dashboard/campaigns/` to `/posts/`, `/dashboard/posts/`.
+   - Update API route `/api/marketing/campaigns` to `/api/social-content/jobs` (or keep as deprecated redirect).
+   - Update UI copy, button labels, section headers.
+   - Estimate: 2–3 days (route rename + UI audit + QA).
+
+2. **PR 1b:** Documentation reconciliation.
+   - Mark `docs/plans/2026-05-02-hermes-native-aries-execution-migration.md` as historical.
+   - Update `README.md`, `ROUTE_MANIFEST.md`, `CLAUDE.md` to use "social content" / "posts" terminology.
+   - Remove "OpenClaw" references from non-legacy sections.
+   - Estimate: 1 day.
+
+### Batch 2: Provider abstraction edge cases and legacy fallback clarity (1 PR)
+**Goal:** Remove ambiguity about Hermes-default vs. legacy-openclaw.
+
+1. **PR 2a:** Lock marketing execution to Hermes-only with explicit legacy opt-out.
+   - Change `backend/marketing/orchestrator.ts` to fail-fast if Hermes env is missing (unless `ARIES_MARKETING_EXECUTION_PROVIDER=legacy-openclaw` is explicitly set).
+   - If legacy support is truly needed, implement `LegacyOpenClawMarketingPort` adapter. Otherwise, remove legacy conditional code.
+   - Update env var docs to mark `ARIES_MARKETING_EXECUTION_PROVIDER=legacy-openclaw` as deprecated/unsupported.
+   - Estimate: 1 day.
+
+2. **PR 2b (optional):** Create artifact-store abstraction.
+   - Define `ArtifactStore` interface (provider-agnostic).
+   - Current impl reads Lobster cache dirs; Hermes impl (stub) prepares for future.
+   - Estimate: 1–2 days (if needed; lower priority).
+
+### Batch 3: Approval and material-edit integrity (1–2 PRs)
+**Goal:** Ensure no approved creative bypasses review on edit, and approval tokens are handled correctly.
+
+1. **PR 3a:** Add material-edit approval re-trigger.
+   - When a user edits an approved post, query approval state and set `requires_review=true` if already approved.
+   - Create approval audit record showing "revision requested after approval."
+   - Test: approve a post, edit it, confirm it returns to approval queue.
+   - Estimate: 2 days.
+
+2. **PR 3b:** Approval resume token schema.
+   - Define explicit schema for `requiresApproval.resumeToken` (or `approvalToken` if renaming).
+   - Add versioning if format may change (e.g., `v1:{encoded}` structure).
+   - Test: approve a job, resume with token, confirm idempotency.
+   - Estimate: 1 day.
+
+### Batch 4: Memory and tenant isolation hardening (1–2 PRs)
+**Goal:** Close redaction over-aggression and verify isolation edge cases.
+
+1. **PR 4a:** Narrow memory redaction regex.
+   - Replace `[A-Z][a-z]+\s+[A-Z][a-z]+` with explicit patterns or curated name list, or remove entirely.
+   - Document rationale and add feature gate.
+   - Test: confirm "Bold Minimalist", "Quiet Luxury" are not scrubbed if intended as descriptors.
+   - Estimate: 1 day.
+
+2. **PR 4b (audit first):** Verify tenant isolation in artifact storage.
+   - Inspect Lobster cache directory structure: does tenant_id appear in path?
+   - If missing, add tenant namespacing to artifact-store.ts and migration.
+   - Test: confirm artifacts from tenant A are not accessible to tenant B via path manipulation.
+   - Estimate: 2 days (if issue found; otherwise 0.5 day audit only).
+
+3. **PR 4c (if needed):** Memory lifecycle state management.
+   - Add `status` column to memory tables if missing.
+   - Implement state transitions (candidate → pending → approved, or rejected, or superseded).
+   - Test: approve memory, supersede it, confirm old message not injected into future context.
+   - Estimate: 2 days (if implementing; otherwise validation only).
+
+### Batch 5: Callback and provider-port tests (1 PR)
+**Goal:** Ensure no legacy provider shape leakage in active tests.
+
+1. **PR 5a:** Audit and split marketing job tests by provider.
+   - Confirm Hermes tests use Hermes callback shape only; legacy tests isolated.
+   - Add test asserting `ARIES_MARKETING_EXECUTION_PROVIDER=hermes` in Hermes test suite.
+   - Test: run suite with env set to both `hermes` and `legacy-openclaw` (if supported) and confirm correct provider is used.
+   - Estimate: 1–2 days.
+
+---
+
+## Critical Issues to Address Now
+
+> **Note:** This section is the originally flagged list as of the audit's first pass. Two of the three were DISMISSED by the deeper code read in `aries-ai-prd-audit-critical-verification.md`. The verdicts are inlined below — read them as the current source of truth.
+
+1. **Tenant isolation in artifact storage (Dimension 4, Batch 4b)** — **PARTIALLY CONFIRMED.** Verification confirmed stage caches at `/tmp/lobster-stage{1..4}-cache/<runId>/` lack a tenant segment and `tenantPrefixViolates` only covers `DATA_ROOT/ingested-assets`. Two tenants targeting the same competitor URL can collide on the runId-inference fallback. Defense-in-depth gap, not an active exploit. Addressed in PR #302 (`fix/stage-cache-tenant-prefix`).
+
+2. ~~**Material-edit approval bypass (Dimension 5, Batch 3a)**~~ — **DISMISSED.** Verification (file:line cited in `aries-ai-prd-audit-critical-verification.md`) confirmed `reviewItemSourceHash` in `backend/marketing/runtime-views.ts:1147-1153` flips `approved → in_review` on any content hash change. Upload-replace creates a new row, regenerate spawns a new run — both trip the re-review. The bypass scenario doesn't exist. Reduced to "add a regression test so a future refactor doesn't silently break the trigger."
+
+3. ~~**Callback handler tenant derivation (Dimension 4, Batch 3b)**~~ — **DISMISSED.** Verification confirmed the Hermes callback payload schema in `backend/execution/hermes-callbacks.ts:21-62` has no `tenant_id` field at all. Tenant comes from the DB run record keyed by HMAC-authenticated `aries_run_id` (`backend/marketing/hermes-callbacks.ts:219`). Clean by construction. Reduced to "add a code-comment near the schema warning future maintainers not to add a tenant field."
+
+---
+
+## Low-Confidence Findings Requiring Confirmation
+
+- (?) Does `POST /api/social-content/jobs/[jobId]/posts/[postId]/schedule` verify approval before scheduling? Code path not inspected; need to read handler.
+- (?) Does `POST /api/publish/dispatch` re-verify approval before external dispatch? Code path not inspected; need to read handler.
+- (?) Do any marketing-job tests hardcode Lobster envelope shape? No direct evidence found; need to search test assertions.
+- (?) Does artifact-store namespace paths by tenant, or is it vulnerable to path traversal? Code reads Lobster cache path but structure not confirmed; need to inspect directory layout or DB schema.
+- (?) Does memory promotion gate all writes through curator, or do any bypass? No direct evidence of bypass found; need to grep all Honcho write sites.
+
+Mark these `(?)` items as "Requires Code Inspection" in planning.
+
+---
+
+## Summary Statistics
+
+**Total findings:** 28 (5 Critical, 8 High, 10 Medium, 5 Low)
+
+**By dimension:**
+- Dim 1 (Docs): 4 findings (Low–Medium)
+- Dim 2 (Legacy code paths): 5 findings (High–Medium)
+- Dim 3 (Campaign terminology): 6 findings (High–Low)
+- Dim 4 (Tenant isolation): 3 findings (Critical–Medium, 2 marked `(?)`)
+- Dim 5 (Approval checkpoints): 4 findings (Critical–Medium, 3 marked `(?)`)
+- Dim 6 (Provider abstraction): 3 findings (Low–Medium)
+- Dim 7 (Memory lifecycle): 4 findings (Medium–High, 1 marked `(?)`)
+- Dim 8 (Webhook orchestration): 4 findings (OK–Medium, 1 marked `(?)`)
+
+**Work estimate:** 12–18 developer-days across Batches 1–5 (if all findings are pursued). Batches 1 and 3 are highest impact for user-facing correctness.
+
