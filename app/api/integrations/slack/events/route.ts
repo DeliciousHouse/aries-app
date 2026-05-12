@@ -12,7 +12,8 @@
  *   2. Slack retries on non-2xx within 3s. Heavy work on the request path
  *      causes spurious retries that fight idempotency.
  *
- * Idempotency: every Events API delivery has a stable `event.event_id`.
+ * Idempotency: every Events API delivery has a stable top-level `event_id`
+ * (note: top-level on the envelope, NOT inside the inner `event` object).
  * We insert into `slack_event_ids` with `ON CONFLICT DO NOTHING`. Slack also
  * sets `X-Slack-Retry-Num`; we observe it for logging but the event-id table
  * is the source of truth for "have I seen this?".

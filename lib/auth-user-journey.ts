@@ -74,13 +74,12 @@ export async function isTenantOnboardingComplete(
   }
 }
 
-// After the meta-gate softening (see plan 2026-05-12-soften-meta-gate-plan.md),
-// `isTenantReadyForDashboard` returns true for Meta-less tenants as long as
-// their business profile is complete. This function is no longer a
-// Meta-presence signal. As a consequence, the `users.onboarding_completed_at`
-// flip below now means "tenant has a complete business profile and may enter
-// the dashboard" — publishing readiness is a separate concern owned by
-// `tenantNeedsMetaConnection`.
+// After the meta-gate softening, `isTenantReadyForDashboard` returns true for
+// Meta-less tenants as long as their business profile is complete. This
+// function is no longer a Meta-presence signal. As a consequence, the
+// `users.onboarding_completed_at` flip below now means "tenant has a complete
+// business profile and may enter the dashboard" — publishing readiness is a
+// separate concern owned by `tenantNeedsMetaConnection`.
 export async function isTenantReadyForDashboard(
   client: PoolClient,
   tenantId: string | null | undefined,

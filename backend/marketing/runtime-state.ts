@@ -888,6 +888,13 @@ export function markStageRequiresChannelConnection(
   if (!record.started_at) {
     record.started_at = nowIso();
   }
+  // Clear terminal timestamps and errors so a stage transitioning into
+  // requires_channel_connection from a previously completed or failed state
+  // doesn't appear simultaneously completed/failed AND awaiting a connection.
+  // Timeline derivations and status badges both branch on these fields.
+  record.completed_at = null;
+  record.failed_at = null;
+  record.errors = [];
   record.status = 'requires_channel_connection';
   record.summary = input.summary ?? record.summary ?? {
     summary: 'Connect a publishing channel to enable auto-publish.',

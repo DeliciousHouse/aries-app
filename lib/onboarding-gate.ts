@@ -4,11 +4,10 @@ import { getBusinessProfileWithDiagnostics } from '@/backend/tenant/business-pro
 
 export const GATE_REDIRECT_DESTINATION = '/onboarding/start' as const;
 // Deep-link target for the "Connect Meta" CTA on the dashboard nudge banner and
-// the channel-integrations screen. This constant is informational-only now:
-// `evaluateOnboardingGate` no longer redirects to it. The gate softening (see
-// `2026-05-12-soften-meta-gate-plan.md`) turned `meta_not_connected` from a
-// hard redirect reason into a soft UI advisory. The constant stays exported so
-// CTAs and OAuth links keep one canonical URL.
+// the channel-integrations screen. This constant is informational-only:
+// `evaluateOnboardingGate` no longer redirects to it. The gate softening turned
+// `meta_not_connected` from a hard redirect reason into a soft UI advisory.
+// The constant stays exported so CTAs and OAuth links keep one canonical URL.
 export const META_CONNECT_REDIRECT_DESTINATION = '/oauth/connect/facebook' as const;
 
 export const GUARDED_OPERATOR_PATH_PREFIXES: ReadonlyArray<string> = Object.freeze([

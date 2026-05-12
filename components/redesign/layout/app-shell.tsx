@@ -112,9 +112,11 @@ export default async function RedesignAppShell({
         });
       }
 
-      // Run the gate once server-side so the banner has structured advisories
-      // without re-querying. Only meaningful when the user is not being
-      // bounced to onboarding.
+      // Run the gate once per render server-side so the banner gets a
+      // structured advisory list without per-component round-trips. The gate
+      // itself queries (business profile + oauth_connections) — this is the
+      // only place that pays that cost; the banner just consumes the result.
+      // Only meaningful when the user is not being bounced to onboarding.
       if (!shouldRedirectToOnboarding && liveTenantId) {
         try {
           const decision = await evaluateOnboardingGate({ client, tenantId: liveTenantId });
