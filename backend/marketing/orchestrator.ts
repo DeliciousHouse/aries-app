@@ -2098,6 +2098,7 @@ async function resolveMarketingApproval(
       tenantId: input.tenantId,
       resumedStage: null,
       completed: false,
+      approvalId: record?.approval_id ?? approvalRecord.approval_id,
       reason: error instanceof Error ? error.message : String(error),
     };
   }
