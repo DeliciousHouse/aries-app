@@ -611,7 +611,25 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
   const localSaveTimerRef = useRef<number | null>(null);
   const savedIndicatorTimerRef = useRef<number | null>(null);
   const submittingRef = useRef(false);
+  const customGoalInputRef = useRef<HTMLInputElement | null>(null);
+  const previousGoalRef = useRef<string>(goal);
   const deferredWebsiteUrl = useDeferredValue(normalizeHttpsUrlInput(websiteUrl));
+
+  useEffect(() => {
+    const previousGoal = previousGoalRef.current;
+    if (goal === 'Other' && previousGoal !== 'Other') {
+      // Defer to allow the conditional input to mount before focusing.
+      const handle = window.setTimeout(() => {
+        customGoalInputRef.current?.focus();
+      }, 0);
+      previousGoalRef.current = goal;
+      return () => {
+        window.clearTimeout(handle);
+      };
+    }
+    previousGoalRef.current = goal;
+    return undefined;
+  }, [goal]);
 
   const markTouched = useCallback((field: keyof TouchedFields) => {
     setTouched((prev) => (prev[field] ? prev : { ...prev, [field]: true }));
@@ -1878,12 +1896,12 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
                       {goal === 'Other' ? (
                         <div className="space-y-2">
                           <input
+                            ref={customGoalInputRef}
                             value={customGoal}
                             onChange={(event) => setCustomGoal(event.target.value)}
                             onBlur={() => markTouched('customGoal')}
                             className={inputClassForValidity(customGoalValidity)}
                             placeholder="Describe your business outcome goal"
-                            autoFocus
                           />
                           {fieldErrorMessage('customGoal') ? (
                             <p id="onboarding-custom-goal-error" role="alert" className="text-xs text-red-400">
