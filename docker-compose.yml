@@ -31,7 +31,12 @@ services:
       HERMES_GATEWAY_URL: ${HERMES_GATEWAY_URL:-}
       HERMES_API_SERVER_KEY: ${HERMES_API_SERVER_KEY:-}
       HERMES_SESSION_KEY: ${HERMES_SESSION_KEY:-main}
-      HERMES_RUN_TIMEOUT_MS: ${HERMES_RUN_TIMEOUT_MS:-}
+      # 600s default: real Hermes research/strategy stages routinely take
+      # 3-8 min on populated tenants. The 120_000 code-default in
+      # backend/marketing/ports/hermes.ts was tuned for synthetic happy-path
+      # runs and times out before research finishes in prod. Override via
+      # env if a tenant needs longer.
+      HERMES_RUN_TIMEOUT_MS: ${HERMES_RUN_TIMEOUT_MS:-600000}
       HERMES_POLL_INTERVAL_MS: ${HERMES_POLL_INTERVAL_MS:-}
       ARIES_BRAND_ENRICHMENT_ENABLED: ${ARIES_BRAND_ENRICHMENT_ENABLED:-0}
       HERMES_BRAND_ANALYSIS_SESSION_KEY: ${HERMES_BRAND_ANALYSIS_SESSION_KEY:-}
