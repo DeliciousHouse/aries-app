@@ -395,6 +395,17 @@ test('HermesMarketingPort social-content resume includes callback correlation me
       approval_step: 'approve_weekly_plan',
     });
     assert.equal(JSON.stringify(body).includes('raw-internal-secret-must-not-leak'), false);
+    // Hermes /v1/runs requires a non-empty `input` string. Without it,
+    // Hermes returns HTTP 400 "No user message found in input" and the
+    // entire resume call fails (Stage 1 → Stage 2 approval transition
+    // never completes). Regression guard added 2026-05-13.
+    assert.equal(typeof body.input, 'string');
+    assert.ok((body.input as string).length > 0, 'resume payload input must be non-empty');
+    assert.match(body.input as string, /Workflow: social_content_weekly/);
+    assert.match(body.input as string, /Action: resume/);
+    assert.match(body.input as string, /Approval step: approve_weekly_plan/);
+    assert.match(body.input as string, /Resume token: opaque-token-123/);
+    assert.match(body.input as string, /Approved: true/);
   });
 });
 
