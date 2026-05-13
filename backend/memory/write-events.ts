@@ -757,8 +757,10 @@ export function scheduleHermesPublishPerformanceHonchoWrite(input: {
  * patterns ("John Smith") without scrubbing legitimate operator-authored
  * creative descriptors ("Bold Minimalist", "Quiet Luxury", "Dark Academia").
  *
- * Keep entries lower-cased; matching is performed against the first token's
- * lowercased form so casing in the label does not matter.
+ * Keep entries lower-cased. The redactor matches Title-cased tokens
+ * (`[A-Z][a-z]+`) and lowercases the first token before checking it against
+ * this set, so "John Smith" and "Mary Jones" redact but "JOHN SMITH" and
+ * "john smith" do not. Title-case is required by the surrounding regex.
  */
 const COMMON_FIRST_NAMES_V2: ReadonlySet<string> = new Set([
   'john',
