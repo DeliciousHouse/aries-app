@@ -134,7 +134,7 @@ test("social content form submits defaults and navigates to social-content statu
     assert.ok(submitted);
 
     assert.equal(submitted?.get("campaignWindowDays"), "7");
-    assert.equal(submitted?.get("staticPostCount"), "3");
+    assert.equal(submitted?.get("staticPostCount"), "7");
     assert.equal(submitted?.get("imageCreativeCount"), "2");
     assert.equal(submitted?.get("videoScriptCount"), "1");
     assert.equal(submitted?.get("videoRenderCount"), "0");

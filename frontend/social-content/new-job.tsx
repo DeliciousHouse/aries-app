@@ -67,7 +67,7 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
     DEFAULT_FORBIDDEN_VISUAL_PATTERNS.join("\n"),
   );
 
-  const [staticPostCount, setStaticPostCount] = useState(3);
+  const [staticPostCount, setStaticPostCount] = useState(7);
   const [imageCreativeCount, setImageCreativeCount] = useState(2);
   const [videoScriptCount, setVideoScriptCount] = useState(1);
   const [renderVideoAfterApproval, setRenderVideoAfterApproval] = useState(false);

@@ -121,7 +121,7 @@ test('weekly workflow request uses default scope counts/channels', () => {
   assert.equal(request.workflow_key, 'social_content_weekly');
   assert.equal(request.workflow_version, '2026-05-social-content-weekly-v1');
   assert.equal(request.input.scope.window_days, 7);
-  assert.equal(request.input.scope.static_post_count, 3);
+  assert.equal(request.input.scope.static_post_count, 7);
   assert.equal(request.input.scope.image_creative_count, 2);
   assert.equal(request.input.scope.video_script_count, 1);
   assert.equal(request.input.scope.video_render_count, 0);
@@ -235,7 +235,7 @@ test('weekly job status defaults to a 7-day calendar and keeps events in range',
     );
 
     assert.equal(status.durationDays, 7);
-    assert.equal(status.plannedPostCount, 4);
+    assert.equal(status.plannedPostCount, 8);
     assert.equal(weeklyEvents.length, status.calendarEvents.length);
     assert.equal(weeklyEvents.every((event) => event.dayIndex >= 1 && event.dayIndex <= 7), true);
     assert.equal(dashboardWeeklyCreativeReadyCount(weeklyEvents), 0);
