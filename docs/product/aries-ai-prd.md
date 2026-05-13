@@ -979,6 +979,8 @@ The intended weekly social content lifecycle:
 12. **Dispatch:** Aries sends approved payloads to external platforms.
 13. **Completion:** Aries records final statuses and exposes results.
 
+**Implementation note (v0.1.2.7 — poll-bridge):** The lifecycle above describes the intended callback-native model. In the current runtime, Hermes `/v1/runs` does not invoke the `callback_url` field submitted with the request — it is a polling API only. `HermesMarketingPort` compensates with a poll-bridge: after submitting a run, it spawns a background task that polls `GET /v1/runs/{id}` until the run reaches a terminal status, then calls `handleHermesRunCallback` in-process (bypassing the HTTP route, since we are already inside the trusted backend). This makes step 6 above (Callback Validation) execute in-process rather than over HTTP. The behavioral contract is identical; the transport is different. The poll-bridge is enabled by default and can be disabled with `HERMES_POLL_BRIDGE_ENABLED=0` (e.g., in tests that supply their own callback). See `backend/marketing/ports/hermes.ts` for the implementation.
+
 ### 9.5 Research Workflow Stages
 
 The intended bounded research lifecycle:
@@ -1659,8 +1661,9 @@ Known validation work that should remain visible until resolved:
 - social content dashboard hydration and runtime projection tests should remain active;
 - public surface contract tests should be aligned with current user-facing routes;
 - environment-coupled tests should be isolated or clearly marked;
-- Honcho memory integration requires production-hardening verification before live use;
-- Hermes `aries-research` profile coordination remains a separate execution-provider task.
+- Honcho memory integration requires production-hardening verification before live use — **still open** as of 2026-05-13; see §16.1;
+- Hermes `aries-research` profile coordination remains a separate execution-provider task — **still open** as of 2026-05-13; see §16.2;
+- stage-cache tenant prefix isolation gap (lobster stage caches lacked tenant path segment) — **addressed in PR #302** (`fix/stage-cache-tenant-prefix`); regression test still recommended (see `docs/audits/2026-05-12-prd-audit-critical-verification.md` Finding 1).
 
 ### 15.6 Protected Operational Areas
 
@@ -1710,6 +1713,8 @@ Open question:
 - Which route manifests are fully current for social-content versus legacy marketing routes?
 
 Risk: older route contracts and marketing pipeline documents may preserve historical terminology. Active PRD and implementation should prefer current README/runtime/tests over deprecated compatibility docs.
+
+**Known active gap (2026-05-13):** The codebase contains 150+ files using `campaign` in route paths (e.g., `/campaigns/`, `/dashboard/campaigns/`), API endpoints, database identifiers, and hook names. This PRD uses "posts," "social content," and "jobs" as the canonical product terms. The `campaign` terminology is a known cleanup backlog item (Audit Batch 1 — L effort, separate initiative). Contributors should treat `campaign`-labeled identifiers as legacy naming for the same concepts this PRD calls "social content jobs" or "posts" — they are not contradictory design intent. The rename has not been executed; do not infer from the route names that "campaign" is the product concept.
 
 ### 16.4 Legacy Execution Leakage
 
@@ -1861,6 +1866,10 @@ Current rule: Aries product workflows must use provider abstraction. Vendor-spec
 Older enrichment paths may use short synchronous polling. This is acceptable only for short, bounded operations or tests. Multi-minute workflows should be callback-based.
 
 Current rule: long-running jobs use fire-and-forget submission with authenticated callbacks.
+
+### 19.5 "Campaign" Terminology in Routes and Database Identifiers
+
+The codebase retains `campaign` in route paths, database table names, API endpoints, React hooks, and component names throughout — a legacy of the older brand-campaign / Meta Ads pipeline described in §19.2. This PRD uses "social content," "posts," and "jobs" as the canonical terms for the same concepts. The discrepancy is a known cleanup backlog item (Audit Batch 1, estimated L effort), not an architectural contradiction. Contributors reading route names like `/campaigns/` or hook names like `use-runtime-campaigns` should map them mentally to "social content jobs" as described in §3, §5, and §9. The rename has not been executed as of 2026-05-13; a separate initiative is required. See §16.3 for the open-questions framing.
 
 ---
 

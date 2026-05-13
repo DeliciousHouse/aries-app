@@ -1,9 +1,11 @@
+> **Historical Verification — 2026-05-12. Read alongside [2026-05-12-prd-audit.md](2026-05-12-prd-audit.md). See [aries-ai-prd.md](../product/aries-ai-prd.md) for the living PRD.**
+
 # Critical Findings Verification — 2026-05-12
 
 Read-only verification of three `(?)` critical findings against the actual
 source at `/home/node/docker-stack/aries-app`. No files were modified.
 
-Note: at write time, the referenced source doc `docs/product/aries-ai-prd-audit.md`
+Note: at write time, the referenced source doc `docs/audits/2026-05-12-prd-audit.md`
 did not yet exist in the repo (the verification agent ran in a separate worktree
 from the agent that wrote the audit). Both docs are now landing together in this
 PR. Verdicts below were based on the claims supplied in the verification request

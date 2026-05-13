@@ -2092,7 +2092,15 @@ async function resolveMarketingApproval(
         reason: record.last_error.message,
       });
     }
-    handleFailure(doc, checkpoint.stage, error);
+    return {
+      status: 'error',
+      jobId: input.jobId,
+      tenantId: input.tenantId,
+      resumedStage: null,
+      completed: false,
+      approvalId: record?.approval_id ?? approvalRecord.approval_id,
+      reason: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 

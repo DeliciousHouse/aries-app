@@ -553,7 +553,24 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         approvalStepFromWorkflowStepId(input.workflowStepId ?? '') ??
         null;
       const idempotencyKey = generateIdempotencyKey(ariesRunId, SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY, input.tenantId ?? '');
+      // Hermes /v1/runs requires `input` to be a non-empty string (OpenAI-style
+      // chat-completions API). Without it, Hermes returns HTTP 400 with
+      // "No user message found in input" and the resume call fails.
+      const resumePrompt = [
+        `Workflow: ${SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY}`,
+        'Action: resume',
+        `Aries run ID: ${ariesRunId}`,
+        `Approval step: ${approvalStep ?? ''}`,
+        `Resume token: ${input.resumeToken ?? ''}`,
+        `Approved: ${input.approve === true}`,
+        `Job ID: ${input.jobId ?? ''}`,
+        `Tenant ID: ${input.tenantId ?? ''}`,
+        `Approval ID: ${input.approvalId ?? ''}`,
+      ].join('\n');
       return {
+        input: resumePrompt,
+        instructions: this.instructions(SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY),
+        session_id: this.sessionKey(),
         workflow_key: SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
         action: 'resume',
         aries_run_id: ariesRunId,
