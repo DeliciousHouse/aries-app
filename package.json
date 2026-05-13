@@ -1,6 +1,6 @@
 {
   "name": "aries-platform-bootstrap-runtime",
-  "version": "0.1.2.8",
+  "version": "0.1.2.9",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 --turbopack",
