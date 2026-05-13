@@ -24,6 +24,7 @@ import {
 import { createMarketingJobFacts, type MarketingJobFacts } from './job-facts';
 import { recordMatchesCurrentSource, sourceFingerprintFromRecord } from './brand-identity';
 import { sanitizeBrandKitSummaryText } from './brand-kit';
+import { buildSocialContentDashboardProjection } from '@/backend/social-content/dashboard-projection';
 import { getMarketingDashboardCampaignContent } from './dashboard-content';
 import { loadMarketingJobRuntime, listMarketingJobIdsForTenant, type MarketingJobRuntimeDocument } from './runtime-state';
 import {
@@ -1260,7 +1261,7 @@ export async function buildCampaignWorkspaceView(jobId: string): Promise<Campaig
     payload: recordValue(runtimeDoc.inputs.request) || {},
   });
   const facts = createMarketingJobFacts(runtimeDoc, null);
-  const rawDashboard = await getMarketingDashboardCampaignContent(jobId);
+  const rawDashboard = buildSocialContentDashboardProjection(runtimeDoc, await getMarketingDashboardCampaignContent(jobId));
   const payloads = await loadStagePayloadBundle(runtimeDoc, facts);
   const realBrandArtifactsReady = hasRealBrandArtifacts(payloads);
   const hasUploadedBrandAssets = uploadedBrandAssets(record);
