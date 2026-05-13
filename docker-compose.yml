@@ -124,7 +124,6 @@ services:
     volumes:
       - ${ARIES_SHARED_DATA_ROOT:-/home/node/data}:/data
       - ${ARIES_LOBSTER_HOST_OUTPUT_DIR:-/home/node/aries-app/lobster/output}:${ARIES_LOBSTER_HOST_OUTPUT_MOUNT:-/host-lobster-output}:ro
-      - gh_config:/home/node/.config/gh
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:${PORT:-3000}/ >/dev/null"]
@@ -139,7 +138,3 @@ networks:
     external: true
     name: docker-stack
 
-volumes:
-  gh_config:
-    name: aries-app_gh_config
-    external: true
