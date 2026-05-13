@@ -20,9 +20,10 @@ Last refreshed May 4, 2026, 16:00 UTC.
 - Repo context and automation output should stay scoped to `aries-app` only.
 
 ### Provider Compatibility (Legacy)
-- The legacy OpenClaw/Lobster adapter is **opt-in only**, kept for backward-compatibility and not used in active workflows.
+- The legacy OpenClaw/Lobster adapter is **opt-in only** and not used by default. It is kept for backward-compatibility on flows that have not yet been migrated.
 - Enable explicitly with `ARIES_EXECUTION_PROVIDER=legacy-openclaw` (general execution) or `ARIES_MARKETING_EXECUTION_PROVIDER=legacy-openclaw` (marketing). When unset, Hermes is selected.
-- The legacy adapter is reserved for onboarding or `brand_campaign` compatibility paths that have not yet been migrated. New code should not depend on it.
+- `ARIES_MARKETING_EXECUTION_PROVIDER=legacy-openclaw` only affects the legacy `brand_campaign` compatibility flow. The `weekly_social_content` job type is Hermes-only regardless of this setting — the provider is chosen by job type, not env var.
+- The legacy adapter is reserved for onboarding or `brand_campaign` compatibility paths. New code should not depend on it.
 
 ## Module inventory
 - app/ 130 files
