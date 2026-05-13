@@ -970,6 +970,28 @@ export class HermesMarketingPort implements MarketingExecutionPort {
   }
 
   private instructions(workflowKey: string): string {
+    if (workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY) {
+      // QA 2026-05-13: weekly social content is an approval-gated 4-stage
+      // pipeline. Each stage (research → strategy → production → publish)
+      // returns to the dashboard for operator review before the next stage
+      // fires. The default-permissive instruction (status:"completed" with an
+      // optional requires_approval) regressed Hermes into emitting
+      // status:"completed" after research, which Aries treats as
+      // pipeline-done — bypassing the brand/strategy/creative review gates.
+      // Encode the contract explicitly so the gate fires after every stage.
+      return [
+        'You are the Aries marketing execution agent driving the weekly social content pipeline.',
+        'Reply with a single strict JSON object only — no prose, no markdown fences.',
+        'This is an approval-gated 4-stage pipeline: research → strategy → production → publish.',
+        'After completing the research stage, return status "requires_approval" with approval.stage="brand", approval.workflowStepId="strategy", approval.prompt="Review research findings before strategy starts", approval.resumeToken set, and output:[{stage:"research", ...artifacts}].',
+        'After completing the strategy stage on resume, return status "requires_approval" with approval.stage="strategy", approval.workflowStepId="production", approval.prompt="Review strategy before production starts", and output:[{stage:"strategy", ...artifacts}].',
+        'After completing the production stage on resume, return status "requires_approval" with approval.stage="creative", approval.workflowStepId="publish", approval.prompt="Review creative assets before publish review", and output:[{stage:"production", ...artifacts}].',
+        'After completing the publish stage on resume, return status "requires_approval" with approval.stage="publish", approval.workflowStepId="publish_review", approval.prompt="Approve to publish the weekly social content", and output:[{stage:"publish", ...artifacts}].',
+        'Only return status "completed" after the publish-review approval has been granted on the final resume call.',
+        `Required schema when returning a checkpoint: {"ok":true,"status":"requires_approval","workflowKey":"${workflowKey}","approval":{"stage":"...","workflowStepId":"...","prompt":"...","resumeToken":"..."},"output":[{...}]}.`,
+        `Required schema when terminal: {"ok":true,"status":"completed","workflowKey":"${workflowKey}","output":[{...}]}.`,
+      ].join(' ');
+    }
     return [
       'You are the Aries marketing execution agent.',
       'Reply with a single strict JSON object only — no prose, no markdown fences.',
