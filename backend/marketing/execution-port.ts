@@ -3,7 +3,11 @@ import type { MarketingJobRuntimeDocument, MarketingStage, MarketingStageArtifac
 import type { SocialContentApprovalStep } from '@/backend/social-content/types';
 
 /**
- * Hermes-native execution contract for the social-content workflow.
+ * Hermes-native execution contract for the marketing and social-content
+ * workflows. This module is kept free of legacy OpenClaw references so it can
+ * be safely imported by social-content routes without pulling in deprecated
+ * dependencies. Provider selection and fail-fast validation for the broader
+ * orchestrator live in backend/marketing/provider-guard.ts.
  */
 export type MarketingExecutionPortName = 'hermes';
 
@@ -49,8 +53,20 @@ export type MarketingPipelineRunInput = {
   jobId: string;
   doc: MarketingJobRuntimeDocument;
   argsJson: string;
-  timeoutMs: number;
-  maxStdoutBytes: number;
+  /**
+   * Optional timeout override consumed by the legacy OpenClaw adapter only.
+   * The Hermes port does not honor this field today — Hermes timeouts are
+   * controlled by HERMES_RUN_TIMEOUT_MS at the port level. When omitted,
+   * each port resolves its own provider-appropriate default
+   * (OPENCLAW_MARKETING_WORKFLOW_TIMEOUT_MS for legacy OpenClaw).
+   */
+  timeoutMs?: number;
+  /**
+   * Optional stdout cap override consumed by the legacy OpenClaw adapter only.
+   * The Hermes port does not use this field. When omitted, the legacy adapter
+   * resolves OPENCLAW_MARKETING_WORKFLOW_MAX_STDOUT_BYTES.
+   */
+  maxStdoutBytes?: number;
   /**
    * When set, scopes the new aries_run to a single creative regeneration
    * instead of a full pipeline. Hermes uses this to redo just the targeted
@@ -63,8 +79,10 @@ export type MarketingPipelineRunInput = {
 export type MarketingPipelineResumeInput = {
   resumeToken: string;
   approve: boolean;
-  timeoutMs: number;
-  maxStdoutBytes: number;
+  /** Optional timeout override; see MarketingPipelineRunInput.timeoutMs. */
+  timeoutMs?: number;
+  /** Optional stdout cap override; see MarketingPipelineRunInput.maxStdoutBytes. */
+  maxStdoutBytes?: number;
   tenantId?: string | null;
   jobId?: string | null;
   approvalId?: string | null;
