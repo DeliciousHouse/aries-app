@@ -335,12 +335,20 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     }
 
     if (!response.ok) {
+      const responseBody = await response.text().catch(() => '');
+      console.error('[hermes-port] gateway-rejected', {
+        status: response.status,
+        aries_run_id: run.aries_run_id,
+        response_body: responseBody.slice(0, 1000),
+        payload_keys: Object.keys(payload),
+        idempotency_key_present: idempotencyKey.length > 0,
+      });
       const message = `Hermes gateway returned HTTP ${response.status} on /v1/runs.`;
       markSubmissionFailed(run.aries_run_id, 'hermes_gateway_request_failed', message);
       return gatewayErrorResult(
         'hermes_gateway_request_failed',
         message,
-        { status: response.status, aries_run_id: run.aries_run_id },
+        { status: response.status, aries_run_id: run.aries_run_id, body: responseBody.slice(0, 200) },
         workflowKey,
       );
     }
