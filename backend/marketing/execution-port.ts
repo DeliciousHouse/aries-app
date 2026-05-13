@@ -54,14 +54,17 @@ export type MarketingPipelineRunInput = {
   doc: MarketingJobRuntimeDocument;
   argsJson: string;
   /**
-   * Optional timeout override. When omitted, each port resolves its own
-   * provider-appropriate default (e.g. HERMES_RUN_TIMEOUT_MS for Hermes,
-   * OPENCLAW_MARKETING_WORKFLOW_TIMEOUT_MS for the legacy OpenClaw adapter).
+   * Optional timeout override consumed by the legacy OpenClaw adapter only.
+   * The Hermes port does not honor this field today — Hermes timeouts are
+   * controlled by HERMES_RUN_TIMEOUT_MS at the port level. When omitted,
+   * each port resolves its own provider-appropriate default
+   * (OPENCLAW_MARKETING_WORKFLOW_TIMEOUT_MS for legacy OpenClaw).
    */
   timeoutMs?: number;
   /**
-   * Optional stdout cap override. When omitted, each port resolves its own
-   * provider-appropriate default. The Hermes port does not use this field.
+   * Optional stdout cap override consumed by the legacy OpenClaw adapter only.
+   * The Hermes port does not use this field. When omitted, the legacy adapter
+   * resolves OPENCLAW_MARKETING_WORKFLOW_MAX_STDOUT_BYTES.
    */
   maxStdoutBytes?: number;
   /**

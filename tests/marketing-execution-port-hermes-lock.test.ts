@@ -181,3 +181,33 @@ test('LegacyOpenClawMarketingPort defaults agent_id to "main" when OPENCLAW_SESS
 
   assert.equal(port.resolveSessionKey(), 'main');
 });
+
+// ---------------------------------------------------------------------------
+// PR #310 review feedback (Copilot): social-content must fail fast against the
+// Hermes env shape even when the operator has explicitly opted into
+// legacy-openclaw at the env level. Weekly social-content is Hermes-only.
+// ---------------------------------------------------------------------------
+
+test('assertMarketingExecutionPortConfigured throws for social-content when legacy is opted in but Hermes is unset', () => {
+  // Simulate the orchestrator passing a forced provider='hermes' for social-content
+  // even though the operator's env says legacy-openclaw — Hermes env must still be
+  // validated against an actual HERMES_GATEWAY_URL.
+  const env = {
+    ARIES_MARKETING_EXECUTION_PROVIDER: 'hermes',
+    // HERMES_GATEWAY_URL intentionally missing
+  };
+  assert.throws(
+    () => assertMarketingExecutionPortConfigured(env),
+    /HERMES_GATEWAY_URL is required/,
+  );
+});
+
+test('assertMarketingExecutionPortConfigured passes for social-content when provider is forced to hermes and gateway is set', () => {
+  const env = hermesEnv({
+    // Operator opted into legacy at env level...
+    ARIES_MARKETING_EXECUTION_PROVIDER: 'legacy-openclaw',
+  });
+  // ...but the orchestrator overrides to hermes for social-content; this must pass.
+  const forced = { ...env, ARIES_MARKETING_EXECUTION_PROVIDER: 'hermes' };
+  assert.doesNotThrow(() => assertMarketingExecutionPortConfigured(forced));
+});

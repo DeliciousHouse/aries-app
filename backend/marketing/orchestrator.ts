@@ -486,22 +486,28 @@ function marketingStageFromSocialApprovalStep(step: SocialContentApprovalStep): 
 }
 
 function resolveMarketingExecutionPortForDoc(doc: MarketingJobRuntimeDocument): MarketingExecutionPort {
-  // Fail fast: ensure the environment is configured for at least one provider
-  // before attempting execution. This surfaces misconfigured deployments with a
-  // clear error rather than a silent Hermes configuration-error result buried
-  // in the response. Social-content is Hermes-only and always requires this check.
-  assertMarketingExecutionPortConfigured(process.env);
-
-  const providerName = resolveMarketingProviderName(process.env);
+  const jobType = requestedJobTypeFromDoc(doc);
 
   // Weekly social-content is Hermes-only regardless of the general provider
   // setting. The legacy path does not support social-content workflows.
-  if (requestedJobTypeFromDoc(doc) === 'weekly_social_content') {
+  // Validate against the Hermes-only env shape FIRST so an operator who set
+  // ARIES_MARKETING_EXECUTION_PROVIDER=legacy-openclaw but ran a social-content
+  // job sees a clear fail-fast error instead of a buried Hermes config-error
+  // result at call time.
+  if (jobType === 'weekly_social_content') {
+    assertMarketingExecutionPortConfigured({
+      ...process.env,
+      ARIES_MARKETING_EXECUTION_PROVIDER: 'hermes',
+    });
     return getMarketingExecutionPort(() => {
       const { gatewayCwd, localCwd } = resolveMarketingPipelineRuntimePaths();
       return { gatewayCwd, localCwd };
     });
   }
+
+  // Brand-campaign / legacy path: standard guard honors the env opt-in.
+  assertMarketingExecutionPortConfigured(process.env);
+  const providerName = resolveMarketingProviderName(process.env);
 
   if (providerName === 'legacy-openclaw') {
     return new LegacyOpenClawMarketingPort(() => {
@@ -1851,7 +1857,11 @@ async function resolveMarketingApproval(
         traceId: currentRecord.trace_id,
         tokenFingerprint: currentRecord.execution_resume_token_fingerprint,
         tokenStateKeys: currentRecord.execution_resume_state_keys,
-        provider: resolveMarketingProviderName(process.env),
+        // Weekly social-content is Hermes-only regardless of env, so the log
+        // must mirror the actual port. Brand-campaign uses the provider env.
+        provider: requestedJobTypeFromDoc(doc) === 'weekly_social_content'
+          ? 'hermes'
+          : resolveMarketingProviderName(process.env),
       });
 
       const applyResolution = async (

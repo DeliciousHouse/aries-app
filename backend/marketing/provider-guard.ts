@@ -32,11 +32,18 @@ export function resolveMarketingProviderName(
 /**
  * Throw a descriptive error when the execution environment is misconfigured.
  *
- * On the default Hermes path, HERMES_GATEWAY_URL must be present. If neither
- * Hermes is configured nor an explicit legacy-openclaw opt-in is set, we fail
- * fast rather than silently returning a configuration-error embedded in the
- * execution result (which would surface as a runtime marketing job failure
- * with no operator-visible explanation at startup time).
+ * Scope: this is a narrow *startup-time* guard that only validates
+ * HERMES_GATEWAY_URL on the default Hermes path. The full set of Hermes env
+ * (HERMES_API_SERVER_KEY, INTERNAL_API_SECRET, APP_BASE_URL) is intentionally
+ * not checked here — those are validated inside HermesMarketingPort at call
+ * time so port-level config bugs surface as a typed runtime error with
+ * provider context rather than a misleading "your env is broken" message at
+ * orchestrator boot.
+ *
+ * If neither Hermes is configured nor an explicit legacy-openclaw opt-in is
+ * set, we fail fast rather than silently returning a configuration-error
+ * embedded in the execution result (which would surface as a runtime
+ * marketing job failure with no operator-visible explanation).
  */
 export function assertMarketingExecutionPortConfigured(
   env: ProviderEnv = process.env,
