@@ -26,8 +26,8 @@ from _stage1_common import (
 from _canonical_outputs import competitor_output_paths, write_json, write_text
 
 
-COMPETITOR_URL_SOCIAL_ERROR = "competitor_url must be the competitor's website, not a Facebook or Ad Library URL"
-COMPETITOR_URL_INVALID_ERROR = "competitor_url must be a valid HTTPS website URL"
+COMPETITOR_URL_SOCIAL_ERROR = "Competitor website must point to the competitor's site, not a Facebook or Ad Library URL"
+COMPETITOR_URL_INVALID_ERROR = "Competitor website must be a valid HTTPS URL"
 META_HOST_SUFFIXES = ("facebook.com", "fb.com", "instagram.com")
 LOCAL_BLOCKLIST = ("localhost", "127.0.0.1", "0.0.0.0", "[::]", "[::1]")
 IPV4_HOST_PATTERN = re.compile(r"^(\d{1,3}\.){3}\d{1,3}$")

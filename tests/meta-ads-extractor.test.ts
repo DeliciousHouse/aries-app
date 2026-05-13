@@ -295,7 +295,7 @@ test('meta-ads-extractor rejects Facebook page URLs in competitor_url', () => {
     });
 
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr || result.stdout, /competitor_url must be the competitor's website, not a Facebook or Ad Library URL/);
+    assert.match(result.stderr || result.stdout, /Competitor website must point to the competitor's site, not a Facebook or Ad Library URL/);
   });
 });
 
@@ -317,7 +317,7 @@ test('meta-ads-extractor rejects Ad Library URLs in competitor_url', () => {
     });
 
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr || result.stdout, /competitor_url must be the competitor's website, not a Facebook or Ad Library URL/);
+    assert.match(result.stderr || result.stdout, /Competitor website must point to the competitor's site, not a Facebook or Ad Library URL/);
   });
 });
 
