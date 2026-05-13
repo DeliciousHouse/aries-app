@@ -5,8 +5,8 @@ const LOCAL_BLOCKLIST = ['localhost', '127.0.0.1', '0.0.0.0', '[::]', '[::1]'] a
 const IPV4_HOST_PATTERN = /^(\d{1,3}\.){3}\d{1,3}$/;
 
 export const COMPETITOR_URL_SOCIAL_ERROR =
-  "competitor_url must be the competitor's website, not a Facebook or Ad Library URL";
-export const COMPETITOR_URL_INVALID_ERROR = 'competitor_url must be a valid HTTPS website URL';
+  "Competitor website must point to the competitor's site, not a Facebook or Ad Library URL";
+export const COMPETITOR_URL_INVALID_ERROR = 'Competitor website must be a valid HTTPS URL';
 
 function trimString(value: string | null | undefined): string | null {
   const trimmed = typeof value === 'string' ? value.trim() : '';

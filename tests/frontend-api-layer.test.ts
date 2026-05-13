@@ -492,7 +492,7 @@ test('/api/marketing/jobs rejects Facebook URLs in competitorUrl with a precise 
     const body = (await response.json()) as Record<string, unknown>;
 
     assert.equal(response.status, 400);
-    assert.equal(body.error, "competitor_url must be the competitor's website, not a Facebook or Ad Library URL");
+    assert.equal(body.error, "Competitor website must point to the competitor's site, not a Facebook or Ad Library URL");
   });
 });
 

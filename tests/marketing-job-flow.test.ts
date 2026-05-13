@@ -221,7 +221,7 @@ test('startMarketingJob rejects Facebook URLs in the canonical competitor field'
             competitorUrl: 'https://www.facebook.com/betterupco',
           },
         }),
-      /competitor_url must be the competitor's website, not a Facebook or Ad Library URL/,
+      /Competitor website must point to the competitor's site, not a Facebook or Ad Library URL/,
     );
   });
 });

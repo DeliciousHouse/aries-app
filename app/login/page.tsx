@@ -1,4 +1,5 @@
 import { Suspense } from 'react';
+import { redirect } from 'next/navigation';
 
 import AuthLayout from '../../frontend/auth/auth-layout';
 import LoginPageClient from './page-client';
@@ -7,7 +8,36 @@ export const metadata = {
   title: 'Sign in — Aries AI',
 };
 
-export default function LoginPage() {
+type SearchParamValue = string | string[] | undefined;
+
+function firstParamValue(value: SearchParamValue): string | null {
+  if (Array.isArray(value)) {
+    return value[0] ?? null;
+  }
+  return value ?? null;
+}
+
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, SearchParamValue>>;
+}) {
+  const resolvedParams = (await searchParams) ?? {};
+  const draftSaved = firstParamValue(resolvedParams.draftSaved);
+  const callbackUrl = firstParamValue(resolvedParams.callbackUrl);
+
+  if (draftSaved === '1' && callbackUrl && callbackUrl.startsWith('/onboarding/resume')) {
+    const forwarded = new URLSearchParams();
+    for (const [key, raw] of Object.entries(resolvedParams)) {
+      const values = Array.isArray(raw) ? raw : raw === undefined ? [] : [raw];
+      for (const value of values) {
+        forwarded.append(key, value);
+      }
+    }
+    const query = forwarded.toString();
+    redirect(`/signup${query ? `?${query}` : ''}`);
+  }
+
   return (
     <Suspense
       fallback={
