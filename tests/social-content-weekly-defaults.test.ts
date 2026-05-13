@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { buildSocialContentDashboardProjection } from '@/backend/social-content/dashboard-projection';
+import { parseSocialContentWorkflowOutput } from '@/backend/social-content/runtime-state';
 import { normalizeWeeklySocialContentPayload } from '@/backend/social-content/payload';
 import { buildSocialContentWeeklyRequest } from '@/backend/social-content/workflow-request';
 import type { SocialContentCalendarEvent } from '@/backend/marketing/jobs-status';
@@ -881,4 +882,41 @@ test('social content dashboard projection keeps rich weekly output when a later 
   assert.equal(JSON.stringify(dashboard).includes('api_key'), false);
   assert.equal(JSON.stringify(dashboard).includes('dashboardTextSecret123'), false);
   assert.equal(JSON.stringify(dashboard).includes('tenant_dashboard_partial_stage'), false);
+});
+
+test('parseSocialContentWorkflowOutput accepts camelCase weeklyPlan key from Hermes', () => {
+  const hermesOutput = {
+    summary: 'Weekly plan ready.',
+    weeklyPlan: {
+      window_days: 7,
+      posts: [
+        {
+          day: 'Day 1',
+          platforms: ['instagram'],
+          post_type: 'static',
+          title: 'Post one',
+          caption: 'Caption one.',
+          creative_brief_id: 'image-one',
+          status: 'approved',
+        },
+      ],
+      image_creatives: [
+        {
+          id: 'image-one',
+          title: 'Creative one',
+          aspect_ratio: '4:5',
+          prompt: 'A prompt.',
+          status: 'generated',
+          artifact_url: '',
+        },
+      ],
+      video_scripts: [],
+    },
+  };
+
+  const projection = parseSocialContentWorkflowOutput(hermesOutput);
+  assert.notEqual(projection, null);
+  assert.equal(projection!.weekly_content_plan.posts.length, 1);
+  assert.equal(projection!.weekly_content_plan.window_days, 7);
+  assert.equal(projection!.weekly_content_plan.image_creatives.length, 1);
 });

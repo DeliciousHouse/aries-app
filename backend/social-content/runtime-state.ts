@@ -672,7 +672,8 @@ export function parseSocialContentWorkflowOutput(value: unknown): SocialContentW
   const record = asRecord(value);
   if (!record) return null;
 
-  const planRecord = asRecord(record.weekly_content_plan);
+  const weeklyContentPlan = record.weekly_content_plan ?? record.weeklyPlan;
+  const planRecord = asRecord(weeklyContentPlan);
   if (!planRecord) return null;
 
   return {
