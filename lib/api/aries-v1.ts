@@ -25,6 +25,14 @@ export type AriesCampaignStatus =
   | 'changes_requested'
   | 'rejected';
 
+/**
+ * Execution-level state of the underlying marketing job. Mirrors the runtime
+ * doc's `state` field so the gate layer can distinguish a genuinely running
+ * job from a terminal one that happens to carry a `draft` workflow status.
+ * Terminal states: 'completed' | 'failed' | 'failed_stale'.
+ */
+export type RuntimeCampaignExecutionState = string;
+
 export type RuntimeCampaignListItem = {
   id: string;
   jobId: string;
@@ -33,6 +41,10 @@ export type RuntimeCampaignListItem = {
   funnelStage: string | null;
   status: AriesCampaignStatus;
   dashboardStatus: AriesItemStatus;
+  /** Raw execution state from the marketing job runtime doc (e.g. 'running',
+   * 'failed', 'completed'). Use this to distinguish a live in-flight run from
+   * a terminal run that still shows a `draft` workflow status. */
+  executionState: RuntimeCampaignExecutionState;
   stageLabel: string;
   summary: string;
   dateRange: string;

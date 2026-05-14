@@ -78,6 +78,11 @@ export type RuntimeCampaignListItem = {
   funnelStage: string | null;
   status: RuntimeCampaignStatus;
   dashboardStatus: MarketingDashboardItemStatus;
+  /** Raw execution state from the marketing job runtime doc (e.g. 'running',
+   * 'failed', 'completed'). Carried through to the API response so the
+   * Generate gate can distinguish a live in-flight run from a terminal run
+   * whose workflow status still reads as 'draft'. */
+  executionState: string;
   stageLabel: string;
   summary: string;
   dateRange: string;
@@ -425,7 +430,13 @@ function campaignName(status: MarketingJobStatusResponse, view: CampaignWorkspac
 }
 
 function campaignObjective(status: MarketingJobStatusResponse, view: CampaignWorkspaceView): string {
-  return view.dashboard.campaign?.objective || status.summary.headline || 'Campaign in progress';
+  // Avoid showing "Campaign in progress" for terminal-failed runs — they are
+  // no longer in progress and the operator needs to start a fresh run.
+  const terminalFallback =
+    status.state === 'failed' || status.state === 'failed_stale'
+      ? 'Run failed — start a new weekly run to continue.'
+      : 'Campaign in progress';
+  return view.dashboard.campaign?.objective || status.summary.headline || terminalFallback;
 }
 
 function buildCampaignListItem(
@@ -442,6 +453,10 @@ function buildCampaignListItem(
     funnelStage: dashboardCampaign?.funnelStage || null,
     status: runtimeStatusFromWorkflowState(view.workflowState, dashboardCampaign?.status || null),
     dashboardStatus: dashboardCampaign?.status || 'draft',
+    // Carry the raw execution state so the Generate gate can distinguish a
+    // genuinely running job from a terminal one whose workflow status is still
+    // 'draft' (e.g. a failed run that never advanced to any review state).
+    executionState: status.state,
     stageLabel: dashboardCampaign?.stageLabel || status.currentStage || 'campaign',
     summary: dashboardCampaign?.summary || status.summary.subheadline || 'Campaign status is available for review.',
     dateRange: dashboardCampaign ? dashboardDateRangeText(dashboardCampaign.campaignWindow) : 'Dates not scheduled yet',

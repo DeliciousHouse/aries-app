@@ -47,6 +47,7 @@ function buildCampaign(
     funnelStage: 'Conversion',
     status: 'approved',
     dashboardStatus: 'ready_to_publish',
+    executionState: 'completed',
     stageLabel: 'production',
     summary: 'Proof-led launch campaign.',
     dateRange: 'Dates not scheduled yet',
@@ -200,6 +201,8 @@ test('a draft dashboard campaign counts as in-progress and outranks all other ga
         status: 'draft',
         dashboardStatus: 'draft',
         approvalRequired: false,
+        // executionState 'running' is a genuinely active run — must block.
+        executionState: 'running',
       },
     ],
   });
@@ -217,6 +220,7 @@ test('an in_review campaign counts as in-progress', () => {
         status: 'in_review',
         dashboardStatus: 'in_review',
         approvalRequired: false,
+        executionState: 'approval_required',
       },
     ],
   });
@@ -233,6 +237,7 @@ test('approvalRequired alone counts as in-progress even when statuses are termin
         status: 'approved',
         dashboardStatus: 'ready_to_publish',
         approvalRequired: true,
+        executionState: 'awaiting_approval',
       },
     ],
   });
@@ -249,16 +254,83 @@ test('a fully live or scheduled campaign does NOT block another generation', () 
         status: 'live',
         dashboardStatus: 'live',
         approvalRequired: false,
+        executionState: 'completed',
       },
       {
         status: 'scheduled',
         dashboardStatus: 'scheduled',
         approvalRequired: false,
+        executionState: 'completed',
       },
     ],
   });
   assert.equal(state.gate, 'ready');
   assert.equal(state.enabled, true);
+});
+
+test('a failed run does NOT count as in-progress — Generate gate must be ready', () => {
+  // This is the production bug: a failed run had executionState 'failed' but
+  // its workflow status fell back to 'draft', causing isInProgressCampaign to
+  // return true. The operator was permanently blocked from starting a new run.
+  const state = evaluateGenerateThisWeekGate({
+    profile: buildProfile(),
+    integrationCards: [buildIntegration()],
+    campaigns: [
+      {
+        status: 'draft',
+        dashboardStatus: 'draft',
+        approvalRequired: false,
+        executionState: 'failed',
+      },
+    ],
+  });
+  assert.equal(state.gate, 'ready');
+  assert.equal(state.enabled, true);
+  assert.equal(state.inProgress, false);
+  assert.equal(state.disabledReason, null);
+});
+
+test('a stale-failed run does NOT count as in-progress', () => {
+  const state = evaluateGenerateThisWeekGate({
+    profile: buildProfile(),
+    integrationCards: [buildIntegration()],
+    campaigns: [
+      {
+        status: 'draft',
+        dashboardStatus: 'draft',
+        approvalRequired: false,
+        executionState: 'failed_stale',
+      },
+    ],
+  });
+  assert.equal(state.gate, 'ready');
+  assert.equal(state.enabled, true);
+  assert.equal(state.inProgress, false);
+});
+
+test('a failed run alongside a genuinely running run still shows in_progress', () => {
+  // The failed run should not count, but the running one should.
+  const state = evaluateGenerateThisWeekGate({
+    profile: buildProfile(),
+    integrationCards: [buildIntegration()],
+    campaigns: [
+      {
+        status: 'draft',
+        dashboardStatus: 'draft',
+        approvalRequired: false,
+        executionState: 'failed',
+      },
+      {
+        status: 'draft',
+        dashboardStatus: 'draft',
+        approvalRequired: false,
+        executionState: 'running',
+      },
+    ],
+  });
+  assert.equal(state.gate, 'in_progress');
+  assert.equal(state.enabled, false);
+  assert.equal(state.inProgress, true);
 });
 
 test('view-model exposes the exact required label and reflects the gate', () => {
@@ -277,7 +349,7 @@ test('view-model exposes the exact required label and reflects the gate', () => 
 
 test('view-model surfaces the in-progress disabled reason when a draft campaign exists', () => {
   const model = createDashboardHomeViewModel({
-    campaigns: [buildCampaign({ status: 'draft', dashboardStatus: 'draft' })],
+    campaigns: [buildCampaign({ status: 'draft', dashboardStatus: 'draft', executionState: 'running' })],
     reviews: [],
     profile: buildProfile(),
     integrationCards: [buildIntegration()],

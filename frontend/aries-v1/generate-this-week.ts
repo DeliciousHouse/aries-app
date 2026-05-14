@@ -27,6 +27,10 @@ export interface GenerateThisWeekCampaignSnapshot {
   status: RuntimeCampaignListItem['status'];
   dashboardStatus: RuntimeCampaignListItem['dashboardStatus'];
   approvalRequired: RuntimeCampaignListItem['approvalRequired'];
+  /** Raw execution state from the runtime doc. Terminal states ('completed',
+   * 'failed', 'failed_stale') must not block the Generate gate even when the
+   * workflow status falls back to 'draft'. */
+  executionState: RuntimeCampaignListItem['executionState'];
 }
 
 export interface GenerateThisWeekGateInputs {
@@ -55,7 +59,28 @@ const GATE_REASONS: Record<Exclude<GenerateThisWeekGate, 'ready'>, string> = {
     'A weekly social content run is already in progress. Wait for it to finish or finalize approvals before starting another.',
 };
 
+/**
+ * Terminal execution states must never count as "in progress". A failed (or
+ * stale-failed) run carries `executionState === 'failed'` / `'failed_stale'`
+ * even though its workflow status is still `'draft'` (the workflow layer never
+ * advanced). Without this check a single failed run permanently jams the gate.
+ * Mirrors the terminal check in `isPipelineActive` in runtime-state.ts.
+ */
+function isTerminalExecutionState(executionState: string): boolean {
+  return (
+    executionState === 'completed' ||
+    executionState === 'failed' ||
+    executionState === 'failed_stale'
+  );
+}
+
 function isInProgressCampaign(campaign: GenerateThisWeekCampaignSnapshot): boolean {
+  // Terminal runs (completed, failed, failed_stale) must not block the gate
+  // even when their workflow status still reads as 'draft'.
+  if (isTerminalExecutionState(campaign.executionState)) {
+    return false;
+  }
+
   // The dashboard runtime list represents submitted/running/requires_approval
   // jobs as `draft`, `in_review`, or `approvalRequired === true`. Treat any of
   // these as in-progress so the manual trigger does not double-fire while a
