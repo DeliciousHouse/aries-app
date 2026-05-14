@@ -30,6 +30,112 @@ import { scheduleHermesPublishPerformanceHonchoWrite } from '@/backend/memory/wr
 
 const STAGE_ORDER: MarketingStage[] = ['research', 'strategy', 'production', 'publish'];
 
+// Resolve APP_BASE_URL the same way the Hermes port does — prefer explicit
+// env, fall back to the auth URL fallbacks, strip trailing slashes.
+function resolveAppBaseUrl(): string {
+  return (
+    process.env.APP_BASE_URL ||
+    process.env.NEXTAUTH_URL ||
+    process.env.AUTH_URL ||
+    'https://aries.sugarandleather.com'
+  ).replace(/\/+$/, '');
+}
+
+type HermesCreativeAsset = {
+  assetId: string;
+  type: string;
+  status?: string;
+  path?: string;
+  placement?: string;
+  [key: string]: unknown;
+};
+
+/**
+ * Bridges Hermes `creative_assets` (at `result[0].artifacts.creative_assets`)
+ * into the `weekly_content_plan.image_creatives` shape that
+ * `parseSocialContentWorkflowOutput` and the dashboard projection expect.
+ *
+ * - Only `type: "generated_image"` assets are mapped.
+ * - Host-absolute `path` values are rewritten to internal media-serve URLs so
+ *   the browser can load them via the authenticated /api/internal/hermes/media
+ *   route without needing direct host filesystem access.
+ * - Missing/empty `creative_assets` is a no-op; the function never throws.
+ */
+export function bridgeHermesCreativeAssets(
+  outputRecord: Record<string, unknown>,
+): Record<string, unknown> {
+  const artifacts = outputRecord.artifacts;
+  if (!artifacts || typeof artifacts !== 'object' || Array.isArray(artifacts)) {
+    return outputRecord;
+  }
+
+  const creativeAssets = (artifacts as Record<string, unknown>).creative_assets;
+  if (!Array.isArray(creativeAssets) || creativeAssets.length === 0) {
+    return outputRecord;
+  }
+
+  const appBaseUrl = resolveAppBaseUrl();
+
+  const imageCreatives = creativeAssets
+    .filter(
+      (asset): asset is HermesCreativeAsset =>
+        asset !== null &&
+        typeof asset === 'object' &&
+        !Array.isArray(asset) &&
+        (asset as HermesCreativeAsset).type === 'generated_image',
+    )
+    .map((asset) => {
+      // Convert the absolute host path to an internal URL using basename only.
+      // The media route resolves it against HERMES_IMAGE_CACHE_MOUNT.
+      let artifactUrl = '';
+      if (typeof asset.path === 'string' && asset.path.trim().length > 0) {
+        const basename = asset.path.split('/').filter(Boolean).pop() ?? '';
+        if (basename) {
+          artifactUrl = `${appBaseUrl}/api/internal/hermes/media/${basename}`;
+        }
+      }
+
+      return {
+        id: typeof asset.assetId === 'string' ? asset.assetId : '',
+        title: typeof asset.placement === 'string' ? asset.placement : '',
+        aspect_ratio: '',
+        prompt: '',
+        status: typeof asset.status === 'string' ? asset.status : 'created',
+        artifact_url: artifactUrl,
+      };
+    });
+
+  if (imageCreatives.length === 0) {
+    return outputRecord;
+  }
+
+  // Merge into weekly_content_plan, creating the key if absent. Do not
+  // overwrite existing image_creatives that the workflow itself emitted.
+  const existingPlan =
+    outputRecord.weekly_content_plan !== undefined &&
+    outputRecord.weekly_content_plan !== null &&
+    typeof outputRecord.weekly_content_plan === 'object' &&
+    !Array.isArray(outputRecord.weekly_content_plan)
+      ? (outputRecord.weekly_content_plan as Record<string, unknown>)
+      : {};
+
+  const existingCreatives = existingPlan.image_creatives;
+  const alreadyHasCreatives =
+    Array.isArray(existingCreatives) && existingCreatives.length > 0;
+
+  if (alreadyHasCreatives) {
+    return outputRecord;
+  }
+
+  return {
+    ...outputRecord,
+    weekly_content_plan: {
+      ...existingPlan,
+      image_creatives: imageCreatives,
+    },
+  };
+}
+
 function normalizeCallbackStage(stage: HermesRunCallbackPayload['stage']): MarketingStage | null {
   if (stage === 'research') return 'research';
   if (stage === 'planning' || stage === 'strategy') return 'strategy';
@@ -360,6 +466,18 @@ export async function applyHermesMarketingCallback(
   const doc = await loadMarketingJobRuntime(run.marketing_job_id);
   if (!doc) {
     return;
+  }
+
+  // For social-content runs, bridge Hermes creative_assets into the
+  // image_creatives shape before any output is stored, so every downstream
+  // code path (requires_approval, completed, multi-stage) sees URLs it can
+  // render. Mutate the first output record in-place; no-op when creative_assets
+  // is absent or already has image_creatives populated.
+  if (isSocialContentRun(run) && Array.isArray(payload.output) && payload.output.length > 0) {
+    const firstOut = payload.output[0];
+    if (firstOut && typeof firstOut === 'object' && !Array.isArray(firstOut)) {
+      payload.output[0] = bridgeHermesCreativeAssets(firstOut as Record<string, unknown>);
+    }
   }
 
   const callbackStage = normalizeCallbackStage(payload.stage);

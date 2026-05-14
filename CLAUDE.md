@@ -160,6 +160,10 @@ Optional safety flags:
 
 Required when working on Aries-managed OAuth providers: `OAUTH_TOKEN_ENCRYPTION_KEY`. Weekly social content media generation does not use an Aries-side OpenAI client or secret; Hermes owns media auth and execution.
 
+Hermes image serving (set both together; see `docker-compose.yml` volumes):
+- `HERMES_IMAGE_CACHE_DIR` — host-side path to the Hermes image cache (default `/home/node/.hermes/cache/images`); bind-mounted read-only into the container as `HERMES_IMAGE_CACHE_MOUNT`.
+- `HERMES_IMAGE_CACHE_MOUNT` — in-container mount point for the Hermes image cache (default `/hermes-media`); read by `app/api/internal/hermes/media/[...path]/route.ts` to stream generated images to authenticated browser sessions.
+
 Local dev defaults:
 ```bash
 export DB_HOST=localhost DB_PORT=5432 DB_USER=aries_user DB_PASSWORD=aries_pass DB_NAME=aries_dev
