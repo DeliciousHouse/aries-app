@@ -5,7 +5,7 @@ import type {
   MarketingStageCard,
 } from '@/lib/api/marketing';
 
-export type WorkspaceView = 'brand' | 'strategy' | 'creative' | 'publish';
+export type WorkspaceView = 'brand' | 'strategy' | 'creative' | 'publish' | 'status';
 
 export interface WorkspaceAction {
   label: string;
@@ -56,6 +56,7 @@ const VIEW_ORDER: Record<WorkspaceView, number> = {
   strategy: 1,
   creative: 2,
   publish: 3,
+  status: 4,
 };
 
 const VIEW_LABELS: Record<WorkspaceView, string> = {
@@ -63,6 +64,7 @@ const VIEW_LABELS: Record<WorkspaceView, string> = {
   strategy: 'Strategy Review',
   creative: 'Creative Review',
   publish: 'Launch Status',
+  status: 'Runtime Status',
 };
 
 const DEFAULT_WAITING_COPY: Record<WorkspaceView, { title: string; description: string }> = {
@@ -81,6 +83,10 @@ const DEFAULT_WAITING_COPY: Record<WorkspaceView, { title: string; description: 
   publish: {
     title: 'Launch status will open here',
     description: 'Launch-ready items will appear here after upstream approvals and final preparation finish.',
+  },
+  status: {
+    title: 'Runtime status',
+    description: 'Live job state, stage progress, and pipeline audit trail.',
   },
 };
 
@@ -270,7 +276,7 @@ export function resolveWorkspaceView(
   value: string | null | undefined,
   fallback: WorkspaceView = 'brand',
 ): WorkspaceView {
-  if (value === 'brand' || value === 'strategy' || value === 'creative' || value === 'publish') {
+  if (value === 'brand' || value === 'strategy' || value === 'creative' || value === 'publish' || value === 'status') {
     return value;
   }
   return fallback;
@@ -443,15 +449,16 @@ export function deriveGateFallbackState(
   // QA 2026-05-12 ISSUE-009: when no approval is queued and no upstream
   // blocker is in play, the page previously rendered only the "will open
   // here" copy with no primary action. Surface a sensible default CTA —
-  // jump to the runtime status view where the operator can see live progress
-  // and decide whether to wait or escalate.
+  // jump to the runtime status tab inside the workspace so the operator can
+  // see live progress without losing the shell nav (fix: was /social-content/status
+  // which is a navigational dead-end with no shell tabs or back link).
   return {
     title: defaultCopy.title,
     description: stageSummary || defaultCopy.description,
     detail: stageHighlight || nextStepDetail(status.nextStep),
     action: {
       label: 'View runtime status',
-      href: `/social-content/status?jobId=${encodeURIComponent(campaignId)}`,
+      href: `/dashboard/social-content/${encodeURIComponent(campaignId)}?view=status`,
     },
   };
 }

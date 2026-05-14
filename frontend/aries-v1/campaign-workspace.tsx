@@ -75,6 +75,7 @@ function stageReadyLabel(view: WorkspaceView): string {
   if (view === 'brand') return 'Brand review';
   if (view === 'strategy') return 'Strategy review';
   if (view === 'creative') return 'Creative review';
+  if (view === 'status') return 'Runtime status';
   return 'Launch status';
 }
 
@@ -401,6 +402,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
           ['strategy', 'Strategy Review'],
           ['creative', 'Creative Review'],
           ['publish', 'Launch Status'],
+          ['status', 'Runtime Status'],
         ] as Array<[WorkspaceView, string]>).map(([view, label]) => (
           <Link
             key={view}
@@ -498,6 +500,10 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
           history={currentHistory}
           overview={publishState}
         />
+      ) : null}
+
+      {activeView === 'status' ? (
+        <RuntimeStatusSurface status={status} campaignId={props.campaignId} />
       ) : null}
 
       <ShellPanel eyebrow="Shortcuts" title="Next steps">
@@ -1142,6 +1148,139 @@ function PublishStatusSurface(props: {
       <ShellPanel eyebrow="Status history" title="Recent decisions">
         <ActivityFeed items={props.history.map((entry) => ({ id: entry.id, label: historyTypeLabel(entry.type), detail: entry.note || workflowStateLabel(entry.workflowState), at: formatDecisionTimestamp(entry.at) }))} />
       </ShellPanel>
+    </div>
+  );
+}
+
+function RuntimeStatusSurface(props: {
+  status: Pick<
+    import('@/lib/api/marketing').GetMarketingJobStatusResponse,
+    | 'jobId'
+    | 'marketing_job_status'
+    | 'marketing_job_state'
+    | 'marketing_stage'
+    | 'stageCards'
+    | 'timeline'
+    | 'approval'
+    | 'publishConfig'
+    | 'artifacts'
+  >;
+  campaignId: string;
+}) {
+  const { status } = props;
+  return (
+    <div className="space-y-4">
+      <ShellPanel eyebrow="Runtime status" title="Live job state">
+        <div className="space-y-3">
+          <div className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4 flex items-center justify-between gap-4">
+            <strong className="text-sm">Job ID</strong>
+            <code className="text-sm text-white/80">{status.jobId}</code>
+          </div>
+          <div className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4 flex items-center justify-between gap-4">
+            <strong className="text-sm">Status</strong>
+            <StatusChip status={
+              status.marketing_job_status === 'approved' ? 'approved'
+              : status.marketing_job_status === 'changes_requested' ? 'changes_requested'
+              : status.marketing_job_status === 'rejected' ? 'rejected'
+              : status.marketing_job_status === 'live' || status.marketing_job_status === 'published' ? 'live'
+              : status.marketing_job_status === 'scheduled' ? 'scheduled'
+              : status.marketing_job_status === 'draft' ? 'draft'
+              : 'in_review'
+            }>
+              {status.marketing_job_status}
+            </StatusChip>
+          </div>
+          <div className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4 flex items-center justify-between gap-4">
+            <strong className="text-sm">Current stage</strong>
+            <span className="text-sm text-white/80">{status.marketing_stage ?? 'none'}</span>
+          </div>
+          <div className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4 flex items-center justify-between gap-4">
+            <strong className="text-sm">Job state</strong>
+            <span className="text-sm text-white/80">{status.marketing_job_state}</span>
+          </div>
+        </div>
+
+        {status.publishConfig ? (
+          <div className="mt-4 rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35 mb-3">Publish configuration</p>
+            <div className="grid gap-1 text-sm text-white/70">
+              <span>Platforms: {status.publishConfig.platforms.join(', ') || 'none selected'}</span>
+              <span>Live draft publish: {status.publishConfig.livePublishPlatforms.join(', ') || 'not requested'}</span>
+              <span>Video render: {status.publishConfig.videoRenderPlatforms.join(', ') || 'not requested'}</span>
+            </div>
+          </div>
+        ) : null}
+      </ShellPanel>
+
+      {status.stageCards.length > 0 ? (
+        <ShellPanel eyebrow="Stage progress" title="Pipeline checkpoints">
+          <div className="grid gap-3">
+            {status.stageCards.map((card) => (
+              <div key={card.stage} className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4 flex items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-bold">{card.label}</span>
+                    <StatusChip status={
+                      card.status === 'approved' ? 'approved'
+                      : card.status === 'changes_requested' ? 'changes_requested'
+                      : card.status === 'rejected' ? 'rejected'
+                      : card.status === 'live' ? 'live'
+                      : card.status === 'scheduled' ? 'scheduled'
+                      : card.status === 'draft' ? 'draft'
+                      : 'in_review'
+                    }>
+                      {card.status}
+                    </StatusChip>
+                  </div>
+                  <p className="mt-1 text-sm text-white/55">{card.summary}</p>
+                  {status.approval?.actionHref &&
+                  (card.status === 'awaiting_approval' || card.status === 'required') ? (
+                    <Link
+                      href={status.approval.actionHref}
+                      className="inline-flex mt-3 px-4 py-2 rounded-full bg-white/10 border border-white/10 text-sm font-semibold text-white"
+                    >
+                      Approve this stage
+                    </Link>
+                  ) : null}
+                </div>
+                {card.highlight ? (
+                  <span className="text-xs font-mono bg-white/10 px-2 py-1 rounded shrink-0">{card.highlight}</span>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </ShellPanel>
+      ) : null}
+
+      {status.approval ? (
+        <ShellPanel eyebrow="Approval" title={status.approval.title}>
+          <div className="space-y-3">
+            <p className="text-sm leading-7 text-white/65">{status.approval.message}</p>
+            {status.approval.actionHref && status.approval.actionLabel ? (
+              <Link
+                href={status.approval.actionHref}
+                className="inline-flex items-center gap-2 rounded-full border border-white/12 px-4 py-2.5 text-sm font-medium text-white/80 transition hover:border-white/20 hover:text-white"
+              >
+                {status.approval.actionLabel}
+                <ArrowUpRight className="h-4 w-4" />
+              </Link>
+            ) : null}
+          </div>
+        </ShellPanel>
+      ) : null}
+
+      {status.timeline.length > 0 ? (
+        <ShellPanel eyebrow="Audit trail" title="Pipeline events">
+          <ActivityFeed
+            items={status.timeline.map((entry) => ({
+              id: entry.id,
+              label: entry.label,
+              detail: entry.description,
+              at: entry.at ? new Date(entry.at).toLocaleString() : '',
+            }))}
+          />
+        </ShellPanel>
+      ) : null}
     </div>
   );
 }
