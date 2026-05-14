@@ -1,26 +1,76 @@
 import { buildRetryEvent } from '../../../../backend/integrations/workflow-orchestrator';
 import { mapAriesExecutionError, runAriesWorkflow } from '../../../../backend/execution';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
+import { handlePublishDispatch, type PublishDispatchHandlerOptions } from '../dispatch/handler';
 
-export async function handlePublishRetry(req: Request, tenantContextLoader?: TenantContextLoader) {
+type PublishRetryBody = {
+  tenant_id?: string;
+  max_attempts?: number;
+  provider?: string;
+  content?: string;
+  media_urls?: string[];
+  scheduled_for?: string;
+  marketing_job_id?: string;
+  job_id?: string;
+};
+
+async function readBody(req: Request): Promise<PublishRetryBody> {
+  try {
+    return (await req.json()) as PublishRetryBody;
+  } catch {
+    return {};
+  }
+}
+
+export async function handlePublishRetry(
+  req: Request,
+  tenantContextLoader?: TenantContextLoader,
+  options: PublishDispatchHandlerOptions = {},
+) {
   const tenantResult = await loadTenantContextOrResponse(tenantContextLoader);
   if ('response' in tenantResult) {
     return tenantResult.response;
   }
 
-  let body: { tenant_id?: string; max_attempts?: number } = {};
-  try {
-    body = await req.json();
-  } catch {
-    body = {};
-  }
+  const body = await readBody(req);
 
   try {
     const tenantId = tenantResult.tenantContext.tenantId;
-
     const event = buildRetryEvent({ tenant_id: tenantId, max_attempts: body.max_attempts });
+
+    const hasExplicitRetryPayload =
+      typeof body.provider === 'string'
+      && body.provider.trim().length > 0
+      && (typeof body.content === 'string' || Array.isArray(body.media_urls));
+
+    if (hasExplicitRetryPayload) {
+      if (typeof body.scheduled_for === 'string' && body.scheduled_for.trim().length > 0) {
+        return new Response(JSON.stringify({
+          status: 'error',
+          reason: 'scheduled_retry_not_safe',
+          message: 'Retrying a scheduled publish request can duplicate queued posts. Reschedule or re-dispatch intentionally instead.',
+        }), {
+          status: 409,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+
+      const retryRequest = new Request(req.url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          provider: body.provider,
+          content: body.content,
+          media_urls: body.media_urls,
+          marketing_job_id: body.marketing_job_id,
+          job_id: body.job_id,
+        }),
+      });
+      return handlePublishDispatch(retryRequest, tenantContextLoader, options);
+    }
+
     const executed = await runAriesWorkflow('publish_retry', {
-      tenant_id: tenantResult.tenantContext.tenantId,
+      tenant_id: tenantId,
       max_attempts: event.payload.max_attempts,
     });
     if (executed.kind === 'gateway_error') {
@@ -60,7 +110,7 @@ export async function handlePublishRetry(req: Request, tenantContextLoader?: Ten
   } catch (error) {
     return new Response(JSON.stringify({ status: 'error', reason: String((error as Error).message || error) }), {
       status: 400,
-      headers: { 'content-type': 'application/json' }
+      headers: { 'content-type': 'application/json' },
     });
   }
 }

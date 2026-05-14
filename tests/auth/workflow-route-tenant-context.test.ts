@@ -147,7 +147,7 @@ test('publish dispatch ignores forged tenant_id and rejects missing tenant conte
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         tenant_id: 'forged_tenant',
-        provider: 'facebook',
+        provider: 'linkedin',
         content: 'Ship it',
         media_urls: ['https://cdn.example.com/image.png'],
       }),
