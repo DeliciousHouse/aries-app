@@ -625,6 +625,116 @@ export async function listMarketingJobIdsForTenant(tenantId: string): Promise<st
   return (await collectMarketingJobRefsForTenant(tenantId)).map((entry) => entry.jobId);
 }
 
+/**
+ * Returns true when the tenant's marketing runtime documents include at least
+ * one social-content `image_creatives[].artifact_url` whose basename matches
+ * the requested filename.  Used by the Hermes media route to enforce per-tenant
+ * ownership before streaming a cached image.
+ *
+ * Implementation notes (re: operational guardrail #1):
+ * - No database is involved — this is a pure filesystem scan of the tenant's
+ *   JSON runtime files that already live on disk.
+ * - The scan is sequential (no Promise.all fan-out).  A single tenant rarely
+ *   has more than a handful of active jobs, so the serial I/O cost is bounded.
+ * - We include soft-deleted jobs (includeDeleted: true) because an operator
+ *   viewing a media URL that was generated before a soft-delete should still
+ *   pass the ownership check rather than getting a spurious 404.
+ */
+export async function tenantOwnsHermesMediaBasename(
+  tenantId: string,
+  basename: string,
+): Promise<boolean> {
+  if (!tenantId || !basename) {
+    return false;
+  }
+  const root = marketingRuntimeRoot();
+  let entries: string[];
+  try {
+    entries = (await readdir(root)).filter((entry) => entry.endsWith('.json'));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return false;
+    }
+    throw error;
+  }
+
+  for (const entry of entries) {
+    try {
+      const raw = await readFile(path.join(root, entry), 'utf8');
+      const doc = JSON.parse(raw) as Record<string, unknown>;
+      if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
+        continue;
+      }
+      const schemaName = doc.schema_name;
+      const isKnownSchema =
+        schemaName === MARKETING_RUNTIME_SCHEMA_NAME || schemaName === LEGACY_MARKETING_RUNTIME_SCHEMA_NAME;
+      if (!isKnownSchema || typeof doc.tenant_id !== 'string' || doc.tenant_id !== tenantId) {
+        continue;
+      }
+      if (socialContentRuntimeContainsBasename(doc.social_content_runtime, basename)) {
+        return true;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Walks the stages of a raw `social_content_runtime` blob and returns true
+ * when any `image_creatives[].artifact_url` has `basename` as its URL
+ * basename.  Operates on the raw parsed JSON to avoid the full normalization
+ * cost of `readSocialContentRuntimeState`.
+ */
+function socialContentRuntimeContainsBasename(
+  runtime: unknown,
+  basename: string,
+): boolean {
+  if (!runtime || typeof runtime !== 'object' || Array.isArray(runtime)) {
+    return false;
+  }
+  const stages = (runtime as Record<string, unknown>).stages;
+  if (!stages || typeof stages !== 'object' || Array.isArray(stages)) {
+    return false;
+  }
+  for (const stageValue of Object.values(stages as Record<string, unknown>)) {
+    if (!stageValue || typeof stageValue !== 'object' || Array.isArray(stageValue)) {
+      continue;
+    }
+    const output = (stageValue as Record<string, unknown>).output;
+    if (!output || typeof output !== 'object' || Array.isArray(output)) {
+      continue;
+    }
+    const plan = (output as Record<string, unknown>).weekly_content_plan;
+    if (!plan || typeof plan !== 'object' || Array.isArray(plan)) {
+      continue;
+    }
+    const creatives = (plan as Record<string, unknown>).image_creatives;
+    if (!Array.isArray(creatives)) {
+      continue;
+    }
+    for (const creative of creatives) {
+      if (!creative || typeof creative !== 'object' || Array.isArray(creative)) {
+        continue;
+      }
+      const artifactUrl = (creative as Record<string, unknown>).artifact_url;
+      if (typeof artifactUrl !== 'string' || !artifactUrl) {
+        continue;
+      }
+      // Extract basename from the artifact_url without allocating a URL object
+      // for every entry: the URL format is always `.../hermes/media/<basename>`.
+      const lastSlash = artifactUrl.lastIndexOf('/');
+      const urlBasename = lastSlash >= 0 ? artifactUrl.slice(lastSlash + 1) : artifactUrl;
+      if (urlBasename === basename) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 export async function listDeletedMarketingJobIdsForTenant(tenantId: string): Promise<string[]> {
   return (await collectMarketingJobRefsForTenant(tenantId, { onlyDeleted: true })).map((entry) => entry.jobId);
 }
