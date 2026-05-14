@@ -623,6 +623,49 @@ export function isSocialContentPublishApprovalRequired(doc: MarketingJobRuntimeD
   return ensureSocialContentRuntimeState(doc).publishingRequested;
 }
 
+/**
+ * Sweeps every non-terminal social-content stage that precedes `upToStage`
+ * (inclusive) from `running`/`pending`/`awaiting_approval` to `completed`.
+ *
+ * Called by the publish-skip path in the Hermes callback handler before the
+ * job goes terminal. Without this sweep, stages like `copy_production`,
+ * `image_briefing`, and `image_generation` can be left in `running` state
+ * when the job transitions to `completed`, stranding the run with no images.
+ *
+ * Stages that are already `completed` or `failed` are left untouched.
+ * The `completed` and `failed` sentinel stages are skipped — those are
+ * managed by the caller.
+ */
+export function reconcileSocialContentIntermediateStages(
+  doc: MarketingJobRuntimeDocument,
+  upToStage: SocialContentStage,
+  sweepSummary: string,
+): SocialContentRuntimeState {
+  const runtime = ensureSocialContentRuntimeState(doc);
+  const targetRank = stageRank(upToStage);
+  const sentinels = new Set<SocialContentStage>(['completed', 'failed']);
+
+  for (const stage of SOCIAL_CONTENT_STAGE_ORDER) {
+    if (sentinels.has(stage)) continue;
+    if (stageRank(stage) > targetRank) break;
+    const record = ensureStageRecord(runtime, stage);
+    if (record.status === 'completed' || record.status === 'failed') continue;
+    // Transition any running/pending/awaiting_approval stage to completed.
+    if (!record.startedAt) {
+      record.startedAt = nowIso();
+    }
+    record.status = 'completed';
+    record.completedAt = nowIso();
+    if (!record.summary) {
+      record.summary = sweepSummary;
+    }
+  }
+
+  updateRuntimeTimestamp(runtime);
+  serializeRuntime(doc as MarketingDocWithSocialRuntime, runtime);
+  return runtime;
+}
+
 function parsePosts(value: unknown): WeeklyPost[] {
   if (!Array.isArray(value)) return [];
   return value
