@@ -267,12 +267,16 @@ function validateApprovalTransition(
       : approvalStep === 'approve_publish'
         ? 'publish'
         : 'production';
-    if (
-      (run.stage === 'research' && expectedMarketingStage !== 'strategy')
-      || (run.stage === 'strategy' && expectedMarketingStage === 'strategy')
-      || (run.stage === 'production' && expectedMarketingStage === 'strategy')
-      || (run.stage === 'publish' && expectedMarketingStage !== 'publish')
-    ) {
+    // Explicit per-stage allowlist: each run stage maps to exactly one valid
+    // approval stage. Anything else — skip forward, regression, or unknown stage
+    // — is rejected so the caller fails loud instead of silently misrouting.
+    const SOCIAL_CONTENT_ALLOWED_APPROVAL: Record<string, string> = {
+      research: 'strategy',
+      strategy: 'production',
+      production: 'publish',
+      publish: 'publish',
+    };
+    if (SOCIAL_CONTENT_ALLOWED_APPROVAL[run.stage ?? ''] !== expectedMarketingStage) {
       return { status: 'error', reason: 'approval_stage_mismatch' };
     }
     return null;
