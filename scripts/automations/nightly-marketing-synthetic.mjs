@@ -30,6 +30,7 @@ import {
 
 const PROD_URL = process.env.ARIES_CANARY_URL || 'https://aries.sugarandleather.com'
 const PROD_HEALTH_PATH = '/api/health/db'
+const PROD_HERMES_HEALTH_PATH = '/api/health/hermes'
 const FETCH_TIMEOUT_MS = Number.parseInt(process.env.ARIES_CANARY_TIMEOUT_MS || '15000', 10)
 
 const SUITES = [
@@ -69,6 +70,7 @@ if (dryRun) {
     'nightly-marketing-synthetic DRY-RUN',
     `- prod_url: ${PROD_URL}`,
     `- prod_health: ${PROD_URL}${PROD_HEALTH_PATH}`,
+    `- prod_hermes_health: ${PROD_URL}${PROD_HERMES_HEALTH_PATH}`,
     `- npm: ${preflight.resolvedBinaries.npm}`,
     '- suites:',
     ...SUITES.map((s) => `  - ${s.name} (${s.reason})`),
@@ -99,6 +101,7 @@ async function fetchWithTimeout(url) {
 async function checkProdLiveness() {
   const home = await fetchWithTimeout(PROD_URL)
   const health = await fetchWithTimeout(`${PROD_URL}${PROD_HEALTH_PATH}`)
+  const hermes = await fetchWithTimeout(`${PROD_URL}${PROD_HERMES_HEALTH_PATH}`)
   return {
     home_status: home.status,
     home_ok: home.ok,
@@ -106,7 +109,10 @@ async function checkProdLiveness() {
     health_status: health.status,
     health_ok: health.ok,
     health_error: health.error,
-    ok: home.ok && health.ok,
+    hermes_status: hermes.status,
+    hermes_ok: hermes.ok,
+    hermes_error: hermes.error,
+    ok: home.ok && health.ok && hermes.ok,
   }
 }
 
@@ -151,6 +157,7 @@ emitSummary([
   `- prod_url: ${PROD_URL}`,
   `- home: ${liveness.home_status}${liveness.home_error ? ` (${liveness.home_error})` : ''}`,
   `- health: ${liveness.health_status}${liveness.health_error ? ` (${liveness.health_error})` : ''}`,
+  `- hermes_health: ${liveness.hermes_status}${liveness.hermes_error ? ` (${liveness.hermes_error})` : ''}`,
   ...suiteResults.map((r) => `- ${r.name}: ${r.ok ? 'pass' : 'fail'} (${(r.duration_ms / 1000).toFixed(1)}s, exit=${r.exit_code})`),
   `- duration: ${(durationMs / 1000).toFixed(1)}s`,
   JSON.stringify(summary),

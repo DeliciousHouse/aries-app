@@ -211,3 +211,84 @@ test('Hermes callback route rejects aries_run_id values with path traversal sequ
     }
   });
 });
+
+test('Hermes callback route rejects social-content approval callbacks that skip from research straight to publish approval', async (t) => {
+  await withCallbackEnv(async () => {
+    const { createExecutionRunRecord } = await import('../backend/execution/run-store');
+    const { POST } = await import('../app/api/internal/hermes/runs/route');
+
+    const record = createExecutionRunRecord({
+      provider: 'hermes',
+      domain: 'marketing',
+      workflowKey: 'social_content_weekly',
+      action: 'run',
+      tenantId: 'tenant-social',
+      marketingJobId: 'job-social',
+      stage: 'research',
+    });
+
+    const callbackToken = seedCallbackToken(t, record.aries_run_id);
+    const response = await POST(callbackRequest({
+      event_id: 'evt-social-stage-skip',
+      aries_run_id: record.aries_run_id,
+      hermes_run_id: 'hermes-social-run-1',
+      status: 'requires_approval',
+      stage: 'publish_review',
+      approval: {
+        stage: 'publish',
+        approval_step: 'approve_publish',
+        workflow_step_id: 'approve_publish',
+        prompt: 'Approve publish?',
+        resume_token: 'resume-publish',
+      },
+      callback_token: callbackToken,
+    }));
+
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), {
+      status: 'error',
+      reason: 'approval_stage_mismatch',
+    });
+  });
+});
+
+test('Hermes callback route rejects social-content callbacks that regress a publish run back to plan approval', async (t) => {
+  await withCallbackEnv(async () => {
+    const { createExecutionRunRecord } = await import('../backend/execution/run-store');
+    const { POST } = await import('../app/api/internal/hermes/runs/route');
+
+    const record = createExecutionRunRecord({
+      provider: 'hermes',
+      domain: 'marketing',
+      workflowKey: 'social_content_weekly',
+      action: 'resume',
+      tenantId: 'tenant-social',
+      marketingJobId: 'job-social-publish',
+      stage: 'publish',
+      workflowStepId: 'approve_publish',
+    });
+
+    const callbackToken = seedCallbackToken(t, record.aries_run_id);
+    const response = await POST(callbackRequest({
+      event_id: 'evt-social-stage-regress',
+      aries_run_id: record.aries_run_id,
+      hermes_run_id: 'hermes-social-run-2',
+      status: 'requires_approval',
+      stage: 'planning',
+      approval: {
+        stage: 'plan',
+        approval_step: 'approve_weekly_plan',
+        workflow_step_id: 'approve_weekly_plan',
+        prompt: 'Approve weekly plan?',
+        resume_token: 'resume-plan',
+      },
+      callback_token: callbackToken,
+    }));
+
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), {
+      status: 'error',
+      reason: 'approval_stage_mismatch',
+    });
+  });
+});

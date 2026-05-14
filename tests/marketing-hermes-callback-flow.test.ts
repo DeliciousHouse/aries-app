@@ -57,7 +57,7 @@ async function seedMarketingJob() {
 
 test('Hermes marketing callbacks advance runtime docs and create provider-neutral approvals', async () => {
   await withRuntimeEnv(async () => {
-    const { createExecutionRunRecord } = await import('../backend/execution/run-store');
+    const { createExecutionRunRecord, loadExecutionRunRecord } = await import('../backend/execution/run-store');
     const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
     const {
       listMarketingApprovalRecordsForJob,
@@ -141,6 +141,12 @@ test('Hermes marketing callbacks advance runtime docs and create provider-neutra
     assert.equal(strategyApproval?.lobster_resume_token, undefined);
     assert.equal(strategyApproval?.social_content_approval_step, 'approve_weekly_plan');
     assert.equal(listMarketingApprovalRecordsForJob(doc.job_id).length, 1);
+    assert.deepEqual(loadExecutionRunRecord(researchRun.aries_run_id)?.result, [
+      {
+        run_id: 'research-run-1',
+        summary: 'Research complete',
+      },
+    ]);
 
     await handleHermesRunCallback({
       event_id: 'evt-research-running-late',
@@ -391,5 +397,48 @@ test('Hermes one-shot multi-stage completion fans out into all four marketing st
     assert.equal(after?.status, 'completed');
     assert.equal(after?.current_stage, 'publish');
     assert.equal(after?.approvals.current, null);
+  });
+});
+
+test('Hermes one-shot multi-stage completion advances social-content runtime stages too', async () => {
+  await withRuntimeEnv(async () => {
+    const { createExecutionRunRecord } = await import('../backend/execution/run-store');
+    const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
+    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const doc = await seedMarketingJob();
+
+    const run = createExecutionRunRecord({
+      provider: 'hermes',
+      domain: 'marketing',
+      workflowKey: 'social_content_weekly',
+      action: 'run',
+      tenantId: doc.tenant_id,
+      marketingJobId: doc.job_id,
+      stage: 'research',
+    });
+
+    await handleHermesRunCallback({
+      event_id: 'evt-social-oneshot',
+      aries_run_id: run.aries_run_id,
+      hermes_run_id: 'hermes-social-oneshot-1',
+      status: 'completed',
+      output: [
+        { stage: 'research', run_id: 'rs-social-1', summary: 'Research done' },
+        { stage: 'strategy', run_id: 'st-social-1', summary: 'Plan done' },
+        { stage: 'production', run_id: 'pr-social-1', summary: 'Copy done' },
+        { stage: 'publish', run_id: 'pb-social-1', summary: 'Publish done' },
+      ],
+    });
+
+    const runtime = (await loadMarketingJobRuntime(doc.job_id))?.social_content_runtime as {
+      currentStage?: string;
+      stages?: Record<string, { status?: string }>;
+    } | undefined;
+    assert.equal(runtime?.currentStage, 'completed');
+    assert.equal(runtime?.stages?.research?.status, 'completed');
+    assert.equal(runtime?.stages?.planning?.status, 'completed');
+    assert.equal(runtime?.stages?.copy_production?.status, 'completed');
+    assert.equal(runtime?.stages?.publish_review?.status, 'completed');
+    assert.equal(runtime?.stages?.completed?.status, 'completed');
   });
 });
