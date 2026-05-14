@@ -479,6 +479,91 @@ test('default weekly jobs skip publish approval even with content channels', asy
   });
 });
 
+test('publish-skip reconciles in-flight intermediate social stages to completed (regression: mkt_0735c3b1)', async () => {
+  // Reproduces the bug where copy_production / image_briefing / image_generation
+  // were left in `running` state when the approve_publish callback fired and
+  // publishing was not requested. The job went terminal but those sub-stages
+  // stayed running with null output — stranding the run with no images.
+  await withRuntimeEnv(async () => {
+    const { createExecutionRunRecord } = await import('../backend/execution/run-store');
+    const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
+    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const { markSocialContentStageRunning, markSocialContentStageCompleted } = await import('../backend/social-content/runtime-state');
+
+    const jobId = 'job-social-publish-skip-reconcile';
+    await seedWeeklyApproval({
+      jobId,
+      tenantId: 'tenant-social-approve',
+      approvalId: 'mkta_social_pubskip_reconcile',
+      approvalStep: 'approve_weekly_plan',
+      workflowStepId: 'approve_weekly_plan',
+      resumeToken: 'resume-pubskip-1',
+      publishRequested: false,
+    });
+
+    // Simulate the intermediate social stages that were running when
+    // the approve_publish callback arrived (as observed in mkt_0735c3b1).
+    const { loadMarketingJobRuntime: loadDoc, saveMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+    const doc = await loadDoc(jobId);
+    assert.ok(doc, 'job doc must exist after seed');
+    markSocialContentStageCompleted(doc, 'research', { summary: 'Research done.' });
+    markSocialContentStageCompleted(doc, 'planning', { summary: 'Planning done.' });
+    markSocialContentStageCompleted(doc, 'plan_review', { summary: 'Plan reviewed.' });
+    markSocialContentStageRunning(doc, 'copy_production');   // still running — no output yet
+    markSocialContentStageRunning(doc, 'image_briefing');    // still running — no output yet
+    // image_generation is pending (never started)
+    saveMarketingJobRuntime(doc.job_id, doc);
+
+    const run = createExecutionRunRecord({
+      provider: 'hermes',
+      domain: 'marketing',
+      workflowKey: 'social_content_weekly',
+      action: 'resume',
+      tenantId: 'tenant-social-approve',
+      marketingJobId: jobId,
+      stage: 'publish',
+      workflowStepId: 'approve_publish',
+    });
+
+    await handleHermesRunCallback({
+      event_id: 'evt-pubskip-reconcile',
+      aries_run_id: run.aries_run_id,
+      hermes_run_id: 'hermes-pubskip-reconcile',
+      status: 'requires_approval',
+      stage: 'publish_review',
+      output: [{ summary: 'Publish review complete' }],
+      approval: {
+        stage: 'publish',
+        approval_step: 'approve_publish',
+        workflow_step_id: 'approve_publish',
+        prompt: 'Approve publish?',
+        resume_token: 'resume-publish-pubskip',
+      },
+    });
+
+    const runtime = await loadMarketingJobRuntime(jobId);
+    assert.ok(runtime, 'runtime must still exist after publish-skip');
+
+    // Job must be terminal.
+    assert.equal(runtime.state, 'completed');
+    assert.equal(runtime.social_content_runtime?.currentStage, 'completed');
+
+    // No intermediate stage may be left in a non-terminal state.
+    const scr = runtime.social_content_runtime;
+    assert.ok(scr, 'social_content_runtime must be present');
+    const nonTerminalStatuses = ['running', 'pending', 'awaiting_approval'];
+    const sentinelStages = new Set(['completed', 'failed']);
+    for (const [stageName, stageRecord] of Object.entries(scr.stages ?? {})) {
+      if (sentinelStages.has(stageName)) continue;
+      const record = stageRecord as { status: string };
+      assert.ok(
+        !nonTerminalStatuses.includes(record.status),
+        `social stage '${stageName}' must not be in non-terminal status '${record.status}' after publish-skip`,
+      );
+    }
+  });
+});
+
 test('explicit publish request creates publish approval checkpoint', async () => {
   await withRuntimeEnv(async () => {
     const { createExecutionRunRecord } = await import('../backend/execution/run-store');

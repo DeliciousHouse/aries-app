@@ -8,6 +8,7 @@ import {
   markSocialContentStageCompleted,
   markSocialContentStageFailed,
   markSocialContentStageRunning,
+  reconcileSocialContentIntermediateStages,
   socialContentStageFromCallbackStage,
 } from '@/backend/social-content/runtime-state';
 import type { SocialContentApprovalStep, SocialContentArtifact, SocialContentStage } from '@/backend/social-content/types';
@@ -578,7 +579,20 @@ export async function applyHermesMarketingCallback(
       && isSocialContentRun(run)
       && !isSocialContentPublishApprovalRequired(doc)
     ) {
+      // Sweep all intermediate social-content stages up to and including the
+      // completedSocialStage to `completed` before going terminal. Without
+      // this, stages like copy_production / image_briefing / image_generation
+      // can be left in `running` state when the job completes, stranding the
+      // run with null output and no images (see mkt_0735c3b1).
+      const sweepTarget = completedSocialStage ?? 'publish_review';
+      reconcileSocialContentIntermediateStages(
+        doc,
+        sweepTarget,
+        outputSummary(payload)?.summary ?? 'Completed as part of publish-skip.',
+      );
       if (completedSocialStage) {
+        // Re-apply the callback's own output/artifacts on top of the sweep so
+        // the specific stage that triggered this callback has accurate data.
         markSocialContentStageCompleted(doc, completedSocialStage, {
           summary: outputSummary(payload)?.summary ?? 'Publish approval skipped.',
           output: firstOutputRecord(payload),
