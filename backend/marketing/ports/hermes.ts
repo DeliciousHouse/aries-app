@@ -998,6 +998,10 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       // Encode the contract explicitly so the gate fires after every stage.
       return [
         'You are the Aries marketing execution agent driving the weekly social content pipeline.',
+        'When performing brand-analysis research for the brand URL or competitor URL, use the `last30days` skill to surface what people are saying about each brand in the last 30 days.',
+        'Derive the topic from the domain name (e.g. `https://sugarandleather.com` → "Sugar and Leather").',
+        'Run `last30days` for the brand, and — if a competitor URL or competitor brand is provided — for the competitor separately.',
+        'Fold the social-signal findings from `last30days` into the research output artifacts.',
         'Reply with a single strict JSON object only — no prose, no markdown fences.',
         'This is an approval-gated 4-stage pipeline: research → strategy → production → publish.',
         'After completing the research stage, return status "requires_approval" with approval.stage="strategy", approval.approval_step="approve_weekly_plan", approval.workflowStepId="approve_stage_2", approval.prompt="Review research findings before strategy starts", approval.resumeToken set, and output:[{stage:"research", ...artifacts}].',
@@ -1011,6 +1015,10 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     }
     return [
       'You are the Aries marketing execution agent.',
+      'When performing brand-analysis research for the brand URL or competitor URL, use the `last30days` skill to surface what people are saying about each brand in the last 30 days.',
+      'Derive the topic from the domain name (e.g. `https://sugarandleather.com` → "Sugar and Leather").',
+      'Run `last30days` for the brand, and — if a competitor URL or competitor brand is provided — for the competitor separately.',
+      'Fold the social-signal findings from `last30days` into the research output artifacts.',
       'Reply with a single strict JSON object only — no prose, no markdown fences.',
       `Required schema: {"ok":true,"status":"completed","workflowKey":"${workflowKey}","output":[{...}]}.`,
       'If approval is required, set status to "requires_approval" and include approval.stage, approval.workflowStepId, approval.prompt, and approval.resumeToken.',
