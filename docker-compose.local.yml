@@ -25,6 +25,8 @@ services:
       LOBSTER_GATEWAY_VIDEO_MODEL: ${LOBSTER_GATEWAY_VIDEO_MODEL:-}
       OPENCLAW_VIDEO_GENERATION_MODEL: ${OPENCLAW_VIDEO_GENERATION_MODEL:-}
       LOBSTER_VIDEO_GATEWAY_TIMEOUT_SECONDS: ${LOBSTER_VIDEO_GATEWAY_TIMEOUT_SECONDS:-}
+      # Hermes image cache mount (dev parity with production docker-compose.yml).
+      HERMES_IMAGE_CACHE_MOUNT: ${HERMES_IMAGE_CACHE_MOUNT:-/hermes-media}
 
   aries-app-dev:
     profiles: ["dev"]
@@ -97,9 +99,12 @@ services:
       LOBSTER_STAGE4_CACHE_DIR: ${LOBSTER_STAGE4_CACHE_DIR:-/data/lobster-stage4-cache}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
+      # Hermes image cache mount (dev parity with production docker-compose.yml).
+      HERMES_IMAGE_CACHE_MOUNT: ${HERMES_IMAGE_CACHE_MOUNT:-/hermes-media}
     volumes:
       - ./:/app
       - ${ARIES_SHARED_DATA_ROOT:-/home/node/data}:/data
+      - ${HERMES_IMAGE_CACHE_DIR:-/home/node/.hermes/cache/images}:/hermes-media:ro
     ports:
       - "${PORT:-3000}:${PORT:-3000}"
     extra_hosts:
