@@ -1,6 +1,7 @@
 import { readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
+import { tenantOwnsHermesMediaBasename } from '@/backend/marketing/runtime-state';
 import { loadTenantContextOrResponse } from '@/lib/tenant-context-http';
 
 // Maps file extension to Content-Type for common image formats Hermes emits.
@@ -110,15 +111,23 @@ export async function GET(
     });
   }
 
-  // NOTE: Tenant-scoping gap — the Hermes image cache is not tenant-namespaced
-  // on disk, so any authenticated operator can request any basename. The schema
-  // bridge records artifact_url values in tenant-owned runtime documents, which
-  // means a determined operator would need to guess filenames. A full fix would
-  // cross-check the requested basename against artifact_url entries in the
-  // requesting tenant's social-content runs before serving. That lookup requires
-  // plumbing through runtime-state and is deferred as a follow-up hardening
-  // item. Present mitigation: session auth (operator must be logged in) and
-  // path-traversal containment (cannot escape the /hermes-media mount).
+  // Tenant ownership check: verify that the requesting tenant's social-content
+  // runtime documents actually reference this basename in an artifact_url before
+  // streaming bytes.  The Hermes image cache is a flat, non-tenant-namespaced
+  // directory, so without this check any authenticated operator could request
+  // any filename.  We return 404 (not 403) to avoid revealing whether a file
+  // exists.
+  //
+  // Implementation: sequential scan of the tenant's marketing job JSON files —
+  // no database, no Promise.all fan-out, safe under guardrail #1.
+  const { tenantId } = tenantResult.tenantContext;
+  const owned = await tenantOwnsHermesMediaBasename(tenantId, basename);
+  if (!owned) {
+    return new Response(JSON.stringify({ error: 'Not found.' }), {
+      status: 404,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
 
   let buffer: Buffer;
   try {
