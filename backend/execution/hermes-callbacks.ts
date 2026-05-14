@@ -67,6 +67,16 @@ export type HermesRunCallbackResult =
 
 type HermesRunApproval = NonNullable<HermesRunCallbackPayload['approval']>;
 
+function sanitizeApprovalForRunRecord(approval: HermesRunApproval): Record<string, unknown> {
+  return {
+    stage: approval.stage,
+    approval_step: approval.approval_step ?? null,
+    workflow_step_id: approval.workflow_step_id,
+    prompt: approval.prompt,
+    has_resume_token: typeof approval.resume_token === 'string' && approval.resume_token.trim().length > 0,
+  };
+}
+
 function recordValue(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -247,6 +257,24 @@ function validateApprovalTransition(
     return { status: 'error', reason: 'approval_not_supported_for_domain' };
   }
   if (run.workflow_key === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY) {
+    const approvalStep = payload.approval.approval_step
+      ?? approvalStepFromWorkflowStepId(payload.approval.workflow_step_id);
+    if (!approvalStep) {
+      return { status: 'error', reason: 'approval_stage_mismatch' };
+    }
+    const expectedMarketingStage = approvalStep === 'approve_weekly_plan'
+      ? 'strategy'
+      : approvalStep === 'approve_publish'
+        ? 'publish'
+        : 'production';
+    if (
+      (run.stage === 'research' && expectedMarketingStage !== 'strategy')
+      || (run.stage === 'strategy' && expectedMarketingStage === 'strategy')
+      || (run.stage === 'production' && expectedMarketingStage === 'strategy')
+      || (run.stage === 'publish' && expectedMarketingStage !== 'publish')
+    ) {
+      return { status: 'error', reason: 'approval_stage_mismatch' };
+    }
     return null;
   }
   if (
@@ -306,7 +334,7 @@ export async function handleHermesRunCallback(
         eventId: payload.event_id,
         status: executionStatus(payload.status),
         stage: payload.stage,
-        result: payload.output ?? payload.approval ?? null,
+        result: payload.output ?? (payload.approval ? sanitizeApprovalForRunRecord(payload.approval) : null),
         externalRunId: payload.hermes_run_id,
         error: payload.error
           ? {

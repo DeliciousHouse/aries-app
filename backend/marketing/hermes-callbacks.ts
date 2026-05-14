@@ -495,12 +495,25 @@ export async function applyHermesMarketingCallback(
           summary: bundle.summary,
           primaryOutput: bundle.primaryOutput,
         });
+        if (isSocialContentRun(run)) {
+          const socialStage = socialStageForMarketingStage(stage);
+          markSocialContentStageCompleted(doc, socialStage, {
+            summary: bundle.summary?.summary ?? null,
+            output: bundle.primaryOutput,
+            artifacts: stage === 'publish' ? normalizeArtifacts(payload.artifacts) : undefined,
+          });
+        }
       }
       clearApprovalCheckpoint(doc, 'multi-stage Hermes completion fan-out');
       if (multiStage.has('publish') && doc.stages.publish.status === 'completed') {
         doc.state = 'completed';
         doc.status = 'completed';
         doc.current_stage = 'publish';
+        if (isSocialContentRun(run)) {
+          markSocialContentStageCompleted(doc, 'completed', {
+            summary: multiStage.get('publish')?.summary?.summary ?? outputSummary(payload)?.summary ?? 'Weekly social content workflow completed.',
+          });
+        }
         scheduleHermesPublishPerformanceHonchoWrite({
           doc,
           payloadRecord: multiStage.get('publish')?.primaryOutput ?? firstOutputRecord(payload),
