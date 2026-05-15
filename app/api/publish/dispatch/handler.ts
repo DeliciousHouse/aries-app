@@ -11,6 +11,13 @@ import {
   publishToMetaGraph,
   type MetaPublishSuccess,
 } from '../../../../backend/integrations/meta-publishing';
+import {
+  findLatestMarketingApprovalRecord,
+  loadMarketingApprovalRecord,
+  MarketingApprovalLockError,
+  withMarketingApprovalLock,
+  saveMarketingApprovalRecord,
+} from '../../../../backend/marketing/approval-store';
 import { pool } from '@/lib/db';
 
 type PublishDispatchBody = {
@@ -21,6 +28,8 @@ type PublishDispatchBody = {
   scheduled_for?: string;
   marketing_job_id?: string;
   job_id?: string;
+  /** Explicit approval record id. Required for Meta/Instagram publishes. */
+  approval_id?: string;
 };
 
 export type PublishDispatchHandlerOptions = {
@@ -72,6 +81,123 @@ function maybeMirrorPublishedResult(args: {
   });
 }
 
+/**
+ * Atomically validates and consumes a marketing_approval_record before any
+ * Graph API side-effect. Uses withMarketingApprovalLock for mutual exclusion.
+ *
+ * Returns null on success (approval consumed). Returns a Response on failure
+ * (caller should return that response immediately).
+ */
+async function validateAndConsumeApproval(args: {
+  tenantId: string;
+  marketingJobId: string | undefined;
+  approvalId: string | undefined;
+}): Promise<Response | null> {
+  // Resolve the approval record: by explicit id first, then by job+stage
+  let approvalId: string | undefined = args.approvalId?.trim() || undefined;
+
+  if (!approvalId) {
+    if (!args.marketingJobId) {
+      return new Response(
+        JSON.stringify({
+          status: 'error',
+          reason: 'publish_requires_approval',
+          message: 'Meta/Instagram publish requires an approval_id or marketing_job_id.',
+        }),
+        { status: 403, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    // Derive from job+stage
+    const record = findLatestMarketingApprovalRecord({
+      marketingJobId: args.marketingJobId,
+      tenantId: args.tenantId,
+      marketingStage: 'publish',
+      statuses: ['approved'],
+    });
+    if (!record) {
+      return new Response(
+        JSON.stringify({
+          status: 'error',
+          reason: 'publish_requires_approval',
+          message: 'No approved marketing_approval_record found for this publish event.',
+        }),
+        { status: 403, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    approvalId = record.approval_id;
+  }
+
+  // Atomically consume inside the file lock
+  let consumeError: Response | null = null;
+  try {
+    await withMarketingApprovalLock(approvalId, async () => {
+      const record = loadMarketingApprovalRecord(approvalId as string);
+      if (!record) {
+        consumeError = new Response(
+          JSON.stringify({
+            status: 'error',
+            reason: 'publish_requires_approval',
+            message: `marketing_approval_record ${approvalId} not found.`,
+          }),
+          { status: 403, headers: { 'content-type': 'application/json' } },
+        );
+        return;
+      }
+      if (record.tenant_id !== args.tenantId) {
+        consumeError = new Response(
+          JSON.stringify({
+            status: 'error',
+            reason: 'publish_requires_approval',
+            message: 'Approval record does not belong to this tenant.',
+          }),
+          { status: 403, headers: { 'content-type': 'application/json' } },
+        );
+        return;
+      }
+      if (record.status === 'consumed') {
+        consumeError = new Response(
+          JSON.stringify({
+            status: 'error',
+            reason: 'publish_approval_already_consumed',
+            message: `Approval ${approvalId} has already been consumed; cannot publish again.`,
+          }),
+          { status: 403, headers: { 'content-type': 'application/json' } },
+        );
+        return;
+      }
+      if (record.status !== 'approved') {
+        consumeError = new Response(
+          JSON.stringify({
+            status: 'error',
+            reason: 'publish_requires_approval',
+            message: `Approval ${approvalId} is in status '${record.status}', not 'approved'.`,
+          }),
+          { status: 403, headers: { 'content-type': 'application/json' } },
+        );
+        return;
+      }
+      // Mark consumed atomically inside the lock
+      record.status = 'consumed';
+      record.resolved_at = new Date().toISOString();
+      saveMarketingApprovalRecord(record);
+    });
+  } catch (error) {
+    if (error instanceof MarketingApprovalLockError) {
+      return new Response(
+        JSON.stringify({
+          status: 'error',
+          reason: 'publish_approval_already_consumed',
+          message: 'Approval is currently being processed by another request.',
+        }),
+        { status: 403, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    throw error;
+  }
+
+  return consumeError;
+}
+
 export async function handlePublishDispatch(
   req: Request,
   tenantContextLoader?: TenantContextLoader,
@@ -112,6 +238,16 @@ export async function handlePublishDispatch(
     });
 
     if (isMetaProvider(provider)) {
+      // BLOCKER 1: Enforce approval gate before any Graph API side-effect
+      const approvalError = await validateAndConsumeApproval({
+        tenantId,
+        marketingJobId,
+        approvalId: typeof body.approval_id === 'string' ? body.approval_id : undefined,
+      });
+      if (approvalError) {
+        return approvalError;
+      }
+
       const publishExecutor = options.publishExecutor ?? ((request) => publishToMetaGraph(request));
       const published = await publishExecutor({
         tenantId,
