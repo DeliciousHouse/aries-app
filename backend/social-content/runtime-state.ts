@@ -40,6 +40,7 @@ type VideoScript = {
   duration_seconds: number | null;
   script_markdown: string;
   status: string;
+  artifact_url: string;
 };
 
 export type SocialContentWeeklyPlan = {
@@ -697,6 +698,42 @@ function parseImageCreatives(value: unknown): ImageCreative[] {
     }));
 }
 
+function firstString(...values: unknown[]): string {
+  for (const value of values) {
+    const normalized = stringValue(value);
+    if (normalized) return normalized;
+  }
+  return '';
+}
+
+function parseVideoArtifactUrl(entry: UnknownRecord): string {
+  const renderedVideo = asRecord(entry.rendered_video);
+  const render = asRecord(entry.render);
+  const asset = asRecord(entry.asset);
+
+  return firstString(
+    entry.artifact_url,
+    entry.url,
+    entry.rendered_video_url,
+    entry.rendered_video_path,
+    entry.video_url,
+    entry.video_path,
+    renderedVideo?.artifact_url,
+    renderedVideo?.url,
+    renderedVideo?.rendered_video_url,
+    renderedVideo?.rendered_video_path,
+    renderedVideo?.video_url,
+    renderedVideo?.video_path,
+    render?.artifact_url,
+    render?.url,
+    render?.rendered_video_url,
+    render?.rendered_video_path,
+    asset?.artifact_url,
+    asset?.url,
+    asset?.path,
+  );
+}
+
 function parseVideoScripts(value: unknown): VideoScript[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -708,6 +745,7 @@ function parseVideoScripts(value: unknown): VideoScript[] {
       duration_seconds: numberValue(entry.duration_seconds),
       script_markdown: stringValue(entry.script_markdown),
       status: stringValue(entry.status),
+      artifact_url: parseVideoArtifactUrl(entry),
     }));
 }
 
@@ -751,7 +789,7 @@ export function socialContentArtifactsFromProjection(
     title: script.title || `Video script ${index + 1}`,
     status: script.status || 'generated',
     summary: script.script_markdown ? script.script_markdown.slice(0, 240) : null,
-    url: null,
+    url: script.artifact_url || null,
     metadata: {
       duration_seconds: script.duration_seconds,
     },

@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { buildSocialContentDashboardProjection } from '@/backend/social-content/dashboard-projection';
-import { parseSocialContentWorkflowOutput } from '@/backend/social-content/runtime-state';
+import { parseSocialContentWorkflowOutput, socialContentArtifactsFromProjection } from '@/backend/social-content/runtime-state';
 import { normalizeWeeklySocialContentPayload } from '@/backend/social-content/payload';
 import { buildSocialContentWeeklyRequest } from '@/backend/social-content/workflow-request';
 import type { SocialContentCalendarEvent } from '@/backend/marketing/jobs-status';
@@ -919,4 +919,91 @@ test('parseSocialContentWorkflowOutput accepts camelCase weeklyPlan key from Her
   assert.equal(projection!.weekly_content_plan.posts.length, 1);
   assert.equal(projection!.weekly_content_plan.window_days, 7);
   assert.equal(projection!.weekly_content_plan.image_creatives.length, 1);
+});
+
+test('parseSocialContentWorkflowOutput captures rendered video URLs from weekly plan video scripts', () => {
+  const hermesOutput = {
+    summary: 'Rendered weekly plan ready.',
+    weekly_content_plan: {
+      window_days: 7,
+      posts: [],
+      image_creatives: [],
+      video_scripts: [
+        {
+          id: 'video-direct-url',
+          title: 'Rendered direct URL',
+          duration_seconds: 30,
+          script_markdown: 'Direct URL render.',
+          status: 'rendered',
+          artifact_url: 'https://aries.example.com/api/marketing/jobs/job-123/assets/video-direct-url',
+        },
+        {
+          id: 'video-nested-url',
+          title: 'Rendered nested URL',
+          duration_seconds: 15,
+          script_markdown: 'Nested URL render.',
+          status: 'rendered',
+          rendered_video: {
+            url: 'https://aries.example.com/api/marketing/jobs/job-123/assets/video-nested-url',
+          },
+        },
+        {
+          id: 'video-script-only',
+          title: 'Script only',
+          duration_seconds: 10,
+          script_markdown: 'No render yet.',
+          status: 'approved',
+        },
+      ],
+    },
+  };
+
+  const projection = parseSocialContentWorkflowOutput(hermesOutput);
+  assert.notEqual(projection, null);
+  assert.equal(
+    projection!.weekly_content_plan.video_scripts[0].artifact_url,
+    'https://aries.example.com/api/marketing/jobs/job-123/assets/video-direct-url',
+  );
+  assert.equal(
+    projection!.weekly_content_plan.video_scripts[1].artifact_url,
+    'https://aries.example.com/api/marketing/jobs/job-123/assets/video-nested-url',
+  );
+  assert.equal(projection!.weekly_content_plan.video_scripts[2].artifact_url, '');
+});
+
+test('socialContentArtifactsFromProjection surfaces playable video URLs and preserves null for script-only entries', () => {
+  const projection = parseSocialContentWorkflowOutput({
+    summary: 'Rendered weekly plan ready.',
+    weekly_content_plan: {
+      window_days: 7,
+      posts: [],
+      image_creatives: [],
+      video_scripts: [
+        {
+          id: 'video-ready',
+          title: 'Playable render',
+          duration_seconds: 20,
+          script_markdown: 'Playable render.',
+          status: 'rendered',
+          url: 'https://aries.example.com/api/marketing/jobs/job-456/assets/video-ready',
+        },
+        {
+          id: 'video-script-only',
+          title: 'Script only',
+          duration_seconds: 20,
+          script_markdown: 'Still awaiting render.',
+          status: 'approved',
+        },
+      ],
+    },
+  });
+
+  assert.notEqual(projection, null);
+  const artifacts = socialContentArtifactsFromProjection(projection!);
+  assert.equal(artifacts.length, 2);
+  assert.equal(
+    artifacts[0].url,
+    'https://aries.example.com/api/marketing/jobs/job-456/assets/video-ready',
+  );
+  assert.equal(artifacts[1].url, null);
 });
