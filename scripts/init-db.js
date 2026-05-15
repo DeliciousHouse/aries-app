@@ -518,6 +518,14 @@ async function initDb() {
         ON partner_attribution_outbox (next_attempt_at)
         WHERE status = 'pending';
 
+      -- PR #327: posts idempotency_key for double-publish prevention.
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS platform TEXT;
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_posts_tenant_platform_idempotency_key
+        ON posts (tenant_id, platform, idempotency_key)
+        WHERE idempotency_key IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_posts_tenant_platform ON posts (tenant_id, platform);
+
       -- Phase 4 PR1: Slack Events API inbound dedupe. Every delivery has a
       -- stable event_id; the webhook inserts ON CONFLICT DO NOTHING to drop
       -- retries before any business logic runs. Optional 30-day retention
