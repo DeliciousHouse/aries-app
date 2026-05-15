@@ -167,14 +167,19 @@ export type SocialContentWeeklyRequest = {
   };
 };
 
-function resolveCreativeBriefs(req: UnknownRecord): string[] {
+// repairedOffer is the already-repaired offer string (from resolveBrandOffer).
+// It must be passed in here so that stale product copy (e.g. leather-goods text)
+// cannot leak into creative_briefs via the raw req.offer fallback — Copilot
+// flagged this gap: the offer repair ran after mediaRequests was built, so the
+// raw req.offer was still being used for creative_briefs construction.
+function resolveCreativeBriefs(req: UnknownRecord, repairedOffer: string): string[] {
   const configured = stringArray(req.creativeBriefs ?? req.creative_briefs);
   if (configured.length > 0) {
     return configured.slice(0, MAX_IMAGE_CREATIVE_COUNT);
   }
   const fallback = [
     stringValue(req.primaryGoal) || stringValue(req.goal),
-    stringValue(req.offer),
+    repairedOffer,
     stringValue(req.styleVibe),
     stringValue(req.audience),
   ].filter((entry) => entry.length > 0);
@@ -290,6 +295,10 @@ export function buildSocialContentWeeklyRequest(input: {
     SOCIAL_CONTENT_DEFAULT_SCOPE.video_render_count,
     MAX_VIDEO_RENDER_COUNT,
   );
+  // Resolve and repair the offer before building mediaRequests so that stale
+  // product copy cannot leak into creative_briefs via the raw req.offer path.
+  const resolvedOffer = resolveBrandOffer(req, brandKit);
+
   const mediaRequests: NonNullable<SocialContentWeeklyRequest['input']['media_requests']> = [];
   if (imageCreativeCount > 0) {
     const imageChannel = resolveDominantImageChannel(imageTargetChannels);
@@ -301,7 +310,7 @@ export function buildSocialContentWeeklyRequest(input: {
       }),
       count: imageCreativeCount,
       target_channels: imageTargetChannels,
-      creative_briefs: resolveCreativeBriefs(req),
+      creative_briefs: resolveCreativeBriefs(req, resolvedOffer),
     });
   }
   if (videoRenderCount > 0) {
@@ -313,8 +322,6 @@ export function buildSocialContentWeeklyRequest(input: {
       script_id: stringValue(req.videoScriptId) || 'weekly_primary',
     });
   }
-
-  const resolvedOffer = resolveBrandOffer(req, brandKit);
 
   return {
     workflow_key: SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,

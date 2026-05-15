@@ -221,6 +221,15 @@ test('buildSocialContentWeeklyRequest repairs stale leather-goods offer before r
 
   assert.equal(request.input.brand.offer, 'Elite coaching network for women leaders and executives.');
   assert.equal(request.input.objective.offer, 'Elite coaching network for women leaders and executives.');
+
+  // creative_briefs in image media_requests must also not contain the stale
+  // leather-goods copy — the offer repair must run before creative_briefs are
+  // constructed (Copilot regression-014 gap: raw req.offer was used here).
+  const imageMediaRequest = (request.input.media_requests ?? []).find((r) => r.type === 'image.generate');
+  assert.ok(imageMediaRequest, 'image media request should be present');
+  const briefs = (imageMediaRequest as { creative_briefs?: string[] }).creative_briefs ?? [];
+  const leatherLeak = briefs.some((b) => /leather goods|wallets|bags|accessories/i.test(b));
+  assert.equal(leatherLeak, false, `creative_briefs must not contain stale leather-goods copy; got: ${JSON.stringify(briefs)}`);
 });
 
 test('buildProductionResumeContext contextBlock contains all image prompts', async () => {
