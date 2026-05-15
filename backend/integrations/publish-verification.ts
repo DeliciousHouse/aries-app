@@ -99,15 +99,51 @@ export type PersistPublishedPostArgs = {
   platformPostId: string;
   publishedAt: Date;
   publishedStatus: PublishedStatus;
+  /** Stable key derived from (marketing_job_id, stage, asset_index, platform). Used for idempotency. */
+  idempotencyKey?: string | null;
+  /** Normalized platform name (e.g. 'facebook', 'instagram'). Stored for idempotency index lookups. */
+  platform?: string | null;
 };
+
+/**
+ * Lookup an existing posts row by idempotency key. Returns the row if found,
+ * null otherwise. Callers should check this before inserting to short-circuit
+ * duplicate publishes without relying solely on the unique constraint.
+ */
+export async function findPostByIdempotencyKey(args: {
+  tenantId: number;
+  platform: string;
+  idempotencyKey: string;
+}, db: Pool): Promise<{ postId: string; platformPostId: string | null } | null> {
+  const result = await db.query<{ id: string | number; platform_post_id: string | null }>(
+    `SELECT id, platform_post_id FROM posts
+     WHERE tenant_id = $1 AND platform = $2 AND idempotency_key = $3
+     LIMIT 1`,
+    [args.tenantId, args.platform, args.idempotencyKey],
+  );
+  const row = result.rows?.[0];
+  if (!row) return null;
+  return { postId: String(row.id), platformPostId: row.platform_post_id ?? null };
+}
 
 export async function persistPublishedPost(
   args: PersistPublishedPostArgs,
   db: Pool,
 ): Promise<{ postId: string }> {
+  // Short-circuit via idempotency key before attempting insert (avoids constraint violation noise)
+  if (args.idempotencyKey && args.platform) {
+    const existing = await findPostByIdempotencyKey(
+      { tenantId: args.tenantId, platform: args.platform, idempotencyKey: args.idempotencyKey },
+      db,
+    );
+    if (existing) {
+      return { postId: existing.postId };
+    }
+  }
+
   const insertResult = await db.query<{ id: string | number }>(
-    `INSERT INTO posts (tenant_id, content, platform_post_id, published_at, published_status)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO posts (tenant_id, content, platform_post_id, published_at, published_status, platform, idempotency_key)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      RETURNING id`,
     [
       args.tenantId,
@@ -115,15 +151,26 @@ export async function persistPublishedPost(
       args.platformPostId,
       args.publishedAt.toISOString(),
       args.publishedStatus,
+      args.platform ?? null,
+      args.idempotencyKey ?? null,
     ],
   );
 
   const row = insertResult.rows?.[0];
-  const postId = row?.id;
-  if (postId === undefined || postId === null) {
+  if (!row?.id) {
+    // Race: another concurrent insert won. Re-query to return the existing row.
+    if (args.idempotencyKey && args.platform) {
+      const existing = await findPostByIdempotencyKey(
+        { tenantId: args.tenantId, platform: args.platform, idempotencyKey: args.idempotencyKey },
+        db,
+      );
+      if (existing) {
+        return { postId: existing.postId };
+      }
+    }
     throw new Error('publish_verification_persist_failed:no_id_returned');
   }
-  return { postId: String(postId) };
+  return { postId: String(row.id) };
 }
 
 export async function updatePostPublishedStatus(
@@ -145,6 +192,8 @@ export type PublishVerificationDispatchArgs = {
   pool: Pool;
   fetchImpl?: typeof fetch;
   pageTokenLookup?: (tenantId: string, provider: string) => Promise<string | null>;
+  /** Stable idempotency key for the posts row. Prevents duplicate DB rows on retry. */
+  idempotencyKey?: string | null;
 };
 
 export type PublishVerificationResult = {
@@ -184,6 +233,8 @@ export async function runPublishVerification(
 
   const publishedAt = new Date();
 
+  const normalizedPlatform = args.provider === 'meta' ? 'facebook' : args.provider;
+
   if (!pageToken) {
     const persisted = await persistPublishedPost(
       {
@@ -192,6 +243,8 @@ export async function runPublishVerification(
         platformPostId,
         publishedAt,
         publishedStatus: 'unverified',
+        platform: normalizedPlatform,
+        idempotencyKey: args.idempotencyKey ?? null,
       },
       args.pool,
     );
@@ -211,6 +264,8 @@ export async function runPublishVerification(
       platformPostId,
       publishedAt,
       publishedStatus: 'unverified',
+      platform: normalizedPlatform,
+      idempotencyKey: args.idempotencyKey ?? null,
     },
     args.pool,
   );

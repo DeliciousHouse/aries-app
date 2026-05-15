@@ -8,6 +8,12 @@ export interface PublishDispatchRequest {
   /** When set, verified publish outcomes can mirror to Honcho under this marketing job id. */
   marketing_job_id?: string;
   job_id?: string;
+  /**
+   * Required for Meta/Instagram publishes. The marketing_approval_record id to
+   * consume atomically before any Graph API side-effect. If omitted, the handler
+   * will attempt to derive the approval from marketing_job_id + stage=publish.
+   */
+  approval_id?: string;
 }
 
 export interface PublishDispatchResponse {

@@ -1,10 +1,10 @@
 import pool from '@/lib/db';
 import { decryptOAuthSecret } from './oauth-token-crypto';
 
-export async function getDecryptedAccessTokenForTenantProvider(
+export async function getDecryptedAccessTokenContextForTenantProvider(
   tenantIdStr: string,
   provider: string
-): Promise<{ accessToken: string; connectionId: string } | null> {
+): Promise<{ accessToken: string; connectionId: string; externalAccountId: string | null } | null> {
   const orgId = Number.parseInt(tenantIdStr, 10);
   if (!Number.isFinite(orgId) || orgId < 1) {
     return null;
@@ -13,8 +13,9 @@ export async function getDecryptedAccessTokenForTenantProvider(
   const res = await pool.query<{
     access_token_enc: string | null;
     connection_id: string;
+    external_account_id: string | null;
   }>(
-    `SELECT t.access_token_enc, c.id::text AS connection_id
+    `SELECT t.access_token_enc, c.id::text AS connection_id, c.external_account_id
      FROM oauth_connections c
      INNER JOIN oauth_tokens t ON t.connection_id = c.id
      WHERE c.tenant_id = $1 AND c.provider = $2 AND c.status = 'connected'
@@ -31,7 +32,25 @@ export async function getDecryptedAccessTokenForTenantProvider(
   if (!accessToken) {
     return null;
   }
-  return { accessToken, connectionId: row.connection_id };
+  return {
+    accessToken,
+    connectionId: row.connection_id,
+    externalAccountId:
+      typeof row.external_account_id === 'string' && row.external_account_id.trim().length > 0
+        ? row.external_account_id.trim()
+        : null,
+  };
+}
+
+export async function getDecryptedAccessTokenForTenantProvider(
+  tenantIdStr: string,
+  provider: string
+): Promise<{ accessToken: string; connectionId: string } | null> {
+  const handle = await getDecryptedAccessTokenContextForTenantProvider(tenantIdStr, provider);
+  if (!handle) {
+    return null;
+  }
+  return { accessToken: handle.accessToken, connectionId: handle.connectionId };
 }
 
 /** Person URN for UGC (from OIDC `sub` or legacy person id). */
