@@ -126,6 +126,30 @@ function graphEndpoint(pathname: string): string {
   return `${META_GRAPH_HOST}/${metaGraphVersion()}/${pathname.replace(/^\/+/, '')}`;
 }
 
+const MAX_429_RETRIES = 5;
+const RETRY_AFTER_CAP_S = 60;
+
+function parseRetryAfterSeconds(headers: Headers): number | null {
+  const raw = headers.get('retry-after');
+  if (!raw) return null;
+  // HTTP-date format
+  const asDate = new Date(raw);
+  if (!Number.isNaN(asDate.getTime())) {
+    const deltaMs = asDate.getTime() - Date.now();
+    return Math.max(0, Math.min(Math.ceil(deltaMs / 1000), RETRY_AFTER_CAP_S));
+  }
+  // Seconds format
+  const asSeconds = Number.parseFloat(raw);
+  if (Number.isFinite(asSeconds) && asSeconds >= 0) {
+    return Math.min(Math.ceil(asSeconds), RETRY_AFTER_CAP_S);
+  }
+  return null;
+}
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function requestGraphJson(args: {
   pathname: string;
   params?: Record<string, string>;
@@ -139,34 +163,56 @@ async function requestGraphJson(args: {
   params.set('access_token', args.accessToken);
   for (const [key, value] of Object.entries(args.params ?? {})) params.set(key, value);
 
-  let response: Response;
-  try {
-    if (method === 'GET') {
-      url.search = params.toString();
-      response = await args.fetchImpl(url, { method: 'GET' });
-    } else {
-      response = await args.fetchImpl(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: params.toString(),
-      });
+  let lastError: MetaPublishError | null = null;
+
+  for (let attempt = 0; attempt <= MAX_429_RETRIES; attempt += 1) {
+    let response: Response;
+    try {
+      if (method === 'GET') {
+        url.search = params.toString();
+        response = await args.fetchImpl(url, { method: 'GET' });
+      } else {
+        response = await args.fetchImpl(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/x-www-form-urlencoded' },
+          body: params.toString(),
+        });
+      }
+    } catch (error) {
+      throw new MetaPublishError('graph_network_error', String((error as Error).message || error), { status: 502, retryable: true });
     }
-  } catch (error) {
-    throw new MetaPublishError('graph_network_error', String((error as Error).message || error), { status: 502, retryable: true });
+
+    const parsed = await parseGraphResponse(response);
+    if (response.ok) return parsed;
+
+    const graphError = parsed.error as Record<string, unknown> | undefined;
+    const message = typeof graphError?.message === 'string' && graphError.message.trim().length > 0
+      ? graphError.message.trim()
+      : `Meta Graph API request failed with status ${response.status}`;
+
+    // Handle 429 with Retry-After backoff (bounded retry budget)
+    if (response.status === 429) {
+      lastError = new MetaPublishError('graph_rate_limited', message, { status: 429, retryable: true });
+      if (attempt < MAX_429_RETRIES) {
+        const retryAfterS = parseRetryAfterSeconds(response.headers);
+        const backoffMs = retryAfterS !== null
+          ? retryAfterS * 1000
+          : Math.min(1000 * (2 ** attempt), RETRY_AFTER_CAP_S * 1000);
+        await sleep(backoffMs);
+        continue;
+      }
+      // Exceeded retry budget
+      throw lastError;
+    }
+
+    throw new MetaPublishError('graph_api_error', message, {
+      status: response.status >= 400 && response.status < 600 ? response.status : 502,
+      retryable: response.status >= 500,
+    });
   }
 
-  const parsed = await parseGraphResponse(response);
-  if (response.ok) return parsed;
-
-  const graphError = parsed.error as Record<string, unknown> | undefined;
-  const message = typeof graphError?.message === 'string' && graphError.message.trim().length > 0
-    ? graphError.message.trim()
-    : `Meta Graph API request failed with status ${response.status}`;
-
-  throw new MetaPublishError('graph_api_error', message, {
-    status: response.status >= 400 && response.status < 600 ? response.status : 502,
-    retryable: response.status >= 500,
-  });
+  // Should not reach here, but satisfy TypeScript
+  throw lastError ?? new MetaPublishError('graph_api_error', 'Unknown error after retry loop', { status: 502 });
 }
 
 async function withSafePrePublishRetry<T>(fn: () => Promise<T>, attempts: number): Promise<T> {
