@@ -302,3 +302,73 @@ test('bridge(c): creative_assets shape takes precedence over empty legacy image_
     assert.equal(plan.image_creatives[0].id, 'img_new_asset');
   });
 });
+
+// ---------------------------------------------------------------------------
+// ReDoS regression — imageBasenameFromValue must not hang on pathological input
+// (CodeQL js/polynomial-redos, fixed by replacing runtime regex with explicit
+//  string operations + 1024-char input cap)
+// ---------------------------------------------------------------------------
+
+test('security: imageBasenameFromValue returns in < 200ms on pathological 50k-quote input ending .png#', () => {
+  // Simulate the pathological pattern described by CodeQL: a string of many
+  // repeated quote characters followed by ".png#" — the old regex
+  // /([^/?#]+\.(?:png|jpe?g|webp|gif))(?:[?#].*)?$/i would backtrack
+  // exponentially on this input. The new implementation must complete in
+  // well under 200ms regardless.
+  withAppBaseUrl(() => {
+    const malicious = '"'.repeat(50_000) + '.png#';
+    const input = {
+      artifacts: {
+        aspectRatio: '1:1',
+        creative_assets: [
+          {
+            assetId: 'sec_test',
+            type: 'generated_image',
+            status: 'created',
+            path: malicious,
+            prompt: 'ReDoS regression test.',
+          },
+        ],
+      },
+    };
+
+    const start = performance.now();
+    bridgeHermesCreativeAssets(input);
+    const elapsed = performance.now() - start;
+
+    assert.ok(
+      elapsed < 200,
+      `imageBasenameFromValue must return in < 200ms on pathological input; took ${elapsed.toFixed(1)}ms`,
+    );
+  });
+});
+
+test('security: imageBasenameFromValue returns in < 200ms on pathological 50k-.gif# input', () => {
+  // Second CodeQL pattern: starts with ".png#" and has many repetitions of ".gif#".
+  withAppBaseUrl(() => {
+    const malicious = '".png#' + '".gif#'.repeat(50_000);
+    const input = {
+      artifacts: {
+        aspectRatio: '1:1',
+        creative_assets: [
+          {
+            assetId: 'sec_test_2',
+            type: 'generated_image',
+            status: 'created',
+            path: malicious,
+            prompt: 'ReDoS regression test 2.',
+          },
+        ],
+      },
+    };
+
+    const start = performance.now();
+    bridgeHermesCreativeAssets(input);
+    const elapsed = performance.now() - start;
+
+    assert.ok(
+      elapsed < 200,
+      `imageBasenameFromValue must return in < 200ms on pathological input; took ${elapsed.toFixed(1)}ms`,
+    );
+  });
+});

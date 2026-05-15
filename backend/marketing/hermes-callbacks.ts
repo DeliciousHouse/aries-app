@@ -76,12 +76,43 @@ type HermesImageCreativeLike = {
   [key: string]: unknown;
 };
 
+// Image extensions recognized as renderable file references.
+const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp', 'gif'] as const;
+
+/**
+ * Extracts the image basename from a string value (file path, URL, etc.).
+ *
+ * Uses explicit string operations rather than a runtime regex over user-
+ * supplied input to avoid polynomial backtracking (ReDoS). Input is capped
+ * at 1024 characters as defense-in-depth before any processing.
+ */
 function imageBasenameFromValue(value: unknown): string {
   if (typeof value !== 'string') return '';
-  const trimmed = value.trim();
+  // Cap input length: defense-in-depth against pathological inputs.
+  const trimmed = value.trim().slice(0, 1024);
   if (!trimmed) return '';
-  const match = trimmed.match(/([^/?#]+\.(?:png|jpe?g|webp|gif))(?:[?#].*)?$/i);
-  return match?.[1] ?? '';
+
+  // Strip a query string or fragment so we operate on the clean path segment.
+  const qIdx = trimmed.indexOf('?');
+  const hIdx = trimmed.indexOf('#');
+  let pathPart = trimmed;
+  if (qIdx !== -1 || hIdx !== -1) {
+    const cutAt = qIdx === -1 ? hIdx : hIdx === -1 ? qIdx : Math.min(qIdx, hIdx);
+    pathPart = trimmed.slice(0, cutAt);
+  }
+
+  // Extract the last path segment (basename).
+  const lastSlash = Math.max(pathPart.lastIndexOf('/'), pathPart.lastIndexOf('\\'));
+  const basename = lastSlash === -1 ? pathPart : pathPart.slice(lastSlash + 1);
+  if (!basename) return '';
+
+  // Verify it ends with a recognised image extension (case-insensitive).
+  const dot = basename.lastIndexOf('.');
+  if (dot === -1) return '';
+  const ext = basename.slice(dot + 1).toLowerCase();
+  if (!(IMAGE_EXTENSIONS as readonly string[]).includes(ext)) return '';
+
+  return basename;
 }
 
 function renderedImageBasenameFromRecord(record: Record<string, unknown>): string {
