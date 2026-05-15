@@ -31,9 +31,10 @@ test('ingestSocialContentVideoRenderOutput copies allowed Hermes media into the 
     const { ingestSocialContentVideoRenderOutput } = await import('../backend/social-content/media-ingest');
 
     const jobId = 'job-video-ingest';
-    const videoPath = path.join(hermesRoot, 'runs', 'video.mp4');
-    const posterPath = path.join(hermesRoot, 'runs', 'poster.png');
+    const videoPath = path.join(hermesRoot, 'cache', 'videos', 'runs', 'video.mp4');
+    const posterPath = path.join(hermesRoot, 'cache', 'images', 'runs', 'poster.png');
     await mkdir(path.dirname(videoPath), { recursive: true });
+    await mkdir(path.dirname(posterPath), { recursive: true });
     await writeFile(videoPath, Buffer.from('fake-mp4-bytes'));
     await writeFile(posterPath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
 
@@ -97,5 +98,51 @@ test('ingestSocialContentVideoRenderOutput refuses sources outside the Hermes al
     } finally {
       await rm(outsideRoot, { recursive: true, force: true });
     }
+  });
+});
+
+test('ingestSocialContentVideoRenderOutput allows already-ingested exact destination paths but rejects other DATA_ROOT media', async () => {
+  await withMediaEnv(async ({ dataRoot }) => {
+    const { ingestSocialContentVideoRenderOutput } = await import('../backend/social-content/media-ingest');
+
+    const jobId = 'job-video-ingest';
+    const expectedVideoPath = path.join(dataRoot, 'generated', 'draft', 'jobs', jobId, 'videos', 'tiktok-launch-cut.mp4');
+    const expectedPosterPath = path.join(dataRoot, 'generated', 'draft', 'jobs', jobId, 'videos', 'tiktok-launch-cut-poster.png');
+    await mkdir(path.dirname(expectedVideoPath), { recursive: true });
+    await writeFile(expectedVideoPath, Buffer.from('existing-video'));
+    await writeFile(expectedPosterPath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+    const otherJobPosterPath = path.join(dataRoot, 'generated', 'draft', 'jobs', 'other-job', 'videos', 'tiktok-launch-cut-poster.png');
+    await mkdir(path.dirname(otherJobPosterPath), { recursive: true });
+    await writeFile(otherJobPosterPath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+    const output = [{
+      video_assets: {
+        platform_contracts: [{
+          platform_slug: 'TikTok',
+          rendered_video_variants: [
+            {
+              family_id: 'Launch Cut',
+              video_path: expectedVideoPath,
+              thumbnail_path: expectedPosterPath,
+            },
+            {
+              family_id: 'Unsafe Poster',
+              thumbnail_path: otherJobPosterPath,
+            },
+          ],
+        }],
+      },
+    }];
+
+    const result = ingestSocialContentVideoRenderOutput(jobId, output);
+    assert.equal(result.rewrites.length, 2);
+    assert.deepEqual(result.skipped, [{ path: otherJobPosterPath, reason: 'not_allowed' }]);
+
+    const variants = (output[0] as any).video_assets.platform_contracts[0].rendered_video_variants;
+    assert.equal(variants[0].video_path, expectedVideoPath);
+    assert.equal(variants[0].thumbnail_path, expectedPosterPath);
+    assert.equal(variants[0].poster_path, expectedPosterPath);
+    assert.equal(variants[1].thumbnail_path, otherJobPosterPath);
   });
 });

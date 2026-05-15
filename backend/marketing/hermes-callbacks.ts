@@ -330,6 +330,19 @@ function productionCallbackHasUnrenderedImageCreatives(
   );
 }
 
+function summarizeVideoIngestSkips(
+  skipped: Array<{ path: string; reason: 'not_allowed' | 'missing' | 'invalid' }>,
+): { count: number; reasons: Partial<Record<'not_allowed' | 'missing' | 'invalid', number>> } {
+  const reasons: Partial<Record<'not_allowed' | 'missing' | 'invalid', number>> = {};
+  for (const entry of skipped) {
+    reasons[entry.reason] = (reasons[entry.reason] ?? 0) + 1;
+  }
+  return {
+    count: skipped.length,
+    reasons,
+  };
+}
+
 function ingestSocialContentStageMedia(
   run: ExecutionRunRecord,
   payload: HermesRunCallbackPayload,
@@ -342,7 +355,7 @@ function ingestSocialContentStageMedia(
   if (result.skipped.length > 0) {
     console.warn('[social-content-video-ingest] skipped media during Hermes callback ingest', {
       jobId: run.marketing_job_id,
-      skipped: result.skipped,
+      skipped: summarizeVideoIngestSkips(result.skipped),
     });
   }
 }

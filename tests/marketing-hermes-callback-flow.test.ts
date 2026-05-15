@@ -355,9 +355,10 @@ test('Hermes video_render callbacks ingest rendered media from the Hermes cache 
 
     try {
       process.env.HERMES_CACHE_DIR = hermesCacheRoot;
-      const videoPath = path.join(hermesCacheRoot, 'run-1', 'launch-cut.mp4');
-      const posterPath = path.join(hermesCacheRoot, 'run-1', 'launch-cut.png');
+      const videoPath = path.join(hermesCacheRoot, 'cache', 'videos', 'run-1', 'launch-cut.mp4');
+      const posterPath = path.join(hermesCacheRoot, 'cache', 'images', 'run-1', 'launch-cut.png');
       await mkdir(path.dirname(videoPath), { recursive: true });
+      await mkdir(path.dirname(posterPath), { recursive: true });
       await writeFile(videoPath, Buffer.from('callback-video'));
       await writeFile(posterPath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
 
@@ -411,6 +412,80 @@ test('Hermes video_render callbacks ingest rendered media from the Hermes cache 
       assert.deepEqual(await readFile(ingestedVideoPath), Buffer.from('callback-video'));
       assert.deepEqual(await readFile(ingestedPosterPath), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
     } finally {
+      if (previousHermesCacheDir === undefined) delete process.env.HERMES_CACHE_DIR;
+      else process.env.HERMES_CACHE_DIR = previousHermesCacheDir;
+      await rm(hermesCacheRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+test('Hermes video_render callback skip logs omit full filesystem paths', async () => {
+  await withRuntimeEnv(async () => {
+    const { createExecutionRunRecord } = await import('../backend/execution/run-store');
+    const { handleHermesRunCallback } = await import('../backend/execution/hermes-callbacks');
+    const hermesCacheRoot = await mkdtemp(path.join(tmpdir(), 'aries-hermes-video-cache-'));
+    const previousHermesCacheDir = process.env.HERMES_CACHE_DIR;
+    const previousWarn = console.warn;
+    const warnings: unknown[][] = [];
+    const doc = await seedMarketingJob();
+
+    try {
+      process.env.HERMES_CACHE_DIR = hermesCacheRoot;
+      const leakedPosterPath = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'jobs', 'other-job', 'videos', 'tiktok-launch-cut-poster.png');
+      await mkdir(path.dirname(leakedPosterPath), { recursive: true });
+      await writeFile(leakedPosterPath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+      console.warn = (...args: unknown[]) => {
+        warnings.push(args);
+      };
+
+      const run = createExecutionRunRecord({
+        provider: 'hermes',
+        domain: 'marketing',
+        workflowKey: 'social_content_weekly',
+        action: 'resume',
+        tenantId: doc.tenant_id,
+        marketingJobId: doc.job_id,
+        stage: 'production',
+      });
+
+      await handleHermesRunCallback({
+        event_id: 'evt-video-render-skip-log',
+        aries_run_id: run.aries_run_id,
+        hermes_run_id: 'hermes-video-render-skip-log',
+        status: 'requires_approval',
+        stage: 'video_render',
+        output: [{
+          summary: 'Video render finished',
+          video_assets: {
+            platform_contracts: [{
+              platform_slug: 'tiktok',
+              rendered_video_variants: [{
+                family_id: 'launch-cut',
+                thumbnail_path: leakedPosterPath,
+              }],
+            }],
+          },
+        }],
+        approval: {
+          stage: 'video',
+          approval_step: 'approve_video_render',
+          workflow_step_id: 'approve_video_render',
+          prompt: 'Approve render?',
+          resume_token: 'resume-render',
+        },
+      });
+
+      assert.equal(warnings.length, 1);
+      assert.equal(warnings[0]?.[0], '[social-content-video-ingest] skipped media during Hermes callback ingest');
+      assert.deepEqual(warnings[0]?.[1], {
+        jobId: doc.job_id,
+        skipped: {
+          count: 1,
+          reasons: { not_allowed: 1 },
+        },
+      });
+    } finally {
+      console.warn = previousWarn;
       if (previousHermesCacheDir === undefined) delete process.env.HERMES_CACHE_DIR;
       else process.env.HERMES_CACHE_DIR = previousHermesCacheDir;
       await rm(hermesCacheRoot, { recursive: true, force: true });

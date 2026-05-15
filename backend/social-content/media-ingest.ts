@@ -2,7 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { resolveDataRoot, resolveDraftRoot } from '@/lib/runtime-paths';
+import { resolveDraftRoot } from '@/lib/runtime-paths';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -45,27 +45,57 @@ function isWithinRoot(root: string, candidate: string): boolean {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
+function expandHermesCacheRoots(root: string): string[] {
+  const normalized = path.resolve(root);
+  const baseName = path.basename(normalized).toLowerCase();
+  if (baseName === 'videos' || baseName === 'images') {
+    return [normalized];
+  }
+  if (baseName === 'cache') {
+    return [
+      path.join(normalized, 'videos'),
+      path.join(normalized, 'images'),
+    ];
+  }
+
+  return [
+    path.join(normalized, 'cache', 'videos'),
+    path.join(normalized, 'cache', 'images'),
+    path.join(normalized, 'videos'),
+    path.join(normalized, 'images'),
+  ];
+}
+
 function sourceRoots(): string[] {
   const roots = [
     process.env.HERMES_MEDIA_CACHE_DIR,
     process.env.HERMES_CACHE_DIR,
-    path.join(homedir(), '.hermes'),
-    path.join(tmpdir(), 'hermes'),
-    resolveDataRoot(),
+    path.join(homedir(), '.hermes', 'cache'),
+    path.join(tmpdir(), 'hermes', 'cache'),
   ]
     .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-    .map((value) => path.resolve(value));
+    .flatMap((value) => expandHermesCacheRoots(value));
 
   return Array.from(new Set(roots));
 }
 
-function resolveAllowedSource(filePath: string): { ok: true; resolved: string } | { ok: false; reason: 'not_allowed' | 'missing' | 'invalid' } {
+function resolveAllowedSource(
+  filePath: string,
+  exactAllowedDestinations: string[] = [],
+): { ok: true; resolved: string } | { ok: false; reason: 'not_allowed' | 'missing' | 'invalid' } {
   const raw = stringValue(filePath);
   if (!raw || !path.isAbsolute(raw)) {
     return { ok: false, reason: 'invalid' };
   }
 
   const normalized = path.resolve(raw);
+  const exactAllowed = new Set(exactAllowedDestinations.map((candidate) => path.resolve(candidate)));
+  if (exactAllowed.has(normalized)) {
+    return existsSync(normalized)
+      ? { ok: true, resolved: normalized }
+      : { ok: false, reason: 'missing' };
+  }
+
   let resolved: string;
   try {
     resolved = realpathSync(normalized);
@@ -96,6 +126,14 @@ function videoDestination(jobId: string, baseName: string): string {
 
 function posterDestination(jobId: string, baseName: string, ext: string): string {
   return path.join(resolveDraftRoot(), 'jobs', jobId, 'videos', `${baseName}-poster${ext}`);
+}
+
+function exactAllowedVideoDestinations(jobId: string, baseName: string): string[] {
+  return [videoDestination(jobId, baseName)];
+}
+
+function exactAllowedPosterDestinations(jobId: string, baseName: string): string[] {
+  return ['.jpg', '.jpeg', '.png', '.webp'].map((ext) => posterDestination(jobId, baseName, ext));
 }
 
 function copyDeterministic(source: string, destination: string, result: SocialContentVideoIngestResult): string {
@@ -132,12 +170,14 @@ function ingestVariantMedia(jobId: string, contract: UnknownRecord, variant: Unk
     'rendered_video_file',
   ]);
   if (videoRef) {
-    const resolved = resolveAllowedSource(videoRef.value);
-    if (resolved.ok && path.extname(resolved.resolved).toLowerCase() === '.mp4') {
+    const resolved = resolveAllowedSource(videoRef.value, exactAllowedVideoDestinations(jobId, baseName));
+    if ('reason' in resolved) {
+      result.skipped.push({ path: videoRef.value, reason: resolved.reason });
+    } else if (path.extname(resolved.resolved).toLowerCase() === '.mp4') {
       const destination = copyDeterministic(resolved.resolved, videoDestination(jobId, baseName), result);
       variant[videoRef.key] = destination;
     } else {
-      result.skipped.push({ path: videoRef.value, reason: resolved.ok ? 'invalid' : resolved.reason });
+      result.skipped.push({ path: videoRef.value, reason: 'invalid' });
     }
   }
 
@@ -149,16 +189,16 @@ function ingestVariantMedia(jobId: string, contract: UnknownRecord, variant: Unk
     'thumbnail_image_path',
   ]);
   if (posterRef) {
-    const resolved = resolveAllowedSource(posterRef.value);
-    const ext = resolved.ok ? path.extname(resolved.resolved).toLowerCase() : '';
-    if (resolved.ok && (ext === '.jpg' || ext === '.jpeg' || ext === '.png' || ext === '.webp')) {
+    const resolved = resolveAllowedSource(posterRef.value, exactAllowedPosterDestinations(jobId, baseName));
+    const ext = 'resolved' in resolved ? path.extname(resolved.resolved).toLowerCase() : '';
+    if ('resolved' in resolved && (ext === '.jpg' || ext === '.jpeg' || ext === '.png' || ext === '.webp')) {
       const destination = copyDeterministic(resolved.resolved, posterDestination(jobId, baseName, ext), result);
       variant[posterRef.key] = destination;
       if (posterRef.key.startsWith('thumbnail')) {
         variant.poster_path = destination;
       }
     } else {
-      result.skipped.push({ path: posterRef.value, reason: resolved.ok ? 'invalid' : resolved.reason });
+      result.skipped.push({ path: posterRef.value, reason: 'reason' in resolved ? resolved.reason : 'invalid' });
     }
   }
 }
