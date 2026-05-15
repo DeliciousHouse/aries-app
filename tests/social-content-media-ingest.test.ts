@@ -101,6 +101,28 @@ test('ingestSocialContentVideoRenderOutput refuses sources outside the Hermes al
   });
 });
 
+test('slug helper completes in bounded time on pathological dash-heavy input (ReDoS regression)', async () => {
+  // Previously the alternation /^-+|-+$/g could exhibit polynomial backtracking
+  // on long runs of dashes. This test asserts the operation finishes well under
+  // 200 ms even for a 50 000-character all-dash string.
+  const { ingestSocialContentVideoRenderOutput } = await import('../backend/social-content/media-ingest');
+
+  const pathologicalSlug = '-'.repeat(50_000) + 'x';
+  const output = [{
+    video_assets: {
+      platform_contracts: [{
+        platform_slug: pathologicalSlug,
+        rendered_video_variants: [],
+      }],
+    },
+  }];
+
+  const start = Date.now();
+  ingestSocialContentVideoRenderOutput('job-redos-check', output);
+  const elapsed = Date.now() - start;
+  assert.ok(elapsed < 200, `slug took ${elapsed}ms on pathological input — possible ReDoS regression`);
+});
+
 test('ingestSocialContentVideoRenderOutput allows already-ingested exact destination paths but rejects other DATA_ROOT media', async () => {
   await withMediaEnv(async ({ dataRoot }) => {
     const { ingestSocialContentVideoRenderOutput } = await import('../backend/social-content/media-ingest');

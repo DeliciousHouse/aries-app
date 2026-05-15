@@ -32,11 +32,18 @@ function stringValue(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+const MAX_SLUG_INPUT_LENGTH = 256;
+
 function slug(value: string, fallback: string): string {
-  const normalized = value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+  // Cap input length before regex to prevent ReDoS on pathological inputs.
+  const capped = value.length > MAX_SLUG_INPUT_LENGTH ? value.slice(0, MAX_SLUG_INPUT_LENGTH) : value;
+  const lowered = capped.toLowerCase();
+  // Replace non-alphanumeric runs with a single dash, then strip leading/trailing
+  // dashes with two anchored replacements that each scan at most once — avoiding
+  // the ambiguous alternation /^-+|-+$/g which can cause polynomial backtracking.
+  const dashed = lowered.replace(/[^a-z0-9]+/g, '-');
+  const trimmedStart = dashed.replace(/^-+/, '');
+  const normalized = trimmedStart.replace(/-+$/, '');
   return normalized || fallback;
 }
 
