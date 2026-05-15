@@ -3,15 +3,23 @@ import path from 'node:path';
 import { resolveDataRoot } from '@/lib/runtime-paths';
 import {
   runStaleRunReaper,
-  staleRunReaperThresholdMs,
+  staleRunReaperThresholdsByStage,
   type StaleRunReaperReport,
 } from '@/backend/marketing/stale-run-reaper';
 
 const USAGE = `Usage: tsx scripts/reap-stale-runs.ts [--apply] [--dry-run] [--data-root <path>] [--threshold-ms <int>]
 
 Sweeps marketing-job runtime documents under DATA_ROOT/generated/draft/marketing-jobs
-and marks runs that have been silent past STALE_RUN_REAPER_THRESHOLD_MS (default
-30 minutes — twice the marketing workflow timeout) as failed_stale.
+and marks runs that have been silent past their per-stage timeout as failed_stale.
+
+Per-stage defaults (overridable via env vars):
+  research:   10 min  (STALE_RUN_REAPER_RESEARCH_THRESHOLD_MS)
+  strategy:    5 min  (STALE_RUN_REAPER_STRATEGY_THRESHOLD_MS)
+  production: 90 min  (STALE_RUN_REAPER_PRODUCTION_THRESHOLD_MS)
+  publish:    30 min  (STALE_RUN_REAPER_PUBLISH_THRESHOLD_MS)
+
+--threshold-ms <int>  Override all per-stage thresholds with a single value (ms).
+                      When omitted, per-stage thresholds (env or defaults above) apply.
 
 Defaults to --dry-run. Pass --apply to mutate runtime docs. Never deletes files.
 Idempotent: a second --apply finds zero candidates because reaped runs land in
@@ -66,9 +74,11 @@ function parseArgs(argv: string[]): CliArgs {
 }
 
 function summarize(report: StaleRunReaperReport): string {
+  const thresholdSummary = `research:${report.thresholdsByStage.research},strategy:${report.thresholdsByStage.strategy},production:${report.thresholdsByStage.production},publish:${report.thresholdsByStage.publish}`;
   const lines = [
     `mode=${report.dryRun ? 'dry-run' : 'apply'}`,
-    `threshold_ms=${report.thresholdMs}`,
+    ...(report.thresholdMs !== null ? [`threshold_ms_override=${report.thresholdMs}`] : []),
+    `thresholds_by_stage=${thresholdSummary}`,
     `scanned=${report.scanned}`,
     `candidates=${report.candidates.length}`,
     `mutated=${report.mutated}`,
@@ -93,16 +103,26 @@ async function main(): Promise<number> {
   }
 
   const dataRoot = args.dataRoot ?? resolveDataRoot();
-  const thresholdMs = args.thresholdMs ?? staleRunReaperThresholdMs();
+  // When --threshold-ms is supplied, runStaleRunReaper will apply it uniformly across all stages
+  // and reflect that in report.thresholdsByStage. Let the reaper derive the effective per-stage
+  // map so that what we log here matches what report.thresholdsByStage will contain.
+  const effectiveThresholdsByStage = args.thresholdMs
+    ? {
+        research: args.thresholdMs,
+        strategy: args.thresholdMs,
+        production: args.thresholdMs,
+        publish: args.thresholdMs,
+      }
+    : staleRunReaperThresholdsByStage();
 
   process.stdout.write(
-    `[reap-stale-runs] starting mode=${args.dryRun ? 'dry-run' : 'apply'} dataRoot=${dataRoot} threshold_ms=${thresholdMs}\n`,
+    `[reap-stale-runs] starting mode=${args.dryRun ? 'dry-run' : 'apply'} dataRoot=${dataRoot}${args.thresholdMs !== undefined ? ` threshold_ms_override=${args.thresholdMs}` : ''} thresholds_by_stage=${JSON.stringify(effectiveThresholdsByStage)}\n`,
   );
 
   const report = await runStaleRunReaper({
     dataRoot,
     dryRun: args.dryRun,
-    thresholdMs,
+    thresholdMs: args.thresholdMs,
   });
 
   process.stdout.write(`[reap-stale-runs] ${summarize(report)}\n`);

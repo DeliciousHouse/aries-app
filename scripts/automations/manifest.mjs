@@ -87,6 +87,16 @@ export const automationJobs = [
     purpose: 'Scan Aries runtime and automation health, normalize failures into the runtime incident log, and announce the concise detection/resolution summary.',
   },
   {
+    id: 'aries-marketing-stale-run-reaper',
+    name: 'Aries marketing stale-run reaper',
+    cron: '*/5 * * * *',
+    tz: 'America/Los_Angeles',
+    message:
+      `Work in ${repoRoot}. Run npx tsx scripts/reap-stale-runs.ts --apply. Return only the final summary line plus any candidate lines if mutated > 0.`,
+    purpose:
+      'Sweep marketing runtime docs every 5 minutes and mark stalled running/approval jobs as failed_stale once they exceed the current-stage timeout window.',
+  },
+  {
     id: 'aries-runtime-error-repair-loop',
     name: 'Aries runtime error repair loop',
     cron: '10,40 * * * *',

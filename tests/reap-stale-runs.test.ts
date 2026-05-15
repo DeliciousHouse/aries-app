@@ -7,6 +7,7 @@ import test from 'node:test';
 import {
   runStaleRunReaper,
   staleRunReaperThresholdMs,
+  staleRunReaperThresholdsByStage,
 } from '../backend/marketing/stale-run-reaper';
 
 type RuntimeDocStub = {
@@ -130,6 +131,40 @@ test('staleRunReaperThresholdMs honors env override', () => {
   }
 });
 
+test('staleRunReaperThresholdsByStage defaults to per-stage windows', () => {
+  const prior = {
+    global: process.env.STALE_RUN_REAPER_THRESHOLD_MS,
+    research: process.env.STALE_RUN_REAPER_RESEARCH_THRESHOLD_MS,
+    strategy: process.env.STALE_RUN_REAPER_STRATEGY_THRESHOLD_MS,
+    production: process.env.STALE_RUN_REAPER_PRODUCTION_THRESHOLD_MS,
+    publish: process.env.STALE_RUN_REAPER_PUBLISH_THRESHOLD_MS,
+  };
+  delete process.env.STALE_RUN_REAPER_THRESHOLD_MS;
+  delete process.env.STALE_RUN_REAPER_RESEARCH_THRESHOLD_MS;
+  delete process.env.STALE_RUN_REAPER_STRATEGY_THRESHOLD_MS;
+  delete process.env.STALE_RUN_REAPER_PRODUCTION_THRESHOLD_MS;
+  delete process.env.STALE_RUN_REAPER_PUBLISH_THRESHOLD_MS;
+  try {
+    assert.deepEqual(staleRunReaperThresholdsByStage(), {
+      research: 10 * 60 * 1000,
+      strategy: 5 * 60 * 1000,
+      production: 90 * 60 * 1000,
+      publish: 30 * 60 * 1000,
+    });
+  } finally {
+    if (prior.global === undefined) delete process.env.STALE_RUN_REAPER_THRESHOLD_MS;
+    else process.env.STALE_RUN_REAPER_THRESHOLD_MS = prior.global;
+    if (prior.research === undefined) delete process.env.STALE_RUN_REAPER_RESEARCH_THRESHOLD_MS;
+    else process.env.STALE_RUN_REAPER_RESEARCH_THRESHOLD_MS = prior.research;
+    if (prior.strategy === undefined) delete process.env.STALE_RUN_REAPER_STRATEGY_THRESHOLD_MS;
+    else process.env.STALE_RUN_REAPER_STRATEGY_THRESHOLD_MS = prior.strategy;
+    if (prior.production === undefined) delete process.env.STALE_RUN_REAPER_PRODUCTION_THRESHOLD_MS;
+    else process.env.STALE_RUN_REAPER_PRODUCTION_THRESHOLD_MS = prior.production;
+    if (prior.publish === undefined) delete process.env.STALE_RUN_REAPER_PUBLISH_THRESHOLD_MS;
+    else process.env.STALE_RUN_REAPER_PUBLISH_THRESHOLD_MS = prior.publish;
+  }
+});
+
 test('reaper returns empty report when marketing-jobs dir is missing', async () => {
   await withScratch(async (dataRoot) => {
     const report = await runStaleRunReaper({ dataRoot, dryRun: true });
@@ -175,6 +210,69 @@ test('dry-run identifies a stale running run without mutating the file', async (
   });
 });
 
+test('uses stage-specific thresholds and reaps a job stalled after research completed but never advanced', async () => {
+  await withScratch(async (dataRoot) => {
+    const now = new Date('2026-05-06T12:00:00.000Z');
+    const elevenMinutesAgo = new Date(now.getTime() - 11 * 60 * 1000).toISOString();
+    const productionFresh = new Date(now.getTime() - 11 * 60 * 1000).toISOString();
+
+    const stalledResearch = makeRuntimeDoc({
+      jobId: 'job-research-stalled',
+      tenantId: 'tenant-1',
+      state: 'running',
+      status: 'running',
+      updatedAtIso: elevenMinutesAgo,
+      stage: 'research',
+    });
+    (stalledResearch.stages.research as Record<string, unknown>).status = 'completed';
+    (stalledResearch.stages.research as Record<string, unknown>).completed_at = elevenMinutesAgo;
+    stalledResearch.history.push({
+      at: elevenMinutesAgo,
+      state: 'running',
+      status: 'running',
+      stage: 'research',
+      note: 'research completed from Hermes callback',
+    });
+    await writeRuntimeDoc(dataRoot, stalledResearch);
+
+    const freshProduction = makeRuntimeDoc({
+      jobId: 'job-production-not-stale',
+      tenantId: 'tenant-1',
+      state: 'running',
+      status: 'running',
+      updatedAtIso: productionFresh,
+      stage: 'production',
+    });
+    freshProduction.stages.production = {
+      stage: 'production',
+      status: 'in_progress',
+      started_at: productionFresh,
+      completed_at: null,
+      failed_at: null,
+      run_id: null,
+      summary: null,
+      primary_output: null,
+      outputs: {},
+      artifacts: [],
+      errors: [],
+    };
+    await writeRuntimeDoc(dataRoot, freshProduction);
+
+    const report = await runStaleRunReaper({
+      dataRoot,
+      dryRun: false,
+      now: () => now,
+    });
+
+    assert.equal(report.scanned, 2);
+    assert.equal(report.candidates.length, 1, 'only the research-stalled job is reaped');
+    assert.equal(report.candidates[0]!.jobId, 'job-research-stalled');
+    assert.equal(report.candidates[0]!.stage, 'research');
+    assert.equal(report.candidates[0]!.thresholdMs, 10 * 60 * 1000);
+    assert.ok(report.skipped >= 1, 'production job is skipped because 11 minutes is below the 90 minute production threshold');
+  });
+});
+
 test('apply mutates the doc to failed_stale and is idempotent on re-run', async () => {
   await withScratch(async (dataRoot) => {
     const now = new Date('2026-05-06T12:00:00.000Z');
@@ -202,10 +300,10 @@ test('apply mutates the doc to failed_stale and is idempotent on re-run', async 
     const after = JSON.parse(await readFile(filePath, 'utf8')) as Record<string, unknown>;
     assert.equal(after.state, 'failed', 'state moved to failed');
     assert.equal(after.status, 'failed_stale', 'status moved to failed_stale');
-    assert.equal(after.failure_reason, 'stale_run_reaper');
+    assert.equal(after.failure_reason, 'marketing_job_stalled');
     const lastError = after.last_error as Record<string, unknown> | null;
     assert.ok(lastError, 'last_error populated');
-    assert.equal(lastError!.code, 'stale_run_reaper');
+    assert.equal(lastError!.code, 'marketing_job_stalled');
     assert.equal(lastError!.stage, 'production');
 
     const history = after.history as Array<{ note: string; state: string; status: string }>;
@@ -224,7 +322,7 @@ test('apply mutates the doc to failed_stale and is idempotent on re-run', async 
 
     const afterSecond = JSON.parse(await readFile(filePath, 'utf8')) as Record<string, unknown>;
     assert.equal(afterSecond.status, 'failed_stale', 'status remains failed_stale after re-run');
-    assert.equal(afterSecond.failure_reason, 'stale_run_reaper');
+    assert.equal(afterSecond.failure_reason, 'marketing_job_stalled');
   });
 });
 
@@ -314,7 +412,7 @@ test('reaps approval_required runs (still in-flight)', async () => {
 
     const after = JSON.parse(await readFile(filePath, 'utf8')) as Record<string, unknown>;
     assert.equal(after.status, 'failed_stale');
-    assert.equal(after.failure_reason, 'stale_run_reaper');
+    assert.equal(after.failure_reason, 'marketing_job_stalled');
   });
 });
 
@@ -329,7 +427,7 @@ test('skips already-reaped docs even on a forced re-scan with old timestamps', a
       status: 'failed_stale',
       updatedAtIso: stale,
     });
-    doc.failure_reason = 'stale_run_reaper';
+    doc.failure_reason = 'marketing_job_stalled';
     await writeRuntimeDoc(dataRoot, doc);
 
     const report = await runStaleRunReaper({
@@ -343,7 +441,7 @@ test('skips already-reaped docs even on a forced re-scan with old timestamps', a
   });
 });
 
-test('skips runtime docs missing parseable updated_at', async () => {
+test('skips runtime docs missing any parseable progress timestamp', async () => {
   await withScratch(async (dataRoot) => {
     const now = new Date('2026-05-06T12:00:00.000Z');
     const doc = makeRuntimeDoc({
@@ -354,6 +452,10 @@ test('skips runtime docs missing parseable updated_at', async () => {
       updatedAtIso: '2026-05-06T11:00:00.000Z',
     });
     doc.updated_at = 'not-a-date';
+    (doc.stages.research as Record<string, unknown>).started_at = 'not-a-date';
+    (doc.stages.research as Record<string, unknown>).completed_at = 'not-a-date';
+    (doc.stages.research as Record<string, unknown>).failed_at = 'not-a-date';
+    doc.history = [{ at: 'not-a-date', state: 'running', status: 'running', stage: 'research', note: 'bad timestamp' }];
     await writeRuntimeDoc(dataRoot, doc);
 
     const report = await runStaleRunReaper({
@@ -362,9 +464,78 @@ test('skips runtime docs missing parseable updated_at', async () => {
       now: () => now,
       thresholdMs: 30 * 60 * 1000,
     });
-    assert.equal(report.candidates.length, 0, 'unparseable timestamp must not produce a candidate');
+    assert.equal(report.candidates.length, 0, 'unparseable progress timestamps must not produce a candidate');
     assert.equal(report.mutated, 0);
     assert.ok(report.skipped >= 1);
+  });
+});
+
+test('--threshold-ms override propagates into report.thresholdsByStage and report.thresholdMs', async () => {
+  await withScratch(async (dataRoot) => {
+    const now = new Date('2026-05-06T12:00:00.000Z');
+    const staleAt = new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString();
+    const doc = makeRuntimeDoc({
+      jobId: 'job-override-propagation',
+      tenantId: 'tenant-1',
+      state: 'running',
+      status: 'running',
+      updatedAtIso: staleAt,
+      stage: 'production',
+    });
+    await writeRuntimeDoc(dataRoot, doc);
+
+    const overrideMs = 45 * 60 * 1000; // 45 minutes
+    const report = await runStaleRunReaper({
+      dataRoot,
+      dryRun: true,
+      now: () => now,
+      thresholdMs: overrideMs,
+    });
+
+    // report.thresholdMs must reflect the explicit override, not null
+    assert.equal(report.thresholdMs, overrideMs, 'report.thresholdMs must equal the override');
+
+    // report.thresholdsByStage must use the override for every stage, not env/default values
+    assert.equal(report.thresholdsByStage.research, overrideMs, 'research threshold must equal override');
+    assert.equal(report.thresholdsByStage.strategy, overrideMs, 'strategy threshold must equal override');
+    assert.equal(report.thresholdsByStage.production, overrideMs, 'production threshold must equal override');
+    assert.equal(report.thresholdsByStage.publish, overrideMs, 'publish threshold must equal override');
+
+    // The production job is 2 hours stale — well past 45 min override — so it should be a candidate
+    assert.equal(report.candidates.length, 1, 'stale job should be candidate with override threshold');
+    assert.equal(report.candidates[0]!.thresholdMs, overrideMs, 'candidate.thresholdMs must equal override');
+  });
+});
+
+test('without --threshold-ms override, report.thresholdMs is null and thresholdsByStage reflects per-stage defaults', async () => {
+  await withScratch(async (dataRoot) => {
+    // Clean env to ensure defaults apply
+    const savedEnvKeys = [
+      'STALE_RUN_REAPER_THRESHOLD_MS',
+      'STALE_RUN_REAPER_RESEARCH_THRESHOLD_MS',
+      'STALE_RUN_REAPER_STRATEGY_THRESHOLD_MS',
+      'STALE_RUN_REAPER_PRODUCTION_THRESHOLD_MS',
+      'STALE_RUN_REAPER_PUBLISH_THRESHOLD_MS',
+    ] as const;
+    const saved: Record<string, string | undefined> = {};
+    for (const key of savedEnvKeys) {
+      saved[key] = process.env[key];
+      delete process.env[key];
+    }
+
+    try {
+      const report = await runStaleRunReaper({ dataRoot, dryRun: true });
+
+      assert.equal(report.thresholdMs, null, 'report.thresholdMs must be null when no override');
+      assert.equal(report.thresholdsByStage.research, 10 * 60 * 1000);
+      assert.equal(report.thresholdsByStage.strategy, 5 * 60 * 1000);
+      assert.equal(report.thresholdsByStage.production, 90 * 60 * 1000);
+      assert.equal(report.thresholdsByStage.publish, 30 * 60 * 1000);
+    } finally {
+      for (const key of savedEnvKeys) {
+        if (saved[key] !== undefined) process.env[key] = saved[key];
+      }
+    }
   });
 });
 
