@@ -191,7 +191,7 @@ test('marketingPayloadDefaultsFromBusinessProfile derives defaults from validate
     assert.equal(defaults.launchApproverName, 'Audrey');
     assert.equal(defaults.approverName, 'Audrey');
     assert.equal(defaults.offer, 'Elite coaching network');
-    assert.equal(defaults.brandVoice, 'Sophisticated and Authoritative.');
+    assert.equal(defaults.brandVoice, 'Sophisticated, Provocative, and Authoritative.');
     assert.equal(defaults.competitorUrl, 'https://betterup.com/');
     assert.deepEqual(defaults.channels, ['meta-ads', 'landing-page']);
   } finally {
@@ -417,6 +417,77 @@ test('getBusinessProfile infers a polished coaching profile when the current-sou
     assert.deepEqual(profile.channels, ['meta-ads', 'instagram']);
     assert.equal(typeof profile.notes, 'string');
     assert.equal((profile.notes || '').length > 0, true);
+  } finally {
+    if (previousDataRoot === undefined) {
+      delete process.env.DATA_ROOT;
+    } else {
+      process.env.DATA_ROOT = previousDataRoot;
+    }
+    rmSync(tempDataRoot, { force: true, recursive: true });
+  }
+});
+
+
+test('getBusinessProfile repairs a stale leather-goods offer when the validated profile clearly describes coaching', async () => {
+  const previousDataRoot = process.env.DATA_ROOT;
+  const tempDataRoot = mkdtempSync(path.join(os.tmpdir(), 'aries-business-profile-stale-offer-'));
+  process.env.DATA_ROOT = tempDataRoot;
+
+  const client = {
+    async query() {
+      return {
+        rowCount: 1,
+        rows: [{ id: 15, name: 'Sugar and Leather', slug: 'sugarandleather' }],
+      };
+    },
+  };
+
+  try {
+    const validatedRoot = path.join(tempDataRoot, 'generated', 'validated', '15');
+    mkdirSync(validatedRoot, { recursive: true });
+    writeFileSync(
+      path.join(validatedRoot, 'business-profile.json'),
+      JSON.stringify(
+        {
+          tenant_id: '15',
+          business_name: 'Sugar and Leather',
+          tenant_slug: 'sugarandleather',
+          website_url: 'https://sugarandleather.com/',
+          business_type: 'Elite coaching and professional development',
+          primary_goal: 'Drive awareness of the coaching program and book discovery calls',
+          offer: 'Sugar and Leather — handcrafted leather goods including bags, wallets, and accessories.',
+          brand_voice: null,
+          style_vibe: null,
+          notes: null,
+          competitor_url: null,
+          channels: ['meta', 'instagram'],
+          updated_at: '2026-05-13T17:34:21.605Z',
+        },
+        null,
+        2,
+      ),
+    );
+    writeFileSync(
+      path.join(validatedRoot, 'brand-profile.json'),
+      JSON.stringify(
+        {
+          tenant_id: '15',
+          brand_name: 'Sugar and Leather',
+          website_url: 'https://sugarandleather.com/',
+          canonical_url: 'https://sugarandleather.com/',
+          positioning: 'Female-led elite coaching network for women leaders, executives, and founders.',
+          offer: 'Elite coaching network for women leaders and executives.',
+          primary_goal: 'Drive awareness of the coaching program and book discovery calls',
+          brand_voice: ['Warm', 'Confident', 'Strategic'],
+        },
+        null,
+        2,
+      ),
+    );
+
+    const profile = await getBusinessProfile(client as never, '15');
+
+    assert.equal(profile.offer, 'Elite coaching network for women leaders and executives.');
   } finally {
     if (previousDataRoot === undefined) {
       delete process.env.DATA_ROOT;

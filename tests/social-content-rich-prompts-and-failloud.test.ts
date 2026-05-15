@@ -176,6 +176,53 @@ test('buildProductionResumeContext falls back gracefully with null research and 
   assert.ok(ctx!.imagePrompts[0].prompt.includes('Sugar and Leather'), 'fallback prompt should still reference brand name');
 });
 
+
+test('buildSocialContentWeeklyRequest repairs stale leather-goods offer before research dispatch', async () => {
+  const { buildSocialContentWeeklyRequest } = await import('@/backend/social-content/workflow-request');
+  const doc = makeMinimalDoc({
+    inputs: {
+      request: {
+        businessName: 'Sugar and Leather',
+        businessType: 'Elite coaching and professional development',
+        styleVibe: 'Grounded and approachable with warm tones.',
+        primaryGoal: 'Drive awareness of the coaching program and book discovery calls',
+        offer: 'Sugar and Leather — handcrafted leather goods including bags, wallets, and accessories.',
+        channels: ['meta', 'instagram'],
+        imageCreativeCount: 2,
+        windowDays: 7,
+        staticPostCount: 7,
+      },
+      brand_url: 'https://sugarandleather.com/',
+    },
+    brand_kit: {
+      brand_name: 'Sugar and Leather',
+      brand_voice_summary: 'Warm, elite, empowering coaching for women leaders.',
+      offer_summary: 'Elite coaching network for women leaders and executives.',
+      colors: {
+        primary: '#f6339a',
+        secondary: '#a855f7',
+        accent: '#e60076',
+        palette: ['#f6339a', '#a855f7', '#e60076'],
+      },
+      logo_urls: [],
+      font_families: ['Inter', 'Manrope'],
+      external_links: [],
+      extracted_at: new Date().toISOString(),
+      source_url: 'https://sugarandleather.com/',
+      canonical_url: 'https://sugarandleather.com/',
+    },
+  }) as Parameters<typeof buildSocialContentWeeklyRequest>[0]['doc'];
+
+  const request = buildSocialContentWeeklyRequest({
+    doc,
+    ariesRunId: 'arun_test',
+    callbackUrl: 'https://aries.example.com/api/internal/hermes/runs',
+  });
+
+  assert.equal(request.input.brand.offer, 'Elite coaching network for women leaders and executives.');
+  assert.equal(request.input.objective.offer, 'Elite coaching network for women leaders and executives.');
+});
+
 test('buildProductionResumeContext contextBlock contains all image prompts', async () => {
   const { buildProductionResumeContext } = await import('@/backend/social-content/workflow-request');
   const doc = makeMinimalDoc() as Parameters<typeof buildProductionResumeContext>[0]['doc'];

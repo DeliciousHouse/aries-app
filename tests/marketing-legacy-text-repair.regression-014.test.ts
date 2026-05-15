@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import { repairLegacyMarketingText } from '../backend/marketing/brand-kit';
+import { repairLegacyMarketingText, repairStaleMarketingOffer } from '../backend/marketing/brand-kit';
 import { resolveProjectRoot } from './helpers/project-root';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
@@ -34,20 +34,35 @@ test('repairLegacyMarketingText fixes mangled entity artifacts and orphan punctu
   assert.equal(repairLegacyMarketingText("Already clean"), 'Already clean');
 });
 
+
+test('repairStaleMarketingOffer rewrites legacy product copy when service-brand cues are stronger', () => {
+  assert.equal(
+    repairStaleMarketingOffer({
+      offer: 'Sugar and Leather — handcrafted leather goods including bags, wallets, and accessories.',
+      brandName: 'Sugar and Leather',
+      businessType: 'Elite coaching and professional development',
+      primaryGoal: 'Drive awareness of the coaching program and book discovery calls',
+      brandKitOfferSummary: 'Elite coaching network for women leaders and executives.',
+    }),
+    'Elite coaching network for women leaders and executives.',
+  );
+});
+
 test('workspace-store normalizes stale brief text through the shared repair helper', () => {
-  assert.match(workspaceStoreSource, /import \{ repairLegacyMarketingText \} from '@\/backend\/marketing\/brand-kit';/);
-  for (const field of ['businessName', 'businessType', 'approverName', 'goal', 'offer', 'brandVoice', 'styleVibe', 'mustUseCopy', 'mustAvoidAesthetics', 'notes']) {
+  assert.match(workspaceStoreSource, /import \{[^}]*repairLegacyMarketingText[^}]*repairStaleMarketingOffer[^}]*\} from '@\/backend\/marketing\/brand-kit';/);
+  for (const field of ['businessName', 'businessType', 'approverName', 'goal', 'brandVoice', 'styleVibe', 'mustUseCopy', 'mustAvoidAesthetics', 'notes']) {
     assert.match(
       workspaceStoreSource,
       new RegExp(`${field}: repairLegacyMarketingText\\(`),
       `normalizeCampaignBrief should repair stale ${field} text on read`,
     );
   }
+  assert.match(workspaceStoreSource, /offer:\s*repairStaleMarketingOffer\(/);
 });
 
 test('business-profile view repairs stale display text before returning API data', () => {
   assert.match(businessProfileSource, /import \{[\s\S]*repairLegacyMarketingText,[\s\S]*\} from '@\/backend\/marketing\/brand-kit';/);
-  assert.match(businessProfileSource, /const effectiveOffer = repairLegacyMarketingText\(/);
+  assert.match(businessProfileSource, /const effectiveOffer = repairStaleMarketingOffer\(/);
   assert.match(businessProfileSource, /const effectiveBrandVoice = repairLegacyMarketingText\(/);
   assert.match(businessProfileSource, /const effectiveStyleVibe = repairLegacyMarketingText\(/);
   assert.match(businessProfileSource, /const effectiveNotes = repairLegacyMarketingText\(/);

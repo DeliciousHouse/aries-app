@@ -172,6 +172,31 @@ export function decodeHtmlEntities(value: string): string {
 }
 
 const SPACE_NOT_HASH_ENTITY_REPLACE = /&\s+(x[0-9a-f]+|[0-9]+);/gi;
+const STALE_PRODUCT_OFFER_HINTS = [
+  'leather goods',
+  'handcrafted leather',
+  'handmade leather',
+  'wallets',
+  'bags',
+  'accessories',
+  'small-batch confections',
+  'boutique retail',
+];
+const SERVICE_BRAND_HINTS = [
+  'coaching',
+  'professional development',
+  'leadership',
+  'executive',
+  'founder',
+  'discovery call',
+  'membership',
+  'network',
+  'consult',
+  'whole-life',
+  'servant leadership',
+  'business scaling',
+  'relationship repair',
+];
 
 export function repairLegacyMarketingText(value: string | null | undefined): string | null {
   if (typeof value !== 'string' || value.length === 0) {
@@ -197,6 +222,94 @@ export function repairLegacyMarketingText(value: string | null | undefined): str
     )
     .join('\n')
     .trim();
+}
+
+function includesAnyPhrase(value: string, phrases: string[]): boolean {
+  const normalized = value.toLowerCase();
+  return phrases.some((phrase) => normalized.includes(phrase));
+}
+
+function cleanedText(value: string | null | undefined): string | null {
+  const repaired = repairLegacyMarketingText(value);
+  return typeof repaired === 'string' && repaired.trim().length > 0 ? repaired.trim() : null;
+}
+
+function looksLikeStaleProductOffer(value: string | null | undefined): boolean {
+  return typeof value === 'string' && includesAnyPhrase(value, STALE_PRODUCT_OFFER_HINTS);
+}
+
+function looksLikeServiceBrandContext(value: string | null | undefined): boolean {
+  return typeof value === 'string' && includesAnyPhrase(value, SERVICE_BRAND_HINTS);
+}
+
+function synthesizeServiceOffer(input: {
+  brandName?: string | null;
+  businessType?: string | null;
+}): string | null {
+  const brandName = cleanedText(input.brandName);
+  const businessType = cleanedText(input.businessType);
+  if (brandName && businessType) {
+    return `${brandName} offers ${businessType.toLowerCase()} services.`;
+  }
+  if (businessType) {
+    return `${businessType} services.`;
+  }
+  return null;
+}
+
+export function repairStaleMarketingOffer(input: {
+  offer: string | null | undefined;
+  brandName?: string | null | undefined;
+  businessType?: string | null | undefined;
+  primaryGoal?: string | null | undefined;
+  brandVoice?: string | null | undefined;
+  notes?: string | null | undefined;
+  positioning?: string | null | undefined;
+  brandIdentitySummary?: string | null | undefined;
+  brandIdentityOffer?: string | null | undefined;
+  brandKitOfferSummary?: string | null | undefined;
+}): string | null {
+  const offer = cleanedText(input.offer);
+  if (!offer) {
+    return offer;
+  }
+
+  if (!looksLikeStaleProductOffer(offer)) {
+    return offer;
+  }
+
+  const supportingContext = [
+    input.businessType,
+    input.primaryGoal,
+    input.brandVoice,
+    input.notes,
+    input.positioning,
+    input.brandIdentitySummary,
+    input.brandIdentityOffer,
+    input.brandKitOfferSummary,
+  ].map((value) => cleanedText(value));
+
+  if (!supportingContext.some((value) => looksLikeServiceBrandContext(value))) {
+    return offer;
+  }
+
+  for (const candidate of [
+    cleanedText(input.brandIdentityOffer),
+    cleanedText(input.brandKitOfferSummary),
+    cleanedText(input.positioning),
+    cleanedText(input.brandIdentitySummary),
+    cleanedText(input.brandVoice),
+    synthesizeServiceOffer({ brandName: input.brandName, businessType: input.businessType }),
+  ]) {
+    if (!candidate || candidate === offer) {
+      continue;
+    }
+    if (looksLikeServiceBrandContext(candidate) && !looksLikeStaleProductOffer(candidate)) {
+      return candidate;
+    }
+  }
+
+  return offer;
 }
 
 function unique<T>(values: T[]): T[] {

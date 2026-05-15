@@ -1,4 +1,8 @@
-import { extractAndSaveTenantBrandKit, tenantBrandKitPath } from '@/backend/marketing/brand-kit';
+import {
+  extractAndSaveTenantBrandKit,
+  repairStaleMarketingOffer,
+  tenantBrandKitPath,
+} from '@/backend/marketing/brand-kit';
 import type {
   MarketingBrandKitReference,
   MarketingJobRuntimeDocument,
@@ -238,10 +242,17 @@ function resolveBrandVoice(req: UnknownRecord, brandKit: MarketingBrandKitRefere
 }
 
 function resolveBrandOffer(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
-  const operatorOffer = stringValue(req.offer);
-  if (operatorOffer) return operatorOffer;
-  const summary = brandKit?.offer_summary;
-  return typeof summary === 'string' ? stringValue(summary) : '';
+  return (
+    repairStaleMarketingOffer({
+      offer: stringValue(req.offer) || brandKit?.offer_summary || null,
+      brandName: stringValue(req.businessName) || brandKit?.brand_name || null,
+      businessType: stringValue(req.businessType) || null,
+      primaryGoal: stringValue(req.primaryGoal) || stringValue(req.goal) || null,
+      brandVoice: stringValue(req.brandVoice) || brandKit?.brand_voice_summary || null,
+      positioning: brandKit?.offer_summary || null,
+      brandKitOfferSummary: brandKit?.offer_summary || null,
+    }) || ''
+  );
 }
 
 function resolveMustAvoidAesthetics(req: UnknownRecord): string[] {
