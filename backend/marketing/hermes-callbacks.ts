@@ -517,6 +517,93 @@ function ingestSocialContentStageMedia(
   }
 }
 
+/**
+ * Counts recognized images across ALL known Hermes output shapes:
+ *   1. `artifacts.creative_assets[]` with type="generated_image" and a path/filePath
+ *   2. `artifacts.images[]` with a filePath or path value
+ *   3. `weekly_content_plan.image_creatives[]` with a non-empty artifact_url
+ *
+ * A "recognized image" means there is a renderable file reference — a bare
+ * prompt entry without a path is NOT recognized. Returns the total count.
+ */
+function countRecognizedImagesInOutputRecord(
+  outputRecord: Record<string, unknown> | null,
+): number {
+  if (!outputRecord) return 0;
+
+  // Shape 1: artifacts.creative_assets[]
+  const artifacts = outputRecord.artifacts;
+  const artifactRecord =
+    artifacts && typeof artifacts === 'object' && !Array.isArray(artifacts)
+      ? (artifacts as Record<string, unknown>)
+      : null;
+
+  if (artifactRecord) {
+    const creativeAssets = Array.isArray(artifactRecord.creative_assets)
+      ? artifactRecord.creative_assets
+      : [];
+    const fromCreativeAssets = creativeAssets.filter((asset) => {
+      if (!asset || typeof asset !== 'object' || Array.isArray(asset)) return false;
+      const a = asset as Record<string, unknown>;
+      if (a.type !== 'generated_image') return false;
+      return !!imageBasenameFromValue(a.path) || !!imageBasenameFromValue(a.filePath);
+    }).length;
+    if (fromCreativeAssets > 0) return fromCreativeAssets;
+
+    // Shape 2: artifacts.images[]
+    const images = Array.isArray(artifactRecord.images) ? artifactRecord.images : [];
+    const fromImages = images.filter((img) => {
+      if (!img || typeof img !== 'object' || Array.isArray(img)) return false;
+      const i = img as Record<string, unknown>;
+      return !!imageBasenameFromValue(i.filePath) || !!imageBasenameFromValue(i.path);
+    }).length;
+    if (fromImages > 0) return fromImages;
+  }
+
+  // Shape 3: weekly_content_plan.image_creatives[] with artifact_url
+  const plan = outputRecord.weekly_content_plan;
+  if (plan && typeof plan === 'object' && !Array.isArray(plan)) {
+    const creatives = (plan as Record<string, unknown>).image_creatives;
+    if (Array.isArray(creatives)) {
+      return creatives.filter((c) => {
+        if (!c || typeof c !== 'object' || Array.isArray(c)) return false;
+        const cr = c as Record<string, unknown>;
+        return (
+          typeof cr.artifact_url === 'string' &&
+          (cr.artifact_url as string).trim().length > 0
+        );
+      }).length;
+    }
+  }
+
+  return 0;
+}
+
+/**
+ * Returns true when the production-stage callback declared N image requests
+ * (imageCreativeCount > 0 from the job's original request) but zero recognized
+ * images appear across ALL known output shapes (creative_assets, images,
+ * image_creatives-with-artifact_url). This closes the blind spot where Hermes
+ * silently completes with no images but the prompt-only check in
+ * `productionCallbackHasUnrenderedImageCreatives` doesn't fire (e.g. when
+ * Hermes omits image_creatives entirely).
+ *
+ * Failure code: `hermes_image_generation_unrecognized`
+ */
+function productionCallbackImageGenerationUnrecognized(
+  doc: MarketingJobRuntimeDocument,
+  outputRecord: Record<string, unknown> | null,
+): boolean {
+  // Determine requested image count from the original job request.
+  const imageCreativeCount =
+    typeof doc.inputs?.request?.imageCreativeCount === 'number'
+      ? doc.inputs.request.imageCreativeCount
+      : 0;
+  if (imageCreativeCount <= 0) return false;
+
+  return countRecognizedImagesInOutputRecord(outputRecord) === 0;
+}
+
 function isHermesMediaSetupError(payload: HermesRunCallbackPayload): boolean {
   const code = payload.error?.code?.toLowerCase() ?? '';
   const message = payload.error?.message.toLowerCase() ?? '';
@@ -800,6 +887,36 @@ export async function applyHermesMarketingCallback(
         'Check Hermes logs and retry the production stage.';
       recordStageFailure(doc, targetStage, {
         code: 'hermes_image_generation_skipped',
+        message: errorMessage,
+        retryable: true,
+      });
+      markSocialContentStageFailed(
+        doc,
+        completedSocialStage ?? 'image_generation',
+        errorMessage,
+        firstOutputRecord(payload),
+      );
+      saveMarketingJobRuntime(doc.job_id, doc);
+      return;
+    }
+
+    // Broader fail-loud gate: N images were requested but zero recognized images
+    // appear in ANY known output shape (creative_assets, images,
+    // image_creatives-with-artifact_url). This closes the blind spot where Hermes
+    // silently completes with no image data at all — the prompt-only check above
+    // only fires when image_creatives are present but without artifact_url.
+    if (
+      isSocialContentRun(run)
+      && targetStage === 'production'
+      && socialApprovalStep === 'approve_publish'
+      && productionCallbackImageGenerationUnrecognized(doc, firstOutputRecord(payload))
+    ) {
+      const errorMessage =
+        'Production stage completed with no recognized images in any known output shape ' +
+        '(creative_assets, images, image_creatives). ' +
+        'Hermes may have returned an unexpected schema. Check Hermes logs and retry.';
+      recordStageFailure(doc, targetStage, {
+        code: 'hermes_image_generation_unrecognized',
         message: errorMessage,
         retryable: true,
       });
