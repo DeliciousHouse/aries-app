@@ -73,7 +73,11 @@ export type StaleRunReaperReport = {
   mutated: number;
   skipped: number;
   errors: number;
-  thresholdMs: number;
+  /**
+   * The global override threshold (ms) passed explicitly by the caller (e.g. --threshold-ms).
+   * Null when no override was provided and filtering ran per-stage via thresholdsByStage.
+   */
+  thresholdMs: number | null;
   thresholdsByStage: Record<MarketingStage, number>;
   dryRun: boolean;
 };
@@ -295,8 +299,18 @@ export async function runStaleRunReaper(
 ): Promise<StaleRunReaperReport> {
   const dataRoot = path.normalize(options.dataRoot);
   const root = path.join(dataRoot, MARKETING_JOBS_SUBDIR);
-  const thresholdsByStage = staleRunReaperThresholdsByStage();
-  const thresholdMs = options.thresholdMs ?? staleRunReaperThresholdMs();
+  // When a caller-supplied override is present, apply it uniformly across all stages so that
+  // report.thresholdsByStage reflects what filtering actually used (not stale env defaults).
+  const thresholdsByStage: Record<MarketingStage, number> = options.thresholdMs
+    ? {
+        research: options.thresholdMs,
+        strategy: options.thresholdMs,
+        production: options.thresholdMs,
+        publish: options.thresholdMs,
+      }
+    : staleRunReaperThresholdsByStage();
+  // thresholdMs is the explicit override, or null when filtering ran per-stage.
+  const thresholdMs: number | null = options.thresholdMs ?? null;
   const now = options.now ?? (() => new Date());
   const report: StaleRunReaperReport = {
     scanned: 0,
@@ -395,7 +409,7 @@ export async function runStaleRunReaper(
       continue;
     }
 
-    const candidateThresholdMs = options.thresholdMs ?? thresholdsByStage[stage];
+    const candidateThresholdMs = thresholdsByStage[stage];
     const nowMs = now().getTime();
     const silentMs = nowMs - progressAtMs;
     if (silentMs <= candidateThresholdMs) {
@@ -465,7 +479,7 @@ export async function runStaleRunReaper(
     mutated: report.mutated,
     skipped: report.skipped,
     errors: report.errors,
-    threshold_ms: thresholdMs,
+    ...(thresholdMs !== null ? { threshold_ms_override: thresholdMs } : {}),
     thresholds_by_stage: thresholdsByStage,
   });
 

@@ -470,6 +470,75 @@ test('skips runtime docs missing any parseable progress timestamp', async () => 
   });
 });
 
+test('--threshold-ms override propagates into report.thresholdsByStage and report.thresholdMs', async () => {
+  await withScratch(async (dataRoot) => {
+    const now = new Date('2026-05-06T12:00:00.000Z');
+    const staleAt = new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString();
+    const doc = makeRuntimeDoc({
+      jobId: 'job-override-propagation',
+      tenantId: 'tenant-1',
+      state: 'running',
+      status: 'running',
+      updatedAtIso: staleAt,
+      stage: 'production',
+    });
+    await writeRuntimeDoc(dataRoot, doc);
+
+    const overrideMs = 45 * 60 * 1000; // 45 minutes
+    const report = await runStaleRunReaper({
+      dataRoot,
+      dryRun: true,
+      now: () => now,
+      thresholdMs: overrideMs,
+    });
+
+    // report.thresholdMs must reflect the explicit override, not null
+    assert.equal(report.thresholdMs, overrideMs, 'report.thresholdMs must equal the override');
+
+    // report.thresholdsByStage must use the override for every stage, not env/default values
+    assert.equal(report.thresholdsByStage.research, overrideMs, 'research threshold must equal override');
+    assert.equal(report.thresholdsByStage.strategy, overrideMs, 'strategy threshold must equal override');
+    assert.equal(report.thresholdsByStage.production, overrideMs, 'production threshold must equal override');
+    assert.equal(report.thresholdsByStage.publish, overrideMs, 'publish threshold must equal override');
+
+    // The production job is 2 hours stale — well past 45 min override — so it should be a candidate
+    assert.equal(report.candidates.length, 1, 'stale job should be candidate with override threshold');
+    assert.equal(report.candidates[0]!.thresholdMs, overrideMs, 'candidate.thresholdMs must equal override');
+  });
+});
+
+test('without --threshold-ms override, report.thresholdMs is null and thresholdsByStage reflects per-stage defaults', async () => {
+  await withScratch(async (dataRoot) => {
+    // Clean env to ensure defaults apply
+    const savedEnvKeys = [
+      'STALE_RUN_REAPER_THRESHOLD_MS',
+      'STALE_RUN_REAPER_RESEARCH_THRESHOLD_MS',
+      'STALE_RUN_REAPER_STRATEGY_THRESHOLD_MS',
+      'STALE_RUN_REAPER_PRODUCTION_THRESHOLD_MS',
+      'STALE_RUN_REAPER_PUBLISH_THRESHOLD_MS',
+    ] as const;
+    const saved: Record<string, string | undefined> = {};
+    for (const key of savedEnvKeys) {
+      saved[key] = process.env[key];
+      delete process.env[key];
+    }
+
+    try {
+      const report = await runStaleRunReaper({ dataRoot, dryRun: true });
+
+      assert.equal(report.thresholdMs, null, 'report.thresholdMs must be null when no override');
+      assert.equal(report.thresholdsByStage.research, 10 * 60 * 1000);
+      assert.equal(report.thresholdsByStage.strategy, 5 * 60 * 1000);
+      assert.equal(report.thresholdsByStage.production, 90 * 60 * 1000);
+      assert.equal(report.thresholdsByStage.publish, 30 * 60 * 1000);
+    } finally {
+      for (const key of savedEnvKeys) {
+        if (saved[key] !== undefined) process.env[key] = saved[key];
+      }
+    }
+  });
+});
+
 test('ignores files with unknown schema_name', async () => {
   await withScratch(async (dataRoot) => {
     const dir = path.join(dataRoot, 'generated', 'draft', 'marketing-jobs');
