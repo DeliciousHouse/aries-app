@@ -262,9 +262,14 @@ function validateApprovalTransition(
     if (!approvalStep) {
       return { status: 'error', reason: 'approval_stage_mismatch' };
     }
+    // Video render/script approvals occur during the production run stage but
+    // gate the publish gate — they map to 'publish' in the allowlist, not
+    // 'production', so the stage check passes correctly.
     const expectedMarketingStage = approvalStep === 'approve_weekly_plan'
       ? 'strategy'
-      : approvalStep === 'approve_publish'
+      : (approvalStep === 'approve_publish'
+        || approvalStep === 'approve_video_render'
+        || approvalStep === 'approve_video_script')
         ? 'publish'
         : 'production';
     // Explicit per-stage allowlist: each run stage maps to exactly one valid

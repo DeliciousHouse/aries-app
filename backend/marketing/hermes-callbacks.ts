@@ -11,6 +11,7 @@ import {
   reconcileSocialContentIntermediateStages,
   socialContentStageFromCallbackStage,
 } from '@/backend/social-content/runtime-state';
+import { ingestSocialContentVideoRenderOutput } from '@/backend/social-content/media-ingest';
 import type { SocialContentApprovalStep, SocialContentArtifact, SocialContentStage } from '@/backend/social-content/types';
 
 import {
@@ -329,6 +330,36 @@ function productionCallbackHasUnrenderedImageCreatives(
   );
 }
 
+function summarizeVideoIngestSkips(
+  skipped: Array<{ path: string; reason: 'not_allowed' | 'missing' | 'invalid' }>,
+): { count: number; reasons: Partial<Record<'not_allowed' | 'missing' | 'invalid', number>> } {
+  const reasons: Partial<Record<'not_allowed' | 'missing' | 'invalid', number>> = {};
+  for (const entry of skipped) {
+    reasons[entry.reason] = (reasons[entry.reason] ?? 0) + 1;
+  }
+  return {
+    count: skipped.length,
+    reasons,
+  };
+}
+
+function ingestSocialContentStageMedia(
+  run: ExecutionRunRecord,
+  payload: HermesRunCallbackPayload,
+): void {
+  if (!isSocialContentRun(run) || !run.marketing_job_id || payload.stage !== 'video_render') {
+    return;
+  }
+
+  const result = ingestSocialContentVideoRenderOutput(run.marketing_job_id, payload.output);
+  if (result.skipped.length > 0) {
+    console.warn('[social-content-video-ingest] skipped media during Hermes callback ingest', {
+      jobId: run.marketing_job_id,
+      skipped: summarizeVideoIngestSkips(result.skipped),
+    });
+  }
+}
+
 function isHermesMediaSetupError(payload: HermesRunCallbackPayload): boolean {
   const code = payload.error?.code?.toLowerCase() ?? '';
   const message = payload.error?.message.toLowerCase() ?? '';
@@ -590,6 +621,7 @@ export async function applyHermesMarketingCallback(
   }
 
   if (payload.status === 'requires_approval') {
+    ingestSocialContentStageMedia(run, payload);
     const socialApprovalStep = isSocialContentRun(run) ? normalizeSocialApprovalStep(payload) : null;
     const completedSocialStage = isSocialContentRun(run)
       ? socialContentStageFromCallbackStage(payload.stage) ?? socialStageForMarketingStage(targetStage)
@@ -670,6 +702,7 @@ export async function applyHermesMarketingCallback(
   }
 
   if (payload.status === 'completed') {
+    ingestSocialContentStageMedia(run, payload);
     const multiStage = extractMultiStageOutputs(payload);
     if (multiStage) {
       for (const stage of STAGE_ORDER) {

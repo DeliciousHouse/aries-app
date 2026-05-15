@@ -113,24 +113,32 @@ async function resolveVideoAssetPath(jobId: string, assetId: string): Promise<{ 
   const isPoster = assetId.endsWith('-poster');
   const baseName = assetId.replace(/^video-/, '').replace(/-poster$/, '');
   const videosRoot = path.resolve(resolveDraftRoot(), 'jobs', jobId, 'videos');
-  const requestedPath = path.resolve(videosRoot, `${baseName}${isPoster ? '.jpg' : '.mp4'}`);
+  const requestedPaths = isPoster
+    ? ['.jpg', '.jpeg', '.png', '.webp'].map((ext) => path.resolve(videosRoot, `${baseName}-poster${ext}`))
+    : [path.resolve(videosRoot, `${baseName}.mp4`)];
 
-  if (!baseName || !isWithinRoot(videosRoot, requestedPath)) {
+  if (!baseName || requestedPaths.some((candidate) => !isWithinRoot(videosRoot, candidate))) {
     return invalidVideoAssetResponse();
   }
 
   const resolvedVideosRoot = await realpath(videosRoot).catch(() => videosRoot);
-  const resolvedPath = await realpath(requestedPath).catch((error: unknown) => {
-    if (
-      error &&
-      typeof error === 'object' &&
-      'code' in error &&
-      (error.code === 'ENOENT' || error.code === 'ENOTDIR')
-    ) {
-      return null;
+  let resolvedPath: string | null = null;
+  for (const requestedPath of requestedPaths) {
+    resolvedPath = await realpath(requestedPath).catch((error: unknown) => {
+      if (
+        error &&
+        typeof error === 'object' &&
+        'code' in error &&
+        (error.code === 'ENOENT' || error.code === 'ENOTDIR')
+      ) {
+        return null;
+      }
+      throw error;
+    });
+    if (resolvedPath) {
+      break;
     }
-    throw error;
-  });
+  }
 
   if (!resolvedPath) {
     return assetNotFoundResponse(jobId, assetId, 'asset_file_missing');
@@ -142,7 +150,13 @@ async function resolveVideoAssetPath(jobId: string, assetId: string): Promise<{ 
 
   return {
     filePath: resolvedPath,
-    contentType: isPoster ? 'image/jpeg' : 'video/mp4',
+    contentType: isPoster
+      ? resolvedPath.endsWith('.png')
+        ? 'image/png'
+        : resolvedPath.endsWith('.webp')
+          ? 'image/webp'
+          : 'image/jpeg'
+      : 'video/mp4',
   };
 }
 
