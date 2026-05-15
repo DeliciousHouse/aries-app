@@ -49,8 +49,143 @@ type HermesCreativeAsset = {
   status?: string;
   path?: string;
   placement?: string;
+  prompt?: string;
   [key: string]: unknown;
 };
+
+type HermesGeneratedImage = {
+  index?: number;
+  status?: string;
+  filePath?: string;
+  path?: string;
+  prompt?: string;
+  intendedUse?: string;
+  [key: string]: unknown;
+};
+
+type HermesImageCreativeLike = {
+  id?: string;
+  title?: string;
+  prompt?: string;
+  status?: string;
+  artifact_url?: string;
+  path?: string;
+  filePath?: string;
+  intendedUse?: string;
+  placement?: string;
+  [key: string]: unknown;
+};
+
+function imageBasenameFromValue(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  const match = trimmed.match(/([^/?#]+\.(?:png|jpe?g|webp|gif))(?:[?#].*)?$/i);
+  return match?.[1] ?? '';
+}
+
+function renderedImageBasenameFromRecord(record: Record<string, unknown>): string {
+  for (const value of Object.values(record)) {
+    const basename = imageBasenameFromValue(value);
+    if (basename) return basename;
+  }
+  return '';
+}
+
+function mediaArtifactUrl(appBaseUrl: string, basename: string): string {
+  return basename ? `${appBaseUrl}/api/internal/hermes/media/${basename}` : '';
+}
+
+function normalizeRenderedStatus(_status: unknown): string {
+  return 'completed';
+}
+
+function canonicalImageCreativeFromCreativeAsset(
+  asset: HermesCreativeAsset,
+  index: number,
+  appBaseUrl: string,
+  aspectRatio: string,
+): Record<string, unknown> | null {
+  if (asset.type !== 'generated_image') return null;
+
+  const basename = renderedImageBasenameFromRecord(asset);
+  if (!basename) return null;
+
+  const assetId = typeof asset.assetId === 'string' && asset.assetId.trim().length > 0
+    ? asset.assetId.trim()
+    : String(index);
+  const prompt = typeof asset.prompt === 'string' ? asset.prompt : '';
+  const placement = typeof asset.placement === 'string' ? asset.placement : '';
+
+  return {
+    id: `img_${assetId}`,
+    title: placement,
+    ...(placement ? { placement, intendedUse: placement } : {}),
+    prompt,
+    status: normalizeRenderedStatus(asset.status),
+    artifact_url: mediaArtifactUrl(appBaseUrl, basename),
+    aspect_ratio: aspectRatio,
+  };
+}
+
+function canonicalImageCreativeFromGeneratedImage(
+  image: HermesGeneratedImage,
+  index: number,
+  appBaseUrl: string,
+  aspectRatio: string,
+): Record<string, unknown> | null {
+  const basename = renderedImageBasenameFromRecord(image);
+  if (!basename) return null;
+
+  const imageIndex = typeof image.index === 'number' ? image.index : index;
+  const prompt = typeof image.prompt === 'string' ? image.prompt : '';
+  const intendedUse = typeof image.intendedUse === 'string' ? image.intendedUse : '';
+
+  return {
+    id: `img_${String(imageIndex)}`,
+    title: intendedUse,
+    ...(intendedUse ? { intendedUse } : {}),
+    prompt,
+    status: normalizeRenderedStatus(image.status),
+    artifact_url: mediaArtifactUrl(appBaseUrl, basename),
+    aspect_ratio: aspectRatio,
+  };
+}
+
+function canonicalImageCreativeFromExisting(
+  creative: HermesImageCreativeLike,
+  index: number,
+  appBaseUrl: string,
+  aspectRatio: string,
+): Record<string, unknown> | null {
+  const basename = renderedImageBasenameFromRecord(creative);
+  if (!basename) return null;
+
+  const idSource = typeof creative.id === 'string' && creative.id.trim().length > 0
+    ? creative.id.trim().replace(/^img_/, '')
+    : String(index);
+  const prompt = typeof creative.prompt === 'string' ? creative.prompt : '';
+  const intendedUse = typeof creative.intendedUse === 'string'
+    ? creative.intendedUse
+    : typeof creative.title === 'string'
+      ? creative.title
+      : typeof creative.placement === 'string'
+        ? creative.placement
+        : '';
+
+  return {
+    id: `img_${idSource}`,
+    title: intendedUse,
+    ...(intendedUse ? { intendedUse } : {}),
+    ...(typeof creative.placement === 'string' && creative.placement.trim().length > 0
+      ? { placement: creative.placement }
+      : {}),
+    prompt,
+    status: normalizeRenderedStatus(creative.status),
+    artifact_url: mediaArtifactUrl(appBaseUrl, basename),
+    aspect_ratio: aspectRatio,
+  };
+}
 
 /**
  * Bridges Hermes `creative_assets` (at `result[0].artifacts.creative_assets`)
@@ -66,53 +201,16 @@ type HermesCreativeAsset = {
 export function bridgeHermesCreativeAssets(
   outputRecord: Record<string, unknown>,
 ): Record<string, unknown> {
-  const artifacts = outputRecord.artifacts;
-  if (!artifacts || typeof artifacts !== 'object' || Array.isArray(artifacts)) {
-    return outputRecord;
-  }
-
-  const creativeAssets = (artifacts as Record<string, unknown>).creative_assets;
-  if (!Array.isArray(creativeAssets) || creativeAssets.length === 0) {
-    return outputRecord;
-  }
-
   const appBaseUrl = resolveAppBaseUrl();
-
-  const imageCreatives = creativeAssets
-    .filter(
-      (asset): asset is HermesCreativeAsset =>
-        asset !== null &&
-        typeof asset === 'object' &&
-        !Array.isArray(asset) &&
-        (asset as HermesCreativeAsset).type === 'generated_image',
-    )
-    .map((asset) => {
-      // Convert the absolute host path to an internal URL using basename only.
-      // The media route resolves it against HERMES_IMAGE_CACHE_MOUNT.
-      let artifactUrl = '';
-      if (typeof asset.path === 'string' && asset.path.trim().length > 0) {
-        const basename = asset.path.split('/').filter(Boolean).pop() ?? '';
-        if (basename) {
-          artifactUrl = `${appBaseUrl}/api/internal/hermes/media/${basename}`;
-        }
-      }
-
-      return {
-        id: typeof asset.assetId === 'string' ? asset.assetId : '',
-        title: typeof asset.placement === 'string' ? asset.placement : '',
-        aspect_ratio: '',
-        prompt: '',
-        status: typeof asset.status === 'string' ? asset.status : 'created',
-        artifact_url: artifactUrl,
-      };
-    });
-
-  if (imageCreatives.length === 0) {
-    return outputRecord;
-  }
+  const artifacts = outputRecord.artifacts;
+  const artifactRecord = artifacts && typeof artifacts === 'object' && !Array.isArray(artifacts)
+    ? artifacts as Record<string, unknown>
+    : null;
+  const aspectRatio = typeof artifactRecord?.aspectRatio === 'string' ? artifactRecord.aspectRatio : '';
 
   // Merge into weekly_content_plan, creating the key if absent. Do not
-  // overwrite existing image_creatives that the workflow itself emitted.
+  // overwrite existing image_creatives that the workflow itself emitted unless
+  // they need canonicalization into the projection shape.
   const existingPlan =
     outputRecord.weekly_content_plan !== undefined &&
     outputRecord.weekly_content_plan !== null &&
@@ -121,11 +219,70 @@ export function bridgeHermesCreativeAssets(
       ? (outputRecord.weekly_content_plan as Record<string, unknown>)
       : {};
 
-  const existingCreatives = existingPlan.image_creatives;
-  const alreadyHasCreatives =
-    Array.isArray(existingCreatives) && existingCreatives.length > 0;
+  const existingCreatives = Array.isArray(existingPlan.image_creatives)
+    ? existingPlan.image_creatives
+    : null;
 
-  if (alreadyHasCreatives) {
+  const canonicalExistingCreatives = existingCreatives
+    ?.map((creative, index) => (
+      creative !== null && typeof creative === 'object' && !Array.isArray(creative)
+        ? canonicalImageCreativeFromExisting(
+          creative as HermesImageCreativeLike,
+          index,
+          appBaseUrl,
+          aspectRatio,
+        )
+        : null
+    ))
+    .filter((creative): creative is Record<string, unknown> => creative !== null) ?? [];
+
+  if (canonicalExistingCreatives.length > 0) {
+    return {
+      ...outputRecord,
+      weekly_content_plan: {
+        ...existingPlan,
+        image_creatives: canonicalExistingCreatives,
+      },
+    };
+  }
+
+  const creativeAssets = Array.isArray(artifactRecord?.creative_assets)
+    ? artifactRecord.creative_assets
+    : [];
+  const imageCreativesFromCreativeAssets = creativeAssets
+    .map((asset, index) => (
+      asset !== null && typeof asset === 'object' && !Array.isArray(asset)
+        ? canonicalImageCreativeFromCreativeAsset(
+          asset as HermesCreativeAsset,
+          index,
+          appBaseUrl,
+          aspectRatio,
+        )
+        : null
+    ))
+    .filter((creative): creative is Record<string, unknown> => creative !== null);
+
+  const images = Array.isArray(artifactRecord?.images)
+    ? artifactRecord.images
+    : [];
+  const imageCreativesFromImages = images
+    .map((image, index) => (
+      image !== null && typeof image === 'object' && !Array.isArray(image)
+        ? canonicalImageCreativeFromGeneratedImage(
+          image as HermesGeneratedImage,
+          index,
+          appBaseUrl,
+          aspectRatio,
+        )
+        : null
+    ))
+    .filter((creative): creative is Record<string, unknown> => creative !== null);
+
+  const imageCreatives = imageCreativesFromCreativeAssets.length > 0
+    ? imageCreativesFromCreativeAssets
+    : imageCreativesFromImages;
+
+  if (imageCreatives.length === 0) {
     return outputRecord;
   }
 
