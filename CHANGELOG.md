@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.8] - 2026-05-15
+
+### Fixed
+- **Gating: failed runs no longer block new weekly content runs.** `Generate this week's content` was disabled whenever any run existed — including terminal-failed runs — because the guard used a raw "any in-progress run" check that did not exclude terminal states. The fix threads a new `executionState` field through `backend/marketing/runtime-views.ts`, uses `isPipelineActive()` to exclude terminal states (`failed`, `cancelled`, `timed_out`), and updates `frontend/aries-v1/generate-this-week.ts` and `lib/api/aries-v1.ts` accordingly. The campaigns list also previously mislabelled failed runs as "Campaign in progress" — that label now reflects the actual terminal state. Covered by expanded tests in `dashboard-generate-week-trigger.test.ts`, `dashboard-home-view-model.test.ts`, and `calendar-view-model.test.ts`.
+- **Image generation: rich per-image prompts + fail-loud verification.** Hermes was silently completing production callbacks that contained only `image_creatives` prompt entries (no rendered image files) — meaning the `image_generate` tool call was quietly skipped and the dashboard showed zero images. The fix has two parts: (1) `backend/social-content/workflow-request.ts` now injects a rich per-image context block into every production resume sent to Hermes — including N-of-M framing, brand voice/palette/must-avoid constraints from research output, creative strategy, and platform-aware aspect ratio — so Hermes has the context it needs to actually call `image_generate`; (2) `backend/marketing/hermes-callbacks.ts` and `backend/marketing/ports/hermes.ts` now reject production callbacks whose `image_creatives` entries lack rendered image paths, returning a 422 so the run fails loud rather than silently completing with no images. No Hermes-side changes required. Covered by 11 new tests in `social-content-rich-prompts-and-failloud.test.ts`.
+
 ## [0.1.3.7] - 2026-05-14
 
 ### Added
