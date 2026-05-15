@@ -20,6 +20,7 @@ import type { ResearchMemoryContextEntry } from '../../memory/orchestrator';
 import { SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY } from '../../social-content/defaults';
 import { approvalStepFromWorkflowStepId } from '../../social-content/runtime-state';
 import {
+  buildProductionResumeContext,
   buildSocialContentWeeklyRequest,
   ensureFreshBrandKitForWeeklyRun,
 } from '../../social-content/workflow-request';
@@ -31,7 +32,7 @@ import type {
   MarketingPipelineRunInput,
   RegenerateCreativeContext,
 } from '../execution-port';
-import type { MarketingJobRuntimeDocument, MarketingStage } from '../runtime-state';
+import { loadMarketingJobRuntime, type MarketingJobRuntimeDocument, type MarketingStage } from '../runtime-state';
 import type { SocialContentApprovalStep } from '@/backend/social-content/types';
 
 type HermesCallbackTokenClient = {
@@ -309,8 +310,23 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     const callbackToken = randomBytes(32).toString('hex');
     await this.persistCallbackTokenHash(run.aries_run_id, input.tenantId, callbackToken);
 
+    // For the production-stage resume (approve_post_copy), load the job doc to
+    // build rich per-image prompts with brand + research + strategy context.
+    // loadMarketingJobRuntime returns null if the doc is missing — the prompt
+    // builder handles that gracefully and uses static brand profile data only.
+    const approvalStepForContext =
+      input.approvalStep ??
+      (input.workflowStepId ? approvalStepFromWorkflowStepId(input.workflowStepId) : null);
+    const isProductionResume =
+      action === 'resume'
+      && workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY
+      && approvalStepForContext === 'approve_post_copy';
+    const productionDoc = isProductionResume && input.jobId
+      ? await loadMarketingJobRuntime(input.jobId).catch(() => null)
+      : null;
+
     const payload = this.submissionPayload(
-      action, run.aries_run_id, input, workflowKey, callbackToken, memoryContextSnapshot,
+      action, run.aries_run_id, input, workflowKey, callbackToken, memoryContextSnapshot, productionDoc,
     );
     const idempotencyKey = typeof payload.idempotency_key === 'string' ? payload.idempotency_key : '';
 
@@ -540,6 +556,8 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     workflowKey: string,
     callbackToken: string,
     memoryContextSnapshot?: ResearchMemoryContextEntry[],
+    /** Pre-loaded marketing job doc, used for production-resume rich prompt injection. */
+    productionDoc?: MarketingJobRuntimeDocument | null,
   ): Record<string, unknown> {
     const callbackAuth = {
       type: 'internal_api_secret_bearer',
@@ -556,7 +574,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       // Hermes /v1/runs requires `input` to be a non-empty string (OpenAI-style
       // chat-completions API). Without it, Hermes returns HTTP 400 with
       // "No user message found in input" and the resume call fails.
-      const resumePrompt = [
+      const baseResumeLines = [
         `Workflow: ${SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY}`,
         'Action: resume',
         `Aries run ID: ${ariesRunId}`,
@@ -566,7 +584,21 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         `Job ID: ${input.jobId ?? ''}`,
         `Tenant ID: ${input.tenantId ?? ''}`,
         `Approval ID: ${input.approvalId ?? ''}`,
-      ].join('\n');
+      ];
+
+      // Inject rich per-image prompt context on the production resume
+      // (approve_post_copy) so Hermes has brand, research, and strategy context
+      // at the moment it calls image_generate. Skipped for other approval steps.
+      if (approvalStep === 'approve_post_copy' && productionDoc) {
+        const ctx = buildProductionResumeContext({
+          doc: productionDoc,
+          researchOutput: (productionDoc.stages.research?.primary_output ?? null) as Record<string, unknown> | null,
+          strategyOutput: (productionDoc.stages.strategy?.primary_output ?? null) as Record<string, unknown> | null,
+        });
+        baseResumeLines.push('', ctx.contextBlock);
+      }
+
+      const resumePrompt = baseResumeLines.join('\n');
       return {
         input: resumePrompt,
         instructions: this.instructions(SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY),
