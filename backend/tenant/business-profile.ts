@@ -8,6 +8,7 @@ import {
   extractAndSaveTenantBrandKit,
   loadTenantBrandKit,
   repairLegacyMarketingText,
+  repairStaleMarketingOffer,
   sanitizeBrandKitSummaryText,
   type TenantBrandKit,
 } from '@/backend/marketing/brand-kit';
@@ -577,9 +578,24 @@ function buildBusinessProfileView(input: {
   const effectiveChannels = resolvedChannels(
     input.validatedProfile.channels.length > 0 ? input.validatedProfile.channels : (input.record?.channels ?? []),
   );
-  const effectiveOffer = repairLegacyMarketingText(
-    input.validatedProfile.offer ?? input.record?.offer ?? input.brandKit?.offer_summary ?? null,
-  );
+  const effectiveOffer = repairStaleMarketingOffer({
+    offer: input.validatedProfile.offer ?? input.record?.offer ?? input.brandKit?.offer_summary ?? null,
+    brandName: businessName,
+    businessType: effectiveBusinessType,
+    primaryGoal: effectivePrimaryGoal,
+    brandVoice:
+      input.record?.brand_voice ??
+      input.workspaceBrandContext.brandVoice ??
+      input.validatedProfile.brandIdentity?.toneOfVoice ??
+      (input.validatedProfile.brandVoice.length > 0 ? input.validatedProfile.brandVoice.join('\n') : null) ??
+      input.brandKit?.brand_voice_summary ??
+      null,
+    notes: input.record?.notes ?? input.validatedProfile.brandIdentity?.summary ?? null,
+    positioning: input.validatedProfile.brandIdentity?.positioning ?? input.validatedProfile.positioning,
+    brandIdentitySummary: input.validatedProfile.brandIdentity?.summary,
+    brandIdentityOffer: input.validatedProfile.brandIdentity?.offer ?? input.validatedProfile.offer,
+    brandKitOfferSummary: input.brandKit?.offer_summary ?? null,
+  });
   const effectiveBrandVoice = repairLegacyMarketingText(
     input.record?.brand_voice ??
       input.workspaceBrandContext.brandVoice ??

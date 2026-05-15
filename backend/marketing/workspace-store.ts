@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { resolveDataPath } from '@/lib/runtime-paths';
-import { repairLegacyMarketingText } from '@/backend/marketing/brand-kit';
+import { repairLegacyMarketingText, repairStaleMarketingOffer } from '@/backend/marketing/brand-kit';
 import { marketingPayloadDefaultsFromBusinessProfile } from '@/backend/tenant/business-profile';
 
 export type MarketingCampaignWorkflowState =
@@ -287,7 +287,15 @@ function normalizeCampaignBrief(
     businessType: repairLegacyMarketingText(stringValue(payload.businessType, existing?.businessType || '')) || '',
     approverName: repairLegacyMarketingText(stringValue(payload.approverName || payload.launchApproverName, existing?.approverName || '')) || '',
     goal: repairLegacyMarketingText(stringValue(payload.goal || payload.primaryGoal, existing?.goal || '')) || '',
-    offer: repairLegacyMarketingText(stringValue(payload.offer, existing?.offer || '')) || '',
+    offer:
+      repairStaleMarketingOffer({
+        offer: stringValue(payload.offer, existing?.offer || ''),
+        brandName: stringValue(payload.businessName, existing?.businessName || ''),
+        businessType: stringValue(payload.businessType, existing?.businessType || ''),
+        primaryGoal: stringValue(payload.goal || payload.primaryGoal, existing?.goal || ''),
+        brandVoice: stringValue(payload.brandVoice, existing?.brandVoice || ''),
+        notes: stringValue(payload.notes, existing?.notes || ''),
+      }) || '',
     competitorUrl: stringValue(payload.competitorUrl, existing?.competitorUrl || ''),
     channels: stringArray(payload.channels).length > 0
       ? stringArray(payload.channels)

@@ -1,4 +1,8 @@
-import { extractAndSaveTenantBrandKit, tenantBrandKitPath } from '@/backend/marketing/brand-kit';
+import {
+  extractAndSaveTenantBrandKit,
+  repairStaleMarketingOffer,
+  tenantBrandKitPath,
+} from '@/backend/marketing/brand-kit';
 import type {
   MarketingBrandKitReference,
   MarketingJobRuntimeDocument,
@@ -163,14 +167,19 @@ export type SocialContentWeeklyRequest = {
   };
 };
 
-function resolveCreativeBriefs(req: UnknownRecord): string[] {
+// repairedOffer is the already-repaired offer string (from resolveBrandOffer).
+// It must be passed in here so that stale product copy (e.g. leather-goods text)
+// cannot leak into creative_briefs via the raw req.offer fallback — Copilot
+// flagged this gap: the offer repair ran after mediaRequests was built, so the
+// raw req.offer was still being used for creative_briefs construction.
+function resolveCreativeBriefs(req: UnknownRecord, repairedOffer: string): string[] {
   const configured = stringArray(req.creativeBriefs ?? req.creative_briefs);
   if (configured.length > 0) {
     return configured.slice(0, MAX_IMAGE_CREATIVE_COUNT);
   }
   const fallback = [
     stringValue(req.primaryGoal) || stringValue(req.goal),
-    stringValue(req.offer),
+    repairedOffer,
     stringValue(req.styleVibe),
     stringValue(req.audience),
   ].filter((entry) => entry.length > 0);
@@ -238,10 +247,17 @@ function resolveBrandVoice(req: UnknownRecord, brandKit: MarketingBrandKitRefere
 }
 
 function resolveBrandOffer(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
-  const operatorOffer = stringValue(req.offer);
-  if (operatorOffer) return operatorOffer;
-  const summary = brandKit?.offer_summary;
-  return typeof summary === 'string' ? stringValue(summary) : '';
+  return (
+    repairStaleMarketingOffer({
+      offer: stringValue(req.offer) || brandKit?.offer_summary || null,
+      brandName: stringValue(req.businessName) || brandKit?.brand_name || null,
+      businessType: stringValue(req.businessType) || null,
+      primaryGoal: stringValue(req.primaryGoal) || stringValue(req.goal) || null,
+      brandVoice: stringValue(req.brandVoice) || brandKit?.brand_voice_summary || null,
+      positioning: brandKit?.offer_summary || null,
+      brandKitOfferSummary: brandKit?.offer_summary || null,
+    }) || ''
+  );
 }
 
 function resolveMustAvoidAesthetics(req: UnknownRecord): string[] {
@@ -279,6 +295,10 @@ export function buildSocialContentWeeklyRequest(input: {
     SOCIAL_CONTENT_DEFAULT_SCOPE.video_render_count,
     MAX_VIDEO_RENDER_COUNT,
   );
+  // Resolve and repair the offer before building mediaRequests so that stale
+  // product copy cannot leak into creative_briefs via the raw req.offer path.
+  const resolvedOffer = resolveBrandOffer(req, brandKit);
+
   const mediaRequests: NonNullable<SocialContentWeeklyRequest['input']['media_requests']> = [];
   if (imageCreativeCount > 0) {
     const imageChannel = resolveDominantImageChannel(imageTargetChannels);
@@ -290,7 +310,7 @@ export function buildSocialContentWeeklyRequest(input: {
       }),
       count: imageCreativeCount,
       target_channels: imageTargetChannels,
-      creative_briefs: resolveCreativeBriefs(req),
+      creative_briefs: resolveCreativeBriefs(req, resolvedOffer),
     });
   }
   if (videoRenderCount > 0) {
@@ -302,8 +322,6 @@ export function buildSocialContentWeeklyRequest(input: {
       script_id: stringValue(req.videoScriptId) || 'weekly_primary',
     });
   }
-
-  const resolvedOffer = resolveBrandOffer(req, brandKit);
 
   return {
     workflow_key: SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
