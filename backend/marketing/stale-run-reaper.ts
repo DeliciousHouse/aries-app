@@ -16,12 +16,24 @@ const KNOWN_SCHEMA_NAMES = new Set([
   'job_runtime_state_schema',
 ]);
 
-const STALE_REAPER_FAILURE_REASON = 'stale_run_reaper';
+const STALE_REAPER_FAILURE_REASON = 'marketing_job_stalled';
 const STALE_REAPER_ERROR_MESSAGE =
-  'Run marked failed by the stale-run reaper after exceeding the silence threshold without a Hermes callback.';
+  'Marketing job stalled without progress and was failed by the stale-run reaper.';
 
 const DEFAULT_MARKETING_WORKFLOW_TIMEOUT_MS = 15 * 60 * 1000;
 const DEFAULT_STALE_THRESHOLD_MS = DEFAULT_MARKETING_WORKFLOW_TIMEOUT_MS * 2;
+const DEFAULT_STAGE_THRESHOLD_MS: Readonly<Record<MarketingStage, number>> = {
+  research: 10 * 60 * 1000,
+  strategy: 5 * 60 * 1000,
+  production: 90 * 60 * 1000,
+  publish: 30 * 60 * 1000,
+};
+const STAGE_THRESHOLD_ENV_BY_STAGE: Readonly<Record<MarketingStage, string>> = {
+  research: 'STALE_RUN_REAPER_RESEARCH_THRESHOLD_MS',
+  strategy: 'STALE_RUN_REAPER_STRATEGY_THRESHOLD_MS',
+  production: 'STALE_RUN_REAPER_PRODUCTION_THRESHOLD_MS',
+  publish: 'STALE_RUN_REAPER_PUBLISH_THRESHOLD_MS',
+};
 
 const IN_FLIGHT_STATES: ReadonlySet<MarketingJobState> = new Set([
   'queued',
@@ -48,8 +60,9 @@ export type StaleRunCandidate = {
   state: MarketingJobState;
   status: MarketingJobStatus;
   stage: MarketingStage;
-  updatedAt: string;
+  progressAt: string;
   silentMs: number;
+  thresholdMs: number;
   filePath: string;
   mutated: boolean;
 };
@@ -61,15 +74,44 @@ export type StaleRunReaperReport = {
   skipped: number;
   errors: number;
   thresholdMs: number;
+  thresholdsByStage: Record<MarketingStage, number>;
   dryRun: boolean;
 };
 
-export function staleRunReaperThresholdMs(): number {
+function parsePositiveInt(value: string | undefined): number | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function staleRunReaperGlobalThresholdOverrideMs(): number | null {
+  return parsePositiveInt(process.env.STALE_RUN_REAPER_THRESHOLD_MS);
+}
+
+export function staleRunReaperThresholdMs(stage?: MarketingStage): number {
+  const globalOverride = staleRunReaperGlobalThresholdOverrideMs();
+  if (globalOverride !== null) return globalOverride;
+  if (stage) {
+    return (
+      parsePositiveInt(process.env[STAGE_THRESHOLD_ENV_BY_STAGE[stage]]) ??
+      DEFAULT_STAGE_THRESHOLD_MS[stage]
+    );
+  }
   const raw = process.env.STALE_RUN_REAPER_THRESHOLD_MS?.trim();
   if (!raw) return DEFAULT_STALE_THRESHOLD_MS;
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_STALE_THRESHOLD_MS;
   return parsed;
+}
+
+export function staleRunReaperThresholdsByStage(): Record<MarketingStage, number> {
+  return {
+    research: staleRunReaperThresholdMs('research'),
+    strategy: staleRunReaperThresholdMs('strategy'),
+    production: staleRunReaperThresholdMs('production'),
+    publish: staleRunReaperThresholdMs('publish'),
+  };
 }
 
 function isKnownSchema(value: unknown): boolean {
@@ -125,6 +167,51 @@ function parseTimestampMs(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function pushTimestampMs(values: number[], value: unknown): void {
+  const parsed = parseTimestampMs(value);
+  if (parsed !== null) values.push(parsed);
+}
+
+function latestProgressTimestamp(parsed: Record<string, unknown>, stage: MarketingStage): number | null {
+  const timestamps: number[] = [];
+  pushTimestampMs(timestamps, parsed.updated_at);
+
+  const stages = parsed.stages;
+  const stageRecord =
+    stages && typeof stages === 'object' && !Array.isArray(stages)
+      ? ((stages as Record<string, unknown>)[stage] as Record<string, unknown> | undefined)
+      : undefined;
+  if (stageRecord && typeof stageRecord === 'object' && !Array.isArray(stageRecord)) {
+    pushTimestampMs(timestamps, stageRecord.started_at);
+    pushTimestampMs(timestamps, stageRecord.completed_at);
+    pushTimestampMs(timestamps, stageRecord.failed_at);
+  }
+
+  const approvals = parsed.approvals;
+  const currentApproval =
+    approvals && typeof approvals === 'object' && !Array.isArray(approvals)
+      ? ((approvals as Record<string, unknown>).current as Record<string, unknown> | null | undefined)
+      : null;
+  if (
+    currentApproval &&
+    typeof currentApproval === 'object' &&
+    !Array.isArray(currentApproval) &&
+    asMarketingStage(currentApproval.stage) === stage
+  ) {
+    pushTimestampMs(timestamps, currentApproval.requested_at);
+  }
+
+  const history = Array.isArray(parsed.history) ? parsed.history : [];
+  for (const entry of history) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    if (asMarketingStage((entry as Record<string, unknown>).stage) !== stage) continue;
+    pushTimestampMs(timestamps, (entry as Record<string, unknown>).at);
+  }
+
+  if (timestamps.length === 0) return null;
+  return Math.max(...timestamps);
+}
+
 function isTerminalDoc(state: MarketingJobState, status: MarketingJobStatus): boolean {
   if (state === 'completed' || state === 'failed' || state === 'needs_connection') return true;
   if (status === 'completed' || status === 'failed' || status === 'needs_connection') return true;
@@ -164,7 +251,6 @@ function logWarn(message: string, fields?: Record<string, unknown>): void {
 function applyStaleMarker(
   doc: MarketingJobRuntimeDocument,
   candidate: StaleRunCandidate,
-  thresholdMs: number,
   nowIso: string,
 ): void {
   const stage = candidate.stage;
@@ -177,8 +263,8 @@ function applyStaleMarker(
       previous_state: candidate.state,
       previous_status: candidate.status,
       silent_ms: candidate.silentMs,
-      threshold_ms: thresholdMs,
-      previous_updated_at: candidate.updatedAt,
+      threshold_ms: candidate.thresholdMs,
+      previous_progress_at: candidate.progressAt,
     },
     at: nowIso,
   };
@@ -198,7 +284,7 @@ function applyStaleMarker(
       state: 'failed',
       status: 'failed_stale',
       stage,
-      note: `stale-run reaper marked job failed after ${candidate.silentMs} ms of silence`,
+      note: `stale-run reaper marked job failed after ${candidate.silentMs} ms without ${stage} progress`,
     });
   }
   doc.updated_at = nowIso;
@@ -209,6 +295,7 @@ export async function runStaleRunReaper(
 ): Promise<StaleRunReaperReport> {
   const dataRoot = path.normalize(options.dataRoot);
   const root = path.join(dataRoot, MARKETING_JOBS_SUBDIR);
+  const thresholdsByStage = staleRunReaperThresholdsByStage();
   const thresholdMs = options.thresholdMs ?? staleRunReaperThresholdMs();
   const now = options.now ?? (() => new Date());
   const report: StaleRunReaperReport = {
@@ -218,6 +305,7 @@ export async function runStaleRunReaper(
     skipped: 0,
     errors: 0,
     thresholdMs,
+    thresholdsByStage,
     dryRun: options.dryRun,
   };
 
@@ -300,16 +388,17 @@ export async function runStaleRunReaper(
       continue;
     }
 
-    const updatedAtMs = parseTimestampMs(parsed.updated_at);
-    if (updatedAtMs === null) {
+    const progressAtMs = latestProgressTimestamp(parsed, stage);
+    if (progressAtMs === null) {
       report.skipped += 1;
-      logWarn('runtime doc missing parseable updated_at; skipping', { jobId, filePath });
+      logWarn('runtime doc missing parseable progress timestamp; skipping', { jobId, filePath, stage });
       continue;
     }
 
+    const candidateThresholdMs = options.thresholdMs ?? thresholdsByStage[stage];
     const nowMs = now().getTime();
-    const silentMs = nowMs - updatedAtMs;
-    if (silentMs <= thresholdMs) {
+    const silentMs = nowMs - progressAtMs;
+    if (silentMs <= candidateThresholdMs) {
       report.skipped += 1;
       continue;
     }
@@ -320,8 +409,9 @@ export async function runStaleRunReaper(
       state,
       status,
       stage,
-      updatedAt: asString(parsed.updated_at),
+      progressAt: new Date(progressAtMs).toISOString(),
       silentMs,
+      thresholdMs: candidateThresholdMs,
       filePath,
       mutated: false,
     };
@@ -334,7 +424,7 @@ export async function runStaleRunReaper(
         status,
         stage,
         silent_ms: silentMs,
-        threshold_ms: thresholdMs,
+        threshold_ms: candidateThresholdMs,
         filePath,
       });
       report.candidates.push(candidate);
@@ -343,7 +433,7 @@ export async function runStaleRunReaper(
 
     try {
       const doc = parsed as unknown as MarketingJobRuntimeDocument;
-      applyStaleMarker(doc, candidate, thresholdMs, new Date(nowMs).toISOString());
+      applyStaleMarker(doc, candidate, new Date(nowMs).toISOString());
       await writeFile(filePath, JSON.stringify(doc, null, 2));
       candidate.mutated = true;
       report.mutated += 1;
@@ -353,7 +443,9 @@ export async function runStaleRunReaper(
         tenantId,
         previous_state: state,
         previous_status: status,
+        stage,
         silent_ms: silentMs,
+        threshold_ms: candidateThresholdMs,
         filePath,
       });
     } catch (err) {
@@ -374,6 +466,7 @@ export async function runStaleRunReaper(
     skipped: report.skipped,
     errors: report.errors,
     threshold_ms: thresholdMs,
+    thresholds_by_stage: thresholdsByStage,
   });
 
   return report;

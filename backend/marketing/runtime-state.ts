@@ -18,11 +18,13 @@ const MARKETING_RUNTIME_SCHEMA_VERSION = '1.0.0';
 export type MarketingStage = 'research' | 'strategy' | 'production' | 'publish';
 export type MarketingJobState = 'queued' | 'running' | 'approval_required' | 'completed' | 'failed' | 'needs_connection';
 /**
- * `failed_stale` is reserved for the manual stale-run reaper script
+ * `failed_stale` is reserved for the stale-run reaper script
  * (`scripts/reap-stale-runs.ts`). The reaper sets it when an in-flight run has
- * been silent past `STALE_RUN_REAPER_THRESHOLD_MS` (default 30 minutes — twice
- * the marketing workflow timeout). It is never produced by the orchestrator
- * or callback handlers; existing code paths treat it identically to `failed`.
+ * exceeded the allowed silence window for its current stage (defaults:
+ * research 10m, strategy 5m, production 90m, publish 30m; optional global
+ * override `STALE_RUN_REAPER_THRESHOLD_MS`). It is never produced by the
+ * orchestrator or callback handlers; existing code paths treat it identically
+ * to `failed`.
  */
 export type MarketingJobStatus =
   | 'pending'
@@ -202,9 +204,10 @@ export type MarketingJobRuntimeDocument = {
   soft_cancel_requested_at?: string | null;
   /** Optional machine-readable reason set when a non-orchestrator process
    * forces the run into a terminal failed status. Currently only used by
-   * the manual stale-run reaper (`scripts/reap-stale-runs.ts`), which sets
-   * `'stale_run_reaper'` when a submitted/running run has been silent past
-   * the staleness threshold. Treated as advisory metadata. */
+   * the stale-run reaper (`scripts/reap-stale-runs.ts`), which sets
+   * `'marketing_job_stalled'` when a submitted/running run has been silent
+   * past the staleness threshold for its current stage. Treated as advisory
+   * metadata. */
   failure_reason?: string | null;
 };
 

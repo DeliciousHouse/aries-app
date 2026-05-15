@@ -4,6 +4,7 @@ import { resolveDataRoot } from '@/lib/runtime-paths';
 import {
   runStaleRunReaper,
   staleRunReaperThresholdMs,
+  staleRunReaperThresholdsByStage,
   type StaleRunReaperReport,
 } from '@/backend/marketing/stale-run-reaper';
 
@@ -66,9 +67,13 @@ function parseArgs(argv: string[]): CliArgs {
 }
 
 function summarize(report: StaleRunReaperReport): string {
+  const thresholdSummary = report.thresholdsByStage
+    ? `research:${report.thresholdsByStage.research},strategy:${report.thresholdsByStage.strategy},production:${report.thresholdsByStage.production},publish:${report.thresholdsByStage.publish}`
+    : String(report.thresholdMs);
   const lines = [
     `mode=${report.dryRun ? 'dry-run' : 'apply'}`,
     `threshold_ms=${report.thresholdMs}`,
+    `thresholds_by_stage=${thresholdSummary}`,
     `scanned=${report.scanned}`,
     `candidates=${report.candidates.length}`,
     `mutated=${report.mutated}`,
@@ -94,9 +99,17 @@ async function main(): Promise<number> {
 
   const dataRoot = args.dataRoot ?? resolveDataRoot();
   const thresholdMs = args.thresholdMs ?? staleRunReaperThresholdMs();
+  const thresholdsByStage = args.thresholdMs
+    ? {
+        research: args.thresholdMs,
+        strategy: args.thresholdMs,
+        production: args.thresholdMs,
+        publish: args.thresholdMs,
+      }
+    : staleRunReaperThresholdsByStage();
 
   process.stdout.write(
-    `[reap-stale-runs] starting mode=${args.dryRun ? 'dry-run' : 'apply'} dataRoot=${dataRoot} threshold_ms=${thresholdMs}\n`,
+    `[reap-stale-runs] starting mode=${args.dryRun ? 'dry-run' : 'apply'} dataRoot=${dataRoot} threshold_ms=${thresholdMs} thresholds_by_stage=${JSON.stringify(thresholdsByStage)}\n`,
   );
 
   const report = await runStaleRunReaper({
