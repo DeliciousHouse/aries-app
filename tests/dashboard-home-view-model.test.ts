@@ -66,6 +66,7 @@ function buildCampaign(overrides: Partial<RuntimeCampaignListItem> = {}): Runtim
     funnelStage: 'Conversion',
     status: 'draft',
     dashboardStatus: 'draft',
+    executionState: 'running',
     stageLabel: 'production',
     summary: 'Proof-led launch campaign.',
     dateRange: 'Dates not scheduled yet',

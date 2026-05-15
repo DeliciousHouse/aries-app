@@ -473,6 +473,7 @@ export function createDashboardHomeViewModel(args: {
           status: campaign.status,
           dashboardStatus: campaign.dashboardStatus,
           approvalRequired: campaign.approvalRequired,
+          executionState: campaign.executionState,
         })),
       }),
     },

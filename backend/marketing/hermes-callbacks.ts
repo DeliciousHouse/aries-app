@@ -304,6 +304,31 @@ function outputRunId(payload: HermesRunCallbackPayload, fallback: string | null)
     : fallback;
 }
 
+/**
+ * Returns true when a production-stage callback has image_creatives with at
+ * least one entry (i.e. Hermes built the prompts) but none carry an
+ * `artifact_url` (i.e. image_generate was never called and no file was
+ * rendered). Used by the fail-loud verification gate.
+ */
+function productionCallbackHasUnrenderedImageCreatives(
+  outputRecord: Record<string, unknown> | null,
+): boolean {
+  if (!outputRecord) return false;
+  const plan = outputRecord.weekly_content_plan;
+  if (!plan || typeof plan !== 'object' || Array.isArray(plan)) return false;
+  const creatives = (plan as Record<string, unknown>).image_creatives;
+  if (!Array.isArray(creatives) || creatives.length === 0) return false;
+  // At least one entry present — check whether any have a real artifact_url.
+  return !creatives.some(
+    (c) =>
+      c !== null &&
+      typeof c === 'object' &&
+      !Array.isArray(c) &&
+      typeof (c as Record<string, unknown>).artifact_url === 'string' &&
+      ((c as Record<string, unknown>).artifact_url as string).trim().length > 0,
+  );
+}
+
 function isHermesMediaSetupError(payload: HermesRunCallbackPayload): boolean {
   const code = payload.error?.code?.toLowerCase() ?? '';
   const message = payload.error?.message.toLowerCase() ?? '';
@@ -569,6 +594,36 @@ export async function applyHermesMarketingCallback(
     const completedSocialStage = isSocialContentRun(run)
       ? socialContentStageFromCallbackStage(payload.stage) ?? socialStageForMarketingStage(targetStage)
       : null;
+
+    // Fail loud when Hermes returned an approve_publish checkpoint from the
+    // production stage but generated zero actual images (image_creatives have
+    // prompts but no artifact_url). This means Hermes skipped the image_generate
+    // tool call. Reject as a failed run so the dashboard surfaces a clear error
+    // instead of silently completing with 0 images (see mkt_c12eb438).
+    if (
+      isSocialContentRun(run)
+      && targetStage === 'production'
+      && socialApprovalStep === 'approve_publish'
+      && productionCallbackHasUnrenderedImageCreatives(firstOutputRecord(payload))
+    ) {
+      const errorMessage =
+        'Production stage completed without rendering images: image_generate was not called. ' +
+        'Check Hermes logs and retry the production stage.';
+      recordStageFailure(doc, targetStage, {
+        code: 'hermes_image_generation_skipped',
+        message: errorMessage,
+        retryable: true,
+      });
+      markSocialContentStageFailed(
+        doc,
+        completedSocialStage ?? 'image_generation',
+        errorMessage,
+        firstOutputRecord(payload),
+      );
+      saveMarketingJobRuntime(doc.job_id, doc);
+      return;
+    }
+
     markStageCompleted(doc, targetStage, {
       runId: outputRunId(payload, payload.hermes_run_id ?? null),
       summary: outputSummary(payload),

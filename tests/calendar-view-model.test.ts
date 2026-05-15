@@ -66,6 +66,7 @@ function buildCampaign(overrides: Partial<RuntimeCampaignListItem> = {}): Runtim
     funnelStage: 'Conversion',
     status: 'scheduled',
     dashboardStatus: 'scheduled',
+    executionState: 'completed',
     stageLabel: 'publish',
     summary: 'Launch the seasonal offer.',
     dateRange: 'Apr 15 - Apr 30',
