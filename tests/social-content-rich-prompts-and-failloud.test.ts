@@ -242,6 +242,27 @@ test('buildProductionResumeContext contextBlock contains all image prompts', asy
   assert.ok(ctx.contextBlock.includes('Sugar and Leather'), 'contextBlock should include brand name');
 });
 
+test('buildProductionResumeContext contextBlock appends canonical creative_assets schema once', async () => {
+  const { buildProductionResumeContext } = await import('@/backend/social-content/workflow-request');
+  const doc = makeMinimalDoc() as Parameters<typeof buildProductionResumeContext>[0]['doc'];
+  const ctx = buildProductionResumeContext({ doc, researchOutput: FULL_RESEARCH_OUTPUT, strategyOutput: FULL_STRATEGY_OUTPUT });
+
+  const schemaHeading = 'Return your results in this EXACT JSON shape:';
+  assert.equal(ctx.contextBlock.split(schemaHeading).length - 1, 1, 'schema heading should appear exactly once');
+  assert.ok(
+    ctx.contextBlock.includes('`artifacts.creative_assets[]`'),
+    'contextBlock should mention canonical creative_assets output',
+  );
+  assert.ok(
+    ctx.contextBlock.includes('"assetId": "img_0"'),
+    'contextBlock should include worked canonical creative_assets example',
+  );
+  assert.ok(
+    ctx.contextBlock.includes('`artifacts.images[]`'),
+    'contextBlock should mention fallback artifacts.images shape',
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Part 2: fail-loud verification — production callback without rendered images
 // ---------------------------------------------------------------------------
