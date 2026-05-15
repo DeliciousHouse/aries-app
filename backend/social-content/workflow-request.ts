@@ -558,6 +558,20 @@ export function buildProductionResumeContext(input: {
     contextLines.push(`--- Image ${img.imageIndex} of ${img.totalImages} ---`);
     contextLines.push(img.prompt);
   }
+  contextLines.push('');
+  contextLines.push('Return your results in this EXACT JSON shape:');
+  contextLines.push('');
+  contextLines.push('When you finish image_generate, place the results in your final response under `artifacts.creative_assets[]` with this shape per item:');
+  contextLines.push('');
+  contextLines.push('{');
+  contextLines.push('  "assetId": "img_0",');
+  contextLines.push('  "type": "generated_image",');
+  contextLines.push('  "path": "<absolute path returned by image_generate>",');
+  contextLines.push('  "placement": "<which post>",');
+  contextLines.push('  "prompt": "<the rendered prompt>"');
+  contextLines.push('}');
+  contextLines.push('');
+  contextLines.push('The bridge will also accept `artifacts.images[]` with `{index, status:"generated", filePath, prompt, intendedUse}`, but `creative_assets` is preferred.');
 
   return {
     imagePrompts,

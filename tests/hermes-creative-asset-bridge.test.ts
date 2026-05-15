@@ -3,11 +3,43 @@ import test from 'node:test';
 
 import { bridgeHermesCreativeAssets } from '@/backend/marketing/hermes-callbacks';
 
-// ---------------------------------------------------------------------------
-// bridgeHermesCreativeAssets — unit tests
-// ---------------------------------------------------------------------------
+type CanonicalCreative = {
+  id: string;
+  title: string;
+  prompt: string;
+  status: string;
+  artifact_url: string;
+  aspect_ratio: string;
+  intendedUse?: string;
+  placement?: string;
+};
 
-test('bridge is a no-op when creative_assets is absent', () => {
+function withAppBaseUrl(fn: () => void): void {
+  const previousAppBaseUrl = process.env.APP_BASE_URL;
+  process.env.APP_BASE_URL = 'https://aries.example.com';
+
+  try {
+    fn();
+  } finally {
+    if (previousAppBaseUrl === undefined) delete process.env.APP_BASE_URL;
+    else process.env.APP_BASE_URL = previousAppBaseUrl;
+  }
+}
+
+function expectedCreative(overrides: Partial<CanonicalCreative> = {}): CanonicalCreative {
+  return {
+    id: 'img_0',
+    title: 'homepage hero',
+    prompt: 'Studio-lit leather weekender bag on warm sandstone.',
+    status: 'completed',
+    artifact_url: 'https://aries.example.com/api/internal/hermes/media/render_0.png',
+    aspect_ratio: '1:1',
+    intendedUse: 'homepage hero',
+    ...overrides,
+  };
+}
+
+test('bridge is a no-op when no recognized image schema is present', () => {
   const input = {
     stage: 'production',
     summary: 'Weekly plan ready.',
@@ -18,211 +50,100 @@ test('bridge is a no-op when creative_assets is absent', () => {
       video_scripts: [],
     },
   };
+
   const result = bridgeHermesCreativeAssets(input);
-  // Must return the same object reference — no unnecessary copies.
   assert.equal(result.weekly_content_plan, input.weekly_content_plan);
 });
 
-test('bridge is a no-op when creative_assets is an empty array', () => {
-  const input = {
-    artifacts: { creative_assets: [] },
-    weekly_content_plan: { image_creatives: [] },
-  };
-  const result = bridgeHermesCreativeAssets(input);
-  assert.deepEqual(result.weekly_content_plan, input.weekly_content_plan);
-});
-
-test('bridge is a no-op when artifacts key is missing', () => {
-  const input: Record<string, unknown> = { stage: 'production' };
-  const result = bridgeHermesCreativeAssets(input);
-  assert.equal('weekly_content_plan' in result, false);
-});
-
-test('bridge maps generated_image assets into image_creatives with internal URLs', () => {
-  const previousAppBaseUrl = process.env.APP_BASE_URL;
-  process.env.APP_BASE_URL = 'https://aries.example.com';
-
-  try {
+test('bridge canonicalizes artifacts.creative_assets generated_image records', () => {
+  withAppBaseUrl(() => {
     const input = {
-      stage: 'production',
       artifacts: {
+        aspectRatio: '1:1',
         creative_assets: [
           {
-            assetId: 'sl_asset_01',
+            assetId: '0',
             type: 'generated_image',
             status: 'created',
-            path: '/home/node/.hermes/cache/images/openai_codex_gpt-image-2-medium_20260513_194035_8af24877.png',
-            placement: 'post_1',
-          },
-          {
-            assetId: 'sl_asset_02',
-            type: 'generated_image',
-            status: 'created',
-            path: '/home/node/.hermes/cache/images/openai_codex_gpt-image-2-medium_20260513_194127_d62de45d.png',
-            placement: 'post_2',
+            path: '/home/node/.hermes/cache/images/render_0.png',
+            placement: 'homepage hero',
+            prompt: 'Studio-lit leather weekender bag on warm sandstone.',
           },
         ],
       },
     };
 
     const result = bridgeHermesCreativeAssets(input);
-    const plan = result.weekly_content_plan as {
-      image_creatives: Array<{ id: string; artifact_url: string; status: string }>;
-    };
+    const plan = result.weekly_content_plan as { image_creatives: CanonicalCreative[] };
 
-    assert.ok(plan, 'weekly_content_plan should be present');
-    assert.equal(plan.image_creatives.length, 2);
-
-    assert.equal(plan.image_creatives[0].id, 'sl_asset_01');
-    assert.equal(
-      plan.image_creatives[0].artifact_url,
-      'https://aries.example.com/api/internal/hermes/media/openai_codex_gpt-image-2-medium_20260513_194035_8af24877.png',
-    );
-    assert.equal(plan.image_creatives[0].status, 'created');
-
-    assert.equal(plan.image_creatives[1].id, 'sl_asset_02');
-    assert.equal(
-      plan.image_creatives[1].artifact_url,
-      'https://aries.example.com/api/internal/hermes/media/openai_codex_gpt-image-2-medium_20260513_194127_d62de45d.png',
-    );
-  } finally {
-    if (previousAppBaseUrl === undefined) delete process.env.APP_BASE_URL;
-    else process.env.APP_BASE_URL = previousAppBaseUrl;
-  }
+    assert.deepEqual(plan.image_creatives, [
+      expectedCreative({ placement: 'homepage hero' }),
+    ]);
+  });
 });
 
-test('bridge skips non-generated_image asset types (e.g. design_brief)', () => {
-  const previousAppBaseUrl = process.env.APP_BASE_URL;
-  process.env.APP_BASE_URL = 'https://aries.example.com';
-
-  try {
+test('bridge canonicalizes artifacts.images records', () => {
+  withAppBaseUrl(() => {
     const input = {
       artifacts: {
-        creative_assets: [
+        aspectRatio: '1:1',
+        images: [
           {
-            assetId: 'sl_asset_01',
-            type: 'generated_image',
-            status: 'created',
-            path: '/home/node/.hermes/cache/images/image_01.png',
-            placement: 'post_1',
-          },
-          {
-            assetId: 'sl_asset_03',
-            type: 'design_brief',
-            status: 'created',
-            path: '/home/node/.hermes/cache/images/brief_03.json',
-            placement: 'post_3',
+            index: 0,
+            status: 'generated',
+            filePath: '/home/node/.hermes/cache/images/render_0.png',
+            prompt: 'Studio-lit leather weekender bag on warm sandstone.',
+            intendedUse: 'homepage hero',
           },
         ],
       },
     };
 
     const result = bridgeHermesCreativeAssets(input);
-    const plan = result.weekly_content_plan as { image_creatives: unknown[] };
-    assert.equal(plan.image_creatives.length, 1);
-  } finally {
-    if (previousAppBaseUrl === undefined) delete process.env.APP_BASE_URL;
-    else process.env.APP_BASE_URL = previousAppBaseUrl;
-  }
+    const plan = result.weekly_content_plan as { image_creatives: CanonicalCreative[] };
+
+    assert.deepEqual(plan.image_creatives, [expectedCreative()]);
+  });
 });
 
-test('bridge does not overwrite existing image_creatives', () => {
-  const previousAppBaseUrl = process.env.APP_BASE_URL;
-  process.env.APP_BASE_URL = 'https://aries.example.com';
-
-  try {
-    const existingCreative = {
-      id: 'already-exists',
-      artifact_url: 'https://aries.example.com/api/internal/hermes/media/already.png',
-      status: 'generated',
-    };
+test('bridge canonicalizes top-level image_creatives when a renderable path is present', () => {
+  withAppBaseUrl(() => {
     const input = {
+      artifacts: {
+        aspectRatio: '1:1',
+      },
       weekly_content_plan: {
-        image_creatives: [existingCreative],
-      },
-      artifacts: {
-        creative_assets: [
+        image_creatives: [
           {
-            assetId: 'sl_asset_new',
-            type: 'generated_image',
-            status: 'created',
-            path: '/home/node/.hermes/cache/images/new_image.png',
-            placement: 'post_1',
+            prompt: 'Studio-lit leather weekender bag on warm sandstone.',
+            artifact_url: 'https://cdn.example.com/cache/render_0.png?token=abc',
+            intendedUse: 'homepage hero',
+            status: 'generated',
           },
         ],
       },
     };
 
     const result = bridgeHermesCreativeAssets(input);
-    const plan = result.weekly_content_plan as { image_creatives: unknown[] };
-    // Must preserve the existing creative, not replace with the incoming one.
-    assert.equal(plan.image_creatives.length, 1);
-    assert.deepEqual(plan.image_creatives[0], existingCreative);
-  } finally {
-    if (previousAppBaseUrl === undefined) delete process.env.APP_BASE_URL;
-    else process.env.APP_BASE_URL = previousAppBaseUrl;
-  }
+    const plan = result.weekly_content_plan as { image_creatives: CanonicalCreative[] };
+
+    assert.deepEqual(plan.image_creatives, [expectedCreative()]);
+  });
 });
 
-test('bridge handles missing path gracefully — artifact_url becomes empty string', () => {
-  const previousAppBaseUrl = process.env.APP_BASE_URL;
-  process.env.APP_BASE_URL = 'https://aries.example.com';
+test('bridge ignores prompt-only top-level image_creatives without a renderable path', () => {
+  const input = {
+    weekly_content_plan: {
+      image_creatives: [
+        {
+          prompt: 'Prompt only, no image rendered yet.',
+          intendedUse: 'homepage hero',
+          status: 'created',
+        },
+      ],
+    },
+  };
 
-  try {
-    const input = {
-      artifacts: {
-        creative_assets: [
-          {
-            assetId: 'sl_asset_nopath',
-            type: 'generated_image',
-            status: 'pending',
-          },
-        ],
-      },
-    };
-
-    const result = bridgeHermesCreativeAssets(input);
-    const plan = result.weekly_content_plan as {
-      image_creatives: Array<{ artifact_url: string }>;
-    };
-    assert.equal(plan.image_creatives.length, 1);
-    assert.equal(plan.image_creatives[0].artifact_url, '');
-  } finally {
-    if (previousAppBaseUrl === undefined) delete process.env.APP_BASE_URL;
-    else process.env.APP_BASE_URL = previousAppBaseUrl;
-  }
-});
-
-test('URL rewrite uses only basename — no host path segments leak', () => {
-  const previousAppBaseUrl = process.env.APP_BASE_URL;
-  process.env.APP_BASE_URL = 'https://aries.example.com';
-
-  try {
-    const input = {
-      artifacts: {
-        creative_assets: [
-          {
-            assetId: 'sl_asset_01',
-            type: 'generated_image',
-            status: 'created',
-            path: '/home/node/.hermes/cache/images/img.png',
-          },
-        ],
-      },
-    };
-
-    const result = bridgeHermesCreativeAssets(input);
-    const plan = result.weekly_content_plan as {
-      image_creatives: Array<{ artifact_url: string }>;
-    };
-    const url = plan.image_creatives[0].artifact_url;
-    // Must not include any host-side path segment before the basename.
-    assert.equal(url.includes('.hermes'), false);
-    assert.equal(url.includes('/home'), false);
-    assert.equal(url.includes('/cache'), false);
-    assert.equal(url, 'https://aries.example.com/api/internal/hermes/media/img.png');
-  } finally {
-    if (previousAppBaseUrl === undefined) delete process.env.APP_BASE_URL;
-    else process.env.APP_BASE_URL = previousAppBaseUrl;
-  }
+  const result = bridgeHermesCreativeAssets(input);
+  assert.equal(result, input);
 });

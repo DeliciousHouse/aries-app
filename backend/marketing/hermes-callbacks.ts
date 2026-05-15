@@ -49,8 +49,174 @@ type HermesCreativeAsset = {
   status?: string;
   path?: string;
   placement?: string;
+  prompt?: string;
   [key: string]: unknown;
 };
+
+type HermesGeneratedImage = {
+  index?: number;
+  status?: string;
+  filePath?: string;
+  path?: string;
+  prompt?: string;
+  intendedUse?: string;
+  [key: string]: unknown;
+};
+
+type HermesImageCreativeLike = {
+  id?: string;
+  title?: string;
+  prompt?: string;
+  status?: string;
+  artifact_url?: string;
+  path?: string;
+  filePath?: string;
+  intendedUse?: string;
+  placement?: string;
+  [key: string]: unknown;
+};
+
+// Image extensions recognized as renderable file references.
+const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp', 'gif'] as const;
+
+/**
+ * Extracts the image basename from a string value (file path, URL, etc.).
+ *
+ * Uses explicit string operations rather than a runtime regex over user-
+ * supplied input to avoid polynomial backtracking (ReDoS). Input is capped
+ * at 1024 characters as defense-in-depth before any processing.
+ */
+function imageBasenameFromValue(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  // Cap input length: defense-in-depth against pathological inputs.
+  const trimmed = value.trim().slice(0, 1024);
+  if (!trimmed) return '';
+
+  // Strip a query string or fragment so we operate on the clean path segment.
+  const qIdx = trimmed.indexOf('?');
+  const hIdx = trimmed.indexOf('#');
+  let pathPart = trimmed;
+  if (qIdx !== -1 || hIdx !== -1) {
+    const cutAt = qIdx === -1 ? hIdx : hIdx === -1 ? qIdx : Math.min(qIdx, hIdx);
+    pathPart = trimmed.slice(0, cutAt);
+  }
+
+  // Extract the last path segment (basename).
+  const lastSlash = Math.max(pathPart.lastIndexOf('/'), pathPart.lastIndexOf('\\'));
+  const basename = lastSlash === -1 ? pathPart : pathPart.slice(lastSlash + 1);
+  if (!basename) return '';
+
+  // Verify it ends with a recognised image extension (case-insensitive).
+  const dot = basename.lastIndexOf('.');
+  if (dot === -1) return '';
+  const ext = basename.slice(dot + 1).toLowerCase();
+  if (!(IMAGE_EXTENSIONS as readonly string[]).includes(ext)) return '';
+
+  return basename;
+}
+
+function renderedImageBasenameFromRecord(record: Record<string, unknown>): string {
+  for (const value of Object.values(record)) {
+    const basename = imageBasenameFromValue(value);
+    if (basename) return basename;
+  }
+  return '';
+}
+
+function mediaArtifactUrl(appBaseUrl: string, basename: string): string {
+  return basename ? `${appBaseUrl}/api/internal/hermes/media/${basename}` : '';
+}
+
+function normalizeRenderedStatus(_status: unknown): string {
+  return 'completed';
+}
+
+function canonicalImageCreativeFromCreativeAsset(
+  asset: HermesCreativeAsset,
+  index: number,
+  appBaseUrl: string,
+  aspectRatio: string,
+): Record<string, unknown> | null {
+  if (asset.type !== 'generated_image') return null;
+
+  const basename = renderedImageBasenameFromRecord(asset);
+  if (!basename) return null;
+
+  const assetId = typeof asset.assetId === 'string' && asset.assetId.trim().length > 0
+    ? asset.assetId.trim()
+    : String(index);
+  const prompt = typeof asset.prompt === 'string' ? asset.prompt : '';
+  const placement = typeof asset.placement === 'string' ? asset.placement : '';
+
+  return {
+    id: `img_${assetId}`,
+    title: placement,
+    ...(placement ? { placement, intendedUse: placement } : {}),
+    prompt,
+    status: normalizeRenderedStatus(asset.status),
+    artifact_url: mediaArtifactUrl(appBaseUrl, basename),
+    aspect_ratio: aspectRatio,
+  };
+}
+
+function canonicalImageCreativeFromGeneratedImage(
+  image: HermesGeneratedImage,
+  index: number,
+  appBaseUrl: string,
+  aspectRatio: string,
+): Record<string, unknown> | null {
+  const basename = renderedImageBasenameFromRecord(image);
+  if (!basename) return null;
+
+  const imageIndex = typeof image.index === 'number' ? image.index : index;
+  const prompt = typeof image.prompt === 'string' ? image.prompt : '';
+  const intendedUse = typeof image.intendedUse === 'string' ? image.intendedUse : '';
+
+  return {
+    id: `img_${String(imageIndex)}`,
+    title: intendedUse,
+    ...(intendedUse ? { intendedUse } : {}),
+    prompt,
+    status: normalizeRenderedStatus(image.status),
+    artifact_url: mediaArtifactUrl(appBaseUrl, basename),
+    aspect_ratio: aspectRatio,
+  };
+}
+
+function canonicalImageCreativeFromExisting(
+  creative: HermesImageCreativeLike,
+  index: number,
+  appBaseUrl: string,
+  aspectRatio: string,
+): Record<string, unknown> | null {
+  const basename = renderedImageBasenameFromRecord(creative);
+  if (!basename) return null;
+
+  const idSource = typeof creative.id === 'string' && creative.id.trim().length > 0
+    ? creative.id.trim().replace(/^img_/, '')
+    : String(index);
+  const prompt = typeof creative.prompt === 'string' ? creative.prompt : '';
+  const intendedUse = typeof creative.intendedUse === 'string'
+    ? creative.intendedUse
+    : typeof creative.title === 'string'
+      ? creative.title
+      : typeof creative.placement === 'string'
+        ? creative.placement
+        : '';
+
+  return {
+    id: `img_${idSource}`,
+    title: intendedUse,
+    ...(intendedUse ? { intendedUse } : {}),
+    ...(typeof creative.placement === 'string' && creative.placement.trim().length > 0
+      ? { placement: creative.placement }
+      : {}),
+    prompt,
+    status: normalizeRenderedStatus(creative.status),
+    artifact_url: mediaArtifactUrl(appBaseUrl, basename),
+    aspect_ratio: aspectRatio,
+  };
+}
 
 /**
  * Bridges Hermes `creative_assets` (at `result[0].artifacts.creative_assets`)
@@ -66,53 +232,16 @@ type HermesCreativeAsset = {
 export function bridgeHermesCreativeAssets(
   outputRecord: Record<string, unknown>,
 ): Record<string, unknown> {
-  const artifacts = outputRecord.artifacts;
-  if (!artifacts || typeof artifacts !== 'object' || Array.isArray(artifacts)) {
-    return outputRecord;
-  }
-
-  const creativeAssets = (artifacts as Record<string, unknown>).creative_assets;
-  if (!Array.isArray(creativeAssets) || creativeAssets.length === 0) {
-    return outputRecord;
-  }
-
   const appBaseUrl = resolveAppBaseUrl();
-
-  const imageCreatives = creativeAssets
-    .filter(
-      (asset): asset is HermesCreativeAsset =>
-        asset !== null &&
-        typeof asset === 'object' &&
-        !Array.isArray(asset) &&
-        (asset as HermesCreativeAsset).type === 'generated_image',
-    )
-    .map((asset) => {
-      // Convert the absolute host path to an internal URL using basename only.
-      // The media route resolves it against HERMES_IMAGE_CACHE_MOUNT.
-      let artifactUrl = '';
-      if (typeof asset.path === 'string' && asset.path.trim().length > 0) {
-        const basename = asset.path.split('/').filter(Boolean).pop() ?? '';
-        if (basename) {
-          artifactUrl = `${appBaseUrl}/api/internal/hermes/media/${basename}`;
-        }
-      }
-
-      return {
-        id: typeof asset.assetId === 'string' ? asset.assetId : '',
-        title: typeof asset.placement === 'string' ? asset.placement : '',
-        aspect_ratio: '',
-        prompt: '',
-        status: typeof asset.status === 'string' ? asset.status : 'created',
-        artifact_url: artifactUrl,
-      };
-    });
-
-  if (imageCreatives.length === 0) {
-    return outputRecord;
-  }
+  const artifacts = outputRecord.artifacts;
+  const artifactRecord = artifacts && typeof artifacts === 'object' && !Array.isArray(artifacts)
+    ? artifacts as Record<string, unknown>
+    : null;
+  const aspectRatio = typeof artifactRecord?.aspectRatio === 'string' ? artifactRecord.aspectRatio : '';
 
   // Merge into weekly_content_plan, creating the key if absent. Do not
-  // overwrite existing image_creatives that the workflow itself emitted.
+  // overwrite existing image_creatives that the workflow itself emitted unless
+  // they need canonicalization into the projection shape.
   const existingPlan =
     outputRecord.weekly_content_plan !== undefined &&
     outputRecord.weekly_content_plan !== null &&
@@ -121,11 +250,70 @@ export function bridgeHermesCreativeAssets(
       ? (outputRecord.weekly_content_plan as Record<string, unknown>)
       : {};
 
-  const existingCreatives = existingPlan.image_creatives;
-  const alreadyHasCreatives =
-    Array.isArray(existingCreatives) && existingCreatives.length > 0;
+  const existingCreatives = Array.isArray(existingPlan.image_creatives)
+    ? existingPlan.image_creatives
+    : null;
 
-  if (alreadyHasCreatives) {
+  const canonicalExistingCreatives = existingCreatives
+    ?.map((creative, index) => (
+      creative !== null && typeof creative === 'object' && !Array.isArray(creative)
+        ? canonicalImageCreativeFromExisting(
+          creative as HermesImageCreativeLike,
+          index,
+          appBaseUrl,
+          aspectRatio,
+        )
+        : null
+    ))
+    .filter((creative): creative is Record<string, unknown> => creative !== null) ?? [];
+
+  if (canonicalExistingCreatives.length > 0) {
+    return {
+      ...outputRecord,
+      weekly_content_plan: {
+        ...existingPlan,
+        image_creatives: canonicalExistingCreatives,
+      },
+    };
+  }
+
+  const creativeAssets = Array.isArray(artifactRecord?.creative_assets)
+    ? artifactRecord.creative_assets
+    : [];
+  const imageCreativesFromCreativeAssets = creativeAssets
+    .map((asset, index) => (
+      asset !== null && typeof asset === 'object' && !Array.isArray(asset)
+        ? canonicalImageCreativeFromCreativeAsset(
+          asset as HermesCreativeAsset,
+          index,
+          appBaseUrl,
+          aspectRatio,
+        )
+        : null
+    ))
+    .filter((creative): creative is Record<string, unknown> => creative !== null);
+
+  const images = Array.isArray(artifactRecord?.images)
+    ? artifactRecord.images
+    : [];
+  const imageCreativesFromImages = images
+    .map((image, index) => (
+      image !== null && typeof image === 'object' && !Array.isArray(image)
+        ? canonicalImageCreativeFromGeneratedImage(
+          image as HermesGeneratedImage,
+          index,
+          appBaseUrl,
+          aspectRatio,
+        )
+        : null
+    ))
+    .filter((creative): creative is Record<string, unknown> => creative !== null);
+
+  const imageCreatives = imageCreativesFromCreativeAssets.length > 0
+    ? imageCreativesFromCreativeAssets
+    : imageCreativesFromImages;
+
+  if (imageCreatives.length === 0) {
     return outputRecord;
   }
 
@@ -358,6 +546,93 @@ function ingestSocialContentStageMedia(
       skipped: summarizeVideoIngestSkips(result.skipped),
     });
   }
+}
+
+/**
+ * Counts recognized images across ALL known Hermes output shapes:
+ *   1. `artifacts.creative_assets[]` with type="generated_image" and a path/filePath
+ *   2. `artifacts.images[]` with a filePath or path value
+ *   3. `weekly_content_plan.image_creatives[]` with a non-empty artifact_url
+ *
+ * A "recognized image" means there is a renderable file reference — a bare
+ * prompt entry without a path is NOT recognized. Returns the total count.
+ */
+function countRecognizedImagesInOutputRecord(
+  outputRecord: Record<string, unknown> | null,
+): number {
+  if (!outputRecord) return 0;
+
+  // Shape 1: artifacts.creative_assets[]
+  const artifacts = outputRecord.artifacts;
+  const artifactRecord =
+    artifacts && typeof artifacts === 'object' && !Array.isArray(artifacts)
+      ? (artifacts as Record<string, unknown>)
+      : null;
+
+  if (artifactRecord) {
+    const creativeAssets = Array.isArray(artifactRecord.creative_assets)
+      ? artifactRecord.creative_assets
+      : [];
+    const fromCreativeAssets = creativeAssets.filter((asset) => {
+      if (!asset || typeof asset !== 'object' || Array.isArray(asset)) return false;
+      const a = asset as Record<string, unknown>;
+      if (a.type !== 'generated_image') return false;
+      return !!imageBasenameFromValue(a.path) || !!imageBasenameFromValue(a.filePath);
+    }).length;
+    if (fromCreativeAssets > 0) return fromCreativeAssets;
+
+    // Shape 2: artifacts.images[]
+    const images = Array.isArray(artifactRecord.images) ? artifactRecord.images : [];
+    const fromImages = images.filter((img) => {
+      if (!img || typeof img !== 'object' || Array.isArray(img)) return false;
+      const i = img as Record<string, unknown>;
+      return !!imageBasenameFromValue(i.filePath) || !!imageBasenameFromValue(i.path);
+    }).length;
+    if (fromImages > 0) return fromImages;
+  }
+
+  // Shape 3: weekly_content_plan.image_creatives[] with artifact_url
+  const plan = outputRecord.weekly_content_plan;
+  if (plan && typeof plan === 'object' && !Array.isArray(plan)) {
+    const creatives = (plan as Record<string, unknown>).image_creatives;
+    if (Array.isArray(creatives)) {
+      return creatives.filter((c) => {
+        if (!c || typeof c !== 'object' || Array.isArray(c)) return false;
+        const cr = c as Record<string, unknown>;
+        return (
+          typeof cr.artifact_url === 'string' &&
+          (cr.artifact_url as string).trim().length > 0
+        );
+      }).length;
+    }
+  }
+
+  return 0;
+}
+
+/**
+ * Returns true when the production-stage callback declared N image requests
+ * (imageCreativeCount > 0 from the job's original request) but zero recognized
+ * images appear across ALL known output shapes (creative_assets, images,
+ * image_creatives-with-artifact_url). This closes the blind spot where Hermes
+ * silently completes with no images but the prompt-only check in
+ * `productionCallbackHasUnrenderedImageCreatives` doesn't fire (e.g. when
+ * Hermes omits image_creatives entirely).
+ *
+ * Failure code: `hermes_image_generation_unrecognized`
+ */
+function productionCallbackImageGenerationUnrecognized(
+  doc: MarketingJobRuntimeDocument,
+  outputRecord: Record<string, unknown> | null,
+): boolean {
+  // Determine requested image count from the original job request.
+  const imageCreativeCount =
+    typeof doc.inputs?.request?.imageCreativeCount === 'number'
+      ? doc.inputs.request.imageCreativeCount
+      : 0;
+  if (imageCreativeCount <= 0) return false;
+
+  return countRecognizedImagesInOutputRecord(outputRecord) === 0;
 }
 
 function isHermesMediaSetupError(payload: HermesRunCallbackPayload): boolean {
@@ -643,6 +918,36 @@ export async function applyHermesMarketingCallback(
         'Check Hermes logs and retry the production stage.';
       recordStageFailure(doc, targetStage, {
         code: 'hermes_image_generation_skipped',
+        message: errorMessage,
+        retryable: true,
+      });
+      markSocialContentStageFailed(
+        doc,
+        completedSocialStage ?? 'image_generation',
+        errorMessage,
+        firstOutputRecord(payload),
+      );
+      saveMarketingJobRuntime(doc.job_id, doc);
+      return;
+    }
+
+    // Broader fail-loud gate: N images were requested but zero recognized images
+    // appear in ANY known output shape (creative_assets, images,
+    // image_creatives-with-artifact_url). This closes the blind spot where Hermes
+    // silently completes with no image data at all — the prompt-only check above
+    // only fires when image_creatives are present but without artifact_url.
+    if (
+      isSocialContentRun(run)
+      && targetStage === 'production'
+      && socialApprovalStep === 'approve_publish'
+      && productionCallbackImageGenerationUnrecognized(doc, firstOutputRecord(payload))
+    ) {
+      const errorMessage =
+        'Production stage completed with no recognized images in any known output shape ' +
+        '(creative_assets, images, image_creatives). ' +
+        'Hermes may have returned an unexpected schema. Check Hermes logs and retry.';
+      recordStageFailure(doc, targetStage, {
+        code: 'hermes_image_generation_unrecognized',
         message: errorMessage,
         retryable: true,
       });
