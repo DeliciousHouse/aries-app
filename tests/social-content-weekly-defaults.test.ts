@@ -884,6 +884,162 @@ test('social content dashboard projection keeps rich weekly output when a later 
   assert.equal(JSON.stringify(dashboard).includes('tenant_dashboard_partial_stage'), false);
 });
 
+test('social content dashboard projection includes playable rendered videos from safe job asset refs', () => {
+  const jobId = 'mkt_dashboard_video_projection';
+  const doc = {
+    tenant_id: 'tenant_dashboard_video_projection',
+    job_id: jobId,
+    created_at: '2026-05-06T00:00:00.000Z',
+    updated_at: '2026-05-06T00:00:00.000Z',
+    inputs: {
+      brand_url: 'https://brand.example',
+      request: {
+        jobType: 'weekly_social_content',
+        businessName: 'Bright Studio',
+        primaryGoal: 'Book discovery calls',
+      },
+    },
+    brand_kit: {
+      brand_name: 'Bright Studio',
+    },
+    social_content_runtime: {
+      stageOrder: ['planning', 'video_script', 'video_render', 'publish_review'],
+      stages: {
+        planning: {
+          output: {
+            weekly_content_plan: {
+              window_days: 7,
+              posts: [
+                {
+                  day: 'Day 3',
+                  platforms: ['tiktok'],
+                  post_type: 'video',
+                  title: 'Launch cut teaser',
+                  caption: 'Show the tactile reveal and CTA.',
+                  creative_brief_id: 'image-launch-cut',
+                  status: 'approved',
+                },
+              ],
+              image_creatives: [
+                {
+                  id: 'image-launch-cut',
+                  title: 'Launch cut still',
+                  aspect_ratio: '4:5',
+                  prompt: 'Editorial hero still of the product reveal.',
+                  status: 'generated',
+                  artifact_url: '',
+                },
+              ],
+              video_scripts: [],
+            },
+          },
+          artifacts: [],
+        },
+        video_script: {
+          output: {
+            weekly_content_plan: {
+              video_scripts: [
+                {
+                  id: 'video-script-launch-cut',
+                  title: 'Launch cut script',
+                  duration_seconds: 21,
+                  script_markdown: 'Open on tactile detail, reveal the product, close with CTA.',
+                  status: 'approved',
+                },
+              ],
+            },
+          },
+          artifacts: [],
+        },
+        video_render: {
+          output: {
+            artifacts: [
+              {
+                id: 'video-tiktok-launch-cut',
+                title: 'TikTok launch cut',
+                status: 'ready',
+                video_url: `/api/marketing/jobs/${jobId}/assets/video-tiktok-launch-cut`,
+                poster_url: `/api/marketing/jobs/${jobId}/assets/video-tiktok-launch-cut-poster`,
+                platform_slug: 'tiktok',
+                family_id: 'launch-cut',
+                duration_seconds: 21,
+                aspect_ratio: '9:16',
+              },
+              {
+                id: 'video-meta-unsafe',
+                title: 'Meta unsafe video',
+                status: 'ready',
+                video_url: 'https://cdn.example.com/render.mp4?token=secret',
+                poster_url: `/api/marketing/jobs/${jobId}/assets/video-meta-unsafe-poster`,
+                platform_slug: 'meta',
+                family_id: 'unsafe',
+                duration_seconds: 30,
+                aspect_ratio: '1:1',
+              },
+            ],
+          },
+          artifacts: [
+            {
+              id: 'video-tiktok-launch-cut',
+              type: 'video',
+              title: 'TikTok launch cut',
+              status: 'ready',
+              summary: 'TikTok launch cut render ready.',
+              url: `/api/marketing/jobs/${jobId}/assets/video-tiktok-launch-cut`,
+              metadata: {
+                poster_url: `/api/marketing/jobs/${jobId}/assets/video-tiktok-launch-cut-poster`,
+                platform_slug: 'tiktok',
+                family_id: 'launch-cut',
+                duration_seconds: 21,
+                aspect_ratio: '9:16',
+              },
+            },
+          ],
+        },
+        publish_review: {
+          output: {
+            weekly_content_plan: {
+              window_days: 7,
+            },
+          },
+          artifacts: [],
+        },
+      },
+      publishingRequested: true,
+    },
+  } as unknown as MarketingJobRuntimeDocument;
+
+  const dashboard = buildSocialContentDashboardProjection(doc, {
+    campaign: null,
+    posts: [],
+    assets: [],
+    publishItems: [],
+    calendarEvents: [],
+    statuses: {
+      countsByStatus: {
+        draft: 0,
+        in_review: 0,
+        ready: 0,
+        ready_to_publish: 0,
+        published_to_meta_paused: 0,
+        scheduled: 0,
+        live: 0,
+      },
+    },
+  });
+
+  const videoAssets = dashboard.assets.filter((asset) => asset.type === 'video_ad');
+  assert.equal(videoAssets.length, 1);
+  assert.equal(videoAssets[0].previewUrl, `/api/marketing/jobs/${jobId}/assets/video-tiktok-launch-cut`);
+  assert.equal(videoAssets[0].thumbnailUrl, `/api/marketing/jobs/${jobId}/assets/video-tiktok-launch-cut-poster`);
+  assert.equal(videoAssets[0].contentType, 'video/mp4');
+  assert.equal(videoAssets[0].platform, 'tiktok');
+  assert.equal(videoAssets[0].status, 'ready');
+  assert.equal(dashboard.campaign?.counts.videoAds, 1);
+  assert.equal(JSON.stringify(dashboard).includes('token=secret'), false);
+  assert.equal(JSON.stringify(dashboard).includes('tenant_dashboard_video_projection'), false);
+});
+
 test('parseSocialContentWorkflowOutput accepts camelCase weeklyPlan key from Hermes', () => {
   const hermesOutput = {
     summary: 'Weekly plan ready.',
