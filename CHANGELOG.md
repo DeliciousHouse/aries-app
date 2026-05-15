@@ -2,19 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.1.3.10] - 2026-05-15
+## [0.1.3.11] - 2026-05-15
 
-### Fixed
-
-- **Dashboard now surfaces Hermes-generated images regardless of the JSON shape Hermes returns.** Hermes is a pure LLM agent with no enforced output contract — v0.1.3.9 shipped three named-shape harvesters (`creative_assets`, `images`, `image_creatives`) but live job `mkt_10fd7f1b` proved a fourth shape exists. Both real PNGs landed on disk (2.18 MB + 2.05 MB in `~/.hermes/cache/images/`) but the dashboard showed "Generated assets 0 / Image ads 0 / Posts 0" because the bridge accepted the callback without harvesting any images.
-
-  The fix adds a schema-agnostic fallback in `bridgeHermesCreativeAssets` (`backend/marketing/hermes-callbacks.ts`): after the three named-shape harvesters run, if they collectively find zero images, a recursive payload walker (`harvestPngPathsRecursively`) inspects every string value in the output record. Any string that resolves to a Hermes cache image path (matches `cache/images` or `hermes-media` path segment, OR a Hermes codex filename prefix like `openai_codex_*` / `gpt-image-*`) is harvested into `image_creatives`. Sibling fields (`prompt`, `intendedUse`, `placement`) are captured as best-effort context. Duplicate paths across different schema locations collapse to one creative entry.
-
-  `countRecognizedImagesInOutputRecord` also gains the same fallback walker as Shape 4, so `productionCallbackImageGenerationUnrecognized` (the fail-loud gate) correctly sees fallback-harvested images and does not reject a callback that would have been successfully bridged.
-
-  A `[hermes-image-bridge] schema_variance_recovered` warning log fires whenever the fallback path activates, providing a monitoring signal for how often Hermes drifts from known shapes without treating it as a failure.
-
-  Path matching is scoped to the Hermes cache directory structure and filename prefixes to prevent false-positive harvesting of competitor screenshots or external CDN URLs. Implemented with explicit `indexOf`/`startsWith` operations (no runtime regex over user-supplied input) to remain ReDoS-safe. Depth-capped at 12 levels. Covered by 6 new tests in `tests/hermes-image-path-fallback.test.ts`.
+### Reverted
+- **Revert v0.1.3.10 PR #341 (schema-agnostic PNG path fallback)** — the fallback worked on its own but live E2E (mkt_2d92adff) showed Stage 1 → 2 UI transition stopped surfacing the "Continue to brand analysis" approval card after this PR landed. The previous run on v0.1.3.9 (mkt_10fd7f1b) successfully walked through all four stages via the UI buttons. Reverting restores Stage 1 → 2 UI behavior. The original image-projection gap (PNGs render to disk but `Generated assets 0` in workspace) returns and needs a separate forward-fix that doesn't disturb the research-callback processing path.
 
 ## [0.1.3.9] - 2026-05-15
 
