@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.12] - 2026-05-16
+
+### Fixed
+
+- **Stage-gated PNG path fallback for production callbacks (no Stage 1→2 regression).** The schema-agnostic PNG path harvester (`harvestPngPathsRecursively`) and supporting helpers (`isHermesCacheImagePath`, `buildCreativesFromPngFallback`) are re-introduced from PR #341, but now gated strictly to `stage === 'production'` via a new `stage` parameter on `bridgeHermesCreativeAssets`. Research, strategy, and publish callbacks bypass the fallback walker entirely. This eliminates the regression vector from PR #341: a research callback containing competitor screenshot URLs or other image-like strings in `cache/images`-looking paths could match `isHermesCacheImagePath` and inject phantom `image_creatives`, which disrupted the `markStageAwaitingApproval` data that drives the Stage 1→2 "Continue to brand analysis" UI card. `countRecognizedImagesInOutputRecord` also gains Shape 4 (the same walker) for the fail-loud `hermes_image_generation_unrecognized` gate — safe because that function is only called within the production-stage callback path. Live evidence: job `mkt_de108fd2-5b31-4329-9136-0230b822ae17` (v0.1.3.11) rendered two PNGs to `/home/node/.hermes/cache/images/` but the dashboard showed "Generated assets 0 / Image ads 0 / Posts 0" because the un-gated bridge on v0.1.3.11 lacked the fallback; this release restores it with the production-only gate. 11 new tests in `tests/hermes-image-projection-stage-gated.test.ts` cover all four production shapes, the regression path (research with competitor PNG URLs), strategy passthrough, publish passthrough, deduplication, and the fail-loud no-phantom assertion.
+
 ## [0.1.3.11] - 2026-05-15
 
 ### Reverted
