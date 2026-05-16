@@ -12,6 +12,7 @@ import type {
 } from '@/backend/marketing/dashboard-content';
 import type { MarketingJobRuntimeDocument } from '@/backend/marketing/runtime-state';
 import { redactTokenLikeString } from '@/backend/social-content/payload';
+import { sanitizeServedAssetRef } from '@/validators/creative-memory';
 import {
   parseSocialContentWorkflowOutput,
   readSocialContentRuntimeState,
@@ -41,6 +42,12 @@ function recordValue(value: unknown): UnknownRecord | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as UnknownRecord) : null;
 }
 
+function recordArray(value: unknown): UnknownRecord[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is UnknownRecord => !!entry && typeof entry === 'object' && !Array.isArray(entry))
+    : [];
+}
+
 function stringValue(value: unknown, fallback = ''): string {
   if (typeof value === 'string') {
     const redacted = redactTokenLikeString(value).replace(
@@ -49,6 +56,12 @@ function stringValue(value: unknown, fallback = ''): string {
     );
     return redacted.trim() || fallback;
   }
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return fallback;
+}
+
+function rawStringValue(value: unknown, fallback = ''): string {
+  if (typeof value === 'string') return value.trim() || fallback;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   return fallback;
 }
@@ -109,6 +122,41 @@ function safeImagePreviewUrl(doc: MarketingJobRuntimeDocument, value: unknown): 
       return null;
     }
   }
+  const redacted = stringValue(value);
+  if (!redacted || containsTenantId(doc, redacted)) return null;
+  try {
+    const url = new URL(redacted);
+    if (isPublicHttpUrl(url)) return url.toString();
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function marketingJobAssetBasePath(doc: MarketingJobRuntimeDocument): string {
+  return `/api/marketing/jobs/${encodeURIComponent(doc.job_id)}/assets/`;
+}
+
+function safeMarketingJobAssetUrl(doc: MarketingJobRuntimeDocument, value: unknown): string | null {
+  const ref = sanitizeServedAssetRef(value);
+  if (!ref) return null;
+  return ref.startsWith(marketingJobAssetBasePath(doc)) ? ref : null;
+}
+
+function safeVideoPreviewUrl(doc: MarketingJobRuntimeDocument, value: unknown): string | null {
+  const servedAssetUrl = safeMarketingJobAssetUrl(doc, value);
+  if (servedAssetUrl) return servedAssetUrl;
+
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (raw) {
+    try {
+      const rawUrl = new URL(raw);
+      if (hasSensitiveQueryParams(rawUrl)) return null;
+    } catch {
+      return null;
+    }
+  }
+
   const redacted = stringValue(value);
   if (!redacted || containsTenantId(doc, redacted)) return null;
   try {
@@ -424,6 +472,135 @@ function videoScriptAssetId(doc: MarketingJobRuntimeDocument, script: SocialVide
   return publicId(doc, script.id, `social-video-script-${index + 1}`);
 }
 
+function firstStringValue(values: unknown[]): string {
+  for (const value of values) {
+    const normalized = stringValue(value);
+    if (normalized) return normalized;
+  }
+  return '';
+}
+
+function firstRawStringValue(values: unknown[]): string {
+  for (const value of values) {
+    const normalized = rawStringValue(value);
+    if (normalized) return normalized;
+  }
+  return '';
+}
+
+function createRenderedVideoAssets(input: {
+  doc: MarketingJobRuntimeDocument;
+  campaignId: string;
+  campaignName: string;
+  objective: string;
+}): MarketingDashboardAsset[] {
+  const runtime = readSocialContentRuntimeState(input.doc);
+  const directArtifacts = runtime?.stages.video_render?.artifacts ?? [];
+  const metadataArtifacts = recordArray(runtime?.stages.video_render?.output?.artifacts);
+  const byId = new Map<
+    string,
+    { artifactId: string; title: string; status: string; summary: string | null; url: string | null; metadata: UnknownRecord }
+  >();
+
+  for (const artifact of directArtifacts) {
+    byId.set(artifact.id, {
+      artifactId: artifact.id,
+      title: artifact.title,
+      status: artifact.status,
+      summary: artifact.summary,
+      url: artifact.url,
+      metadata: recordValue(artifact.metadata) ?? {},
+    });
+  }
+
+  for (const artifact of metadataArtifacts) {
+    const artifactId = firstStringValue([artifact.id, artifact.asset_id, artifact.family_id, artifact.familyId]) || `video-render-${byId.size + 1}`;
+    const existing = byId.get(artifactId);
+    const metadata = recordValue(artifact.metadata) ?? {};
+    byId.set(artifactId, {
+      artifactId,
+      title: firstStringValue([existing?.title, artifact.title, artifact.family_name, artifact.familyName]),
+      status: firstStringValue([existing?.status, artifact.status]) || 'ready',
+      summary: firstStringValue([existing?.summary, artifact.summary]) || null,
+      url: firstRawStringValue([existing?.url, artifact.url, artifact.video_url, artifact.videoUrl]) || null,
+      metadata: {
+        ...(existing?.metadata ?? {}),
+        ...metadata,
+        ...artifact,
+      },
+    });
+  }
+
+  return Array.from(byId.values()).flatMap((artifact, index) => {
+    const metadata = artifact.metadata;
+    const previewUrl = safeVideoPreviewUrl(
+      input.doc,
+      firstRawStringValue([
+        artifact.url,
+        metadata.url,
+        metadata.video_url,
+        metadata.videoUrl,
+        metadata.preview_url,
+        metadata.previewUrl,
+        metadata.servedAssetRef,
+      ]),
+    );
+    if (!previewUrl) return [];
+
+    const thumbnailUrl = safeVideoPreviewUrl(
+      input.doc,
+      firstRawStringValue([
+        metadata.poster_url,
+        metadata.posterUrl,
+        metadata.thumbnail_url,
+        metadata.thumbnailUrl,
+        metadata.thumbnail_path,
+        metadata.thumbnailPath,
+        metadata.poster_path,
+        metadata.posterPath,
+      ]),
+    );
+    const platform = firstStringValue([metadata.platform_slug, metadata.platformSlug, metadata.platform]) || 'social';
+    const familyLabel = tenantSafeString(
+      input.doc,
+      firstStringValue([metadata.family_name, metadata.familyName, metadata.family_id, metadata.familyId]),
+    );
+    const aspectRatio = tenantSafeString(input.doc, firstStringValue([metadata.aspect_ratio, metadata.aspectRatio]));
+    const durationSeconds = tenantSafeString(
+      input.doc,
+      firstStringValue([metadata.duration_seconds, metadata.durationSeconds]),
+    );
+    const title =
+      tenantSafeString(input.doc, artifact.title) ||
+      tenantSafeString(input.doc, firstStringValue([metadata.title, metadata.family_name, metadata.familyName])) ||
+      `${platformLabel(platform)} rendered video ${index + 1}`;
+    const detailSummary = [familyLabel, aspectRatio, durationSeconds ? `${durationSeconds}s` : ''].filter(Boolean).join(' · ');
+
+    return [{
+      id: publicId(input.doc, artifact.artifactId, `social-video-render-${index + 1}`),
+      campaignId: input.campaignId,
+      jobId: input.doc.job_id,
+      type: 'video_ad',
+      title,
+      summary: tenantSafeString(input.doc, artifact.summary) || detailSummary || title,
+      platform,
+      platformLabel: platformLabel(platform),
+      campaignName: input.campaignName,
+      funnelStage: 'weekly_content',
+      objective: input.objective,
+      destinationUrl: safeDashboardUrl(input.doc, input.doc.inputs?.brand_url),
+      previewUrl,
+      thumbnailUrl,
+      contentType: 'video/mp4',
+      status: normalizeDashboardStatus(artifact.status, 'ready'),
+      createdAt: input.doc.updated_at || input.doc.created_at || null,
+      relatedPostIds: [],
+      relatedPublishItemIds: [],
+      provenance: provenance('production'),
+    } satisfies MarketingDashboardAsset];
+  });
+}
+
 function createAssets(input: {
   doc: MarketingJobRuntimeDocument;
   projection: SocialContentWorkflowProjection;
@@ -492,7 +669,9 @@ function createAssets(input: {
     } satisfies MarketingDashboardAsset;
   });
 
-  return [...imageAssets, ...scriptAssets];
+  const renderedVideoAssets = createRenderedVideoAssets(input);
+
+  return [...imageAssets, ...scriptAssets, ...renderedVideoAssets];
 }
 
 function resolvePostAssetId(doc: MarketingJobRuntimeDocument, post: SocialWeeklyPost, assets: MarketingDashboardAsset[], index: number): string | null {
@@ -621,7 +800,7 @@ function createCampaign(input: {
     posts: input.posts.length,
     landingPages: existing?.counts.landingPages ?? 0,
     imageAds: input.assets.filter((asset) => asset.type === 'image_ad').length,
-    videoAds: existing?.counts.videoAds ?? 0,
+    videoAds: input.assets.filter((asset) => asset.type === 'video_ad').length,
     scripts: input.assets.filter((asset) => asset.type === 'script').length,
     publishItems: input.publishItems.length,
     proposalConcepts: existing?.counts.proposalConcepts ?? 0,
@@ -638,7 +817,7 @@ function createCampaign(input: {
     name: input.campaignName,
     objective: input.objective,
     funnelStage: 'weekly_content',
-    summary: `${input.posts.length} weekly posts with ${input.assets.length} unique image previews.`,
+    summary: `${input.posts.length} weekly posts with ${counts.imageAds} image previews and ${counts.videoAds} rendered videos.`,
     stageLabel: 'Weekly social content',
     status: campaignStatus,
     compatibilityStatus: compatibilityStatusFor(campaignStatus),
