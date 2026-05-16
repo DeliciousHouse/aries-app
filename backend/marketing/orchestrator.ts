@@ -271,7 +271,7 @@ function weeklyMediaDemand(payload: Record<string, unknown>): {
   videoRenderCount: number;
 } {
   const imageCreativeCount = Math.min(
-    2,
+    SOCIAL_CONTENT_DEFAULT_SCOPE.image_creative_count,
     integerPayloadValue(
       payload.imageCreativeCount ?? payload.imageCreativesCount,
       SOCIAL_CONTENT_DEFAULT_SCOPE.image_creative_count,
