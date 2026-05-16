@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.14] - 2026-05-16
+
+### Fixed
+- **Marketing pipeline stalled at research when Hermes returned `status:completed` without `requires_approval` (no progression to strategy).** Today's live E2E (`mkt_89bec5df`, v0.1.3.13) completed research cleanly at 10:53:54 UTC and never started strategy. The orchestrator's stage-advance path lives only in the approval-resume code (`finalizeStrategyAndRunProductionReview` et al.), which throws `missing_*_resume_token` when called without an approval token. With no approval emitted and no auto-advance path, the runtime state file stuck at `running/research/completed` until the stale-run reaper killed it 12.85 min later. Root cause traced to `backend/marketing/hermes-callbacks.ts:937` `markJobCompleted` — it only flips `doc.state` to `completed` when `stage === 'publish'`; non-publish stages get marked complete with no follow-on action.
+
+  Fix: defense-in-depth on the Aries side so the pipeline survives Hermes returning either `requires_approval` (existing path) OR `completed` without approval (new path).
+
+  - **New port verb `MarketingExecutionPort.submitNextStage`** alongside `runPipeline` and `resumePipeline`. Submits the next stage as a fresh run (creates a new `ExecutionRunRecord`), not a resume — bypasses the resume-token requirement.
+  - **New helper `maybeAutoAdvanceNextStage`** in `hermes-callbacks.ts`. Fires inside the `payload.status === 'completed'` branch when (a) stage in {research, strategy, production}, (b) no approval payload present, (c) next stage status == `not_started`, (d) doc not terminal, (e) `doc.tenant_id` present. Marks next stage `in_progress` + `started_at` + saves doc **before** submitting so any racing callback or retry sees a non-`not_started` status. On submission failure, records `auto_advance_submit_failed` to the doc and logs structured error.
+  - **Hermes payload prefix** — `submissionPayload` injects `Starting stage: ${stage}` into the prompt and `auto_advance: true` into `callback_context` when the submission carries a `starting_stage` argument, so Hermes targets the requested stage rather than restarting from research.
+  - **Test coverage** — 9 unit tests in `tests/marketing/callback-auto-advance.test.ts` cover all 6 documented risks from the planning doc (R1 double-submit, R2 multi-stage payload, R3 publish-skip flow, R4 publish-no-op guard, R5 idempotency, R6 missing-resume-token path) plus M1 (tenant context propagation), M4 (try/catch with `auto_advance_submit_failed`), and submit-throws failure path.
+
+  Plan + two-pass review (sonnet eng-review + opus architectural review picking Option A over Option B) recorded in `plans/aries-stage-auto-advance.md`. All gates green: `npm run verify`, `npm run validate:execution-provider` (51 tests), `npm run validate:social-content` (91 tests).
+
 ## [0.1.3.13] - 2026-05-16
 
 ### Fixed
