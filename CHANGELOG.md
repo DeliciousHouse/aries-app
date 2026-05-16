@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.18] - 2026-05-16
+
+### Fixed
+- **Hardcoded `Math.min(2, ...)` cap in `weeklyMediaDemand` overrode the default image_creative_count and pinned every weekly run to 2 images.** `backend/marketing/orchestrator.ts:273` ignored both the v0.1.3.17 default bump (3) and any tenant-side override, because the outer clamp was `Math.min(2, integerPayloadValue(...))`. Net result: dashboard `imageAds` could never exceed 2 regardless of config. Fix: replace the literal `2` with `SOCIAL_CONTENT_DEFAULT_SCOPE.image_creative_count` so the orchestrator clamp tracks the defaults module as the single source of truth.
+
 ## [0.1.3.17] - 2026-05-16
 
 ### Changed
