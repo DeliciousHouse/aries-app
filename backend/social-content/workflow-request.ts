@@ -26,7 +26,7 @@ import {
 } from './defaults';
 
 type UnknownRecord = Record<string, unknown>;
-const MAX_IMAGE_CREATIVE_COUNT = 2;
+const MAX_IMAGE_CREATIVE_COUNT = 3;
 const MAX_VIDEO_RENDER_COUNT = 1;
 
 function stringValue(value: unknown): string {

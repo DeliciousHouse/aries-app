@@ -116,7 +116,7 @@ export const DEFAULT_SOCIAL_CONTENT_FORBIDDEN_PATTERNS: string[] = [
 export const DEFAULT_SOCIAL_CONTENT_COUNTS = {
   campaignWindowDays: 7 as const,
   staticPostCount: 7,
-  imageCreativeCount: 2,
+  imageCreativeCount: 3,
   videoScriptCount: 1,
   videoRenderCount: 0,
 };

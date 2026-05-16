@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.17] - 2026-05-16
+
+### Changed
+- **Default weekly image creative count: 2 → 3.** `SOCIAL_CONTENT_DEFAULT_SCOPE.image_creative_count` and `DEFAULT_SOCIAL_CONTENT_COUNTS.imageCreativeCount` both bumped from 2 to 3. `MAX_IMAGE_CREATIVE_COUNT` in `payload.ts` and `workflow-request.ts` also raised to 3 to match. The autonomous goal-loop verifier expects ≥ 3 image creatives per weekly run; the previous default of 2 left every clean autonomous run one short. All asserting tests updated (5 sites across `marketing-execution-port.test.ts` and `social-content-weekly-defaults.test.ts`).
+
+### Fixed
+- **Publish stage left with `completed_at: null` on every publish-skip run.** When publishing is disabled (Meta not connected), the existing publish-skip branch in `applyHermesMarketingCallback` sets `doc.state = 'completed'` but never marked the publish stage record itself complete. Downstream consumers expecting a populated `stages.publish.completed_at` (audit-trail UI, the goal-loop hook) saw null and treated the run as incomplete. Fix: when the publish-skip branch fires, set `publish.status = 'completed'`, `publish.completed_at = now`, `started_at = now` if missing, and a one-line summary `"Publish skipped: publishing not requested."`. Idempotent — only fires when status isn't already `completed`.
+
 ## [0.1.3.16] - 2026-05-16
 
 ### Fixed

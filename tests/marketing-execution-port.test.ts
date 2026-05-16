@@ -215,7 +215,7 @@ test('HermesMarketingPort.runPipeline returns submitted immediately by default',
     assert.equal(embeddedRequest.callback_url, 'https://aries.example.com/api/internal/hermes/runs');
     assert.equal(embeddedRequest.input.scope.window_days, 7);
     assert.equal(embeddedRequest.input.scope.static_post_count, 7);
-    assert.equal(embeddedRequest.input.scope.image_creative_count, 2);
+    assert.equal(embeddedRequest.input.scope.image_creative_count, 3);
     assert.equal(embeddedRequest.input.scope.video_script_count, 1);
     assert.equal(embeddedRequest.input.scope.video_render_count, 1);
     assert.deepEqual(embeddedRequest.input.scope.channels, ['meta', 'instagram']);
@@ -224,7 +224,7 @@ test('HermesMarketingPort.runPipeline returns submitted immediately by default',
       {
         type: 'image.generate',
         aspect_ratio: '4:5',
-        count: 2,
+        count: 3,
         target_channels: ['meta', 'instagram'],
         creative_briefs: ['Create on-brand weekly social image creative.'],
       },
