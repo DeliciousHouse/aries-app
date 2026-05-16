@@ -677,11 +677,65 @@ export async function tenantOwnsHermesMediaBasename(
       if (socialContentRuntimeContainsBasename(doc.social_content_runtime, basename)) {
         return true;
       }
+      // Fallback: when auto-approve resume overwrites the social-content stage
+      // output with a resume-context payload, the bridged image_creatives end
+      // up only in doc.stages[stage].primary_output (marketing-side). Walk
+      // those as a secondary ownership source so /api/internal/hermes/media
+      // doesn't 404 on legitimate tenant-owned assets. Mirror of the v0.1.3.16
+      // dashboard projection fallback.
+      if (marketingStagesContainBasename(doc.stages, basename)) {
+        return true;
+      }
     } catch {
       continue;
     }
   }
 
+  return false;
+}
+
+/**
+ * Mirror of socialContentRuntimeContainsBasename that walks the marketing-side
+ * stage records (doc.stages[stage].primary_output.weekly_content_plan.image_creatives)
+ * instead of social_content_runtime stages. Used as a fallback by
+ * tenantOwnsHermesMediaBasename when the social-content runtime stages
+ * don't carry the bridged image_creatives.
+ */
+function marketingStagesContainBasename(stages: unknown, basename: string): boolean {
+  if (!stages || typeof stages !== 'object' || Array.isArray(stages)) {
+    return false;
+  }
+  for (const stageValue of Object.values(stages as Record<string, unknown>)) {
+    if (!stageValue || typeof stageValue !== 'object' || Array.isArray(stageValue)) {
+      continue;
+    }
+    const primaryOutput = (stageValue as Record<string, unknown>).primary_output;
+    if (!primaryOutput || typeof primaryOutput !== 'object' || Array.isArray(primaryOutput)) {
+      continue;
+    }
+    const plan = (primaryOutput as Record<string, unknown>).weekly_content_plan;
+    if (!plan || typeof plan !== 'object' || Array.isArray(plan)) {
+      continue;
+    }
+    const creatives = (plan as Record<string, unknown>).image_creatives;
+    if (!Array.isArray(creatives)) {
+      continue;
+    }
+    for (const creative of creatives) {
+      if (!creative || typeof creative !== 'object' || Array.isArray(creative)) {
+        continue;
+      }
+      const artifactUrl = (creative as Record<string, unknown>).artifact_url;
+      if (typeof artifactUrl !== 'string' || !artifactUrl) {
+        continue;
+      }
+      const lastSlash = artifactUrl.lastIndexOf('/');
+      const urlBasename = lastSlash >= 0 ? artifactUrl.slice(lastSlash + 1) : artifactUrl;
+      if (urlBasename === basename) {
+        return true;
+      }
+    }
+  }
   return false;
 }
 

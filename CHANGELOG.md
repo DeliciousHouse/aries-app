@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.19] - 2026-05-16
+
+### Fixed
+- **Hermes media route 404 on legitimate tenant-owned image creatives.** `/api/internal/hermes/media/<basename>` checks tenant ownership via `tenantOwnsHermesMediaBasename`, which previously walked ONLY `social_content_runtime.stages[X].output.weekly_content_plan.image_creatives`. When auto-approve fires on the production→publish gate, the social-content runtime stages get overwritten with the resume-context payload (NOT the production result), so the bridged image_creatives live only in `doc.stages[stage].primary_output` (marketing-side). Ownership check returned false, route returned 404, dashboard <img> tags rendered as broken. Mirrors the v0.1.3.16 dashboard projection fallback. Adds `marketingStagesContainBasename` that walks `doc.stages[stage].primary_output.weekly_content_plan.image_creatives` as a secondary ownership source.
+
 ## [0.1.3.18] - 2026-05-16
 
 ### Fixed
