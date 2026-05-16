@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.15] - 2026-05-16
+
+### Added
+- **Autonomous-mode auto-approve for the weekly marketing pipeline.** When Hermes emits `requires_approval` for the strategy / production / publish gates and the new `ARIES_AUTO_APPROVE_MARKETING_PIPELINE=1` flag is set (default ON in `docker-compose.yml`), Aries synthesizes an `ai-orchestrator` approval directly from `applyHermesMarketingCallback`. Same code path a UI click would take — same `approveMarketingJob` → `resolveMarketingApproval` → `finalizeStrategyAndRunProductionReview` resume chain — just triggered from inside the callback instead of from `app/api/marketing/jobs/[jobId]/approve`. Closes the autonomous E2E loop introduced when v0.1.3.14's `maybeAutoAdvanceNextStage` only covered the `status:completed` Hermes path; today's run `mkt_ac24a07a` came back with `requires_approval` and stalled at the 5-min stale-run-reaper threshold because no Aries-side mechanism resolved the checkpoint.
+
+  Reentrancy verified safe: `withExecutionRunLock` is keyed on `aries_run_id` (`run-store.ts:271`); `port.resumePipeline()` creates a new run record before submitting (`ports/hermes.ts:309`), so the next-stage callback acquires a different lock. `withMarketingApprovalLock` (`approval-store.ts:338`) plus the in-lock record re-read at `orchestrator.ts:1823` keeps a parallel UI click safe — auto-approve treats `approval_not_available` and `approval_resolution_in_progress` returns as benign no-ops. Failure path appends to history and logs `auto_approve_failed` / `auto_approve_threw`; it does NOT call `recordStageFailure` on the awaiting-approval stage, because `resolveMarketingApproval`'s catch already restores the checkpoint via `restoreApprovalCheckpointAfterFailure` (`orchestrator.ts:2070-2103`) — adding stage failure would conflict and strand the doc. The reaper is the catch-all if auto-approve genuinely cannot resolve the gate.
+
+  9 unit tests in `tests/marketing/callback-auto-approve.test.ts`: flag-off default, strategy and production auto-approve, publish-skip no-op, approve-throws path, both idempotent error paths (`approval_not_available`, `approval_resolution_in_progress`), missing-checkpoint guard, missing-tenant guard. Plan + opus eng review (verdict APPROVED_WITH_CHANGES, all 5 required changes applied) saved in `plans/marketing-auto-approve.md`.
+
 ## [0.1.3.14] - 2026-05-16
 
 ### Fixed
