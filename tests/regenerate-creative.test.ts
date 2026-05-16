@@ -77,6 +77,10 @@ class StubMarketingPort implements MarketingExecutionPort {
   async resumePipeline(_input: MarketingPipelineResumeInput): Promise<MarketingExecutionResult> {
     throw new Error('resumePipeline should not be called for regenerate flow');
   }
+
+  async submitNextStage(_input: import('../backend/marketing/execution-port').MarketingPipelineNextStageInput): Promise<MarketingExecutionResult> {
+    return { kind: 'submitted', provider: 'hermes', ariesRunId: 'arun_stub_next_stage' };
+  }
 }
 
 async function withDataRoot<T>(run: () => Promise<T>): Promise<T> {

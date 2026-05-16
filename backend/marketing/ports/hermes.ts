@@ -28,6 +28,7 @@ import type {
   HermesWorkflowOutput,
   MarketingExecutionResult,
   MarketingExecutionPort,
+  MarketingPipelineNextStageInput,
   MarketingPipelineResumeInput,
   MarketingPipelineRunInput,
   RegenerateCreativeContext,
@@ -212,6 +213,16 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       workflowKey: input.workflowKey ?? undefined,
       resumeToken: input.resumeToken,
       approve: input.approve,
+    });
+  }
+
+  async submitNextStage(input: MarketingPipelineNextStageInput): Promise<MarketingExecutionResult> {
+    return this.invoke('run', {
+      jobId: input.jobId,
+      tenantId: input.tenantId,
+      doc: input.doc,
+      argsJson: JSON.stringify({ auto_advance: true, starting_stage: input.stage }),
+      stage: input.stage,
     });
   }
 
@@ -641,7 +652,12 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       // — Hermes evaluates it as `not (str or list)` and 400s with
       // "No user message found in input". Serialize the full request into
       // a prompt string, same shape brand_campaign uses via `prompt()`.
-      const prompt = [
+      const parsedArgs = input.argsJson ? tryParseJson(input.argsJson) as Record<string, unknown> | null : null;
+      const startingStage = parsedArgs && typeof parsedArgs.starting_stage === 'string'
+        ? parsedArgs.starting_stage
+        : null;
+      const isAutoAdvance = parsedArgs?.auto_advance === true;
+      const promptLines = [
         `Workflow: ${request.workflow_key}`,
         `Workflow version: ${request.workflow_version}`,
         'Action: run',
@@ -650,7 +666,11 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         `Tenant ID: ${request.tenant_id}`,
         `Callback URL: ${request.callback_url}`,
         `Request (JSON): ${JSON.stringify(request)}`,
-      ].join('\n');
+      ];
+      if (startingStage) {
+        promptLines.push(`Starting stage: ${startingStage}`);
+      }
+      const prompt = promptLines.join('\n');
       const promptWithMemory = memoryContextSnapshot && memoryContextSnapshot.length > 0
         ? `${prompt}\n\nMemory context (approved brand/policy findings):\n${JSON.stringify(memoryContextSnapshot)}`
         : prompt;
@@ -666,6 +686,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
           aries_run_id: request.aries_run_id,
           job_id: request.job_id,
           tenant_id: request.tenant_id,
+          ...(isAutoAdvance ? { auto_advance: true } : {}),
           ...(input.regenerateCreative
             ? {
                 regenerate_creative: {
@@ -684,6 +705,10 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     const promptWithMemory = memoryContextSnapshot && memoryContextSnapshot.length > 0
       ? `${basePrompt}\n\nMemory context (approved brand/policy findings):\n${JSON.stringify(memoryContextSnapshot)}`
       : basePrompt;
+    const parsedRunArgs = action === 'run' && input.argsJson
+      ? tryParseJson(input.argsJson) as Record<string, unknown> | null
+      : null;
+    const runIsAutoAdvance = parsedRunArgs?.auto_advance === true;
     return {
       input: promptWithMemory,
       instructions: this.instructions(workflowKey),
@@ -695,6 +720,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         aries_run_id: ariesRunId,
         job_id: input.jobId ?? null,
         tenant_id: input.tenantId ?? null,
+        ...(runIsAutoAdvance ? { auto_advance: true } : {}),
       },
       idempotency_key: idempotencyKey,
     };

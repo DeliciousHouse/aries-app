@@ -96,10 +96,18 @@ export type MarketingExecutionResult =
   | { kind: 'completed'; provider: 'hermes'; output: HermesWorkflowOutput }
   | { kind: 'submitted'; provider: 'hermes'; ariesRunId: string; hermesRunId?: string };
 
+export type MarketingPipelineNextStageInput = {
+  jobId: string;
+  tenantId: string;
+  doc: MarketingJobRuntimeDocument;
+  stage: MarketingStage; // the NEXT stage to submit (strategy | production | publish)
+};
+
 export interface MarketingExecutionPort {
   readonly name: MarketingExecutionPortName;
   runPipeline(input: MarketingPipelineRunInput): Promise<MarketingExecutionResult>;
   resumePipeline(input: MarketingPipelineResumeInput): Promise<MarketingExecutionResult>;
+  submitNextStage(input: MarketingPipelineNextStageInput): Promise<MarketingExecutionResult>;
 }
 
 export type MarketingExecutionPortEnv = Partial<Record<string, string | undefined>>;

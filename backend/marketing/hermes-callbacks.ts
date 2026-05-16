@@ -25,9 +25,11 @@ import {
   markStageCompleted,
   recordStageFailure,
   saveMarketingJobRuntime,
+  appendHistory,
   type MarketingJobRuntimeDocument,
   type MarketingStage,
 } from './runtime-state';
+import { getMarketingExecutionPort, type MarketingExecutionPort } from './execution-port';
 import { scheduleHermesPublishPerformanceHonchoWrite } from '@/backend/memory/write-events';
 
 const STAGE_ORDER: MarketingStage[] = ['research', 'strategy', 'production', 'publish'];
@@ -934,6 +936,87 @@ function actionLabel(stage: 'strategy' | 'production' | 'publish'): string {
       : 'Approve publishing';
 }
 
+/**
+ * After a non-publish stage completes cleanly (no approval emitted), submit
+ * the next stage to Hermes automatically. Guards cover R1, R2, R4, R5 from the
+ * auto-advance plan. Port is injectable for testability; callers pass
+ * getMarketingExecutionPort(() => null) in production.
+ *
+ * Exported for unit tests; not part of the public module API.
+ */
+export async function maybeAutoAdvanceNextStage(
+  doc: MarketingJobRuntimeDocument,
+  completedStage: MarketingStage,
+  payload: HermesRunCallbackPayload,
+  port: MarketingExecutionPort,
+): Promise<void> {
+  // R4: publish is terminal — never auto-advance past it.
+  if (completedStage === 'publish') return;
+  // If doc already reached a terminal state, do nothing.
+  if (doc.state === 'completed' || doc.state === 'failed') return;
+  // R1: never fire when Hermes emitted an approval checkpoint.
+  if (payload.approval) return;
+
+  const idx = STAGE_ORDER.indexOf(completedStage);
+  if (idx < 0 || idx >= STAGE_ORDER.length - 1) return;
+  const nextStage = STAGE_ORDER[idx + 1];
+  if (!nextStage) return;
+  const nextRecord = doc.stages[nextStage];
+  if (!nextRecord) return;
+
+  // R5: idempotency — only advance if next stage is untouched.
+  if (nextRecord.status !== 'not_started') return;
+
+  // M1: tenantId is required to route the new run correctly.
+  if (!doc.tenant_id) {
+    recordStageFailure(doc, nextStage, {
+      code: 'auto_advance_missing_tenant',
+      message: 'auto-advance aborted: doc.tenant_id missing',
+      retryable: false,
+    });
+    return;
+  }
+
+  // R5: mark next stage running BEFORE submit + save doc so any racing
+  // callback or retry sees a non-not_started status.
+  nextRecord.status = 'in_progress';
+  nextRecord.started_at = new Date().toISOString();
+  doc.current_stage = nextStage;
+  doc.state = 'running';
+  doc.status = 'running';
+  appendHistory(doc, `auto-advancing to ${nextStage} (Hermes returned completed without approval)`, {
+    stage: nextStage,
+  });
+  saveMarketingJobRuntime(doc.job_id, doc);
+
+  // M4: explicit try/catch — write failure to doc before returning.
+  try {
+    const result = await port.submitNextStage({
+      jobId: doc.job_id,
+      tenantId: doc.tenant_id,
+      doc,
+      stage: nextStage,
+    });
+    if (result.kind === 'completed' && result.output.ok === false) {
+      throw new Error(result.output.error?.message ?? 'auto_advance_submission_rejected');
+    }
+    appendHistory(doc, `auto-advance submitted ${nextStage} to Hermes`, { stage: nextStage });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    recordStageFailure(doc, nextStage, {
+      code: 'auto_advance_submit_failed',
+      message,
+      retryable: true,
+    });
+    console.error('[hermes-callbacks] auto_advance_submit_failed', {
+      job_id: doc.job_id,
+      from_stage: completedStage,
+      to_stage: nextStage,
+      error: message,
+    });
+  }
+}
+
 function markJobCompleted(doc: MarketingJobRuntimeDocument, stage: MarketingStage, payload: HermesRunCallbackPayload): void {
   markStageCompleted(doc, stage, {
     runId: outputRunId(payload, payload.hermes_run_id ?? null),
@@ -1298,6 +1381,11 @@ export async function applyHermesMarketingCallback(
         });
       }
     }
+    // Auto-advance: submit next stage when Hermes completed without approval.
+    // Ordering: (i) markJobCompleted, (ii) honcho schedule, (iii) social-content
+    // markers, (iv) maybeAutoAdvanceNextStage (does its own intermediate save),
+    // (v) final save below.
+    await maybeAutoAdvanceNextStage(doc, targetStage, payload, getMarketingExecutionPort(() => null));
     saveMarketingJobRuntime(doc.job_id, doc);
   }
 }
