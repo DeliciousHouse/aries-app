@@ -79,6 +79,184 @@ type HermesImageCreativeLike = {
 // Image extensions recognized as renderable file references.
 const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp', 'gif'] as const;
 
+// ---------------------------------------------------------------------------
+// Schema-agnostic PNG path harvester (production stage only)
+//
+// Hermes is a pure LLM agent with no enforced output contract. Rather than
+// enumerating every possible field name, we walk the entire callback payload
+// and collect any string that looks like a path into the Hermes image cache
+// directory. This is the fallback of last resort — the three named-shape
+// harvesters (creative_assets, images, image_creatives) run first; this only
+// fires when they all return zero AND the callback is from the production stage.
+//
+// Scoped to production callbacks only to prevent side effects on research /
+// strategy callbacks that may contain competitor screenshot URLs or other
+// image-like strings that would incorrectly be harvested as generated images.
+// This was the regression vector in PR #341 (reverted as v0.1.3.11).
+//
+// Match criteria (scoped to Hermes cache structure to avoid false-positives):
+//   1. The path contains the cache/images segment (host) OR hermes-media
+//      (container mount), OR the filename matches the Hermes codex naming
+//      convention: openai_codex_* / gpt-image-* / openai_gpt_*
+//   2. AND the file ends with a recognized image extension.
+//
+// Implemented with explicit string operations (no runtime regex over
+// arbitrary user input) to prevent ReDoS. Input capped at 1024 chars.
+// ---------------------------------------------------------------------------
+
+/** Segment strings that identify the Hermes image cache directory. */
+const HERMES_CACHE_SEGMENTS = ['cache/images', 'cache\\images', 'hermes-media'] as const;
+
+/** Filename prefixes Hermes uses when writing generated images. */
+const HERMES_FILENAME_PREFIXES = ['openai_codex_', 'openai_gpt_', 'gpt-image-', 'veo_render_'] as const;
+
+/**
+ * Returns true when the string value looks like a Hermes-generated image path
+ * that lives in the cache directory or has a Hermes-style filename prefix.
+ *
+ * Only operates on strings ≤ 1024 chars with a recognized image extension.
+ * Uses explicit indexOf / startsWith — no runtime regex.
+ */
+function isHermesCacheImagePath(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim().slice(0, 1024);
+  if (!trimmed) return false;
+
+  // Strip query/fragment before extension check.
+  const qIdx = trimmed.indexOf('?');
+  const hIdx = trimmed.indexOf('#');
+  let pathPart = trimmed;
+  if (qIdx !== -1 || hIdx !== -1) {
+    const cutAt = qIdx === -1 ? hIdx : hIdx === -1 ? qIdx : Math.min(qIdx, hIdx);
+    pathPart = trimmed.slice(0, cutAt);
+  }
+
+  // Must end with a recognized image extension.
+  const lastSlash = Math.max(pathPart.lastIndexOf('/'), pathPart.lastIndexOf('\\'));
+  const basename = lastSlash === -1 ? pathPart : pathPart.slice(lastSlash + 1);
+  if (!basename) return false;
+
+  const dot = basename.lastIndexOf('.');
+  if (dot === -1) return false;
+  const ext = basename.slice(dot + 1).toLowerCase();
+  if (!(IMAGE_EXTENSIONS as readonly string[]).includes(ext)) return false;
+
+  // Check path contains a Hermes cache segment.
+  const lowerPath = pathPart.toLowerCase();
+  for (const seg of HERMES_CACHE_SEGMENTS) {
+    if (lowerPath.includes(seg)) return true;
+  }
+
+  // Check basename has a Hermes-style filename prefix.
+  const lowerBasename = basename.toLowerCase();
+  for (const prefix of HERMES_FILENAME_PREFIXES) {
+    if (lowerBasename.startsWith(prefix)) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Recursively walks `node` (any JSON-like value) and collects all string
+ * values that pass `isHermesCacheImagePath`. The map is keyed by the path
+ * string itself so duplicate occurrences across different schema locations
+ * collapse to one entry. Each value carries sibling fields from the same
+ * containing object as a best-effort context bundle.
+ *
+ * Depth is capped at 12 to bound recursion on deeply nested payloads.
+ */
+function harvestPngPathsRecursively(
+  node: unknown,
+  found: Map<string, { prompt: string; intendedUse: string; placement: string }>,
+  depth: number = 0,
+): void {
+  if (depth > 12) return;
+  if (node === null || node === undefined) return;
+
+  if (typeof node === 'string') {
+    if (isHermesCacheImagePath(node) && !found.has(node)) {
+      found.set(node, { prompt: '', intendedUse: '', placement: '' });
+    }
+    return;
+  }
+
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      harvestPngPathsRecursively(item, found, depth + 1);
+    }
+    return;
+  }
+
+  if (typeof node === 'object') {
+    const record = node as Record<string, unknown>;
+
+    // Before recursing, scan THIS object's string values for cache image paths
+    // so we can capture their siblings as context.
+    for (const val of Object.values(record)) {
+      if (typeof val === 'string' && isHermesCacheImagePath(val) && !found.has(val)) {
+        const prompt = typeof record.prompt === 'string' ? record.prompt : '';
+        const intendedUse =
+          typeof record.intendedUse === 'string'
+            ? record.intendedUse
+            : typeof record.intended_use === 'string'
+              ? record.intended_use
+              : typeof record.title === 'string'
+                ? record.title
+                : '';
+        const placement = typeof record.placement === 'string' ? record.placement : '';
+        found.set(val, { prompt, intendedUse, placement });
+      }
+    }
+
+    // Recurse into non-string child values.
+    for (const childVal of Object.values(record)) {
+      if (typeof childVal !== 'string') {
+        harvestPngPathsRecursively(childVal, found, depth + 1);
+      }
+    }
+  }
+}
+
+/**
+ * Builds canonical `image_creatives` entries from the PNG paths collected by
+ * `harvestPngPathsRecursively`. Deduplication is guaranteed because the map
+ * is keyed by path string.
+ */
+function buildCreativesFromPngFallback(
+  found: Map<string, { prompt: string; intendedUse: string; placement: string }>,
+  appBaseUrl: string,
+  aspectRatio: string,
+): Array<Record<string, unknown>> {
+  const creatives: Array<Record<string, unknown>> = [];
+  let index = 0;
+  for (const [imagePath, ctx] of found) {
+    const basename = imageBasenameFromValue(imagePath);
+    if (!basename) continue;
+
+    // Derive a stable assetId from the basename stem's last segment (e.g. hash).
+    const dot = basename.lastIndexOf('.');
+    const stem = dot === -1 ? basename : basename.slice(0, dot);
+    const segments = stem.split('_');
+    const hashFragment = segments[segments.length - 1] ?? stem;
+    const assetId = `fallback_${hashFragment}_${index}`;
+
+    const creative: Record<string, unknown> = {
+      id: `img_${assetId}`,
+      title: ctx.intendedUse || ctx.placement || '',
+      prompt: ctx.prompt,
+      status: 'completed',
+      artifact_url: mediaArtifactUrl(appBaseUrl, basename),
+      aspect_ratio: aspectRatio,
+    };
+    if (ctx.intendedUse) creative.intendedUse = ctx.intendedUse;
+    if (ctx.placement) creative.placement = ctx.placement;
+
+    creatives.push(creative);
+    index++;
+  }
+  return creatives;
+}
+
 /**
  * Extracts the image basename from a string value (file path, URL, etc.).
  *
@@ -228,9 +406,16 @@ function canonicalImageCreativeFromExisting(
  *   the browser can load them via the authenticated /api/internal/hermes/media
  *   route without needing direct host filesystem access.
  * - Missing/empty `creative_assets` is a no-op; the function never throws.
+ *
+ * @param stage - The marketing stage this callback is for. The schema-agnostic
+ *   PNG fallback walker ONLY fires for 'production' callbacks. Research, strategy,
+ *   and publish callbacks bypass the fallback entirely so competitor screenshots
+ *   or other image-like strings in those payloads cannot be misidentified as
+ *   generated creatives (regression vector from PR #341).
  */
 export function bridgeHermesCreativeAssets(
   outputRecord: Record<string, unknown>,
+  stage: MarketingStage = 'production',
 ): Record<string, unknown> {
   const appBaseUrl = resolveAppBaseUrl();
   const artifacts = outputRecord.artifacts;
@@ -313,17 +498,49 @@ export function bridgeHermesCreativeAssets(
     ? imageCreativesFromCreativeAssets
     : imageCreativesFromImages;
 
-  if (imageCreatives.length === 0) {
-    return outputRecord;
+  if (imageCreatives.length > 0) {
+    return {
+      ...outputRecord,
+      weekly_content_plan: {
+        ...existingPlan,
+        image_creatives: imageCreatives,
+      },
+    };
   }
 
-  return {
-    ...outputRecord,
-    weekly_content_plan: {
-      ...existingPlan,
-      image_creatives: imageCreatives,
-    },
-  };
+  // -------------------------------------------------------------------------
+  // Schema-agnostic fallback: walk the entire output record for any string
+  // that looks like a Hermes cache image path. ONLY fires for production
+  // callbacks — research/strategy/publish bypass this entirely to prevent
+  // competitor screenshot URLs or other image-like strings in those payloads
+  // from being misidentified as generated creatives (regression from PR #341).
+  // -------------------------------------------------------------------------
+  if (stage === 'production') {
+    const pngFound = new Map<string, { prompt: string; intendedUse: string; placement: string }>();
+    harvestPngPathsRecursively(outputRecord, pngFound);
+
+    if (pngFound.size > 0) {
+      const fallbackCreatives = buildCreativesFromPngFallback(pngFound, appBaseUrl, aspectRatio);
+      if (fallbackCreatives.length > 0) {
+        console.warn('[hermes-image-bridge] schema_variance_recovered', {
+          count: fallbackCreatives.length,
+          paths: Array.from(pngFound.keys()).map((p) => {
+            const lastSlash = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
+            return lastSlash === -1 ? p : p.slice(lastSlash + 1);
+          }),
+        });
+        return {
+          ...outputRecord,
+          weekly_content_plan: {
+            ...existingPlan,
+            image_creatives: fallbackCreatives,
+          },
+        };
+      }
+    }
+  }
+
+  return outputRecord;
 }
 
 function normalizeCallbackStage(stage: HermesRunCallbackPayload['stage']): MarketingStage | null {
@@ -555,7 +772,12 @@ function ingestSocialContentStageMedia(
  *   3. `weekly_content_plan.image_creatives[]` with a non-empty artifact_url
  *
  * A "recognized image" means there is a renderable file reference — a bare
- * prompt entry without a path is NOT recognized. Returns the total count.
+ * prompt entry without a path is NOT recognized. Returns the total count
+ * across named shapes plus the schema-agnostic fallback walker (Shape 4).
+ *
+ * NOTE: This function is only called from `productionCallbackImageGenerationUnrecognized`
+ * which is itself gated to production-stage callbacks. Shape 4 therefore only
+ * fires in production context — consistent with the stage-gated bridge.
  */
 function countRecognizedImagesInOutputRecord(
   outputRecord: Record<string, unknown> | null,
@@ -596,7 +818,7 @@ function countRecognizedImagesInOutputRecord(
   if (plan && typeof plan === 'object' && !Array.isArray(plan)) {
     const creatives = (plan as Record<string, unknown>).image_creatives;
     if (Array.isArray(creatives)) {
-      return creatives.filter((c) => {
+      const fromCreatives = creatives.filter((c) => {
         if (!c || typeof c !== 'object' || Array.isArray(c)) return false;
         const cr = c as Record<string, unknown>;
         return (
@@ -604,10 +826,15 @@ function countRecognizedImagesInOutputRecord(
           (cr.artifact_url as string).trim().length > 0
         );
       }).length;
+      if (fromCreatives > 0) return fromCreatives;
     }
   }
 
-  return 0;
+  // Shape 4: schema-agnostic fallback — walk the entire record for Hermes cache paths.
+  // Safe here because callers of this function are already gated to production stage.
+  const pngFound = new Map<string, { prompt: string; intendedUse: string; placement: string }>();
+  harvestPngPathsRecursively(outputRecord, pngFound);
+  return pngFound.size;
 }
 
 /**
@@ -808,7 +1035,9 @@ export async function applyHermesMarketingCallback(
   if (isSocialContentRun(run) && Array.isArray(payload.output) && payload.output.length > 0) {
     const firstOut = payload.output[0];
     if (firstOut && typeof firstOut === 'object' && !Array.isArray(firstOut)) {
-      payload.output[0] = bridgeHermesCreativeAssets(firstOut as Record<string, unknown>);
+      // Pass run.stage so the schema-agnostic PNG fallback walker only fires
+      // for production callbacks — research/strategy/publish bypass it entirely.
+      payload.output[0] = bridgeHermesCreativeAssets(firstOut as Record<string, unknown>, run.stage);
     }
   }
 
