@@ -31,6 +31,8 @@ import {
 } from './runtime-state';
 import { getMarketingExecutionPort, type MarketingExecutionPort } from './execution-port';
 import { scheduleHermesPublishPerformanceHonchoWrite } from '@/backend/memory/write-events';
+import { approveMarketingJob } from './orchestrator';
+import type { ApproveMarketingJobRequest, ApproveMarketingJobResponse } from './orchestrator';
 
 const STAGE_ORDER: MarketingStage[] = ['research', 'strategy', 'production', 'publish'];
 
@@ -1017,6 +1019,115 @@ export async function maybeAutoAdvanceNextStage(
   }
 }
 
+/**
+ * Returns true when `ARIES_AUTO_APPROVE_MARKETING_PIPELINE` is set to a truthy
+ * value. Default OFF preserves production human-in-the-loop semantics.
+ *
+ * Exported for unit tests; not part of the public module API.
+ */
+export function autoApproveMarketingPipelineEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = (env.ARIES_AUTO_APPROVE_MARKETING_PIPELINE ?? '').trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+}
+
+type AutoApproveFn = (
+  input: ApproveMarketingJobRequest,
+  doc: MarketingJobRuntimeDocument,
+) => Promise<ApproveMarketingJobResponse>;
+
+/**
+ * After a `requires_approval` callback writes an approval checkpoint to the doc,
+ * call `approveMarketingJob` with `approvedBy: 'ai-orchestrator'` so the pipeline
+ * advances without a human click. Default OFF; opt in per-process via
+ * `ARIES_AUTO_APPROVE_MARKETING_PIPELINE=1`.
+ *
+ * The injectable `approve` parameter exists for unit tests; production callers
+ * default to the real `approveMarketingJob`. Same pattern as
+ * `maybeAutoAdvanceNextStage`'s injectable port.
+ *
+ * Exported for unit tests; not part of the public module API.
+ */
+export async function maybeAutoApproveMarketingCheckpoint(
+  doc: MarketingJobRuntimeDocument,
+  approve: AutoApproveFn = approveMarketingJob,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<void> {
+  if (!autoApproveMarketingPipelineEnabled(env)) return;
+
+  const checkpoint = doc.approvals.current;
+  if (!checkpoint) return;
+  if (!checkpoint.approval_id) return;
+  // Publish-skip branch terminates the doc before this is reached; defensive guard.
+  if (doc.state === 'completed' || doc.state === 'failed') return;
+  // approveMarketingJob requires tenantId (orchestrator.ts:1716).
+  if (!doc.tenant_id) return;
+
+  // Only strategy/production/publish have approval gates. Research has no gate;
+  // a checkpoint here would be a misroute and should not be auto-approved.
+  const stage = checkpoint.stage;
+  if (stage !== 'strategy' && stage !== 'production' && stage !== 'publish') return;
+
+  appendHistory(doc, `auto-approving ${stage} checkpoint (ARIES_AUTO_APPROVE_MARKETING_PIPELINE=1)`, {
+    stage,
+  });
+  saveMarketingJobRuntime(doc.job_id, doc);
+
+  try {
+    const response = await approve(
+      {
+        jobId: doc.job_id,
+        tenantId: doc.tenant_id,
+        approvedBy: 'ai-orchestrator',
+        approvalId: checkpoint.approval_id,
+        approvedStages: [stage],
+        publishConfig: stage === 'publish'
+          ? (checkpoint.publish_config ?? undefined)
+          : undefined,
+      },
+      doc,
+    );
+
+    // Idempotency: parallel resolution from another caller is benign.
+    if (response.status === 'error' && response.reason === 'approval_not_available') {
+      appendHistory(doc, `auto-approve no-op: ${stage} checkpoint already resolved`, { stage });
+      saveMarketingJobRuntime(doc.job_id, doc);
+      return;
+    }
+    if (response.status === 'error' && response.reason === 'approval_resolution_in_progress') {
+      appendHistory(doc, `auto-approve no-op: ${stage} checkpoint resolution in flight`, { stage });
+      saveMarketingJobRuntime(doc.job_id, doc);
+      return;
+    }
+    if (response.status === 'error') {
+      // Don't recordStageFailure — that would conflict with the checkpoint
+      // restored by resolveMarketingApproval's catch. Just log; reaper recovers.
+      appendHistory(doc, `auto-approve failed for ${stage}: ${response.reason ?? 'unknown'}`, { stage });
+      saveMarketingJobRuntime(doc.job_id, doc);
+      console.error('[hermes-callbacks] auto_approve_failed', {
+        job_id: doc.job_id,
+        stage,
+        reason: response.reason,
+      });
+      return;
+    }
+    appendHistory(
+      doc,
+      `auto-approved ${stage}; resumed_stage=${response.resumedStage ?? 'none'} completed=${response.completed}`,
+      { stage },
+    );
+    saveMarketingJobRuntime(doc.job_id, doc);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    appendHistory(doc, `auto-approve threw for ${stage}: ${message}`, { stage });
+    saveMarketingJobRuntime(doc.job_id, doc);
+    console.error('[hermes-callbacks] auto_approve_threw', {
+      job_id: doc.job_id,
+      stage,
+      error: message,
+    });
+  }
+}
+
 function markJobCompleted(doc: MarketingJobRuntimeDocument, stage: MarketingStage, payload: HermesRunCallbackPayload): void {
   markStageCompleted(doc, stage, {
     runId: outputRunId(payload, payload.hermes_run_id ?? null),
@@ -1315,6 +1426,7 @@ export async function applyHermesMarketingCallback(
     }
     createApprovalCheckpoint(doc, run, payload, socialApprovalStep, completedSocialStage);
     saveMarketingJobRuntime(doc.job_id, doc);
+    await maybeAutoApproveMarketingCheckpoint(doc);
     return;
   }
 
