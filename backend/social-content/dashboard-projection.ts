@@ -254,7 +254,6 @@ function requestedJobTypeFromDoc(doc: MarketingJobRuntimeDocument): string {
 
 function latestSocialProjection(runtimeDoc: MarketingJobRuntimeDocument): SocialContentWorkflowProjection | null {
   const runtime = readSocialContentRuntimeState(runtimeDoc);
-  if (!runtime) return null;
 
   let summary = '';
   let windowDays: number | null = null;
@@ -262,15 +261,39 @@ function latestSocialProjection(runtimeDoc: MarketingJobRuntimeDocument): Social
   let imageCreatives: SocialContentWorkflowProjection['weekly_content_plan']['image_creatives'] = [];
   let videoScripts: SocialContentWorkflowProjection['weekly_content_plan']['video_scripts'] = [];
 
-  for (const stage of runtime.stageOrder) {
-    const projection = parseSocialContentWorkflowOutput(runtime.stages[stage]?.output);
+  if (runtime) {
+    for (const stage of runtime.stageOrder) {
+      const projection = parseSocialContentWorkflowOutput(runtime.stages[stage]?.output);
+      if (!projection) continue;
+      const plan = projection.weekly_content_plan;
+      if (projection.summary) summary = projection.summary;
+      if (plan.window_days !== null) windowDays = plan.window_days;
+      if (plan.posts.length > 0) posts = plan.posts;
+      if (plan.image_creatives.length > 0) imageCreatives = plan.image_creatives;
+      if (plan.video_scripts.length > 0) videoScripts = plan.video_scripts;
+    }
+  }
+
+  // Fallback: when the social-content runtime stage outputs miss the bridged
+  // image_creatives — which happens when auto-approve fires and the next
+  // callback overwrites the social-content stage output with a resume-context
+  // payload instead of the production result — pull from the marketing-side
+  // stage records. The bridge writes its canonicalized output into
+  // doc.stages[stage].primary_output via markStageCompleted, so that's a
+  // durable secondary source. Fill only fields the runtime didn't supply,
+  // preserving the runtime as primary.
+  const marketingStageOrder = Array.isArray(runtimeDoc.stage_order) ? runtimeDoc.stage_order : [];
+  for (const marketingStage of marketingStageOrder) {
+    const stageRecord = runtimeDoc.stages?.[marketingStage];
+    if (!stageRecord) continue;
+    const projection = parseSocialContentWorkflowOutput(stageRecord.primary_output);
     if (!projection) continue;
     const plan = projection.weekly_content_plan;
-    if (projection.summary) summary = projection.summary;
-    if (plan.window_days !== null) windowDays = plan.window_days;
-    if (plan.posts.length > 0) posts = plan.posts;
-    if (plan.image_creatives.length > 0) imageCreatives = plan.image_creatives;
-    if (plan.video_scripts.length > 0) videoScripts = plan.video_scripts;
+    if (!summary && projection.summary) summary = projection.summary;
+    if (windowDays === null && plan.window_days !== null) windowDays = plan.window_days;
+    if (posts.length === 0 && plan.posts.length > 0) posts = plan.posts;
+    if (imageCreatives.length === 0 && plan.image_creatives.length > 0) imageCreatives = plan.image_creatives;
+    if (videoScripts.length === 0 && plan.video_scripts.length > 0) videoScripts = plan.video_scripts;
   }
 
   const hasProjection = windowDays !== null || posts.length > 0 || imageCreatives.length > 0 || videoScripts.length > 0;
