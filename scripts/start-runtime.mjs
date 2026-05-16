@@ -13,6 +13,8 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDir, '..');
 /** @type {import('node:child_process').ChildProcess | null} */
 let partnerOutboxChild = null;
+/** @type {import('node:child_process').ChildProcess | null} */
+let staleRunReaperChild = null;
 const rawPort = process.env.PORT?.trim();
 const parsedPort = rawPort ? Number(rawPort) : defaultPort;
 const isValidPort = Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535;
@@ -68,6 +70,11 @@ function partnerAttributionWorkerEnabled() {
   return v === '1' || v === 'true' || v === 'yes' || v === 'on';
 }
 
+function reaperWorkerEnabled() {
+  const v = process.env.ARIES_REAPER_ENABLED?.trim().toLowerCase();
+  return v === '1' || v === 'true';
+}
+
 function spawnPartnerOutboxWorker() {
   if (!partnerAttributionWorkerEnabled()) {
     return;
@@ -96,6 +103,37 @@ function stopPartnerOutboxWorker() {
   if (partnerOutboxChild && !partnerOutboxChild.killed) {
     partnerOutboxChild.kill('SIGTERM');
     partnerOutboxChild = null;
+  }
+}
+
+function spawnStaleRunReaperWorker() {
+  if (!reaperWorkerEnabled()) {
+    return;
+  }
+  const tsx = path.join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+  const worker = path.join(projectRoot, 'scripts', 'stale-run-reaper-worker.ts');
+  try {
+    staleRunReaperChild = spawn(process.execPath, [tsx, worker], {
+      stdio: 'inherit',
+      env: { ...runtimeEnv },
+      detached: false,
+    });
+    staleRunReaperChild.on('exit', (code, signal) => {
+      staleRunReaperChild = null;
+      console.error(
+        `[runtime] stale-run reaper worker exited code=${String(code)} signal=${String(signal ?? '')}`,
+      );
+    });
+    console.log('[runtime] started stale-run reaper worker');
+  } catch (error) {
+    console.error('[runtime] failed to start stale-run reaper worker', error);
+  }
+}
+
+function stopStaleRunReaperWorker() {
+  if (staleRunReaperChild && !staleRunReaperChild.killed) {
+    staleRunReaperChild.kill('SIGTERM');
+    staleRunReaperChild = null;
   }
 }
 
@@ -136,6 +174,7 @@ function startClusterRuntime() {
   }
 
   spawnPartnerOutboxWorker();
+  spawnStaleRunReaperWorker();
 
   cluster.on('exit', (worker, code, signal) => {
     const instanceId = workerInstanceIds.get(worker.id) ?? 0;
@@ -170,6 +209,7 @@ function startClusterRuntime() {
   registerSignalHandlers((signal) => {
     shuttingDown = true;
     stopPartnerOutboxWorker();
+    stopStaleRunReaperWorker();
     const workers = Object.values(cluster.workers ?? {}).filter(Boolean);
     if (workers.length === 0) {
       process.exit(0);
@@ -181,6 +221,7 @@ function startClusterRuntime() {
 
     const forceExitTimer = setTimeout(() => {
       stopPartnerOutboxWorker();
+      stopStaleRunReaperWorker();
       for (const worker of Object.values(cluster.workers ?? {}).filter(Boolean)) {
         worker.kill('SIGKILL');
       }
@@ -200,6 +241,7 @@ function startClusterRuntime() {
 
 function startSingleNodeRuntime() {
   spawnPartnerOutboxWorker();
+  spawnStaleRunReaperWorker();
 
   const child = spawn(process.execPath, [nextCliPath(), 'start', '-p', String(parsedPort)], {
     stdio: 'inherit',
@@ -213,6 +255,7 @@ function startSingleNodeRuntime() {
   registerSignalHandlers((signal) => {
     forwardedSignals.add(signal);
     stopPartnerOutboxWorker();
+    stopStaleRunReaperWorker();
     if (!child.killed) {
       child.kill(signal);
     }

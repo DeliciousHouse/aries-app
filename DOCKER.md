@@ -37,6 +37,8 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml build
 - `ARIES_PROCESS_MANAGER` (optional; default `cluster`, set `node` for one-process rollback)
 - `ARIES_WEB_CONCURRENCY` (optional; default `2`, accepts a positive integer or `max`)
 - `ARIES_WORKER_MAX_RESTARTS` (optional; default `5`, exits the container if all workers exceed the restart cap)
+- `ARIES_REAPER_ENABLED` (optional; default `1` — enables the in-process stale-run reaper side-process that marks stuck marketing jobs `failed_stale` every 5 minutes)
+- `ARIES_REAPER_INTERVAL_MS` (optional; default `300000` — reaper sweep interval in milliseconds)
 - `DB_POOL_MAX` (optional; default `20` per worker)
 - `ARIES_EXECUTION_PROVIDER` (optional; default `hermes`)
 - `ARIES_MARKETING_EXECUTION_PROVIDER` (optional; default `hermes`)

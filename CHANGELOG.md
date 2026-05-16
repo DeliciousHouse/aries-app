@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.13] - 2026-05-16
+
+### Fixed
+- **Stale-run reaper cron was never installed (PR #334 follow-up).** PR #334 shipped `scripts/reap-stale-runs.ts` and added `aries-marketing-stale-run-reaper` to the OpenClaw cron manifest, but `npm run automation:install` was never run post-merge, and there is no traditional Linux cron inside the container (`crontab: executable file not found in $PATH`). The manifest's install path calls `openclaw cron add`, which is not available in the container runtime at all. A 30-minute window confirmed zero reaper log lines while a stuck job (mkt_2d92adff) sat past the 10-min research threshold — manual `docker exec ... reap-stale-runs.ts --apply` reaped it immediately, proving the script works but the trigger was absent.
+
+  Fix: mirrors the existing `partner-attribution-outbox-worker` pattern. A new in-process side-process `scripts/stale-run-reaper-worker.ts` is spawned by `scripts/start-runtime.mjs` (both cluster and single-node paths) when `ARIES_REAPER_ENABLED=1`. `docker-compose.yml` defaults `ARIES_REAPER_ENABLED=1` and `ARIES_REAPER_INTERVAL_MS=300000` (5 min), matching the manifest's `*/5 * * * *` schedule. The worker calls `runStaleRunReaper({ dataRoot, dryRun: false })` on each tick and logs `[stale-run-reaper]` lines only when jobs are reaped or errors occur. Shutdown is clean: SIGTERM to the worker on SIGINT/SIGTERM to the primary process.
+
 ## [0.1.3.12] - 2026-05-16
 
 ### Fixed
