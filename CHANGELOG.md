@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.16] - 2026-05-16
+
+### Fixed
+- **Dashboard `Generated assets` count stuck at 0 even when Hermes generated image creatives on disk.** Today's autonomous E2E (`mkt_d6817de2`, v0.1.3.15) completed all 4 stages cleanly with 2 generated images cached at `~/.hermes/cache/images/*.png` and bridged correctly into `doc.stages.production.primary_output.weekly_content_plan.image_creatives`. But the dashboard still showed `Generated assets: 0` / `imageAds: 0` because `latestSocialProjection` (`backend/social-content/dashboard-projection.ts:255`) read ONLY from `social_content_runtime.stages[X].output` — and those slots end up with the resume-context payload (not the production result) after auto-approve fires on the production → publish gate (`workflow_step_id: approve_image_creatives`). The marketing-side bridge writes the canonical `weekly_content_plan.image_creatives` into `doc.stages[stage].primary_output` via `markStageCompleted`, but the social-content-runtime side gets overwritten by the next callback's context.
+
+  Fix: `latestSocialProjection` now also walks `runtimeDoc.stage_order` and parses each `doc.stages[stage].primary_output` via `parseSocialContentWorkflowOutput`, filling any field the social-content runtime didn't supply. The runtime stays the primary source — the marketing-side stages are a strict fallback used only for fields the runtime left empty. Defensive guards: `Array.isArray(runtimeDoc.stage_order)` and `runtimeDoc.stages?.[marketingStage]` so test fixtures without these keys still work.
+
 ## [0.1.3.15] - 2026-05-16
 
 ### Added
