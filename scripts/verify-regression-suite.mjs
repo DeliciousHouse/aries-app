@@ -74,6 +74,7 @@ const steps = [
     name: 'social-content migration regression tests',
     args: [
       '--test',
+      'tests/marketing/workflow-request-fallback.test.ts',
       'tests/social-content-execution-contract.test.ts',
       'tests/social-content-weekly-defaults.test.ts',
       'tests/social-content-approve-route.test.ts',

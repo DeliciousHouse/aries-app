@@ -6,6 +6,7 @@ import {
   probeHermesGatewayCapabilities,
   probeHermesSocialContentRuntime,
 } from '../backend/marketing/hermes-runtime-contract';
+import { SOCIAL_CONTENT_WEEKLY_WORKFLOW_VERSION } from '../backend/social-content/defaults';
 
 const BASE_ENV = {
   HERMES_GATEWAY_URL: 'https://hermes.example.com',
@@ -82,7 +83,7 @@ test('probeHermesSocialContentRuntime reports gateway and capabilities together'
 
   assert.equal(report.ok, true);
   assert.equal(report.workflow.key, 'social_content_weekly');
-  assert.equal(report.workflow.version, '2026-05-social-content-weekly-v1');
+  assert.equal(report.workflow.version, SOCIAL_CONTENT_WEEKLY_WORKFLOW_VERSION);
   assert.equal(report.callbackContract.callbackUrl, 'https://aries.example.com/api/internal/hermes/runs');
   assert.equal(report.callbackContract.directGatewayCallbacks, false);
   assert.equal(report.callbackContract.pollBridgeEnabled, true);

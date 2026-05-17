@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.20] - 2026-05-17
+
+### Changed
+- **Tenants with sparse brand profile fields now keep working when the Hermes research stage runs.** Tenants whose Business Profile leaves `notes` blank (the minimum-config path through onboarding) previously sent Hermes a thin request — no `brand.notes` field at all and an inline `brand.name` fallback to `brand_kit.brand_name` that worked but wasn't centrally documented. With a thin payload, the research agent scraped the site successfully then looped on `read_file`/`search_files`/`terminal` tool calls until the 600s `did not reach a terminal status` timeout fired. Two new `resolve*` helpers in `backend/social-content/workflow-request.ts` close the gap: `resolveBusinessName` formalizes the existing brand-kit fallback into a named helper, and the new `resolveNotes` falls back to a 300-char-truncated `brand_voice_summary` when operator notes are null. A new `notes: string` field on `SocialContentWeeklyBrandPayload` carries the fallback into the request payload Hermes serializes as part of its prompt. Operator-supplied values still win when present.
+
+- **`SOCIAL_CONTENT_WEEKLY_WORKFLOW_VERSION` bumped to `v2`.** The Hermes idempotency key (`generateIdempotencyKey(ariesRunId, workflow_version, tenantId)`) does not include a payload hash. Without a version bump, the same `ariesRunId` retried after this fallback change could have served a stale pre-fallback cached result. The version bump invalidates the cache so the new fallback path actually exercises on retry.
+
 ## [0.1.3.19] - 2026-05-16
 
 ### Fixed

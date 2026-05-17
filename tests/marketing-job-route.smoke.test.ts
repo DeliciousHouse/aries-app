@@ -335,7 +335,7 @@ test('/api/social-content/jobs submits Hermes only even when legacy-openclaw is 
       const submission = hermesCalls[0].body as Record<string, unknown>;
       const callbackContext = submission.callback_context as Record<string, unknown>;
       assert.equal(callbackContext.workflow_key, 'social_content_weekly');
-      assert.equal(callbackContext.workflow_version, '2026-05-social-content-weekly-v1');
+      assert.equal(callbackContext.workflow_version, '2026-05-social-content-weekly-v2');
       assert.equal(typeof submission.input, 'string');
       assert.match(String(submission.input), /Workflow: social_content_weekly/);
     } finally {

@@ -14,7 +14,7 @@ Last refreshed May 4, 2026, 16:00 UTC.
 - Next.js App Router runtime serves the public site, authenticated operator shell, and browser-safe internal APIs.
 - Backend domain logic lives under `backend/*` and routes long-running execution through Hermes by default.
 - `backend/execution/*` owns the general execution provider boundary; the Hermes adapter wires the supported Hermes workflow set and is the default for all active workflows.
-- Social content execution uses `backend/marketing/execution-port.ts`; `ARIES_MARKETING_EXECUTION_PROVIDER=hermes` (the default) submits `social_content_weekly` runs (version `2026-05-social-content-weekly-v1`) to Hermes and advances runtime state from authenticated `/api/internal/hermes/runs` callbacks.
+- Social content execution uses `backend/marketing/execution-port.ts`; `ARIES_MARKETING_EXECUTION_PROVIDER=hermes` (the default) submits `social_content_weekly` runs (version `2026-05-social-content-weekly-v2`) to Hermes and advances runtime state from authenticated `/api/internal/hermes/runs` callbacks.
 - Weekly media generation is Hermes-native: Aries sends abstract media requests, Hermes owns ChatGPT/OpenAI auth, and text planning can still run without media generation.
 - Local runtime state and typed adapters live across `lib/*`, `hooks/*`, `specs/*`, and `workflows/*` to preserve contract boundaries.
 - Repo context and automation output should stay scoped to `aries-app` only.
