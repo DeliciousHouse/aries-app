@@ -1,5 +1,5 @@
 import {
-  extractAndSaveTenantBrandKit,
+  extractEnrichAndSaveTenantBrandKit,
   repairStaleMarketingOffer,
   tenantBrandKitPath,
 } from '@/backend/marketing/brand-kit';
@@ -619,7 +619,7 @@ export function buildProductionResumeContext(input: {
 export async function ensureFreshBrandKitForWeeklyRun(input: {
   doc: MarketingJobRuntimeDocument;
   fetchImpl?: typeof fetch;
-}): Promise<{ refreshed: boolean }> {
+}): Promise<{ refreshed: boolean; enriched: boolean }> {
   const brandUrl = typeof input.doc.inputs.brand_url === 'string' ? input.doc.inputs.brand_url.trim() : '';
   if (!brandUrl) {
     throw new Error('needs_brand_kit:brand_url_missing');
@@ -630,7 +630,7 @@ export async function ensureFreshBrandKitForWeeklyRun(input: {
 
   let result;
   try {
-    result = await extractAndSaveTenantBrandKit({
+    result = await extractEnrichAndSaveTenantBrandKit({
       tenantId: input.doc.tenant_id,
       brandUrl,
       fetchImpl: input.fetchImpl,
@@ -667,5 +667,5 @@ export async function ensureFreshBrandKitForWeeklyRun(input: {
   const refreshed =
     beforeExtractedAt !== result.brandKit.extracted_at || beforeSourceUrl !== result.brandKit.source_url;
 
-  return { refreshed };
+  return { refreshed, enriched: result.enriched };
 }

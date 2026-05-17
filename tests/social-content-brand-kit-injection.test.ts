@@ -448,7 +448,7 @@ test('HermesMarketingPort skips brand-kit refresh for non-weekly runs', async ()
     async () => {},
     async () => {
       refresherCalls += 1;
-      return { refreshed: false };
+      return { refreshed: false, enriched: false };
     },
   );
 

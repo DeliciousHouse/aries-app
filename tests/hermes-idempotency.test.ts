@@ -23,7 +23,7 @@ function recordingFetchSequence(responses: Array<() => Response>) {
 }
 
 const NO_SLEEP = async () => {};
-const NO_OP_BRAND_KIT_REFRESHER = async () => ({ refreshed: false });
+const NO_OP_BRAND_KIT_REFRESHER = async () => ({ refreshed: false, enriched: false });
 
 async function withDataRoot<T>(run: () => Promise<T>): Promise<T> {
   const previousDataRoot = process.env.DATA_ROOT;

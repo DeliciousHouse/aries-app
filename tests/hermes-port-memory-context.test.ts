@@ -44,7 +44,7 @@ function hermesOkResponse(runId = 'run-test-123') {
 }
 
 function noopBrandKitRefresher() {
-  return async () => ({ refreshed: false });
+  return async () => ({ refreshed: false, enriched: false });
 }
 
 function noopCallbackTokenClient() {
