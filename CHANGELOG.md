@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.26] - 2026-05-17
+
+### Changed
+- **Weekly social-content runs now generate 6 image creatives by default (was 3), one per static post.** `static_post_count: 7` minus the 1 video script slot leaves 6 static posts that need imagery — the prior default of 3 underdelivered, leaving 4 of the 7 posts without a matching creative. The hard cap also moves from 3 to 6 so operator-supplied `imageCreativeCount: 9` no longer silently clamps to 3. Per-tenant Hermes/Veo image budget doubles (3→6 per weekly run); at 50 tenants this is 300 images/week vs 150. Hermes production-stage tool policy has no per-call cap, so no Hermes prompt change is needed.
+- **DRY: `MAX_IMAGE_CREATIVE_COUNT` and `MAX_VIDEO_RENDER_COUNT` now live in `backend/social-content/defaults.ts`** as `SOCIAL_CONTENT_MAX_IMAGE_CREATIVE_COUNT` / `SOCIAL_CONTENT_MAX_VIDEO_RENDER_COUNT`. `payload.ts` and `workflow-request.ts` import the shared constants instead of redefining their own — future cap changes are a one-line edit, not three.
+
 ## [0.1.3.25] - 2026-05-17
 
 ### Fixed
