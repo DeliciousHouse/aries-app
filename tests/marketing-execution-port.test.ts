@@ -185,7 +185,7 @@ test('HermesMarketingPort.runPipeline returns submitted immediately by default',
     assert.match(String(body.callback_auth.callback_token), /^[0-9a-f]{64}$/);
     assert.deepEqual(body.callback_context, {
       workflow_key: 'social_content_weekly',
-      workflow_version: '2026-05-social-content-weekly-v1',
+      workflow_version: '2026-05-social-content-weekly-v2',
       aries_run_id: result.ariesRunId,
       job_id: 'job_test',
       tenant_id: 'tenant_test',
@@ -198,7 +198,7 @@ test('HermesMarketingPort.runPipeline returns submitted immediately by default',
     // — the gateway gets them from `callback_context` and from the prompt.
     assert.equal(typeof body.input, 'string');
     assert.match(body.input, /Workflow: social_content_weekly/);
-    assert.match(body.input, /Workflow version: 2026-05-social-content-weekly-v1/);
+    assert.match(body.input, /Workflow version: 2026-05-social-content-weekly-v2/);
     assert.match(body.input, /Aries run ID: arun_/);
     assert.match(body.input, /Job ID: job_test/);
     assert.match(body.input, /Tenant ID: tenant_test/);
@@ -208,7 +208,7 @@ test('HermesMarketingPort.runPipeline returns submitted immediately by default',
     if (!requestJsonMatch) assert.fail('expected serialized request JSON in input prompt');
     const embeddedRequest = JSON.parse(requestJsonMatch[1]);
     assert.equal(embeddedRequest.workflow_key, 'social_content_weekly');
-    assert.equal(embeddedRequest.workflow_version, '2026-05-social-content-weekly-v1');
+    assert.equal(embeddedRequest.workflow_version, '2026-05-social-content-weekly-v2');
     assert.equal(embeddedRequest.aries_run_id, result.ariesRunId);
     assert.equal(embeddedRequest.tenant_id, 'tenant_test');
     assert.equal(embeddedRequest.job_id, 'job_test');

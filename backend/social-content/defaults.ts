@@ -1,5 +1,5 @@
 export const SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY = 'social_content_weekly';
-export const SOCIAL_CONTENT_WEEKLY_WORKFLOW_VERSION = '2026-05-social-content-weekly-v1';
+export const SOCIAL_CONTENT_WEEKLY_WORKFLOW_VERSION = '2026-05-social-content-weekly-v2';
 
 export const SOCIAL_CONTENT_DEFAULT_SCOPE = {
   window_days: 7,

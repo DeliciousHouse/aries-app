@@ -119,7 +119,7 @@ test('weekly workflow request uses default scope counts/channels', () => {
   });
 
   assert.equal(request.workflow_key, 'social_content_weekly');
-  assert.equal(request.workflow_version, '2026-05-social-content-weekly-v1');
+  assert.equal(request.workflow_version, '2026-05-social-content-weekly-v2');
   assert.equal(request.input.scope.window_days, 7);
   assert.equal(request.input.scope.static_post_count, 7);
   assert.equal(request.input.scope.image_creative_count, 3);

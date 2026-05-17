@@ -106,6 +106,7 @@ export type SocialContentWeeklyBrandPayload = {
   };
   font_families: string[];
   offer: string;
+  notes: string;
   must_avoid_aesthetics: string[];
 };
 
@@ -246,6 +247,26 @@ function resolveBrandVoice(req: UnknownRecord, brandKit: MarketingBrandKitRefere
   return typeof summary === 'string' ? stringValue(summary) : '';
 }
 
+function resolveBusinessName(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
+  const operatorName = stringValue(req.businessName);
+  if (operatorName) return operatorName;
+  const brandKitName = brandKit?.brand_name;
+  return typeof brandKitName === 'string' ? stringValue(brandKitName) : '';
+}
+
+const NOTES_FALLBACK_BUDGET = 300;
+
+function resolveNotes(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
+  const operatorNotes = stringValue(req.notes);
+  if (operatorNotes) return operatorNotes;
+  const summary = brandKit?.brand_voice_summary;
+  if (typeof summary !== 'string') return '';
+  const trimmed = stringValue(summary);
+  if (!trimmed) return '';
+  if (trimmed.length <= NOTES_FALLBACK_BUDGET) return trimmed;
+  return `${trimmed.slice(0, NOTES_FALLBACK_BUDGET)}…`;
+}
+
 function resolveBrandOffer(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
   return (
     repairStaleMarketingOffer({
@@ -333,7 +354,7 @@ export function buildSocialContentWeeklyRequest(input: {
     input: {
       brand: {
         url: stringValue(input.doc.inputs.brand_url),
-        name: stringValue(req.businessName) || stringValue(brandKit?.brand_name),
+        name: resolveBusinessName(req, brandKit),
         business_type: stringValue(req.businessType),
         voice: resolveBrandVoice(req, brandKit),
         style_vibe: stringValue(req.styleVibe),
@@ -342,6 +363,7 @@ export function buildSocialContentWeeklyRequest(input: {
         colors: brandKitColors(brandKit),
         font_families: brandKitFontFamilies(brandKit),
         offer: resolvedOffer,
+        notes: resolveNotes(req, brandKit),
         must_avoid_aesthetics: resolveMustAvoidAesthetics(req),
       },
       objective: {
