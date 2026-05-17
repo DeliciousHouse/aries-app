@@ -62,7 +62,7 @@ Use these checks to keep the repo clean:
 - The current product direction is Hermes-native weekly social content: public UI should say posts, weekly posts, social content, or social media content, and avoid campaign except for Meta Ads API objects.
 - Weekly social-content defaults are 7 days, 3 static posts, up to 2 image creatives, 1 video script, and 0 rendered videos until explicit approval.
 - Social-content execution should submit Hermes runs asynchronously and rely on authenticated, idempotent callbacks at `/api/internal/hermes/runs`; it should not poll Hermes to terminal completion.
-- Hermes social-content workflows should use `social_content_weekly` with version `2026-05-social-content-weekly-v1`; new social-content code should not depend on Lobster/OpenClaw.
+- Hermes social-content workflows should use `social_content_weekly` with version `2026-05-social-content-weekly-v2`; new social-content code should not depend on Lobster/OpenClaw.
 - Aries should pass abstract media-generation requests to Hermes; Hermes owns provider execution and raw OpenAI/ChatGPT token usage for weekly social content.
 - Marketing research memory: when `ARIES_RESEARCH_ENABLED` is truthy (`1`, `true`, `yes`, or `on`), `runResearchStage` can submit Hermes work through `submitMarketingResearchMemoryJob` with idempotent, secret-authenticated callbacks at `/api/internal/aries-research/callback` (not the generic Hermes marketing run callback).
 - Honcho access uses split JWTs in `HonchoHttpTransport`: `HONCHO_CONTROL_PLANE_JWT` for workspace create/delete, and `HONCHO_DATA_PLANE_JWT` for routine Honcho API calls when set (otherwise the control-plane token is used for all calls in dev).
