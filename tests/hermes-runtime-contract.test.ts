@@ -127,3 +127,45 @@ void test('instructions() forbids local-workspace tools during research — gene
   assert.ok(result.includes('6 total tool calls'), '6-tool-call cap must be present');
   assert.ok(result.includes('no Aries workspace available'), 'workspace-unavailable rationale must be present');
 });
+
+// Test 30: buildSocialContentWeeklyRequest payload integration for enrichment fields
+
+test('buildSocialContentWeeklyRequest payload: enrichment fields flow into brand.style_vibe, objective.audience, brand.voice (Tone: suffix), brand.offer (positioning-aware)', async () => {
+  const { buildSocialContentWeeklyRequest } = await import('../backend/social-content/workflow-request');
+  const doc = {
+    tenant_id: 'tenant_enrich_payload',
+    job_id: 'mkt_enrich_payload',
+    inputs: {
+      brand_url: 'https://example.com',
+      request: {},
+    },
+    brand_kit: {
+      path: '/tmp/brand-kit.json',
+      source_url: 'https://example.com',
+      canonical_url: 'https://example.com',
+      brand_name: 'Coach',
+      logo_urls: [],
+      colors: { primary: null, secondary: null, accent: null, palette: [] },
+      font_families: [],
+      external_links: [],
+      extracted_at: new Date().toISOString(),
+      brand_voice_summary: 'Empowering leadership voice.',
+      offer_summary: 'Leadership coaching programs.',
+      positioning: 'For founders who need clarity.',
+      audience: 'Early-stage founders.',
+      tone_of_voice: 'warm, direct',
+      style_vibe: 'minimalist, modern',
+    },
+  } as unknown as import('../backend/marketing/runtime-state').MarketingJobRuntimeDocument;
+
+  const payload = buildSocialContentWeeklyRequest({
+    doc,
+    ariesRunId: 'run-enrich-payload',
+    callbackUrl: 'https://aries.example.com/callback',
+  });
+
+  assert.equal(payload.input.brand.style_vibe, 'minimalist, modern', 'style_vibe should come from brandKit.style_vibe');
+  assert.equal(payload.input.objective.audience, 'Early-stage founders.', 'audience should come from brandKit.audience');
+  assert.equal(payload.input.brand.voice, 'Empowering leadership voice. Tone: warm, direct.', 'voice should include Tone: suffix');
+  assert.ok(typeof payload.input.brand.offer === 'string' && payload.input.brand.offer.length > 0, 'offer should be non-empty');
+});

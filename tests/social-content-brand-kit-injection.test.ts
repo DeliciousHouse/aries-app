@@ -473,3 +473,92 @@ test('HermesMarketingPort skips brand-kit refresh for non-weekly runs', async ()
   assert.equal(refresherCalls, 0, 'refresher must not be invoked for brand_campaign runs');
   assert.equal(result.kind, 'submitted');
 });
+
+// Tests 28-29: ensureFreshBrandKitForWeeklyRun integration
+
+const SPARSE_HTML = `<html><head><title>Acme</title><meta name="description" content="Acme coaching."></head><body><h1>Acme</h1></body></html>`;
+
+test('ensureFreshBrandKitForWeeklyRun returns {refreshed: true, enriched: true} and propagates all 4 new fields', async () => {
+  await withRuntimeEnv(async () => {
+    const mockEnrichment = {
+      brandVoiceSummary: 'Enriched voice.',
+      offerSummary: 'Enriched offer.',
+      positioning: 'For busy founders.',
+      audience: 'Early-stage founders.',
+      toneOfVoice: 'warm, bold',
+      styleVibe: 'minimalist',
+    };
+    const runId = 'run-enrich-28';
+    const mockFetch: typeof fetch = (async (input: unknown) => {
+      const url = typeof input === 'string' ? input : String(input);
+      if (url.includes('/v1/runs') && !url.includes(runId)) {
+        return new Response(JSON.stringify({ run_id: runId }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (url.includes(runId)) {
+        return new Response(JSON.stringify({ status: 'completed', output: JSON.stringify({ status: 'ok', output: [mockEnrichment] }) }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response(SPARSE_HTML, { status: 200, headers: { 'content-type': 'text/html' } });
+    }) as typeof fetch;
+
+    const prevEnrich = process.env.ARIES_BRAND_ENRICHMENT_ENABLED;
+    const prevGateway = process.env.HERMES_GATEWAY_URL;
+    const prevKey = process.env.HERMES_API_SERVER_KEY;
+    process.env.ARIES_BRAND_ENRICHMENT_ENABLED = '1';
+    process.env.HERMES_GATEWAY_URL = 'https://hermes.test';
+    process.env.HERMES_API_SERVER_KEY = 'test-key';
+    try {
+      const doc = {
+        tenant_id: 'tenant_enrich_28',
+        job_id: 'mkt_enrich_28',
+        inputs: { brand_url: 'https://acme.example.com' },
+        brand_kit: null,
+      } as unknown as MarketingJobRuntimeDocument;
+
+      const result = await ensureFreshBrandKitForWeeklyRun({ doc, fetchImpl: mockFetch });
+      assert.equal(result.refreshed, true, 'should be refreshed on first scrape');
+      assert.equal(result.enriched, true, 'should be enriched when Hermes returns enrichment');
+      assert.ok(doc.brand_kit, 'brand_kit should be set on doc');
+      assert.equal(doc.brand_kit!.positioning, 'For busy founders.');
+      assert.equal(doc.brand_kit!.audience, 'Early-stage founders.');
+      assert.equal(doc.brand_kit!.tone_of_voice, 'warm, bold');
+      assert.equal(doc.brand_kit!.style_vibe, 'minimalist');
+    } finally {
+      if (prevEnrich === undefined) delete process.env.ARIES_BRAND_ENRICHMENT_ENABLED;
+      else process.env.ARIES_BRAND_ENRICHMENT_ENABLED = prevEnrich;
+      if (prevGateway === undefined) delete process.env.HERMES_GATEWAY_URL;
+      else process.env.HERMES_GATEWAY_URL = prevGateway;
+      if (prevKey === undefined) delete process.env.HERMES_API_SERVER_KEY;
+      else process.env.HERMES_API_SERVER_KEY = prevKey;
+    }
+  });
+});
+
+test('ensureFreshBrandKitForWeeklyRun returns {enriched: false} when enrichment disabled, populates only original 11 fields', async () => {
+  await withRuntimeEnv(async () => {
+    const mockFetch: typeof fetch = (async () =>
+      new Response(SPARSE_HTML, { status: 200, headers: { 'content-type': 'text/html' } })
+    ) as typeof fetch;
+
+    const prevEnrich = process.env.ARIES_BRAND_ENRICHMENT_ENABLED;
+    process.env.ARIES_BRAND_ENRICHMENT_ENABLED = '0';
+    try {
+      const doc = {
+        tenant_id: 'tenant_no_enrich_29',
+        job_id: 'mkt_no_enrich_29',
+        inputs: { brand_url: 'https://acme.example.com' },
+        brand_kit: null,
+      } as unknown as MarketingJobRuntimeDocument;
+
+      const result = await ensureFreshBrandKitForWeeklyRun({ doc, fetchImpl: mockFetch });
+      assert.equal(result.enriched, false, 'enriched should be false when disabled');
+      assert.ok(doc.brand_kit, 'brand_kit should still be set from scrape');
+      assert.equal(doc.brand_kit!.positioning, null, 'positioning should be null without enrichment');
+      assert.equal(doc.brand_kit!.audience, null, 'audience should be null without enrichment');
+      assert.equal(doc.brand_kit!.tone_of_voice, null, 'tone_of_voice should be null without enrichment');
+      assert.equal(doc.brand_kit!.style_vibe, null, 'style_vibe should be null without enrichment');
+    } finally {
+      if (prevEnrich === undefined) delete process.env.ARIES_BRAND_ENRICHMENT_ENABLED;
+      else process.env.ARIES_BRAND_ENRICHMENT_ENABLED = prevEnrich;
+    }
+  });
+});
