@@ -56,7 +56,7 @@ test('weekly payload caps image/video generation counts', () => {
     imageCreativeCount: 99,
     videoRenderCount: 99,
   });
-  assert.equal(normalized.imageCreativeCount, 3);
+  assert.equal(normalized.imageCreativeCount, 6);
   assert.equal(normalized.videoRenderCount, 1);
 });
 
@@ -122,7 +122,7 @@ test('weekly workflow request uses default scope counts/channels', () => {
   assert.equal(request.workflow_version, '2026-05-social-content-weekly-v2');
   assert.equal(request.input.scope.window_days, 7);
   assert.equal(request.input.scope.static_post_count, 7);
-  assert.equal(request.input.scope.image_creative_count, 3);
+  assert.equal(request.input.scope.image_creative_count, 6);
   assert.equal(request.input.scope.video_script_count, 1);
   assert.equal(request.input.scope.video_render_count, 0);
   assert.deepEqual(request.input.scope.channels, ['meta', 'instagram']);
@@ -568,13 +568,13 @@ test('weekly workflow request includes abstract Hermes-owned media requests', ()
   });
 
   assert.equal('media_provider' in request, false);
-  assert.equal(request.input.scope.image_creative_count, 3);
+  assert.equal(request.input.scope.image_creative_count, 6);
   assert.equal(request.input.scope.video_render_count, 1);
   assert.deepEqual(request.input.media_requests, [
     {
       type: 'image.generate',
       aspect_ratio: '4:5',
-      count: 3,
+      count: 6,
       target_channels: ['meta', 'instagram'],
       creative_briefs: ['Get more demo requests'],
     },
@@ -621,7 +621,7 @@ test('weekly workflow request filters image target channels to Hermes social cha
   assert.deepEqual(request.input.media_requests?.[0], {
     type: 'image.generate',
     aspect_ratio: '4:5',
-    count: 3,
+    count: 6,
     target_channels: ['instagram'],
     creative_briefs: ['Create on-brand weekly social image creative.'],
   });
