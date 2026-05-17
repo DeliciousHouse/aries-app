@@ -243,8 +243,12 @@ function brandKitFontFamilies(brandKit: MarketingBrandKitReference | null | unde
 function resolveBrandVoice(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
   const operatorVoice = stringValue(req.brandVoice);
   if (operatorVoice) return operatorVoice;
-  const summary = brandKit?.brand_voice_summary;
-  return typeof summary === 'string' ? stringValue(summary) : '';
+  const summary = stringValue(brandKit?.brand_voice_summary ?? '') || '';
+  const tone = stringValue(brandKit?.tone_of_voice ?? '') || '';
+  if (summary && tone) return `${summary} Tone: ${tone}.`;
+  if (summary) return summary;
+  if (tone) return `Tone: ${tone}.`;
+  return '';
 }
 
 function resolveBusinessName(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
@@ -275,10 +279,18 @@ function resolveBrandOffer(req: UnknownRecord, brandKit: MarketingBrandKitRefere
       businessType: stringValue(req.businessType) || null,
       primaryGoal: stringValue(req.primaryGoal) || stringValue(req.goal) || null,
       brandVoice: stringValue(req.brandVoice) || brandKit?.brand_voice_summary || null,
-      positioning: brandKit?.offer_summary || null,
+      positioning: brandKit?.positioning || brandKit?.offer_summary || null,
       brandKitOfferSummary: brandKit?.offer_summary || null,
     }) || ''
   );
+}
+
+function resolveBrandStyleVibe(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
+  return stringValue(req.styleVibe) || stringValue(brandKit?.style_vibe ?? '') || '';
+}
+
+function resolveBrandAudience(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
+  return stringValue(req.audience) || stringValue(brandKit?.audience ?? '') || '';
 }
 
 function resolveMustAvoidAesthetics(req: UnknownRecord): string[] {
@@ -357,7 +369,7 @@ export function buildSocialContentWeeklyRequest(input: {
         name: resolveBusinessName(req, brandKit),
         business_type: stringValue(req.businessType),
         voice: resolveBrandVoice(req, brandKit),
-        style_vibe: stringValue(req.styleVibe),
+        style_vibe: resolveBrandStyleVibe(req, brandKit),
         visual_references: visualReferences,
         logo_urls: brandKitLogoUrls(brandKit),
         colors: brandKitColors(brandKit),
@@ -369,7 +381,7 @@ export function buildSocialContentWeeklyRequest(input: {
       objective: {
         primary_goal: stringValue(req.primaryGoal) || stringValue(req.goal),
         offer: resolvedOffer,
-        audience: stringValue(req.audience),
+        audience: resolveBrandAudience(req, brandKit),
       },
       competitor: {
         url: stringValue(input.doc.inputs.competitor_url),
@@ -443,7 +455,7 @@ export function buildProductionResumeContext(input: {
   // --- brand profile (static, always available) ---
   const brandName = stringValue(req.businessName) || stringValue(brandKit?.brand_name) || 'the brand';
   const brandVoice = resolveBrandVoice(req, brandKit);
-  const styleVibe = stringValue(req.styleVibe);
+  const styleVibe = resolveBrandStyleVibe(req, brandKit);
   const offer = resolveBrandOffer(req, brandKit);
   const palette = brandKitColors(brandKit).palette;
   const mustAvoid = resolveMustAvoidAesthetics(req);
