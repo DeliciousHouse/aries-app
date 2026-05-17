@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.21] - 2026-05-17
+
+### Changed
+- **CLAUDE.md cleanup.** Dropped the stale `## Protected Systems: OpenClaw is Brendan-only` directive — OpenClaw was removed and replaced by Hermes; the line misled past agents researching gateway config.
+
 ## [0.1.3.20] - 2026-05-17
 
 ### Changed
