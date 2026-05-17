@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.24] - 2026-05-17
+
+### Changed
+- **Enable `ARIES_BRAND_ENRICHMENT_ENABLED` by default in `docker-compose.yml`.** The enrichment plumbing shipped in v0.1.3.23 was env-gated OFF for safe rollout; this flips the default to ON so the weekly social-content workflow and URL-preview route persist LLM-derived `positioning`, `audience`, `tone_of_voice`, and `style_vibe` to `brand-kit.json`. Set `ARIES_BRAND_ENRICHMENT_ENABLED=0` in your environment to disable.
+
 ## [0.1.3.23] - 2026-05-17
 
 ### Added
