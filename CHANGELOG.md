@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.25] - 2026-05-17
+
+### Fixed
+- **Enrichment fields now win over stale onboarding-derived `req.X` values in Hermes payload builders.** v0.1.3.23 wired `brandKit.style_vibe`, `brandKit.tone_of_voice`, and `brandKit.brand_voice_summary` into the Hermes payload with "operator override wins" semantics, but `req.styleVibe` and `req.brandVoice` are pre-populated at onboarding from heuristic fallbacks (e.g. `"Balanced and professional with neutral clarity"`) rather than operator input — so the stale fallbacks were stomping the LLM-derived signal. Inverted priority for these two fields: enrichment wins when non-null; `req.X` falls back only when enrichment is absent. `tone_of_voice` now always appends as a `Tone: <list>.` suffix when present, even alongside an operator-set voice. Surfaced by post-deploy verification on the hermes-dev / alecferrismusic.com sparse-profile tenant.
+
 ## [0.1.3.24] - 2026-05-17
 
 ### Changed

@@ -63,10 +63,18 @@ function buildWeeklyPayload(req: Record<string, unknown>, brandKit: MarketingBra
 
 // Tests 16-18: resolveBrandStyleVibe
 
-test('resolveBrandStyleVibe: req.styleVibe wins when both present', () => {
+test('resolveBrandStyleVibe: brandKit.style_vibe wins when present; req.styleVibe falls back when brandKit is null', () => {
   const payload = buildWeeklyPayload(
     { styleVibe: 'operator vibe' },
     makeRef({ style_vibe: 'kit vibe' }),
+  );
+  assert.equal(payload.input.brand.style_vibe, 'kit vibe');
+});
+
+test('resolveBrandStyleVibe falls back to req.styleVibe when brandKit.style_vibe is null', () => {
+  const payload = buildWeeklyPayload(
+    { styleVibe: 'operator vibe' },
+    makeRef({ style_vibe: null }),
   );
   assert.equal(payload.input.brand.style_vibe, 'operator vibe');
 });
@@ -109,13 +117,20 @@ test('resolveBrandAudience: empty string when both absent', () => {
 
 // Tests 22-26: resolveBrandVoice
 
-test('resolveBrandVoice: req.brandVoice wins AND no tone suffix appended (operator-override semantics)', () => {
+test('resolveBrandVoice: brandKit.brand_voice_summary wins over req.brandVoice when present, tone always appends', () => {
   const payload = buildWeeklyPayload(
     { brandVoice: 'operator voice' },
     makeRef({ brand_voice_summary: 'kit voice', tone_of_voice: 'warm, bold' }),
   );
-  assert.equal(payload.input.brand.voice, 'operator voice');
-  assert.ok(!payload.input.brand.voice.includes('Tone:'), 'tone suffix must NOT be appended when operator voice set');
+  assert.equal(payload.input.brand.voice, 'kit voice Tone: warm, bold.');
+});
+
+test('resolveBrandVoice appends Tone: even when req.brandVoice is set (because tone is a separate dimension)', () => {
+  const payload = buildWeeklyPayload(
+    { brandVoice: 'operator voice' },
+    makeRef({ brand_voice_summary: null, tone_of_voice: 'warm, bold' }),
+  );
+  assert.equal(payload.input.brand.voice, 'operator voice Tone: warm, bold.');
 });
 
 test('resolveBrandVoice: brand_voice_summary + tone_of_voice both present → "summary Tone: tone."', () => {
