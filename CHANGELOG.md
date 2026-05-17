@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.23] - 2026-05-17
+
+### Added
+- **Enrichment fields from `enrichBrandKitWithGemini` now persist to `brand-kit.json` and flow into the Hermes weekly social-content payload.** Previously the LLM-generated `positioning`, `audience`, `tone_of_voice`, and `style_vibe` fields were computed for the URL-preview card and immediately discarded — the weekly run re-scraped from scratch each time and sent Hermes only the HTML-derived `brand_voice_summary` and `offer_summary`. Four new `string | null` fields on `TenantBrandKit` and `MarketingBrandKitReference` give the enrichment a persistent home.
+- **`extractEnrichAndSaveTenantBrandKit` wrapper** in `backend/marketing/brand-kit.ts`: fast path reuses a fresh, already-enriched kit (skipping the LLM call); slow path scrapes, enriches, and persists. Both the `ensureFreshBrandKitForWeeklyRun` weekly kick-off and the `url-preview` route now call this wrapper, so the preview card and the Hermes payload read from the same persisted source.
+- **`applyBrandKitEnrichment`** pure merge helper in `backend/marketing/brand-kit-enrich.ts`: enrichment wins per-field when present, null-coalesces to base otherwise.
+- **`marketingBrandKitReferenceFromTenantBrandKit`** exported helper in `backend/marketing/runtime-state.ts`: DRYs the three previous inline `MarketingBrandKitReference` literal builders in `orchestrator.ts`, `runtime-state.ts`, and `workflow-request.ts` into one call site that auto-includes any future `TenantBrandKit` additions.
+
+### Changed
+- **Hermes weekly payload now carries enrichment-derived brand signals.** `resolveBrandStyleVibe` (new) and `resolveBrandAudience` (new) feed `brand.style_vibe` and `objective.audience` from the persisted brand kit, with operator-note fields winning when set. `resolveBrandVoice` (updated) appends a `"Tone: <tone_of_voice>."` suffix when both voice and tone are present from the kit; operator-supplied `brandVoice` skips the suffix entirely. `resolveBrandOffer` (fixed) now passes `brandKit.positioning` as the positioning argument instead of reusing `offer_summary` as a surrogate.
+- **`backward-compat`** `normalizePersistedBrandKit` defaults all four new fields to `null` when loading old `brand-kit.json` files that predate this release — no migration step required.
+
 ## [0.1.3.22] - 2026-05-17
 
 ### Fixed
