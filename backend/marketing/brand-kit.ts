@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { resolveDataPath } from '@/lib/runtime-paths';
+import { applyBrandKitEnrichment, enrichBrandKitWithGemini } from '@/backend/marketing/brand-kit-enrich';
 
 export type TenantBrandLink = {
   platform: string;
@@ -28,6 +29,11 @@ export type TenantBrandKit = {
   extracted_at: string;
   brand_voice_summary: string | null;
   offer_summary: string | null;
+  // Sourced from enrichBrandKitWithGemini; null when enrichment skipped/failed.
+  positioning: string | null;
+  audience: string | null;
+  tone_of_voice: string | null;
+  style_vibe: string | null;
 };
 
 export type BrandKitSignalsInput = {
@@ -1284,6 +1290,10 @@ function normalizePersistedBrandKit(brandKit: TenantBrandKit): TenantBrandKit {
     extracted_at: brandKit.extracted_at,
     brand_voice_summary: cleanSentenceCandidate((brandKit as TenantBrandKit).brand_voice_summary || null),
     offer_summary: cleanSentenceCandidate((brandKit as TenantBrandKit).offer_summary || null),
+    positioning: cleanSentenceCandidate((brandKit as TenantBrandKit).positioning || null),
+    audience: cleanSentenceCandidate((brandKit as TenantBrandKit).audience || null),
+    tone_of_voice: cleanSentenceCandidate((brandKit as TenantBrandKit).tone_of_voice || null),
+    style_vibe: cleanSentenceCandidate((brandKit as TenantBrandKit).style_vibe || null),
   };
 }
 
@@ -1384,6 +1394,10 @@ export async function extractBrandKitFromWebsite(input: {
     extracted_at: nowIso(),
     brand_voice_summary: deriveBrandVoiceSummary(html),
     offer_summary: deriveOfferSummary(html),
+    positioning: null,
+    audience: null,
+    tone_of_voice: null,
+    style_vibe: null,
   };
 
   const normalizedBrandKit = normalizePersistedBrandKit(brandKit);
@@ -1451,4 +1465,50 @@ export async function extractAndSaveTenantBrandKit(input: {
   const brandKit = await extractBrandKitFromWebsite(input);
   const filePath = saveTenantBrandKit(input.tenantId, brandKit);
   return { brandKit, filePath };
+}
+
+function hasEnrichmentFields(kit: TenantBrandKit): boolean {
+  return !!(kit.positioning || kit.audience || kit.tone_of_voice || kit.style_vibe);
+}
+
+export async function extractEnrichAndSaveTenantBrandKit(input: {
+  tenantId: string;
+  brandUrl: string;
+  fetchImpl?: typeof fetch;
+  env?: Partial<Record<string, string | undefined>>;
+}): Promise<{ brandKit: TenantBrandKit; filePath: string; enriched: boolean }> {
+  const existing = await loadTenantBrandKit(input.tenantId);
+  if (existing && isFreshBrandKit(existing, input.brandUrl) && hasEnrichmentFields(existing)) {
+    saveTenantBrandKit(input.tenantId, existing);
+    return { brandKit: existing, filePath: tenantBrandKitPath(input.tenantId), enriched: true };
+  }
+
+  const scraped =
+    existing && isFreshBrandKit(existing, input.brandUrl)
+      ? existing
+      : await extractBrandKitFromWebsite(input);
+
+  const enrichmentResult = await enrichBrandKitWithGemini({
+    brandUrl: input.brandUrl,
+    scrapedBrandKit: scraped,
+    env: input.env,
+    fetchImpl: input.fetchImpl,
+  });
+
+  const merged = enrichmentResult.ok ? applyBrandKitEnrichment(scraped, enrichmentResult.enrichment) : scraped;
+
+  if (
+    !enrichmentResult.ok &&
+    enrichmentResult.reason !== 'disabled' &&
+    enrichmentResult.reason !== 'not_configured'
+  ) {
+    console.warn('[brand-kit] enrichment failed during persistence', {
+      tenantId: input.tenantId,
+      reason: enrichmentResult.reason,
+      detail: (enrichmentResult as { detail?: string }).detail,
+    });
+  }
+
+  const filePath = saveTenantBrandKit(input.tenantId, merged);
+  return { brandKit: merged, filePath, enriched: enrichmentResult.ok };
 }

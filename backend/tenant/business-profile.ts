@@ -399,6 +399,10 @@ async function runtimeBrandKitAsTenantBrandKit(tenantId: string): Promise<{ bran
       extracted_at: runtimeBrandKit.extracted_at,
       brand_voice_summary: sanitizeBrandKitSummaryText(runtimeBrandKit.brand_voice_summary ?? null),
       offer_summary: sanitizeBrandKitSummaryText(runtimeBrandKit.offer_summary ?? null),
+      positioning: sanitizeBrandKitSummaryText(runtimeBrandKit.positioning ?? null),
+      audience: sanitizeBrandKitSummaryText(runtimeBrandKit.audience ?? null),
+      tone_of_voice: sanitizeBrandKitSummaryText(runtimeBrandKit.tone_of_voice ?? null),
+      style_vibe: sanitizeBrandKitSummaryText(runtimeBrandKit.style_vibe ?? null),
     },
   };
 }

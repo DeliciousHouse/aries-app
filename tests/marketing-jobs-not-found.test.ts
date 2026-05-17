@@ -41,6 +41,10 @@ function buildBrandKit(dataRoot: string): MarketingBrandKitReference {
     external_links: [],
     brand_voice_summary: 'Confident and clear.',
     offer_summary: 'Operator-led launch intensives.',
+    positioning: null,
+    audience: null,
+    tone_of_voice: null,
+    style_vibe: null,
     extracted_at: '2026-03-19T00:00:00.000Z',
   };
 }

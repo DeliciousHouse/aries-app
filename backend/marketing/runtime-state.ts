@@ -436,6 +436,10 @@ function runtimeBrandKitReferenceFromTenantBrandKit(
     extracted_at: brandKit.extracted_at,
     brand_voice_summary: brandKit.brand_voice_summary ?? null,
     offer_summary: brandKit.offer_summary ?? null,
+    positioning: brandKit.positioning ?? null,
+    audience: brandKit.audience ?? null,
+    tone_of_voice: brandKit.tone_of_voice ?? null,
+    style_vibe: brandKit.style_vibe ?? null,
   };
 }
 

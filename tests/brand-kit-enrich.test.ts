@@ -16,6 +16,10 @@ const SCRAPED: TenantBrandKit = {
   extracted_at: '2026-05-07T00:00:00.000Z',
   brand_voice_summary: 'Truncated meta description fragment.',
   offer_summary: 'Truncated offer fragment.',
+  positioning: null,
+  audience: null,
+  tone_of_voice: null,
+  style_vibe: null,
 };
 
 const HTML_RESPONSE = new Response(

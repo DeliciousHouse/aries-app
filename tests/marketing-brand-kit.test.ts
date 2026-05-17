@@ -373,6 +373,10 @@ test('normalizePersistedBrandKit sanitizes HTML markup in a cached brand_name on
       extracted_at: new Date().toISOString(),
       brand_voice_summary: null,
       offer_summary: null,
+      positioning: null,
+      audience: null,
+      tone_of_voice: null,
+      style_vibe: null,
     });
     const loaded = await loadTenantBrandKit('nwaeventco');
     assert.ok(loaded);
@@ -652,6 +656,10 @@ test('extractAndSaveTenantBrandKit normalizes noisy persisted brand-kit signals 
         extracted_at: new Date().toISOString(),
         brand_voice_summary: null,
         offer_summary: null,
+        positioning: null,
+        audience: null,
+        tone_of_voice: null,
+        style_vibe: null,
       }, null, 2),
     );
 
@@ -729,6 +737,10 @@ test('extractAndSaveTenantBrandKit refreshes fresh low-quality rainbow palettes 
           extracted_at: new Date().toISOString(),
           brand_voice_summary: null,
           offer_summary: null,
+          positioning: null,
+          audience: null,
+          tone_of_voice: null,
+          style_vibe: null,
         }, null, 2),
       );
 
@@ -856,6 +868,10 @@ test('saveMarketingJobRuntime rejects brand campaign runtime documents without a
         extracted_at: new Date().toISOString(),
         brand_voice_summary: null,
         offer_summary: null,
+        positioning: null,
+        audience: null,
+        tone_of_voice: null,
+        style_vibe: null,
       },
     });
 

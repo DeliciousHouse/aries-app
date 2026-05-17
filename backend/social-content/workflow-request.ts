@@ -646,6 +646,10 @@ export async function ensureFreshBrandKitForWeeklyRun(input: {
     extracted_at: result.brandKit.extracted_at,
     brand_voice_summary: result.brandKit.brand_voice_summary,
     offer_summary: result.brandKit.offer_summary,
+    positioning: result.brandKit.positioning,
+    audience: result.brandKit.audience,
+    tone_of_voice: result.brandKit.tone_of_voice,
+    style_vibe: result.brandKit.style_vibe,
   };
 
   const refreshed =

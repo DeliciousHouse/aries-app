@@ -50,6 +50,10 @@ function fullyPopulatedBrandKit() {
     extracted_at: new Date().toISOString(),
     brand_voice_summary: 'Warm, confident, craft-led storytelling.',
     offer_summary: 'Hand-stitched leather goods, made-to-order weekly drops.',
+    positioning: null,
+    audience: null,
+    tone_of_voice: null,
+    style_vibe: null,
   };
 }
 
@@ -234,6 +238,10 @@ test('ensureFreshBrandKitForWeeklyRun reuses persisted fresh kit and updates doc
         extracted_at: new Date().toISOString(),
         brand_voice_summary: 'Persisted voice line.',
         offer_summary: 'Persisted offer line.',
+        positioning: null,
+        audience: null,
+        tone_of_voice: null,
+        style_vibe: null,
       }),
     );
 
@@ -284,6 +292,10 @@ test('ensureFreshBrandKitForWeeklyRun re-extracts when persisted kit is stale', 
         extracted_at: '2020-01-01T00:00:00.000Z',
         brand_voice_summary: null,
         offer_summary: null,
+        positioning: null,
+        audience: null,
+        tone_of_voice: null,
+        style_vibe: null,
       }),
     );
 

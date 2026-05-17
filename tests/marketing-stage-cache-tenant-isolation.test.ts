@@ -80,6 +80,10 @@ function makeRuntimeDoc(tenantId: string, jobId: string, competitorUrl: string) 
       extracted_at: '2026-04-24T00:00:00.000Z',
       brand_voice_summary: 'Grounded.',
       offer_summary: 'Audit.',
+      positioning: null,
+      audience: null,
+      tone_of_voice: null,
+      style_vibe: null,
     },
   });
 }

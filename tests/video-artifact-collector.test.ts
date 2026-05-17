@@ -45,6 +45,10 @@ test('collectProductionReviewArtifacts emits one video artifact per rendered var
         extracted_at: '2026-04-24T00:00:00.000Z',
         brand_voice_summary: 'Direct and grounded.',
         offer_summary: 'Proof-led launch audit.',
+        positioning: null,
+        audience: null,
+        tone_of_voice: null,
+        style_vibe: null,
       },
     });
     runtimeDoc.stages.production.run_id = runId;
@@ -172,6 +176,10 @@ test('collectProductionReviewArtifacts skips rate-limited video variants so revi
         extracted_at: '2026-04-24T00:00:00.000Z',
         brand_voice_summary: 'Direct and grounded.',
         offer_summary: 'Proof-led launch audit.',
+        positioning: null,
+        audience: null,
+        tone_of_voice: null,
+        style_vibe: null,
       },
     });
     runtimeDoc.stages.production.run_id = runId;

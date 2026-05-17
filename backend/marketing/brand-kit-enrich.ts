@@ -227,6 +227,21 @@ export type EnrichmentResult =
   | { ok: true; enrichment: BrandKitEnrichment }
   | { ok: false; reason: EnrichmentFailureReason; detail?: string };
 
+export function applyBrandKitEnrichment(
+  base: TenantBrandKit,
+  enrichment: BrandKitEnrichment,
+): TenantBrandKit {
+  return {
+    ...base,
+    brand_voice_summary: enrichment.brandVoiceSummary ?? base.brand_voice_summary,
+    offer_summary: enrichment.offerSummary ?? base.offer_summary,
+    positioning: enrichment.positioning ?? base.positioning ?? null,
+    audience: enrichment.audience ?? base.audience ?? null,
+    tone_of_voice: enrichment.toneOfVoice ?? base.tone_of_voice ?? null,
+    style_vibe: enrichment.styleVibe ?? base.style_vibe ?? null,
+  };
+}
+
 export async function enrichBrandKitWithGemini(input: EnrichBrandKitInput): Promise<EnrichmentResult> {
   const env = input.env ?? process.env;
   const fetchImpl = input.fetchImpl ?? globalThis.fetch;

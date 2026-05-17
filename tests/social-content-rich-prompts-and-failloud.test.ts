@@ -30,6 +30,10 @@ function makeMinimalDoc(overrides: Record<string, unknown> = {}): Record<string,
       brand_name: 'Sugar and Leather',
       brand_voice_summary: 'Warm, elite, empowering.',
       offer_summary: 'Elite coaching for women leaders and executives.',
+      positioning: null,
+      audience: null,
+      tone_of_voice: null,
+      style_vibe: null,
       colors: {
         primary: '#f6339a',
         secondary: '#a855f7',
@@ -198,6 +202,10 @@ test('buildSocialContentWeeklyRequest repairs stale leather-goods offer before r
       brand_name: 'Sugar and Leather',
       brand_voice_summary: 'Warm, elite, empowering coaching for women leaders.',
       offer_summary: 'Elite coaching network for women leaders and executives.',
+      positioning: null,
+      audience: null,
+      tone_of_voice: null,
+      style_vibe: null,
       colors: {
         primary: '#f6339a',
         secondary: '#a855f7',
@@ -310,6 +318,10 @@ async function seedSocialJob() {
       extracted_at: new Date().toISOString(),
       brand_voice_summary: 'clear',
       offer_summary: null,
+      positioning: null,
+      audience: null,
+      tone_of_voice: null,
+      style_vibe: null,
     },
   });
   saveMarketingJobRuntime(doc.job_id, doc);
