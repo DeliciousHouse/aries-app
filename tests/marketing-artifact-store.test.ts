@@ -192,6 +192,10 @@ test('asset library does not read website analysis paths rejected by the artifac
       extracted_at: new Date(0).toISOString(),
       brand_voice_summary: null,
       offer_summary: null,
+      positioning: null,
+      audience: null,
+      tone_of_voice: null,
+      style_vibe: null,
       path: path.join(stageRoot, 'brand-kit.json'),
     },
   });

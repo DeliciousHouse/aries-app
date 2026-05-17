@@ -38,6 +38,10 @@ function makeRuntimeDoc() {
       extracted_at: '2026-04-24T00:00:00.000Z',
       brand_voice_summary: 'Direct and grounded.',
       offer_summary: 'Proof-led launch audit.',
+      positioning: null,
+      audience: null,
+      tone_of_voice: null,
+      style_vibe: null,
     },
   });
 

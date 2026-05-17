@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { extractAndSaveTenantBrandKit, extractBrandKitFromWebsite, loadTenantBrandKit } from '@/backend/marketing/brand-kit';
-import { enrichBrandKitWithGemini } from '@/backend/marketing/brand-kit-enrich';
+import { extractEnrichAndSaveTenantBrandKit } from '@/backend/marketing/brand-kit';
 import { draftTenantId, updateOnboardingDraft } from '@/backend/onboarding/draft-store';
 import { normalizeMarketingWebsiteUrl } from '@/lib/marketing-public-mode';
 
@@ -54,36 +53,16 @@ export async function GET(req: NextRequest) {
   const tenantId = draftTenantId(draftId);
 
   try {
-    const storedBrandKit = await loadTenantBrandKit(tenantId);
-    const sameStoredBrandKit =
-      storedBrandKit &&
-      (storedBrandKit.source_url === normalizedUrl || storedBrandKit.canonical_url === normalizedUrl)
-        ? storedBrandKit
-        : null;
-    const brandKit = sameStoredBrandKit
-      ? (await extractAndSaveTenantBrandKit({ tenantId, brandUrl: normalizedUrl })).brandKit
-      : await extractBrandKitFromWebsite({ tenantId, brandUrl: normalizedUrl });
-
-    // Best-effort LLM enrichment: gated by ARIES_BRAND_ENRICHMENT_ENABLED.
-    // On any failure (disabled, Hermes unreachable, timeout, bad output) we
-    // keep the scraper-only fields so the brand step still renders.
-    const enrichmentResult = await enrichBrandKitWithGemini({
+    const { brandKit } = await extractEnrichAndSaveTenantBrandKit({
+      tenantId,
       brandUrl: normalizedUrl,
-      scrapedBrandKit: brandKit,
     });
-    const enrichment = enrichmentResult.ok ? enrichmentResult.enrichment : null;
-    if (!enrichmentResult.ok && enrichmentResult.reason !== 'disabled' && enrichmentResult.reason !== 'not_configured') {
-      console.warn('[url-preview] brand enrichment failed', {
-        reason: enrichmentResult.reason,
-        detail: enrichmentResult.detail,
-      });
-    }
 
     const response = {
       title: brandKit.brand_name,
       favicon: brandKit.logo_urls[0] || '',
       domain: new URL(normalizedUrl).hostname,
-      description: enrichment?.offerSummary || brandKit.offer_summary || enrichment?.brandVoiceSummary || brandKit.brand_voice_summary || '',
+      description: brandKit.offer_summary || brandKit.brand_voice_summary || '',
       canonicalUrl: brandKit.canonical_url,
       brandKitPreview: {
         brandName: brandKit.brand_name,
@@ -93,12 +72,12 @@ export async function GET(req: NextRequest) {
         fontFamilies: brandKit.font_families,
         externalLinks: brandKit.external_links,
         extractedAt: brandKit.extracted_at,
-        brandVoiceSummary: enrichment?.brandVoiceSummary ?? brandKit.brand_voice_summary,
-        offerSummary: enrichment?.offerSummary ?? brandKit.offer_summary,
-        positioning: enrichment?.positioning ?? null,
-        audience: enrichment?.audience ?? null,
-        toneOfVoice: enrichment?.toneOfVoice ?? null,
-        styleVibe: enrichment?.styleVibe ?? null,
+        brandVoiceSummary: brandKit.brand_voice_summary,
+        offerSummary: brandKit.offer_summary,
+        positioning: brandKit.positioning,
+        audience: brandKit.audience,
+        toneOfVoice: brandKit.tone_of_voice,
+        styleVibe: brandKit.style_vibe,
       },
     };
 

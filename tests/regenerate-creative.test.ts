@@ -34,6 +34,10 @@ function buildBrandKit(): MarketingBrandKitReference {
     extracted_at: new Date().toISOString(),
     brand_voice_summary: null,
     offer_summary: null,
+    positioning: null,
+    audience: null,
+    tone_of_voice: null,
+    style_vibe: null,
   };
 }
 

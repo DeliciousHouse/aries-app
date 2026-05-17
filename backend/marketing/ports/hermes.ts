@@ -46,7 +46,7 @@ type HermesMarketingSleep = (ms: number) => Promise<void>;
 type HermesBrandKitRefresher = (input: {
   doc: MarketingJobRuntimeDocument;
   fetchImpl?: typeof fetch;
-}) => Promise<{ refreshed: boolean }>;
+}) => Promise<{ refreshed: boolean; enriched: boolean }>;
 
 const BRAND_CAMPAIGN_WORKFLOW_KEY = 'marketing_pipeline';
 

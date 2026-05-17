@@ -65,6 +65,10 @@ async function seedSocialJobWithImageCount(imageCreativeCount: number) {
       extracted_at: new Date().toISOString(),
       brand_voice_summary: 'clear',
       offer_summary: null,
+      positioning: null,
+      audience: null,
+      tone_of_voice: null,
+      style_vibe: null,
     },
   });
   saveMarketingJobRuntime(doc.job_id, doc);
@@ -469,6 +473,10 @@ test('(f-variant) callback with absent imageCreativeCount field does not trigger
         extracted_at: new Date().toISOString(),
         brand_voice_summary: 'clear',
         offer_summary: null,
+        positioning: null,
+        audience: null,
+        tone_of_voice: null,
+        style_vibe: null,
       },
     });
     saveMarketingJobRuntime(doc.job_id, doc);

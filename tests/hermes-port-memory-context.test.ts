@@ -44,7 +44,7 @@ function hermesOkResponse(runId = 'run-test-123') {
 }
 
 function noopBrandKitRefresher() {
-  return async () => ({ refreshed: false });
+  return async () => ({ refreshed: false, enriched: false });
 }
 
 function noopCallbackTokenClient() {
@@ -80,6 +80,10 @@ const STUB_BRAND_KIT = {
   extracted_at: new Date().toISOString(),
   brand_voice_summary: 'clear',
   offer_summary: null,
+  positioning: null,
+  audience: null,
+  tone_of_voice: null,
+  style_vibe: null,
 };
 
 async function makeBrandCampaignDoc(jobId: string, tenantId: string) {

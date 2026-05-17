@@ -224,6 +224,10 @@ test('weekly job status defaults to a 7-day calendar and keeps events in range',
         extracted_at: new Date().toISOString(),
         brand_voice_summary: null,
         offer_summary: null,
+        positioning: null,
+        audience: null,
+        tone_of_voice: null,
+        style_vibe: null,
       },
     });
     saveMarketingJobRuntime(doc.job_id, doc);
@@ -275,6 +279,10 @@ test('weekly job status planned count equals requested static + script/render it
         extracted_at: new Date().toISOString(),
         brand_voice_summary: null,
         offer_summary: null,
+        positioning: null,
+        audience: null,
+        tone_of_voice: null,
+        style_vibe: null,
       },
     });
     saveMarketingJobRuntime(doc.job_id, doc);
@@ -313,6 +321,10 @@ test('social-content status response rewrites 30-day approval copy to weekly lan
         extracted_at: new Date().toISOString(),
         brand_voice_summary: null,
         offer_summary: null,
+        positioning: null,
+        audience: null,
+        tone_of_voice: null,
+        style_vibe: null,
       },
     });
     doc.state = 'approval_required';
@@ -430,6 +442,10 @@ test('custom weekly window copy uses the actual duration label', async () => {
         extracted_at: new Date().toISOString(),
         brand_voice_summary: null,
         offer_summary: null,
+        positioning: null,
+        audience: null,
+        tone_of_voice: null,
+        style_vibe: null,
       },
     });
     saveMarketingJobRuntime(doc.job_id, doc);
@@ -481,6 +497,10 @@ test('weekly needs-connection status points operators to Hermes media setup', as
         extracted_at: new Date().toISOString(),
         brand_voice_summary: null,
         offer_summary: null,
+        positioning: null,
+        audience: null,
+        tone_of_voice: null,
+        style_vibe: null,
       },
     });
     doc.state = 'needs_connection';

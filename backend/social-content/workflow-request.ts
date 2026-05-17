@@ -1,11 +1,12 @@
 import {
-  extractAndSaveTenantBrandKit,
+  extractEnrichAndSaveTenantBrandKit,
   repairStaleMarketingOffer,
   tenantBrandKitPath,
 } from '@/backend/marketing/brand-kit';
-import type {
-  MarketingBrandKitReference,
-  MarketingJobRuntimeDocument,
+import {
+  marketingBrandKitReferenceFromTenantBrandKit,
+  type MarketingBrandKitReference,
+  type MarketingJobRuntimeDocument,
 } from '@/backend/marketing/runtime-state';
 import {
   clampWeeklyWindowDays,
@@ -243,8 +244,12 @@ function brandKitFontFamilies(brandKit: MarketingBrandKitReference | null | unde
 function resolveBrandVoice(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
   const operatorVoice = stringValue(req.brandVoice);
   if (operatorVoice) return operatorVoice;
-  const summary = brandKit?.brand_voice_summary;
-  return typeof summary === 'string' ? stringValue(summary) : '';
+  const summary = stringValue(brandKit?.brand_voice_summary ?? '') || '';
+  const tone = stringValue(brandKit?.tone_of_voice ?? '') || '';
+  if (summary && tone) return `${summary} Tone: ${tone}.`;
+  if (summary) return summary;
+  if (tone) return `Tone: ${tone}.`;
+  return '';
 }
 
 function resolveBusinessName(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
@@ -275,10 +280,18 @@ function resolveBrandOffer(req: UnknownRecord, brandKit: MarketingBrandKitRefere
       businessType: stringValue(req.businessType) || null,
       primaryGoal: stringValue(req.primaryGoal) || stringValue(req.goal) || null,
       brandVoice: stringValue(req.brandVoice) || brandKit?.brand_voice_summary || null,
-      positioning: brandKit?.offer_summary || null,
+      positioning: brandKit?.positioning || brandKit?.offer_summary || null,
       brandKitOfferSummary: brandKit?.offer_summary || null,
     }) || ''
   );
+}
+
+function resolveBrandStyleVibe(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
+  return stringValue(req.styleVibe) || stringValue(brandKit?.style_vibe ?? '') || '';
+}
+
+function resolveBrandAudience(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
+  return stringValue(req.audience) || stringValue(brandKit?.audience ?? '') || '';
 }
 
 function resolveMustAvoidAesthetics(req: UnknownRecord): string[] {
@@ -357,7 +370,7 @@ export function buildSocialContentWeeklyRequest(input: {
         name: resolveBusinessName(req, brandKit),
         business_type: stringValue(req.businessType),
         voice: resolveBrandVoice(req, brandKit),
-        style_vibe: stringValue(req.styleVibe),
+        style_vibe: resolveBrandStyleVibe(req, brandKit),
         visual_references: visualReferences,
         logo_urls: brandKitLogoUrls(brandKit),
         colors: brandKitColors(brandKit),
@@ -369,7 +382,7 @@ export function buildSocialContentWeeklyRequest(input: {
       objective: {
         primary_goal: stringValue(req.primaryGoal) || stringValue(req.goal),
         offer: resolvedOffer,
-        audience: stringValue(req.audience),
+        audience: resolveBrandAudience(req, brandKit),
       },
       competitor: {
         url: stringValue(input.doc.inputs.competitor_url),
@@ -443,7 +456,7 @@ export function buildProductionResumeContext(input: {
   // --- brand profile (static, always available) ---
   const brandName = stringValue(req.businessName) || stringValue(brandKit?.brand_name) || 'the brand';
   const brandVoice = resolveBrandVoice(req, brandKit);
-  const styleVibe = stringValue(req.styleVibe);
+  const styleVibe = resolveBrandStyleVibe(req, brandKit);
   const offer = resolveBrandOffer(req, brandKit);
   const palette = brandKitColors(brandKit).palette;
   const mustAvoid = resolveMustAvoidAesthetics(req);
@@ -607,7 +620,7 @@ export function buildProductionResumeContext(input: {
 export async function ensureFreshBrandKitForWeeklyRun(input: {
   doc: MarketingJobRuntimeDocument;
   fetchImpl?: typeof fetch;
-}): Promise<{ refreshed: boolean }> {
+}): Promise<{ refreshed: boolean; enriched: boolean }> {
   const brandUrl = typeof input.doc.inputs.brand_url === 'string' ? input.doc.inputs.brand_url.trim() : '';
   if (!brandUrl) {
     throw new Error('needs_brand_kit:brand_url_missing');
@@ -618,7 +631,7 @@ export async function ensureFreshBrandKitForWeeklyRun(input: {
 
   let result;
   try {
-    result = await extractAndSaveTenantBrandKit({
+    result = await extractEnrichAndSaveTenantBrandKit({
       tenantId: input.doc.tenant_id,
       brandUrl,
       fetchImpl: input.fetchImpl,
@@ -629,27 +642,10 @@ export async function ensureFreshBrandKitForWeeklyRun(input: {
   }
 
   const filePath = result.filePath || tenantBrandKitPath(input.doc.tenant_id);
-  input.doc.brand_kit = {
-    path: filePath,
-    source_url: result.brandKit.source_url,
-    canonical_url: result.brandKit.canonical_url,
-    brand_name: result.brandKit.brand_name,
-    logo_urls: [...result.brandKit.logo_urls],
-    colors: {
-      primary: result.brandKit.colors.primary,
-      secondary: result.brandKit.colors.secondary,
-      accent: result.brandKit.colors.accent,
-      palette: [...result.brandKit.colors.palette],
-    },
-    font_families: [...result.brandKit.font_families],
-    external_links: result.brandKit.external_links.map((entry) => ({ ...entry })),
-    extracted_at: result.brandKit.extracted_at,
-    brand_voice_summary: result.brandKit.brand_voice_summary,
-    offer_summary: result.brandKit.offer_summary,
-  };
+  input.doc.brand_kit = marketingBrandKitReferenceFromTenantBrandKit(result.brandKit, filePath);
 
   const refreshed =
     beforeExtractedAt !== result.brandKit.extracted_at || beforeSourceUrl !== result.brandKit.source_url;
 
-  return { refreshed };
+  return { refreshed, enriched: result.enriched };
 }

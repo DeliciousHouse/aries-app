@@ -15,7 +15,7 @@ import { TEST_HERMES_GATEWAY_URL } from './fixtures/service-urls';
 
 const STUB_RUNTIME_PATHS = { gatewayCwd: 'lobster', localCwd: '/tmp/lobster' };
 
-const NO_OP_BRAND_KIT_REFRESHER = async () => ({ refreshed: false });
+const NO_OP_BRAND_KIT_REFRESHER = async () => ({ refreshed: false, enriched: false });
 
 const STUB_DOC = {
   job_id: 'job_test',
