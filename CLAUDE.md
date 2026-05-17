@@ -138,10 +138,6 @@ This repo uses Conventional Commits with a scope (e.g. `fix(ci): ...`, `refactor
 
 `scripts/check-banned-patterns.mjs` enforces that certain strings never appear in key files. Banned terms include: `n8n`, `parity-stub`, `placeholder response/error`, `not yet wired`, `missing workflow wiring`, `intentionally disabled until`. Run `npm run validate:banned-patterns` to check.
 
-## Protected Systems
-
-- **OpenClaw** is Brendan-only for writes. Agents may read/inspect/analyze but not modify gateway config, cron/scheduler, agent registration, or runtime config without explicit approval.
-
 ## Deploy Configuration
 
 - platform: docker (self-hosted via GitHub Actions Deploy workflow)
