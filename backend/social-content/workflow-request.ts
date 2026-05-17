@@ -3,9 +3,10 @@ import {
   repairStaleMarketingOffer,
   tenantBrandKitPath,
 } from '@/backend/marketing/brand-kit';
-import type {
-  MarketingBrandKitReference,
-  MarketingJobRuntimeDocument,
+import {
+  marketingBrandKitReferenceFromTenantBrandKit,
+  type MarketingBrandKitReference,
+  type MarketingJobRuntimeDocument,
 } from '@/backend/marketing/runtime-state';
 import {
   clampWeeklyWindowDays,
@@ -641,28 +642,7 @@ export async function ensureFreshBrandKitForWeeklyRun(input: {
   }
 
   const filePath = result.filePath || tenantBrandKitPath(input.doc.tenant_id);
-  input.doc.brand_kit = {
-    path: filePath,
-    source_url: result.brandKit.source_url,
-    canonical_url: result.brandKit.canonical_url,
-    brand_name: result.brandKit.brand_name,
-    logo_urls: [...result.brandKit.logo_urls],
-    colors: {
-      primary: result.brandKit.colors.primary,
-      secondary: result.brandKit.colors.secondary,
-      accent: result.brandKit.colors.accent,
-      palette: [...result.brandKit.colors.palette],
-    },
-    font_families: [...result.brandKit.font_families],
-    external_links: result.brandKit.external_links.map((entry) => ({ ...entry })),
-    extracted_at: result.brandKit.extracted_at,
-    brand_voice_summary: result.brandKit.brand_voice_summary,
-    offer_summary: result.brandKit.offer_summary,
-    positioning: result.brandKit.positioning,
-    audience: result.brandKit.audience,
-    tone_of_voice: result.brandKit.tone_of_voice,
-    style_vibe: result.brandKit.style_vibe,
-  };
+  input.doc.brand_kit = marketingBrandKitReferenceFromTenantBrandKit(result.brandKit, filePath);
 
   const refreshed =
     beforeExtractedAt !== result.brandKit.extracted_at || beforeSourceUrl !== result.brandKit.source_url;

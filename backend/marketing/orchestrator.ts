@@ -64,6 +64,7 @@ import {
   markStageInProgress,
   markStageRequiresChannelConnection,
   nowIso,
+  marketingBrandKitReferenceFromTenantBrandKit,
   recordApproval,
   recordApprovalDenied,
   recordStageFailure,
@@ -180,23 +181,7 @@ function runtimeBrandKitReference(
   brandKit: TenantBrandKit,
   filePath: string
 ): NonNullable<MarketingJobRuntimeDocument['brand_kit']> {
-  return {
-    path: filePath,
-    source_url: brandKit.source_url,
-    canonical_url: brandKit.canonical_url,
-    brand_name: brandKit.brand_name,
-    logo_urls: brandKit.logo_urls,
-    colors: brandKit.colors,
-    font_families: brandKit.font_families,
-    external_links: brandKit.external_links,
-    extracted_at: brandKit.extracted_at,
-    brand_voice_summary: brandKit.brand_voice_summary ?? null,
-    offer_summary: brandKit.offer_summary ?? null,
-    positioning: brandKit.positioning ?? null,
-    audience: brandKit.audience ?? null,
-    tone_of_voice: brandKit.tone_of_voice ?? null,
-    style_vibe: brandKit.style_vibe ?? null,
-  };
+  return marketingBrandKitReferenceFromTenantBrandKit(brandKit, filePath);
 }
 
 async function ensureRuntimeBrandKit(doc: MarketingJobRuntimeDocument): Promise<void> {

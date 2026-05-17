@@ -415,12 +415,12 @@ function marketingRuntimeRoot(): string {
   return resolveDataPath('generated', 'draft', 'marketing-jobs');
 }
 
-function runtimeBrandKitReferenceFromTenantBrandKit(
-  tenantId: string,
+export function marketingBrandKitReferenceFromTenantBrandKit(
   brandKit: TenantBrandKit,
+  filePath: string,
 ): MarketingBrandKitReference {
   return {
-    path: tenantBrandKitPath(tenantId),
+    path: filePath,
     source_url: brandKit.source_url,
     canonical_url: brandKit.canonical_url,
     brand_name: brandKit.brand_name,
@@ -432,7 +432,7 @@ function runtimeBrandKitReferenceFromTenantBrandKit(
       palette: [...brandKit.colors.palette],
     },
     font_families: [...brandKit.font_families],
-    external_links: [...brandKit.external_links],
+    external_links: brandKit.external_links.map((entry) => ({ ...entry })),
     extracted_at: brandKit.extracted_at,
     brand_voice_summary: brandKit.brand_voice_summary ?? null,
     offer_summary: brandKit.offer_summary ?? null,
@@ -441,6 +441,13 @@ function runtimeBrandKitReferenceFromTenantBrandKit(
     tone_of_voice: brandKit.tone_of_voice ?? null,
     style_vibe: brandKit.style_vibe ?? null,
   };
+}
+
+function runtimeBrandKitReferenceFromTenantBrandKit(
+  tenantId: string,
+  brandKit: TenantBrandKit,
+): MarketingBrandKitReference {
+  return marketingBrandKitReferenceFromTenantBrandKit(brandKit, tenantBrandKitPath(tenantId));
 }
 
 async function recoverLegacyRuntimeBrandKit(doc: MarketingJobRuntimeDocument): Promise<MarketingBrandKitReference | null> {
