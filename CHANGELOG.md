@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.22] - 2026-05-17
+
+### Fixed
+- **Hermes research-stage agent looped on local-workspace tools until 600s timeout.** The `instructions()` prompt in `backend/marketing/ports/hermes.ts` did not enumerate allowed or forbidden tools, so the research agent — even after successfully scraping the brand URL and running web searches — frequently looped on `read_file`, `search_files`, and `terminal` until the `did not reach a terminal status` timeout fired. Added an explicit tool policy forbidding `read_file`, `search_files`, `write_file`, and `execute_code`, plus a 6-total-tool-call cap, to both the weekly social-content block and the generic block. A snapshot test now asserts the forbid clause is present in both branches of `buildHermesInstructions`. PR #351 patched the median symptom (thin payloads sending less context); this stops the underlying agent-loop class that persisted even with a rich payload.
+
 ## [0.1.3.21] - 2026-05-17
 
 ### Changed

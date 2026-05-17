@@ -6,6 +6,8 @@ import {
   probeHermesGatewayCapabilities,
   probeHermesSocialContentRuntime,
 } from '../backend/marketing/hermes-runtime-contract';
+import { buildHermesInstructions } from '../backend/marketing/ports/hermes';
+import { SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY } from '../backend/social-content/defaults';
 import { SOCIAL_CONTENT_WEEKLY_WORKFLOW_VERSION } from '../backend/social-content/defaults';
 
 const BASE_ENV = {
@@ -104,4 +106,24 @@ test('health route returns 503 when Hermes runtime contract probe fails', async 
   } finally {
     globalThis.fetch = previousFetch;
   }
+});
+
+void test('instructions() forbids local-workspace tools during research — social content block', () => {
+  const result = buildHermesInstructions(SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY);
+  assert.ok(result.includes('MUST NOT call read_file'), 'forbid clause must mention read_file');
+  assert.ok(result.includes('search_files'), 'forbid clause must mention search_files');
+  assert.ok(result.includes('write_file'), 'forbid clause must mention write_file');
+  assert.ok(result.includes('execute_code'), 'forbid clause must mention execute_code');
+  assert.ok(result.includes('6 total tool calls'), '6-tool-call cap must be present');
+  assert.ok(result.includes('no Aries workspace available'), 'workspace-unavailable rationale must be present');
+});
+
+void test('instructions() forbids local-workspace tools during research — generic block', () => {
+  const result = buildHermesInstructions('some_other_workflow');
+  assert.ok(result.includes('MUST NOT call read_file'), 'forbid clause must mention read_file');
+  assert.ok(result.includes('search_files'), 'forbid clause must mention search_files');
+  assert.ok(result.includes('write_file'), 'forbid clause must mention write_file');
+  assert.ok(result.includes('execute_code'), 'forbid clause must mention execute_code');
+  assert.ok(result.includes('6 total tool calls'), '6-tool-call cap must be present');
+  assert.ok(result.includes('no Aries workspace available'), 'workspace-unavailable rationale must be present');
 });

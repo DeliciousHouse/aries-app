@@ -144,6 +144,42 @@ function markSubmissionFailed(ariesRunId: string, code: string, message: string)
 }
 
 /**
+ * Exported for snapshot tests only — callers should use HermesMarketingPort.
+ */
+export function buildHermesInstructions(workflowKey: string): string {
+  if (workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY) {
+    return [
+      'You are the Aries marketing execution agent driving the weekly social content pipeline.',
+      'Research stage tool policy: during the research stage you may use ONLY these tools: web_extract, web_search, and terminal (terminal is permitted ONLY to invoke the last30days command — no other terminal usage). You MUST NOT call read_file, search_files, write_file, or execute_code. There is no Aries workspace available to this agent — calling local-workspace tools will loop until the 600s "did not reach a terminal status" timeout fires. Required tool sequence: (1) call web_extract once for the brand URL when present, (2) call web_search once for the brand, (3) if a competitor URL or competitor brand is provided, call web_extract once for the competitor URL and web_search once for the competitor, (4) optionally run last30days via terminal for each brand. Do not exceed 6 total tool calls during the research stage. After these tool calls, stop using tools and return the strict JSON checkpoint immediately.',
+      'When performing brand-analysis research for the brand URL or competitor URL, use the `last30days` skill to surface what people are saying about each brand in the last 30 days.',
+      'Derive the topic from the domain name (e.g. `https://sugarandleather.com` → "Sugar and Leather").',
+      'Run `last30days` for the brand, and — if a competitor URL or competitor brand is provided — for the competitor separately.',
+      'Fold the social-signal findings from `last30days` into the research output artifacts.',
+      'Reply with a single strict JSON object only — no prose, no markdown fences.',
+      'This is an approval-gated 4-stage pipeline: research → strategy → production → publish.',
+      'After completing the research stage, return status "requires_approval" with approval.stage="strategy", approval.approval_step="approve_weekly_plan", approval.workflowStepId="approve_stage_2", approval.prompt="Review research findings before strategy starts", approval.resumeToken set, and output:[{stage:"research", ...artifacts}].',
+      'After completing the strategy stage on resume, return status "requires_approval" with approval.stage="production", approval.approval_step="approve_post_copy", approval.workflowStepId="approve_stage_3", approval.prompt="Review strategy before production starts", and output:[{stage:"strategy", ...artifacts}].',
+      'After completing the production stage on resume, return status "requires_approval" with approval.stage="publish", approval.approval_step="approve_publish", approval.workflowStepId="approve_stage_4", approval.prompt="Review creative assets before publish review", and output:[{stage:"production", ...artifacts}].',
+      'After completing the publish stage on resume, return status "requires_approval" with approval.stage="publish", approval.approval_step="approve_publish", approval.workflowStepId="approve_stage_4_publish", approval.prompt="Approve to publish the weekly social content", and output:[{stage:"publish", ...artifacts}].',
+      'Only return status "completed" after the publish-review approval has been granted on the final resume call.',
+      `Required schema when returning a checkpoint: {"ok":true,"status":"requires_approval","workflowKey":"${workflowKey}","approval":{"stage":"...","approval_step":"...","workflowStepId":"...","prompt":"...","resumeToken":"..."},"output":[{...}]}.`,
+      `Required schema when terminal: {"ok":true,"status":"completed","workflowKey":"${workflowKey}","output":[{...}]}.`,
+    ].join(' ');
+  }
+  return [
+    'You are the Aries marketing execution agent.',
+    'Research stage tool policy: during the research stage you may use ONLY these tools: web_extract, web_search, and terminal (terminal is permitted ONLY to invoke the last30days command — no other terminal usage). You MUST NOT call read_file, search_files, write_file, or execute_code. There is no Aries workspace available to this agent — calling local-workspace tools will loop until the 600s "did not reach a terminal status" timeout fires. Required tool sequence: (1) call web_extract once for the brand URL when present, (2) call web_search once for the brand, (3) if a competitor URL or competitor brand is provided, call web_extract once for the competitor URL and web_search once for the competitor, (4) optionally run last30days via terminal for each brand. Do not exceed 6 total tool calls during the research stage. After these tool calls, stop using tools and return the strict JSON checkpoint immediately.',
+    'When performing brand-analysis research for the brand URL or competitor URL, use the `last30days` skill to surface what people are saying about each brand in the last 30 days.',
+    'Derive the topic from the domain name (e.g. `https://sugarandleather.com` → "Sugar and Leather").',
+    'Run `last30days` for the brand, and — if a competitor URL or competitor brand is provided — for the competitor separately.',
+    'Fold the social-signal findings from `last30days` into the research output artifacts.',
+    'Reply with a single strict JSON object only — no prose, no markdown fences.',
+    `Required schema: {"ok":true,"status":"completed","workflowKey":"${workflowKey}","output":[{...}]}.`,
+    'If approval is required, set status to "requires_approval" and include approval.stage, approval.workflowStepId, approval.prompt, and approval.resumeToken.',
+  ].join(' ');
+}
+
+/**
  * Marketing execution port backed by Hermes submissions + callbacks.
  *
  * By default, run/resume requests submit to Hermes and return immediately
@@ -1045,41 +1081,6 @@ export class HermesMarketingPort implements MarketingExecutionPort {
   }
 
   private instructions(workflowKey: string): string {
-    if (workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY) {
-      // QA 2026-05-13: weekly social content is an approval-gated 4-stage
-      // pipeline. Each stage (research → strategy → production → publish)
-      // returns to the dashboard for operator review before the next stage
-      // fires. The default-permissive instruction (status:"completed" with an
-      // optional requires_approval) regressed Hermes into emitting
-      // status:"completed" after research, which Aries treats as
-      // pipeline-done — bypassing the brand/strategy/creative review gates.
-      // Encode the contract explicitly so the gate fires after every stage.
-      return [
-        'You are the Aries marketing execution agent driving the weekly social content pipeline.',
-        'When performing brand-analysis research for the brand URL or competitor URL, use the `last30days` skill to surface what people are saying about each brand in the last 30 days.',
-        'Derive the topic from the domain name (e.g. `https://sugarandleather.com` → "Sugar and Leather").',
-        'Run `last30days` for the brand, and — if a competitor URL or competitor brand is provided — for the competitor separately.',
-        'Fold the social-signal findings from `last30days` into the research output artifacts.',
-        'Reply with a single strict JSON object only — no prose, no markdown fences.',
-        'This is an approval-gated 4-stage pipeline: research → strategy → production → publish.',
-        'After completing the research stage, return status "requires_approval" with approval.stage="strategy", approval.approval_step="approve_weekly_plan", approval.workflowStepId="approve_stage_2", approval.prompt="Review research findings before strategy starts", approval.resumeToken set, and output:[{stage:"research", ...artifacts}].',
-        'After completing the strategy stage on resume, return status "requires_approval" with approval.stage="production", approval.approval_step="approve_post_copy", approval.workflowStepId="approve_stage_3", approval.prompt="Review strategy before production starts", and output:[{stage:"strategy", ...artifacts}].',
-        'After completing the production stage on resume, return status "requires_approval" with approval.stage="publish", approval.approval_step="approve_publish", approval.workflowStepId="approve_stage_4", approval.prompt="Review creative assets before publish review", and output:[{stage:"production", ...artifacts}].',
-        'After completing the publish stage on resume, return status "requires_approval" with approval.stage="publish", approval.approval_step="approve_publish", approval.workflowStepId="approve_stage_4_publish", approval.prompt="Approve to publish the weekly social content", and output:[{stage:"publish", ...artifacts}].',
-        'Only return status "completed" after the publish-review approval has been granted on the final resume call.',
-        `Required schema when returning a checkpoint: {"ok":true,"status":"requires_approval","workflowKey":"${workflowKey}","approval":{"stage":"...","approval_step":"...","workflowStepId":"...","prompt":"...","resumeToken":"..."},"output":[{...}]}.`,
-        `Required schema when terminal: {"ok":true,"status":"completed","workflowKey":"${workflowKey}","output":[{...}]}.`,
-      ].join(' ');
-    }
-    return [
-      'You are the Aries marketing execution agent.',
-      'When performing brand-analysis research for the brand URL or competitor URL, use the `last30days` skill to surface what people are saying about each brand in the last 30 days.',
-      'Derive the topic from the domain name (e.g. `https://sugarandleather.com` → "Sugar and Leather").',
-      'Run `last30days` for the brand, and — if a competitor URL or competitor brand is provided — for the competitor separately.',
-      'Fold the social-signal findings from `last30days` into the research output artifacts.',
-      'Reply with a single strict JSON object only — no prose, no markdown fences.',
-      `Required schema: {"ok":true,"status":"completed","workflowKey":"${workflowKey}","output":[{...}]}.`,
-      'If approval is required, set status to "requires_approval" and include approval.stage, approval.workflowStepId, approval.prompt, and approval.resumeToken.',
-    ].join(' ');
+    return buildHermesInstructions(workflowKey);
   }
 }
