@@ -242,12 +242,17 @@ function brandKitFontFamilies(brandKit: MarketingBrandKitReference | null | unde
 }
 
 function resolveBrandVoice(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
+  const summary = stringValue(brandKit?.brand_voice_summary) || '';
+  const tone = stringValue(brandKit?.tone_of_voice) || '';
   const operatorVoice = stringValue(req.brandVoice);
-  if (operatorVoice) return operatorVoice;
-  const summary = stringValue(brandKit?.brand_voice_summary ?? '') || '';
-  const tone = stringValue(brandKit?.tone_of_voice ?? '') || '';
-  if (summary && tone) return `${summary} Tone: ${tone}.`;
-  if (summary) return summary;
+  // Enrichment wins for the voice summary; req.brandVoice falls through only
+  // when no enriched summary exists. tone is APPENDED whenever present —
+  // even on top of operator voice — because tone is a separate dimension and
+  // req.X is rarely operator-typed in practice (onboarding pre-populates).
+  // (Bug surfaced by v0.1.3.24 prod verification.)
+  const base = summary || operatorVoice;
+  if (base && tone) return `${base} Tone: ${tone}.`;
+  if (base) return base;
   if (tone) return `Tone: ${tone}.`;
   return '';
 }
@@ -287,7 +292,12 @@ function resolveBrandOffer(req: UnknownRecord, brandKit: MarketingBrandKitRefere
 }
 
 function resolveBrandStyleVibe(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
-  return stringValue(req.styleVibe) || stringValue(brandKit?.style_vibe ?? '') || '';
+  // Enrichment wins when present; req.styleVibe is often a heuristic onboarding
+  // fallback rather than an operator-typed value, so it must NOT pre-empt the
+  // LLM-derived signal. (Bug surfaced by v0.1.3.24 prod verification.)
+  const enriched = stringValue(brandKit?.style_vibe);
+  if (enriched) return enriched;
+  return stringValue(req.styleVibe) || '';
 }
 
 function resolveBrandAudience(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
