@@ -68,7 +68,7 @@ export function SocialContentNewJobScreenContent(props: SocialContentNewJobScree
   );
 
   const [staticPostCount, setStaticPostCount] = useState(7);
-  const [imageCreativeCount, setImageCreativeCount] = useState(2);
+  const [imageCreativeCount, setImageCreativeCount] = useState(6);
   const [videoScriptCount, setVideoScriptCount] = useState(1);
   const [renderVideoAfterApproval, setRenderVideoAfterApproval] = useState(false);
   const [campaignWindowDays, setCampaignWindowDays] = useState(7);
