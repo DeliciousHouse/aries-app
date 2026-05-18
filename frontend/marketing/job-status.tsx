@@ -117,7 +117,66 @@ function ApprovalBanner({ approval }: { approval: MarketingApprovalSummary }) {
   );
 }
 
-function DashboardAssetCard({ asset }: { asset: MarketingDashboardAsset }) {
+function CopyMetadata({
+  caption,
+  hashtags,
+  cta,
+  copyWarnings,
+}: {
+  caption?: string | null;
+  hashtags?: string[];
+  cta?: string | null;
+  copyWarnings?: string[];
+}) {
+  const normalizedHashtags = Array.isArray(hashtags) ? hashtags.filter(Boolean) : [];
+  const normalizedWarnings = Array.isArray(copyWarnings) ? copyWarnings.filter(Boolean) : [];
+  if (!caption && normalizedHashtags.length === 0 && !cta && normalizedWarnings.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="grid gap-2 text-sm text-white/75">
+      {caption ? <p>{caption}</p> : null}
+      {normalizedHashtags.length > 0 ? <p>{normalizedHashtags.join(' ')}</p> : null}
+      {cta ? <p>{cta}</p> : null}
+      {normalizedWarnings.length > 0 ? <p>Warnings: {normalizedWarnings.join(', ')}</p> : null}
+    </div>
+  );
+}
+
+function isDashboardPostWithCopy(
+  post: MarketingDashboardPost | MarketingDashboardPublishItem | null | undefined,
+): post is MarketingDashboardPost {
+  return !!post && 'caption' in post;
+}
+
+function copyMetadataFromPost(
+  post: MarketingDashboardPost | MarketingDashboardPublishItem | null | undefined,
+): {
+  caption?: string | null;
+  hashtags?: string[];
+  cta?: string | null;
+  copyWarnings?: string[];
+} {
+  if (!isDashboardPostWithCopy(post)) {
+    return {};
+  }
+
+  return {
+    caption: post.caption,
+    hashtags: post.hashtags,
+    cta: post.cta,
+    copyWarnings: post.copyWarnings,
+  };
+}
+
+export function DashboardAssetCard({
+  asset,
+  relatedPost = null,
+}: {
+  asset: MarketingDashboardAsset;
+  relatedPost?: MarketingDashboardPost | MarketingDashboardPublishItem | null;
+}) {
   return (
     <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
       <MediaPreview
@@ -139,16 +198,19 @@ function DashboardAssetCard({ asset }: { asset: MarketingDashboardAsset }) {
         <StatusBadge status={asset.status as any} />
       </div>
       <p className="text-sm text-white/60">{asset.summary}</p>
+      <CopyMetadata {...copyMetadataFromPost(relatedPost)} />
     </div>
   );
 }
 
-function DashboardPostCard({
+export function DashboardPostCard({
   post,
   previewAsset,
+  relatedPost = null,
 }: {
   post: MarketingDashboardPost | MarketingDashboardPublishItem;
   previewAsset: MarketingDashboardAsset | null;
+  relatedPost?: MarketingDashboardPost | null;
 }) {
   return (
     <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 grid gap-3">
@@ -170,6 +232,7 @@ function DashboardPostCard({
         </div>
         <StatusBadge status={post.status as any} />
       </div>
+      <CopyMetadata {...copyMetadataFromPost(isDashboardPostWithCopy(post) ? post : relatedPost)} />
     </div>
   );
 }
@@ -296,6 +359,9 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
   const assetById = successResult
     ? new Map(successResult.dashboard.assets.map((asset) => [asset.id, asset] as const))
     : new Map<string, MarketingDashboardAsset>();
+  const postById = successResult
+    ? new Map(successResult.dashboard.posts.map((post) => [post.id, post] as const))
+    : new Map<string, MarketingDashboardPost>();
 
   useEffect(() => {
     if (!successResult || !jobId.trim() || !isActiveStatus(successResult.marketing_job_status)) {
@@ -529,7 +595,11 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
             <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-6">Assets</p>
             <div className="grid gap-4">
               {successResult.dashboard.assets.map((asset) => (
-                <DashboardAssetCard key={asset.id} asset={asset} />
+                <DashboardAssetCard
+                  key={asset.id}
+                  asset={asset}
+                  relatedPost={asset.relatedPostIds.map((postId) => postById.get(postId) || null).find(Boolean) || null}
+                />
               ))}
             </div>
           </div>
@@ -553,6 +623,7 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
                   key={item.id}
                   post={item}
                   previewAsset={item.previewAssetId ? assetById.get(item.previewAssetId) || null : null}
+                  relatedPost={item.relatedPostIds.map((postId) => postById.get(postId) || null).find(Boolean) || null}
                 />
               ))}
             </div>
