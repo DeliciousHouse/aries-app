@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.31] - 2026-05-18
+
+### Fixed
+- **`resolveMarketingApproval` now records `state='failed'` on gateway errors.** Regression from be82ed8 (v0.1.3.0): the catch path returned `{status:'error'}` for clean 4xx handling but dropped the `recordFailure` call, leaving the runtime doc stuck in `'running'` on gateway errors. Re-adds `recordFailure(doc, checkpoint.stage, error)` before the structured-error return so the legacy-openclaw path correctly persists failed state.
+
 ## [0.1.3.30] - 2026-05-18
 
 ### Changed
