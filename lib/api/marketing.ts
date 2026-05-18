@@ -439,6 +439,10 @@ export interface MarketingDashboardPost {
   type: MarketingDashboardPostType;
   title: string;
   summary: string;
+  caption: string | null;
+  hashtags: string[];
+  cta: string | null;
+  copyWarnings: string[];
   platform: string;
   platformLabel: string;
   campaignName: string;

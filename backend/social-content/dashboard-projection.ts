@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
 import type {
   MarketingDashboardAsset,
@@ -18,6 +19,7 @@ import {
   readSocialContentRuntimeState,
   type SocialContentWorkflowProjection,
 } from '@/backend/social-content/runtime-state';
+import { socialCopyArtifactPath } from '@/backend/social-content/social-copy-store';
 
 const STATUS_KEYS: MarketingDashboardItemStatus[] = [
   'draft',
@@ -37,6 +39,12 @@ type UnknownRecord = Record<string, unknown>;
 type SocialImageCreative = SocialContentWorkflowProjection['weekly_content_plan']['image_creatives'][number];
 type SocialVideoScript = SocialContentWorkflowProjection['weekly_content_plan']['video_scripts'][number];
 type SocialWeeklyPost = SocialContentWorkflowProjection['weekly_content_plan']['posts'][number];
+type SocialCopyProjection = {
+  caption: string | null;
+  hashtags: string[];
+  cta: string | null;
+  copyWarnings: string[];
+};
 
 function recordValue(value: unknown): UnknownRecord | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as UnknownRecord) : null;
@@ -245,6 +253,82 @@ function stringArray(value: unknown): string[] {
     .filter((entry): entry is string => typeof entry === 'string')
     .map((entry) => redactTokenLikeString(entry).trim())
     .filter(Boolean);
+}
+
+function uniqueIds(values: string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function rawTrimmedString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function rawTrimmedStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function socialCopyForPostId(jobId: string): Map<string, SocialCopyProjection> {
+  const filePath = socialCopyArtifactPath(jobId);
+
+  let raw: string;
+  try {
+    raw = readFileSync(filePath, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return new Map();
+    }
+    console.warn('[social-copy-projection] failed to read social-copy artifact', {
+      jobId,
+      filePath,
+      code: 'social_copy_artifact_read_error',
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return new Map();
+  }
+
+  try {
+    const parsed = recordValue(JSON.parse(raw));
+    const posts = Array.isArray(parsed?.posts) ? parsed.posts : [];
+    const byId = new Map<string, SocialCopyProjection>();
+
+    for (const entry of posts) {
+      const record = recordValue(entry);
+      const id = rawTrimmedString(record?.id);
+      if (!id) continue;
+
+      byId.set(id, {
+        caption: rawTrimmedString(record?.caption),
+        hashtags: rawTrimmedStringArray(record?.hashtags),
+        cta: rawTrimmedString(record?.cta),
+        copyWarnings: rawTrimmedStringArray(record?.warnings),
+      });
+    }
+
+    return byId;
+  } catch (error) {
+    console.warn('[social-copy-projection] failed to parse social-copy artifact', {
+      jobId,
+      filePath,
+      code: 'social_copy_artifact_invalid_json',
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return new Map();
+  }
+}
+
+function normalizedSocialPostId(post: SocialWeeklyPost, index: number): string {
+  const record = post as unknown as UnknownRecord;
+  return firstRawStringValue([
+    record.id,
+    record.post_id,
+    record.postId,
+    post.creative_brief_id,
+    `social-post-${index + 1}`,
+  ]);
 }
 
 function requestedJobTypeFromDoc(doc: MarketingJobRuntimeDocument): string {
@@ -487,6 +571,26 @@ function mergeById<T extends { id: string }>(existing: T[], additions: T[]): T[]
   return Array.from(byId.values());
 }
 
+function attachPostRelationsToAssets(posts: MarketingDashboardPost[], assets: MarketingDashboardAsset[]): MarketingDashboardAsset[] {
+  const relatedPostIdsByAssetId = new Map<string, Set<string>>();
+
+  for (const post of posts) {
+    for (const assetId of post.relatedAssetIds) {
+      const assetPostIds = relatedPostIdsByAssetId.get(assetId) ?? new Set<string>();
+      assetPostIds.add(post.id);
+      relatedPostIdsByAssetId.set(assetId, assetPostIds);
+    }
+  }
+
+  return assets.map((asset) => ({
+    ...asset,
+    relatedPostIds: Array.from(new Set([
+      ...asset.relatedPostIds,
+      ...Array.from(relatedPostIdsByAssetId.get(asset.id) ?? []),
+    ])),
+  }));
+}
+
 function imageAssetId(doc: MarketingJobRuntimeDocument, creative: SocialImageCreative, index: number): string {
   return publicId(doc, creative.id, `social-image-${index + 1}`);
 }
@@ -711,10 +815,12 @@ function createPosts(input: {
   campaignId: string;
   campaignName: string;
   objective: string;
+  socialCopyByPostId: Map<string, SocialCopyProjection>;
 }): MarketingDashboardPost[] {
   return input.projection.weekly_content_plan.posts.map((post, index) => {
     const platform = (post.platforms.find(Boolean) || 'meta').toLowerCase();
     const previewAssetId = resolvePostAssetId(input.doc, post, input.assets, index);
+    const socialCopy = input.socialCopyByPostId.get(normalizedSocialPostId(post, index));
     return {
       id: `social-post-${index + 1}`,
       campaignId: input.campaignId,
@@ -722,6 +828,10 @@ function createPosts(input: {
       type: 'platform_post',
       title: tenantSafeString(input.doc, post.title) || `Weekly social post ${index + 1}`,
       summary: tenantSafeString(input.doc, post.caption) || tenantSafeString(input.doc, post.post_type) || 'Weekly social post ready for review.',
+      caption: socialCopy?.caption ? tenantSafeString(input.doc, socialCopy.caption) : null,
+      hashtags: socialCopy?.hashtags.map((hashtag) => tenantSafeString(input.doc, hashtag)) ?? [],
+      cta: socialCopy?.cta ? tenantSafeString(input.doc, socialCopy.cta) : null,
+      copyWarnings: socialCopy?.copyWarnings.map((warning) => tenantSafeString(input.doc, warning)) ?? [],
       platform,
       platformLabel: platformLabel(platform),
       campaignName: input.campaignName,
@@ -883,12 +993,21 @@ export function buildSocialContentDashboardProjection(
     'Weekly social content';
 
   const assets = createAssets({ doc: runtimeDoc, projection, campaignId, campaignName, objective });
-  const posts = createPosts({ doc: runtimeDoc, projection, assets, campaignId, campaignName, objective });
+  const socialCopyByPostId = socialCopyForPostId(runtimeDoc.job_id);
+  const posts = createPosts({
+    doc: runtimeDoc,
+    projection,
+    assets,
+    campaignId,
+    campaignName,
+    objective,
+    socialCopyByPostId,
+  });
   const includePublishQueue = runtime?.publishingRequested === true || runtime?.currentStage === 'publish_review' || runtime?.currentStage === 'completed';
   const publishItems = createPublishItems({ doc: runtimeDoc, posts, campaignId, campaignName, objective, includePublishQueue });
   const calendarEvents = createCalendarEvents({ doc: runtimeDoc, projection, posts, campaignId, campaignName, objective });
 
-  const mergedAssets = mergeById(dashboard.assets, assets);
+  const mergedAssets = attachPostRelationsToAssets(posts, mergeById(dashboard.assets, assets));
   const mergedPosts = mergeById(dashboard.posts, posts);
   const mergedPublishItems = mergeById(dashboard.publishItems, publishItems);
   const mergedCalendarEvents = mergeById(dashboard.calendarEvents, calendarEvents);

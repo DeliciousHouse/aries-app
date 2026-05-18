@@ -6496,4 +6496,131 @@ test('/api/marketing/jobs/:jobId/assets/:assetId returns 404 for missing video f
     assert.equal(body.reason, 'marketing_asset_not_found');
   });
 });
+
+test('/api/marketing/jobs/:jobId returns finalized social copy on dashboard posts while assets stay reverse-linked via relatedPostIds', async () => {
+  await withRuntimeEnv(async () => {
+    const { handleGetMarketingJobStatus } = await import('../app/api/marketing/jobs/[jobId]/handler');
+    const { writeSocialCopyArtifact } = await import('../backend/social-content/social-copy-store');
+    const jobId = 'mkt_social_copy_dashboard_api';
+    const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
+
+    await mkdir(path.dirname(runtimeFile), { recursive: true });
+    await writeFile(
+      runtimeFile,
+      JSON.stringify({
+        schema_name: 'marketing_job_runtime',
+        schema_version: '1.0.0',
+        job_id: jobId,
+        job_type: 'weekly_social_content',
+        tenant_id: 'tenant_real',
+        state: 'in_progress',
+        status: 'running',
+        current_stage: 'production',
+        stage_order: ['research', 'strategy', 'production', 'publish'],
+        stages: {
+          research: { stage: 'research', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-r', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          strategy: { stage: 'strategy', status: 'completed', started_at: null, completed_at: null, failed_at: null, run_id: 'run-s', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          production: { stage: 'production', status: 'running', started_at: null, completed_at: null, failed_at: null, run_id: 'run-p', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+          publish: { stage: 'publish', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+        },
+        approvals: { current: null, history: [] },
+        publish_config: { platforms: ['instagram'], live_publish_platforms: [], video_render_platforms: [] },
+        brand_kit: {
+          path: path.join(process.env.DATA_ROOT!, 'generated', 'validated', 'tenant_real', 'brand-kit.json'),
+          source_url: 'https://brand.example',
+          canonical_url: 'https://brand.example',
+          brand_name: 'Bright Studio',
+          logo_urls: [],
+          colors: { primary: '#111111', secondary: '#f4f4f4', accent: '#c24d2c', palette: ['#111111', '#f4f4f4', '#c24d2c'] },
+          font_families: ['Manrope'],
+          external_links: [],
+          extracted_at: '2026-05-18T00:00:00.000Z',
+        },
+        inputs: {
+          request: {
+            jobType: 'weekly_social_content',
+            businessName: 'Bright Studio',
+            channels: ['instagram'],
+          },
+          brand_url: 'https://brand.example',
+        },
+        social_content_runtime: {
+          currentStage: 'social_copy_finalize',
+          stageOrder: ['planning', 'creative_review', 'social_copy_finalize'],
+          stages: {
+            planning: {
+              output: {
+                weekly_content_plan: {
+                  posts: [
+                    {
+                      id: 'post-1',
+                      day: 'Day 1',
+                      platforms: ['instagram'],
+                      post_type: 'static',
+                      title: 'Founder story',
+                      caption: 'Planning summary that should stay compact.',
+                      creative_brief_id: 'creative-1',
+                      status: 'approved',
+                    },
+                  ],
+                  image_creatives: [
+                    {
+                      id: 'creative-1',
+                      title: 'Founder story image',
+                      prompt: 'Warm studio portrait.',
+                      status: 'generated',
+                      artifact_url: 'https://cdn.example.com/founder.png',
+                    },
+                  ],
+                  video_scripts: [],
+                },
+              },
+            },
+          },
+          publishingRequested: true,
+        },
+        errors: [],
+        last_error: null,
+        history: [],
+        created_at: '2026-05-18T00:00:00.000Z',
+        updated_at: '2026-05-18T00:05:00.000Z',
+      }, null, 2),
+    );
+
+    await writeSocialCopyArtifact(jobId, {
+      version: '2026-05-social-copy-v1',
+      generated_at: '2026-05-18T00:05:00.000Z',
+      posts: [
+        {
+          id: 'post-1',
+          channel: 'instagram_feed',
+          caption: 'Final image-aware caption with proof.',
+          hashtags: ['#Proof', '#StudioLife'],
+          cta: 'Book your fitting.',
+          warnings: ['29 hashtags — at IG limit'],
+        },
+      ],
+    });
+
+    const response = await handleGetMarketingJobStatus(
+      jobId,
+      async () => ({
+        userId: 'user_123',
+        tenantId: 'tenant_real',
+        tenantSlug: 'acme',
+        role: 'tenant_admin',
+      }),
+      { responseDialect: 'social-content' },
+    );
+    const body = (await response.json()) as Record<string, any>;
+
+    assert.equal(response.status, 200);
+    assert.equal(body.dashboard.posts[0].caption, 'Final image-aware caption with proof.');
+    assert.deepEqual(body.dashboard.posts[0].hashtags, ['#Proof', '#StudioLife']);
+    assert.equal(body.dashboard.posts[0].cta, 'Book your fitting.');
+    assert.deepEqual(body.dashboard.posts[0].copyWarnings, ['29 hashtags — at IG limit']);
+    assert.deepEqual(body.dashboard.assets[0].relatedPostIds, ['post-1']);
+    assert.equal('caption' in body.dashboard.assets[0], false);
+  });
+});
 });

@@ -113,6 +113,10 @@ type MarketingDashboardPostInternal = {
   type: MarketingDashboardPostType
   title: string
   summary: string
+  caption: string | null
+  hashtags: string[]
+  cta: string | null
+  copyWarnings: string[]
   platform: string
   platformLabel: string
   campaignName: string
@@ -265,7 +269,14 @@ export type MarketingDashboardBuildOptions = {
 
 type CandidateAsset = Omit<MarketingDashboardAssetInternal, 'relatedPostIds' | 'relatedPublishItemIds'>
 
-type CandidatePost = Omit<MarketingDashboardPostInternal, 'id' | 'relatedPublishItemIds'> & {
+type CandidatePost = Omit<
+  MarketingDashboardPostInternal,
+  'id' | 'relatedPublishItemIds' | 'caption' | 'hashtags' | 'cta' | 'copyWarnings'
+> & {
+  caption?: string | null
+  hashtags?: string[]
+  cta?: string | null
+  copyWarnings?: string[]
   dedupeKey: string
   relatedPublishItemIds?: string[]
 }
@@ -2580,6 +2591,10 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
     const existing = postsByKey.get(candidate.post.dedupeKey)
     const basePost: MarketingDashboardPostInternal = {
       ...candidate.post,
+      caption: candidate.post.caption ?? null,
+      hashtags: candidate.post.hashtags ?? [],
+      cta: candidate.post.cta ?? null,
+      copyWarnings: candidate.post.copyWarnings ?? [],
       id: `${candidate.post.campaignId}::post::${slugify(candidate.post.platform, 'platform')}::${stableHash(candidate.post.dedupeKey).slice(0, 8)}`,
       relatedPublishItemIds: uniqueIds(candidate.post.relatedPublishItemIds || []),
     }
@@ -2592,6 +2607,10 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
 
     existing.post.relatedAssetIds = uniqueIds([...existing.post.relatedAssetIds, ...basePost.relatedAssetIds])
     existing.post.relatedPublishItemIds = uniqueIds([...existing.post.relatedPublishItemIds, ...basePost.relatedPublishItemIds])
+    existing.post.caption ||= basePost.caption
+    existing.post.cta ||= basePost.cta
+    existing.post.hashtags = existing.post.hashtags.length > 0 ? existing.post.hashtags : basePost.hashtags
+    existing.post.copyWarnings = uniqueIds([...existing.post.copyWarnings, ...basePost.copyWarnings])
     existing.post.destinationUrl ||= basePost.destinationUrl
     existing.post.previewAssetId ||= basePost.previewAssetId
     if (ITEM_STATUS_PRIORITY[basePost.status] > ITEM_STATUS_PRIORITY[existing.post.status]) {

@@ -1,11 +1,9 @@
 import {
   extractEnrichAndSaveTenantBrandKit,
-  repairStaleMarketingOffer,
   tenantBrandKitPath,
 } from '@/backend/marketing/brand-kit';
 import {
   marketingBrandKitReferenceFromTenantBrandKit,
-  type MarketingBrandKitReference,
   type MarketingJobRuntimeDocument,
 } from '@/backend/marketing/runtime-state';
 import {
@@ -13,6 +11,11 @@ import {
   redactTokenLikeString,
   sanitizeWeeklySocialContentPayload,
 } from '@/backend/social-content/payload';
+import {
+  buildBrandKitPayload,
+  type SocialContentBrandPayload,
+  type SocialContentObjectivePayload,
+} from '@/backend/social-content/brand-kit-payload';
 
 import {
   resolveDominantImageChannel,
@@ -44,31 +47,6 @@ function stringArray(value: unknown): string[] {
     .filter((entry) => entry.length > 0);
 }
 
-function sanitizeReference(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) return '';
-  try {
-    const url = new URL(trimmed);
-    const sensitiveParams = [
-      'token',
-      'access_token',
-      'refresh_token',
-      'id_token',
-      'client_secret',
-      'api_key',
-      'key',
-      'signature',
-      'sig',
-    ];
-    for (const param of sensitiveParams) {
-      url.searchParams.delete(param);
-    }
-    return url.toString();
-  } catch {
-    return redactTokenLikeString(trimmed);
-  }
-}
-
 function integerValue(value: unknown, fallback: number): number {
   if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
     return Math.floor(value);
@@ -93,25 +71,7 @@ function requestRecord(doc: MarketingJobRuntimeDocument): UnknownRecord {
     : {};
 }
 
-export type SocialContentWeeklyBrandPayload = {
-  url: string;
-  name: string;
-  business_type: string;
-  voice: string;
-  style_vibe: string;
-  visual_references: string[];
-  logo_urls: string[];
-  colors: {
-    primary: string | null;
-    secondary: string | null;
-    accent: string | null;
-    palette: string[];
-  };
-  font_families: string[];
-  offer: string;
-  notes: string;
-  must_avoid_aesthetics: string[];
-};
+export type SocialContentWeeklyBrandPayload = SocialContentBrandPayload;
 
 export type SocialContentRegenerateCreativeContext = {
   source_run_id: string;
@@ -127,11 +87,7 @@ export type SocialContentWeeklyRequest = {
   callback_url: string;
   input: {
     brand: SocialContentWeeklyBrandPayload;
-    objective: {
-      primary_goal: string;
-      offer: string;
-      audience: string;
-    };
+    objective: SocialContentObjectivePayload;
     competitor: {
       url: string;
       brand: string;
@@ -199,122 +155,6 @@ function weeklySocialChannels(value: string[]): string[] {
   return channels.length > 0 ? channels : [...SOCIAL_CONTENT_DEFAULT_SCOPE.channels];
 }
 
-function dedupeStrings(values: Iterable<string>): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const value of values) {
-    const trimmed = typeof value === 'string' ? value.trim() : '';
-    if (!trimmed) continue;
-    const key = trimmed.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(trimmed);
-  }
-  return out;
-}
-
-function brandKitColors(brandKit: MarketingBrandKitReference | null | undefined): {
-  primary: string | null;
-  secondary: string | null;
-  accent: string | null;
-  palette: string[];
-} {
-  return {
-    primary: brandKit?.colors?.primary ?? null,
-    secondary: brandKit?.colors?.secondary ?? null,
-    accent: brandKit?.colors?.accent ?? null,
-    palette: Array.isArray(brandKit?.colors?.palette) ? [...brandKit.colors.palette] : [],
-  };
-}
-
-function brandKitLogoUrls(brandKit: MarketingBrandKitReference | null | undefined): string[] {
-  if (!Array.isArray(brandKit?.logo_urls)) return [];
-  // sanitizeReference rejects data: URIs (inline SVG logos) by URL-parse
-  // failure, so we pass them through verbatim and only sanitize http(s) URLs.
-  return brandKit.logo_urls
-    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
-    .filter((entry) => entry.length > 0)
-    .map((entry) => (entry.startsWith('data:') ? entry : sanitizeReference(entry)))
-    .filter((entry) => entry.length > 0);
-}
-
-function brandKitFontFamilies(brandKit: MarketingBrandKitReference | null | undefined): string[] {
-  if (!Array.isArray(brandKit?.font_families)) return [];
-  return dedupeStrings(brandKit.font_families);
-}
-
-function resolveBrandVoice(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
-  const summary = stringValue(brandKit?.brand_voice_summary) || '';
-  const tone = stringValue(brandKit?.tone_of_voice) || '';
-  const operatorVoice = stringValue(req.brandVoice);
-  // Enrichment wins for the voice summary; req.brandVoice falls through only
-  // when no enriched summary exists. tone is APPENDED whenever present —
-  // even on top of operator voice — because tone is a separate dimension and
-  // req.X is rarely operator-typed in practice (onboarding pre-populates).
-  // (Bug surfaced by v0.1.3.24 prod verification.)
-  const base = summary || operatorVoice;
-  if (base && tone) return `${base} Tone: ${tone}.`;
-  if (base) return base;
-  if (tone) return `Tone: ${tone}.`;
-  return '';
-}
-
-function resolveBusinessName(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
-  const operatorName = stringValue(req.businessName);
-  if (operatorName) return operatorName;
-  const brandKitName = brandKit?.brand_name;
-  return typeof brandKitName === 'string' ? stringValue(brandKitName) : '';
-}
-
-const NOTES_FALLBACK_BUDGET = 300;
-
-function resolveNotes(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
-  const operatorNotes = stringValue(req.notes);
-  if (operatorNotes) return operatorNotes;
-  const summary = brandKit?.brand_voice_summary;
-  if (typeof summary !== 'string') return '';
-  const trimmed = stringValue(summary);
-  if (!trimmed) return '';
-  if (trimmed.length <= NOTES_FALLBACK_BUDGET) return trimmed;
-  return `${trimmed.slice(0, NOTES_FALLBACK_BUDGET)}…`;
-}
-
-function resolveBrandOffer(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
-  return (
-    repairStaleMarketingOffer({
-      offer: stringValue(req.offer) || brandKit?.offer_summary || null,
-      brandName: stringValue(req.businessName) || brandKit?.brand_name || null,
-      businessType: stringValue(req.businessType) || null,
-      primaryGoal: stringValue(req.primaryGoal) || stringValue(req.goal) || null,
-      brandVoice: stringValue(req.brandVoice) || brandKit?.brand_voice_summary || null,
-      positioning: brandKit?.positioning || brandKit?.offer_summary || null,
-      brandKitOfferSummary: brandKit?.offer_summary || null,
-    }) || ''
-  );
-}
-
-function resolveBrandStyleVibe(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
-  // Enrichment wins when present; req.styleVibe is often a heuristic onboarding
-  // fallback rather than an operator-typed value, so it must NOT pre-empt the
-  // LLM-derived signal. (Bug surfaced by v0.1.3.24 prod verification.)
-  const enriched = stringValue(brandKit?.style_vibe);
-  if (enriched) return enriched;
-  return stringValue(req.styleVibe) || '';
-}
-
-function resolveBrandAudience(req: UnknownRecord, brandKit: MarketingBrandKitReference | null | undefined): string {
-  return stringValue(req.audience) || stringValue(brandKit?.audience ?? '') || '';
-}
-
-function resolveMustAvoidAesthetics(req: UnknownRecord): string[] {
-  const operatorRaw = typeof req.mustAvoidAesthetics === 'string' ? req.mustAvoidAesthetics : '';
-  const operatorEntries = operatorRaw
-    .split(/[\n;,]/)
-    .map((entry) => stringValue(entry))
-    .filter((entry) => entry.length > 0);
-  return dedupeStrings([...operatorEntries, ...SOCIAL_CONTENT_FORBIDDEN_VISUAL_PATTERNS]);
-}
-
 export function buildSocialContentWeeklyRequest(input: {
   doc: MarketingJobRuntimeDocument;
   ariesRunId: string;
@@ -325,9 +165,7 @@ export function buildSocialContentWeeklyRequest(input: {
   const brandKit = input.doc.brand_kit ?? null;
   const configuredChannels = stringArray(req.channels);
   const imageTargetChannels = weeklySocialChannels(configuredChannels);
-  const visualReferences = stringArray(req.visualReferences)
-    .map(sanitizeReference)
-    .filter((entry) => entry.length > 0);
+  const brandKitPayload = buildBrandKitPayload(input.doc, brandKit, req);
   const requestedWindowDays = clampWeeklyWindowDays(
     req.windowDays ?? req.campaignWindowDays ?? SOCIAL_CONTENT_DEFAULT_SCOPE.window_days,
   );
@@ -341,9 +179,7 @@ export function buildSocialContentWeeklyRequest(input: {
     SOCIAL_CONTENT_DEFAULT_SCOPE.video_render_count,
     MAX_VIDEO_RENDER_COUNT,
   );
-  // Resolve and repair the offer before building mediaRequests so that stale
-  // product copy cannot leak into creative_briefs via the raw req.offer path.
-  const resolvedOffer = resolveBrandOffer(req, brandKit);
+  const resolvedOffer = brandKitPayload.objective.offer;
 
   const mediaRequests: NonNullable<SocialContentWeeklyRequest['input']['media_requests']> = [];
   if (imageCreativeCount > 0) {
@@ -377,25 +213,8 @@ export function buildSocialContentWeeklyRequest(input: {
     job_id: input.doc.job_id,
     callback_url: input.callbackUrl,
     input: {
-      brand: {
-        url: stringValue(input.doc.inputs.brand_url),
-        name: resolveBusinessName(req, brandKit),
-        business_type: stringValue(req.businessType),
-        voice: resolveBrandVoice(req, brandKit),
-        style_vibe: resolveBrandStyleVibe(req, brandKit),
-        visual_references: visualReferences,
-        logo_urls: brandKitLogoUrls(brandKit),
-        colors: brandKitColors(brandKit),
-        font_families: brandKitFontFamilies(brandKit),
-        offer: resolvedOffer,
-        notes: resolveNotes(req, brandKit),
-        must_avoid_aesthetics: resolveMustAvoidAesthetics(req),
-      },
-      objective: {
-        primary_goal: stringValue(req.primaryGoal) || stringValue(req.goal),
-        offer: resolvedOffer,
-        audience: resolveBrandAudience(req, brandKit),
-      },
+      brand: brandKitPayload.brand,
+      objective: brandKitPayload.objective,
       competitor: {
         url: stringValue(input.doc.inputs.competitor_url),
         brand: stringValue(input.doc.inputs.competitor_brand),
@@ -466,12 +285,13 @@ export function buildProductionResumeContext(input: {
   const brandKit = input.doc.brand_kit ?? null;
 
   // --- brand profile (static, always available) ---
-  const brandName = stringValue(req.businessName) || stringValue(brandKit?.brand_name) || 'the brand';
-  const brandVoice = resolveBrandVoice(req, brandKit);
-  const styleVibe = resolveBrandStyleVibe(req, brandKit);
-  const offer = resolveBrandOffer(req, brandKit);
-  const palette = brandKitColors(brandKit).palette;
-  const mustAvoid = resolveMustAvoidAesthetics(req);
+  const brandKitPayload = buildBrandKitPayload(input.doc, brandKit, req);
+  const brandName = brandKitPayload.brand.name || 'the brand';
+  const brandVoice = brandKitPayload.brand.voice;
+  const styleVibe = brandKitPayload.brand.style_vibe;
+  const offer = brandKitPayload.objective.offer;
+  const palette = brandKitPayload.brand.colors.palette;
+  const mustAvoid = brandKitPayload.brand.must_avoid_aesthetics;
   const configuredChannels = stringArray(req.channels);
   const imageTargetChannels = weeklySocialChannels(configuredChannels);
   const primaryChannel = resolveDominantImageChannel(imageTargetChannels);
