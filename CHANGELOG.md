@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.28] - 2026-05-18
+
+### Fixed
+- **Social-content status page now renders all image previews, not just the first 4.** The Assets, Posts, and Publish-queue columns in `frontend/marketing/job-status.tsx` each applied a hardcoded `slice(0, 4)` cap before mapping to card components. At `image_creative_count: 3` this was invisible; after the v0.1.3.27 bump to 6, two creatives were silently dropped from the visible list. The cap is removed — all items from the backend are now rendered. The grid layout scrolls naturally for any count.
+
 ## [0.1.3.27] - 2026-05-17
 
 ### Fixed

@@ -528,7 +528,7 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
           <div className="glass rounded-[2.5rem] p-8">
             <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-6">Assets</p>
             <div className="grid gap-4">
-              {successResult.dashboard.assets.slice(0, 4).map((asset) => (
+              {successResult.dashboard.assets.map((asset) => (
                 <DashboardAssetCard key={asset.id} asset={asset} />
               ))}
             </div>
@@ -536,7 +536,7 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
           <div className="glass rounded-[2.5rem] p-8">
             <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-6">Posts</p>
             <div className="grid gap-4">
-              {successResult.dashboard.posts.slice(0, 4).map((post) => (
+              {successResult.dashboard.posts.map((post) => (
                 <DashboardPostCard
                   key={post.id}
                   post={post}
@@ -548,7 +548,7 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
           <div className="glass rounded-[2.5rem] p-8">
             <p className="text-xs uppercase tracking-[0.24em] text-white/35 mb-6">Publish queue</p>
             <div className="grid gap-4">
-              {successResult.dashboard.publishItems.slice(0, 4).map((item) => (
+              {successResult.dashboard.publishItems.map((item) => (
                 <DashboardPostCard
                   key={item.id}
                   post={item}
