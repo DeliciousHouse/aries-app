@@ -2348,6 +2348,12 @@ async function resolveMarketingApproval(
         reason: record.last_error.message,
       });
     }
+    // Persist the job-level failed state so the runtime doc reflects the failure.
+    // Previously done by handleFailure (which also re-threw); since be82ed8 the
+    // catch returns a structured error instead, so we call recordFailure explicitly.
+    if (checkpoint) {
+      recordFailure(doc, checkpoint.stage, error);
+    }
     return {
       status: 'error',
       jobId: input.jobId,
