@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.32] - 2026-05-18
+
+### Fixed
+- fix(social-content): manual new-job form defaults to 6 image creatives, matching backend default (was 2).
+
 ## [0.1.3.31] - 2026-05-18
 
 ### Fixed
