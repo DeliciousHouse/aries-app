@@ -197,7 +197,7 @@ jobs:
             {
               echo "### Deploy disk usage"
               echo
-              echo "| Filesystem | Path | Free GB before deploy | Free GB after cleanup | Cleanup actions attempted |"
+              echo "| Filesystem | Path | Free GB before deploy | Free GB after deploy | Cleanup actions attempted |"
               echo "| --- | --- | ---: | ---: | --- |"
               echo "| ${filesystem} | ${checked_path} | ${before_free_gb} | ${after_free_gb} | ${cleanup_actions} |"
             } >> "${GITHUB_STEP_SUMMARY}" || echo "WARNING: Unable to append deploy disk summary; deploy result is unaffected." >&2
