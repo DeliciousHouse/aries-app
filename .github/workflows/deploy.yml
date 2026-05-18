@@ -160,6 +160,53 @@ jobs:
           WORKFLOW_GIT_TOKEN: ${{ secrets.GHCR_WORKFLOW_TOKEN || github.token }}
         run: |
           set -euo pipefail
+
+          resolve_docker_disk_path() {
+            local docker_root=""
+            docker_root="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
+            if [[ -z "${docker_root}" ]]; then
+              docker_root="/var/lib/docker"
+            fi
+            echo "${docker_root}"
+          }
+
+          read_disk_snapshot() {
+            local path="$1"
+            local snapshot=""
+            snapshot="$(df -BG -P "${path}" 2>/dev/null | awk 'NR == 2 { gsub(/G$/, "", $4); print $1 "|" $6 "|" $4 }' || true)"
+            if [[ -z "${snapshot}" && "${path}" != "/" ]]; then
+              snapshot="$(df -BG -P / 2>/dev/null | awk 'NR == 2 { gsub(/G$/, "", $4); print $1 "|" $6 "|" $4 }' || true)"
+            fi
+            echo "${snapshot}"
+          }
+
+          append_deploy_disk_summary() {
+            local filesystem="$1"
+            local checked_path="$2"
+            local before_free_gb="$3"
+            local after_free_gb="$4"
+            local cleanup_actions="$5"
+
+            echo "DEPLOY_DISK_SUMMARY filesystem=${filesystem} path=${checked_path} before_free_gb=${before_free_gb} after_free_gb=${after_free_gb} cleanup_actions=${cleanup_actions}"
+
+            if [[ -z "${GITHUB_STEP_SUMMARY:-}" ]]; then
+              echo "GITHUB_STEP_SUMMARY unavailable; disk summary emitted to workflow log only."
+              return 0
+            fi
+
+            {
+              echo "### Deploy disk usage"
+              echo
+              echo "| Filesystem | Path | Free GB before deploy | Free GB after cleanup | Cleanup actions attempted |"
+              echo "| --- | --- | ---: | ---: | --- |"
+              echo "| ${filesystem} | ${checked_path} | ${before_free_gb} | ${after_free_gb} | ${cleanup_actions} |"
+            } >> "${GITHUB_STEP_SUMMARY}" || echo "WARNING: Unable to append deploy disk summary; deploy result is unaffected." >&2
+          }
+
+          docker_disk_path="$(resolve_docker_disk_path)"
+          docker_disk_before_snapshot="$(read_disk_snapshot "${docker_disk_path}")"
+          IFS='|' read -r docker_disk_filesystem docker_disk_checked_path docker_disk_before_free_gb <<< "${docker_disk_before_snapshot:-unknown|${docker_disk_path}|unknown}"
+
           repo_path="${DEPLOY_PATH}"
           origin_url="https://x-access-token:${WORKFLOW_GIT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
 
@@ -255,3 +302,13 @@ jobs:
             echo "ERROR: Aries app health check failed after deploy." >&2
             exit 1
           fi
+
+          cleanup_actions_attempted="${cleanup_actions_attempted:-not captured by this workflow step}"
+          docker_disk_after_snapshot="$(read_disk_snapshot "${docker_disk_path}")"
+          IFS='|' read -r docker_disk_after_filesystem docker_disk_after_checked_path docker_disk_after_free_gb <<< "${docker_disk_after_snapshot:-${docker_disk_filesystem}|${docker_disk_checked_path}|unknown}"
+          append_deploy_disk_summary \
+            "${docker_disk_after_filesystem:-${docker_disk_filesystem:-unknown}}" \
+            "${docker_disk_after_checked_path:-${docker_disk_checked_path:-${docker_disk_path}}}" \
+            "${docker_disk_before_free_gb:-unknown}" \
+            "${docker_disk_after_free_gb:-unknown}" \
+            "${cleanup_actions_attempted}"
