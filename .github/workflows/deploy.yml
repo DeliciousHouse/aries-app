@@ -161,6 +161,31 @@ jobs:
         run: |
           set -euo pipefail
 
+          # --- Disk preflight: fail fast if Docker storage filesystem is too full ---
+          # Resolves Docker root via 'docker info' with /var/lib/docker fallback, then
+          # checks df available space. Fails below 10 GB so low-disk is caught before
+          # image pull, build, container switch, or worktree operations.
+          DISK_PREFLIGHT_REQUIRED_GB=10
+          preflight_docker_root="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
+          if [[ -z "${preflight_docker_root}" ]]; then
+            preflight_docker_root="/var/lib/docker"
+          fi
+          preflight_df_line="$(df -Pk "${preflight_docker_root}" 2>/dev/null | awk 'NR==2{print}' || true)"
+          if [[ -z "${preflight_df_line}" ]]; then
+            echo "::error ::Deploy disk preflight: unable to read df for ${preflight_docker_root}. Cannot confirm sufficient disk space. Remediation: free space on the deploy host or verify 'df' is available."
+            exit 1
+          fi
+          preflight_filesystem="$(echo "${preflight_df_line}" | awk '{print $1}')"
+          preflight_mountpoint="$(echo "${preflight_df_line}" | awk '{print $6}')"
+          preflight_avail_kb="$(echo "${preflight_df_line}" | awk '{print $4}')"
+          preflight_avail_gb=$(( preflight_avail_kb / 1048576 ))
+          if (( preflight_avail_gb < DISK_PREFLIGHT_REQUIRED_GB )); then
+            echo "::error ::Deploy disk preflight FAILED: ${preflight_filesystem} mounted at ${preflight_mountpoint} (checked path: ${preflight_docker_root}) has ${preflight_avail_gb} GB free, below the required ${DISK_PREFLIGHT_REQUIRED_GB} GB threshold. Remediation: run 'docker buildx prune --force' and/or 'docker image prune -a' on the deploy host to free space, then re-run the deploy."
+            exit 1
+          fi
+          echo "Deploy disk preflight passed: ${preflight_filesystem} at ${preflight_mountpoint} (${preflight_docker_root}) has ${preflight_avail_gb} GB free (required: ${DISK_PREFLIGHT_REQUIRED_GB} GB)."
+          # --- End disk preflight ---
+
           resolve_docker_disk_path() {
             local docker_root=""
             docker_root="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)"

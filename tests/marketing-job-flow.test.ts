@@ -655,16 +655,18 @@ test('approveMarketingJob preserves the active approval checkpoint when resume f
       },
     });
 
-    await assert.rejects(
-      () =>
-        approveMarketingJob({
-          jobId: started.jobId,
-          tenantId: 'tenant-a',
-          approvedBy: 'operator',
-          approvedStages: ['strategy'],
-        }),
-      /resume_pipeline_failed:gateway_timeout/i
-    );
+    // Since be82ed8 (v0.1.3.0), resolveMarketingApproval catches gateway errors and
+    // returns {status:'error', reason} instead of re-throwing. The runtime layer
+    // maps this to a clean 4xx RuntimeReviewDecisionError rather than a 500.
+    const result = await approveMarketingJob({
+      jobId: started.jobId,
+      tenantId: 'tenant-a',
+      approvedBy: 'operator',
+      approvedStages: ['strategy'],
+    });
+
+    assert.equal(result.status, 'error');
+    assert.match(result.reason ?? '', /resume_pipeline_failed:gateway_timeout/i);
 
     const runtimeFile = path.join(dataRoot, 'generated', 'draft', 'marketing-jobs', `${started.jobId}.json`);
     const runtimeDoc = JSON.parse(await readFile(runtimeFile, 'utf8')) as any;
