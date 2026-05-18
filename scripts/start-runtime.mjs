@@ -15,6 +15,8 @@ const projectRoot = path.resolve(scriptDir, '..');
 let partnerOutboxChild = null;
 /** @type {import('node:child_process').ChildProcess | null} */
 let staleRunReaperChild = null;
+/** @type {import('node:child_process').ChildProcess | null} */
+let hermesKanbanGcChild = null;
 const rawPort = process.env.PORT?.trim();
 const parsedPort = rawPort ? Number(rawPort) : defaultPort;
 const isValidPort = Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65535;
@@ -73,6 +75,14 @@ function partnerAttributionWorkerEnabled() {
 function reaperWorkerEnabled() {
   const v = process.env.ARIES_REAPER_ENABLED?.trim().toLowerCase();
   return v === '1' || v === 'true';
+}
+
+function hermesKanbanGcWorkerEnabled() {
+  const v = process.env.ARIES_KANBAN_GC_ENABLED?.trim().toLowerCase();
+  if (!v) {
+    return true;
+  }
+  return v !== '0' && v !== 'false' && v !== 'no' && v !== 'off';
 }
 
 function spawnPartnerOutboxWorker() {
@@ -137,6 +147,37 @@ function stopStaleRunReaperWorker() {
   }
 }
 
+function spawnHermesKanbanGcWorker() {
+  if (!hermesKanbanGcWorkerEnabled()) {
+    return;
+  }
+  const tsx = path.join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+  const worker = path.join(projectRoot, 'scripts', 'hermes-kanban-gc-worker.ts');
+  try {
+    hermesKanbanGcChild = spawn(process.execPath, [tsx, worker], {
+      stdio: 'inherit',
+      env: { ...runtimeEnv },
+      detached: false,
+    });
+    hermesKanbanGcChild.on('exit', (code, signal) => {
+      hermesKanbanGcChild = null;
+      console.error(
+        `[runtime] hermes kanban gc worker exited code=${String(code)} signal=${String(signal ?? '')}`,
+      );
+    });
+    console.log('[runtime] started hermes kanban gc worker');
+  } catch (error) {
+    console.error('[runtime] failed to start hermes kanban gc worker', error);
+  }
+}
+
+function stopHermesKanbanGcWorker() {
+  if (hermesKanbanGcChild && !hermesKanbanGcChild.killed) {
+    hermesKanbanGcChild.kill('SIGTERM');
+    hermesKanbanGcChild = null;
+  }
+}
+
 function normalizeProcessManager(rawValue) {
   const normalized = rawValue?.trim().toLowerCase() || 'cluster';
   if (normalized === 'cluster' || normalized === 'node') {
@@ -175,6 +216,7 @@ function startClusterRuntime() {
 
   spawnPartnerOutboxWorker();
   spawnStaleRunReaperWorker();
+  spawnHermesKanbanGcWorker();
 
   cluster.on('exit', (worker, code, signal) => {
     const instanceId = workerInstanceIds.get(worker.id) ?? 0;
@@ -210,6 +252,7 @@ function startClusterRuntime() {
     shuttingDown = true;
     stopPartnerOutboxWorker();
     stopStaleRunReaperWorker();
+    stopHermesKanbanGcWorker();
     const workers = Object.values(cluster.workers ?? {}).filter(Boolean);
     if (workers.length === 0) {
       process.exit(0);
@@ -222,6 +265,7 @@ function startClusterRuntime() {
     const forceExitTimer = setTimeout(() => {
       stopPartnerOutboxWorker();
       stopStaleRunReaperWorker();
+      stopHermesKanbanGcWorker();
       for (const worker of Object.values(cluster.workers ?? {}).filter(Boolean)) {
         worker.kill('SIGKILL');
       }
@@ -242,6 +286,7 @@ function startClusterRuntime() {
 function startSingleNodeRuntime() {
   spawnPartnerOutboxWorker();
   spawnStaleRunReaperWorker();
+  spawnHermesKanbanGcWorker();
 
   const child = spawn(process.execPath, [nextCliPath(), 'start', '-p', String(parsedPort)], {
     stdio: 'inherit',
@@ -256,6 +301,7 @@ function startSingleNodeRuntime() {
     forwardedSignals.add(signal);
     stopPartnerOutboxWorker();
     stopStaleRunReaperWorker();
+    stopHermesKanbanGcWorker();
     if (!child.killed) {
       child.kill(signal);
     }
