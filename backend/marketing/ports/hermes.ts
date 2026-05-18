@@ -277,7 +277,8 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     if (configError) {
       const keys = ['HERMES_GATEWAY_URL', 'HERMES_API_SERVER_KEY', 'INTERNAL_API_SECRET', 'APP_BASE_URL']
         .filter((key) => !readEnvValue(this.env, key));
-      throw new Error(`social_copy_finalize_config_missing:${keys.join(', ')} required for Hermes execution.`);
+      markSubmissionFailed(input.ariesRunId, 'hermes_gateway_not_configured', `${keys.join(', ')} required for Hermes execution.`);
+      throw new Error(`hermes_gateway_not_configured:${keys.join(', ')} required for Hermes execution.`);
     }
 
     await this.persistCallbackTokenHash(input.ariesRunId, input.tenantId, input.callbackToken);

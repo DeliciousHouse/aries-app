@@ -311,7 +311,7 @@ test('HermesMarketingPort.submitRawRun throws with config error when HERMES_GATE
         callbackToken: 'tok',
       }),
       (err: Error) => {
-        assert.ok(err.message.includes('social_copy_finalize_config_missing'));
+        assert.ok(err.message.includes('hermes_gateway_not_configured'));
         return true;
       },
     );

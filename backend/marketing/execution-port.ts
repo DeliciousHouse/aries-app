@@ -107,7 +107,7 @@ export type SubmitRawRunInput = {
   ariesRunId: string;
   tenantId: string;
   workflowKey: string;
-  stage: import('./runtime-state').MarketingStage;
+  stage: MarketingStage;
   payload: Record<string, unknown>;
   callbackToken: string;
 };
