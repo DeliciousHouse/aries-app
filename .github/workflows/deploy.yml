@@ -303,7 +303,56 @@ jobs:
             exit 1
           fi
 
-          cleanup_actions_attempted="${cleanup_actions_attempted:-not captured by this workflow step}"
+          echo "Post-deploy cleanup: pruning Docker buildx cache to keep approximately 2GB."
+          if ! docker buildx prune --keep-storage=2GB --force; then
+            echo "WARNING: docker buildx prune failed; deploy is healthy, continuing." >&2
+          fi
+
+          echo "Post-deploy cleanup: pruning old aries-app images while keeping the newest 3 and all running images."
+          if ! running_image_list="$(docker ps -q | xargs -r docker inspect -f '{{.Image}}')"; then
+            echo "WARNING: unable to inspect running Docker images; skipping aries-app image prune to avoid removing an active image." >&2
+          elif ! image_rows="$(docker image ls --format '{{.ID}} {{.Repository}} {{.Tag}}')"; then
+            echo "WARNING: unable to list Docker images; skipping aries-app image prune." >&2
+          else
+            declare -A running_image_ids=()
+            while IFS= read -r image_id; do
+              [[ -n "${image_id}" ]] && running_image_ids["${image_id}"]=1
+            done <<<"${running_image_list}"
+
+            declare -A seen_candidate_ids=()
+            aries_candidate_ids=()
+            while read -r image_id repository tag; do
+              [[ -n "${image_id}" && -n "${repository}" && -n "${tag}" ]] || continue
+              [[ "${repository}" == "aries-app" || "${repository}" == */aries-app ]] || continue
+              full_image_id="$(docker image inspect -f '{{.Id}}' "${image_id}" 2>/dev/null || true)"
+              [[ -n "${full_image_id}" ]] || continue
+              if [[ -z "${seen_candidate_ids[${full_image_id}]:-}" ]]; then
+                seen_candidate_ids["${full_image_id}"]=1
+                aries_candidate_ids+=("${full_image_id}")
+              fi
+            done <<<"${image_rows}"
+
+            aries_remove_ids=()
+            for index in "${!aries_candidate_ids[@]}"; do
+              image_id="${aries_candidate_ids[${index}]}"
+              if (( index < 3 )); then
+                continue
+              fi
+              if [[ -n "${running_image_ids[${image_id}]:-}" ]]; then
+                echo "Keeping older aries-app image ${image_id} because a running container uses it."
+                continue
+              fi
+              aries_remove_ids+=("${image_id}")
+            done
+
+            if (( ${#aries_remove_ids[@]} == 0 )); then
+              echo "No old aries-app images eligible for removal."
+            elif ! docker image rm "${aries_remove_ids[@]}"; then
+              echo "WARNING: failed to remove one or more old aries-app images; deploy is healthy, continuing." >&2
+            fi
+          fi
+
+          cleanup_actions_attempted="docker buildx prune --keep-storage=2GB; aries-app image prune (keep newest 3 + running)"
           docker_disk_after_snapshot="$(read_disk_snapshot "${docker_disk_path}")"
           IFS='|' read -r docker_disk_after_filesystem docker_disk_after_checked_path docker_disk_after_free_gb <<< "${docker_disk_after_snapshot:-${docker_disk_filesystem}|${docker_disk_checked_path}|unknown}"
           append_deploy_disk_summary \
