@@ -103,11 +103,35 @@ export type MarketingPipelineNextStageInput = {
   stage: MarketingStage; // the NEXT stage to submit (strategy | production | publish)
 };
 
+export type SubmitRawRunInput = {
+  ariesRunId: string;
+  tenantId: string;
+  workflowKey: string;
+  stage: MarketingStage;
+  payload: Record<string, unknown>;
+  callbackToken: string;
+};
+
+export type SubmitRawRunResult = {
+  ariesRunId: string;
+  hermesRunId: string;
+};
+
 export interface MarketingExecutionPort {
   readonly name: MarketingExecutionPortName;
   runPipeline(input: MarketingPipelineRunInput): Promise<MarketingExecutionResult>;
   resumePipeline(input: MarketingPipelineResumeInput): Promise<MarketingExecutionResult>;
   submitNextStage(input: MarketingPipelineNextStageInput): Promise<MarketingExecutionResult>;
+  /** Returns the callback URL this port expects Hermes to POST results to. */
+  getCallbackUrl(): string;
+  /** Returns the Hermes session key (used as `session_id` in gateway payloads). */
+  getSessionKey(): string;
+  /**
+   * Dispatches a pre-built payload to the Hermes gateway and kicks off the
+   * poll bridge. Throws on gateway/config errors — caller is responsible for
+   * managing execution run record lifecycle around this call.
+   */
+  submitRawRun(input: SubmitRawRunInput): Promise<SubmitRawRunResult>;
 }
 
 export type MarketingExecutionPortEnv = Partial<Record<string, string | undefined>>;

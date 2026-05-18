@@ -119,6 +119,9 @@ test('continueAfterCreativeReviewApproval preserves legacy resume path when fina
           hermesRunId: 'hrun_resume_publish_review',
         };
       },
+      getCallbackUrl: () => 'https://aries.example.com/api/internal/hermes/runs',
+      getSessionKey: () => 'marketing',
+      submitRawRun: async () => { throw new Error('not expected'); },
     }));
 
     try {

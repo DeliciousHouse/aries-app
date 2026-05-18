@@ -123,6 +123,9 @@ function makePort(opts: {
       if (opts.submitNextStage) return opts.submitNextStage(input);
       return { kind: 'submitted', provider: 'hermes', ariesRunId: 'aries_run_next' };
     },
+    getCallbackUrl() { return 'https://aries.example.com/api/internal/hermes/runs'; },
+    getSessionKey() { return 'marketing'; },
+    async submitRawRun() { throw new Error('not expected in this test'); },
   };
 }
 

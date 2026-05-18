@@ -85,6 +85,12 @@ class StubMarketingPort implements MarketingExecutionPort {
   async submitNextStage(_input: import('../backend/marketing/execution-port').MarketingPipelineNextStageInput): Promise<MarketingExecutionResult> {
     return { kind: 'submitted', provider: 'hermes', ariesRunId: 'arun_stub_next_stage' };
   }
+
+  getCallbackUrl() { return 'https://aries.example.com/api/internal/hermes/runs'; }
+  getSessionKey() { return 'marketing'; }
+  async submitRawRun(): Promise<import('../backend/marketing/execution-port').SubmitRawRunResult> {
+    throw new Error('submitRawRun should not be called in regenerate flow');
+  }
 }
 
 async function withDataRoot<T>(run: () => Promise<T>): Promise<T> {

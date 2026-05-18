@@ -155,6 +155,9 @@ test('continueAfterCreativeReviewApproval preserves the legacy resume path when 
           hermesRunId: 'hrun_resume_publish_review',
         };
       },
+      getCallbackUrl: () => 'https://aries.example.com/api/internal/hermes/runs',
+      getSessionKey: () => 'marketing',
+      submitRawRun: async () => { throw new Error('not expected'); },
     }));
 
     try {
@@ -254,6 +257,9 @@ test('continueAfterCreativeReviewApproval skips the finalize submission when the
           hermesRunId: 'hrun_resume_publish_review',
         };
       },
+      getCallbackUrl: () => 'https://aries.example.com/api/internal/hermes/runs',
+      getSessionKey: () => 'marketing',
+      submitRawRun: async () => { throw new Error('not expected'); },
     }));
 
     try {
