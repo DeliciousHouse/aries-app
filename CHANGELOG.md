@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.29] - 2026-05-18
+
+### Added
+- **Social-copy finalize pipeline stage** (feature-flagged, default-OFF via `ARIES_SOCIAL_COPY_FINALIZE_ENABLED`). After image creatives are approved and before video stages, a new `social_copy_finalize` Hermes workflow receives generated images, brand kit, and onboarding marketing focus and returns image-aware captions, hashtags, and CTAs per post. Results surface on `MarketingDashboardPost` (caption/hashtags/cta/copyWarnings) and render in `DashboardPostCard` and `DashboardAssetCard` (reverse-lookup via relatedPostIds). Caption validator enforces per-platform character caps; one retry on invalid responses with constraint feedback; partial results preserved on transient failure so a resume picks up where it left off.
+- `backend/social-content/social-copy-store.ts` — atomic per-post write with merge preservation for resume idempotency.
+- `backend/social-content/copy-finalize-request.ts` — Hermes workflow request builder (`SOCIAL_COPY_FINALIZE_WORKFLOW_KEY`).
+- `backend/social-content/copy-finalize-handler.ts` — handler with caption validator and retry logic.
+
+### Changed
+- **DRY refactor:** extracted `backend/social-content/brand-kit-payload.ts` shared helper; `buildSocialContentWeeklyRequest` and `buildProductionResumeContext` now both call it. Closes the pattern that caused v0.1.3.25's silent field-drop on `MarketingBrandKitReference` growth. Byte-shape regression tests in `tests/social-content/brand-kit-payload.test.ts` confirm no behavior change.
+
+### Notes
+- Hermes-side workflow `social_copy_finalize` registration and LLM quality eval are prereqs before flipping the flag to `1` in `docker-compose.yml`. The PR ships the Aries-side wiring, UI, and tests only.
+
 ## [0.1.3.28] - 2026-05-18
 
 ### Fixed
