@@ -9,6 +9,7 @@ export type SocialContentStage =
   | 'image_briefing'
   | 'image_generation'
   | 'creative_review'
+  | 'social_copy_finalize'
   | 'video_script'
   | 'video_review'
   | 'video_render'
@@ -39,6 +40,19 @@ export type SocialContentArtifact = {
   summary: string | null;
   url: string | null;
   metadata: Record<string, unknown>;
+};
+
+export type SocialCopyArtifact = {
+  version: string;
+  generated_at: string;
+  posts: Array<{
+    id: string;
+    channel: string;
+    caption: string;
+    hashtags: string[];
+    cta: string;
+    warnings: string[];
+  }>;
 };
 
 export type SocialContentStageRecord = {

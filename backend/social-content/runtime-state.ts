@@ -64,6 +64,7 @@ export const SOCIAL_CONTENT_STAGE_ORDER: SocialContentStage[] = [
   'image_briefing',
   'image_generation',
   'creative_review',
+  'social_copy_finalize',
   'video_script',
   'video_review',
   'video_render',
@@ -106,7 +107,7 @@ const APPROVAL_STEP_TO_REVIEW_STAGE: Record<SocialContentApprovalStep, SocialCon
 const APPROVAL_STEP_TO_RESUME_STAGE: Record<SocialContentApprovalStep, SocialContentStage> = {
   approve_weekly_plan: 'copy_production',
   approve_post_copy: 'image_briefing',
-  approve_image_creatives: 'video_script',
+  approve_image_creatives: 'social_copy_finalize',
   approve_video_script: 'video_render',
   approve_video_render: 'publish_review',
   approve_publish: 'completed',
