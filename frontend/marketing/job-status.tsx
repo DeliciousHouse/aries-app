@@ -598,7 +598,7 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
                 <DashboardAssetCard
                   key={asset.id}
                   asset={asset}
-                  relatedPost={asset.relatedPostIds.map((postId) => postById.get(postId) || null).find(Boolean) || null}
+                  relatedPost={asset.relatedPostIds.map((postId) => postById.get(postId)).find((post): post is MarketingDashboardPost => Boolean(post)) ?? null}
                 />
               ))}
             </div>

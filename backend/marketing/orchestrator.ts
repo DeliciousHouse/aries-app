@@ -2280,9 +2280,12 @@ async function resolveMarketingApproval(
             requestedJobTypeFromDoc(doc) === 'weekly_social_content'
             && activeApprovalStep === 'approve_image_creatives'
           );
-          resumedStage = shouldRouteThroughSocialCopyFinalize
-            ? await continueAfterCreativeReviewApproval(doc, activeResumeToken, resumeContext)
-            : (await finalizeProductionAndRunPublishReview(doc, activeResumeToken, resumeContext), 'publish');
+          if (shouldRouteThroughSocialCopyFinalize) {
+            resumedStage = await continueAfterCreativeReviewApproval(doc, activeResumeToken, resumeContext);
+          } else {
+            await finalizeProductionAndRunPublishReview(doc, activeResumeToken, resumeContext);
+            resumedStage = 'publish';
+          }
         } else {
           await advancePublishStage(doc, activeResumeToken, resumeContext);
           resumedStage = 'publish';

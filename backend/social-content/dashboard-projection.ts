@@ -281,6 +281,12 @@ function socialCopyForPostId(jobId: string): Map<string, SocialCopyProjection> {
     if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
       return new Map();
     }
+    console.warn('[social-copy-projection] failed to read social-copy artifact', {
+      jobId,
+      filePath,
+      code: 'social_copy_artifact_read_error',
+      error: error instanceof Error ? error.message : String(error),
+    });
     return new Map();
   }
 
@@ -303,7 +309,13 @@ function socialCopyForPostId(jobId: string): Map<string, SocialCopyProjection> {
     }
 
     return byId;
-  } catch {
+  } catch (error) {
+    console.warn('[social-copy-projection] failed to parse social-copy artifact', {
+      jobId,
+      filePath,
+      code: 'social_copy_artifact_invalid_json',
+      error: error instanceof Error ? error.message : String(error),
+    });
     return new Map();
   }
 }
