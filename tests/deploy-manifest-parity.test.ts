@@ -46,6 +46,16 @@ test('runtime env examples advertise Hermes defaults with legacy OpenClaw opt-in
   assert.doesNotMatch(envExampleSource, /^OPENAI_CLIENT_ID=/m);
   assert.doesNotMatch(envExampleSource, /^OPENAI_CLIENT_SECRET=/m);
   assert.match(envExampleSource, /^OAUTH_TOKEN_ENCRYPTION_KEY=/m);
+
+  // Hermes kanban GC worker knobs must be documented in .env.example
+  assert.match(envExampleSource, /^ARIES_KANBAN_GC_ENABLED=/m);
+  assert.match(envExampleSource, /^ARIES_KANBAN_GC_INTERVAL_MS=/m);
+  assert.match(envExampleSource, /^ARIES_KANBAN_GC_RETENTION_DAYS=/m);
+
+  // docker-compose.yml must wire all three kanban GC vars
+  assert.match(composeSource, /ARIES_KANBAN_GC_ENABLED:\s*\$\{ARIES_KANBAN_GC_ENABLED:-1\}/);
+  assert.match(composeSource, /ARIES_KANBAN_GC_INTERVAL_MS:\s*\$\{ARIES_KANBAN_GC_INTERVAL_MS:-86400000\}/);
+  assert.match(composeSource, /ARIES_KANBAN_GC_RETENTION_DAYS:\s*\$\{ARIES_KANBAN_GC_RETENTION_DAYS:-7\}/);
 });
 
 test('legacy dist deploy shim cannot reintroduce the stale public onboarding path', () => {
