@@ -1203,23 +1203,8 @@ async function finalizeStrategyAndRunProductionReview(
   saveMarketingJobRuntime(doc.job_id, doc);
 }
 
-function socialCopyFinalizeCallbackUrl(port: Record<string, unknown>): string {
-  const fromPort = typeof port.callbackUrl === 'function'
-    ? (port.callbackUrl as () => string)()
-    : null;
-  if (typeof fromPort === 'string' && fromPort.trim().length > 0) {
-    return fromPort.trim();
-  }
-  const appBaseUrl = (
-    process.env.APP_BASE_URL ||
-    process.env.NEXTAUTH_URL ||
-    process.env.AUTH_URL ||
-    ''
-  ).replace(/\/+$/, '');
-  if (!appBaseUrl) {
-    throw new Error('missing_required_config:APP_BASE_URL');
-  }
-  return `${appBaseUrl}/api/internal/hermes/runs`;
+function socialCopyFinalizeCallbackUrl(port: MarketingExecutionPort): string {
+  return port.getCallbackUrl();
 }
 
 function activeSocialCopyFinalizeRunId(doc: MarketingJobRuntimeDocument): string | null {
@@ -1245,7 +1230,7 @@ async function submitSocialCopyFinalizeRun(
     return socialCopyFinalizeSubmitterForTests(doc);
   }
 
-  const port = resolveMarketingExecutionPortForDoc(doc) as MarketingExecutionPort & Record<string, unknown>;
+  const port = resolveMarketingExecutionPortForDoc(doc);
   const callbackUrl = socialCopyFinalizeCallbackUrl(port);
   const preview = buildSocialCopyFinalizeRequest({
     doc,
@@ -1296,15 +1281,7 @@ async function submitSocialCopyFinalizeRun(
   }
 
   const callbackToken = randomBytes(32).toString('hex');
-  if (typeof port.persistCallbackTokenHash === 'function') {
-    await (port.persistCallbackTokenHash as (ariesRunId: string, tenantId: string, callbackToken: string) => Promise<unknown>)(
-      run.aries_run_id,
-      doc.tenant_id,
-      callbackToken,
-    );
-  }
-
-  const payload = {
+  const payload: Record<string, unknown> = {
     input: [
       `Workflow: ${built.request.workflow_key}`,
       'Action: run',
@@ -1315,7 +1292,7 @@ async function submitSocialCopyFinalizeRun(
       `Request (JSON): ${JSON.stringify(built.request)}`,
     ].join('\n'),
     instructions: socialCopyFinalizeInstructions(),
-    session_id: typeof port.sessionKey === 'function' ? (port.sessionKey as () => string)() : 'marketing',
+    session_id: port.getSessionKey(),
     workflow_key: SOCIAL_COPY_FINALIZE_WORKFLOW_KEY,
     callback_url: built.request.callback_url,
     callback_auth: {
@@ -1334,91 +1311,18 @@ async function submitSocialCopyFinalizeRun(
       .digest('hex'),
   };
 
-  const gatewayUrl = typeof port.gatewayUrl === 'function'
-    ? (port.gatewayUrl as () => string)()
-    : (process.env.HERMES_GATEWAY_URL || '').replace(/\/+$/, '');
-  const authHeader = typeof port.authHeader === 'function'
-    ? (port.authHeader as () => string)()
-    : process.env.HERMES_API_SERVER_KEY?.trim()
-      ? `Bearer ${process.env.HERMES_API_SERVER_KEY.trim()}`
-      : '';
-  const fetchImpl = typeof port.fetchImpl === 'function'
-    ? (port.fetchImpl as typeof fetch).bind(port)
-    : globalThis.fetch;
-  if (!gatewayUrl || !authHeader || typeof fetchImpl !== 'function') {
-    markExecutionRunFailed(run.aries_run_id, {
-      code: 'social_copy_finalize_config_missing',
-      message: 'Hermes social copy finalize submission is not configured.',
-      retryable: false,
-    });
-    throw new Error('social_copy_finalize_config_missing:Hermes social copy finalize submission is not configured.');
-  }
-
-  let response: Response;
-  try {
-    response = await fetchImpl(`${gatewayUrl}/v1/runs`, {
-      method: 'POST',
-      headers: {
-        authorization: authHeader,
-        'content-type': 'application/json',
-        'idempotency-key': payload.idempotency_key,
-      },
-      body: JSON.stringify(payload),
-    });
-  } catch (error) {
-    markExecutionRunFailed(run.aries_run_id, {
-      code: 'hermes_gateway_unreachable',
-      message: error instanceof Error ? error.message : String(error),
-      retryable: true,
-    });
-    throw new Error(`hermes_gateway_unreachable:${error instanceof Error ? error.message : String(error)}`);
-  }
-
-  if (!response.ok) {
-    const responseBody = await response.text().catch(() => '');
-    markExecutionRunFailed(run.aries_run_id, {
-      code: 'hermes_gateway_request_failed',
-      message: `Hermes gateway returned HTTP ${response.status} on /v1/runs.`,
-      retryable: true,
-    });
-    throw new Error(`hermes_gateway_request_failed:HTTP ${response.status} ${responseBody.slice(0, 200)}`);
-  }
-
-  const parsed = await response.json().catch(() => null) as Record<string, unknown> | null;
-  const hermesRunId = typeof parsed?.run_id === 'string' ? parsed.run_id.trim() : '';
-  if (!hermesRunId) {
-    markExecutionRunFailed(run.aries_run_id, {
-      code: 'hermes_gateway_response_invalid',
-      message: 'Hermes /v1/runs response is missing run_id.',
-      retryable: false,
-    });
-    throw new Error('hermes_gateway_response_invalid:Hermes /v1/runs response is missing run_id.');
-  }
-
-  markExecutionRunSubmitted(run.aries_run_id, { externalRunId: hermesRunId });
-  if (typeof port.runPollBridge === 'function') {
-    void (port.runPollBridge as (
-      runId: string,
-      ariesRunId: string,
-      workflowKey: string,
-      stage: MarketingStage,
-    ) => Promise<unknown>)(
-      hermesRunId,
-      run.aries_run_id,
-      SOCIAL_COPY_FINALIZE_WORKFLOW_KEY,
-      'production',
-    ).catch((error: unknown) => {
-      console.error('[marketing-orchestrator] social_copy_finalize poll bridge failed', {
-        aries_run_id: run.aries_run_id,
-        hermes_run_id: hermesRunId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
-  }
+  const { ariesRunId, hermesRunId } = await port.submitRawRun({
+    ariesRunId: run.aries_run_id,
+    tenantId: doc.tenant_id,
+    workflowKey: SOCIAL_COPY_FINALIZE_WORKFLOW_KEY,
+    stage: 'production',
+    payload,
+    callbackToken,
+  });
 
   return {
     status: 'submitted',
-    ariesRunId: run.aries_run_id,
+    ariesRunId,
     hermesRunId,
   };
 }

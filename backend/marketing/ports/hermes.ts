@@ -32,6 +32,8 @@ import type {
   MarketingPipelineResumeInput,
   MarketingPipelineRunInput,
   RegenerateCreativeContext,
+  SubmitRawRunInput,
+  SubmitRawRunResult,
 } from '../execution-port';
 import { loadMarketingJobRuntime, type MarketingJobRuntimeDocument, type MarketingStage } from '../runtime-state';
 import type { SocialContentApprovalStep } from '@/backend/social-content/types';
@@ -260,6 +262,69 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       argsJson: JSON.stringify({ auto_advance: true, starting_stage: input.stage }),
       stage: input.stage,
     });
+  }
+
+  getCallbackUrl(): string {
+    return this.callbackUrl();
+  }
+
+  getSessionKey(): string {
+    return this.sessionKey();
+  }
+
+  async submitRawRun(input: SubmitRawRunInput): Promise<SubmitRawRunResult> {
+    const configError = this.configurationError();
+    if (configError) {
+      const keys = ['HERMES_GATEWAY_URL', 'HERMES_API_SERVER_KEY', 'INTERNAL_API_SECRET', 'APP_BASE_URL']
+        .filter((key) => !readEnvValue(this.env, key));
+      throw new Error(`social_copy_finalize_config_missing:${keys.join(', ')} required for Hermes execution.`);
+    }
+
+    await this.persistCallbackTokenHash(input.ariesRunId, input.tenantId, input.callbackToken);
+
+    const idempotencyKey = typeof input.payload.idempotency_key === 'string' ? input.payload.idempotency_key : '';
+
+    let response: Response;
+    try {
+      response = await this.fetchImpl(`${this.gatewayUrl()}/v1/runs`, {
+        method: 'POST',
+        headers: {
+          authorization: this.authHeader(),
+          'content-type': 'application/json',
+          'idempotency-key': idempotencyKey,
+        },
+        body: JSON.stringify(input.payload),
+      });
+    } catch (error) {
+      markSubmissionFailed(input.ariesRunId, 'hermes_gateway_unreachable', error instanceof Error ? error.message : String(error));
+      throw new Error(`hermes_gateway_unreachable:${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    if (!response.ok) {
+      const responseBody = await response.text().catch(() => '');
+      markSubmissionFailed(input.ariesRunId, 'hermes_gateway_request_failed', `Hermes gateway returned HTTP ${response.status} on /v1/runs.`);
+      throw new Error(`hermes_gateway_request_failed:HTTP ${response.status} ${responseBody.slice(0, 200)}`);
+    }
+
+    const parsed = await this.parseJsonBody(response);
+    const hermesRunId = typeof parsed?.run_id === 'string' ? parsed.run_id.trim() : '';
+    if (!hermesRunId) {
+      markSubmissionFailed(input.ariesRunId, 'hermes_gateway_response_invalid', 'Hermes /v1/runs response is missing run_id.');
+      throw new Error('hermes_gateway_response_invalid:Hermes /v1/runs response is missing run_id.');
+    }
+
+    markExecutionRunSubmitted(input.ariesRunId, { externalRunId: hermesRunId });
+    if (this.pollBridgeEnabled()) {
+      void this.runPollBridge(hermesRunId, input.ariesRunId, input.workflowKey, input.stage).catch((error) => {
+        console.error('[hermes-port] poll-bridge failed (submitRawRun)', {
+          aries_run_id: input.ariesRunId,
+          hermes_run_id: hermesRunId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
+
+    return { ariesRunId: input.ariesRunId, hermesRunId };
   }
 
   private async loadMemoryContext(
