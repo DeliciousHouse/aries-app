@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
@@ -6,13 +6,17 @@ import { resolveCodePath, resolveCodeRoot } from '@/lib/runtime-paths';
 import { sanitizeWeeklySocialContentPayload } from '@/backend/social-content/payload';
 import {
   SOCIAL_CONTENT_DEFAULT_SCOPE,
+  SOCIAL_COPY_FINALIZE_WORKFLOW_KEY,
   SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
 } from '@/backend/social-content/defaults';
+import { buildSocialCopyFinalizeRequest } from '@/backend/social-content/copy-finalize-request';
 import {
   approvalStepFromWorkflowStepId,
   ensureSocialContentRuntimeState,
   markSocialContentApprovalResolutionSubmitted,
   markSocialContentStageFailed,
+  markSocialContentStageCompleted,
+  markSocialContentStageRunning,
 } from '@/backend/social-content/runtime-state';
 import type { SocialContentApprovalStep } from '@/backend/social-content/types';
 import {
@@ -89,6 +93,12 @@ import { invalidateValidatedProfilesIfSourceChanged } from './validated-profile-
 import { submitMarketingResearchMemoryJob } from '@/backend/memory/submit-marketing-research-job';
 import type { TenantRole } from '@/lib/tenant-context';
 import { scheduleMarketingApprovalHonchoWrites } from '@/backend/memory/write-events';
+import {
+  createExecutionRunRecord,
+  loadExecutionRunRecord,
+  markExecutionRunFailed,
+  markExecutionRunSubmitted,
+} from '@/backend/execution/run-store';
 
 export type StartMarketingJobRequest = {
   tenantId: string;
@@ -474,7 +484,33 @@ function marketingStageFromSocialApprovalStep(step: SocialContentApprovalStep): 
   return 'production';
 }
 
+function socialCopyFinalizeEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const value = env.ARIES_SOCIAL_COPY_FINALIZE_ENABLED?.trim().toLowerCase() ?? '';
+  return value === '1' || value === 'true' || value === 'yes' || value === 'on';
+}
+
+type SocialCopyFinalizeSubmissionResult =
+  | {
+      status: 'submitted' | 'reused';
+      ariesRunId: string;
+      hermesRunId: string | null;
+    }
+  | {
+      status: 'skipped';
+      reason: string;
+    };
+
+type SocialCopyFinalizeSubmitter = (
+  doc: MarketingJobRuntimeDocument,
+) => Promise<SocialCopyFinalizeSubmissionResult>;
+
+let marketingExecutionPortOverrideForTests: ((doc: MarketingJobRuntimeDocument) => MarketingExecutionPort) | null = null;
+let socialCopyFinalizeSubmitterForTests: SocialCopyFinalizeSubmitter | null = null;
+
 function resolveMarketingExecutionPortForDoc(doc: MarketingJobRuntimeDocument): MarketingExecutionPort {
+  if (marketingExecutionPortOverrideForTests) {
+    return marketingExecutionPortOverrideForTests(doc);
+  }
   const jobType = requestedJobTypeFromDoc(doc);
 
   // Weekly social-content is Hermes-only regardless of the general provider
@@ -1167,6 +1203,307 @@ async function finalizeStrategyAndRunProductionReview(
   saveMarketingJobRuntime(doc.job_id, doc);
 }
 
+function socialCopyFinalizeCallbackUrl(port: Record<string, unknown>): string {
+  const fromPort = typeof port.callbackUrl === 'function'
+    ? (port.callbackUrl as () => string)()
+    : null;
+  if (typeof fromPort === 'string' && fromPort.trim().length > 0) {
+    return fromPort.trim();
+  }
+  const appBaseUrl = (
+    process.env.APP_BASE_URL ||
+    process.env.NEXTAUTH_URL ||
+    process.env.AUTH_URL ||
+    ''
+  ).replace(/\/+$/, '');
+  if (!appBaseUrl) {
+    throw new Error('missing_required_config:APP_BASE_URL');
+  }
+  return `${appBaseUrl}/api/internal/hermes/runs`;
+}
+
+function activeSocialCopyFinalizeRunId(doc: MarketingJobRuntimeDocument): string | null {
+  const runId = getStageRecord(doc, 'production').outputs.social_copy_finalize_aries_run_id;
+  return typeof runId === 'string' && runId.trim().length > 0 ? runId.trim() : null;
+}
+
+function socialCopyFinalizeInstructions(): string {
+  return [
+    'You are the Aries marketing execution agent driving the social_copy_finalize workflow.',
+    'Use the provided request JSON to write final image-aware social captions after creative approval.',
+    `Return terminal JSON using workflowKey="${SOCIAL_COPY_FINALIZE_WORKFLOW_KEY}".`,
+    'Preserve post order, post ids, and channels exactly as provided; do not invent or drop posts.',
+    'Every post must include caption, hashtags, cta, and warnings (warnings may be []).',
+    'If the workflow cannot be completed, return ok=false with an error message instead of partial schema drift.',
+  ].join(' ');
+}
+
+async function submitSocialCopyFinalizeRun(
+  doc: MarketingJobRuntimeDocument,
+): Promise<SocialCopyFinalizeSubmissionResult> {
+  if (socialCopyFinalizeSubmitterForTests) {
+    return socialCopyFinalizeSubmitterForTests(doc);
+  }
+
+  const port = resolveMarketingExecutionPortForDoc(doc) as MarketingExecutionPort & Record<string, unknown>;
+  const callbackUrl = socialCopyFinalizeCallbackUrl(port);
+  const preview = buildSocialCopyFinalizeRequest({
+    doc,
+    ariesRunId: 'arun_preview_social_copy_finalize',
+    callbackUrl,
+  });
+  if (preview.kind === 'skip') {
+    return { status: 'skipped', reason: preview.reason };
+  }
+
+  const existingRunId = activeSocialCopyFinalizeRunId(doc);
+  if (existingRunId) {
+    const existingRun = loadExecutionRunRecord(existingRunId);
+    if (
+      existingRun
+      && existingRun.workflow_key === SOCIAL_COPY_FINALIZE_WORKFLOW_KEY
+      && (existingRun.status === 'submitted' || existingRun.status === 'running' || existingRun.status === 'awaiting_approval')
+    ) {
+      return {
+        status: 'reused',
+        ariesRunId: existingRunId,
+        hermesRunId: existingRun.external_run_id ?? null,
+      };
+    }
+  }
+
+  const run = createExecutionRunRecord({
+    provider: 'hermes',
+    domain: 'marketing',
+    workflowKey: SOCIAL_COPY_FINALIZE_WORKFLOW_KEY,
+    action: 'run',
+    tenantId: doc.tenant_id,
+    marketingJobId: doc.job_id,
+    stage: 'production',
+  });
+  const built = buildSocialCopyFinalizeRequest({
+    doc,
+    ariesRunId: run.aries_run_id,
+    callbackUrl,
+  });
+  if (built.kind !== 'build') {
+    markExecutionRunFailed(run.aries_run_id, {
+      code: 'social_copy_finalize_build_skipped',
+      message: built.reason,
+      retryable: false,
+    });
+    return { status: 'skipped', reason: built.reason };
+  }
+
+  const callbackToken = randomBytes(32).toString('hex');
+  if (typeof port.persistCallbackTokenHash === 'function') {
+    await (port.persistCallbackTokenHash as (ariesRunId: string, tenantId: string, callbackToken: string) => Promise<unknown>)(
+      run.aries_run_id,
+      doc.tenant_id,
+      callbackToken,
+    );
+  }
+
+  const payload = {
+    input: [
+      `Workflow: ${built.request.workflow_key}`,
+      'Action: run',
+      `Aries run ID: ${built.request.aries_run_id}`,
+      `Job ID: ${built.request.job_id}`,
+      `Tenant ID: ${built.request.tenant_id}`,
+      `Callback URL: ${built.request.callback_url}`,
+      `Request (JSON): ${JSON.stringify(built.request)}`,
+    ].join('\n'),
+    instructions: socialCopyFinalizeInstructions(),
+    session_id: typeof port.sessionKey === 'function' ? (port.sessionKey as () => string)() : 'marketing',
+    workflow_key: SOCIAL_COPY_FINALIZE_WORKFLOW_KEY,
+    callback_url: built.request.callback_url,
+    callback_auth: {
+      type: 'internal_api_secret_bearer',
+      secret_ref: 'INTERNAL_API_SECRET',
+      callback_token: callbackToken,
+    },
+    callback_context: {
+      workflow_key: SOCIAL_COPY_FINALIZE_WORKFLOW_KEY,
+      aries_run_id: run.aries_run_id,
+      job_id: doc.job_id,
+      tenant_id: doc.tenant_id,
+    },
+    idempotency_key: createHash('sha256')
+      .update(`${run.aries_run_id}|${SOCIAL_COPY_FINALIZE_WORKFLOW_KEY}|${doc.tenant_id}`)
+      .digest('hex'),
+  };
+
+  const gatewayUrl = typeof port.gatewayUrl === 'function'
+    ? (port.gatewayUrl as () => string)()
+    : (process.env.HERMES_GATEWAY_URL || '').replace(/\/+$/, '');
+  const authHeader = typeof port.authHeader === 'function'
+    ? (port.authHeader as () => string)()
+    : process.env.HERMES_API_SERVER_KEY?.trim()
+      ? `Bearer ${process.env.HERMES_API_SERVER_KEY.trim()}`
+      : '';
+  const fetchImpl = typeof port.fetchImpl === 'function'
+    ? (port.fetchImpl as typeof fetch).bind(port)
+    : globalThis.fetch;
+  if (!gatewayUrl || !authHeader || typeof fetchImpl !== 'function') {
+    markExecutionRunFailed(run.aries_run_id, {
+      code: 'social_copy_finalize_config_missing',
+      message: 'Hermes social copy finalize submission is not configured.',
+      retryable: false,
+    });
+    throw new Error('social_copy_finalize_config_missing:Hermes social copy finalize submission is not configured.');
+  }
+
+  let response: Response;
+  try {
+    response = await fetchImpl(`${gatewayUrl}/v1/runs`, {
+      method: 'POST',
+      headers: {
+        authorization: authHeader,
+        'content-type': 'application/json',
+        'idempotency-key': payload.idempotency_key,
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    markExecutionRunFailed(run.aries_run_id, {
+      code: 'hermes_gateway_unreachable',
+      message: error instanceof Error ? error.message : String(error),
+      retryable: true,
+    });
+    throw new Error(`hermes_gateway_unreachable:${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  if (!response.ok) {
+    const responseBody = await response.text().catch(() => '');
+    markExecutionRunFailed(run.aries_run_id, {
+      code: 'hermes_gateway_request_failed',
+      message: `Hermes gateway returned HTTP ${response.status} on /v1/runs.`,
+      retryable: true,
+    });
+    throw new Error(`hermes_gateway_request_failed:HTTP ${response.status} ${responseBody.slice(0, 200)}`);
+  }
+
+  const parsed = await response.json().catch(() => null) as Record<string, unknown> | null;
+  const hermesRunId = typeof parsed?.run_id === 'string' ? parsed.run_id.trim() : '';
+  if (!hermesRunId) {
+    markExecutionRunFailed(run.aries_run_id, {
+      code: 'hermes_gateway_response_invalid',
+      message: 'Hermes /v1/runs response is missing run_id.',
+      retryable: false,
+    });
+    throw new Error('hermes_gateway_response_invalid:Hermes /v1/runs response is missing run_id.');
+  }
+
+  markExecutionRunSubmitted(run.aries_run_id, { externalRunId: hermesRunId });
+  if (typeof port.runPollBridge === 'function') {
+    void (port.runPollBridge as (
+      runId: string,
+      ariesRunId: string,
+      workflowKey: string,
+      stage: MarketingStage,
+    ) => Promise<unknown>)(
+      hermesRunId,
+      run.aries_run_id,
+      SOCIAL_COPY_FINALIZE_WORKFLOW_KEY,
+      'production',
+    ).catch((error: unknown) => {
+      console.error('[marketing-orchestrator] social_copy_finalize poll bridge failed', {
+        aries_run_id: run.aries_run_id,
+        hermes_run_id: hermesRunId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
+  return {
+    status: 'submitted',
+    ariesRunId: run.aries_run_id,
+    hermesRunId,
+  };
+}
+
+async function continueAfterCreativeReviewApproval(
+  doc: MarketingJobRuntimeDocument,
+  resumeToken: string,
+  context: {
+    approvalId?: string | null;
+    workflowStepId?: string | null;
+    approvalStep?: SocialContentApprovalStep | null;
+    workflowKey?: string | null;
+  } = {},
+): Promise<MarketingStage> {
+  if (!socialCopyFinalizeEnabled()) {
+    markSocialContentStageCompleted(doc, 'social_copy_finalize', {
+      summary: 'Skipped while ARIES_SOCIAL_COPY_FINALIZE_ENABLED is off.',
+      output: { skipped: true, reason: 'feature_flag_disabled' },
+    });
+    await finalizeProductionAndRunPublishReview(doc, resumeToken, context);
+    return 'publish';
+  }
+
+  try {
+    const submission = await submitSocialCopyFinalizeRun(doc);
+    if (submission.status === 'skipped') {
+      markSocialContentStageCompleted(doc, 'social_copy_finalize', {
+        summary: `Skipped social copy finalize: ${submission.reason}.`,
+        output: { skipped: true, reason: submission.reason },
+      });
+      appendHistory(
+        doc,
+        `social copy finalize skipped; resuming weekly pipeline toward publish review (${submission.reason})`,
+        {
+          stage: 'production',
+        },
+      );
+      saveMarketingJobRuntime(doc.job_id, doc);
+      await finalizeProductionAndRunPublishReview(doc, resumeToken, context);
+      return 'publish';
+    }
+
+    markSocialContentStageRunning(doc, 'social_copy_finalize', {
+      workflow_key: SOCIAL_COPY_FINALIZE_WORKFLOW_KEY,
+      aries_run_id: submission.ariesRunId,
+      hermes_run_id: submission.hermesRunId,
+      status: submission.status,
+    });
+    const productionStage = getStageRecord(doc, 'production');
+    productionStage.outputs = {
+      ...productionStage.outputs,
+      social_copy_finalize_aries_run_id: submission.ariesRunId,
+      social_copy_finalize_hermes_run_id: submission.hermesRunId,
+      social_copy_finalize_workflow_key: SOCIAL_COPY_FINALIZE_WORKFLOW_KEY,
+      social_copy_finalize_status: submission.status,
+      social_copy_finalize_requested_at: nowIso(),
+    };
+    appendHistory(
+      doc,
+      submission.status === 'reused'
+        ? `social copy finalize already in progress; reusing existing Hermes run (${submission.ariesRunId}/${submission.hermesRunId})`
+        : `social copy finalize submitted to Hermes after creative approval (${submission.ariesRunId}/${submission.hermesRunId})`,
+      {
+        stage: 'production',
+      },
+    );
+    saveMarketingJobRuntime(doc.job_id, doc);
+    return 'production';
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const [code, detail] = message.split(':', 2);
+    markSocialContentStageFailed(
+      doc,
+      'social_copy_finalize',
+      detail || message,
+      {
+        code: code || 'social_copy_finalize_submit_failed',
+        retryable: true,
+      },
+    );
+    saveMarketingJobRuntime(doc.job_id, doc);
+    throw error;
+  }
+}
+
 async function finalizeProductionAndRunPublishReview(
   doc: MarketingJobRuntimeDocument,
   resumeToken: string,
@@ -1279,6 +1616,24 @@ let publishStageChannelGate: PublishStageChannelGate = defaultPublishStageChanne
 export function __setPublishStageChannelGateForTests(gate: PublishStageChannelGate | null): void {
   publishStageChannelGate = gate ?? defaultPublishStageChannelGate;
 }
+
+export function __setMarketingExecutionPortForTests(
+  resolver: ((doc: MarketingJobRuntimeDocument) => MarketingExecutionPort) | null,
+): void {
+  marketingExecutionPortOverrideForTests = resolver;
+}
+
+export function __setSocialCopyFinalizeSubmitterForTests(
+  submitter: SocialCopyFinalizeSubmitter | null,
+): void {
+  socialCopyFinalizeSubmitterForTests = submitter;
+}
+
+export const __continueAfterCreativeReviewApprovalForTests = (
+  doc: MarketingJobRuntimeDocument,
+  resumeToken: string,
+  context: Parameters<typeof continueAfterCreativeReviewApproval>[2] = {},
+): Promise<MarketingStage> => continueAfterCreativeReviewApproval(doc, resumeToken, context);
 
 /** Test seam: exposes the internal `advancePublishStage` for unit testing. */
 export const __advancePublishStageForTests = (
@@ -1921,8 +2276,13 @@ async function resolveMarketingApproval(
           await finalizeStrategyAndRunProductionReview(doc, activeResumeToken, resumeContext);
           resumedStage = 'production';
         } else if (checkpoint.stage === 'production') {
-          await finalizeProductionAndRunPublishReview(doc, activeResumeToken, resumeContext);
-          resumedStage = 'publish';
+          const shouldRouteThroughSocialCopyFinalize = (
+            requestedJobTypeFromDoc(doc) === 'weekly_social_content'
+            && activeApprovalStep === 'approve_image_creatives'
+          );
+          resumedStage = shouldRouteThroughSocialCopyFinalize
+            ? await continueAfterCreativeReviewApproval(doc, activeResumeToken, resumeContext)
+            : (await finalizeProductionAndRunPublishReview(doc, activeResumeToken, resumeContext), 'publish');
         } else {
           await advancePublishStage(doc, activeResumeToken, resumeContext);
           resumedStage = 'publish';
