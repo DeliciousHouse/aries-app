@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.30] - 2026-05-18
+
+### Changed
+- **`MarketingExecutionPort` now exposes a public `submitRawRun()` surface** alongside `getCallbackUrl()` and `getSessionKey()`. `submitSocialCopyFinalizeRun` in the orchestrator calls `port.submitRawRun()` instead of duck-typing into private `HermesMarketingPort` internals (`gatewayUrl`, `authHeader`, `fetchImpl`, `sessionKey`, `persistCallbackTokenHash`, `runPollBridge`). All existing behavior — callback token hashing, idempotency keys, gateway error handling, poll-bridge kickoff — is preserved unchanged.
+
+### Added
+- `tests/marketing/marketing-execution-port-submit-run.test.ts` — covers `getCallbackUrl`, `getSessionKey`, and `submitRawRun` for both `social_content_weekly` and `social_copy_finalize` workflow keys, plus error paths (gateway unreachable, HTTP 4xx, missing config).
+
 ## [0.1.3.29] - 2026-05-18
 
 ### Added
