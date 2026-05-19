@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.3.50 — fix(marketing): ingest production creative_assets into DB + workspace view
+
+Phase A (v0.1.3.49 / PR #385) shipped image_generate so the production stage now calls Hermes and writes PNGs to disk. However, no code path read `doc.stages.production.primary_output.artifacts.creative_assets[]` and wrote to the `creative_assets` DB table, leaving the workspace view with empty assets even when 6 PNGs were present on disk.
+
+This release closes the ingest gap:
+- New `backend/marketing/ingest-production-assets.ts` module exports `ingestProductionCreativeAssetsToDb` which reads each `creative_assets` entry, computes SHA-256, and upserts into the DB with `ON CONFLICT (tenant_id, checksum) DO NOTHING`. Sequential awaits, per-row try/catch — batch never aborts on a single bad row.
+- `backend/marketing/hermes-callbacks.ts` production-completed branch calls the new ingest function before `ingestSocialContentStageMedia`. Wrapped in try/catch; callback remains idempotent.
+- `backend/marketing/workspace-views.ts` `buildCampaignWorkspaceView` queries `creative_assets WHERE source_type='generated_by_aries'` after building the creative review and merges DB-backed assets into `creativeReview.assets[]` so publish handlers and the dashboard can find approved creatives.
+- 6 new unit tests in `tests/marketing/ingest-production-assets.test.ts` covering SQL shape, ON CONFLICT, per-row error isolation, and empty-path skipping.
+
 ## [0.1.3.48] - 2026-05-19
 
 ### Fixed
