@@ -111,20 +111,29 @@ if (!SAFE_PARSE_CALL_RE.test(callbacksSource)) {
 }
 
 // Detect re-introduced inline validators that bypass the Zod schema.
-// Regex: prefix (is|parse|check|validate) + any middle chars + mandatory suffix.
-// The middle [a-zA-Z]* is non-anchoring so the suffix must appear at the END of
-// the captured name — this catches parseApproval, isApprovalStage, checkError, etc.
-// Allowlist: parseHermesRunCallbackPayload is the Zod-backed public API — it
-// is explicitly permitted; the gate checks it calls .safeParse() above.
-const INLINE_VALIDATOR_RE = /^\s*(?:export\s+)?(?:async\s+)?function\s+((is|parse|check|validate)[a-zA-Z]*(Callback|Status|Stage|Approval|Payload|Error))\s*\(/mg;
-const INLINE_VALIDATOR_ALLOWLIST = new Set(['parseHermesRunCallbackPayload']);
+// Regex: prefix (is|parse|check|validate) + optional middle chars (non-greedy) +
+// mandatory suffix keyword (Callback|Status|Stage|Approval|Payload|Error) anywhere in
+// the name, with optional trailing chars. This catches names like:
+//   parseCallbackResponse, validatePayloadShape, isStatusComplete, checkApprovalFlow
+//
+// Allowlist: functions that are orchestrator-level logic (not wire parsers) and
+// happen to match the pattern.
+//   - parseHermesRunCallbackPayload: the Zod-backed public API (calls .safeParse above)
+//   - validateApprovalTransition: orchestrator state-machine transition guard; receives
+//     already-parsed HermesRunCallbackPayload, does not re-implement wire parsing
+const INLINE_VALIDATOR_RE = /function\s+((?:is|parse|check|validate)[a-zA-Z]*?(?:Callback|Status|Stage|Approval|Payload|Error)[a-zA-Z]*)\s*\(/g;
+const INLINE_VALIDATOR_ALLOWLIST = new Set([
+  'parseHermesRunCallbackPayload',
+  'validateApprovalTransition',
+]);
 
 const callbackViolations = [];
 let inlineMatch;
 while ((inlineMatch = INLINE_VALIDATOR_RE.exec(callbacksSource)) !== null) {
-  if (INLINE_VALIDATOR_ALLOWLIST.has(inlineMatch[1])) continue;
+  const fnName = inlineMatch[1];
+  if (INLINE_VALIDATOR_ALLOWLIST.has(fnName)) continue;
   callbackViolations.push(
-    `backend/execution/hermes-callbacks.ts: inline validator function '${inlineMatch[1]}' re-implements wire parsing that belongs in @aries/hermes-protocol`,
+    `backend/execution/hermes-callbacks.ts: inline validator function '${fnName}' re-implements wire parsing that belongs in @aries/hermes-protocol`,
   );
 }
 
