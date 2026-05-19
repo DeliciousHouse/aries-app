@@ -2,12 +2,14 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { ArrowUpRight, Facebook, LoaderCircle, X } from 'lucide-react';
+import type { InstagramPublishFailure } from './instagram-publish-drawer';
 
 export interface FacebookPublishDrawerProps {
   jobId: string;
   defaultCaption?: string;
   onClose: () => void;
   onPublished?: (result: FacebookPublishResult) => void;
+  onError?: (failure: InstagramPublishFailure) => void;
 }
 
 export interface FacebookPublishResult {
@@ -58,9 +60,14 @@ export default function FacebookPublishDrawer(props: FacebookPublishDrawerProps)
         | null;
 
       if (!response.ok || payload?.status !== 'published') {
-        setErrorMessage(
-          payload?.message || payload?.reason || 'Facebook publish failed. Try again in a moment.',
-        );
+        const userMessage =
+          payload?.message || payload?.reason || 'Facebook publish failed. Try again in a moment.';
+        setErrorMessage(userMessage);
+        props.onError?.({
+          userMessage,
+          retryable: response.status >= 500 || response.status === 429,
+          code: payload?.reason ?? 'publish_failed',
+        });
         return;
       }
 
@@ -71,7 +78,9 @@ export default function FacebookPublishDrawer(props: FacebookPublishDrawerProps)
       setResult(publishResult);
       props.onPublished?.(publishResult);
     } catch {
-      setErrorMessage('Network error while publishing. Check your connection and try again.');
+      const userMessage = 'Network error while publishing. Check your connection and try again.';
+      setErrorMessage(userMessage);
+      props.onError?.({ userMessage, retryable: true, code: 'network_error' });
     } finally {
       setSubmitting(false);
     }

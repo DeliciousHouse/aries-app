@@ -1094,6 +1094,7 @@ function PublishStatusSurface(props: {
       return next;
     });
     setIgPublishItemId(null);
+    setFbPublishItemId(null);
   }
 
   function handlePublishError(itemId: string, failure: InstagramPublishFailure) {
@@ -1200,7 +1201,11 @@ function PublishStatusSurface(props: {
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              setIgPublishItemId(item.id);
+                              if (isFacebook) {
+                                setFbPublishItemId(item.id);
+                              } else {
+                                setIgPublishItemId(item.id);
+                              }
                             }}
                             className="inline-flex items-center gap-1 rounded-full border border-rose-300/25 px-2 py-1 text-[11px] font-medium text-rose-200/80 transition hover:bg-rose-300/10"
                           >
@@ -1263,6 +1268,7 @@ function PublishStatusSurface(props: {
           jobId={props.campaignId}
           onClose={() => setFbPublishItemId(null)}
           onPublished={(result) => handlePublished(fbPublishItemId, result)}
+          onError={(failure) => handlePublishError(fbPublishItemId, failure)}
         />
       ) : null}
 
