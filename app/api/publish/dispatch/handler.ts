@@ -350,7 +350,7 @@ export async function handlePublishDispatch(
       const verification = await runPublishVerification({
         tenantId,
         provider: published.provider,
-        content: String(event.payload.content_text || body.content || ''),
+        caption: String(event.payload.content_text || body.content || ''),
         primaryOutput: { platform_post_id: published.platformPostId },
         pool,
       });
@@ -420,7 +420,7 @@ export async function handlePublishDispatch(
       verification = await runPublishVerification({
         tenantId,
         provider: event.provider ?? '',
-        content: typeof event.payload.content_text === 'string' ? event.payload.content_text : body.content || '',
+        caption: typeof event.payload.content_text === 'string' ? event.payload.content_text : body.content || '',
         primaryOutput: executed.primaryOutput,
         pool,
       });

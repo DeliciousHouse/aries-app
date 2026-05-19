@@ -95,7 +95,7 @@ export async function verifyMetaPostExists(
 
 export type PersistPublishedPostArgs = {
   tenantId: number;
-  content: string;
+  caption: string;
   platformPostId: string;
   publishedAt: Date;
   publishedStatus: PublishedStatus;
@@ -103,6 +103,8 @@ export type PersistPublishedPostArgs = {
   idempotencyKey?: string | null;
   /** Normalized platform name (e.g. 'facebook', 'instagram'). Stored for idempotency index lookups. */
   platform?: string | null;
+  /** Marketing job ID for correlating posts back to marketing jobs. */
+  jobId?: string | null;
 };
 
 /**
@@ -142,12 +144,13 @@ export async function persistPublishedPost(
   }
 
   const insertResult = await db.query<{ id: string | number }>(
-    `INSERT INTO posts (tenant_id, content, platform_post_id, published_at, published_status, platform, idempotency_key)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO posts (tenant_id, job_id, caption, platform_post_id, published_at, published_status, platform, idempotency_key)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING id`,
     [
       args.tenantId,
-      args.content,
+      args.jobId ?? null,
+      args.caption,
       args.platformPostId,
       args.publishedAt.toISOString(),
       args.publishedStatus,
@@ -187,13 +190,15 @@ export async function updatePostPublishedStatus(
 export type PublishVerificationDispatchArgs = {
   tenantId: string;
   provider: string;
-  content: string;
+  caption: string;
   primaryOutput: unknown;
   pool: Pool;
   fetchImpl?: typeof fetch;
   pageTokenLookup?: (tenantId: string, provider: string) => Promise<string | null>;
   /** Stable idempotency key for the posts row. Prevents duplicate DB rows on retry. */
   idempotencyKey?: string | null;
+  /** Marketing job ID for correlating posts back to marketing jobs. */
+  jobId?: string | null;
 };
 
 export type PublishVerificationResult = {
@@ -239,7 +244,8 @@ export async function runPublishVerification(
     const persisted = await persistPublishedPost(
       {
         tenantId: tenantIdNum,
-        content: args.content,
+        jobId: args.jobId ?? null,
+        caption: args.caption,
         platformPostId,
         publishedAt,
         publishedStatus: 'unverified',
@@ -260,7 +266,8 @@ export async function runPublishVerification(
   const persisted = await persistPublishedPost(
     {
       tenantId: tenantIdNum,
-      content: args.content,
+      jobId: args.jobId ?? null,
+      caption: args.caption,
       platformPostId,
       publishedAt,
       publishedStatus: 'unverified',

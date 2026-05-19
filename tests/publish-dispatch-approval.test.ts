@@ -367,7 +367,7 @@ test('DB unique-constraint violation on concurrent inserts: persistPublishedPost
     () => persistPublishedPost(
       {
         tenantId: 42,
-        content: 'concurrent post',
+        caption: 'concurrent post',
         platformPostId: 'some_post',
         publishedAt: new Date(),
         publishedStatus: 'published',

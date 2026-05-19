@@ -48,6 +48,14 @@ export type MarketingApprovalRecord = {
     gateway_url: string | null;
   };
   publish_config: MarketingPublishConfig | null;
+  /**
+   * Tracks which platforms have already consumed this approval.
+   * Used for multi-platform publish flows so each platform can independently
+   * claim the approval without blocking the other.
+   * When all platforms from publish_config.live_publish_platforms are consumed,
+   * status is also flipped to 'consumed'.
+   */
+  consumed_platforms: string[];
   status: MarketingApprovalStatus;
   resolution: MarketingApprovalResolution | null;
   resolved_at: string | null;
@@ -164,6 +172,7 @@ export function createMarketingApprovalRecord(input: {
       gateway_url: input.runtimeContext.gatewayUrl ?? null,
     },
     publish_config: input.publishConfig ?? null,
+    consumed_platforms: [],
     status: 'pending',
     resolution: null,
     resolved_at: null,
@@ -206,6 +215,10 @@ function normalizeMarketingApprovalRecord(record: MarketingApprovalRecord): Mark
   record.execution_resume_token = token;
   record.execution_resume_token_fingerprint = fingerprint;
   record.execution_resume_state_keys = stateKeys;
+  // Backfill consumed_platforms for records created before this field existed.
+  if (!Array.isArray(record.consumed_platforms)) {
+    record.consumed_platforms = [];
+  }
   if (provider === 'legacy-openclaw') {
     record.lobster_resume_token = token;
     record.lobster_resume_token_fingerprint = fingerprint;
