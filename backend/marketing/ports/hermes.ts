@@ -615,19 +615,37 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         ? 'requires_approval'
         : 'completed';
 
-    // Pre-filter `workflowOutputFromRunRecord` is the single source of truth
-    // for approval.stage normalization — it parses transition descriptors
-    // ("X_to_Y"), maps bare completing-stage names ("research" → "strategy"),
-    // and only canonical next-stage values reach this point. Bridge passes
-    // through untouched. Previous v0.1.3.43 + v0.1.3.46 attempted to normalize
-    // here too, but layered on top of the pre-filter's broken default-to-
-    // production fallback they double-mangled the stage. Single normalization
-    // layer keeps the data-flow obvious.
+    // Hermes inconsistently emits two completing-stage shapes:
+    //   (a) transition descriptor "X_to_Y" — handled in pre-filter
+    //       (workflowOutputFromRunRecord) which parses Y as the canonical
+    //       next-stage. Observed for research-stage completion in prod
+    //       (e.g. "research_to_strategy").
+    //   (b) bare current-stage name — observed for strategy-stage completion
+    //       in prod (e.g. emits "strategy" when the strategy run finishes
+    //       and pauses for production approval). Pre-filter accepts "strategy"
+    //       as canonical and passes it through unchanged because it has no
+    //       knowledge of the current run.stage.
+    // The validator expects NEXT-stage, so (b) needs a second-pass mapping
+    // here in the bridge where we DO know the current run.stage. If
+    // approval.stage matches the current stage, treat it as completing-stage
+    // and remap to next.
     type ApprovalStage = NonNullable<HermesRunCallbackPayload['approval']>['stage'];
+    const COMPLETING_TO_NEXT_BRIDGE: Record<MarketingStage, ApprovalStage | undefined> = {
+      research: 'strategy',
+      strategy: 'production',
+      production: 'publish',
+      publish: undefined,
+    };
+    const rawApprovalStage = output.approval?.stage;
+    const isCompletingStageEmission =
+      typeof rawApprovalStage === 'string' && rawApprovalStage === stage;
+    const approvalStageFinal: ApprovalStage | undefined = isCompletingStageEmission
+      ? (COMPLETING_TO_NEXT_BRIDGE[stage] ?? (rawApprovalStage as ApprovalStage))
+      : (rawApprovalStage as ApprovalStage | undefined);
 
     const approval = output.approval && status === 'requires_approval'
       ? {
-          stage: output.approval.stage as ApprovalStage,
+          stage: approvalStageFinal as ApprovalStage,
           approval_step: output.approval.approvalStep,
           workflow_step_id: output.approval.workflowStepId,
           prompt: output.approval.prompt,

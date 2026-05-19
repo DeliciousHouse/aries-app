@@ -116,3 +116,48 @@ test('malformed transition (trailing underscore) does not match regex', () => {
 test('malformed transition (uppercase) does not match anchored lowercase regex', () => {
   assert.equal(normalizeApprovalStage('Research_to_Strategy'), 'production');
 });
+
+// v0.1.3.48: bridge-side completing-stage detection
+// Hermes inconsistently emits bare current-stage name for strategy-stage
+// completion (observed in prod: emits "strategy" when strategy run finishes).
+// Pre-filter passes "strategy" through (canonical allowlist). Bridge
+// detects approval.stage === run.stage and remaps to next.
+function bridgeNormalize(approvalStage: string | undefined, currentStage: 'research' | 'strategy' | 'production' | 'publish'): string | undefined {
+  const map: Record<string, string> = {
+    research: 'strategy',
+    strategy: 'production',
+    production: 'publish',
+  };
+  if (typeof approvalStage === 'string' && approvalStage === currentStage) {
+    return map[currentStage] ?? approvalStage;
+  }
+  return approvalStage;
+}
+
+test('bridge: completing-stage "strategy" during strategy run → production', () => {
+  assert.equal(bridgeNormalize('strategy', 'strategy'), 'production');
+});
+
+test('bridge: completing-stage "production" during production run → publish', () => {
+  assert.equal(bridgeNormalize('production', 'production'), 'publish');
+});
+
+test('bridge: completing-stage "research" during research run → strategy', () => {
+  assert.equal(bridgeNormalize('research', 'research'), 'strategy');
+});
+
+test('bridge: next-stage "strategy" during research run passes through', () => {
+  // Pre-filter already converted "research_to_strategy" to "strategy".
+  // approval.stage="strategy" ≠ run.stage="research" → no remap.
+  assert.equal(bridgeNormalize('strategy', 'research'), 'strategy');
+});
+
+test('bridge: next-stage "production" during strategy run passes through', () => {
+  // Pre-filter already converted "strategy_to_production" to "production".
+  // approval.stage="production" ≠ run.stage="strategy" → no remap.
+  assert.equal(bridgeNormalize('production', 'strategy'), 'production');
+});
+
+test('bridge: undefined approval.stage passes through', () => {
+  assert.equal(bridgeNormalize(undefined, 'research'), undefined);
+});

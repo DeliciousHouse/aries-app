@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.48] - 2026-05-19
+
+### Fixed
+- fix(marketing): bridge-side completing-stage detection. Hermes inconsistently emits two completing-stage shapes — transition descriptors ("research_to_strategy") for research-stage completion, and BARE current-stage names ("strategy" when strategy run finishes) for strategy-stage completion. v0.1.3.47 handled the transition descriptor case in the pre-filter, but the bare-current-stage case still hit `approval_stage_mismatch` (validator wants the NEXT stage, not the current one). v0.1.3.48 adds a second-pass mapping in `buildBridgeCallbackPayload` where we know the current `run.stage`: when `approval.stage === run.stage`, remap via the completing→next table. Pre-filter still handles transition descriptors; bridge is now the per-run-stage disambiguator. Tests extended from 15 → 21 cases covering both Hermes emission shapes per stage transition. Verified against tenant-15 campaign mkt_0029a41b — research → strategy advance worked (v0.1.3.47); strategy → production blocked by this issue.
+
 ## [0.1.3.47] - 2026-05-19
 
 ### Fixed
