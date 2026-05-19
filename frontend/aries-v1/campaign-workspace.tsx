@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { ArrowUpRight, CheckCircle2, Instagram, LoaderCircle, MessageSquareText, XCircle } from 'lucide-react';
+import { ArrowUpRight, CheckCircle2, Facebook, Instagram, LoaderCircle, MessageSquareText, XCircle } from 'lucide-react';
 
 import InstagramPublishDrawer, { type InstagramPublishResult } from './instagram-publish-drawer';
+import FacebookPublishDrawer, { type FacebookPublishResult } from './facebook-publish-drawer';
 
 import MediaPreview from '@/frontend/components/media-preview';
 import { safeHref } from '@/lib/safe-href';
@@ -1081,11 +1082,13 @@ function PublishStatusSurface(props: {
   campaignId: string;
 }) {
   const [igPublishItemId, setIgPublishItemId] = useState<string | null>(null);
-  const [publishedItems, setPublishedItems] = useState<Record<string, InstagramPublishResult>>({});
+  const [fbPublishItemId, setFbPublishItemId] = useState<string | null>(null);
+  const [publishedItems, setPublishedItems] = useState<Record<string, InstagramPublishResult | FacebookPublishResult>>({});
 
-  function handlePublished(itemId: string, result: InstagramPublishResult) {
+  function handlePublished(itemId: string, result: InstagramPublishResult | FacebookPublishResult) {
     setPublishedItems((current) => ({ ...current, [itemId]: result }));
     setIgPublishItemId(null);
+    setFbPublishItemId(null);
   }
 
   return (
@@ -1115,7 +1118,8 @@ function PublishStatusSurface(props: {
               const isExternal = hrefCandidate ? /^https?:\/\//i.test(hrefCandidate) : false;
               const publishedResult = publishedItems[item.id] ?? null;
               const isInstagram = item.platform === 'instagram';
-              const isPublishable = isInstagram && (item.status === 'ready_to_publish' || item.status === 'approved');
+              const isFacebook = item.platform === 'facebook';
+              const isPublishable = (isInstagram || isFacebook) && (item.status === 'ready_to_publish' || item.status === 'approved');
 
               const itemBody = (
                 <div className="space-y-3">
@@ -1138,10 +1142,10 @@ function PublishStatusSurface(props: {
                       onClick={(e) => e.stopPropagation()}
                       className="inline-flex items-center gap-2 rounded-full border border-white/12 px-3 py-1.5 text-xs font-medium text-white/80 transition hover:border-white/20 hover:text-white"
                     >
-                      View on Instagram
+                      {isFacebook ? 'View on Facebook' : 'View on Instagram'}
                       <ArrowUpRight className="h-3 w-3" />
                     </a>
-                  ) : isPublishable ? (
+                  ) : isPublishable && isInstagram ? (
                     <button
                       type="button"
                       onClick={(e) => {
@@ -1153,6 +1157,19 @@ function PublishStatusSurface(props: {
                     >
                       <Instagram className="h-3 w-3" />
                       Publish to Instagram
+                    </button>
+                  ) : isPublishable && isFacebook ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setFbPublishItemId(item.id);
+                      }}
+                      className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-white/80 transition hover:border-white/20 hover:bg-white/[0.07] hover:text-white"
+                    >
+                      <Facebook className="h-3 w-3" />
+                      Publish to Facebook
                     </button>
                   ) : null}
                 </div>
@@ -1183,6 +1200,13 @@ function PublishStatusSurface(props: {
           jobId={props.campaignId}
           onClose={() => setIgPublishItemId(null)}
           onPublished={(result) => handlePublished(igPublishItemId, result)}
+        />
+      ) : null}
+      {fbPublishItemId ? (
+        <FacebookPublishDrawer
+          jobId={props.campaignId}
+          onClose={() => setFbPublishItemId(null)}
+          onPublished={(result) => handlePublished(fbPublishItemId, result)}
         />
       ) : null}
 
