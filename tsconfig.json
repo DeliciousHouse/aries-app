@@ -26,6 +26,12 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@aries/hermes-protocol": [
+        "./packages/aries-hermes-protocol/src/index.ts"
+      ],
+      "@aries/hermes-protocol/*": [
+        "./packages/aries-hermes-protocol/src/*"
       ]
     }
   },
