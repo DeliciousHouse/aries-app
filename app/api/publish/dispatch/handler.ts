@@ -1,9 +1,12 @@
+import path from 'node:path';
+
 import { normalizePublishDispatch } from '../../../../backend/integrations/workflow-orchestrator';
 import { mapAriesExecutionError, runAriesWorkflow } from '../../../../backend/execution';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 import { assertMediaUrlsBelongToTenant } from '../../../../backend/integrations/media-url-ownership';
 import { runPublishVerification } from '../../../../backend/integrations/publish-verification';
 import { schedulePublishVerificationHonchoWrite } from '@/backend/memory/write-events';
+import { signMediaToken } from '@/lib/signed-media-token';
 import {
   isMetaProvider,
   MetaPublishError,
@@ -198,6 +201,34 @@ async function validateAndConsumeApproval(args: {
   return consumeError;
 }
 
+/**
+ * Converts an internal Hermes media URL to a publicly reachable HMAC-signed URL
+ * served by the Aries public media proxy at /api/public/media/[token]/[basename].
+ *
+ * IMPORTANT: Only call this AFTER validateAndConsumeApproval succeeds. Signed
+ * URLs must never be generated for unapproved or cancelled images.
+ *
+ * The signed URL is valid for ttlMs (default 1 hour), long enough for Meta Graph
+ * API to fetch the image during publish, short enough to limit the public window.
+ */
+export function toSignedPublicUrl(
+  internalUrl: string,
+  tenantId: string,
+  basename: string,
+  ttlMs = 3_600_000,
+): string {
+  const secret = process.env.INTERNAL_API_SECRET;
+  if (!secret) {
+    // No secret configured — fall back to internal URL; Meta Graph fetch will
+    // fail with a network error, surfacing a clear failure rather than a silent skip.
+    return internalUrl;
+  }
+  const appBase = (process.env.APP_BASE_URL ?? '').replace(/\/$/, '');
+  const expiresAt = Date.now() + ttlMs;
+  const token = signMediaToken({ tenantId, basename, expiresAt }, secret);
+  return `${appBase}/api/public/media/${encodeURIComponent(token)}/${encodeURIComponent(basename)}`;
+}
+
 export async function handlePublishDispatch(
   req: Request,
   tenantContextLoader?: TenantContextLoader,
@@ -248,12 +279,26 @@ export async function handlePublishDispatch(
         return approvalError;
       }
 
+      // Approval gate passed — now safe to generate signed public URLs for Meta.
+      // IG Graph API v21.0 requires publicly reachable image_url values; internal
+      // Aries URLs (/api/internal/hermes/media/...) are session-gated and not
+      // reachable by Meta's servers. Rewrite each URL to an HMAC-signed public
+      // proxy URL (1 h TTL) served by /api/public/media/[token]/[basename].
+      const rawMediaUrls: string[] = Array.isArray(event.payload.media_urls)
+        ? (event.payload.media_urls as string[])
+        : mediaUrls;
+      const signedMediaUrls = rawMediaUrls.map((url) => {
+        const basename = path.basename(url);
+        if (!basename || basename.includes('..')) return url;
+        return toSignedPublicUrl(url, tenantId, basename);
+      });
+
       const publishExecutor = options.publishExecutor ?? ((request) => publishToMetaGraph(request));
       const published = await publishExecutor({
         tenantId,
         provider,
         content: String(event.payload.content_text || body.content || ''),
-        mediaUrls: Array.isArray(event.payload.media_urls) ? event.payload.media_urls as string[] : mediaUrls,
+        mediaUrls: signedMediaUrls,
         scheduledFor: typeof event.payload.scheduled_for === 'string' ? event.payload.scheduled_for : null,
       });
 
