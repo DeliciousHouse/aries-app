@@ -131,6 +131,14 @@ export const automationJobs = [
     purpose: 'Nightly regression gate for the marketing content-creation pipeline: prod liveness check plus in-process validation of the orchestrator, Hermes one-shot multi-stage fan-out, and execution provider contracts.',
   },
   {
+    id: 'aries-scheduled-posts-worker',
+    name: 'Aries scheduled posts worker',
+    cron: '* * * * *',
+    tz: 'America/Los_Angeles',
+    message: `Work in ${repoRoot}. Run node scripts/automations/scheduled-posts-worker.mjs. Set ARIES_SCHEDULED_POSTS_RUN_ONCE=1 to run once and exit. Return only the summary line from stdout.`,
+    purpose: 'Drain the scheduled_posts table every minute, dispatching due posts to the Meta publish handler.',
+  },
+  {
     id: 'aries-weekly-review',
     name: 'Aries weekly review',
     cron: '0 14 * * 5',
