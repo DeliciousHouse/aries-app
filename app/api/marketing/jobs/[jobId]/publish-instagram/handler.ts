@@ -217,12 +217,26 @@ export async function handleInstagramPublish(req: Request, jobId: string) {
   } catch (error) {
     if (error instanceof MetaPublishError) {
       return new Response(
-        JSON.stringify({ status: 'error', reason: error.code, message: error.message }),
+        JSON.stringify({
+          status: 'error',
+          code: error.code,
+          reason: error.code,
+          message: error.message,
+          retryable: error.retryable,
+          retryAfterSeconds: error.retryable ? 60 : null,
+        }),
         { status: error.status, headers: { 'content-type': 'application/json' } },
       );
     }
     return new Response(
-      JSON.stringify({ status: 'error', reason: 'publish_failed', message: String((error as Error).message || error) }),
+      JSON.stringify({
+        status: 'error',
+        code: 'publish_failed',
+        reason: 'publish_failed',
+        message: String((error as Error).message || error),
+        retryable: false,
+        retryAfterSeconds: null,
+      }),
       { status: 500, headers: { 'content-type': 'application/json' } },
     );
   }
