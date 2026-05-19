@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.46] - 2026-05-19
+
+### Fixed
+- fix(marketing): extend `approval.stage` normalization in `buildBridgeCallbackPayload` to handle transition-descriptor shape (`"research_to_strategy"`, `"strategy_to_production"`, `"strategy_to_creative"`, `"production_to_publish"`). v0.1.3.43 closed the bare-completing-stage path (`"research"` → `"strategy"`) but Hermes actually emits the transition descriptor `"X_to_Y"` in prod (verified against `/v1/runs/run_8379acbd1c524b6f89eb066ef77dea80` output on tenant-15 campaign `mkt_a8c03f06-3b86-4557-a442-50996907d741`). That shape wasn't in v0.1.3.43's `COMPLETING_TO_NEXT_STAGE` map, fell through unchanged, and `validateApprovalTransition` rejected with `approval_stage_mismatch` — same symptom as the original v0.1.3.43 incident, different root cause. Fix anchors a `^[a-z][a-z0-9]*_to_([a-z][a-z0-9]*)$` regex ahead of the existing map: transition descriptors get parsed to their next-stage capture group; bare completing-stage names still hit the v0.1.3.43 map; unknown shapes still pass through unchanged. Test file extended from 6 → 12 cases covering all three known emission shapes plus malformed-input defenses (trailing underscore, uppercase, undefined). Social-content-weekly still bypasses this path via its `approvalStep`-based allowlist. Long-term fix remains Hermes adopting the v0.1.3.45 shared protocol package so the wire shape is enforced by Zod, not by a regex shim.
+
 ## [0.1.3.45] - 2026-05-19
 
 ### Added
