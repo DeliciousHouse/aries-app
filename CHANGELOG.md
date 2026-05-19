@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.35] - 2026-05-19
+
+### Added
+- feat(publishing): HMAC-signed short-lived public media proxy so Meta Graph API (esp. Instagram) can fetch creative images during publish dispatch.
+
 ## [0.1.3.34] - 2026-05-19
 
 ### Added
