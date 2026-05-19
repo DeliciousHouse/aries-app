@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.40] - 2026-05-19
+
+### Added
+- feat(publishing): failure-state UX and retry for Meta publish — maps Meta API error codes to user-facing messages in the Instagram publish drawer (token expired → "Reconnect Meta to publish"; rate limit → "Try again in a moment"; page permission revoked → "Re-authorize Meta"; media unreachable → "Try regenerating creative"; caption policy violation → edit hint). Raw Meta error codes are never exposed to users. Transient errors (rate-limit, 5xx, network) surface a Retry button in the drawer; token/permission errors surface a "Reconnect Meta" link to `/oauth/connect/instagram?mode=reconnect`. After the drawer closes on error, a persistent banner on the post card shows "Last attempt failed: <reason> · Retry · Dismiss" so the user can recover without reopening the drawer. Publish handler now returns structured `{code, message, retryable, retryAfterSeconds}` error objects instead of generic 500s.
+
 ## [0.1.3.39] - 2026-05-19
 
 ### Added

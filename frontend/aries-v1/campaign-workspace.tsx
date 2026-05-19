@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { ArrowUpRight, CheckCircle2, Facebook, Instagram, LoaderCircle, MessageSquareText, XCircle } from 'lucide-react';
+import { AlertCircle, ArrowUpRight, CheckCircle2, Facebook, Instagram, LoaderCircle, MessageSquareText, RefreshCw, XCircle } from 'lucide-react';
 
-import InstagramPublishDrawer, { type InstagramPublishResult } from './instagram-publish-drawer';
+import InstagramPublishDrawer, { type InstagramPublishFailure, type InstagramPublishResult } from './instagram-publish-drawer';
 import FacebookPublishDrawer, { type FacebookPublishResult } from './facebook-publish-drawer';
 
 import MediaPreview from '@/frontend/components/media-preview';
@@ -1084,9 +1084,20 @@ function PublishStatusSurface(props: {
   const [igPublishItemId, setIgPublishItemId] = useState<string | null>(null);
   const [fbPublishItemId, setFbPublishItemId] = useState<string | null>(null);
   const [publishedItems, setPublishedItems] = useState<Record<string, InstagramPublishResult | FacebookPublishResult>>({});
+  const [publishFailures, setPublishFailures] = useState<Record<string, InstagramPublishFailure>>({});
 
   function handlePublished(itemId: string, result: InstagramPublishResult | FacebookPublishResult) {
     setPublishedItems((current) => ({ ...current, [itemId]: result }));
+    setPublishFailures((current) => {
+      const next = { ...current };
+      delete next[itemId];
+      return next;
+    });
+    setIgPublishItemId(null);
+  }
+
+  function handlePublishError(itemId: string, failure: InstagramPublishFailure) {
+    setPublishFailures((current) => ({ ...current, [itemId]: failure }));
     setIgPublishItemId(null);
     setFbPublishItemId(null);
   }
@@ -1117,6 +1128,7 @@ function PublishStatusSurface(props: {
               const hrefCandidate = safeHref(item.destinationUrl);
               const isExternal = hrefCandidate ? /^https?:\/\//i.test(hrefCandidate) : false;
               const publishedResult = publishedItems[item.id] ?? null;
+              const lastFailure = publishFailures[item.id] ?? null;
               const isInstagram = item.platform === 'instagram';
               const isFacebook = item.platform === 'facebook';
               const isPublishable = (isInstagram || isFacebook) && (item.status === 'ready_to_publish' || item.status === 'approved');
@@ -1172,6 +1184,53 @@ function PublishStatusSurface(props: {
                       Publish to Facebook
                     </button>
                   ) : null}
+                  {lastFailure ? (
+                    <div
+                      data-testid={`publish-failure-banner-${item.id}`}
+                      className="flex items-start justify-between gap-2 rounded-[0.75rem] border border-rose-300/20 bg-rose-300/8 px-3 py-2"
+                    >
+                      <div className="flex min-w-0 items-start gap-2">
+                        <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-rose-300/70" />
+                        <p className="text-xs text-rose-100/80">Last attempt failed: {lastFailure.userMessage}</p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        {lastFailure.retryable ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (isFacebook) {
+                                setFbPublishItemId(item.id);
+                              } else {
+                                setIgPublishItemId(item.id);
+                              }
+                            }}
+                            className="inline-flex items-center gap-1 rounded-full border border-rose-300/25 px-2 py-1 text-[11px] font-medium text-rose-200/80 transition hover:bg-rose-300/10"
+                          >
+                            <RefreshCw className="h-2.5 w-2.5" />
+                            Retry
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setPublishFailures((current) => {
+                              const next = { ...current };
+                              delete next[item.id];
+                              return next;
+                            });
+                          }}
+                          aria-label="Dismiss error"
+                          className="rounded-full p-0.5 text-rose-300/50 transition hover:text-rose-300/80"
+                        >
+                          <XCircle className="h-3 w-3" />
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               );
 
@@ -1200,6 +1259,7 @@ function PublishStatusSurface(props: {
           jobId={props.campaignId}
           onClose={() => setIgPublishItemId(null)}
           onPublished={(result) => handlePublished(igPublishItemId, result)}
+          onError={(failure) => handlePublishError(igPublishItemId, failure)}
         />
       ) : null}
       {fbPublishItemId ? (
@@ -1207,6 +1267,7 @@ function PublishStatusSurface(props: {
           jobId={props.campaignId}
           onClose={() => setFbPublishItemId(null)}
           onPublished={(result) => handlePublished(fbPublishItemId, result)}
+          onError={(failure) => handlePublishError(fbPublishItemId, failure)}
         />
       ) : null}
 

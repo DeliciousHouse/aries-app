@@ -1,13 +1,20 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUpRight, Instagram, LoaderCircle, X } from 'lucide-react';
+import { ArrowUpRight, Instagram, LoaderCircle, RefreshCw, X } from 'lucide-react';
+
+export type InstagramPublishFailure = {
+  userMessage: string;
+  retryable: boolean;
+  code: string;
+};
 
 export interface InstagramPublishDrawerProps {
   jobId: string;
   defaultCaption?: string;
   onClose: () => void;
   onPublished?: (result: InstagramPublishResult) => void;
+  onError?: (failure: InstagramPublishFailure) => void;
 }
 
 export interface InstagramPublishResult {
@@ -15,11 +22,63 @@ export interface InstagramPublishResult {
   permalink: string | null;
 }
 
+type PublishErrorState = {
+  userMessage: string;
+  retryable: boolean;
+  retryAfterSeconds: number | null;
+  code: string;
+};
+
+type PublishApiResponse = {
+  status: string;
+  platform_post_id?: string;
+  permalink?: string | null;
+  message?: string;
+  reason?: string;
+  code?: string;
+  retryable?: boolean;
+  retryAfterSeconds?: number | null;
+};
+
+function mapErrorToUserMessage(code: string | undefined, serverMessage: string | undefined): string {
+  switch (code) {
+    case 'oauth_token_missing':
+    case 'external_account_missing':
+      return 'No Meta account connected. Reconnect Meta to publish.';
+    case 'graph_rate_limited':
+      return 'Meta API rate-limited. Try again in a moment.';
+    case 'graph_network_error':
+      return 'Network error reaching Meta. Check your connection and try again.';
+    case 'instagram_media_required':
+      return 'Image fetch failed — no approved media available. Try regenerating creative.';
+    case 'no_content':
+      return 'Nothing to publish — caption and image are both missing.';
+    case 'publish_requires_approval':
+    case 'publish_approval_already_consumed':
+      return 'Publish approval not found or already used.';
+    case 'graph_api_error': {
+      const msg = serverMessage?.toLowerCase() ?? '';
+      if (msg.includes('permission')) return 'Page permission revoked. Re-authorize Meta to restore access.';
+      if (msg.includes('token') || msg.includes('expired')) return 'Meta token expired. Reconnect Meta to publish.';
+      if (msg.includes('caption') || msg.includes('policy')) return 'Caption violates Instagram policy. Edit the caption and try again.';
+      return serverMessage ?? 'Meta returned an error. Try again or reconnect Meta.';
+    }
+    default:
+      return serverMessage ?? 'Instagram publish failed. Try again in a moment.';
+  }
+}
+
+function needsReconnect(code: string | undefined, userMessage: string): boolean {
+  if (code === 'oauth_token_missing' || code === 'external_account_missing') return true;
+  if (code === 'graph_api_error' && (userMessage.includes('permission') || userMessage.includes('token expired'))) return true;
+  return false;
+}
+
 export default function InstagramPublishDrawer(props: InstagramPublishDrawerProps) {
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const [caption, setCaption] = useState(props.defaultCaption ?? '');
   const [submitting, setSubmitting] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [publishError, setPublishError] = useState<PublishErrorState | null>(null);
   const [result, setResult] = useState<InstagramPublishResult | null>(null);
 
   useEffect(() => {
@@ -36,12 +95,9 @@ export default function InstagramPublishDrawer(props: InstagramPublishDrawerProp
     return () => window.removeEventListener('keydown', onKey);
   }, [props, submitting]);
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (submitting) return;
-
+  async function doPublish() {
     setSubmitting(true);
-    setErrorMessage(null);
+    setPublishError(null);
 
     try {
       const response = await fetch(
@@ -53,14 +109,20 @@ export default function InstagramPublishDrawer(props: InstagramPublishDrawerProp
         },
       );
 
-      const payload = (await response.json().catch(() => null)) as
-        | { status: string; platform_post_id?: string; permalink?: string | null; message?: string; reason?: string }
-        | null;
+      const payload = (await response.json().catch(() => null)) as PublishApiResponse | null;
 
       if (!response.ok || payload?.status !== 'published') {
-        setErrorMessage(
-          payload?.message || payload?.reason || 'Instagram publish failed. Try again in a moment.',
-        );
+        const code = payload?.code ?? payload?.reason;
+        const serverMessage = payload?.message;
+        const userMessage = mapErrorToUserMessage(code, serverMessage);
+        const errorState: PublishErrorState = {
+          userMessage,
+          retryable: payload?.retryable ?? response.status >= 500,
+          retryAfterSeconds: payload?.retryAfterSeconds ?? null,
+          code: code ?? 'publish_failed',
+        };
+        setPublishError(errorState);
+        props.onError?.({ userMessage, retryable: errorState.retryable, code: errorState.code });
         return;
       }
 
@@ -71,11 +133,34 @@ export default function InstagramPublishDrawer(props: InstagramPublishDrawerProp
       setResult(publishResult);
       props.onPublished?.(publishResult);
     } catch {
-      setErrorMessage('Network error while publishing. Check your connection and try again.');
+      const networkError: PublishErrorState = {
+        userMessage: 'Network error while publishing. Check your connection and try again.',
+        retryable: true,
+        retryAfterSeconds: null,
+        code: 'network_error',
+      };
+      setPublishError(networkError);
+      props.onError?.({ userMessage: networkError.userMessage, retryable: true, code: 'network_error' });
     } finally {
       setSubmitting(false);
     }
   }
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (submitting) return;
+    await doPublish();
+  }
+
+  async function handleRetry() {
+    if (submitting) return;
+    await doPublish();
+  }
+
+  const showReconnect = publishError ? needsReconnect(publishError.code, publishError.userMessage) : false;
+  const retryHint = publishError?.retryable && publishError.retryAfterSeconds
+    ? `Try again in ${publishError.retryAfterSeconds}s`
+    : null;
 
   return (
     <div
@@ -145,7 +230,7 @@ export default function InstagramPublishDrawer(props: InstagramPublishDrawerProp
                 data-testid="ig-publish-caption"
                 value={caption}
                 onChange={(event) => {
-                  setErrorMessage(null);
+                  setPublishError(null);
                   setCaption(event.target.value);
                 }}
                 rows={5}
@@ -157,14 +242,42 @@ export default function InstagramPublishDrawer(props: InstagramPublishDrawerProp
               </span>
             </label>
 
-            {errorMessage ? (
-              <p
+            {publishError ? (
+              <div
                 role="alert"
                 data-testid="ig-publish-error"
-                className="rounded-[0.85rem] border border-rose-300/25 bg-rose-300/10 px-3 py-2 text-sm text-rose-100"
+                className="rounded-[0.85rem] border border-rose-300/25 bg-rose-300/10 px-3 py-2.5"
               >
-                {errorMessage}
-              </p>
+                <p className="text-sm text-rose-100">{publishError.userMessage}</p>
+                {retryHint ? (
+                  <p className="mt-1 text-xs text-rose-200/60">{retryHint}</p>
+                ) : null}
+                {(publishError.retryable || showReconnect) ? (
+                  <div className="mt-2.5 flex flex-wrap gap-2">
+                    {publishError.retryable ? (
+                      <button
+                        type="button"
+                        onClick={handleRetry}
+                        disabled={submitting}
+                        data-testid="ig-publish-retry"
+                        className="inline-flex items-center gap-1.5 rounded-full border border-rose-300/30 bg-rose-300/10 px-3 py-1.5 text-xs font-medium text-rose-100 transition hover:bg-rose-300/20 disabled:opacity-50"
+                      >
+                        <RefreshCw className="h-3 w-3" />
+                        Retry
+                      </button>
+                    ) : null}
+                    {showReconnect ? (
+                      <a
+                        href="/oauth/connect/instagram?mode=reconnect"
+                        data-testid="ig-publish-reconnect"
+                        className="inline-flex items-center gap-1.5 rounded-full border border-rose-300/30 bg-rose-300/10 px-3 py-1.5 text-xs font-medium text-rose-100 transition hover:bg-rose-300/20"
+                      >
+                        Reconnect Meta
+                      </a>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
             ) : null}
           </div>
         )}
