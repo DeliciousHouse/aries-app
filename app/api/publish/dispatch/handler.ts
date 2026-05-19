@@ -223,7 +223,17 @@ export function toSignedPublicUrl(
     // fail with a network error, surfacing a clear failure rather than a silent skip.
     return internalUrl;
   }
-  const appBase = (process.env.APP_BASE_URL ?? '').replace(/\/$/, '');
+  // Resolve the public base URL. APP_BASE_URL is the canonical source; fall
+  // back to NEXTAUTH_URL / AUTH_URL (same pattern used in hermes-callbacks.ts
+  // and integrations/handlers.ts). If none are set, return the internal URL —
+  // Meta will fail to fetch but the error will be clear rather than silent.
+  const rawBase = process.env.APP_BASE_URL || process.env.NEXTAUTH_URL || process.env.AUTH_URL || '';
+  const appBase = rawBase.replace(/\/$/, '');
+  if (!appBase) {
+    // No absolute base configured — Meta requires a publicly reachable URL;
+    // return internal URL so the failure surfaces at Meta fetch time.
+    return internalUrl;
+  }
   const expiresAt = Date.now() + ttlMs;
   const token = signMediaToken({ tenantId, basename, expiresAt }, secret);
   return `${appBase}/api/public/media/${encodeURIComponent(token)}/${encodeURIComponent(basename)}`;

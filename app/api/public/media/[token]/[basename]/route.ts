@@ -8,13 +8,15 @@ import { verifyMediaToken } from '@/lib/signed-media-token';
 // Signed URLs are only generated after validateAndConsumeApproval succeeds in the
 // publish-dispatch handler (see app/api/publish/dispatch/handler.ts).
 
+// SVG is intentionally excluded: serving SVG inline from a public same-origin
+// endpoint enables script execution/XSS. Meta Graph API does not accept SVG for
+// image_url anyway — only PNG/JPEG/WebP are valid Instagram creative formats.
 const CONTENT_TYPE_MAP: Record<string, string> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.webp': 'image/webp',
   '.gif': 'image/gif',
-  '.svg': 'image/svg+xml',
 };
 
 function contentTypeForPath(filePath: string): string {

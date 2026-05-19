@@ -33,6 +33,11 @@ export type SignedMediaPayload = {
 /**
  * Produces a URL-safe base64 token encoding `{payload, signature}`.
  * The HMAC signs `${tenantId}|${basename}|${expiresAt}` with SHA-256.
+ *
+ * Separator ambiguity: tenantId is a numeric string (DB integer) and basename
+ * is a flat filename — neither can contain `|` on a POSIX filesystem. We also
+ * explicitly reject `|` in verifyMediaToken so a crafted payload cannot produce
+ * a colliding message even if the input constraints are ever relaxed.
  */
 export function signMediaToken(payload: SignedMediaPayload, secret: string): string {
   const message = `${payload.tenantId}|${payload.basename}|${payload.expiresAt}`;
@@ -74,6 +79,17 @@ export function verifyMediaToken(token: string, secret: string): SignedMediaPayl
       typeof sig !== 'string' ||
       !sig
     ) {
+      return null;
+    }
+
+    // Reject NaN/Infinity expiresAt — NaN <= Date.now() is false so a NaN
+    // token would never expire. Require a finite safe integer.
+    if (!Number.isFinite(expiresAt) || !Number.isSafeInteger(expiresAt)) {
+      return null;
+    }
+
+    // Reject separator character in HMAC inputs to prevent collision attacks.
+    if (tenantId.includes('|') || basename.includes('|')) {
       return null;
     }
 
