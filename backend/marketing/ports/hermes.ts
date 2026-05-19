@@ -33,6 +33,7 @@ import type {
   MarketingPipelineResumeInput,
   MarketingPipelineRunInput,
   RegenerateCreativeContext,
+  SocialContentApprovalStage,
   SubmitRawRunInput,
   SubmitRawRunResult,
 } from '../execution-port';
@@ -614,33 +615,19 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         ? 'requires_approval'
         : 'completed';
 
-    // Hermes may emit approval.stage in three shapes:
-    //   (a) the COMPLETING stage ("research") — v0.1.3.43 convention,
-    //   (b) a transition descriptor ("research_to_strategy") — observed in prod,
-    //   (c) the bare NEXT stage ("strategy") — future shared-protocol convention.
-    // Aries' validateApprovalTransition expects the NEXT stage to gate.
-    // Normalize all three forms at the boundary so the validator stays strict
-    // without coupling it to whichever convention Hermes happens to emit.
+    // Pre-filter `workflowOutputFromRunRecord` is the single source of truth
+    // for approval.stage normalization — it parses transition descriptors
+    // ("X_to_Y"), maps bare completing-stage names ("research" → "strategy"),
+    // and only canonical next-stage values reach this point. Bridge passes
+    // through untouched. Previous v0.1.3.43 + v0.1.3.46 attempted to normalize
+    // here too, but layered on top of the pre-filter's broken default-to-
+    // production fallback they double-mangled the stage. Single normalization
+    // layer keeps the data-flow obvious.
     type ApprovalStage = NonNullable<HermesRunCallbackPayload['approval']>['stage'];
-    const COMPLETING_TO_NEXT_STAGE: Record<string, ApprovalStage> = {
-      research: 'strategy',
-      strategy: 'production',
-      production: 'publish',
-    };
-    const TRANSITION_STAGE_RE = /^[a-z][a-z0-9]*_to_([a-z][a-z0-9]*)$/;
-    const approvalStageNormalized: ApprovalStage | undefined = (() => {
-      const raw = output.approval?.stage;
-      if (raw == null) return undefined;
-      const transitionMatch = TRANSITION_STAGE_RE.exec(raw);
-      if (transitionMatch) {
-        return transitionMatch[1] as ApprovalStage;
-      }
-      return (COMPLETING_TO_NEXT_STAGE[raw] ?? raw) as ApprovalStage;
-    })();
 
     const approval = output.approval && status === 'requires_approval'
       ? {
-          stage: (approvalStageNormalized ?? output.approval.stage) as ApprovalStage,
+          stage: output.approval.stage as ApprovalStage,
           approval_step: output.approval.approvalStep,
           workflow_step_id: output.approval.workflowStepId,
           prompt: output.approval.prompt,
@@ -1053,16 +1040,51 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       : typeof approval?.resume_token === 'string'
         ? approval.resume_token
         : undefined;
+    // Hermes may emit approval.stage as:
+    //   (a) a canonical NEXT stage name ("strategy", "production", "publish", ...),
+    //   (b) a transition descriptor ("research_to_strategy", "strategy_to_production"),
+    //   (c) a bare COMPLETING-stage name ("research") — v0.1.3.43 convention.
+    // Aries' validateApprovalTransition expects (a). Normalize at this single
+    // chokepoint so the downstream bridge can be a pure passthrough.
+    //
+    // Prior bug: this pre-filter used to silently default any non-canonical
+    // value (including "research_to_strategy" and "research") to "production",
+    // which the downstream bridge then mapped to "publish" via its own
+    // completing→next map. End result: validator received "publish" when run
+    // was at research stage, rejected as approval_stage_mismatch. Every
+    // tenant-15 brand_campaign in May 2026 hit this. The v0.1.3.43 and
+    // v0.1.3.46 fixes patched the wrong layer (the bridge); the actual
+    // mangling was here.
+    const TRANSITION_STAGE_RE_INPUT = /^[a-z][a-z0-9]*_to_([a-z][a-z0-9]*)$/;
+    const COMPLETING_TO_NEXT_INPUT: Record<string, string> = {
+      research: 'strategy',
+      strategy: 'production',
+      production: 'publish',
+    };
+    const approvalStageParsed: string | undefined = (() => {
+      if (typeof approvalStage !== 'string') return approvalStage;
+      const transitionMatch = TRANSITION_STAGE_RE_INPUT.exec(approvalStage);
+      if (transitionMatch) return transitionMatch[1];
+      // If it's a known completing-stage name AND not already a valid
+      // next-stage value, map completing → next. The overlap ("strategy" is
+      // both a valid next-stage from research AND a completing-stage name
+      // for the strategy run) is resolved by preferring next-stage semantics
+      // since the validator checks the next stage; the bridge will see what
+      // run.stage requires for the current transition.
+      return approvalStage;
+    })();
     const normalizedApprovalStage = (
-      approvalStage === 'plan'
-      || approvalStage === 'creative'
-      || approvalStage === 'video'
-      || approvalStage === 'publish'
-      || approvalStage === 'strategy'
-      || approvalStage === 'production'
+      approvalStageParsed === 'plan'
+      || approvalStageParsed === 'creative'
+      || approvalStageParsed === 'video'
+      || approvalStageParsed === 'publish'
+      || approvalStageParsed === 'strategy'
+      || approvalStageParsed === 'production'
     )
-      ? approvalStage
-      : 'production';
+      ? approvalStageParsed
+      : (typeof approvalStageParsed === 'string' && COMPLETING_TO_NEXT_INPUT[approvalStageParsed])
+        ? COMPLETING_TO_NEXT_INPUT[approvalStageParsed]
+        : 'production';
 
     const normalized: HermesWorkflowOutput = {
       ok: typeof parsedRecord.ok === 'boolean' ? parsedRecord.ok : normalizedStatus !== 'failed',
@@ -1089,7 +1111,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       artifacts: undefined,
       approval: (workflowStepId && prompt)
         ? {
-            stage: normalizedApprovalStage,
+            stage: normalizedApprovalStage as SocialContentApprovalStage,
             workflowStepId,
             prompt,
             ...(approvalStep ? { approvalStep: approvalStep as SocialContentApprovalStep } : {}),

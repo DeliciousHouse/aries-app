@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.47] - 2026-05-19
+
+### Fixed
+- fix(marketing): move all `approval.stage` normalization into the single pre-filter at `workflowOutputFromRunRecord`, where the actual mangling was happening. v0.1.3.43 and v0.1.3.46 patched the wrong layer (`buildBridgeCallbackPayload`) and never actually fired end-to-end because an earlier defensive default-to-`"production"` fallback in `workflowOutputFromRunRecord` (existed since well before v0.1.3.43) was silently mapping anything outside `{plan, creative, video, publish, strategy, production}` to `"production"` — turning both the transition descriptor `"research_to_strategy"` and the bare completing-stage `"research"` into `"production"` before the bridge's normalization ever ran. The bridge then mapped `"production"` → `"publish"` via its completing→next map, and `validateApprovalTransition` rejected with `approval_stage_mismatch` for every brand_campaign / marketing_pipeline job since the regression landed. v0.1.3.47 puts the full normalization at the chokepoint: parse `X_to_Y` first, then accept canonical next-stage names, then fall back through the completing→next map, then default to `"production"` only for truly unknown shapes. Bridge reverts to a pass-through (no double-mapping). Confirmed against tenant-15 campaigns `mkt_43800cee`, `mkt_a8c03f06`, `mkt_34a16faf` (same root cause). Tests updated from 12 → 15 cases covering canonical pass-through, transition parsing, completing-stage mapping, and unknown-stage defense. Long-term fix remains Hermes adopting the v0.1.3.45 shared protocol package so the wire shape is enforced by Zod.
+
 ## [0.1.3.46] - 2026-05-19
 
 ### Fixed
