@@ -6,6 +6,7 @@ import { getTenantContext } from '@/lib/tenant-context';
 import { loadMarketingJobRuntime, marketingRuntimePath } from '@/backend/marketing/runtime-state';
 import { listMarketingApprovalRecordsForJob } from '@/backend/marketing/approval-store';
 import { resolveDataPath } from '@/lib/runtime-paths';
+import { sanitizeJobRuntimeDoc } from '@/lib/admin-sanitize';
 
 function executionRunsRoot(): string {
   return resolveDataPath('generated', 'draft', 'execution-runs');
@@ -80,7 +81,7 @@ export async function GET(
 
   return NextResponse.json({
     status: 'ok',
-    job: doc,
+    job: sanitizeJobRuntimeDoc(doc),
     approval_records: approvalRecords,
     execution_runs: executionRuns,
     runtime_path: marketingRuntimePath(jobId),

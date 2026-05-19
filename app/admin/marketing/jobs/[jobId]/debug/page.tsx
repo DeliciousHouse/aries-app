@@ -5,6 +5,7 @@ import { listMarketingApprovalRecordsForJob } from '@/backend/marketing/approval
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { resolveDataPath } from '@/lib/runtime-paths';
+import { sanitizeJobRuntimeDoc } from '@/lib/admin-sanitize';
 import { DebugPanelClient } from './debug-panel-client';
 
 async function loadExecutionRunsForJob(marketingJobId: string): Promise<Array<Record<string, unknown>>> {
@@ -75,9 +76,11 @@ export default async function MarketingJobDebugPage({
   const executionRuns = await loadExecutionRunsForJob(jobId);
   const runtimePath = marketingRuntimePath(jobId);
 
+  const sanitizedDoc = sanitizeJobRuntimeDoc(doc);
+
   return (
     <DebugPanelClient
-      doc={doc as unknown as Record<string, unknown>}
+      doc={sanitizedDoc}
       approvalRecords={approvalRecords}
       executionRuns={executionRuns}
       runtimePath={runtimePath}

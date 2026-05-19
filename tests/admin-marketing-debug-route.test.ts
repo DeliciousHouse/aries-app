@@ -208,3 +208,90 @@ test('INTERNAL_API_SECRET is never included in curl output sent to browser', () 
   assert.ok(!curlCmd.includes(secret), 'INTERNAL_API_SECRET value must not appear in curl command');
   assert.ok(curlCmd.includes('INTERNAL_API_SECRET'), 'curl references the env var name, not value');
 });
+
+test('sanitizeJobRuntimeDoc strips resume_token from approvals.current and approvals.history', async () => {
+  const { sanitizeJobRuntimeDoc } = await import('../lib/admin-sanitize.js');
+
+  const secretToken = 'secret-resume-token-abc123xyz';
+  const doc = makeJobDoc({
+    approvals: {
+      current: {
+        stage: 'strategy',
+        status: 'awaiting_approval',
+        approval_id: 'mkta_abc',
+        workflow_name: 'marketing_pipeline',
+        workflow_step_id: 'approve_stage_2',
+        title: 'Review research',
+        message: 'Please review',
+        requested_at: '2026-05-19T10:00:00.000Z',
+        resume_token: secretToken,
+      },
+      history: [
+        {
+          stage: 'strategy',
+          status: 'requested',
+          at: '2026-05-19T10:00:00.000Z',
+          resume_token: secretToken,
+        },
+      ],
+    },
+  });
+
+  const sanitized = sanitizeJobRuntimeDoc(doc as never);
+  const serialized = JSON.stringify(sanitized);
+
+  assert.ok(!serialized.includes(secretToken), 'resume_token must not appear in sanitized output');
+
+  // approval metadata other than the token should still be present
+  assert.ok(serialized.includes('approve_stage_2'), 'workflow_step_id should be preserved');
+  assert.ok(serialized.includes('mkta_abc'), 'approval_id should be preserved');
+});
+
+test('sanitizeJobRuntimeDoc strips any field ending in _token or _secret recursively', async () => {
+  const { sanitizeJobRuntimeDoc } = await import('../lib/admin-sanitize.js');
+
+  const doc = makeJobDoc({
+    inputs: {
+      request: {},
+      brand_url: 'https://example.com',
+      some_secret: 'should-be-gone',
+      nested: { inner_token: 'also-gone', safe_field: 'keep-me' },
+    },
+  });
+
+  const sanitized = sanitizeJobRuntimeDoc(doc as never);
+  const serialized = JSON.stringify(sanitized);
+
+  assert.ok(!serialized.includes('should-be-gone'), '_secret fields must be removed');
+  assert.ok(!serialized.includes('also-gone'), 'nested _token fields must be removed');
+  assert.ok(serialized.includes('keep-me'), 'non-token fields must be preserved');
+});
+
+test('sanitizeJobRuntimeDoc does not mutate the original document', async () => {
+  const { sanitizeJobRuntimeDoc } = await import('../lib/admin-sanitize.js');
+
+  const secretToken = 'secret-token-must-stay-in-original';
+  const doc = makeJobDoc({
+    approvals: {
+      current: {
+        stage: 'strategy',
+        status: 'awaiting_approval',
+        approval_id: 'mkta_test',
+        workflow_name: 'marketing_pipeline',
+        workflow_step_id: 'approve_stage_2',
+        title: 'Review',
+        message: 'Review',
+        requested_at: '2026-05-19T10:00:00.000Z',
+        resume_token: secretToken,
+      },
+      history: [],
+    },
+  });
+
+  sanitizeJobRuntimeDoc(doc as never);
+
+  // original doc must be untouched
+  const approvals = doc.approvals as Record<string, unknown>;
+  const current = approvals.current as Record<string, unknown>;
+  assert.equal(current.resume_token, secretToken, 'original doc must not be mutated');
+});
