@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.41] - 2026-05-19
+
+### Added
+- feat(tests): end-to-end Meta publish smoke test (`scripts/smoke-meta-publish.ts`, `npm run smoke:meta-publish`). Accepts `--tenant <id>`, `--provider instagram|facebook`, and `--dry-run` flags. Resolves a recent approved creative from runtime state, mints a signed public media URL, probes URL reachability without auth, then calls the publish route via HTTP. In `--dry-run` mode stops before the actual Meta Graph call and emits the full payload for inspection. Includes unit tests for payload-builder helpers (`tests/smoke-meta-publish.test.ts`).
+
 ## [0.1.3.40] - 2026-05-19
 
 ### Added
