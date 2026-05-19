@@ -614,19 +614,29 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         ? 'requires_approval'
         : 'completed';
 
-    // Hermes emits approval.stage as the COMPLETING stage (e.g. "research" when
-    // research finishes). Aries' validateApprovalTransition expects the NEXT stage
-    // to gate (e.g. "strategy"). Normalize here at the boundary so the validator
-    // stays strict without coupling it to Hermes' completing-stage convention.
+    // Hermes may emit approval.stage in three shapes:
+    //   (a) the COMPLETING stage ("research") — v0.1.3.43 convention,
+    //   (b) a transition descriptor ("research_to_strategy") — observed in prod,
+    //   (c) the bare NEXT stage ("strategy") — future shared-protocol convention.
+    // Aries' validateApprovalTransition expects the NEXT stage to gate.
+    // Normalize all three forms at the boundary so the validator stays strict
+    // without coupling it to whichever convention Hermes happens to emit.
     type ApprovalStage = NonNullable<HermesRunCallbackPayload['approval']>['stage'];
     const COMPLETING_TO_NEXT_STAGE: Record<string, ApprovalStage> = {
       research: 'strategy',
       strategy: 'production',
       production: 'publish',
     };
-    const approvalStageNormalized: ApprovalStage | undefined = output.approval?.stage != null
-      ? (COMPLETING_TO_NEXT_STAGE[output.approval.stage] ?? output.approval.stage as ApprovalStage)
-      : undefined;
+    const TRANSITION_STAGE_RE = /^[a-z][a-z0-9]*_to_([a-z][a-z0-9]*)$/;
+    const approvalStageNormalized: ApprovalStage | undefined = (() => {
+      const raw = output.approval?.stage;
+      if (raw == null) return undefined;
+      const transitionMatch = TRANSITION_STAGE_RE.exec(raw);
+      if (transitionMatch) {
+        return transitionMatch[1] as ApprovalStage;
+      }
+      return (COMPLETING_TO_NEXT_STAGE[raw] ?? raw) as ApprovalStage;
+    })();
 
     const approval = output.approval && status === 'requires_approval'
       ? {
