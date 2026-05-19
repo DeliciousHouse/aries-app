@@ -34,10 +34,11 @@ export type BuildAuthorizeUrlInput = {
   state: string;
   scopes: string[];
   codeVerifier?: string;
+  authType?: 'reauthenticate';
 };
 
 export function buildProviderAuthorizationUrl(input: BuildAuthorizeUrlInput): URL {
-  const { provider, redirectUri, state, scopes, codeVerifier } = input;
+  const { provider, redirectUri, state, scopes, codeVerifier, authType } = input;
 
   switch (provider) {
     case 'linkedin': {
@@ -88,6 +89,9 @@ export function buildProviderAuthorizationUrl(input: BuildAuthorizeUrlInput): UR
       url.searchParams.set('response_type', 'code');
       if (scopes.length > 0) {
         url.searchParams.set('scope', scopes.join(','));
+      }
+      if (authType === 'reauthenticate') {
+        url.searchParams.set('auth_type', 'reauthenticate');
       }
       return url;
     }

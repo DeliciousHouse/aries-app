@@ -42,6 +42,7 @@ type PlatformConnectionStatusShape = {
   updated_at: string;
   external_account_id?: string;
   external_account_name?: string;
+  granted_scopes?: string[];
 };
 
 type StatusError = {
@@ -198,6 +199,7 @@ export async function oauthStatusAsync(provider: string, tenantId?: string): Pro
         updated_at: row.updated_at,
         external_account_id: row.external_account_id ?? undefined,
         external_account_name: row.external_account_name ?? undefined,
+        granted_scopes: row.granted_scopes,
       }
     : undefined;
 
@@ -219,6 +221,7 @@ export async function oauthStatusAsync(provider: string, tenantId?: string): Pro
     updated_at: connection?.updated_at || now,
     external_account_id: connection?.external_account_id,
     external_account_name: connection?.external_account_name,
+    granted_scopes: connection?.granted_scopes,
   };
 }
 

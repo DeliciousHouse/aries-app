@@ -1227,6 +1227,49 @@ function PublishStatusSurface(props: {
                       </div>
                     </div>
                   ) : null}
+                  {lastFailure ? (
+                    <div
+                      data-testid={`publish-failure-banner-${item.id}`}
+                      className="flex items-start justify-between gap-2 rounded-[0.75rem] border border-rose-300/20 bg-rose-300/8 px-3 py-2"
+                    >
+                      <div className="flex min-w-0 items-start gap-2">
+                        <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-rose-300/70" />
+                        <p className="text-xs text-rose-100/80">Last attempt failed: {lastFailure.userMessage}</p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        {lastFailure.retryable ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setIgPublishItemId(item.id);
+                            }}
+                            className="inline-flex items-center gap-1 rounded-full border border-rose-300/25 px-2 py-1 text-[11px] font-medium text-rose-200/80 transition hover:bg-rose-300/10"
+                          >
+                            <RefreshCw className="h-2.5 w-2.5" />
+                            Retry
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setPublishFailures((current) => {
+                              const next = { ...current };
+                              delete next[item.id];
+                              return next;
+                            });
+                          }}
+                          aria-label="Dismiss error"
+                          className="rounded-full p-0.5 text-rose-300/50 transition hover:text-rose-300/80"
+                        >
+                          <XCircle className="h-3 w-3" />
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               );
 
