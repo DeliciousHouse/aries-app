@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.43] - 2026-05-19
+
+### Fixed
+- fix(marketing): normalize `approval.stage` from completing-stage → next-stage convention at the Hermes port boundary. Hermes emits `output.approval.stage` as the stage that just finished (e.g. `"research"` when research completes and pauses for strategy approval); Aries' `validateApprovalTransition` expects the stage gate to open (e.g. `"strategy"`). Without this normalization every `brand_campaign` / `marketing_pipeline` job hit `approval_stage_mismatch`, the run_id was never stored, and the stale-run reaper killed the job at +600 s. Confirmed root cause for 5+ failed_stale campaigns on tenant-15 today (affected jobs: `mkt_43800cee`, `mkt_89bec5df`, `mkt_2d92adff`, `mkt_ac24a07a`). Fix is a single normalization map (`research→strategy`, `strategy→production`, `production→publish`; terminal `publish` and unknown stages pass through unchanged) applied in `buildBridgeCallbackPayload` before constructing the approval object. Social-content-weekly is unaffected — it uses a separate `approvalStep`-based allowlist path in the validator. Recovery: failed_stale jobs are unrecoverable (run_id was never stored); Brendan should resubmit fresh campaigns — they will succeed with this fix.
+
 ## [0.1.3.42] - 2026-05-19
 
 ### Added
