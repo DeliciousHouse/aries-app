@@ -609,9 +609,23 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         ? 'requires_approval'
         : 'completed';
 
+    // Hermes emits approval.stage as the COMPLETING stage (e.g. "research" when
+    // research finishes). Aries' validateApprovalTransition expects the NEXT stage
+    // to gate (e.g. "strategy"). Normalize here at the boundary so the validator
+    // stays strict without coupling it to Hermes' completing-stage convention.
+    type ApprovalStage = NonNullable<HermesRunCallbackPayload['approval']>['stage'];
+    const COMPLETING_TO_NEXT_STAGE: Record<string, ApprovalStage> = {
+      research: 'strategy',
+      strategy: 'production',
+      production: 'publish',
+    };
+    const approvalStageNormalized: ApprovalStage | undefined = output.approval?.stage != null
+      ? (COMPLETING_TO_NEXT_STAGE[output.approval.stage] ?? output.approval.stage as ApprovalStage)
+      : undefined;
+
     const approval = output.approval && status === 'requires_approval'
       ? {
-          stage: output.approval.stage,
+          stage: (approvalStageNormalized ?? output.approval.stage) as ApprovalStage,
           approval_step: output.approval.approvalStep,
           workflow_step_id: output.approval.workflowStepId,
           prompt: output.approval.prompt,
