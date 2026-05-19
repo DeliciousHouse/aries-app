@@ -2,10 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.1.3.44] - 2026-05-19
+## [0.1.3.45] - 2026-05-19
 
 ### Added
 - feat(admin): marketing job debug panel at `/admin/marketing/jobs/[jobId]/debug`. Server-rendered Next.js page gated to `tenant_admin` role. Surfaces full job state, per-stage timeline (status, started/ended UTC with local tooltip, duration, Hermes run ID, errors), Aries↔Hermes run-ID mapping table, expandable JSON viewers for submission input/hermes output/approval records per stage, "Copy curl" button per stage generating a reproduction command for Hermes `/v1/runs`, admin-gated "Retry Stage" button with confirm modal for research/strategy/production stages (publish blocked — irreversible), and a gateway ping button. Backed by two new internal routes: `GET /api/internal/admin/marketing/jobs/[jobId]/state` (full state dump including execution runs and approval records, tokens stripped) and `POST /api/internal/admin/marketing/jobs/[jobId]/stages/[stage]/retry` (re-submits a stage via the execution port). Strict tenant isolation on all paths — job not found returns 404 (not 403) for cross-tenant probes. `INTERNAL_API_SECRET` is never leaked to the browser; curl reproduction uses the env-var name as a placeholder. Adds `tests/admin-marketing-debug-route.test.ts` covering: route exports, fixture job shape, curl command secret redaction, approval record listing.
+- feat(protocol): shared `@aries/hermes-protocol` package (`packages/aries-hermes-protocol/`) containing Zod schemas and TypeScript types for the entire Aries ↔ Hermes wire format: callback payload, approval envelope, run submission body, and run-status response. Exports `PROTOCOL_VERSION = "1.1.0"` as a single canonical bump point. Establishes the post-v0.1.3.43 `approval.stage` convention as a named `ApprovalStageSchema` enum (next-stage-to-gate; backward-compat legacy values `plan/creative/video` retained until Hermes migrates). Wires `backend/execution/hermes-callbacks.ts` to import types and use `HermesRunCallbackPayloadSchema.safeParse()` for runtime parsing instead of inline validators. Adds `scripts/validate-protocol-drift.mjs` (run on `npm run lint`) that fails if any `backend/` file redefines the callback envelope or re-implements inline wire validators outside the protocol package. Adds 18 tests covering all approval-stage normalization paths, stopped status, protocol_version round-trips, and version compatibility.
 
 ## [0.1.3.43] - 2026-05-19
 

@@ -10,56 +10,13 @@ import {
 import { applyHermesMarketingCallback } from '../marketing/hermes-callbacks';
 import { SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY } from '../social-content/defaults';
 import { approvalStepFromWorkflowStepId } from '../social-content/runtime-state';
+import type {
+  HermesRunCallbackPayload,
+  HermesRunCallbackStatus,
+} from '@aries/hermes-protocol';
 
-export type HermesRunCallbackStatus =
-  | 'running'
-  | 'requires_approval'
-  | 'completed'
-  | 'failed'
-  | 'cancelled';
-
-export type HermesRunCallbackPayload = {
-  event_id: string;
-  aries_run_id: string;
-  hermes_run_id?: string;
-  status: HermesRunCallbackStatus;
-  stage?:
-    | 'intake'
-    | 'research'
-    | 'planning'
-    | 'plan_review'
-    | 'copy_production'
-    | 'image_briefing'
-    | 'image_creatives'
-    | 'image_generation'
-    | 'creative_review'
-    | 'video_script'
-    | 'video_review'
-    | 'video_render'
-    | 'publish_review'
-    | 'completed'
-    | 'failed'
-    | 'production'
-    | 'approval'
-    | 'publish'
-    | 'strategy';
-  output?: Record<string, unknown> | Record<string, unknown>[];
-  artifacts?: unknown[];
-  approval?: {
-    stage: 'plan' | 'creative' | 'video' | 'publish' | 'strategy' | 'production';
-    approval_step?:
-      | 'approve_weekly_plan'
-      | 'approve_post_copy'
-      | 'approve_image_creatives'
-      | 'approve_video_script'
-      | 'approve_video_render'
-      | 'approve_publish';
-    workflow_step_id: string;
-    prompt: string;
-    resume_token?: string;
-  };
-  error?: { code?: string; message: string; retryable?: boolean };
-};
+// Re-export so existing callers that import these from this module continue to work.
+export type { HermesRunCallbackPayload, HermesRunCallbackStatus };
 
 export type HermesRunCallbackResult =
   | { status: 'accepted'; ariesRunId: string; duplicate: boolean }
