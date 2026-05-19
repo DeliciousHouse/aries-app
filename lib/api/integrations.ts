@@ -66,6 +66,7 @@ export interface IntegrationCard {
   permissions: IntegrationPermission[];
   connected_account?: IntegrationConnectedAccount;
   error?: IntegrationCardError;
+  scopes_outdated?: boolean;
 }
 
 export interface GetIntegrationsPageQuery {
@@ -133,6 +134,7 @@ export interface OauthReconnectRequest {
   connection_id: string;
   redirect_uri: string;
   scopes?: string[];
+  auth_type?: 'reauthenticate';
 }
 
 export interface OauthReconnectSuccess {

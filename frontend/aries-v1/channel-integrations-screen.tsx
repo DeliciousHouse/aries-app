@@ -1,5 +1,7 @@
 'use client';
 
+import { useState } from 'react';
+
 import type { IntegrationCardAction } from '@/lib/api/integrations';
 import { useIntegrations } from '@/hooks/use-integrations';
 
@@ -9,13 +11,19 @@ import { EmptyStatePanel, LoadingStateGrid, ShellPanel, StatusChip } from './com
 export default function AriesChannelIntegrationsScreen() {
   const integrations = useIntegrations({ autoLoad: true });
   const integrationCards = integrations.data?.status === 'ok' ? integrations.data.cards : [];
+  const [confirmScopesUpgrade, setConfirmScopesUpgrade] = useState<string | null>(null);
 
   async function handleIntegrationAction(
-    action: 'connect' | 'reconnect' | 'disconnect' | 'switch_page',
+    action: 'connect' | 'reconnect' | 'disconnect' | 'switch_page' | 'update_scopes',
     platform: string
   ) {
     const card = integrationCards.find((item) => item.platform === platform);
     if (!card) {
+      return;
+    }
+
+    if (action === 'update_scopes') {
+      setConfirmScopesUpgrade(platform);
       return;
     }
 
@@ -30,6 +38,18 @@ export default function AriesChannelIntegrationsScreen() {
     }
 
     await integrations.runAction(action, card);
+  }
+
+  function handleConfirmScopesUpgrade(platform: string) {
+    setConfirmScopesUpgrade(null);
+    const card = integrationCards.find((item) => item.platform === platform);
+    if (!card) return;
+    const oauthPage = new URL(`/oauth/connect/${platform}`, window.location.origin);
+    oauthPage.searchParams.set('mode', 'update_scopes');
+    if (card.connection_id) {
+      oauthPage.searchParams.set('connection_id', card.connection_id);
+    }
+    window.location.assign(oauthPage.toString());
   }
 
   function renderPrimaryAction(card: (typeof integrationCards)[number]): {
@@ -69,6 +89,35 @@ export default function AriesChannelIntegrationsScreen() {
 
   return (
     <div className="space-y-5">
+      {confirmScopesUpgrade ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+          <div className="w-full max-w-md rounded-[1.5rem] border border-amber-300/20 bg-[#0f0f10] p-6 shadow-xl space-y-4">
+            <div className="space-y-1">
+              <p className="text-base font-semibold text-white">Update Meta permissions?</p>
+              <p className="text-sm text-white/60">
+                This will redirect you to Facebook to grant the additional permissions Aries needs to list Pages and publish. Your existing connected Page will be preserved.
+              </p>
+            </div>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setConfirmScopesUpgrade(null)}
+                className="px-4 py-2 rounded-full border border-white/15 bg-white/5 text-sm font-medium text-white hover:bg-white/10"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleConfirmScopesUpgrade(confirmScopesUpgrade)}
+                className="px-4 py-2 rounded-full border border-amber-300/30 bg-amber-300/10 text-sm font-semibold text-amber-100 hover:bg-amber-300/20"
+              >
+                Update permissions
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <ShellPanel eyebrow="Channels / Integrations" title="Where Aries can publish or monitor">
         {integrations.error ? (
           <div className="rounded-[1.5rem] border border-red-500/20 bg-red-500/10 p-5 text-red-100">
@@ -102,7 +151,16 @@ export default function AriesChannelIntegrationsScreen() {
                         <p className="text-sm font-medium text-white">{card.display_name}</p>
                         <p className="text-sm text-white/45">{card.description}</p>
                       </div>
-                      <div className="flex items-center gap-3 shrink-0">
+                      <div className="flex items-center gap-3 shrink-0 flex-wrap justify-end">
+                        {card.scopes_outdated && card.connection_state === 'connected' ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleIntegrationAction('update_scopes', card.platform)}
+                            className="inline-flex items-center gap-1.5 rounded-full border border-amber-300/30 bg-amber-300/10 px-3 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-300/20"
+                          >
+                            Update permissions
+                          </button>
+                        ) : null}
                         <StatusChip
                           status={
                             card.connection_state === 'connected'

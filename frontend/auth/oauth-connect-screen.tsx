@@ -9,7 +9,7 @@ import { createIntegrationsApi, isOauthErrorResult } from '@/lib/api/integration
 import { AriesMark } from '@/frontend/donor/ui';
 import AuthLayout from './auth-layout';
 
-type OAuthMode = 'connect' | 'reconnect';
+type OAuthMode = 'connect' | 'reconnect' | 'update_scopes';
 type OAuthResultState = 'connected' | 'error' | 'pending';
 
 export interface OAuthConnectScreenProps {
@@ -59,10 +59,11 @@ export default function OAuthConnectScreen({
     async function begin(): Promise<void> {
       try {
         const response =
-          mode === 'reconnect'
+          mode === 'reconnect' || mode === 'update_scopes'
             ? await api.oauthReconnect(provider, {
                 connection_id: connectionId || `current_${provider}`,
                 redirect_uri: callbackUrlFor(provider),
+                ...(mode === 'update_scopes' ? { auth_type: 'reauthenticate' as const } : {}),
               })
             : await api.oauthConnect(provider, {
                 tenant_id: 'current',
@@ -103,18 +104,22 @@ export default function OAuthConnectScreen({
       ? `${providerTitle(provider)} connected`
       : result === 'error'
         ? `${providerTitle(provider)} connection failed`
-        : mode === 'reconnect'
-          ? `Reconnect ${providerTitle(provider)}`
-          : `Connect ${providerTitle(provider)}`;
+        : mode === 'update_scopes'
+          ? `Update ${providerTitle(provider)} permissions`
+          : mode === 'reconnect'
+            ? `Reconnect ${providerTitle(provider)}`
+            : `Connect ${providerTitle(provider)}`;
 
   const description =
     result === 'connected'
       ? 'The provider callback completed and Aries recorded the connection successfully.'
       : result === 'error'
         ? 'The callback returned an error or the OAuth handshake could not be completed.'
-        : mode === 'reconnect'
-          ? 'Aries is preparing a reauthorization handoff using the existing OAuth broker route.'
-          : 'Aries is preparing a secure OAuth handoff using the existing broker route.';
+        : mode === 'update_scopes'
+          ? 'Aries is preparing a permissions upgrade handoff. You will be prompted to re-grant access with the expanded scope set.'
+          : mode === 'reconnect'
+            ? 'Aries is preparing a reauthorization handoff using the existing OAuth broker route.'
+            : 'Aries is preparing a secure OAuth handoff using the existing broker route.';
 
   const providerLabel = providerTitle(provider);
 

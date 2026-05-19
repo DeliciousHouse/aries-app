@@ -13,6 +13,8 @@ const platforms = (Object.keys(PROVIDER_REGISTRY) as Array<keyof typeof PROVIDER
   (platform) => platform !== 'openai',
 );
 
+const META_REQUIRED_SCOPES = ['pages_show_list'];
+
 type IntegrationPageCard = {
   platform: string;
   display_name: string;
@@ -24,6 +26,7 @@ type IntegrationPageCard = {
   expires_at: string | null;
   permissions: string[];
   connection_id?: string;
+  scopes_outdated?: boolean;
   error?: {
     code: string;
     message: string;
@@ -179,6 +182,11 @@ export async function buildIntegrationsPageDataAsync(tenantId: string) {
             }
           : undefined;
 
+      const scopesOutdated =
+        platform === 'facebook' &&
+        status.connection_status === 'connected' &&
+        !META_REQUIRED_SCOPES.every((s) => status.granted_scopes?.includes(s));
+
       return {
         platform,
         display_name: customerSafePlatformLabel(platform),
@@ -186,6 +194,7 @@ export async function buildIntegrationsPageDataAsync(tenantId: string) {
         connection_id: status.integration_id,
         connection_state: mapState(status.connection_status),
         health: mapHealth(status.connection_status, status.token_expires_at),
+        scopes_outdated: scopesOutdated || undefined,
         available_actions:
           status.connection_status === 'connected'
             ? status.status_reason === 'env_managed'
@@ -310,10 +319,12 @@ export async function handleOauthReconnect(
   }
 
   const scopes = Array.isArray(body.scopes) ? body.scopes : undefined;
+  const authType = body.auth_type === 'reauthenticate' ? 'reauthenticate' as const : undefined;
   const result = await oauthReconnect(provider, {
     connection_id: status.integration_id,
     redirect_uri: `${resolveBaseUrl(req)}/api/auth/oauth/${provider}/callback`,
     scopes: Array.isArray(scopes) ? scopes.filter((scope): scope is string => typeof scope === 'string') : undefined,
+    auth_type: authType,
   });
 
   const responseStatus =
