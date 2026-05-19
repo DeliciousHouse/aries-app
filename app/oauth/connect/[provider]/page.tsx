@@ -9,7 +9,7 @@ export default async function OAuthConnectPage({
 }: {
   params: Promise<{ provider: string }>;
   searchParams?: Promise<{
-    mode?: 'connect' | 'reconnect';
+    mode?: 'connect' | 'reconnect' | 'update_scopes';
     connection_id?: string;
     result?: 'connected' | 'error' | 'pending';
     reason?: string;

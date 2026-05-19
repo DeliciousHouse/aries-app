@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.42] - 2026-05-19
+
+### Added
+- feat(integrations): reconnect flow for Meta scope upgrades — detects connected Facebook integrations whose stored `granted_scopes` are missing `pages_show_list` (the new wider scope set from v0.1.3.37) and surfaces a yellow "Update permissions" badge on the integrations card. Clicking opens a confirmation dialog then redirects through the standard OAuth broker with `auth_type=reauthenticate` so Facebook forces full re-consent rather than a silent token link. The callback re-runs page discovery so the user can confirm or switch their connected Page. Badge clears once the new scopes are stored.
+
 ## [0.1.3.41] - 2026-05-19
 
 ### Added

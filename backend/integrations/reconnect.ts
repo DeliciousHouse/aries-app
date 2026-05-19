@@ -7,6 +7,7 @@ type OAuthReconnectRequest = {
   connection_id?: string;
   redirect_uri?: string;
   scopes?: string[];
+  auth_type?: 'reauthenticate';
 };
 
 type OAuthReconnectSuccess = {
@@ -125,6 +126,7 @@ export async function oauthReconnect(
     state,
     scopes,
     codeVerifier,
+    authType: payload.auth_type,
   });
 
   return {
