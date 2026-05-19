@@ -5,7 +5,18 @@ import { z } from 'zod';
 // ---------------------------------------------------------------------------
 
 /** Bump when any schema changes. Both Aries and Hermes must agree on this. */
-export const PROTOCOL_VERSION = '1.0.0';
+export const PROTOCOL_VERSION = '1.1.0';
+
+/**
+ * Returns true when `incoming` is compatible with this build's PROTOCOL_VERSION.
+ * Minor version bumps (1.0 → 1.1) are additive and accepted in either direction.
+ * Major version mismatches (1.x vs 2.x) are rejected fail-loud.
+ */
+export function isCompatibleProtocolVersion(incoming: string): boolean {
+  const [inMajor] = incoming.split('.').map(Number);
+  const [ourMajor] = PROTOCOL_VERSION.split('.').map(Number);
+  return inMajor === ourMajor;
+}
 
 // ---------------------------------------------------------------------------
 // Stage enums
@@ -92,6 +103,8 @@ export const CallbackStatusSchema = z.enum([
   'completed',
   'failed',
   'cancelled',
+  // 'stopped' is a terminal cancellation state Hermes uses alongside 'cancelled'
+  'stopped',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -144,6 +157,12 @@ export const HermesRunCallbackPayloadSchema = z.object({
   /** Present only when status === 'requires_approval'. */
   approval: CallbackApprovalSchema.optional(),
   error: CallbackErrorSchema.optional(),
+  /**
+   * Protocol version the sender was built against (e.g. "1.0.0").
+   * Required for new senders; tolerated as absent during Hermes migration.
+   * Aries rejects payloads whose major version differs from PROTOCOL_VERSION.
+   */
+  protocol_version: z.string().optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -189,6 +208,8 @@ export const HermesRunSubmissionSchema = z.object({
   callback_auth: CallbackAuthSchema,
   callback_context: CallbackContextSchema,
   idempotency_key: z.string().optional(),
+  /** Protocol version Aries was built against. Hermes should echo or compare. */
+  protocol_version: z.string(),
 });
 
 // ---------------------------------------------------------------------------

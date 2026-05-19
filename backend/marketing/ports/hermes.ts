@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
 import pool from '@/lib/db';
 import { hashCallbackToken } from '@/lib/internal-callback-auth';
+import { PROTOCOL_VERSION } from '@aries/hermes-protocol';
 import {
   createExecutionRunRecord,
   markExecutionRunFailed,
@@ -750,6 +751,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
           approval_step: approvalStep,
         },
         idempotency_key: idempotencyKey,
+        protocol_version: PROTOCOL_VERSION,
       };
     }
 
@@ -813,6 +815,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
             : {}),
         },
         idempotency_key: idempotencyKey,
+        protocol_version: PROTOCOL_VERSION,
       };
     }
 
@@ -839,6 +842,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         ...(runIsAutoAdvance ? { auto_advance: true } : {}),
       },
       idempotency_key: idempotencyKey,
+      protocol_version: PROTOCOL_VERSION,
     };
   }
 

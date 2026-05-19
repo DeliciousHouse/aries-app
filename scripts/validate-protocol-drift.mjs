@@ -63,8 +63,6 @@ function walkTs(dir) {
 const violations = [];
 for (const file of walkTs(BACKEND_DIR)) {
   const rel = path.relative(root, file);
-  // The consumer modules that import from the protocol package ARE allowed to
-  // re-export or alias the types — but they must import, not redeclare.
   const source = fs.readFileSync(file, 'utf8');
   if (INLINE_CALLBACK_PATTERN.test(source)) {
     violations.push(`${rel}: inline HermesRunCallbackPayload definition (import from @aries/hermes-protocol instead)`);
@@ -85,7 +83,12 @@ if (violations.length > 0) {
 }
 
 // ---------------------------------------------------------------------------
-// 3. hermes-callbacks.ts imports HermesRunCallbackPayload from the protocol pkg
+// 3. hermes-callbacks.ts imports from the protocol package AND uses Zod parsing
+//
+// Just importing types isn't enough — the runtime validators must also use the
+// package schemas so the wire boundary stays in sync with the TypeScript types.
+// If an agent re-implements isCallbackStatus / isApprovalStage / parseApproval
+// inline, those hand-rolled validators can drift from the Zod schema silently.
 // ---------------------------------------------------------------------------
 
 const CALLBACKS_FILE = path.join(root, 'backend/execution/hermes-callbacks.ts');
@@ -94,6 +97,38 @@ const callbacksSource = fs.readFileSync(CALLBACKS_FILE, 'utf8');
 if (!callbacksSource.includes('@aries/hermes-protocol')) {
   console.error('[validate-protocol-drift] FAIL: backend/execution/hermes-callbacks.ts does not import from @aries/hermes-protocol.');
   console.error('  Fix: replace inline HermesRunCallbackPayload/Status with imports from @aries/hermes-protocol.');
+  process.exit(1);
+}
+
+// Check that the file uses the Zod schema for runtime parsing (not only type imports).
+if (!callbacksSource.includes('HermesRunCallbackPayloadSchema')) {
+  console.error('[validate-protocol-drift] FAIL: backend/execution/hermes-callbacks.ts does not use HermesRunCallbackPayloadSchema for runtime parsing.');
+  console.error('  Fix: replace inline isCallbackStatus/isCallbackStage/parseApproval with HermesRunCallbackPayloadSchema.safeParse().');
+  process.exit(1);
+}
+
+// Detect re-introduced inline validators that bypass the Zod schema.
+const INLINE_VALIDATOR_PATTERNS = [
+  { pattern: /^\s*function\s+isCallbackStatus\s*\(/m, name: 'isCallbackStatus' },
+  { pattern: /^\s*function\s+isCallbackStage\s*\(/m, name: 'isCallbackStage' },
+  { pattern: /^\s*function\s+isApprovalStage\s*\(/m, name: 'isApprovalStage' },
+  { pattern: /^\s*function\s+parseApproval\s*\(/m, name: 'parseApproval' },
+  { pattern: /^\s*function\s+parseCallbackError\s*\(/m, name: 'parseCallbackError' },
+];
+
+const callbackViolations = INLINE_VALIDATOR_PATTERNS
+  .filter(({ pattern }) => pattern.test(callbacksSource))
+  .map(({ name }) =>
+    `backend/execution/hermes-callbacks.ts: inline '${name}' function re-implements a validator that belongs in @aries/hermes-protocol`,
+  );
+
+if (callbackViolations.length > 0) {
+  console.error('[validate-protocol-drift] FAIL: inline wire validators found in hermes-callbacks.ts:');
+  for (const v of callbackViolations) {
+    console.error(`  - ${v}`);
+  }
+  console.error('');
+  console.error('Fix: use HermesRunCallbackPayloadSchema.safeParse() from @aries/hermes-protocol instead of inline validators.');
   process.exit(1);
 }
 

@@ -1,4 +1,4 @@
-export { PROTOCOL_VERSION } from './schemas';
+export { PROTOCOL_VERSION, isCompatibleProtocolVersion } from './schemas';
 export {
   MarketingStageSchema,
   ApprovalStageSchema,

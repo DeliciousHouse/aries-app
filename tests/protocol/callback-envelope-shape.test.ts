@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   HermesRunCallbackPayloadSchema,
   PROTOCOL_VERSION,
+  isCompatibleProtocolVersion,
 } from '../../packages/aries-hermes-protocol/src/index';
 import type { HermesRunCallbackPayload } from '../../packages/aries-hermes-protocol/src/index';
 
@@ -148,5 +149,51 @@ describe('callback-envelope-shape', () => {
       const result = HermesRunCallbackPayloadSchema.safeParse(raw);
       assert.equal(result.success, true, `expected legacy stage '${stage}' to parse`);
     }
+  });
+
+  it('accepts stopped status (terminal cancellation)', () => {
+    const raw = {
+      event_id: 'evt-stopped',
+      aries_run_id: 'arun_00000000-0000-0000-0000-000000000010',
+      status: 'stopped',
+    };
+    const result = HermesRunCallbackPayloadSchema.safeParse(raw);
+    assert.equal(result.success, true, 'stopped is a valid terminal status');
+    if (!result.success) return;
+    assert.equal(result.data.status, 'stopped');
+  });
+
+  it('accepts protocol_version field when present', () => {
+    const raw = {
+      event_id: 'evt-versioned',
+      aries_run_id: 'arun_00000000-0000-0000-0000-000000000011',
+      status: 'completed',
+      protocol_version: PROTOCOL_VERSION,
+    };
+    const result = HermesRunCallbackPayloadSchema.safeParse(raw);
+    assert.equal(result.success, true);
+    if (!result.success) return;
+    assert.equal(result.data.protocol_version, PROTOCOL_VERSION);
+  });
+
+  it('accepts absent protocol_version for backward compat', () => {
+    const raw = {
+      event_id: 'evt-no-version',
+      aries_run_id: 'arun_00000000-0000-0000-0000-000000000012',
+      status: 'completed',
+    };
+    const result = HermesRunCallbackPayloadSchema.safeParse(raw);
+    assert.equal(result.success, true, 'protocol_version is optional for migration compat');
+  });
+
+  it('isCompatibleProtocolVersion: same major version is compatible', () => {
+    assert.equal(isCompatibleProtocolVersion('1.0.0'), true);
+    assert.equal(isCompatibleProtocolVersion('1.99.0'), true);
+    assert.equal(isCompatibleProtocolVersion(PROTOCOL_VERSION), true);
+  });
+
+  it('isCompatibleProtocolVersion: different major version is incompatible', () => {
+    assert.equal(isCompatibleProtocolVersion('2.0.0'), false);
+    assert.equal(isCompatibleProtocolVersion('0.9.0'), false);
   });
 });
