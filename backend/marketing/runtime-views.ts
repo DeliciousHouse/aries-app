@@ -105,6 +105,10 @@ export type RuntimeCampaignListItem = {
   /** Set when the delete landed while the pipeline was still running. UI
    * uses this to render "Cancelling..." in the Recycle Bin. */
   softCancelRequestedAt?: string | null;
+  /** extracted_at of the brand-kit snapshot baked into this job's runtime doc.
+   * Passed through to the API layer so the campaign-list badge can compare
+   * this against the tenant's current brand-kit extracted_at. */
+  brandKitExtractedAt?: string | null;
 };
 
 export type RuntimeReviewDecision = {
@@ -443,6 +447,7 @@ function buildCampaignListItem(
   status: MarketingJobStatusResponse,
   view: CampaignWorkspaceView,
   pendingApprovals: number,
+  brandKitExtractedAt?: string | null,
 ): RuntimeCampaignListItem {
   const dashboardCampaign = view.dashboard.campaign;
   return {
@@ -493,6 +498,7 @@ function buildCampaignListItem(
       calendarEvents: view.dashboard.calendarEvents,
       statuses: view.dashboard.statuses,
     },
+    brandKitExtractedAt: brandKitExtractedAt ?? null,
   };
 }
 
@@ -1549,7 +1555,9 @@ export async function listMarketingCampaignsForTenant(tenantId: string): Promise
     }
     seen.add(key);
     const pendingApprovals = (await buildReviewItemsForJob(jobId)).filter((item) => item.status !== 'approved').length;
-    campaigns.push(buildCampaignListItem(status, view, pendingApprovals));
+    const runtimeDoc = await loadMarketingJobRuntime(jobId);
+    const jobBrandKitExtractedAt = runtimeDoc?.brand_kit?.extracted_at ?? null;
+    campaigns.push(buildCampaignListItem(status, view, pendingApprovals, jobBrandKitExtractedAt));
   }
 
   return campaigns.sort((left, right) => {
@@ -1586,7 +1594,7 @@ export async function listDeletedMarketingCampaignsForTenant(
     }
     seen.add(key);
     const pendingApprovals = (await buildReviewItemsForJob(jobId)).filter((item) => item.status !== 'approved').length;
-    const item = buildCampaignListItem(status, view, pendingApprovals);
+    const item = buildCampaignListItem(status, view, pendingApprovals, doc.brand_kit?.extracted_at ?? null);
     item.deletedAt = doc.deleted_at ?? null;
     item.deletedBy = doc.deleted_by ?? null;
     item.softCancelRequestedAt = doc.soft_cancel_requested_at ?? null;

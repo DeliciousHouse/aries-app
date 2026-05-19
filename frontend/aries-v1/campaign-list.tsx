@@ -19,6 +19,7 @@ export default function AriesCampaignListScreen() {
   const campaigns = useRuntimeCampaigns({ autoLoad: true });
   const items = campaigns.data?.campaigns ?? [];
   const deletedItems = campaigns.data?.deletedCampaigns ?? [];
+  const currentBrandKitExtractedAt = campaigns.data?.currentBrandKitExtractedAt ?? null;
 
   if (campaigns.isLoading) {
     return <LoadingStateGrid />;
@@ -81,6 +82,7 @@ export default function AriesCampaignListScreen() {
           <CampaignRow
             key={campaign.id}
             campaign={campaign}
+            currentBrandKitExtractedAt={currentBrandKitExtractedAt}
             busyCampaignId={campaigns.busyCampaignId}
             onDelete={(jobId) => void campaigns.deleteCampaign(jobId)}
           />
@@ -98,13 +100,28 @@ export default function AriesCampaignListScreen() {
   );
 }
 
+function isCampaignStale(
+  campaignExtractedAt: string | null | undefined,
+  currentExtractedAt: string | null | undefined,
+): boolean {
+  if (!campaignExtractedAt || !currentExtractedAt) return false;
+  const campaignTs = Date.parse(campaignExtractedAt);
+  const currentTs = Date.parse(currentExtractedAt);
+  return Number.isFinite(campaignTs) && Number.isFinite(currentTs) && campaignTs < currentTs;
+}
+
 function CampaignRow(props: {
   campaign: RuntimeCampaignListItem;
+  currentBrandKitExtractedAt?: string | null;
   busyCampaignId: string | null;
   onDelete: (jobId: string) => void;
 }) {
   const { campaign } = props;
   const isBusy = props.busyCampaignId === campaign.jobId;
+  const isStale = isCampaignStale(campaign.brandKitExtractedAt, props.currentBrandKitExtractedAt);
+  const staleTooltip = isStale
+    ? `Brand voice was updated on ${new Date(props.currentBrandKitExtractedAt!).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}. This campaign predates that update.`
+    : undefined;
 
   return (
     <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] px-6 py-5 transition hover:border-white/16 hover:bg-white/[0.06]">
@@ -116,6 +133,14 @@ function CampaignRow(props: {
           <div className="flex flex-wrap items-center gap-3">
             <h2 className="text-2xl font-semibold text-white">{campaign.name}</h2>
             <StatusChip status={campaign.dashboardStatus} />
+            {isStale ? (
+              <span
+                title={staleTooltip}
+                className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-amber-400/25 bg-amber-400/10 px-3 py-1.5 text-xs font-medium tracking-[0.03em] text-amber-100"
+              >
+                Generated with previous brand update
+              </span>
+            ) : null}
           </div>
           <p className="text-sm leading-7 text-white/62">{campaign.summary}</p>
         </Link>

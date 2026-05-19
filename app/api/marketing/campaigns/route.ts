@@ -4,6 +4,7 @@ import {
   listDeletedMarketingCampaignsForTenant,
   listMarketingCampaignsForTenant,
 } from '@/backend/marketing/runtime-views';
+import { loadTenantBrandKit } from '@/backend/marketing/brand-kit';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
 
 export async function handleGetMarketingCampaigns(tenantContextLoader?: TenantContextLoader) {
@@ -12,11 +13,14 @@ export async function handleGetMarketingCampaigns(tenantContextLoader?: TenantCo
     return tenantResult.response;
   }
 
-  const [campaigns, deletedCampaigns] = await Promise.all([
-    listMarketingCampaignsForTenant(tenantResult.tenantContext.tenantId),
-    listDeletedMarketingCampaignsForTenant(tenantResult.tenantContext.tenantId),
+  const tenantId = tenantResult.tenantContext.tenantId;
+  const [campaigns, deletedCampaigns, currentBrandKit] = await Promise.all([
+    listMarketingCampaignsForTenant(tenantId),
+    listDeletedMarketingCampaignsForTenant(tenantId),
+    loadTenantBrandKit(tenantId),
   ]);
-  return NextResponse.json({ campaigns, deletedCampaigns }, { status: 200 });
+  const currentBrandKitExtractedAt = currentBrandKit?.extracted_at ?? null;
+  return NextResponse.json({ campaigns, deletedCampaigns, currentBrandKitExtractedAt }, { status: 200 });
 }
 
 export async function GET() {
