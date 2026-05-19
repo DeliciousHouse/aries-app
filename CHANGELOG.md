@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.36] - 2026-05-19
+
+### Added
+- feat(publishing): immediate Instagram publish UI — "Publish to Instagram" button on launch-ready publish items, `InstagramPublishDrawer` component, and `POST /api/marketing/jobs/[jobId]/publish-instagram` server route that resolves caption from social-copy.json, signs the approved creative image URL via the v0.1.3.35 public media proxy, and publishes directly to Meta Graph API.
+
 ## [0.1.3.35] - 2026-05-19
 
 ### Added

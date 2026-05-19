@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { ArrowUpRight, CheckCircle2, LoaderCircle, MessageSquareText, XCircle } from 'lucide-react';
+import { ArrowUpRight, CheckCircle2, Instagram, LoaderCircle, MessageSquareText, XCircle } from 'lucide-react';
+
+import InstagramPublishDrawer, { type InstagramPublishResult } from './instagram-publish-drawer';
 
 import MediaPreview from '@/frontend/components/media-preview';
 import { safeHref } from '@/lib/safe-href';
@@ -499,6 +501,7 @@ export default function AriesCampaignWorkspace(props: { campaignId: string; init
           publishItems={status.dashboard.publishItems}
           history={currentHistory}
           overview={publishState}
+          campaignId={props.campaignId}
         />
       ) : null}
 
@@ -1072,10 +1075,19 @@ function CreativeReviewSurface(props: {
 
 function PublishStatusSurface(props: {
   workflowState: string;
-  publishItems: Array<{ id: string; title: string; summary: string; status: string; platformLabel: string; destinationUrl: string | null }>;
+  publishItems: Array<{ id: string; title: string; summary: string; status: string; platform: string; platformLabel: string; destinationUrl: string | null }>;
   history: MarketingCampaignStatusHistoryEntry[];
   overview: PublishSurfaceState;
+  campaignId: string;
 }) {
+  const [igPublishItemId, setIgPublishItemId] = useState<string | null>(null);
+  const [publishedItems, setPublishedItems] = useState<Record<string, InstagramPublishResult>>({});
+
+  function handlePublished(itemId: string, result: InstagramPublishResult) {
+    setPublishedItems((current) => ({ ...current, [itemId]: result }));
+    setIgPublishItemId(null);
+  }
+
   return (
     <div className="space-y-4">
       <ShellPanel
@@ -1101,49 +1113,78 @@ function PublishStatusSurface(props: {
             {props.publishItems.map((item) => {
               const hrefCandidate = safeHref(item.destinationUrl);
               const isExternal = hrefCandidate ? /^https?:\/\//i.test(hrefCandidate) : false;
+              const publishedResult = publishedItems[item.id] ?? null;
+              const isInstagram = item.platform === 'instagram';
+              const isPublishable = isInstagram && (item.status === 'ready_to_publish' || item.status === 'approved');
+
               const itemBody = (
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium text-white">{item.title}</p>
-                    <p className="text-sm text-white/55">{item.platformLabel}</p>
-                    <p className="text-sm text-white/45">{item.summary}</p>
-                    {item.destinationUrl ? <p className="text-sm text-white/40">{item.destinationUrl}</p> : null}
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-white">{item.title}</p>
+                      <p className="text-sm text-white/55">{item.platformLabel}</p>
+                      <p className="text-sm text-white/45">{item.summary}</p>
+                      {item.destinationUrl ? <p className="text-sm text-white/40">{item.destinationUrl}</p> : null}
+                    </div>
+                    <StatusChip status={publishedResult ? 'live' : item.status === 'ready_to_publish' ? 'approved' : item.status === 'published_to_meta_paused' ? 'live' : 'in_review'}>
+                      {publishedResult ? 'Published' : workflowStateLabel(item.status)}
+                    </StatusChip>
                   </div>
-                  <StatusChip status={item.status === 'ready_to_publish' ? 'approved' : item.status === 'published_to_meta_paused' ? 'live' : 'in_review'}>
-                    {workflowStateLabel(item.status)}
-                  </StatusChip>
+                  {publishedResult?.permalink ? (
+                    <a
+                      href={publishedResult.permalink}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-2 rounded-full border border-white/12 px-3 py-1.5 text-xs font-medium text-white/80 transition hover:border-white/20 hover:text-white"
+                    >
+                      View on Instagram
+                      <ArrowUpRight className="h-3 w-3" />
+                    </a>
+                  ) : isPublishable ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIgPublishItemId(item.id);
+                      }}
+                      className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-white/80 transition hover:border-white/20 hover:bg-white/[0.07] hover:text-white"
+                    >
+                      <Instagram className="h-3 w-3" />
+                      Publish to Instagram
+                    </button>
+                  ) : null}
                 </div>
               );
-              const cardClass = `block rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4 ${hrefCandidate ? 'transition hover:border-white/20 hover:bg-black/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30' : ''}`;
-              if (hrefCandidate && isExternal) {
-                return (
-                  <a
-                    key={item.id}
-                    href={hrefCandidate}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={cardClass}
-                  >
-                    {itemBody}
-                  </a>
-                );
-              }
-              if (hrefCandidate) {
-                return (
-                  <Link key={item.id} href={hrefCandidate} className={cardClass}>
-                    {itemBody}
-                  </Link>
-                );
-              }
+
               return (
-                <div key={item.id} className={cardClass}>
-                  {itemBody}
+                <div key={item.id} className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4">
+                  {hrefCandidate && isExternal && !isPublishable ? (
+                    <a href={hrefCandidate} target="_blank" rel="noopener noreferrer" className="block transition hover:opacity-80">
+                      {itemBody}
+                    </a>
+                  ) : hrefCandidate && !isPublishable ? (
+                    <Link href={hrefCandidate} className="block transition hover:opacity-80">
+                      {itemBody}
+                    </Link>
+                  ) : (
+                    itemBody
+                  )}
                 </div>
               );
             })}
           </div>
         )}
       </ShellPanel>
+
+      {igPublishItemId ? (
+        <InstagramPublishDrawer
+          jobId={props.campaignId}
+          onClose={() => setIgPublishItemId(null)}
+          onPublished={(result) => handlePublished(igPublishItemId, result)}
+        />
+      ) : null}
 
       <ShellPanel eyebrow="Status history" title="Recent decisions">
         <ActivityFeed items={props.history.map((entry) => ({ id: entry.id, label: historyTypeLabel(entry.type), detail: entry.note || workflowStateLabel(entry.workflowState), at: formatDecisionTimestamp(entry.at) }))} />
