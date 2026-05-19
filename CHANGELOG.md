@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.37] - 2026-05-19
+
+### Fixed
+- fix(integrations): request the Page-listing and Instagram-publish scopes during Meta OAuth so `/me/accounts` actually returns the user's Pages. Was failing with `meta_no_pages_available` because only `pages_manage_posts` was requested, and `/me/accounts` requires `pages_show_list` to enumerate Pages. Adds `pages_show_list`, `pages_read_engagement`, `pages_manage_metadata`, `business_management`, `instagram_basic`, `instagram_content_publish` to the Facebook provider's default scopes; aligns Instagram provider scopes for the co-provisioned IG-via-FB connection. Permissions are already enabled in the Meta app (Standard Access for app admins/testers); no App Review required for current admin tenants.
+
 ## [0.1.3.36] - 2026-05-19
 
 ### Added
