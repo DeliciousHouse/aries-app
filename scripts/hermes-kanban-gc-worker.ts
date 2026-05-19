@@ -24,8 +24,8 @@ type CommandResult = {
 };
 
 type GcReport = {
-  tasksArchived: number;
-  workspacesDeleted: number;
+  archived: number;
+  workspacesRemoved: number;
   errors: number;
 };
 
@@ -148,13 +148,13 @@ async function archiveTasks(taskIds: string[]): Promise<number> {
 }
 
 async function runGcOnce(): Promise<GcReport> {
-  const report: GcReport = { tasksArchived: 0, workspacesDeleted: 0, errors: 0 };
+  const report: GcReport = { archived: 0, workspacesRemoved: 0, errors: 0 };
   const retentionDays = resolveRetentionDays();
 
   try {
     const tasks = await listDoneTasks();
     const candidates = selectArchiveCandidates(tasks, retentionDays, Math.floor(Date.now() / 1000));
-    report.tasksArchived = await archiveTasks(candidates);
+    report.archived = await archiveTasks(candidates);
   } catch (error) {
     report.errors += 1;
     console.error('[hermes-kanban-gc] archive phase failed', error);
@@ -163,7 +163,7 @@ async function runGcOnce(): Promise<GcReport> {
   try {
     const gcResult = await runHermes(['kanban', 'gc']);
     const gcOutput = `${gcResult.stdout}\n${gcResult.stderr}`;
-    report.workspacesDeleted = parseWorkspaceDeleteCount(gcOutput);
+    report.workspacesRemoved = parseWorkspaceDeleteCount(gcOutput);
   } catch (error) {
     report.errors += 1;
     console.error('[hermes-kanban-gc] gc phase failed', error);
@@ -182,7 +182,11 @@ async function tick(): Promise<void> {
   try {
     const report = await runGcOnce();
     console.log(
-      `[hermes-kanban-gc] tasks_archived=${report.tasksArchived} workspaces_deleted=${report.workspacesDeleted} errors_n=${report.errors}`,
+      `[hermes-kanban-gc] summary ${JSON.stringify({
+        archived: report.archived,
+        workspaces_removed: report.workspacesRemoved,
+        errors: report.errors,
+      })}`,
     );
   } catch (error) {
     console.error('[hermes-kanban-gc] tick failed', error);

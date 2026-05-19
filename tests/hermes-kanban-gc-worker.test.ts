@@ -61,7 +61,7 @@ process.exit(3);
 
   assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
   assert.match(result.stdout, /\[hermes-kanban-gc\] starting; interval=1000000ms retention_days=7/);
-  assert.match(result.stdout, /tasks_archived=1 workspaces_deleted=3 errors_n=0/);
+  assert.match(result.stdout, /\[hermes-kanban-gc\] summary \{"archived":1,"workspaces_removed":3,"errors":0\}/);
   assert.deepEqual(
     readFileSync(logPath, 'utf8')
       .trim()
