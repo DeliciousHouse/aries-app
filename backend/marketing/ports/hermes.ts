@@ -284,7 +284,11 @@ export class HermesMarketingPort implements MarketingExecutionPort {
 
     await this.persistCallbackTokenHash(input.ariesRunId, input.tenantId, input.callbackToken);
 
-    const idempotencyKey = typeof input.payload.idempotency_key === 'string' ? input.payload.idempotency_key : '';
+    // Always stamp protocol_version at the chokepoint so callers that build
+    // their own payload objects (e.g. submitSocialCopyFinalizeRun) can't
+    // accidentally omit it.
+    const wirePayload: Record<string, unknown> = { ...input.payload, protocol_version: PROTOCOL_VERSION };
+    const idempotencyKey = typeof wirePayload.idempotency_key === 'string' ? wirePayload.idempotency_key : '';
 
     let response: Response;
     try {
@@ -295,7 +299,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
           'content-type': 'application/json',
           'idempotency-key': idempotencyKey,
         },
-        body: JSON.stringify(input.payload),
+        body: JSON.stringify(wirePayload),
       });
     } catch (error) {
       markSubmissionFailed(input.ariesRunId, 'hermes_gateway_unreachable', error instanceof Error ? error.message : String(error));

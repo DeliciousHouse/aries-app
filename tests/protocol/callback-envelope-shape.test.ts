@@ -196,4 +196,25 @@ describe('callback-envelope-shape', () => {
     assert.equal(isCompatibleProtocolVersion('2.0.0'), false);
     assert.equal(isCompatibleProtocolVersion('0.9.0'), false);
   });
+
+  it('isCompatibleProtocolVersion: malformed versions are always rejected', () => {
+    assert.equal(isCompatibleProtocolVersion('1.not-semver'), false, '"1.not-semver" should fail');
+    assert.equal(isCompatibleProtocolVersion('1'), false, '"1" alone should fail');
+    assert.equal(isCompatibleProtocolVersion(''), false, 'empty string should fail');
+    assert.equal(isCompatibleProtocolVersion('1.1'), false, '"1.1" missing patch should fail');
+    assert.equal(isCompatibleProtocolVersion('foo'), false, '"foo" should fail');
+  });
+
+  it('schema rejects malformed protocol_version values', () => {
+    for (const bad of ['1.not-semver', '1', 'foo']) {
+      const raw = {
+        event_id: `evt-badver`,
+        aries_run_id: 'arun_00000000-0000-0000-0000-000000000013',
+        status: 'completed',
+        protocol_version: bad,
+      };
+      const result = HermesRunCallbackPayloadSchema.safeParse(raw);
+      assert.equal(result.success, false, `protocol_version "${bad}" should be rejected by schema`);
+    }
+  });
 });

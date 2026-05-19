@@ -1,5 +1,6 @@
 export { PROTOCOL_VERSION, isCompatibleProtocolVersion } from './schemas';
 export {
+  SemverSchema,
   MarketingStageSchema,
   ApprovalStageSchema,
   ApprovalStepSchema,

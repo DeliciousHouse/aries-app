@@ -7,14 +7,23 @@ import { z } from 'zod';
 /** Bump when any schema changes. Both Aries and Hermes must agree on this. */
 export const PROTOCOL_VERSION = '1.1.0';
 
+/** Strict semver pattern: MAJOR.MINOR.PATCH with optional pre-release suffix. */
+const SEMVER_RE = /^\d+\.\d+\.\d+(-[a-zA-Z0-9._-]+)?$/;
+
+/** Zod schema for a valid semver string. */
+export const SemverSchema = z.string().regex(SEMVER_RE, 'must be a valid semver string (e.g. "1.1.0")');
+
 /**
- * Returns true when `incoming` is compatible with this build's PROTOCOL_VERSION.
- * Minor version bumps (1.0 → 1.1) are additive and accepted in either direction.
- * Major version mismatches (1.x vs 2.x) are rejected fail-loud.
+ * Returns true when `incoming` is a valid semver string whose major version
+ * matches this build's PROTOCOL_VERSION major.
+ * - Minor bumps (1.0 → 1.1) are additive and accepted in either direction.
+ * - Major mismatches (1.x vs 2.x) are rejected fail-loud.
+ * - Malformed strings (e.g. "1.not-semver", "1", "") are always rejected.
  */
 export function isCompatibleProtocolVersion(incoming: string): boolean {
-  const [inMajor] = incoming.split('.').map(Number);
-  const [ourMajor] = PROTOCOL_VERSION.split('.').map(Number);
+  if (!SEMVER_RE.test(incoming)) return false;
+  const inMajor = Number(incoming.split('.')[0]);
+  const ourMajor = Number(PROTOCOL_VERSION.split('.')[0]);
   return inMajor === ourMajor;
 }
 
@@ -158,11 +167,11 @@ export const HermesRunCallbackPayloadSchema = z.object({
   approval: CallbackApprovalSchema.optional(),
   error: CallbackErrorSchema.optional(),
   /**
-   * Protocol version the sender was built against (e.g. "1.0.0").
-   * Required for new senders; tolerated as absent during Hermes migration.
-   * Aries rejects payloads whose major version differs from PROTOCOL_VERSION.
+   * Protocol version the sender was built against (e.g. "1.1.0").
+   * Optional for Hermes-side backward compat during migration.
+   * When present, must be valid semver; major-version mismatch is rejected by Aries.
    */
-  protocol_version: z.string().optional(),
+  protocol_version: SemverSchema.optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -208,8 +217,8 @@ export const HermesRunSubmissionSchema = z.object({
   callback_auth: CallbackAuthSchema,
   callback_context: CallbackContextSchema,
   idempotency_key: z.string().optional(),
-  /** Protocol version Aries was built against. Hermes should echo or compare. */
-  protocol_version: z.string(),
+  /** Protocol version Aries was built against (valid semver). Hermes should echo or compare. */
+  protocol_version: SemverSchema,
 });
 
 // ---------------------------------------------------------------------------

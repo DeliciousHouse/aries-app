@@ -100,27 +100,33 @@ if (!callbacksSource.includes('@aries/hermes-protocol')) {
   process.exit(1);
 }
 
-// Check that the file uses the Zod schema for runtime parsing (not only type imports).
-if (!callbacksSource.includes('HermesRunCallbackPayloadSchema')) {
-  console.error('[validate-protocol-drift] FAIL: backend/execution/hermes-callbacks.ts does not use HermesRunCallbackPayloadSchema for runtime parsing.');
-  console.error('  Fix: replace inline isCallbackStatus/isCallbackStage/parseApproval with HermesRunCallbackPayloadSchema.safeParse().');
+// Check that the file uses the Zod schema for RUNTIME parsing — actual .safeParse()
+// or .parse() call, not just a type import or comment-only reference.
+const SAFE_PARSE_CALL_RE = /HermesRunCallbackPayloadSchema\s*\.\s*(safe)?[Pp]arse\s*\(/;
+if (!SAFE_PARSE_CALL_RE.test(callbacksSource)) {
+  console.error('[validate-protocol-drift] FAIL: backend/execution/hermes-callbacks.ts does not call HermesRunCallbackPayloadSchema.safeParse() or .parse().');
+  console.error('  A type-only import does not enforce the wire contract at runtime.');
+  console.error('  Fix: call HermesRunCallbackPayloadSchema.safeParse() in parseHermesRunCallbackPayload.');
   process.exit(1);
 }
 
 // Detect re-introduced inline validators that bypass the Zod schema.
-const INLINE_VALIDATOR_PATTERNS = [
-  { pattern: /^\s*function\s+isCallbackStatus\s*\(/m, name: 'isCallbackStatus' },
-  { pattern: /^\s*function\s+isCallbackStage\s*\(/m, name: 'isCallbackStage' },
-  { pattern: /^\s*function\s+isApprovalStage\s*\(/m, name: 'isApprovalStage' },
-  { pattern: /^\s*function\s+parseApproval\s*\(/m, name: 'parseApproval' },
-  { pattern: /^\s*function\s+parseCallbackError\s*\(/m, name: 'parseCallbackError' },
-];
+// Covers any function named with is*/parse*/check*/validate* prefix and a
+// Callback/Status/Stage/Approval/Payload/Error suffix — broader than listing
+// the exact 5 original names, catches future variations too.
+// Allowlist: parseHermesRunCallbackPayload is the Zod-backed public API — it
+// is explicitly permitted; the gate checks it calls .safeParse() above.
+const INLINE_VALIDATOR_RE = /^\s*(?:export\s+)?(?:async\s+)?function\s+((?:is|parse|check|validate)[A-Z][a-zA-Z]*(?:Callback|Status|Stage|Approval|Payload|Error))\s*\(/mg;
+const INLINE_VALIDATOR_ALLOWLIST = new Set(['parseHermesRunCallbackPayload']);
 
-const callbackViolations = INLINE_VALIDATOR_PATTERNS
-  .filter(({ pattern }) => pattern.test(callbacksSource))
-  .map(({ name }) =>
-    `backend/execution/hermes-callbacks.ts: inline '${name}' function re-implements a validator that belongs in @aries/hermes-protocol`,
+const callbackViolations = [];
+let inlineMatch;
+while ((inlineMatch = INLINE_VALIDATOR_RE.exec(callbacksSource)) !== null) {
+  if (INLINE_VALIDATOR_ALLOWLIST.has(inlineMatch[1])) continue;
+  callbackViolations.push(
+    `backend/execution/hermes-callbacks.ts: inline validator function '${inlineMatch[1]}' re-implements wire parsing that belongs in @aries/hermes-protocol`,
   );
+}
 
 if (callbackViolations.length > 0) {
   console.error('[validate-protocol-drift] FAIL: inline wire validators found in hermes-callbacks.ts:');
