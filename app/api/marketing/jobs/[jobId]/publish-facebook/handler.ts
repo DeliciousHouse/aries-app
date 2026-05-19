@@ -90,7 +90,10 @@ export async function handleFacebookPublish(req: Request, jobId: string) {
     // Non-fatal: proceed without media (caption-only post)
   }
 
-  // Validate and consume the approval record before any side-effects
+  // Validate and consume the approval record before any side-effects.
+  // Per-platform consumption: each platform independently claims the approval via consumed_platforms[].
+  // The record is only flipped to 'consumed' once all configured platforms have published.
+  const PLATFORM_KEY = 'facebook';
   let approvalId: string | undefined;
   const latestRecord = findLatestMarketingApprovalRecord({
     marketingJobId: jobId,
@@ -128,6 +131,14 @@ export async function handleFacebookPublish(req: Request, jobId: string) {
         );
         return;
       }
+      if (record.consumed_platforms.includes(PLATFORM_KEY)) {
+        consumeError = new Response(
+          JSON.stringify({ status: 'error', reason: 'publish_approval_already_consumed', message: `Approval ${approvalId} was already consumed for platform '${PLATFORM_KEY}'.` }),
+          { status: 403, headers: { 'content-type': 'application/json' } },
+        );
+        return;
+      }
+      // Legacy guard: fully consumed approval (all platforms done) must not be re-used.
       if (record.status === 'consumed') {
         consumeError = new Response(
           JSON.stringify({ status: 'error', reason: 'publish_approval_already_consumed', message: `Approval ${approvalId} was already consumed.` }),
@@ -142,8 +153,16 @@ export async function handleFacebookPublish(req: Request, jobId: string) {
         );
         return;
       }
-      record.status = 'consumed';
-      record.resolved_at = new Date().toISOString();
+      // Register this platform as consumed.
+      record.consumed_platforms = [...record.consumed_platforms, PLATFORM_KEY];
+      // If all configured platforms have now published, mark the approval fully consumed.
+      const configuredPlatforms: string[] = record.publish_config?.live_publish_platforms ?? [];
+      const allConsumed = configuredPlatforms.length > 0
+        && configuredPlatforms.every((p) => record.consumed_platforms.includes(p));
+      if (allConsumed) {
+        record.status = 'consumed';
+        record.resolved_at = new Date().toISOString();
+      }
       saveMarketingApprovalRecord(record);
     });
   } catch (error) {
@@ -192,9 +211,11 @@ export async function handleFacebookPublish(req: Request, jobId: string) {
     const verification = await runPublishVerification({
       tenantId,
       provider: published.provider,
-      content: caption,
+      caption,
       primaryOutput: { platform_post_id: published.platformPostId },
       pool,
+      jobId,
+      idempotencyKey: `${jobId}:publish:facebook:1`,
     });
 
     const permalink = facebookPermalink(published.platformPostId);

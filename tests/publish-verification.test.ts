@@ -118,7 +118,7 @@ test('verifyMetaPostExists: id mismatch is unverified', async () => {
   assert.equal(result.reason, 'graph_id_mismatch');
 });
 
-test('persistPublishedPost: inserts published row', async () => {
+test('persistPublishedPost: inserts published row using caption column', async () => {
   const { pool, calls } = createMockPool(({ sql }) => {
     if (sql.includes('INSERT INTO posts')) {
       return { rows: [{ id: '42' }] };
@@ -128,7 +128,7 @@ test('persistPublishedPost: inserts published row', async () => {
   const result = await persistPublishedPost(
     {
       tenantId: 7,
-      content: 'hello world',
+      caption: 'hello world',
       platformPostId: '123_456',
       publishedAt: new Date('2026-05-06T10:00:00Z'),
       publishedStatus: 'published',
@@ -139,7 +139,37 @@ test('persistPublishedPost: inserts published row', async () => {
   assert.ok(calls.length >= 1, 'expected at least one query');
   const insert = calls.find((c) => c.sql.includes('INSERT INTO posts'));
   assert.ok(insert, 'expected INSERT INTO posts');
-  assert.deepEqual(insert?.params.slice(0, 3), [7, 'hello world', '123_456']);
+  // INSERT order: tenant_id, job_id, caption, platform_post_id, ...
+  assert.ok(insert?.sql.includes('caption'), 'SQL must reference caption column, not content');
+  assert.ok(!insert?.sql.includes('content'), 'SQL must NOT reference content column');
+  assert.ok(insert?.sql.includes('job_id'), 'SQL must include job_id column');
+  assert.equal(insert?.params[0], 7, 'tenant_id param');
+  assert.equal(insert?.params[2], 'hello world', 'caption param');
+  assert.equal(insert?.params[3], '123_456', 'platform_post_id param');
+});
+
+test('persistPublishedPost: includes job_id in insert when provided', async () => {
+  const { pool, calls } = createMockPool(({ sql }) => {
+    if (sql.includes('INSERT INTO posts')) {
+      return { rows: [{ id: '55' }] };
+    }
+    return { rows: [] };
+  });
+  await persistPublishedPost(
+    {
+      tenantId: 7,
+      caption: 'campaign caption',
+      platformPostId: '123_456',
+      publishedAt: new Date('2026-05-06T10:00:00Z'),
+      publishedStatus: 'published',
+      jobId: 'mkt_abc123',
+    },
+    pool,
+  );
+  const insert = calls.find((c) => c.sql.includes('INSERT INTO posts'));
+  assert.ok(insert, 'expected INSERT INTO posts');
+  // job_id is params[1]
+  assert.equal(insert?.params[1], 'mkt_abc123', 'job_id param should be the marketing job id');
 });
 
 test('persistPublishedPost: writes unverified status when requested', async () => {
@@ -152,7 +182,7 @@ test('persistPublishedPost: writes unverified status when requested', async () =
   await persistPublishedPost(
     {
       tenantId: 9,
-      content: 'unverified post',
+      caption: 'unverified post',
       platformPostId: '999_888',
       publishedAt: new Date('2026-05-06T11:00:00Z'),
       publishedStatus: 'unverified',
@@ -161,7 +191,8 @@ test('persistPublishedPost: writes unverified status when requested', async () =
   );
   const insert = calls.find((c) => c.sql.includes('INSERT INTO posts'));
   assert.ok(insert);
-  assert.equal(insert?.params[4], 'unverified', 'published_status param should be unverified');
+  // published_status is now params[5] (tenant_id, job_id, caption, platform_post_id, published_at, published_status)
+  assert.equal(insert?.params[5], 'unverified', 'published_status param should be unverified');
 });
 
 test('runPublishVerification: happy path persists published + verifies', async () => {
@@ -184,7 +215,7 @@ test('runPublishVerification: happy path persists published + verifies', async (
   const result = await runPublishVerification({
     tenantId: '5',
     provider: 'meta',
-    content: 'hello world',
+    caption: 'hello world',
     primaryOutput: { platform_post_id: '123_456' },
     pool,
     fetchImpl: fetchImpl as typeof fetch,
@@ -213,7 +244,7 @@ test('runPublishVerification: 404 path persists unverified', async () => {
   const result = await runPublishVerification({
     tenantId: '5',
     provider: 'meta',
-    content: 'hello',
+    caption: 'hello',
     primaryOutput: { platform_post_id: 'doesnt_exist' },
     pool,
     fetchImpl: fetchImpl as typeof fetch,
@@ -226,7 +257,8 @@ test('runPublishVerification: 404 path persists unverified', async () => {
   assert.ok(result.publishedAt && /^\d{4}-\d{2}-\d{2}T/.test(result.publishedAt));
   const insert = calls.find((c) => c.sql.includes('INSERT INTO posts'));
   assert.ok(insert);
-  assert.equal(insert?.params[4], 'unverified', 'persisted row carries unverified status');
+  // params: [tenant_id, job_id, caption, platform_post_id, published_at, published_status, ...]
+  assert.equal(insert?.params[5], 'unverified', 'persisted row carries unverified status');
 });
 
 test('runPublishVerification: missing page token marks unverified', async () => {
@@ -240,7 +272,7 @@ test('runPublishVerification: missing page token marks unverified', async () => 
   const result = await runPublishVerification({
     tenantId: '5',
     provider: 'meta',
-    content: 'no token',
+    caption: 'no token',
     primaryOutput: { platform_post_id: '999' },
     pool,
     fetchImpl: (async () => {
@@ -254,7 +286,8 @@ test('runPublishVerification: missing page token marks unverified', async () => 
   assert.ok(result.publishedAt && /^\d{4}-\d{2}-\d{2}T/.test(result.publishedAt));
   const insert = calls.find((c) => c.sql.includes('INSERT INTO posts'));
   assert.ok(insert);
-  assert.equal(insert?.params[4], 'unverified');
+  // params: [tenant_id, job_id, caption, platform_post_id, published_at, published_status, ...]
+  assert.equal(insert?.params[5], 'unverified');
 });
 
 test('runPublishVerification: missing platform_post_id returns skipped', async () => {
@@ -263,7 +296,7 @@ test('runPublishVerification: missing platform_post_id returns skipped', async (
   const result = await runPublishVerification({
     tenantId: '5',
     provider: 'meta',
-    content: 'no id',
+    caption: 'no id',
     primaryOutput: { irrelevant: true },
     pool,
     fetchImpl: (async () => {
@@ -284,7 +317,7 @@ test('runPublishVerification: non-meta providers are skipped (verification is me
   const result = await runPublishVerification({
     tenantId: '5',
     provider: 'linkedin',
-    content: 'linkedin post',
+    caption: 'linkedin post',
     primaryOutput: { platform_post_id: 'urn:li:activity:123' },
     pool,
     fetchImpl: (async () => {

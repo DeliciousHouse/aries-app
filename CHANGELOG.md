@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.3.51 — fix(publishing): posts.caption column name + per-platform approval consumption
+
+Two downstream bugs that blocked the final FB+IG publish step for multi-platform campaigns:
+
+**Bug 1 — Schema mismatch in publish-verification (`backend/integrations/publish-verification.ts`)**
+The INSERT statement referenced a `content` column that does not exist in the `posts` table; the correct column is `caption`. This caused the SQL write to fail after a successful Meta API publish, and the catch block in the publish handlers masked the error as `publish_failed`. Fixed by renaming the column reference and updating the `PersistPublishedPostArgs` type accordingly. Also added `job_id` to the INSERT (previously NULL) so posts can be correlated back to their marketing job.
+
+**Bug 2 — Approval consumed by first platform, blocking second (`publish-facebook/handler.ts`, `publish-instagram/handler.ts`)**
+A single `publish`-stage approval is synthesized for multi-platform campaigns. Both platform handlers consumed the approval wholesale (`record.status = 'consumed'`), so whichever ran second returned `publish_requires_approval`. Fixed using Option A (per-platform tracking): added `consumed_platforms: string[]` to `MarketingApprovalRecord`. Each platform handler now checks and appends its own platform key. The record status is flipped to `consumed` only when all platforms from `publish_config.live_publish_platforms` have been registered. Existing records without this field are backfilled to `[]` in `normalizeMarketingApprovalRecord`.
+
+**Additional**: idempotency keys in the posts INSERT now include the platform (`mkt_<job>:publish:<platform>:1`) so FB and IG rows never collide on the UNIQUE constraint.
+
+Tests: `tests/publish-verification.test.ts` updated for renamed fields; new `tests/marketing/publish-approval-consumption.test.ts` covers per-platform accumulation, final consumption, duplicate-platform rejection, and legacy-record backfill.
+
 ## v0.1.3.50 — fix(marketing): ingest production creative_assets into DB + workspace view
 
 Phase A (v0.1.3.49 / PR #385) shipped image_generate so the production stage now calls Hermes and writes PNGs to disk. However, no code path read `doc.stages.production.primary_output.artifacts.creative_assets[]` and wrote to the `creative_assets` DB table, leaving the workspace view with empty assets even when 6 PNGs were present on disk.
