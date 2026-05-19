@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.34] - 2026-05-19
+
+### Added
+- feat(marketing): badge campaigns generated with a previous brand-kit version on the campaign list.
+
 ## [0.1.3.33] - 2026-05-19
 
 ### Added

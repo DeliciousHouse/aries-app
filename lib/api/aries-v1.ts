@@ -80,6 +80,10 @@ export type RuntimeCampaignListItem = {
    * gateway will abort the in-flight run. Until the pipeline reaches a
    * terminal state, the UI shows "Cancelling..." instead of just "Deleted". */
   softCancelRequestedAt?: string | null;
+  /** ISO timestamp of the brand-kit snapshot baked into this campaign's job.
+   * When this predates the tenant's current brand-kit extracted_at, the UI
+   * shows an amber "Generated with previous brand update" badge. */
+  brandKitExtractedAt?: string | null;
 };
 
 export type RuntimeReviewDecision = {
@@ -238,6 +242,10 @@ export type CampaignListResponse = {
    * Recycle Bin / "Deleted campaigns" section of the campaign list screen
    * so users can see what they deleted and restore if needed. */
   deletedCampaigns: RuntimeCampaignListItem[];
+  /** extracted_at of the tenant's current brand-kit.json. Used by the campaign
+   * list to compare per-campaign brandKitExtractedAt and render a staleness
+   * badge when a campaign predates the latest brand-kit update. */
+  currentBrandKitExtractedAt?: string | null;
 };
 export type ReviewQueueResponse = { reviews: RuntimeReviewItem[]; archivedReviews?: RuntimeReviewItem[] };
 export type ReviewItemResponse = { review: RuntimeReviewItem };
