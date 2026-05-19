@@ -526,6 +526,13 @@ async function initDb() {
         WHERE idempotency_key IS NOT NULL;
       CREATE INDEX IF NOT EXISTS idx_posts_tenant_platform ON posts (tenant_id, platform);
 
+      -- Scheduled posts worker: dispatch status tracking columns.
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dispatch_status TEXT NOT NULL DEFAULT 'pending' CHECK (dispatch_status IN ('pending','dispatched','failed'));
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dispatched_at TIMESTAMPTZ;
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS error_at TIMESTAMPTZ;
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS error_message TEXT;
+      CREATE INDEX IF NOT EXISTS idx_scheduled_posts_pending ON scheduled_posts (scheduled_for) WHERE dispatch_status = 'pending';
+
       -- Phase 4 PR1: Slack Events API inbound dedupe. Every delivery has a
       -- stable event_id; the webhook inserts ON CONFLICT DO NOTHING to drop
       -- retries before any business logic runs. Optional 30-day retention

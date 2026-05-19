@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.39] - 2026-05-19
+
+### Added
+- feat(publishing): cron-driven scheduled-posts worker that drains the `scheduled_posts` table every minute, dispatching due rows to the Meta publish pipeline via an internal auth-gated route. Adds `dispatch_status`, `dispatched_at`, `error_at`, `error_message` columns to `scheduled_posts` with a partial index on pending rows. Retries once on transient 5xx/network errors; permanently fails on 4xx (token revoked, page deleted). Idempotent — uses `SELECT ... FOR UPDATE SKIP LOCKED` to prevent double-dispatch across parallel worker instances.
+
 ## [0.1.3.38] - 2026-05-19
 
 ### Added
