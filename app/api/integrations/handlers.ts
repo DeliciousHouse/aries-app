@@ -169,6 +169,16 @@ export async function buildIntegrationsPageDataAsync(tenantId: string) {
         };
       }
 
+      const connectedAccount =
+        status.connection_status === 'connected' &&
+        status.external_account_id &&
+        status.external_account_name
+          ? {
+              account_id: status.external_account_id,
+              account_label: status.external_account_name,
+            }
+          : undefined;
+
       return {
         platform,
         display_name: customerSafePlatformLabel(platform),
@@ -189,6 +199,7 @@ export async function buildIntegrationsPageDataAsync(tenantId: string) {
         last_synced_at: null,
         expires_at: status.token_expires_at || null,
         permissions: [],
+        connected_account: connectedAccount,
         error:
           status.last_error?.message && status.connection_status !== 'connected'
             ? {

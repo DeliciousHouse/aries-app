@@ -11,7 +11,7 @@ export default function AriesChannelIntegrationsScreen() {
   const integrationCards = integrations.data?.status === 'ok' ? integrations.data.cards : [];
 
   async function handleIntegrationAction(
-    action: 'connect' | 'reconnect' | 'disconnect',
+    action: 'connect' | 'reconnect' | 'disconnect' | 'switch_page',
     platform: string
   ) {
     const card = integrationCards.find((item) => item.platform === platform);
@@ -19,9 +19,9 @@ export default function AriesChannelIntegrationsScreen() {
       return;
     }
 
-    if (action === 'connect' || action === 'reconnect') {
+    if (action === 'connect' || action === 'reconnect' || action === 'switch_page') {
       const oauthPage = new URL(`/oauth/connect/${platform}`, window.location.origin);
-      oauthPage.searchParams.set('mode', action === 'reconnect' ? 'reconnect' : 'connect');
+      oauthPage.searchParams.set('mode', action === 'connect' ? 'connect' : 'reconnect');
       if (card.connection_id) {
         oauthPage.searchParams.set('connection_id', card.connection_id);
       }
@@ -85,6 +85,16 @@ export default function AriesChannelIntegrationsScreen() {
               {integrationCards.map((card) => {
                 const primaryAction = renderPrimaryAction(card);
 
+                const connectedLabel = card.connection_state === 'connected' && card.connected_account?.account_label
+                  ? `Connected · ${card.connected_account.account_label}`
+                  : card.connection_state === 'connected'
+                    ? 'Connected'
+                    : card.connection_state === 'reauth_required'
+                      ? 'Needs attention'
+                      : card.connection_state === 'disabled'
+                        ? 'Setup needed'
+                        : 'Not connected';
+
                 return (
                   <div key={card.platform} className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4">
                     <div className="flex items-start justify-between gap-3">
@@ -102,14 +112,17 @@ export default function AriesChannelIntegrationsScreen() {
                                 : 'draft'
                           }
                         >
-                          {card.connection_state === 'connected'
-                            ? 'Connected'
-                            : card.connection_state === 'reauth_required'
-                              ? 'Needs attention'
-                              : card.connection_state === 'disabled'
-                                ? 'Setup needed'
-                                : 'Not connected'}
+                          {connectedLabel}
                         </StatusChip>
+                        {card.platform === 'facebook' && card.connection_state === 'connected' ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleIntegrationAction('switch_page', card.platform)}
+                            className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10 disabled:opacity-60"
+                          >
+                            Switch page
+                          </button>
+                        ) : null}
                         {primaryAction ? (
                           <button
                             type="button"
