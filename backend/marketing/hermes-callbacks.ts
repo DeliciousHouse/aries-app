@@ -33,6 +33,8 @@ import { getMarketingExecutionPort, type MarketingExecutionPort } from './execut
 import { scheduleHermesPublishPerformanceHonchoWrite } from '@/backend/memory/write-events';
 import { approveMarketingJob } from './orchestrator';
 import type { ApproveMarketingJobRequest, ApproveMarketingJobResponse } from './orchestrator';
+import { ingestProductionCreativeAssetsToDb } from './ingest-production-assets';
+import { pool } from '@/lib/db';
 
 const STAGE_ORDER: MarketingStage[] = ['research', 'strategy', 'production', 'publish'];
 
@@ -1447,6 +1449,24 @@ export async function applyHermesMarketingCallback(
   }
 
   if (payload.status === 'completed') {
+    if (payload.stage === 'production' || targetStage === 'production') {
+      try {
+        const tenantNum = Number(doc.tenant_id);
+        if (Number.isFinite(tenantNum) && tenantNum > 0) {
+          await ingestProductionCreativeAssetsToDb({
+            jobId: doc.job_id,
+            tenantId: tenantNum,
+            doc,
+            pool,
+          });
+        }
+      } catch (err) {
+        console.warn('[hermes-callbacks] ingestProductionCreativeAssetsToDb failed — continuing', {
+          jobId: doc.job_id,
+          error: (err as Error)?.message ?? String(err),
+        });
+      }
+    }
     ingestSocialContentStageMedia(run, payload);
     const multiStage = extractMultiStageOutputs(payload);
     if (multiStage) {
