@@ -40,6 +40,8 @@ type PlatformConnectionStatusShape = {
   capabilities?: string[];
   metadata?: Record<string, string | number | boolean | null>;
   updated_at: string;
+  external_account_id?: string;
+  external_account_name?: string;
 };
 
 type StatusError = {
@@ -194,6 +196,8 @@ export async function oauthStatusAsync(provider: string, tenantId?: string): Pro
         token_expires_at: row.token_expires_at ?? undefined,
         refresh_token_expires_at: row.refresh_expires_at ?? undefined,
         updated_at: row.updated_at,
+        external_account_id: row.external_account_id ?? undefined,
+        external_account_name: row.external_account_name ?? undefined,
       }
     : undefined;
 
@@ -213,6 +217,8 @@ export async function oauthStatusAsync(provider: string, tenantId?: string): Pro
     capabilities: [],
     metadata: {},
     updated_at: connection?.updated_at || now,
+    external_account_id: connection?.external_account_id,
+    external_account_name: connection?.external_account_name,
   };
 }
 

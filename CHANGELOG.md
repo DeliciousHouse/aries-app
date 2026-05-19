@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.33] - 2026-05-19
+
+### Added
+- feat(integrations): surface connected Facebook Page name + Switch page button on integrations card.
+
 ## [0.1.3.32] - 2026-05-18
 
 ### Fixed
