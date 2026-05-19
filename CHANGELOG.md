@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3.38] - 2026-05-19
+
+### Added
+- feat(publishing): immediate Facebook Page publish UI — "Publish to Facebook" button on launch-ready publish items with `platform=facebook`, `FacebookPublishDrawer` component, and `POST /api/marketing/jobs/[jobId]/publish-facebook` server route that resolves caption from social-copy.json `facebook_feed` channel, signs the approved creative image URL via the public media proxy, and publishes directly to Meta Graph API with `provider=facebook`.
+
 ## [0.1.3.37] - 2026-05-19
 
 ### Fixed
