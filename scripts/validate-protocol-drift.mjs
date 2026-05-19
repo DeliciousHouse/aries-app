@@ -111,12 +111,12 @@ if (!SAFE_PARSE_CALL_RE.test(callbacksSource)) {
 }
 
 // Detect re-introduced inline validators that bypass the Zod schema.
-// Covers any function named with is*/parse*/check*/validate* prefix and a
-// Callback/Status/Stage/Approval/Payload/Error suffix — broader than listing
-// the exact 5 original names, catches future variations too.
+// Regex: prefix (is|parse|check|validate) + any middle chars + mandatory suffix.
+// The middle [a-zA-Z]* is non-anchoring so the suffix must appear at the END of
+// the captured name — this catches parseApproval, isApprovalStage, checkError, etc.
 // Allowlist: parseHermesRunCallbackPayload is the Zod-backed public API — it
 // is explicitly permitted; the gate checks it calls .safeParse() above.
-const INLINE_VALIDATOR_RE = /^\s*(?:export\s+)?(?:async\s+)?function\s+((?:is|parse|check|validate)[A-Z][a-zA-Z]*(?:Callback|Status|Stage|Approval|Payload|Error))\s*\(/mg;
+const INLINE_VALIDATOR_RE = /^\s*(?:export\s+)?(?:async\s+)?function\s+((is|parse|check|validate)[a-zA-Z]*(Callback|Status|Stage|Approval|Payload|Error))\s*\(/mg;
 const INLINE_VALIDATOR_ALLOWLIST = new Set(['parseHermesRunCallbackPayload']);
 
 const callbackViolations = [];

@@ -217,4 +217,34 @@ describe('callback-envelope-shape', () => {
       assert.equal(result.success, false, `protocol_version "${bad}" should be rejected by schema`);
     }
   });
+
+  it('rejects empty event_id (empty string)', () => {
+    const raw = {
+      event_id: '',
+      aries_run_id: 'arun_00000000-0000-0000-0000-000000000014',
+      status: 'completed',
+    };
+    const result = HermesRunCallbackPayloadSchema.safeParse(raw);
+    assert.equal(result.success, false, 'empty event_id must be rejected to prevent deduplication poisoning');
+  });
+
+  it('rejects whitespace-only event_id', () => {
+    const raw = {
+      event_id: '   ',
+      aries_run_id: 'arun_00000000-0000-0000-0000-000000000015',
+      status: 'completed',
+    };
+    const result = HermesRunCallbackPayloadSchema.safeParse(raw);
+    assert.equal(result.success, false, 'whitespace-only event_id must be rejected');
+  });
+
+  it('accepts a valid non-empty event_id', () => {
+    const raw = {
+      event_id: 'evt-valid-id-123',
+      aries_run_id: 'arun_00000000-0000-0000-0000-000000000016',
+      status: 'completed',
+    };
+    const result = HermesRunCallbackPayloadSchema.safeParse(raw);
+    assert.equal(result.success, true);
+  });
 });

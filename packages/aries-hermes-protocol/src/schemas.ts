@@ -148,8 +148,8 @@ export const CallbackApprovalSchema = z.object({
 // ---------------------------------------------------------------------------
 
 export const HermesRunCallbackPayloadSchema = z.object({
-  /** Idempotency key — Aries deduplicates on this field. */
-  event_id: z.string(),
+  /** Idempotency key — Aries deduplicates on this field. Must be non-empty and non-whitespace. */
+  event_id: z.string().min(1).regex(/\S/, 'event_id must contain at least one non-whitespace character'),
   /** Aries-side execution run identifier (arun_<uuid>). */
   aries_run_id: z.string(),
   /** Hermes-side run identifier. Optional for legacy flows. */
