@@ -348,6 +348,39 @@ function removeLockIfStale(lockPath: string, staleMs: number): void {
   } catch {}
 }
 
+/**
+ * Roll back a single platform's claim on a publish approval record.
+ *
+ * The publish handlers claim a platform in `consumed_platforms[]` before the
+ * Meta publish call so two concurrent requests can't double-post. When the
+ * publish call itself fails, that claim would otherwise be stuck forever and
+ * permanently block a retry of that platform. This helper reverses the claim:
+ * it removes the platform from `consumed_platforms` and, if this platform's
+ * claim had flipped the whole record to 'consumed' (i.e. it was the last
+ * platform), restores the record to 'approved' so the retry can proceed.
+ *
+ * Idempotent: a no-op when the platform is not currently claimed.
+ */
+export async function releaseMarketingApprovalPlatformClaim(
+  approvalId: string,
+  platformKey: string,
+): Promise<void> {
+  await withMarketingApprovalLock(approvalId, async () => {
+    const record = loadMarketingApprovalRecord(approvalId);
+    if (!record || !record.consumed_platforms.includes(platformKey)) {
+      return;
+    }
+    record.consumed_platforms = record.consumed_platforms.filter((p) => p !== platformKey);
+    // If this platform was the last to publish, its claim had flipped the
+    // record to 'consumed'. Restore it so the remaining publish can retry.
+    if (record.status === 'consumed') {
+      record.status = 'approved';
+      record.resolved_at = null;
+    }
+    saveMarketingApprovalRecord(record);
+  });
+}
+
 export async function withMarketingApprovalLock<T>(
   approvalId: string,
   fn: () => Promise<T>,
