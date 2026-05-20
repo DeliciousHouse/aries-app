@@ -13,6 +13,7 @@ import {
   type TenantContextLoader,
 } from '@/lib/tenant-context-http';
 import { scheduleScheduledPostHonchoWrite } from '@/backend/memory/write-events';
+import { findLatestMarketingApprovalRecord } from '@/backend/marketing/approval-store';
 
 const ONBOARDING_REQUIRED = {
   status: 409,
@@ -24,6 +25,26 @@ const POST_NOT_FOUND = {
   error: 'Social content post not found.',
   reason: 'social_content_post_not_found',
 } as const;
+
+const PUBLISH_REQUIRES_APPROVAL = {
+  error: 'No approved publish approval record found for this job.',
+  reason: 'publish_requires_approval',
+} as const;
+
+// Resolves whether the job has an approved `publish`-stage approval record.
+// Injectable so route tests can exercise the gate without a file-backed store.
+export type PublishApprovalResolver = (input: {
+  jobId: string;
+  tenantId: string;
+}) => boolean | Promise<boolean>;
+
+const defaultPublishApprovalResolver: PublishApprovalResolver = ({ jobId, tenantId }) =>
+  findLatestMarketingApprovalRecord({
+    marketingJobId: jobId,
+    tenantId,
+    marketingStage: 'publish',
+    statuses: ['approved'],
+  }) !== null;
 
 type PostLookupQueryable = {
   query: (
@@ -40,6 +61,7 @@ export type ScheduleRouteQueryable = ScheduledPostQueryable & PostLookupQueryabl
 interface ScheduleRouteOptions {
   tenantContextLoader?: TenantContextLoader;
   queryable?: ScheduleRouteQueryable;
+  publishApprovalResolver?: PublishApprovalResolver;
 }
 
 function postIdToInt(value: string): number | null {
@@ -138,6 +160,23 @@ export async function handlePatchScheduleSocialContentPost(
         cause: 'post_not_found_or_tenant_mismatch',
       });
       return NextResponse.json(POST_NOT_FOUND, { status: 404 });
+    }
+
+    // Publish-approval gate: a post may only be queued for auto-publish once a
+    // human has approved the publish stage. Mirrors the marketing publish path
+    // (publish-facebook/handler.ts) so the contract stays consistent.
+    const resolveApproval = options.publishApprovalResolver ?? defaultPublishApprovalResolver;
+    const hasApproval = await resolveApproval({
+      jobId,
+      tenantId: String(tenantResult.tenantContext.tenantId),
+    });
+    if (!hasApproval) {
+      console.warn('[social-content-schedule]', {
+        jobId,
+        postId,
+        cause: 'publish_requires_approval',
+      });
+      return NextResponse.json(PUBLISH_REQUIRES_APPROVAL, { status: 409 });
     }
 
     const persisted = await upsertScheduledPost(client, {

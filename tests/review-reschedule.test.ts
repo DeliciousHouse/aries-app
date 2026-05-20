@@ -65,6 +65,11 @@ function tenantLoader(tenantId: number) {
   });
 }
 
+// These tests exercise scheduling mechanics, not the publish-approval gate
+// (covered by social-content-schedule-approval.test.ts), so they always
+// resolve the gate as approved.
+const approvedResolver = async () => true;
+
 test('PATCH schedule persists scheduled_at ISO and platforms with FB toggled off (instagram only)', async () => {
   const { queryable, calls } = buildQueryable({ ownedTenantId: 7, ownedPostId: 42 });
   const scheduledIso = '2026-05-13T13:00:00.000Z';
@@ -76,7 +81,7 @@ test('PATCH schedule persists scheduled_at ISO and platforms with FB toggled off
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ scheduled_at: scheduledIso, platforms: ['instagram'] }),
     }),
-    { tenantContextLoader: tenantLoader(7), queryable },
+    { tenantContextLoader: tenantLoader(7), queryable, publishApprovalResolver: approvedResolver },
   );
 
   assert.equal(response.status, 200);
@@ -110,7 +115,7 @@ test('PATCH schedule preserves both platforms when FB and IG selected', async ()
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ scheduled_at: '2026-05-14T09:00:00.000Z', platforms: ['instagram', 'facebook'] }),
     }),
-    { tenantContextLoader: tenantLoader(7), queryable },
+    { tenantContextLoader: tenantLoader(7), queryable, publishApprovalResolver: approvedResolver },
   );
   assert.equal(response.status, 200);
   const body = (await response.json()) as Record<string, unknown>;
@@ -129,7 +134,7 @@ test('PATCH schedule rejects empty platforms array with 400', async () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ scheduled_at: '2026-05-14T09:00:00.000Z', platforms: [] }),
     }),
-    { tenantContextLoader: tenantLoader(7), queryable },
+    { tenantContextLoader: tenantLoader(7), queryable, publishApprovalResolver: approvedResolver },
   );
   assert.equal(response.status, 400);
   const body = (await response.json()) as { reason: string };
@@ -147,7 +152,7 @@ test('PATCH schedule rejects unknown platform values with 400', async () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ scheduled_at: '2026-05-14T09:00:00.000Z', platforms: ['linkedin'] }),
     }),
-    { tenantContextLoader: tenantLoader(7), queryable },
+    { tenantContextLoader: tenantLoader(7), queryable, publishApprovalResolver: approvedResolver },
   );
   assert.equal(response.status, 400);
   const body = (await response.json()) as { reason: string };
@@ -165,7 +170,7 @@ test('PATCH schedule rejects invalid scheduled_at with 400', async () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ scheduled_at: 'not-a-date', platforms: ['instagram'] }),
     }),
-    { tenantContextLoader: tenantLoader(7), queryable },
+    { tenantContextLoader: tenantLoader(7), queryable, publishApprovalResolver: approvedResolver },
   );
   assert.equal(response.status, 400);
   const body = (await response.json()) as { reason: string };
@@ -183,7 +188,7 @@ test('PATCH schedule rejects malformed JSON body with 400', async () => {
       headers: { 'content-type': 'application/json' },
       body: '{not json',
     }),
-    { tenantContextLoader: tenantLoader(7), queryable },
+    { tenantContextLoader: tenantLoader(7), queryable, publishApprovalResolver: approvedResolver },
   );
   assert.equal(response.status, 400);
   const body = (await response.json()) as { reason: string };
@@ -201,7 +206,7 @@ test('PATCH schedule returns 404 when post does not belong to tenant', async () 
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ scheduled_at: '2026-05-14T09:00:00.000Z', platforms: ['instagram'] }),
     }),
-    { tenantContextLoader: tenantLoader(11), queryable },
+    { tenantContextLoader: tenantLoader(11), queryable, publishApprovalResolver: approvedResolver },
   );
   assert.equal(response.status, 404);
   const body = (await response.json()) as { reason: string };
@@ -220,7 +225,7 @@ test('PATCH schedule returns 404 when postId is not numeric', async () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ scheduled_at: '2026-05-14T09:00:00.000Z', platforms: ['instagram'] }),
     }),
-    { tenantContextLoader: tenantLoader(7), queryable },
+    { tenantContextLoader: tenantLoader(7), queryable, publishApprovalResolver: approvedResolver },
   );
   assert.equal(response.status, 404);
   const body = (await response.json()) as { reason: string };
@@ -262,7 +267,7 @@ test('PATCH schedule deduplicates and lowercases platform names', async () => {
         platforms: ['Instagram', 'instagram', 'FACEBOOK'],
       }),
     }),
-    { tenantContextLoader: tenantLoader(7), queryable },
+    { tenantContextLoader: tenantLoader(7), queryable, publishApprovalResolver: approvedResolver },
   );
   assert.equal(response.status, 200);
   const insertCall = calls.find((call) => call.sql.startsWith('INSERT INTO scheduled_posts'));
