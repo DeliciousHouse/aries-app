@@ -318,6 +318,44 @@ async function createInstagramContainer(args: {
   return requireStringField(parent, 'id', 'instagram_carousel_missing_id');
 }
 
+const CONTAINER_POLL_BACKOFF_MS = [2000, 3000, 4000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000];
+const CONTAINER_POLL_MAX_ATTEMPTS = 15;
+
+export async function waitForInstagramContainerReady(args: {
+  target: MetaPublishTarget;
+  creationId: string;
+  fetchImpl: typeof fetch;
+  sleepImpl?: (ms: number) => Promise<void>;
+}): Promise<void> {
+  const sleepFn = args.sleepImpl ?? sleep;
+  for (let attempt = 0; attempt < CONTAINER_POLL_MAX_ATTEMPTS; attempt += 1) {
+    const result = await requestGraphJson({
+      pathname: args.creationId,
+      params: { fields: 'status_code' },
+      accessToken: args.target.accessToken,
+      fetchImpl: args.fetchImpl,
+      method: 'GET',
+    });
+    const statusCode = typeof result.status_code === 'string' ? result.status_code : '';
+    if (statusCode === 'FINISHED' || statusCode === 'PUBLISHED') return;
+    if (statusCode === 'ERROR' || statusCode === 'EXPIRED') {
+      throw new MetaPublishError(
+        'instagram_container_failed',
+        `Instagram media container reached terminal failure state: ${statusCode}`,
+        { status: 422, retryable: false },
+      );
+    }
+    // IN_PROGRESS or unexpected — wait and poll again
+    const backoffMs = CONTAINER_POLL_BACKOFF_MS[attempt] ?? 5000;
+    await sleepFn(backoffMs);
+  }
+  throw new MetaPublishError(
+    'instagram_container_timeout',
+    'Instagram media container did not reach FINISHED within 60s',
+    { status: 504, retryable: true },
+  );
+}
+
 async function publishInstagram(args: {
   target: MetaPublishTarget;
   content: string;
@@ -339,6 +377,12 @@ async function publishInstagram(args: {
     mediaUrls: args.mediaUrls,
     fetchImpl: args.fetchImpl,
     safePrePublishAttempts: args.safePrePublishAttempts,
+  });
+
+  await waitForInstagramContainerReady({
+    target: args.target,
+    creationId,
+    fetchImpl: args.fetchImpl,
   });
 
   const published = await requestGraphJson({

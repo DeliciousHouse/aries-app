@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.3.52 — fix(publishing): poll Instagram media container until FINISHED before publish
+
+Instagram's Graph API requires the media container to reach `FINISHED` before `/media_publish` is called. Previously `publishInstagram` called `/media_publish` immediately after `createInstagramContainer()`, causing `graph_api_error: "Media ID is not available"` when the container was still `IN_PROGRESS` (campaign mkt_d166d5e6).
+
+**Fix (`backend/integrations/meta-publishing.ts`)**
+
+New exported helper `waitForInstagramContainerReady` polls `GET /{creationId}?fields=status_code` in a loop before the `/media_publish` call:
+- `FINISHED` or `PUBLISHED` — returns immediately, proceed to publish.
+- `ERROR` or `EXPIRED` — throws `MetaPublishError('instagram_container_failed', ..., { status: 422, retryable: false })`.
+- `IN_PROGRESS` or unexpected — waits and polls again.
+- Backoff schedule: 2s, 3s, 4s, then 5s per poll; 15 attempts max (~60s budget).
+- Timeout throws `MetaPublishError('instagram_container_timeout', ..., { status: 504, retryable: true })`.
+- Accepts optional `sleepImpl` for fast test injection; defaults to module-internal `sleep()`.
+
+**Tests (`tests/meta-publishing.test.ts`)** — 3 new tests:
+- `IN_PROGRESS x2 then FINISHED` — resolves, confirms poll called 3 times, `media_publish` called once.
+- `ERROR status` — throws `instagram_container_failed`.
+- `Never FINISHED` — throws `instagram_container_timeout` after 15 exhausted attempts.
+Existing Instagram container test updated to handle the poll call (3 total fetch calls, not 2).
+
 ## v0.1.3.52 — fix(marketing): production copy + brand-kit operator precedence + caption fallback
 
 Three regressions introduced in v0.1.3.49 (Phase A image generation) are fixed.
