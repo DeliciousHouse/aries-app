@@ -132,4 +132,29 @@ _Effort revised from M after eng review locked in 7 architecture decisions._
 **Priority:** P1
 **Depends on:** None
 
+## Publishing
+
+### Harden Meta publish failure taxonomy
+
+**What:** Split the single catch around the Meta publish call into two outcome
+classes instead of one. Today `requestGraphJson` failures and
+`*_publish_missing_id` (a 2xx Graph response with no post id) collapse into one
+error path and are treated uniformly.
+
+**Why:** The two failure modes need opposite handling. A `requestGraphJson`
+network/HTTP failure means the post definitely never went live — safe to roll
+back the platform claim and retry. A `*_publish_missing_id` means Graph
+accepted the call but Aries cannot confirm the post id — the outcome is
+unknown, so the claim must be left in place, surfaced as
+`needs_manual_reconciliation`, and never auto-retried (auto-retry risks a
+duplicate post).
+
+**Context:** Surfaced reviewing the publish path during the
+`creative_asset_ids` work (2026-05-20). Its own small PR (~1-2 hrs); keep it
+out of unrelated changes.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** None
+
 ## Completed
