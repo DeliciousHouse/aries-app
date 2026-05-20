@@ -33,6 +33,7 @@ import type {
   UnscheduledPost,
 } from '@/frontend/aries-v1/view-models/calendar';
 import { RedditIcon, XIcon } from '@/frontend/components/Icons';
+import RescheduleDrawer from '@/frontend/aries-v1/reschedule-drawer';
 import {
   formatTimeInTenantZone,
   tenantZoneDateKey,
@@ -56,6 +57,8 @@ export interface CalendarPresenterProps {
   /** Optimistic day-key overrides keyed by event id (pendingMoves from the hook). */
   pendingDayKeys?: Record<string, string>;
   schedulingError?: string | null;
+  /** Called after the RescheduleDrawer saves — lets the screen refetch the queue. */
+  onRescheduled?: () => void;
 }
 
 export default function CalendarPresenter({
@@ -63,6 +66,7 @@ export default function CalendarPresenter({
   onSchedule,
   pendingDayKeys,
   schedulingError,
+  onRescheduled,
 }: CalendarPresenterProps) {
   const timeZone = model.timeZone;
   const [view, setView] = useState<CalendarMode>('month');
@@ -70,6 +74,7 @@ export default function CalendarPresenter({
     getInitialCalendarDate(model.events, timeZone),
   );
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  const [rescheduleEventId, setRescheduleEventId] = useState<string | null>(null);
 
   const sensors = useSensors(
     // A small activation distance keeps a plain click on a tile from being
@@ -114,6 +119,9 @@ export default function CalendarPresenter({
   }, [events]);
 
   const selectedEvent = events.find((event) => event.id === selectedEventId) || null;
+  const rescheduleTarget = events.find(
+    (event) => event.id === rescheduleEventId && event.jobId,
+  ) || null;
 
   useEffect(() => {
     if (!selectedEvent) return;
@@ -384,18 +392,50 @@ export default function CalendarPresenter({
                     </div>
                   ) : null}
 
-                  <Link
-                    href={selectedEvent.href}
-                    className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-medium text-white shadow-[0_0_20px_rgba(123,97,255,0.3)]"
-                  >
-                    Open campaign workspace
-                    <ChevronRight className="h-4 w-4" />
-                  </Link>
+                  <div className="flex flex-wrap gap-3">
+                    {selectedEvent.jobId ? (
+                      <button
+                        type="button"
+                        data-testid="calendar-open-reschedule"
+                        onClick={() => setRescheduleEventId(selectedEvent.id)}
+                        className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-5 py-3 text-sm font-medium text-white transition hover:border-white/30"
+                      >
+                        <CalendarIcon className="h-4 w-4" />
+                        Reschedule
+                      </button>
+                    ) : null}
+                    <Link
+                      href={selectedEvent.href}
+                      className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-medium text-white shadow-[0_0_20px_rgba(123,97,255,0.3)]"
+                    >
+                      Open campaign workspace
+                      <ChevronRight className="h-4 w-4" />
+                    </Link>
+                  </div>
                 </div>
               </motion.div>
             </div>
           ) : null}
         </AnimatePresence>
+
+        {rescheduleTarget ? (
+          <RescheduleDrawer
+            jobId={rescheduleTarget.jobId as string}
+            postId={rescheduleTarget.postId}
+            defaultScheduledAt={rescheduleTarget.scheduledForIso}
+            defaultPlatforms={rescheduleTarget.targetPlatforms.filter(
+              (platform): platform is 'facebook' | 'instagram' =>
+                platform === 'facebook' || platform === 'instagram',
+            )}
+            timeZone={timeZone}
+            onClose={() => setRescheduleEventId(null)}
+            onSaved={() => {
+              setRescheduleEventId(null);
+              setSelectedEventId(null);
+              onRescheduled?.();
+            }}
+          />
+        ) : null}
       </div>
     </DndContext>
   );

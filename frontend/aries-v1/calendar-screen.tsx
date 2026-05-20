@@ -146,6 +146,9 @@ export default function AriesCalendarScreen() {
       onSchedule={handleSchedule}
       pendingDayKeys={pendingDayKeys}
       schedulingError={scheduling.error}
+      onRescheduled={() => {
+        void loadSchedule();
+      }}
     />
   );
 }
