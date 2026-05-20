@@ -15,6 +15,11 @@ const REPO_ROOT = path.resolve(__dirname, '../..');
 const INTERVAL_MS = 60 * 1000; // 1 minute
 const BATCH_SIZE = 50;
 const FETCH_TIMEOUT_MS = 30_000;
+// A row claimed as 'in_flight' but not driven to a terminal state within this
+// window is assumed to belong to a crashed worker pass and is re-claimable.
+// Comfortably larger than one fetch timeout so a slow-but-live publish is not
+// stolen mid-flight.
+const IN_FLIGHT_RECLAIM_MS = 10 * 60 * 1000; // 10 minutes
 
 let running = false;
 let intervalHandle = null;
@@ -37,29 +42,42 @@ function buildPool() {
 // Claim SQL exported so a regression test can run it against a real schema
 // without spinning up the whole worker. 'caption' is the canonical posts body
 // column (see scripts/init-db.js) — selecting p.content here was schema drift.
+// A row is claimable when it is 'pending', OR when it is 'in_flight' but has
+// been stuck past IN_FLIGHT_RECLAIM_MS (its worker pass crashed before
+// publish confirmed). $2 is the stale-in_flight cutoff timestamp.
 export const CLAIM_ROW_SQL = `SELECT sp.id, sp.post_id, sp.tenant_id, sp.target_platforms,
             p.caption, p.platform_post_id
      FROM scheduled_posts sp
      LEFT JOIN posts p ON p.id = sp.post_id
      WHERE sp.id = $1
-       AND sp.dispatch_status = 'pending'
+       AND (
+         sp.dispatch_status = 'pending'
+         OR (sp.dispatch_status = 'in_flight' AND sp.updated_at < $2)
+       )
      FOR UPDATE SKIP LOCKED`;
 
 /**
- * Atomically claim a pending row (SELECT ... FOR UPDATE SKIP LOCKED) and
- * mark it as in-flight by setting dispatch_status = 'dispatched' optimistically.
- * Returns null if the row was already claimed by another instance.
+ * Atomically claim a row (SELECT ... FOR UPDATE SKIP LOCKED). Picks pending
+ * rows and stale 'in_flight' rows whose worker pass crashed. Returns null if
+ * the row was already claimed by another instance or is not (re)claimable.
  */
 async function claimRow(client, rowId) {
-  const lockResult = await client.query(CLAIM_ROW_SQL, [rowId]);
+  const staleCutoff = new Date(Date.now() - IN_FLIGHT_RECLAIM_MS).toISOString();
+  const lockResult = await client.query(CLAIM_ROW_SQL, [rowId, staleCutoff]);
   if (lockResult.rows.length === 0) return null;
   return lockResult.rows[0];
 }
 
-async function markDispatched(client, rowId) {
+/**
+ * Mark the parent row 'in_flight': a non-terminal claimed state committed
+ * BEFORE the network publish runs. A crash after this commit leaves a
+ * reclaimable row, never a false 'dispatched'. `updated_at` is bumped so the
+ * stale-reclaim window is measured from the claim.
+ */
+async function markInFlight(client, rowId) {
   await client.query(
     `UPDATE scheduled_posts
-     SET dispatch_status = 'dispatched', dispatched_at = now()
+     SET dispatch_status = 'in_flight', updated_at = now()
      WHERE id = $1`,
     [rowId],
   );
@@ -83,13 +101,21 @@ export function rollupParentStatus(platformStatuses) {
   return 'pending';
 }
 
-/** Seed one pending scheduled_post_dispatches row per target platform. */
+/**
+ * Seed one scheduled_post_dispatches row per target platform in the
+ * non-terminal 'in_flight' state, committed before the publish runs. On a
+ * re-claim of a stale row, a child already 'dispatched' is left untouched so a
+ * platform that already went live is never re-sent; only non-terminal children
+ * are reset to 'in_flight' for the retry.
+ */
 async function seedPlatformDispatches(client, rowId, platforms) {
   for (const platform of platforms) {
     await client.query(
-      `INSERT INTO scheduled_post_dispatches (scheduled_post_id, platform, status)
-       VALUES ($1, $2, 'pending')
-       ON CONFLICT (scheduled_post_id, platform) DO NOTHING`,
+      `INSERT INTO scheduled_post_dispatches (scheduled_post_id, platform, status, updated_at)
+       VALUES ($1, $2, 'in_flight', now())
+       ON CONFLICT (scheduled_post_id, platform) DO UPDATE
+         SET status = 'in_flight', updated_at = now()
+         WHERE scheduled_post_dispatches.status IN ('pending', 'in_flight')`,
       [rowId, platform],
     );
   }
@@ -254,7 +280,9 @@ async function dispatchWithRetry(row, baseUrl, secret) {
 // Main tick
 // ---------------------------------------------------------------------------
 
-async function tick(pool) {
+// Exported for the crash-safety regression test, which drives a single tick
+// against an in-memory pg fake.
+export async function tick(pool) {
   const baseUrl = resolveAppBaseUrl();
   const secret = resolveInternalSecret();
 
@@ -263,14 +291,20 @@ async function tick(pool) {
     return { processed: 0, dispatched: 0, failed: 0, skipped: 0 };
   }
 
-  // Fetch due rows
+  // Fetch due rows: pending rows, plus 'in_flight' rows whose worker pass
+  // crashed and have been stuck past the reclaim window. claimRow re-checks
+  // both conditions under the row lock.
+  const staleCutoff = new Date(Date.now() - IN_FLIGHT_RECLAIM_MS).toISOString();
   const dueResult = await pool.query(
     `SELECT id FROM scheduled_posts
      WHERE scheduled_for <= NOW()
-       AND dispatch_status = 'pending'
+       AND (
+         dispatch_status = 'pending'
+         OR (dispatch_status = 'in_flight' AND updated_at < $2)
+       )
      ORDER BY scheduled_for
      LIMIT $1`,
-    [BATCH_SIZE],
+    [BATCH_SIZE, staleCutoff],
   );
 
   const ids = dueResult.rows.map((r) => r.id);
@@ -290,17 +324,31 @@ async function tick(pool) {
 
       const platforms = Array.isArray(row.target_platforms) ? row.target_platforms : [];
 
-      // Claim the row and seed one per-platform child row. Optimistically
-      // mark the parent dispatched inside the transaction to keep another
-      // worker instance off the same row.
+      // Claim the row: seed per-platform child rows and mark the parent
+      // 'in_flight' — a NON-terminal state — then COMMIT before any publish.
+      // A crash after this commit leaves a reclaimable in_flight row, never a
+      // false 'dispatched'. The terminal status is written only after Meta
+      // confirms, in the post-publish transaction below.
       await seedPlatformDispatches(client, rowId, platforms);
-      await markDispatched(client, rowId);
+      await markInFlight(client, rowId);
+      // On a stale-in_flight re-claim, a platform that already went live keeps
+      // its terminal 'dispatched' child row — never re-publish it.
+      const childResult = await client.query(
+        `SELECT platform FROM scheduled_post_dispatches
+         WHERE scheduled_post_id = $1 AND status = 'dispatched'`,
+        [rowId],
+      );
+      const alreadyDispatched = new Set(childResult.rows.map((r) => r.platform));
       await client.query('COMMIT');
+
+      const platformsToDispatch = platforms.filter((p) => !alreadyDispatched.has(p));
 
       // Fire the dispatch outside the transaction (network call), then write
       // each platform's real outcome to its child row and roll the parent up.
-      const { results, transportError } = await dispatchWithRetry(row, baseUrl, secret);
-      const outcomes = planPlatformOutcomes(platforms, results, transportError);
+      const { results, transportError } = platformsToDispatch.length > 0
+        ? await dispatchWithRetry({ ...row, target_platforms: platformsToDispatch }, baseUrl, secret)
+        : { results: [], transportError: null };
+      const outcomes = planPlatformOutcomes(platformsToDispatch, results, transportError);
 
       const fc = await pool.connect();
       try {
