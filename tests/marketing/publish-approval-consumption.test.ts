@@ -18,6 +18,7 @@ import {
   saveMarketingApprovalRecord,
   loadMarketingApprovalRecord,
   findLatestMarketingApprovalRecord,
+  releaseMarketingApprovalPlatformClaim,
   withMarketingApprovalLock,
 } from '../../backend/marketing/approval-store';
 
@@ -126,6 +127,49 @@ test('per-platform consumption: second call for same platform is rejected', () =
   const r2 = loadMarketingApprovalRecord(record.approval_id)!;
   const alreadyConsumed = r2.consumed_platforms.includes('facebook');
   assert.ok(alreadyConsumed, 'facebook should already be in consumed_platforms, causing rejection');
+});
+
+test('releaseMarketingApprovalPlatformClaim: rolls back a claimed platform so a retry can re-attempt', async () => {
+  const record = makeApprovalRecord();
+  record.status = 'approved';
+  record.consumed_platforms = ['facebook'];
+  saveMarketingApprovalRecord(record);
+
+  await releaseMarketingApprovalPlatformClaim(record.approval_id, 'facebook');
+
+  const after = loadMarketingApprovalRecord(record.approval_id)!;
+  assert.ok(!after.consumed_platforms.includes('facebook'), 'facebook claim must be released');
+  assert.equal(after.status, 'approved', 'status stays approved after rolling back a non-final claim');
+});
+
+test('releaseMarketingApprovalPlatformClaim: restores a fully-consumed record to approved', async () => {
+  const record = makeApprovalRecord();
+  record.status = 'consumed';
+  record.consumed_platforms = ['facebook', 'instagram'];
+  record.resolved_at = new Date().toISOString();
+  saveMarketingApprovalRecord(record);
+
+  // Instagram publish failed after it was the last platform to claim — roll it back.
+  await releaseMarketingApprovalPlatformClaim(record.approval_id, 'instagram');
+
+  const after = loadMarketingApprovalRecord(record.approval_id)!;
+  assert.ok(!after.consumed_platforms.includes('instagram'), 'instagram claim must be released');
+  assert.ok(after.consumed_platforms.includes('facebook'), 'facebook stays consumed — it published');
+  assert.equal(after.status, 'approved', 'record must drop back to approved so instagram can retry');
+  assert.equal(after.resolved_at, null, 'resolved_at must be cleared');
+});
+
+test('releaseMarketingApprovalPlatformClaim: is a no-op when the platform was never claimed', async () => {
+  const record = makeApprovalRecord();
+  record.status = 'approved';
+  record.consumed_platforms = ['facebook'];
+  saveMarketingApprovalRecord(record);
+
+  await releaseMarketingApprovalPlatformClaim(record.approval_id, 'instagram');
+
+  const after = loadMarketingApprovalRecord(record.approval_id)!;
+  assert.deepEqual(after.consumed_platforms, ['facebook'], 'unrelated claims must be untouched');
+  assert.equal(after.status, 'approved');
 });
 
 test('per-platform consumption: record with no consumed_platforms field (legacy) is backfilled to []', () => {

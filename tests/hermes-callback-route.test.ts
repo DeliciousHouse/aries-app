@@ -152,7 +152,7 @@ test('Hermes callback route rejects callbacks with mismatched Hermes run ids', a
   });
 });
 
-test('Hermes callback route rejects malformed approval payloads', async (t) => {
+test('Hermes callback route rejects requires_approval callbacks with no approval payload', async (t) => {
   await withCallbackEnv(async () => {
     const { createExecutionRunRecord } = await import('../backend/execution/run-store');
     const { POST } = await import('../app/api/internal/hermes/runs/route');
@@ -166,16 +166,14 @@ test('Hermes callback route rejects malformed approval payloads', async (t) => {
       stage: 'research',
     });
 
+    // A requires_approval callback that omits the approval envelope entirely.
+    // (A present-but-wrong-stage approval is rejected as approval_stage_mismatch
+    // and is covered by the social-content stage-skip/regress tests below.)
     const callbackToken = seedCallbackToken(t, record.aries_run_id);
     const response = await POST(callbackRequest({
       event_id: 'evt-bad-approval',
       aries_run_id: record.aries_run_id,
       status: 'requires_approval',
-      approval: {
-        stage: 'publish',
-        workflow_step_id: 'approve_stage_2',
-        prompt: '',
-      },
       callback_token: callbackToken,
     }));
 

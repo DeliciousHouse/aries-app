@@ -7,6 +7,7 @@ import {
   findLatestMarketingApprovalRecord,
   loadMarketingApprovalRecord,
   MarketingApprovalLockError,
+  releaseMarketingApprovalPlatformClaim,
   withMarketingApprovalLock,
   saveMarketingApprovalRecord,
 } from '@/backend/marketing/approval-store';
@@ -114,7 +115,35 @@ export async function handleFacebookPublish(req: Request, jobId: string) {
     // Non-fatal: proceed without media (caption-only post)
   }
 
-  // Validate and consume the approval record before any side-effects.
+  // Sign the media URL into a public proxy URL.
+  const signedMediaUrls: string[] = [];
+  if (mediaUrl) {
+    const basename = path.basename(mediaUrl);
+    if (basename && !basename.includes('..')) {
+      signedMediaUrls.push(toSignedPublicUrl(mediaUrl, tenantId, basename));
+    }
+  }
+
+  // Run all failure checks that don't depend on the approval claim BEFORE
+  // consuming it, so a missing-content or unavailable-provider failure never
+  // leaves a platform falsely marked consumed.
+  if (!caption && signedMediaUrls.length === 0) {
+    return new Response(
+      JSON.stringify({ status: 'error', reason: 'no_content', message: 'Neither caption nor approved image is available for this job.' }),
+      { status: 422, headers: { 'content-type': 'application/json' } },
+    );
+  }
+
+  if (!isMetaProvider('facebook')) {
+    return new Response(
+      JSON.stringify({ status: 'error', reason: 'provider_unavailable', message: 'Facebook provider is not available.' }),
+      { status: 500, headers: { 'content-type': 'application/json' } },
+    );
+  }
+
+  // Validate and consume the approval record. Consumption is deliberately the
+  // last step before the publish call: if the publish call itself fails, the
+  // claim is rolled back below so a retry can re-attempt this platform.
   // Per-platform consumption: each platform independently claims the approval via consumed_platforms[].
   // The record is only flipped to 'consumed' once all configured platforms have published.
   const PLATFORM_KEY = 'facebook';
@@ -200,30 +229,8 @@ export async function handleFacebookPublish(req: Request, jobId: string) {
   }
   if (consumeError) return consumeError;
 
-  // Sign the media URL into a public proxy URL
-  const signedMediaUrls: string[] = [];
-  if (mediaUrl) {
-    const basename = path.basename(mediaUrl);
-    if (basename && !basename.includes('..')) {
-      signedMediaUrls.push(toSignedPublicUrl(mediaUrl, tenantId, basename));
-    }
-  }
-
-  if (!caption && signedMediaUrls.length === 0) {
-    return new Response(
-      JSON.stringify({ status: 'error', reason: 'no_content', message: 'Neither caption nor approved image is available for this job.' }),
-      { status: 422, headers: { 'content-type': 'application/json' } },
-    );
-  }
-
+  let publishSucceeded = false;
   try {
-    if (!isMetaProvider('facebook')) {
-      return new Response(
-        JSON.stringify({ status: 'error', reason: 'provider_unavailable', message: 'Facebook provider is not available.' }),
-        { status: 500, headers: { 'content-type': 'application/json' } },
-      );
-    }
-
     const published = await publishToMetaGraph({
       tenantId,
       provider: 'facebook',
@@ -231,6 +238,7 @@ export async function handleFacebookPublish(req: Request, jobId: string) {
       mediaUrls: signedMediaUrls,
       scheduledFor: null,
     });
+    publishSucceeded = true;
 
     const verification = await runPublishVerification({
       tenantId,
@@ -255,6 +263,24 @@ export async function handleFacebookPublish(req: Request, jobId: string) {
       { status: 200, headers: { 'content-type': 'application/json' } },
     );
   } catch (error) {
+    // Roll back the platform claim only when the publish call itself failed.
+    // A post that went live but failed verification keeps its claim — the
+    // platform is published and must not be re-attempted.
+    if (!publishSucceeded) {
+      try {
+        await releaseMarketingApprovalPlatformClaim(approvalId as string, PLATFORM_KEY);
+      } catch (rollbackError) {
+        // Best-effort rollback; surface the original publish error regardless.
+        // Log loudly — a swallowed lock error here leaves the platform claim
+        // stuck, silently blocking every future retry of this platform. The
+        // warning gives an operator the IDs needed to clear the claim by hand.
+        console.warn('[publish-facebook] approval claim rollback failed', {
+          approvalId,
+          platform: PLATFORM_KEY,
+          error: String((rollbackError as Error)?.message ?? rollbackError),
+        });
+      }
+    }
     if (error instanceof MetaPublishError) {
       return new Response(
         JSON.stringify({ status: 'error', reason: error.code, message: error.message }),
