@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.4.0 — fix(scheduling): engine-soundness pass for the scheduled-posts publish queue
+
+Thirteen fixes hardening the scheduled-posts engine so a post placed on the queue actually publishes correctly. The scheduling queue, worker, and dispatch path already existed but carried latent bugs that never fired only because the queue had no rows — this release makes the engine sound before the calendar planner UI (Phase 2) starts writing to it.
+
+**Publishing now requires approval.** The schedule route accepted any post; it now rejects scheduling a post that has no approved publish approval, so nothing reaches Meta without sign-off.
+
+**The worker no longer breaks against the real database.** Two schema drifts are reconciled: the worker and `meta-publishing.ts` referenced a `posts.content` column that production had renamed to `caption`, and `init-db.js` was missing `job_id` plus five other `posts` columns production already had. The worker's row-claim query also locked the nullable side of an outer join — which PostgreSQL rejects outright — now fixed to lock only the queued row.
+
+**Scheduled posts publish the right images.** Dispatch resolved creative assets by tenant only, so a tenant with several posts in flight could publish the wrong post's images. It now resolves per post — matching the post's own asset ids, falling back to job scope when none are recorded — and filters on the storage kinds the asset table actually uses.
+
+**Cross-posting tracks each platform independently.** A scheduled post going to both Facebook and Instagram shared a single status, so a Facebook success plus an Instagram failure could not be represented. Per-platform dispatch state now lives in a new `scheduled_post_dispatches` table, and a partially successful post is no longer reported as failed.
+
+**A crash mid-publish no longer fakes success.** The worker previously marked a row `dispatched` before calling Meta, so a crash left a post that never went out looking sent. Rows now pass through an `in_flight` state and only reach `dispatched` after Meta confirms; a row stuck `in_flight` is reclaimable. The narrow remaining double-publish window — a crash after Meta confirms but before the database commits — is documented in the worker; Meta's publish API exposes no idempotency key to close it fully.
+
 ## v0.1.3.55 — fix(marketing): retry-safe publish claims + correct job_type label
 
 Three small marketing fixes from the Phase B follow-up list.
