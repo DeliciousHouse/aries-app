@@ -29,9 +29,23 @@ async function readBody(req: Request): Promise<ScheduledDispatchBody> {
 }
 
 // Resolve creative assets for the *specific* scheduled post, not just the
-// tenant. Assets are linked to a post through the post's job_id matching
-// creative_assets.source_job_id; scoping by tenant_id alone published the
-// wrong post's images on a tenant with more than one post in flight.
+// tenant and not the whole job. A weekly job fans out into ~7 posts; scoping
+// only by the post's job_id returns every image the job generated for any one
+// of its posts. The per-POST link is `posts.creative_asset_ids`, a text[] of
+// the asset ids that belong to that one post.
+//
+// `posts.creative_asset_ids` entries may be either `creative_assets.id`
+// (a uuid, stored as text) or the Hermes-side `creative_assets.source_asset_id`
+// ('img_1', 'img_2', ...) — the per-post ordinal from the production contract.
+// The join matches either form so the populated path is correct regardless of
+// which id producers write.
+//
+// Fallback: when `creative_asset_ids` is empty (no Aries code populates it
+// yet — every prod `posts` row has `creative_asset_ids = '{}'`), fall back to
+// the job-scoped join on `posts.job_id = creative_assets.source_job_id`. That
+// fallback is non-regressive for today's data (each job currently produces a
+// single shared image) and becomes per-post-exact the moment a producer starts
+// writing `creative_asset_ids`. See the F1 note returned to the team lead.
 //
 // storage_kind values come from the creative_assets CHECK constraint:
 //   - 'runtime_asset'  — Aries-generated (ingest-production-assets.ts).
@@ -57,13 +71,29 @@ export async function resolveMediaUrls(
     served_asset_ref: string | null;
   }>(
     `SELECT ca.storage_key, ca.storage_kind, ca.served_asset_ref
-     FROM creative_assets ca
-     JOIN posts p ON p.job_id = ca.source_job_id AND p.tenant_id = ca.tenant_id
+     FROM posts p
+     JOIN creative_assets ca
+       ON ca.tenant_id = p.tenant_id
+      AND ca.storage_kind IN ('runtime_asset', 'ingested_asset', 'external_url')
+      AND ca.orphaned_at IS NULL
+      AND (
+        -- Per-POST link: the asset id is listed in posts.creative_asset_ids,
+        -- matched against either the uuid id or the Hermes source_asset_id.
+        (
+          p.creative_asset_ids IS NOT NULL
+          AND array_length(p.creative_asset_ids, 1) > 0
+          AND (ca.id::text = ANY(p.creative_asset_ids)
+               OR ca.source_asset_id = ANY(p.creative_asset_ids))
+        )
+        -- Fallback: no per-post ids recorded — scope to the post's job.
+        OR (
+          (p.creative_asset_ids IS NULL OR array_length(p.creative_asset_ids, 1) IS NULL)
+          AND p.job_id IS NOT NULL
+          AND ca.source_job_id = p.job_id
+        )
+      )
      WHERE p.id = $1
-       AND ca.tenant_id = $2
-       AND p.job_id IS NOT NULL
-       AND ca.storage_kind IN ('runtime_asset', 'ingested_asset', 'external_url')
-       AND ca.orphaned_at IS NULL
+       AND p.tenant_id = $2
      ORDER BY ca.id DESC
      LIMIT 4`,
     [postId, tenantId],
