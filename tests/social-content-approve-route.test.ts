@@ -366,8 +366,11 @@ test('denied social-content approval records denied state', async () => {
       const body = (await response.json()) as Record<string, unknown>;
       assert.equal(response.status, 202);
       assert.equal(body.social_content_approval_status, 'submitted');
-      assert.equal(calls.length, 1);
-      assert.equal(calls[0].approved, false);
+      // Phase B3: a weekly denial is a pure Aries-side state transition. The
+      // stage's Hermes run has already completed (the approval checkpoint
+      // means there is no paused run to cancel), so the port skips the Hermes
+      // POST entirely — no gateway call is made for a denial.
+      assert.equal(calls.length, 0, 'a weekly denial must not POST to Hermes');
       const approval = loadMarketingApprovalRecord(approvalId);
       assert.equal(approval?.status, 'denied');
       const runtime = await loadMarketingJobRuntime(jobId);

@@ -528,6 +528,35 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     if (configError) {
       return configError;
     }
+
+    // Phase B3: a weekly-pipeline DENIAL (resume + approve === false) has
+    // nothing to cancel on Hermes. By the time a stage emits an approval
+    // checkpoint its Hermes run has already COMPLETED — there is no paused
+    // run sitting on a gateway. With per-profile routing the denial POST
+    // would also carry a resume_token the target gateway never issued and is
+    // guaranteed to 4xx, baking a misleading gateway-rejected error into the
+    // logs on every denial. A weekly denial is purely an Aries-side state
+    // transition (the orchestrator marks the job failed locally), so skip the
+    // POST — and the execution-run record / callback-token row — entirely.
+    // Return a synthetic `cancelled` envelope: the orchestrator deny path
+    // requires envelope.status === 'cancelled' (else it throws
+    // workflow_deny_failed) and then records the denial itself.
+    if (
+      action === 'resume'
+      && this.workflowKeyFor(action, input) === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY
+      && input.approve === false
+    ) {
+      return {
+        kind: 'completed',
+        provider: 'hermes',
+        output: {
+          ok: true,
+          status: 'cancelled',
+          workflowKey: SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
+        },
+      };
+    }
+
     if (action === 'run' && input.doc && isWeeklySocialContentRequest(input.doc)) {
       const brandKitFailure = await this.refreshBrandKitOrFail(input.doc);
       if (brandKitFailure) {
@@ -934,54 +963,9 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       };
     }
 
-    // Weekly denial (approve === false): keep the legacy `action: resume`
-    // cancel shape. A denial does not advance to a new stage, so it never
-    // needs the per-profile gateway routing. The orchestrator marks the job
-    // failed locally regardless of the gateway's response.
-    if (action === 'resume' && workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY) {
-      const approvalStep =
-        input.approvalStep ??
-        approvalStepFromWorkflowStepId(input.workflowStepId ?? '') ??
-        null;
-      const idempotencyKey = generateIdempotencyKey(ariesRunId, SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY, input.tenantId ?? '');
-      const resumePrompt = [
-        `Workflow: ${SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY}`,
-        'Action: resume',
-        `Aries run ID: ${ariesRunId}`,
-        `Approval step: ${approvalStep ?? ''}`,
-        `Resume token: ${input.resumeToken ?? ''}`,
-        `Approved: ${input.approve === true}`,
-        `Job ID: ${input.jobId ?? ''}`,
-        `Tenant ID: ${input.tenantId ?? ''}`,
-        `Approval ID: ${input.approvalId ?? ''}`,
-      ].join('\n');
-      return {
-        input: resumePrompt,
-        instructions: this.instructions(SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY, input.stage),
-        session_id: this.sessionKey(),
-        workflow_key: SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
-        action: 'resume',
-        aries_run_id: ariesRunId,
-        approval_step: approvalStep,
-        approval_id: input.approvalId ?? null,
-        resume_token: input.resumeToken ?? '',
-        approved: input.approve === true,
-        job_id: input.jobId ?? null,
-        tenant_id: input.tenantId ?? null,
-        callback_url: this.callbackUrl(),
-        callback_auth: callbackAuth,
-        callback_context: {
-          workflow_key: SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
-          aries_run_id: ariesRunId,
-          job_id: input.jobId ?? null,
-          tenant_id: input.tenantId ?? null,
-          approval_id: input.approvalId ?? null,
-          approval_step: approvalStep,
-        },
-        idempotency_key: idempotencyKey,
-        protocol_version: PROTOCOL_VERSION,
-      };
-    }
+    // Note: a weekly DENIAL (action: resume + approve === false) never reaches
+    // submissionPayload — invoke() short-circuits it before any POST. See the
+    // early-return in invoke().
 
     if (action === 'run' && input.doc && isWeeklySocialContentRequest(input.doc)) {
       const request = buildSocialContentWeeklyRequest({

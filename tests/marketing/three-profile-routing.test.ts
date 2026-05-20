@@ -301,22 +301,26 @@ test('weekly stage runs ship only their own stage instruction contract', async (
   });
 });
 
-test('weekly DENIAL keeps the action:resume cancel shape (no pipeline advance)', async () => {
+test('weekly DENIAL skips the Hermes POST entirely (cancelled envelope)', async () => {
   await withDataRoot(async () => {
     await seedWeeklyJobDoc('job_weekly_deny');
     const { calls, fetchImpl } = recordingFetch();
     const port = makePort(PER_PROFILE_ENV, fetchImpl as unknown as typeof fetch);
-    await port.resumePipeline({
+    const result = await port.resumePipeline({
       ...weeklyResumeInput('strategy', 'job_weekly_deny'),
       approve: false,
     });
-    assert.equal(calls.length, 1);
-    const body = JSON.parse(calls[0].init.body as string) as Record<string, unknown>;
-    // A denial must NOT convert to action:run — that would advance the pipeline
-    // despite the operator rejecting the checkpoint.
-    assert.equal(body.action, 'resume', 'weekly denial must keep action:resume');
-    assert.equal(body.approved, false, 'denial must forward approved:false to Hermes');
-    assert.equal(body.resume_token, 'prior-checkpoint-token');
+    // A weekly denial has nothing to cancel — the stage's Hermes run already
+    // completed when it emitted the approval checkpoint. The port skips the
+    // POST entirely and returns a synthetic `cancelled` envelope; the
+    // orchestrator records the denial and fails the job locally.
+    assert.equal(calls.length, 0, 'a weekly denial must not POST to any Hermes gateway');
+    assert.equal(result.kind, 'completed');
+    if (result.kind === 'completed') {
+      assert.equal(result.output.status, 'cancelled');
+      assert.equal(result.output.ok, true);
+      assert.equal(result.output.workflowKey, WEEKLY_WORKFLOW_KEY);
+    }
   });
 });
 
