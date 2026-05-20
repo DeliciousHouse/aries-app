@@ -96,8 +96,12 @@ export async function handleFacebookPublish(req: Request, jobId: string) {
     }
   }
 
-  // Find approved image from creative review
+  // Find approved image from creative review. Capture the asset's id alongside
+  // the URL: it is persisted to posts.creative_asset_ids so the scheduled
+  // dispatch resolver scopes media per-post instead of falling back to job
+  // scope (assetId matches creative_assets.id or .source_asset_id).
   let mediaUrl: string | null = null;
+  let publishedAssetId: string | null = null;
   try {
     const workspaceView = await buildCampaignWorkspaceView(jobId);
     const approvedAssets = workspaceView.creativeReview?.assets.filter(
@@ -108,6 +112,7 @@ export async function handleFacebookPublish(req: Request, jobId: string) {
       const url = asset.fullPreviewUrl || asset.previewUrl;
       if (url) {
         mediaUrl = url;
+        publishedAssetId = asset.assetId;
         break;
       }
     }
@@ -248,6 +253,7 @@ export async function handleFacebookPublish(req: Request, jobId: string) {
       pool,
       jobId,
       idempotencyKey: `${jobId}:publish:facebook:1`,
+      creativeAssetIds: publishedAssetId ? [publishedAssetId] : null,
     });
 
     const permalink = facebookPermalink(published.platformPostId);
