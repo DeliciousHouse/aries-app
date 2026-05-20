@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import pool from '../lib/db';
-import { publishToMetaGraph, MetaPublishError } from '../backend/integrations/meta-publishing';
+import { publishToMetaGraph, MetaPublishError, waitForInstagramContainerReady } from '../backend/integrations/meta-publishing';
 import { encryptOAuthSecret } from '../backend/integrations/oauth-token-crypto';
 
 type QueryResultRow = {
@@ -108,7 +108,7 @@ test('publishToMetaGraph schedules a Facebook post natively when scheduled_for i
   }
 });
 
-test('publishToMetaGraph publishes an Instagram image post through container + publish endpoints', async () => {
+test('publishToMetaGraph publishes an Instagram image post through container + poll + publish endpoints', async () => {
   process.env.OAUTH_TOKEN_ENCRYPTION_KEY = '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!';
   const restoreQuery = installOauthQueryFixture({
     access_token_enc: encryptOAuthSecret('ig-page-token'),
@@ -116,14 +116,19 @@ test('publishToMetaGraph publishes an Instagram image post through container + p
     external_account_id: 'ig_789',
   });
 
-  const calls: Array<{ url: string; body: string | null }> = [];
+  const calls: Array<{ url: string; method: string; body: string | null }> = [];
   const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    const method = (init?.method ?? 'GET').toUpperCase();
     const body = typeof init?.body === 'string' ? init.body : null;
-    calls.push({ url, body });
+    calls.push({ url, method, body });
     if (url.includes('/media_publish')) {
       assert.match(body ?? '', /creation_id=container_001/);
       return new Response(JSON.stringify({ id: 'ig_post_001' }), { status: 200 });
+    }
+    // Container status poll (GET on the container id)
+    if (method === 'GET' && url.includes('container_001') && url.includes('status_code')) {
+      return new Response(JSON.stringify({ id: 'container_001', status_code: 'FINISHED' }), { status: 200 });
     }
     if (url.includes('/media')) {
       assert.match(body ?? '', /image_url=https%3A%2F%2Fcdn.example.com%2Fig.png/);
@@ -144,7 +149,10 @@ test('publishToMetaGraph publishes an Instagram image post through container + p
     assert.equal(result.provider, 'instagram');
     assert.equal(result.mode, 'live');
     assert.equal(result.platformPostId, 'ig_post_001');
-    assert.equal(calls.length, 2);
+    // Calls: create container, status poll, media_publish
+    assert.equal(calls.length, 3);
+    const pollCall = calls.find((c) => c.method === 'GET' && c.url.includes('container_001'));
+    assert.ok(pollCall, 'container readiness poll must have been made');
   } finally {
     restoreQuery();
   }
@@ -181,4 +189,80 @@ test('publishToMetaGraph blocks Instagram scheduled publishing with a safe fallb
   } finally {
     restoreQuery();
   }
+});
+
+// ---- waitForInstagramContainerReady unit tests ----
+
+function makeDummyTarget() {
+  return {
+    provider: 'instagram' as const,
+    accessToken: 'test-token',
+    connectionId: 'conn_test',
+    externalAccountId: 'ig_test',
+  };
+}
+
+const noSleep = async (_ms: number) => {};
+
+test('waitForInstagramContainerReady resolves after IN_PROGRESS x2 then FINISHED', async () => {
+  const statusSequence = ['IN_PROGRESS', 'IN_PROGRESS', 'FINISHED'];
+  let pollCount = 0;
+  const fetchImpl = async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    const status = statusSequence[pollCount] ?? 'FINISHED';
+    pollCount += 1;
+    return new Response(JSON.stringify({ id: 'c_001', status_code: status }), { status: 200 });
+  };
+
+  await waitForInstagramContainerReady({
+    target: makeDummyTarget(),
+    creationId: 'c_001',
+    fetchImpl: fetchImpl as typeof fetch,
+    sleepImpl: noSleep,
+  });
+
+  assert.equal(pollCount, 3, 'should poll three times before FINISHED');
+});
+
+test('waitForInstagramContainerReady throws instagram_container_failed on ERROR status', async () => {
+  const fetchImpl = async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(JSON.stringify({ id: 'c_002', status_code: 'ERROR' }), { status: 200 });
+  };
+
+  await assert.rejects(
+    () => waitForInstagramContainerReady({
+      target: makeDummyTarget(),
+      creationId: 'c_002',
+      fetchImpl: fetchImpl as typeof fetch,
+      sleepImpl: noSleep,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof MetaPublishError);
+      assert.equal((error as MetaPublishError).code, 'instagram_container_failed');
+      assert.equal((error as MetaPublishError).status, 422);
+      assert.equal((error as MetaPublishError).retryable, false);
+      return true;
+    },
+  );
+});
+
+test('waitForInstagramContainerReady throws instagram_container_timeout when never FINISHED', async () => {
+  const fetchImpl = async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    return new Response(JSON.stringify({ id: 'c_003', status_code: 'IN_PROGRESS' }), { status: 200 });
+  };
+
+  await assert.rejects(
+    () => waitForInstagramContainerReady({
+      target: makeDummyTarget(),
+      creationId: 'c_003',
+      fetchImpl: fetchImpl as typeof fetch,
+      sleepImpl: noSleep,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof MetaPublishError);
+      assert.equal((error as MetaPublishError).code, 'instagram_container_timeout');
+      assert.equal((error as MetaPublishError).status, 504);
+      assert.equal((error as MetaPublishError).retryable, true);
+      return true;
+    },
+  );
 });
