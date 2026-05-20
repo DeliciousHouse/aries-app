@@ -181,6 +181,24 @@ export async function POST(req: Request): Promise<Response> {
   // truth per platform. The worker maps `retryable` onto per-platform child
   // rows; a non-retryable failure is terminal, a retryable one is re-claimed
   // on a later pass.
+  //
+  // KNOWN double-publish window (F5b): there is a narrow crash window between
+  // Meta committing a post and this route recording the platform's outcome.
+  // If the process dies after publishToMetaGraph's Graph POST succeeds but
+  // before the worker's post-publish transaction writes the 'dispatched'
+  // child row, the stale-in_flight reclaim re-dispatches that platform and
+  // Meta gets a second, duplicate post.
+  //
+  // This is NOT closed with a Graph-side idempotency key: the Meta Graph
+  // publishing endpoints (/feed, /media_publish) accept no idempotency or
+  // dedupe parameter — there is nothing to thread. posts.idempotency_key and
+  // its unique index are a DB-side dedupe on the post-hoc verification INSERT
+  // (publish-verification.ts), not a Graph-call guard. Forcing a key through
+  // publishToMetaGraph would be dead weight Meta ignores. The window is left
+  // open deliberately; closing it would need a Meta-side dedupe primitive
+  // that does not exist, or a pre-publish reservation handshake that is out
+  // of scope here. The reclaim window (10 min) bounds exposure; a duplicate
+  // is rare (requires a crash inside that sub-second gap).
   const results: Array<{
     provider: string;
     ok: boolean;
