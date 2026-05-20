@@ -532,11 +532,39 @@ async function initDb() {
       CREATE INDEX IF NOT EXISTS idx_posts_tenant_platform ON posts (tenant_id, platform);
 
       -- Scheduled posts worker: dispatch status tracking columns.
-      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dispatch_status TEXT NOT NULL DEFAULT 'pending' CHECK (dispatch_status IN ('pending','dispatched','failed'));
+      -- 'in_flight' is a non-terminal claimed state: the worker commits it
+      -- before the network publish so a crash mid-publish leaves a reclaimable
+      -- row rather than a false 'dispatched'. The parent dispatch_status is a
+      -- rollup derived from the per-platform scheduled_post_dispatches rows.
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dispatch_status TEXT NOT NULL DEFAULT 'pending' CHECK (dispatch_status IN ('pending','in_flight','dispatched','failed'));
+      ALTER TABLE scheduled_posts DROP CONSTRAINT IF EXISTS scheduled_posts_dispatch_status_check;
+      ALTER TABLE scheduled_posts ADD CONSTRAINT scheduled_posts_dispatch_status_check CHECK (dispatch_status IN ('pending','in_flight','dispatched','failed'));
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dispatched_at TIMESTAMPTZ;
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS error_at TIMESTAMPTZ;
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS error_message TEXT;
       CREATE INDEX IF NOT EXISTS idx_scheduled_posts_pending ON scheduled_posts (scheduled_for) WHERE dispatch_status = 'pending';
+
+      -- Per-platform dispatch state. A scheduled_posts row targets an array of
+      -- platforms; a cross-post that succeeds on Facebook and fails on
+      -- Instagram cannot be told the truth by one scalar dispatch_status.
+      -- Each (scheduled_post, platform) pair gets its own row; the parent
+      -- scheduled_posts.dispatch_status is the rollup (all dispatched ->
+      -- dispatched, any failed -> failed, any still pending/in_flight ->
+      -- the lower state).
+      CREATE TABLE IF NOT EXISTS scheduled_post_dispatches (
+        id BIGSERIAL PRIMARY KEY,
+        scheduled_post_id BIGINT NOT NULL REFERENCES scheduled_posts(id) ON DELETE CASCADE,
+        platform TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','in_flight','dispatched','failed')),
+        dispatched_at TIMESTAMPTZ,
+        error_at TIMESTAMPTZ,
+        error_message TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (scheduled_post_id, platform)
+      );
+      CREATE INDEX IF NOT EXISTS idx_scheduled_post_dispatches_parent
+        ON scheduled_post_dispatches (scheduled_post_id);
 
       -- Phase 4 PR1: Slack Events API inbound dedupe. Every delivery has a
       -- stable event_id; the webhook inserts ON CONFLICT DO NOTHING to drop

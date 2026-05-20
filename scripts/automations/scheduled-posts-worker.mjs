@@ -65,14 +65,70 @@ async function markDispatched(client, rowId) {
   );
 }
 
-async function markFailed(client, rowId, errorMessage) {
-  const truncated = String(errorMessage || 'unknown').slice(0, 1000);
+// --- Per-platform dispatch state ------------------------------------------
+
+/**
+ * Roll a set of per-platform statuses up into the single parent
+ * scheduled_posts.dispatch_status. A row is only 'dispatched' once every
+ * platform succeeded; 'failed' once every platform reached a terminal state
+ * and at least one failed; otherwise it stays non-terminal ('in_flight' if
+ * any platform is in flight, else 'pending') so a later pass re-claims it.
+ */
+export function rollupParentStatus(platformStatuses) {
+  const statuses = Array.isArray(platformStatuses) ? platformStatuses : [];
+  if (statuses.length === 0) return 'pending';
+  if (statuses.every((s) => s === 'dispatched')) return 'dispatched';
+  if (statuses.every((s) => s === 'dispatched' || s === 'failed')) return 'failed';
+  if (statuses.some((s) => s === 'in_flight')) return 'in_flight';
+  return 'pending';
+}
+
+/** Seed one pending scheduled_post_dispatches row per target platform. */
+async function seedPlatformDispatches(client, rowId, platforms) {
+  for (const platform of platforms) {
+    await client.query(
+      `INSERT INTO scheduled_post_dispatches (scheduled_post_id, platform, status)
+       VALUES ($1, $2, 'pending')
+       ON CONFLICT (scheduled_post_id, platform) DO NOTHING`,
+      [rowId, platform],
+    );
+  }
+}
+
+/** Set a single platform's child-row status (with optional error detail). */
+async function setPlatformDispatchStatus(client, rowId, platform, status, errorMessage) {
+  const truncated = errorMessage ? String(errorMessage).slice(0, 1000) : null;
+  await client.query(
+    `UPDATE scheduled_post_dispatches
+     SET status = $3,
+         dispatched_at = CASE WHEN $3 = 'dispatched' THEN now() ELSE dispatched_at END,
+         error_at = CASE WHEN $3 = 'failed' THEN now() ELSE error_at END,
+         error_message = CASE WHEN $3 = 'failed' THEN $4 ELSE error_message END,
+         updated_at = now()
+     WHERE scheduled_post_id = $1 AND platform = $2`,
+    [rowId, platform, status, truncated],
+  );
+}
+
+/** Recompute and persist the parent rollup from the child rows. */
+async function syncParentRollup(client, rowId) {
+  const childResult = await client.query(
+    `SELECT status, error_message FROM scheduled_post_dispatches WHERE scheduled_post_id = $1`,
+    [rowId],
+  );
+  const statuses = childResult.rows.map((r) => r.status);
+  const rolled = rollupParentStatus(statuses);
+  const firstError = childResult.rows.find((r) => r.status === 'failed' && r.error_message)?.error_message ?? null;
   await client.query(
     `UPDATE scheduled_posts
-     SET dispatch_status = 'failed', error_at = now(), error_message = $2
+     SET dispatch_status = $2,
+         dispatched_at = CASE WHEN $2 = 'dispatched' THEN now() ELSE dispatched_at END,
+         error_at = CASE WHEN $2 = 'failed' THEN now() ELSE error_at END,
+         error_message = CASE WHEN $2 = 'failed' THEN $3 ELSE error_message END
      WHERE id = $1`,
-    [rowId, truncated],
+    [rowId, rolled, firstError],
   );
+  return rolled;
 }
 
 async function updatePostStatus(client, postId, status) {
@@ -96,6 +152,39 @@ function resolveInternalSecret() {
   return process.env.INTERNAL_API_SECRET || '';
 }
 
+/**
+ * Normalize a per-platform `results` array from the dispatch route into the
+ * per-platform child-row outcome the worker persists. A platform with `ok`
+ * becomes 'dispatched'; a non-retryable failure becomes terminal 'failed'; a
+ * retryable failure stays 'pending' so the next worker pass re-claims it.
+ * `transportError` covers the case where the whole dispatch call failed (no
+ * per-platform breakdown available) — every requested platform stays retryable.
+ */
+export function planPlatformOutcomes(platforms, results, transportError) {
+  const list = Array.isArray(platforms) ? platforms : [];
+  const byProvider = new Map(
+    (Array.isArray(results) ? results : []).map((r) => [r.provider, r]),
+  );
+  return list.map((platform) => {
+    if (transportError) {
+      return { platform, status: 'pending', error: transportError, retryable: true };
+    }
+    const result = byProvider.get(platform);
+    if (result && result.ok) {
+      return { platform, status: 'dispatched', error: null, retryable: false };
+    }
+    const retryable = result ? result.retryable !== false : true;
+    const error = result?.error ?? 'no_result_for_platform';
+    return { platform, status: retryable ? 'pending' : 'failed', error, retryable };
+  });
+}
+
+/**
+ * POST the scheduled-dispatch request and return the per-platform results.
+ * Network/timeout and 5xx are retried once; a parsed body's `results` array
+ * carries each platform's outcome. Returns { results, transportError } —
+ * transportError is set only when no per-platform breakdown is available.
+ */
 async function dispatchWithRetry(row, baseUrl, secret) {
   const platforms = Array.isArray(row.target_platforms) ? row.target_platforms : [];
   const content = row.caption || '';
@@ -119,8 +208,7 @@ async function dispatchWithRetry(row, baseUrl, secret) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
-      const res = await fetch(url, { method: 'POST', headers, body, signal: controller.signal });
-      return res;
+      return await fetch(url, { method: 'POST', headers, body, signal: controller.signal });
     } finally {
       clearTimeout(timer);
     }
@@ -130,39 +218,36 @@ async function dispatchWithRetry(row, baseUrl, secret) {
   let res;
   try {
     res = await attempt();
-  } catch (error) {
+  } catch {
     // Transient network / timeout: retry once
     try {
       res = await attempt();
     } catch (retryError) {
-      throw new Error(`fetch failed after retry: ${String((retryError).message || retryError)}`);
+      return { results: [], transportError: `fetch failed after retry: ${String(retryError?.message || retryError)}` };
     }
   }
 
-  if (res.ok || res.status === 202) return res;
-
-  // 4xx: don't retry (bad token, page deleted, etc.)
-  if (res.status >= 400 && res.status < 500) {
-    const body2 = await res.text().catch(() => '');
-    throw Object.assign(
-      new Error(`dispatch 4xx: ${res.status} ${body2.slice(0, 200)}`),
-      { retryable: false },
-    );
+  // 5xx: retry once. 4xx and 2xx are taken as-is (the route always returns a
+  // per-platform `results` body, including for terminal-failure 4xx).
+  if (res.status >= 500) {
+    try {
+      res = await attempt();
+    } catch (retryError) {
+      return { results: [], transportError: `fetch 5xx retry failed: ${String(retryError?.message || retryError)}` };
+    }
   }
 
-  // 5xx: retry once
+  let parsed;
   try {
-    res = await attempt();
-  } catch (retryError) {
-    throw new Error(`fetch 5xx retry failed: ${String((retryError).message || retryError)}`);
+    parsed = await res.json();
+  } catch {
+    return { results: [], transportError: `dispatch ${res.status}: unparseable response body` };
   }
 
-  if (!res.ok && res.status !== 202) {
-    const body2 = await res.text().catch(() => '');
-    throw new Error(`dispatch failed after retry: ${res.status} ${body2.slice(0, 200)}`);
+  if (Array.isArray(parsed?.results)) {
+    return { results: parsed.results, transportError: null };
   }
-
-  return res;
+  return { results: [], transportError: `dispatch ${res.status}: missing per-platform results` };
 }
 
 // ---------------------------------------------------------------------------
@@ -203,44 +288,46 @@ async function tick(pool) {
         continue;
       }
 
-      // Optimistically mark dispatched inside the transaction to prevent
-      // double-dispatch if another worker instance picks the same row.
+      const platforms = Array.isArray(row.target_platforms) ? row.target_platforms : [];
+
+      // Claim the row and seed one per-platform child row. Optimistically
+      // mark the parent dispatched inside the transaction to keep another
+      // worker instance off the same row.
+      await seedPlatformDispatches(client, rowId, platforms);
       await markDispatched(client, rowId);
       await client.query('COMMIT');
 
-      // Fire the dispatch outside the transaction (network call)
+      // Fire the dispatch outside the transaction (network call), then write
+      // each platform's real outcome to its child row and roll the parent up.
+      const { results, transportError } = await dispatchWithRetry(row, baseUrl, secret);
+      const outcomes = planPlatformOutcomes(platforms, results, transportError);
+
+      const fc = await pool.connect();
       try {
-        await dispatchWithRetry(row, baseUrl, secret);
-        await updatePostStatus(client, row.post_id, 'published');
-        report.dispatched += 1;
-      } catch (dispatchError) {
-        const isRetryable = dispatchError.retryable !== false;
-        const errMsg = String(dispatchError.message || dispatchError);
-        console.error(`[scheduled-posts-worker] dispatch failed row=${rowId}`, errMsg);
-
-        if (!isRetryable) {
-          // Hard failure: mark failed permanently
-          const fc = await pool.connect();
-          try {
-            await markFailed(fc, rowId, errMsg);
-            await updatePostStatus(fc, row.post_id, 'failed');
-          } finally {
-            fc.release();
-          }
-        } else {
-          // Retryable: reset to pending so the next tick can retry
-          const fc = await pool.connect();
-          try {
-            await fc.query(
-              `UPDATE scheduled_posts SET dispatch_status = 'pending' WHERE id = $1`,
-              [rowId],
-            );
-          } finally {
-            fc.release();
-          }
+        await fc.query('BEGIN');
+        for (const outcome of outcomes) {
+          await setPlatformDispatchStatus(fc, rowId, outcome.platform, outcome.status, outcome.error);
         }
+        const rolled = await syncParentRollup(fc, rowId);
+        if (rolled === 'dispatched') {
+          await updatePostStatus(fc, row.post_id, 'published');
+        } else if (rolled === 'failed') {
+          await updatePostStatus(fc, row.post_id, 'failed');
+        }
+        await fc.query('COMMIT');
 
-        report.failed += 1;
+        if (rolled === 'dispatched') {
+          report.dispatched += 1;
+        } else {
+          report.failed += 1;
+          const errs = outcomes.filter((o) => o.status !== 'dispatched').map((o) => `${o.platform}:${o.error}`);
+          console.error(`[scheduled-posts-worker] row=${rowId} rollup=${rolled}`, errs.join('; '));
+        }
+      } catch (writeError) {
+        try { await fc.query('ROLLBACK'); } catch { /* ignore */ }
+        throw writeError;
+      } finally {
+        fc.release();
       }
     } catch (rowError) {
       try { await client.query('ROLLBACK'); } catch { /* ignore */ }

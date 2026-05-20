@@ -99,11 +99,22 @@ export async function POST(req: Request): Promise<Response> {
     return toSignedPublicUrl(url, tenantId, basename);
   });
 
-  const results: Array<{ provider: string; ok: boolean; error?: string }> = [];
+  // Each platform is attempted independently and its outcome recorded, so a
+  // cross-post that succeeds on one platform and fails on another reports the
+  // truth per platform. The worker maps `retryable` onto per-platform child
+  // rows; a non-retryable failure is terminal, a retryable one is re-claimed
+  // on a later pass.
+  const results: Array<{
+    provider: string;
+    ok: boolean;
+    error?: string;
+    retryable?: boolean;
+  }> = [];
 
   for (const platform of platforms) {
     if (!isMetaProvider(platform)) {
-      results.push({ provider: platform, ok: false, error: 'unsupported_provider' });
+      // Unsupported provider can never succeed — terminal, not retryable.
+      results.push({ provider: platform, ok: false, error: 'unsupported_provider', retryable: false });
       continue;
     }
     try {
@@ -127,7 +138,10 @@ export async function POST(req: Request): Promise<Response> {
       const errMsg = error instanceof MetaPublishError
         ? `${error.code}: ${error.message}`
         : String((error as Error).message || error);
-      results.push({ provider: platform, ok: false, error: errMsg });
+      // A non-Meta error (e.g. a transient network throw) is treated as
+      // retryable; a MetaPublishError carries its own retryable flag.
+      const retryable = error instanceof MetaPublishError ? error.retryable : true;
+      results.push({ provider: platform, ok: false, error: errMsg, retryable });
 
       if (postId && error instanceof MetaPublishError && !error.retryable) {
         await pool.query(
@@ -135,14 +149,19 @@ export async function POST(req: Request): Promise<Response> {
           [postId, tenantId],
         ).catch(() => {});
       }
-
-      // Re-throw so the worker can classify the failure as retryable or not
-      throw error;
+      // Do NOT abort the loop: a later platform may still succeed, and the
+      // worker needs every platform's outcome to write per-platform state.
     }
   }
 
-  return new Response(JSON.stringify({ status: 'ok', results }), {
-    status: 202,
+  const anyOk = results.some((r) => r.ok);
+  const anyRetryable = results.some((r) => !r.ok && r.retryable);
+  // 202 when at least one platform was dispatched; 502 when every platform
+  // failed and at least one is retryable; 422 when all failures are terminal.
+  const status = anyOk ? 202 : anyRetryable ? 502 : 422;
+
+  return new Response(JSON.stringify({ status: anyOk ? 'ok' : 'error', results }), {
+    status,
     headers: { 'content-type': 'application/json' },
   });
 }
