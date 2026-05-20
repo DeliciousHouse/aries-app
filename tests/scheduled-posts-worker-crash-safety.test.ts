@@ -157,9 +157,15 @@ class FakeClient {
     }
 
     if (s.startsWith('SELECT platform FROM scheduled_post_dispatches')) {
+      // The worker excludes platforms that already reached a terminal state
+      // (dispatched OR failed) from re-dispatch on a stale-in_flight reclaim.
       const spId = Number(params[0]);
       const rows = store.children
-        .filter((c) => c.scheduled_post_id === spId && c.status === 'dispatched')
+        .filter(
+          (c) =>
+            c.scheduled_post_id === spId &&
+            (c.status === 'dispatched' || c.status === 'failed'),
+        )
         .map((c) => ({ platform: c.platform }));
       return { rows, rowCount: rows.length };
     }
@@ -308,6 +314,71 @@ test('worker commits in_flight before publish; a crash mid-publish leaves a recl
     );
   } finally {
     globalThis.fetch = realFetch2;
+  }
+});
+
+test('a stale reclaim does NOT re-dispatch a terminally-failed platform', async () => {
+  // F5(a): on a stale-in_flight reclaim, a platform whose child row is
+  // 'failed' (terminal, non-retryable) must be excluded from the re-dispatch
+  // set — exactly like a 'dispatched' platform. Re-sending it would risk a
+  // duplicate publish if the original "failure" was a false negative, and at
+  // best wastes a Graph API call on a permanently-dead platform.
+  const { tick } = await loadWorker();
+  const db = new FakeDb();
+  seedDueRow(db);
+
+  // The row is stale in_flight (past the reclaim window). FB already failed
+  // terminally; IG is still in_flight (its worker pass crashed).
+  db.scheduled[0].dispatch_status = 'in_flight';
+  db.scheduled[0].updated_at = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  db.children.push(
+    {
+      scheduled_post_id: 1,
+      platform: 'facebook',
+      status: 'failed',
+      dispatched_at: null,
+      error_at: new Date().toISOString(),
+      error_message: 'media_invalid',
+    },
+    {
+      scheduled_post_id: 1,
+      platform: 'instagram',
+      status: 'in_flight',
+      dispatched_at: null,
+      error_at: null,
+      error_message: null,
+    },
+  );
+
+  process.env.APP_BASE_URL = 'https://aries.example.test';
+  process.env.INTERNAL_API_SECRET = 'test-secret';
+
+  let dispatchedPlatforms: string[] = [];
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async (_url: unknown, init: { body?: unknown }) => {
+      const sent = JSON.parse(String(init.body)) as { platforms: string[] };
+      dispatchedPlatforms = sent.platforms;
+      return new Response(
+        JSON.stringify({
+          status: 'ok',
+          results: sent.platforms.map((p: string) => ({ provider: p, ok: true })),
+        }),
+        { status: 202, headers: { 'content-type': 'application/json' } },
+      );
+    }) as typeof fetch;
+
+    await tick(makePool(db));
+
+    assert.deepEqual(
+      dispatchedPlatforms,
+      ['instagram'],
+      'only the non-terminal platform is re-dispatched; the failed FB child is excluded',
+    );
+    const fb = db.children.find((c) => c.platform === 'facebook');
+    assert.equal(fb?.status, 'failed', 'the terminally-failed FB child stays failed, never reset');
+  } finally {
+    globalThis.fetch = realFetch;
   }
 });
 

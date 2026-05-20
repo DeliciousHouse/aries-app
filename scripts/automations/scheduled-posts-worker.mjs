@@ -317,39 +317,58 @@ export async function tick(pool) {
   const report = { processed: ids.length, dispatched: 0, failed: 0, skipped: 0 };
 
   for (const rowId of ids) {
-    const client = await pool.connect();
+    // The claim transaction and the post-publish write each need a pooled
+    // connection, but never at the same time: the network publish runs
+    // between them with no connection held. Acquire/release per phase so a
+    // single row never pins two connections — at worker concurrency that
+    // doubled the pool pressure (see guardrail #1, DB_POOL_MAX budgeting).
+    let row;
+    let platformsToDispatch;
     try {
-      await client.query('BEGIN');
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
 
-      const row = await claimRow(client, rowId);
-      if (!row) {
-        report.skipped += 1;
-        await client.query('ROLLBACK');
-        continue;
+        row = await claimRow(client, rowId);
+        if (!row) {
+          report.skipped += 1;
+          await client.query('ROLLBACK');
+          continue;
+        }
+
+        const platforms = Array.isArray(row.target_platforms) ? row.target_platforms : [];
+
+        // Claim the row: seed per-platform child rows and mark the parent
+        // 'in_flight' — a NON-terminal state — then COMMIT before any publish.
+        // A crash after this commit leaves a reclaimable in_flight row, never
+        // a false 'dispatched'. The terminal status is written only after
+        // Meta confirms, in the post-publish transaction below.
+        await seedPlatformDispatches(client, rowId, platforms);
+        await markInFlight(client, rowId);
+        // On a stale-in_flight re-claim, a platform that already reached a
+        // terminal state — 'dispatched' (went live) or 'failed' (terminal,
+        // non-retryable) — must not be dispatched again. Excluding only
+        // 'dispatched' would re-send a permanently-failed platform.
+        const childResult = await client.query(
+          `SELECT platform FROM scheduled_post_dispatches
+           WHERE scheduled_post_id = $1 AND status IN ('dispatched', 'failed')`,
+          [rowId],
+        );
+        const alreadyTerminal = new Set(childResult.rows.map((r) => r.platform));
+        await client.query('COMMIT');
+
+        platformsToDispatch = platforms.filter((p) => !alreadyTerminal.has(p));
+      } catch (claimError) {
+        try { await client.query('ROLLBACK'); } catch { /* ignore */ }
+        throw claimError;
+      } finally {
+        // Release the claim connection BEFORE the network publish: the publish
+        // holds no DB connection, and the post-publish write acquires a fresh
+        // one. A row never pins two connections at once.
+        client.release();
       }
 
-      const platforms = Array.isArray(row.target_platforms) ? row.target_platforms : [];
-
-      // Claim the row: seed per-platform child rows and mark the parent
-      // 'in_flight' — a NON-terminal state — then COMMIT before any publish.
-      // A crash after this commit leaves a reclaimable in_flight row, never a
-      // false 'dispatched'. The terminal status is written only after Meta
-      // confirms, in the post-publish transaction below.
-      await seedPlatformDispatches(client, rowId, platforms);
-      await markInFlight(client, rowId);
-      // On a stale-in_flight re-claim, a platform that already went live keeps
-      // its terminal 'dispatched' child row — never re-publish it.
-      const childResult = await client.query(
-        `SELECT platform FROM scheduled_post_dispatches
-         WHERE scheduled_post_id = $1 AND status = 'dispatched'`,
-        [rowId],
-      );
-      const alreadyDispatched = new Set(childResult.rows.map((r) => r.platform));
-      await client.query('COMMIT');
-
-      const platformsToDispatch = platforms.filter((p) => !alreadyDispatched.has(p));
-
-      // Fire the dispatch outside the transaction (network call), then write
+      // Fire the dispatch outside any transaction (network call), then write
       // each platform's real outcome to its child row and roll the parent up.
       const { results, transportError } = platformsToDispatch.length > 0
         ? await dispatchWithRetry({ ...row, target_platforms: platformsToDispatch }, baseUrl, secret)
@@ -384,11 +403,8 @@ export async function tick(pool) {
         fc.release();
       }
     } catch (rowError) {
-      try { await client.query('ROLLBACK'); } catch { /* ignore */ }
       console.error(`[scheduled-posts-worker] row error id=${rowId}`, rowError);
       report.failed += 1;
-    } finally {
-      client.release();
     }
   }
 
