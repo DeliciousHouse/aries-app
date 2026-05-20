@@ -34,22 +34,24 @@ function buildPool() {
   });
 }
 
+// Claim SQL exported so a regression test can run it against a real schema
+// without spinning up the whole worker. 'caption' is the canonical posts body
+// column (see scripts/init-db.js) — selecting p.content here was schema drift.
+export const CLAIM_ROW_SQL = `SELECT sp.id, sp.post_id, sp.tenant_id, sp.target_platforms,
+            p.caption, p.platform_post_id
+     FROM scheduled_posts sp
+     LEFT JOIN posts p ON p.id = sp.post_id
+     WHERE sp.id = $1
+       AND sp.dispatch_status = 'pending'
+     FOR UPDATE SKIP LOCKED`;
+
 /**
  * Atomically claim a pending row (SELECT ... FOR UPDATE SKIP LOCKED) and
  * mark it as in-flight by setting dispatch_status = 'dispatched' optimistically.
  * Returns null if the row was already claimed by another instance.
  */
 async function claimRow(client, rowId) {
-  const lockResult = await client.query(
-    `SELECT sp.id, sp.post_id, sp.tenant_id, sp.target_platforms,
-            p.content, p.platform_post_id
-     FROM scheduled_posts sp
-     LEFT JOIN posts p ON p.id = sp.post_id
-     WHERE sp.id = $1
-       AND sp.dispatch_status = 'pending'
-     FOR UPDATE SKIP LOCKED`,
-    [rowId],
-  );
+  const lockResult = await client.query(CLAIM_ROW_SQL, [rowId]);
   if (lockResult.rows.length === 0) return null;
   return lockResult.rows[0];
 }
@@ -96,7 +98,7 @@ function resolveInternalSecret() {
 
 async function dispatchWithRetry(row, baseUrl, secret) {
   const platforms = Array.isArray(row.target_platforms) ? row.target_platforms : [];
-  const content = row.content || '';
+  const content = row.caption || '';
   const tenantId = String(row.tenant_id);
 
   const url = `${baseUrl}/api/internal/publishing/scheduled-dispatch`;
@@ -295,4 +297,10 @@ async function main() {
   }
 }
 
-void main();
+// Only auto-start when run directly as a script; importing this module (e.g.
+// from a regression test for CLAIM_ROW_SQL) must not spin up the worker loop.
+const isDirectRun = process.argv[1]
+  && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isDirectRun) {
+  void main();
+}

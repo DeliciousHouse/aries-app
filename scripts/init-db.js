@@ -381,11 +381,16 @@ async function initDb() {
     `);
 
     await client.query(`
-      -- Posts table columns for weekly social content
+      -- Posts table columns for weekly social content.
+      -- NOTE: 'caption' is the canonical post-body column. Prod's posts table
+      -- has 'caption' (NOT NULL) and no 'content' column; init-db.js previously
+      -- declared 'content' and drifted from prod. The drift origin is unknown
+      -- (no .sql migration performs a content->caption rename). 'caption' is
+      -- authoritative — keep all call sites on it.
       CREATE TABLE IF NOT EXISTS posts (
         id BIGSERIAL PRIMARY KEY,
         tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-        content TEXT NOT NULL,
+        caption TEXT NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
