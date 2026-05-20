@@ -246,6 +246,56 @@ test('weekly job status defaults to a 7-day calendar and keeps events in range',
   });
 });
 
+test('createMarketingJobRuntimeDocument derives job_type from payload.jobType', async () => {
+  await withRuntimeEnv(async () => {
+    const { createMarketingJobRuntimeDocument } = await import('@/backend/marketing/runtime-state');
+
+    const brandKit = {
+      path: '/tmp/brand-kit.json',
+      source_url: 'https://brand.example',
+      canonical_url: 'https://brand.example',
+      brand_name: 'Brand',
+      logo_urls: [],
+      colors: { primary: null, secondary: null, accent: null, palette: [] },
+      font_families: [],
+      external_links: [],
+      extracted_at: new Date().toISOString(),
+      brand_voice_summary: null,
+      offer_summary: null,
+      positioning: null,
+      audience: null,
+      tone_of_voice: null,
+      style_vibe: null,
+    };
+
+    const weekly = createMarketingJobRuntimeDocument({
+      jobId: 'mkt_jobtype_weekly',
+      tenantId: 'tenant_jobtype',
+      payload: { jobType: 'weekly_social_content', brandUrl: 'https://brand.example' },
+      brandKit,
+    });
+    assert.equal(weekly.job_type, 'weekly_social_content');
+
+    const brand = createMarketingJobRuntimeDocument({
+      jobId: 'mkt_jobtype_brand',
+      tenantId: 'tenant_jobtype',
+      payload: { jobType: 'brand_campaign', brandUrl: 'https://brand.example' },
+      brandKit,
+    });
+    assert.equal(brand.job_type, 'brand_campaign');
+
+    // Absent jobType falls back to brand_campaign — the legacy default, and the
+    // same fallback requestedJobTypeFromDoc() applies, so the two never disagree.
+    const fallback = createMarketingJobRuntimeDocument({
+      jobId: 'mkt_jobtype_absent',
+      tenantId: 'tenant_jobtype',
+      payload: { brandUrl: 'https://brand.example' },
+      brandKit,
+    });
+    assert.equal(fallback.job_type, 'brand_campaign');
+  });
+});
+
 test('weekly job status planned count equals requested static + script/render items', async () => {
   await withRuntimeEnv(async () => {
     const {

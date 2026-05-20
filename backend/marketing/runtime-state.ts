@@ -150,7 +150,11 @@ export type MarketingJobRuntimeDocument = {
   schema_version: typeof MARKETING_RUNTIME_SCHEMA_VERSION;
   job_id: string;
   tenant_id: string;
-  job_type: 'brand_campaign';
+  /**
+   * The kind of marketing job. Derived from `inputs.request.jobType` so it
+   * always agrees with `requestedJobTypeFromDoc()`, which drives the pipeline.
+   */
+  job_type: 'brand_campaign' | 'weekly_social_content';
   state: MarketingJobState;
   status: MarketingJobStatus;
   current_stage: MarketingStage;
@@ -311,12 +315,20 @@ export function createMarketingJobRuntimeDocument(input: {
   const resolvedPublishConfig = input.publishConfig
     ? defaultPublishConfig(input.publishConfig)
     : publishConfigFromChannels(payloadChannels);
+  // Label the doc with the actual job type. Compared against the raw
+  // `request.jobType` value with the exact same strict equality that
+  // `requestedJobTypeFromDoc()` uses (no trimming/coercion on either side),
+  // so the top-level label can never disagree with what drives the pipeline.
+  const resolvedJobType: MarketingJobRuntimeDocument['job_type'] =
+    input.payload?.jobType === 'weekly_social_content'
+      ? 'weekly_social_content'
+      : 'brand_campaign';
   return {
     schema_name: MARKETING_RUNTIME_SCHEMA_NAME,
     schema_version: MARKETING_RUNTIME_SCHEMA_VERSION,
     job_id: input.jobId,
     tenant_id: input.tenantId,
-    job_type: 'brand_campaign',
+    job_type: resolvedJobType,
     state: 'queued',
     status: 'pending',
     current_stage: 'research',
