@@ -21,6 +21,7 @@ import {
 } from './runtime-state'
 import { readMarketingStageStepPayload } from './stage-artifact-resolution'
 import { loadValidatedMarketingProfileSnapshot } from './validated-profile-store'
+import { formatInTenantZone } from '@/lib/format-timestamp'
 
 export type MarketingDashboardItemStatus =
   | 'draft'
@@ -456,18 +457,12 @@ function formatDateRange(window: MarketingCampaignWindow | null): string {
 }
 
 function formatUtcTimestampLabel(value: string): string {
-  const timestamp = Date.parse(value)
-  if (!Number.isFinite(timestamp)) {
+  if (!Number.isFinite(Date.parse(value))) {
     return value
   }
-
-  return `${new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZone: 'UTC',
-  }).format(new Date(timestamp))} UTC`
+  // Routes through the shared formatter (C1). Server-side dashboard content
+  // has no tenant zone in scope, so the label stays explicitly UTC-suffixed.
+  return `${formatInTenantZone(value, 'UTC')} UTC`
 }
 
 function nextScheduledText(event: MarketingDashboardCalendarEventInternal | null): string {

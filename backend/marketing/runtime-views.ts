@@ -52,6 +52,7 @@ import {
   type ReviewItemEdit,
 } from './runtime-edit-state';
 import { validateCaption, type Channel as CaptionChannel } from '@/backend/social-content/caption-validator';
+import { formatInTenantZone } from '@/lib/format-timestamp';
 
 export type RuntimeCampaignStatus =
   | 'draft'
@@ -383,18 +384,12 @@ function runtimeStatusFromReviewState(status: 'not_ready' | 'pending_review' | '
 }
 
 function formatUtcTimestampLabel(value: string): string {
-  const timestamp = Date.parse(value);
-  if (!Number.isFinite(timestamp)) {
+  if (!Number.isFinite(Date.parse(value))) {
     return value;
   }
-
-  return `${new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZone: 'UTC',
-  }).format(new Date(timestamp))} UTC`;
+  // Routes through the shared formatter (C1). Server-side runtime views have
+  // no tenant zone in scope, so the label stays explicitly UTC-suffixed.
+  return `${formatInTenantZone(value, 'UTC')} UTC`;
 }
 
 function nextScheduledText(status: MarketingJobStatusResponse): string {

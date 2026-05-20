@@ -1,5 +1,6 @@
 import type { RuntimeCampaignListItem } from '@/lib/api/aries-v1';
 import type { DashboardHeroMetric } from '@/frontend/aries-v1/components';
+import { formatInTenantZone, tenantZoneAbbreviation } from '@/lib/format-timestamp';
 
 export interface CalendarViewModel {
   hero: {
@@ -29,19 +30,20 @@ export interface CalendarViewModel {
   }>;
 }
 
-function formatScheduledLabel(value: string, campaignName: string, statusLabel: string): string {
-  const timestamp = Date.parse(value);
-  if (!Number.isFinite(timestamp)) {
+function formatScheduledLabel(
+  value: string,
+  campaignName: string,
+  statusLabel: string,
+  timeZone = 'UTC',
+): string {
+  if (!Number.isFinite(Date.parse(value))) {
     return `${campaignName} · ${statusLabel}`;
   }
-
-  return `${new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZone: 'UTC',
-  }).format(new Date(timestamp))} UTC · ${campaignName} · ${statusLabel}`;
+  // Routes through the shared formatter (C1). Defaults to UTC for the legacy
+  // runtime-campaign feed; the scheduled_posts calendar passes the tenant zone.
+  const label = formatInTenantZone(value, timeZone);
+  const zoneSuffix = tenantZoneAbbreviation(value, timeZone);
+  return `${label} ${zoneSuffix} · ${campaignName} · ${statusLabel}`;
 }
 
 function normalizeCalendarPlatformLabel(platformLabel: string): string {

@@ -142,6 +142,10 @@ test('calendar view-model uses runtime calendar events for the month grid', () =
   );
   assert.equal(model.events[0].href, '/dashboard/social-content/campaign-1');
   assert.match(model.events[0].scheduledFor, /Spring Launch/);
+  // C1: the label now routes through the shared formatter. The runtime-campaign
+  // feed keeps its UTC framing — a month/day stamp and a UTC zone suffix.
+  assert.match(model.events[0].scheduledFor, /Apr 15/);
+  assert.match(model.events[0].scheduledFor, /UTC/);
   assert.equal(model.hero.metrics[0]?.value, '2');
 });
 
