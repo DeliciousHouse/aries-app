@@ -32,33 +32,59 @@ async function readBody(req: Request): Promise<ScheduledDispatchBody> {
 // tenant. Assets are linked to a post through the post's job_id matching
 // creative_assets.source_job_id; scoping by tenant_id alone published the
 // wrong post's images on a tenant with more than one post in flight.
+//
+// storage_kind values come from the creative_assets CHECK constraint:
+//   - 'runtime_asset'  — Aries-generated (ingest-production-assets.ts).
+//     storage_key is a host filesystem path (not servable); served_asset_ref
+//     is the servable '/api/internal/hermes/media/<basename>' ref.
+//   - 'ingested_asset' — operator upload (upload-replace.ts). Same: the
+//     servable ref is served_asset_ref when set.
+//   - 'external_url'   — the asset already lives at a public URL; storage_key
+//     holds that URL and is returned as-is.
+//   - 'none'           — no usable media, excluded.
+// served_asset_ref is the canonical servable reference used everywhere else
+// (workspace-views.ts previewUrl, creative-memory eligibility); rebuilding a
+// URL from storage_key — as the old code did — produced a path that pointed
+// at the host filesystem, not a fetchable URL.
 export async function resolveMediaUrls(
   postId: string,
   tenantId: string,
   db: DispatchQueryable = pool,
 ): Promise<string[]> {
-  const result = await db.query<{ storage_key: string; storage_kind: string }>(
-    `SELECT ca.storage_key, ca.storage_kind
+  const result = await db.query<{
+    storage_key: string | null;
+    storage_kind: string;
+    served_asset_ref: string | null;
+  }>(
+    `SELECT ca.storage_key, ca.storage_kind, ca.served_asset_ref
      FROM creative_assets ca
      JOIN posts p ON p.job_id = ca.source_job_id AND p.tenant_id = ca.tenant_id
      WHERE p.id = $1
        AND ca.tenant_id = $2
        AND p.job_id IS NOT NULL
-       AND ca.storage_kind IN ('hermes', 'local', 'url')
-       AND ca.storage_key IS NOT NULL
+       AND ca.storage_kind IN ('runtime_asset', 'ingested_asset', 'external_url')
        AND ca.orphaned_at IS NULL
      ORDER BY ca.id DESC
      LIMIT 4`,
     [postId, tenantId],
   );
-  // Return internal Hermes media URLs that will be signed below
+
+  const appBase = (process.env.APP_BASE_URL || '').replace(/\/$/, '');
   return result.rows
-    .filter((r) => r.storage_key)
     .map((r) => {
-      if (r.storage_kind === 'url') return r.storage_key;
-      const appBase = (process.env.APP_BASE_URL || '').replace(/\/$/, '');
-      return `${appBase}/api/internal/hermes/media/${r.storage_key}`;
-    });
+      // An external_url asset already is a fetchable URL.
+      if (r.storage_kind === 'external_url') {
+        return r.storage_key && r.storage_key.trim() ? r.storage_key.trim() : null;
+      }
+      // runtime_asset / ingested_asset: serve via the Hermes media route using
+      // the relative served_asset_ref. Skip rows with no servable ref rather
+      // than guessing a path from the host-side storage_key.
+      const ref = r.served_asset_ref?.trim();
+      if (!ref) return null;
+      if (/^https?:\/\//i.test(ref)) return ref;
+      return `${appBase}${ref.startsWith('/') ? '' : '/'}${ref}`;
+    })
+    .filter((url): url is string => Boolean(url));
 }
 
 export async function POST(req: Request): Promise<Response> {
