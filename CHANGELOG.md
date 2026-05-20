@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.3.53 — refactor(marketing): three-profile Hermes routing for the weekly social pipeline
+
+The weekly social-content pipeline ran every stage — research, strategy, production, publish — through one monolithic Hermes agent. That single agent structurally regressed: told to generate images it dropped copywriting; the strategy stage wrote JSON instead of reasoning. This release routes each stage to a dedicated Hermes profile so each agent does one job well.
+
+**Per-profile routing (`backend/marketing/ports/hermes.ts`)**
+
+Each marketing stage now targets its own Hermes profile gateway:
+- research → `aries-research` (web/search tools)
+- strategy + publish → `aries-strategist` (pure reasoning, no tools)
+- production → `aries-content-generator` (`image_gen` toolset)
+
+The target profile is derived from the stage the orchestrator already passes, so no orchestrator change is needed. Every per-profile gateway URL/key env var falls back to `HERMES_GATEWAY_URL` / `HERMES_API_SERVER_KEY` — a deployment that has not set the per-profile vars behaves exactly as the historical single-gateway setup.
+
+**Per-stage instruction builders**
+
+`buildHermesInstructions` for the weekly workflow is split into four short per-stage builders behind `buildHermesStageInstructions(workflowKey, stage)`. Each ships only its stage's contract: the strategist builder carries no `image_generate` text, the production builder carries no research tool policy.
+
+**Resume → independent run**
+
+A resume token issued by one profile's gateway cannot resume on another. An approved weekly strategy/production/publish transition is now dispatched as a fresh `action: run` POST on the stage's dedicated profile, carrying the prior stage's output as input. A weekly denial short-circuits before any POST — the denying stage's run has already completed, so there is nothing to cancel; the orchestrator records the denied state locally.
+
+**Config**
+
+`docker-compose.yml` wires `aries-strategist` (gateway port 8654) and `aries-content-generator` (port 8655); the research stage stays on the default gateway. `.env.example` documents all six per-profile vars.
+
 ## v0.1.3.52 — fix(publishing): poll Instagram media container until FINISHED before publish
 
 Instagram's Graph API requires the media container to reach `FINISHED` before `/media_publish` is called. Previously `publishInstagram` called `/media_publish` immediately after `createInstagramContainer()`, causing `graph_api_error: "Media ID is not available"` when the container was still `IN_PROGRESS` (campaign mkt_d166d5e6).

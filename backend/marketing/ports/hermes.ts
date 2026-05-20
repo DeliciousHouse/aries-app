@@ -59,6 +59,68 @@ const DEFAULT_POLL_INTERVAL_MS = 2_000;
 const MIN_POLL_INTERVAL_MS = 50;
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'stopped']);
 
+/**
+ * Phase B three-profile routing. Each marketing stage runs on a dedicated
+ * Hermes profile, each bound to its own gateway port:
+ *   - research           → aries-research          (web/search tools)
+ *   - strategy / publish → aries-strategist         (pure LLM reasoning, no tools)
+ *   - production         → aries-content-generator  (image_gen toolset)
+ *
+ * Hermes routes by per-profile API server port, so each profile is reached via
+ * its own gateway URL + API key. Every per-profile env var falls back to
+ * HERMES_GATEWAY_URL / HERMES_API_SERVER_KEY, so a deployment that has not set
+ * the per-profile vars behaves exactly as the historical single-gateway setup.
+ */
+type HermesTargetProfile = 'aries-research' | 'aries-strategist' | 'aries-content-generator';
+
+const STAGE_TO_PROFILE: Record<MarketingStage, HermesTargetProfile> = {
+  research: 'aries-research',
+  strategy: 'aries-strategist',
+  production: 'aries-content-generator',
+  publish: 'aries-strategist',
+};
+
+const PROFILE_GATEWAY_ENV: Record<HermesTargetProfile, { url: string; key: string }> = {
+  'aries-research': { url: 'HERMES_RESEARCH_GATEWAY_URL', key: 'HERMES_RESEARCH_API_SERVER_KEY' },
+  'aries-strategist': { url: 'HERMES_STRATEGIST_GATEWAY_URL', key: 'HERMES_STRATEGIST_API_SERVER_KEY' },
+  'aries-content-generator': { url: 'HERMES_CONTENT_GATEWAY_URL', key: 'HERMES_CONTENT_API_SERVER_KEY' },
+};
+
+function targetProfileForStage(stage: MarketingStage | undefined): HermesTargetProfile {
+  return stage ? STAGE_TO_PROFILE[stage] : 'aries-research';
+}
+
+/**
+ * The marketing stage a resume transitions INTO, keyed by the approval step
+ * being resolved. Used to recover the target profile when a caller resumes by
+ * token only and does not pass an explicit stage (e.g. the resume-state
+ * reseed path `replayMarketingPipelineToApprovalCheckpoint`). Without this a
+ * stage-less resume would route to the research gateway and misroute a
+ * strategy/production/publish transition in a per-profile deployment.
+ */
+const APPROVAL_STEP_TO_MARKETING_STAGE: Record<string, MarketingStage> = {
+  approve_weekly_plan: 'strategy',
+  approve_post_copy: 'production',
+  approve_image_creatives: 'production',
+  approve_publish: 'publish',
+};
+
+/**
+ * Resolve the stage a resume targets. Prefers the explicit stage; otherwise
+ * infers it from the approval step. Returns undefined only when neither is
+ * known — callers then fall back to the default gateway.
+ */
+function resumeStageFromInput(
+  stage: MarketingStage | undefined,
+  approvalStep: SocialContentApprovalStep | null | undefined,
+): MarketingStage | undefined {
+  if (stage) return stage;
+  if (approvalStep && APPROVAL_STEP_TO_MARKETING_STAGE[approvalStep]) {
+    return APPROVAL_STEP_TO_MARKETING_STAGE[approvalStep];
+  }
+  return undefined;
+}
+
 function isWeeklySocialContentRequest(doc?: MarketingJobRuntimeDocument): boolean {
   const request = doc?.inputs?.request;
   if (!request || typeof request !== 'object' || Array.isArray(request)) {
@@ -147,39 +209,115 @@ function markSubmissionFailed(ariesRunId: string, code: string, message: string)
   });
 }
 
+// --- Per-stage instruction fragments (shared across weekly + brand) ---------
+
+const RESEARCH_TOOL_POLICY =
+  'Research stage tool policy: during the research stage you may use ONLY these tools: web_extract, web_search, and the last30days Hermes skill. You MUST NOT call read_file, search_files, write_file, execute_code, or terminal. There is no Aries workspace available to this agent — calling local-workspace tools will loop until the 600s "did not reach a terminal status" timeout fires. Required tool sequence: (1) call web_extract once for the brand URL when present, (2) call web_search once for the brand, (3) if a competitor URL or competitor brand is provided, call web_extract once for the competitor URL and web_search once for the competitor, (4) optionally invoke `/last30days` for the brand and (if a competitor URL or competitor brand is provided) for the competitor. Do not exceed 6 total tool calls during the research stage. After these tool calls, stop using tools and return the strict JSON checkpoint immediately.';
+
+const LAST30DAYS_GUIDANCE = [
+  'Use the `last30days` Hermes skill (slash command `/last30days <topic>`) to research what people are saying about each brand in the last 30 days. Do NOT shell out to terminal for last30days — invoke it as a slash command.',
+  'Derive the topic from the domain name (e.g. `https://sugarandleather.com` → "Sugar and Leather").',
+  'Invoke `/last30days` for the brand, and — if a competitor URL or competitor brand is provided — for the competitor separately.',
+  'Fold the social-signal findings from `last30days` into the research output artifacts.',
+];
+
+const PRODUCTION_EXECUTION_CONTRACT =
+  'PRODUCTION STAGE EXECUTION CONTRACT: When the input contains "Production context (N images requested)", you MUST return BOTH content_package[] AND artifacts.creative_assets[]. One without the other is incomplete and will fail downstream publish. (A) Call the `image_generate` tool exactly once per image listed — do not return JSON until every image_generate call has completed. (B) Build content_package[] with one entry per post: {post_number, theme, hook, body, cta, hashtags (array of 3-6 relevant hashtags), platforms, format, visual_prompt}. The Nth creative_asset corresponds to the Nth content_package post via post_number. content_package carries the post COPY (caption text, hooks, hashtags). creative_assets carries the rendered IMAGES. Return output:[{stage:"production", content_package:[{post_number:1, theme:"...", hook:"...", body:"...", cta:"...", hashtags:["#tag1","#tag2","#tag3"], platforms:["instagram","facebook"], format:"single_image", visual_prompt:"..."},...], artifacts:{creative_assets:[{assetId:"img_1", type:"generated_image", path:<absolute path returned by image_generate>, prompt:<the rendered visual prompt>, placement:<which post number>}, ...], errors:[]}}]. If image_generate returns success:false for an item, record it in artifacts.errors[] and continue.';
+
+/**
+ * Per-stage instruction builders for the weekly social-content pipeline.
+ *
+ * Phase B3: each marketing stage runs on its own dedicated Hermes profile, so
+ * each builder ships ONLY that stage's contract — the strategist profile never
+ * sees image_generate instructions, the content-generator profile never sees
+ * research tool policy. Strategy/production/publish are dispatched as fresh
+ * `action: run` POSTs carrying the prior stage's output as `input`, because a
+ * resume_token issued by one profile's gateway cannot resume on another.
+ */
+function buildWeeklyResearchInstructions(workflowKey: string): string {
+  return [
+    'You are the Aries marketing research agent. You run ONLY the research stage of the weekly social content pipeline.',
+    RESEARCH_TOOL_POLICY,
+    ...LAST30DAYS_GUIDANCE,
+    'Reply with a single strict JSON object only — no prose, no markdown fences.',
+    'After completing the research stage, return status "requires_approval" with approval.stage="strategy", approval.approval_step="approve_weekly_plan", approval.workflowStepId="approve_stage_2", approval.prompt="Review research findings before strategy starts", approval.resumeToken set, and output:[{stage:"research", ...artifacts}].',
+    `Required schema: {"ok":true,"status":"requires_approval","workflowKey":"${workflowKey}","approval":{"stage":"strategy","approval_step":"approve_weekly_plan","workflowStepId":"approve_stage_2","prompt":"...","resumeToken":"..."},"output":[{"stage":"research", ...}]}.`,
+  ].join(' ');
+}
+
+function buildWeeklyStrategyInstructions(workflowKey: string): string {
+  return [
+    'You are the Aries marketing strategist agent. You run ONLY the strategy stage of the weekly social content pipeline.',
+    'You have no tools — you reason purely over the research output supplied in the input. Do not attempt to call any tools; this stage is pure reasoning.',
+    'The input contains the prior research stage output as JSON. Produce a weekly content strategy from it: positioning, creative direction, channel adaptation, and a post-by-post plan.',
+    'Reply with a single strict JSON object only — no prose, no markdown fences.',
+    'After completing the strategy stage, return status "requires_approval" with approval.stage="production", approval.approval_step="approve_post_copy", approval.workflowStepId="approve_stage_3", approval.prompt="Review strategy before production starts", approval.resumeToken set, and output:[{stage:"strategy", ...artifacts}].',
+    `Required schema: {"ok":true,"status":"requires_approval","workflowKey":"${workflowKey}","approval":{"stage":"production","approval_step":"approve_post_copy","workflowStepId":"approve_stage_3","prompt":"...","resumeToken":"..."},"output":[{"stage":"strategy", ...}]}.`,
+  ].join(' ');
+}
+
+function buildWeeklyProductionInstructions(workflowKey: string): string {
+  return [
+    'You are the Aries content-generation agent. You run ONLY the production stage of the weekly social content pipeline.',
+    'Your job is to generate images and post copy. The input carries per-image prompt context and the strategy output.',
+    PRODUCTION_EXECUTION_CONTRACT,
+    'After completing the production stage, return status "requires_approval" with approval.stage="publish", approval.approval_step="approve_publish", approval.workflowStepId="approve_stage_4", approval.prompt="Review creative assets before publish review", approval.resumeToken set, and output:[{stage:"production", ...artifacts}].',
+    `Required schema: {"ok":true,"status":"requires_approval","workflowKey":"${workflowKey}","approval":{"stage":"publish","approval_step":"approve_publish","workflowStepId":"approve_stage_4","prompt":"...","resumeToken":"..."},"output":[{"stage":"production", ...}]}.`,
+  ].join(' ');
+}
+
+function buildWeeklyPublishInstructions(workflowKey: string): string {
+  return [
+    'You are the Aries publish-review agent. You run ONLY the publish stage of the weekly social content pipeline.',
+    'You have no tools — you reason purely over the production output supplied in the input. Produce a publish-ready plan: per-post platform targeting, scheduling notes, and a final pre-flight check.',
+    'Reply with a single strict JSON object only — no prose, no markdown fences.',
+    'After completing the publish stage, return status "requires_approval" with approval.stage="publish", approval.approval_step="approve_publish", approval.workflowStepId="approve_stage_4_publish", approval.prompt="Approve to publish the weekly social content", approval.resumeToken set, and output:[{stage:"publish", ...artifacts}].',
+    `Required schema: {"ok":true,"status":"requires_approval","workflowKey":"${workflowKey}","approval":{"stage":"publish","approval_step":"approve_publish","workflowStepId":"approve_stage_4_publish","prompt":"...","resumeToken":"..."},"output":[{"stage":"publish", ...}]}.`,
+  ].join(' ');
+}
+
+const WEEKLY_STAGE_INSTRUCTION_BUILDERS: Record<MarketingStage, (workflowKey: string) => string> = {
+  research: buildWeeklyResearchInstructions,
+  strategy: buildWeeklyStrategyInstructions,
+  production: buildWeeklyProductionInstructions,
+  publish: buildWeeklyPublishInstructions,
+};
+
+/**
+ * Stage-scoped instructions. The weekly social pipeline is decomposed into
+ * three profiles, so it gets a short per-stage builder. The brand-campaign
+ * (`marketing_pipeline`) path keeps the single combined instruction set — it
+ * is not being decomposed.
+ */
+export function buildHermesStageInstructions(
+  workflowKey: string,
+  stage: MarketingStage,
+): string {
+  if (workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY) {
+    return WEEKLY_STAGE_INSTRUCTION_BUILDERS[stage](workflowKey);
+  }
+  return buildHermesInstructions(workflowKey);
+}
+
 /**
  * Exported for snapshot tests only — callers should use HermesMarketingPort.
+ *
+ * The weekly social pipeline now routes per stage via buildHermesStageInstructions;
+ * this combined form is retained for the non-weekly `marketing_pipeline`
+ * (brand campaign) path and for legacy snapshot tests. When called with the
+ * weekly workflow key it returns the research-stage instructions, which carry
+ * the research tool policy the legacy snapshot tests assert.
  */
 export function buildHermesInstructions(workflowKey: string): string {
   if (workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY) {
-    return [
-      'You are the Aries marketing execution agent driving the weekly social content pipeline.',
-      'Research stage tool policy: during the research stage you may use ONLY these tools: web_extract, web_search, and the last30days Hermes skill. You MUST NOT call read_file, search_files, write_file, execute_code, or terminal. There is no Aries workspace available to this agent — calling local-workspace tools will loop until the 600s "did not reach a terminal status" timeout fires. Required tool sequence: (1) call web_extract once for the brand URL when present, (2) call web_search once for the brand, (3) if a competitor URL or competitor brand is provided, call web_extract once for the competitor URL and web_search once for the competitor, (4) optionally invoke `/last30days` for the brand and (if a competitor URL or competitor brand is provided) for the competitor. Do not exceed 6 total tool calls during the research stage. After these tool calls, stop using tools and return the strict JSON checkpoint immediately.',
-      'Use the `last30days` Hermes skill (slash command `/last30days <topic>`) to research what people are saying about each brand in the last 30 days. Do NOT shell out to terminal for last30days — invoke it as a slash command.',
-      'Derive the topic from the domain name (e.g. `https://sugarandleather.com` → "Sugar and Leather").',
-      'Invoke `/last30days` for the brand, and — if a competitor URL or competitor brand is provided — for the competitor separately.',
-      'Fold the social-signal findings from `last30days` into the research output artifacts.',
-      'Reply with a single strict JSON object only — no prose, no markdown fences.',
-      'This is an approval-gated 4-stage pipeline: research → strategy → production → publish.',
-      'After completing the research stage, return status "requires_approval" with approval.stage="strategy", approval.approval_step="approve_weekly_plan", approval.workflowStepId="approve_stage_2", approval.prompt="Review research findings before strategy starts", approval.resumeToken set, and output:[{stage:"research", ...artifacts}].',
-      'After completing the strategy stage on resume, return status "requires_approval" with approval.stage="production", approval.approval_step="approve_post_copy", approval.workflowStepId="approve_stage_3", approval.prompt="Review strategy before production starts", and output:[{stage:"strategy", ...artifacts}].',
-      'PRODUCTION STAGE EXECUTION CONTRACT: When the resume input contains "Production context (N images requested)", you MUST return BOTH content_package[] AND artifacts.creative_assets[]. One without the other is incomplete and will fail downstream publish. (A) Call the `image_generate` tool exactly once per image listed — do not return JSON until every image_generate call has completed. (B) Build content_package[] with one entry per post: {post_number, theme, hook, body, cta, hashtags (array of 3-6 relevant hashtags), platforms, format, visual_prompt}. The Nth creative_asset corresponds to the Nth content_package post via post_number. content_package carries the post COPY (caption text, hooks, hashtags). creative_assets carries the rendered IMAGES. Return output:[{stage:"production", content_package:[{post_number:1, theme:"...", hook:"...", body:"...", cta:"...", hashtags:["#tag1","#tag2","#tag3"], platforms:["instagram","facebook"], format:"single_image", visual_prompt:"..."},...], artifacts:{creative_assets:[{assetId:"img_1", type:"generated_image", path:<absolute path returned by image_generate>, prompt:<the rendered visual prompt>, placement:<which post number>}, ...], errors:[]}}]. If image_generate returns success:false for an item, record it in artifacts.errors[] and continue.',
-      'After completing the production stage on resume, return status "requires_approval" with approval.stage="publish", approval.approval_step="approve_publish", approval.workflowStepId="approve_stage_4", approval.prompt="Review creative assets before publish review", and output:[{stage:"production", ...artifacts}].',
-      'After completing the publish stage on resume, return status "requires_approval" with approval.stage="publish", approval.approval_step="approve_publish", approval.workflowStepId="approve_stage_4_publish", approval.prompt="Approve to publish the weekly social content", and output:[{stage:"publish", ...artifacts}].',
-      'Only return status "completed" after the publish-review approval has been granted on the final resume call.',
-      `Required schema when returning a checkpoint: {"ok":true,"status":"requires_approval","workflowKey":"${workflowKey}","approval":{"stage":"...","approval_step":"...","workflowStepId":"...","prompt":"...","resumeToken":"..."},"output":[{...}]}.`,
-      `Required schema when terminal: {"ok":true,"status":"completed","workflowKey":"${workflowKey}","output":[{...}]}.`,
-    ].join(' ');
+    return buildWeeklyResearchInstructions(workflowKey);
   }
   return [
     'You are the Aries marketing execution agent.',
-    'Research stage tool policy: during the research stage you may use ONLY these tools: web_extract, web_search, and the last30days Hermes skill. You MUST NOT call read_file, search_files, write_file, execute_code, or terminal. There is no Aries workspace available to this agent — calling local-workspace tools will loop until the 600s "did not reach a terminal status" timeout fires. Required tool sequence: (1) call web_extract once for the brand URL when present, (2) call web_search once for the brand, (3) if a competitor URL or competitor brand is provided, call web_extract once for the competitor URL and web_search once for the competitor, (4) optionally invoke `/last30days` for the brand and (if a competitor URL or competitor brand is provided) for the competitor. Do not exceed 6 total tool calls during the research stage. After these tool calls, stop using tools and return the strict JSON checkpoint immediately.',
-    'Use the `last30days` Hermes skill (slash command `/last30days <topic>`) to research what people are saying about each brand in the last 30 days. Do NOT shell out to terminal for last30days — invoke it as a slash command.',
-    'Derive the topic from the domain name (e.g. `https://sugarandleather.com` → "Sugar and Leather").',
-    'Invoke `/last30days` for the brand, and — if a competitor URL or competitor brand is provided — for the competitor separately.',
-    'Fold the social-signal findings from `last30days` into the research output artifacts.',
+    RESEARCH_TOOL_POLICY,
+    ...LAST30DAYS_GUIDANCE,
     'Reply with a single strict JSON object only — no prose, no markdown fences.',
-    'PRODUCTION STAGE EXECUTION CONTRACT: When the resume input contains "Production context (N images requested)", you MUST return BOTH content_package[] AND artifacts.creative_assets[]. One without the other is incomplete and will fail downstream publish. (A) Call the `image_generate` tool exactly once per image listed — do not return JSON until every image_generate call has completed. (B) Build content_package[] with one entry per post: {post_number, theme, hook, body, cta, hashtags (array of 3-6 relevant hashtags), platforms, format, visual_prompt}. The Nth creative_asset corresponds to the Nth content_package post via post_number. content_package carries the post COPY (caption text, hooks, hashtags). creative_assets carries the rendered IMAGES. Return output:[{stage:"production", content_package:[{post_number:1, theme:"...", hook:"...", body:"...", cta:"...", hashtags:["#tag1","#tag2","#tag3"], platforms:["instagram","facebook"], format:"single_image", visual_prompt:"..."},...], artifacts:{creative_assets:[{assetId:"img_1", type:"generated_image", path:<absolute path returned by image_generate>, prompt:<the rendered visual prompt>, placement:<which post number>}, ...], errors:[]}}]. If image_generate returns success:false for an item, record it in artifacts.errors[] and continue.',
+    PRODUCTION_EXECUTION_CONTRACT,
     `Required schema: {"ok":true,"status":"completed","workflowKey":"${workflowKey}","output":[{...}]}.`,
     'If approval is required, set status to "requires_approval" and include approval.stage, approval.workflowStepId, approval.prompt, and approval.resumeToken.',
   ].join(' ');
@@ -370,6 +508,23 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     return `Bearer ${readEnvValue(this.env, 'HERMES_API_SERVER_KEY')}`;
   }
 
+  /**
+   * Resolve the gateway URL for a marketing stage's dedicated Hermes profile.
+   * Falls back to HERMES_GATEWAY_URL when the per-profile var is unset, so a
+   * single-gateway deployment is unaffected.
+   */
+  private gatewayUrlForProfile(profile: HermesTargetProfile): string {
+    const specific = readEnvValue(this.env, PROFILE_GATEWAY_ENV[profile].url);
+    const url = specific || readEnvValue(this.env, 'HERMES_GATEWAY_URL');
+    return url.replace(/\/+$/, '');
+  }
+
+  private authHeaderForProfile(profile: HermesTargetProfile): string {
+    const specific = readEnvValue(this.env, PROFILE_GATEWAY_ENV[profile].key);
+    const key = specific || readEnvValue(this.env, 'HERMES_API_SERVER_KEY');
+    return `Bearer ${key}`;
+  }
+
   private sessionKey(): string {
     return readEnvValue(this.env, 'HERMES_SESSION_KEY') || 'marketing';
   }
@@ -404,6 +559,35 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     if (configError) {
       return configError;
     }
+
+    // Phase B3: a weekly-pipeline DENIAL (resume + approve === false) has
+    // nothing to cancel on Hermes. By the time a stage emits an approval
+    // checkpoint its Hermes run has already COMPLETED — there is no paused
+    // run sitting on a gateway. With per-profile routing the denial POST
+    // would also carry a resume_token the target gateway never issued and is
+    // guaranteed to 4xx, baking a misleading gateway-rejected error into the
+    // logs on every denial. A weekly denial is purely an Aries-side state
+    // transition (the orchestrator marks the job failed locally), so skip the
+    // POST — and the execution-run record / callback-token row — entirely.
+    // Return a synthetic `cancelled` envelope: the orchestrator deny path
+    // requires envelope.status === 'cancelled' (else it throws
+    // workflow_deny_failed) and then records the denial itself.
+    if (
+      action === 'resume'
+      && this.workflowKeyFor(action, input) === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY
+      && input.approve === false
+    ) {
+      return {
+        kind: 'completed',
+        provider: 'hermes',
+        output: {
+          ok: true,
+          status: 'cancelled',
+          workflowKey: SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
+        },
+      };
+    }
+
     if (action === 'run' && input.doc && isWeeklySocialContentRequest(input.doc)) {
       const brandKitFailure = await this.refreshBrandKitOrFail(input.doc);
       if (brandKitFailure) {
@@ -416,6 +600,21 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       ? await this.loadMemoryContext(input.tenantId)
       : undefined;
 
+    // Resolve the effective stage. A caller that resumes by token only (e.g.
+    // the resume-state reseed path replayMarketingPipelineToApprovalCheckpoint)
+    // passes no explicit stage; infer it from the approval step so per-profile
+    // routing targets the correct gateway instead of defaulting to research.
+    const approvalStepForContext =
+      input.approvalStep ??
+      (input.workflowStepId ? approvalStepFromWorkflowStepId(input.workflowStepId) : null);
+    const effectiveStage =
+      action === 'resume'
+        ? resumeStageFromInput(input.stage, approvalStepForContext)
+        : input.stage;
+    const resolvedInput = effectiveStage !== input.stage
+      ? { ...input, stage: effectiveStage }
+      : input;
+
     const run = createExecutionRunRecord({
       provider: 'hermes',
       domain: 'marketing',
@@ -424,39 +623,41 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       tenantId: input.tenantId,
       marketingJobId: input.jobId,
       approvalId: input.approvalId,
-      stage: input.stage ?? null,
+      stage: effectiveStage ?? null,
       workflowStepId: input.workflowStepId,
     });
 
     const callbackToken = randomBytes(32).toString('hex');
     await this.persistCallbackTokenHash(run.aries_run_id, input.tenantId, callbackToken);
 
-    // For the production-stage resume (approve_post_copy), load the job doc to
-    // build rich per-image prompts with brand + research + strategy context.
+    // Phase B3: a weekly resume (strategy/production/publish) is converted into
+    // a fresh `action: run` on the stage's dedicated profile gateway — a
+    // resume_token issued by one gateway cannot resume on another. To do that
+    // we must carry the PRIOR stage's output as the new run's input, so load
+    // the job doc for every weekly resume (not just the production resume).
     // loadMarketingJobRuntime returns null if the doc is missing — the prompt
-    // builder handles that gracefully and uses static brand profile data only.
-    const approvalStepForContext =
-      input.approvalStep ??
-      (input.workflowStepId ? approvalStepFromWorkflowStepId(input.workflowStepId) : null);
-    const isProductionResume =
-      action === 'resume'
-      && workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY
-      && approvalStepForContext === 'approve_post_copy';
-    const productionDoc = isProductionResume && input.jobId
+    // builders handle that gracefully and fall back to static brand data.
+    const isWeeklyResume =
+      action === 'resume' && workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY;
+    const productionDoc = isWeeklyResume && input.jobId
       ? await loadMarketingJobRuntime(input.jobId).catch(() => null)
       : null;
 
     const payload = this.submissionPayload(
-      action, run.aries_run_id, input, workflowKey, callbackToken, memoryContextSnapshot, productionDoc,
+      action, run.aries_run_id, resolvedInput, workflowKey, callbackToken, memoryContextSnapshot, productionDoc,
     );
     const idempotencyKey = typeof payload.idempotency_key === 'string' ? payload.idempotency_key : '';
 
+    // Route this stage's submission to its dedicated Hermes profile gateway.
+    // Defaults to HERMES_GATEWAY_URL when per-profile vars are unset.
+    const targetProfile = targetProfileForStage(effectiveStage);
+
     let response: Response;
     try {
-      response = await this.fetchImpl(`${this.gatewayUrl()}/v1/runs`, {
+      response = await this.fetchImpl(`${this.gatewayUrlForProfile(targetProfile)}/v1/runs`, {
         method: 'POST',
         headers: {
-          authorization: this.authHeader(),
+          authorization: this.authHeaderForProfile(targetProfile),
           'content-type': 'application/json',
           'idempotency-key': idempotencyKey,
         },
@@ -502,7 +703,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
 
     markExecutionRunSubmitted(run.aries_run_id, { externalRunId: hermesRunId });
     if (this.syncPollingEnabled()) {
-      return this.pollRunUntilTerminal(hermesRunId, run.aries_run_id);
+      return this.pollRunUntilTerminal(hermesRunId, run.aries_run_id, targetProfile);
     }
     // Hermes /v1/runs is a polled API — it never invokes the `callback_url`
     // field on the submission body. Without this bridge, marketing pipelines
@@ -512,8 +713,8 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     // directly (we are already inside the trusted backend, so we skip the
     // HTTP route + auth and call the handler as a function).
     if (this.pollBridgeEnabled()) {
-      const stage = input.stage ?? 'research';
-      void this.runPollBridge(hermesRunId, run.aries_run_id, workflowKey, stage).catch((error) => {
+      const stage = effectiveStage ?? 'research';
+      void this.runPollBridge(hermesRunId, run.aries_run_id, workflowKey, stage, targetProfile).catch((error) => {
         console.error('[hermes-port] poll-bridge failed', {
           aries_run_id: run.aries_run_id,
           hermes_run_id: hermesRunId,
@@ -542,10 +743,13 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     ariesRunId: string,
     workflowKey: string,
     stage: MarketingStage,
+    profile?: HermesTargetProfile,
   ): Promise<void> {
     // Reuse the existing terminal-poller to drive Hermes to completion.
     // pollRunUntilTerminal already handles failure paths via markSubmissionFailed.
-    const terminal = await this.pollRunUntilTerminal(hermesRunId, ariesRunId);
+    // The poll must hit the same gateway the run was submitted to — callers that
+    // routed to a per-profile gateway pass that profile through.
+    const terminal = await this.pollRunUntilTerminal(hermesRunId, ariesRunId, profile);
 
     const payload = this.buildBridgeCallbackPayload(
       ariesRunId,
@@ -714,51 +918,77 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       callback_token: callbackToken,
     };
 
-    if (action === 'resume' && workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY) {
+    // Phase B3: an APPROVED weekly resume (approve === true) advances the
+    // pipeline. Because each stage runs on its own profile gateway and resume
+    // tokens do not cross gateways, the strategy/production/publish "resume" is
+    // converted into a fresh `action: run` on the dedicated profile, carrying
+    // the PRIOR stage's output as the run input. A DENIED weekly resume
+    // (approve === false) does NOT advance — it is a cancel signal — so it
+    // keeps the legacy `action: resume` shape below; the orchestrator marks the
+    // job failed regardless of the gateway response.
+    if (
+      action === 'resume'
+      && workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY
+      && input.approve === true
+    ) {
       const approvalStep =
         input.approvalStep ??
         approvalStepFromWorkflowStepId(input.workflowStepId ?? '') ??
         null;
+      const stage: MarketingStage = input.stage ?? 'strategy';
       const idempotencyKey = generateIdempotencyKey(ariesRunId, SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY, input.tenantId ?? '');
+
+      const priorStageOutput = ((): Record<string, unknown> | null => {
+        if (!productionDoc) return null;
+        const priorStage: MarketingStage | null =
+          stage === 'strategy' ? 'research'
+          : stage === 'production' ? 'strategy'
+          : stage === 'publish' ? 'production'
+          : null;
+        if (!priorStage) return null;
+        const out = productionDoc.stages[priorStage]?.primary_output;
+        return out && typeof out === 'object' && !Array.isArray(out)
+          ? (out as Record<string, unknown>)
+          : null;
+      })();
+
       // Hermes /v1/runs requires `input` to be a non-empty string (OpenAI-style
-      // chat-completions API). Without it, Hermes returns HTTP 400 with
-      // "No user message found in input" and the resume call fails.
-      const baseResumeLines = [
+      // chat-completions API). Serialize the stage context into a prompt.
+      const baseRunLines = [
         `Workflow: ${SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY}`,
-        'Action: resume',
+        'Action: run',
+        `Stage: ${stage}`,
         `Aries run ID: ${ariesRunId}`,
-        `Approval step: ${approvalStep ?? ''}`,
-        `Resume token: ${input.resumeToken ?? ''}`,
-        `Approved: ${input.approve === true}`,
         `Job ID: ${input.jobId ?? ''}`,
         `Tenant ID: ${input.tenantId ?? ''}`,
         `Approval ID: ${input.approvalId ?? ''}`,
+        priorStageOutput
+          ? `Prior stage output (JSON): ${JSON.stringify(priorStageOutput)}`
+          : 'Prior stage output (JSON): {}',
       ];
 
-      // Inject rich per-image prompt context on the production resume
-      // (approve_post_copy) so Hermes has brand, research, and strategy context
-      // at the moment it calls image_generate. Skipped for other approval steps.
-      if (approvalStep === 'approve_post_copy' && productionDoc) {
+      // Inject rich per-image prompt context on the production run
+      // (approve_post_copy) so the content-generation profile has brand,
+      // research, and strategy context when it calls image_generate.
+      if (stage === 'production' && productionDoc) {
         const ctx = buildProductionResumeContext({
           doc: productionDoc,
           researchOutput: (productionDoc.stages.research?.primary_output ?? null) as Record<string, unknown> | null,
           strategyOutput: (productionDoc.stages.strategy?.primary_output ?? null) as Record<string, unknown> | null,
         });
-        baseResumeLines.push('', ctx.contextBlock);
+        baseRunLines.push('', ctx.contextBlock);
       }
 
-      const resumePrompt = baseResumeLines.join('\n');
+      const runPrompt = baseRunLines.join('\n');
       return {
-        input: resumePrompt,
-        instructions: this.instructions(SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY),
+        input: runPrompt,
+        instructions: this.instructions(SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY, stage),
         session_id: this.sessionKey(),
         workflow_key: SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
-        action: 'resume',
+        action: 'run',
         aries_run_id: ariesRunId,
         approval_step: approvalStep,
         approval_id: input.approvalId ?? null,
-        resume_token: input.resumeToken ?? '',
-        approved: input.approve === true,
         job_id: input.jobId ?? null,
         tenant_id: input.tenantId ?? null,
         callback_url: this.callbackUrl(),
@@ -775,6 +1005,10 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         protocol_version: PROTOCOL_VERSION,
       };
     }
+
+    // Note: a weekly DENIAL (action: resume + approve === false) never reaches
+    // submissionPayload — invoke() short-circuits it before any POST. See the
+    // early-return in invoke().
 
     if (action === 'run' && input.doc && isWeeklySocialContentRequest(input.doc)) {
       const request = buildSocialContentWeeklyRequest({
@@ -815,7 +1049,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         : prompt;
       return {
         input: promptWithMemory,
-        instructions: this.instructions(request.workflow_key),
+        instructions: this.instructions(request.workflow_key, 'research'),
         session_id: this.sessionKey(),
         callback_url: request.callback_url,
         callback_auth: callbackAuth,
@@ -902,13 +1136,21 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       : BRAND_CAMPAIGN_WORKFLOW_KEY;
   }
 
-  private async pollRunUntilTerminal(runId: string, ariesRunId: string): Promise<MarketingExecutionResult> {
+  private async pollRunUntilTerminal(
+    runId: string,
+    ariesRunId: string,
+    profile?: HermesTargetProfile,
+  ): Promise<MarketingExecutionResult> {
     const timeoutMs = readEnvInt(this.env, 'HERMES_RUN_TIMEOUT_MS', DEFAULT_RUN_TIMEOUT_MS);
     const intervalMs = Math.max(
       MIN_POLL_INTERVAL_MS,
       readEnvInt(this.env, 'HERMES_POLL_INTERVAL_MS', DEFAULT_POLL_INTERVAL_MS),
     );
     const deadline = Date.now() + timeoutMs;
+    // Resolve the gateway this run lives on. Undefined profile → default
+    // gateway (submitRawRun and any legacy single-gateway caller).
+    const pollGatewayUrl = profile ? this.gatewayUrlForProfile(profile) : this.gatewayUrl();
+    const pollAuthHeader = profile ? this.authHeaderForProfile(profile) : this.authHeader();
 
     const failRun = (code: string, message: string, detail?: Record<string, unknown>): MarketingExecutionResult => {
       markSubmissionFailed(ariesRunId, code, message);
@@ -919,8 +1161,8 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       let pollResponse: Response;
       try {
         pollResponse = await this.fetchImpl(
-          `${this.gatewayUrl()}/v1/runs/${encodeURIComponent(runId)}`,
-          { method: 'GET', headers: { authorization: this.authHeader() } },
+          `${pollGatewayUrl}/v1/runs/${encodeURIComponent(runId)}`,
+          { method: 'GET', headers: { authorization: pollAuthHeader } },
         );
       } catch (error) {
         return failRun('hermes_gateway_unreachable', 'Hermes gateway is unreachable while polling run status.', {
@@ -1220,7 +1462,10 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     ].join('\n');
   }
 
-  private instructions(workflowKey: string): string {
+  private instructions(workflowKey: string, stage?: MarketingStage): string {
+    if (workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY) {
+      return buildHermesStageInstructions(workflowKey, stage ?? 'research');
+    }
     return buildHermesInstructions(workflowKey);
   }
 }

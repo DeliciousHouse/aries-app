@@ -31,6 +31,22 @@ services:
       HERMES_GATEWAY_URL: ${HERMES_GATEWAY_URL:-}
       HERMES_API_SERVER_KEY: ${HERMES_API_SERVER_KEY:-}
       HERMES_SESSION_KEY: ${HERMES_SESSION_KEY:-main}
+      # Phase B three-profile routing — each marketing stage runs on its own
+      # Hermes profile gateway, bound to its own port. The gateway URLs carry
+      # the production cutover defaults; the per-profile API keys come from the
+      # deployment environment (blank default), matching HERMES_API_SERVER_KEY.
+      #   research   -> aries-research          (default gateway, port 8642 —
+      #                 the aries-research gateway is 127.0.0.1-bound and not
+      #                 container-reachable, so research stays on the default)
+      #   strategy   -> aries-strategist        (port 8654)
+      #   publish    -> aries-strategist        (port 8654)
+      #   production -> aries-content-generator (port 8655)
+      HERMES_RESEARCH_GATEWAY_URL: ${HERMES_RESEARCH_GATEWAY_URL:-}
+      HERMES_RESEARCH_API_SERVER_KEY: ${HERMES_RESEARCH_API_SERVER_KEY:-}
+      HERMES_STRATEGIST_GATEWAY_URL: ${HERMES_STRATEGIST_GATEWAY_URL:-http://host.docker.internal:8654}
+      HERMES_STRATEGIST_API_SERVER_KEY: ${HERMES_STRATEGIST_API_SERVER_KEY:-}
+      HERMES_CONTENT_GATEWAY_URL: ${HERMES_CONTENT_GATEWAY_URL:-http://host.docker.internal:8655}
+      HERMES_CONTENT_API_SERVER_KEY: ${HERMES_CONTENT_API_SERVER_KEY:-}
       # 600s default: real Hermes research/strategy stages routinely take
       # 3-8 min on populated tenants. The 120_000 code-default in
       # backend/marketing/ports/hermes.ts was tuned for synthetic happy-path

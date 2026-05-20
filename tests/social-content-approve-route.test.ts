@@ -222,12 +222,14 @@ test('plan approval submits Hermes resume request body', async () => {
       assert.equal(body.social_content_approval_status, 'submitted');
       assert.equal(calls.length, 1);
       assert.equal(calls[0].body.workflow_key, 'social_content_weekly');
-      assert.equal(calls[0].body.action, 'resume');
+      // Phase B3: the weekly strategy/production/publish "resume" is dispatched
+      // as a fresh `action: run` on the stage's dedicated profile gateway —
+      // a resume_token issued by one gateway cannot resume on another.
+      assert.equal(calls[0].body.action, 'run');
+      assert.equal(calls[0].body.resume_token, undefined);
       assert.equal(typeof calls[0].body.aries_run_id, 'string');
       assert.equal(calls[0].body.approval_step, 'approve_weekly_plan');
       assert.equal(calls[0].body.approval_id, approvalId);
-      assert.equal(calls[0].body.resume_token, 'resume-weekly-plan');
-      assert.equal(calls[0].body.approved, true);
       assert.equal(calls[0].body.job_id, jobId);
       assert.equal(calls[0].body.tenant_id, 'tenant-social-approve');
       assert.equal(calls[0].body.callback_url, 'https://aries.example.com/api/internal/hermes/runs');
@@ -364,8 +366,11 @@ test('denied social-content approval records denied state', async () => {
       const body = (await response.json()) as Record<string, unknown>;
       assert.equal(response.status, 202);
       assert.equal(body.social_content_approval_status, 'submitted');
-      assert.equal(calls.length, 1);
-      assert.equal(calls[0].approved, false);
+      // Phase B3: a weekly denial is a pure Aries-side state transition. The
+      // stage's Hermes run has already completed (the approval checkpoint
+      // means there is no paused run to cancel), so the port skips the Hermes
+      // POST entirely — no gateway call is made for a denial.
+      assert.equal(calls.length, 0, 'a weekly denial must not POST to Hermes');
       const approval = loadMarketingApprovalRecord(approvalId);
       assert.equal(approval?.status, 'denied');
       const runtime = await loadMarketingJobRuntime(jobId);
