@@ -276,6 +276,25 @@ function buildWeeklyPublishInstructions(workflowKey: string): string {
   ].join(' ');
 }
 
+/**
+ * Terminal publish run. The publish stage has two checkpoints: the first
+ * publish run emits `approve_stage_4_publish` (handled by
+ * buildWeeklyPublishInstructions); once that approval is granted, the FINAL
+ * publish run must close the pipeline by returning a terminal `completed`
+ * envelope with NO approval object. Without this, the resume→run conversion
+ * would make every publish run re-emit `requires_approval`, and the orchestrator
+ * + auto-approve would loop the publish stage indefinitely.
+ */
+function buildWeeklyPublishFinalizeInstructions(workflowKey: string): string {
+  return [
+    'You are the Aries publish-finalize agent. The weekly social content publish review has ALREADY been approved.',
+    'You have no tools. Reason over the publish plan supplied in the input and emit the final pipeline result.',
+    'Reply with a single strict JSON object only — no prose, no markdown fences.',
+    'This is the FINAL stage. Return status "completed" with NO approval object — the publish review is already approved and the pipeline is finished. Do not ask for any further approval.',
+    `Required schema: {"ok":true,"status":"completed","workflowKey":"${workflowKey}","output":[{"stage":"publish", ...artifacts}]}.`,
+  ].join(' ');
+}
+
 const WEEKLY_STAGE_INSTRUCTION_BUILDERS: Record<MarketingStage, (workflowKey: string) => string> = {
   research: buildWeeklyResearchInstructions,
   strategy: buildWeeklyStrategyInstructions,
@@ -284,16 +303,31 @@ const WEEKLY_STAGE_INSTRUCTION_BUILDERS: Record<MarketingStage, (workflowKey: st
 };
 
 /**
+ * The workflow step id for the FINAL publish approval. A weekly publish resume
+ * carrying this step is the post-approval finalize run and must terminate the
+ * pipeline; any other publish resume is the first publish run.
+ */
+const FINAL_PUBLISH_WORKFLOW_STEP_ID = 'approve_stage_4_publish';
+
+/**
  * Stage-scoped instructions. The weekly social pipeline is decomposed into
  * three profiles, so it gets a short per-stage builder. The brand-campaign
  * (`marketing_pipeline`) path keeps the single combined instruction set — it
  * is not being decomposed.
+ *
+ * `workflowStepId` distinguishes the two publish checkpoints: the final
+ * publish resume (`approve_stage_4_publish`) gets the terminal finalize
+ * instructions; the first publish run gets the normal publish instructions.
  */
 export function buildHermesStageInstructions(
   workflowKey: string,
   stage: MarketingStage,
+  workflowStepId?: string | null,
 ): string {
   if (workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY) {
+    if (stage === 'publish' && workflowStepId === FINAL_PUBLISH_WORKFLOW_STEP_ID) {
+      return buildWeeklyPublishFinalizeInstructions(workflowKey);
+    }
     return WEEKLY_STAGE_INSTRUCTION_BUILDERS[stage](workflowKey);
   }
   return buildHermesInstructions(workflowKey);
@@ -938,10 +972,20 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       const stage: MarketingStage = input.stage ?? 'strategy';
       const idempotencyKey = generateIdempotencyKey(ariesRunId, SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY, input.tenantId ?? '');
 
+      // The publish stage has two checkpoints. A resume carrying the FINAL
+      // publish step id is the post-approval finalize run — it must terminate
+      // the pipeline with a `completed` envelope, not re-emit requires_approval.
+      const isPublishFinalize =
+        stage === 'publish' && input.workflowStepId === FINAL_PUBLISH_WORKFLOW_STEP_ID;
+
       const priorStageOutput = ((): Record<string, unknown> | null => {
         if (!productionDoc) return null;
+        // The publish-finalize run continues from the publish stage's own
+        // output (the publish plan from the first publish run); every other
+        // resume continues from the immediately-preceding stage.
         const priorStage: MarketingStage | null =
-          stage === 'strategy' ? 'research'
+          isPublishFinalize ? 'publish'
+          : stage === 'strategy' ? 'research'
           : stage === 'production' ? 'strategy'
           : stage === 'publish' ? 'production'
           : null;
@@ -958,6 +1002,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         `Workflow: ${SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY}`,
         'Action: run',
         `Stage: ${stage}`,
+        ...(isPublishFinalize ? ['Publish review: already approved — emit the final completed result.'] : []),
         `Aries run ID: ${ariesRunId}`,
         `Job ID: ${input.jobId ?? ''}`,
         `Tenant ID: ${input.tenantId ?? ''}`,
@@ -982,7 +1027,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       const runPrompt = baseRunLines.join('\n');
       return {
         input: runPrompt,
-        instructions: this.instructions(SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY, stage),
+        instructions: this.instructions(SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY, stage, input.workflowStepId),
         session_id: this.sessionKey(),
         workflow_key: SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
         action: 'run',
@@ -1462,9 +1507,13 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     ].join('\n');
   }
 
-  private instructions(workflowKey: string, stage?: MarketingStage): string {
+  private instructions(
+    workflowKey: string,
+    stage?: MarketingStage,
+    workflowStepId?: string | null,
+  ): string {
     if (workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY) {
-      return buildHermesStageInstructions(workflowKey, stage ?? 'research');
+      return buildHermesStageInstructions(workflowKey, stage ?? 'research', workflowStepId);
     }
     return buildHermesInstructions(workflowKey);
   }

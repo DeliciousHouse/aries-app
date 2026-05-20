@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.3.54 — fix(marketing): terminate the weekly publish stage instead of looping it
+
+The v0.1.3.53 three-profile cutover introduced a publish-stage loop. `buildWeeklyPublishInstructions` always told Hermes to return `requires_approval`, with no terminal path — so after the resume→run conversion, every publish run re-emitted an approval request, the orchestrator re-created the checkpoint, and auto-approve looped the publish stage indefinitely. A weekly campaign would never reach `completed`.
+
+**Fix (`backend/marketing/ports/hermes.ts`)**
+
+New `buildWeeklyPublishFinalizeInstructions` returns a terminal `completed` envelope with no approval object. The publish-stage instruction selection now branches on the resume's `workflowStepId`: the final publish approval (`approve_stage_4_publish`) gets the terminal finalize instructions; the first publish run keeps the normal instructions that emit the in-stage approval checkpoint. The orchestrator's existing publish-completion path then closes the job once the publish run returns a non-`requires_approval` envelope.
+
 ## v0.1.3.53 — refactor(marketing): three-profile Hermes routing for the weekly social pipeline
 
 The weekly social-content pipeline ran every stage — research, strategy, production, publish — through one monolithic Hermes agent. That single agent structurally regressed: told to generate images it dropped copywriting; the strategy stage wrote JSON instead of reasoning. This release routes each stage to a dedicated Hermes profile so each agent does one job well.
