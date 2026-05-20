@@ -150,6 +150,7 @@ export type BusinessProfileView = {
   notes: string | null;
   competitorUrl: string | null;
   channels: string[];
+  timezone: string;
   brandIdentity?: MarketingBrandIdentity | null;
   brandKit: {
     brand_name: string;
@@ -285,6 +286,7 @@ export type BusinessProfilePatch = {
   notes?: string | null;
   competitorUrl?: string | null;
   channels?: string[] | null;
+  timezone?: string | null;
 };
 export type TenantProfilesResponse = { profiles: TenantUserProfile[] };
 export type OnboardingDraftPatch = {

@@ -34,6 +34,7 @@ import {
   validateCanonicalCompetitorUrl,
 } from '@/lib/marketing-competitor';
 import { resolveDataPath } from '@/lib/runtime-paths';
+import { DEFAULT_TENANT_TIMEZONE, isValidTimeZone, resolveTenantTimeZone } from '@/lib/format-timestamp';
 
 export type BusinessProfileRecord = {
   tenant_id: string;
@@ -50,6 +51,9 @@ export type BusinessProfileRecord = {
   notes: string | null;
   competitor_url: string | null;
   channels: string[];
+  // A4: IANA business timezone (e.g. America/New_York). Null when unset; the
+  // calendar planner falls back to DEFAULT_TENANT_TIMEZONE.
+  timezone: string | null;
   updated_at: string;
 };
 
@@ -68,6 +72,9 @@ export type BusinessProfileView = {
   notes: string | null;
   competitorUrl: string | null;
   channels: string[];
+  // A4: resolved IANA business timezone. Always a valid zone in the view —
+  // an unset/invalid stored value is projected as DEFAULT_TENANT_TIMEZONE.
+  timezone: string;
   brandIdentity: MarketingBrandIdentity | null;
   brandKit: TenantBrandKit | null;
   incomplete: boolean;
@@ -113,6 +120,7 @@ type BusinessProfileUpdateInput = {
   notes?: string | null;
   competitorUrl?: string | null;
   channels?: string[] | null;
+  timezone?: string | null;
 };
 
 type WorkspaceBrandContext = {
@@ -214,6 +222,28 @@ function mergePersistedStringField(
   };
 }
 
+// A4: merges a timezone update. An explicit non-IANA string is rejected with
+// a typed error so the settings route can return a 400; an absent/blank value
+// leaves the current timezone untouched. Exported for regression testing.
+export function mergePersistedTimezoneField(
+  currentValue: string | null,
+  nextValue: string | null | undefined,
+): { value: string | null; changed: boolean } {
+  if (nextValue === undefined || nextValue === null) {
+    return { value: currentValue, changed: false };
+  }
+  const trimmed = nextValue.trim();
+  if (!trimmed) {
+    return { value: currentValue, changed: false };
+  }
+  if (!isValidTimeZone(trimmed)) {
+    throw new Error(`${INVALID_TIMEZONE_ERROR}:${trimmed}`);
+  }
+  return { value: trimmed, changed: trimmed !== currentValue };
+}
+
+export const INVALID_TIMEZONE_ERROR = 'invalid_timezone';
+
 function mergePersistedStringArrayField(
   currentValue: string[],
   nextValue: string[] | null | undefined,
@@ -261,8 +291,17 @@ function normalizeBusinessProfileRecord(
     notes: stringOrNull(value.notes),
     competitor_url: sanitizeLegacyCompetitorUrl(stringOrNull(value.competitor_url)),
     channels: stringArray(value.channels),
+    timezone: normalizeStoredTimezone(value.timezone),
     updated_at: stringOrNull(value.updated_at) || nowIso(),
   };
+}
+
+// A stored timezone is only persisted when it is a valid IANA zone; an
+// invalid or absent value is normalized to null so the view-layer fallback
+// (DEFAULT_TENANT_TIMEZONE) applies. Exported for direct regression testing.
+export function normalizeStoredTimezone(value: unknown): string | null {
+  const candidate = stringOrNull(value);
+  return candidate && isValidTimeZone(candidate) ? candidate : null;
 }
 
 function mergePersistedCompetitorUrlField(
@@ -322,8 +361,8 @@ function saveBusinessProfileRecordToDb(record: BusinessProfileRecord): void {
     `INSERT INTO business_profiles (
       tenant_id, business_name, tenant_slug, website_url, business_type,
       primary_goal, launch_approver_user_id, launch_approver_name, offer,
-      brand_voice, style_vibe, notes, competitor_url, channels, updated_at
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,now())
+      brand_voice, style_vibe, notes, competitor_url, channels, timezone, updated_at
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,now())
     ON CONFLICT (tenant_id) DO UPDATE SET
       business_name = EXCLUDED.business_name,
       tenant_slug = EXCLUDED.tenant_slug,
@@ -338,13 +377,14 @@ function saveBusinessProfileRecordToDb(record: BusinessProfileRecord): void {
       notes = EXCLUDED.notes,
       competitor_url = EXCLUDED.competitor_url,
       channels = EXCLUDED.channels,
+      timezone = EXCLUDED.timezone,
       updated_at = now()`,
     [
       numericId, record.business_name, record.tenant_slug,
       record.website_url, record.business_type, record.primary_goal,
       record.launch_approver_user_id, record.launch_approver_name, record.offer,
       record.brand_voice, record.style_vibe, record.notes,
-      record.competitor_url, record.channels,
+      record.competitor_url, record.channels, record.timezone,
     ],
   ).catch((err) => {
     console.error('[business-profile] Failed to persist to database:', err);
@@ -633,6 +673,7 @@ function buildBusinessProfileView(input: {
     notes: effectiveNotes,
     competitorUrl: input.validatedProfile.competitorUrl ?? input.record?.competitor_url ?? null,
     channels: effectiveChannels,
+    timezone: resolveTenantTimeZone(input.record?.timezone),
     brandIdentity: input.validatedProfile.brandIdentity,
     brandKit: input.brandKit,
     incomplete: incompleteProfile({
@@ -744,6 +785,10 @@ export async function updateBusinessProfileWithDiagnostics(
     input.competitorUrl,
   ).value;
   const nextChannels = mergePersistedStringArrayField(current.profile.channels, input.channels).value;
+  // Merge against the STORED timezone (null when unset), not the always-resolved
+  // view value, so an unchanged update does not silently persist the fallback.
+  const currentStoredTimezone = loadBusinessProfileRecord(input.tenantId)?.timezone ?? null;
+  const nextTimezone = mergePersistedTimezoneField(currentStoredTimezone, input.timezone).value;
 
   if (!nextBusinessName?.trim()) {
     throw new Error('missing_required_fields:businessName');
@@ -766,6 +811,7 @@ export async function updateBusinessProfileWithDiagnostics(
     notes: nextNotes,
     competitor_url: nextCompetitorUrl,
     channels: nextChannels,
+    timezone: nextTimezone,
     updated_at: nowIso(),
   });
 
@@ -872,6 +918,10 @@ export async function updatePublicBusinessProfile(input: Omit<BusinessProfileUpd
       input.competitorUrl,
     ).value,
     channels: mergePersistedStringArrayField(current.profile.channels, input.channels).value,
+    timezone: mergePersistedTimezoneField(
+      loadBusinessProfileRecord(tenantId)?.timezone ?? null,
+      input.timezone,
+    ).value,
     updated_at: nowIso(),
   });
 
@@ -908,6 +958,7 @@ export function persistBusinessProfileFieldsFromMarketingPayload(
     notes: current?.notes ?? null,
     competitor_url: current?.competitor_url ?? null,
     channels: current?.channels ?? [],
+    timezone: current?.timezone ?? null,
     updated_at: nowIso(),
   };
 
