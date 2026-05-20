@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import pg from 'pg';
 import type { Pool } from 'pg';
 
 import {
@@ -231,4 +232,175 @@ test('a pipeline-created post resolves post-scoped media, not job-scoped', async
     'https://aries.example.test/api/internal/hermes/media/post-two.png',
     'post 200 resolves its own image, never post 100\'s',
   );
+});
+
+// ---------------------------------------------------------------------------
+// Real-Postgres integration test.
+//
+// The mock tests above prove query construction, but a mock pool never
+// validates SQL or schema — it cannot prove `posts.creative_asset_ids` exists,
+// accepts a text[], or that the REAL resolveMediaUrls SQL scopes per-post. This
+// test runs the actual `persistPublishedPost` INSERT and the actual
+// `resolveMediaUrls` SELECT against the live schema. Every statement runs
+// inside a transaction that is ALWAYS rolled back, so nothing persists.
+//
+// When DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME are absent the test skips
+// loudly. When the DB is reachable it MUST run and pass.
+// ---------------------------------------------------------------------------
+
+function dbConfigFromEnv(): pg.PoolConfig | null {
+  const { DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME } = process.env;
+  if (!DB_HOST || !DB_PORT || !DB_USER || !DB_PASSWORD || !DB_NAME) {
+    return null;
+  }
+  return {
+    host: DB_HOST,
+    port: Number(DB_PORT),
+    user: DB_USER,
+    password: DB_PASSWORD,
+    database: DB_NAME,
+    max: 2,
+  };
+}
+
+const dbConfig = dbConfigFromEnv();
+
+test('creative_asset_ids round-trips through the real posts schema and resolver', async (t) => {
+  if (!dbConfig) {
+    console.warn(
+      '\n[publish-creative-asset-ids-live-db] SKIPPED: DB_HOST/DB_PORT/DB_USER/' +
+        'DB_PASSWORD/DB_NAME not all set. This test MUST run against a real ' +
+        'database in CI/prod validation — a skip means the live posts schema ' +
+        'and the real resolveMediaUrls SQL were never exercised.\n',
+    );
+    t.skip('database env not configured');
+    return;
+  }
+
+  process.env.APP_BASE_URL = process.env.APP_BASE_URL || 'https://aries.example.test';
+
+  const pool = new pg.Pool(dbConfig);
+  const JOB_ID = `test_cai_${Date.now()}`;
+
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // posts.tenant_id and creative_assets.tenant_id both FK to
+      // organizations(id), so seeded rows need a real org id. Resolve one
+      // dynamically — nothing is hardcoded and the whole transaction is rolled
+      // back, so no row ever persists under that org.
+      const orgRow = await client.query<{ id: number }>(
+        'SELECT id FROM organizations ORDER BY id LIMIT 1',
+      );
+      assert.ok(orgRow.rows.length === 1, 'live DB must have at least one organization to FK against');
+      const TENANT_ID = orgRow.rows[0].id;
+      const TENANT_STR = String(TENANT_ID);
+
+      // 1. The real persistPublishedPost INSERT against the live posts table.
+      //    A single-client transaction-scoped Pool shim so persistPublishedPost
+      //    writes inside this rolled-back transaction.
+      const txPool = {
+        query: (sql: string, params: unknown[]) => client.query(sql, params),
+      } as unknown as Pool;
+
+      const persisted = await persistPublishedPost(
+        {
+          tenantId: TENANT_ID,
+          jobId: JOB_ID,
+          caption: 'live-db creative_asset_ids test',
+          platformPostId: 'live_111_222',
+          publishedAt: new Date(),
+          publishedStatus: 'published',
+          platform: 'instagram',
+          creativeAssetIds: ['img_1'],
+        },
+        txPool,
+      );
+
+      // 2. SELECT the row back — proves the column exists and stored the text[].
+      const back = await client.query<{ creative_asset_ids: string[] }>(
+        'SELECT creative_asset_ids FROM posts WHERE id = $1',
+        [persisted.postId],
+      );
+      assert.equal(back.rows.length, 1, 'persisted posts row must be readable');
+      assert.deepEqual(
+        back.rows[0].creative_asset_ids,
+        ['img_1'],
+        'live posts.creative_asset_ids must store the text[] persistPublishedPost wrote',
+      );
+
+      // 3. Seed two posts of one job, each with its own creative_asset, plus a
+      //    third post with empty creative_asset_ids, then run the REAL
+      //    resolveMediaUrls SQL.
+      const postA = await client.query<{ id: string }>(
+        `INSERT INTO posts (tenant_id, job_id, caption, platform, creative_asset_ids)
+         VALUES ($1, $2, 'post A', 'instagram', $3) RETURNING id`,
+        [TENANT_ID, JOB_ID, ['img_1']],
+      );
+      const postB = await client.query<{ id: string }>(
+        `INSERT INTO posts (tenant_id, job_id, caption, platform, creative_asset_ids)
+         VALUES ($1, $2, 'post B', 'instagram', $3) RETURNING id`,
+        [TENANT_ID, JOB_ID, ['img_2']],
+      );
+      const postEmpty = await client.query<{ id: string }>(
+        `INSERT INTO posts (tenant_id, job_id, caption, platform, creative_asset_ids)
+         VALUES ($1, $2, 'post empty', 'instagram', '{}') RETURNING id`,
+        [TENANT_ID, JOB_ID],
+      );
+
+      // Two runtime_asset rows of the same job, distinct source_asset_ids.
+      await client.query(
+        `INSERT INTO creative_assets
+           (tenant_id, source_type, permission_scope, media_type,
+            source_job_id, source_asset_id, storage_kind, storage_key, served_asset_ref)
+         VALUES
+           ($1, 'generated_by_aries', 'generated', 'image', $2, 'img_1',
+            'runtime_asset', '/host/path/a.png', '/api/internal/hermes/media/live-a.png'),
+           ($1, 'generated_by_aries', 'generated', 'image', $2, 'img_2',
+            'runtime_asset', '/host/path/b.png', '/api/internal/hermes/media/live-b.png')`,
+        [TENANT_ID, JOB_ID],
+      );
+
+      const resolverDb = {
+        query: (sql: string, params: unknown[]) => client.query(sql, params),
+      } as unknown as DispatchQueryable;
+
+      // Post A: per-post link to img_1 -> only asset A.
+      const urlsA = await resolveMediaUrls(postA.rows[0].id, TENANT_STR, resolverDb);
+      assert.deepEqual(
+        urlsA,
+        [`${process.env.APP_BASE_URL}/api/internal/hermes/media/live-a.png`],
+        'post A must resolve ONLY its own asset via creative_asset_ids',
+      );
+
+      // Post B: per-post link to img_2 -> only asset B.
+      const urlsB = await resolveMediaUrls(postB.rows[0].id, TENANT_STR, resolverDb);
+      assert.deepEqual(
+        urlsB,
+        [`${process.env.APP_BASE_URL}/api/internal/hermes/media/live-b.png`],
+        'post B must resolve ONLY its own asset, never post A\'s',
+      );
+
+      // Post with empty creative_asset_ids: falls back to job-scope -> both.
+      const urlsEmpty = await resolveMediaUrls(postEmpty.rows[0].id, TENANT_STR, resolverDb);
+      assert.equal(
+        urlsEmpty.length,
+        2,
+        'empty creative_asset_ids must fall back to the job-scoped join (both job assets)',
+      );
+
+      await client.query('ROLLBACK');
+    } finally {
+      client.release();
+    }
+    console.log(
+      '[publish-creative-asset-ids-live-db] PASS: persistPublishedPost wrote ' +
+        'creative_asset_ids to the live posts schema and the real ' +
+        'resolveMediaUrls SQL scoped media per-post (with job-scope fallback).',
+    );
+  } finally {
+    await pool.end();
+  }
 });
