@@ -59,6 +59,37 @@ const DEFAULT_POLL_INTERVAL_MS = 2_000;
 const MIN_POLL_INTERVAL_MS = 50;
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'stopped']);
 
+/**
+ * Phase B three-profile routing. Each marketing stage runs on a dedicated
+ * Hermes profile, each bound to its own gateway port:
+ *   - research           → aries-research          (web/search tools)
+ *   - strategy / publish → aries-strategist         (pure LLM reasoning, no tools)
+ *   - production         → aries-content-generator  (image_gen toolset)
+ *
+ * Hermes routes by per-profile API server port, so each profile is reached via
+ * its own gateway URL + API key. Every per-profile env var falls back to
+ * HERMES_GATEWAY_URL / HERMES_API_SERVER_KEY, so a deployment that has not set
+ * the per-profile vars behaves exactly as the historical single-gateway setup.
+ */
+type HermesTargetProfile = 'aries-research' | 'aries-strategist' | 'aries-content-generator';
+
+const STAGE_TO_PROFILE: Record<MarketingStage, HermesTargetProfile> = {
+  research: 'aries-research',
+  strategy: 'aries-strategist',
+  production: 'aries-content-generator',
+  publish: 'aries-strategist',
+};
+
+const PROFILE_GATEWAY_ENV: Record<HermesTargetProfile, { url: string; key: string }> = {
+  'aries-research': { url: 'HERMES_RESEARCH_GATEWAY_URL', key: 'HERMES_RESEARCH_API_SERVER_KEY' },
+  'aries-strategist': { url: 'HERMES_STRATEGIST_GATEWAY_URL', key: 'HERMES_STRATEGIST_API_SERVER_KEY' },
+  'aries-content-generator': { url: 'HERMES_CONTENT_GATEWAY_URL', key: 'HERMES_CONTENT_API_SERVER_KEY' },
+};
+
+function targetProfileForStage(stage: MarketingStage | undefined): HermesTargetProfile {
+  return stage ? STAGE_TO_PROFILE[stage] : 'aries-research';
+}
+
 function isWeeklySocialContentRequest(doc?: MarketingJobRuntimeDocument): boolean {
   const request = doc?.inputs?.request;
   if (!request || typeof request !== 'object' || Array.isArray(request)) {
@@ -370,6 +401,23 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     return `Bearer ${readEnvValue(this.env, 'HERMES_API_SERVER_KEY')}`;
   }
 
+  /**
+   * Resolve the gateway URL for a marketing stage's dedicated Hermes profile.
+   * Falls back to HERMES_GATEWAY_URL when the per-profile var is unset, so a
+   * single-gateway deployment is unaffected.
+   */
+  private gatewayUrlForProfile(profile: HermesTargetProfile): string {
+    const specific = readEnvValue(this.env, PROFILE_GATEWAY_ENV[profile].url);
+    const url = specific || readEnvValue(this.env, 'HERMES_GATEWAY_URL');
+    return url.replace(/\/+$/, '');
+  }
+
+  private authHeaderForProfile(profile: HermesTargetProfile): string {
+    const specific = readEnvValue(this.env, PROFILE_GATEWAY_ENV[profile].key);
+    const key = specific || readEnvValue(this.env, 'HERMES_API_SERVER_KEY');
+    return `Bearer ${key}`;
+  }
+
   private sessionKey(): string {
     return readEnvValue(this.env, 'HERMES_SESSION_KEY') || 'marketing';
   }
@@ -451,12 +499,16 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     );
     const idempotencyKey = typeof payload.idempotency_key === 'string' ? payload.idempotency_key : '';
 
+    // Route this stage's submission to its dedicated Hermes profile gateway.
+    // Defaults to HERMES_GATEWAY_URL when per-profile vars are unset.
+    const targetProfile = targetProfileForStage(input.stage);
+
     let response: Response;
     try {
-      response = await this.fetchImpl(`${this.gatewayUrl()}/v1/runs`, {
+      response = await this.fetchImpl(`${this.gatewayUrlForProfile(targetProfile)}/v1/runs`, {
         method: 'POST',
         headers: {
-          authorization: this.authHeader(),
+          authorization: this.authHeaderForProfile(targetProfile),
           'content-type': 'application/json',
           'idempotency-key': idempotencyKey,
         },
@@ -502,7 +554,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
 
     markExecutionRunSubmitted(run.aries_run_id, { externalRunId: hermesRunId });
     if (this.syncPollingEnabled()) {
-      return this.pollRunUntilTerminal(hermesRunId, run.aries_run_id);
+      return this.pollRunUntilTerminal(hermesRunId, run.aries_run_id, targetProfile);
     }
     // Hermes /v1/runs is a polled API — it never invokes the `callback_url`
     // field on the submission body. Without this bridge, marketing pipelines
@@ -513,7 +565,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     // HTTP route + auth and call the handler as a function).
     if (this.pollBridgeEnabled()) {
       const stage = input.stage ?? 'research';
-      void this.runPollBridge(hermesRunId, run.aries_run_id, workflowKey, stage).catch((error) => {
+      void this.runPollBridge(hermesRunId, run.aries_run_id, workflowKey, stage, targetProfile).catch((error) => {
         console.error('[hermes-port] poll-bridge failed', {
           aries_run_id: run.aries_run_id,
           hermes_run_id: hermesRunId,
@@ -542,10 +594,13 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     ariesRunId: string,
     workflowKey: string,
     stage: MarketingStage,
+    profile?: HermesTargetProfile,
   ): Promise<void> {
     // Reuse the existing terminal-poller to drive Hermes to completion.
     // pollRunUntilTerminal already handles failure paths via markSubmissionFailed.
-    const terminal = await this.pollRunUntilTerminal(hermesRunId, ariesRunId);
+    // The poll must hit the same gateway the run was submitted to — callers that
+    // routed to a per-profile gateway pass that profile through.
+    const terminal = await this.pollRunUntilTerminal(hermesRunId, ariesRunId, profile);
 
     const payload = this.buildBridgeCallbackPayload(
       ariesRunId,
@@ -902,13 +957,21 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       : BRAND_CAMPAIGN_WORKFLOW_KEY;
   }
 
-  private async pollRunUntilTerminal(runId: string, ariesRunId: string): Promise<MarketingExecutionResult> {
+  private async pollRunUntilTerminal(
+    runId: string,
+    ariesRunId: string,
+    profile?: HermesTargetProfile,
+  ): Promise<MarketingExecutionResult> {
     const timeoutMs = readEnvInt(this.env, 'HERMES_RUN_TIMEOUT_MS', DEFAULT_RUN_TIMEOUT_MS);
     const intervalMs = Math.max(
       MIN_POLL_INTERVAL_MS,
       readEnvInt(this.env, 'HERMES_POLL_INTERVAL_MS', DEFAULT_POLL_INTERVAL_MS),
     );
     const deadline = Date.now() + timeoutMs;
+    // Resolve the gateway this run lives on. Undefined profile → default
+    // gateway (submitRawRun and any legacy single-gateway caller).
+    const pollGatewayUrl = profile ? this.gatewayUrlForProfile(profile) : this.gatewayUrl();
+    const pollAuthHeader = profile ? this.authHeaderForProfile(profile) : this.authHeader();
 
     const failRun = (code: string, message: string, detail?: Record<string, unknown>): MarketingExecutionResult => {
       markSubmissionFailed(ariesRunId, code, message);
@@ -919,8 +982,8 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       let pollResponse: Response;
       try {
         pollResponse = await this.fetchImpl(
-          `${this.gatewayUrl()}/v1/runs/${encodeURIComponent(runId)}`,
-          { method: 'GET', headers: { authorization: this.authHeader() } },
+          `${pollGatewayUrl}/v1/runs/${encodeURIComponent(runId)}`,
+          { method: 'GET', headers: { authorization: pollAuthHeader } },
         );
       } catch (error) {
         return failRun('hermes_gateway_unreachable', 'Hermes gateway is unreachable while polling run status.', {

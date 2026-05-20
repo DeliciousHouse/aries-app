@@ -31,6 +31,15 @@ services:
       HERMES_GATEWAY_URL: ${HERMES_GATEWAY_URL:-}
       HERMES_API_SERVER_KEY: ${HERMES_API_SERVER_KEY:-}
       HERMES_SESSION_KEY: ${HERMES_SESSION_KEY:-main}
+      # Phase B three-profile routing — each marketing stage runs on its own
+      # Hermes profile gateway. Blank = fall back to HERMES_GATEWAY_URL /
+      # HERMES_API_SERVER_KEY (historical single-gateway behavior).
+      HERMES_RESEARCH_GATEWAY_URL: ${HERMES_RESEARCH_GATEWAY_URL:-}
+      HERMES_RESEARCH_API_SERVER_KEY: ${HERMES_RESEARCH_API_SERVER_KEY:-}
+      HERMES_STRATEGIST_GATEWAY_URL: ${HERMES_STRATEGIST_GATEWAY_URL:-}
+      HERMES_STRATEGIST_API_SERVER_KEY: ${HERMES_STRATEGIST_API_SERVER_KEY:-}
+      HERMES_CONTENT_GATEWAY_URL: ${HERMES_CONTENT_GATEWAY_URL:-}
+      HERMES_CONTENT_API_SERVER_KEY: ${HERMES_CONTENT_API_SERVER_KEY:-}
       # 600s default: real Hermes research/strategy stages routinely take
       # 3-8 min on populated tenants. The 120_000 code-default in
       # backend/marketing/ports/hermes.ts was tuned for synthetic happy-path
