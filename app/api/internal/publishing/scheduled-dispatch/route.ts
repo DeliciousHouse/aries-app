@@ -12,6 +12,14 @@ type ScheduledDispatchBody = {
   media_urls?: string[];
 };
 
+// Minimal queryable surface so route tests can inject a fake DB.
+export type DispatchQueryable = {
+  query: <T = Record<string, unknown>>(
+    sql: string,
+    params: unknown[],
+  ) => Promise<{ rows: T[]; rowCount?: number | null }>;
+};
+
 async function readBody(req: Request): Promise<ScheduledDispatchBody> {
   try {
     return (await req.json()) as ScheduledDispatchBody;
@@ -20,17 +28,28 @@ async function readBody(req: Request): Promise<ScheduledDispatchBody> {
   }
 }
 
-async function resolveMediaUrls(postId: string, tenantId: string): Promise<string[]> {
-  const result = await pool.query<{ storage_key: string; storage_kind: string }>(
+// Resolve creative assets for the *specific* scheduled post, not just the
+// tenant. Assets are linked to a post through the post's job_id matching
+// creative_assets.source_job_id; scoping by tenant_id alone published the
+// wrong post's images on a tenant with more than one post in flight.
+export async function resolveMediaUrls(
+  postId: string,
+  tenantId: string,
+  db: DispatchQueryable = pool,
+): Promise<string[]> {
+  const result = await db.query<{ storage_key: string; storage_kind: string }>(
     `SELECT ca.storage_key, ca.storage_kind
      FROM creative_assets ca
-     WHERE ca.tenant_id = $1
+     JOIN posts p ON p.job_id = ca.source_job_id AND p.tenant_id = ca.tenant_id
+     WHERE p.id = $1
+       AND ca.tenant_id = $2
+       AND p.job_id IS NOT NULL
        AND ca.storage_kind IN ('hermes', 'local', 'url')
        AND ca.storage_key IS NOT NULL
        AND ca.orphaned_at IS NULL
      ORDER BY ca.id DESC
      LIMIT 4`,
-    [tenantId],
+    [postId, tenantId],
   );
   // Return internal Hermes media URLs that will be signed below
   return result.rows
