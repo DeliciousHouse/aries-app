@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.3.55 — fix(marketing): retry-safe publish claims + correct job_type label
+
+Three small marketing fixes from the Phase B follow-up list.
+
+**#34 — A failed Meta publish no longer permanently blocks a retry.** The Instagram and Facebook publish handlers claim a per-platform slot on the publish approval *before* calling the Meta Graph API, so two concurrent requests can't double-post. Previously that claim was never released, so any publish failure (rate limit, network error, transient Meta error) left the platform marked `consumed` forever and every retry was rejected with `publish_approval_already_consumed`. New `releaseMarketingApprovalPlatformClaim` (`backend/marketing/approval-store.ts`) rolls the claim back under the approval lock when `publishToMetaGraph` fails; a post that went live but only failed verification keeps its claim. The provider-availability and no-content checks now run before consumption so those failures never leak a claim either. A swallowed rollback lock-error is logged with the approval and platform ids so a stuck claim stays diagnosable.
+
+**#38 — Honest coverage for the missing-approval-payload callback.** `tests/hermes-callback-route.test.ts` had a test named "rejects malformed approval payloads" that actually fed a present-but-wrong-stage approval — which the route correctly rejects as `approval_stage_mismatch` (already covered by two other tests), not `missing_approval_payload`. The test now omits the approval envelope entirely, so it genuinely exercises the `missing_approval_payload` path.
+
+**#41 — Weekly jobs are labelled `weekly_social_content`, not `brand_campaign`.** `job_type` on the marketing runtime document was hardcoded to `brand_campaign` for every job, disagreeing with `inputs.request.jobType` (which drives the pipeline) on weekly social-content jobs. It is now derived from `payload.jobType` with the exact strict equality `requestedJobTypeFromDoc()` uses, so the label can never disagree with the pipeline driver. The type widened to `'brand_campaign' | 'weekly_social_content'`.
+
+**Known limitation:** because the rollback re-enables retries of a non-idempotent publish, a publish call that succeeds at Meta but throws before returning (lost HTTP response, or a 200 with a malformed body) can be retried and double-post. This is the inherent trade-off of unblocking stuck retries — the prior "never roll back" behavior avoided it only by guaranteeing a stuck claim instead.
+
 ## v0.1.3.54 — fix(marketing): terminate the weekly publish stage instead of looping it
 
 The v0.1.3.53 three-profile cutover introduced a publish-stage loop. `buildWeeklyPublishInstructions` always told Hermes to return `requires_approval`, with no terminal path — so after the resume→run conversion, every publish run re-emitted an approval request, the orchestrator re-created the checkpoint, and auto-approve looped the publish stage indefinitely. A weekly campaign would never reach `completed`.
