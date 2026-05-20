@@ -118,4 +118,18 @@ _Effort revised from M after eng review locked in 7 architecture decisions._
 **Priority:** P3
 **Depends on:** None
 
+## Scheduling planner
+
+### Populate posts.creative_asset_ids so per-post media scoping activates
+
+**What:** Make the weekly social pipeline write each post's own creative asset ids into `posts.creative_asset_ids` when it creates `posts` rows. Today the column is `'{}'` on every row and no code writes it.
+
+**Why:** v0.1.4.0's `resolveMediaUrls` (finding F1) scopes scheduled-post media per-post via `creative_asset_ids`, but with the column empty it falls back to job scope — so a multi-image weekly job can still publish a wrong or mixed image for a given post. The per-post mechanism is in place and inert until the column is populated; this closes the wrong-media bug for real.
+
+**Context:** Surfaced by the adversarial review during `/ship` of `fix/scheduling-engine-soundness` (2026-05-20). The pipeline's production/publish stage is where `posts` rows are created. This is Phase 2 (calendar planner) scope — the planner is only honest once each calendar tile maps to its true image.
+
+**Effort:** M
+**Priority:** P1
+**Depends on:** None
+
 ## Completed

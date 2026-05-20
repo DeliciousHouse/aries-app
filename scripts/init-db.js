@@ -381,11 +381,16 @@ async function initDb() {
     `);
 
     await client.query(`
-      -- Posts table columns for weekly social content
+      -- Posts table columns for weekly social content.
+      -- NOTE: 'caption' is the canonical post-body column. Prod's posts table
+      -- has 'caption' (NOT NULL) and no 'content' column; init-db.js previously
+      -- declared 'content' and drifted from prod. The drift origin is unknown
+      -- (no .sql migration performs a content->caption rename). 'caption' is
+      -- authoritative — keep all call sites on it.
       CREATE TABLE IF NOT EXISTS posts (
         id BIGSERIAL PRIMARY KEY,
         tenant_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-        content TEXT NOT NULL,
+        caption TEXT NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
@@ -407,6 +412,21 @@ async function initDb() {
 
       ALTER TABLE posts
         ADD CONSTRAINT posts_published_status_check CHECK (published_status IN ('draft','in_review','approved','scheduled','publishing','published','failed','rolled_back','unverified'));
+
+      -- Columns the prod posts table carries that init-db.js never declared.
+      -- A fresh DB from this script previously drifted from prod, missing
+      -- job_id (the marketing-job link used by resolveMediaUrls and the
+      -- scheduled-dispatch path), the per-post media/creative columns, the
+      -- hermes_run_id provenance link, and the legacy 'status' column.
+      -- Defaults and NOT NULL mirror prod exactly (information_schema diff).
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS job_id TEXT;
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS media_type TEXT NOT NULL DEFAULT 'image';
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS media_urls TEXT[] NOT NULL DEFAULT '{}';
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS hermes_run_id TEXT;
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS creative_asset_ids TEXT[] NOT NULL DEFAULT '{}';
+      ALTER TABLE posts ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'draft';
+      ALTER TABLE posts DROP CONSTRAINT IF EXISTS posts_status_check;
+      ALTER TABLE posts ADD CONSTRAINT posts_status_check CHECK (status IN ('draft','in_review','approved','scheduled','publishing','published','failed','rolled_back'));
 
       -- Vision QA runs table for brand compliance checks
       CREATE TABLE IF NOT EXISTS vision_qa_runs (
@@ -526,12 +546,47 @@ async function initDb() {
         WHERE idempotency_key IS NOT NULL;
       CREATE INDEX IF NOT EXISTS idx_posts_tenant_platform ON posts (tenant_id, platform);
 
+      -- resolveMediaUrls and the scheduled-dispatch path look posts up by
+      -- (tenant_id, job_id) to scope creative assets; index the link.
+      CREATE INDEX IF NOT EXISTS idx_posts_tenant_job ON posts (tenant_id, job_id) WHERE job_id IS NOT NULL;
+
       -- Scheduled posts worker: dispatch status tracking columns.
-      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dispatch_status TEXT NOT NULL DEFAULT 'pending' CHECK (dispatch_status IN ('pending','dispatched','failed'));
+      -- 'in_flight' is a non-terminal claimed state: the worker commits it
+      -- before the network publish so a crash mid-publish leaves a reclaimable
+      -- row rather than a false 'dispatched'. The parent dispatch_status is a
+      -- rollup derived from the per-platform scheduled_post_dispatches rows.
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dispatch_status TEXT NOT NULL DEFAULT 'pending' CHECK (dispatch_status IN ('pending','in_flight','dispatched','failed'));
+      ALTER TABLE scheduled_posts DROP CONSTRAINT IF EXISTS scheduled_posts_dispatch_status_check;
+      ALTER TABLE scheduled_posts ADD CONSTRAINT scheduled_posts_dispatch_status_check CHECK (dispatch_status IN ('pending','in_flight','dispatched','failed'));
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS dispatched_at TIMESTAMPTZ;
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS error_at TIMESTAMPTZ;
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS error_message TEXT;
       CREATE INDEX IF NOT EXISTS idx_scheduled_posts_pending ON scheduled_posts (scheduled_for) WHERE dispatch_status = 'pending';
+      -- The reclaim branch of the worker's due-rows scan filters on
+      -- dispatch_status = 'in_flight'; index it the same way as 'pending'.
+      CREATE INDEX IF NOT EXISTS idx_scheduled_posts_in_flight ON scheduled_posts (scheduled_for) WHERE dispatch_status = 'in_flight';
+
+      -- Per-platform dispatch state. A scheduled_posts row targets an array of
+      -- platforms; a cross-post that succeeds on Facebook and fails on
+      -- Instagram cannot be told the truth by one scalar dispatch_status.
+      -- Each (scheduled_post, platform) pair gets its own row; the parent
+      -- scheduled_posts.dispatch_status is the rollup (all dispatched ->
+      -- dispatched, any failed -> failed, any still pending/in_flight ->
+      -- the lower state).
+      CREATE TABLE IF NOT EXISTS scheduled_post_dispatches (
+        id BIGSERIAL PRIMARY KEY,
+        scheduled_post_id BIGINT NOT NULL REFERENCES scheduled_posts(id) ON DELETE CASCADE,
+        platform TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','in_flight','dispatched','failed')),
+        dispatched_at TIMESTAMPTZ,
+        error_at TIMESTAMPTZ,
+        error_message TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (scheduled_post_id, platform)
+      );
+      CREATE INDEX IF NOT EXISTS idx_scheduled_post_dispatches_parent
+        ON scheduled_post_dispatches (scheduled_post_id);
 
       -- Phase 4 PR1: Slack Events API inbound dedupe. Every delivery has a
       -- stable event_id; the webhook inserts ON CONFLICT DO NOTHING to drop

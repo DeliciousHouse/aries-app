@@ -432,7 +432,7 @@ export async function persistScheduledPublishRecord(args: {
 
   const db = args.db ?? pool;
   const result = await db.query<{ id: string | number }>(
-    `INSERT INTO posts (tenant_id, content, platform_post_id, scheduled_at, published_status)
+    `INSERT INTO posts (tenant_id, caption, platform_post_id, scheduled_at, published_status)
      VALUES ($1, $2, $3, $4, $5)
      RETURNING id`,
     [tenantIdNum, args.content, args.platformPostId, args.scheduledFor, 'scheduled'],
