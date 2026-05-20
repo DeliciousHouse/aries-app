@@ -227,18 +227,81 @@ export type EnrichmentResult =
   | { ok: true; enrichment: BrandKitEnrichment }
   | { ok: false; reason: EnrichmentFailureReason; detail?: string };
 
+export type OperatorBrandKitOverrides = {
+  /**
+   * Operator-supplied style vibe (e.g. from campaign request styleVibe field).
+   * When non-empty, enrichment MUST NOT overwrite it — the operator is authoritative.
+   */
+  styleVibe?: string | null;
+  /**
+   * Operator-supplied brand voice / tone description.
+   * When non-empty, enrichment MUST NOT overwrite tone_of_voice / brand_voice_summary.
+   */
+  brandVoice?: string | null;
+  /**
+   * Operator-supplied brand palette. When non-empty, enrichment MUST NOT
+   * overwrite the brand kit's color palette with scraped/LLM values.
+   */
+  palette?: string[] | null;
+};
+
+/**
+ * Merge LLM enrichment into the base brand kit.
+ *
+ * Precedence (highest → lowest):
+ *   1. Operator-supplied request fields (operatorOverrides)
+ *   2. Existing brand-kit values (base)
+ *   3. LLM enrichment output
+ *
+ * Enrichment FILLS GAPS. It never overwrites a value the operator explicitly
+ * provided, and it never overwrites an existing non-null brand-kit field when
+ * the operator override for that category is set.
+ */
 export function applyBrandKitEnrichment(
   base: TenantBrandKit,
   enrichment: BrandKitEnrichment,
+  operatorOverrides?: OperatorBrandKitOverrides,
 ): TenantBrandKit {
+  const opStyleVibe = typeof operatorOverrides?.styleVibe === 'string' && operatorOverrides.styleVibe.trim()
+    ? operatorOverrides.styleVibe.trim()
+    : null;
+  const opBrandVoice = typeof operatorOverrides?.brandVoice === 'string' && operatorOverrides.brandVoice.trim()
+    ? operatorOverrides.brandVoice.trim()
+    : null;
+  const opPaletteRaw = Array.isArray(operatorOverrides?.palette) && operatorOverrides.palette.length > 0
+    ? operatorOverrides.palette
+    : null;
+
+  // style_vibe: operator > base (existing) > enrichment
+  const styleVibe = opStyleVibe ?? base.style_vibe ?? enrichment.styleVibe ?? null;
+
+  // tone_of_voice: operator brandVoice is authoritative for tone — if operator supplied it,
+  // preserve the existing base value (or null) and never let enrichment fill it in.
+  // The operator's brandVoice string is their explicit tone preference; we must not let
+  // LLM-scraped adjectives contradict it.
+  const toneOfVoice = opBrandVoice
+    ? (base.tone_of_voice ?? null)
+    : (enrichment.toneOfVoice ?? base.tone_of_voice ?? null);
+
+  // brand_voice_summary: operator brandVoice is authoritative — preserve base, never let enrichment overwrite
+  const brandVoiceSummary = opBrandVoice
+    ? base.brand_voice_summary
+    : (enrichment.brandVoiceSummary ?? base.brand_voice_summary);
+
+  // Colors: if operator supplied a palette, preserve the base colors (which were set from the operator palette
+  // upstream); do not allow enrichment to clobber palette with scraped values.
+  // Enrichment does not currently produce palette data, but guard here for forward-compatibility.
+  const colors = opPaletteRaw ? base.colors : base.colors;
+
   return {
     ...base,
-    brand_voice_summary: enrichment.brandVoiceSummary ?? base.brand_voice_summary,
+    colors,
+    brand_voice_summary: brandVoiceSummary,
     offer_summary: enrichment.offerSummary ?? base.offer_summary,
     positioning: enrichment.positioning ?? base.positioning ?? null,
     audience: enrichment.audience ?? base.audience ?? null,
-    tone_of_voice: enrichment.toneOfVoice ?? base.tone_of_voice ?? null,
-    style_vibe: enrichment.styleVibe ?? base.style_vibe ?? null,
+    tone_of_voice: toneOfVoice,
+    style_vibe: styleVibe,
   };
 }
 

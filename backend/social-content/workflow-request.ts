@@ -426,15 +426,27 @@ export function buildProductionResumeContext(input: {
     contextLines.push(img.prompt);
   }
   contextLines.push('');
-  contextLines.push('Return your results in this EXACT JSON shape:');
+  contextLines.push('Return your results in this EXACT JSON shape. You MUST include BOTH content_package[] AND artifacts.creative_assets[]. One without the other is incomplete — content_package carries the post COPY (caption text, hooks, hashtags); creative_assets carries the rendered IMAGES. The Nth creative_asset corresponds to the Nth content_package entry via post_number.');
   contextLines.push('');
-  contextLines.push('When you finish image_generate, place the results in your final response under `artifacts.creative_assets[]` with this shape per item:');
-  contextLines.push('');
+  contextLines.push('Required: include content_package[] with one entry per post:');
   contextLines.push('{');
-  contextLines.push('  "assetId": "img_0",');
+  contextLines.push('  "post_number": 1,');
+  contextLines.push('  "theme": "<short theme label>",');
+  contextLines.push('  "hook": "<opening hook sentence — grabs attention>",');
+  contextLines.push('  "body": "<2-4 sentence post body>",');
+  contextLines.push('  "cta": "<call to action>",');
+  contextLines.push('  "hashtags": ["#tag1", "#tag2", "#tag3"],');
+  contextLines.push('  "platforms": ["instagram", "facebook"],');
+  contextLines.push('  "format": "single_image",');
+  contextLines.push('  "visual_prompt": "<the image prompt used for this post>"');
+  contextLines.push('}');
+  contextLines.push('');
+  contextLines.push('Required: when you finish image_generate, place the results in your final response under `artifacts.creative_assets[]` with this shape per item:');
+  contextLines.push('{');
+  contextLines.push('  "assetId": "img_1",');
   contextLines.push('  "type": "generated_image",');
   contextLines.push('  "path": "<absolute path returned by image_generate>",');
-  contextLines.push('  "placement": "<which post>",');
+  contextLines.push('  "placement": "<which post number>",');
   contextLines.push('  "prompt": "<the rendered prompt>"');
   contextLines.push('}');
   contextLines.push('');
@@ -461,12 +473,25 @@ export async function ensureFreshBrandKitForWeeklyRun(input: {
   const beforeExtractedAt = input.doc.brand_kit?.extracted_at ?? null;
   const beforeSourceUrl = input.doc.brand_kit?.source_url ?? null;
 
+  // Extract operator-supplied brand overrides from the campaign request so that
+  // enrichment fills gaps only and never overwrites explicit operator values.
+  const docReq = requestRecord(input.doc);
+  const opStyleVibe = typeof docReq.styleVibe === 'string' && docReq.styleVibe.trim()
+    ? docReq.styleVibe.trim()
+    : null;
+  const opBrandVoice = typeof docReq.brandVoice === 'string' && docReq.brandVoice.trim()
+    ? docReq.brandVoice.trim()
+    : null;
+
   let result;
   try {
     result = await extractEnrichAndSaveTenantBrandKit({
       tenantId: input.doc.tenant_id,
       brandUrl,
       fetchImpl: input.fetchImpl,
+      operatorOverrides: (opStyleVibe || opBrandVoice)
+        ? { styleVibe: opStyleVibe, brandVoice: opBrandVoice }
+        : undefined,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

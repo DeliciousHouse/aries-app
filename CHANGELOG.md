@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.3.52 — fix(marketing): production copy + brand-kit operator precedence + caption fallback
+
+Three regressions introduced in v0.1.3.49 (Phase A image generation) are fixed.
+
+**Regression 1 — Production stage dropped content_package[] (empty captions) (`backend/marketing/ports/hermes.ts`, `backend/social-content/workflow-request.ts`)**
+
+The PRODUCTION STAGE EXECUTION CONTRACT clause in `buildHermesInstructions()` stated "Returning content_package without artifacts.creative_assets is a violation". The LLM read this as either/or and returned images but dropped post copy entirely, causing blank captions on FB/IG. The clause is rewritten to require BOTH artifacts:
+- `content_package[]` — one entry per post with: `post_number`, `theme`, `hook`, `body`, `cta`, `hashtags` (array of 3-6 tags), `platforms`, `format`, `visual_prompt`.
+- `artifacts.creative_assets[]` — one generated image per post.
+
+The clause now states explicitly: "You MUST return content_package AND artifacts.creative_assets. One without the other is incomplete." Applied to both the weekly social-content branch and the generic branch. The same output contract block in `buildProductionResumeContext()` is extended to describe both required sections including the content_package schema with hashtags.
+
+**Regression 2 — Brand enrichment overrode operator-supplied styleVibe (`backend/marketing/brand-kit-enrich.ts`, `backend/marketing/brand-kit.ts`, `backend/social-content/workflow-request.ts`)**
+
+`ARIES_BRAND_ENRICHMENT_ENABLED=1` LLM enrichment was overwriting `style_vibe` and `tone_of_voice` in brand-kit.json even when the operator had explicitly provided `styleVibe` and `brandVoice` in the campaign request. Fixed by adding `OperatorBrandKitOverrides` to `applyBrandKitEnrichment()` with precedence: operator request > existing brand kit > LLM enrichment. `extractEnrichAndSaveTenantBrandKit()` accepts optional `operatorOverrides`. `ensureFreshBrandKitForWeeklyRun()` extracts `styleVibe`/`brandVoice` from the doc's request and threads them through. Enrichment only fills fields the operator left blank.
+
+**Regression 3 — Publish handlers posted empty captions when social-copy.json absent (`app/api/marketing/jobs/[jobId]/publish-facebook/handler.ts`, `publish-instagram/handler.ts`)**
+
+When `ARIES_SOCIAL_COPY_FINALIZE_ENABLED=0` (the current production default), `loadSocialCopyArtifact()` returns null and the handler had no further fallback, posting empty captions. Both handlers now fall back to `runtimeDoc.stages.production.primary_output.content_package[]`: pick the post matching the platform (`platforms` array), fall back to first post, build caption as `${hook}\n\n${body}\n\n${cta}` + hashtags joined with spaces. social-copy.json remains the first-choice path.
+
+Tests: `tests/marketing/build-hermes-instructions.test.ts` extended with 10 new assertions for `content_package`, `creative_assets`, and `hashtags` in both contract branches. New `tests/marketing/brand-kit-operator-precedence.test.ts` (10 tests). New `tests/marketing/publish-handler-caption-fallback.test.ts` (11 tests).
+
 ## v0.1.3.51 — fix(publishing): posts.caption column name + per-platform approval consumption
 
 Two downstream bugs that blocked the final FB+IG publish step for multi-platform campaigns:

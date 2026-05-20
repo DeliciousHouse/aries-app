@@ -102,7 +102,7 @@ function buildInstructionsFromSource(workflowKey: string): string {
       'This is an approval-gated 4-stage pipeline: research → strategy → production → publish.',
       'After completing the research stage, return status "requires_approval" with approval.stage="strategy", approval.approval_step="approve_weekly_plan", approval.workflowStepId="approve_stage_2", approval.prompt="Review research findings before strategy starts", approval.resumeToken set, and output:[{stage:"research", ...artifacts}].',
       'After completing the strategy stage on resume, return status "requires_approval" with approval.stage="production", approval.approval_step="approve_post_copy", approval.workflowStepId="approve_stage_3", approval.prompt="Review strategy before production starts", and output:[{stage:"strategy", ...artifacts}].',
-      'PRODUCTION STAGE EXECUTION CONTRACT: When the resume input contains "Production context (N images requested)", you MUST call the `image_generate` tool exactly once per image listed. Do not return JSON until every image_generate call has completed. Return output:[{stage:"production", artifacts:{creative_assets:[{assetId:"img_N", type:"generated_image", path:<absolute path returned by image_generate>, prompt:<the rendered visual prompt>, placement:<which post number>}, ...]}}]. If image_generate returns success:false for an item, record it in artifacts.errors[] and continue with the rest. Returning content_package without artifacts.creative_assets is a violation of the contract and will fail downstream ingest.',
+      'PRODUCTION STAGE EXECUTION CONTRACT: When the resume input contains "Production context (N images requested)", you MUST return BOTH content_package[] AND artifacts.creative_assets[]. One without the other is incomplete and will fail downstream publish. (A) Call the `image_generate` tool exactly once per image listed — do not return JSON until every image_generate call has completed. (B) Build content_package[] with one entry per post: {post_number, theme, hook, body, cta, hashtags (array of 3-6 relevant hashtags), platforms, format, visual_prompt}. The Nth creative_asset corresponds to the Nth content_package post via post_number. content_package carries the post COPY (caption text, hooks, hashtags). creative_assets carries the rendered IMAGES. Return output:[{stage:"production", content_package:[{post_number:1, theme:"...", hook:"...", body:"...", cta:"...", hashtags:["#tag1","#tag2","#tag3"], platforms:["instagram","facebook"], format:"single_image", visual_prompt:"..."},...], artifacts:{creative_assets:[{assetId:"img_1", type:"generated_image", path:<absolute path returned by image_generate>, prompt:<the rendered visual prompt>, placement:<which post number>}, ...], errors:[]}}]. If image_generate returns success:false for an item, record it in artifacts.errors[] and continue.',
       'After completing the production stage on resume, return status "requires_approval" with approval.stage="publish", approval.approval_step="approve_publish", approval.workflowStepId="approve_stage_4", approval.prompt="Review creative assets before publish review", and output:[{stage:"production", ...artifacts}].',
       'After completing the publish stage on resume, return status "requires_approval" with approval.stage="publish", approval.approval_step="approve_publish", approval.workflowStepId="approve_stage_4_publish", approval.prompt="Approve to publish the weekly social content", and output:[{stage:"publish", ...artifacts}].',
       'Only return status "completed" after the publish-review approval has been granted on the final resume call.',
@@ -118,7 +118,7 @@ function buildInstructionsFromSource(workflowKey: string): string {
     'Invoke `/last30days` for the brand, and — if a competitor URL or competitor brand is provided — for the competitor separately.',
     'Fold the social-signal findings from `last30days` into the research output artifacts.',
     'Reply with a single strict JSON object only — no prose, no markdown fences.',
-    'PRODUCTION STAGE EXECUTION CONTRACT: When the resume input contains "Production context (N images requested)", you MUST call the `image_generate` tool exactly once per image listed. Do not return JSON until every image_generate call has completed. Return output:[{stage:"production", artifacts:{creative_assets:[{assetId:"img_N", type:"generated_image", path:<absolute path returned by image_generate>, prompt:<the rendered visual prompt>, placement:<which post number>}, ...]}}]. If image_generate returns success:false for an item, record it in artifacts.errors[] and continue with the rest. Returning content_package without artifacts.creative_assets is a violation of the contract and will fail downstream ingest.',
+    'PRODUCTION STAGE EXECUTION CONTRACT: When the resume input contains "Production context (N images requested)", you MUST return BOTH content_package[] AND artifacts.creative_assets[]. One without the other is incomplete and will fail downstream publish. (A) Call the `image_generate` tool exactly once per image listed — do not return JSON until every image_generate call has completed. (B) Build content_package[] with one entry per post: {post_number, theme, hook, body, cta, hashtags (array of 3-6 relevant hashtags), platforms, format, visual_prompt}. The Nth creative_asset corresponds to the Nth content_package post via post_number. content_package carries the post COPY (caption text, hooks, hashtags). creative_assets carries the rendered IMAGES. Return output:[{stage:"production", content_package:[{post_number:1, theme:"...", hook:"...", body:"...", cta:"...", hashtags:["#tag1","#tag2","#tag3"], platforms:["instagram","facebook"], format:"single_image", visual_prompt:"..."},...], artifacts:{creative_assets:[{assetId:"img_1", type:"generated_image", path:<absolute path returned by image_generate>, prompt:<the rendered visual prompt>, placement:<which post number>}, ...], errors:[]}}]. If image_generate returns success:false for an item, record it in artifacts.errors[] and continue.',
     `Required schema: {"ok":true,"status":"completed","workflowKey":"${workflowKey}","output":[{...}]}.`,
     'If approval is required, set status to "requires_approval" and include approval.stage, approval.workflowStepId, approval.prompt, and approval.resumeToken.',
   ].join(' ');
@@ -237,5 +237,109 @@ test('buildHermesInstructions(generic): does not contain old "terminal is permit
   assert.ok(
     !result.includes('terminal is permitted ONLY'),
     'Old regression phrasing "terminal is permitted ONLY" must be removed from generic branch',
+  );
+});
+
+// ---- 6. PRODUCTION STAGE CONTRACT now requires content_package AND creative_assets ---
+
+test('buildHermesInstructions(weekly): production contract requires content_package', () => {
+  const result = buildInstructionsFromSource('social_content_weekly');
+  assert.ok(
+    result.includes('content_package'),
+    'Production contract must require content_package[] for post copy',
+  );
+});
+
+test('buildHermesInstructions(weekly): production contract requires creative_assets', () => {
+  const result = buildInstructionsFromSource('social_content_weekly');
+  assert.ok(
+    result.includes('creative_assets'),
+    'Production contract must require creative_assets[] for images',
+  );
+});
+
+test('buildHermesInstructions(weekly): production contract requires both content_package AND creative_assets', () => {
+  const result = buildInstructionsFromSource('social_content_weekly');
+  assert.ok(
+    result.includes('content_package') && result.includes('creative_assets'),
+    'Production contract must require BOTH content_package[] and creative_assets[]',
+  );
+  // Verify the contract does NOT say one is optional or an alternative to the other
+  assert.ok(
+    !result.includes('content_package without artifacts.creative_assets is a violation'),
+    'Old phrasing implying content_package is the wrong return must be removed',
+  );
+});
+
+test('buildHermesInstructions(weekly): production contract mentions hashtags', () => {
+  const result = buildInstructionsFromSource('social_content_weekly');
+  assert.ok(
+    result.includes('hashtags'),
+    'Production contract must mention hashtags so posts have hashtag copy',
+  );
+});
+
+test('buildHermesInstructions(generic): production contract requires content_package', () => {
+  const result = buildInstructionsFromSource('marketing_pipeline');
+  assert.ok(
+    result.includes('content_package'),
+    'Generic branch production contract must also require content_package[]',
+  );
+});
+
+test('buildHermesInstructions(generic): production contract requires creative_assets', () => {
+  const result = buildInstructionsFromSource('marketing_pipeline');
+  assert.ok(
+    result.includes('creative_assets'),
+    'Generic branch production contract must also require creative_assets[]',
+  );
+});
+
+test('buildHermesInstructions(generic): production contract mentions hashtags', () => {
+  const result = buildInstructionsFromSource('marketing_pipeline');
+  assert.ok(
+    result.includes('hashtags'),
+    'Generic branch production contract must mention hashtags',
+  );
+});
+
+// ---- 7. buildProductionResumeContext contextBlock also requires content_package ---
+
+test('buildProductionResumeContext contextBlock requires content_package', () => {
+  const doc = makeProductionDoc();
+  const { contextBlock } = buildProductionResumeContext({
+    doc,
+    researchOutput: null,
+    strategyOutput: null,
+  });
+  assert.ok(
+    contextBlock.includes('content_package'),
+    'contextBlock must instruct Hermes to return content_package[] with post copy',
+  );
+});
+
+test('buildProductionResumeContext contextBlock requires creative_assets', () => {
+  const doc = makeProductionDoc();
+  const { contextBlock } = buildProductionResumeContext({
+    doc,
+    researchOutput: null,
+    strategyOutput: null,
+  });
+  assert.ok(
+    contextBlock.includes('creative_assets'),
+    'contextBlock must still require creative_assets[] for images',
+  );
+});
+
+test('buildProductionResumeContext contextBlock mentions hashtags in content_package schema', () => {
+  const doc = makeProductionDoc();
+  const { contextBlock } = buildProductionResumeContext({
+    doc,
+    researchOutput: null,
+    strategyOutput: null,
+  });
+  assert.ok(
+    contextBlock.includes('hashtags'),
+    'contextBlock must include hashtags field in content_package schema',
   );
 });
