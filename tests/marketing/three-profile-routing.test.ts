@@ -301,6 +301,37 @@ test('weekly stage runs ship only their own stage instruction contract', async (
   });
 });
 
+test('stage-less weekly resume infers the stage from approvalStep and routes correctly', async () => {
+  // The resume-state reseed path resumes by token only with no explicit
+  // stage. The port must infer the stage from the approval step so the
+  // submission still routes to the correct per-profile gateway instead of
+  // falling back to research.
+  await withDataRoot(async () => {
+    await seedWeeklyJobDoc('job_weekly_infer');
+    const { calls, fetchImpl } = recordingFetch();
+    const port = makePort(PER_PROFILE_ENV, fetchImpl as unknown as typeof fetch);
+    await port.resumePipeline({
+      resumeToken: 'prior-checkpoint-token',
+      approve: true,
+      tenantId: 'tenant_test',
+      jobId: 'job_weekly_infer',
+      approvalId: 'approval_1',
+      stage: null,
+      workflowStepId: 'approve_stage_3',
+      approvalStep: 'approve_post_copy',
+      workflowKey: WEEKLY_WORKFLOW_KEY,
+    });
+    assert.equal(calls.length, 1);
+    // approve_post_copy resumes INTO production -> content-generator gateway.
+    assert.equal(calls[0].url, 'http://host.docker.internal:8655/v1/runs');
+    const headers = calls[0].init.headers as Record<string, string>;
+    assert.equal(headers.authorization, 'Bearer content-key');
+    const body = JSON.parse(calls[0].init.body as string) as Record<string, unknown>;
+    assert.equal(body.action, 'run');
+    assert.ok(String(body.input).includes('Stage: production'));
+  });
+});
+
 test('weekly DENIAL skips the Hermes POST entirely (cancelled envelope)', async () => {
   await withDataRoot(async () => {
     await seedWeeklyJobDoc('job_weekly_deny');

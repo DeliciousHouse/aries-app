@@ -90,6 +90,37 @@ function targetProfileForStage(stage: MarketingStage | undefined): HermesTargetP
   return stage ? STAGE_TO_PROFILE[stage] : 'aries-research';
 }
 
+/**
+ * The marketing stage a resume transitions INTO, keyed by the approval step
+ * being resolved. Used to recover the target profile when a caller resumes by
+ * token only and does not pass an explicit stage (e.g. the resume-state
+ * reseed path `replayMarketingPipelineToApprovalCheckpoint`). Without this a
+ * stage-less resume would route to the research gateway and misroute a
+ * strategy/production/publish transition in a per-profile deployment.
+ */
+const APPROVAL_STEP_TO_MARKETING_STAGE: Record<string, MarketingStage> = {
+  approve_weekly_plan: 'strategy',
+  approve_post_copy: 'production',
+  approve_image_creatives: 'production',
+  approve_publish: 'publish',
+};
+
+/**
+ * Resolve the stage a resume targets. Prefers the explicit stage; otherwise
+ * infers it from the approval step. Returns undefined only when neither is
+ * known — callers then fall back to the default gateway.
+ */
+function resumeStageFromInput(
+  stage: MarketingStage | undefined,
+  approvalStep: SocialContentApprovalStep | null | undefined,
+): MarketingStage | undefined {
+  if (stage) return stage;
+  if (approvalStep && APPROVAL_STEP_TO_MARKETING_STAGE[approvalStep]) {
+    return APPROVAL_STEP_TO_MARKETING_STAGE[approvalStep];
+  }
+  return undefined;
+}
+
 function isWeeklySocialContentRequest(doc?: MarketingJobRuntimeDocument): boolean {
   const request = doc?.inputs?.request;
   if (!request || typeof request !== 'object' || Array.isArray(request)) {
@@ -569,6 +600,21 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       ? await this.loadMemoryContext(input.tenantId)
       : undefined;
 
+    // Resolve the effective stage. A caller that resumes by token only (e.g.
+    // the resume-state reseed path replayMarketingPipelineToApprovalCheckpoint)
+    // passes no explicit stage; infer it from the approval step so per-profile
+    // routing targets the correct gateway instead of defaulting to research.
+    const approvalStepForContext =
+      input.approvalStep ??
+      (input.workflowStepId ? approvalStepFromWorkflowStepId(input.workflowStepId) : null);
+    const effectiveStage =
+      action === 'resume'
+        ? resumeStageFromInput(input.stage, approvalStepForContext)
+        : input.stage;
+    const resolvedInput = effectiveStage !== input.stage
+      ? { ...input, stage: effectiveStage }
+      : input;
+
     const run = createExecutionRunRecord({
       provider: 'hermes',
       domain: 'marketing',
@@ -577,7 +623,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       tenantId: input.tenantId,
       marketingJobId: input.jobId,
       approvalId: input.approvalId,
-      stage: input.stage ?? null,
+      stage: effectiveStage ?? null,
       workflowStepId: input.workflowStepId,
     });
 
@@ -591,9 +637,6 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     // the job doc for every weekly resume (not just the production resume).
     // loadMarketingJobRuntime returns null if the doc is missing — the prompt
     // builders handle that gracefully and fall back to static brand data.
-    const approvalStepForContext =
-      input.approvalStep ??
-      (input.workflowStepId ? approvalStepFromWorkflowStepId(input.workflowStepId) : null);
     const isWeeklyResume =
       action === 'resume' && workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY;
     const productionDoc = isWeeklyResume && input.jobId
@@ -601,13 +644,13 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       : null;
 
     const payload = this.submissionPayload(
-      action, run.aries_run_id, input, workflowKey, callbackToken, memoryContextSnapshot, productionDoc,
+      action, run.aries_run_id, resolvedInput, workflowKey, callbackToken, memoryContextSnapshot, productionDoc,
     );
     const idempotencyKey = typeof payload.idempotency_key === 'string' ? payload.idempotency_key : '';
 
     // Route this stage's submission to its dedicated Hermes profile gateway.
     // Defaults to HERMES_GATEWAY_URL when per-profile vars are unset.
-    const targetProfile = targetProfileForStage(input.stage);
+    const targetProfile = targetProfileForStage(effectiveStage);
 
     let response: Response;
     try {
@@ -670,7 +713,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     // directly (we are already inside the trusted backend, so we skip the
     // HTTP route + auth and call the handler as a function).
     if (this.pollBridgeEnabled()) {
-      const stage = input.stage ?? 'research';
+      const stage = effectiveStage ?? 'research';
       void this.runPollBridge(hermesRunId, run.aries_run_id, workflowKey, stage, targetProfile).catch((error) => {
         console.error('[hermes-port] poll-bridge failed', {
           aries_run_id: run.aries_run_id,
