@@ -117,6 +117,27 @@ export async function resolveMediaUrls(
     .filter((url): url is string => Boolean(url));
 }
 
+// Roll a set of per-platform dispatch outcomes up into the single
+// posts.published_status. A cross-post dispatches to several platforms
+// independently; the parent posts row must NOT be demoted to 'failed'
+// because one platform failed while another went live.
+//   - 'published' — at least one platform was dispatched.
+//   - 'failed'    — every platform failed AND no failure is retryable
+//     (every failure is terminal), so no later worker pass will change it.
+//   - null        — leave posts.published_status untouched: either there
+//     were no platforms, or a retryable failure remains and the worker's
+//     next pass can still drive the post to a terminal state.
+export type PostStatusDecision = 'published' | 'failed' | null;
+
+export function planPostStatusUpdate(
+  results: ReadonlyArray<{ ok: boolean; retryable?: boolean }>,
+): PostStatusDecision {
+  if (results.length === 0) return null;
+  if (results.some((r) => r.ok)) return 'published';
+  const anyRetryable = results.some((r) => !r.ok && r.retryable);
+  return anyRetryable ? null : 'failed';
+}
+
 export async function POST(req: Request): Promise<Response> {
   const authResult = verifyInternalCallbackRequest(req);
   if (!authResult.ok) {
@@ -167,6 +188,11 @@ export async function POST(req: Request): Promise<Response> {
     retryable?: boolean;
   }> = [];
 
+  // Tracks the platform_post_id of the first platform that went live, so the
+  // aggregate posts write below can record one. Per-platform truth lives in
+  // scheduled_post_dispatches; posts.published_status is only an OR-rollup.
+  let firstPublishedPostId: string | null = null;
+
   for (const platform of platforms) {
     if (!isMetaProvider(platform)) {
       // Unsupported provider can never succeed — terminal, not retryable.
@@ -181,14 +207,8 @@ export async function POST(req: Request): Promise<Response> {
         mediaUrls: signedMediaUrls,
       });
       results.push({ provider: platform, ok: true });
-
-      // Update post status to published
-      if (postId) {
-        await pool.query(
-          `UPDATE posts SET published_status = 'published', platform_post_id = $2, published_at = now()
-           WHERE id = $1 AND tenant_id = $3`,
-          [postId, published.platformPostId, tenantId],
-        );
+      if (firstPublishedPostId === null && published.platformPostId) {
+        firstPublishedPostId = published.platformPostId;
       }
     } catch (error) {
       const errMsg = error instanceof MetaPublishError
@@ -198,20 +218,34 @@ export async function POST(req: Request): Promise<Response> {
       // retryable; a MetaPublishError carries its own retryable flag.
       const retryable = error instanceof MetaPublishError ? error.retryable : true;
       results.push({ provider: platform, ok: false, error: errMsg, retryable });
-
-      if (postId && error instanceof MetaPublishError && !error.retryable) {
-        await pool.query(
-          `UPDATE posts SET published_status = 'failed' WHERE id = $1 AND tenant_id = $2`,
-          [postId, tenantId],
-        ).catch(() => {});
-      }
       // Do NOT abort the loop: a later platform may still succeed, and the
       // worker needs every platform's outcome to write per-platform state.
+      // Do NOT write posts.published_status here — a per-platform write would
+      // clobber a sibling platform's 'published' (FB succeeds, IG fails on the
+      // same cross-post). The single OR-rollup write happens after the loop.
     }
   }
 
   const anyOk = results.some((r) => r.ok);
   const anyRetryable = results.some((r) => !r.ok && r.retryable);
+
+  // Roll the per-platform outcomes up into one posts.published_status write.
+  const postStatus = planPostStatusUpdate(results);
+  if (postId && postStatus === 'published') {
+    await pool.query(
+      `UPDATE posts
+       SET published_status = 'published',
+           platform_post_id = COALESCE($2, platform_post_id),
+           published_at = COALESCE(published_at, now())
+       WHERE id = $1 AND tenant_id = $3`,
+      [postId, firstPublishedPostId, tenantId],
+    ).catch(() => {});
+  } else if (postId && postStatus === 'failed') {
+    await pool.query(
+      `UPDATE posts SET published_status = 'failed' WHERE id = $1 AND tenant_id = $2`,
+      [postId, tenantId],
+    ).catch(() => {});
+  }
   // 202 when at least one platform was dispatched; 502 when every platform
   // failed and at least one is retryable; 422 when all failures are terminal.
   const status = anyOk ? 202 : anyRetryable ? 502 : 422;
