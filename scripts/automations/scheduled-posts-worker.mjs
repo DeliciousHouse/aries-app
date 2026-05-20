@@ -45,6 +45,9 @@ function buildPool() {
 // A row is claimable when it is 'pending', OR when it is 'in_flight' but has
 // been stuck past IN_FLIGHT_RECLAIM_MS (its worker pass crashed before
 // publish confirmed). $2 is the stale-in_flight cutoff timestamp.
+// The lock is `FOR UPDATE OF sp` — not a bare `FOR UPDATE` — because Postgres
+// rejects row locks on the nullable side of a LEFT JOIN; `posts` is read-only
+// enrichment here, only the `scheduled_posts` row is being claimed.
 export const CLAIM_ROW_SQL = `SELECT sp.id, sp.post_id, sp.tenant_id, sp.target_platforms,
             p.caption, p.platform_post_id
      FROM scheduled_posts sp
@@ -54,7 +57,25 @@ export const CLAIM_ROW_SQL = `SELECT sp.id, sp.post_id, sp.tenant_id, sp.target_
          sp.dispatch_status = 'pending'
          OR (sp.dispatch_status = 'in_flight' AND sp.updated_at < $2)
        )
-     FOR UPDATE SKIP LOCKED`;
+     FOR UPDATE OF sp SKIP LOCKED`;
+
+// Due-rows scan, exported alongside CLAIM_ROW_SQL so a regression test runs the
+// real query against a real planner. $1 is the batch size, $2 the
+// stale-in_flight cutoff timestamp.
+export const DUE_ROWS_SQL = `SELECT id FROM scheduled_posts
+     WHERE scheduled_for <= NOW()
+       AND (
+         dispatch_status = 'pending'
+         OR (dispatch_status = 'in_flight' AND updated_at < $2)
+       )
+     ORDER BY scheduled_for
+     LIMIT $1`;
+
+// Parent-row claim UPDATE, exported for the same regression-test reason. $1 is
+// the scheduled_posts id.
+export const MARK_IN_FLIGHT_SQL = `UPDATE scheduled_posts
+     SET dispatch_status = 'in_flight', updated_at = now()
+     WHERE id = $1`;
 
 /**
  * Atomically claim a row (SELECT ... FOR UPDATE SKIP LOCKED). Picks pending
@@ -75,12 +96,7 @@ async function claimRow(client, rowId) {
  * stale-reclaim window is measured from the claim.
  */
 async function markInFlight(client, rowId) {
-  await client.query(
-    `UPDATE scheduled_posts
-     SET dispatch_status = 'in_flight', updated_at = now()
-     WHERE id = $1`,
-    [rowId],
-  );
+  await client.query(MARK_IN_FLIGHT_SQL, [rowId]);
 }
 
 // --- Per-platform dispatch state ------------------------------------------
@@ -295,17 +311,7 @@ export async function tick(pool) {
   // crashed and have been stuck past the reclaim window. claimRow re-checks
   // both conditions under the row lock.
   const staleCutoff = new Date(Date.now() - IN_FLIGHT_RECLAIM_MS).toISOString();
-  const dueResult = await pool.query(
-    `SELECT id FROM scheduled_posts
-     WHERE scheduled_for <= NOW()
-       AND (
-         dispatch_status = 'pending'
-         OR (dispatch_status = 'in_flight' AND updated_at < $2)
-       )
-     ORDER BY scheduled_for
-     LIMIT $1`,
-    [BATCH_SIZE, staleCutoff],
-  );
+  const dueResult = await pool.query(DUE_ROWS_SQL, [BATCH_SIZE, staleCutoff]);
 
   const ids = dueResult.rows.map((r) => r.id);
   const report = { processed: ids.length, dispatched: 0, failed: 0, skipped: 0 };
