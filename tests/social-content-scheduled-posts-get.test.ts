@@ -8,13 +8,21 @@ import {
 
 type Captured = { sql: string; params: unknown[] };
 
-function buildQueryable(rows: unknown[]): {
+function buildQueryable(
+  rows: unknown[],
+  unscheduledRows: unknown[] = [],
+): {
   queryable: ScheduledPostsQueryable;
   calls: Captured[];
 } {
   const calls: Captured[] = [];
   const query = (async (sql: string, params: unknown[]) => {
-    calls.push({ sql: sql.trim(), params });
+    const trimmed = sql.trim();
+    calls.push({ sql: trimmed, params });
+    // The route runs the unscheduled-backlog query after the main queue query.
+    if (trimmed.includes('LEFT JOIN scheduled_posts')) {
+      return { rows: unscheduledRows, rowCount: unscheduledRows.length };
+    }
     return { rows, rowCount: rows.length };
   });
   return { queryable: { query } as unknown as ScheduledPostsQueryable, calls };
@@ -154,6 +162,37 @@ test('GET scheduled-posts handles an empty queue with a 200 + empty array', asyn
   assert.equal(response.status, 200);
   const body = (await response.json()) as { posts: unknown[] };
   assert.deepEqual(body.posts, []);
+});
+
+test('GET scheduled-posts returns the unscheduled approved-posts backlog (T13)', async () => {
+  const { queryable, calls } = buildQueryable(
+    [makeRow()],
+    [
+      { id: 77, job_id: 'job-9', caption: 'Approved waiting post\nbody', platform: 'instagram' },
+      { id: 78, job_id: null, caption: '', platform: null },
+    ],
+  );
+  const response = await handleGetScheduledPosts(
+    getRequest('?from=2026-05-20T00:00:00.000Z&to=2026-05-28T00:00:00.000Z'),
+    { tenantContextLoader: tenantLoader(7), queryable },
+  );
+
+  assert.equal(response.status, 200);
+  const body = (await response.json()) as {
+    unscheduled: Array<{ postId: string; jobId: string | null; title: string; platform: string | null }>;
+  };
+  assert.equal(body.unscheduled.length, 2);
+  assert.equal(body.unscheduled[0].postId, '77');
+  assert.equal(body.unscheduled[0].jobId, 'job-9');
+  assert.equal(body.unscheduled[0].title, 'Approved waiting post');
+  assert.equal(body.unscheduled[1].title, 'Scheduled post');
+
+  // The backlog query is tenant-scoped and filters out rows with a schedule.
+  const backlogCall = calls.find((call) => call.sql.includes('LEFT JOIN scheduled_posts'));
+  assert.ok(backlogCall, 'the unscheduled backlog query must run');
+  assert.deepEqual(backlogCall.params, [7]);
+  assert.match(backlogCall.sql, /sp\.id IS NULL/);
+  assert.match(backlogCall.sql, /p\.tenant_id = \$1/);
 });
 
 test('GET scheduled-posts falls back to a generic title for a blank caption', async () => {

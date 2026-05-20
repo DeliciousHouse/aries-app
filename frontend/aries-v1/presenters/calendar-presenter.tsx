@@ -4,11 +4,21 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'motion/react';
 import {
+  DndContext,
+  PointerSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
   Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
   Facebook,
   Globe,
+  Inbox,
   Instagram,
   Layers3,
   Linkedin,
@@ -17,44 +27,93 @@ import {
   X as CloseIcon,
 } from 'lucide-react';
 
-import type { CalendarViewModel } from '@/frontend/aries-v1/view-models/calendar';
+import type {
+  CalendarEvent,
+  CalendarViewModel,
+  UnscheduledPost,
+} from '@/frontend/aries-v1/view-models/calendar';
 import { RedditIcon, XIcon } from '@/frontend/components/Icons';
+import {
+  formatTimeInTenantZone,
+  tenantZoneDateKey,
+  tenantZoneParts,
+} from '@/lib/format-timestamp';
 
 type CalendarMode = 'week' | 'month';
 
 export interface CalendarPresenterProps {
   model: CalendarViewModel;
+  /**
+   * Drag drop handler — receives the dragged item and the YYYY-MM-DD tenant-zone
+   * cell it landed on. The calendar screen wires this to useCalendarScheduling.
+   */
+  onSchedule?: (
+    item:
+      | { kind: 'event'; event: CalendarEvent }
+      | { kind: 'unscheduled'; post: UnscheduledPost },
+    targetDayKey: string,
+  ) => void;
+  /** Optimistic day-key overrides keyed by event id (pendingMoves from the hook). */
+  pendingDayKeys?: Record<string, string>;
+  schedulingError?: string | null;
 }
 
-export default function CalendarPresenter({ model }: CalendarPresenterProps) {
+export default function CalendarPresenter({
+  model,
+  onSchedule,
+  pendingDayKeys,
+  schedulingError,
+}: CalendarPresenterProps) {
+  const timeZone = model.timeZone;
   const [view, setView] = useState<CalendarMode>('month');
-  const [currentDate, setCurrentDate] = useState(() => getInitialCalendarDate(model.events));
+  const [currentDate, setCurrentDate] = useState(() =>
+    getInitialCalendarDate(model.events, timeZone),
+  );
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+
+  const sensors = useSensors(
+    // A small activation distance keeps a plain click on a tile from being
+    // swallowed as a drag (so the event-detail modal still opens).
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+  );
+
+  // Apply optimistic day-key overrides so a dragged tile shows on the target
+  // cell before the server refetch lands.
+  const events = useMemo(() => {
+    if (!pendingDayKeys || Object.keys(pendingDayKeys).length === 0) {
+      return model.events;
+    }
+    return model.events.map((event) =>
+      pendingDayKeys[event.id]
+        ? { ...event, dayKey: pendingDayKeys[event.id] }
+        : event,
+    );
+  }, [model.events, pendingDayKeys]);
 
   const calendarDays = useMemo(() => {
     const weekStartsOn = view === 'month' ? 0 : 1;
-    const start = view === 'month'
-      ? startOfWeek(startOfMonth(currentDate), weekStartsOn)
-      : startOfWeek(currentDate, weekStartsOn);
-    const end = view === 'month'
-      ? endOfWeek(endOfMonth(currentDate), weekStartsOn)
-      : endOfWeek(currentDate, weekStartsOn);
-
+    const start =
+      view === 'month'
+        ? startOfWeek(startOfMonth(currentDate), weekStartsOn)
+        : startOfWeek(currentDate, weekStartsOn);
+    const end =
+      view === 'month'
+        ? endOfWeek(endOfMonth(currentDate), weekStartsOn)
+        : endOfWeek(currentDate, weekStartsOn);
     return eachDayOfInterval({ start, end });
   }, [currentDate, view]);
 
   const eventsByDay = useMemo(() => {
-    const map = new Map<string, CalendarViewModel['events']>();
-    for (const event of model.events) {
-      const key = event.dayKey || dateKey(new Date(event.timestamp));
-      const entry = map.get(key) || [];
+    const map = new Map<string, CalendarEvent[]>();
+    for (const event of events) {
+      const entry = map.get(event.dayKey) || [];
       entry.push(event);
-      map.set(key, entry);
+      map.set(event.dayKey, entry);
     }
     return map;
-  }, [model.events]);
+  }, [events]);
 
-  const selectedEvent = model.events.find((event) => event.id === selectedEventId) || null;
+  const selectedEvent = events.find((event) => event.id === selectedEventId) || null;
 
   useEffect(() => {
     if (!selectedEvent) return;
@@ -73,324 +132,480 @@ export default function CalendarPresenter({ model }: CalendarPresenterProps) {
     setCurrentDate((current) => (view === 'month' ? shiftMonths(current, 1) : shiftDays(current, 7)));
   }
 
+  function handleDragEnd(dragEvent: DragEndEvent) {
+    if (!onSchedule || !dragEvent.over) {
+      return;
+    }
+    const targetDayKey = String(dragEvent.over.id);
+    const data = dragEvent.active.data.current as
+      | { kind: 'event'; event: CalendarEvent }
+      | { kind: 'unscheduled'; post: UnscheduledPost }
+      | undefined;
+    if (!data) {
+      return;
+    }
+    if (data.kind === 'event') {
+      if (data.event.dayKey === targetDayKey) {
+        return;
+      }
+      onSchedule({ kind: 'event', event: data.event }, targetDayKey);
+    } else {
+      onSchedule({ kind: 'unscheduled', post: data.post }, targetDayKey);
+    }
+  }
+
+  const todayKey = tenantZoneDateKey(new Date(), timeZone);
+
   return (
-    <div className="space-y-8 pb-12">
-      <div className="flex flex-col justify-between gap-6 md:flex-row md:items-center">
-        <div>
-          <div className="mb-2 flex items-center gap-3">
-            <div className="rounded-lg bg-white/5 p-2">
-              <CalendarIcon className="h-5 w-5 text-primary" />
-            </div>
-            <h1 className="text-3xl font-display font-semibold tracking-tight text-white">Calendar</h1>
-          </div>
-          <p className="max-w-3xl text-zinc-500">{model.hero.description}</p>
-        </div>
-        <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white/75">
-          <Layers3 className="h-4 w-4 text-primary" />
-          {model.events.length} upcoming runtime event{model.events.length === 1 ? '' : 's'}
-        </div>
-      </div>
-
-      {model.events.length === 0 ? (
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-          <div className="glass-panel p-8">
-            <h2 className="text-2xl font-semibold text-white">Nothing is scheduled yet</h2>
-            <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/55">
-              The restored calendar layout is in place, but it stays honest. Events only appear once the live runtime publishes real schedule signals.
-            </p>
-            <div className="mt-6 rounded-2xl border border-primary/10 bg-primary/5 p-5 text-sm leading-relaxed text-white/60">
-              Aries will keep this board read-only until there is trustworthy schedule data to render.
-            </div>
-          </div>
-
-          <div className="glass-panel p-6">
-            <h2 className="mb-6 text-lg font-semibold text-white">Campaign status at a glance</h2>
-            <div className="space-y-4">
-              {model.campaigns.length === 0 ? (
-                <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 text-sm text-zinc-500">
-                  No campaigns are available yet.
-                </div>
-              ) : (
-                model.campaigns.map((campaign) => (
-                  <Link
-                    key={campaign.id}
-                    href={campaign.href}
-                    className="block rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 transition-all hover:border-primary/20 hover:bg-primary/[0.04]"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-medium text-white">{campaign.name}</p>
-                      <span className={`rounded-full border px-3 py-1 text-xs font-medium ${statusPill(campaign.status)}`}>
-                        {campaign.status.replace('_', ' ')}
-                      </span>
-                    </div>
-                    <p className="mt-2 text-sm text-white/55">{campaign.nextScheduled}</p>
-                    <div className="mt-3 flex flex-wrap gap-3 text-xs uppercase tracking-[0.2em] text-white/35">
-                      <span>{campaign.stageLabel}</span>
-                      <span>{campaign.pendingApprovals} pending approvals</span>
-                    </div>
-                  </Link>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-6">
-          <section className="glass-panel min-w-0 p-5 md:p-6">
-            <div className="mb-6 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
-              <div className="flex flex-col gap-4 md:flex-row md:items-center">
-                <h2 className="min-w-[180px] text-2xl font-medium tracking-tight text-white">
-                  {formatMonthYear(currentDate)}
-                </h2>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={previousPeriod}
-                    className="rounded-lg border border-white/10 p-2 transition-colors hover:bg-white/5"
-                  >
-                    <ChevronLeft className="h-5 w-5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCurrentDate(new Date())}
-                    className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium transition-colors hover:bg-white/5"
-                  >
-                    Today
-                  </button>
-                  <button
-                    type="button"
-                    onClick={nextPeriod}
-                    className="rounded-lg border border-white/10 p-2 transition-colors hover:bg-white/5"
-                  >
-                    <ChevronRight className="h-5 w-5" />
-                  </button>
-                </div>
+    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+      <div className="space-y-8 pb-12">
+        <div className="flex flex-col justify-between gap-6 md:flex-row md:items-center">
+          <div>
+            <div className="mb-2 flex items-center gap-3">
+              <div className="rounded-lg bg-white/5 p-2">
+                <CalendarIcon className="h-5 w-5 text-primary" />
               </div>
-
-              <div className="flex rounded-xl border border-white/5 bg-[#111] p-1">
-                {(['week', 'month'] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    onClick={() => setView(mode)}
-                    className={`px-4 py-2 text-sm font-medium transition-all ${
-                      view === mode ? 'rounded-lg bg-[#222] text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'
-                    }`}
-                  >
-                    {mode === 'week' ? 'Week' : 'Month'}
-                  </button>
-                ))}
-              </div>
+              <h1 className="text-3xl font-display font-semibold tracking-tight text-white">Calendar</h1>
             </div>
+            <p className="max-w-3xl text-zinc-500">{model.hero.description}</p>
+          </div>
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white/75">
+            <Layers3 className="h-4 w-4 text-primary" />
+            {events.length} queued post{events.length === 1 ? '' : 's'}
+          </div>
+        </div>
 
-            <div className="overflow-x-auto no-scrollbar">
-              <motion.div
-                key={`${view}:${dateKey(currentDate)}`}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2, ease: 'easeOut' }}
-                className="min-w-[900px] lg:min-w-0"
-              >
-                <div className="mb-4 grid grid-cols-7">
-                  {(view === 'month'
-                    ? ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
-                    : ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']).map((day) => (
-                    <div
-                      key={day}
-                      className="text-center text-[10px] font-bold tracking-[0.3em] text-zinc-600"
+        {schedulingError ? (
+          <div className="rounded-2xl border border-rose-500/25 bg-rose-500/10 p-4 text-sm text-rose-100">
+            {schedulingError}
+          </div>
+        ) : null}
+
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[0.78fr_3.22fr]">
+          <UnscheduledTray posts={model.unscheduled} />
+
+          <div className="space-y-6">
+            <section className="glass-panel min-w-0 p-5 md:p-6">
+              <div className="mb-6 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+                <div className="flex flex-col gap-4 md:flex-row md:items-center">
+                  <h2 className="min-w-[180px] text-2xl font-medium tracking-tight text-white">
+                    {formatMonthYear(currentDate)}
+                  </h2>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={previousPeriod}
+                      className="rounded-lg border border-white/10 p-2 transition-colors hover:bg-white/5"
+                      aria-label="Previous period"
                     >
-                      {day}
-                    </div>
+                      <ChevronLeft className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentDate(new Date())}
+                      className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium transition-colors hover:bg-white/5"
+                    >
+                      Today
+                    </button>
+                    <button
+                      type="button"
+                      onClick={nextPeriod}
+                      className="rounded-lg border border-white/10 p-2 transition-colors hover:bg-white/5"
+                      aria-label="Next period"
+                    >
+                      <ChevronRight className="h-5 w-5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex rounded-xl border border-white/5 bg-[#111] p-1">
+                  {(['week', 'month'] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setView(mode)}
+                      className={`px-4 py-2 text-sm font-medium transition-all ${
+                        view === mode ? 'rounded-lg bg-[#222] text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'
+                      }`}
+                    >
+                      {mode === 'week' ? 'Week' : 'Month'}
+                    </button>
                   ))}
                 </div>
+              </div>
 
-                <div
-                  className={`grid grid-cols-7 ${
-                    view === 'month'
-                      ? 'gap-px overflow-hidden rounded-2xl border border-white/[0.05] bg-white/[0.05]'
-                      : 'gap-3'
-                  }`}
+              <div className="overflow-x-auto no-scrollbar">
+                <motion.div
+                  key={`${view}:${dateKey(currentDate)}`}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.2, ease: 'easeOut' }}
+                  className="min-w-[900px] lg:min-w-0"
                 >
-                  {calendarDays.map((day) => {
-                    const dayKey = dateKey(day);
-                    const events = (eventsByDay.get(dayKey) || []).slice().sort((left, right) => left.timestamp - right.timestamp);
-                    const active = isToday(day);
-
-                    if (view === 'month') {
-                      return (
-                        <div
-                          key={dayKey}
-                          className={`flex min-h-[190px] flex-col bg-[#050505] p-3 transition-all ${
-                            !isSameMonth(day, currentDate) ? 'opacity-35' : ''
-                          } ${active ? 'bg-primary/[0.03]' : ''}`}
-                        >
-                          <div className="mb-4 flex items-start justify-between">
-                            <span className={`text-sm font-medium ${active ? 'text-primary' : 'text-zinc-500'}`}>
-                              {String(day.getDate())}
-                            </span>
-                            {active ? <div className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_8px_rgba(123,97,255,0.8)]" /> : null}
-                          </div>
-
-                          <div className="flex-1 space-y-1">
-                            {events.map((event) => (
-                              <button
-                                key={event.id}
-                                type="button"
-                                onClick={() => setSelectedEventId(event.id)}
-                                className={`w-full rounded border px-2.5 py-2 text-left text-[9px] transition-all hover:bg-white/[0.05] ${platformTone(event.platform)}`}
-                              >
-                                <div className="flex items-center justify-between gap-2 text-[8px] font-mono uppercase tracking-[0.14em]">
-                                  <span className="text-white">{formatTime(new Date(event.timestamp))}</span>
-                                  <span className="flex h-4 w-4 items-center justify-center text-white">
-                                    {platformLogo(event.platform)}
-                                  </span>
-                                </div>
-                                <span
-                                  className="mt-2.5 block overflow-hidden text-[9px] font-normal leading-snug text-white"
-                                  style={{
-                                    display: '-webkit-box',
-                                    WebkitBoxOrient: 'vertical',
-                                    WebkitLineClamp: 2,
-                                  }}
-                                >
-                                  {event.title}
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    return (
+                  <div className="mb-4 grid grid-cols-7">
+                    {(view === 'month'
+                      ? ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
+                      : ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
+                    ).map((day) => (
                       <div
-                        key={dayKey}
-                        className="flex flex-col overflow-hidden rounded-2xl border border-white/[0.03] bg-white/[0.01] p-2"
+                        key={day}
+                        className="text-center text-[10px] font-bold tracking-[0.3em] text-zinc-600"
                       >
-                        <div className="mb-3 flex items-center justify-center">
-                          <div className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium ${
-                            active ? 'bg-primary text-white shadow-[0_0_10px_rgba(123,97,255,0.45)]' : 'text-zinc-50'
-                          }`}>
-                            {String(day.getDate())}
-                          </div>
-                        </div>
-                        <div className="flex-1 space-y-3">
-                          {events.length === 0 ? null : (
-                            events.map((event) => (
-                              <button
-                                key={event.id}
-                                type="button"
-                                onClick={() => setSelectedEventId(event.id)}
-                                className={`w-full rounded-2xl border bg-[#0a0a0a]/80 p-3 text-left shadow-lg transition-all ${platformTone(event.platform)}`}
-                              >
-                                <div className="mb-2 flex items-center justify-between">
-                                  <span className="text-[10px] font-mono opacity-70">
-                                    {formatTime(new Date(event.timestamp))}
-                                  </span>
-                                  <span className={`rounded-full border px-2 py-0.5 text-[7px] font-bold uppercase tracking-widest ${statusPill(event.status)}`}>
-                                    {event.status === 'live' ? 'Live' : event.status === 'scheduled' ? 'Sch' : 'Prep'}
-                                  </span>
-                                </div>
-                                <h3 className="mb-1 text-[11px] font-bold leading-tight text-white">{event.title}</h3>
-                                <div className="flex items-center gap-2 text-white/85">
-                                  <span className="flex h-4 w-4 items-center justify-center">
-                                    {platformLogo(event.platform)}
-                                  </span>
-                                </div>
-                              </button>
-                            ))
-                          )}
-                        </div>
+                        {day}
                       </div>
-                    );
-                  })}
+                    ))}
+                  </div>
+
+                  <div
+                    className={`grid grid-cols-7 ${
+                      view === 'month'
+                        ? 'gap-px overflow-hidden rounded-2xl border border-white/[0.05] bg-white/[0.05]'
+                        : 'gap-3'
+                    }`}
+                  >
+                    {calendarDays.map((day) => {
+                      const cellKey = dateKey(day);
+                      const cellEvents = (eventsByDay.get(cellKey) || [])
+                        .slice()
+                        .sort((left, right) => left.timestamp - right.timestamp);
+                      const active = cellKey === todayKey;
+
+                      return (
+                        <CalendarCell
+                          key={cellKey}
+                          dayKey={cellKey}
+                          view={view}
+                          dayNumber={day.getDate()}
+                          inCurrentMonth={isSameMonth(day, currentDate)}
+                          active={active}
+                          events={cellEvents}
+                          timeZone={timeZone}
+                          onSelectEvent={setSelectedEventId}
+                        />
+                      );
+                    })}
+                  </div>
+                </motion.div>
+              </div>
+            </section>
+
+            <section className="glass-panel p-6">
+              <h2 className="mb-6 text-lg font-semibold text-white">Campaign status at a glance</h2>
+              <div className="space-y-4">
+                {model.campaigns.length === 0 ? (
+                  <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 text-sm text-zinc-500">
+                    No campaigns are available yet.
+                  </div>
+                ) : (
+                  model.campaigns.map((campaign) => (
+                    <Link
+                      key={campaign.id}
+                      href={campaign.href}
+                      className="block rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 transition-all hover:border-primary/20 hover:bg-primary/[0.04]"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-medium text-white">{campaign.name}</p>
+                        <span className={`rounded-full border px-3 py-1 text-xs font-medium ${statusPill(campaign.status)}`}>
+                          {campaign.status.replace('_', ' ')}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-sm text-white/55">{campaign.nextScheduled}</p>
+                      <div className="mt-3 flex flex-wrap gap-3 text-xs uppercase tracking-[0.2em] text-white/35">
+                        <span>{campaign.stageLabel}</span>
+                        <span>{campaign.pendingApprovals} pending approvals</span>
+                      </div>
+                    </Link>
+                  ))
+                )}
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <AnimatePresence>
+          {selectedEvent ? (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setSelectedEventId(null)}
+                className="absolute inset-0 bg-black/80 backdrop-blur-md"
+              />
+              <motion.div
+                initial={{ scale: 0.92, opacity: 0, y: 18 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.92, opacity: 0, y: 18 }}
+                className="relative w-full max-w-2xl overflow-hidden rounded-3xl border border-white/10 bg-[#0a0a0a] shadow-2xl"
+              >
+                <div className="flex items-center justify-between border-b border-white/5 p-5 md:p-6">
+                  <div>
+                    <h2 className="text-xl font-medium text-white">{selectedEvent.title}</h2>
+                    <p className="mt-1 text-sm text-zinc-500">{selectedEvent.scheduledFor}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedEventId(null)}
+                    className="rounded-full p-2 text-zinc-500 transition-colors hover:bg-white/5 hover:text-white"
+                    aria-label="Close"
+                  >
+                    <CloseIcon className="h-5 w-5" />
+                  </button>
+                </div>
+
+                <div className="space-y-5 p-5 md:p-6">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <InfoPanel label="Platform" value={selectedEvent.platform} />
+                    <InfoPanel label="Dispatch status" value={selectedEvent.dispatchStatus.replace('_', ' ')} />
+                    <InfoPanel label="Scheduled for" value={selectedEvent.scheduledFor} />
+                    <InfoPanel
+                      label="Targets"
+                      value={selectedEvent.targetPlatforms.join(', ') || selectedEvent.platform}
+                    />
+                  </div>
+
+                  {selectedEvent.dispatches.length > 0 ? (
+                    <div className="space-y-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/35">
+                        Per-platform dispatch
+                      </p>
+                      {selectedEvent.dispatches.map((dispatch) => (
+                        <div
+                          key={dispatch.platform}
+                          className="flex items-center justify-between rounded-xl border border-white/[0.05] bg-white/[0.02] px-4 py-3 text-sm"
+                        >
+                          <span className="text-white/80 capitalize">{dispatch.platform}</span>
+                          <span className="text-white/55">
+                            {dispatch.status}
+                            {dispatch.errorMessage ? ` — ${dispatch.errorMessage}` : ''}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  <Link
+                    href={selectedEvent.href}
+                    className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-medium text-white shadow-[0_0_20px_rgba(123,97,255,0.3)]"
+                  >
+                    Open campaign workspace
+                    <ChevronRight className="h-4 w-4" />
+                  </Link>
                 </div>
               </motion.div>
             </div>
-          </section>
+          ) : null}
+        </AnimatePresence>
+      </div>
+    </DndContext>
+  );
+}
 
-          <section className="glass-panel p-6">
-            <h2 className="mb-6 text-lg font-semibold text-white">Campaign status at a glance</h2>
-            <div className="space-y-4">
-              {model.campaigns.map((campaign) => (
-                <Link
-                  key={campaign.id}
-                  href={campaign.href}
-                  className="block rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 transition-all hover:border-primary/20 hover:bg-primary/[0.04]"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-medium text-white">{campaign.name}</p>
-                    <span className={`rounded-full border px-3 py-1 text-xs font-medium ${statusPill(campaign.status)}`}>
-                      {campaign.status.replace('_', ' ')}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-sm text-white/55">{campaign.nextScheduled}</p>
-                  <div className="mt-3 flex flex-wrap gap-3 text-xs uppercase tracking-[0.2em] text-white/35">
-                    <span>{campaign.stageLabel}</span>
-                    <span>{campaign.pendingApprovals} pending approvals</span>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </section>
+function UnscheduledTray({ posts }: { posts: UnscheduledPost[] }) {
+  return (
+    <section className="glass-panel h-fit p-5">
+      <div className="mb-4 flex items-center gap-2">
+        <Inbox className="h-4 w-4 text-primary" />
+        <h2 className="text-sm font-semibold text-white">Backlog</h2>
+      </div>
+      <p className="mb-4 text-xs leading-5 text-white/45">
+        Approved posts with no publish date. Drag one onto a calendar cell to schedule it.
+      </p>
+      {posts.length === 0 ? (
+        <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-4 text-xs text-zinc-500">
+          No approved posts are waiting to be scheduled.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {posts.map((post) => (
+            <UnscheduledTrayItem key={post.postId} post={post} />
+          ))}
         </div>
       )}
+    </section>
+  );
+}
 
-      <AnimatePresence>
-        {selectedEvent ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setSelectedEventId(null)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-md"
-            />
-            <motion.div
-              initial={{ scale: 0.92, opacity: 0, y: 18 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.92, opacity: 0, y: 18 }}
-              className="relative w-full max-w-2xl overflow-hidden rounded-3xl border border-white/10 bg-[#0a0a0a] shadow-2xl"
-            >
-              <div className="flex items-center justify-between border-b border-white/5 p-5 md:p-6">
-                <div>
-                  <h2 className="text-xl font-medium text-white">{selectedEvent.title}</h2>
-                  <p className="mt-1 text-sm text-zinc-500">{selectedEvent.scheduledFor}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSelectedEventId(null)}
-                  className="rounded-full p-2 text-zinc-500 transition-colors hover:bg-white/5 hover:text-white"
-                >
-                  <CloseIcon className="h-5 w-5" />
-                </button>
-              </div>
-
-              <div className="space-y-5 p-5 md:p-6">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <InfoPanel label="Platform" value={selectedEvent.platform} />
-                  <InfoPanel label="Status" value={selectedEvent.status.replace('_', ' ')} />
-                  <InfoPanel label="Scheduled for" value={selectedEvent.scheduledFor} />
-                  <InfoPanel label="Runtime" value="Read-only schedule signal" />
-                </div>
-
-                <div className="rounded-2xl border border-primary/10 bg-primary/5 p-5 text-sm leading-relaxed text-white/65">
-                  This calendar view is intentionally read-only. It mirrors the current runtime schedule without inventing additional posts, windows, or generated content.
-                </div>
-
-                <Link
-                  href={selectedEvent.href}
-                  className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-medium text-white shadow-[0_0_20px_rgba(123,97,255,0.3)]"
-                >
-                  Open campaign workspace
-                  <ChevronRight className="h-4 w-4" />
-                </Link>
-              </div>
-            </motion.div>
-          </div>
-        ) : null}
-      </AnimatePresence>
+function UnscheduledTrayItem({ post }: { post: UnscheduledPost }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `unscheduled:${post.postId}`,
+    data: { kind: 'unscheduled', post },
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      data-testid={`tray-item-${post.postId}`}
+      className={`cursor-grab rounded-2xl border border-white/[0.06] bg-white/[0.03] p-3 transition-all hover:border-primary/25 ${
+        isDragging ? 'opacity-40' : ''
+      }`}
+    >
+      <div className="mb-1.5 flex items-center gap-2">
+        <span className="flex h-4 w-4 items-center justify-center text-white/70">
+          {platformLogo(post.platform || 'meta')}
+        </span>
+        <span className="text-[9px] font-mono uppercase tracking-[0.16em] text-white/40">
+          {post.platform || 'meta'}
+        </span>
+      </div>
+      <p className="text-[11px] font-medium leading-snug text-white/85">{post.title}</p>
     </div>
+  );
+}
+
+function CalendarCell({
+  dayKey,
+  view,
+  dayNumber,
+  inCurrentMonth,
+  active,
+  events,
+  timeZone,
+  onSelectEvent,
+}: {
+  dayKey: string;
+  view: CalendarMode;
+  dayNumber: number;
+  inCurrentMonth: boolean;
+  active: boolean;
+  events: CalendarEvent[];
+  timeZone: string;
+  onSelectEvent: (id: string) => void;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: dayKey });
+
+  if (view === 'month') {
+    return (
+      <div
+        ref={setNodeRef}
+        data-testid={`cell-${dayKey}`}
+        className={`flex min-h-[190px] flex-col bg-[#050505] p-3 transition-all ${
+          !inCurrentMonth ? 'opacity-35' : ''
+        } ${active ? 'bg-primary/[0.03]' : ''} ${isOver ? 'ring-2 ring-inset ring-primary/60' : ''}`}
+      >
+        <div className="mb-4 flex items-start justify-between">
+          <span className={`text-sm font-medium ${active ? 'text-primary' : 'text-zinc-500'}`}>
+            {String(dayNumber)}
+          </span>
+          {active ? (
+            <div className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_8px_rgba(123,97,255,0.8)]" />
+          ) : null}
+        </div>
+        <div className="flex-1 space-y-1">
+          {events.map((event) => (
+            <CalendarTile key={event.id} event={event} timeZone={timeZone} onSelect={onSelectEvent} compact />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      data-testid={`cell-${dayKey}`}
+      className={`flex flex-col overflow-hidden rounded-2xl border border-white/[0.03] bg-white/[0.01] p-2 ${
+        isOver ? 'ring-2 ring-inset ring-primary/60' : ''
+      }`}
+    >
+      <div className="mb-3 flex items-center justify-center">
+        <div
+          className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium ${
+            active ? 'bg-primary text-white shadow-[0_0_10px_rgba(123,97,255,0.45)]' : 'text-zinc-50'
+          }`}
+        >
+          {String(dayNumber)}
+        </div>
+      </div>
+      <div className="flex-1 space-y-3">
+        {events.map((event) => (
+          <CalendarTile key={event.id} event={event} timeZone={timeZone} onSelect={onSelectEvent} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CalendarTile({
+  event,
+  timeZone,
+  onSelect,
+  compact,
+}: {
+  event: CalendarEvent;
+  timeZone: string;
+  onSelect: (id: string) => void;
+  compact?: boolean;
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `event:${event.id}`,
+    data: { kind: 'event', event },
+  });
+  const time = formatTimeInTenantZone(event.scheduledForIso, timeZone);
+
+  if (compact) {
+    return (
+      <button
+        ref={setNodeRef}
+        {...attributes}
+        {...listeners}
+        type="button"
+        data-testid={`tile-${event.id}`}
+        onClick={() => onSelect(event.id)}
+        className={`w-full cursor-grab rounded border px-2.5 py-2 text-left text-[9px] transition-all hover:bg-white/[0.05] ${platformTone(
+          event.platform,
+        )} ${isDragging ? 'opacity-40' : ''}`}
+      >
+        <div className="flex items-center justify-between gap-2 text-[8px] font-mono uppercase tracking-[0.14em]">
+          <span className="text-white">{time}</span>
+          <span className="flex h-4 w-4 items-center justify-center text-white">
+            {platformLogo(event.platform)}
+          </span>
+        </div>
+        <span
+          className="mt-2.5 block overflow-hidden text-[9px] font-normal leading-snug text-white"
+          style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2 }}
+        >
+          {event.title}
+        </span>
+      </button>
+    );
+  }
+
+  return (
+    <button
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      type="button"
+      data-testid={`tile-${event.id}`}
+      onClick={() => onSelect(event.id)}
+      className={`w-full cursor-grab rounded-2xl border bg-[#0a0a0a]/80 p-3 text-left shadow-lg transition-all ${platformTone(
+        event.platform,
+      )} ${isDragging ? 'opacity-40' : ''}`}
+    >
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-[10px] font-mono opacity-70">{time}</span>
+        <span
+          className={`rounded-full border px-2 py-0.5 text-[7px] font-bold uppercase tracking-widest ${statusPill(
+            event.status,
+          )}`}
+        >
+          {event.dispatchStatus === 'dispatched'
+            ? 'Sent'
+            : event.dispatchStatus === 'failed'
+              ? 'Fail'
+              : event.dispatchStatus === 'in_flight'
+                ? 'Live'
+                : 'Sch'}
+        </span>
+      </div>
+      <h3 className="mb-1 text-[11px] font-bold leading-tight text-white">{event.title}</h3>
+      <div className="flex items-center gap-2 text-white/85">
+        <span className="flex h-4 w-4 items-center justify-center">{platformLogo(event.platform)}</span>
+      </div>
+    </button>
   );
 }
 
@@ -420,7 +635,7 @@ function platformLogo(platform: string) {
   return <Globe className={iconClassName} />;
 }
 
-function statusPill(status: CalendarViewModel['events'][number]['status']) {
+function statusPill(status: string) {
   if (status === 'live') return 'border-emerald-400/25 bg-emerald-400/10 text-emerald-100';
   if (status === 'scheduled') return 'border-sky-400/25 bg-sky-400/10 text-sky-100';
   if (status === 'approved') return 'border-indigo-400/25 bg-indigo-400/10 text-indigo-100';
@@ -438,17 +653,27 @@ function InfoPanel(props: { label: string; value: string }) {
   );
 }
 
-function getInitialCalendarDate(events: CalendarViewModel['events']): Date {
+/**
+ * Tz-aware grid date helpers (C1 / T10). The browser-local `Date` used for the
+ * month/week skeleton is matched against tenant-zone day keys via `dateKey`,
+ * which derives its YYYY-MM-DD from the date's local civil fields — the same
+ * fields `tenantZoneDateKey` produces for an instant. The grid skeleton is
+ * still a local `Date` walk (cheap, zone-agnostic for "which 42 cells"); only
+ * the event-to-cell match and "today" use tenant-zone keys.
+ */
+
+function getInitialCalendarDate(events: CalendarEvent[], timeZone: string): Date {
   const now = Date.now();
   const nextUpcoming = events.find((event) => event.timestamp >= now);
-  if (nextUpcoming) {
-    return new Date(nextUpcoming.timestamp);
+  const anchorIso = nextUpcoming?.scheduledForIso ?? events[0]?.scheduledForIso;
+  if (anchorIso) {
+    // Build a local Date positioned on the tenant-zone civil day of the anchor
+    // event so the grid opens on the month that actually contains it.
+    const parts = tenantZoneParts(anchorIso, timeZone);
+    if (parts) {
+      return new Date(parts.year, parts.month - 1, parts.day);
+    }
   }
-
-  if (events[0]) {
-    return new Date(events[0].timestamp);
-  }
-
   return new Date();
 }
 
@@ -475,12 +700,10 @@ function eachDayOfInterval(interval: { start: Date; end: Date }): Date[] {
   const days: Date[] = [];
   let current = stripTime(interval.start);
   const end = stripTime(interval.end);
-
   while (current.getTime() <= end.getTime()) {
     days.push(current);
     current = shiftDays(current, 1);
   }
-
   return days;
 }
 
@@ -500,14 +723,6 @@ function isSameMonth(left: Date, right: Date): boolean {
   return left.getFullYear() === right.getFullYear() && left.getMonth() === right.getMonth();
 }
 
-function isToday(date: Date): boolean {
-  return isSameDay(date, new Date());
-}
-
-function isSameDay(left: Date, right: Date): boolean {
-  return dateKey(left) === dateKey(right);
-}
-
 function stripTime(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
@@ -520,16 +735,5 @@ function dateKey(date: Date): string {
 }
 
 function formatMonthYear(date: Date): string {
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'long',
-    year: 'numeric',
-  }).format(date);
-}
-
-function formatTime(date: Date): string {
-  return new Intl.DateTimeFormat('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(date);
+  return new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(date);
 }

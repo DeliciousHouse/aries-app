@@ -100,6 +100,7 @@ function buildProfile(overrides: Partial<BusinessProfileView> = {}): BusinessPro
     notes: null,
     competitorUrl: null,
     channels: ['meta', 'instagram'],
+    timezone: 'America/New_York',
     brandIdentity: null,
     brandKit: {
       brand_name: 'Acme',

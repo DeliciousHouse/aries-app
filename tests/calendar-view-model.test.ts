@@ -1,58 +1,32 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type {
-  AriesDashboardCalendarEvent,
-  AriesDashboardStatusSummary,
-  RuntimeCampaignListItem,
-} from '../lib/api/aries-v1';
+import type { RuntimeCampaignListItem, ScheduledPostItem } from '../lib/api/aries-v1';
 import { createCalendarViewModel } from '../frontend/aries-v1/view-models/calendar';
 
-function buildStatusSummary(
-  overrides: Partial<AriesDashboardStatusSummary['countsByStatus']> = {},
-): AriesDashboardStatusSummary {
-  return {
-    countsByStatus: {
-      draft: 0,
-      in_review: 0,
-      ready: 0,
-      ready_to_publish: 0,
-      published_to_meta_paused: 0,
-      scheduled: 0,
-      live: 0,
-      ...overrides,
-    },
-  };
-}
+/**
+ * A1 / T11 regression — the calendar grid is fed by `scheduled_posts`, not the
+ * runtime `dashboard.calendarEvents`; the campaign strip still comes from the
+ * runtime campaigns. Day keys are tenant-zone aware (C1).
+ */
 
-function buildCalendarEvent(
-  overrides: Partial<AriesDashboardCalendarEvent> = {},
-): AriesDashboardCalendarEvent {
+function buildScheduledPost(overrides: Partial<ScheduledPostItem> = {}): ScheduledPostItem {
   return {
-    id: 'event-1',
-    campaignId: 'campaign-1',
+    id: '901',
+    postId: '42',
     jobId: 'job-1',
+    tenantId: 7,
     title: 'Launch carousel',
-    platform: 'meta',
-    platformLabel: 'Meta Ads',
-    startsAt: '2026-04-15T14:00:00.000Z',
-    endsAt: null,
-    status: 'scheduled',
-    statusLabel: 'Scheduled',
-    campaignName: 'Spring Launch',
-    funnelStage: 'Conversion',
-    objective: 'Drive bookings',
-    destinationUrl: 'https://example.com/book',
-    previewAssetId: null,
-    sourcePostId: null,
-    sourcePublishItemId: null,
-    provenance: {
-      sourceKind: 'publish_review',
-      sourceStage: 'publish',
-      sourceRunId: 'run-publish',
-      isDerivedSchedule: false,
-      isPlatformNative: false,
-    },
+    caption: 'Launch carousel\nbody copy',
+    platform: 'facebook',
+    targetPlatforms: ['facebook', 'instagram'],
+    scheduledFor: '2026-04-15T14:00:00.000Z',
+    dispatchStatus: 'pending',
+    dispatchedAt: null,
+    errorAt: null,
+    errorMessage: null,
+    updatedAt: '2026-04-01T00:00:00.000Z',
+    dispatches: [],
     ...overrides,
   };
 }
@@ -96,80 +70,107 @@ function buildCampaign(overrides: Partial<RuntimeCampaignListItem> = {}): Runtim
       posts: [],
       assets: [],
       publishItems: [],
-      calendarEvents: [buildCalendarEvent()],
-      statuses: buildStatusSummary({
-        scheduled: 1,
-      }),
+      calendarEvents: [],
+      statuses: {
+        countsByStatus: {
+          draft: 0,
+          in_review: 0,
+          ready: 0,
+          ready_to_publish: 0,
+          published_to_meta_paused: 0,
+          scheduled: 0,
+          live: 0,
+        },
+      },
     },
     ...overrides,
   };
 }
 
-test('calendar view-model uses runtime calendar events for the month grid', () => {
-  const model = createCalendarViewModel([
-    buildCampaign({
-      dashboard: {
-        campaign: null,
-        posts: [],
-        assets: [],
-        publishItems: [],
-        calendarEvents: [
-          buildCalendarEvent({
-            id: 'event-1',
-            title: 'Launch carousel',
-            startsAt: '2026-04-15T14:00:00.000Z',
-          }),
-          buildCalendarEvent({
-            id: 'event-2',
-            title: 'Retargeting refresh',
-            startsAt: '2026-04-20T16:30:00.000Z',
-            status: 'live',
-            statusLabel: 'Live',
-          }),
-        ],
-        statuses: buildStatusSummary({
-          scheduled: 1,
-          live: 1,
-        }),
-      },
-    }),
-  ]);
+test('calendar view-model maps scheduled_posts rows into grid events', () => {
+  const model = createCalendarViewModel({
+    scheduledPosts: [
+      buildScheduledPost({ id: '901', scheduledFor: '2026-04-15T14:00:00.000Z' }),
+      buildScheduledPost({
+        id: '902',
+        postId: '43',
+        scheduledFor: '2026-04-20T16:30:00.000Z',
+        dispatchStatus: 'dispatched',
+      }),
+    ],
+    campaigns: [buildCampaign()],
+    timeZone: 'America/New_York',
+  });
 
   assert.equal(model.events.length, 2);
+  // Day keys are computed in the tenant zone (America/New_York).
   assert.deepEqual(
     model.events.map((event) => event.dayKey),
     ['2026-04-15', '2026-04-20'],
   );
-  assert.equal(model.events[0].href, '/dashboard/social-content/campaign-1');
-  assert.match(model.events[0].scheduledFor, /Spring Launch/);
-  // C1: the label now routes through the shared formatter. The runtime-campaign
-  // feed keeps its UTC framing — a month/day stamp and a UTC zone suffix.
-  assert.match(model.events[0].scheduledFor, /Apr 15/);
-  assert.match(model.events[0].scheduledFor, /UTC/);
-  assert.equal(model.hero.metrics[0]?.value, '2');
+  assert.equal(model.events[0].dispatchStatus, 'pending');
+  assert.equal(model.events[1].dispatchStatus, 'dispatched');
 });
 
-test('calendar view-model relabels landing page events as Reddit', () => {
-  const model = createCalendarViewModel([
-    buildCampaign({
-      dashboard: {
-        campaign: null,
-        posts: [],
-        assets: [],
-        publishItems: [],
-        calendarEvents: [
-          buildCalendarEvent({
-            id: 'event-reddit-1',
-            platform: 'landing-page',
-            platformLabel: 'Landing Page',
-          }),
-        ],
-        statuses: buildStatusSummary({
-          scheduled: 1,
-        }),
-      },
-    }),
-  ]);
+test('calendar view-model day key is tenant-zone aware (11pm post lands on the tenant day)', () => {
+  // 2026-04-16T03:00:00Z is 2026-04-15 23:00 in New York.
+  const model = createCalendarViewModel({
+    scheduledPosts: [buildScheduledPost({ scheduledFor: '2026-04-16T03:00:00.000Z' })],
+    campaigns: [],
+    timeZone: 'America/New_York',
+  });
+  assert.equal(model.events[0].dayKey, '2026-04-15');
 
-  assert.equal(model.events[0]?.platform, 'Reddit');
+  // The same instant in Tokyo is Apr 16.
+  const tokyoModel = createCalendarViewModel({
+    scheduledPosts: [buildScheduledPost({ scheduledFor: '2026-04-16T03:00:00.000Z' })],
+    campaigns: [],
+    timeZone: 'Asia/Tokyo',
+  });
+  assert.equal(tokyoModel.events[0].dayKey, '2026-04-16');
+});
+
+test('calendar view-model keeps the campaign strip fed by runtime campaigns', () => {
+  const model = createCalendarViewModel({
+    scheduledPosts: [],
+    campaigns: [buildCampaign({ name: 'Spring Launch' })],
+    timeZone: 'UTC',
+  });
+  assert.equal(model.campaigns.length, 1);
+  assert.equal(model.campaigns[0].name, 'Spring Launch');
+  assert.equal(model.campaigns[0].href, '/dashboard/social-content/campaign-1');
+  // No scheduled posts -> empty grid (intentional A1 consequence).
+  assert.equal(model.events.length, 0);
+});
+
+test('calendar view-model surfaces the unscheduled backlog tray', () => {
+  const model = createCalendarViewModel({
+    scheduledPosts: [],
+    campaigns: [],
+    unscheduledPosts: [
+      {
+        postId: '77',
+        jobId: 'job-9',
+        title: 'Approved but unscheduled',
+        caption: 'Approved but unscheduled',
+        platform: 'instagram',
+        href: '/dashboard/social-content/job-9',
+      },
+    ],
+    timeZone: 'UTC',
+  });
+  assert.equal(model.unscheduled.length, 1);
+  assert.equal(model.unscheduled[0].postId, '77');
+  // The hero metric reflects the backlog count.
+  const backlogMetric = model.hero.metrics.find((metric) => metric.label === 'Awaiting backlog');
+  assert.equal(backlogMetric?.value, '1');
+});
+
+test('calendar view-model carries the resolved timezone through to the model', () => {
+  const model = createCalendarViewModel({
+    scheduledPosts: [],
+    campaigns: [],
+    timeZone: 'America/Chicago',
+  });
+  assert.equal(model.timeZone, 'America/Chicago');
 });

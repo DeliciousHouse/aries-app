@@ -289,6 +289,44 @@ export type BusinessProfilePatch = {
   timezone?: string | null;
 };
 export type TenantProfilesResponse = { profiles: TenantUserProfile[] };
+
+// A3 — calendar planner read model.
+export type ScheduledPostDispatchDetail = {
+  platform: string;
+  status: string;
+  dispatchedAt: string | null;
+  errorAt: string | null;
+  errorMessage: string | null;
+};
+export type ScheduledPostItem = {
+  id: string;
+  postId: string;
+  jobId: string | null;
+  tenantId: number;
+  title: string;
+  caption: string;
+  platform: string | null;
+  targetPlatforms: string[];
+  scheduledFor: string;
+  dispatchStatus: string;
+  dispatchedAt: string | null;
+  errorAt: string | null;
+  errorMessage: string | null;
+  updatedAt: string;
+  dispatches: ScheduledPostDispatchDetail[];
+};
+export type UnscheduledPostItem = {
+  postId: string;
+  jobId: string | null;
+  title: string;
+  caption: string;
+  platform: string | null;
+};
+export type ScheduledPostsResponse = {
+  posts: ScheduledPostItem[];
+  unscheduled: UnscheduledPostItem[];
+  range: { from: string; to: string };
+};
 export type OnboardingDraftPatch = {
   status?: OnboardingDraftStatus;
   websiteUrl?: string | null;
@@ -447,6 +485,14 @@ export function createAriesV1Api(options: ApiClientOptions = {}) {
     },
     getTenantProfiles() {
       return requestJson<TenantProfilesResponse>('/api/tenant/profiles', { method: 'GET' }, options);
+    },
+    getScheduledPosts(range: { from: string; to: string }) {
+      const query = `from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`;
+      return requestJson<ScheduledPostsResponse>(
+        `/api/social-content/scheduled-posts?${query}`,
+        { method: 'GET' },
+        options,
+      );
     },
     updateTenantProfile(userId: string, body: { fullName?: string | null; role?: 'tenant_admin' | 'tenant_analyst' | 'tenant_viewer' }) {
       return requestJson<{ profile: TenantUserProfile }>(`/api/tenant/profiles/${encodeURIComponent(userId)}`, {

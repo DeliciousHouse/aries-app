@@ -20,6 +20,7 @@ function baseProfile(over: Partial<BusinessProfileView> = {}): BusinessProfileVi
     notes: null,
     competitorUrl: null,
     channels: [],
+    timezone: 'America/New_York',
     brandIdentity: null,
     brandKit: null,
     incomplete: false,

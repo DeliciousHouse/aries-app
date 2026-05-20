@@ -18,6 +18,11 @@ const ONBOARDING_REQUIRED = {
  * for caption/platform/job_id, with the per-platform dispatch detail from the
  * P1.4 `scheduled_post_dispatches` child table.
  *
+ * Also returns the `unscheduled` backlog (Codex KEY GAP / T13): approved posts
+ * that have no `scheduled_posts` row, so the calendar can let an operator drag
+ * a not-yet-scheduled post onto a cell. Keeping both in one route holds to the
+ * plan's "the calendar's only read path" intent.
+ *
  * `posts.job_id` is returned as the real stored value — never synthesized.
  */
 
@@ -83,6 +88,35 @@ type RawRow = {
     error_message: string | null;
   }> | null;
 };
+
+type UnscheduledPostItem = {
+  postId: string;
+  jobId: string | null;
+  title: string;
+  caption: string;
+  platform: string | null;
+};
+
+type RawUnscheduledRow = {
+  id: string | number | bigint;
+  job_id: string | null;
+  caption: string | null;
+  platform: string | null;
+};
+
+// Approved posts with NO scheduled_posts row — the backlog tray (T13). An
+// approved post is one whose published_status OR legacy status is 'approved'.
+// LEFT JOIN ... WHERE sp.id IS NULL is the "has no row" filter.
+const UNSCHEDULED_POSTS_QUERY = `
+  SELECT p.id, p.job_id, p.caption, p.platform
+  FROM posts p
+  LEFT JOIN scheduled_posts sp ON sp.post_id = p.id
+  WHERE p.tenant_id = $1
+    AND sp.id IS NULL
+    AND (p.published_status = 'approved' OR p.status = 'approved')
+  ORDER BY p.created_at DESC NULLS LAST, p.id DESC
+  LIMIT 100
+`;
 
 const SCHEDULED_POSTS_QUERY = `
   SELECT
@@ -235,9 +269,25 @@ export async function handleGetScheduledPosts(
       to.toISOString(),
     ]);
     const posts = (result.rows as RawRow[]).map(mapRow);
+
+    const unscheduledResult = await client.query(UNSCHEDULED_POSTS_QUERY, [tenantId]);
+    const unscheduled: UnscheduledPostItem[] = (unscheduledResult.rows as RawUnscheduledRow[]).map(
+      (row) => {
+        const caption = row.caption ?? '';
+        return {
+          postId: String(row.id),
+          jobId: row.job_id ?? null,
+          title: deriveTitle(caption),
+          caption,
+          platform: row.platform ?? null,
+        };
+      },
+    );
+
     return NextResponse.json(
       {
         posts,
+        unscheduled,
         range: { from: from.toISOString(), to: to.toISOString() },
       },
       { status: 200 },
