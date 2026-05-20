@@ -285,6 +285,67 @@ test('weekly publish resume is dispatched as action:run carrying production outp
   });
 });
 
+test('first weekly publish run (approve_stage_4) emits the approve_stage_4_publish checkpoint', async () => {
+  // The production -> publish transition (approve_stage_4) produces the FIRST
+  // publish run, which must still emit the in-stage approve_stage_4_publish
+  // checkpoint.
+  await withDataRoot(async () => {
+    await seedWeeklyJobDoc('job_weekly_pub1');
+    const { calls, fetchImpl } = recordingFetch();
+    const port = makePort(PER_PROFILE_ENV, fetchImpl as unknown as typeof fetch);
+    await port.resumePipeline({
+      ...weeklyResumeInput('publish', 'job_weekly_pub1'),
+      workflowStepId: 'approve_stage_4',
+      approvalStep: 'approve_publish',
+    });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, 'http://host.docker.internal:8654/v1/runs');
+    const body = JSON.parse(calls[0].init.body as string) as Record<string, unknown>;
+    const instructions = String(body.instructions);
+    assert.ok(
+      instructions.includes('approve_stage_4_publish'),
+      'first publish run must instruct Hermes to emit the approve_stage_4_publish checkpoint',
+    );
+    assert.ok(
+      instructions.includes('requires_approval'),
+      'first publish run instructions must still use requires_approval',
+    );
+  });
+});
+
+test('final weekly publish run (approve_stage_4_publish) emits a terminal completed envelope', async () => {
+  // The post-approval finalize run must terminate the pipeline. Without this,
+  // every publish run re-emits requires_approval and the orchestrator +
+  // auto-approve loop the publish stage indefinitely.
+  await withDataRoot(async () => {
+    await seedWeeklyJobDoc('job_weekly_pub2');
+    const { calls, fetchImpl } = recordingFetch();
+    const port = makePort(PER_PROFILE_ENV, fetchImpl as unknown as typeof fetch);
+    await port.resumePipeline({
+      ...weeklyResumeInput('publish', 'job_weekly_pub2'),
+      workflowStepId: 'approve_stage_4_publish',
+      approvalStep: 'approve_publish',
+    });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, 'http://host.docker.internal:8654/v1/runs');
+    const body = JSON.parse(calls[0].init.body as string) as Record<string, unknown>;
+    assert.equal(body.action, 'run');
+    const instructions = String(body.instructions);
+    assert.ok(
+      instructions.includes('"status":"completed"'),
+      'finalize publish run must instruct Hermes to return a completed envelope',
+    );
+    assert.ok(
+      !instructions.includes('requires_approval'),
+      'finalize publish run must NOT instruct Hermes to return requires_approval',
+    );
+    assert.ok(
+      String(body.input).includes('already approved'),
+      'finalize publish run input must signal the publish review is already approved',
+    );
+  });
+});
+
 test('weekly stage runs ship only their own stage instruction contract', async () => {
   await withDataRoot(async () => {
     await seedWeeklyJobDoc('job_weekly_4');
