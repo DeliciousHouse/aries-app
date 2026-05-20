@@ -178,39 +178,115 @@ function markSubmissionFailed(ariesRunId: string, code: string, message: string)
   });
 }
 
+// --- Per-stage instruction fragments (shared across weekly + brand) ---------
+
+const RESEARCH_TOOL_POLICY =
+  'Research stage tool policy: during the research stage you may use ONLY these tools: web_extract, web_search, and the last30days Hermes skill. You MUST NOT call read_file, search_files, write_file, execute_code, or terminal. There is no Aries workspace available to this agent — calling local-workspace tools will loop until the 600s "did not reach a terminal status" timeout fires. Required tool sequence: (1) call web_extract once for the brand URL when present, (2) call web_search once for the brand, (3) if a competitor URL or competitor brand is provided, call web_extract once for the competitor URL and web_search once for the competitor, (4) optionally invoke `/last30days` for the brand and (if a competitor URL or competitor brand is provided) for the competitor. Do not exceed 6 total tool calls during the research stage. After these tool calls, stop using tools and return the strict JSON checkpoint immediately.';
+
+const LAST30DAYS_GUIDANCE = [
+  'Use the `last30days` Hermes skill (slash command `/last30days <topic>`) to research what people are saying about each brand in the last 30 days. Do NOT shell out to terminal for last30days — invoke it as a slash command.',
+  'Derive the topic from the domain name (e.g. `https://sugarandleather.com` → "Sugar and Leather").',
+  'Invoke `/last30days` for the brand, and — if a competitor URL or competitor brand is provided — for the competitor separately.',
+  'Fold the social-signal findings from `last30days` into the research output artifacts.',
+];
+
+const PRODUCTION_EXECUTION_CONTRACT =
+  'PRODUCTION STAGE EXECUTION CONTRACT: When the input contains "Production context (N images requested)", you MUST return BOTH content_package[] AND artifacts.creative_assets[]. One without the other is incomplete and will fail downstream publish. (A) Call the `image_generate` tool exactly once per image listed — do not return JSON until every image_generate call has completed. (B) Build content_package[] with one entry per post: {post_number, theme, hook, body, cta, hashtags (array of 3-6 relevant hashtags), platforms, format, visual_prompt}. The Nth creative_asset corresponds to the Nth content_package post via post_number. content_package carries the post COPY (caption text, hooks, hashtags). creative_assets carries the rendered IMAGES. Return output:[{stage:"production", content_package:[{post_number:1, theme:"...", hook:"...", body:"...", cta:"...", hashtags:["#tag1","#tag2","#tag3"], platforms:["instagram","facebook"], format:"single_image", visual_prompt:"..."},...], artifacts:{creative_assets:[{assetId:"img_1", type:"generated_image", path:<absolute path returned by image_generate>, prompt:<the rendered visual prompt>, placement:<which post number>}, ...], errors:[]}}]. If image_generate returns success:false for an item, record it in artifacts.errors[] and continue.';
+
+/**
+ * Per-stage instruction builders for the weekly social-content pipeline.
+ *
+ * Phase B3: each marketing stage runs on its own dedicated Hermes profile, so
+ * each builder ships ONLY that stage's contract — the strategist profile never
+ * sees image_generate instructions, the content-generator profile never sees
+ * research tool policy. Strategy/production/publish are dispatched as fresh
+ * `action: run` POSTs carrying the prior stage's output as `input`, because a
+ * resume_token issued by one profile's gateway cannot resume on another.
+ */
+function buildWeeklyResearchInstructions(workflowKey: string): string {
+  return [
+    'You are the Aries marketing research agent. You run ONLY the research stage of the weekly social content pipeline.',
+    RESEARCH_TOOL_POLICY,
+    ...LAST30DAYS_GUIDANCE,
+    'Reply with a single strict JSON object only — no prose, no markdown fences.',
+    'After completing the research stage, return status "requires_approval" with approval.stage="strategy", approval.approval_step="approve_weekly_plan", approval.workflowStepId="approve_stage_2", approval.prompt="Review research findings before strategy starts", approval.resumeToken set, and output:[{stage:"research", ...artifacts}].',
+    `Required schema: {"ok":true,"status":"requires_approval","workflowKey":"${workflowKey}","approval":{"stage":"strategy","approval_step":"approve_weekly_plan","workflowStepId":"approve_stage_2","prompt":"...","resumeToken":"..."},"output":[{"stage":"research", ...}]}.`,
+  ].join(' ');
+}
+
+function buildWeeklyStrategyInstructions(workflowKey: string): string {
+  return [
+    'You are the Aries marketing strategist agent. You run ONLY the strategy stage of the weekly social content pipeline.',
+    'You have no tools — you reason purely over the research output supplied in the input. Do not attempt to call any tools; this stage is pure reasoning.',
+    'The input contains the prior research stage output as JSON. Produce a weekly content strategy from it: positioning, creative direction, channel adaptation, and a post-by-post plan.',
+    'Reply with a single strict JSON object only — no prose, no markdown fences.',
+    'After completing the strategy stage, return status "requires_approval" with approval.stage="production", approval.approval_step="approve_post_copy", approval.workflowStepId="approve_stage_3", approval.prompt="Review strategy before production starts", approval.resumeToken set, and output:[{stage:"strategy", ...artifacts}].',
+    `Required schema: {"ok":true,"status":"requires_approval","workflowKey":"${workflowKey}","approval":{"stage":"production","approval_step":"approve_post_copy","workflowStepId":"approve_stage_3","prompt":"...","resumeToken":"..."},"output":[{"stage":"strategy", ...}]}.`,
+  ].join(' ');
+}
+
+function buildWeeklyProductionInstructions(workflowKey: string): string {
+  return [
+    'You are the Aries content-generation agent. You run ONLY the production stage of the weekly social content pipeline.',
+    'Your job is to generate images and post copy. The input carries per-image prompt context and the strategy output.',
+    PRODUCTION_EXECUTION_CONTRACT,
+    'After completing the production stage, return status "requires_approval" with approval.stage="publish", approval.approval_step="approve_publish", approval.workflowStepId="approve_stage_4", approval.prompt="Review creative assets before publish review", approval.resumeToken set, and output:[{stage:"production", ...artifacts}].',
+    `Required schema: {"ok":true,"status":"requires_approval","workflowKey":"${workflowKey}","approval":{"stage":"publish","approval_step":"approve_publish","workflowStepId":"approve_stage_4","prompt":"...","resumeToken":"..."},"output":[{"stage":"production", ...}]}.`,
+  ].join(' ');
+}
+
+function buildWeeklyPublishInstructions(workflowKey: string): string {
+  return [
+    'You are the Aries publish-review agent. You run ONLY the publish stage of the weekly social content pipeline.',
+    'You have no tools — you reason purely over the production output supplied in the input. Produce a publish-ready plan: per-post platform targeting, scheduling notes, and a final pre-flight check.',
+    'Reply with a single strict JSON object only — no prose, no markdown fences.',
+    'After completing the publish stage, return status "requires_approval" with approval.stage="publish", approval.approval_step="approve_publish", approval.workflowStepId="approve_stage_4_publish", approval.prompt="Approve to publish the weekly social content", approval.resumeToken set, and output:[{stage:"publish", ...artifacts}].',
+    `Required schema: {"ok":true,"status":"requires_approval","workflowKey":"${workflowKey}","approval":{"stage":"publish","approval_step":"approve_publish","workflowStepId":"approve_stage_4_publish","prompt":"...","resumeToken":"..."},"output":[{"stage":"publish", ...}]}.`,
+  ].join(' ');
+}
+
+const WEEKLY_STAGE_INSTRUCTION_BUILDERS: Record<MarketingStage, (workflowKey: string) => string> = {
+  research: buildWeeklyResearchInstructions,
+  strategy: buildWeeklyStrategyInstructions,
+  production: buildWeeklyProductionInstructions,
+  publish: buildWeeklyPublishInstructions,
+};
+
+/**
+ * Stage-scoped instructions. The weekly social pipeline is decomposed into
+ * three profiles, so it gets a short per-stage builder. The brand-campaign
+ * (`marketing_pipeline`) path keeps the single combined instruction set — it
+ * is not being decomposed.
+ */
+export function buildHermesStageInstructions(
+  workflowKey: string,
+  stage: MarketingStage,
+): string {
+  if (workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY) {
+    return WEEKLY_STAGE_INSTRUCTION_BUILDERS[stage](workflowKey);
+  }
+  return buildHermesInstructions(workflowKey);
+}
+
 /**
  * Exported for snapshot tests only — callers should use HermesMarketingPort.
+ *
+ * The weekly social pipeline now routes per stage via buildHermesStageInstructions;
+ * this combined form is retained for the non-weekly `marketing_pipeline`
+ * (brand campaign) path and for legacy snapshot tests. When called with the
+ * weekly workflow key it returns the research-stage instructions, which carry
+ * the research tool policy the legacy snapshot tests assert.
  */
 export function buildHermesInstructions(workflowKey: string): string {
   if (workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY) {
-    return [
-      'You are the Aries marketing execution agent driving the weekly social content pipeline.',
-      'Research stage tool policy: during the research stage you may use ONLY these tools: web_extract, web_search, and the last30days Hermes skill. You MUST NOT call read_file, search_files, write_file, execute_code, or terminal. There is no Aries workspace available to this agent — calling local-workspace tools will loop until the 600s "did not reach a terminal status" timeout fires. Required tool sequence: (1) call web_extract once for the brand URL when present, (2) call web_search once for the brand, (3) if a competitor URL or competitor brand is provided, call web_extract once for the competitor URL and web_search once for the competitor, (4) optionally invoke `/last30days` for the brand and (if a competitor URL or competitor brand is provided) for the competitor. Do not exceed 6 total tool calls during the research stage. After these tool calls, stop using tools and return the strict JSON checkpoint immediately.',
-      'Use the `last30days` Hermes skill (slash command `/last30days <topic>`) to research what people are saying about each brand in the last 30 days. Do NOT shell out to terminal for last30days — invoke it as a slash command.',
-      'Derive the topic from the domain name (e.g. `https://sugarandleather.com` → "Sugar and Leather").',
-      'Invoke `/last30days` for the brand, and — if a competitor URL or competitor brand is provided — for the competitor separately.',
-      'Fold the social-signal findings from `last30days` into the research output artifacts.',
-      'Reply with a single strict JSON object only — no prose, no markdown fences.',
-      'This is an approval-gated 4-stage pipeline: research → strategy → production → publish.',
-      'After completing the research stage, return status "requires_approval" with approval.stage="strategy", approval.approval_step="approve_weekly_plan", approval.workflowStepId="approve_stage_2", approval.prompt="Review research findings before strategy starts", approval.resumeToken set, and output:[{stage:"research", ...artifacts}].',
-      'After completing the strategy stage on resume, return status "requires_approval" with approval.stage="production", approval.approval_step="approve_post_copy", approval.workflowStepId="approve_stage_3", approval.prompt="Review strategy before production starts", and output:[{stage:"strategy", ...artifacts}].',
-      'PRODUCTION STAGE EXECUTION CONTRACT: When the resume input contains "Production context (N images requested)", you MUST return BOTH content_package[] AND artifacts.creative_assets[]. One without the other is incomplete and will fail downstream publish. (A) Call the `image_generate` tool exactly once per image listed — do not return JSON until every image_generate call has completed. (B) Build content_package[] with one entry per post: {post_number, theme, hook, body, cta, hashtags (array of 3-6 relevant hashtags), platforms, format, visual_prompt}. The Nth creative_asset corresponds to the Nth content_package post via post_number. content_package carries the post COPY (caption text, hooks, hashtags). creative_assets carries the rendered IMAGES. Return output:[{stage:"production", content_package:[{post_number:1, theme:"...", hook:"...", body:"...", cta:"...", hashtags:["#tag1","#tag2","#tag3"], platforms:["instagram","facebook"], format:"single_image", visual_prompt:"..."},...], artifacts:{creative_assets:[{assetId:"img_1", type:"generated_image", path:<absolute path returned by image_generate>, prompt:<the rendered visual prompt>, placement:<which post number>}, ...], errors:[]}}]. If image_generate returns success:false for an item, record it in artifacts.errors[] and continue.',
-      'After completing the production stage on resume, return status "requires_approval" with approval.stage="publish", approval.approval_step="approve_publish", approval.workflowStepId="approve_stage_4", approval.prompt="Review creative assets before publish review", and output:[{stage:"production", ...artifacts}].',
-      'After completing the publish stage on resume, return status "requires_approval" with approval.stage="publish", approval.approval_step="approve_publish", approval.workflowStepId="approve_stage_4_publish", approval.prompt="Approve to publish the weekly social content", and output:[{stage:"publish", ...artifacts}].',
-      'Only return status "completed" after the publish-review approval has been granted on the final resume call.',
-      `Required schema when returning a checkpoint: {"ok":true,"status":"requires_approval","workflowKey":"${workflowKey}","approval":{"stage":"...","approval_step":"...","workflowStepId":"...","prompt":"...","resumeToken":"..."},"output":[{...}]}.`,
-      `Required schema when terminal: {"ok":true,"status":"completed","workflowKey":"${workflowKey}","output":[{...}]}.`,
-    ].join(' ');
+    return buildWeeklyResearchInstructions(workflowKey);
   }
   return [
     'You are the Aries marketing execution agent.',
-    'Research stage tool policy: during the research stage you may use ONLY these tools: web_extract, web_search, and the last30days Hermes skill. You MUST NOT call read_file, search_files, write_file, execute_code, or terminal. There is no Aries workspace available to this agent — calling local-workspace tools will loop until the 600s "did not reach a terminal status" timeout fires. Required tool sequence: (1) call web_extract once for the brand URL when present, (2) call web_search once for the brand, (3) if a competitor URL or competitor brand is provided, call web_extract once for the competitor URL and web_search once for the competitor, (4) optionally invoke `/last30days` for the brand and (if a competitor URL or competitor brand is provided) for the competitor. Do not exceed 6 total tool calls during the research stage. After these tool calls, stop using tools and return the strict JSON checkpoint immediately.',
-    'Use the `last30days` Hermes skill (slash command `/last30days <topic>`) to research what people are saying about each brand in the last 30 days. Do NOT shell out to terminal for last30days — invoke it as a slash command.',
-    'Derive the topic from the domain name (e.g. `https://sugarandleather.com` → "Sugar and Leather").',
-    'Invoke `/last30days` for the brand, and — if a competitor URL or competitor brand is provided — for the competitor separately.',
-    'Fold the social-signal findings from `last30days` into the research output artifacts.',
+    RESEARCH_TOOL_POLICY,
+    ...LAST30DAYS_GUIDANCE,
     'Reply with a single strict JSON object only — no prose, no markdown fences.',
-    'PRODUCTION STAGE EXECUTION CONTRACT: When the resume input contains "Production context (N images requested)", you MUST return BOTH content_package[] AND artifacts.creative_assets[]. One without the other is incomplete and will fail downstream publish. (A) Call the `image_generate` tool exactly once per image listed — do not return JSON until every image_generate call has completed. (B) Build content_package[] with one entry per post: {post_number, theme, hook, body, cta, hashtags (array of 3-6 relevant hashtags), platforms, format, visual_prompt}. The Nth creative_asset corresponds to the Nth content_package post via post_number. content_package carries the post COPY (caption text, hooks, hashtags). creative_assets carries the rendered IMAGES. Return output:[{stage:"production", content_package:[{post_number:1, theme:"...", hook:"...", body:"...", cta:"...", hashtags:["#tag1","#tag2","#tag3"], platforms:["instagram","facebook"], format:"single_image", visual_prompt:"..."},...], artifacts:{creative_assets:[{assetId:"img_1", type:"generated_image", path:<absolute path returned by image_generate>, prompt:<the rendered visual prompt>, placement:<which post number>}, ...], errors:[]}}]. If image_generate returns success:false for an item, record it in artifacts.errors[] and continue.',
+    PRODUCTION_EXECUTION_CONTRACT,
     `Required schema: {"ok":true,"status":"completed","workflowKey":"${workflowKey}","output":[{...}]}.`,
     'If approval is required, set status to "requires_approval" and include approval.stage, approval.workflowStepId, approval.prompt, and approval.resumeToken.',
   ].join(' ');
@@ -479,18 +555,19 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     const callbackToken = randomBytes(32).toString('hex');
     await this.persistCallbackTokenHash(run.aries_run_id, input.tenantId, callbackToken);
 
-    // For the production-stage resume (approve_post_copy), load the job doc to
-    // build rich per-image prompts with brand + research + strategy context.
+    // Phase B3: a weekly resume (strategy/production/publish) is converted into
+    // a fresh `action: run` on the stage's dedicated profile gateway — a
+    // resume_token issued by one gateway cannot resume on another. To do that
+    // we must carry the PRIOR stage's output as the new run's input, so load
+    // the job doc for every weekly resume (not just the production resume).
     // loadMarketingJobRuntime returns null if the doc is missing — the prompt
-    // builder handles that gracefully and uses static brand profile data only.
+    // builders handle that gracefully and fall back to static brand data.
     const approvalStepForContext =
       input.approvalStep ??
       (input.workflowStepId ? approvalStepFromWorkflowStepId(input.workflowStepId) : null);
-    const isProductionResume =
-      action === 'resume'
-      && workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY
-      && approvalStepForContext === 'approve_post_copy';
-    const productionDoc = isProductionResume && input.jobId
+    const isWeeklyResume =
+      action === 'resume' && workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY;
+    const productionDoc = isWeeklyResume && input.jobId
       ? await loadMarketingJobRuntime(input.jobId).catch(() => null)
       : null;
 
@@ -769,16 +846,105 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       callback_token: callbackToken,
     };
 
+    // Phase B3: an APPROVED weekly resume (approve === true) advances the
+    // pipeline. Because each stage runs on its own profile gateway and resume
+    // tokens do not cross gateways, the strategy/production/publish "resume" is
+    // converted into a fresh `action: run` on the dedicated profile, carrying
+    // the PRIOR stage's output as the run input. A DENIED weekly resume
+    // (approve === false) does NOT advance — it is a cancel signal — so it
+    // keeps the legacy `action: resume` shape below; the orchestrator marks the
+    // job failed regardless of the gateway response.
+    if (
+      action === 'resume'
+      && workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY
+      && input.approve === true
+    ) {
+      const approvalStep =
+        input.approvalStep ??
+        approvalStepFromWorkflowStepId(input.workflowStepId ?? '') ??
+        null;
+      const stage: MarketingStage = input.stage ?? 'strategy';
+      const idempotencyKey = generateIdempotencyKey(ariesRunId, SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY, input.tenantId ?? '');
+
+      const priorStageOutput = ((): Record<string, unknown> | null => {
+        if (!productionDoc) return null;
+        const priorStage: MarketingStage | null =
+          stage === 'strategy' ? 'research'
+          : stage === 'production' ? 'strategy'
+          : stage === 'publish' ? 'production'
+          : null;
+        if (!priorStage) return null;
+        const out = productionDoc.stages[priorStage]?.primary_output;
+        return out && typeof out === 'object' && !Array.isArray(out)
+          ? (out as Record<string, unknown>)
+          : null;
+      })();
+
+      // Hermes /v1/runs requires `input` to be a non-empty string (OpenAI-style
+      // chat-completions API). Serialize the stage context into a prompt.
+      const baseRunLines = [
+        `Workflow: ${SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY}`,
+        'Action: run',
+        `Stage: ${stage}`,
+        `Aries run ID: ${ariesRunId}`,
+        `Job ID: ${input.jobId ?? ''}`,
+        `Tenant ID: ${input.tenantId ?? ''}`,
+        `Approval ID: ${input.approvalId ?? ''}`,
+        priorStageOutput
+          ? `Prior stage output (JSON): ${JSON.stringify(priorStageOutput)}`
+          : 'Prior stage output (JSON): {}',
+      ];
+
+      // Inject rich per-image prompt context on the production run
+      // (approve_post_copy) so the content-generation profile has brand,
+      // research, and strategy context when it calls image_generate.
+      if (stage === 'production' && productionDoc) {
+        const ctx = buildProductionResumeContext({
+          doc: productionDoc,
+          researchOutput: (productionDoc.stages.research?.primary_output ?? null) as Record<string, unknown> | null,
+          strategyOutput: (productionDoc.stages.strategy?.primary_output ?? null) as Record<string, unknown> | null,
+        });
+        baseRunLines.push('', ctx.contextBlock);
+      }
+
+      const runPrompt = baseRunLines.join('\n');
+      return {
+        input: runPrompt,
+        instructions: this.instructions(SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY, stage),
+        session_id: this.sessionKey(),
+        workflow_key: SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
+        action: 'run',
+        aries_run_id: ariesRunId,
+        approval_step: approvalStep,
+        approval_id: input.approvalId ?? null,
+        job_id: input.jobId ?? null,
+        tenant_id: input.tenantId ?? null,
+        callback_url: this.callbackUrl(),
+        callback_auth: callbackAuth,
+        callback_context: {
+          workflow_key: SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
+          aries_run_id: ariesRunId,
+          job_id: input.jobId ?? null,
+          tenant_id: input.tenantId ?? null,
+          approval_id: input.approvalId ?? null,
+          approval_step: approvalStep,
+        },
+        idempotency_key: idempotencyKey,
+        protocol_version: PROTOCOL_VERSION,
+      };
+    }
+
+    // Weekly denial (approve === false): keep the legacy `action: resume`
+    // cancel shape. A denial does not advance to a new stage, so it never
+    // needs the per-profile gateway routing. The orchestrator marks the job
+    // failed locally regardless of the gateway's response.
     if (action === 'resume' && workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY) {
       const approvalStep =
         input.approvalStep ??
         approvalStepFromWorkflowStepId(input.workflowStepId ?? '') ??
         null;
       const idempotencyKey = generateIdempotencyKey(ariesRunId, SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY, input.tenantId ?? '');
-      // Hermes /v1/runs requires `input` to be a non-empty string (OpenAI-style
-      // chat-completions API). Without it, Hermes returns HTTP 400 with
-      // "No user message found in input" and the resume call fails.
-      const baseResumeLines = [
+      const resumePrompt = [
         `Workflow: ${SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY}`,
         'Action: resume',
         `Aries run ID: ${ariesRunId}`,
@@ -788,24 +954,10 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         `Job ID: ${input.jobId ?? ''}`,
         `Tenant ID: ${input.tenantId ?? ''}`,
         `Approval ID: ${input.approvalId ?? ''}`,
-      ];
-
-      // Inject rich per-image prompt context on the production resume
-      // (approve_post_copy) so Hermes has brand, research, and strategy context
-      // at the moment it calls image_generate. Skipped for other approval steps.
-      if (approvalStep === 'approve_post_copy' && productionDoc) {
-        const ctx = buildProductionResumeContext({
-          doc: productionDoc,
-          researchOutput: (productionDoc.stages.research?.primary_output ?? null) as Record<string, unknown> | null,
-          strategyOutput: (productionDoc.stages.strategy?.primary_output ?? null) as Record<string, unknown> | null,
-        });
-        baseResumeLines.push('', ctx.contextBlock);
-      }
-
-      const resumePrompt = baseResumeLines.join('\n');
+      ].join('\n');
       return {
         input: resumePrompt,
-        instructions: this.instructions(SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY),
+        instructions: this.instructions(SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY, input.stage),
         session_id: this.sessionKey(),
         workflow_key: SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY,
         action: 'resume',
@@ -870,7 +1022,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
         : prompt;
       return {
         input: promptWithMemory,
-        instructions: this.instructions(request.workflow_key),
+        instructions: this.instructions(request.workflow_key, 'research'),
         session_id: this.sessionKey(),
         callback_url: request.callback_url,
         callback_auth: callbackAuth,
@@ -1283,7 +1435,10 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     ].join('\n');
   }
 
-  private instructions(workflowKey: string): string {
+  private instructions(workflowKey: string, stage?: MarketingStage): string {
+    if (workflowKey === SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY) {
+      return buildHermesStageInstructions(workflowKey, stage ?? 'research');
+    }
     return buildHermesInstructions(workflowKey);
   }
 }

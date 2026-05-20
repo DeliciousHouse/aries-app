@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -144,6 +144,192 @@ test('publish stage routes to the aries-strategist gateway (reasoning, no tools)
     assert.equal(calls[0].url, 'http://host.docker.internal:8654/v1/runs');
     const headers = calls[0].init.headers as Record<string, string>;
     assert.equal(headers.authorization, 'Bearer strategist-key');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase B3 — weekly resume → run conversion
+//
+// A resume_token issued by one profile's gateway cannot resume on another
+// gateway. For the weekly social pipeline, strategy/production/publish must be
+// dispatched as fresh `action: run` POSTs carrying the prior stage's output.
+// ---------------------------------------------------------------------------
+
+const WEEKLY_WORKFLOW_KEY = 'social_content_weekly';
+
+/**
+ * Seed a minimal marketing job runtime doc under DATA_ROOT so the port's
+ * loadMarketingJobRuntime() resolves prior-stage outputs for the resume→run
+ * conversion.
+ */
+async function seedWeeklyJobDoc(jobId: string): Promise<void> {
+  const ts = new Date().toISOString();
+  const stageRecord = (
+    stage: string,
+    status: string,
+    primaryOutput: Record<string, unknown> | null,
+  ) => ({
+    stage,
+    status,
+    started_at: ts,
+    completed_at: status === 'completed' ? ts : null,
+    failed_at: null,
+    run_id: `run-${stage}`,
+    summary: null,
+    primary_output: primaryOutput,
+    outputs: {},
+    artifacts: [],
+    errors: [],
+  });
+  const doc = {
+    schema_name: 'marketing_job_state_schema',
+    schema_version: '1.0.0',
+    job_id: jobId,
+    tenant_id: 'tenant_test',
+    job_type: 'weekly_social_content',
+    state: 'running',
+    status: 'running',
+    current_stage: 'production',
+    stage_order: ['research', 'strategy', 'production', 'publish'],
+    stages: {
+      research: stageRecord('research', 'completed', { positioning: 'RESEARCH_MARKER' }),
+      strategy: stageRecord('strategy', 'completed', { strategySummary: 'STRATEGY_MARKER' }),
+      production: stageRecord('production', 'completed', { content_package: ['PRODUCTION_MARKER'] }),
+      publish: stageRecord('publish', 'not_started', null),
+    },
+    approvals: { current: null, history: [] },
+    publish_config: { platforms: [], live_publish_platforms: [], video_render_platforms: [] },
+    brand_kit: { brand_name: 'Brand Co' },
+    inputs: {
+      brand_url: 'https://brand.example',
+      request: { jobType: 'weekly_social_content', channels: ['instagram', 'meta'], imageCreativeCount: 7 },
+    },
+    created_at: ts,
+    updated_at: ts,
+    history: [],
+  };
+  const dir = path.join(process.env.DATA_ROOT as string, 'generated', 'draft', 'marketing-jobs');
+  await mkdir(dir, { recursive: true });
+  await writeFile(path.join(dir, `${jobId}.json`), JSON.stringify(doc, null, 2), 'utf8');
+}
+
+function weeklyResumeInput(stage: 'strategy' | 'production' | 'publish', jobId: string) {
+  return {
+    resumeToken: 'prior-checkpoint-token',
+    approve: true,
+    tenantId: 'tenant_test',
+    jobId,
+    approvalId: 'approval_1',
+    stage,
+    workflowStepId: 'approve_stage_x',
+    approvalStep: null,
+    workflowKey: WEEKLY_WORKFLOW_KEY,
+  };
+}
+
+test('weekly strategy resume is dispatched as action:run carrying research output', async () => {
+  await withDataRoot(async () => {
+    await seedWeeklyJobDoc('job_weekly_1');
+    const { calls, fetchImpl } = recordingFetch();
+    const port = makePort(PER_PROFILE_ENV, fetchImpl as unknown as typeof fetch);
+    await port.resumePipeline(weeklyResumeInput('strategy', 'job_weekly_1'));
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, 'http://host.docker.internal:8654/v1/runs');
+    const body = JSON.parse(calls[0].init.body as string) as Record<string, unknown>;
+    assert.equal(body.action, 'run', 'weekly strategy resume must convert to action:run');
+    assert.equal(body.resume_token, undefined, 'no resume_token — tokens do not cross gateways');
+    assert.ok(
+      String(body.input).includes('RESEARCH_MARKER'),
+      'strategy run input must carry the prior research stage output',
+    );
+  });
+});
+
+test('weekly production resume is dispatched as action:run carrying strategy output', async () => {
+  await withDataRoot(async () => {
+    await seedWeeklyJobDoc('job_weekly_2');
+    const { calls, fetchImpl } = recordingFetch();
+    const port = makePort(PER_PROFILE_ENV, fetchImpl as unknown as typeof fetch);
+    await port.resumePipeline(weeklyResumeInput('production', 'job_weekly_2'));
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, 'http://host.docker.internal:8655/v1/runs');
+    const body = JSON.parse(calls[0].init.body as string) as Record<string, unknown>;
+    assert.equal(body.action, 'run', 'weekly production resume must convert to action:run');
+    assert.equal(body.resume_token, undefined, 'no resume_token — tokens do not cross gateways');
+    assert.ok(
+      String(body.input).includes('STRATEGY_MARKER'),
+      'production run input must carry the prior strategy stage output',
+    );
+    assert.ok(
+      String(body.input).includes('Production context ('),
+      'production run input must carry the per-image prompt context block',
+    );
+  });
+});
+
+test('weekly publish resume is dispatched as action:run carrying production output', async () => {
+  await withDataRoot(async () => {
+    await seedWeeklyJobDoc('job_weekly_3');
+    const { calls, fetchImpl } = recordingFetch();
+    const port = makePort(PER_PROFILE_ENV, fetchImpl as unknown as typeof fetch);
+    await port.resumePipeline(weeklyResumeInput('publish', 'job_weekly_3'));
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, 'http://host.docker.internal:8654/v1/runs');
+    const body = JSON.parse(calls[0].init.body as string) as Record<string, unknown>;
+    assert.equal(body.action, 'run', 'weekly publish resume must convert to action:run');
+    assert.equal(body.resume_token, undefined, 'no resume_token — tokens do not cross gateways');
+    assert.ok(
+      String(body.input).includes('PRODUCTION_MARKER'),
+      'publish run input must carry the prior production stage output',
+    );
+  });
+});
+
+test('weekly stage runs ship only their own stage instruction contract', async () => {
+  await withDataRoot(async () => {
+    await seedWeeklyJobDoc('job_weekly_4');
+    const { calls, fetchImpl } = recordingFetch();
+    const port = makePort(PER_PROFILE_ENV, fetchImpl as unknown as typeof fetch);
+    await port.resumePipeline(weeklyResumeInput('strategy', 'job_weekly_4'));
+    const body = JSON.parse(calls[0].init.body as string) as Record<string, unknown>;
+    const instructions = String(body.instructions);
+    assert.ok(instructions.includes('strategist'), 'strategy run must carry the strategist contract');
+    assert.ok(
+      !instructions.includes('image_generate'),
+      'strategy run instructions must NOT mention image_generate (that is the production profile)',
+    );
+  });
+});
+
+test('weekly DENIAL keeps the action:resume cancel shape (no pipeline advance)', async () => {
+  await withDataRoot(async () => {
+    await seedWeeklyJobDoc('job_weekly_deny');
+    const { calls, fetchImpl } = recordingFetch();
+    const port = makePort(PER_PROFILE_ENV, fetchImpl as unknown as typeof fetch);
+    await port.resumePipeline({
+      ...weeklyResumeInput('strategy', 'job_weekly_deny'),
+      approve: false,
+    });
+    assert.equal(calls.length, 1);
+    const body = JSON.parse(calls[0].init.body as string) as Record<string, unknown>;
+    // A denial must NOT convert to action:run — that would advance the pipeline
+    // despite the operator rejecting the checkpoint.
+    assert.equal(body.action, 'resume', 'weekly denial must keep action:resume');
+    assert.equal(body.approved, false, 'denial must forward approved:false to Hermes');
+    assert.equal(body.resume_token, 'prior-checkpoint-token');
+  });
+});
+
+test('brand-campaign (marketing_pipeline) resume still uses action:resume with resume_token', async () => {
+  await withDataRoot(async () => {
+    const { calls, fetchImpl } = recordingFetch();
+    const port = makePort(PER_PROFILE_ENV, fetchImpl as unknown as typeof fetch);
+    await port.resumePipeline(resumeInput('strategy'));
+    assert.equal(calls.length, 1);
+    const body = JSON.parse(calls[0].init.body as string) as Record<string, unknown>;
+    // The brand-campaign path is NOT decomposed — it keeps the combined,
+    // single-gateway resume shape.
+    assert.notEqual(body.action, 'run', 'brand-campaign resume must not convert to action:run');
   });
 });
 

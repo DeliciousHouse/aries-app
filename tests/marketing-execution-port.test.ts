@@ -371,6 +371,7 @@ test('HermesMarketingPort social-content resume includes callback correlation me
       tenantId: 'tenant_test',
       jobId: 'job_test',
       approvalId: 'mkta_test',
+      stage: 'strategy',
       workflowStepId: 'approve_weekly_plan',
       approvalStep: 'approve_weekly_plan',
       workflowKey: 'social_content_weekly',
@@ -380,7 +381,11 @@ test('HermesMarketingPort social-content resume includes callback correlation me
     assert.equal(calls.length, 1);
     const body = JSON.parse(String(calls[0].init.body));
     assert.equal(body.workflow_key, 'social_content_weekly');
-    assert.equal(body.action, 'resume');
+    // Phase B3: the weekly strategy/production/publish "resume" is dispatched
+    // as a fresh `action: run` on the stage's dedicated profile gateway.
+    // A resume_token issued by one gateway cannot resume on another.
+    assert.equal(body.action, 'run');
+    assert.equal(body.resume_token, undefined, 'no resume_token — tokens do not cross gateways');
     assert.equal(body.aries_run_id, result.ariesRunId);
     assert.equal(body.callback_url, 'https://aries.example.com/api/internal/hermes/runs');
     assert.equal(body.callback_auth.type, 'internal_api_secret_bearer');
@@ -397,15 +402,12 @@ test('HermesMarketingPort social-content resume includes callback correlation me
     assert.equal(JSON.stringify(body).includes('raw-internal-secret-must-not-leak'), false);
     // Hermes /v1/runs requires a non-empty `input` string. Without it,
     // Hermes returns HTTP 400 "No user message found in input" and the
-    // entire resume call fails (Stage 1 → Stage 2 approval transition
-    // never completes). Regression guard added 2026-05-13.
+    // entire stage call fails (Stage 1 → Stage 2 transition never completes).
     assert.equal(typeof body.input, 'string');
-    assert.ok((body.input as string).length > 0, 'resume payload input must be non-empty');
+    assert.ok((body.input as string).length > 0, 'run payload input must be non-empty');
     assert.match(body.input as string, /Workflow: social_content_weekly/);
-    assert.match(body.input as string, /Action: resume/);
-    assert.match(body.input as string, /Approval step: approve_weekly_plan/);
-    assert.match(body.input as string, /Resume token: opaque-token-123/);
-    assert.match(body.input as string, /Approved: true/);
+    assert.match(body.input as string, /Action: run/);
+    assert.match(body.input as string, /Stage: strategy/);
   });
 });
 
