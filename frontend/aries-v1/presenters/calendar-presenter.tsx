@@ -42,6 +42,36 @@ import {
 
 type CalendarMode = 'week' | 'month';
 
+// The payload @dnd-kit carries on a draggable (a calendar tile or a tray item).
+export type DragItemData =
+  | { kind: 'event'; event: CalendarEvent }
+  | { kind: 'unscheduled'; post: UnscheduledPost };
+
+export type ResolvedDrag = { item: DragItemData; targetDayKey: string };
+
+/**
+ * Pure drag-end decision: given the dragged item's data and the day key of the
+ * cell it landed on, decide whether (and what) to schedule. Extracted so the
+ * component test can simulate a @dnd-kit drag deterministically without
+ * driving flaky jsdom pointer events. Returns null for a no-op (a tile
+ * dropped back on its own cell, or missing data).
+ */
+export function resolveDragSchedule(
+  data: DragItemData | undefined | null,
+  targetDayKey: string,
+): ResolvedDrag | null {
+  if (!data || !targetDayKey) {
+    return null;
+  }
+  if (data.kind === 'event') {
+    if (data.event.dayKey === targetDayKey) {
+      return null;
+    }
+    return { item: { kind: 'event', event: data.event }, targetDayKey };
+  }
+  return { item: { kind: 'unscheduled', post: data.post }, targetDayKey };
+}
+
 export interface CalendarPresenterProps {
   model: CalendarViewModel;
   /**
@@ -144,21 +174,10 @@ export default function CalendarPresenter({
     if (!onSchedule || !dragEvent.over) {
       return;
     }
-    const targetDayKey = String(dragEvent.over.id);
-    const data = dragEvent.active.data.current as
-      | { kind: 'event'; event: CalendarEvent }
-      | { kind: 'unscheduled'; post: UnscheduledPost }
-      | undefined;
-    if (!data) {
-      return;
-    }
-    if (data.kind === 'event') {
-      if (data.event.dayKey === targetDayKey) {
-        return;
-      }
-      onSchedule({ kind: 'event', event: data.event }, targetDayKey);
-    } else {
-      onSchedule({ kind: 'unscheduled', post: data.post }, targetDayKey);
+    const data = dragEvent.active.data.current as DragItemData | undefined;
+    const resolved = resolveDragSchedule(data, String(dragEvent.over.id));
+    if (resolved) {
+      onSchedule(resolved.item, resolved.targetDayKey);
     }
   }
 
