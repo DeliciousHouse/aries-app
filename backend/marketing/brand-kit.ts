@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { resolveDataPath } from '@/lib/runtime-paths';
-import { applyBrandKitEnrichment, enrichBrandKitWithGemini } from '@/backend/marketing/brand-kit-enrich';
+import { applyBrandKitEnrichment, enrichBrandKitWithGemini, type OperatorBrandKitOverrides } from '@/backend/marketing/brand-kit-enrich';
 
 export type TenantBrandLink = {
   platform: string;
@@ -1476,11 +1476,25 @@ export async function extractEnrichAndSaveTenantBrandKit(input: {
   brandUrl: string;
   fetchImpl?: typeof fetch;
   env?: Partial<Record<string, string | undefined>>;
+  /**
+   * Operator-supplied values from the campaign request. When present, these
+   * take precedence over LLM enrichment output. Enrichment fills gaps only.
+   */
+  operatorOverrides?: OperatorBrandKitOverrides;
 }): Promise<{ brandKit: TenantBrandKit; filePath: string; enriched: boolean }> {
   const existing = await loadTenantBrandKit(input.tenantId);
   if (existing && isFreshBrandKit(existing, input.brandUrl) && hasEnrichmentFields(existing)) {
-    saveTenantBrandKit(input.tenantId, existing);
-    return { brandKit: existing, filePath: tenantBrandKitPath(input.tenantId), enriched: true };
+    // Even when returning a cached kit, apply operator overrides so that an
+    // operator who changed styleVibe between runs sees their value reflected.
+    const withOverrides = input.operatorOverrides
+      ? applyBrandKitEnrichment(
+          existing,
+          { brandVoiceSummary: null, offerSummary: null, positioning: null, audience: null, toneOfVoice: null, styleVibe: null },
+          input.operatorOverrides,
+        )
+      : existing;
+    saveTenantBrandKit(input.tenantId, withOverrides);
+    return { brandKit: withOverrides, filePath: tenantBrandKitPath(input.tenantId), enriched: true };
   }
 
   const scraped =
@@ -1495,7 +1509,15 @@ export async function extractEnrichAndSaveTenantBrandKit(input: {
     fetchImpl: input.fetchImpl,
   });
 
-  const merged = enrichmentResult.ok ? applyBrandKitEnrichment(scraped, enrichmentResult.enrichment) : scraped;
+  const merged = enrichmentResult.ok
+    ? applyBrandKitEnrichment(scraped, enrichmentResult.enrichment, input.operatorOverrides)
+    : (input.operatorOverrides
+        ? applyBrandKitEnrichment(
+            scraped,
+            { brandVoiceSummary: null, offerSummary: null, positioning: null, audience: null, toneOfVoice: null, styleVibe: null },
+            input.operatorOverrides,
+          )
+        : scraped);
 
   if (
     !enrichmentResult.ok &&

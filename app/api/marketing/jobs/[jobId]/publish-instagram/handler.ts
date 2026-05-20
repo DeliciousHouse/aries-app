@@ -58,7 +58,7 @@ export async function handleInstagramPublish(req: Request, jobId: string) {
 
   const body = await readBody(req);
 
-  // Resolve caption: caller-provided takes precedence, then social-copy.json instagram_feed
+  // Resolve caption: caller-provided > social-copy.json instagram_feed > production content_package
   let caption = typeof body.caption === 'string' ? body.caption.trim() : '';
   if (!caption) {
     try {
@@ -71,7 +71,31 @@ export async function handleInstagramPublish(req: Request, jobId: string) {
         }
       }
     } catch {
-      // Non-fatal: proceed without caption if social-copy.json is unavailable
+      // Non-fatal: try content_package fallback below
+    }
+  }
+  // Fallback: when social-copy.json is absent (ARIES_SOCIAL_COPY_FINALIZE_ENABLED=0),
+  // derive the caption from the production stage's content_package[].
+  // Prefer a post targeting 'instagram', fall back to the first post.
+  if (!caption) {
+    try {
+      const contentPackage = runtimeDoc.stages?.production?.primary_output?.content_package;
+      if (Array.isArray(contentPackage) && contentPackage.length > 0) {
+        type ContentPost = { hook?: string; body?: string; cta?: string; hashtags?: string[]; platforms?: string[] };
+        const posts = contentPackage as ContentPost[];
+        const igPost = posts.find(
+          (p) => Array.isArray(p.platforms) && p.platforms.some((pl: string) => pl === 'instagram'),
+        ) ?? posts[0];
+        if (igPost) {
+          const parts = [igPost.hook, igPost.body, igPost.cta].filter(Boolean).join('\n\n');
+          const tags = Array.isArray(igPost.hashtags) && igPost.hashtags.length > 0
+            ? `\n\n${igPost.hashtags.join(' ')}`
+            : '';
+          caption = `${parts}${tags}`.trim();
+        }
+      }
+    } catch {
+      // Non-fatal: proceed without caption if content_package is unavailable
     }
   }
 
