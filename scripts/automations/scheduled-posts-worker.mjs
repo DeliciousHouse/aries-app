@@ -125,16 +125,22 @@ export function rollupParentStatus(platformStatuses) {
  * are reset to 'in_flight' for the retry.
  */
 async function seedPlatformDispatches(client, rowId, platforms) {
-  for (const platform of platforms) {
-    await client.query(
-      `INSERT INTO scheduled_post_dispatches (scheduled_post_id, platform, status, updated_at)
-       VALUES ($1, $2, 'in_flight', now())
-       ON CONFLICT (scheduled_post_id, platform) DO UPDATE
-         SET status = 'in_flight', updated_at = now()
-         WHERE scheduled_post_dispatches.status IN ('pending', 'in_flight')`,
-      [rowId, platform],
-    );
-  }
+  if (platforms.length === 0) return;
+  // One multi-row INSERT instead of one round-trip per platform. $1 is the
+  // scheduled_post id; $2.. are the platform names. ON CONFLICT keeps the
+  // re-claim semantics: a child already terminal ('dispatched'/'failed') is
+  // left untouched, only a non-terminal child is reset to 'in_flight'.
+  const valueTuples = platforms
+    .map((_, i) => `($1, $${i + 2}, 'in_flight', now())`)
+    .join(', ');
+  await client.query(
+    `INSERT INTO scheduled_post_dispatches (scheduled_post_id, platform, status, updated_at)
+     VALUES ${valueTuples}
+     ON CONFLICT (scheduled_post_id, platform) DO UPDATE
+       SET status = 'in_flight', updated_at = now()
+       WHERE scheduled_post_dispatches.status IN ('pending', 'in_flight')`,
+    [rowId, ...platforms],
+  );
 }
 
 /** Set a single platform's child-row status (with optional error detail). */

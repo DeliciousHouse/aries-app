@@ -121,23 +121,26 @@ class FakeClient {
     }
 
     if (s.startsWith('INSERT INTO scheduled_post_dispatches')) {
-      const [spId, platform] = params as [number, string];
-      const existing = store.children.find(
-        (c) => c.scheduled_post_id === spId && c.platform === platform,
-      );
-      if (!existing) {
-        store.children.push({
-          scheduled_post_id: spId,
-          platform,
-          status: 'in_flight',
-          dispatched_at: null,
-          error_at: null,
-          error_message: null,
-        });
-      } else if (existing.status === 'pending' || existing.status === 'in_flight') {
-        existing.status = 'in_flight';
+      // Multi-row seed: params are [scheduledPostId, ...platforms].
+      const [spId, ...platforms] = params as [number, ...string[]];
+      for (const platform of platforms) {
+        const existing = store.children.find(
+          (c) => c.scheduled_post_id === spId && c.platform === platform,
+        );
+        if (!existing) {
+          store.children.push({
+            scheduled_post_id: spId,
+            platform,
+            status: 'in_flight',
+            dispatched_at: null,
+            error_at: null,
+            error_message: null,
+          });
+        } else if (existing.status === 'pending' || existing.status === 'in_flight') {
+          existing.status = 'in_flight';
+        }
       }
-      return { rows: [], rowCount: 1 };
+      return { rows: [], rowCount: platforms.length };
     }
 
     if (s.startsWith('UPDATE scheduled_post_dispatches')) {
