@@ -321,6 +321,7 @@ export type UnscheduledPostItem = {
   title: string;
   caption: string;
   platform: string | null;
+  imageUrl: string | null;
 };
 export type ScheduledPostsResponse = {
   posts: ScheduledPostItem[];

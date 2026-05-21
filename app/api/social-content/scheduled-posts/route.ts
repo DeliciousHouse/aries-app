@@ -95,6 +95,7 @@ type UnscheduledPostItem = {
   title: string;
   caption: string;
   platform: string | null;
+  imageUrl: string | null;
 };
 
 type RawUnscheduledRow = {
@@ -102,6 +103,7 @@ type RawUnscheduledRow = {
   job_id: string | null;
   caption: string | null;
   platform: string | null;
+  image_url: string | null;
 };
 
 // Approved posts with NO scheduled_posts row — the backlog tray (T13). An
@@ -111,7 +113,22 @@ type RawUnscheduledRow = {
 // synthesized posts actually land in this backlog without drifting from the
 // real query.
 export const UNSCHEDULED_POSTS_QUERY = `
-  SELECT p.id, p.job_id, p.caption, p.platform
+  SELECT p.id, p.job_id, p.caption, p.platform,
+    (SELECT CASE WHEN ca.storage_kind = 'external_url'
+                 THEN ca.storage_key
+                 ELSE ca.served_asset_ref
+            END
+       FROM creative_assets ca
+       WHERE ca.tenant_id = p.tenant_id
+         AND (ca.id::text = ANY(p.creative_asset_ids)
+              OR ca.source_asset_id = ANY(p.creative_asset_ids))
+         AND ca.storage_kind IN ('runtime_asset', 'ingested_asset', 'external_url')
+         AND ca.orphaned_at IS NULL
+         AND (CASE WHEN ca.storage_kind = 'external_url'
+                   THEN ca.storage_key IS NOT NULL
+                   ELSE ca.served_asset_ref IS NOT NULL
+              END)
+       ORDER BY ca.created_at DESC LIMIT 1) AS image_url
   FROM posts p
   LEFT JOIN scheduled_posts sp ON sp.post_id = p.id
   WHERE p.tenant_id = $1
@@ -283,6 +300,7 @@ export async function handleGetScheduledPosts(
           title: deriveTitle(caption),
           caption,
           platform: row.platform ?? null,
+          imageUrl: row.image_url ?? null,
         };
       },
     );
