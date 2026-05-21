@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'motion/react';
 import {
@@ -441,6 +441,7 @@ export default function CalendarPresenter({
                         jobId={selectedEvent.jobId}
                         postId={selectedEvent.postId}
                         targetPlatforms={selectedEvent.targetPlatforms}
+                        platform={selectedEvent.platform}
                         onQueued={() => onRescheduled?.()}
                         onClose={() => setSelectedEventId(null)}
                       />
@@ -504,18 +505,29 @@ function PublishNowButton({
   jobId,
   postId,
   targetPlatforms,
+  platform,
   onQueued,
   onClose,
 }: {
   jobId: string;
   postId: string;
   targetPlatforms: string[];
+  platform: string;
   onQueued: () => void;
   onClose: () => void;
 }) {
   const [submitting, setSubmitting] = useState(false);
   const [confirmation, setConfirmation] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current !== null) {
+        clearTimeout(closeTimerRef.current);
+      }
+    };
+  }, []);
 
   async function handlePublishNow() {
     if (submitting || confirmation) return;
@@ -523,15 +535,18 @@ function PublishNowButton({
     setErrorMessage(null);
     try {
       const url = `/api/social-content/jobs/${encodeURIComponent(jobId)}/posts/${encodeURIComponent(postId)}/schedule`;
-      const platforms = targetPlatforms.filter(
+      const filtered = targetPlatforms.filter(
         (p): p is 'facebook' | 'instagram' => p === 'facebook' || p === 'instagram',
       );
+      const fallback: 'facebook' | 'instagram' =
+        platform === 'facebook' || platform === 'instagram' ? platform : 'facebook';
+      const platforms = filtered.length > 0 ? filtered : [fallback];
       const response = await fetch(url, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           scheduled_at: new Date().toISOString(),
-          platforms: platforms.length > 0 ? platforms : ['instagram'],
+          platforms,
         }),
       });
       if (!response.ok) {
@@ -541,7 +556,10 @@ function PublishNowButton({
       }
       setConfirmation(true);
       onQueued();
-      setTimeout(() => onClose(), 1800);
+      if (closeTimerRef.current !== null) {
+        clearTimeout(closeTimerRef.current);
+      }
+      closeTimerRef.current = setTimeout(() => onClose(), 1800);
     } catch {
       setErrorMessage("Couldn't queue this post — try again.");
     } finally {
