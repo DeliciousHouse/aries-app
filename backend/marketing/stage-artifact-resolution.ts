@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import {
   legacyStageCacheReadFallbackEnabled,
-  lobsterOutputRoots,
+  artifactOutputRoots,
   stageCacheRoot,
   stageCacheRootForTenant,
 } from './artifact-store';
@@ -167,7 +167,7 @@ export async function inferMarketingStageRunId(
     }
   }
 
-  for (const outputRoot of lobsterOutputRoots()) {
+  for (const outputRoot of artifactOutputRoots()) {
     const logsRoot = path.join(outputRoot, 'logs');
     if (!existsSync(logsRoot)) {
       continue;
@@ -253,7 +253,7 @@ export async function readMarketingStageStepPayload(
       }
     }
 
-    for (const outputRoot of lobsterOutputRoots()) {
+    for (const outputRoot of artifactOutputRoots()) {
       const logPath = path.join(outputRoot, 'logs', runId, stageFolder(stage), `${stepName}.json`);
       const logged = await readJsonIfExists(logPath);
       if (logged) {

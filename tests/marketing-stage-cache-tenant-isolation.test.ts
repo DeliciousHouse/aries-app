@@ -101,7 +101,7 @@ test('stageCacheRootForTenant fails closed when tenantId is empty', () => {
 
 test('readMarketingStageStepPayload writes go to tenant-scoped path only', async () => {
   await withScratch(async ({ stage1 }) => {
-    await withEnv({ LOBSTER_STAGE1_CACHE_DIR: stage1, ARIES_STAGE_CACHE_LEGACY_READ_FALLBACK: undefined }, async () => {
+    await withEnv({ ARTIFACT_STAGE1_CACHE_DIR: stage1, ARIES_STAGE_CACHE_LEGACY_READ_FALLBACK: undefined }, async () => {
       const doc = makeRuntimeDoc('tenant-a', 'job-a', 'https://nike.com');
       doc.stages.research.run_id = 'nike-com-abc12345';
 
@@ -123,7 +123,7 @@ test('readMarketingStageStepPayload writes go to tenant-scoped path only', async
 
 test('inferMarketingStageRunId rejects sibling-tenant runId by tenant-scoped scan', async () => {
   await withScratch(async ({ stage1 }) => {
-    await withEnv({ LOBSTER_STAGE1_CACHE_DIR: stage1, ARIES_STAGE_CACHE_LEGACY_READ_FALLBACK: undefined }, async () => {
+    await withEnv({ ARTIFACT_STAGE1_CACHE_DIR: stage1, ARIES_STAGE_CACHE_LEGACY_READ_FALLBACK: undefined }, async () => {
       // Tenant A and B both target nike.com. Tenant B has a cache run on disk.
       const tenantBRun = path.join(stage1, 'tenant-b', 'nike-com-bbbbbbbb');
       await mkdir(tenantBRun, { recursive: true });
@@ -154,7 +154,7 @@ test('cross-tenant readMarketingAssetWithinAllowedRoots is denied for stage cach
     try {
       await withEnv(
         {
-          LOBSTER_STAGE1_CACHE_DIR: stage1,
+          ARTIFACT_STAGE1_CACHE_DIR: stage1,
           DATA_ROOT: dataRoot,
           CODE_ROOT: codeRoot,
         },
@@ -178,7 +178,7 @@ test('cross-tenant readMarketingAssetWithinAllowedRoots is denied for stage cach
 test('legacy fallback gate enables reading pre-migration caches', async () => {
   await withScratch(async ({ stage1 }) => {
     // Off by default: legacy cache invisible.
-    await withEnv({ LOBSTER_STAGE1_CACHE_DIR: stage1, ARIES_STAGE_CACHE_LEGACY_READ_FALLBACK: undefined }, async () => {
+    await withEnv({ ARTIFACT_STAGE1_CACHE_DIR: stage1, ARIES_STAGE_CACHE_LEGACY_READ_FALLBACK: undefined }, async () => {
       const legacyDir = path.join(stage1, 'nike-com-cccccccc');
       await mkdir(legacyDir, { recursive: true });
       await writeFile(path.join(legacyDir, 'step.json'), JSON.stringify({ legacy: true }));
@@ -192,7 +192,7 @@ test('legacy fallback gate enables reading pre-migration caches', async () => {
     });
 
     // Gate on: legacy cache visible.
-    await withEnv({ LOBSTER_STAGE1_CACHE_DIR: stage1, ARIES_STAGE_CACHE_LEGACY_READ_FALLBACK: '1' }, async () => {
+    await withEnv({ ARTIFACT_STAGE1_CACHE_DIR: stage1, ARIES_STAGE_CACHE_LEGACY_READ_FALLBACK: '1' }, async () => {
       const doc = makeRuntimeDoc('tenant-a', 'job-a', 'https://nike.com');
       doc.stages.research.run_id = 'nike-com-cccccccc';
 
@@ -209,7 +209,7 @@ test('legacy fallback never writes to the shared root', async () => {
   // populates them out-of-band), so this is a structural assertion: the
   // tenant-scoped path is the only write target we ever construct.
   await withScratch(async ({ stage1 }) => {
-    await withEnv({ LOBSTER_STAGE1_CACHE_DIR: stage1, ARIES_STAGE_CACHE_LEGACY_READ_FALLBACK: '1' }, async () => {
+    await withEnv({ ARTIFACT_STAGE1_CACHE_DIR: stage1, ARIES_STAGE_CACHE_LEGACY_READ_FALLBACK: '1' }, async () => {
       const doc = makeRuntimeDoc('tenant-a', 'job-a', 'https://nike.com');
       doc.stages.research.run_id = 'nike-com-cccccccc';
 

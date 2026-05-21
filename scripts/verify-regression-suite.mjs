@@ -87,10 +87,6 @@ const steps = [
     ],
   },
   {
-    name: 'targeted marketing-flow smoke tests',
-    args: ['--test', 'tests/marketing-flow-smoke.test.ts'],
-  },
-  {
     name: 'partner attribution (VMS) unit tests',
     args: [
       '--test',

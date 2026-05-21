@@ -108,19 +108,19 @@ services:
       RESEND_API_KEY: ${RESEND_API_KEY}
       EMAIL_FROM: ${EMAIL_FROM}
       # Stage-cache lookup roots used by Aries artifact ingestion.
-      OPENCLAW_LOBSTER_CWD: ${OPENCLAW_LOBSTER_CWD:-/app/lobster}
-      OPENCLAW_LOCAL_LOBSTER_CWD: ${OPENCLAW_LOCAL_LOBSTER_CWD:-/app/lobster}
+      ARTIFACT_PIPELINE_CWD: ${ARTIFACT_PIPELINE_CWD:-/app/lobster}
+      ARTIFACT_PIPELINE_LOCAL_CWD: ${ARTIFACT_PIPELINE_LOCAL_CWD:-/app/lobster}
       # Marketing stage cache dirs. Aries reads generated stage artifacts from
       # these roots; keep them under the shared /data bind mount. See DOCKER.md.
-      LOBSTER_STAGE1_CACHE_DIR: ${LOBSTER_STAGE1_CACHE_DIR:-/data/lobster-stage1-cache}
-      LOBSTER_STAGE2_CACHE_DIR: ${LOBSTER_STAGE2_CACHE_DIR:-/data/lobster-stage2-cache}
-      LOBSTER_STAGE3_CACHE_DIR: ${LOBSTER_STAGE3_CACHE_DIR:-/data/lobster-stage3-cache}
-      LOBSTER_STAGE4_CACHE_DIR: ${LOBSTER_STAGE4_CACHE_DIR:-/data/lobster-stage4-cache}
+      ARTIFACT_STAGE1_CACHE_DIR: ${ARTIFACT_STAGE1_CACHE_DIR:-/data/lobster-stage1-cache}
+      ARTIFACT_STAGE2_CACHE_DIR: ${ARTIFACT_STAGE2_CACHE_DIR:-/data/lobster-stage2-cache}
+      ARTIFACT_STAGE3_CACHE_DIR: ${ARTIFACT_STAGE3_CACHE_DIR:-/data/lobster-stage3-cache}
+      ARTIFACT_STAGE4_CACHE_DIR: ${ARTIFACT_STAGE4_CACHE_DIR:-/data/lobster-stage4-cache}
       # Host lobster/output mount is read by asset-ingest to copy generated
       # assets into DATA_ROOT at ingest time. Keep _DIR/_MOUNT in sync with
       # the bind mount below so asset-ingest can remap host paths.
-      ARIES_LOBSTER_HOST_OUTPUT_DIR: ${ARIES_LOBSTER_HOST_OUTPUT_DIR:-/home/node/aries-app/lobster/output}
-      ARIES_LOBSTER_HOST_OUTPUT_MOUNT: ${ARIES_LOBSTER_HOST_OUTPUT_MOUNT:-/host-lobster-output}
+      ARIES_HOST_ARTIFACT_OUTPUT_DIR: ${ARIES_HOST_ARTIFACT_OUTPUT_DIR:-/home/node/aries-app/lobster/output}
+      ARIES_HOST_ARTIFACT_OUTPUT_MOUNT: ${ARIES_HOST_ARTIFACT_OUTPUT_MOUNT:-/host-lobster-output}
       # Hermes image cache mount: host path where Hermes writes generated images,
       # bind-mounted read-only into the container so /api/internal/hermes/media
       # can stream them to authenticated browser sessions and the production
@@ -139,7 +139,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ${ARIES_SHARED_DATA_ROOT:-/home/node/data}:/data
-      - ${ARIES_LOBSTER_HOST_OUTPUT_DIR:-/home/node/aries-app/lobster/output}:${ARIES_LOBSTER_HOST_OUTPUT_MOUNT:-/host-lobster-output}:ro
+      - ${ARIES_HOST_ARTIFACT_OUTPUT_DIR:-/home/node/aries-app/lobster/output}:${ARIES_HOST_ARTIFACT_OUTPUT_MOUNT:-/host-lobster-output}:ro
       - ${HERMES_IMAGE_CACHE_DIR:-/home/node/.hermes/profiles/aries-content-generator/cache/images}:/hermes-media:ro
     restart: unless-stopped
     healthcheck:

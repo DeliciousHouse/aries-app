@@ -53,8 +53,8 @@ test('ingestRuntimeDocAssets copies out-of-DATA_ROOT file and rewrites path', as
     await withEnv(
       {
         DATA_ROOT: dataRoot,
-        ARIES_LOBSTER_HOST_OUTPUT_DIR: '/home/node/aries-app/lobster/output',
-        ARIES_LOBSTER_HOST_OUTPUT_MOUNT: hostMount,
+        ARIES_HOST_ARTIFACT_OUTPUT_DIR: '/home/node/aries-app/lobster/output',
+        ARIES_HOST_ARTIFACT_OUTPUT_MOUNT: hostMount,
       },
       async () => {
         const { ingestRuntimeDocAssets } = await loadModule();
@@ -108,8 +108,8 @@ test('ingestRuntimeDocAssets is idempotent — re-ingesting a normalized doc is 
     await withEnv(
       {
         DATA_ROOT: dataRoot,
-        ARIES_LOBSTER_HOST_OUTPUT_DIR: '/home/node/aries-app/lobster/output',
-        ARIES_LOBSTER_HOST_OUTPUT_MOUNT: hostMount,
+        ARIES_HOST_ARTIFACT_OUTPUT_DIR: '/home/node/aries-app/lobster/output',
+        ARIES_HOST_ARTIFACT_OUTPUT_MOUNT: hostMount,
       },
       async () => {
         const { ingestRuntimeDocAssets } = await loadModule();
@@ -134,8 +134,8 @@ test('ingestRuntimeDocAssets leaves unreadable paths untouched (no new failure m
     await withEnv(
       {
         DATA_ROOT: dataRoot,
-        ARIES_LOBSTER_HOST_OUTPUT_DIR: '/home/node/aries-app/lobster/output',
-        ARIES_LOBSTER_HOST_OUTPUT_MOUNT: hostMount,
+        ARIES_HOST_ARTIFACT_OUTPUT_DIR: '/home/node/aries-app/lobster/output',
+        ARIES_HOST_ARTIFACT_OUTPUT_MOUNT: hostMount,
       },
       async () => {
         const { ingestRuntimeDocAssets } = await loadModule();
@@ -166,8 +166,8 @@ test('ingestRuntimeDocAssets walks nested arrays and objects', async () => {
     await withEnv(
       {
         DATA_ROOT: dataRoot,
-        ARIES_LOBSTER_HOST_OUTPUT_DIR: '/home/node/aries-app/lobster/output',
-        ARIES_LOBSTER_HOST_OUTPUT_MOUNT: hostMount,
+        ARIES_HOST_ARTIFACT_OUTPUT_DIR: '/home/node/aries-app/lobster/output',
+        ARIES_HOST_ARTIFACT_OUTPUT_MOUNT: hostMount,
       },
       async () => {
         const { ingestRuntimeDocAssets } = await loadModule();
@@ -196,8 +196,8 @@ test('ingestRuntimeDocAssets content-addresses so duplicate source copies once',
     await withEnv(
       {
         DATA_ROOT: dataRoot,
-        ARIES_LOBSTER_HOST_OUTPUT_DIR: '/home/node/aries-app/lobster/output',
-        ARIES_LOBSTER_HOST_OUTPUT_MOUNT: hostMount,
+        ARIES_HOST_ARTIFACT_OUTPUT_DIR: '/home/node/aries-app/lobster/output',
+        ARIES_HOST_ARTIFACT_OUTPUT_MOUNT: hostMount,
       },
       async () => {
         const { ingestRuntimeDocAssets } = await loadModule();
@@ -240,8 +240,8 @@ test('ingestRuntimeDocAssets output is readable by readMarketingAssetWithinAllow
     await withEnv(
       {
         DATA_ROOT: dataRoot,
-        ARIES_LOBSTER_HOST_OUTPUT_DIR: '/home/node/aries-app/lobster/output',
-        ARIES_LOBSTER_HOST_OUTPUT_MOUNT: hostMount,
+        ARIES_HOST_ARTIFACT_OUTPUT_DIR: '/home/node/aries-app/lobster/output',
+        ARIES_HOST_ARTIFACT_OUTPUT_MOUNT: hostMount,
       },
       async () => {
         const { ingestRuntimeDocAssets } = await loadModule();

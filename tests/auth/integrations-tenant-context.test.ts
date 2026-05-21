@@ -5,14 +5,14 @@ import { handleIntegrationsGet, handleIntegrationsDisconnect, handleIntegrations
 import { handlePlatformConnectionsGet } from '../../app/api/platform-connections/handlers';
 import { oauthStore } from '../../backend/integrations/connect';
 
-function setOpenClawTestInvoker(
+function setExecutionTestInvoker(
   impl: (payload: Record<string, unknown>) => unknown | Promise<unknown>
 ): void {
-  (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ = impl;
+  (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__ = impl;
 }
 
-function clearOpenClawTestInvoker(): void {
-  delete (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__;
+function clearExecutionTestInvoker(): void {
+  delete (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__;
 }
 
 function resetOauthStore(): void {
@@ -132,7 +132,7 @@ test('integrations disconnect ignores forged request tenant_id and disconnects o
 test('integrations sync uses authenticated tenant context and rejects missing tenant context', async () => {
   resetOauthStore();
   let captured: Record<string, unknown> | null = null;
-  setOpenClawTestInvoker((payload) => {
+  setExecutionTestInvoker((payload) => {
     captured = payload;
     return {
       ok: true,
@@ -141,7 +141,7 @@ test('integrations sync uses authenticated tenant context and rejects missing te
         status: 'not_implemented',
         code: 'workflow_missing_for_route',
         route: 'integrations.sync',
-        message: 'No production-parity OpenClaw workflow is installed for this route yet.',
+        message: 'Hermes execution adapter rejected workflow: key is not in ARIES_WORKFLOWS catalog.',
       }],
       requiresApproval: null,
     };
@@ -186,5 +186,5 @@ test('integrations sync uses authenticated tenant context and rejects missing te
   assert.equal(rejected.status, 403);
   assert.equal(rejectedBody.status, 'error');
   assert.equal(rejectedBody.reason, 'tenant_context_required');
-  clearOpenClawTestInvoker();
+  clearExecutionTestInvoker();
 });

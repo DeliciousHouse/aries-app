@@ -11,12 +11,12 @@ const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise<T> {
   const previousCodeRoot = process.env.CODE_ROOT;
   const previousDataRoot = process.env.DATA_ROOT;
-  const previousOpenClawLobsterCwd = process.env.OPENCLAW_LOBSTER_CWD;
+  const previousPipelineCwd = process.env.ARTIFACT_PIPELINE_CWD;
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-brand-kit-'));
 
   process.env.CODE_ROOT = PROJECT_ROOT;
   process.env.DATA_ROOT = dataRoot;
-  process.env.OPENCLAW_LOBSTER_CWD = path.join(PROJECT_ROOT, 'lobster');
+  process.env.ARTIFACT_PIPELINE_CWD = path.join(PROJECT_ROOT, 'lobster');
 
   try {
     return await run(dataRoot);
@@ -33,28 +33,28 @@ async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise
       process.env.DATA_ROOT = previousDataRoot;
     }
 
-    if (previousOpenClawLobsterCwd === undefined) {
-      delete process.env.OPENCLAW_LOBSTER_CWD;
+    if (previousPipelineCwd === undefined) {
+      delete process.env.ARTIFACT_PIPELINE_CWD;
     } else {
-      process.env.OPENCLAW_LOBSTER_CWD = previousOpenClawLobsterCwd;
+      process.env.ARTIFACT_PIPELINE_CWD = previousPipelineCwd;
     }
 
     await rm(dataRoot, { recursive: true, force: true });
   }
 }
 
-function setOpenClawTestInvoker(
+function setExecutionTestInvoker(
   impl: (payload: Record<string, unknown>) => unknown | Promise<unknown>
 ): void {
-  (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ = impl;
+  (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__ = impl;
 }
 
-function clearOpenClawTestInvoker(): void {
-  delete (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__;
+function clearExecutionTestInvoker(): void {
+  delete (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__;
 }
 
 function installMarketingPipelineInvoker(): void {
-  setOpenClawTestInvoker((payload) => {
+  setExecutionTestInvoker((payload) => {
     const args = (payload.args as Record<string, unknown> | undefined) ?? {};
     const action = String(args.action || '');
 
@@ -76,7 +76,7 @@ function installMarketingPipelineInvoker(): void {
       };
     }
 
-    throw new Error(`Unexpected OpenClaw lobster invocation: action=${action}`);
+    throw new Error(`Unexpected test invoker call: action=${action}`);
   });
 }
 
@@ -574,7 +574,7 @@ test('startMarketingJob persists a reusable tenant brand kit and stores a runtim
       assert.equal(persistedBrandKit.colors.accent, '#3d2410');
       assert.match(persistedBrandKit.extracted_at, /^\d{4}-\d{2}-\d{2}T/);
     } finally {
-      clearOpenClawTestInvoker();
+      clearExecutionTestInvoker();
       restoreFetch();
     }
   });

@@ -9,21 +9,13 @@ description: Run the Aries repair workflow from the repo, then return a concise 
 Use this skill when asked to run the Aries nightly repair sweep on demand or from cron.
 
 ## Launcher entrypoint
-Use the repo workflow launcher via the `lobster` tool:
-- pipeline: `workflows/openclaw/repair.json`
-- cwd: `.`
-
-Equivalent local launcher intent:
-- run the repo-managed workflow definition for `repair_pipeline`
-- do **not** treat the workflow definition file as a cron record
+The legacy `lobster`/`workflows/openclaw/repair.json` execution path has been removed.
+Do **not** invoke legacy workflow files — this skill now runs the Hermes-native repair
+path via the execution port.
 
 ## Required procedure
-1. Run the `lobster` tool with:
-   - `action: "run"`
-   - `pipeline: "workflows/openclaw/repair.json"`
-   - `cwd: "."`
-   - `argsJson: "{}"`
-2. If the launcher returns an error or non-ok result, fail loudly with the root cause.
+1. Call the Hermes execution provider via the standard execution port to run the repair pipeline.
+2. If the execution returns an error or non-ok result, fail loudly with the root cause.
 3. Return a concise operational summary only.
 4. Do not send a separate message with the `message` tool when cron announce delivery is already enabled.
 

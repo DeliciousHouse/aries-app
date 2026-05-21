@@ -8,42 +8,42 @@ import { resolveProjectRoot } from './helpers/project-root';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
-async function withRuntimeEnv<T>(run: (dataRoot: string, lobsterRoot: string) => Promise<T>): Promise<T> {
+async function withRuntimeEnv<T>(run: (dataRoot: string, artifactRoot: string) => Promise<T>): Promise<T> {
   const previousCodeRoot = process.env.CODE_ROOT;
   const previousDataRoot = process.env.DATA_ROOT;
-  const previousOpenClawLobsterCwd = process.env.OPENCLAW_LOBSTER_CWD;
-  const previousStage1CacheDir = process.env.LOBSTER_STAGE1_CACHE_DIR;
-  const previousStage2CacheDir = process.env.LOBSTER_STAGE2_CACHE_DIR;
-  const previousStage3CacheDir = process.env.LOBSTER_STAGE3_CACHE_DIR;
-  const previousStage4CacheDir = process.env.LOBSTER_STAGE4_CACHE_DIR;
+  const previousPipelineCwd = process.env.ARTIFACT_PIPELINE_CWD;
+  const previousStage1CacheDir = process.env.ARTIFACT_STAGE1_CACHE_DIR;
+  const previousStage2CacheDir = process.env.ARTIFACT_STAGE2_CACHE_DIR;
+  const previousStage3CacheDir = process.env.ARTIFACT_STAGE3_CACHE_DIR;
+  const previousStage4CacheDir = process.env.ARTIFACT_STAGE4_CACHE_DIR;
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-posts-api-'));
-  const lobsterRoot = path.join(dataRoot, 'lobster');
+  const artifactRoot = path.join(dataRoot, 'lobster');
 
   process.env.CODE_ROOT = PROJECT_ROOT;
   process.env.DATA_ROOT = dataRoot;
-  process.env.OPENCLAW_LOBSTER_CWD = lobsterRoot;
-  process.env.LOBSTER_STAGE1_CACHE_DIR = path.join(dataRoot, 'lobster-stage1-cache');
-  process.env.LOBSTER_STAGE2_CACHE_DIR = path.join(dataRoot, 'lobster-stage2-cache');
-  process.env.LOBSTER_STAGE3_CACHE_DIR = path.join(dataRoot, 'lobster-stage3-cache');
-  process.env.LOBSTER_STAGE4_CACHE_DIR = path.join(dataRoot, 'lobster-stage4-cache');
+  process.env.ARTIFACT_PIPELINE_CWD = artifactRoot;
+  process.env.ARTIFACT_STAGE1_CACHE_DIR = path.join(dataRoot, 'lobster-stage1-cache');
+  process.env.ARTIFACT_STAGE2_CACHE_DIR = path.join(dataRoot, 'lobster-stage2-cache');
+  process.env.ARTIFACT_STAGE3_CACHE_DIR = path.join(dataRoot, 'lobster-stage3-cache');
+  process.env.ARTIFACT_STAGE4_CACHE_DIR = path.join(dataRoot, 'lobster-stage4-cache');
 
   try {
-    return await run(dataRoot, lobsterRoot);
+    return await run(dataRoot, artifactRoot);
   } finally {
     if (previousCodeRoot === undefined) delete process.env.CODE_ROOT;
     else process.env.CODE_ROOT = previousCodeRoot;
     if (previousDataRoot === undefined) delete process.env.DATA_ROOT;
     else process.env.DATA_ROOT = previousDataRoot;
-    if (previousOpenClawLobsterCwd === undefined) delete process.env.OPENCLAW_LOBSTER_CWD;
-    else process.env.OPENCLAW_LOBSTER_CWD = previousOpenClawLobsterCwd;
-    if (previousStage1CacheDir === undefined) delete process.env.LOBSTER_STAGE1_CACHE_DIR;
-    else process.env.LOBSTER_STAGE1_CACHE_DIR = previousStage1CacheDir;
-    if (previousStage2CacheDir === undefined) delete process.env.LOBSTER_STAGE2_CACHE_DIR;
-    else process.env.LOBSTER_STAGE2_CACHE_DIR = previousStage2CacheDir;
-    if (previousStage3CacheDir === undefined) delete process.env.LOBSTER_STAGE3_CACHE_DIR;
-    else process.env.LOBSTER_STAGE3_CACHE_DIR = previousStage3CacheDir;
-    if (previousStage4CacheDir === undefined) delete process.env.LOBSTER_STAGE4_CACHE_DIR;
-    else process.env.LOBSTER_STAGE4_CACHE_DIR = previousStage4CacheDir;
+    if (previousPipelineCwd === undefined) delete process.env.ARTIFACT_PIPELINE_CWD;
+    else process.env.ARTIFACT_PIPELINE_CWD = previousPipelineCwd;
+    if (previousStage1CacheDir === undefined) delete process.env.ARTIFACT_STAGE1_CACHE_DIR;
+    else process.env.ARTIFACT_STAGE1_CACHE_DIR = previousStage1CacheDir;
+    if (previousStage2CacheDir === undefined) delete process.env.ARTIFACT_STAGE2_CACHE_DIR;
+    else process.env.ARTIFACT_STAGE2_CACHE_DIR = previousStage2CacheDir;
+    if (previousStage3CacheDir === undefined) delete process.env.ARTIFACT_STAGE3_CACHE_DIR;
+    else process.env.ARTIFACT_STAGE3_CACHE_DIR = previousStage3CacheDir;
+    if (previousStage4CacheDir === undefined) delete process.env.ARTIFACT_STAGE4_CACHE_DIR;
+    else process.env.ARTIFACT_STAGE4_CACHE_DIR = previousStage4CacheDir;
     await rm(dataRoot, { recursive: true, force: true });
   }
 }
@@ -59,14 +59,14 @@ async function writeText(filePath: string, value: string) {
 }
 
 test('/api/marketing/posts returns ready-to-publish inventory from review and publish-ready artifacts', async () => {
-  await withRuntimeEnv(async (dataRoot, lobsterRoot) => {
+  await withRuntimeEnv(async (dataRoot, artifactRoot) => {
     const { handleGetMarketingPosts } = await import('../app/api/marketing/posts/route');
     const jobId = 'mkt_posts_inventory';
     const runtimeFile = path.join(dataRoot, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
-    const copyPath = path.join(lobsterRoot, 'output', 'publish-ready', 'brand-example-stage2-plan', 'meta-ads', 'meta-ads.json');
-    const imagePath = path.join(lobsterRoot, 'output', 'publish-ready', 'brand-example-stage2-plan', 'meta-ads', 'meta-ads.png');
-    const landingPagePath = path.join(lobsterRoot, 'output', 'brand-example-campaign', 'landing-pages', 'index.html');
-    const reviewPackagePath = path.join(lobsterRoot, 'output', 'aries-review', 'tenant_real', 'brand-example-stage2-plan', 'meta-ads', 'review-package.json');
+    const copyPath = path.join(artifactRoot, 'output', 'publish-ready', 'brand-example-stage2-plan', 'meta-ads', 'meta-ads.json');
+    const imagePath = path.join(artifactRoot, 'output', 'publish-ready', 'brand-example-stage2-plan', 'meta-ads', 'meta-ads.png');
+    const landingPagePath = path.join(artifactRoot, 'output', 'brand-example-campaign', 'landing-pages', 'index.html');
+    const reviewPackagePath = path.join(artifactRoot, 'output', 'aries-review', 'tenant_real', 'brand-example-stage2-plan', 'meta-ads', 'review-package.json');
 
     await writeText(imagePath, 'png-preview');
     await writeJson(copyPath, {
@@ -85,7 +85,7 @@ test('/api/marketing/posts returns ready-to-publish inventory from review and pu
       review_status: 'pending_tenant_review',
       tenant_profile_id: 'tenant_real',
     });
-    await writeJson(path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, 'plan-run', 'campaign_planner.json'), {
+    await writeJson(path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, 'plan-run', 'campaign_planner.json'), {
       brand_slug: 'brand-example',
       campaign_plan: {
         campaign_name: 'brand-example-stage2-plan',
@@ -94,7 +94,7 @@ test('/api/marketing/posts returns ready-to-publish inventory from review and pu
         channel_plans: [{ channel: 'meta', message: 'Meta launch package' }],
       },
     });
-    await writeJson(path.join(process.env.LOBSTER_STAGE4_CACHE_DIR!, 'publish-run', 'meta_ads_publisher.json'), {
+    await writeJson(path.join(process.env.ARTIFACT_STAGE4_CACHE_DIR!, 'publish-run', 'meta_ads_publisher.json'), {
       platform: 'meta-ads',
       generated_at: '2026-03-21T00:00:00.000Z',
       publish_package: {

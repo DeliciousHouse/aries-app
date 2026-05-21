@@ -1,7 +1,7 @@
 import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 
-import { lobsterOutputRoots } from './artifact-store';
+import { artifactOutputRoots } from './artifact-store';
 
 type PublicMarketingArtifact = {
   body: string | Buffer;
@@ -305,7 +305,7 @@ function transformLandingHtml(html: string, requestPath: string, designSystemCss
 }
 
 function findLandingContractBySlug(slug: string): LandingContractMatch | null {
-  for (const outputRoot of lobsterOutputRoots()) {
+  for (const outputRoot of artifactOutputRoots()) {
     const staticContractsRoot = path.join(outputRoot, 'static-contracts');
     if (!existsSync(staticContractsRoot)) {
       continue;
@@ -359,7 +359,7 @@ function directPublicArtifact(pathname: string): PublicMarketingArtifact | null 
     return null;
   }
 
-  for (const outputRoot of lobsterOutputRoots()) {
+  for (const outputRoot of artifactOutputRoots()) {
     const directPath = existingFile(path.join(outputRoot, ...segments));
     if (directPath) {
       return {
@@ -380,7 +380,7 @@ function directPublicArtifact(pathname: string): PublicMarketingArtifact | null 
     return null;
   }
 
-  for (const outputRoot of lobsterOutputRoots()) {
+  for (const outputRoot of artifactOutputRoots()) {
     const campaignRoot = path.join(outputRoot, `${publicBrandSlug}-campaign`);
     const campaignFile = existingFile(path.join(campaignRoot, ...restSegments));
     if (campaignFile) {

@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { lobsterOutputRoots, resolveGeneratedAsset } from './artifact-store';
+import { artifactOutputRoots, resolveGeneratedAsset } from './artifact-store';
 import { listMarketingDashboardAssetsForJob } from './dashboard-content';
 import { collectResearchStageArtifacts, collectStrategyReviewArtifacts } from './artifact-collector';
 import { createMarketingJobFacts, type MarketingJobFacts } from './job-facts';
@@ -51,7 +51,7 @@ function assertRuntimeDocTenantMatches(
 }
 
 function outputRoots(): string[] {
-  return lobsterOutputRoots();
+  return artifactOutputRoots();
 }
 
 function stringValue(value: unknown, fallback = ''): string {

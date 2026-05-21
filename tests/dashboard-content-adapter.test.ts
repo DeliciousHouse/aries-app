@@ -10,49 +10,49 @@ const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
 type DashboardEnv = {
   dataRoot: string;
-  lobsterRoot: string;
+  artifactRoot: string;
 };
 
 async function withDashboardEnv<T>(run: (env: DashboardEnv) => Promise<T>): Promise<T> {
   const previousCodeRoot = process.env.CODE_ROOT;
   const previousDataRoot = process.env.DATA_ROOT;
-  const previousLocalLobsterCwd = process.env.OPENCLAW_LOCAL_LOBSTER_CWD;
-  const previousOpenClawLobsterCwd = process.env.OPENCLAW_LOBSTER_CWD;
-  const previousStage1CacheDir = process.env.LOBSTER_STAGE1_CACHE_DIR;
-  const previousStage2CacheDir = process.env.LOBSTER_STAGE2_CACHE_DIR;
-  const previousStage3CacheDir = process.env.LOBSTER_STAGE3_CACHE_DIR;
-  const previousStage4CacheDir = process.env.LOBSTER_STAGE4_CACHE_DIR;
+  const previousPipelineLocalCwd = process.env.ARTIFACT_PIPELINE_LOCAL_CWD;
+  const previousPipelineCwd = process.env.ARTIFACT_PIPELINE_CWD;
+  const previousStage1CacheDir = process.env.ARTIFACT_STAGE1_CACHE_DIR;
+  const previousStage2CacheDir = process.env.ARTIFACT_STAGE2_CACHE_DIR;
+  const previousStage3CacheDir = process.env.ARTIFACT_STAGE3_CACHE_DIR;
+  const previousStage4CacheDir = process.env.ARTIFACT_STAGE4_CACHE_DIR;
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-dashboard-adapter-'));
-  const lobsterRoot = path.join(dataRoot, 'lobster');
+  const artifactRoot = path.join(dataRoot, 'lobster');
 
   process.env.CODE_ROOT = PROJECT_ROOT;
   process.env.DATA_ROOT = dataRoot;
-  process.env.OPENCLAW_LOCAL_LOBSTER_CWD = lobsterRoot;
-  process.env.OPENCLAW_LOBSTER_CWD = lobsterRoot;
-  process.env.LOBSTER_STAGE1_CACHE_DIR = path.join(dataRoot, 'lobster-stage1-cache');
-  process.env.LOBSTER_STAGE2_CACHE_DIR = path.join(dataRoot, 'lobster-stage2-cache');
-  process.env.LOBSTER_STAGE3_CACHE_DIR = path.join(dataRoot, 'lobster-stage3-cache');
-  process.env.LOBSTER_STAGE4_CACHE_DIR = path.join(dataRoot, 'lobster-stage4-cache');
+  process.env.ARTIFACT_PIPELINE_LOCAL_CWD = artifactRoot;
+  process.env.ARTIFACT_PIPELINE_CWD = artifactRoot;
+  process.env.ARTIFACT_STAGE1_CACHE_DIR = path.join(dataRoot, 'lobster-stage1-cache');
+  process.env.ARTIFACT_STAGE2_CACHE_DIR = path.join(dataRoot, 'lobster-stage2-cache');
+  process.env.ARTIFACT_STAGE3_CACHE_DIR = path.join(dataRoot, 'lobster-stage3-cache');
+  process.env.ARTIFACT_STAGE4_CACHE_DIR = path.join(dataRoot, 'lobster-stage4-cache');
 
   try {
-    return await run({ dataRoot, lobsterRoot });
+    return await run({ dataRoot, artifactRoot });
   } finally {
     if (previousCodeRoot === undefined) delete process.env.CODE_ROOT;
     else process.env.CODE_ROOT = previousCodeRoot;
     if (previousDataRoot === undefined) delete process.env.DATA_ROOT;
     else process.env.DATA_ROOT = previousDataRoot;
-    if (previousLocalLobsterCwd === undefined) delete process.env.OPENCLAW_LOCAL_LOBSTER_CWD;
-    else process.env.OPENCLAW_LOCAL_LOBSTER_CWD = previousLocalLobsterCwd;
-    if (previousOpenClawLobsterCwd === undefined) delete process.env.OPENCLAW_LOBSTER_CWD;
-    else process.env.OPENCLAW_LOBSTER_CWD = previousOpenClawLobsterCwd;
-    if (previousStage1CacheDir === undefined) delete process.env.LOBSTER_STAGE1_CACHE_DIR;
-    else process.env.LOBSTER_STAGE1_CACHE_DIR = previousStage1CacheDir;
-    if (previousStage2CacheDir === undefined) delete process.env.LOBSTER_STAGE2_CACHE_DIR;
-    else process.env.LOBSTER_STAGE2_CACHE_DIR = previousStage2CacheDir;
-    if (previousStage3CacheDir === undefined) delete process.env.LOBSTER_STAGE3_CACHE_DIR;
-    else process.env.LOBSTER_STAGE3_CACHE_DIR = previousStage3CacheDir;
-    if (previousStage4CacheDir === undefined) delete process.env.LOBSTER_STAGE4_CACHE_DIR;
-    else process.env.LOBSTER_STAGE4_CACHE_DIR = previousStage4CacheDir;
+    if (previousPipelineLocalCwd === undefined) delete process.env.ARTIFACT_PIPELINE_LOCAL_CWD;
+    else process.env.ARTIFACT_PIPELINE_LOCAL_CWD = previousPipelineLocalCwd;
+    if (previousPipelineCwd === undefined) delete process.env.ARTIFACT_PIPELINE_CWD;
+    else process.env.ARTIFACT_PIPELINE_CWD = previousPipelineCwd;
+    if (previousStage1CacheDir === undefined) delete process.env.ARTIFACT_STAGE1_CACHE_DIR;
+    else process.env.ARTIFACT_STAGE1_CACHE_DIR = previousStage1CacheDir;
+    if (previousStage2CacheDir === undefined) delete process.env.ARTIFACT_STAGE2_CACHE_DIR;
+    else process.env.ARTIFACT_STAGE2_CACHE_DIR = previousStage2CacheDir;
+    if (previousStage3CacheDir === undefined) delete process.env.ARTIFACT_STAGE3_CACHE_DIR;
+    else process.env.ARTIFACT_STAGE3_CACHE_DIR = previousStage3CacheDir;
+    if (previousStage4CacheDir === undefined) delete process.env.ARTIFACT_STAGE4_CACHE_DIR;
+    else process.env.ARTIFACT_STAGE4_CACHE_DIR = previousStage4CacheDir;
     await rm(dataRoot, { recursive: true, force: true });
   }
 }
@@ -138,7 +138,7 @@ function baseRuntimeDoc(jobId: string, tenantId: string) {
 }
 
 async function seedPlanner(runId: string) {
-  await writeJson(path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, runId, 'campaign_planner.json'), {
+  await writeJson(path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, runId, 'campaign_planner.json'), {
     brand_slug: 'brand-example',
     brand_profiles_record: {
       brand_slug: 'brand-example',
@@ -168,10 +168,10 @@ async function seedPlanner(runId: string) {
 }
 
 async function seedCreativeArtifacts(env: DashboardEnv) {
-  await writeText(path.join(env.lobsterRoot, 'output', 'brand-example-campaign', 'landing-pages', 'index.html'), '<html><body>Landing page</body></html>');
-  await writeText(path.join(env.lobsterRoot, 'output', 'brand-example-campaign', 'ad-images', 'meta-feed.png'), 'png-preview');
-  await writeText(path.join(env.lobsterRoot, 'output', 'brand-example-campaign', 'scripts', 'meta-ad-script.md'), '# Meta Script\n\nProof-first launch copy.');
-  await writeJson(path.join(env.lobsterRoot, 'output', 'static-contracts', 'brand-example-stage2-plan', 'meta-ads.json'), {
+  await writeText(path.join(env.artifactRoot, 'output', 'brand-example-campaign', 'landing-pages', 'index.html'), '<html><body>Landing page</body></html>');
+  await writeText(path.join(env.artifactRoot, 'output', 'brand-example-campaign', 'ad-images', 'meta-feed.png'), 'png-preview');
+  await writeText(path.join(env.artifactRoot, 'output', 'brand-example-campaign', 'scripts', 'meta-ad-script.md'), '# Meta Script\n\nProof-first launch copy.');
+  await writeJson(path.join(env.artifactRoot, 'output', 'static-contracts', 'brand-example-stage2-plan', 'meta-ads.json'), {
     campaign_id: 'brand-example-stage2-plan',
     concept_id: 'proof-first-meta-concept',
     platform: 'Meta Ads',
@@ -186,7 +186,7 @@ async function seedCreativeArtifacts(env: DashboardEnv) {
       hero_subheadline: 'See the proof before you commit.',
     },
   });
-  await writeJson(path.join(env.lobsterRoot, 'output', 'static-contracts', 'brand-example-stage2-plan', 'landing-page.json'), {
+  await writeJson(path.join(env.artifactRoot, 'output', 'static-contracts', 'brand-example-stage2-plan', 'landing-page.json'), {
     campaign_id: 'brand-example-stage2-plan',
     concept_id: 'landing-page-concept',
     platform: 'Landing Page',
@@ -202,9 +202,9 @@ async function seedCreativeArtifacts(env: DashboardEnv) {
 }
 
 async function seedPublishArtifacts(env: DashboardEnv, runId: string, options: { paused?: boolean; liveEvent?: boolean } = {}) {
-  const reviewPackagePath = path.join(env.lobsterRoot, 'output', 'aries-review', 'tenant_dashboard', 'brand-example-stage2-plan', 'meta-ads', 'review-package.json');
-  const publishImagePath = path.join(env.lobsterRoot, 'output', 'publish-ready', 'brand-example-stage2-plan', 'meta-ads', 'meta-ads.png');
-  const publishCopyPath = path.join(env.lobsterRoot, 'output', 'publish-ready', 'brand-example-stage2-plan', 'meta-ads', 'meta-ads.json');
+  const reviewPackagePath = path.join(env.artifactRoot, 'output', 'aries-review', 'tenant_dashboard', 'brand-example-stage2-plan', 'meta-ads', 'review-package.json');
+  const publishImagePath = path.join(env.artifactRoot, 'output', 'publish-ready', 'brand-example-stage2-plan', 'meta-ads', 'meta-ads.png');
+  const publishCopyPath = path.join(env.artifactRoot, 'output', 'publish-ready', 'brand-example-stage2-plan', 'meta-ads', 'meta-ads.json');
   await writeText(publishImagePath, 'png-preview');
   await writeJson(publishCopyPath, {
     headline: 'Meta launch package',
@@ -214,14 +214,14 @@ async function seedPublishArtifacts(env: DashboardEnv, runId: string, options: {
     asset_paths: {
       copy_path: publishCopyPath,
       image_path: publishImagePath,
-      landing_page_path: path.join(env.lobsterRoot, 'output', 'brand-example-campaign', 'landing-pages', 'index.html'),
+      landing_page_path: path.join(env.artifactRoot, 'output', 'brand-example-campaign', 'landing-pages', 'index.html'),
     },
     campaign_id: 'brand-example-stage2-plan',
     platform: 'meta-ads',
     review_status: 'pending_tenant_review',
     tenant_profile_id: 'tenant_dashboard',
   });
-  await writeJson(path.join(process.env.LOBSTER_STAGE4_CACHE_DIR!, runId, 'meta_ads_publisher.json'), {
+  await writeJson(path.join(process.env.ARTIFACT_STAGE4_CACHE_DIR!, runId, 'meta_ads_publisher.json'), {
     platform: 'meta-ads',
     generated_at: '2026-03-21T00:00:00.000Z',
     publish_package: {
@@ -251,7 +251,7 @@ test('dashboard adapter derives proposal-backed content and calendar without liv
     const jobId = 'proposal-only';
     const doc: any = baseRuntimeDoc(jobId, 'tenant_dashboard');
     await seedPlanner('plan-run');
-    await writeText(path.join(process.env.OPENCLAW_LOBSTER_CWD!, 'output', 'brand-example-campaign-proposal.md'), '# Proposal');
+    await writeText(path.join(process.env.ARTIFACT_PIPELINE_CWD!, 'output', 'brand-example-campaign-proposal.md'), '# Proposal');
     await writeRuntimeDoc(jobId, doc);
 
     const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
@@ -293,7 +293,7 @@ test('dashboard adapter recovers proposal artifacts from live Lobster logs when 
     };
     doc.stages.strategy = stageRecord('strategy', 'completed', null);
     doc.updated_at = '2026-03-27T08:37:06.000Z';
-    await writeJson(path.join(env.lobsterRoot, 'output', 'logs', 'betterup-com-live123', 'stage-2-strategy', 'campaign_planner.json'), {
+    await writeJson(path.join(env.artifactRoot, 'output', 'logs', 'betterup-com-live123', 'stage-2-strategy', 'campaign_planner.json'), {
       brand_slug: '6',
       brand_profiles_record: {
         brand_slug: '6',
@@ -315,7 +315,7 @@ test('dashboard adapter recovers proposal artifacts from live Lobster logs when 
         ],
       },
     });
-    await writeText(path.join(env.lobsterRoot, 'output', '6-campaign-proposal.md'), '# Sugar & Leather Proposal');
+    await writeText(path.join(env.artifactRoot, 'output', '6-campaign-proposal.md'), '# Sugar & Leather Proposal');
     await writeRuntimeDoc(jobId, doc);
 
     const { getMarketingDashboardContent } = await import('../backend/marketing/dashboard-content');
@@ -347,7 +347,7 @@ test('dashboard adapter uses human-readable campaign and proposal concept labels
       history: [],
     };
 
-    await writeJson(path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, 'plan-run', 'campaign_planner.json'), {
+    await writeJson(path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, 'plan-run', 'campaign_planner.json'), {
       brand_slug: '6',
       campaign_plan: {
         campaign_name: '6-stage2-plan',
@@ -396,7 +396,7 @@ test('dashboard adapter falls back to platform labels when creative contract hea
       history: [],
     };
 
-    await writeJson(path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, 'plan-run', 'campaign_planner.json'), {
+    await writeJson(path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, 'plan-run', 'campaign_planner.json'), {
       brand_slug: '6',
       campaign_plan: {
         campaign_name: '6-stage2-plan',
@@ -411,9 +411,9 @@ test('dashboard adapter falls back to platform labels when creative contract hea
         ],
       },
     });
-    await writeText(path.join(env.lobsterRoot, 'output', '6-campaign', 'landing-pages', 'index.html'), '<html><body>Landing page</body></html>');
-    await writeText(path.join(env.lobsterRoot, 'output', '6-campaign', 'ad-images', 'meta-feed.png'), 'png-preview');
-    await writeJson(path.join(env.lobsterRoot, 'output', 'static-contracts', '6-stage2-plan', 'meta-ads.json'), {
+    await writeText(path.join(env.artifactRoot, 'output', '6-campaign', 'landing-pages', 'index.html'), '<html><body>Landing page</body></html>');
+    await writeText(path.join(env.artifactRoot, 'output', '6-campaign', 'ad-images', 'meta-feed.png'), 'png-preview');
+    await writeJson(path.join(env.artifactRoot, 'output', 'static-contracts', '6-stage2-plan', 'meta-ads.json'), {
       campaign_id: '6-stage2-plan',
       platform_slug: 'meta-ads',
       creative: {
@@ -452,7 +452,7 @@ test('dashboard adapter falls back to platform labels when creative contract cop
       history: [],
     };
 
-    await writeJson(path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, 'plan-run', 'campaign_planner.json'), {
+    await writeJson(path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, 'plan-run', 'campaign_planner.json'), {
       brand_slug: '6',
       campaign_plan: {
         campaign_name: '6-stage2-plan',
@@ -467,9 +467,9 @@ test('dashboard adapter falls back to platform labels when creative contract cop
         ],
       },
     });
-    await writeText(path.join(env.lobsterRoot, 'output', '6-campaign', 'landing-pages', 'index.html'), '<html><body>Landing page</body></html>');
-    await writeText(path.join(env.lobsterRoot, 'output', '6-campaign', 'ad-images', 'meta-feed.png'), 'png-preview');
-    await writeJson(path.join(env.lobsterRoot, 'output', 'static-contracts', '6-stage2-plan', 'meta-ads.json'), {
+    await writeText(path.join(env.artifactRoot, 'output', '6-campaign', 'landing-pages', 'index.html'), '<html><body>Landing page</body></html>');
+    await writeText(path.join(env.artifactRoot, 'output', '6-campaign', 'ad-images', 'meta-feed.png'), 'png-preview');
+    await writeJson(path.join(env.artifactRoot, 'output', 'static-contracts', '6-stage2-plan', 'meta-ads.json'), {
       campaign_id: '6-stage2-plan',
       platform_slug: 'meta-ads',
       creative: {
@@ -514,16 +514,16 @@ test('dashboard adapter keeps proposal approval truthful and does not leak futur
     };
 
     await seedPlanner('plan-run');
-    await writeText(path.join(env.lobsterRoot, 'output', 'brand-example-campaign-proposal.md'), '# Proposal');
+    await writeText(path.join(env.artifactRoot, 'output', 'brand-example-campaign-proposal.md'), '# Proposal');
 
     await seedCreativeArtifacts(env);
     await seedPublishArtifacts(env, 'older-publish-run', { paused: true });
-    await writeJson(path.join(env.lobsterRoot, 'output', 'logs', 'betterup-com-oldrun', 'stage-4-publish-optimize', 'meta_ads_publisher.json'), {
+    await writeJson(path.join(env.artifactRoot, 'output', 'logs', 'betterup-com-oldrun', 'stage-4-publish-optimize', 'meta_ads_publisher.json'), {
       platform: 'meta-ads',
       generated_at: '2026-03-20T00:00:00.000Z',
       publish_package: {
-        copy_path: path.join(env.lobsterRoot, 'output', 'publish-ready', 'brand-example-stage2-plan', 'meta-ads', 'meta-ads.json'),
-        image_path: path.join(env.lobsterRoot, 'output', 'publish-ready', 'brand-example-stage2-plan', 'meta-ads', 'meta-ads.png'),
+        copy_path: path.join(env.artifactRoot, 'output', 'publish-ready', 'brand-example-stage2-plan', 'meta-ads', 'meta-ads.json'),
+        image_path: path.join(env.artifactRoot, 'output', 'publish-ready', 'brand-example-stage2-plan', 'meta-ads', 'meta-ads.png'),
       },
     });
     await writeRuntimeDoc(jobId, doc);
@@ -565,7 +565,7 @@ test('dashboard adapter does not infer publish review content during strategy ap
       history: [],
     };
 
-    await writeJson(path.join(env.lobsterRoot, 'output', 'logs', 'betterup-com-oldrun', 'stage-4-publish-optimize', 'launch_review_preview.json'), {
+    await writeJson(path.join(env.artifactRoot, 'output', 'logs', 'betterup-com-oldrun', 'stage-4-publish-optimize', 'launch_review_preview.json'), {
       generated_at: '2026-03-27T09:11:25+00:00',
       review_bundle: {
         campaign_name: '6-stage2-plan',
@@ -577,7 +577,7 @@ test('dashboard adapter does not infer publish review content during strategy ap
             platform_slug: 'meta-ads',
             platform_name: 'Meta Ads',
             summary: 'Old launch package',
-            media_paths: [path.join(env.lobsterRoot, 'output', 'publish-ready', '6-stage2-plan', 'meta-ads', 'meta.png')],
+            media_paths: [path.join(env.artifactRoot, 'output', 'publish-ready', '6-stage2-plan', 'meta-ads', 'meta.png')],
             asset_paths: {},
           },
         ],
@@ -700,7 +700,7 @@ test('dashboard adapter surfaces pre-publish review items as ready to publish', 
               platform_name: 'Meta Ads',
               summary: 'Launch package ready for review.',
               headline: 'Based on the brand identity of **Sugar & Leather** and the competitive landscape provided, here is the brand strategy analysis:',
-              media_paths: [path.join(env.lobsterRoot, 'output', 'brand-example-campaign', 'ad-images', 'meta-feed.png')],
+              media_paths: [path.join(env.artifactRoot, 'output', 'brand-example-campaign', 'ad-images', 'meta-feed.png')],
               asset_paths: {},
             },
           ],
@@ -773,7 +773,7 @@ test('dashboard adapter recovers paused-publish review items from Stage 4 logs w
     await seedPlanner('plan-run');
     await seedCreativeArtifacts(env);
     await seedPublishArtifacts(env, runId);
-    await writeJson(path.join(env.lobsterRoot, 'output', 'logs', runId, 'stage-4-publish-optimize', 'launch_review_preview.json'), {
+    await writeJson(path.join(env.artifactRoot, 'output', 'logs', runId, 'stage-4-publish-optimize', 'launch_review_preview.json'), {
       generated_at: '2026-03-27T09:03:41+00:00',
       approval_preview: {
         message: 'Stage 4 pre-flight complete. Approve creation of the Meta campaigns, ad sets, and ads as PAUSED?',
@@ -790,13 +790,13 @@ test('dashboard adapter recovers paused-publish review items from Stage 4 logs w
             platform_name: 'Meta Ads',
             summary: 'Launch package ready for review.',
             headline: 'Meta launch package',
-            media_paths: [path.join(env.lobsterRoot, 'output', 'publish-ready', 'brand-example-stage2-plan', 'meta-ads', 'meta-ads.png')],
+            media_paths: [path.join(env.artifactRoot, 'output', 'publish-ready', 'brand-example-stage2-plan', 'meta-ads', 'meta-ads.png')],
             asset_paths: {},
           },
         ],
       },
     });
-    await writeJson(path.join(env.lobsterRoot, 'output', 'logs', runId, 'stage-4-publish-optimize', 'performance_marketer_preflight.json'), {
+    await writeJson(path.join(env.artifactRoot, 'output', 'logs', runId, 'stage-4-publish-optimize', 'performance_marketer_preflight.json'), {
       run_id: runId,
       publish_plan: {
         static_contract_count: 6,
@@ -886,21 +886,21 @@ test('dashboard adapter surfaces rendered .mp4 video assets from veo contract fi
     doc.stages.publish = stageRecord('publish', 'completed', 'publish-run');
 
     const videoPath = path.join(
-      env.lobsterRoot,
+      env.artifactRoot,
       'output',
       'brand-example-stage2-plan',
       platformSlug,
       `${platformSlug}.mp4`,
     );
     const contractPath = path.join(
-      env.lobsterRoot,
+      env.artifactRoot,
       'output',
       'static-contracts',
       'brand-example-stage2-plan',
       `${platformSlug}-video.json`,
     );
     const posterPath = path.join(
-      env.lobsterRoot,
+      env.artifactRoot,
       'output',
       'publish-ready',
       'brand-example-stage2-plan',
@@ -908,7 +908,7 @@ test('dashboard adapter surfaces rendered .mp4 video assets from veo contract fi
       `${platformSlug}.png`,
     );
     const copyPath = path.join(
-      env.lobsterRoot,
+      env.artifactRoot,
       'output',
       'publish-ready',
       'brand-example-stage2-plan',
@@ -932,7 +932,7 @@ test('dashboard adapter surfaces rendered .mp4 video assets from veo contract fi
         video_file: videoPath,
       },
     });
-    await writeJson(path.join(process.env.LOBSTER_STAGE4_CACHE_DIR!, 'publish-run', `${platformSlug}_publisher.json`), {
+    await writeJson(path.join(process.env.ARTIFACT_STAGE4_CACHE_DIR!, 'publish-run', `${platformSlug}_publisher.json`), {
       platform: platformSlug,
       contract_path: contractPath,
       generated_at: '2026-03-21T00:00:00.000Z',

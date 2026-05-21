@@ -3,7 +3,7 @@
  *
  * CONTRACT — why this exists:
  * The Hermes-native marketing pipeline never emits the `publish_package` /
- * `review_bundle` shape the legacy OpenClaw publish path produced; that contract
+ * `review_bundle` shape the legacy publish path produced; that contract
  * is dead on the Hermes path. What Hermes *does* produce reliably is:
  *   - `content_package[]` — per-post copy (hook/body/cta/hashtags/platforms),
  *     carried on the production stage's `primary_output`.

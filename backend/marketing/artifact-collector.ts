@@ -49,12 +49,12 @@ function stepPayloadPath(
   }
   const root =
     stage === 1
-      ? cacheRoot('LOBSTER_STAGE1_CACHE_DIR', 'lobster-stage1-cache')
+      ? cacheRoot('ARTIFACT_STAGE1_CACHE_DIR', 'lobster-stage1-cache')
       : stage === 2
-        ? cacheRoot('LOBSTER_STAGE2_CACHE_DIR', 'lobster-stage2-cache')
+        ? cacheRoot('ARTIFACT_STAGE2_CACHE_DIR', 'lobster-stage2-cache')
         : stage === 3
-          ? cacheRoot('LOBSTER_STAGE3_CACHE_DIR', 'lobster-stage3-cache')
-          : cacheRoot('LOBSTER_STAGE4_CACHE_DIR', 'lobster-stage4-cache');
+          ? cacheRoot('ARTIFACT_STAGE3_CACHE_DIR', 'lobster-stage3-cache')
+          : cacheRoot('ARTIFACT_STAGE4_CACHE_DIR', 'lobster-stage4-cache');
   return path.join(root, tenantId, runId, `${stepName}.json`);
 }
 
@@ -530,7 +530,7 @@ export async function collectPublishReviewArtifacts(
   const reviewPath = reviewStep?.path || (runId && tenantId ? stepPayloadPath(4, runId, 'launch_review_preview', tenantId) : '');
   const preflight = preflightStep?.payload || (preflightPath ? await readJsonIfExists(preflightPath) : null);
   const resolvedPublishReview = runtimeDoc ? await resolvePublishReviewBundle(runtimeDoc) : { reviewPayload: null, reviewBundle: null };
-  // In docker setups, the lobster step cache lives on the gateway host (a different
+  // In docker setups, the step cache lives on the gateway host (a different
   // filesystem) so reviewStep/reviewPath both come back null. Fall back to the
   // primaryOutput passed in by the orchestrator — that's the launch_review_preview
   // payload forwarded through the approval bridge as `requiresApproval.items[0]`.

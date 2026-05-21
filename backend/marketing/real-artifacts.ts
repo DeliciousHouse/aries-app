@@ -3,8 +3,8 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
-  lobsterOutputRoots as artifactStoreLobsterOutputRoots,
-  lobsterRoots as artifactStoreLobsterRoots,
+  artifactOutputRoots as artifactStoreOutputRoots,
+  artifactRoots as artifactStoreRoots,
   resolveGeneratedAsset,
 } from './artifact-store';
 
@@ -43,12 +43,12 @@ function slugify(value: string, fallback = 'campaign'): string {
   return normalized || fallback;
 }
 
-export function lobsterRoots(): string[] {
-  return artifactStoreLobsterRoots();
+export function artifactRoots(): string[] {
+  return artifactStoreRoots();
 }
 
-export function lobsterOutputRoots(): string[] {
-  return artifactStoreLobsterOutputRoots();
+export function artifactOutputRoots(): string[] {
+  return artifactStoreOutputRoots();
 }
 
 export function resolveMarketingArtifactPath(filePath: string | null | undefined): string | null {
@@ -149,9 +149,9 @@ export function normalizeArtifactText(value: string | null | undefined): string 
 // that surface directly in the approval UI (approval_message, summary,
 // core_message). The most recent offender was
 //   "Reply with approval and rerun with launch_approved=true to generate ..."
-// — a developer instruction aimed at whoever was invoking the lobster pipeline
+// — a developer instruction aimed at whoever was invoking the pipeline
 // on the command line, which rendered verbatim inside the cyan approval card.
-// This helper is a defense-in-depth pass: producers (e.g. lobster/bin/*) are
+// This helper is a defense-in-depth pass: pipeline producers are
 // the primary fix, but we also scrub the rendered text so a future regression
 // elsewhere can't leak the same pattern to end users.
 // Order matters: rewrite whole CLI-instruction sentences BEFORE stripping the
@@ -217,13 +217,13 @@ export function inferBrandSlug(runtimeDoc: MarketingJobRuntimeDocument): string 
 }
 
 export function campaignRootForBrand(brandSlug: string): string | null {
-  for (const outputRoot of lobsterOutputRoots()) {
+  for (const outputRoot of artifactOutputRoots()) {
     const candidate = path.join(outputRoot, `${brandSlug}-campaign`);
     if (existsSync(candidate)) {
       return candidate;
     }
   }
-  return lobsterOutputRoots()[0] ? path.join(lobsterOutputRoots()[0], `${brandSlug}-campaign`) : null;
+  return artifactOutputRoots()[0] ? path.join(artifactOutputRoots()[0], `${brandSlug}-campaign`) : null;
 }
 
 function firstReadablePath(paths: Array<string | null | undefined>): string | null {

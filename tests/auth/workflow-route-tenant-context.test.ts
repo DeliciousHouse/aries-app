@@ -6,19 +6,19 @@ import { handleIntegrationsSync } from '../../app/api/integrations/handlers';
 import { handlePublishDispatch } from '../../app/api/publish/dispatch/handler';
 import { handlePublishRetry } from '../../app/api/publish/retry/handler';
 
-function setOpenClawTestInvoker(
+function setExecutionTestInvoker(
   impl: (payload: Record<string, unknown>) => unknown | Promise<unknown>
 ): void {
-  (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ = impl;
+  (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__ = impl;
 }
 
-function clearOpenClawTestInvoker(): void {
-  delete (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__;
+function clearExecutionTestInvoker(): void {
+  delete (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__;
 }
 
 test('calendar sync ignores forged tenant_id and uses authenticated tenant context', async () => {
   let captured: Record<string, unknown> | null = null;
-  setOpenClawTestInvoker((payload) => {
+  setExecutionTestInvoker((payload) => {
     captured = payload;
     return {
       ok: true,
@@ -27,7 +27,7 @@ test('calendar sync ignores forged tenant_id and uses authenticated tenant conte
         status: 'not_implemented',
         code: 'workflow_missing_for_route',
         route: 'calendar.sync',
-        message: 'No production-parity OpenClaw workflow is installed for this route yet.',
+        message: 'Hermes execution adapter rejected workflow: key is not in ARIES_WORKFLOWS catalog.',
       }],
       requiresApproval: null,
     };
@@ -60,12 +60,12 @@ test('calendar sync ignores forged tenant_id and uses authenticated tenant conte
   assert.equal(body.reason, 'workflow_missing_for_route');
   assert.equal(body.route, 'calendar.sync');
   assert.equal(JSON.parse(String((captured as any)?.args?.argsJson)).tenant_id, 'tenant_real');
-  clearOpenClawTestInvoker();
+  clearExecutionTestInvoker();
 });
 
 test('publish retry ignores forged tenant_id and rejects missing tenant context', async () => {
   let captured: Record<string, unknown> | null = null;
-  setOpenClawTestInvoker((payload) => {
+  setExecutionTestInvoker((payload) => {
     captured = payload;
     return {
       ok: true,
@@ -74,7 +74,7 @@ test('publish retry ignores forged tenant_id and rejects missing tenant context'
         status: 'not_implemented',
         code: 'workflow_missing_for_route',
         route: 'publish.retry',
-        message: 'No production-parity OpenClaw workflow is installed for this route yet.',
+        message: 'Hermes execution adapter rejected workflow: key is not in ARIES_WORKFLOWS catalog.',
       }],
       requiresApproval: null,
     };
@@ -122,12 +122,12 @@ test('publish retry ignores forged tenant_id and rejects missing tenant context'
   assert.equal(rejected.status, 403);
   assert.equal(rejectedBody.status, 'error');
   assert.equal(rejectedBody.reason, 'tenant_context_required');
-  clearOpenClawTestInvoker();
+  clearExecutionTestInvoker();
 });
 
 test('publish dispatch ignores forged tenant_id and rejects missing tenant context', async () => {
   let captured: Record<string, unknown> | null = null;
-  setOpenClawTestInvoker((payload) => {
+  setExecutionTestInvoker((payload) => {
     captured = payload;
     return {
       ok: true,
@@ -136,7 +136,7 @@ test('publish dispatch ignores forged tenant_id and rejects missing tenant conte
         status: 'not_implemented',
         code: 'workflow_missing_for_route',
         route: 'publish.dispatch',
-        message: 'No production-parity OpenClaw workflow is installed for this route yet.',
+        message: 'Hermes execution adapter rejected workflow: key is not in ARIES_WORKFLOWS catalog.',
       }],
       requiresApproval: null,
     };
@@ -186,12 +186,12 @@ test('publish dispatch ignores forged tenant_id and rejects missing tenant conte
   assert.equal(rejected.status, 403);
   assert.equal(rejectedBody.status, 'error');
   assert.equal(rejectedBody.reason, 'tenant_context_required');
-  clearOpenClawTestInvoker();
+  clearExecutionTestInvoker();
 });
 
 test('integrations sync ignores forged tenant_id and uses repo-managed workflow metadata', async () => {
   let captured: Record<string, unknown> | null = null;
-  setOpenClawTestInvoker((payload) => {
+  setExecutionTestInvoker((payload) => {
     captured = payload;
     return {
       ok: true,
@@ -200,7 +200,7 @@ test('integrations sync ignores forged tenant_id and uses repo-managed workflow 
         status: 'not_implemented',
         code: 'workflow_missing_for_route',
         route: 'integrations.sync',
-        message: 'No production-parity OpenClaw workflow is installed for this route yet.',
+        message: 'Hermes execution adapter rejected workflow: key is not in ARIES_WORKFLOWS catalog.',
       }],
       requiresApproval: null,
     };
@@ -232,5 +232,5 @@ test('integrations sync ignores forged tenant_id and uses repo-managed workflow 
   assert.equal(body.reason, 'workflow_missing_for_route');
   assert.equal(body.route, 'integrations.sync');
   assert.equal(JSON.parse(String((captured as any)?.args?.argsJson)).tenant_id, 'tenant_real');
-  clearOpenClawTestInvoker();
+  clearExecutionTestInvoker();
 });

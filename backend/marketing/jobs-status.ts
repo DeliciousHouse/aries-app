@@ -340,7 +340,7 @@ function stageLogRoot(stage: 1 | 2 | 3 | 4): string {
         : stage === 3
           ? 'stage-3-production'
           : 'stage-4-publish-optimize';
-  return resolveCodePath('lobster', 'output', 'logs', '{runId}', stageFolder);
+  return resolveCodePath('output', 'logs', '{runId}', stageFolder);
 }
 
 function stepPayloadPath(
@@ -354,12 +354,12 @@ function stepPayloadPath(
   }
   const root =
     stage === 1
-      ? cacheRoot('LOBSTER_STAGE1_CACHE_DIR', 'lobster-stage1-cache')
+      ? cacheRoot('ARTIFACT_STAGE1_CACHE_DIR', 'lobster-stage1-cache')
       : stage === 2
-        ? cacheRoot('LOBSTER_STAGE2_CACHE_DIR', 'lobster-stage2-cache')
+        ? cacheRoot('ARTIFACT_STAGE2_CACHE_DIR', 'lobster-stage2-cache')
         : stage === 3
-          ? cacheRoot('LOBSTER_STAGE3_CACHE_DIR', 'lobster-stage3-cache')
-          : cacheRoot('LOBSTER_STAGE4_CACHE_DIR', 'lobster-stage4-cache');
+          ? cacheRoot('ARTIFACT_STAGE3_CACHE_DIR', 'lobster-stage3-cache')
+          : cacheRoot('ARTIFACT_STAGE4_CACHE_DIR', 'lobster-stage4-cache');
   const primary = path.join(root, tenantId, runId, `${stepName}.json`);
   if (existsSync(primary)) {
     return primary;

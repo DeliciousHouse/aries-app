@@ -9,17 +9,17 @@ import { resolveProjectRoot } from './helpers/project-root';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
-type LobsterInvoker = (payload: Record<string, unknown>) => unknown | Promise<unknown>;
+type WorkflowInvoker = (payload: Record<string, unknown>) => unknown | Promise<unknown>;
 
 async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise<T> {
   const previousCodeRoot = process.env.CODE_ROOT;
   const previousDataRoot = process.env.DATA_ROOT;
-  const previousOpenClawLobsterCwd = process.env.OPENCLAW_LOBSTER_CWD;
+  const previousPipelineCwd = process.env.ARTIFACT_PIPELINE_CWD;
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-review-idempotency-'));
 
   process.env.CODE_ROOT = PROJECT_ROOT;
   process.env.DATA_ROOT = dataRoot;
-  process.env.OPENCLAW_LOBSTER_CWD = path.join(PROJECT_ROOT, 'lobster');
+  process.env.ARTIFACT_PIPELINE_CWD = path.join(PROJECT_ROOT, 'lobster');
   const restoreFetch = installBrandExampleFetchMock();
 
   try {
@@ -36,21 +36,21 @@ async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise
     } else {
       process.env.DATA_ROOT = previousDataRoot;
     }
-    if (previousOpenClawLobsterCwd === undefined) {
-      delete process.env.OPENCLAW_LOBSTER_CWD;
+    if (previousPipelineCwd === undefined) {
+      delete process.env.ARTIFACT_PIPELINE_CWD;
     } else {
-      process.env.OPENCLAW_LOBSTER_CWD = previousOpenClawLobsterCwd;
+      process.env.ARTIFACT_PIPELINE_CWD = previousPipelineCwd;
     }
     await rm(dataRoot, { recursive: true, force: true });
   }
 }
 
-function setInvoker(impl: LobsterInvoker): void {
-  (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ = impl;
+function setInvoker(impl: WorkflowInvoker): void {
+  (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__ = impl;
 }
 
 function clearInvoker(): void {
-  delete (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__;
+  delete (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__;
 }
 
 function cannedGatewayResponse(action: string, token: string): Record<string, unknown> | null {
@@ -130,7 +130,7 @@ test('approve_stage_4_publish: duplicate recordMarketingReviewDecision does not 
       calls.push({ action, token });
       const response = cannedGatewayResponse(action, token);
       if (!response) {
-        throw new Error(`Unexpected OpenClaw invocation: action=${action} token=${token}`);
+        throw new Error(`Unexpected test invoker call: action=${action} token=${token}`);
       }
       return response;
     });

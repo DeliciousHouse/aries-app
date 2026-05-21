@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 
-import { lobsterOutputRoots, resolveGeneratedAsset } from './artifact-store'
+import { artifactOutputRoots, resolveGeneratedAsset } from './artifact-store'
 import type { MarketingCampaignWindow } from './jobs-status'
 import { extractPublishReviewBundle } from './publish-review'
 import { publishReviewLinkedAssetId, publishReviewMediaAssetId } from './publish-review-asset-ids'
@@ -1017,7 +1017,7 @@ async function extractCampaignId(runtimeDoc: MarketingJobRuntimeDocument, propos
 
 function proposalDocumentPaths(brandSlug: string): string[] {
   const files: string[] = []
-  for (const outputRoot of lobsterOutputRoots()) {
+  for (const outputRoot of artifactOutputRoots()) {
     files.push(path.join(outputRoot, `${brandSlug}-campaign-proposal.md`))
     files.push(path.join(outputRoot, `${brandSlug}-campaign-proposal.html`))
   }
@@ -1564,7 +1564,7 @@ async function buildCampaignContext(
       recordValue(reviewBundle?.summary)?.funnel_stage,
     ),
     campaignRoot: realArtifactCampaignRootForBrand(brandSlug),
-    outputRoots: lobsterOutputRoots(),
+    outputRoots: artifactOutputRoots(),
   }
 }
 
@@ -1774,7 +1774,7 @@ async function buildCampaignContentInternal(context: CampaignBuildContext): Prom
   // Primary read path: logged step payload on disk. Container fallback: the
   // orchestrator mirrors the last stage step's output into
   // `stages.production.primary_output` via the approval bridge, so when the
-  // aries-app container can't see the host-side lobster cache files, we can
+  // aries-app container can't see the host-side stage cache files, we can
   // still recover production_handoff from the runtime doc itself.
   const productionFinalizeOnDisk = canUseProductionArtifacts
     ? await readStageStepPayload(context.runtimeDoc, 3, 'creative_director_finalize')

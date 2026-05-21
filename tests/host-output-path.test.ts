@@ -26,7 +26,7 @@ async function withEnv<T>(
 
 test('remapHostOutputToMount returns null when env vars are unset', async () => {
   await withEnv(
-    { ARIES_LOBSTER_HOST_OUTPUT_DIR: undefined, ARIES_LOBSTER_HOST_OUTPUT_MOUNT: undefined },
+    { ARIES_HOST_ARTIFACT_OUTPUT_DIR: undefined, ARIES_HOST_ARTIFACT_OUTPUT_MOUNT: undefined },
     () => {
       assert.equal(remapHostOutputToMount('/anything'), null);
     },
@@ -35,13 +35,13 @@ test('remapHostOutputToMount returns null when env vars are unset', async () => 
 
 test('remapHostOutputToMount returns null when only one env var is set', async () => {
   await withEnv(
-    { ARIES_LOBSTER_HOST_OUTPUT_DIR: '/host/out', ARIES_LOBSTER_HOST_OUTPUT_MOUNT: undefined },
+    { ARIES_HOST_ARTIFACT_OUTPUT_DIR: '/host/out', ARIES_HOST_ARTIFACT_OUTPUT_MOUNT: undefined },
     () => {
       assert.equal(remapHostOutputToMount('/host/out/file'), null);
     },
   );
   await withEnv(
-    { ARIES_LOBSTER_HOST_OUTPUT_DIR: undefined, ARIES_LOBSTER_HOST_OUTPUT_MOUNT: '/mnt' },
+    { ARIES_HOST_ARTIFACT_OUTPUT_DIR: undefined, ARIES_HOST_ARTIFACT_OUTPUT_MOUNT: '/mnt' },
     () => {
       assert.equal(remapHostOutputToMount('/host/out/file'), null);
     },
@@ -51,8 +51,8 @@ test('remapHostOutputToMount returns null when only one env var is set', async (
 test('remapHostOutputToMount rewrites paths under host-output-dir onto the mount', async () => {
   await withEnv(
     {
-      ARIES_LOBSTER_HOST_OUTPUT_DIR: '/home/node/aries-app/lobster/output',
-      ARIES_LOBSTER_HOST_OUTPUT_MOUNT: '/host-lobster-output',
+      ARIES_HOST_ARTIFACT_OUTPUT_DIR: '/home/node/aries-app/lobster/output',
+      ARIES_HOST_ARTIFACT_OUTPUT_MOUNT: '/host-lobster-output',
     },
     () => {
       const input = '/home/node/aries-app/lobster/output/27-campaign/landing-pages/index.html';
@@ -67,8 +67,8 @@ test('remapHostOutputToMount rewrites paths under host-output-dir onto the mount
 test('remapHostOutputToMount returns the mount itself when input equals host-output-dir', async () => {
   await withEnv(
     {
-      ARIES_LOBSTER_HOST_OUTPUT_DIR: '/host/out',
-      ARIES_LOBSTER_HOST_OUTPUT_MOUNT: '/mnt',
+      ARIES_HOST_ARTIFACT_OUTPUT_DIR: '/host/out',
+      ARIES_HOST_ARTIFACT_OUTPUT_MOUNT: '/mnt',
     },
     () => {
       assert.equal(remapHostOutputToMount('/host/out'), '/mnt');
@@ -79,8 +79,8 @@ test('remapHostOutputToMount returns the mount itself when input equals host-out
 test('remapHostOutputToMount returns null for paths outside host-output-dir', async () => {
   await withEnv(
     {
-      ARIES_LOBSTER_HOST_OUTPUT_DIR: '/host/out',
-      ARIES_LOBSTER_HOST_OUTPUT_MOUNT: '/mnt',
+      ARIES_HOST_ARTIFACT_OUTPUT_DIR: '/host/out',
+      ARIES_HOST_ARTIFACT_OUTPUT_MOUNT: '/mnt',
     },
     () => {
       assert.equal(remapHostOutputToMount('/host/outside/file'), null);
@@ -99,8 +99,8 @@ test('remapHostOutputToMount handles trailing slashes on env vars without breaki
 
   await withEnv(
     {
-      ARIES_LOBSTER_HOST_OUTPUT_DIR: '/host/out/',
-      ARIES_LOBSTER_HOST_OUTPUT_MOUNT: '/mnt',
+      ARIES_HOST_ARTIFACT_OUTPUT_DIR: '/host/out/',
+      ARIES_HOST_ARTIFACT_OUTPUT_MOUNT: '/mnt',
     },
     () => {
       assert.equal(remapHostOutputToMount(input), expected);
@@ -109,8 +109,8 @@ test('remapHostOutputToMount handles trailing slashes on env vars without breaki
 
   await withEnv(
     {
-      ARIES_LOBSTER_HOST_OUTPUT_DIR: '/host/out',
-      ARIES_LOBSTER_HOST_OUTPUT_MOUNT: '/mnt/',
+      ARIES_HOST_ARTIFACT_OUTPUT_DIR: '/host/out',
+      ARIES_HOST_ARTIFACT_OUTPUT_MOUNT: '/mnt/',
     },
     () => {
       assert.equal(remapHostOutputToMount(input), expected);
@@ -119,8 +119,8 @@ test('remapHostOutputToMount handles trailing slashes on env vars without breaki
 
   await withEnv(
     {
-      ARIES_LOBSTER_HOST_OUTPUT_DIR: '/host/out/',
-      ARIES_LOBSTER_HOST_OUTPUT_MOUNT: '/mnt/',
+      ARIES_HOST_ARTIFACT_OUTPUT_DIR: '/host/out/',
+      ARIES_HOST_ARTIFACT_OUTPUT_MOUNT: '/mnt/',
     },
     () => {
       assert.equal(remapHostOutputToMount(input), expected);
@@ -129,8 +129,8 @@ test('remapHostOutputToMount handles trailing slashes on env vars without breaki
 
   await withEnv(
     {
-      ARIES_LOBSTER_HOST_OUTPUT_DIR: '/host/out///',
-      ARIES_LOBSTER_HOST_OUTPUT_MOUNT: '/mnt///',
+      ARIES_HOST_ARTIFACT_OUTPUT_DIR: '/host/out///',
+      ARIES_HOST_ARTIFACT_OUTPUT_MOUNT: '/mnt///',
     },
     () => {
       assert.equal(remapHostOutputToMount(input), expected);
@@ -141,8 +141,8 @@ test('remapHostOutputToMount handles trailing slashes on env vars without breaki
 test('remapHostOutputToMount normalizes the input path', async () => {
   await withEnv(
     {
-      ARIES_LOBSTER_HOST_OUTPUT_DIR: '/host/out',
-      ARIES_LOBSTER_HOST_OUTPUT_MOUNT: '/mnt',
+      ARIES_HOST_ARTIFACT_OUTPUT_DIR: '/host/out',
+      ARIES_HOST_ARTIFACT_OUTPUT_MOUNT: '/mnt',
     },
     () => {
       // Redundant separators and current-dir segments collapse before the prefix match.
@@ -158,8 +158,8 @@ test('remapHostOutputToMount does not match partial directory-name prefixes', as
   // /host/output must NOT match /host/out — that's why we require the separator.
   await withEnv(
     {
-      ARIES_LOBSTER_HOST_OUTPUT_DIR: '/host/out',
-      ARIES_LOBSTER_HOST_OUTPUT_MOUNT: '/mnt',
+      ARIES_HOST_ARTIFACT_OUTPUT_DIR: '/host/out',
+      ARIES_HOST_ARTIFACT_OUTPUT_MOUNT: '/mnt',
     },
     () => {
       assert.equal(remapHostOutputToMount('/host/output/file.png'), null);

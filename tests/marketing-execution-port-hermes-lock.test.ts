@@ -46,7 +46,7 @@ test('resolveMarketingExecutionPortName always returns hermes', () => {
 test('getMarketingExecutionPort returns HermesMarketingPort even when stale OPENCLAW_* env vars are set', () => {
   const env = hermesEnv({
     OPENCLAW_SESSION_KEY: 'garbage-session-key',
-    OPENCLAW_GATEWAY_LOBSTER_CWD: '/garbage/cwd',
+    ARTIFACT_PIPELINE_GATEWAY_CWD: '/garbage/cwd',
   });
 
   const port = getMarketingExecutionPort(env);

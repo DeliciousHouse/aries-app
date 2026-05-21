@@ -67,21 +67,21 @@ function installBrandExampleFetchMock(): () => void {
 async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise<T> {
   const previousCodeRoot = process.env.CODE_ROOT;
   const previousDataRoot = process.env.DATA_ROOT;
-  const previousOpenClawLobsterCwd = process.env.OPENCLAW_LOBSTER_CWD;
-  const previousStage1CacheDir = process.env.LOBSTER_STAGE1_CACHE_DIR;
-  const previousStage2CacheDir = process.env.LOBSTER_STAGE2_CACHE_DIR;
-  const previousStage3CacheDir = process.env.LOBSTER_STAGE3_CACHE_DIR;
-  const previousStage4CacheDir = process.env.LOBSTER_STAGE4_CACHE_DIR;
+  const previousPipelineCwd = process.env.ARTIFACT_PIPELINE_CWD;
+  const previousStage1CacheDir = process.env.ARTIFACT_STAGE1_CACHE_DIR;
+  const previousStage2CacheDir = process.env.ARTIFACT_STAGE2_CACHE_DIR;
+  const previousStage3CacheDir = process.env.ARTIFACT_STAGE3_CACHE_DIR;
+  const previousStage4CacheDir = process.env.ARTIFACT_STAGE4_CACHE_DIR;
   const previousMarketingProvider = process.env.ARIES_MARKETING_EXECUTION_PROVIDER;
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-verify-banned-'));
 
   process.env.CODE_ROOT = PROJECT_ROOT;
   process.env.DATA_ROOT = dataRoot;
-  process.env.OPENCLAW_LOBSTER_CWD = path.join(PROJECT_ROOT, 'lobster');
-  process.env.LOBSTER_STAGE1_CACHE_DIR = path.join(dataRoot, 'lobster-stage1-cache');
-  process.env.LOBSTER_STAGE2_CACHE_DIR = path.join(dataRoot, 'lobster-stage2-cache');
-  process.env.LOBSTER_STAGE3_CACHE_DIR = path.join(dataRoot, 'lobster-stage3-cache');
-  process.env.LOBSTER_STAGE4_CACHE_DIR = path.join(dataRoot, 'lobster-stage4-cache');
+  process.env.ARTIFACT_PIPELINE_CWD = path.join(PROJECT_ROOT, 'lobster');
+  process.env.ARTIFACT_STAGE1_CACHE_DIR = path.join(dataRoot, 'lobster-stage1-cache');
+  process.env.ARTIFACT_STAGE2_CACHE_DIR = path.join(dataRoot, 'lobster-stage2-cache');
+  process.env.ARTIFACT_STAGE3_CACHE_DIR = path.join(dataRoot, 'lobster-stage3-cache');
+  process.env.ARTIFACT_STAGE4_CACHE_DIR = path.join(dataRoot, 'lobster-stage4-cache');
   process.env.ARIES_MARKETING_EXECUTION_PROVIDER = 'hermes';
 
   try {
@@ -100,34 +100,34 @@ async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise
       process.env.DATA_ROOT = previousDataRoot;
     }
 
-    if (previousOpenClawLobsterCwd === undefined) {
-      delete process.env.OPENCLAW_LOBSTER_CWD;
+    if (previousPipelineCwd === undefined) {
+      delete process.env.ARTIFACT_PIPELINE_CWD;
     } else {
-      process.env.OPENCLAW_LOBSTER_CWD = previousOpenClawLobsterCwd;
+      process.env.ARTIFACT_PIPELINE_CWD = previousPipelineCwd;
     }
 
     if (previousStage1CacheDir === undefined) {
-      delete process.env.LOBSTER_STAGE1_CACHE_DIR;
+      delete process.env.ARTIFACT_STAGE1_CACHE_DIR;
     } else {
-      process.env.LOBSTER_STAGE1_CACHE_DIR = previousStage1CacheDir;
+      process.env.ARTIFACT_STAGE1_CACHE_DIR = previousStage1CacheDir;
     }
 
     if (previousStage2CacheDir === undefined) {
-      delete process.env.LOBSTER_STAGE2_CACHE_DIR;
+      delete process.env.ARTIFACT_STAGE2_CACHE_DIR;
     } else {
-      process.env.LOBSTER_STAGE2_CACHE_DIR = previousStage2CacheDir;
+      process.env.ARTIFACT_STAGE2_CACHE_DIR = previousStage2CacheDir;
     }
 
     if (previousStage3CacheDir === undefined) {
-      delete process.env.LOBSTER_STAGE3_CACHE_DIR;
+      delete process.env.ARTIFACT_STAGE3_CACHE_DIR;
     } else {
-      process.env.LOBSTER_STAGE3_CACHE_DIR = previousStage3CacheDir;
+      process.env.ARTIFACT_STAGE3_CACHE_DIR = previousStage3CacheDir;
     }
 
     if (previousStage4CacheDir === undefined) {
-      delete process.env.LOBSTER_STAGE4_CACHE_DIR;
+      delete process.env.ARTIFACT_STAGE4_CACHE_DIR;
     } else {
-      process.env.LOBSTER_STAGE4_CACHE_DIR = previousStage4CacheDir;
+      process.env.ARTIFACT_STAGE4_CACHE_DIR = previousStage4CacheDir;
     }
 
     if (previousMarketingProvider === undefined) {

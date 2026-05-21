@@ -862,7 +862,7 @@ function createPublishItems(input: {
   // publish-completed callback (`synthesizePublishPostsFromContentPackage`).
   // When those rows exist, the campaign HAS published items regardless of the
   // legacy `includePublishQueue` runtime-state gate — which keyed off
-  // OpenClaw-era state that the Hermes pipeline does not always set.
+  // legacy state that the Hermes pipeline does not always set.
   const hasRealPosts = input.realPublishedPostCount > 0;
   if (!input.includePublishQueue && !hasRealPosts) return [];
 

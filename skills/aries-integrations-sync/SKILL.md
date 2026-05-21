@@ -9,21 +9,13 @@ description: Run the Aries integrations sync workflow from the repo, then return
 Use this skill when asked to run the Aries integrations synchronization pipeline on demand or from cron.
 
 ## Launcher entrypoint
-Use the repo workflow launcher via the `lobster` tool:
-- pipeline: `workflows/openclaw/integrations-sync.json`
-- cwd: `.`
-
-Equivalent local launcher intent:
-- run the repo-managed workflow definition for `integrations_sync_pipeline`
-- do **not** treat the workflow definition file as a cron record
+The legacy `lobster`/`workflows/openclaw/integrations-sync.json` execution path has been removed.
+Do **not** invoke legacy workflow files — this skill now runs the Hermes-native integrations
+sync path via the execution port.
 
 ## Required procedure
-1. Run the `lobster` tool with:
-   - `action: "run"`
-   - `pipeline: "workflows/openclaw/integrations-sync.json"`
-   - `cwd: "."`
-   - `argsJson: "{}"`
-2. If the launcher returns an error or non-ok result, fail loudly with the root cause.
+1. Call the Hermes execution provider via the standard execution port to run the integrations sync pipeline.
+2. If the execution returns an error or non-ok result, fail loudly with the root cause.
 3. Return a concise operational summary only.
 4. Do not send a separate message with the `message` tool when cron announce delivery is already enabled.
 

@@ -13,7 +13,6 @@
  * have to verify "is this a real port?" while reviewing a test.
  */
 
-export const TEST_OPENCLAW_GATEWAY_URL = 'http://127.0.0.1:3456';
 export const TEST_HERMES_GATEWAY_URL = 'http://127.0.0.1:8642';
 export const TEST_APP_BASE_URL = 'http://127.0.0.1:3000';
 

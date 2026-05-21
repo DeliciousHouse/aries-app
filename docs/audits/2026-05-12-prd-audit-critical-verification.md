@@ -25,7 +25,7 @@ folder is the only segment under that root:
 - `backend/marketing/stage-artifact-resolution.ts:199`
   `path.join(stageCacheRoot(stage), runId, '${stepName}.json')`
 - `backend/marketing/publish-review.ts:129`
-  `path.join(cacheRoot('LOBSTER_STAGE4_CACHE_DIR', 'lobster-stage4-cache'), runId, '${stepName}.json')`
+  `path.join(cacheRoot('ARTIFACT_STAGE4_CACHE_DIR', 'lobster-stage4-cache'), runId, '${stepName}.json')`
 
 `tenant_id` / `tenantSlug` appear nowhere in the path segments for stage
 caches. The path is `<cacheRoot>/<runId>/<step>.json`.
