@@ -95,7 +95,7 @@
     "@types/three": "^0.183.1",
     "autoprefixer": "^10.4.27",
     "jsdom": "^25.0.1",
-    "postcss": "^8.5.11",
+    "postcss": "^8.5.15",
     "react-test-renderer": "18.3.1",
     "tailwindcss": "^4.2.1",
     "typescript": "5.7.3"
