@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.5.4 — fix(marketing): ingest generated images into creative_assets
+
+Completed Hermes pipelines now ingest their generated images instead of silently dropping every one. The creative-asset ingest's `INSERT ... ON CONFLICT (tenant_id, checksum)` omitted the `WHERE checksum IS NOT NULL` predicate of the partial unique index it targets, so PostgreSQL could not infer the index and rejected every row — every completed campaign ingested zero `creative_assets`, leaving synthesized posts without media. The clause now repeats the predicate, so each image persists and posts carry their real images. Verified against the live database, not a mock.
+
 ## v0.1.5.3 — fix(marketing): completed pipelines populate the calendar + publish-items count + failure taxonomy
 
 Three marketing fixes that, together, make a completed Hermes pipeline actually surface its work and make publish failures honest.
