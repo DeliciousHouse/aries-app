@@ -13,8 +13,6 @@ import { HermesMarketingPort } from '../backend/marketing/ports/hermes';
 import type { MarketingJobRuntimeDocument } from '../backend/marketing/runtime-state';
 import { TEST_HERMES_GATEWAY_URL } from './fixtures/service-urls';
 
-const STUB_RUNTIME_PATHS = { gatewayCwd: 'lobster', localCwd: '/tmp/lobster' };
-
 const NO_OP_BRAND_KIT_REFRESHER = async () => ({ refreshed: false, enriched: false });
 
 const STUB_DOC = {
@@ -134,16 +132,13 @@ test('marketing port name falls back to hermes on unknown values', () => {
 });
 
 test('getMarketingExecutionPort returns the Hermes port by default', () => {
-  const port = getMarketingExecutionPort(() => STUB_RUNTIME_PATHS, {});
+  const port = getMarketingExecutionPort({});
   assert.ok(port instanceof HermesMarketingPort);
   assert.equal(port.name, 'hermes');
 });
 
 test('getMarketingExecutionPort returns the Hermes port when explicitly selected', () => {
-  const port = getMarketingExecutionPort(
-    () => STUB_RUNTIME_PATHS,
-    { ARIES_MARKETING_EXECUTION_PROVIDER: 'hermes' },
-  );
+  const port = getMarketingExecutionPort({ ARIES_MARKETING_EXECUTION_PROVIDER: 'hermes' });
   assert.ok(port instanceof HermesMarketingPort);
   assert.equal(port.name, 'hermes');
 });

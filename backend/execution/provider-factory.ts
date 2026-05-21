@@ -1,63 +1,24 @@
-import { runAriesOpenClawWorkflow } from '../openclaw/aries-execution';
 import { HermesExecutionAdapter } from './providers/hermes';
-import { mapLegacyOpenClawGatewayError } from './providers/legacy-openclaw';
-import type { ExecutionProvider, WorkflowExecutionResult } from './types';
-import type { AriesWorkflowKey } from './workflow-catalog';
+import type { ExecutionProvider } from './types';
 
 export const DEFAULT_EXECUTION_PROVIDER = 'hermes' as const;
 
-export type AriesExecutionProviderName = typeof DEFAULT_EXECUTION_PROVIDER | 'legacy-openclaw';
+export type AriesExecutionProviderName = typeof DEFAULT_EXECUTION_PROVIDER;
 
 type ExecutionProviderEnv = Partial<Record<string, string | undefined>>;
 
-function readEnvValue(env: ExecutionProviderEnv, key: string): string {
-  const value = env[key];
-  return typeof value === 'string' ? value.trim() : '';
-}
-
+/**
+ * Resolve the configured execution provider name.
+ *
+ * Hermes is the sole execution provider. `ARIES_EXECUTION_PROVIDER` is retained
+ * as a forward-compatible selector — any value resolves to Hermes today.
+ */
 export function resolveExecutionProviderName(
-  env: ExecutionProviderEnv = process.env,
+  _env: ExecutionProviderEnv = process.env,
 ): AriesExecutionProviderName {
-  const configured = readEnvValue(env, 'ARIES_EXECUTION_PROVIDER').toLowerCase();
-
-  switch (configured) {
-    case '':
-      return DEFAULT_EXECUTION_PROVIDER;
-    case 'openclaw':
-    case 'legacy-openclaw':
-      return 'legacy-openclaw';
-    case 'hermes':
-      return 'hermes';
-    default:
-      return DEFAULT_EXECUTION_PROVIDER;
-  }
-}
-
-// Note: the runtime provider identifier is 'openclaw' to match
-// LegacyOpenClawExecutionAdapter.name and the provider value used on
-// ExecutionError instances. DEFAULT_EXECUTION_PROVIDER ('legacy-openclaw') is
-// the config-level selector exposed via ARIES_EXECUTION_PROVIDER and is
-// intentionally distinct from the runtime provider name so that callers
-// branching on provider.name or error.provider see a single identifier.
-class LegacyOpenClawWorkflowProvider implements ExecutionProvider {
-  readonly name = 'openclaw' as const;
-
-  async runWorkflow(key: string, input: Record<string, unknown>): Promise<WorkflowExecutionResult> {
-    const result = await runAriesOpenClawWorkflow(key as AriesWorkflowKey, input);
-    if (result.kind === 'gateway_error') {
-      return {
-        kind: 'gateway_error',
-        error: mapLegacyOpenClawGatewayError(result.error),
-      };
-    }
-    return result;
-  }
+  return DEFAULT_EXECUTION_PROVIDER;
 }
 
 export function getExecutionProvider(env: ExecutionProviderEnv = process.env): ExecutionProvider {
-  const providerName = resolveExecutionProviderName(env);
-  if (providerName === 'hermes') {
-    return new HermesExecutionAdapter(env);
-  }
-  return new LegacyOpenClawWorkflowProvider();
+  return new HermesExecutionAdapter(env);
 }

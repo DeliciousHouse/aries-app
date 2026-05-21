@@ -743,7 +743,7 @@ function buildTimeline(
       at: runtimeDoc.created_at,
       tone: 'info',
       label: 'Campaign accepted',
-      description: 'Aries created the marketing job and started the direct Lobster pipeline.',
+      description: 'Aries created the marketing job and started the Hermes pipeline.',
     });
   }
 

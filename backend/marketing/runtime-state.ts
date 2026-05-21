@@ -203,9 +203,7 @@ export type MarketingJobRuntimeDocument = {
   deleted_by?: string | null;
   /** Optional. Set when a soft-delete lands while the pipeline is still
    * executing. The orchestrator checks this before starting each stage and
-   * short-circuits to the `cancelled` terminal status if set. The gateway
-   * also tries to abort the in-flight Lobster run so mid-stage work stops
-   * quickly instead of waiting for the current stage to finish naturally. */
+   * short-circuits to the `cancelled` terminal status if set. */
   soft_cancel_requested_at?: string | null;
   /** Optional machine-readable reason set when a non-orchestrator process
    * forces the run into a terminal failed status. Currently only used by
@@ -865,9 +863,7 @@ export async function listDeletedMarketingJobIdsForTenant(tenantId: string): Pro
  * If the pipeline is still running when the delete lands, also arms
  * `soft_cancel_requested_at`. The orchestrator checks that field before
  * starting each stage and short-circuits to the `cancelled` terminal status
- * so no new stages execute. Callers that want faster mid-stage teardown can
- * also invoke the gateway's Lobster `cancel` action (see
- * `cancelOpenClawLobsterWorkflow` in `backend/openclaw/gateway-client.ts`).
+ * so no new stages execute.
  *
  * Returns the updated document, or `null` if the job is not found or
  * belongs to a different tenant.

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Aries AI is a Next.js 16 App Router application for marketing automation. It combines a public marketing site, an authenticated operator shell, and browser-safe internal APIs that submit workflow execution to Hermes by default while keeping runtime state on the server. Legacy OpenClaw/Lobster execution remains available as an explicit opt-in fallback.
+Aries AI is a Next.js 16 App Router application for marketing automation. It combines a public marketing site, an authenticated operator shell, and browser-safe internal APIs that submit workflow execution to Hermes while keeping runtime state on the server.
 
 ## Architecture
 
@@ -13,13 +13,13 @@ Browser
   -> Next.js pages (app/*)
   -> Next.js route handlers (app/api/*)
       -> Aries backend services (backend/*, lib/*)
- -> Hermes Gateway for workflow execution callbacks (legacy OpenClaw via CLI subprocess when opted in)
+ -> Hermes Gateway for workflow execution callbacks
           -> PostgreSQL + runtime files under DATA_ROOT for state and read models
 ```
 
 **Key architectural rules:**
 - Aries owns the browser boundary. The UI talks only to Next.js route handlers.
-- Long-running/workflow execution is delegated through Hermes callbacks by default — never exposed directly to the browser.
+- Long-running/workflow execution is delegated through Hermes callbacks — never exposed directly to the browser.
 - Route handlers return frontend-safe payloads; never leak raw runtime files or internal workflow details.
 - All marketing, integrations, and approval flows are tenant-aware and validated server-side.
 
@@ -29,21 +29,17 @@ Browser
 
 ### Execution Provider Pattern
 
-Hermes is the default provider (`ARIES_EXECUTION_PROVIDER=hermes`, `ARIES_MARKETING_EXECUTION_PROVIDER=hermes`). Aries creates an execution run record before submitting to Hermes, passes `${APP_BASE_URL}/api/internal/hermes/runs` as the callback URL, and authenticates callbacks with `INTERNAL_API_SECRET`. Hermes callbacks are idempotent and are the source of truth for marketing progress. Operators can opt into the legacy path with `legacy-openclaw`.
+Hermes is the sole execution provider (`ARIES_EXECUTION_PROVIDER=hermes`, `ARIES_MARKETING_EXECUTION_PROVIDER=hermes`; these env vars are retained as forward-compatible selectors). Aries creates an execution run record before submitting to Hermes, passes `${APP_BASE_URL}/api/internal/hermes/runs` as the callback URL, and authenticates callbacks with `INTERNAL_API_SECRET`. Hermes callbacks are idempotent and are the source of truth for marketing progress. The execution-provider seam (`backend/execution/`, `backend/marketing/execution-port.ts`) is kept as a single-provider abstraction.
 
-### Legacy Gateway Client Pattern
+### Marketing Pipeline (4-Stage Workflow)
 
-`backend/openclaw/gateway-client.ts` is the bridge to OpenClaw. It invokes the gateway via `execFile` (CLI subprocess), not HTTP. Key types: `LobsterEnvelope` (workflow result with optional `requiresApproval`), `OpenClawWorkflowCallInput` (run a pipeline), `OpenClawResumeCallInput` (resume after approval). When a stage returns `requiresApproval`, the orchestrator persists the paused envelope via `approval-store.ts` and later calls the gateway again with `OpenClawResumeCallInput` carrying the approval decision — callers should never assume a workflow ran to completion on a single invocation.
-
-### Marketing Pipeline (4-Stage Lobster Workflow)
-
-The core domain flow is a 4-stage marketing pipeline defined in `lobster/marketing-pipeline.lobster`:
+The core domain flow is a 4-stage marketing pipeline executed by Hermes:
 1. **Research** (`stage-1-research`) — competitor analysis, ad library scraping
 2. **Strategy** (`stage-2-strategy`) — campaign strategy from research
 3. **Production** (`stage-3-production`) — creative/content generation
 4. **Publish & Optimize** (`stage-4-publish-optimize`) — publishing and performance tracking
 
-Each stage can pause for human approval. `backend/marketing/orchestrator.ts` drives the pipeline: starts stages via the gateway client, collects artifacts, manages approval checkpoints, and records state transitions. Approval records are persisted via `backend/marketing/approval-store.ts`.
+Each stage can pause for human approval. `backend/marketing/orchestrator.ts` drives the pipeline: starts stages via the Hermes execution port, collects artifacts, manages approval checkpoints, and records state transitions. Approval records are persisted via `backend/marketing/approval-store.ts`.
 
 **Resumability rule:** Stages must preserve partial artifacts on rate-limit or transient gateway failures so a resume can pick up where it left off. Do not discard work on a non-fatal stage error — persist what completed, surface the failure, and let the orchestrator decide whether to retry. This rule exists because of past Veo render rate-limit incidents that lost completed creative on retry.
 
@@ -113,9 +109,9 @@ These rules are here because they already bit this repo.
 
 Non-obvious layout notes (the rest is discoverable by browsing):
 
-- `backend/` vs `lib/` — `backend/` holds domain logic (marketing orchestrator, onboarding, gateway client, approval store); `lib/` is for shared runtime helpers consumed by both `app/` and `backend/` (DB pool, auth, tenant context, runtime path resolution). Route handlers should import domain code from `backend/`, not inline it.
+- `backend/` vs `lib/` — `backend/` holds domain logic (marketing orchestrator, onboarding, execution port, approval store); `lib/` is for shared runtime helpers consumed by both `app/` and `backend/` (DB pool, auth, tenant context, runtime path resolution). Route handlers should import domain code from `backend/`, not inline it.
 - `frontend/` vs `components/` — `frontend/` is screen-level components grouped by domain (`marketing/`, `onboarding/`, `donor/`, `admin/`, `aries-v1/`); `components/` is shared primitives.
-- `lobster/` vs `workflows/` — `lobster/` holds `.lobster` workflow definitions consumed by the gateway (e.g. `marketing-pipeline.lobster`); `workflows/` holds OpenClaw workflow configs that wire those definitions into the gateway.
+- `backend/execution/` — the Hermes execution surface (`provider-factory`, `providers/hermes`, `workflow-catalog`, `route-helpers`) consumed by route handlers; `backend/marketing/execution-port.ts` is the marketing-pipeline Hermes port.
 - `specs/` — resolved via `lib/runtime-paths.ts`, not imported directly by path.
 - `skills/` — marketing agent skill definitions (campaign-planner, creative-director, research, etc.) executed by the gateway, not TypeScript modules.
 - `scripts/automations/` — cron-driven jobs installed via `npm run automation:install`. The job manifest lives in `scripts/automations/manifest.mjs`; verify with `node scripts/automations/verify-automations.mjs` before changing schedules.
@@ -148,8 +144,6 @@ This repo uses Conventional Commits with a scope (e.g. `fix(ci): ...`, `refactor
 ## Environment Variables
 
 Required for Hermes-native local/runtime setup: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `APP_BASE_URL`, `HERMES_GATEWAY_URL`, `HERMES_API_SERVER_KEY`, `INTERNAL_API_SECRET`, `NEXTAUTH_URL`, `AUTH_URL`, `NEXTAUTH_SECRET`
-
-Optional for legacy compatibility only: `OPENCLAW_GATEWAY_URL`, `OPENCLAW_GATEWAY_TOKEN`, `OPENCLAW_SESSION_KEY`
 
 Optional safety flags:
 - `ARIES_MEMORY_LABEL_REDACTION_V2=1` — switches `scrubPreferenceLabelForHoncho` (`backend/memory/write-events.ts`) from the legacy broad `[A-Z][a-z]+\s+[A-Z][a-z]+` regex to a narrow first-name-denylist heuristic. Preserves creative descriptors like "Bold Minimalist" / "Quiet Luxury" while still scrubbing `<FirstName> <LastName>` pairs. Default OFF (legacy behavior) until rollout. Email redaction is unchanged in both modes.

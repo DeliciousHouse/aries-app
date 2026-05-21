@@ -14,7 +14,7 @@ import path from 'node:path';
 import { resolveDataPath } from '@/lib/runtime-paths';
 import type { MarketingStage } from '@/backend/marketing/runtime-state';
 
-export type ExecutionRunProvider = 'hermes' | 'legacy-openclaw';
+export type ExecutionRunProvider = 'hermes';
 export type ExecutionRunDomain = 'route' | 'marketing';
 export type ExecutionRunAction = 'run' | 'resume' | 'cancel';
 export type ExecutionRunStatus =

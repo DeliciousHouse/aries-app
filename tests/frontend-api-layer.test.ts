@@ -349,35 +349,37 @@ function makeApprovalReviewRuntimeDoc(input: {
 }
 
 test('/api/onboarding/start returns a frontend-safe payload without workflow internals', async () => {
-  setOpenClawTestInvoker(() => ({
-    ok: true,
-    status: 'ok',
-    output: [{ accepted: true }],
-    requiresApproval: null,
-  }));
+  // With Hermes execution unconfigured the route surfaces a frontend-safe
+  // error envelope rather than leaking raw provider details.
+  const previousGatewayUrl = process.env.HERMES_GATEWAY_URL;
+  const previousApiServerKey = process.env.HERMES_API_SERVER_KEY;
+  delete process.env.HERMES_GATEWAY_URL;
+  delete process.env.HERMES_API_SERVER_KEY;
 
-  const response = await postOnboardingStart(
-    new Request('http://localhost/api/onboarding/start', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        tenant_id: 'tenant_123',
-        tenant_type: 'single_user',
-        signup_event_id: 'signup_evt_456',
+  try {
+    const response = await postOnboardingStart(
+      new Request('http://localhost/api/onboarding/start', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          tenant_id: 'tenant_123',
+          tenant_type: 'single_user',
+          signup_event_id: 'signup_evt_456',
+        }),
       }),
-    }),
-  );
-  const body = (await response.json()) as Record<string, unknown>;
+    );
+    const body = (await response.json()) as Record<string, unknown>;
 
-  assert.equal(response.status, 200);
-  assert.equal(body.status, 'ok');
-  assert.equal(body.tenant_id, 'tenant_123');
-  assert.equal(body.tenant_type, 'single_user');
-  assert.equal(body.signup_event_id, 'signup_evt_456');
-  assert.equal(body.onboarding_status, 'accepted');
-  assert.equal('workflow_status' in body, false);
-  assert.equal('raw' in body, false);
-  clearOpenClawTestInvoker();
+    assert.equal(body.onboarding_status, 'error');
+    assert.equal('workflow_status' in body, false);
+    assert.equal('raw' in body, false);
+    assert.equal('runtimePath' in body, false);
+  } finally {
+    if (previousGatewayUrl === undefined) delete process.env.HERMES_GATEWAY_URL;
+    else process.env.HERMES_GATEWAY_URL = previousGatewayUrl;
+    if (previousApiServerKey === undefined) delete process.env.HERMES_API_SERVER_KEY;
+    else process.env.HERMES_API_SERVER_KEY = previousApiServerKey;
+  }
 });
 
 test('/api/onboarding/status exposes artifact booleans instead of runtime paths', async () => {

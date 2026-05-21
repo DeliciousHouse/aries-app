@@ -4,10 +4,6 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
-  ARIES_ATOMIC_MARKETING_WORKFLOW_KEYS as LEGACY_ATOMIC_MARKETING_WORKFLOW_KEYS,
-  ARIES_OPENCLAW_WORKFLOWS,
-} from '../backend/openclaw/workflow-catalog';
-import {
   ARIES_ATOMIC_MARKETING_WORKFLOW_KEYS,
   ARIES_WORKFLOWS,
   getAriesWorkflow,
@@ -21,22 +17,25 @@ const TENANT_WORKFLOW_ROUTE_FILES = [
   'app/api/tenant/workflows/[workflowId]/runs/route.ts',
 ] as const;
 
-test('Aries-owned workflow catalog preserves every legacy workflow definition', () => {
-  assert.deepEqual(Object.keys(ARIES_WORKFLOWS).sort(), Object.keys(ARIES_OPENCLAW_WORKFLOWS).sort());
-  assert.deepEqual(ARIES_ATOMIC_MARKETING_WORKFLOW_KEYS, LEGACY_ATOMIC_MARKETING_WORKFLOW_KEYS);
-
-  for (const key of Object.keys(ARIES_OPENCLAW_WORKFLOWS)) {
-    const legacyWorkflow = ARIES_OPENCLAW_WORKFLOWS[key as keyof typeof ARIES_OPENCLAW_WORKFLOWS];
+test('workflow catalog exposes a definition for every key with a stable shape', () => {
+  for (const key of Object.keys(ARIES_WORKFLOWS)) {
     const workflow = getAriesWorkflow(key as keyof typeof ARIES_WORKFLOWS);
-
-    assert.deepEqual(workflow, legacyWorkflow);
+    assert.equal(workflow.key, key);
+    assert.ok(workflow.mode === 'real' || workflow.mode === 'stub');
+    assert.equal(typeof workflow.route, 'string');
   }
 });
 
-test('tenant workflow routes do not import the legacy OpenClaw workflow catalog', async () => {
+test('atomic marketing workflow keys are a subset of the catalog', () => {
+  for (const key of ARIES_ATOMIC_MARKETING_WORKFLOW_KEYS) {
+    assert.ok(Object.prototype.hasOwnProperty.call(ARIES_WORKFLOWS, key));
+  }
+});
+
+test('tenant workflow routes do not import a legacy OpenClaw workflow catalog', async () => {
   for (const relativePath of TENANT_WORKFLOW_ROUTE_FILES) {
     const source = await readFile(path.join(PROJECT_ROOT, relativePath), 'utf8');
 
-    assert.doesNotMatch(source, /backend\/openclaw\/workflow-catalog/);
+    assert.doesNotMatch(source, /backend\/openclaw/);
   }
 });

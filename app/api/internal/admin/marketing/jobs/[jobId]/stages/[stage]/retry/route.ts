@@ -64,7 +64,7 @@ export async function POST(
     );
   }
 
-  const port = getMarketingExecutionPort(() => ({}));
+  const port = getMarketingExecutionPort();
 
   const result = await port.submitNextStage({
     jobId,

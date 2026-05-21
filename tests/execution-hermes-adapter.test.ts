@@ -58,7 +58,6 @@ test('HermesExecutionAdapter reports missing HERMES_GATEWAY_URL with an actionab
   assert.equal(result.error.code, 'not_configured');
   assert.equal(result.error.status, 503);
   assert.match(result.error.message, /HERMES_GATEWAY_URL/);
-  assert.match(result.error.message, /ARIES_EXECUTION_PROVIDER=legacy-openclaw/);
 });
 
 test('HermesExecutionAdapter reports missing HERMES_API_SERVER_KEY with an actionable ExecutionError', async () => {

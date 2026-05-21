@@ -8,26 +8,16 @@ import {
   resolveExecutionProviderName,
 } from '../backend/execution';
 
-test('resolveExecutionProviderName defaults to hermes when ARIES_EXECUTION_PROVIDER is unset', () => {
+test('resolveExecutionProviderName resolves to hermes regardless of env', () => {
   assert.equal(DEFAULT_EXECUTION_PROVIDER, 'hermes');
   assert.equal(resolveExecutionProviderName({}), 'hermes');
   assert.equal(resolveExecutionProviderName({ ARIES_EXECUTION_PROVIDER: '' }), 'hermes');
+  assert.equal(resolveExecutionProviderName({ ARIES_EXECUTION_PROVIDER: 'anything' }), 'hermes');
 });
 
-test('resolveExecutionProviderName accepts explicit legacy-openclaw selection', () => {
-  assert.equal(
-    resolveExecutionProviderName({ ARIES_EXECUTION_PROVIDER: 'legacy-openclaw' }),
-    'legacy-openclaw',
-  );
-});
-
-test('getExecutionProvider returns the legacy provider when legacy-openclaw is selected', () => {
-  const provider = getExecutionProvider({ ARIES_EXECUTION_PROVIDER: 'legacy-openclaw' });
-
-  // The runtime provider identifier is 'openclaw' to match the
-  // LegacyOpenClawExecutionAdapter and the provider value used on
-  // ExecutionError instances. 'legacy-openclaw' is the config-level selector.
-  assert.equal(provider.name, 'openclaw');
+test('getExecutionProvider returns the Hermes provider', () => {
+  const provider = getExecutionProvider({ ARIES_EXECUTION_PROVIDER: 'hermes' });
+  assert.equal(provider.name, 'hermes');
   assert.equal(typeof provider.runWorkflow, 'function');
 });
 
@@ -48,7 +38,6 @@ test('getExecutionProvider returns a Hermes stub that explains missing Hermes co
   assert.ok(result.error instanceof ExecutionError);
   assert.equal(result.error.provider, 'hermes');
   assert.equal(result.error.code, 'not_configured');
-  assert.match(result.error.message, /ARIES_EXECUTION_PROVIDER=hermes/);
   assert.match(result.error.message, /HERMES_GATEWAY_URL/);
   assert.match(result.error.message, /HERMES_API_SERVER_KEY/);
 });

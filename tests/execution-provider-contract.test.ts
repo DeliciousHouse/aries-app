@@ -12,7 +12,7 @@ describe('backend/execution provider-neutral contract', () => {
   it('exports an ExecutionError class with provider, code, message, status, and optional cause', () => {
     const cause = new Error('inner');
     const err = new ExecutionError({
-      provider: 'openclaw',
+      provider: 'hermes',
       code: 'unreachable',
       message: 'gateway timed out',
       status: 504,
@@ -22,7 +22,7 @@ describe('backend/execution provider-neutral contract', () => {
     assert.ok(err instanceof Error, 'ExecutionError should extend Error');
     assert.ok(err instanceof ExecutionError, 'instanceof ExecutionError');
     assert.equal(err.name, 'ExecutionError');
-    assert.equal(err.provider, 'openclaw');
+    assert.equal(err.provider, 'hermes');
     assert.equal(err.code, 'unreachable');
     assert.equal(err.message, 'gateway timed out');
     assert.equal(err.status, 504);
@@ -53,7 +53,7 @@ describe('backend/execution provider-neutral contract', () => {
     // Each code must be constructible as an ExecutionError without TS errors at compile time
     // and must round-trip through .code at runtime.
     for (const code of codes) {
-      const err = new ExecutionError({ provider: 'openclaw', code, message: code });
+      const err = new ExecutionError({ provider: 'hermes', code, message: code });
       assert.equal(err.code, code);
     }
   });
@@ -89,7 +89,7 @@ describe('backend/execution provider-neutral contract', () => {
     const gatewayError: WorkflowExecutionResult = {
       kind: 'gateway_error',
       error: new ExecutionError({
-        provider: 'openclaw',
+        provider: 'hermes',
         code: 'server_error',
         message: 'boom',
         status: 500,
@@ -125,7 +125,7 @@ describe('backend/execution provider-neutral contract', () => {
     // Structural / shape check: any object matching the interface must be
     // assignable to ExecutionProvider. We assert the runtime shape we expect.
     const fakeProvider: ExecutionProvider = {
-      name: 'openclaw',
+      name: 'hermes',
       async runWorkflow(_key, _input) {
         return {
           kind: 'not_implemented',
@@ -141,6 +141,6 @@ describe('backend/execution provider-neutral contract', () => {
 
     const result = await fakeProvider.runWorkflow('marketing_demo', { foo: 1 });
     assert.equal(result.kind, 'not_implemented');
-    assert.equal(fakeProvider.name, 'openclaw');
+    assert.equal(fakeProvider.name, 'hermes');
   });
 });

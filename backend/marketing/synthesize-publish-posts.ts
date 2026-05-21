@@ -263,7 +263,6 @@ function ensureSynthesizedPublishApprovalRecord(
     workflowName: 'marketing_pipeline',
     workflowStepId: 'approve_stage_4_publish',
     marketingStage: 'publish',
-    executionProvider: 'hermes',
     approvalPrompt: 'Synthesized publish approval — autonomous-mode pipeline completed without a human publish gate.',
     runtimeContext: { pipelinePath: 'marketing_pipeline', cwd: 'hermes', sessionKey: 'marketing' },
   });

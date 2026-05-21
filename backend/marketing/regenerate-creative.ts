@@ -4,15 +4,11 @@ import {
   type MarketingExecutionPortEnv,
   type RegenerateCreativeContext,
 } from './execution-port';
-import { resolveMarketingPipelineRuntimePaths } from './orchestrator';
 import {
   loadMarketingJobRuntime,
   type MarketingJobRuntimeDocument,
   type MarketingStage,
 } from './runtime-state';
-
-const REGENERATE_TIMEOUT_MS = 15 * 60 * 1000;
-const REGENERATE_MAX_STDOUT_BYTES = 8 * 1024 * 1024;
 
 export type RegenerateCreativeInput = {
   jobId: string;
@@ -52,10 +48,7 @@ function inferSourceRunIdFromDoc(doc: MarketingJobRuntimeDocument): string {
 }
 
 function defaultPortFactory(env?: MarketingExecutionPortEnv): MarketingExecutionPort {
-  return getMarketingExecutionPort(() => {
-    const { gatewayCwd, localCwd } = resolveMarketingPipelineRuntimePaths();
-    return { gatewayCwd, localCwd };
-  }, env);
+  return getMarketingExecutionPort(env);
 }
 
 export async function regenerateCreativeAsNewRun(
@@ -101,8 +94,6 @@ export async function regenerateCreativeAsNewRun(
       job_id: input.jobId,
       regenerate_creative: regenerateCreative,
     }),
-    timeoutMs: REGENERATE_TIMEOUT_MS,
-    maxStdoutBytes: REGENERATE_MAX_STDOUT_BYTES,
     regenerateCreative,
   });
 

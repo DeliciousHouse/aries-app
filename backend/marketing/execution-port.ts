@@ -4,10 +4,8 @@ import type { SocialContentApprovalStep } from '@/backend/social-content/types';
 
 /**
  * Hermes-native execution contract for the marketing and social-content
- * workflows. This module is kept free of legacy OpenClaw references so it can
- * be safely imported by social-content routes without pulling in deprecated
- * dependencies. Provider selection and fail-fast validation for the broader
- * orchestrator live in backend/marketing/provider-guard.ts.
+ * workflows. Fail-fast configuration validation for the orchestrator lives in
+ * backend/marketing/provider-guard.ts.
  */
 export type MarketingExecutionPortName = 'hermes';
 
@@ -54,17 +52,12 @@ export type MarketingPipelineRunInput = {
   doc: MarketingJobRuntimeDocument;
   argsJson: string;
   /**
-   * Optional timeout override consumed by the legacy OpenClaw adapter only.
-   * The Hermes port does not honor this field today — Hermes timeouts are
-   * controlled by HERMES_RUN_TIMEOUT_MS at the port level. When omitted,
-   * each port resolves its own provider-appropriate default
-   * (OPENCLAW_MARKETING_WORKFLOW_TIMEOUT_MS for legacy OpenClaw).
+   * Optional timeout override. The Hermes port does not honor this field —
+   * Hermes timeouts are controlled by HERMES_RUN_TIMEOUT_MS at the port level.
    */
   timeoutMs?: number;
   /**
-   * Optional stdout cap override consumed by the legacy OpenClaw adapter only.
-   * The Hermes port does not use this field. When omitted, the legacy adapter
-   * resolves OPENCLAW_MARKETING_WORKFLOW_MAX_STDOUT_BYTES.
+   * Optional stdout cap override. The Hermes port does not use this field.
    */
   maxStdoutBytes?: number;
   /**
@@ -141,23 +134,16 @@ export const DEFAULT_MARKETING_EXECUTION_PORT: MarketingExecutionPortName = 'her
 /**
  * Resolve the configured marketing execution port name.
  *
- * Social-content execution is Hermes-only. Unknown/legacy values resolve to
- * Hermes for backwards-safe configuration handling.
+ * Marketing execution is Hermes-only — any value resolves to Hermes.
  */
 export function resolveMarketingExecutionPortName(
-  env: MarketingExecutionPortEnv = process.env,
+  _env: MarketingExecutionPortEnv = process.env,
 ): MarketingExecutionPortName {
-  const value = typeof env.ARIES_MARKETING_EXECUTION_PROVIDER === 'string'
-    ? env.ARIES_MARKETING_EXECUTION_PROVIDER.trim().toLowerCase()
-    : '';
-  if (value === 'hermes' || value === '') return 'hermes';
   return DEFAULT_MARKETING_EXECUTION_PORT;
 }
 
 export function getMarketingExecutionPort(
-  _resolveLegacyPaths: () => unknown,
   env: MarketingExecutionPortEnv = process.env,
 ): MarketingExecutionPort {
-  resolveMarketingExecutionPortName(env);
   return new HermesMarketingPort(env);
 }

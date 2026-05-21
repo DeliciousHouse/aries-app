@@ -152,7 +152,6 @@ async function seedWeeklyApproval(input: {
     workflowStepId: input.workflowStepId,
     socialContentApprovalStep: input.approvalStep,
     marketingStage: stage,
-    executionProvider: 'hermes',
     executionResumeToken: input.resumeToken,
     approvalPrompt: 'Approve to continue.',
     runtimeContext: {
@@ -279,7 +278,6 @@ test('stale approval id cannot resume social-content job', async () => {
       workflowStepId: 'approve_weekly_plan',
       socialContentApprovalStep: 'approve_weekly_plan',
       marketingStage: 'strategy',
-      executionProvider: 'hermes',
       executionResumeToken: 'resume-stale',
       approvalPrompt: 'Stale approval',
       runtimeContext: {

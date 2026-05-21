@@ -33,7 +33,6 @@ function makeApprovalRecord(overrides: Partial<Parameters<typeof createMarketing
     workflowName: 'marketing-pipeline',
     workflowStepId: 'publish_step',
     marketingStage: 'publish',
-    executionProvider: 'hermes',
     approvalPrompt: 'Approve publish',
     runtimeContext: {
       pipelinePath: '/pipeline',
