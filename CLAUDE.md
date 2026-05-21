@@ -160,8 +160,8 @@ Optional safety flags:
 Required when working on Aries-managed OAuth providers: `OAUTH_TOKEN_ENCRYPTION_KEY`. Weekly social content media generation does not use an Aries-side OpenAI client or secret; Hermes owns media auth and execution.
 
 Hermes image serving (set both together; see `docker-compose.yml` volumes):
-- `HERMES_IMAGE_CACHE_DIR` — host-side path to the Hermes image cache (default `/home/node/.hermes/cache/images`); bind-mounted read-only into the container as `HERMES_IMAGE_CACHE_MOUNT`.
-- `HERMES_IMAGE_CACHE_MOUNT` — in-container mount point for the Hermes image cache (default `/hermes-media`); read by `app/api/internal/hermes/media/[...path]/route.ts` to stream generated images to authenticated browser sessions.
+- `HERMES_IMAGE_CACHE_DIR` — host-side path to the Hermes image cache (default `/home/node/.hermes/profiles/aries-content-generator/cache/images` — the profile-scoped cache the three-profile content generator writes to; the legacy `/home/node/.hermes/cache/images` is no longer written by the marketing pipeline); bind-mounted read-only into the container as `HERMES_IMAGE_CACHE_MOUNT`.
+- `HERMES_IMAGE_CACHE_MOUNT` — in-container mount point for the Hermes image cache (default `/hermes-media`); read by `app/api/internal/hermes/media/[...path]/route.ts` to stream generated images to authenticated browser sessions, and by `backend/marketing/ingest-production-assets.ts` which resolves every Hermes-reported `path` to `<mount>/<basename>` before reading. If the mount points at the wrong host directory, production-callback creative_assets ingestion silently inserts zero rows and the operator dashboard shows "No launch items".
 
 Local dev defaults:
 ```bash

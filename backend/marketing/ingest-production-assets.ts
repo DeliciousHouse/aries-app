@@ -6,6 +6,14 @@
  * Called from the production-completed branch of hermes-callbacks.ts.
  * Idempotent: ON CONFLICT (tenant_id, checksum) DO NOTHING means re-running
  * on a duplicate callback is safe.
+ *
+ * Path resolution: Hermes reports `creative_assets[].path` as a path on the
+ * *Hermes host* (e.g. `/home/node/.hermes/profiles/<profile>/cache/images/x.png`).
+ * The Aries container cannot read host paths — it can only read the Hermes image
+ * cache through the `HERMES_IMAGE_CACHE_MOUNT` bind-mount, keyed by basename.
+ * So every read MUST resolve `<mount>/<basename>`, never the raw reported path.
+ * Reading the raw path directly silently ENOENTs and ingests zero rows — which
+ * is exactly the publish-output regression this resolution fixes.
  */
 
 import crypto from 'node:crypto';
@@ -35,6 +43,30 @@ type CreativeAssetEntry = {
   placement?: string;
   [key: string]: unknown;
 };
+
+/**
+ * Resolves a Hermes-reported asset path to a path the Aries container can
+ * actually read. Hermes paths are host-side and not visible in the container;
+ * only `HERMES_IMAGE_CACHE_MOUNT/<basename>` is. Returns null when the mount is
+ * unconfigured or the basename is unusable (path traversal / empty).
+ */
+export function resolveHermesAssetReadPath(reportedPath: string): string | null {
+  const mount = process.env.HERMES_IMAGE_CACHE_MOUNT?.trim();
+  if (!mount) {
+    return null;
+  }
+  const basename = path.basename(reportedPath.trim());
+  if (!basename || basename === '.' || basename === '..' || basename.includes('/') || basename.includes('\\')) {
+    return null;
+  }
+  const mountRoot = path.normalize(mount);
+  const candidate = path.resolve(mountRoot, basename);
+  const relative = path.relative(mountRoot, candidate);
+  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+    return null;
+  }
+  return candidate;
+}
 
 const INSERT_PRODUCTION_ASSET_SQL = `
   INSERT INTO creative_assets (
@@ -87,10 +119,24 @@ export async function ingestProductionCreativeAssetsToDb(
       continue;
     }
 
+    // Hermes reports a host-side path; the container can only read the image
+    // through the HERMES_IMAGE_CACHE_MOUNT bind-mount keyed by basename.
+    const readPath = resolveHermesAssetReadPath(assetPath);
+    if (!readPath) {
+      console.warn('[ingest-production-assets] unresolvable asset path — skipping', {
+        jobId,
+        tenantId,
+        assetPath,
+        mountConfigured: Boolean(process.env.HERMES_IMAGE_CACHE_MOUNT?.trim()),
+      });
+      skipped++;
+      continue;
+    }
+
     try {
-      const bytes = await readFile(assetPath);
+      const bytes = await readFile(readPath);
       const checksum = crypto.createHash('sha256').update(bytes).digest('hex');
-      const basename = path.basename(assetPath);
+      const basename = path.basename(readPath);
       const servedAssetRef = `/api/internal/hermes/media/${basename}`;
       const sourceAssetId = typeof asset.assetId === 'string' && asset.assetId.trim()
         ? asset.assetId.trim()
@@ -101,7 +147,7 @@ export async function ingestProductionCreativeAssetsToDb(
         jobId,
         sourceAssetId,
         servedAssetRef,
-        assetPath,
+        readPath,
         checksum,
       ]);
 
