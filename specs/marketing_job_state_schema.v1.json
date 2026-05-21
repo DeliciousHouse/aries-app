@@ -43,7 +43,7 @@
     "job_type": {
       "type": "string",
       "enum": [
-        "brand_campaign"
+        "weekly_social_content"
       ]
     },
     "state": {

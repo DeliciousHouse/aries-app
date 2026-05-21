@@ -1,27 +1,21 @@
 /**
- * Provider-neutral execution types for Aries.
+ * Execution types for Aries route handlers.
  *
- * These mirror the runtime outcomes currently expressed by the legacy OpenClaw
- * execution path, but use provider-neutral names so route handlers and future
- * Hermes-native execution can share the same public contract.
+ * Route handlers depend on this provider-neutral contract; Hermes is the
+ * concrete execution provider behind it.
  */
 
 import type { ExecutionError, ExecutionProviderName } from './errors';
 
 /**
- * Opaque envelope returned from a provider-specific execution call.
- *
- * We intentionally keep this loose so different providers (OpenClaw/Lobster,
- * Hermes-native, etc.) can populate their own envelope shapes without leaking
- * provider-specific names into the public type. Callers that need provider
- * specifics should narrow at the provider boundary.
+ * Opaque envelope returned from an execution call. Kept loose so the provider
+ * can populate its own envelope shape without leaking provider-specific names
+ * into the public type. Callers that need specifics narrow at the boundary.
  */
 export type WorkflowEnvelope = Record<string, unknown>;
 
 /**
  * Parity stub returned when a route's workflow has not been implemented yet.
- * Mirrors the existing ParityStubPayload shape so we can swap result types
- * without changing the wire format consumed by route handlers.
  */
 export type ParityStubPayload = {
   status: 'not_implemented';
@@ -45,10 +39,10 @@ export type WorkflowExecutionResult =
   | { kind: 'gateway_error'; error: ExecutionError };
 
 /**
- * Provider-neutral interface for executing a workflow by key + input.
+ * Interface for executing a workflow by key + input.
  *
- * Concrete providers (OpenClaw adapter, Hermes-native adapter) implement this
- * interface. Callers depend on the interface, not the concrete provider.
+ * The Hermes adapter implements this interface. Callers depend on the
+ * interface, not the concrete provider.
  */
 export interface ExecutionProvider {
   readonly name: ExecutionProviderName;

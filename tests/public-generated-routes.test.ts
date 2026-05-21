@@ -6,29 +6,29 @@ import test from 'node:test';
 
 import { GET, HEAD } from '../app/[...publicPath]/route';
 
-async function withPublicLobsterRoot<T>(run: (lobsterRoot: string) => Promise<T>): Promise<T> {
-  const previousLocalLobsterCwd = process.env.OPENCLAW_LOCAL_LOBSTER_CWD;
-  const previousLobsterCwd = process.env.OPENCLAW_LOBSTER_CWD;
+async function withPublicArtifactRoot<T>(run: (artifactRoot: string) => Promise<T>): Promise<T> {
+  const previousPipelineLocalCwd = process.env.ARTIFACT_PIPELINE_LOCAL_CWD;
+  const previousPipelineCwd = process.env.ARTIFACT_PIPELINE_CWD;
   const tempRoot = await mkdtemp(path.join(tmpdir(), 'aries-public-generated-'));
-  const lobsterRoot = path.join(tempRoot, 'lobster');
-  await mkdir(path.join(lobsterRoot, 'output'), { recursive: true });
+  const artifactRoot = path.join(tempRoot, 'lobster');
+  await mkdir(path.join(artifactRoot, 'output'), { recursive: true });
 
-  process.env.OPENCLAW_LOCAL_LOBSTER_CWD = lobsterRoot;
-  process.env.OPENCLAW_LOBSTER_CWD = lobsterRoot;
+  process.env.ARTIFACT_PIPELINE_LOCAL_CWD = artifactRoot;
+  process.env.ARTIFACT_PIPELINE_CWD = artifactRoot;
 
   try {
-    return await run(lobsterRoot);
+    return await run(artifactRoot);
   } finally {
-    if (previousLocalLobsterCwd === undefined) delete process.env.OPENCLAW_LOCAL_LOBSTER_CWD;
-    else process.env.OPENCLAW_LOCAL_LOBSTER_CWD = previousLocalLobsterCwd;
-    if (previousLobsterCwd === undefined) delete process.env.OPENCLAW_LOBSTER_CWD;
-    else process.env.OPENCLAW_LOBSTER_CWD = previousLobsterCwd;
+    if (previousPipelineLocalCwd === undefined) delete process.env.ARTIFACT_PIPELINE_LOCAL_CWD;
+    else process.env.ARTIFACT_PIPELINE_LOCAL_CWD = previousPipelineLocalCwd;
+    if (previousPipelineCwd === undefined) delete process.env.ARTIFACT_PIPELINE_CWD;
+    else process.env.ARTIFACT_PIPELINE_CWD = previousPipelineCwd;
     await rm(tempRoot, { recursive: true, force: true });
   }
 }
 
-async function seedPublicCampaign(lobsterRoot: string) {
-  const outputRoot = path.join(lobsterRoot, 'output');
+async function seedPublicCampaign(artifactRoot: string) {
+  const outputRoot = path.join(artifactRoot, 'output');
   const contractRoot = path.join(outputRoot, 'static-contracts', 'public-sugarandleather-com-stage2-plan');
   const campaignRoot = path.join(outputRoot, 'public-sugarandleather-com-campaign');
 
@@ -81,8 +81,8 @@ async function seedPublicCampaign(lobsterRoot: string) {
 }
 
 test('public generated campaign route serves compiled landing html for a matching slug', async () => {
-  await withPublicLobsterRoot(async (lobsterRoot) => {
-    await seedPublicCampaign(lobsterRoot);
+  await withPublicArtifactRoot(async (artifactRoot) => {
+    await seedPublicCampaign(artifactRoot);
 
     const response = await GET(new Request('http://localhost/public-sugarandleather-com/campaign'));
     const body = await response.text();
@@ -97,8 +97,8 @@ test('public generated campaign route serves compiled landing html for a matchin
 });
 
 test('public generated campaign route serves relative campaign assets', async () => {
-  await withPublicLobsterRoot(async (lobsterRoot) => {
-    await seedPublicCampaign(lobsterRoot);
+  await withPublicArtifactRoot(async (artifactRoot) => {
+    await seedPublicCampaign(artifactRoot);
 
     const response = await GET(new Request('http://localhost/public-sugarandleather-com/campaign/ad-images/meta-feed.png'));
     const body = Buffer.from(await response.arrayBuffer());
@@ -110,8 +110,8 @@ test('public generated campaign route serves relative campaign assets', async ()
 });
 
 test('public generated campaign route serves direct design-system css artifacts', async () => {
-  await withPublicLobsterRoot(async (lobsterRoot) => {
-    await seedPublicCampaign(lobsterRoot);
+  await withPublicArtifactRoot(async (artifactRoot) => {
+    await seedPublicCampaign(artifactRoot);
 
     const response = await GET(new Request('http://localhost/public-sugarandleather-com-design-system.css'));
     const body = await response.text();
@@ -123,7 +123,7 @@ test('public generated campaign route serves direct design-system css artifacts'
 });
 
 test('public generated campaign route returns 404 when no artifact exists', async () => {
-  await withPublicLobsterRoot(async () => {
+  await withPublicArtifactRoot(async () => {
     const response = await GET(new Request('http://localhost/public-missing-brand/campaign'));
     const body = await response.text();
 
@@ -134,8 +134,8 @@ test('public generated campaign route returns 404 when no artifact exists', asyn
 });
 
 test('public generated campaign route supports HEAD for existing artifacts', async () => {
-  await withPublicLobsterRoot(async (lobsterRoot) => {
-    await seedPublicCampaign(lobsterRoot);
+  await withPublicArtifactRoot(async (artifactRoot) => {
+    await seedPublicCampaign(artifactRoot);
 
     const response = await HEAD(new Request('http://localhost/public-sugarandleather-com/campaign'));
     const body = await response.text();

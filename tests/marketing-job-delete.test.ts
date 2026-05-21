@@ -18,7 +18,7 @@ async function writeRuntimeDoc(jobId: string, overrides: Record<string, unknown>
     schema_name: 'marketing_job_state_schema',
     schema_version: '1.0.0',
     job_id: jobId,
-    job_type: 'brand_campaign',
+    job_type: 'weekly_social_content',
     tenant_id: 'tenant_acme',
     state: 'completed',
     status: 'completed',

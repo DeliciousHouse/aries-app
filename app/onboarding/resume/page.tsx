@@ -152,7 +152,7 @@ export default async function OnboardingResumePage(
 
     const result = await startMarketingJob({
       tenantId,
-      jobType: 'brand_campaign',
+      jobType: 'weekly_social_content',
       createdBy: session.user.id,
       payload,
     });

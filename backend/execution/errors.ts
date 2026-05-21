@@ -1,10 +1,6 @@
 /**
- * Provider-neutral execution error.
- *
- * Aries-owned counterpart to provider-specific errors (e.g. OpenClaw's
- * OpenClawGatewayError). Callers in the Hermes-native execution path should
- * surface this type so we can swap providers without changing the public
- * contract.
+ * Aries execution error surfaced by the Hermes execution path so callers
+ * depend on a stable public contract.
  */
 
 export type ExecutionErrorCode =
@@ -16,7 +12,7 @@ export type ExecutionErrorCode =
   | 'response_invalid'
   | 'server_error';
 
-export type ExecutionProviderName = 'legacy-openclaw' | 'openclaw' | 'hermes' | (string & {});
+export type ExecutionProviderName = 'hermes';
 
 export interface ExecutionErrorInit {
   provider: ExecutionProviderName;

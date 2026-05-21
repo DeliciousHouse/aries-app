@@ -1,9 +1,9 @@
 /**
- * Aries provider-neutral execution surface.
+ * Aries execution surface.
  *
- * Route handlers and backend callers should import this surface instead of
- * provider-specific modules. OpenClaw remains the current implementation behind
- * these helpers, but callers should treat it as a swappable execution provider.
+ * Route handlers and backend callers import this surface instead of
+ * provider-specific modules. Hermes is the sole execution provider behind
+ * these helpers.
  */
 
 export {
@@ -36,14 +36,6 @@ export {
   type HermesResumeRequestEnvelope,
   type HermesRunRequestEnvelope,
 } from './providers/hermes';
-
-export {
-  LegacyOpenClawExecutionAdapter,
-  mapLegacyOpenClawGatewayError,
-  type LegacyOpenClawCancelInput,
-  type LegacyOpenClawResumeInput,
-  type LegacyOpenClawRunInput,
-} from './providers/legacy-openclaw';
 
 export {
   cancelAriesWorkflow,

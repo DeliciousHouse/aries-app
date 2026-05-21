@@ -17,7 +17,7 @@
  *   corrupting both (b) and (c) before they reached the bridge. The bridge
  *   then mapped "production" → "publish" via its completing→next map.
  *   The validator received "publish" for research stage and rejected as
- *   approval_stage_mismatch on every brand_campaign / marketing_pipeline
+ *   approval_stage_mismatch on every marketing_pipeline
  *   job since the pre-filter's default-to-production fallback was added.
  * - v0.1.3.47 puts ALL normalization in the pre-filter (single source of
  *   truth) and reverts the bridge to a passthrough. Tests below mirror

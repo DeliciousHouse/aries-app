@@ -85,8 +85,8 @@ npm run dev
 | `NEXTAUTH_SECRET` | ✅ | Auth.js signing secret |
 | `AUTH_TRUST_HOST` | ✅ | Trust forwarded host headers behind a proxy |
 | `OAUTH_TOKEN_ENCRYPTION_KEY` | ✅ for Aries-managed OAuth providers | Stable 32-byte base64 key for encrypting OAuth tokens; generate with `openssl rand -base64 32` |
-| `ARIES_EXECUTION_PROVIDER` | Optional | Defaults to `hermes`; set `legacy-openclaw` only for deprecated flows |
-| `ARIES_MARKETING_EXECUTION_PROVIDER` | Optional | Defaults to `hermes`; set `legacy-openclaw` only for deprecated flows |
+| `ARIES_EXECUTION_PROVIDER` | Optional | Defaults to `hermes`; Hermes is the only execution provider |
+| `ARIES_MARKETING_EXECUTION_PROVIDER` | Optional | Defaults to `hermes`; Hermes is the only execution provider |
 | `LOG_LEVEL` | Optional | Runtime log level |
 
 ### Weekly media auth boundary
@@ -94,22 +94,23 @@ npm run dev
 - Weekly social content image/video generation does not require an Aries-side ChatGPT / OpenAI connection. Hermes owns ChatGPT/OpenAI auth for weekly media work.
 - Text planning can run without media generation when image/video is disabled in the request.
 
-### Legacy OpenClaw/Lobster variables (deprecated)
+### Artifact stage cache variables (optional)
 
-Keep these only when intentionally running legacy `brand_campaign` compatibility flows:
+These are only needed when the Hermes pipeline writes stage artifacts on the same host:
 
-- `OPENCLAW_GATEWAY_URL`
-- `OPENCLAW_GATEWAY_TOKEN`
-- `OPENCLAW_SESSION_KEY`
-- `OPENCLAW_LOBSTER_CWD`
-- `OPENCLAW_GATEWAY_LOBSTER_CWD`
-- `OPENCLAW_LOCAL_LOBSTER_CWD`
-- `LOBSTER_STAGE1_CACHE_DIR`
-- `LOBSTER_STAGE2_CACHE_DIR`
-- `LOBSTER_STAGE3_CACHE_DIR`
-- `LOBSTER_STAGE4_CACHE_DIR`
-- `LOBSTER_MEDIA_GATEWAY_ENABLED`
-- `GEMINI_API_KEY`
+- `ARTIFACT_PIPELINE_CWD`
+- `ARTIFACT_PIPELINE_GATEWAY_CWD`
+- `ARTIFACT_PIPELINE_LOCAL_CWD`
+- `ARTIFACT_STAGE1_CACHE_DIR`
+- `ARTIFACT_STAGE2_CACHE_DIR`
+- `ARTIFACT_STAGE3_CACHE_DIR`
+- `ARTIFACT_STAGE4_CACHE_DIR`
+- `ARIES_HOST_ARTIFACT_OUTPUT_DIR`
+- `ARIES_HOST_ARTIFACT_OUTPUT_MOUNT`
+
+Remove `OPENCLAW_GATEWAY_URL`, `OPENCLAW_GATEWAY_TOKEN`, `OPENCLAW_SESSION_KEY`, and
+`LOBSTER_MEDIA_GATEWAY_ENABLED` from any `.env` files — the legacy execution path has
+been removed.
 
 ## Runtime execution model
 

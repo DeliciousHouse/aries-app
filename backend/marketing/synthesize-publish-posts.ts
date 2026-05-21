@@ -3,7 +3,7 @@
  *
  * CONTRACT — why this exists:
  * The Hermes-native marketing pipeline never emits the `publish_package` /
- * `review_bundle` shape the legacy OpenClaw publish path produced; that contract
+ * `review_bundle` shape the legacy publish path produced; that contract
  * is dead on the Hermes path. What Hermes *does* produce reliably is:
  *   - `content_package[]` — per-post copy (hook/body/cta/hashtags/platforms),
  *     carried on the production stage's `primary_output`.
@@ -263,7 +263,6 @@ function ensureSynthesizedPublishApprovalRecord(
     workflowName: 'marketing_pipeline',
     workflowStepId: 'approve_stage_4_publish',
     marketingStage: 'publish',
-    executionProvider: 'hermes',
     approvalPrompt: 'Synthesized publish approval — autonomous-mode pipeline completed without a human publish gate.',
     runtimeContext: { pipelinePath: 'marketing_pipeline', cwd: 'hermes', sessionKey: 'marketing' },
   });

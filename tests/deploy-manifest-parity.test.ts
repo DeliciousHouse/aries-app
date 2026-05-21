@@ -16,7 +16,7 @@ test('legacy dist deploy shim stays out of the tracked runtime surface', () => {
   assert.equal(trackedDistCompose, '');
 });
 
-test('runtime env examples advertise Hermes defaults with legacy OpenClaw opt-in', () => {
+test('runtime env examples advertise Hermes execution defaults', () => {
   const composeSource = fs.readFileSync(path.join(repoRoot, 'docker-compose.yml'), 'utf8');
   const envExampleSource = fs.readFileSync(path.join(repoRoot, '.env.example'), 'utf8');
 
@@ -38,8 +38,8 @@ test('runtime env examples advertise Hermes defaults with legacy OpenClaw opt-in
 
   assert.match(envExampleSource, /^ARIES_EXECUTION_PROVIDER=hermes$/m);
   assert.match(envExampleSource, /^ARIES_MARKETING_EXECUTION_PROVIDER=hermes$/m);
-  assert.match(envExampleSource, /^# ARIES_EXECUTION_PROVIDER=legacy-openclaw$/m);
-  assert.match(envExampleSource, /^# ARIES_MARKETING_EXECUTION_PROVIDER=legacy-openclaw$/m);
+  assert.doesNotMatch(envExampleSource, /legacy-openclaw/);
+  assert.doesNotMatch(composeSource, /OPENCLAW_GATEWAY_URL/);
   assert.match(envExampleSource, /^HERMES_GATEWAY_URL=/m);
   assert.match(envExampleSource, /^HERMES_API_SERVER_KEY=/m);
   assert.match(envExampleSource, /^HERMES_SESSION_KEY=main$/m);

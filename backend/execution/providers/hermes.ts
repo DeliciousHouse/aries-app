@@ -160,7 +160,7 @@ function missingHermesConfigError(keys: 'HERMES_GATEWAY_URL' | 'HERMES_API_SERVE
     provider: 'hermes',
     code: 'not_configured',
     status: 503,
-    message: `${keys} required when ARIES_EXECUTION_PROVIDER=hermes. Set HERMES_GATEWAY_URL and HERMES_API_SERVER_KEY (the value of API_SERVER_KEY from the Hermes .env), or set ARIES_EXECUTION_PROVIDER=legacy-openclaw to keep the current runtime.`,
+    message: `${keys} required for Hermes execution. Set HERMES_GATEWAY_URL and HERMES_API_SERVER_KEY (the value of API_SERVER_KEY from the Hermes .env).`,
   });
 }
 

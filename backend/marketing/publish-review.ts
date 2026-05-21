@@ -11,7 +11,7 @@ import {
   ARTIFACT_INCOMPLETE_TEXT,
   ARTIFACT_UNAVAILABLE_TEXT,
   inferBrandSlug,
-  lobsterOutputRoots,
+  artifactOutputRoots,
   normalizeArtifactText,
   readLandingPageArtifactDetails,
   readPublishCopyDetails,
@@ -134,7 +134,7 @@ async function readExactPublishStepPayload(runtimeDoc: MarketingJobRuntimeDocume
     return null;
   }
 
-  const stage4CacheRoot = cacheRoot('LOBSTER_STAGE4_CACHE_DIR', 'lobster-stage4-cache');
+  const stage4CacheRoot = cacheRoot('ARTIFACT_STAGE4_CACHE_DIR', 'lobster-stage4-cache');
   const tenantScopedCandidates = [
     path.join(stage4CacheRoot, tenantId, runId, `${stepName}.json`),
   ];
@@ -162,7 +162,7 @@ async function readExactPublishStepPayload(runtimeDoc: MarketingJobRuntimeDocume
     }
   }
 
-  for (const outputRoot of lobsterOutputRoots()) {
+  for (const outputRoot of artifactOutputRoots()) {
     const logPath = path.join(outputRoot, 'logs', runId, 'stage-4-publish-optimize', `${stepName}.json`);
     const logged = await readJsonIfExists(logPath);
     if (logged) {
@@ -250,7 +250,7 @@ async function collectFallbackPublishStepPayloadCandidates(
     return [];
   }
 
-  const cacheDir = path.join(cacheRoot('LOBSTER_STAGE4_CACHE_DIR', 'lobster-stage4-cache'), tenantId);
+  const cacheDir = path.join(cacheRoot('ARTIFACT_STAGE4_CACHE_DIR', 'lobster-stage4-cache'), tenantId);
   if (existsSync(cacheDir)) {
     for (const entry of await readdir(cacheDir)) {
       if (!entry.startsWith(`${prefix}-`)) {
@@ -273,7 +273,7 @@ async function collectFallbackPublishStepPayloadCandidates(
     }
   }
 
-  for (const outputRoot of lobsterOutputRoots()) {
+  for (const outputRoot of artifactOutputRoots()) {
     const logsRoot = path.join(outputRoot, 'logs');
     if (!existsSync(logsRoot)) {
       continue;
@@ -689,7 +689,7 @@ async function reviewPackageCandidatePaths(runtimeDoc: MarketingJobRuntimeDocume
   const normalizedCampaignName = stringValue(campaignName);
   const candidates = new Set<string>();
 
-  for (const outputRoot of lobsterOutputRoots()) {
+  for (const outputRoot of artifactOutputRoots()) {
     if (!normalizedCampaignName) {
       continue;
     }
@@ -751,7 +751,7 @@ function resolvePublishArtifactBrandSlug(
   ]);
 
   for (const candidate of candidates) {
-    for (const outputRoot of lobsterOutputRoots()) {
+    for (const outputRoot of artifactOutputRoots()) {
       if (existsSync(path.join(outputRoot, `${candidate}-campaign`))) {
         return candidate;
       }

@@ -1,17 +1,9 @@
-import { OpenClawGatewayError } from '../openclaw/gateway-client';
 import { ExecutionError } from './errors';
 import { getExecutionProvider } from './provider-factory';
-import {
-  LegacyOpenClawExecutionAdapter,
-  mapLegacyOpenClawGatewayError,
-  type LegacyOpenClawCancelInput,
-} from './providers/legacy-openclaw';
 import type { WorkflowExecutionResult } from './types';
 import type { AriesWorkflowKey } from './workflow-catalog';
 
 export type AriesRouteExecutionResult = WorkflowExecutionResult;
-
-const legacyAdapter = new LegacyOpenClawExecutionAdapter();
 
 function mapExecutionErrorStatus(error: ExecutionError): number {
   switch (error.code) {
@@ -29,22 +21,10 @@ function mapExecutionErrorStatus(error: ExecutionError): number {
   }
 }
 
-function executionErrorReason(error: ExecutionError): string {
-  const cause = error.cause;
-  if (cause instanceof OpenClawGatewayError) {
-    return cause.code;
-  }
-  return error.code;
-}
-
 export async function runAriesWorkflow(
   key: AriesWorkflowKey,
   input: Record<string, unknown>,
 ): Promise<AriesRouteExecutionResult> {
-  // Route through the provider factory so ARIES_EXECUTION_PROVIDER actually
-  // controls runtime behavior. The legacy provider already maps OpenClaw
-  // gateway errors into provider-neutral ExecutionErrors, so this preserves
-  // the prior wire format while letting hermes/other providers slot in.
   const provider = getExecutionProvider();
   return provider.runWorkflow(key, input);
 }
@@ -52,9 +32,6 @@ export async function runAriesWorkflow(
 export function mapAriesExecutionError(
   error: unknown,
 ): { status: number; body: Record<string, unknown> } | null {
-  if (error instanceof OpenClawGatewayError) {
-    return mapAriesExecutionError(mapLegacyOpenClawGatewayError(error));
-  }
   if (!(error instanceof ExecutionError)) {
     return null;
   }
@@ -63,12 +40,22 @@ export function mapAriesExecutionError(
     body: {
       status: 'error',
       error: error.message,
-      reason: executionErrorReason(error),
+      reason: error.code,
       message: error.message,
     },
   };
 }
 
-export async function cancelAriesWorkflow(input: LegacyOpenClawCancelInput): Promise<{ cancelled: boolean; reason?: string }> {
-  return legacyAdapter.cancel(input);
+/**
+ * Best-effort cancel of an in-flight workflow run.
+ *
+ * Hermes run cancellation is not surfaced through the route execution port —
+ * callers (e.g. the marketing job soft-delete path) invoke this best-effort and
+ * tolerate a no-op. Retained as a stable seam should a Hermes cancel endpoint
+ * be wired in later.
+ */
+export async function cancelAriesWorkflow(
+  _input: { correlationId: string },
+): Promise<{ cancelled: boolean; reason?: string }> {
+  return { cancelled: false, reason: 'cancel_not_supported' };
 }

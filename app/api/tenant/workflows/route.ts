@@ -16,8 +16,7 @@ export async function GET() {
   const workflows = Object.values(ARIES_WORKFLOWS).map((workflow) => ({
     id: workflow.key,
     tenant_id: tenantContext.tenantId,
-    type: workflow.mode === 'real' ? 'openclaw' : 'openclaw_stub',
-    pipeline: workflow.pipeline,
+    type: workflow.mode === 'real' ? 'hermes' : 'hermes_stub',
     route: workflow.route,
     mode: workflow.mode,
   }));

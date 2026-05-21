@@ -431,48 +431,6 @@ test('HermesMarketingPort surfaces needs_brand_kit when refresher rejects with t
   assert.match(result.output?.error?.message ?? '', /brand_kit_fetch_failed/);
 });
 
-test('HermesMarketingPort skips brand-kit refresh for non-weekly runs', async () => {
-  let refresherCalls = 0;
-  const port = new HermesMarketingPort(
-    {
-      HERMES_GATEWAY_URL: 'http://hermes.example.com',
-      HERMES_API_SERVER_KEY: 'test-key',
-      INTERNAL_API_SECRET: 'test-internal-secret',
-      APP_BASE_URL: 'https://aries.example.com',
-    },
-    (async () =>
-      new Response(JSON.stringify({ run_id: 'hermes_run_xyz' }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      })) as unknown as typeof fetch,
-    async () => {},
-    async () => {
-      refresherCalls += 1;
-      return { refreshed: false, enriched: false };
-    },
-  );
-
-  const doc = {
-    tenant_id: 'tenant_brand_only',
-    job_id: 'mkt_brand_only',
-    inputs: {
-      brand_url: 'https://brand.example',
-      request: { jobType: 'brand_campaign' },
-    },
-    brand_kit: null,
-  } as unknown as MarketingJobRuntimeDocument;
-
-  const result = await port.runPipeline({
-    jobId: 'mkt_brand_only',
-    doc,
-    argsJson: '{}',
-    timeoutMs: 1_000,
-    maxStdoutBytes: 65_536,
-  });
-
-  assert.equal(refresherCalls, 0, 'refresher must not be invoked for brand_campaign runs');
-  assert.equal(result.kind, 'submitted');
-});
 
 // Tests 28-29: ensureFreshBrandKitForWeeklyRun integration
 

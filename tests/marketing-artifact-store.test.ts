@@ -7,7 +7,7 @@ import test from 'node:test';
 import { buildMarketingAssetLibrary } from '../backend/marketing/asset-library';
 import {
   hostOutputMount,
-  lobsterOutputRoots,
+  artifactOutputRoots,
   resolveGeneratedAsset,
   stageCacheRoot,
 } from '../backend/marketing/artifact-store';
@@ -15,24 +15,24 @@ import { createMarketingJobRuntimeDocument } from '../backend/marketing/runtime-
 import { resolvePublicMarketingArtifact } from '../backend/marketing/public-pages';
 
 type EnvKey =
-  | 'ARIES_LOBSTER_HOST_OUTPUT_DIR'
-  | 'ARIES_LOBSTER_HOST_OUTPUT_MOUNT'
-  | 'LOBSTER_STAGE1_CACHE_DIR'
-  | 'LOBSTER_STAGE2_CACHE_DIR'
-  | 'LOBSTER_STAGE3_CACHE_DIR'
-  | 'LOBSTER_STAGE4_CACHE_DIR'
-  | 'OPENCLAW_LOCAL_LOBSTER_CWD'
-  | 'OPENCLAW_LOBSTER_CWD';
+  | 'ARIES_HOST_ARTIFACT_OUTPUT_DIR'
+  | 'ARIES_HOST_ARTIFACT_OUTPUT_MOUNT'
+  | 'ARTIFACT_STAGE1_CACHE_DIR'
+  | 'ARTIFACT_STAGE2_CACHE_DIR'
+  | 'ARTIFACT_STAGE3_CACHE_DIR'
+  | 'ARTIFACT_STAGE4_CACHE_DIR'
+  | 'ARTIFACT_PIPELINE_LOCAL_CWD'
+  | 'ARTIFACT_PIPELINE_CWD';
 
 const ENV_KEYS: EnvKey[] = [
-  'ARIES_LOBSTER_HOST_OUTPUT_DIR',
-  'ARIES_LOBSTER_HOST_OUTPUT_MOUNT',
-  'LOBSTER_STAGE1_CACHE_DIR',
-  'LOBSTER_STAGE2_CACHE_DIR',
-  'LOBSTER_STAGE3_CACHE_DIR',
-  'LOBSTER_STAGE4_CACHE_DIR',
-  'OPENCLAW_LOCAL_LOBSTER_CWD',
-  'OPENCLAW_LOBSTER_CWD',
+  'ARIES_HOST_ARTIFACT_OUTPUT_DIR',
+  'ARIES_HOST_ARTIFACT_OUTPUT_MOUNT',
+  'ARTIFACT_STAGE1_CACHE_DIR',
+  'ARTIFACT_STAGE2_CACHE_DIR',
+  'ARTIFACT_STAGE3_CACHE_DIR',
+  'ARTIFACT_STAGE4_CACHE_DIR',
+  'ARTIFACT_PIPELINE_LOCAL_CWD',
+  'ARTIFACT_PIPELINE_CWD',
 ];
 
 async function withEnv<T>(overrides: Partial<Record<EnvKey, string | undefined>>, run: () => Promise<T> | T): Promise<T> {
@@ -66,10 +66,10 @@ async function withEnv<T>(overrides: Partial<Record<EnvKey, string | undefined>>
 test('stageCacheRoot preserves Lobster stage cache env vars and tmp fallbacks', async () => {
   await withEnv(
     {
-      LOBSTER_STAGE1_CACHE_DIR: '/tmp/custom-stage-1',
-      LOBSTER_STAGE2_CACHE_DIR: '/tmp/custom-stage-2',
-      LOBSTER_STAGE3_CACHE_DIR: '/tmp/custom-stage-3',
-      LOBSTER_STAGE4_CACHE_DIR: '/tmp/custom-stage-4',
+      ARTIFACT_STAGE1_CACHE_DIR: '/tmp/custom-stage-1',
+      ARTIFACT_STAGE2_CACHE_DIR: '/tmp/custom-stage-2',
+      ARTIFACT_STAGE3_CACHE_DIR: '/tmp/custom-stage-3',
+      ARTIFACT_STAGE4_CACHE_DIR: '/tmp/custom-stage-4',
     },
     () => {
       assert.equal(stageCacheRoot(1), '/tmp/custom-stage-1');
@@ -95,20 +95,20 @@ test('hostOutputMount exposes the current container mount default', async () => 
     assert.equal(hostOutputMount(), '/host-lobster-output');
   });
 
-  await withEnv({ ARIES_LOBSTER_HOST_OUTPUT_MOUNT: '/mnt/generated-output' }, () => {
+  await withEnv({ ARIES_HOST_ARTIFACT_OUTPUT_MOUNT: '/mnt/generated-output' }, () => {
     assert.equal(hostOutputMount(), '/mnt/generated-output');
   });
 });
 
-test('lobsterOutputRoots includes legacy Lobster outputs and the host output mount', async () => {
+test('artifactOutputRoots includes legacy Lobster outputs and the host output mount', async () => {
   await withEnv(
     {
-      OPENCLAW_LOCAL_LOBSTER_CWD: '/runtime/lobster',
-      OPENCLAW_LOBSTER_CWD: '/gateway/lobster',
-      ARIES_LOBSTER_HOST_OUTPUT_MOUNT: '/host-lobster-output',
+      ARTIFACT_PIPELINE_LOCAL_CWD: '/runtime/lobster',
+      ARTIFACT_PIPELINE_CWD: '/gateway/lobster',
+      ARIES_HOST_ARTIFACT_OUTPUT_MOUNT: '/host-lobster-output',
     },
     () => {
-      assert.deepEqual(lobsterOutputRoots(), [
+      assert.deepEqual(artifactOutputRoots(), [
         '/runtime/lobster/output',
         '/gateway/lobster/output',
         path.resolve('lobster', 'output'),
@@ -126,7 +126,7 @@ test('resolveGeneratedAsset finds relative paths under stage cache roots', async
 
   await withEnv(
     {
-      LOBSTER_STAGE3_CACHE_DIR: stageRoot,
+      ARTIFACT_STAGE3_CACHE_DIR: stageRoot,
     },
     () => {
       assert.equal(resolveGeneratedAsset(path.join('run-123', 'creative.json')), assetPath);
@@ -143,8 +143,8 @@ test('resolveGeneratedAsset remaps host lobster output paths to the container mo
 
   await withEnv(
     {
-      ARIES_LOBSTER_HOST_OUTPUT_DIR: hostRoot,
-      ARIES_LOBSTER_HOST_OUTPUT_MOUNT: mountRoot,
+      ARIES_HOST_ARTIFACT_OUTPUT_DIR: hostRoot,
+      ARIES_HOST_ARTIFACT_OUTPUT_MOUNT: mountRoot,
     },
     () => {
       assert.equal(resolveGeneratedAsset('/host/source/lobster/output/images/ad.png'), mountedAsset);
@@ -205,7 +205,7 @@ test('asset library does not read website analysis paths rejected by the artifac
 
   await withEnv(
     {
-      LOBSTER_STAGE1_CACHE_DIR: stageRoot,
+      ARTIFACT_STAGE1_CACHE_DIR: stageRoot,
     },
     async () => {
       const assets = await buildMarketingAssetLibrary(runtimeDoc.job_id, runtimeDoc);
@@ -215,15 +215,15 @@ test('asset library does not read website analysis paths rejected by the artifac
 });
 
 test('public marketing artifacts reject encoded-slash traversal outside output roots', async () => {
-  const lobsterRoot = await mkdtemp(path.join(tmpdir(), 'aries-public-lobster-'));
-  const outputRoot = path.join(lobsterRoot, 'output');
+  const artifactRoot = await mkdtemp(path.join(tmpdir(), 'aries-public-lobster-'));
+  const outputRoot = path.join(artifactRoot, 'output');
   await mkdir(path.join(outputRoot, 'public-brand'), { recursive: true });
-  const escapedFile = path.join(lobsterRoot, 'secret.txt');
+  const escapedFile = path.join(artifactRoot, 'secret.txt');
   await writeFile(escapedFile, 'secret');
 
   await withEnv(
     {
-      OPENCLAW_LOCAL_LOBSTER_CWD: lobsterRoot,
+      ARTIFACT_PIPELINE_LOCAL_CWD: artifactRoot,
     },
     () => {
       const artifact = resolvePublicMarketingArtifact('/public-brand%2f..%2f..%2fsecret.txt');

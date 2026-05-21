@@ -87,7 +87,7 @@ function makeDoc(overrides: Partial<MarketingJobRuntimeDocument> = {}): Marketin
     schema_version: '1.0.0',
     job_id: 'job_test_001',
     tenant_id: '42',
-    job_type: 'brand_campaign',
+    job_type: 'weekly_social_content',
     state: 'approval_required',
     status: 'awaiting_approval',
     current_stage: 'strategy',

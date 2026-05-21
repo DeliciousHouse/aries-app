@@ -11,10 +11,10 @@ export type MarketingArtifactStageNumber = 1 | 2 | 3 | 4;
 const DEFAULT_HOST_OUTPUT_MOUNT = '/host-lobster-output';
 
 const STAGE_CACHE_DEFAULTS: Record<MarketingArtifactStageNumber, { envKey: string; folder: string }> = {
-  1: { envKey: 'LOBSTER_STAGE1_CACHE_DIR', folder: 'lobster-stage1-cache' },
-  2: { envKey: 'LOBSTER_STAGE2_CACHE_DIR', folder: 'lobster-stage2-cache' },
-  3: { envKey: 'LOBSTER_STAGE3_CACHE_DIR', folder: 'lobster-stage3-cache' },
-  4: { envKey: 'LOBSTER_STAGE4_CACHE_DIR', folder: 'lobster-stage4-cache' },
+  1: { envKey: 'ARTIFACT_STAGE1_CACHE_DIR', folder: 'lobster-stage1-cache' },
+  2: { envKey: 'ARTIFACT_STAGE2_CACHE_DIR', folder: 'lobster-stage2-cache' },
+  3: { envKey: 'ARTIFACT_STAGE3_CACHE_DIR', folder: 'lobster-stage3-cache' },
+  4: { envKey: 'ARTIFACT_STAGE4_CACHE_DIR', folder: 'lobster-stage4-cache' },
 };
 
 function stringValue(value: unknown): string {
@@ -75,20 +75,20 @@ export function legacyStageCacheReadFallbackEnabled(): boolean {
 }
 
 export function hostOutputMount(): string {
-  return path.normalize(stringValue(process.env.ARIES_LOBSTER_HOST_OUTPUT_MOUNT) || DEFAULT_HOST_OUTPUT_MOUNT);
+  return path.normalize(stringValue(process.env.ARIES_HOST_ARTIFACT_OUTPUT_MOUNT) || DEFAULT_HOST_OUTPUT_MOUNT);
 }
 
-export function lobsterRoots(): string[] {
+export function artifactRoots(): string[] {
   return uniqueStrings([
-    process.env.OPENCLAW_LOCAL_LOBSTER_CWD,
-    process.env.OPENCLAW_LOBSTER_CWD,
+    process.env.ARTIFACT_PIPELINE_LOCAL_CWD,
+    process.env.ARTIFACT_PIPELINE_CWD,
     resolveCodePath('lobster'),
   ]).map((root) => path.resolve(root));
 }
 
-export function lobsterOutputRoots(): string[] {
+export function artifactOutputRoots(): string[] {
   return uniqueStrings([
-    ...lobsterRoots().map((root) => path.join(root, 'output')),
+    ...artifactRoots().map((root) => path.join(root, 'output')),
     hostOutputMount(),
   ]);
 }
@@ -98,8 +98,8 @@ export function marketingAssetRoots(): string[] {
     resolveDataRoot(),
     resolveCodeRoot(),
     resolveCodePath('lobster'),
-    process.env.OPENCLAW_LOCAL_LOBSTER_CWD,
-    process.env.OPENCLAW_LOBSTER_CWD,
+    process.env.ARTIFACT_PIPELINE_LOCAL_CWD,
+    process.env.ARTIFACT_PIPELINE_CWD,
     hostOutputMount(),
     stageCacheRoot(1),
     stageCacheRoot(2),
@@ -125,9 +125,9 @@ function absoluteCompatibilityCandidates(filePath: string): string[] {
 
     const suffix = normalized.slice(prefix.length).replace(/^[\\/]+/, '');
     candidates.add(path.join(codeRoot, suffix));
-    for (const lobsterRoot of lobsterRoots()) {
+    for (const artifactRoot of artifactRoots()) {
       if (suffix === 'lobster' || suffix.startsWith(`lobster${path.sep}`)) {
-        candidates.add(path.join(lobsterRoot, suffix.replace(/^lobster[\\/]+/, '')));
+        candidates.add(path.join(artifactRoot, suffix.replace(/^lobster[\\/]+/, '')));
       }
     }
   }

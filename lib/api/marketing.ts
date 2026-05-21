@@ -1,7 +1,7 @@
 import { requestJson, type ApiClientOptions } from './http';
 import type { ApprovalDenialReasonCode } from '@/lib/marketing/approval-denial-reason-codes';
 
-export type MarketingJobType = 'brand_campaign';
+export type MarketingJobType = 'weekly_social_content';
 export type MarketingStage = 'research' | 'strategy' | 'production' | 'publish';
 export type MarketingWorkflowState =
   | 'draft'

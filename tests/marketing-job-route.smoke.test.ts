@@ -13,8 +13,8 @@ const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 async function withMarketingRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise<T> {
   const previousCodeRoot = process.env.CODE_ROOT;
   const previousDataRoot = process.env.DATA_ROOT;
-  const previousOpenClawLobsterCwd = process.env.OPENCLAW_LOBSTER_CWD;
-  const previousGatewayLobsterCwd = process.env.OPENCLAW_GATEWAY_LOBSTER_CWD;
+  const previousPipelineCwd = process.env.ARTIFACT_PIPELINE_CWD;
+  const previousPipelineGatewayCwd = process.env.ARTIFACT_PIPELINE_GATEWAY_CWD;
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-marketing-route-'));
   const restoreFetch = installBrandExampleFetchMock();
   const store = oauthStore();
@@ -24,22 +24,22 @@ async function withMarketingRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>)
 
   process.env.CODE_ROOT = PROJECT_ROOT;
   process.env.DATA_ROOT = dataRoot;
-  process.env.OPENCLAW_LOBSTER_CWD = path.join(PROJECT_ROOT, 'lobster');
-  process.env.OPENCLAW_GATEWAY_LOBSTER_CWD = 'lobster';
+  process.env.ARTIFACT_PIPELINE_CWD = path.join(PROJECT_ROOT, 'lobster');
+  process.env.ARTIFACT_PIPELINE_GATEWAY_CWD = 'lobster';
 
   try {
     return await run(dataRoot);
   } finally {
     restoreFetch();
-    delete (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__;
+    delete (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__;
     if (previousCodeRoot === undefined) delete process.env.CODE_ROOT;
     else process.env.CODE_ROOT = previousCodeRoot;
     if (previousDataRoot === undefined) delete process.env.DATA_ROOT;
     else process.env.DATA_ROOT = previousDataRoot;
-    if (previousOpenClawLobsterCwd === undefined) delete process.env.OPENCLAW_LOBSTER_CWD;
-    else process.env.OPENCLAW_LOBSTER_CWD = previousOpenClawLobsterCwd;
-    if (previousGatewayLobsterCwd === undefined) delete process.env.OPENCLAW_GATEWAY_LOBSTER_CWD;
-    else process.env.OPENCLAW_GATEWAY_LOBSTER_CWD = previousGatewayLobsterCwd;
+    if (previousPipelineCwd === undefined) delete process.env.ARTIFACT_PIPELINE_CWD;
+    else process.env.ARTIFACT_PIPELINE_CWD = previousPipelineCwd;
+    if (previousPipelineGatewayCwd === undefined) delete process.env.ARTIFACT_PIPELINE_GATEWAY_CWD;
+    else process.env.ARTIFACT_PIPELINE_GATEWAY_CWD = previousPipelineGatewayCwd;
     await rm(dataRoot, { recursive: true, force: true });
   }
 }
@@ -62,7 +62,7 @@ function seedOpenAiConnection(input: { tenantId: string; connectionId: string; u
 test('/api/marketing/jobs reaches the first approval checkpoint through the real handler path', async () => {
   await withMarketingRuntimeEnv(async (dataRoot) => {
     const captured: Array<Record<string, unknown>> = [];
-    (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ = (payload: Record<string, unknown>) => {
+    (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__ = (payload: Record<string, unknown>) => {
       captured.push(payload);
       return {
         ok: true,
@@ -89,7 +89,7 @@ test('/api/marketing/jobs reaches the first approval checkpoint through the real
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          jobType: 'brand_campaign',
+          jobType: 'weekly_social_content',
           payload: {
             brandUrl: 'https://brand.example/',
             businessType: 'Test vertical',
@@ -130,7 +130,7 @@ test('/api/social-content/jobs accepts weekly_social_content and returns 202', a
       updatedAt: '2026-05-05T00:00:00.000Z',
       tokenExpiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
     });
-    (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ = () => ({
+    (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__ = () => ({
       ok: true,
       status: 'needs_approval',
       output: [
@@ -188,7 +188,7 @@ test('/api/social-content/jobs forces weekly_social_content even when caller sen
       updatedAt: '2026-05-05T00:00:00.000Z',
       tokenExpiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
     });
-    (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ = () => ({
+    (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__ = () => ({
       ok: true,
       status: 'needs_approval',
       output: [
@@ -212,7 +212,7 @@ test('/api/social-content/jobs forces weekly_social_content even when caller sen
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          jobType: 'brand_campaign',
+          jobType: 'weekly_social_content',
           payload: {
             brandUrl: 'https://brand.example/',
             businessType: 'Test vertical',
@@ -256,7 +256,7 @@ test('/api/social-content/jobs submits Hermes only even when legacy-openclaw is 
       updatedAt: '2026-05-05T00:00:00.000Z',
       tokenExpiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
     });
-    (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ = () => {
+    (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__ = () => {
       throw new Error('social-content route must not call legacy OpenClaw');
     };
 
@@ -359,7 +359,7 @@ test('/api/marketing/jobs remains backward-compatible alias with weekly_social_c
       updatedAt: '2026-05-05T00:00:00.000Z',
       tokenExpiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
     });
-    (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ = () => ({
+    (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__ = () => ({
       ok: true,
       status: 'needs_approval',
       output: [
@@ -409,7 +409,7 @@ test('/api/marketing/jobs remains backward-compatible alias with weekly_social_c
 test('/api/social-content/jobs accepts media generation without Aries-side OpenAI connection state', async () => {
   await withMarketingRuntimeEnv(async () => {
     let invoked = false;
-    (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ = () => {
+    (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__ = () => {
       invoked = true;
       return {
         ok: true,
@@ -555,7 +555,7 @@ test('/api/social-content/jobs ignores expired Aries OpenAI connections for Herm
       tokenExpiresAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
     });
     let invoked = false;
-    (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ = () => {
+    (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__ = () => {
       invoked = true;
       return {
         ok: true,
@@ -603,7 +603,7 @@ test('/api/social-content/jobs ignores expired Aries OpenAI connections for Herm
 
 test('/api/social-content/jobs allows text planning when image/video generation is disabled', async () => {
   await withMarketingRuntimeEnv(async () => {
-    (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ = () => {
+    (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__ = () => {
       return {
         ok: true,
         status: 'needs_approval',

@@ -945,7 +945,7 @@ function actionLabel(stage: 'strategy' | 'production' | 'publish'): string {
  * After a non-publish stage completes cleanly (no approval emitted), submit
  * the next stage to Hermes automatically. Guards cover R1, R2, R4, R5 from the
  * auto-advance plan. Port is injectable for testability; callers pass
- * getMarketingExecutionPort(() => null) in production.
+ * getMarketingExecutionPort() in production.
  *
  * Exported for unit tests; not part of the public module API.
  */
@@ -1229,7 +1229,6 @@ function createApprovalCheckpoint(
     workflowStepId: approval.workflow_step_id,
     socialContentApprovalStep: socialApprovalStep,
     marketingStage: marketingApprovalStage,
-    executionProvider: 'hermes',
     executionResumeToken: approval.resume_token ?? '',
     approvalPrompt: approval.prompt,
     runtimeContext: {
@@ -1604,7 +1603,7 @@ export async function applyHermesMarketingCallback(
     // Ordering: (i) markJobCompleted, (ii) honcho schedule, (iii) social-content
     // markers, (iv) maybeAutoAdvanceNextStage (does its own intermediate save),
     // (v) final save below.
-    await maybeAutoAdvanceNextStage(doc, targetStage, payload, getMarketingExecutionPort(() => null));
+    await maybeAutoAdvanceNextStage(doc, targetStage, payload, getMarketingExecutionPort());
     saveMarketingJobRuntime(doc.job_id, doc);
   }
 }

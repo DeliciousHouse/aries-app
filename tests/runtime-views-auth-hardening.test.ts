@@ -13,14 +13,14 @@ function readRepoFile(relativePath: string) {
   return readFileSync(path.join(PROJECT_ROOT, relativePath), 'utf8');
 }
 
-function setOpenClawTestInvoker(
+function setExecutionTestInvoker(
   impl: (payload: Record<string, unknown>) => unknown | Promise<unknown>,
 ): void {
-  (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ = impl;
+  (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__ = impl;
 }
 
-function clearOpenClawTestInvoker(): void {
-  delete (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__;
+function clearExecutionTestInvoker(): void {
+  delete (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__;
 }
 
 function createFetchResponse(body: string, contentType: string): Response {
@@ -84,20 +84,20 @@ function installBrandExampleFetchMock(): () => void {
 async function withMarketingRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise<T> {
   const previousCodeRoot = process.env.CODE_ROOT;
   const previousDataRoot = process.env.DATA_ROOT;
-  const previousOpenClawLobsterCwd = process.env.OPENCLAW_LOBSTER_CWD;
-  const previousStage1CacheDir = process.env.LOBSTER_STAGE1_CACHE_DIR;
-  const previousStage2CacheDir = process.env.LOBSTER_STAGE2_CACHE_DIR;
-  const previousStage3CacheDir = process.env.LOBSTER_STAGE3_CACHE_DIR;
-  const previousStage4CacheDir = process.env.LOBSTER_STAGE4_CACHE_DIR;
+  const previousPipelineCwd = process.env.ARTIFACT_PIPELINE_CWD;
+  const previousStage1CacheDir = process.env.ARTIFACT_STAGE1_CACHE_DIR;
+  const previousStage2CacheDir = process.env.ARTIFACT_STAGE2_CACHE_DIR;
+  const previousStage3CacheDir = process.env.ARTIFACT_STAGE3_CACHE_DIR;
+  const previousStage4CacheDir = process.env.ARTIFACT_STAGE4_CACHE_DIR;
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-runtime-views-'));
 
   process.env.CODE_ROOT = PROJECT_ROOT;
   process.env.DATA_ROOT = dataRoot;
-  process.env.OPENCLAW_LOBSTER_CWD = path.join(PROJECT_ROOT, 'lobster');
-  process.env.LOBSTER_STAGE1_CACHE_DIR = path.join(dataRoot, 'lobster-stage1-cache');
-  process.env.LOBSTER_STAGE2_CACHE_DIR = path.join(dataRoot, 'lobster-stage2-cache');
-  process.env.LOBSTER_STAGE3_CACHE_DIR = path.join(dataRoot, 'lobster-stage3-cache');
-  process.env.LOBSTER_STAGE4_CACHE_DIR = path.join(dataRoot, 'lobster-stage4-cache');
+  process.env.ARTIFACT_PIPELINE_CWD = path.join(PROJECT_ROOT, 'lobster');
+  process.env.ARTIFACT_STAGE1_CACHE_DIR = path.join(dataRoot, 'lobster-stage1-cache');
+  process.env.ARTIFACT_STAGE2_CACHE_DIR = path.join(dataRoot, 'lobster-stage2-cache');
+  process.env.ARTIFACT_STAGE3_CACHE_DIR = path.join(dataRoot, 'lobster-stage3-cache');
+  process.env.ARTIFACT_STAGE4_CACHE_DIR = path.join(dataRoot, 'lobster-stage4-cache');
 
   try {
     return await run(dataRoot);
@@ -106,22 +106,22 @@ async function withMarketingRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>)
     else process.env.CODE_ROOT = previousCodeRoot;
     if (previousDataRoot === undefined) delete process.env.DATA_ROOT;
     else process.env.DATA_ROOT = previousDataRoot;
-    if (previousOpenClawLobsterCwd === undefined) delete process.env.OPENCLAW_LOBSTER_CWD;
-    else process.env.OPENCLAW_LOBSTER_CWD = previousOpenClawLobsterCwd;
-    if (previousStage1CacheDir === undefined) delete process.env.LOBSTER_STAGE1_CACHE_DIR;
-    else process.env.LOBSTER_STAGE1_CACHE_DIR = previousStage1CacheDir;
-    if (previousStage2CacheDir === undefined) delete process.env.LOBSTER_STAGE2_CACHE_DIR;
-    else process.env.LOBSTER_STAGE2_CACHE_DIR = previousStage2CacheDir;
-    if (previousStage3CacheDir === undefined) delete process.env.LOBSTER_STAGE3_CACHE_DIR;
-    else process.env.LOBSTER_STAGE3_CACHE_DIR = previousStage3CacheDir;
-    if (previousStage4CacheDir === undefined) delete process.env.LOBSTER_STAGE4_CACHE_DIR;
-    else process.env.LOBSTER_STAGE4_CACHE_DIR = previousStage4CacheDir;
+    if (previousPipelineCwd === undefined) delete process.env.ARTIFACT_PIPELINE_CWD;
+    else process.env.ARTIFACT_PIPELINE_CWD = previousPipelineCwd;
+    if (previousStage1CacheDir === undefined) delete process.env.ARTIFACT_STAGE1_CACHE_DIR;
+    else process.env.ARTIFACT_STAGE1_CACHE_DIR = previousStage1CacheDir;
+    if (previousStage2CacheDir === undefined) delete process.env.ARTIFACT_STAGE2_CACHE_DIR;
+    else process.env.ARTIFACT_STAGE2_CACHE_DIR = previousStage2CacheDir;
+    if (previousStage3CacheDir === undefined) delete process.env.ARTIFACT_STAGE3_CACHE_DIR;
+    else process.env.ARTIFACT_STAGE3_CACHE_DIR = previousStage3CacheDir;
+    if (previousStage4CacheDir === undefined) delete process.env.ARTIFACT_STAGE4_CACHE_DIR;
+    else process.env.ARTIFACT_STAGE4_CACHE_DIR = previousStage4CacheDir;
     await rm(dataRoot, { recursive: true, force: true });
   }
 }
 
 function installMinimalMarketingInvoker(): void {
-  setOpenClawTestInvoker((payload) => {
+  setExecutionTestInvoker((payload) => {
     const args = (payload.args as Record<string, unknown> | undefined) ?? {};
     const action = String(args.action || '');
 
@@ -225,7 +225,7 @@ function makeAwaitingPublishApprovalRuntimeDoc(input: {
     schema_name: 'marketing_job_state_schema',
     schema_version: '1.0.0',
     job_id: input.jobId,
-    job_type: 'brand_campaign',
+    job_type: 'weekly_social_content',
     tenant_id: input.tenantId,
     state: 'approval_required',
     status: 'awaiting_approval',
@@ -395,9 +395,9 @@ test('runtime campaign views stay populated when proposal artifacts exist even w
     const jobsRoot = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs');
     const jobId = 'proposal-backed-runtime-view';
     await mkdir(jobsRoot, { recursive: true });
-    await mkdir(path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, 'plan-run'), { recursive: true });
+    await mkdir(path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, 'plan-run'), { recursive: true });
     await writeFile(
-      path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, 'plan-run', 'campaign_planner.json'),
+      path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, 'plan-run', 'campaign_planner.json'),
       JSON.stringify({
         brand_slug: 'brand-example',
         campaign_plan: {
@@ -416,7 +416,7 @@ test('runtime campaign views stay populated when proposal artifacts exist even w
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_runtime',
         state: 'running',
         status: 'running',
@@ -465,9 +465,9 @@ test('tenant runtime views keep only the latest rerun for the same campaign iden
     await mkdir(jobsRoot, { recursive: true });
 
     for (const runId of ['plan-run-old', 'plan-run-new']) {
-      await mkdir(path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, runId), { recursive: true });
+      await mkdir(path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, runId), { recursive: true });
       await writeFile(
-        path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, runId, 'campaign_planner.json'),
+        path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, runId, 'campaign_planner.json'),
         JSON.stringify({
           brand_slug: 'brand-example',
           campaign_plan: {
@@ -486,7 +486,7 @@ test('tenant runtime views keep only the latest rerun for the same campaign iden
       schema_name: 'marketing_job_state_schema',
       schema_version: '1.0.0',
       job_id: jobId,
-      job_type: 'brand_campaign',
+      job_type: 'weekly_social_content',
       tenant_id: 'tenant_runtime_dedupe',
       state: 'running',
       status: 'running',
@@ -549,7 +549,7 @@ test('runtime views ignore malformed legacy marketing runtime documents without 
         schema_name: 'job_runtime_state_schema',
         schema_version: '1.0.0',
         job_id: 'legacy-bad',
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_empty',
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -579,7 +579,7 @@ test('review decisions persist and can be reloaded from runtime-backed state', a
     try {
       const started = await startMarketingJob({
         tenantId: 'tenant_123',
-        jobType: 'brand_campaign',
+        jobType: 'weekly_social_content',
           payload: {
             brandUrl: 'https://brand.example',
             competitorUrl: 'https://betterup.com',
@@ -614,7 +614,7 @@ test('review decisions persist and can be reloaded from runtime-backed state', a
       assert.equal(typeof saved, 'object');
     } finally {
       restoreFetch();
-      clearOpenClawTestInvoker();
+      clearExecutionTestInvoker();
     }
   });
 });
@@ -630,7 +630,7 @@ test('approving a workflow approval review item resumes the marketing job', asyn
     try {
       const started = await startMarketingJob({
         tenantId: 'tenant_123',
-        jobType: 'brand_campaign',
+        jobType: 'weekly_social_content',
           payload: {
             brandUrl: 'https://brand.example',
             competitorUrl: 'https://betterup.com',
@@ -658,7 +658,7 @@ test('approving a workflow approval review item resumes the marketing job', asyn
       assert.equal(runtimeDoc?.approvals.current?.stage, 'production');
     } finally {
       restoreFetch();
-      clearOpenClawTestInvoker();
+      clearExecutionTestInvoker();
     }
   });
 });
@@ -689,7 +689,7 @@ test('approve_stage_2 workflow reviews include research, brief, brand-kit, and u
       };
       const started = await startMarketingJob({
         tenantId: 'tenant_123',
-        jobType: 'brand_campaign',
+        jobType: 'weekly_social_content',
         payload,
       });
 
@@ -737,7 +737,7 @@ test('approve_stage_2 workflow reviews include research, brief, brand-kit, and u
       assert.equal(campaigns[0]?.approvalActionHref, `/review/${encodeURIComponent(`${started.jobId}::approval`)}`);
     } finally {
       restoreFetch();
-      clearOpenClawTestInvoker();
+      clearExecutionTestInvoker();
     }
   });
 });
@@ -753,7 +753,7 @@ test('stale workflow approval ids do not advance a newer approval checkpoint', a
     try {
       const started = await startMarketingJob({
         tenantId: 'tenant_123',
-        jobType: 'brand_campaign',
+        jobType: 'weekly_social_content',
           payload: {
             brandUrl: 'https://brand.example',
             competitorUrl: 'https://betterup.com',
@@ -795,7 +795,7 @@ test('stale workflow approval ids do not advance a newer approval checkpoint', a
       assert.equal(runtimeDoc?.approvals.current?.stage, 'production');
     } finally {
       restoreFetch();
-      clearOpenClawTestInvoker();
+      clearExecutionTestInvoker();
     }
   });
 });

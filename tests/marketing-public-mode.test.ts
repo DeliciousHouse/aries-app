@@ -41,7 +41,7 @@ test('/api/marketing/jobs rejects unauthenticated public create even when public
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          jobType: 'brand_campaign',
+          jobType: 'weekly_social_content',
           payload: {
             brandUrl: 'https://theframex.com',
             businessName: 'The FrameX',

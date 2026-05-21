@@ -15,10 +15,10 @@ export type ReadMarketingAssetOptions = {
  * owning tenantId. Two families are currently tenant-scoped on disk:
  *
  *   1. `DATA_ROOT/ingested-assets/<tenantId>/...`  (user-uploaded media)
- *   2. `<stageCacheRoot>/<tenantId>/<runId>/...`   (per-stage Lobster cache)
+ *   2. `<stageCacheRoot>/<tenantId>/<runId>/...`   (per-stage cache)
  *
  * Paths outside these subtrees are not tenant-scoped (workflow specs, repo
- * source, raw Lobster output logs) and must NOT be rejected here — that
+ * source, raw pipeline output logs) and must NOT be rejected here — that
  * would block legitimate reads.
  */
 function tenantScopedRootCandidates(): string[] {
@@ -35,7 +35,7 @@ function tenantScopedRootCandidates(): string[] {
  * Resolve each tenant-scoped root to its realpath when possible so the
  * tenant-prefix check below operates in the same coordinate system as the
  * resolved candidate. Without this, a symlinked DATA_ROOT or
- * LOBSTER_STAGE*_CACHE_DIR makes `path.relative(normalizedRoot, realpathCandidate)`
+ * ARTIFACT_STAGE*_CACHE_DIR makes `path.relative(normalizedRoot, realpathCandidate)`
  * start with `..` and the check silently skips that subtree, leaving a
  * false-negative on the cross-tenant boundary.
  *
@@ -88,7 +88,7 @@ async function tenantPrefixViolates(
  *      against.
  *   2. `trustedRoots` is the closed set of directories we're willing to
  *      serve files from — DATA_ROOT (runtime artifacts), CODE_ROOT (repo
- *      source), Lobster CWD/stage caches (generated pipeline outputs).
+ *      source), artifact CWD/stage caches (generated pipeline outputs).
  *   3. `isWithinRoot` both before and after `realpath` resolution ensures
  *      symlink traversal doesn't escape the trusted root (an attacker who
  *      could plant a symlink inside the root still can't use it to read

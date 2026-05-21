@@ -106,7 +106,7 @@ async function main(): Promise<void> {
   // 1) create valid marketing job
   const start = await startMarketingJob({
     tenantId,
-    jobType: "brand_campaign",
+    jobType: "weekly_social_content",
     payload: {
       brandUrl: "https://brand.example",
       competitorUrl: "https://betterup.com"
@@ -157,7 +157,7 @@ async function main(): Promise<void> {
   // 7) bounded failure case + repair path
   const failStart = await startMarketingJob({
     tenantId: `${tenantId}-repair`,
-    jobType: "brand_campaign",
+    jobType: "weekly_social_content",
     payload: {
       brandUrl: "https://repair.example",
       competitorUrl: "https://facebook.com/repair-competitor"

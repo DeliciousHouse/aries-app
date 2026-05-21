@@ -333,7 +333,7 @@ function normalizedSocialPostId(post: SocialWeeklyPost, index: number): string {
 
 function requestedJobTypeFromDoc(doc: MarketingJobRuntimeDocument): string {
   const request = recordValue(doc.inputs?.request);
-  return stringValue(request?.jobType || request?.job_type || 'brand_campaign').toLowerCase();
+  return stringValue(request?.jobType || request?.job_type || 'weekly_social_content').toLowerCase();
 }
 
 function latestSocialProjection(runtimeDoc: MarketingJobRuntimeDocument): SocialContentWorkflowProjection | null {
@@ -862,7 +862,7 @@ function createPublishItems(input: {
   // publish-completed callback (`synthesizePublishPostsFromContentPackage`).
   // When those rows exist, the campaign HAS published items regardless of the
   // legacy `includePublishQueue` runtime-state gate — which keyed off
-  // OpenClaw-era state that the Hermes pipeline does not always set.
+  // legacy state that the Hermes pipeline does not always set.
   const hasRealPosts = input.realPublishedPostCount > 0;
   if (!input.includePublishQueue && !hasRealPosts) return [];
 

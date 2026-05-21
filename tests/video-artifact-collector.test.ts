@@ -14,12 +14,12 @@ async function writeJson(filePath: string, value: unknown) {
 }
 
 test('collectProductionReviewArtifacts emits one video artifact per rendered variant', async () => {
-  const previousStage3CacheDir = process.env.LOBSTER_STAGE3_CACHE_DIR;
+  const previousStage3CacheDir = process.env.ARTIFACT_STAGE3_CACHE_DIR;
   const tempRoot = await mkdtemp(path.join(tmpdir(), 'aries-video-artifacts-'));
   const runId = 'run-video-artifacts';
   const jobId = 'job-video-artifacts';
 
-  process.env.LOBSTER_STAGE3_CACHE_DIR = tempRoot;
+  process.env.ARTIFACT_STAGE3_CACHE_DIR = tempRoot;
 
   try {
     const runtimeDoc = createMarketingJobRuntimeDocument({
@@ -138,19 +138,19 @@ test('collectProductionReviewArtifacts emits one video artifact per rendered var
       assert.equal(artifact.familyId, variant.familyId);
     }
   } finally {
-    if (previousStage3CacheDir === undefined) delete process.env.LOBSTER_STAGE3_CACHE_DIR;
-    else process.env.LOBSTER_STAGE3_CACHE_DIR = previousStage3CacheDir;
+    if (previousStage3CacheDir === undefined) delete process.env.ARTIFACT_STAGE3_CACHE_DIR;
+    else process.env.ARTIFACT_STAGE3_CACHE_DIR = previousStage3CacheDir;
     await rm(tempRoot, { recursive: true, force: true });
   }
 });
 
 test('collectProductionReviewArtifacts skips rate-limited video variants so review can continue without broken previews', async () => {
-  const previousStage3CacheDir = process.env.LOBSTER_STAGE3_CACHE_DIR;
+  const previousStage3CacheDir = process.env.ARTIFACT_STAGE3_CACHE_DIR;
   const tempRoot = await mkdtemp(path.join(tmpdir(), 'aries-video-rate-limited-artifacts-'));
   const runId = 'run-video-rate-limited-artifacts';
   const jobId = 'job-video-rate-limited-artifacts';
 
-  process.env.LOBSTER_STAGE3_CACHE_DIR = tempRoot;
+  process.env.ARTIFACT_STAGE3_CACHE_DIR = tempRoot;
 
   try {
     const runtimeDoc = createMarketingJobRuntimeDocument({
@@ -242,8 +242,8 @@ test('collectProductionReviewArtifacts skips rate-limited video variants so revi
 
     assert.deepEqual(videoArtifacts.map((artifact) => artifact.id), ['video-youtube-shorts-family-a']);
   } finally {
-    if (previousStage3CacheDir === undefined) delete process.env.LOBSTER_STAGE3_CACHE_DIR;
-    else process.env.LOBSTER_STAGE3_CACHE_DIR = previousStage3CacheDir;
+    if (previousStage3CacheDir === undefined) delete process.env.ARTIFACT_STAGE3_CACHE_DIR;
+    else process.env.ARTIFACT_STAGE3_CACHE_DIR = previousStage3CacheDir;
     await rm(tempRoot, { recursive: true, force: true });
   }
 });

@@ -15,7 +15,7 @@ test('MarketingNewJobScreen shows the backend error after a valid submit fails',
   const previousWindow = globalWithWindow.window;
   const pushCalls: string[] = [];
   globalThis.fetch = (async () =>
-    new Response(JSON.stringify({ error: 'OpenClaw gateway unavailable' }), {
+    new Response(JSON.stringify({ error: 'Marketing pipeline unavailable' }), {
       status: 503,
       headers: { 'content-type': 'application/json' },
     })) as typeof fetch;
@@ -54,7 +54,7 @@ test('MarketingNewJobScreen shows the backend error after a valid submit fails',
     });
 
     assert.deepEqual(pushCalls, []);
-    assert.match(JSON.stringify(root.toJSON()), /OpenClaw gateway unavailable/);
+    assert.match(JSON.stringify(root.toJSON()), /Marketing pipeline unavailable/);
   } finally {
     globalThis.fetch = previousFetch;
     if (previousWindow === undefined) {

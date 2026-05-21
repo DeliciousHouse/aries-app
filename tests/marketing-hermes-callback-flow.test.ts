@@ -142,7 +142,6 @@ test('Hermes marketing callbacks advance runtime docs and create provider-neutra
     const strategyApproval = loadMarketingApprovalRecord(afterResearch?.approvals.current?.approval_id ?? '');
     assert.equal(strategyApproval?.execution_provider, 'hermes');
     assert.equal(strategyApproval?.execution_resume_token, 'hermes-resume-strategy');
-    assert.equal(strategyApproval?.lobster_resume_token, undefined);
     assert.equal(strategyApproval?.social_content_approval_step, 'approve_weekly_plan');
     assert.equal(listMarketingApprovalRecordsForJob(doc.job_id).length, 1);
     assert.deepEqual(loadExecutionRunRecord(researchRun.aries_run_id)?.result, [

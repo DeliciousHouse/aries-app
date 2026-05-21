@@ -4,9 +4,9 @@ import path from 'node:path';
  * Remap an absolute host-output path onto the in-container bind mount.
  *
  * The host's Lobster pipeline writes creative images and other artifacts
- * under an absolute host path (ARIES_LOBSTER_HOST_OUTPUT_DIR), but inside
+ * under an absolute host path (ARIES_HOST_ARTIFACT_OUTPUT_DIR), but inside
  * this container that tree is only reachable via the read-only bind mount
- * at ARIES_LOBSTER_HOST_OUTPUT_MOUNT. Runtime docs routinely pin absolute
+ * at ARIES_HOST_ARTIFACT_OUTPUT_MOUNT. Runtime docs routinely pin absolute
  * host paths (stage-3/4 creative assets especially), so every asset
  * resolver that does an absolute-path existsSync / isWithinRoot check
  * needs to add the remapped candidate before giving up. Without this
@@ -19,8 +19,8 @@ import path from 'node:path';
  * trailing slash on the env var doesn't break the startsWith guard.
  */
 export function remapHostOutputToMount(absolutePath: string): string | null {
-  const hostOutputDir = process.env.ARIES_LOBSTER_HOST_OUTPUT_DIR?.trim();
-  const hostOutputMount = process.env.ARIES_LOBSTER_HOST_OUTPUT_MOUNT?.trim();
+  const hostOutputDir = process.env.ARIES_HOST_ARTIFACT_OUTPUT_DIR?.trim();
+  const hostOutputMount = process.env.ARIES_HOST_ARTIFACT_OUTPUT_MOUNT?.trim();
   if (!hostOutputDir || !hostOutputMount) {
     return null;
   }

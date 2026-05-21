@@ -31,13 +31,10 @@ export type MarketingApprovalRecord = {
   workflow_step_id: string;
   social_content_approval_step: SocialContentApprovalStep | null;
   marketing_stage: Extract<MarketingStage, 'strategy' | 'production' | 'publish'>;
-  execution_provider: 'legacy-openclaw' | 'hermes';
+  execution_provider: 'hermes';
   execution_resume_token: string;
   execution_resume_token_fingerprint: string;
   execution_resume_state_keys: string[];
-  lobster_resume_token?: string;
-  lobster_resume_token_fingerprint?: string;
-  lobster_resume_state_keys?: string[];
   approval_prompt: string;
   approval_preview_payload: unknown | null;
   runtime_context: {
@@ -118,11 +115,8 @@ export function createMarketingApprovalRecord(input: {
   workflowStepId: string;
   socialContentApprovalStep?: SocialContentApprovalStep | null;
   marketingStage: Extract<MarketingStage, 'strategy' | 'production' | 'publish'>;
-  executionProvider?: 'legacy-openclaw' | 'hermes';
   executionResumeToken?: string;
   executionResumeStateKeys?: string[];
-  lobsterResumeToken?: string;
-  lobsterResumeStateKeys?: string[];
   approvalPrompt: string;
   approvalPreviewPayload?: unknown;
   runtimeContext: {
@@ -137,9 +131,8 @@ export function createMarketingApprovalRecord(input: {
   traceId?: string;
 }): MarketingApprovalRecord {
   const ts = nowIso();
-  const executionProvider = input.executionProvider ?? 'legacy-openclaw';
-  const executionResumeToken = input.executionResumeToken ?? input.lobsterResumeToken ?? '';
-  const executionResumeStateKeys = input.executionResumeStateKeys ?? input.lobsterResumeStateKeys ?? [];
+  const executionResumeToken = input.executionResumeToken ?? '';
+  const executionResumeStateKeys = input.executionResumeStateKeys ?? [];
   const tokenFingerprint = fingerprintApprovalToken(executionResumeToken);
   return {
     schema_name: 'marketing_approval_record',
@@ -151,17 +144,10 @@ export function createMarketingApprovalRecord(input: {
     workflow_step_id: input.workflowStepId,
     social_content_approval_step: input.socialContentApprovalStep ?? null,
     marketing_stage: input.marketingStage,
-    execution_provider: executionProvider,
+    execution_provider: 'hermes',
     execution_resume_token: executionResumeToken,
     execution_resume_token_fingerprint: tokenFingerprint,
     execution_resume_state_keys: executionResumeStateKeys,
-    ...(executionProvider === 'legacy-openclaw'
-      ? {
-          lobster_resume_token: executionResumeToken,
-          lobster_resume_token_fingerprint: tokenFingerprint,
-          lobster_resume_state_keys: executionResumeStateKeys,
-        }
-      : {}),
     approval_prompt: input.approvalPrompt,
     approval_preview_payload: input.approvalPreviewPayload ?? null,
     runtime_context: {
@@ -195,34 +181,35 @@ function isApprovalRecord(value: unknown): value is MarketingApprovalRecord {
 }
 
 function normalizeMarketingApprovalRecord(record: MarketingApprovalRecord): MarketingApprovalRecord {
-  const legacyToken = typeof record.lobster_resume_token === 'string' ? record.lobster_resume_token : '';
-  const provider = record.execution_provider ?? 'legacy-openclaw';
+  // Records persisted before the Hermes-only cutover may still carry the legacy
+  // `lobster_resume_token*` fields. Read them defensively so old approvals load.
+  const legacy = record as unknown as {
+    lobster_resume_token?: unknown;
+    lobster_resume_token_fingerprint?: unknown;
+    lobster_resume_state_keys?: unknown;
+  };
+  const legacyToken = typeof legacy.lobster_resume_token === 'string' ? legacy.lobster_resume_token : '';
   const token = typeof record.execution_resume_token === 'string'
     ? record.execution_resume_token
     : legacyToken;
   const stateKeys = Array.isArray(record.execution_resume_state_keys)
     ? record.execution_resume_state_keys
-    : Array.isArray(record.lobster_resume_state_keys)
-      ? record.lobster_resume_state_keys
+    : Array.isArray(legacy.lobster_resume_state_keys)
+      ? (legacy.lobster_resume_state_keys as string[])
       : [];
   const fingerprint = typeof record.execution_resume_token_fingerprint === 'string'
     ? record.execution_resume_token_fingerprint
-    : typeof record.lobster_resume_token_fingerprint === 'string'
-      ? record.lobster_resume_token_fingerprint
+    : typeof legacy.lobster_resume_token_fingerprint === 'string'
+      ? legacy.lobster_resume_token_fingerprint
       : fingerprintApprovalToken(token);
 
-  record.execution_provider = provider;
+  record.execution_provider = 'hermes';
   record.execution_resume_token = token;
   record.execution_resume_token_fingerprint = fingerprint;
   record.execution_resume_state_keys = stateKeys;
   // Backfill consumed_platforms for records created before this field existed.
   if (!Array.isArray(record.consumed_platforms)) {
     record.consumed_platforms = [];
-  }
-  if (provider === 'legacy-openclaw') {
-    record.lobster_resume_token = token;
-    record.lobster_resume_token_fingerprint = fingerprint;
-    record.lobster_resume_state_keys = stateKeys;
   }
   if (
     record.social_content_approval_step !== 'approve_weekly_plan'
@@ -258,13 +245,7 @@ export function saveMarketingApprovalRecord(record: MarketingApprovalRecord): st
   const filePath = marketingApprovalPath(record.approval_id);
   mkdirSync(path.dirname(filePath), { recursive: true });
   record.updated_at = nowIso();
-  const serializable = { ...record };
-  if (serializable.execution_provider !== 'legacy-openclaw') {
-    delete serializable.lobster_resume_token;
-    delete serializable.lobster_resume_token_fingerprint;
-    delete serializable.lobster_resume_state_keys;
-  }
-  writeFileSync(filePath, JSON.stringify(serializable, null, 2));
+  writeFileSync(filePath, JSON.stringify(record, null, 2));
   return filePath;
 }
 

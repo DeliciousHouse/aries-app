@@ -123,10 +123,10 @@ export async function handleDeleteMarketingJob(
     );
   }
 
-  // If the pipeline was mid-run when the delete landed, best-effort ask the
-  // gateway to abort the in-flight Lobster run so the orchestrator does not
-  // finish the current stage before the soft-cancel boundary check picks up.
-  // The call swallows errors internally; soft-delete succeeds regardless.
+  // If the pipeline was mid-run when the delete landed, best-effort cancel the
+  // in-flight run. The orchestrator's soft-cancel boundary check stops new
+  // stages regardless; this call swallows errors and soft-delete succeeds even
+  // when run cancellation is unsupported.
   if (wasActive) {
     await cancelAriesWorkflow({ correlationId: jobId }).catch(() => {});
   }

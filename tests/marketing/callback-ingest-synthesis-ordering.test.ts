@@ -86,7 +86,7 @@ function makePreCallbackDoc(jobId: string): MarketingJobRuntimeDocument {
     schema_version: '1.0.0',
     job_id: jobId,
     tenant_id: '42',
-    job_type: 'brand_campaign',
+    job_type: 'weekly_social_content',
     state: 'running',
     status: 'running',
     current_stage: 'production',

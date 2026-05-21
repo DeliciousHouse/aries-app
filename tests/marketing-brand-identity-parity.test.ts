@@ -27,22 +27,22 @@ async function withRuntimeEnv<T>(run: (input: { dataRoot: string; workdir: strin
   const previousCodeRoot = process.env.CODE_ROOT;
   const previousDataRoot = process.env.DATA_ROOT;
   const previousAllowTmpRuntimePersistence = process.env.ALLOW_TMP_RUNTIME_PERSISTENCE;
-  const previousStage1CacheDir = process.env.LOBSTER_STAGE1_CACHE_DIR;
-  const previousStage2CacheDir = process.env.LOBSTER_STAGE2_CACHE_DIR;
-  const previousStage3CacheDir = process.env.LOBSTER_STAGE3_CACHE_DIR;
-  const previousStage4CacheDir = process.env.LOBSTER_STAGE4_CACHE_DIR;
-  const previousOpenClawLobsterCwd = process.env.OPENCLAW_LOBSTER_CWD;
+  const previousStage1CacheDir = process.env.ARTIFACT_STAGE1_CACHE_DIR;
+  const previousStage2CacheDir = process.env.ARTIFACT_STAGE2_CACHE_DIR;
+  const previousStage3CacheDir = process.env.ARTIFACT_STAGE3_CACHE_DIR;
+  const previousStage4CacheDir = process.env.ARTIFACT_STAGE4_CACHE_DIR;
+  const previousPipelineCwd = process.env.ARTIFACT_PIPELINE_CWD;
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-brand-identity-'));
   const workdir = await mkdtemp(path.join(tmpdir(), 'aries-brand-identity-workdir-'));
 
   process.env.CODE_ROOT = PROJECT_ROOT;
   process.env.DATA_ROOT = dataRoot;
-  process.env.OPENCLAW_LOBSTER_CWD = path.join(PROJECT_ROOT, 'lobster');
+  process.env.ARTIFACT_PIPELINE_CWD = path.join(PROJECT_ROOT, 'lobster');
   process.env.ALLOW_TMP_RUNTIME_PERSISTENCE = '1';
-  process.env.LOBSTER_STAGE1_CACHE_DIR = path.join(dataRoot, 'lobster-stage1-cache');
-  process.env.LOBSTER_STAGE2_CACHE_DIR = path.join(dataRoot, 'lobster-stage2-cache');
-  process.env.LOBSTER_STAGE3_CACHE_DIR = path.join(dataRoot, 'lobster-stage3-cache');
-  process.env.LOBSTER_STAGE4_CACHE_DIR = path.join(dataRoot, 'lobster-stage4-cache');
+  process.env.ARTIFACT_STAGE1_CACHE_DIR = path.join(dataRoot, 'lobster-stage1-cache');
+  process.env.ARTIFACT_STAGE2_CACHE_DIR = path.join(dataRoot, 'lobster-stage2-cache');
+  process.env.ARTIFACT_STAGE3_CACHE_DIR = path.join(dataRoot, 'lobster-stage3-cache');
+  process.env.ARTIFACT_STAGE4_CACHE_DIR = path.join(dataRoot, 'lobster-stage4-cache');
 
   try {
     return await run({ dataRoot, workdir });
@@ -53,16 +53,16 @@ async function withRuntimeEnv<T>(run: (input: { dataRoot: string; workdir: strin
     else process.env.DATA_ROOT = previousDataRoot;
     if (previousAllowTmpRuntimePersistence === undefined) delete process.env.ALLOW_TMP_RUNTIME_PERSISTENCE;
     else process.env.ALLOW_TMP_RUNTIME_PERSISTENCE = previousAllowTmpRuntimePersistence;
-    if (previousStage1CacheDir === undefined) delete process.env.LOBSTER_STAGE1_CACHE_DIR;
-    else process.env.LOBSTER_STAGE1_CACHE_DIR = previousStage1CacheDir;
-    if (previousStage2CacheDir === undefined) delete process.env.LOBSTER_STAGE2_CACHE_DIR;
-    else process.env.LOBSTER_STAGE2_CACHE_DIR = previousStage2CacheDir;
-    if (previousStage3CacheDir === undefined) delete process.env.LOBSTER_STAGE3_CACHE_DIR;
-    else process.env.LOBSTER_STAGE3_CACHE_DIR = previousStage3CacheDir;
-    if (previousStage4CacheDir === undefined) delete process.env.LOBSTER_STAGE4_CACHE_DIR;
-    else process.env.LOBSTER_STAGE4_CACHE_DIR = previousStage4CacheDir;
-    if (previousOpenClawLobsterCwd === undefined) delete process.env.OPENCLAW_LOBSTER_CWD;
-    else process.env.OPENCLAW_LOBSTER_CWD = previousOpenClawLobsterCwd;
+    if (previousStage1CacheDir === undefined) delete process.env.ARTIFACT_STAGE1_CACHE_DIR;
+    else process.env.ARTIFACT_STAGE1_CACHE_DIR = previousStage1CacheDir;
+    if (previousStage2CacheDir === undefined) delete process.env.ARTIFACT_STAGE2_CACHE_DIR;
+    else process.env.ARTIFACT_STAGE2_CACHE_DIR = previousStage2CacheDir;
+    if (previousStage3CacheDir === undefined) delete process.env.ARTIFACT_STAGE3_CACHE_DIR;
+    else process.env.ARTIFACT_STAGE3_CACHE_DIR = previousStage3CacheDir;
+    if (previousStage4CacheDir === undefined) delete process.env.ARTIFACT_STAGE4_CACHE_DIR;
+    else process.env.ARTIFACT_STAGE4_CACHE_DIR = previousStage4CacheDir;
+    if (previousPipelineCwd === undefined) delete process.env.ARTIFACT_PIPELINE_CWD;
+    else process.env.ARTIFACT_PIPELINE_CWD = previousPipelineCwd;
     await rm(dataRoot, { recursive: true, force: true });
     await rm(workdir, { recursive: true, force: true });
   }
@@ -84,12 +84,12 @@ function runScript(input: {
         ...process.env,
         CODE_ROOT: PROJECT_ROOT,
         DATA_ROOT: input.dataRoot,
-        OPENCLAW_LOBSTER_CWD: path.join(PROJECT_ROOT, 'lobster'),
+        ARTIFACT_PIPELINE_CWD: path.join(PROJECT_ROOT, 'lobster'),
         ALLOW_TMP_RUNTIME_PERSISTENCE: '1',
-        LOBSTER_STAGE1_CACHE_DIR: path.join(input.dataRoot, 'lobster-stage1-cache'),
-        LOBSTER_STAGE2_CACHE_DIR: path.join(input.dataRoot, 'lobster-stage2-cache'),
-        LOBSTER_STAGE3_CACHE_DIR: path.join(input.dataRoot, 'lobster-stage3-cache'),
-        LOBSTER_STAGE4_CACHE_DIR: path.join(input.dataRoot, 'lobster-stage4-cache'),
+        ARTIFACT_STAGE1_CACHE_DIR: path.join(input.dataRoot, 'lobster-stage1-cache'),
+        ARTIFACT_STAGE2_CACHE_DIR: path.join(input.dataRoot, 'lobster-stage2-cache'),
+        ARTIFACT_STAGE3_CACHE_DIR: path.join(input.dataRoot, 'lobster-stage3-cache'),
+        ARTIFACT_STAGE4_CACHE_DIR: path.join(input.dataRoot, 'lobster-stage4-cache'),
       },
       input: `${JSON.stringify(input.stdinJson)}\n`,
       encoding: 'utf8',
@@ -247,7 +247,7 @@ async function seedCurrentSourceIdentity(input: {
       schema_name: 'marketing_job_state_schema',
       schema_version: '1.0.0',
       job_id: input.jobId,
-      job_type: 'brand_campaign',
+      job_type: 'weekly_social_content',
       tenant_id: input.tenantId,
       state: 'approval_required',
       status: 'awaiting_approval',

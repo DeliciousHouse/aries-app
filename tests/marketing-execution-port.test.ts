@@ -13,8 +13,6 @@ import { HermesMarketingPort } from '../backend/marketing/ports/hermes';
 import type { MarketingJobRuntimeDocument } from '../backend/marketing/runtime-state';
 import { TEST_HERMES_GATEWAY_URL } from './fixtures/service-urls';
 
-const STUB_RUNTIME_PATHS = { gatewayCwd: 'lobster', localCwd: '/tmp/lobster' };
-
 const NO_OP_BRAND_KIT_REFRESHER = async () => ({ refreshed: false, enriched: false });
 
 const STUB_DOC = {
@@ -48,25 +46,6 @@ const STUB_RUN_INPUT = {
   maxStdoutBytes: 65_536,
 };
 
-const BRAND_CAMPAIGN_DOC = {
-  job_id: 'job_brand',
-  tenant_id: 'tenant_brand',
-  inputs: {
-    brand_url: 'https://brand.example',
-    competitor_url: 'https://competitor.example',
-    request: {
-      jobType: 'brand_campaign',
-    },
-  },
-} as unknown as MarketingJobRuntimeDocument;
-
-const BRAND_CAMPAIGN_RUN_INPUT = {
-  jobId: 'job_brand',
-  doc: BRAND_CAMPAIGN_DOC,
-  argsJson: '{"job_id":"job_brand"}',
-  timeoutMs: 1_000,
-  maxStdoutBytes: 65_536,
-};
 
 const STUB_RESUME_INPUT = {
   resumeToken: 'opaque-token-123',
@@ -134,16 +113,13 @@ test('marketing port name falls back to hermes on unknown values', () => {
 });
 
 test('getMarketingExecutionPort returns the Hermes port by default', () => {
-  const port = getMarketingExecutionPort(() => STUB_RUNTIME_PATHS, {});
+  const port = getMarketingExecutionPort({});
   assert.ok(port instanceof HermesMarketingPort);
   assert.equal(port.name, 'hermes');
 });
 
 test('getMarketingExecutionPort returns the Hermes port when explicitly selected', () => {
-  const port = getMarketingExecutionPort(
-    () => STUB_RUNTIME_PATHS,
-    { ARIES_MARKETING_EXECUTION_PROVIDER: 'hermes' },
-  );
+  const port = getMarketingExecutionPort({ ARIES_MARKETING_EXECUTION_PROVIDER: 'hermes' });
   assert.ok(port instanceof HermesMarketingPort);
   assert.equal(port.name, 'hermes');
 });
@@ -258,47 +234,6 @@ test('HermesMarketingPort.runPipeline returns submitted immediately by default',
   });
 });
 
-test('HermesMarketingPort preserves brand campaign workflow key for non-weekly runs', async () => {
-  await withDataRoot(async () => {
-    const { loadExecutionRunRecord } = await import('../backend/execution/run-store');
-    const { calls, fetchImpl } = recordingFetchSequence([
-      () => new Response(JSON.stringify({ run_id: 'hermes-brand-run-1', status: 'started' }), {
-        status: 202,
-        headers: { 'content-type': 'application/json' },
-      }),
-    ]);
-    const port = new HermesMarketingPort(
-      {
-        HERMES_GATEWAY_URL: TEST_HERMES_GATEWAY_URL,
-        HERMES_API_SERVER_KEY: 'token-123',
-        HERMES_POLL_BRIDGE_ENABLED: '0',
-        INTERNAL_API_SECRET: 'internal-secret',
-        APP_BASE_URL: 'https://aries.example.com',
-      },
-      fetchImpl,
-      undefined,
-      NO_OP_BRAND_KIT_REFRESHER,
-    );
-
-    const result = await port.runPipeline(BRAND_CAMPAIGN_RUN_INPUT);
-
-    assert.equal(result.kind, 'submitted');
-    assert.equal(calls.length, 1);
-    const body = JSON.parse(String(calls[0].init.body));
-    assert.equal(body.workflow_key, undefined);
-    assert.equal(body.workflow_version, undefined);
-    assert.equal(body.callback_context.workflow_key, 'marketing_pipeline');
-    assert.equal(body.callback_context.workflow_version, undefined);
-    assert.match(body.input, /Workflow: marketing_pipeline/);
-    assert.doesNotMatch(body.input, /Workflow: social_content_weekly/);
-    assert.match(body.input, /"job_id":"job_brand"/);
-
-    const ariesRunIdMatch = String(body.input).match(/Aries run ID: (arun_[^\n]+)/);
-    const stored = loadExecutionRunRecord(ariesRunIdMatch?.[1] ?? '');
-    assert.equal(stored?.workflow_key, 'marketing_pipeline');
-    assert.equal(stored?.marketing_job_id, 'job_brand');
-  });
-});
 
 test('HermesMarketingPort polls only when HERMES_SYNC_POLL_FOR_TESTS=1', async () => {
   await withDataRoot(async () => {

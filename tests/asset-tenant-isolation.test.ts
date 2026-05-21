@@ -59,8 +59,8 @@ test('tenant isolation: two tenants ingesting identical bytes land in distinct p
     await withEnv(
       {
         DATA_ROOT: dataRoot,
-        ARIES_LOBSTER_HOST_OUTPUT_DIR: '/home/node/aries-app/lobster/output',
-        ARIES_LOBSTER_HOST_OUTPUT_MOUNT: hostMount,
+        ARIES_HOST_ARTIFACT_OUTPUT_DIR: '/home/node/aries-app/lobster/output',
+        ARIES_HOST_ARTIFACT_OUTPUT_MOUNT: hostMount,
       },
       async () => {
         const { ingestRuntimeDocAssets } = await loadIngest();

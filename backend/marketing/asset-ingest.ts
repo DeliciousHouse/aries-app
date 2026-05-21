@@ -73,8 +73,8 @@ function normalizeTenantSegment(raw: unknown): string {
 }
 
 function buildContext(tenantId: string): IngestContext {
-  const hostOutputDir = process.env.ARIES_LOBSTER_HOST_OUTPUT_DIR?.trim();
-  const hostOutputMount = process.env.ARIES_LOBSTER_HOST_OUTPUT_MOUNT?.trim() || DEFAULT_HOST_OUTPUT_MOUNT;
+  const hostOutputDir = process.env.ARIES_HOST_ARTIFACT_OUTPUT_DIR?.trim();
+  const hostOutputMount = process.env.ARIES_HOST_ARTIFACT_OUTPUT_MOUNT?.trim() || DEFAULT_HOST_OUTPUT_MOUNT;
   const tenantSegment = tenantId || UNSCOPED_TENANT_SEGMENT;
   return {
     dataRoot: path.normalize(resolveDataRoot()),

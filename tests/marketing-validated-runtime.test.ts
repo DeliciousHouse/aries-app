@@ -13,20 +13,20 @@ async function withRuntimeEnv<T>(run: (input: { dataRoot: string; workdir: strin
   const previousCodeRoot = process.env.CODE_ROOT;
   const previousDataRoot = process.env.DATA_ROOT;
   const previousAllowTmpRuntimePersistence = process.env.ALLOW_TMP_RUNTIME_PERSISTENCE;
-  const previousStage1CacheDir = process.env.LOBSTER_STAGE1_CACHE_DIR;
-  const previousStage2CacheDir = process.env.LOBSTER_STAGE2_CACHE_DIR;
-  const previousStage3CacheDir = process.env.LOBSTER_STAGE3_CACHE_DIR;
-  const previousStage4CacheDir = process.env.LOBSTER_STAGE4_CACHE_DIR;
+  const previousStage1CacheDir = process.env.ARTIFACT_STAGE1_CACHE_DIR;
+  const previousStage2CacheDir = process.env.ARTIFACT_STAGE2_CACHE_DIR;
+  const previousStage3CacheDir = process.env.ARTIFACT_STAGE3_CACHE_DIR;
+  const previousStage4CacheDir = process.env.ARTIFACT_STAGE4_CACHE_DIR;
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-validated-runtime-'));
   const workdir = await mkdtemp(path.join(tmpdir(), 'aries-validated-workdir-'));
 
   process.env.CODE_ROOT = PROJECT_ROOT;
   process.env.DATA_ROOT = dataRoot;
   process.env.ALLOW_TMP_RUNTIME_PERSISTENCE = '1';
-  process.env.LOBSTER_STAGE1_CACHE_DIR = path.join(dataRoot, 'lobster-stage1-cache');
-  process.env.LOBSTER_STAGE2_CACHE_DIR = path.join(dataRoot, 'lobster-stage2-cache');
-  process.env.LOBSTER_STAGE3_CACHE_DIR = path.join(dataRoot, 'lobster-stage3-cache');
-  process.env.LOBSTER_STAGE4_CACHE_DIR = path.join(dataRoot, 'lobster-stage4-cache');
+  process.env.ARTIFACT_STAGE1_CACHE_DIR = path.join(dataRoot, 'lobster-stage1-cache');
+  process.env.ARTIFACT_STAGE2_CACHE_DIR = path.join(dataRoot, 'lobster-stage2-cache');
+  process.env.ARTIFACT_STAGE3_CACHE_DIR = path.join(dataRoot, 'lobster-stage3-cache');
+  process.env.ARTIFACT_STAGE4_CACHE_DIR = path.join(dataRoot, 'lobster-stage4-cache');
 
   try {
     return await run({ dataRoot, workdir });
@@ -37,14 +37,14 @@ async function withRuntimeEnv<T>(run: (input: { dataRoot: string; workdir: strin
     else process.env.DATA_ROOT = previousDataRoot;
     if (previousAllowTmpRuntimePersistence === undefined) delete process.env.ALLOW_TMP_RUNTIME_PERSISTENCE;
     else process.env.ALLOW_TMP_RUNTIME_PERSISTENCE = previousAllowTmpRuntimePersistence;
-    if (previousStage1CacheDir === undefined) delete process.env.LOBSTER_STAGE1_CACHE_DIR;
-    else process.env.LOBSTER_STAGE1_CACHE_DIR = previousStage1CacheDir;
-    if (previousStage2CacheDir === undefined) delete process.env.LOBSTER_STAGE2_CACHE_DIR;
-    else process.env.LOBSTER_STAGE2_CACHE_DIR = previousStage2CacheDir;
-    if (previousStage3CacheDir === undefined) delete process.env.LOBSTER_STAGE3_CACHE_DIR;
-    else process.env.LOBSTER_STAGE3_CACHE_DIR = previousStage3CacheDir;
-    if (previousStage4CacheDir === undefined) delete process.env.LOBSTER_STAGE4_CACHE_DIR;
-    else process.env.LOBSTER_STAGE4_CACHE_DIR = previousStage4CacheDir;
+    if (previousStage1CacheDir === undefined) delete process.env.ARTIFACT_STAGE1_CACHE_DIR;
+    else process.env.ARTIFACT_STAGE1_CACHE_DIR = previousStage1CacheDir;
+    if (previousStage2CacheDir === undefined) delete process.env.ARTIFACT_STAGE2_CACHE_DIR;
+    else process.env.ARTIFACT_STAGE2_CACHE_DIR = previousStage2CacheDir;
+    if (previousStage3CacheDir === undefined) delete process.env.ARTIFACT_STAGE3_CACHE_DIR;
+    else process.env.ARTIFACT_STAGE3_CACHE_DIR = previousStage3CacheDir;
+    if (previousStage4CacheDir === undefined) delete process.env.ARTIFACT_STAGE4_CACHE_DIR;
+    else process.env.ARTIFACT_STAGE4_CACHE_DIR = previousStage4CacheDir;
 
     await rm(dataRoot, { recursive: true, force: true });
     await rm(workdir, { recursive: true, force: true });
@@ -68,10 +68,10 @@ function runScript(input: {
         CODE_ROOT: PROJECT_ROOT,
         DATA_ROOT: input.dataRoot,
         ALLOW_TMP_RUNTIME_PERSISTENCE: '1',
-        LOBSTER_STAGE1_CACHE_DIR: path.join(input.dataRoot, 'lobster-stage1-cache'),
-        LOBSTER_STAGE2_CACHE_DIR: path.join(input.dataRoot, 'lobster-stage2-cache'),
-        LOBSTER_STAGE3_CACHE_DIR: path.join(input.dataRoot, 'lobster-stage3-cache'),
-        LOBSTER_STAGE4_CACHE_DIR: path.join(input.dataRoot, 'lobster-stage4-cache'),
+        ARTIFACT_STAGE1_CACHE_DIR: path.join(input.dataRoot, 'lobster-stage1-cache'),
+        ARTIFACT_STAGE2_CACHE_DIR: path.join(input.dataRoot, 'lobster-stage2-cache'),
+        ARTIFACT_STAGE3_CACHE_DIR: path.join(input.dataRoot, 'lobster-stage3-cache'),
+        ARTIFACT_STAGE4_CACHE_DIR: path.join(input.dataRoot, 'lobster-stage4-cache'),
       },
       input: `${JSON.stringify(input.stdinJson)}\n`,
       encoding: 'utf8',
@@ -273,43 +273,3 @@ test('validated profile snapshot reads brand/profile docs in the required preced
   });
 });
 
-test('stage 3 scripts hard-fail when wrapper language reaches final creative fields', async () => {
-  await withRuntimeEnv(async ({ dataRoot, workdir }) => {
-    const result = runScript({
-      scriptName: 'scriptwriter',
-      args: ['--json', '--brand-slug', 'public_sugarandleather-com'],
-      dataRoot,
-      workdir,
-      stdinJson: {
-        run_id: 'betterup-247ee49a',
-        production_brief: {
-          campaign_name: 'public-sugarandleather-com-stage2-plan',
-          core_message: 'You can trust yourself again after control.',
-          offer_summary: 'Book a private consult with Sugar & Leather to rebuild self-trust.',
-          problem_statement: 'Based on the brand data and competitive landscape analysis.',
-          primary_cta: 'Book a consult',
-          proof_points: [
-            'Private coaching designed around emotional recovery.',
-            'Direct, non-generic language that respects the stakes.',
-            'A clear consultation step that moves the visitor forward.',
-          ],
-          creative_handoff: {
-            hooks: {
-              meta: ['You can trust yourself again after control.'],
-              'landing-page': ['Rebuild self-trust without shrinking yourself.'],
-              video: ['You can trust yourself again after control.'],
-            },
-            opening_lines: {
-              meta: ['The aftermath of control can make every choice feel dangerous.'],
-              'landing-page': ['Sugar & Leather helps you rebuild self-trust with direct private coaching.'],
-              video: ['When control has shaped your choices, even calm can feel unfamiliar.'],
-            },
-          },
-        },
-      },
-    });
-
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /quality_gate_failed:script\.problem_statement|quality_gate_failed/);
-  });
-});

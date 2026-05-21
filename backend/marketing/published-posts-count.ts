@@ -2,7 +2,7 @@
  * Count the real DB `posts` rows a completed marketing pipeline produced.
  *
  * The dashboard "Publish items" counter historically projected
- * `payload.publish_package` — a dead OpenClaw-era contract that the
+ * `payload.publish_package` — a dead legacy-era contract that the
  * Hermes-native pipeline never emits, so a completed campaign showed
  * "Publish items 0" even though `synthesizePublishPostsFromContentPackage`
  * had created real `posts` rows on the publish-completed callback.

@@ -26,10 +26,10 @@ import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/ten
 const MARKETING_ONBOARDING_REQUIRED = {
   status: 409,
   reason: 'onboarding_required',
-  message: 'Complete tenant onboarding before starting a brand campaign.',
+  message: 'Complete tenant onboarding before starting a marketing job.',
 } as const;
 
-type PublicJobType = 'brand_campaign' | 'weekly_social_content';
+type PublicJobType = 'weekly_social_content';
 type ResponseDialect = 'marketing' | 'social-content';
 
 function coerceFieldValue(value: FormDataEntryValue | null): string {
@@ -275,7 +275,7 @@ function resolveRequestedJobType(rawJobType: unknown, dialect: ResponseDialect):
   if (typeof rawJobType === 'string' && rawJobType.trim().length > 0) {
     return rawJobType.trim() as PublicJobType;
   }
-  return 'brand_campaign';
+  return 'weekly_social_content';
 }
 
 function buildCreateResponse(
@@ -321,7 +321,7 @@ export async function handlePostMarketingJobs(
   const requestBody = await parseCreateJobRequest(req);
   const requestedJobType = resolveRequestedJobType(requestBody.jobType, dialect);
 
-  if (requestedJobType !== 'brand_campaign' && requestedJobType !== 'weekly_social_content') {
+  if (requestedJobType !== 'weekly_social_content') {
     return NextResponse.json({ error: `unsupported_job_type:${String(requestBody.jobType ?? '')}` }, { status: 400 });
   }
 

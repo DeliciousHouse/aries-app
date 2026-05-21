@@ -253,7 +253,7 @@ One-page brand overview for quick reference
 
 ### Phase 4: Deliver
 
-1. Save markdown to `~/aries-app/lobster/output/{brand-slug}-brand-bible.md`
+1. Save markdown to `~/aries-app/artifacts/output/{brand-slug}-brand-bible.md` (or the path configured via `ARTIFACT_PIPELINE_CWD`)
 2. Send file to user via Telegram
 3. Offer to expand any section or add screenshots to a zip
 
@@ -339,12 +339,12 @@ User: "Yes"
 ## Output
 
 ### 1. Brand Bible (Markdown)
-`~/aries-app/lobster/output/{brand-slug}-brand-bible.md`
+`~/aries-app/artifacts/output/{brand-slug}-brand-bible.md`
 - Positioning, offers, voice, copy guidelines
 - For content/copy work
 
 ### 2. Design System (CSS)
-`~/aries-app/lobster/output/{brand-slug}-design-system.css`
+`~/aries-app/artifacts/output/{brand-slug}-design-system.css`
 - Actual extracted CSS variables
 - Component styles
 - For `/page_designer` to use

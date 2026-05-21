@@ -24,7 +24,7 @@ const ACTIVE_SOCIAL_CONTENT_PATHS = [
 ] as const;
 
 const BANNED_SOCIAL_CONTENT_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
-  { pattern: /\bLobsterEnvelope\b/, label: 'LobsterEnvelope' },
+  { pattern: /\bWorkflowEnvelope\b/, label: 'WorkflowEnvelope' },
   { pattern: /\blegacy-openclaw\b/, label: 'legacy-openclaw' },
   { pattern: /\.lobster\b/, label: '.lobster workflow references' },
   { pattern: /\bmarketing_pipeline\b/, label: 'marketing_pipeline workflow key' },
@@ -32,13 +32,13 @@ const BANNED_SOCIAL_CONTENT_PATTERNS: Array<{ pattern: RegExp; label: string }> 
   { pattern: /\bGEMINI_API_KEY\b/, label: 'GEMINI_API_KEY dependency' },
 ];
 
-test('social-content execution contract does not import LobsterEnvelope', async () => {
+test('social-content execution contract does not import WorkflowEnvelope', async () => {
   for (const file of SOCIAL_CONTENT_EXECUTION_FILES) {
     const source = await readFile(new URL(`../${file}`, import.meta.url), 'utf8');
     assert.equal(
-      /\bLobsterEnvelope\b/.test(source),
+      /\bWorkflowEnvelope\b/.test(source),
       false,
-      `${file} must not reference LobsterEnvelope`,
+      `${file} must not reference WorkflowEnvelope`,
     );
   }
 });

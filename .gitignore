@@ -119,29 +119,24 @@ state/
 .tmp/
 .clawhub/
 .gstack/
-SOUL.md
-USER.md
-IDENTITY.md
-MEMORY.md
-PURPOSE.md
-AGENTS.md
-HEARTBEAT.md
-TOOLS.md
-PROTECTED_SYSTEMS.md
-memory/*
 tmp
 
-# Governance / agent-operating files that are canonical repo truth in this workspace
-!AGENTS.md
-!PROTECTED_SYSTEMS.md
-!MEMORY.md
-!HEARTBEAT.md
-!TOOLS.md
-!SOUL.md
-!USER.md
-!IDENTITY.md
-!DELEGATION-RULES.md
-!data/org-chart.json
+# Root identity / governance files — tracked as canonical repo truth.
+# PURPOSE.md is not tracked (local-only operator intent).
+PURPOSE.md
+
+# Internal scaffolding / operator artifacts — never commit to a public repo
+.sisyphus/
+.ralph/
+.codex
+qa-reports/
+
+# Operator memory logs — contents are local-only; the directory itself is
+# preserved (scripts/automations/ reads it at runtime) via .gitkeep/README.md
+memory/*
+!memory/.gitkeep
+!memory/README.md
+default/memory/*
 
 .DS_Store
 .env
@@ -163,7 +158,6 @@ tmp
 *.xlsx
 output/
 
-/memory/
 .agent/*.json
 !.agent/workflows/
 /local/
@@ -182,9 +176,6 @@ agent-orchestrator.local.yaml
 # their output lives locally only.
 docs/briefs/
 docs/superpowers/
-default/memory/*-daily-standup.md
-default/memory/*-standup.md
-default/memory/*-standup-*.md
 .env
 .env.local
 .env.*.local

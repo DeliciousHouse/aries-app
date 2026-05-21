@@ -102,8 +102,7 @@ export function assertHermesSocialContentRuntimeConfigured(
 
   if (missing.length > 0) {
     throw new Error(
-      `Hermes social-content runtime is not configured: missing ${missing.join(', ')}. ` +
-      'Weekly social content is Hermes-only and cannot fall back to legacy-openclaw.',
+      `Hermes social-content runtime is not configured: missing ${missing.join(', ')}.`,
     );
   }
 

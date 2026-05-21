@@ -62,7 +62,7 @@ Do not proceed until you have read all three.
    ```
 
 ### Step 5: Verify the cron prompt
-1. Run `node scripts/automations/install-openclaw-crons.mjs` (without `--apply`) to preview the generated prompt.
+1. Run `node scripts/automations/install-crons.mjs` (without `--apply`) to preview the generated prompt.
 2. Confirm the prompt follows the template:
    - First line: `Read and follow: <repo>/skills/<skill-name>/SKILL.md`
    - Context block with only relevant context lines

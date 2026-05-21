@@ -7,16 +7,6 @@ import { resolveProjectRoot } from './helpers/project-root';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
-function setOpenClawTestInvoker(
-  impl: (payload: Record<string, unknown>) => unknown | Promise<unknown>
-): void {
-  (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ = impl;
-}
-
-function clearOpenClawTestInvoker(): void {
-  delete (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__;
-}
-
 function createFetchResponse(body: string, contentType: string): Response {
   return new Response(body, {
     status: 200,
@@ -77,27 +67,26 @@ function installBrandExampleFetchMock(): () => void {
 async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise<T> {
   const previousCodeRoot = process.env.CODE_ROOT;
   const previousDataRoot = process.env.DATA_ROOT;
-  const previousOpenClawLobsterCwd = process.env.OPENCLAW_LOBSTER_CWD;
-  const previousStage1CacheDir = process.env.LOBSTER_STAGE1_CACHE_DIR;
-  const previousStage2CacheDir = process.env.LOBSTER_STAGE2_CACHE_DIR;
-  const previousStage3CacheDir = process.env.LOBSTER_STAGE3_CACHE_DIR;
-  const previousStage4CacheDir = process.env.LOBSTER_STAGE4_CACHE_DIR;
+  const previousPipelineCwd = process.env.ARTIFACT_PIPELINE_CWD;
+  const previousStage1CacheDir = process.env.ARTIFACT_STAGE1_CACHE_DIR;
+  const previousStage2CacheDir = process.env.ARTIFACT_STAGE2_CACHE_DIR;
+  const previousStage3CacheDir = process.env.ARTIFACT_STAGE3_CACHE_DIR;
+  const previousStage4CacheDir = process.env.ARTIFACT_STAGE4_CACHE_DIR;
   const previousMarketingProvider = process.env.ARIES_MARKETING_EXECUTION_PROVIDER;
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-verify-banned-'));
 
   process.env.CODE_ROOT = PROJECT_ROOT;
   process.env.DATA_ROOT = dataRoot;
-  process.env.OPENCLAW_LOBSTER_CWD = path.join(PROJECT_ROOT, 'lobster');
-  process.env.LOBSTER_STAGE1_CACHE_DIR = path.join(dataRoot, 'lobster-stage1-cache');
-  process.env.LOBSTER_STAGE2_CACHE_DIR = path.join(dataRoot, 'lobster-stage2-cache');
-  process.env.LOBSTER_STAGE3_CACHE_DIR = path.join(dataRoot, 'lobster-stage3-cache');
-  process.env.LOBSTER_STAGE4_CACHE_DIR = path.join(dataRoot, 'lobster-stage4-cache');
-  process.env.ARIES_MARKETING_EXECUTION_PROVIDER = 'legacy-openclaw';
+  process.env.ARTIFACT_PIPELINE_CWD = path.join(PROJECT_ROOT, 'lobster');
+  process.env.ARTIFACT_STAGE1_CACHE_DIR = path.join(dataRoot, 'lobster-stage1-cache');
+  process.env.ARTIFACT_STAGE2_CACHE_DIR = path.join(dataRoot, 'lobster-stage2-cache');
+  process.env.ARTIFACT_STAGE3_CACHE_DIR = path.join(dataRoot, 'lobster-stage3-cache');
+  process.env.ARTIFACT_STAGE4_CACHE_DIR = path.join(dataRoot, 'lobster-stage4-cache');
+  process.env.ARIES_MARKETING_EXECUTION_PROVIDER = 'hermes';
 
   try {
     return await run(dataRoot);
   } finally {
-    clearOpenClawTestInvoker();
 
     if (previousCodeRoot === undefined) {
       delete process.env.CODE_ROOT;
@@ -111,34 +100,34 @@ async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise
       process.env.DATA_ROOT = previousDataRoot;
     }
 
-    if (previousOpenClawLobsterCwd === undefined) {
-      delete process.env.OPENCLAW_LOBSTER_CWD;
+    if (previousPipelineCwd === undefined) {
+      delete process.env.ARTIFACT_PIPELINE_CWD;
     } else {
-      process.env.OPENCLAW_LOBSTER_CWD = previousOpenClawLobsterCwd;
+      process.env.ARTIFACT_PIPELINE_CWD = previousPipelineCwd;
     }
 
     if (previousStage1CacheDir === undefined) {
-      delete process.env.LOBSTER_STAGE1_CACHE_DIR;
+      delete process.env.ARTIFACT_STAGE1_CACHE_DIR;
     } else {
-      process.env.LOBSTER_STAGE1_CACHE_DIR = previousStage1CacheDir;
+      process.env.ARTIFACT_STAGE1_CACHE_DIR = previousStage1CacheDir;
     }
 
     if (previousStage2CacheDir === undefined) {
-      delete process.env.LOBSTER_STAGE2_CACHE_DIR;
+      delete process.env.ARTIFACT_STAGE2_CACHE_DIR;
     } else {
-      process.env.LOBSTER_STAGE2_CACHE_DIR = previousStage2CacheDir;
+      process.env.ARTIFACT_STAGE2_CACHE_DIR = previousStage2CacheDir;
     }
 
     if (previousStage3CacheDir === undefined) {
-      delete process.env.LOBSTER_STAGE3_CACHE_DIR;
+      delete process.env.ARTIFACT_STAGE3_CACHE_DIR;
     } else {
-      process.env.LOBSTER_STAGE3_CACHE_DIR = previousStage3CacheDir;
+      process.env.ARTIFACT_STAGE3_CACHE_DIR = previousStage3CacheDir;
     }
 
     if (previousStage4CacheDir === undefined) {
-      delete process.env.LOBSTER_STAGE4_CACHE_DIR;
+      delete process.env.ARTIFACT_STAGE4_CACHE_DIR;
     } else {
-      process.env.LOBSTER_STAGE4_CACHE_DIR = previousStage4CacheDir;
+      process.env.ARTIFACT_STAGE4_CACHE_DIR = previousStage4CacheDir;
     }
 
     if (previousMarketingProvider === undefined) {
@@ -158,27 +147,53 @@ function stageStepPath(dataRoot: string, stage: 1 | 2 | 3 | 4, runId: string, st
 test('marketing job creation response omits banned runtime and tenant fields', async () => {
   await withRuntimeEnv(async () => {
     const { handlePostMarketingJobs } = await import('../app/api/marketing/jobs/handler');
-    let captured: Record<string, unknown> | null = null;
+    const { __setMarketingExecutionPortForTests } = await import('../backend/marketing/orchestrator');
+    let capturedArgsJson = '';
     const restoreFetch = installBrandExampleFetchMock();
 
-    try {
-      setOpenClawTestInvoker((payload) => {
-        captured = payload;
+    __setMarketingExecutionPortForTests(() => ({
+      name: 'hermes' as const,
+      async runPipeline(input) {
+        capturedArgsJson = input.argsJson;
         return {
-          ok: true,
-          status: 'ok',
-          output: [{ accepted: true, approval_preview: { status: 'pending_human_review' }, run_id: 'verify-run' }],
-          requiresApproval: { resumeToken: 'resume_verify_123' },
+          kind: 'completed' as const,
+          provider: 'hermes' as const,
+          output: {
+            ok: true,
+            status: 'requires_approval' as const,
+            workflowKey: 'marketing_pipeline',
+            runId: 'verify-run',
+            output: [{ accepted: true, run_id: 'verify-run' }],
+            approval: {
+              stage: 'strategy' as const,
+              workflowStepId: 'approve_stage_2',
+              prompt: 'Research is complete. Continue to brand analysis.',
+              resumeToken: 'resume_verify_123',
+            },
+          },
         };
-      });
+      },
+      async resumePipeline() {
+        throw new Error('not used in this test');
+      },
+      async submitNextStage() {
+        throw new Error('not used in this test');
+      },
+      getCallbackUrl: () => 'https://aries.test/api/internal/hermes/runs',
+      getSessionKey: () => 'main',
+      async submitRawRun() {
+        throw new Error('not used in this test');
+      },
+    }));
 
+    try {
       const response = await handlePostMarketingJobs(
         new Request('http://localhost/api/marketing/jobs', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             tenantId: 'forged_tenant',
-            jobType: 'brand_campaign',
+            jobType: 'weekly_social_content',
             payload: {
               brandUrl: 'https://brand.example',
               businessType: 'Test vertical',
@@ -195,9 +210,7 @@ test('marketing job creation response omits banned runtime and tenant fields', a
       );
 
       const body = (await response.json()) as Record<string, unknown>;
-      const invokerPayload = captured as { args?: { pipeline?: string; argsJson?: string; action?: string } } | null;
-      assert.equal(invokerPayload?.args?.pipeline, 'marketing-pipeline.lobster');
-      const workflowArgs = JSON.parse(String(invokerPayload?.args?.argsJson ?? '{}')) as Record<string, unknown>;
+      const workflowArgs = JSON.parse(capturedArgsJson || '{}') as Record<string, unknown>;
 
       assert.equal(response.status, 202);
       assert.equal(body.marketing_job_status, 'accepted');
@@ -216,6 +229,7 @@ test('marketing job creation response omits banned runtime and tenant fields', a
       assert.equal('tenant_id' in workflowArgs, false);
     } finally {
       restoreFetch();
+      __setMarketingExecutionPortForTests(null);
     }
   });
 });
@@ -236,7 +250,7 @@ test('marketing job status response omits banned path leakage fields', async () 
         schema_name: 'job_runtime_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_real',
         state: 'approval_required',
         status: 'awaiting_approval',

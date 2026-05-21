@@ -1,8 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import path from 'node:path';
 
-import { resolveCodePath, resolveCodeRoot } from '@/lib/runtime-paths';
 import { sanitizeWeeklySocialContentPayload } from '@/backend/social-content/payload';
 import {
   SOCIAL_CONTENT_DEFAULT_SCOPE,
@@ -27,17 +24,11 @@ import {
   validateCanonicalCompetitorUrl,
 } from '@/lib/marketing-competitor';
 import {
-  OpenClawGatewayError,
-  describeLobsterResumeToken,
-  isOpenClawLobsterResumeStateInvalid,
-  isOpenClawLobsterResumeStateMissing,
-  isOpenClawLobsterResumeStateRecoverable,
-  resolveOpenClawLobsterRuntimeContext,
-  type LobsterEnvelope,
-} from '../openclaw/gateway-client';
+  describeMarketingResumeToken,
+  type MarketingWorkflowEnvelope,
+} from './workflow-envelope';
 import { getMarketingExecutionPort, type MarketingExecutionPort, type MarketingExecutionResult } from './execution-port';
 import { assertMarketingExecutionPortConfigured, resolveMarketingProviderName } from './provider-guard';
-import { LegacyOpenClawMarketingPort } from './ports/legacy-openclaw';
 import {
   MarketingApprovalLockError,
   createMarketingApprovalRecord,
@@ -102,7 +93,7 @@ import {
 
 export type StartMarketingJobRequest = {
   tenantId: string;
-  jobType: 'brand_campaign' | 'weekly_social_content';
+  jobType: 'weekly_social_content';
   /** Optional. User id of the authenticated caller that initiated the
    * campaign. Persisted on the runtime document so the campaign delete
    * permission check can allow the creator to delete their own campaigns
@@ -124,7 +115,7 @@ export type StartMarketingJobResponse = {
   status: 'accepted' | 'needs_connection';
   jobId: string;
   tenantId: string;
-  jobType: 'brand_campaign' | 'weekly_social_content';
+  jobType: 'weekly_social_content';
   runtimeArtifactPath: string;
   approvalRequired: boolean;
   currentStage: MarketingStage;
@@ -229,7 +220,7 @@ function stringValue(value: unknown, fallback = ''): string {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback;
 }
 
-function ensureBrandCampaignInput(input: StartMarketingJobRequest): { brandUrl: string; businessType: string; competitorUrl: string } {
+function ensureMarketingJobInput(input: StartMarketingJobRequest): { brandUrl: string; businessType: string; competitorUrl: string } {
   const brandUrl = stringValue(input.payload?.brandUrl);
   const businessType = stringValue(input.payload?.businessType);
   const missing: string[] = [];
@@ -296,33 +287,24 @@ function weeklyMediaDemand(payload: Record<string, unknown>): {
 }
 
 /**
- * Client-facing marketing jobs intentionally stay on the monolithic
- * `marketing-pipeline.lobster` run/resume contract. The atomic
- * `marketing_stage*` workflows remain a separate adapter surface behind
- * `/api/tenant/workflows/*`.
+ * Client-facing marketing jobs run on the monolithic marketing-pipeline
+ * run/resume contract executed by Hermes. The atomic `marketing_stage*`
+ * workflows remain a separate adapter surface behind `/api/tenant/workflows/*`.
  */
 export const MARKETING_CLIENT_EXECUTION_MODEL = 'marketing_pipeline_run_resume';
-export const MARKETING_PIPELINE_FILE = 'marketing-pipeline.lobster';
 export const MARKETING_WORKFLOW_NAME = 'marketing-pipeline';
-function defaultMarketingPipelineGatewayCwd(): string {
-  return resolveCodeRoot() === '/app' ? 'lobster' : resolveCodePath('lobster');
-}
 
-function marketingPipelineGatewayCwd(): string {
-  return (
-    process.env.OPENCLAW_GATEWAY_LOBSTER_CWD?.trim() ||
-    process.env.OPENCLAW_LOBSTER_CWD?.trim() ||
-    defaultMarketingPipelineGatewayCwd()
-  );
-}
-
-function marketingPipelineLocalCwd(): string {
-  return (
-    process.env.OPENCLAW_LOCAL_LOBSTER_CWD?.trim() ||
-    process.env.OPENCLAW_LOBSTER_CWD?.trim() ||
-    resolveCodePath('lobster')
-  );
-}
+/**
+ * Neutral runtime context recorded on approval records and lifecycle logs.
+ * Hermes manages its own run state, so these fields carry no operational
+ * meaning today; they are retained for the persisted approval-record schema.
+ */
+type MarketingWorkflowRuntimeContext = {
+  sessionKey: string;
+  cwd: string;
+  stateDir: string | null;
+  gatewayUrl: string | null;
+};
 
 function marketingPipelineArgs(doc: MarketingJobRuntimeDocument): Record<string, unknown> {
   const facebookPageUrl = doc.inputs.facebook_page_url ?? doc.inputs.competitor_facebook_url ?? '';
@@ -337,33 +319,26 @@ function marketingPipelineArgs(doc: MarketingJobRuntimeDocument): Record<string,
     competitor_facebook_url: facebookPageUrl,
     brand_slug: doc.tenant_id,
     job_id: doc.job_id,
-    // Correlation id the gateway uses to target a cancel signal at this
-    // specific in-flight run. Kept identical to the marketing job id so
-    // `cancelOpenClawLobsterWorkflow({ correlationId: jobId })` aborts
-    // exactly the run this orchestrator call spawned.
+    // Correlation id the executor can use to target a cancel signal at this
+    // specific in-flight run. Kept identical to the marketing job id.
     cancel_correlation_id: doc.job_id,
   };
 }
 
-
-export function resolveMarketingPipelineRuntimePaths() {
-  const gatewayCwd = marketingPipelineGatewayCwd();
-  const localCwd = marketingPipelineLocalCwd();
-  const runtime = resolveOpenClawLobsterRuntimeContext({ cwd: gatewayCwd });
-  return {
-    gatewayCwd,
-    localCwd,
-    pipelinePath: path.join(localCwd, MARKETING_PIPELINE_FILE),
-    runtime,
-  };
-}
-
-function marketingWorkflowRuntimeContext() {
-  const { pipelinePath, runtime } = resolveMarketingPipelineRuntimePaths();
+function marketingWorkflowRuntimeContext(): {
+  workflowName: string;
+  pipelinePath: string;
+  runtime: MarketingWorkflowRuntimeContext;
+} {
   return {
     workflowName: MARKETING_WORKFLOW_NAME,
-    pipelinePath,
-    runtime,
+    pipelinePath: MARKETING_WORKFLOW_NAME,
+    runtime: {
+      sessionKey: 'main',
+      cwd: '',
+      stateDir: null,
+      gatewayUrl: null,
+    },
   };
 }
 
@@ -383,7 +358,7 @@ function approvalLifecycleLog(
   });
 }
 
-function primaryOutputRecord(envelope: LobsterEnvelope): Record<string, unknown> {
+function primaryOutputRecord(envelope: MarketingWorkflowEnvelope): Record<string, unknown> {
   const fromOutput = Array.isArray(envelope.output) ? envelope.output[0] : null;
   if (fromOutput && typeof fromOutput === 'object' && !Array.isArray(fromOutput)) {
     return fromOutput as Record<string, unknown>;
@@ -410,7 +385,7 @@ function runIdFromPrimaryOutput(primaryOutput: Record<string, unknown>): string 
   return stringValue(primaryOutput.run_id) || null;
 }
 
-function approvalPrompt(envelope: LobsterEnvelope, fallback: string): string {
+function approvalPrompt(envelope: MarketingWorkflowEnvelope, fallback: string): string {
   return stringValue(envelope.requiresApproval?.prompt) || fallback;
 }
 
@@ -463,15 +438,8 @@ function summarizePublish(primaryOutput: Record<string, unknown>) {
   };
 }
 
-function requestedJobTypeFromDoc(doc: MarketingJobRuntimeDocument): 'brand_campaign' | 'weekly_social_content' {
-  const request = doc.inputs.request;
-  if (request && typeof request === 'object' && !Array.isArray(request)) {
-    const value = (request as Record<string, unknown>).jobType;
-    if (value === 'weekly_social_content') {
-      return 'weekly_social_content';
-    }
-  }
-  return 'brand_campaign';
+function requestedJobTypeFromDoc(_doc: MarketingJobRuntimeDocument): 'weekly_social_content' {
+  return 'weekly_social_content';
 }
 
 function marketingStageFromSocialApprovalStep(step: SocialContentApprovalStep): Extract<MarketingStage, 'strategy' | 'production' | 'publish'> {
@@ -511,40 +479,12 @@ function resolveMarketingExecutionPortForDoc(doc: MarketingJobRuntimeDocument): 
   if (marketingExecutionPortOverrideForTests) {
     return marketingExecutionPortOverrideForTests(doc);
   }
-  const jobType = requestedJobTypeFromDoc(doc);
 
-  // Weekly social-content is Hermes-only regardless of the general provider
-  // setting. The legacy path does not support social-content workflows.
-  // Validate against the Hermes-only env shape FIRST so an operator who set
-  // ARIES_MARKETING_EXECUTION_PROVIDER=legacy-openclaw but ran a social-content
-  // job sees a clear fail-fast error instead of a buried Hermes config-error
-  // result at call time.
-  if (jobType === 'weekly_social_content') {
-    assertMarketingExecutionPortConfigured({
-      ...process.env,
-      ARIES_MARKETING_EXECUTION_PROVIDER: 'hermes',
-    });
-    return getMarketingExecutionPort(() => {
-      const { gatewayCwd, localCwd } = resolveMarketingPipelineRuntimePaths();
-      return { gatewayCwd, localCwd };
-    });
-  }
-
-  // Brand-campaign / legacy path: standard guard honors the env opt-in.
+  // Marketing execution is Hermes-only. Fail fast on a misconfigured Hermes
+  // environment so the operator sees a clear error instead of a buried
+  // config-error result at call time.
   assertMarketingExecutionPortConfigured(process.env);
-  const providerName = resolveMarketingProviderName(process.env);
-
-  if (providerName === 'legacy-openclaw') {
-    return new LegacyOpenClawMarketingPort(() => {
-      const { gatewayCwd, localCwd } = resolveMarketingPipelineRuntimePaths();
-      return { gatewayCwd, localCwd };
-    }) as unknown as MarketingExecutionPort;
-  }
-
-  return getMarketingExecutionPort(() => {
-    const { gatewayCwd, localCwd } = resolveMarketingPipelineRuntimePaths();
-    return { gatewayCwd, localCwd };
-  });
+  return getMarketingExecutionPort();
 }
 
 async function runMarketingPipeline(doc: MarketingJobRuntimeDocument): Promise<MarketingExecutionResult> {
@@ -584,12 +524,7 @@ async function resumeMarketingPipeline(
   });
 }
 
-function completedMarketingEnvelope(result: MarketingExecutionResult): LobsterEnvelope {
-  const legacyEnvelope = (result as { envelope?: unknown }).envelope;
-  if (legacyEnvelope && typeof legacyEnvelope === 'object' && !Array.isArray(legacyEnvelope)) {
-    return legacyEnvelope as LobsterEnvelope;
-  }
-
+function completedMarketingEnvelope(result: MarketingExecutionResult): MarketingWorkflowEnvelope {
   if (result.kind === 'completed') {
     const workflowOutput = result.output;
     if (workflowOutput.ok === false) {
@@ -608,7 +543,7 @@ function completedMarketingEnvelope(result: MarketingExecutionResult): LobsterEn
         ? [workflowOutput.output]
         : [];
     const runId = workflowOutput.runId;
-    const providerEnvelope: LobsterEnvelope = {
+    const providerEnvelope: MarketingWorkflowEnvelope = {
       ok: workflowOutput.ok,
       status: workflowOutput.status,
       provider: 'hermes',
@@ -685,7 +620,7 @@ function checkpointSummary(
   };
 }
 
-function approvalRecordPreviewPayload(envelope: LobsterEnvelope): unknown {
+function approvalRecordPreviewPayload(envelope: MarketingWorkflowEnvelope): unknown {
   const previewItems = Array.isArray(envelope.requiresApproval?.items) ? envelope.requiresApproval?.items : [];
   if (previewItems && previewItems.length > 0) {
     return previewItems;
@@ -703,7 +638,7 @@ function createAndPersistApprovalCheckpoint(
     message: string;
     actionLabel: string;
     resumeToken: string;
-    envelope: LobsterEnvelope;
+    envelope: MarketingWorkflowEnvelope;
     runId: string | null;
     highlight?: string | null;
     primaryOutput?: Record<string, unknown> | null;
@@ -713,7 +648,7 @@ function createAndPersistApprovalCheckpoint(
   },
 ): MarketingApprovalRecord {
   const { workflowName, pipelinePath, runtime } = marketingWorkflowRuntimeContext();
-  const descriptor = describeLobsterResumeToken(input.resumeToken);
+  const descriptor = describeMarketingResumeToken(input.resumeToken);
   const approvalRecord = createMarketingApprovalRecord({
     tenantId: doc.tenant_id,
     marketingJobId: doc.job_id,
@@ -721,8 +656,8 @@ function createAndPersistApprovalCheckpoint(
     workflowStepId: input.workflowStepId,
     socialContentApprovalStep: approvalStepFromWorkflowStepId(input.workflowStepId),
     marketingStage: input.stage,
-    lobsterResumeToken: input.resumeToken,
-    lobsterResumeStateKeys: descriptor.stateKeys,
+    executionResumeToken: input.resumeToken,
+    executionResumeStateKeys: descriptor.stateKeys,
     approvalPrompt: input.message,
     approvalPreviewPayload: approvalRecordPreviewPayload(input.envelope),
     runtimeContext: {
@@ -779,126 +714,6 @@ function createAndPersistApprovalCheckpoint(
   );
 
   return approvalRecord;
-}
-
-async function replayMarketingPipelineToApprovalCheckpoint(
-  doc: MarketingJobRuntimeDocument,
-  workflowStepId: WorkflowApprovalStepId,
-): Promise<string> {
-  let envelope = completedMarketingEnvelope(await runMarketingPipeline(doc));
-  let resumeToken = envelope.requiresApproval?.resumeToken?.trim() || '';
-  if (!resumeToken) {
-    throw new Error(`marketing_pipeline_missing_resume_token:${workflowStepId}`);
-  }
-
-  if (workflowStepId === 'approve_stage_2') {
-    return resumeToken;
-  }
-
-  envelope = completedMarketingEnvelope(await resumeMarketingPipeline(resumeToken, true, doc));
-  resumeToken = envelope.requiresApproval?.resumeToken?.trim() || '';
-  if (!resumeToken) {
-    throw new Error(`marketing_pipeline_missing_resume_token:${workflowStepId}`);
-  }
-
-  if (workflowStepId === 'approve_stage_3') {
-    return resumeToken;
-  }
-
-  envelope = completedMarketingEnvelope(await resumeMarketingPipeline(resumeToken, true, doc));
-  resumeToken = envelope.requiresApproval?.resumeToken?.trim() || '';
-  if (!resumeToken) {
-    throw new Error(`marketing_pipeline_missing_resume_token:${workflowStepId}`);
-  }
-
-  if (workflowStepId === 'approve_stage_4') {
-    return resumeToken;
-  }
-
-  envelope = completedMarketingEnvelope(await resumeMarketingPipeline(resumeToken, true, doc));
-  resumeToken = envelope.requiresApproval?.resumeToken?.trim() || '';
-  if (!resumeToken) {
-    throw new Error(`marketing_pipeline_missing_resume_token:${workflowStepId}`);
-  }
-
-  return resumeToken;
-}
-
-function lobsterResumeStateKeysMissing(record: MarketingApprovalRecord): boolean {
-  const stateDir = record.runtime_context.state_dir?.trim();
-  const stateKeys = record.execution_resume_state_keys.filter((key) => key.trim().length > 0);
-  if (!stateDir || stateKeys.length === 0) {
-    return false;
-  }
-  return stateKeys.every((key) => !existsSync(path.join(stateDir, `${key}.json`)));
-}
-
-async function reseedMarketingApprovalResumeToken(
-  doc: MarketingJobRuntimeDocument,
-  checkpoint: MarketingApprovalCheckpoint,
-  record: MarketingApprovalRecord,
-  reason: 'workflow_resume_state_missing' | 'workflow_resume_state_invalid' = 'workflow_resume_state_missing',
-): Promise<string> {
-  const workflowStepId = inferredWorkflowStepId(checkpoint);
-  approvalLifecycleLog('approval-resume-requested', {
-    jobId: doc.job_id,
-    tenantId: doc.tenant_id,
-    stage: checkpoint.stage,
-    workflowStepId,
-    approvalId: record.approval_id,
-    resolution: 'reseed',
-    attemptCount: record.attempt_count,
-    correlationId: record.correlation_id,
-    traceId: record.trace_id,
-    tokenFingerprint: record.execution_resume_token_fingerprint,
-    tokenStateKeys: record.execution_resume_state_keys,
-    reason,
-  });
-
-  const freshResumeToken = await replayMarketingPipelineToApprovalCheckpoint(doc, workflowStepId);
-  const descriptor = describeLobsterResumeToken(freshResumeToken);
-  record.execution_resume_token = freshResumeToken;
-  record.execution_resume_token_fingerprint = descriptor.fingerprint;
-  record.execution_resume_state_keys = descriptor.stateKeys;
-  record.lobster_resume_token = freshResumeToken;
-  record.lobster_resume_token_fingerprint = descriptor.fingerprint;
-  record.lobster_resume_state_keys = descriptor.stateKeys;
-  record.status = 'pending';
-  record.resolution = null;
-  record.resolved_at = null;
-  record.resolution_result = null;
-  record.last_error = null;
-  saveMarketingApprovalRecord(record);
-
-  checkpoint.resume_token = freshResumeToken;
-  checkpoint.workflow_name = record.workflow_name;
-  checkpoint.workflow_step_id = workflowStepId;
-  checkpoint.approval_id = record.approval_id;
-
-  const stageRecord = getStageRecord(doc, checkpoint.stage);
-  stageRecord.outputs = {
-    ...stageRecord.outputs,
-    resume_token: freshResumeToken,
-    approval_id: record.approval_id,
-    workflow_step_id: workflowStepId,
-  };
-
-  saveMarketingJobRuntime(doc.job_id, doc);
-
-  approvalLifecycleLog('approval-read', {
-    jobId: doc.job_id,
-    tenantId: doc.tenant_id,
-    stage: checkpoint.stage,
-    workflowStepId,
-    approvalId: record.approval_id,
-    status: record.status,
-    attemptCount: record.attempt_count,
-    tokenFingerprint: record.execution_resume_token_fingerprint,
-    tokenStateKeys: record.execution_resume_state_keys,
-    reseeded: true,
-  });
-
-  return freshResumeToken;
 }
 
 function replacePublishApprovalArtifacts(
@@ -1687,22 +1502,13 @@ function recordFailure(
   stage: MarketingStage,
   error: unknown
 ): void {
-  if (error instanceof OpenClawGatewayError) {
-    recordStageFailure(doc, stage, {
-      code: error.code,
-      message: error.message,
-      retryable: error.code === 'openclaw_gateway_unreachable',
-      details: { status: error.status ?? null },
-    });
-  } else {
-    const message = error instanceof Error ? error.message : String(error);
-    const [code, detail] = message.split(':', 2);
-    recordStageFailure(doc, stage, {
-      code: code || 'marketing_stage_failed',
-      message: detail || message,
-      retryable: false,
-    });
-  }
+  const message = error instanceof Error ? error.message : String(error);
+  const [code, detail] = message.split(':', 2);
+  recordStageFailure(doc, stage, {
+    code: code || 'marketing_stage_failed',
+    message: detail || message,
+    retryable: false,
+  });
   saveMarketingJobRuntime(doc.job_id, doc);
 }
 
@@ -1721,26 +1527,21 @@ export async function startMarketingJob(input: StartMarketingJobRequest): Promis
   if (!input?.tenantId || typeof input.tenantId !== 'string' || input.tenantId.trim().length === 0) {
     throw new Error('missing_required_fields:tenantId');
   }
-  if (input.jobType !== 'brand_campaign' && input.jobType !== 'weekly_social_content') {
+  if (input.jobType !== 'weekly_social_content') {
     throw new Error(`unsupported_job_type:${input.jobType}`);
   }
-  const brandCampaignInput = ensureBrandCampaignInput(input);
+  const brandCampaignInput = ensureMarketingJobInput(input);
 
   const jobId = makeMarketingJobId();
   const tenantId = input.tenantId.trim();
-  const requestPayload =
-    input.jobType === 'weekly_social_content'
-      ? sanitizeWeeklySocialContentPayload(input.payload ?? {})
-      : { ...(input.payload ?? {}) };
-  if (input.jobType === 'weekly_social_content') {
-    const mediaDemand = weeklyMediaDemand(requestPayload);
-    requestPayload.imageCreativeCount = mediaDemand.imageCreativeCount;
-    requestPayload.imageCreativesCount = mediaDemand.imageCreativeCount;
-    requestPayload.videoRenderCount = mediaDemand.videoRenderCount;
-    requestPayload.renderVideoAfterApproval = mediaDemand.videoRenderCount > 0;
-    if (typeof input.createdBy === 'string' && input.createdBy.trim().length > 0) {
-      requestPayload.userId = input.createdBy.trim();
-    }
+  const requestPayload = sanitizeWeeklySocialContentPayload(input.payload ?? {});
+  const mediaDemand = weeklyMediaDemand(requestPayload);
+  requestPayload.imageCreativeCount = mediaDemand.imageCreativeCount;
+  requestPayload.imageCreativesCount = mediaDemand.imageCreativeCount;
+  requestPayload.videoRenderCount = mediaDemand.videoRenderCount;
+  requestPayload.renderVideoAfterApproval = mediaDemand.videoRenderCount > 0;
+  if (typeof input.createdBy === 'string' && input.createdBy.trim().length > 0) {
+    requestPayload.userId = input.createdBy.trim();
   }
   // Quarantine tenant-scoped validated docs (brand-profile / website-analysis /
   // business-profile) from a prior campaign so they cannot bleed into the new
@@ -1888,7 +1689,7 @@ function backfillApprovalRecordFromCheckpoint(doc: MarketingJobRuntimeDocument, 
     return null;
   }
   const { workflowName, pipelinePath, runtime } = marketingWorkflowRuntimeContext();
-  const descriptor = describeLobsterResumeToken(resumeToken);
+  const descriptor = describeMarketingResumeToken(resumeToken);
   const record = createMarketingApprovalRecord({
     approvalId: checkpoint.approval_id ?? undefined,
     tenantId: doc.tenant_id,
@@ -1897,8 +1698,8 @@ function backfillApprovalRecordFromCheckpoint(doc: MarketingJobRuntimeDocument, 
     workflowStepId: inferredWorkflowStepId(checkpoint),
     socialContentApprovalStep: approvalStepFromWorkflowStepId(checkpoint.workflow_step_id ?? ''),
     marketingStage: checkpoint.stage,
-    lobsterResumeToken: resumeToken,
-    lobsterResumeStateKeys: descriptor.stateKeys,
+    executionResumeToken: resumeToken,
+    executionResumeStateKeys: descriptor.stateKeys,
     approvalPrompt: checkpoint.message,
     runtimeContext: {
       pipelinePath,
@@ -2064,7 +1865,7 @@ async function resolveMarketingApproval(
     return terminalApprovalResponse(input, approvalRecord);
   }
 
-  const resumeToken = approvalRecord.execution_resume_token.trim() || approvalRecord.lobster_resume_token?.trim() || checkpoint.resume_token?.trim() || '';
+  const resumeToken = approvalRecord.execution_resume_token.trim() || checkpoint.resume_token?.trim() || '';
   const checkpointSnapshot = cloneApprovalCheckpoint(checkpoint);
   try {
     return await withMarketingApprovalLock(approvalRecord.approval_id, async () => {
@@ -2213,28 +2014,7 @@ async function resolveMarketingApproval(
         return { resumedStage, completed };
       };
 
-      let resumedStage: MarketingStage | null = null;
-      let completed = false;
-
-      try {
-        ({ resumedStage, completed } = await applyResolution(resumeToken));
-      } catch (error) {
-        const inferredMissingState = lobsterResumeStateKeysMissing(currentRecord);
-        if (!isOpenClawLobsterResumeStateRecoverable(error) && !inferredMissingState) {
-          throw error;
-        }
-
-        const freshResumeToken = await reseedMarketingApprovalResumeToken(
-          doc,
-          checkpointSnapshot,
-          currentRecord,
-          isOpenClawLobsterResumeStateInvalid(error)
-            ? 'workflow_resume_state_invalid'
-            : 'workflow_resume_state_missing',
-        );
-        checkpointSnapshot.resume_token = freshResumeToken;
-        ({ resumedStage, completed } = await applyResolution(freshResumeToken));
-      }
+      const { resumedStage, completed } = await applyResolution(resumeToken);
 
       if (activeApprovalStep && requestedJobTypeFromDoc(doc) === 'weekly_social_content') {
         markSocialContentApprovalResolutionSubmitted(doc, {
@@ -2331,7 +2111,7 @@ async function resolveMarketingApproval(
     if (record) {
       record.status = 'failed';
       record.last_error = {
-        code: error instanceof OpenClawGatewayError ? error.code : 'approval_resume_failed',
+        code: 'approval_resume_failed',
         message: error instanceof Error ? error.message : String(error),
         at: nowIso(),
       };

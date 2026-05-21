@@ -43,15 +43,15 @@
 | `lobster/marketing-pipeline.lobster` | Monolithic brand campaign workflow | Current production marketing workflow | **Keep for now** | Treat as legacy implementation fixture. Do not delete until Hermes marketing pipeline reaches contract parity |
 | `lobster/stage-*/*.lobster` | Atomic stage workflows for tenant workflow routes | Current stage-level execution | **Keep for now** | Migrate after monolithic pipeline wrapper, or explicitly deprecate stage routes if product no longer needs them |
 | Approval resume tokens and state | `describeLobsterResumeToken`, compatibility key logic in gateway client; approval records in marketing orchestrator | Resumes paused review/publish approvals | **Wrap with compatibility tests** | Aries-owned opaque approval token descriptor. Legacy tokens keep working during migration |
-| Marketing cache dirs | `LOBSTER_STAGE1_CACHE_DIR` to `LOBSTER_STAGE4_CACHE_DIR` across `aries-execution.ts`, `artifact-collector.ts`, `jobs-status.ts`, `dashboard-content.ts`, `publish-review.ts` | Artifact read model and handoff cache | **Keep, then generalize** | Rename internally to stage artifact stores after execution adapter exists. Do not rename env vars first |
+| Marketing cache dirs | `ARTIFACT_STAGE1_CACHE_DIR` to `ARTIFACT_STAGE4_CACHE_DIR` across `aries-execution.ts`, `artifact-collector.ts`, `jobs-status.ts`, `dashboard-content.ts`, `publish-review.ts` | Artifact read model and handoff cache | **Keep, then generalize** | Rename internally to stage artifact stores after execution adapter exists. Do not rename env vars first |
 
 ### C. Generated asset and media gateway surface
 
 | Surface | Evidence | Current role | Classification | Target |
 |---|---|---|---|---|
-| `backend/marketing/asset-library.ts`, `asset-read.ts`, `asset-ingest.ts`, `real-artifacts.ts`, `public-pages.ts`, `stage-artifact-resolution.ts`, `dashboard-content.ts` | Reads `OPENCLAW_LOBSTER_CWD`, `ARIES_LOBSTER_HOST_OUTPUT_*`, `LOBSTER_STAGE*_CACHE_DIR` | Reads generated assets and status artifacts | **Keep, then rename behind artifact service** | Create `backend/marketing/artifact-store.ts` as the Aries-owned API. The first implementation can still read Lobster paths |
+| `backend/marketing/asset-library.ts`, `asset-read.ts`, `asset-ingest.ts`, `real-artifacts.ts`, `public-pages.ts`, `stage-artifact-resolution.ts`, `dashboard-content.ts` | Reads `ARTIFACT_PIPELINE_CWD`, `ARIES_HOST_ARTIFACT_OUTPUT_*`, `ARTIFACT_STAGE*_CACHE_DIR` | Reads generated assets and status artifacts | **Keep, then rename behind artifact service** | Create `backend/marketing/artifact-store.ts` as the Aries-owned API. The first implementation can still read Lobster paths |
 | `lobster/bin/_openclaw_media_gateway.py`, `tests/lobster_media_gateway_test.py`, `scripts/smoke-openclaw-media-gateway.py` | Media generation gateway and tests | Image/video generation bridge | **Replace with Hermes media tool path later** | Define a media generation port before replacing. Keep tests until Hermes image/video generation returns equivalent artifacts |
-| Docker bind mount `ARIES_LOBSTER_HOST_OUTPUT_DIR` and `ARIES_LOBSTER_HOST_OUTPUT_MOUNT` | `docker-compose.yml` lines 89-97 | Lets Aries container read host-created assets | **Keep until artifact store moves to shared Aries data root** | Future Hermes adapter should write to `/data` or a configured Aries artifact root directly |
+| Docker bind mount `ARIES_HOST_ARTIFACT_OUTPUT_DIR` and `ARIES_HOST_ARTIFACT_OUTPUT_MOUNT` | `docker-compose.yml` lines 89-97 | Lets Aries container read host-created assets | **Keep until artifact store moves to shared Aries data root** | Future Hermes adapter should write to `/data` or a configured Aries artifact root directly |
 
 ### D. Docker, env, docs, and automation
 
@@ -263,7 +263,7 @@ Expected result: operators can select Hermes and get honest errors instead of hi
 - Existing tests: `tests/asset-ingest.test.ts`, `tests/video-artifact-collector.test.ts`, `tests/marketing-jobs-cache.test.ts`
 
 **Steps:**
-1. Write tests that the artifact store resolves all current `LOBSTER_STAGE*_CACHE_DIR` paths and `/host-lobster-output` paths exactly as today.
+1. Write tests that the artifact store resolves all current `ARTIFACT_STAGE*_CACHE_DIR` paths and `/host-lobster-output` paths exactly as today.
 2. Add neutral names in the artifact store API: `stageCacheRoot(stage)`, `hostOutputMount()`, `resolveGeneratedAsset(path)`.
 3. Replace direct env reads in one file at a time.
 4. Keep env var names unchanged in this phase.

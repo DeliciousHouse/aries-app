@@ -25,9 +25,6 @@ services:
       # one-pipeline-cycle soak period. New writes always go to the
       # tenant-scoped path regardless. Remove after migration completes.
       ARIES_STAGE_CACHE_LEGACY_READ_FALLBACK: ${ARIES_STAGE_CACHE_LEGACY_READ_FALLBACK:-}
-      OPENCLAW_GATEWAY_URL: ${OPENCLAW_GATEWAY_URL}
-      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
-      OPENCLAW_SESSION_KEY: ${OPENCLAW_SESSION_KEY:-main}
       HERMES_GATEWAY_URL: ${HERMES_GATEWAY_URL:-}
       HERMES_API_SERVER_KEY: ${HERMES_API_SERVER_KEY:-}
       HERMES_SESSION_KEY: ${HERMES_SESSION_KEY:-main}
@@ -63,19 +60,6 @@ services:
       ARIES_BRAND_ENRICHMENT_ENABLED: ${ARIES_BRAND_ENRICHMENT_ENABLED:-1}
       HERMES_BRAND_ANALYSIS_SESSION_KEY: ${HERMES_BRAND_ANALYSIS_SESSION_KEY:-}
       HERMES_BRAND_ANALYSIS_TIMEOUT_MS: ${HERMES_BRAND_ANALYSIS_TIMEOUT_MS:-}
-      LOBSTER_MEDIA_GATEWAY_ENABLED: ${LOBSTER_MEDIA_GATEWAY_ENABLED:-}
-      LOBSTER_MEDIA_GATEWAY_ALLOW_DIRECT_FALLBACK: ${LOBSTER_MEDIA_GATEWAY_ALLOW_DIRECT_FALLBACK:-}
-      LOBSTER_MEDIA_GATEWAY_SHARED_ROOTS: ${LOBSTER_MEDIA_GATEWAY_SHARED_ROOTS:-}
-      LOBSTER_MEDIA_GATEWAY_ALLOWED_HOSTS: ${LOBSTER_MEDIA_GATEWAY_ALLOWED_HOSTS:-}
-      LOBSTER_MEDIA_GATEWAY_TIMEOUT_SECONDS: ${LOBSTER_MEDIA_GATEWAY_TIMEOUT_SECONDS:-}
-      LOBSTER_GATEWAY_IMAGE_MODEL: ${LOBSTER_GATEWAY_IMAGE_MODEL:-}
-      OPENCLAW_IMAGE_GENERATION_MODEL: ${OPENCLAW_IMAGE_GENERATION_MODEL:-}
-      LOBSTER_VIDEO_RENDER_ENABLED: ${LOBSTER_VIDEO_RENDER_ENABLED:-}
-      LOBSTER_VIDEO_PARALLELISM: ${LOBSTER_VIDEO_PARALLELISM:-1}
-      LOBSTER_VIDEO_MAX_ATTEMPTS: ${LOBSTER_VIDEO_MAX_ATTEMPTS:-3}
-      LOBSTER_GATEWAY_VIDEO_MODEL: ${LOBSTER_GATEWAY_VIDEO_MODEL:-}
-      OPENCLAW_VIDEO_GENERATION_MODEL: ${OPENCLAW_VIDEO_GENERATION_MODEL:-}
-      LOBSTER_VIDEO_GATEWAY_TIMEOUT_SECONDS: ${LOBSTER_VIDEO_GATEWAY_TIMEOUT_SECONDS:-}
       DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT:-5432}
       DB_POOL_MAX: ${DB_POOL_MAX:-20}
@@ -123,27 +107,20 @@ services:
       VMS_WEBHOOK_SECRET: ${VMS_WEBHOOK_SECRET:-}
       RESEND_API_KEY: ${RESEND_API_KEY}
       EMAIL_FROM: ${EMAIL_FROM}
-      OPENCLAW_LOBSTER_CWD: ${OPENCLAW_LOBSTER_CWD:-/app/lobster}
-      # The default OpenClaw gateway service on this host starts from /home/node,
-      # while Aries runs from /home/node/aries-app (or /app in-container). Keep
-      # this gateway-facing cwd repo-relative to the gateway process.
-      OPENCLAW_GATEWAY_LOBSTER_CWD: ${OPENCLAW_GATEWAY_LOBSTER_CWD:-aries-app/lobster}
-      OPENCLAW_LOCAL_LOBSTER_CWD: ${OPENCLAW_LOCAL_LOBSTER_CWD:-/app/lobster}
-      # Lobster stage cache dirs. These MUST resolve to the same absolute paths
-      # on the host (where OpenClaw/Lobster writes) and inside the container
-      # (where Aries reads), so the routes live under the shared /data bind
-      # mount. The host operator must export the matching LOBSTER_STAGE{N}_CACHE_DIR
-      # pointing at ${ARIES_SHARED_DATA_ROOT}/lobster-stage{N}-cache BEFORE
-      # starting OpenClaw; see DOCKER.md.
-      LOBSTER_STAGE1_CACHE_DIR: ${LOBSTER_STAGE1_CACHE_DIR:-/data/lobster-stage1-cache}
-      LOBSTER_STAGE2_CACHE_DIR: ${LOBSTER_STAGE2_CACHE_DIR:-/data/lobster-stage2-cache}
-      LOBSTER_STAGE3_CACHE_DIR: ${LOBSTER_STAGE3_CACHE_DIR:-/data/lobster-stage3-cache}
-      LOBSTER_STAGE4_CACHE_DIR: ${LOBSTER_STAGE4_CACHE_DIR:-/data/lobster-stage4-cache}
-      # Host lobster/output mount is read by asset-ingest to copy generated
+      # Stage-cache lookup roots used by Aries artifact ingestion.
+      ARTIFACT_PIPELINE_CWD: ${ARTIFACT_PIPELINE_CWD:-/app/lobster}
+      ARTIFACT_PIPELINE_LOCAL_CWD: ${ARTIFACT_PIPELINE_LOCAL_CWD:-/app/lobster}
+      # Marketing stage cache dirs. Aries reads generated stage artifacts from
+      # these roots; keep them under the shared /data bind mount. See DOCKER.md.
+      ARTIFACT_STAGE1_CACHE_DIR: ${ARTIFACT_STAGE1_CACHE_DIR:-/data/lobster-stage1-cache}
+      ARTIFACT_STAGE2_CACHE_DIR: ${ARTIFACT_STAGE2_CACHE_DIR:-/data/lobster-stage2-cache}
+      ARTIFACT_STAGE3_CACHE_DIR: ${ARTIFACT_STAGE3_CACHE_DIR:-/data/lobster-stage3-cache}
+      ARTIFACT_STAGE4_CACHE_DIR: ${ARTIFACT_STAGE4_CACHE_DIR:-/data/lobster-stage4-cache}
+      # Host artifact output mount: read by asset-ingest to copy generated
       # assets into DATA_ROOT at ingest time. Keep _DIR/_MOUNT in sync with
       # the bind mount below so asset-ingest can remap host paths.
-      ARIES_LOBSTER_HOST_OUTPUT_DIR: ${ARIES_LOBSTER_HOST_OUTPUT_DIR:-/home/node/aries-app/lobster/output}
-      ARIES_LOBSTER_HOST_OUTPUT_MOUNT: ${ARIES_LOBSTER_HOST_OUTPUT_MOUNT:-/host-lobster-output}
+      ARIES_HOST_ARTIFACT_OUTPUT_DIR: ${ARIES_HOST_ARTIFACT_OUTPUT_DIR:-/home/node/aries-app/lobster/output}
+      ARIES_HOST_ARTIFACT_OUTPUT_MOUNT: ${ARIES_HOST_ARTIFACT_OUTPUT_MOUNT:-/host-lobster-output}
       # Hermes image cache mount: host path where Hermes writes generated images,
       # bind-mounted read-only into the container so /api/internal/hermes/media
       # can stream them to authenticated browser sessions and the production
@@ -162,7 +139,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ${ARIES_SHARED_DATA_ROOT:-/home/node/data}:/data
-      - ${ARIES_LOBSTER_HOST_OUTPUT_DIR:-/home/node/aries-app/lobster/output}:${ARIES_LOBSTER_HOST_OUTPUT_MOUNT:-/host-lobster-output}:ro
+      - ${ARIES_HOST_ARTIFACT_OUTPUT_DIR:-/home/node/aries-app/lobster/output}:${ARIES_HOST_ARTIFACT_OUTPUT_MOUNT:-/host-lobster-output}:ro
       - ${HERMES_IMAGE_CACHE_DIR:-/home/node/.hermes/profiles/aries-content-generator/cache/images}:/hermes-media:ro
     restart: unless-stopped
     healthcheck:

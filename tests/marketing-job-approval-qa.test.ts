@@ -55,7 +55,7 @@ async function writeRuntimeDoc(jobId: string, tenantId = 'tenant_auth_order') {
         schema_version: '1.0.0',
         job_id: jobId,
         tenant_id: tenantId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         state: 'running',
         status: 'awaiting_approval',
         current_stage: 'strategy',

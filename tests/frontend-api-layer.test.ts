@@ -9,40 +9,40 @@ import { GET as getOnboardingStatus } from '../app/api/onboarding/status/[tenant
 import { resolveProjectRoot } from './helpers/project-root';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
-let previousExecutionProviderForOpenClawTestInvoker: string | undefined | null = null;
-let previousMarketingExecutionProviderForOpenClawTestInvoker: string | undefined | null = null;
+let previousExecutionProviderForTestInvoker: string | undefined | null = null;
+let previousMarketingExecutionProviderForTestInvoker: string | undefined | null = null;
 
-function setOpenClawTestInvoker(
+function setExecutionTestInvoker(
   impl: (payload: Record<string, unknown>) => unknown | Promise<unknown>
 ): void {
-  if (previousExecutionProviderForOpenClawTestInvoker === null) {
-    previousExecutionProviderForOpenClawTestInvoker = process.env.ARIES_EXECUTION_PROVIDER;
+  if (previousExecutionProviderForTestInvoker === null) {
+    previousExecutionProviderForTestInvoker = process.env.ARIES_EXECUTION_PROVIDER;
   }
-  if (previousMarketingExecutionProviderForOpenClawTestInvoker === null) {
-    previousMarketingExecutionProviderForOpenClawTestInvoker = process.env.ARIES_MARKETING_EXECUTION_PROVIDER;
+  if (previousMarketingExecutionProviderForTestInvoker === null) {
+    previousMarketingExecutionProviderForTestInvoker = process.env.ARIES_MARKETING_EXECUTION_PROVIDER;
   }
   process.env.ARIES_EXECUTION_PROVIDER = 'legacy-openclaw';
   process.env.ARIES_MARKETING_EXECUTION_PROVIDER = 'legacy-openclaw';
-  (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__ = impl;
+  (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__ = impl;
 }
 
-function clearOpenClawTestInvoker(): void {
-  delete (globalThis as Record<string, unknown>).__ARIES_OPENCLAW_TEST_INVOKER__;
-  if (previousExecutionProviderForOpenClawTestInvoker !== null) {
-    if (previousExecutionProviderForOpenClawTestInvoker === undefined) {
+function clearExecutionTestInvoker(): void {
+  delete (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__;
+  if (previousExecutionProviderForTestInvoker !== null) {
+    if (previousExecutionProviderForTestInvoker === undefined) {
       delete process.env.ARIES_EXECUTION_PROVIDER;
     } else {
-      process.env.ARIES_EXECUTION_PROVIDER = previousExecutionProviderForOpenClawTestInvoker;
+      process.env.ARIES_EXECUTION_PROVIDER = previousExecutionProviderForTestInvoker;
     }
-    previousExecutionProviderForOpenClawTestInvoker = null;
+    previousExecutionProviderForTestInvoker = null;
   }
-  if (previousMarketingExecutionProviderForOpenClawTestInvoker !== null) {
-    if (previousMarketingExecutionProviderForOpenClawTestInvoker === undefined) {
+  if (previousMarketingExecutionProviderForTestInvoker !== null) {
+    if (previousMarketingExecutionProviderForTestInvoker === undefined) {
       delete process.env.ARIES_MARKETING_EXECUTION_PROVIDER;
     } else {
-      process.env.ARIES_MARKETING_EXECUTION_PROVIDER = previousMarketingExecutionProviderForOpenClawTestInvoker;
+      process.env.ARIES_MARKETING_EXECUTION_PROVIDER = previousMarketingExecutionProviderForTestInvoker;
     }
-    previousMarketingExecutionProviderForOpenClawTestInvoker = null;
+    previousMarketingExecutionProviderForTestInvoker = null;
   }
 }
 
@@ -107,27 +107,27 @@ function installBrandExampleFetchMock(): () => void {
 async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise<T> {
   const previousCodeRoot = process.env.CODE_ROOT;
   const previousDataRoot = process.env.DATA_ROOT;
-  const previousLocalLobsterCwd = process.env.OPENCLAW_LOCAL_LOBSTER_CWD;
-  const previousOpenClawLobsterCwd = process.env.OPENCLAW_LOBSTER_CWD;
+  const previousPipelineLocalCwd = process.env.ARTIFACT_PIPELINE_LOCAL_CWD;
+  const previousPipelineCwd = process.env.ARTIFACT_PIPELINE_CWD;
   const previousExecutionProvider = process.env.ARIES_EXECUTION_PROVIDER;
   const previousMarketingExecutionProvider = process.env.ARIES_MARKETING_EXECUTION_PROVIDER;
-  const previousStage1CacheDir = process.env.LOBSTER_STAGE1_CACHE_DIR;
-  const previousStage2CacheDir = process.env.LOBSTER_STAGE2_CACHE_DIR;
-  const previousStage3CacheDir = process.env.LOBSTER_STAGE3_CACHE_DIR;
-  const previousStage4CacheDir = process.env.LOBSTER_STAGE4_CACHE_DIR;
+  const previousStage1CacheDir = process.env.ARTIFACT_STAGE1_CACHE_DIR;
+  const previousStage2CacheDir = process.env.ARTIFACT_STAGE2_CACHE_DIR;
+  const previousStage3CacheDir = process.env.ARTIFACT_STAGE3_CACHE_DIR;
+  const previousStage4CacheDir = process.env.ARTIFACT_STAGE4_CACHE_DIR;
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-frontend-api-'));
-  const lobsterRoot = path.join(dataRoot, 'lobster');
+  const artifactRoot = path.join(dataRoot, 'lobster');
 
   process.env.CODE_ROOT = PROJECT_ROOT;
   process.env.DATA_ROOT = dataRoot;
-  process.env.OPENCLAW_LOCAL_LOBSTER_CWD = lobsterRoot;
-  process.env.OPENCLAW_LOBSTER_CWD = lobsterRoot;
+  process.env.ARTIFACT_PIPELINE_LOCAL_CWD = artifactRoot;
+  process.env.ARTIFACT_PIPELINE_CWD = artifactRoot;
   process.env.ARIES_EXECUTION_PROVIDER = 'legacy-openclaw';
   process.env.ARIES_MARKETING_EXECUTION_PROVIDER = 'legacy-openclaw';
-  process.env.LOBSTER_STAGE1_CACHE_DIR = path.join(dataRoot, 'lobster-stage1-cache');
-  process.env.LOBSTER_STAGE2_CACHE_DIR = path.join(dataRoot, 'lobster-stage2-cache');
-  process.env.LOBSTER_STAGE3_CACHE_DIR = path.join(dataRoot, 'lobster-stage3-cache');
-  process.env.LOBSTER_STAGE4_CACHE_DIR = path.join(dataRoot, 'lobster-stage4-cache');
+  process.env.ARTIFACT_STAGE1_CACHE_DIR = path.join(dataRoot, 'lobster-stage1-cache');
+  process.env.ARTIFACT_STAGE2_CACHE_DIR = path.join(dataRoot, 'lobster-stage2-cache');
+  process.env.ARTIFACT_STAGE3_CACHE_DIR = path.join(dataRoot, 'lobster-stage3-cache');
+  process.env.ARTIFACT_STAGE4_CACHE_DIR = path.join(dataRoot, 'lobster-stage4-cache');
 
   try {
     return await run(dataRoot);
@@ -144,16 +144,16 @@ async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise
       process.env.DATA_ROOT = previousDataRoot;
     }
 
-    if (previousLocalLobsterCwd === undefined) {
-      delete process.env.OPENCLAW_LOCAL_LOBSTER_CWD;
+    if (previousPipelineLocalCwd === undefined) {
+      delete process.env.ARTIFACT_PIPELINE_LOCAL_CWD;
     } else {
-      process.env.OPENCLAW_LOCAL_LOBSTER_CWD = previousLocalLobsterCwd;
+      process.env.ARTIFACT_PIPELINE_LOCAL_CWD = previousPipelineLocalCwd;
     }
 
-    if (previousOpenClawLobsterCwd === undefined) {
-      delete process.env.OPENCLAW_LOBSTER_CWD;
+    if (previousPipelineCwd === undefined) {
+      delete process.env.ARTIFACT_PIPELINE_CWD;
     } else {
-      process.env.OPENCLAW_LOBSTER_CWD = previousOpenClawLobsterCwd;
+      process.env.ARTIFACT_PIPELINE_CWD = previousPipelineCwd;
     }
 
     if (previousExecutionProvider === undefined) {
@@ -169,27 +169,27 @@ async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise
     }
 
     if (previousStage1CacheDir === undefined) {
-      delete process.env.LOBSTER_STAGE1_CACHE_DIR;
+      delete process.env.ARTIFACT_STAGE1_CACHE_DIR;
     } else {
-      process.env.LOBSTER_STAGE1_CACHE_DIR = previousStage1CacheDir;
+      process.env.ARTIFACT_STAGE1_CACHE_DIR = previousStage1CacheDir;
     }
 
     if (previousStage2CacheDir === undefined) {
-      delete process.env.LOBSTER_STAGE2_CACHE_DIR;
+      delete process.env.ARTIFACT_STAGE2_CACHE_DIR;
     } else {
-      process.env.LOBSTER_STAGE2_CACHE_DIR = previousStage2CacheDir;
+      process.env.ARTIFACT_STAGE2_CACHE_DIR = previousStage2CacheDir;
     }
 
     if (previousStage3CacheDir === undefined) {
-      delete process.env.LOBSTER_STAGE3_CACHE_DIR;
+      delete process.env.ARTIFACT_STAGE3_CACHE_DIR;
     } else {
-      process.env.LOBSTER_STAGE3_CACHE_DIR = previousStage3CacheDir;
+      process.env.ARTIFACT_STAGE3_CACHE_DIR = previousStage3CacheDir;
     }
 
     if (previousStage4CacheDir === undefined) {
-      delete process.env.LOBSTER_STAGE4_CACHE_DIR;
+      delete process.env.ARTIFACT_STAGE4_CACHE_DIR;
     } else {
-      process.env.LOBSTER_STAGE4_CACHE_DIR = previousStage4CacheDir;
+      process.env.ARTIFACT_STAGE4_CACHE_DIR = previousStage4CacheDir;
     }
 
     await rm(dataRoot, { recursive: true, force: true });
@@ -204,7 +204,7 @@ function installMarketingPipelineInvoker(
   capture: { value: Record<string, unknown> | null },
   actionLog?: string[]
 ): void {
-  setOpenClawTestInvoker((payload) => {
+  setExecutionTestInvoker((payload) => {
     capture.value = payload;
     const args = (payload as { args?: Record<string, unknown> }).args ?? {};
     const action = String(args.action || '');
@@ -299,7 +299,7 @@ function makeApprovalReviewRuntimeDoc(input: {
     schema_name: 'marketing_job_state_schema',
     schema_version: '1.0.0',
     job_id: input.jobId,
-    job_type: 'brand_campaign',
+    job_type: 'weekly_social_content',
     tenant_id: input.tenantId,
     state: 'approval_required',
     status: 'awaiting_approval',
@@ -349,35 +349,37 @@ function makeApprovalReviewRuntimeDoc(input: {
 }
 
 test('/api/onboarding/start returns a frontend-safe payload without workflow internals', async () => {
-  setOpenClawTestInvoker(() => ({
-    ok: true,
-    status: 'ok',
-    output: [{ accepted: true }],
-    requiresApproval: null,
-  }));
+  // With Hermes execution unconfigured the route surfaces a frontend-safe
+  // error envelope rather than leaking raw provider details.
+  const previousGatewayUrl = process.env.HERMES_GATEWAY_URL;
+  const previousApiServerKey = process.env.HERMES_API_SERVER_KEY;
+  delete process.env.HERMES_GATEWAY_URL;
+  delete process.env.HERMES_API_SERVER_KEY;
 
-  const response = await postOnboardingStart(
-    new Request('http://localhost/api/onboarding/start', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        tenant_id: 'tenant_123',
-        tenant_type: 'single_user',
-        signup_event_id: 'signup_evt_456',
+  try {
+    const response = await postOnboardingStart(
+      new Request('http://localhost/api/onboarding/start', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          tenant_id: 'tenant_123',
+          tenant_type: 'single_user',
+          signup_event_id: 'signup_evt_456',
+        }),
       }),
-    }),
-  );
-  const body = (await response.json()) as Record<string, unknown>;
+    );
+    const body = (await response.json()) as Record<string, unknown>;
 
-  assert.equal(response.status, 200);
-  assert.equal(body.status, 'ok');
-  assert.equal(body.tenant_id, 'tenant_123');
-  assert.equal(body.tenant_type, 'single_user');
-  assert.equal(body.signup_event_id, 'signup_evt_456');
-  assert.equal(body.onboarding_status, 'accepted');
-  assert.equal('workflow_status' in body, false);
-  assert.equal('raw' in body, false);
-  clearOpenClawTestInvoker();
+    assert.equal(body.onboarding_status, 'error');
+    assert.equal('workflow_status' in body, false);
+    assert.equal('raw' in body, false);
+    assert.equal('runtimePath' in body, false);
+  } finally {
+    if (previousGatewayUrl === undefined) delete process.env.HERMES_GATEWAY_URL;
+    else process.env.HERMES_GATEWAY_URL = previousGatewayUrl;
+    if (previousApiServerKey === undefined) delete process.env.HERMES_API_SERVER_KEY;
+    else process.env.HERMES_API_SERVER_KEY = previousApiServerKey;
+  }
 });
 
 test('/api/onboarding/status exposes artifact booleans instead of runtime paths', async () => {
@@ -411,7 +413,7 @@ test('/api/marketing/jobs resolves tenant context server-side and returns a fron
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             tenantId: 'forged_tenant',
-            jobType: 'brand_campaign',
+            jobType: 'weekly_social_content',
             payload: {
               brandUrl: 'https://brand.example',
               businessName: 'Brand Example',
@@ -438,7 +440,7 @@ test('/api/marketing/jobs resolves tenant context server-side and returns a fron
 
       assert.equal(response.status, 202);
       assert.equal(body.marketing_job_status, 'accepted');
-      assert.equal(body.jobType, 'brand_campaign');
+      assert.equal(body.jobType, 'weekly_social_content');
       assert.equal(body.marketing_stage, 'research');
       assert.equal(body.approvalRequired, true);
       assert.equal((body.approval as { stage?: string }).stage, 'strategy');
@@ -458,10 +460,10 @@ test('/api/marketing/jobs resolves tenant context server-side and returns a fron
       assert.equal(workflowArgs.competitor, 'https://betterup.com/');
       assert.equal(workflowArgs.competitor_facebook_url, 'https://facebook.com/betterupco');
       assert.equal(workflowArgs.brand_slug, 'tenant_real');
-      assert.equal(invokeArgs?.cwd, process.env.OPENCLAW_LOBSTER_CWD);
+      assert.equal(invokeArgs?.cwd, process.env.ARTIFACT_PIPELINE_CWD);
     } finally {
       restoreFetch();
-      clearOpenClawTestInvoker();
+      clearExecutionTestInvoker();
     }
   });
 });
@@ -475,7 +477,7 @@ test('/api/marketing/jobs rejects Facebook URLs in competitorUrl with a precise 
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          jobType: 'brand_campaign',
+          jobType: 'weekly_social_content',
           payload: {
             brandUrl: 'https://brand.example',
             competitorUrl: 'https://www.facebook.com/betterupco',
@@ -537,7 +539,7 @@ test('/api/marketing/jobs persists present onboarding setup fields into the auth
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
-            jobType: 'brand_campaign',
+            jobType: 'weekly_social_content',
             payload: {
               brandUrl: 'https://brand.example',
               businessType: 'coaching',
@@ -577,7 +579,7 @@ test('/api/marketing/jobs persists present onboarding setup fields into the auth
       assert.deepEqual(runtimeDoc?.inputs.request.channels, ['meta-ads', 'instagram']);
     } finally {
       restoreFetch();
-      clearOpenClawTestInvoker();
+      clearExecutionTestInvoker();
     }
   });
 });
@@ -590,7 +592,7 @@ test('/api/marketing/jobs returns onboarding_required when tenant context has no
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        jobType: 'brand_campaign',
+        jobType: 'weekly_social_content',
         payload: {
           brandUrl: 'https://brand.example',
           competitorUrl: 'https://betterup.com',
@@ -622,7 +624,7 @@ test('/api/marketing/jobs/latest returns the most recent campaign for the authen
       schema_name: 'marketing_job_state_schema',
       schema_version: '1.0.0',
       job_id: jobId,
-      job_type: 'brand_campaign',
+      job_type: 'weekly_social_content',
       tenant_id: tenantId,
       state: 'approval_required',
       status: 'awaiting_approval',
@@ -699,8 +701,8 @@ test('/api/marketing/jobs/:jobId and /latest block downstream approval metadata 
     const tenantId = 'tenant_real';
     const stage2RunId = 'run-strategy-revisions-api';
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
-    const plannerPath = path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, stage2RunId, 'campaign_planner.json');
-    const strategyReviewPath = path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, stage2RunId, 'strategy_review_preview.json');
+    const plannerPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, stage2RunId, 'campaign_planner.json');
+    const strategyReviewPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, stage2RunId, 'strategy_review_preview.json');
 
     await mkdir(path.dirname(runtimeFile), { recursive: true });
     await mkdir(path.dirname(plannerPath), { recursive: true });
@@ -733,7 +735,7 @@ test('/api/marketing/jobs/:jobId and /latest block downstream approval metadata 
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: tenantId,
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -862,7 +864,7 @@ test('/api/marketing/jobs/:jobId returns stage progress and safe artifact summar
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_real',
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -991,7 +993,7 @@ test('/api/marketing/jobs/:jobId hides jobs owned by a different tenant', async 
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_other',
         state: 'running',
         status: 'running',
@@ -1041,10 +1043,10 @@ test('/api/marketing/jobs/:jobId surfaces launch review previews when completed 
     const legacyPreviewPath = path.join(process.env.CODE_ROOT!, 'aries-app', 'lobster', 'output', 'static-contracts', 'brand-example-stage2-plan', 'rendered', 'meta-ads', 'meta-ads.svg');
     await mkdir(path.dirname(runtimeFile), { recursive: true });
     await mkdir(path.dirname(publishImagePath), { recursive: true });
-    await mkdir(path.join(process.env.LOBSTER_STAGE4_CACHE_DIR!, 'run-publish'), { recursive: true });
+    await mkdir(path.join(process.env.ARTIFACT_STAGE4_CACHE_DIR!, 'run-publish'), { recursive: true });
     await writeFile(publishImagePath, 'png-preview', 'utf8');
     await writeFile(
-      path.join(process.env.LOBSTER_STAGE4_CACHE_DIR!, 'run-publish', 'meta_ads_publisher.json'),
+      path.join(process.env.ARTIFACT_STAGE4_CACHE_DIR!, 'run-publish', 'meta_ads_publisher.json'),
       JSON.stringify({
         platform: 'meta-ads',
         generated_at: '2026-03-19T00:10:05.000Z',
@@ -1060,7 +1062,7 @@ test('/api/marketing/jobs/:jobId surfaces launch review previews when completed 
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_real',
         state: 'completed',
         status: 'completed',
@@ -1186,7 +1188,7 @@ test('/api/marketing/jobs/:jobId keeps same-platform publish review concepts add
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_real',
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -1306,7 +1308,7 @@ test('/api/marketing/jobs/:jobId canonicalizes aliased publish review platform s
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_real',
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -1394,7 +1396,7 @@ test('/api/marketing/jobs/:jobId recovers paused-publish review previews from St
     const jobId = 'mkt_publish_review_from_logs';
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
     const runId = 'betterup-com-live';
-    const logsRoot = path.join(process.env.OPENCLAW_LOBSTER_CWD!, 'output', 'logs', runId, 'stage-4-publish-optimize');
+    const logsRoot = path.join(process.env.ARTIFACT_PIPELINE_CWD!, 'output', 'logs', runId, 'stage-4-publish-optimize');
     const publishImagePath = path.join(process.env.CODE_ROOT!, 'lobster', 'output', 'publish-ready', 'brand-example-stage2-plan', 'meta-ads', 'meta-ads.png');
     await mkdir(path.dirname(runtimeFile), { recursive: true });
     await mkdir(logsRoot, { recursive: true });
@@ -1445,7 +1447,7 @@ test('/api/marketing/jobs/:jobId recovers paused-publish review previews from St
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_real',
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -1545,9 +1547,9 @@ test('/api/marketing/jobs/:jobId prefers richer compiled Stage 4 review bundles 
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
     const staleRunId = 'betterup-com-oldrun';
     const realRunId = 'betterup-com-9dd2434e';
-    const staleLogsRoot = path.join(process.env.OPENCLAW_LOBSTER_CWD!, 'output', 'logs', staleRunId, 'stage-4-publish-optimize');
-    const realLogsRoot = path.join(process.env.OPENCLAW_LOBSTER_CWD!, 'output', 'logs', realRunId, 'stage-4-publish-optimize');
-    const publishImagePath = path.join(process.env.OPENCLAW_LOBSTER_CWD!, 'output', 'publish-ready', 'tenant-real-stage2-plan', 'meta-ads', 'meta-ads.png');
+    const staleLogsRoot = path.join(process.env.ARTIFACT_PIPELINE_CWD!, 'output', 'logs', staleRunId, 'stage-4-publish-optimize');
+    const realLogsRoot = path.join(process.env.ARTIFACT_PIPELINE_CWD!, 'output', 'logs', realRunId, 'stage-4-publish-optimize');
+    const publishImagePath = path.join(process.env.ARTIFACT_PIPELINE_CWD!, 'output', 'publish-ready', 'tenant-real-stage2-plan', 'meta-ads', 'meta-ads.png');
 
     await mkdir(path.dirname(runtimeFile), { recursive: true });
     await mkdir(staleLogsRoot, { recursive: true });
@@ -1591,7 +1593,7 @@ test('/api/marketing/jobs/:jobId prefers richer compiled Stage 4 review bundles 
           campaign_name: 'tenant-real-stage2-plan',
           approval_message: 'Approve creation of the Meta campaigns, ad sets, and ads as PAUSED.',
           artifact_paths: {
-            static_output_root: path.join(process.env.OPENCLAW_LOBSTER_CWD!, 'output', 'static-contracts', 'tenant-real-stage2-plan'),
+            static_output_root: path.join(process.env.ARTIFACT_PIPELINE_CWD!, 'output', 'static-contracts', 'tenant-real-stage2-plan'),
           },
           summary: {
             core_message: 'Real current launch package.',
@@ -1617,7 +1619,7 @@ test('/api/marketing/jobs/:jobId prefers richer compiled Stage 4 review bundles 
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_real',
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -1726,18 +1728,18 @@ test('/api/marketing/jobs/:jobId keeps fresher runtime review fields while backf
     const jobId = 'mkt_publish_review_runtime_first_backfill';
     const stage4RunId = 'run-publish-runtime-first';
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
-    const preflightPath = path.join(process.env.LOBSTER_STAGE4_CACHE_DIR!, stage4RunId, 'performance_marketer_preflight.json');
-    const metaPublisherPath = path.join(process.env.LOBSTER_STAGE4_CACHE_DIR!, stage4RunId, 'meta_ads_publisher.json');
-    const campaignRoot = path.join(process.env.OPENCLAW_LOBSTER_CWD!, 'output', 'brand-runtime-first-campaign');
+    const preflightPath = path.join(process.env.ARTIFACT_STAGE4_CACHE_DIR!, stage4RunId, 'performance_marketer_preflight.json');
+    const metaPublisherPath = path.join(process.env.ARTIFACT_STAGE4_CACHE_DIR!, stage4RunId, 'meta_ads_publisher.json');
+    const campaignRoot = path.join(process.env.ARTIFACT_PIPELINE_CWD!, 'output', 'brand-runtime-first-campaign');
     const landingPagePath = path.join(campaignRoot, 'landing-pages', 'runtime-first.html');
     const metaScriptPath = path.join(campaignRoot, 'scripts', 'meta-ads.md');
     const shortVideoScriptPath = path.join(campaignRoot, 'scripts', 'short-video.md');
-    const publishRoot = path.join(process.env.OPENCLAW_LOBSTER_CWD!, 'output', 'publish-ready', 'brand-runtime-first-stage2-plan', 'meta-ads');
+    const publishRoot = path.join(process.env.ARTIFACT_PIPELINE_CWD!, 'output', 'publish-ready', 'brand-runtime-first-stage2-plan', 'meta-ads');
     const imagePath = path.join(publishRoot, 'meta-ads.png');
     const copyPath = path.join(publishRoot, 'copy.json');
     const contractPath = path.join(publishRoot, 'meta-ads.json');
     const reviewPackagePath = path.join(
-      process.env.OPENCLAW_LOBSTER_CWD!,
+      process.env.ARTIFACT_PIPELINE_CWD!,
       'output',
       'aries-review',
       'tenant_real',
@@ -1862,7 +1864,7 @@ test('/api/marketing/jobs/:jobId keeps fresher runtime review fields while backf
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_real',
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -1990,11 +1992,11 @@ test('/api/marketing/jobs/:jobId hydrates brandReview and strategyReview from re
     const tenantId = 'public_sugarandleather-com';
     const stage2RunId = 'https-betterup-com-feefd5df';
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
-    const plannerPath = path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, stage2RunId, 'campaign_planner.json');
-    const websiteAnalysisPath = path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, stage2RunId, 'website_brand_analysis.json');
+    const plannerPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, stage2RunId, 'campaign_planner.json');
+    const websiteAnalysisPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, stage2RunId, 'website_brand_analysis.json');
     const brandProfilePath = path.join(dataRoot, 'generated', 'validated', tenantId, 'brand-profile.json');
-    const strategyReviewPath = path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, stage2RunId, 'strategy_review_preview.json');
-    const proposalPath = path.join(process.env.OPENCLAW_LOBSTER_CWD!, 'output', 'public-sugarandleather-com-campaign-proposal.md');
+    const strategyReviewPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, stage2RunId, 'strategy_review_preview.json');
+    const proposalPath = path.join(process.env.ARTIFACT_PIPELINE_CWD!, 'output', 'public-sugarandleather-com-campaign-proposal.md');
 
     await mkdir(path.dirname(runtimeFile), { recursive: true });
     await mkdir(path.dirname(plannerPath), { recursive: true });
@@ -2082,7 +2084,7 @@ test('/api/marketing/jobs/:jobId hydrates brandReview and strategyReview from re
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: tenantId,
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -2185,10 +2187,10 @@ test('/api/marketing/jobs/:jobId does not leak stale strategy review content fro
     const staleRunId = 'run-stale-sugar';
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
     const validatedRoot = path.join(process.env.DATA_ROOT!, 'generated', 'validated', tenantId);
-    const plannerPath = path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, staleRunId, 'campaign_planner.json');
-    const websiteAnalysisPath = path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, staleRunId, 'website_brand_analysis.json');
-    const strategyReviewPath = path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, staleRunId, 'strategy_review_preview.json');
-    const proposalPath = path.join(process.env.OPENCLAW_LOBSTER_CWD!, 'output', 'sugarandleather-com-campaign-proposal.md');
+    const plannerPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, staleRunId, 'campaign_planner.json');
+    const websiteAnalysisPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, staleRunId, 'website_brand_analysis.json');
+    const strategyReviewPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, staleRunId, 'strategy_review_preview.json');
+    const proposalPath = path.join(process.env.ARTIFACT_PIPELINE_CWD!, 'output', 'sugarandleather-com-campaign-proposal.md');
 
     await mkdir(path.dirname(runtimeFile), { recursive: true });
     await mkdir(validatedRoot, { recursive: true });
@@ -2264,7 +2266,7 @@ test('/api/marketing/jobs/:jobId does not leak stale strategy review content fro
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: tenantId,
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -2369,9 +2371,9 @@ test('/api/marketing/jobs/:jobId tolerates legacy runtime docs without brand_kit
     const tenantId = 'tenant_legacy_brand_artifacts';
     const stage2RunId = 'run-legacy-brand-artifacts';
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
-    const websiteAnalysisPath = path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, stage2RunId, 'website_brand_analysis.json');
-    const brandBiblePath = path.join(process.env.OPENCLAW_LOBSTER_CWD!, 'output', 'tenant-legacy-brand-artifacts-brand-bible.md');
-    const designSystemPath = path.join(process.env.OPENCLAW_LOBSTER_CWD!, 'output', 'tenant-legacy-brand-artifacts-design-system.css');
+    const websiteAnalysisPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, stage2RunId, 'website_brand_analysis.json');
+    const brandBiblePath = path.join(process.env.ARTIFACT_PIPELINE_CWD!, 'output', 'tenant-legacy-brand-artifacts-brand-bible.md');
+    const designSystemPath = path.join(process.env.ARTIFACT_PIPELINE_CWD!, 'output', 'tenant-legacy-brand-artifacts-design-system.css');
 
     await mkdir(path.dirname(runtimeFile), { recursive: true });
     await mkdir(path.dirname(websiteAnalysisPath), { recursive: true });
@@ -2410,7 +2412,7 @@ test('/api/marketing/jobs/:jobId tolerates legacy runtime docs without brand_kit
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: tenantId,
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -2489,7 +2491,7 @@ test('/api/marketing/jobs/:jobId returns brandReview null for legacy runtime doc
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: tenantId,
         state: 'queued',
         status: 'pending',
@@ -2552,7 +2554,7 @@ test('/api/marketing/jobs/:jobId renders upload-only brandReview without advanci
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: tenantId,
         state: 'queued',
         status: 'pending',
@@ -2667,7 +2669,7 @@ test('/api/marketing/jobs/:jobId hydrates brandReview from brand-profile.json wi
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: tenantId,
         state: 'queued',
         status: 'pending',
@@ -2725,10 +2727,10 @@ test('/api/marketing/jobs/:jobId keeps strategy-only legacy jobs non-crashing wi
     const tenantId = 'tenant_legacy_strategy_only';
     const stage2RunId = 'run-legacy-strategy-only';
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
-    const plannerPath = path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, stage2RunId, 'campaign_planner.json');
-    const websiteAnalysisPath = path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, stage2RunId, 'website_brand_analysis.json');
-    const strategyReviewPath = path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, stage2RunId, 'strategy_review_preview.json');
-    const proposalPath = path.join(process.env.OPENCLAW_LOBSTER_CWD!, 'output', 'tenant-legacy-strategy-only-campaign-proposal.md');
+    const plannerPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, stage2RunId, 'campaign_planner.json');
+    const websiteAnalysisPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, stage2RunId, 'website_brand_analysis.json');
+    const strategyReviewPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, stage2RunId, 'strategy_review_preview.json');
+    const proposalPath = path.join(process.env.ARTIFACT_PIPELINE_CWD!, 'output', 'tenant-legacy-strategy-only-campaign-proposal.md');
 
     await mkdir(path.dirname(runtimeFile), { recursive: true });
     await mkdir(path.dirname(plannerPath), { recursive: true });
@@ -2794,7 +2796,7 @@ test('/api/marketing/jobs/:jobId keeps strategy-only legacy jobs non-crashing wi
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: tenantId,
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -2866,9 +2868,9 @@ test('/api/marketing/jobs/:jobId hydrates creativeReview and dashboard counts fr
     const stage2RunId = 'run-strategy-creative-real';
     const stage3RunId = 'run-production-real';
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
-    const plannerPath = path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, stage2RunId, 'campaign_planner.json');
-    const productionReviewPath = path.join(process.env.LOBSTER_STAGE3_CACHE_DIR!, stage3RunId, 'production_review_preview.json');
-    const campaignRoot = path.join(process.env.OPENCLAW_LOBSTER_CWD!, 'output', 'public-sugarandleather-com-campaign');
+    const plannerPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, stage2RunId, 'campaign_planner.json');
+    const productionReviewPath = path.join(process.env.ARTIFACT_STAGE3_CACHE_DIR!, stage3RunId, 'production_review_preview.json');
+    const campaignRoot = path.join(process.env.ARTIFACT_PIPELINE_CWD!, 'output', 'public-sugarandleather-com-campaign');
     const landingPagePath = path.join(campaignRoot, 'landing-pages', 'spring-launch.html');
     const imagePath = path.join(campaignRoot, 'ad-images', 'meta-ads-main.png');
     const scriptPath = path.join(campaignRoot, 'scripts', 'meta-ads.md');
@@ -2958,7 +2960,7 @@ test('/api/marketing/jobs/:jobId hydrates creativeReview and dashboard counts fr
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_real',
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -3056,7 +3058,7 @@ test('/api/marketing/jobs/:jobId resolves https-prefixed stage log run ids into 
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
     const brandProfilePath = path.join(dataRoot, 'generated', 'validated', tenantId, 'brand-profile.json');
     const strategyLogPath = path.join(
-      process.env.OPENCLAW_LOBSTER_CWD!,
+      process.env.ARTIFACT_PIPELINE_CWD!,
       'output',
       'logs',
       stageRunId,
@@ -3064,14 +3066,14 @@ test('/api/marketing/jobs/:jobId resolves https-prefixed stage log run ids into 
       'campaign_planner.json',
     );
     const productionReviewLogPath = path.join(
-      process.env.OPENCLAW_LOBSTER_CWD!,
+      process.env.ARTIFACT_PIPELINE_CWD!,
       'output',
       'logs',
       stageRunId,
       'stage-3-production',
       'production_review_preview.json',
     );
-    const campaignRoot = path.join(process.env.OPENCLAW_LOBSTER_CWD!, 'output', '10-campaign');
+    const campaignRoot = path.join(process.env.ARTIFACT_PIPELINE_CWD!, 'output', '10-campaign');
     const landingPagePath = path.join(campaignRoot, 'landing-pages', 'index.html');
     const imagePath = path.join(campaignRoot, 'ad-images', 'meta-feed.png');
     const storyImagePath = path.join(campaignRoot, 'ad-images', 'meta-story.png');
@@ -3184,7 +3186,7 @@ test('/api/marketing/jobs/:jobId resolves https-prefixed stage log run ids into 
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: tenantId,
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -3281,19 +3283,19 @@ test('/api/marketing/jobs/:jobId reconstructs reviewBundle and publish counts fr
     const jobId = 'mkt_publish_review_reconstructed';
     const stage4RunId = 'run-publish-reconstructed';
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
-    const launchReviewPath = path.join(process.env.LOBSTER_STAGE4_CACHE_DIR!, stage4RunId, 'launch_review_preview.json');
-    const preflightPath = path.join(process.env.LOBSTER_STAGE4_CACHE_DIR!, stage4RunId, 'performance_marketer_preflight.json');
-    const metaPublisherPath = path.join(process.env.LOBSTER_STAGE4_CACHE_DIR!, stage4RunId, 'meta_ads_publisher.json');
-    const campaignRoot = path.join(process.env.OPENCLAW_LOBSTER_CWD!, 'output', 'brand-example-campaign');
+    const launchReviewPath = path.join(process.env.ARTIFACT_STAGE4_CACHE_DIR!, stage4RunId, 'launch_review_preview.json');
+    const preflightPath = path.join(process.env.ARTIFACT_STAGE4_CACHE_DIR!, stage4RunId, 'performance_marketer_preflight.json');
+    const metaPublisherPath = path.join(process.env.ARTIFACT_STAGE4_CACHE_DIR!, stage4RunId, 'meta_ads_publisher.json');
+    const campaignRoot = path.join(process.env.ARTIFACT_PIPELINE_CWD!, 'output', 'brand-example-campaign');
     const landingPagePath = path.join(campaignRoot, 'landing-pages', 'april-launch.html');
     const metaScriptPath = path.join(campaignRoot, 'scripts', 'meta-ads.md');
     const shortVideoScriptPath = path.join(campaignRoot, 'scripts', 'short-video.md');
-    const publishRoot = path.join(process.env.OPENCLAW_LOBSTER_CWD!, 'output', 'publish-ready', 'brand-example-stage2-plan', 'meta-ads');
+    const publishRoot = path.join(process.env.ARTIFACT_PIPELINE_CWD!, 'output', 'publish-ready', 'brand-example-stage2-plan', 'meta-ads');
     const imagePath = path.join(publishRoot, 'meta-ads.png');
     const copyPath = path.join(publishRoot, 'copy.json');
     const contractPath = path.join(publishRoot, 'meta-ads.json');
     const reviewPackagePath = path.join(
-      process.env.OPENCLAW_LOBSTER_CWD!,
+      process.env.ARTIFACT_PIPELINE_CWD!,
       'output',
       'aries-review',
       'tenant_real',
@@ -3432,7 +3434,7 @@ test('/api/marketing/jobs/:jobId reconstructs reviewBundle and publish counts fr
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_real',
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -3543,7 +3545,7 @@ test('/api/marketing/jobs/:jobId does not leak an older Stage 4 launch review in
     const jobId = 'mkt_strategy_no_publish_leak';
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
     const runId = 'betterup-com-oldrun';
-    const logsRoot = path.join(process.env.OPENCLAW_LOBSTER_CWD!, 'output', 'logs', runId, 'stage-4-publish-optimize');
+    const logsRoot = path.join(process.env.ARTIFACT_PIPELINE_CWD!, 'output', 'logs', runId, 'stage-4-publish-optimize');
     const stalePublishImagePath = path.join(process.env.CODE_ROOT!, 'lobster', 'output', 'publish-ready', '6-stage2-plan', 'meta-ads', 'meta.png');
 
     await mkdir(path.dirname(runtimeFile), { recursive: true });
@@ -3579,7 +3581,7 @@ test('/api/marketing/jobs/:jobId does not leak an older Stage 4 launch review in
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_real',
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -3704,7 +3706,7 @@ test('buildCampaignWorkspaceView keeps upload-only brand review pending and reop
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: tenantId,
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -3846,7 +3848,7 @@ test('buildCampaignWorkspaceView backfills an empty campaign brief brand voice f
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: tenantId,
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -3949,7 +3951,7 @@ test('polluted Stage 2 inputs do not leak into business profile or brand review'
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: tenantId,
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -4089,9 +4091,9 @@ test('/api/marketing/jobs/:jobId does not surface creative-output posts before p
     const { handleGetMarketingJobStatus } = await import('../app/api/marketing/jobs/[jobId]/handler');
     const jobId = 'mkt_production_gate_no_creative_leak';
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
-    const proposalRoot = path.join(process.env.OPENCLAW_LOBSTER_CWD!, 'output');
+    const proposalRoot = path.join(process.env.ARTIFACT_PIPELINE_CWD!, 'output');
     const staticContractPath = path.join(proposalRoot, 'static-contracts', '6-stage2-plan', 'meta-ads.json');
-    const plannerPath = path.join(process.env.LOBSTER_STAGE2_CACHE_DIR!, 'run-strategy', 'campaign_planner.json');
+    const plannerPath = path.join(process.env.ARTIFACT_STAGE2_CACHE_DIR!, 'run-strategy', 'campaign_planner.json');
 
     await mkdir(path.dirname(runtimeFile), { recursive: true });
     await mkdir(path.dirname(staticContractPath), { recursive: true });
@@ -4123,7 +4125,7 @@ test('/api/marketing/jobs/:jobId does not surface creative-output posts before p
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_real',
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -4205,8 +4207,8 @@ test('/api/marketing/jobs/:jobId does not surface Stage 4 launch review content 
     const jobId = 'mkt_launch_gate_no_publish_review';
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
     const runId = 'betterup-com-live';
-    const logsRoot = path.join(process.env.OPENCLAW_LOBSTER_CWD!, 'output', 'logs', runId, 'stage-4-publish-optimize');
-    const publishImagePath = path.join(process.env.OPENCLAW_LOBSTER_CWD!, 'output', 'publish-ready', '6-stage2-plan', 'meta-ads', 'meta-ads.png');
+    const logsRoot = path.join(process.env.ARTIFACT_PIPELINE_CWD!, 'output', 'logs', runId, 'stage-4-publish-optimize');
+    const publishImagePath = path.join(process.env.ARTIFACT_PIPELINE_CWD!, 'output', 'publish-ready', '6-stage2-plan', 'meta-ads', 'meta-ads.png');
 
     await mkdir(path.dirname(runtimeFile), { recursive: true });
     await mkdir(logsRoot, { recursive: true });
@@ -4240,7 +4242,7 @@ test('/api/marketing/jobs/:jobId does not surface Stage 4 launch review content 
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_real',
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -4349,7 +4351,7 @@ test('/api/marketing/jobs/:jobId/assets/:assetId serves a tenant-scoped preview 
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_real',
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -4450,7 +4452,7 @@ test('/api/marketing/jobs/:jobId/assets/:assetId sniffs image bytes so preview c
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_real',
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -4543,7 +4545,7 @@ test('/api/marketing/jobs/:jobId/assets/:assetId allows runtime-derived absolute
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_real',
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -4640,7 +4642,7 @@ test('/api/marketing/jobs/:jobId/assets/:assetId supports legacy saved code path
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_real',
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -4737,7 +4739,7 @@ test('/api/marketing/jobs/:jobId/assets/:assetId supports legacy saved code path
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_real',
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -4834,7 +4836,7 @@ test('/api/marketing/jobs/:jobId/assets/:assetId supports legacy saved code path
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_real',
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -5299,7 +5301,7 @@ test('/api/marketing/jobs/:jobId/assets/:assetId rejects runtime-derived absolut
           schema_name: 'marketing_job_state_schema',
           schema_version: '1.0.0',
           job_id: jobId,
-          job_type: 'brand_campaign',
+          job_type: 'weekly_social_content',
           tenant_id: 'tenant_real',
           state: 'approval_required',
           status: 'awaiting_approval',
@@ -5395,7 +5397,7 @@ test('/api/marketing/jobs/:jobId/assets/:assetId rejects traversal-style runtime
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_real',
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -5495,7 +5497,7 @@ test('/api/marketing/jobs/:jobId/assets/:assetId rejects symlink escapes from al
           schema_name: 'marketing_job_state_schema',
           schema_version: '1.0.0',
           job_id: jobId,
-          job_type: 'brand_campaign',
+          job_type: 'weekly_social_content',
           tenant_id: 'tenant_real',
           state: 'approval_required',
           status: 'awaiting_approval',
@@ -5596,7 +5598,7 @@ test('/api/marketing/jobs/:jobId/assets/:assetId skips tenant loading in public 
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_real',
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -5701,7 +5703,7 @@ test('/api/marketing/jobs/:jobId/approve resolves tenant context server-side and
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
-            jobType: 'brand_campaign',
+            jobType: 'weekly_social_content',
             payload: {
               brandUrl: 'https://brand.example',
               businessName: 'Brand Example',
@@ -5794,10 +5796,10 @@ test('/api/marketing/jobs/:jobId/approve resolves tenant context server-side and
       assert.equal(lastArgs?.action, 'resume');
       assert.equal(lastArgs?.approve, true);
       assert.equal(String(lastArgs?.token), 'resume_publish');
-      assert.equal(lastArgs?.cwd, process.env.OPENCLAW_LOBSTER_CWD);
+      assert.equal(lastArgs?.cwd, process.env.ARTIFACT_PIPELINE_CWD);
     } finally {
       restoreFetch();
-      clearOpenClawTestInvoker();
+      clearExecutionTestInvoker();
     }
 });
 
@@ -5840,7 +5842,7 @@ test('/api/marketing/reviews/[reviewId] decodes encoded review ids before loadin
           'Ads reviewed: 6',
           'Trust-building testimonials outperform abstract inspiration.',
         ],
-        path: path.join(process.env.LOBSTER_STAGE1_CACHE_DIR!, 'run-research', 'ads_analyst_compile.json'),
+        path: path.join(process.env.ARTIFACT_STAGE1_CACHE_DIR!, 'run-research', 'ads_analyst_compile.json'),
         preview_path: null,
       },
     ];
@@ -5876,10 +5878,10 @@ test('/api/marketing/reviews/[reviewId] decodes encoded review ids before loadin
     };
 
     await mkdir(jobsRoot, { recursive: true });
-    await mkdir(path.join(process.env.LOBSTER_STAGE1_CACHE_DIR!, 'run-research'), { recursive: true });
+    await mkdir(path.join(process.env.ARTIFACT_STAGE1_CACHE_DIR!, 'run-research'), { recursive: true });
     await mkdir(path.dirname(runtimeDoc.brand_kit.path as string), { recursive: true });
     await writeFile(
-      path.join(process.env.LOBSTER_STAGE1_CACHE_DIR!, 'run-research', 'ads_analyst_compile.json'),
+      path.join(process.env.ARTIFACT_STAGE1_CACHE_DIR!, 'run-research', 'ads_analyst_compile.json'),
       JSON.stringify({
         competitor: 'betterup.com',
         inputs: {
@@ -6040,7 +6042,7 @@ test('/api/marketing/reviews/[reviewId]/decision decodes encoded review ids befo
     assert.equal(response.status, 200);
     assert.equal((body.review as { id: string; status: string }).id, `${jobId}::approval`);
     assert.equal((body.review as { id: string; status: string }).status, 'approved');
-    clearOpenClawTestInvoker();
+    clearExecutionTestInvoker();
   });
 });
 
@@ -6068,7 +6070,7 @@ test('/api/marketing/jobs/:jobId exposes .mp4 paths as video/mp4 media assets on
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_real',
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -6176,7 +6178,7 @@ test('/api/marketing/jobs/:jobId/assets/:assetId streams video assets with range
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_real',
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -6309,7 +6311,7 @@ test('/api/marketing/jobs/:jobId/assets/:assetId rejects traversal-style video a
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_real',
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -6376,7 +6378,7 @@ test('/api/marketing/jobs/:jobId/assets/:assetId rejects cross-tenant video acce
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_owner',
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -6443,7 +6445,7 @@ test('/api/marketing/jobs/:jobId/assets/:assetId returns 404 for missing video f
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_real',
         state: 'approval_required',
         status: 'awaiting_approval',

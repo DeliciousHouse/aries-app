@@ -42,18 +42,14 @@ test('.env.example documents Hermes weekly social-content defaults', () => {
     /Text planning can run when media generation is disabled/i,
   );
 
-  // Legacy OpenClaw/Lobster variables must be de-emphasized for new workflows.
+  // The legacy OpenClaw/Lobster execution path has been removed; its gateway
+  // env vars must not appear in .env.example.
   assert.doesNotMatch(envExample, /^OPENCLAW_GATEWAY_URL=/m);
   assert.doesNotMatch(envExample, /^OPENCLAW_GATEWAY_TOKEN=/m);
   assert.doesNotMatch(envExample, /^OPENCLAW_SESSION_KEY=/m);
-  assert.doesNotMatch(envExample, /^OPENCLAW_LOBSTER_CWD=/m);
-  assert.doesNotMatch(envExample, /^LOBSTER_STAGE[1-4]_CACHE_DIR=/m);
   assert.doesNotMatch(envExample, /^LOBSTER_MEDIA_GATEWAY_ENABLED=/m);
   assert.doesNotMatch(envExample, /^GEMINI_API_KEY=/m);
-  assert.match(
-    envExample,
-    /Deprecated legacy OpenClaw\/Lobster compatibility \(optional\)/,
-  );
+  assert.doesNotMatch(envExample, /legacy OpenClaw/i);
 });
 
 test('docs describe Hermes social-content operational flow and avoid lobster workflow instructions', () => {

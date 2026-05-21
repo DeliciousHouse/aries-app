@@ -11,23 +11,23 @@ const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise<T> {
   const previousCodeRoot = process.env.CODE_ROOT;
   const previousDataRoot = process.env.DATA_ROOT;
-  const previousLocalLobsterCwd = process.env.OPENCLAW_LOCAL_LOBSTER_CWD;
-  const previousOpenClawLobsterCwd = process.env.OPENCLAW_LOBSTER_CWD;
-  const previousStage1CacheDir = process.env.LOBSTER_STAGE1_CACHE_DIR;
-  const previousStage2CacheDir = process.env.LOBSTER_STAGE2_CACHE_DIR;
-  const previousStage3CacheDir = process.env.LOBSTER_STAGE3_CACHE_DIR;
-  const previousStage4CacheDir = process.env.LOBSTER_STAGE4_CACHE_DIR;
+  const previousPipelineLocalCwd = process.env.ARTIFACT_PIPELINE_LOCAL_CWD;
+  const previousPipelineCwd = process.env.ARTIFACT_PIPELINE_CWD;
+  const previousStage1CacheDir = process.env.ARTIFACT_STAGE1_CACHE_DIR;
+  const previousStage2CacheDir = process.env.ARTIFACT_STAGE2_CACHE_DIR;
+  const previousStage3CacheDir = process.env.ARTIFACT_STAGE3_CACHE_DIR;
+  const previousStage4CacheDir = process.env.ARTIFACT_STAGE4_CACHE_DIR;
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-creative-per-family-'));
-  const lobsterRoot = path.join(dataRoot, 'lobster');
+  const artifactRoot = path.join(dataRoot, 'lobster');
 
   process.env.CODE_ROOT = PROJECT_ROOT;
   process.env.DATA_ROOT = dataRoot;
-  process.env.OPENCLAW_LOCAL_LOBSTER_CWD = lobsterRoot;
-  process.env.OPENCLAW_LOBSTER_CWD = lobsterRoot;
-  process.env.LOBSTER_STAGE1_CACHE_DIR = path.join(dataRoot, 'lobster-stage1-cache');
-  process.env.LOBSTER_STAGE2_CACHE_DIR = path.join(dataRoot, 'lobster-stage2-cache');
-  process.env.LOBSTER_STAGE3_CACHE_DIR = path.join(dataRoot, 'lobster-stage3-cache');
-  process.env.LOBSTER_STAGE4_CACHE_DIR = path.join(dataRoot, 'lobster-stage4-cache');
+  process.env.ARTIFACT_PIPELINE_LOCAL_CWD = artifactRoot;
+  process.env.ARTIFACT_PIPELINE_CWD = artifactRoot;
+  process.env.ARTIFACT_STAGE1_CACHE_DIR = path.join(dataRoot, 'lobster-stage1-cache');
+  process.env.ARTIFACT_STAGE2_CACHE_DIR = path.join(dataRoot, 'lobster-stage2-cache');
+  process.env.ARTIFACT_STAGE3_CACHE_DIR = path.join(dataRoot, 'lobster-stage3-cache');
+  process.env.ARTIFACT_STAGE4_CACHE_DIR = path.join(dataRoot, 'lobster-stage4-cache');
 
   try {
     return await run(dataRoot);
@@ -42,35 +42,35 @@ async function withRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise
     } else {
       process.env.DATA_ROOT = previousDataRoot;
     }
-    if (previousLocalLobsterCwd === undefined) {
-      delete process.env.OPENCLAW_LOCAL_LOBSTER_CWD;
+    if (previousPipelineLocalCwd === undefined) {
+      delete process.env.ARTIFACT_PIPELINE_LOCAL_CWD;
     } else {
-      process.env.OPENCLAW_LOCAL_LOBSTER_CWD = previousLocalLobsterCwd;
+      process.env.ARTIFACT_PIPELINE_LOCAL_CWD = previousPipelineLocalCwd;
     }
-    if (previousOpenClawLobsterCwd === undefined) {
-      delete process.env.OPENCLAW_LOBSTER_CWD;
+    if (previousPipelineCwd === undefined) {
+      delete process.env.ARTIFACT_PIPELINE_CWD;
     } else {
-      process.env.OPENCLAW_LOBSTER_CWD = previousOpenClawLobsterCwd;
+      process.env.ARTIFACT_PIPELINE_CWD = previousPipelineCwd;
     }
     if (previousStage1CacheDir === undefined) {
-      delete process.env.LOBSTER_STAGE1_CACHE_DIR;
+      delete process.env.ARTIFACT_STAGE1_CACHE_DIR;
     } else {
-      process.env.LOBSTER_STAGE1_CACHE_DIR = previousStage1CacheDir;
+      process.env.ARTIFACT_STAGE1_CACHE_DIR = previousStage1CacheDir;
     }
     if (previousStage2CacheDir === undefined) {
-      delete process.env.LOBSTER_STAGE2_CACHE_DIR;
+      delete process.env.ARTIFACT_STAGE2_CACHE_DIR;
     } else {
-      process.env.LOBSTER_STAGE2_CACHE_DIR = previousStage2CacheDir;
+      process.env.ARTIFACT_STAGE2_CACHE_DIR = previousStage2CacheDir;
     }
     if (previousStage3CacheDir === undefined) {
-      delete process.env.LOBSTER_STAGE3_CACHE_DIR;
+      delete process.env.ARTIFACT_STAGE3_CACHE_DIR;
     } else {
-      process.env.LOBSTER_STAGE3_CACHE_DIR = previousStage3CacheDir;
+      process.env.ARTIFACT_STAGE3_CACHE_DIR = previousStage3CacheDir;
     }
     if (previousStage4CacheDir === undefined) {
-      delete process.env.LOBSTER_STAGE4_CACHE_DIR;
+      delete process.env.ARTIFACT_STAGE4_CACHE_DIR;
     } else {
-      process.env.LOBSTER_STAGE4_CACHE_DIR = previousStage4CacheDir;
+      process.env.ARTIFACT_STAGE4_CACHE_DIR = previousStage4CacheDir;
     }
     await rm(dataRoot, { recursive: true, force: true });
   }
@@ -86,8 +86,8 @@ test('buildCampaignWorkspaceView uses per-family hooks for Meta image ad cards i
     const brandSlug = 'per-family-test-brand';
 
     const runtimeFile = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs', `${jobId}.json`);
-    const scriptwriterCachePath = path.join(process.env.LOBSTER_STAGE3_CACHE_DIR!, stage3RunId, 'scriptwriter.json');
-    const campaignRoot = path.join(process.env.OPENCLAW_LOBSTER_CWD!, 'output', `${brandSlug}-campaign`);
+    const scriptwriterCachePath = path.join(process.env.ARTIFACT_STAGE3_CACHE_DIR!, stage3RunId, 'scriptwriter.json');
+    const campaignRoot = path.join(process.env.ARTIFACT_PIPELINE_CWD!, 'output', `${brandSlug}-campaign`);
     const adImagesDir = path.join(campaignRoot, 'ad-images');
     const image1Path = path.join(adImagesDir, 'meta-outcome-proof.png');
     const image2Path = path.join(adImagesDir, 'meta-problem-to-promise.png');
@@ -134,7 +134,7 @@ test('buildCampaignWorkspaceView uses per-family hooks for Meta image ad cards i
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: tenantId,
         state: 'approval_required',
         status: 'awaiting_approval',

@@ -1,4 +1,0 @@
-
-> aries-platform-bootstrap-runtime@0.1.2.1 typecheck
-> tsc --noEmit
-
