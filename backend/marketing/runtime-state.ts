@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import pool from '@/lib/db';
 import { normalizeMetaLocatorUrl, normalizeMetaPageId } from '@/lib/marketing-competitor';
 import { describeSpecResolution, resolveDataPath } from '@/lib/runtime-paths';
 import { ingestRuntimeDocAssets } from './asset-ingest';
@@ -673,6 +674,36 @@ export async function tenantOwnsHermesMediaBasename(
   if (!tenantId || !basename) {
     return false;
   }
+
+  // Primary check: the creative_assets table is the authoritative ownership
+  // record and covers all runtime-document shapes (social-content, brand-campaign,
+  // etc.). Fall through to the filesystem scan only on DB error.
+  const tenantIdInt = Number(tenantId);
+  if (Number.isFinite(tenantIdInt) && tenantIdInt > 0) {
+    try {
+      const client = await pool.connect();
+      try {
+        const result = await client.query<{ found: number }>(
+          `SELECT 1 AS found FROM creative_assets
+           WHERE tenant_id = $1
+             AND $2 IN (
+               regexp_replace(served_asset_ref, '^.*/', ''),
+               regexp_replace(storage_key, '^.*/', '')
+             )
+           LIMIT 1`,
+          [tenantIdInt, basename],
+        );
+        if ((result.rowCount ?? 0) > 0) {
+          return true;
+        }
+      } finally {
+        client.release();
+      }
+    } catch {
+      // DB unavailable — fall through to filesystem scan.
+    }
+  }
+
   const root = marketingRuntimeRoot();
   let entries: string[];
   try {
