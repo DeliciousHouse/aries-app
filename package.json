@@ -1,6 +1,16 @@
 {
   "name": "aries-platform-bootstrap-runtime",
   "version": "0.1.5.6",
+  "description": "Next.js application for weekly social content automation: connect platforms, generate and review a week of content, and publish on a schedule.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DeliciousHouse/aries-app.git"
+  },
+  "bugs": {
+    "url": "https://github.com/DeliciousHouse/aries-app/issues"
+  },
+  "homepage": "https://github.com/DeliciousHouse/aries-app#readme",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 --turbopack",
