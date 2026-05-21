@@ -143,40 +143,121 @@ test('ingestProductionCreativeAssetsToDb — returns zero counts when creative_a
   assert.deepEqual(result, { inserted: 0, skipped: 0, total: 0 });
 });
 
+// ---------------------------------------------------------------------------
+// Hermes media mount harness
+//
+// Production reality: Hermes reports `creative_assets[].path` as a HOST path
+// (e.g. /home/node/.hermes/profiles/<profile>/cache/images/x.png) that the
+// Aries container CANNOT read. The container can only read the image cache via
+// the HERMES_IMAGE_CACHE_MOUNT bind-mount, keyed by basename. Each test sets up
+// a temp dir to act as that mount and points HERMES_IMAGE_CACHE_MOUNT at it.
+// ---------------------------------------------------------------------------
+
+async function withHermesMediaMount<T>(
+  fn: (mount: string, hostImagePath: (basename: string) => string) => Promise<T>,
+): Promise<T> {
+  const mount = path.join(tmpdir(), `aries-hermes-media-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  await mkdir(mount, { recursive: true });
+  const prev = process.env.HERMES_IMAGE_CACHE_MOUNT;
+  process.env.HERMES_IMAGE_CACHE_MOUNT = mount;
+  // A Hermes host path the container never has on disk — the regression vector.
+  const hostImagePath = (basename: string) =>
+    `/home/node/.hermes/profiles/aries-content-generator/cache/images/${basename}`;
+  try {
+    return await fn(mount, hostImagePath);
+  } finally {
+    if (prev === undefined) delete process.env.HERMES_IMAGE_CACHE_MOUNT;
+    else process.env.HERMES_IMAGE_CACHE_MOUNT = prev;
+    await rm(mount, { recursive: true, force: true });
+  }
+}
+
 test('ingestProductionCreativeAssetsToDb — skips entries with empty path', async () => {
-  const doc = makeDoc({
-    creativeAssets: [
-      { assetId: 'a1', type: 'generated_image', path: '' },
-      { assetId: 'a2', type: 'generated_image' },
-    ],
+  await withHermesMediaMount(async () => {
+    const doc = makeDoc({
+      creativeAssets: [
+        { assetId: 'a1', type: 'generated_image', path: '' },
+        { assetId: 'a2', type: 'generated_image' },
+      ],
+    });
+    const { pool, calls } = makeMockPool();
+    const result = await ingestProductionCreativeAssetsToDb({
+      jobId: 'mkt_empty_path',
+      tenantId: 42,
+      doc,
+      pool,
+    });
+    assert.equal(result.total, 2);
+    assert.equal(result.skipped, 2);
+    assert.equal(result.inserted, 0);
+    assert.equal(calls.length, 0, 'No DB calls should be made for entries with empty path');
   });
-  const { pool, calls } = makeMockPool();
-  const result = await ingestProductionCreativeAssetsToDb({
-    jobId: 'mkt_empty_path',
-    tenantId: 42,
-    doc,
-    pool,
+});
+
+// REGRESSION: publish-ingestion bug. Hermes reports a host-side path the Aries
+// container cannot read; the image is only reachable via the mount by basename.
+// Before the fix, ingest readFile()'d the raw host path -> ENOENT -> 0 rows
+// inserted -> "Generated assets 0 / No launch items" in the operator dashboard.
+test('ingestProductionCreativeAssetsToDb — resolves Hermes host path via mount by basename', async () => {
+  await withHermesMediaMount(async (mount, hostImagePath) => {
+    const basename = 'openai_codex_gpt-image-2-low_20260521_012107_1aeff6b2.png';
+    // The file exists ONLY at <mount>/<basename> — never at the reported host path.
+    await writeFile(path.join(mount, basename), Buffer.from('fakepngdata'));
+
+    const doc = makeDoc({
+      creativeAssets: [
+        {
+          assetId: 'img_1',
+          type: 'generated_image',
+          // The exact path shape Hermes emits post three-profile routing.
+          path: hostImagePath(basename),
+          prompt: 'test prompt',
+        },
+      ],
+    });
+    const { pool, calls } = makeMockPool(1);
+    const result = await ingestProductionCreativeAssetsToDb({
+      jobId: 'mkt_f5f8464b',
+      tenantId: 15,
+      doc,
+      pool,
+    });
+
+    assert.equal(result.total, 1);
+    assert.equal(result.inserted, 1, 'image reachable via mount must be ingested');
+    assert.equal(result.skipped, 0);
+    assert.equal(calls.length, 1, 'the resolved row must reach the DB');
+
+    const { params } = calls[0];
+    assert.equal(params[2], 'img_1', 'source_asset_id preserved');
+    assert.equal(
+      params[3],
+      `/api/internal/hermes/media/${basename}`,
+      'served_asset_ref must be the basename-scoped media route',
+    );
+    assert.equal(
+      params[4],
+      path.join(mount, basename),
+      'storage_key must be the readable mount path, not the unreadable host path',
+    );
+    assert.ok(typeof params[5] === 'string' && (params[5] as string).length === 64, 'checksum sha256 hex');
   });
-  assert.equal(result.total, 2);
-  assert.equal(result.skipped, 2);
-  assert.equal(result.inserted, 0);
-  assert.equal(calls.length, 0, 'No DB calls should be made for entries with empty path');
 });
 
 test('ingestProductionCreativeAssetsToDb — inserts row with correct SQL shape', async () => {
-  const tmpDir = await mkdir(path.join(tmpdir(), 'aries-ingest-test-' + Date.now()), { recursive: true }).then(
-    () => path.join(tmpdir(), 'aries-ingest-test-' + (Date.now() - 1)),
-  );
-  const dir = path.join(tmpdir(), `aries-ingest-test-${Date.now()}`);
-  await mkdir(dir, { recursive: true });
-  const imgPath = path.join(dir, 'openai_codex_abc123.png');
-  const imgBytes = Buffer.from('fakepngdata');
-  await writeFile(imgPath, imgBytes);
+  await withHermesMediaMount(async (mount, hostImagePath) => {
+    const basename = 'openai_codex_abc123.png';
+    await writeFile(path.join(mount, basename), Buffer.from('fakepngdata'));
 
-  try {
     const doc = makeDoc({
       creativeAssets: [
-        { assetId: 'asset-001', type: 'generated_image', path: imgPath, prompt: 'test prompt', placement: 'feed' },
+        {
+          assetId: 'asset-001',
+          type: 'generated_image',
+          path: hostImagePath(basename),
+          prompt: 'test prompt',
+          placement: 'feed',
+        },
       ],
     });
     const { pool, calls } = makeMockPool(1);
@@ -208,22 +289,48 @@ test('ingestProductionCreativeAssetsToDb — inserts row with correct SQL shape'
     assert.equal(params[1], 'mkt_insert_test', 'param $2 must be jobId');
     assert.equal(params[2], 'asset-001', 'param $3 must be sourceAssetId');
     assert.ok(typeof params[3] === 'string' && (params[3] as string).startsWith('/api/internal/hermes/media/'), 'param $4 must be served_asset_ref');
-    assert.equal(params[4], imgPath, 'param $5 must be storagePath');
+    assert.equal(params[4], path.join(mount, basename), 'param $5 must be the readable mount storagePath');
     assert.ok(typeof params[5] === 'string' && (params[5] as string).length === 64, 'param $6 must be a sha256 hex string');
+  });
+});
+
+test('ingestProductionCreativeAssetsToDb — skips when HERMES_IMAGE_CACHE_MOUNT is unset', async () => {
+  const prev = process.env.HERMES_IMAGE_CACHE_MOUNT;
+  delete process.env.HERMES_IMAGE_CACHE_MOUNT;
+  try {
+    const doc = makeDoc({
+      creativeAssets: [
+        {
+          assetId: 'img_1',
+          type: 'generated_image',
+          path: '/home/node/.hermes/profiles/aries-content-generator/cache/images/x.png',
+        },
+      ],
+    });
+    const { pool, calls } = makeMockPool(1);
+    const result = await ingestProductionCreativeAssetsToDb({
+      jobId: 'mkt_no_mount',
+      tenantId: 1,
+      doc,
+      pool,
+    });
+    assert.equal(result.total, 1);
+    assert.equal(result.skipped, 1, 'unresolvable path must be skipped, not crash');
+    assert.equal(result.inserted, 0);
+    assert.equal(calls.length, 0, 'no DB call when path cannot be resolved');
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    if (prev === undefined) delete process.env.HERMES_IMAGE_CACHE_MOUNT;
+    else process.env.HERMES_IMAGE_CACHE_MOUNT = prev;
   }
 });
 
 test('ingestProductionCreativeAssetsToDb — ON CONFLICT: rowCount=0 counts as skipped', async () => {
-  const dir = path.join(tmpdir(), `aries-ingest-conflict-${Date.now()}`);
-  await mkdir(dir, { recursive: true });
-  const imgPath = path.join(dir, 'openai_gpt_dup.png');
-  await writeFile(imgPath, Buffer.from('dupdata'));
+  await withHermesMediaMount(async (mount, hostImagePath) => {
+    const basename = 'openai_gpt_dup.png';
+    await writeFile(path.join(mount, basename), Buffer.from('dupdata'));
 
-  try {
     const doc = makeDoc({
-      creativeAssets: [{ assetId: 'dup-asset', type: 'generated_image', path: imgPath }],
+      creativeAssets: [{ assetId: 'dup-asset', type: 'generated_image', path: hostImagePath(basename) }],
     });
     const { pool } = makeMockPool(0);
     const result = await ingestProductionCreativeAssetsToDb({
@@ -236,27 +343,24 @@ test('ingestProductionCreativeAssetsToDb — ON CONFLICT: rowCount=0 counts as s
     assert.equal(result.total, 1);
     assert.equal(result.inserted, 0);
     assert.equal(result.skipped, 1, 'rowCount=0 (conflict) must count as skipped');
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
+  });
 });
 
 test('ingestProductionCreativeAssetsToDb — per-row error does not fail the batch', async () => {
-  const dir = path.join(tmpdir(), `aries-ingest-err-${Date.now()}`);
-  await mkdir(dir, { recursive: true });
-  const goodPath = path.join(dir, 'openai_codex_good.png');
-  await writeFile(goodPath, Buffer.from('gooddata'));
-  const badPath = '/nonexistent/path/openai_codex_bad.png';
+  await withHermesMediaMount(async (mount, hostImagePath) => {
+    const goodBasename = 'openai_codex_good.png';
+    await writeFile(path.join(mount, goodBasename), Buffer.from('gooddata'));
+    // bad: a basename with no corresponding file under the mount.
+    const badBasename = 'openai_codex_bad.png';
 
-  const doc = makeDoc({
-    creativeAssets: [
-      { assetId: 'bad-asset', type: 'generated_image', path: badPath },
-      { assetId: 'good-asset', type: 'generated_image', path: goodPath },
-    ],
-  });
-  const { pool, calls } = makeMockPool(1);
+    const doc = makeDoc({
+      creativeAssets: [
+        { assetId: 'bad-asset', type: 'generated_image', path: hostImagePath(badBasename) },
+        { assetId: 'good-asset', type: 'generated_image', path: hostImagePath(goodBasename) },
+      ],
+    });
+    const { pool, calls } = makeMockPool(1);
 
-  try {
     const result = await ingestProductionCreativeAssetsToDb({
       jobId: 'mkt_error_test',
       tenantId: 7,
@@ -268,7 +372,5 @@ test('ingestProductionCreativeAssetsToDb — per-row error does not fail the bat
     assert.equal(result.skipped, 1, 'bad row must be skipped');
     assert.equal(result.inserted, 1, 'good row must be inserted');
     assert.equal(calls.length, 1, 'Only the good row should reach the DB');
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
+  });
 });

@@ -146,7 +146,15 @@ services:
       ARIES_LOBSTER_HOST_OUTPUT_MOUNT: ${ARIES_LOBSTER_HOST_OUTPUT_MOUNT:-/host-lobster-output}
       # Hermes image cache mount: host path where Hermes writes generated images,
       # bind-mounted read-only into the container so /api/internal/hermes/media
-      # can stream them to authenticated browser sessions.
+      # can stream them to authenticated browser sessions and the production
+      # callback can ingest creative_assets into the DB.
+      #
+      # NOTE: the three-profile Hermes routing (PR #390) moved generated images
+      # out of the legacy <hermes>/cache/images into a profile-scoped directory,
+      # <hermes>/profiles/aries-content-generator/cache/images. The bind-mount
+      # below MUST point at the profile cache or the marketing pipeline's images
+      # are unreadable from the container — publish ingestion silently produces
+      # zero creative_assets and the operator dashboard shows "No launch items".
       HERMES_IMAGE_CACHE_MOUNT: ${HERMES_IMAGE_CACHE_MOUNT:-/hermes-media}
     ports:
       - "${PORT:-3000}:${PORT:-3000}"
@@ -155,7 +163,7 @@ services:
     volumes:
       - ${ARIES_SHARED_DATA_ROOT:-/home/node/data}:/data
       - ${ARIES_LOBSTER_HOST_OUTPUT_DIR:-/home/node/aries-app/lobster/output}:${ARIES_LOBSTER_HOST_OUTPUT_MOUNT:-/host-lobster-output}:ro
-      - ${HERMES_IMAGE_CACHE_DIR:-/home/node/.hermes/cache/images}:/hermes-media:ro
+      - ${HERMES_IMAGE_CACHE_DIR:-/home/node/.hermes/profiles/aries-content-generator/cache/images}:/hermes-media:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:${PORT:-3000}/ >/dev/null"]

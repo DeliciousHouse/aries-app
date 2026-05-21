@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.5.1 — fix(marketing): resolve Hermes creative_assets via the image mount
+
+A scoped bug fix for a silent publish-output regression: a completed Hermes pipeline reported "publish complete" but the operator dashboard showed "Generated assets 0 / No launch items", and nothing reached the launch view.
+
+**The cause was a path the container could not read.** When the production stage completes, the callback ingests each generated image into the `creative_assets` table by reading the file Hermes reports. Hermes reports that file as a path on the *Hermes host*. The three-profile Hermes routing (v0.1.3.53) moved the content generator's image output into a profile-scoped cache directory — `<hermes>/profiles/aries-content-generator/cache/images/` — that is not the directory bind-mounted into the Aries container. The container can only read the Hermes image cache through its `/hermes-media` mount, keyed by basename. So every ingest `readFile` hit a host path the container has never seen, threw `ENOENT`, was caught and counted as skipped, and the stage finished having inserted zero rows. The single asset that ever ingested did so only during a brief window when Hermes still mirrored images to the legacy cache dir.
+
+**The fix resolves Hermes paths through the mount, and repoints the mount.** Ingestion now takes the basename of whatever path Hermes reports and resolves it against `HERMES_IMAGE_CACHE_MOUNT` — the same basename-keyed approach the `/api/internal/hermes/media` route already uses to serve those images to the browser — with path-traversal guards, so a host path is never read directly. The `docker-compose` Hermes-cache bind mount default now points at the profile cache directory the content generator actually writes to, so the images are reachable from the container. Verified against the live regressed campaign: ingestion goes from 0 of 7 images to 7 of 7. A regression test stands up a temporary mount and feeds the exact host-path shape Hermes emits; it fails without the fix and passes with it.
+
+**This fix only takes effect after a container recreate** — the `docker-compose` mount change must reach the running container.
+
 ## v0.1.5.0 — feat(scheduling): calendar planner UI and per-post media scoping
 
 The calendar planner, plus the change that activates v0.1.4.0's dormant per-post media resolver. v0.1.4.0 made the scheduled-posts engine sound; this release builds the operator-facing planner on top of it and closes the last wrong-media gap in the publish path.
