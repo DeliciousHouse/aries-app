@@ -171,3 +171,5 @@ auto-retries. The final publish calls remain one-shot.
 **Completed:** v0.1.5.0 (2026-05-21)
 
 - [ ] Add a component test for `PublishNowButton` (calendar-presenter.tsx) — stub `fetch`, assert success confirmation, error state, and the delayed modal close. (Deferred from Copilot review on PR #400.)
+
+- [ ] Refactor Hermes media addressing to be ID-based. `/api/internal/hermes/media/[...path]` currently identifies assets by basename (last URL path segment) and proves ownership by string-matching `regexp_replace` over `served_asset_ref` / `storage_key`. v0.1.5.6 patched the ownership symptom but the design is still basename-coupled. Proper fix: make the route URL `/api/internal/hermes/media/<creative_assets.id>`, turn ownership into a primary-key + `tenant_id` lookup, and serve the file from `storage_key`. Update the `served_asset_ref` written at ingest (`backend/marketing/ingest-production-assets.ts`) and every consumer — calendar backlog thumbnails, creative-review previews, `scheduled-dispatch` media resolution. Removes basename coupling, the dual-column regex match, and basename-collision risk. (Logged 2026-05-21 after v0.1.5.6.)
