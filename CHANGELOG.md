@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.6.2 — chore(deps): batched dependency updates
+
+Consolidates routine dependency updates into a single change: `three` 0.183→0.184, `motion` 12.38→12.40, `pg` 8.20→8.21, `postcss` 8.5.11→8.5.15, `tailwindcss` and `@tailwindcss/postcss` 4.2→4.3, `@types/node` 22→25, plus the `actions/checkout` (v5→v6) and `actions/setup-node` (v4→v6) GitHub Actions. Typecheck, lint, the verify suite, and a full production build all pass. Three Dependabot updates were intentionally excluded as breaking and deferred to dedicated follow-ups: `react-dom` 19 (a React 18→19 migration is its own project), `@react-three/drei` 10 (requires `@react-three/fiber` 9 and React 19), and `lucide-react` 1.x (its v1 removed the Facebook/Instagram/LinkedIn/YouTube brand icons the app imports).
+
 ## v0.1.6.1 — docs: link to the Hermes execution agent
 
 The self-hosting documentation now links to Hermes, the execution agent that Aries hands long-running workflow execution to. The README "What's not in this repository" section, `docs/SELF_HOSTING.md` prerequisites, and `docs/ARCHITECTURE.md` all point to https://github.com/NousResearch/hermes-agent so anyone self-hosting Aries can run their own Hermes endpoint.
