@@ -169,3 +169,5 @@ auto-retries. The final publish calls remain one-shot.
 **Depends on:** None
 
 **Completed:** v0.1.5.0 (2026-05-21)
+
+- [ ] Add a component test for `PublishNowButton` (calendar-presenter.tsx) — stub `fetch`, assert success confirmation, error state, and the delayed modal close. (Deferred from Copilot review on PR #400.)
