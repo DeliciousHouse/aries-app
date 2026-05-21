@@ -1177,6 +1177,36 @@ async function synthesizePublishPostsOnCompletion(
   }
 }
 
+/**
+ * Ingest the production stage's creative_assets into the DB.
+ *
+ * MUST run AFTER markStageCompleted/markJobCompleted has written the production
+ * stage's `primary_output` onto the doc: `ingestProductionCreativeAssetsToDb`
+ * reads `doc.stages.production.primary_output`, and the callback loads a fresh
+ * doc whose production stage is still `in_progress` (primary_output === null)
+ * until the completion writer runs. Calling it earlier silently ingests zero
+ * rows. Non-fatal — an ingest failure must not break completion bookkeeping.
+ */
+async function ingestProductionCreativeAssetsOnCompletion(
+  doc: MarketingJobRuntimeDocument,
+): Promise<void> {
+  try {
+    const tenantNum = Number(doc.tenant_id);
+    if (!Number.isFinite(tenantNum) || tenantNum <= 0) return;
+    await ingestProductionCreativeAssetsToDb({
+      jobId: doc.job_id,
+      tenantId: tenantNum,
+      doc,
+      pool,
+    });
+  } catch (err) {
+    console.warn('[hermes-callbacks] ingestProductionCreativeAssetsToDb failed — continuing', {
+      jobId: doc.job_id,
+      error: (err as Error)?.message ?? String(err),
+    });
+  }
+}
+
 function createApprovalCheckpoint(
   doc: MarketingJobRuntimeDocument,
   run: ExecutionRunRecord,
@@ -1482,24 +1512,11 @@ export async function applyHermesMarketingCallback(
   }
 
   if (payload.status === 'completed') {
-    if (payload.stage === 'production' || targetStage === 'production') {
-      try {
-        const tenantNum = Number(doc.tenant_id);
-        if (Number.isFinite(tenantNum) && tenantNum > 0) {
-          await ingestProductionCreativeAssetsToDb({
-            jobId: doc.job_id,
-            tenantId: tenantNum,
-            doc,
-            pool,
-          });
-        }
-      } catch (err) {
-        console.warn('[hermes-callbacks] ingestProductionCreativeAssetsToDb failed — continuing', {
-          jobId: doc.job_id,
-          error: (err as Error)?.message ?? String(err),
-        });
-      }
-    }
+    // NOTE: production creative_assets ingestion runs LATER — after the
+    // completion writer (markStageCompleted / markJobCompleted) has populated
+    // doc.stages.production.primary_output. Ingesting here would read a still-
+    // null primary_output and silently insert zero rows.
+    const isProductionCompletion = payload.stage === 'production' || targetStage === 'production';
     ingestSocialContentStageMedia(run, payload);
     const multiStage = extractMultiStageOutputs(payload);
     if (multiStage) {
@@ -1523,6 +1540,13 @@ export async function applyHermesMarketingCallback(
         }
       }
       clearApprovalCheckpoint(doc, 'multi-stage Hermes completion fan-out');
+      // Ingest production creative_assets now that the markStageCompleted loop
+      // above has written doc.stages.production.primary_output. Must precede
+      // synthesizePublishPostsOnCompletion so the synthesized posts can link
+      // their creative_asset_ids.
+      if (multiStage.has('production')) {
+        await ingestProductionCreativeAssetsOnCompletion(doc);
+      }
       if (multiStage.has('publish') && doc.stages.publish.status === 'completed') {
         doc.state = 'completed';
         doc.status = 'completed';
@@ -1546,6 +1570,12 @@ export async function applyHermesMarketingCallback(
     }
 
     markJobCompleted(doc, targetStage, payload);
+    // Ingest production creative_assets now that markJobCompleted has written
+    // doc.stages.production.primary_output (see ingestProductionCreativeAssets-
+    // OnCompletion — it reads from the doc, which was null until this point).
+    if (isProductionCompletion) {
+      await ingestProductionCreativeAssetsOnCompletion(doc);
+    }
     if (targetStage === 'publish') {
       scheduleHermesPublishPerformanceHonchoWrite({
         doc,
