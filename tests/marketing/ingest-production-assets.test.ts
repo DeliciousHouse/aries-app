@@ -277,7 +277,13 @@ test('ingestProductionCreativeAssetsToDb — inserts row with correct SQL shape'
 
     // Assert the INSERT shape and ON CONFLICT clause
     assert.ok(sql.includes('INSERT INTO creative_assets'), 'SQL must INSERT INTO creative_assets');
-    assert.ok(sql.includes("ON CONFLICT (tenant_id, checksum) DO NOTHING"), 'SQL must have ON CONFLICT DO NOTHING');
+    // The ON CONFLICT must repeat the partial unique index predicate
+    // (`WHERE checksum IS NOT NULL`) or Postgres rejects every INSERT. That it
+    // actually runs against real Postgres is covered by the live-DB test.
+    assert.ok(
+      sql.includes("ON CONFLICT (tenant_id, checksum) WHERE checksum IS NOT NULL DO NOTHING"),
+      'SQL must have ON CONFLICT with the partial-index predicate',
+    );
     assert.ok(sql.includes("'generated_by_aries'"), 'source_type must be generated_by_aries');
     assert.ok(sql.includes("'runtime_asset'"), 'storage_kind must be runtime_asset');
     assert.ok(sql.includes("'generated'"), 'permission_scope must be generated');

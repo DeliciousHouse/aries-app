@@ -4,8 +4,11 @@
  * can find approved creatives without re-scanning the filesystem.
  *
  * Called from the production-completed branch of hermes-callbacks.ts.
- * Idempotent: ON CONFLICT (tenant_id, checksum) DO NOTHING means re-running
- * on a duplicate callback is safe.
+ * Idempotent: ON CONFLICT (tenant_id, checksum) WHERE checksum IS NOT NULL
+ * DO NOTHING means re-running on a duplicate callback is safe. The WHERE
+ * predicate is mandatory — it matches the partial unique index
+ * `idx_creative_assets_tenant_checksum_unique`; without it Postgres cannot
+ * infer the index and rejects every INSERT.
  *
  * Path resolution: Hermes reports `creative_assets[].path` as a path on the
  * *Hermes host* (e.g. `/home/node/.hermes/profiles/<profile>/cache/images/x.png`).
@@ -68,6 +71,12 @@ export function resolveHermesAssetReadPath(reportedPath: string): string | null 
   return candidate;
 }
 
+// ON CONFLICT must name the PARTIAL-index predicate. The matching unique index
+// is `idx_creative_assets_tenant_checksum_unique`: UNIQUE (tenant_id, checksum)
+// WHERE checksum IS NOT NULL. Postgres only infers a partial unique index when
+// the statement repeats its predicate — omitting `WHERE checksum IS NOT NULL`
+// makes every INSERT fail with "no unique or exclusion constraint matching the
+// ON CONFLICT specification", so a replayed publish callback ingested zero rows.
 const INSERT_PRODUCTION_ASSET_SQL = `
   INSERT INTO creative_assets (
     tenant_id, source_type, source_job_id, source_asset_id,
@@ -80,7 +89,7 @@ const INSERT_PRODUCTION_ASSET_SQL = `
     '4:5', $6, 'generated',
     'observed', false
   )
-  ON CONFLICT (tenant_id, checksum) DO NOTHING
+  ON CONFLICT (tenant_id, checksum) WHERE checksum IS NOT NULL DO NOTHING
 `;
 
 export async function ingestProductionCreativeAssetsToDb(
