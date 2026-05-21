@@ -34,6 +34,7 @@ import { scheduleHermesPublishPerformanceHonchoWrite } from '@/backend/memory/wr
 import { approveMarketingJob } from './orchestrator';
 import type { ApproveMarketingJobRequest, ApproveMarketingJobResponse } from './orchestrator';
 import { ingestProductionCreativeAssetsToDb } from './ingest-production-assets';
+import { synthesizePublishPostsFromContentPackage } from './synthesize-publish-posts';
 import { pool } from '@/lib/db';
 
 const STAGE_ORDER: MarketingStage[] = ['research', 'strategy', 'production', 'publish'];
@@ -1144,6 +1145,38 @@ function markJobCompleted(doc: MarketingJobRuntimeDocument, stage: MarketingStag
   }
 }
 
+/**
+ * On publish-stage completion, turn the Hermes pipeline output into real
+ * `posts` rows. The Hermes-native pipeline never emits the legacy
+ * `publish_package`, so without this a completed pipeline leaves the operator
+ * with zero launch items. `synthesizePublishPostsFromContentPackage` builds
+ * draft posts from the `content_package` copy + ingested `creative_assets`, and
+ * no-ops when a real `publish_package` is present. Non-fatal: a synthesis
+ * failure must not break the callback's completion bookkeeping — the run is
+ * already done; the worst case is an empty launch view, recoverable on replay.
+ */
+async function synthesizePublishPostsOnCompletion(
+  doc: MarketingJobRuntimeDocument,
+  publishRunId: string | null,
+): Promise<void> {
+  try {
+    const tenantNum = Number(doc.tenant_id);
+    if (!Number.isFinite(tenantNum) || tenantNum <= 0) return;
+    await synthesizePublishPostsFromContentPackage({
+      jobId: doc.job_id,
+      tenantId: tenantNum,
+      doc,
+      publishRunId,
+      pool,
+    });
+  } catch (err) {
+    console.warn('[hermes-callbacks] synthesizePublishPostsFromContentPackage failed — continuing', {
+      jobId: doc.job_id,
+      error: (err as Error)?.message ?? String(err),
+    });
+  }
+}
+
 function createApprovalCheckpoint(
   doc: MarketingJobRuntimeDocument,
   run: ExecutionRunRecord,
@@ -1503,6 +1536,10 @@ export async function applyHermesMarketingCallback(
           doc,
           payloadRecord: multiStage.get('publish')?.primaryOutput ?? firstOutputRecord(payload),
         });
+        await synthesizePublishPostsOnCompletion(
+          doc,
+          multiStage.get('publish')?.runId ?? payload.hermes_run_id ?? null,
+        );
       }
       saveMarketingJobRuntime(doc.job_id, doc);
       return;
@@ -1514,6 +1551,10 @@ export async function applyHermesMarketingCallback(
         doc,
         payloadRecord: firstOutputRecord(payload),
       });
+      await synthesizePublishPostsOnCompletion(
+        doc,
+        outputRunId(payload, payload.hermes_run_id ?? null),
+      );
     }
     if (isSocialContentRun(run)) {
       const completedSocialStage =
