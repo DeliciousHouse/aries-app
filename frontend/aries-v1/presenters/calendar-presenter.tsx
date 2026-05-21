@@ -441,10 +441,8 @@ export default function CalendarPresenter({
                         jobId={selectedEvent.jobId}
                         postId={selectedEvent.postId}
                         targetPlatforms={selectedEvent.targetPlatforms}
-                        onSuccess={() => {
-                          setSelectedEventId(null);
-                          onRescheduled?.();
-                        }}
+                        onQueued={() => onRescheduled?.()}
+                        onClose={() => setSelectedEventId(null)}
                       />
                     ) : null}
                     <Link
@@ -506,19 +504,23 @@ function PublishNowButton({
   jobId,
   postId,
   targetPlatforms,
-  onSuccess,
+  onQueued,
+  onClose,
 }: {
   jobId: string;
   postId: string;
   targetPlatforms: string[];
-  onSuccess: () => void;
+  onQueued: () => void;
+  onClose: () => void;
 }) {
   const [submitting, setSubmitting] = useState(false);
   const [confirmation, setConfirmation] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   async function handlePublishNow() {
     if (submitting || confirmation) return;
     setSubmitting(true);
+    setErrorMessage(null);
     try {
       const url = `/api/social-content/jobs/${encodeURIComponent(jobId)}/posts/${encodeURIComponent(postId)}/schedule`;
       const platforms = targetPlatforms.filter(
@@ -533,10 +535,15 @@ function PublishNowButton({
         }),
       });
       if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        setErrorMessage(payload?.error ?? "Couldn't queue this post — try again.");
         return;
       }
       setConfirmation(true);
-      onSuccess();
+      onQueued();
+      setTimeout(() => onClose(), 1800);
+    } catch {
+      setErrorMessage("Couldn't queue this post — try again.");
     } finally {
       setSubmitting(false);
     }
@@ -555,16 +562,27 @@ function PublishNowButton({
   }
 
   return (
-    <button
-      type="button"
-      data-testid="calendar-publish-now"
-      disabled={submitting}
-      onClick={() => void handlePublishNow()}
-      className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-5 py-3 text-sm font-medium text-emerald-100 transition hover:border-emerald-500/50 disabled:opacity-60"
-    >
-      {submitting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
-      Publish now
-    </button>
+    <div className="flex flex-col gap-2">
+      <button
+        type="button"
+        data-testid="calendar-publish-now"
+        disabled={submitting}
+        onClick={() => void handlePublishNow()}
+        className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-5 py-3 text-sm font-medium text-emerald-100 transition hover:border-emerald-500/50 disabled:opacity-60"
+      >
+        {submitting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+        Publish now
+      </button>
+      {errorMessage ? (
+        <span
+          role="alert"
+          data-testid="calendar-publish-now-error"
+          className="rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-2 text-sm text-rose-100"
+        >
+          {errorMessage}
+        </span>
+      ) : null}
+    </div>
   );
 }
 
@@ -611,18 +629,15 @@ function UnscheduledTrayItem({
     data: { kind: 'unscheduled', post },
   });
 
-  const canClick = Boolean(post.jobId);
+  const canSchedule = Boolean(post.jobId);
 
   return (
-    <button
+    <div
       ref={setNodeRef}
       {...attributes}
       {...listeners}
-      type="button"
       data-testid={`tray-item-${post.postId}`}
-      onClick={canClick ? () => onClickSchedule(post) : undefined}
-      title={canClick ? 'Click to schedule' : undefined}
-      className={`w-full cursor-grab rounded-2xl border border-white/[0.06] bg-white/[0.03] p-3 text-left transition-all hover:border-primary/25 ${
+      className={`cursor-grab rounded-2xl border border-white/[0.06] bg-white/[0.03] p-3 transition-all hover:border-primary/25 ${
         isDragging ? 'opacity-40' : ''
       }`}
     >
@@ -642,7 +657,22 @@ function UnscheduledTrayItem({
         </span>
       </div>
       <p className="text-[11px] font-medium leading-snug text-white/85">{post.title}</p>
-    </button>
+      {canSchedule ? (
+        <button
+          type="button"
+          data-testid={`tray-item-schedule-${post.postId}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClickSchedule(post);
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+          className="mt-2 w-full rounded-xl border border-primary/20 bg-primary/10 py-1.5 text-[10px] font-medium text-primary/80 transition hover:border-primary/40 hover:text-primary"
+        >
+          Schedule
+        </button>
+      ) : null}
+    </div>
   );
 }
 
