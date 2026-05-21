@@ -1,6 +1,6 @@
 {
   "name": "aries-platform-bootstrap-runtime",
-  "version": "0.1.6.0",
+  "version": "0.1.6.2",
   "description": "Next.js application for weekly social content automation: connect platforms, generate and review a week of content, and publish on a schedule.",
   "license": "Apache-2.0",
   "repository": {
@@ -66,10 +66,10 @@
     "date-fns-tz": "^3.2.0",
     "dotenv": "^17.3.1",
     "lucide-react": "^0.577.0",
-    "motion": "^12.38.0",
+    "motion": "^12.40.0",
     "next": "16.2.6",
     "next-auth": "^5.0.0-beta.30",
-    "pg": "^8.20.0",
+    "pg": "^8.21.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "recharts": "^3.8.0",
@@ -77,17 +77,17 @@
     "sharp": "^0.34.5",
     "tailwind-merge": "^3.5.0",
     "tailwindcss-animate": "^1.0.7",
-    "three": "^0.183.2",
+    "three": "^0.184.0",
     "tsx": "^4.21.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.2.1",
+    "@tailwindcss/postcss": "^4.3.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
     "@types/bcryptjs": "^2.4.6",
     "@types/jsdom": "^28.0.3",
-    "@types/node": "22.13.10",
+    "@types/node": "25.9.1",
     "@types/pg": "^8.18.0",
     "@types/react": "18.3.12",
     "@types/react-dom": "18.3.1",
@@ -95,9 +95,9 @@
     "@types/three": "^0.183.1",
     "autoprefixer": "^10.4.27",
     "jsdom": "^25.0.1",
-    "postcss": "^8.5.11",
+    "postcss": "^8.5.15",
     "react-test-renderer": "18.3.1",
-    "tailwindcss": "^4.2.1",
+    "tailwindcss": "^4.3.0",
     "typescript": "5.7.3"
   }
 }
