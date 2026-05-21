@@ -105,6 +105,16 @@ export type PersistPublishedPostArgs = {
   platform?: string | null;
   /** Marketing job ID for correlating posts back to marketing jobs. */
   jobId?: string | null;
+  /**
+   * Creative-asset ids of the image(s) actually published with this post.
+   * Each entry must match either `creative_assets.id` (uuid) or the Hermes-side
+   * `creative_assets.source_asset_id` ('img_1', ...) — the same forms the
+   * scheduled-dispatch resolver (`resolveMediaUrls`) joins on. Persisted to
+   * `posts.creative_asset_ids` so per-post media scoping is exact instead of
+   * falling back to job-scope. Empty/omitted leaves the column at its '{}'
+   * default and the resolver keeps its job-scoped fallback.
+   */
+  creativeAssetIds?: string[] | null;
 };
 
 /**
@@ -143,9 +153,21 @@ export async function persistPublishedPost(
     }
   }
 
+  // Normalize creative-asset ids: drop blanks/dupes so the column is either a
+  // clean set of ids or an empty array (column default). An empty array is a
+  // valid text[] literal and keeps resolveMediaUrls on its job-scoped fallback.
+  const creativeAssetIds = Array.from(
+    new Set(
+      (args.creativeAssetIds ?? [])
+        .filter((id): id is string => typeof id === 'string')
+        .map((id) => id.trim())
+        .filter((id) => id.length > 0),
+    ),
+  );
+
   const insertResult = await db.query<{ id: string | number }>(
-    `INSERT INTO posts (tenant_id, job_id, caption, platform_post_id, published_at, published_status, platform, idempotency_key)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `INSERT INTO posts (tenant_id, job_id, caption, platform_post_id, published_at, published_status, platform, idempotency_key, creative_asset_ids)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING id`,
     [
       args.tenantId,
@@ -156,6 +178,7 @@ export async function persistPublishedPost(
       args.publishedStatus,
       args.platform ?? null,
       args.idempotencyKey ?? null,
+      creativeAssetIds,
     ],
   );
 
@@ -199,6 +222,12 @@ export type PublishVerificationDispatchArgs = {
   idempotencyKey?: string | null;
   /** Marketing job ID for correlating posts back to marketing jobs. */
   jobId?: string | null;
+  /**
+   * Creative-asset ids of the image(s) published with this post, persisted to
+   * `posts.creative_asset_ids` so the scheduled-dispatch resolver scopes media
+   * per-post instead of falling back to job-scope. See PersistPublishedPostArgs.
+   */
+  creativeAssetIds?: string[] | null;
 };
 
 export type PublishVerificationResult = {
@@ -251,6 +280,7 @@ export async function runPublishVerification(
         publishedStatus: 'unverified',
         platform: normalizedPlatform,
         idempotencyKey: args.idempotencyKey ?? null,
+        creativeAssetIds: args.creativeAssetIds ?? null,
       },
       args.pool,
     );
@@ -273,6 +303,7 @@ export async function runPublishVerification(
       publishedStatus: 'unverified',
       platform: normalizedPlatform,
       idempotencyKey: args.idempotencyKey ?? null,
+      creativeAssetIds: args.creativeAssetIds ?? null,
     },
     args.pool,
   );
