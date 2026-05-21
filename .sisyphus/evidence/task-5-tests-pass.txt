@@ -1,1 +1,0 @@
-Tests pass: 5/5 - own asset, other-tenant, external URL, missing asset, empty URLs
