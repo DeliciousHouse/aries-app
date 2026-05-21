@@ -347,7 +347,7 @@ export async function handleInstagramPublish(req: Request, jobId: string) {
         status: 'error',
         code: 'publish_failed',
         reason: 'publish_failed',
-        message: String((error as Error).message || error),
+        message: 'An unexpected error occurred',
         retryable: false,
         retryAfterSeconds: null,
       }),

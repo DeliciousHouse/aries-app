@@ -62,7 +62,7 @@ export async function handleCalendarSync(req: Request, tenantContextLoader?: Ten
       headers: { 'content-type': 'application/json' },
     });
   } catch (error) {
-    return new Response(JSON.stringify({ status: 'error', reason: String((error as Error).message || error) }), {
+    return new Response(JSON.stringify({ status: 'error', reason: 'An unexpected error occurred' }), {
       status: 400,
       headers: { 'content-type': 'application/json' }
     });

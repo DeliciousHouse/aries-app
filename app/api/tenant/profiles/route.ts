@@ -15,7 +15,7 @@ export async function GET() {
     if (isMarketingPublicMode()) {
       return json({ profiles: [] });
     }
-    return json({ error: error instanceof Error ? error.message : 'Authentication required.' }, 403);
+    return json({ error: 'Authentication required.' }, 403);
   }
 
   const client = await pool.connect();
@@ -32,7 +32,7 @@ export async function POST(req: Request) {
   try {
     tenantContext = await getTenantContext();
   } catch (error) {
-    return json({ error: error instanceof Error ? error.message : 'Authentication required.' }, 403);
+    return json({ error: 'Authentication required.' }, 403);
   }
 
   if (tenantContext.role !== 'tenant_admin') {
