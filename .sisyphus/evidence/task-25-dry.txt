@@ -1,5 +1,0 @@
-[reap-stale-runs] starting mode=dry-run dataRoot=/tmp/aries-reaper-evidence threshold_ms=1800000
-[stale-run-reaper] candidate (dry-run) {"jobId":"job-stale-demo","tenantId":"tenant-demo","state":"running","status":"running","stage":"production","silent_ms":35359237,"threshold_ms":1800000,"filePath":"/tmp/aries-reaper-evidence/generated/draft/marketing-jobs/job-stale-demo.json"}
-[stale-run-reaper] summary {"dryRun":true,"scanned":1,"candidates":1,"mutated":0,"skipped":0,"errors":0,"threshold_ms":1800000}
-[reap-stale-runs] mode=dry-run threshold_ms=1800000 scanned=1 candidates=1 mutated=0 skipped=0 errors=0
-[reap-stale-runs] candidate jobId=job-stale-demo tenant_id=tenant-demo state=running status=running stage=production silent_ms=35359237 mutated=false
