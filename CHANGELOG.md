@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.5.5 — fix(calendar): five UX and accessibility fixes for the scheduling calendar
+
+Live QA of the publish calendar surfaced five issues, all now fixed. Backlog posts could only be scheduled by mouse drag — the drag handles announced themselves to screen readers as keyboard-operable, but no `KeyboardSensor` was registered, so Space and Enter did nothing; the calendar now registers a keyboard drag sensor, and each backlog tile carries an explicit "Schedule" button reachable by mouse and keyboard alike. The calendar page blocked its entire render behind a slow campaigns fetch, leaving a 20-30 second blank screen; it now renders as soon as the queue data is ready, and the campaign strip shows its own loading state. The event modal gained a "Publish now" action for pending or failed posts, which queues the post for the next dispatch pass and confirms before closing. Backlog tiles now show the post's image thumbnail instead of caption text alone.
+
 ## v0.1.5.4 — fix(marketing): ingest generated images into creative_assets
 
 Completed Hermes pipelines now ingest their generated images instead of silently dropping every one. The creative-asset ingest's `INSERT ... ON CONFLICT (tenant_id, checksum)` omitted the `WHERE checksum IS NOT NULL` predicate of the partial unique index it targets, so PostgreSQL could not infer the index and rejected every row — every completed campaign ingested zero `creative_assets`, leaving synthesized posts without media. The clause now repeats the predicate, so each image persists and posts carry their real images. Verified against the live database, not a mock.
