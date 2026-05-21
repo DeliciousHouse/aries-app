@@ -151,7 +151,7 @@ jobs:
 
       - name: Setup Node 24
         if: steps.pr.outputs.should_run == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
