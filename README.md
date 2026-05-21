@@ -22,8 +22,8 @@ on a schedule. Long-running generation is handed off to an execution service
 
 Aries AI hands long-running execution to **Hermes**, a separate execution
 service that owns model/provider auth (including media generation). Hermes is
-**not** part of this open-source repository. Self-hosting Aries AI end-to-end
-requires a Hermes endpoint; see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for
+**not** part of this open-source repository, but it is itself open-source at [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent). Self-hosting Aries AI end-to-end
+requires a Hermes endpoint — run your own from [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent); see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for
 the execution boundary.
 
 ## How it works

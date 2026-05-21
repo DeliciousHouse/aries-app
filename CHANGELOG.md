@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.6.1 — docs: link to the Hermes execution agent
+
+The self-hosting documentation now links to Hermes, the execution agent that Aries hands long-running workflow execution to. The README "What's not in this repository" section, `docs/SELF_HOSTING.md` prerequisites, and `docs/ARCHITECTURE.md` all point to https://github.com/NousResearch/hermes-agent so anyone self-hosting Aries can run their own Hermes endpoint.
+
 ## v0.1.6.0 — refactor: remove legacy OpenClaw/Lobster and prepare the repo for open source
 
 The legacy OpenClaw/Lobster execution path is fully removed and the repository is prepared for an open-source release. Hermes is now the sole execution provider — `backend/openclaw/`, the `lobster/` pipeline, the legacy provider adapters, and the `marketing-pipeline.lobster` machinery are gone, and `provider-factory.ts` resolves to Hermes unconditionally. The lobster-named artifact-cache environment variables were renamed to neutral names (`LOBSTER_STAGE*_CACHE_DIR` to `ARTIFACT_STAGE*_CACHE_DIR`, `OPENCLAW_LOBSTER_CWD` to `ARTIFACT_PIPELINE_CWD`, and similar) while keeping their default filesystem paths intact. The dead `brand_campaign` job type — which only ever ran on the Lobster engine — was removed along with its multi-stage approval test, leaving `weekly_social_content` as the sole job type. For the open-source release the repo now carries an Apache-2.0 LICENSE and NOTICE, governance and community files (SECURITY, CONTRIBUTING, CODE_OF_CONDUCT, GOVERNANCE, SUPPORT, TRADEMARKS, ACCEPTABLE_USE), `.github/` CODEOWNERS, Dependabot config, and structured issue and PR templates, six public docs under `docs/` (architecture, self-hosting, deployment, OAuth scopes, security model, commercial positioning), a README rewritten for a public audience, and package.json open-source metadata. Internal operator scaffolding (`.ralph/`, `.sisyphus/`, `qa-reports/`, `memory/`) is no longer tracked.

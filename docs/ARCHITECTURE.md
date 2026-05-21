@@ -18,7 +18,7 @@ Browser
 1. **Browser** talks only to Next.js pages and route handlers inside this repo.
 2. **Route handlers** validate the request, resolve auth/tenant context, call a backend service, and return a typed, frontend-safe response.
 3. **Backend services** (`backend/*`) own domain logic for onboarding, marketing, auth, integrations, and execution.
-4. **Hermes** is the sole execution provider. Long-running workflows are submitted to `HERMES_GATEWAY_URL/v1/runs`. Hermes posts authenticated status callbacks to `POST /api/internal/hermes/runs`, which advances runtime state inside Aries.
+4. **Hermes** ([NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent)) is the sole execution provider. Long-running workflows are submitted to `HERMES_GATEWAY_URL/v1/runs`. Hermes posts authenticated status callbacks to `POST /api/internal/hermes/runs`, which advances runtime state inside Aries.
 5. **PostgreSQL** stores durable state: users, organizations, tenant memberships, OAuth tokens, creative assets, execution run records, and publish state.
 6. **`DATA_ROOT`** is a writable bind mount for generated draft and validated artifacts produced by Hermes callbacks.
 
