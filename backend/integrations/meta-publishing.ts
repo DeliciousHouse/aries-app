@@ -36,14 +36,56 @@ export class MetaPublishError extends Error {
   readonly code: string;
   readonly status: number;
   readonly retryable: boolean;
+  /**
+   * True when the Meta Graph API accepted the final publish call (2xx) but Aries
+   * could not confirm the resulting post id. The post MAY be live — the outcome
+   * is unknown. Callers must NOT roll back the platform claim and must NOT
+   * auto-retry: a retry of a publish that secretly succeeded is a duplicate post.
+   * False (the default) means the failure happened before/instead of a confirmed
+   * publish acceptance — the post definitely never went live and is safe to retry.
+   */
+  readonly outcomeUnknown: boolean;
 
-  constructor(code: string, message: string, options?: { status?: number; retryable?: boolean }) {
+  constructor(
+    code: string,
+    message: string,
+    options?: { status?: number; retryable?: boolean; outcomeUnknown?: boolean },
+  ) {
     super(message);
     this.name = 'MetaPublishError';
     this.code = code;
     this.status = options?.status ?? 400;
     this.retryable = options?.retryable ?? false;
+    this.outcomeUnknown = options?.outcomeUnknown ?? false;
   }
+}
+
+/**
+ * The two outcome classes a Meta publish failure can fall into. The publish
+ * handlers must treat them oppositely:
+ *
+ *   'definitely_never_posted' — a requestGraphJson network/HTTP/4xx failure (or
+ *   any pre-publish failure). The Graph publish call never succeeded, so the
+ *   post never went live. Safe to roll back the platform claim and retry.
+ *
+ *   'outcome_unknown' — the Graph publish call was accepted (2xx) but Aries got
+ *   no post id back. The post MAY be live. The claim must be LEFT in place,
+ *   surfaced as needs_manual_reconciliation, and NEVER auto-retried — a retry of
+ *   a publish that secretly succeeded is a duplicate post.
+ */
+export type MetaPublishFailureClass = 'definitely_never_posted' | 'outcome_unknown';
+
+/**
+ * Classify a thrown publish error into one of the two outcome classes. Only a
+ * MetaPublishError carrying `outcomeUnknown` is treated as outcome-unknown;
+ * every other error (including non-MetaPublishError throws) is treated as
+ * definitely-never-posted, which is the safe-to-retry default.
+ */
+export function classifyMetaPublishFailure(error: unknown): MetaPublishFailureClass {
+  if (error instanceof MetaPublishError && error.outcomeUnknown) {
+    return 'outcome_unknown';
+  }
+  return 'definitely_never_posted';
 }
 
 type MetaGraphResponse = Record<string, unknown>;
@@ -90,10 +132,18 @@ function requireContentOrMedia(content: string, mediaUrls: string[]): void {
   }
 }
 
-function requireStringField(record: Record<string, unknown>, key: string, code: string): string {
+function requireStringField(
+  record: Record<string, unknown>,
+  key: string,
+  code: string,
+  options?: { outcomeUnknown?: boolean },
+): string {
   const value = record[key];
   if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new MetaPublishError(code, `Meta response missing required field: ${key}`, { status: 502 });
+    throw new MetaPublishError(code, `Meta response missing required field: ${key}`, {
+      status: 502,
+      outcomeUnknown: options?.outcomeUnknown ?? false,
+    });
   }
   return value.trim();
 }
@@ -258,6 +308,9 @@ async function publishFacebook(args: {
     postParams.scheduled_publish_time = String(Math.floor(new Date(args.scheduledFor).getTime() / 1000));
   }
 
+  // Final publish call — one-shot. The Graph feed API has no idempotency key,
+  // so this must never be auto-retried. A 2xx response with no post id means
+  // the outcome is unconfirmed (outcomeUnknown), not "definitely never posted".
   const published = await requestGraphJson({
     pathname: `${encodeURIComponent(args.target.externalAccountId)}/feed`,
     accessToken: args.target.accessToken,
@@ -268,7 +321,7 @@ async function publishFacebook(args: {
   return {
     provider: 'facebook',
     mode: args.scheduledFor ? 'scheduled' : 'live',
-    platformPostId: requireStringField(published, 'id', 'facebook_publish_missing_id'),
+    platformPostId: requireStringField(published, 'id', 'facebook_publish_missing_id', { outcomeUnknown: true }),
     scheduledFor: args.scheduledFor,
     connectionId: args.target.connectionId,
   };
@@ -385,6 +438,10 @@ async function publishInstagram(args: {
     fetchImpl: args.fetchImpl,
   });
 
+  // Final publish call — one-shot. The Graph media_publish endpoint has no
+  // idempotency key, so this must never be auto-retried. A 2xx response with no
+  // post id means the outcome is unconfirmed (outcomeUnknown), not "definitely
+  // never posted".
   const published = await requestGraphJson({
     pathname: `${encodeURIComponent(args.target.externalAccountId)}/media_publish`,
     accessToken: args.target.accessToken,
@@ -395,7 +452,7 @@ async function publishInstagram(args: {
   return {
     provider: 'instagram',
     mode: 'live',
-    platformPostId: requireStringField(published, 'id', 'instagram_publish_missing_id'),
+    platformPostId: requireStringField(published, 'id', 'instagram_publish_missing_id', { outcomeUnknown: true }),
     scheduledFor: null,
     connectionId: args.target.connectionId,
   };

@@ -31,8 +31,12 @@
  * record too — otherwise a synthesized post would 409 at scheduling time.
  *
  * Scope guard: this only fires when there is a populated `content_package` and
- * NO real `publish_package`. If a `publish_package` is ever present, the legacy
- * consumer path owns it and this is a no-op — no double-creation.
+ * NO *consumable* `publish_package` — one with `platform_previews` / `posts` /
+ * `content_calendar` that the legacy `dashboard-content.ts` path can turn into
+ * launch items. The Hermes publish agent commonly returns a thin, plan-only
+ * `publish_package` (cadence / schedule / notes) that no consumer can use; that
+ * does NOT block synthesis. Only a genuinely consumable package makes this a
+ * no-op, so the two paths never double-create posts.
  *
  * Out of scope: landing-page / script / rich-preview artifacts. Those are
  * genuinely absent from the Hermes output and are not reconstructed here.
@@ -169,16 +173,37 @@ function parseContentPackage(raw: unknown): ContentPackageEntry[] {
 }
 
 /**
- * Returns true when the publish-stage output already carries a real
- * `publish_package` — in which case the legacy consumer owns it and we must not
- * synthesize. Checks both the publish primary_output and its `artifacts`.
+ * Returns true ONLY when the publish-stage output carries a `publish_package`
+ * the legacy consumer can actually turn into launch items — i.e. one with
+ * `platform_previews` (what `dashboard-content.ts` reads to build publish
+ * items). In that case the legacy path owns the output and we must not
+ * double-create posts.
+ *
+ * The mere PRESENCE of a `publish_package` key is NOT enough: the Hermes
+ * publish agent commonly returns a thin, plan-only `publish_package`
+ * (approval_gate / cadence / schedule / publishing_notes / risk_controls) with
+ * no `platform_previews`, no `posts`, no media. No consumer turns that into a
+ * `posts` row, so deferring on it would mean nothing reaches the calendar —
+ * exactly the Cause 3 failure. A thin publish_package must NOT block synthesis.
  */
-function hasRealPublishPackage(doc: MarketingJobRuntimeDocument): boolean {
+function hasConsumablePublishPackage(doc: MarketingJobRuntimeDocument): boolean {
+  const isConsumable = (value: unknown): boolean => {
+    const pkg = recordValue(value);
+    if (!pkg) return false;
+    // platform_previews is the field dashboard-content.ts consumes; posts /
+    // content_calendar are the other shapes a real launch-ready package uses.
+    return (
+      Array.isArray(pkg.platform_previews) && pkg.platform_previews.length > 0
+    ) || (
+      Array.isArray(pkg.posts) && pkg.posts.length > 0
+    ) || recordValue(pkg.content_calendar) !== null;
+  };
+
   const publishOutput = recordValue(doc.stages.publish?.primary_output);
   if (!publishOutput) return false;
-  if (recordValue(publishOutput.publish_package)) return true;
+  if (isConsumable(publishOutput.publish_package)) return true;
   const artifacts = recordValue(publishOutput.artifacts);
-  if (artifacts && recordValue(artifacts.publish_package)) return true;
+  if (artifacts && isConsumable(artifacts.publish_package)) return true;
   return false;
 }
 
@@ -268,8 +293,11 @@ export async function synthesizePublishPostsFromContentPackage(
     return { inserted: 0, skipped: 0, total: 0, approvalRecordReady: false, reason: 'no_tenant' };
   }
 
-  // Scope guard: defer to the legacy path when a real publish_package exists.
-  if (hasRealPublishPackage(doc)) {
+  // Scope guard: defer to the legacy path ONLY when the publish_package is one
+  // the legacy consumer can actually turn into launch items (has
+  // platform_previews / posts / content_calendar). A thin, plan-only
+  // publish_package does NOT block synthesis — see hasConsumablePublishPackage.
+  if (hasConsumablePublishPackage(doc)) {
     return {
       inserted: 0,
       skipped: 0,

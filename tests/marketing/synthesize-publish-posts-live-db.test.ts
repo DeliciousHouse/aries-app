@@ -261,7 +261,7 @@ test('synthesized publish posts are approved, calendar-visible, and pass the pub
   }
 });
 
-test('synthesizePublishPostsFromContentPackage defers when a real publish_package is present', async (t) => {
+test('synthesizePublishPostsFromContentPackage defers when a CONSUMABLE publish_package is present', async (t) => {
   if (!dbConfig) {
     t.skip('database env not configured');
     return;
@@ -282,8 +282,9 @@ test('synthesizePublishPostsFromContentPackage defers when a real publish_packag
       const tenantId = orgResult.rows[0].id;
       const jobId = `mkt_synthtest_pp_${Date.now()}`;
       const doc = makeDoc(jobId, tenantId);
-      // Inject a real publish_package — the legacy consumer owns this; the
-      // synthesizer must no-op so the two paths never double-create posts.
+      // Inject a CONSUMABLE publish_package (has platform_previews) — the legacy
+      // dashboard consumer owns this; the synthesizer must no-op so the two
+      // paths never double-create posts.
       (doc.stages.publish as Record<string, unknown>).primary_output = {
         stage: 'publish',
         publish_package: { platform_previews: [{ platform_slug: 'instagram' }] },
@@ -304,7 +305,7 @@ test('synthesizePublishPostsFromContentPackage defers when a real publish_packag
         `SELECT count(*)::text AS count FROM posts WHERE job_id = $1`,
         [jobId],
       );
-      assert.equal(count.rows[0].count, '0', 'no posts synthesized when publish_package exists');
+      assert.equal(count.rows[0].count, '0', 'no posts synthesized when a consumable publish_package exists');
 
       // No publish approval record should have been written either.
       const record = findLatestMarketingApprovalRecord({
@@ -314,6 +315,81 @@ test('synthesizePublishPostsFromContentPackage defers when a real publish_packag
         statuses: ['approved'],
       });
       assert.equal(record, null, 'no approval record synthesized for the publish_package path');
+
+      await client.query('ROLLBACK');
+    } finally {
+      client.release();
+    }
+  } finally {
+    await pool.end();
+    if (prevDataRoot === undefined) delete process.env.DATA_ROOT;
+    else process.env.DATA_ROOT = prevDataRoot;
+    await rm(dataRoot, { recursive: true, force: true });
+  }
+});
+
+// Cause 3 regression: the Hermes publish agent commonly returns a THIN,
+// plan-only publish_package (approval_gate / cadence / schedule, no
+// platform_previews / posts / media). The old scope guard deferred on the mere
+// presence of a publish_package key, so the synthesizer produced nothing and
+// nothing reached the calendar. A thin publish_package must NOT block synthesis.
+test('synthesizePublishPostsFromContentPackage does NOT defer for a thin plan-only publish_package', async (t) => {
+  if (!dbConfig) {
+    t.skip('database env not configured');
+    return;
+  }
+  const prevDataRoot = process.env.DATA_ROOT;
+  const dataRoot = await mkdtemp(path.join(tmpdir(), 'aries-synth-publish-thin-'));
+  process.env.DATA_ROOT = dataRoot;
+
+  const pool = new pg.Pool(dbConfig);
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const orgResult = await client.query<{ id: number }>(
+        `INSERT INTO organizations (name) VALUES ($1) RETURNING id`,
+        ['synthtest-tenant-thin'],
+      );
+      const tenantId = orgResult.rows[0].id;
+      const jobId = `mkt_synthtest_thin_${Date.now()}`;
+      const doc = makeDoc(jobId, tenantId);
+      // The exact thin shape Hermes returned for the Cause 3 reproduction
+      // (mkt_37933254): a scheduling plan with NO platform_previews / posts /
+      // content_calendar — nothing the legacy consumer can turn into posts.
+      (doc.stages.publish as Record<string, unknown>).primary_output = {
+        stage: 'publish',
+        status: 'approved_for_publishing',
+        publish_package: {
+          approval_gate: 'approved',
+          cadence: 'one post per day for 7 days',
+          platforms: ['instagram', 'facebook'],
+          publishing_notes: ['Use only the approved captions.'],
+          schedule: [{ day: 'Monday', post_number: 1, theme: 'planning', publish_status: 'cleared' }],
+          risk_controls: [],
+        },
+      };
+
+      const result = await synthesizePublishPostsFromContentPackage({
+        jobId,
+        tenantId,
+        doc,
+        publishRunId: 'run_synthtest_thin',
+        pool: client,
+      });
+      assert.notEqual(
+        result.reason,
+        'publish_package_present',
+        'a thin plan-only publish_package must NOT trigger the scope guard',
+      );
+      assert.equal(result.inserted, 3, 'synthesizer ran and created posts despite the thin publish_package');
+      assert.equal(result.approvalRecordReady, true, 'publish approval record synthesized');
+
+      const count = await client.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM posts WHERE job_id = $1`,
+        [jobId],
+      );
+      assert.equal(count.rows[0].count, '3', 'three posts synthesized for the thin-publish_package job');
 
       await client.query('ROLLBACK');
     } finally {
