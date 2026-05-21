@@ -35,7 +35,7 @@ function tenantScopedRootCandidates(): string[] {
  * Resolve each tenant-scoped root to its realpath when possible so the
  * tenant-prefix check below operates in the same coordinate system as the
  * resolved candidate. Without this, a symlinked DATA_ROOT or
- * LOBSTER_STAGE*_CACHE_DIR makes `path.relative(normalizedRoot, realpathCandidate)`
+ * ARTIFACT_STAGE*_CACHE_DIR makes `path.relative(normalizedRoot, realpathCandidate)`
  * start with `..` and the check silently skips that subtree, leaving a
  * false-negative on the cross-tenant boundary.
  *

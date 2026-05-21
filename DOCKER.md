@@ -101,31 +101,12 @@ the separate marketing execution port and advance through async callbacks.
 5. User reviews weekly social posts/content calendar.
 6. User approves optional video render/publish steps.
 
-### Legacy OpenClaw/Lobster compatibility (deprecated)
+### Legacy gateway variables (removed)
 
-The variables below are only needed for deprecated compatibility flows such as legacy `brand_campaign` jobs:
-
-`OPENCLAW_GATEWAY_URL`, `OPENCLAW_GATEWAY_TOKEN`, and `OPENCLAW_SESSION_KEY`
-only make the gateway reachable. They do not enable Lobster Stage 4 media
-delegation by themselves. Set `LOBSTER_MEDIA_GATEWAY_ENABLED=1` when image
-generation, video generation, and non-SVG image text QA should go through
-OpenClaw's `image_generate`, `video_generate`, and `image` tools.
-
-Video generation still has its own cost/safety gate:
-
-```bash
-LOBSTER_MEDIA_GATEWAY_ENABLED=1 \
-LOBSTER_VIDEO_RENDER_ENABLED=1 \
-LOBSTER_GATEWAY_IMAGE_MODEL=openai/gpt-image-2 \
-LOBSTER_GATEWAY_VIDEO_MODEL=openai/sora-2 \
-docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
-```
-
-Leave the gateway model variables unset when you want OpenClaw to pick from its
-configured provider registry. Use the `LOBSTER_GATEWAY_*` or `OPENCLAW_*` model
-overrides only when the OpenClaw runtime is known to support that model. Direct
-fallback is fail-closed by default; set `LOBSTER_MEDIA_GATEWAY_ALLOW_DIRECT_FALLBACK=1`
-only for local/dev runs where falling back to direct provider keys is acceptable.
+The legacy execution gateway variables (`OPENCLAW_GATEWAY_URL`, `OPENCLAW_GATEWAY_TOKEN`,
+`OPENCLAW_SESSION_KEY`, `LOBSTER_MEDIA_GATEWAY_ENABLED`, `LOBSTER_VIDEO_RENDER_ENABLED`,
+`LOBSTER_GATEWAY_IMAGE_MODEL`, `LOBSTER_GATEWAY_VIDEO_MODEL`) have been removed.
+Hermes is the sole execution provider. Remove these from any `.env` files if present.
 
 ### Production web concurrency
 
@@ -249,18 +230,18 @@ docker compose -f docker-compose.yml -f docker-compose.local.yml down
 - Keep real secrets out of git.
 - The runtime contract remains `CODE_ROOT=/app` and `DATA_ROOT=/data`.
 - The main `aries-app` service publishes `${PORT:-3000}` from the base compose file; the local override merges into that same service instead of launching a duplicate production instance.
-- Workflow execution is delegated through Hermes by default. Hermes posts idempotent run callbacks to `/api/internal/hermes/runs`, authenticated with `INTERNAL_API_SECRET`. Set `ARIES_EXECUTION_PROVIDER=legacy-openclaw` and/or `ARIES_MARKETING_EXECUTION_PROVIDER=legacy-openclaw` only when intentionally running the legacy OpenClaw/Lobster path.
+- Workflow execution is delegated through Hermes. Hermes posts idempotent run callbacks to `/api/internal/hermes/runs`, authenticated with `INTERNAL_API_SECRET`.
 
-## Lobster stage cache directories (legacy/deprecated)
+## Artifact stage cache directories
 
-Lobster writes stage artifacts (images, `.mp4` videos, review packages) to the
-`$LOBSTER_STAGE{1..4}_CACHE_DIR` paths. Because OpenClaw + Lobster run on the
+The pipeline writes stage artifacts (images, `.mp4` videos, review packages) to the
+`$ARTIFACT_STAGE{1..4}_CACHE_DIR` paths. Because the pipeline runs on the
 host while Aries runs in a container with Postgres storing only metadata, both
 processes must resolve to **identical absolute paths**. Route the four cache
 dirs onto the shared `ARIES_SHARED_DATA_ROOT` bind mount so `/data/...` in the
 container matches `${ARIES_SHARED_DATA_ROOT}/...` on the host.
 
-Before starting OpenClaw on the host, export:
+Before starting the pipeline on the host, export:
 
 ```bash
 export ARTIFACT_STAGE1_CACHE_DIR="${ARIES_SHARED_DATA_ROOT:-/home/node/data}/lobster-stage1-cache"

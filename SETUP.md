@@ -94,13 +94,10 @@ npm run dev
 - Weekly social content image/video generation does not require an Aries-side ChatGPT / OpenAI connection. Hermes owns ChatGPT/OpenAI auth for weekly media work.
 - Text planning can run without media generation when image/video is disabled in the request.
 
-### Legacy OpenClaw/Lobster variables (deprecated)
+### Artifact stage cache variables (optional)
 
-Keep these only when intentionally running legacy `brand_campaign` compatibility flows:
+These are only needed when the Hermes pipeline writes stage artifacts on the same host:
 
-- `OPENCLAW_GATEWAY_URL`
-- `OPENCLAW_GATEWAY_TOKEN`
-- `OPENCLAW_SESSION_KEY`
 - `ARTIFACT_PIPELINE_CWD`
 - `ARTIFACT_PIPELINE_GATEWAY_CWD`
 - `ARTIFACT_PIPELINE_LOCAL_CWD`
@@ -108,8 +105,12 @@ Keep these only when intentionally running legacy `brand_campaign` compatibility
 - `ARTIFACT_STAGE2_CACHE_DIR`
 - `ARTIFACT_STAGE3_CACHE_DIR`
 - `ARTIFACT_STAGE4_CACHE_DIR`
-- `LOBSTER_MEDIA_GATEWAY_ENABLED`
-- `GEMINI_API_KEY`
+- `ARIES_HOST_ARTIFACT_OUTPUT_DIR`
+- `ARIES_HOST_ARTIFACT_OUTPUT_MOUNT`
+
+Remove `OPENCLAW_GATEWAY_URL`, `OPENCLAW_GATEWAY_TOKEN`, `OPENCLAW_SESSION_KEY`, and
+`LOBSTER_MEDIA_GATEWAY_ENABLED` from any `.env` files — the legacy execution path has
+been removed.
 
 ## Runtime execution model
 

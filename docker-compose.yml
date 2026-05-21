@@ -116,7 +116,7 @@ services:
       ARTIFACT_STAGE2_CACHE_DIR: ${ARTIFACT_STAGE2_CACHE_DIR:-/data/lobster-stage2-cache}
       ARTIFACT_STAGE3_CACHE_DIR: ${ARTIFACT_STAGE3_CACHE_DIR:-/data/lobster-stage3-cache}
       ARTIFACT_STAGE4_CACHE_DIR: ${ARTIFACT_STAGE4_CACHE_DIR:-/data/lobster-stage4-cache}
-      # Host lobster/output mount is read by asset-ingest to copy generated
+      # Host artifact output mount: read by asset-ingest to copy generated
       # assets into DATA_ROOT at ingest time. Keep _DIR/_MOUNT in sync with
       # the bind mount below so asset-ingest can remap host paths.
       ARIES_HOST_ARTIFACT_OUTPUT_DIR: ${ARIES_HOST_ARTIFACT_OUTPUT_DIR:-/home/node/aries-app/lobster/output}
