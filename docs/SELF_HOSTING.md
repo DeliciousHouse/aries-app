@@ -5,7 +5,7 @@
 - **Node.js** 18 or later
 - **npm** (bundled with Node.js)
 - **PostgreSQL** 16
-- **Hermes** gateway with a configured session and API key (required for live workflow execution)
+- **Hermes** execution agent — run your own from [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent); you need its gateway URL, a session key, and an API server key (required for live workflow execution)
 - Optional: Docker and Docker Compose (for containerized local runs)
 
 ## 1. Clone and install dependencies
