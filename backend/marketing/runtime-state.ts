@@ -155,7 +155,7 @@ export type MarketingJobRuntimeDocument = {
    * The kind of marketing job. Derived from `inputs.request.jobType` so it
    * always agrees with `requestedJobTypeFromDoc()`, which drives the pipeline.
    */
-  job_type: 'brand_campaign' | 'weekly_social_content';
+  job_type: 'weekly_social_content';
   state: MarketingJobState;
   status: MarketingJobStatus;
   current_stage: MarketingStage;
@@ -321,7 +321,7 @@ export function createMarketingJobRuntimeDocument(input: {
   const resolvedJobType: MarketingJobRuntimeDocument['job_type'] =
     input.payload?.jobType === 'weekly_social_content'
       ? 'weekly_social_content'
-      : 'brand_campaign';
+      : 'weekly_social_content';
   return {
     schema_name: MARKETING_RUNTIME_SCHEMA_NAME,
     schema_version: MARKETING_RUNTIME_SCHEMA_VERSION,

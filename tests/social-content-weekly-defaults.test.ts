@@ -276,23 +276,14 @@ test('createMarketingJobRuntimeDocument derives job_type from payload.jobType', 
     });
     assert.equal(weekly.job_type, 'weekly_social_content');
 
-    const brand = createMarketingJobRuntimeDocument({
-      jobId: 'mkt_jobtype_brand',
-      tenantId: 'tenant_jobtype',
-      payload: { jobType: 'brand_campaign', brandUrl: 'https://brand.example' },
-      brandKit,
-    });
-    assert.equal(brand.job_type, 'brand_campaign');
-
-    // Absent jobType falls back to brand_campaign — the legacy default, and the
-    // same fallback requestedJobTypeFromDoc() applies, so the two never disagree.
+    // Absent jobType falls back to weekly_social_content.
     const fallback = createMarketingJobRuntimeDocument({
       jobId: 'mkt_jobtype_absent',
       tenantId: 'tenant_jobtype',
       payload: { brandUrl: 'https://brand.example' },
       brandKit,
     });
-    assert.equal(fallback.job_type, 'brand_campaign');
+    assert.equal(fallback.job_type, 'weekly_social_content');
   });
 });
 

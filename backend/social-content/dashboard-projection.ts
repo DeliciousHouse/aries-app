@@ -333,7 +333,7 @@ function normalizedSocialPostId(post: SocialWeeklyPost, index: number): string {
 
 function requestedJobTypeFromDoc(doc: MarketingJobRuntimeDocument): string {
   const request = recordValue(doc.inputs?.request);
-  return stringValue(request?.jobType || request?.job_type || 'brand_campaign').toLowerCase();
+  return stringValue(request?.jobType || request?.job_type || 'weekly_social_content').toLowerCase();
 }
 
 function latestSocialProjection(runtimeDoc: MarketingJobRuntimeDocument): SocialContentWorkflowProjection | null {

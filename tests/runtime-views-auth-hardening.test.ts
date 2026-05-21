@@ -225,7 +225,7 @@ function makeAwaitingPublishApprovalRuntimeDoc(input: {
     schema_name: 'marketing_job_state_schema',
     schema_version: '1.0.0',
     job_id: input.jobId,
-    job_type: 'brand_campaign',
+    job_type: 'weekly_social_content',
     tenant_id: input.tenantId,
     state: 'approval_required',
     status: 'awaiting_approval',
@@ -416,7 +416,7 @@ test('runtime campaign views stay populated when proposal artifacts exist even w
         schema_name: 'marketing_job_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_runtime',
         state: 'running',
         status: 'running',
@@ -486,7 +486,7 @@ test('tenant runtime views keep only the latest rerun for the same campaign iden
       schema_name: 'marketing_job_state_schema',
       schema_version: '1.0.0',
       job_id: jobId,
-      job_type: 'brand_campaign',
+      job_type: 'weekly_social_content',
       tenant_id: 'tenant_runtime_dedupe',
       state: 'running',
       status: 'running',
@@ -549,7 +549,7 @@ test('runtime views ignore malformed legacy marketing runtime documents without 
         schema_name: 'job_runtime_state_schema',
         schema_version: '1.0.0',
         job_id: 'legacy-bad',
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_empty',
         state: 'approval_required',
         status: 'awaiting_approval',
@@ -579,7 +579,7 @@ test('review decisions persist and can be reloaded from runtime-backed state', a
     try {
       const started = await startMarketingJob({
         tenantId: 'tenant_123',
-        jobType: 'brand_campaign',
+        jobType: 'weekly_social_content',
           payload: {
             brandUrl: 'https://brand.example',
             competitorUrl: 'https://betterup.com',
@@ -630,7 +630,7 @@ test('approving a workflow approval review item resumes the marketing job', asyn
     try {
       const started = await startMarketingJob({
         tenantId: 'tenant_123',
-        jobType: 'brand_campaign',
+        jobType: 'weekly_social_content',
           payload: {
             brandUrl: 'https://brand.example',
             competitorUrl: 'https://betterup.com',
@@ -689,7 +689,7 @@ test('approve_stage_2 workflow reviews include research, brief, brand-kit, and u
       };
       const started = await startMarketingJob({
         tenantId: 'tenant_123',
-        jobType: 'brand_campaign',
+        jobType: 'weekly_social_content',
         payload,
       });
 
@@ -753,7 +753,7 @@ test('stale workflow approval ids do not advance a newer approval checkpoint', a
     try {
       const started = await startMarketingJob({
         tenantId: 'tenant_123',
-        jobType: 'brand_campaign',
+        jobType: 'weekly_social_content',
           payload: {
             brandUrl: 'https://brand.example',
             competitorUrl: 'https://betterup.com',

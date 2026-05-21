@@ -248,7 +248,7 @@ export default function PipelineIntake() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          jobType: 'brand_campaign',
+          jobType: 'weekly_social_content',
           payload: {
             brandUrl,
             businessType,

@@ -89,7 +89,7 @@ test('/api/marketing/jobs reaches the first approval checkpoint through the real
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          jobType: 'brand_campaign',
+          jobType: 'weekly_social_content',
           payload: {
             brandUrl: 'https://brand.example/',
             businessType: 'Test vertical',
@@ -212,7 +212,7 @@ test('/api/social-content/jobs forces weekly_social_content even when caller sen
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          jobType: 'brand_campaign',
+          jobType: 'weekly_social_content',
           payload: {
             brandUrl: 'https://brand.example/',
             businessType: 'Test vertical',

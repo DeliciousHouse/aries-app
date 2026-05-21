@@ -109,7 +109,7 @@ Marketing job starts
   → Hermes runs research, POSTs findings to /api/internal/aries-research/callback
   → appendCuratedFinding() → writes curated findings back to Honcho
 
-Hermes marketing run (brand_campaign or weekly_social_content)
+Hermes marketing run (weekly_social_content)
   → loadMemoryContext() → loads brand/policy peers
   → Injects memory_context into Hermes payload
 ```

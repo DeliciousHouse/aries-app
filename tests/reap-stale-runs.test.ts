@@ -47,7 +47,7 @@ function makeRuntimeDoc(input: {
     schema_version: '1.0.0',
     job_id: input.jobId,
     tenant_id: input.tenantId,
-    job_type: 'brand_campaign',
+    job_type: 'weekly_social_content',
     state: input.state,
     status: input.status,
     current_stage: stage,

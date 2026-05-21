@@ -548,7 +548,7 @@ test('startMarketingJob persists a reusable tenant brand kit and stores a runtim
 
       const result = await startMarketingJob({
         tenantId: 'sugarandleather',
-        jobType: 'brand_campaign',
+        jobType: 'weekly_social_content',
         payload: {
           brandUrl: 'https://sugarandleather.com',
           competitorUrl: 'https://betterup.com',

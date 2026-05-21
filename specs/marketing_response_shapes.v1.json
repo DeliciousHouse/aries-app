@@ -313,7 +313,7 @@
     "MarketingJobType": {
       "type": "string",
       "enum": [
-        "brand_campaign"
+        "weekly_social_content"
       ]
     },
     "marketing_stage": {

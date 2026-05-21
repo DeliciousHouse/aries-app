@@ -35,7 +35,7 @@ test('/api/marketing/jobs requires authenticated tenant context', async () => {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        jobType: 'brand_campaign',
+        jobType: 'weekly_social_content',
         payload: {
           brandUrl: 'https://brand.example',
           businessType: 'Test vertical',

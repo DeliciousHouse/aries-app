@@ -93,7 +93,7 @@ import {
 
 export type StartMarketingJobRequest = {
   tenantId: string;
-  jobType: 'brand_campaign' | 'weekly_social_content';
+  jobType: 'weekly_social_content';
   /** Optional. User id of the authenticated caller that initiated the
    * campaign. Persisted on the runtime document so the campaign delete
    * permission check can allow the creator to delete their own campaigns
@@ -115,7 +115,7 @@ export type StartMarketingJobResponse = {
   status: 'accepted' | 'needs_connection';
   jobId: string;
   tenantId: string;
-  jobType: 'brand_campaign' | 'weekly_social_content';
+  jobType: 'weekly_social_content';
   runtimeArtifactPath: string;
   approvalRequired: boolean;
   currentStage: MarketingStage;
@@ -220,7 +220,7 @@ function stringValue(value: unknown, fallback = ''): string {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback;
 }
 
-function ensureBrandCampaignInput(input: StartMarketingJobRequest): { brandUrl: string; businessType: string; competitorUrl: string } {
+function ensureMarketingJobInput(input: StartMarketingJobRequest): { brandUrl: string; businessType: string; competitorUrl: string } {
   const brandUrl = stringValue(input.payload?.brandUrl);
   const businessType = stringValue(input.payload?.businessType);
   const missing: string[] = [];
@@ -438,15 +438,8 @@ function summarizePublish(primaryOutput: Record<string, unknown>) {
   };
 }
 
-function requestedJobTypeFromDoc(doc: MarketingJobRuntimeDocument): 'brand_campaign' | 'weekly_social_content' {
-  const request = doc.inputs.request;
-  if (request && typeof request === 'object' && !Array.isArray(request)) {
-    const value = (request as Record<string, unknown>).jobType;
-    if (value === 'weekly_social_content') {
-      return 'weekly_social_content';
-    }
-  }
-  return 'brand_campaign';
+function requestedJobTypeFromDoc(_doc: MarketingJobRuntimeDocument): 'weekly_social_content' {
+  return 'weekly_social_content';
 }
 
 function marketingStageFromSocialApprovalStep(step: SocialContentApprovalStep): Extract<MarketingStage, 'strategy' | 'production' | 'publish'> {
@@ -1534,26 +1527,21 @@ export async function startMarketingJob(input: StartMarketingJobRequest): Promis
   if (!input?.tenantId || typeof input.tenantId !== 'string' || input.tenantId.trim().length === 0) {
     throw new Error('missing_required_fields:tenantId');
   }
-  if (input.jobType !== 'brand_campaign' && input.jobType !== 'weekly_social_content') {
+  if (input.jobType !== 'weekly_social_content') {
     throw new Error(`unsupported_job_type:${input.jobType}`);
   }
-  const brandCampaignInput = ensureBrandCampaignInput(input);
+  const brandCampaignInput = ensureMarketingJobInput(input);
 
   const jobId = makeMarketingJobId();
   const tenantId = input.tenantId.trim();
-  const requestPayload =
-    input.jobType === 'weekly_social_content'
-      ? sanitizeWeeklySocialContentPayload(input.payload ?? {})
-      : { ...(input.payload ?? {}) };
-  if (input.jobType === 'weekly_social_content') {
-    const mediaDemand = weeklyMediaDemand(requestPayload);
-    requestPayload.imageCreativeCount = mediaDemand.imageCreativeCount;
-    requestPayload.imageCreativesCount = mediaDemand.imageCreativeCount;
-    requestPayload.videoRenderCount = mediaDemand.videoRenderCount;
-    requestPayload.renderVideoAfterApproval = mediaDemand.videoRenderCount > 0;
-    if (typeof input.createdBy === 'string' && input.createdBy.trim().length > 0) {
-      requestPayload.userId = input.createdBy.trim();
-    }
+  const requestPayload = sanitizeWeeklySocialContentPayload(input.payload ?? {});
+  const mediaDemand = weeklyMediaDemand(requestPayload);
+  requestPayload.imageCreativeCount = mediaDemand.imageCreativeCount;
+  requestPayload.imageCreativesCount = mediaDemand.imageCreativeCount;
+  requestPayload.videoRenderCount = mediaDemand.videoRenderCount;
+  requestPayload.renderVideoAfterApproval = mediaDemand.videoRenderCount > 0;
+  if (typeof input.createdBy === 'string' && input.createdBy.trim().length > 0) {
+    requestPayload.userId = input.createdBy.trim();
   }
   // Quarantine tenant-scoped validated docs (brand-profile / website-analysis /
   // business-profile) from a prior campaign so they cannot bleed into the new

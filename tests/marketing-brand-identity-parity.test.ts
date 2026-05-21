@@ -247,7 +247,7 @@ async function seedCurrentSourceIdentity(input: {
       schema_name: 'marketing_job_state_schema',
       schema_version: '1.0.0',
       job_id: input.jobId,
-      job_type: 'brand_campaign',
+      job_type: 'weekly_social_content',
       tenant_id: input.tenantId,
       state: 'approval_required',
       status: 'awaiting_approval',

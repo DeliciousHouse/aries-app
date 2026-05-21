@@ -110,7 +110,7 @@ test('/api/marketing/posts returns ready-to-publish inventory from review and pu
       schema_name: 'marketing_job_state_schema',
       schema_version: '1.0.0',
       job_id: jobId,
-      job_type: 'brand_campaign',
+      job_type: 'weekly_social_content',
       tenant_id: 'tenant_real',
       state: 'approval_required',
       status: 'awaiting_approval',

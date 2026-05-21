@@ -23,7 +23,7 @@ function makeDoc(overrides: {
     schema_version: '1.0.0',
     job_id: jobId,
     tenant_id: overrides.tenantId ?? '42',
-    job_type: 'brand_campaign',
+    job_type: 'weekly_social_content',
     state: 'completed',
     status: 'completed',
     current_stage: 'production',

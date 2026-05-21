@@ -1045,15 +1045,8 @@ async function publishReviewSource(
   return (await resolvePublishReviewBundle(runtimeDoc, facts)).source;
 }
 
-function requestedJobTypeFromDoc(doc: MarketingJobRuntimeDocument): 'brand_campaign' | 'weekly_social_content' {
-  const request = doc.inputs.request;
-  if (request && typeof request === 'object' && !Array.isArray(request)) {
-    const value = (request as Record<string, unknown>).jobType;
-    if (value === 'weekly_social_content') {
-      return 'weekly_social_content';
-    }
-  }
-  return 'brand_campaign';
+function requestedJobTypeFromDoc(_doc: MarketingJobRuntimeDocument): 'weekly_social_content' {
+  return 'weekly_social_content';
 }
 
 function parsePositiveInteger(value: unknown): number | null {

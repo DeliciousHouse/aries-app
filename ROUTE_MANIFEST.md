@@ -33,7 +33,7 @@ This manifest lists the supported direct route contract for the current Aries ru
 | `/onboarding/start` | Workflow | Start the premium client marketing intake |
 | `/onboarding/pipeline-intake` | Workflow | Legacy redirect to `/onboarding/start` |
 | `/onboarding/status` | Workflow | Read onboarding status |
-| `/marketing/new-job` | Workflow | Create a `brand_campaign` marketing job |
+| `/marketing/new-job` | Workflow | Create a weekly social content marketing job |
 | `/marketing/job-status` | Workflow | Inspect marketing job status |
 | `/marketing/job-approve` | Workflow | Resume approval-gated jobs |
 | `/oauth/connect/:provider` | Workflow | Provider OAuth handoff and result page |

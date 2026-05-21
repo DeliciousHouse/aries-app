@@ -40,7 +40,7 @@ function makeJobDoc(overrides: Record<string, unknown> = {}): Record<string, unk
     schema_version: '1.0.0',
     job_id: 'mkt_43800cee-f0d7-45da-8cfa-eeb907cb9d45',
     tenant_id: '15',
-    job_type: 'brand_campaign',
+    job_type: 'weekly_social_content',
     state: 'failed',
     status: 'failed_stale',
     current_stage: 'research',

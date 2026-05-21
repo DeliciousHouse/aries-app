@@ -81,7 +81,7 @@ test('useMarketingJobCreate surfaces 422 field errors from FastAPI detail[] body
 
     await act(async () => {
       const fd = new FormData();
-      fd.set('jobType', 'brand_campaign');
+      fd.set('jobType', 'weekly_social_content');
       fd.set('brandUrl', 'not-a-url');
       await captured!.createJob(fd);
       await flushMicrotasks();
@@ -121,7 +121,7 @@ test('useMarketingJobCreate keeps fieldErrors empty for non-422 errors', async (
 
     await act(async () => {
       const fd = new FormData();
-      fd.set('jobType', 'brand_campaign');
+      fd.set('jobType', 'weekly_social_content');
       await captured!.createJob(fd);
       await flushMicrotasks();
     });

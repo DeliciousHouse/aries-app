@@ -12,7 +12,7 @@ import { createJob, ensureResearchJobSchema, setStatus } from './research-jobs';
 
 export type MarketingResearchBridgeInput = {
   marketingJobId: string;
-  jobType: 'brand_campaign' | 'weekly_social_content';
+  jobType: 'weekly_social_content';
   brandUrl: string;
   competitorUrl?: string | null;
   competitorBrand?: string | null;

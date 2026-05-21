@@ -114,7 +114,7 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
     }
 
     const formData = new FormData();
-    formData.set('jobType', 'brand_campaign');
+    formData.set('jobType', 'weekly_social_content');
     formData.set('brandUrl', trimmedWebsiteUrl);
     formData.set('websiteUrl', trimmedWebsiteUrl);
     const trimmedCompetitorUrl = competitorUrl.trim();

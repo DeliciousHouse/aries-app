@@ -19,9 +19,9 @@ const ENDPOINTS = [
     path: '/api/marketing/jobs',
     desc: 'Create a new weekly social content plan.',
     body:
-      '{ "jobType": "brand_campaign", "payload": { "brandUrl", "competitorUrl"?, "competitorBrand"?, "facebookPageUrl"?, "adLibraryUrl"?, "metaPageId"? } }',
+      '{ "jobType": "weekly_social_content", "payload": { "brandUrl", "competitorUrl"?, "competitorBrand"?, "facebookPageUrl"?, "adLibraryUrl"?, "metaPageId"? } }',
     response:
-      '{ "marketing_job_status": "accepted", "jobId": "...", "jobType": "brand_campaign", "marketing_stage": "strategy", "approvalRequired": true, "approval": { ... }, "jobStatusUrl": "/marketing/job-status?jobId=..." }',
+      '{ "marketing_job_status": "accepted", "jobId": "...", "jobType": "weekly_social_content", "marketing_stage": "strategy", "approvalRequired": true, "approval": { ... }, "jobStatusUrl": "/marketing/job-status?jobId=..." }',
   },
   {
     method: 'GET',

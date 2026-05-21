@@ -174,26 +174,3 @@ auto-retries. The final publish calls remain one-shot.
 
 - [ ] Refactor Hermes media addressing to be ID-based. `/api/internal/hermes/media/[...path]` currently identifies assets by basename (last URL path segment) and proves ownership by string-matching `regexp_replace` over `served_asset_ref` / `storage_key`. v0.1.5.6 patched the ownership symptom but the design is still basename-coupled. Proper fix: make the route URL `/api/internal/hermes/media/<creative_assets.id>`, turn ownership into a primary-key + `tenant_id` lookup, and serve the file from `storage_key`. Update the `served_asset_ref` written at ingest (`backend/marketing/ingest-production-assets.ts`) and every consumer — calendar backlog thumbnails, creative-review previews, `scheduled-dispatch` media resolution. Removes basename coupling, the dual-column regex match, and basename-collision risk. (Logged 2026-05-21 after v0.1.5.6.)
 
-### Restore brand_campaign multi-stage approval after OpenClaw removal
-
-**What:** Fix the legacy `brand_campaign` approval flow so the first approval
-record (`workflow_step_id: approve_stage_2`) is created again after a job
-starts.
-
-**Why:** `tests/review-decision-idempotency.test.ts` regressed during the
-OpenClaw/Lobster execution-path removal — `approve_stage_2` has no approval
-record, so `listMarketingApprovalRecordsForJob` returns `undefined` where a
-string `approval_id` is expected. This test passes on `master` and fails on
-`chore/open-source-readiness`.
-
-**Context:** The OpenClaw removal cherry-pick dropped "the now-dead OpenClaw
-resume-state reseed branch" (commit 8e6fa64). That reseed branch was not dead
-for the legacy `brand_campaign` multi-stage approval path. Decision needed:
-either (a) restore/adapt the reseed logic so `brand_campaign` approvals work on
-the Hermes path, or (b) treat `brand_campaign` as part of the legacy OpenClaw
-surface and remove the flow plus `tests/review-decision-idempotency.test.ts`
-entirely. This is the one known regression on the open-source-readiness branch.
-
-**Effort:** M
-**Priority:** P1
-**Depends on:** Decision on whether `brand_campaign` is a kept Hermes-compat flow

@@ -31,7 +31,7 @@ function makeDoc(req: Record<string, unknown>, brandKit: MarketingBrandKitRefere
     schema_version: '1.0',
     job_id: 'mkt_test',
     tenant_id: 'tenant1',
-    job_type: 'brand_campaign',
+    job_type: 'weekly_social_content',
     state: 'pending',
     status: 'pending',
     current_stage: 'research',

@@ -193,7 +193,7 @@ test('marketing job creation response omits banned runtime and tenant fields', a
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             tenantId: 'forged_tenant',
-            jobType: 'brand_campaign',
+            jobType: 'weekly_social_content',
             payload: {
               brandUrl: 'https://brand.example',
               businessType: 'Test vertical',
@@ -250,7 +250,7 @@ test('marketing job status response omits banned path leakage fields', async () 
         schema_name: 'job_runtime_state_schema',
         schema_version: '1.0.0',
         job_id: jobId,
-        job_type: 'brand_campaign',
+        job_type: 'weekly_social_content',
         tenant_id: 'tenant_real',
         state: 'approval_required',
         status: 'awaiting_approval',

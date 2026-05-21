@@ -25,7 +25,7 @@
             "description": "Canonical marketing job type",
             "type": "string",
             "enum": [
-              "brand_campaign"
+              "weekly_social_content"
             ]
           },
           "payload": {
@@ -59,7 +59,7 @@
           "jobType": {
             "type": "string",
             "enum": [
-              "brand_campaign"
+              "weekly_social_content"
             ]
           }
         },

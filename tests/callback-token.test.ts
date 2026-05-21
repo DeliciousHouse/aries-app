@@ -339,7 +339,7 @@ test('Hermes submission generates a per-run callback_token and stores its SHA-25
         tenant_id: '123',
         status: 'queued',
         stage: 'research',
-        inputs: { request: { jobType: 'brand_campaign' } },
+        inputs: { request: { jobType: 'weekly_social_content' } },
         artifacts: {},
         approvals: [],
         events: [],
