@@ -45,6 +45,7 @@ export interface UnscheduledPost {
   title: string;
   caption: string;
   platform: string | null;
+  imageUrl: string | null;
   href: string;
 }
 

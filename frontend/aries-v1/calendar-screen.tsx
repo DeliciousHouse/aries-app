@@ -101,7 +101,7 @@ export default function AriesCalendarScreen() {
     [loadSchedule, scheduling],
   );
 
-  if (campaigns.isLoading || businessProfile.profile.isLoading || scheduleLoading) {
+  if (scheduleLoading) {
     return <LoadingStateGrid />;
   }
 
@@ -130,6 +130,7 @@ export default function AriesCalendarScreen() {
       title: post.title,
       caption: post.caption,
       platform: post.platform,
+      imageUrl: post.imageUrl ?? null,
       href: post.jobId ? `/dashboard/social-content/${post.jobId}` : '/dashboard/calendar',
     })),
     timeZone,
@@ -146,6 +147,7 @@ export default function AriesCalendarScreen() {
       onSchedule={handleSchedule}
       pendingDayKeys={pendingDayKeys}
       schedulingError={scheduling.error}
+      campaignsLoading={campaigns.isLoading}
       onRescheduled={() => {
         void loadSchedule();
       }}

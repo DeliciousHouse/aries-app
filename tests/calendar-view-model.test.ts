@@ -154,6 +154,7 @@ test('calendar view-model surfaces the unscheduled backlog tray', () => {
         title: 'Approved but unscheduled',
         caption: 'Approved but unscheduled',
         platform: 'instagram',
+        imageUrl: null,
         href: '/dashboard/social-content/job-9',
       },
     ],

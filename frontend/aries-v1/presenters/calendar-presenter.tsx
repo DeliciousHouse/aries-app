@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   DndContext,
+  KeyboardSensor,
   PointerSensor,
   useDraggable,
   useDroppable,
@@ -22,6 +23,7 @@ import {
   Instagram,
   Layers3,
   Linkedin,
+  LoaderCircle,
   Music2,
   Youtube,
   X as CloseIcon,
@@ -87,6 +89,8 @@ export interface CalendarPresenterProps {
   /** Optimistic day-key overrides keyed by event id (pendingMoves from the hook). */
   pendingDayKeys?: Record<string, string>;
   schedulingError?: string | null;
+  /** When true, the Campaign status strip renders a loading skeleton instead of empty-state. */
+  campaignsLoading?: boolean;
   /** Called after the RescheduleDrawer saves — lets the screen refetch the queue. */
   onRescheduled?: () => void;
 }
@@ -96,6 +100,7 @@ export default function CalendarPresenter({
   onSchedule,
   pendingDayKeys,
   schedulingError,
+  campaignsLoading,
   onRescheduled,
 }: CalendarPresenterProps) {
   const timeZone = model.timeZone;
@@ -105,11 +110,13 @@ export default function CalendarPresenter({
   );
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [rescheduleEventId, setRescheduleEventId] = useState<string | null>(null);
+  const [scheduleTrayPost, setScheduleTrayPost] = useState<UnscheduledPost | null>(null);
 
   const sensors = useSensors(
     // A small activation distance keeps a plain click on a tile from being
     // swallowed as a drag (so the event-detail modal still opens).
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor),
   );
 
   // Apply optimistic day-key overrides so a dragged tile shows on the target
@@ -209,7 +216,7 @@ export default function CalendarPresenter({
         ) : null}
 
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-[0.78fr_3.22fr]">
-          <UnscheduledTray posts={model.unscheduled} />
+          <UnscheduledTray posts={model.unscheduled} onOpenSchedule={setScheduleTrayPost} />
 
           <div className="space-y-6">
             <section className="glass-panel min-w-0 p-5 md:p-6">
@@ -319,7 +326,11 @@ export default function CalendarPresenter({
             <section className="glass-panel p-6">
               <h2 className="mb-6 text-lg font-semibold text-white">Campaign status at a glance</h2>
               <div className="space-y-4">
-                {model.campaigns.length === 0 ? (
+                {campaignsLoading ? (
+                  <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 text-sm text-zinc-500">
+                    Loading campaigns…
+                  </div>
+                ) : model.campaigns.length === 0 ? (
                   <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-5 text-sm text-zinc-500">
                     No campaigns are available yet.
                   </div>
@@ -423,6 +434,19 @@ export default function CalendarPresenter({
                         Reschedule
                       </button>
                     ) : null}
+                    {selectedEvent.jobId &&
+                    (selectedEvent.dispatchStatus === 'pending' ||
+                      selectedEvent.dispatchStatus === 'failed') ? (
+                      <PublishNowButton
+                        jobId={selectedEvent.jobId}
+                        postId={selectedEvent.postId}
+                        targetPlatforms={selectedEvent.targetPlatforms}
+                        onSuccess={() => {
+                          setSelectedEventId(null);
+                          onRescheduled?.();
+                        }}
+                      />
+                    ) : null}
                     <Link
                       href={selectedEvent.href}
                       className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-medium text-white shadow-[0_0_20px_rgba(123,97,255,0.3)]"
@@ -455,12 +479,102 @@ export default function CalendarPresenter({
             }}
           />
         ) : null}
+
+        {scheduleTrayPost?.jobId ? (
+          <RescheduleDrawer
+            jobId={scheduleTrayPost.jobId}
+            postId={scheduleTrayPost.postId}
+            defaultPlatforms={
+              scheduleTrayPost.platform === 'facebook' || scheduleTrayPost.platform === 'instagram'
+                ? [scheduleTrayPost.platform]
+                : undefined
+            }
+            timeZone={timeZone}
+            onClose={() => setScheduleTrayPost(null)}
+            onSaved={() => {
+              setScheduleTrayPost(null);
+              onRescheduled?.();
+            }}
+          />
+        ) : null}
       </div>
     </DndContext>
   );
 }
 
-function UnscheduledTray({ posts }: { posts: UnscheduledPost[] }) {
+function PublishNowButton({
+  jobId,
+  postId,
+  targetPlatforms,
+  onSuccess,
+}: {
+  jobId: string;
+  postId: string;
+  targetPlatforms: string[];
+  onSuccess: () => void;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+  const [confirmation, setConfirmation] = useState(false);
+
+  async function handlePublishNow() {
+    if (submitting || confirmation) return;
+    setSubmitting(true);
+    try {
+      const url = `/api/social-content/jobs/${encodeURIComponent(jobId)}/posts/${encodeURIComponent(postId)}/schedule`;
+      const platforms = targetPlatforms.filter(
+        (p): p is 'facebook' | 'instagram' => p === 'facebook' || p === 'instagram',
+      );
+      const response = await fetch(url, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          scheduled_at: new Date().toISOString(),
+          platforms: platforms.length > 0 ? platforms : ['instagram'],
+        }),
+      });
+      if (!response.ok) {
+        return;
+      }
+      setConfirmation(true);
+      onSuccess();
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (confirmation) {
+    return (
+      <span
+        role="status"
+        data-testid="calendar-publish-now-queued"
+        className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-5 py-3 text-sm font-medium text-emerald-100"
+      >
+        Queued — will publish within a minute
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      data-testid="calendar-publish-now"
+      disabled={submitting}
+      onClick={() => void handlePublishNow()}
+      className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-5 py-3 text-sm font-medium text-emerald-100 transition hover:border-emerald-500/50 disabled:opacity-60"
+    >
+      {submitting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+      Publish now
+    </button>
+  );
+}
+
+function UnscheduledTray({
+  posts,
+  onOpenSchedule,
+}: {
+  posts: UnscheduledPost[];
+  onOpenSchedule: (post: UnscheduledPost) => void;
+}) {
   return (
     <section className="glass-panel h-fit p-5">
       <div className="mb-4 flex items-center gap-2">
@@ -468,7 +582,7 @@ function UnscheduledTray({ posts }: { posts: UnscheduledPost[] }) {
         <h2 className="text-sm font-semibold text-white">Backlog</h2>
       </div>
       <p className="mb-4 text-xs leading-5 text-white/45">
-        Approved posts with no publish date. Drag one onto a calendar cell to schedule it.
+        Approved posts with no publish date. Drag onto a calendar cell or click to schedule.
       </p>
       {posts.length === 0 ? (
         <div className="rounded-2xl border border-white/[0.05] bg-white/[0.02] p-4 text-xs text-zinc-500">
@@ -477,7 +591,7 @@ function UnscheduledTray({ posts }: { posts: UnscheduledPost[] }) {
       ) : (
         <div className="space-y-3">
           {posts.map((post) => (
-            <UnscheduledTrayItem key={post.postId} post={post} />
+            <UnscheduledTrayItem key={post.postId} post={post} onClickSchedule={onOpenSchedule} />
           ))}
         </div>
       )}
@@ -485,21 +599,40 @@ function UnscheduledTray({ posts }: { posts: UnscheduledPost[] }) {
   );
 }
 
-function UnscheduledTrayItem({ post }: { post: UnscheduledPost }) {
+function UnscheduledTrayItem({
+  post,
+  onClickSchedule,
+}: {
+  post: UnscheduledPost;
+  onClickSchedule: (post: UnscheduledPost) => void;
+}) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `unscheduled:${post.postId}`,
     data: { kind: 'unscheduled', post },
   });
+
+  const canClick = Boolean(post.jobId);
+
   return (
-    <div
+    <button
       ref={setNodeRef}
       {...attributes}
       {...listeners}
+      type="button"
       data-testid={`tray-item-${post.postId}`}
-      className={`cursor-grab rounded-2xl border border-white/[0.06] bg-white/[0.03] p-3 transition-all hover:border-primary/25 ${
+      onClick={canClick ? () => onClickSchedule(post) : undefined}
+      title={canClick ? 'Click to schedule' : undefined}
+      className={`w-full cursor-grab rounded-2xl border border-white/[0.06] bg-white/[0.03] p-3 text-left transition-all hover:border-primary/25 ${
         isDragging ? 'opacity-40' : ''
       }`}
     >
+      {post.imageUrl ? (
+        <img
+          src={post.imageUrl}
+          alt={post.title}
+          className="mb-2 h-16 w-full rounded-xl object-cover"
+        />
+      ) : null}
       <div className="mb-1.5 flex items-center gap-2">
         <span className="flex h-4 w-4 items-center justify-center text-white/70">
           {platformLogo(post.platform || 'meta')}
@@ -509,7 +642,7 @@ function UnscheduledTrayItem({ post }: { post: UnscheduledPost }) {
         </span>
       </div>
       <p className="text-[11px] font-medium leading-snug text-white/85">{post.title}</p>
-    </div>
+    </button>
   );
 }
 

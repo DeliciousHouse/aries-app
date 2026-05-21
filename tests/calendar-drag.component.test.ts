@@ -43,6 +43,7 @@ function buildUnscheduled(overrides: Partial<UnscheduledPostItem> = {}): Unsched
     title: 'Approved backlog post',
     caption: 'Approved backlog post',
     platform: 'instagram',
+    imageUrl: null,
     ...overrides,
   };
 }
