@@ -68,7 +68,6 @@ COPY --from=builder --chown=node:node /app/templates ./templates
 COPY --from=builder --chown=node:node /app/types ./types
 COPY --from=builder --chown=node:node /app/validators ./validators
 COPY --from=builder --chown=node:node /app/scripts ./scripts
-COPY --from=builder --chown=node:node /app/lobster ./lobster
 COPY --from=builder --chown=node:node /app/next-env.d.ts ./next-env.d.ts
 COPY --from=builder --chown=node:node /app/next.config.mjs ./next.config.mjs
 COPY --from=builder --chown=node:node /app/postcss.config.mjs ./postcss.config.mjs
