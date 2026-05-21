@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.5.3 — fix(marketing): completed pipelines populate the calendar + publish-items count + failure taxonomy
+
+Three marketing fixes that, together, make a completed Hermes pipeline actually surface its work and make publish failures honest.
+
+**Completed pipelines now create posts.** v0.1.5.1 and v0.1.5.2 added creative-asset ingestion and publish-post synthesis, but a real end-to-end campaign still produced zero posts — root-caused to two ordering/guard bugs in the publish-completion callback. The creative-asset ingestion ran before the completion writer had populated the production stage's output on the runtime document, so it read an empty stage and ingested nothing; it now runs after the stage output is written. And the post synthesizer deferred whenever the publish stage carried any `publish_package` at all — but the Hermes publish agent commonly returns a thin, plan-only `publish_package` (cadence and schedule notes, no per-post previews or media) that nothing downstream can turn into posts. The synthesizer now defers only for a `publish_package` a consumer can actually use, and synthesizes posts otherwise. A completed pipeline now ingests its creative assets and creates the posts that reach the calendar.
+
+**The dashboard "Publish items" count reflects real posts.** The campaign dashboard's publish-items counter was driven by a runtime-document projection that did not see the `posts` table, so it read zero even when a campaign had real posts. It now counts the actual `posts` rows for the campaign — four completed campaigns that previously showed "Publish items 0" now report their true counts.
+
+**Meta publish failures are split into two honest outcome classes.** A failed Meta publish call previously collapsed every error into one generic failure, hiding whether the post had definitely not gone out or whether its outcome was simply unknown (for example, a response lost after the post may have been created). `MetaPublishError` now carries an `outcomeUnknown` flag, set only on the final-publish missing-id codes, and the Facebook and Instagram publish handlers branch on it so an operator can tell a safe-to-retry failure from one that needs manual verification before retrying.
+
 ## v0.1.5.2 — fix(marketing): synthesize approved publish posts so completed pipelines populate the calendar
 
 Closes the last gap in the Hermes-native marketing pipeline: a completed pipeline reported "publish complete" but produced no launch items and nothing the scheduled-posts calendar could show.
