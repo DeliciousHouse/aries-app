@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import pool from '../lib/db';
-import { publishToMetaGraph, MetaPublishError, waitForInstagramContainerReady } from '../backend/integrations/meta-publishing';
+import {
+  classifyMetaPublishFailure,
+  publishToMetaGraph,
+  MetaPublishError,
+  waitForInstagramContainerReady,
+} from '../backend/integrations/meta-publishing';
 import { encryptOAuthSecret } from '../backend/integrations/oauth-token-crypto';
 
 type QueryResultRow = {
@@ -189,6 +194,353 @@ test('publishToMetaGraph blocks Instagram scheduled publishing with a safe fallb
   } finally {
     restoreQuery();
   }
+});
+
+// ---- publish failure taxonomy: "definitely never posted" vs "outcome unknown" ----
+//
+// Regression for TODOS "Harden Meta publish failure taxonomy". The Meta publish
+// path has two failure classes that need opposite handling:
+//
+//   "Definitely never posted" — a requestGraphJson network/HTTP/4xx failure on
+//   the final publish call. The post never went live. The handler rolls back the
+//   platform claim so a retry can re-attempt the platform.
+//
+//   "Outcome unknown" — *_publish_missing_id: the Graph publish call returned 2xx
+//   but with no post id. The post MAY be live. The handler must LEAVE the claim
+//   in place, surface needs_manual_reconciliation, and NEVER auto-retry — a retry
+//   of a publish that secretly succeeded is a duplicate post.
+//
+// The handlers branch on MetaPublishError.outcomeUnknown, so these tests pin the
+// flag values that drive that branch.
+
+test('publishToMetaGraph: a Facebook feed HTTP 400 is "definitely never posted" (retryable rollback class, not outcomeUnknown)', async () => {
+  process.env.OAUTH_TOKEN_ENCRYPTION_KEY = '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!';
+  const restoreQuery = installOauthQueryFixture({
+    access_token_enc: encryptOAuthSecret('page-token'),
+    connection_id: 'conn_fb_fail',
+    external_account_id: 'page_fail',
+  });
+
+  const fetchImpl = async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes('/feed')) {
+      return new Response(
+        JSON.stringify({ error: { message: 'Invalid parameter' } }),
+        { status: 400 },
+      );
+    }
+    throw new Error(`unexpected url: ${url}`);
+  };
+
+  try {
+    await assert.rejects(
+      () => publishToMetaGraph({
+        tenantId: '12',
+        provider: 'facebook',
+        content: 'will fail',
+        mediaUrls: [],
+        fetchImpl: fetchImpl as typeof fetch,
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof MetaPublishError);
+        const publishError = error as MetaPublishError;
+        // graph_api_error from requestGraphJson — the feed POST was rejected,
+        // the post never went live.
+        assert.equal(publishError.code, 'graph_api_error');
+        assert.equal(
+          publishError.outcomeUnknown,
+          false,
+          'a rejected feed POST is definitely-never-posted, not outcome-unknown',
+        );
+        return true;
+      },
+    );
+  } finally {
+    restoreQuery();
+  }
+});
+
+test('publishToMetaGraph: a Facebook feed 2xx with no post id is "outcome unknown" (claim must stay, never retry)', async () => {
+  process.env.OAUTH_TOKEN_ENCRYPTION_KEY = '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!';
+  const restoreQuery = installOauthQueryFixture({
+    access_token_enc: encryptOAuthSecret('page-token'),
+    connection_id: 'conn_fb_unknown',
+    external_account_id: 'page_unknown',
+  });
+
+  const fetchImpl = async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes('/feed')) {
+      // Graph accepted the publish (2xx) but returned no `id`.
+      return new Response(JSON.stringify({ success: true }), { status: 200 });
+    }
+    throw new Error(`unexpected url: ${url}`);
+  };
+
+  try {
+    await assert.rejects(
+      () => publishToMetaGraph({
+        tenantId: '12',
+        provider: 'facebook',
+        content: 'accepted but unconfirmed',
+        mediaUrls: [],
+        fetchImpl: fetchImpl as typeof fetch,
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof MetaPublishError);
+        const publishError = error as MetaPublishError;
+        assert.equal(publishError.code, 'facebook_publish_missing_id');
+        assert.equal(
+          publishError.outcomeUnknown,
+          true,
+          'a 2xx feed POST with no id means the outcome is unconfirmed',
+        );
+        assert.equal(
+          publishError.retryable,
+          false,
+          'an outcome-unknown publish must never be auto-retried (duplicate-post risk)',
+        );
+        return true;
+      },
+    );
+  } finally {
+    restoreQuery();
+  }
+});
+
+test('publishToMetaGraph: an Instagram media_publish 2xx with no post id is "outcome unknown"', async () => {
+  process.env.OAUTH_TOKEN_ENCRYPTION_KEY = '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!';
+  const restoreQuery = installOauthQueryFixture({
+    access_token_enc: encryptOAuthSecret('ig-page-token'),
+    connection_id: 'conn_ig_unknown',
+    external_account_id: 'ig_unknown',
+  });
+
+  const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = (init?.method ?? 'GET').toUpperCase();
+    if (url.includes('/media_publish')) {
+      // Graph accepted the publish (2xx) but returned no `id`.
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
+    if (method === 'GET' && url.includes('container_u1') && url.includes('status_code')) {
+      return new Response(JSON.stringify({ id: 'container_u1', status_code: 'FINISHED' }), { status: 200 });
+    }
+    if (url.includes('/media')) {
+      return new Response(JSON.stringify({ id: 'container_u1' }), { status: 200 });
+    }
+    throw new Error(`unexpected url: ${url}`);
+  };
+
+  try {
+    await assert.rejects(
+      () => publishToMetaGraph({
+        tenantId: '12',
+        provider: 'instagram',
+        content: 'accepted but unconfirmed',
+        mediaUrls: ['https://cdn.example.com/ig.png'],
+        fetchImpl: fetchImpl as typeof fetch,
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof MetaPublishError);
+        const publishError = error as MetaPublishError;
+        assert.equal(publishError.code, 'instagram_publish_missing_id');
+        assert.equal(
+          publishError.outcomeUnknown,
+          true,
+          'a 2xx media_publish with no id means the outcome is unconfirmed',
+        );
+        assert.equal(publishError.retryable, false, 'outcome-unknown must never auto-retry');
+        return true;
+      },
+    );
+  } finally {
+    restoreQuery();
+  }
+});
+
+test('publishToMetaGraph: an Instagram media_publish HTTP failure is "definitely never posted", not outcomeUnknown', async () => {
+  process.env.OAUTH_TOKEN_ENCRYPTION_KEY = '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!';
+  const restoreQuery = installOauthQueryFixture({
+    access_token_enc: encryptOAuthSecret('ig-page-token'),
+    connection_id: 'conn_ig_fail',
+    external_account_id: 'ig_fail',
+  });
+
+  const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = (init?.method ?? 'GET').toUpperCase();
+    if (url.includes('/media_publish')) {
+      return new Response(
+        JSON.stringify({ error: { message: 'Media publish rejected' } }),
+        { status: 400 },
+      );
+    }
+    if (method === 'GET' && url.includes('container_f1') && url.includes('status_code')) {
+      return new Response(JSON.stringify({ id: 'container_f1', status_code: 'FINISHED' }), { status: 200 });
+    }
+    if (url.includes('/media')) {
+      return new Response(JSON.stringify({ id: 'container_f1' }), { status: 200 });
+    }
+    throw new Error(`unexpected url: ${url}`);
+  };
+
+  try {
+    await assert.rejects(
+      () => publishToMetaGraph({
+        tenantId: '12',
+        provider: 'instagram',
+        content: 'will fail',
+        mediaUrls: ['https://cdn.example.com/ig.png'],
+        fetchImpl: fetchImpl as typeof fetch,
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof MetaPublishError);
+        const publishError = error as MetaPublishError;
+        assert.equal(publishError.code, 'graph_api_error');
+        assert.equal(
+          publishError.outcomeUnknown,
+          false,
+          'a rejected media_publish is definitely-never-posted, not outcome-unknown',
+        );
+        return true;
+      },
+    );
+  } finally {
+    restoreQuery();
+  }
+});
+
+test('publishToMetaGraph: a pre-publish media-upload missing id is NOT outcomeUnknown (nothing was published)', async () => {
+  process.env.OAUTH_TOKEN_ENCRYPTION_KEY = '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!';
+  const restoreQuery = installOauthQueryFixture({
+    access_token_enc: encryptOAuthSecret('page-token'),
+    connection_id: 'conn_fb_preupload',
+    external_account_id: 'page_preupload',
+  });
+
+  const fetchImpl = async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes('/photos')) {
+      // Unpublished photo upload returns 2xx but no id — pre-publish step,
+      // no post was created, so this is still "definitely never posted".
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
+    throw new Error(`unexpected url: ${url}`);
+  };
+
+  try {
+    await assert.rejects(
+      () => publishToMetaGraph({
+        tenantId: '12',
+        provider: 'facebook',
+        content: 'with media',
+        mediaUrls: ['https://cdn.example.com/image.png'],
+        fetchImpl: fetchImpl as typeof fetch,
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof MetaPublishError);
+        const publishError = error as MetaPublishError;
+        assert.equal(publishError.code, 'facebook_media_upload_missing_id');
+        assert.equal(
+          publishError.outcomeUnknown,
+          false,
+          'a pre-publish media upload failure means the feed POST never ran — definitely never posted',
+        );
+        return true;
+      },
+    );
+  } finally {
+    restoreQuery();
+  }
+});
+
+// ---- classifyMetaPublishFailure: the predicate the publish handlers branch on ----
+//
+// The handlers compute `outcomeUnknown = classifyMetaPublishFailure(error)`,
+// then: roll back the platform claim ONLY when the class is
+// 'definitely_never_posted' (and the publish never succeeded); on
+// 'outcome_unknown' they leave the claim in place and return
+// needs_manual_reconciliation with retryable=false. These tests pin that
+// classification end-to-end against the real errors publishToMetaGraph throws.
+
+test('classifyMetaPublishFailure: a definitely-never-posted feed HTTP failure is the retryable rollback class', async () => {
+  process.env.OAUTH_TOKEN_ENCRYPTION_KEY = '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!';
+  const restoreQuery = installOauthQueryFixture({
+    access_token_enc: encryptOAuthSecret('page-token'),
+    connection_id: 'conn_fb_cls1',
+    external_account_id: 'page_cls1',
+  });
+  const fetchImpl = async (input: RequestInfo | URL) => {
+    if (String(input).includes('/feed')) {
+      return new Response(JSON.stringify({ error: { message: 'bad' } }), { status: 400 });
+    }
+    throw new Error('unexpected');
+  };
+  try {
+    const caught = await publishToMetaGraph({
+      tenantId: '12',
+      provider: 'facebook',
+      content: 'x',
+      mediaUrls: [],
+      fetchImpl: fetchImpl as typeof fetch,
+    }).then(() => null, (e: unknown) => e);
+
+    assert.ok(caught instanceof MetaPublishError);
+    assert.equal(classifyMetaPublishFailure(caught), 'definitely_never_posted');
+    // Handler rollback predicate: definitely_never_posted -> roll back the claim.
+    const outcomeUnknown = classifyMetaPublishFailure(caught) === 'outcome_unknown';
+    assert.equal(outcomeUnknown, false, 'definitely-never-posted must roll back + allow retry');
+  } finally {
+    restoreQuery();
+  }
+});
+
+test('classifyMetaPublishFailure: an outcome-unknown missing-id failure is the no-rollback / no-retry class', async () => {
+  process.env.OAUTH_TOKEN_ENCRYPTION_KEY = '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!';
+  const restoreQuery = installOauthQueryFixture({
+    access_token_enc: encryptOAuthSecret('page-token'),
+    connection_id: 'conn_fb_cls2',
+    external_account_id: 'page_cls2',
+  });
+  const fetchImpl = async (input: RequestInfo | URL) => {
+    if (String(input).includes('/feed')) {
+      return new Response(JSON.stringify({ success: true }), { status: 200 });
+    }
+    throw new Error('unexpected');
+  };
+  try {
+    const caught = await publishToMetaGraph({
+      tenantId: '12',
+      provider: 'facebook',
+      content: 'x',
+      mediaUrls: [],
+      fetchImpl: fetchImpl as typeof fetch,
+    }).then(() => null, (e: unknown) => e);
+
+    assert.ok(caught instanceof MetaPublishError);
+    assert.equal(classifyMetaPublishFailure(caught), 'outcome_unknown');
+    // Handler rollback predicate: outcome_unknown -> claim stays, no retry.
+    const outcomeUnknown = classifyMetaPublishFailure(caught) === 'outcome_unknown';
+    assert.equal(outcomeUnknown, true, 'outcome-unknown must keep the claim and never auto-retry');
+    assert.equal((caught as MetaPublishError).retryable, false);
+  } finally {
+    restoreQuery();
+  }
+});
+
+test('classifyMetaPublishFailure: a non-MetaPublishError throw defaults to definitely_never_posted', () => {
+  assert.equal(classifyMetaPublishFailure(new Error('socket hang up')), 'definitely_never_posted');
+  assert.equal(classifyMetaPublishFailure('plain string'), 'definitely_never_posted');
+  assert.equal(classifyMetaPublishFailure(undefined), 'definitely_never_posted');
+});
+
+test('classifyMetaPublishFailure: a MetaPublishError without outcomeUnknown is definitely_never_posted', () => {
+  const networkError = new MetaPublishError('graph_network_error', 'ECONNRESET', {
+    status: 502,
+    retryable: true,
+  });
+  assert.equal(classifyMetaPublishFailure(networkError), 'definitely_never_posted');
 });
 
 // ---- waitForInstagramContainerReady unit tests ----

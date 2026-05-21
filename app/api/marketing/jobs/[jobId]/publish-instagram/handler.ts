@@ -13,6 +13,7 @@ import {
 } from '@/backend/marketing/approval-store';
 import { loadSocialCopyArtifact } from '@/backend/social-content/social-copy-store';
 import {
+  classifyMetaPublishFailure,
   isMetaProvider,
   MetaPublishError,
   publishToMetaGraph,
@@ -274,10 +275,24 @@ export async function handleInstagramPublish(req: Request, jobId: string) {
       { status: 200, headers: { 'content-type': 'application/json' } },
     );
   } catch (error) {
-    // Roll back the platform claim only when the publish call itself failed.
-    // A post that went live but failed verification keeps its claim — the
-    // platform is published and must not be re-attempted.
-    if (!publishSucceeded) {
+    // Two outcome classes need opposite handling:
+    //
+    //   "Definitely never posted" — a requestGraphJson network/HTTP/4xx failure
+    //   (or any pre-publish failure: container creation, readiness poll). The
+    //   Graph media_publish call never succeeded, so the post never went live.
+    //   Safe to roll back the platform claim and let a retry re-attempt it.
+    //
+    //   "Outcome unknown" — instagram_publish_missing_id: the Graph media_publish
+    //   call was accepted (2xx) but Aries got no post id back. The post MAY be
+    //   live. The claim must be LEFT in place and the failure surfaced as
+    //   needs_manual_reconciliation; auto-retry is forbidden because retrying a
+    //   publish that secretly succeeded creates a duplicate post.
+    const outcomeUnknown = classifyMetaPublishFailure(error) === 'outcome_unknown';
+
+    // Roll back the platform claim only when the publish call definitely never
+    // posted. A post that went live but failed verification, or an unconfirmed
+    // (outcome-unknown) publish, keeps its claim — neither may be re-attempted.
+    if (!publishSucceeded && !outcomeUnknown) {
       try {
         await releaseMarketingApprovalPlatformClaim(approvalId as string, PLATFORM_KEY);
       } catch (rollbackError) {
@@ -292,6 +307,28 @@ export async function handleInstagramPublish(req: Request, jobId: string) {
         });
       }
     }
+
+    if (outcomeUnknown) {
+      // Claim deliberately left in place; never auto-retry.
+      console.warn('[publish-instagram] publish outcome unknown — needs manual reconciliation', {
+        approvalId,
+        platform: PLATFORM_KEY,
+        jobId,
+        code: (error as MetaPublishError).code,
+      });
+      return new Response(
+        JSON.stringify({
+          status: 'needs_manual_reconciliation',
+          code: (error as MetaPublishError).code,
+          reason: (error as MetaPublishError).code,
+          message: `${(error as MetaPublishError).message} The Instagram publish call was accepted but the post id could not be confirmed; verify on Instagram before any retry — Aries will not auto-retry this post.`,
+          retryable: false,
+          retryAfterSeconds: null,
+        }),
+        { status: 502, headers: { 'content-type': 'application/json' } },
+      );
+    }
+
     if (error instanceof MetaPublishError) {
       return new Response(
         JSON.stringify({

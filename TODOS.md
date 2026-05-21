@@ -120,6 +120,8 @@ _Effort revised from M after eng review locked in 7 architecture decisions._
 
 ## Publishing
 
+## Completed
+
 ### Harden Meta publish failure taxonomy
 
 **What:** Split the single catch around the Meta publish call into two outcome
@@ -139,11 +141,20 @@ duplicate post).
 `creative_asset_ids` work (2026-05-20). Its own small PR (~1-2 hrs); keep it
 out of unrelated changes.
 
+**How it shipped:** `MetaPublishError` gained an `outcomeUnknown` flag, set
+only on the two final-publish missing-id codes (`facebook_publish_missing_id`,
+`instagram_publish_missing_id`). `classifyMetaPublishFailure()` maps any error
+to `definitely_never_posted` | `outcome_unknown`. The FB/IG publish handlers
+branch on it: definitely-never-posted rolls back the platform claim and stays
+retryable; outcome-unknown leaves the claim in place, returns HTTP 502 with
+`status: needs_manual_reconciliation` and `retryable: false`, and never
+auto-retries. The final publish calls remain one-shot.
+
 **Effort:** S
 **Priority:** P2
 **Depends on:** None
 
-## Completed
+**Completed:** fix/publish-failure-taxonomy (2026-05-21)
 
 ### Populate posts.creative_asset_ids so per-post media scoping activates
 
