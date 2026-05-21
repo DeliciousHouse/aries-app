@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.6.3 — fix(security): resolve CodeQL ReDoS and error-exposure findings
+
+Fixes the open CodeQL code-scanning security findings. The email-validation regex in the forgot-password, reset-password, and early-access routes had ambiguous quantifier overlap that allowed polynomial-time backtracking on crafted input (a denial-of-service vector); it is replaced with a non-backtracking pattern that requires a properly dotted domain. Nine API route handlers (calendar sync, integrations, publish dispatch/retry, Facebook/Instagram publish, tenant profiles, business profile) returned raw error messages to clients, leaking internal error detail; they now return generic messages. Two findings in the deleted `lobster/` Python files were already resolved by the v0.1.6.0 OpenClaw removal. The `postcss` Dependabot advisory is resolved by the batched dependency PR.
+
 ## v0.1.6.2 — chore(deps): batched dependency updates
 
 Consolidates routine dependency updates into a single change: `three` 0.183→0.184, `motion` 12.38→12.40, `pg` 8.20→8.21, `postcss` 8.5.11→8.5.15, `tailwindcss` and `@tailwindcss/postcss` 4.2→4.3, `@types/node` 22→25, plus the `actions/checkout` (v5→v6) and `actions/setup-node` (v4→v6) GitHub Actions. Typecheck, lint, the verify suite, and a full production build all pass. Three Dependabot updates were intentionally excluded as breaking and deferred to dedicated follow-ups: `react-dom` 19 (a React 18→19 migration is its own project), `@react-three/drei` 10 (requires `@react-three/fiber` 9 and React 19), and `lucide-react` 1.x (its v1 removed the Facebook/Instagram/LinkedIn/YouTube brand icons the app imports).

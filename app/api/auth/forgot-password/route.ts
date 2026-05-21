@@ -8,7 +8,7 @@ type ForgotPasswordBody = {
   email?: unknown;
 };
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
 function successResponse() {
   return NextResponse.json({ success: true });

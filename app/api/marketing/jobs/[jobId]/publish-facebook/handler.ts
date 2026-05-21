@@ -329,7 +329,7 @@ export async function handleFacebookPublish(req: Request, jobId: string) {
       );
     }
     return new Response(
-      JSON.stringify({ status: 'error', reason: 'publish_failed', message: String((error as Error).message || error) }),
+      JSON.stringify({ status: 'error', reason: 'publish_failed', message: 'An unexpected error occurred' }),
       { status: 500, headers: { 'content-type': 'application/json' } },
     );
   }

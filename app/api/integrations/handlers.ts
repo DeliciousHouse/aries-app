@@ -404,7 +404,7 @@ export async function handleIntegrationsSync(req: Request, tenantContextLoader?:
       headers: { 'content-type': 'application/json' }
     });
   } catch (error) {
-    return new Response(JSON.stringify({ status: 'error', reason: String((error as Error).message || error) }), {
+    return new Response(JSON.stringify({ status: 'error', reason: 'An unexpected error occurred' }), {
       status: 400,
       headers: { 'content-type': 'application/json' }
     });

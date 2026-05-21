@@ -10,7 +10,7 @@ export async function GET(req: Request) {
     tenantContext = await getTenantContext();
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Authentication required.' },
+      { error: 'Authentication required.' },
       { status: 403 },
     );
   }

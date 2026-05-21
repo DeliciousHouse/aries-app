@@ -10,7 +10,7 @@ export async function GET() {
   try {
     tenantContext = await getTenantContext();
   } catch (error) {
-    return json({ error: error instanceof Error ? error.message : 'Authentication required.' }, 403);
+    return json({ error: 'Authentication required.' }, 403);
   }
 
   const workflows = Object.values(ARIES_WORKFLOWS).map((workflow) => ({

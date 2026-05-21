@@ -11,7 +11,7 @@ export async function POST(req: Request, context: { params: Promise<{ workflowId
   try {
     tenantContext = await getTenantContext();
   } catch (error) {
-    return json({ error: error instanceof Error ? error.message : 'Authentication required.' }, 403);
+    return json({ error: 'Authentication required.' }, 403);
   }
 
   const { workflowId } = await context.params;

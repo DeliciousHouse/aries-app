@@ -10,7 +10,7 @@ type ResetPasswordBody = {
   password?: unknown;
 };
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 const CODE_RE = /^\d{6}$/;
 // Matches the existing password policy in frontend/auth/reset-password-form.tsx:
 // 8+ chars, at least one uppercase, one digit, one special character.

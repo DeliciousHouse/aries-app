@@ -21,7 +21,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ userId:
   try {
     tenantContext = await getTenantContext();
   } catch (error) {
-    return json({ error: error instanceof Error ? error.message : 'Authentication required.' }, 403);
+    return json({ error: 'Authentication required.' }, 403);
   }
 
   const client = await pool.connect();
@@ -48,7 +48,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ userId
   try {
     tenantContext = await getTenantContext();
   } catch (error) {
-    return json({ error: error instanceof Error ? error.message : 'Authentication required.' }, 403);
+    return json({ error: 'Authentication required.' }, 403);
   }
 
   if (tenantContext.role !== 'tenant_admin') {
@@ -99,7 +99,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ user
   try {
     tenantContext = await getTenantContext();
   } catch (error) {
-    return json({ error: error instanceof Error ? error.message : 'Authentication required.' }, 403);
+    return json({ error: 'Authentication required.' }, 403);
   }
 
   if (tenantContext.role !== 'tenant_admin') {
