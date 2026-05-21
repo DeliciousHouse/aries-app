@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { buildSocialContentDashboardProjection } from '@/backend/social-content/dashboard-projection';
 import type { MarketingApprovalSummary, MarketingJobStatusResponse } from '@/backend/marketing/jobs-status';
 import { getMarketingJobStatusCached } from '@/backend/marketing/jobs-status';
+import { countPublishedPostsForJob } from '@/backend/marketing/published-posts-count';
 import { loadMarketingJobRuntime } from '@/backend/marketing/runtime-state';
 import { buildCampaignWorkspaceView } from '@/backend/marketing/workspace-views';
 import { loadTenantContextOrResponse, type TenantContextLoader } from '@/lib/tenant-context-http';
@@ -211,7 +212,7 @@ function socialContentCopyDashboard(
   };
 }
 
-function buildResponsePayload(
+async function buildResponsePayload(
   dialect: ResponseDialect,
   result: Awaited<ReturnType<typeof getMarketingJobStatusCached>>['payload'],
   workspaceView: Awaited<ReturnType<typeof buildCampaignWorkspaceView>>,
@@ -275,6 +276,7 @@ function buildResponsePayload(
     dashboard: buildSocialContentDashboardProjection(
       runtimeDoc,
       socialContentCopyDashboard(base.dashboard, base.durationDays),
+      { realPublishedPostCount: await countPublishedPostsForJob(runtimeDoc.tenant_id, runtimeDoc.job_id) },
     ),
   };
 
@@ -307,7 +309,7 @@ export async function handleGetMarketingJobStatus(
     const { payload: result, cacheStatus } = await getMarketingJobStatusCached(tenantResult.tenantContext.tenantId, jobId);
     const workspaceView = await buildCampaignWorkspaceView(jobId);
 
-    return NextResponse.json(buildResponsePayload(dialect, result, workspaceView, runtimeDoc), {
+    return NextResponse.json(await buildResponsePayload(dialect, result, workspaceView, runtimeDoc), {
       status: 200,
       headers: { 'x-cache': cacheStatus },
     });

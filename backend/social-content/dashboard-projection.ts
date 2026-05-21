@@ -856,9 +856,17 @@ function createPublishItems(input: {
   campaignName: string;
   objective: string;
   includePublishQueue: boolean;
+  realPublishedPostCount: number;
 }): MarketingDashboardPublishItem[] {
-  if (!input.includePublishQueue) return [];
-  return input.posts.map((post, index) => ({
+  // The real publish artifact is a DB `posts` row, synthesized on the
+  // publish-completed callback (`synthesizePublishPostsFromContentPackage`).
+  // When those rows exist, the campaign HAS published items regardless of the
+  // legacy `includePublishQueue` runtime-state gate — which keyed off
+  // OpenClaw-era state that the Hermes pipeline does not always set.
+  const hasRealPosts = input.realPublishedPostCount > 0;
+  if (!input.includePublishQueue && !hasRealPosts) return [];
+
+  const items = input.posts.map((post, index) => ({
     id: `social-publish-${index + 1}`,
     campaignId: input.campaignId,
     jobId: input.doc.job_id,
@@ -878,6 +886,34 @@ function createPublishItems(input: {
     relatedPostIds: [post.id],
     provenance: provenance('publish'),
   } satisfies MarketingDashboardPublishItem));
+
+  // The projection's `weekly_content_plan.posts` can be sparser than the real
+  // synthesized `posts` rows (a completed pipeline may have a stale/empty
+  // projection while the DB holds the published reality). Pad the publish
+  // queue so the counter reflects the actual DB row count.
+  for (let index = items.length; index < input.realPublishedPostCount; index += 1) {
+    items.push({
+      id: `social-publish-${index + 1}`,
+      campaignId: input.campaignId,
+      jobId: input.doc.job_id,
+      type: 'publish_package',
+      title: `Published social post ${index + 1}`,
+      summary: 'Published social post.',
+      platform: 'social',
+      platformLabel: 'Social content',
+      campaignName: input.campaignName,
+      funnelStage: 'weekly_content',
+      objective: input.objective,
+      destinationUrl: safeDashboardUrl(input.doc, input.doc.inputs?.brand_url),
+      previewAssetId: null,
+      status: 'ready_to_publish',
+      createdAt: input.doc.updated_at || input.doc.created_at || null,
+      relatedAssetIds: [],
+      relatedPostIds: [],
+      provenance: provenance('publish'),
+    } satisfies MarketingDashboardPublishItem);
+  }
+  return items;
 }
 
 function createCalendarEvents(input: {
@@ -972,10 +1008,15 @@ function createCampaign(input: {
 export function buildSocialContentDashboardProjection(
   runtimeDoc: MarketingJobRuntimeDocument,
   dashboard: MarketingDashboardCampaignContent,
+  options: { realPublishedPostCount?: number } = {},
 ): MarketingDashboardCampaignContent {
   if (requestedJobTypeFromDoc(runtimeDoc) !== 'weekly_social_content') {
     return dashboard;
   }
+  const realPublishedPostCount =
+    typeof options.realPublishedPostCount === 'number' && options.realPublishedPostCount > 0
+      ? options.realPublishedPostCount
+      : 0;
   const projection = latestSocialProjection(runtimeDoc);
   if (!projection) {
     return dashboard;
@@ -1004,7 +1045,15 @@ export function buildSocialContentDashboardProjection(
     socialCopyByPostId,
   });
   const includePublishQueue = runtime?.publishingRequested === true || runtime?.currentStage === 'publish_review' || runtime?.currentStage === 'completed';
-  const publishItems = createPublishItems({ doc: runtimeDoc, posts, campaignId, campaignName, objective, includePublishQueue });
+  const publishItems = createPublishItems({
+    doc: runtimeDoc,
+    posts,
+    campaignId,
+    campaignName,
+    objective,
+    includePublishQueue,
+    realPublishedPostCount,
+  });
   const calendarEvents = createCalendarEvents({ doc: runtimeDoc, projection, posts, campaignId, campaignName, objective });
 
   const mergedAssets = attachPostRelationsToAssets(posts, mergeById(dashboard.assets, assets));
