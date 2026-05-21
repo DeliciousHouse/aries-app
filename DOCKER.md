@@ -86,9 +86,7 @@ Aries submits Hermes runs to `${HERMES_GATEWAY_URL}/v1/runs` with
 `HERMES_API_SERVER_KEY` protects Aries-to-Hermes requests, while
 `INTERNAL_API_SECRET` protects Hermes-to-Aries callbacks.
 
-Use `ARIES_EXECUTION_PROVIDER=legacy-openclaw` or
-`ARIES_MARKETING_EXECUTION_PROVIDER=legacy-openclaw` only for flows that still
-need the legacy OpenClaw/Lobster runtime. The general Hermes workflow adapter
+The general Hermes workflow adapter
 currently supports the explicitly wired Hermes workflow set; marketing jobs use
 the separate marketing execution port and advance through async callbacks.
 

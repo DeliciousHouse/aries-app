@@ -85,8 +85,8 @@ npm run dev
 | `NEXTAUTH_SECRET` | ✅ | Auth.js signing secret |
 | `AUTH_TRUST_HOST` | ✅ | Trust forwarded host headers behind a proxy |
 | `OAUTH_TOKEN_ENCRYPTION_KEY` | ✅ for Aries-managed OAuth providers | Stable 32-byte base64 key for encrypting OAuth tokens; generate with `openssl rand -base64 32` |
-| `ARIES_EXECUTION_PROVIDER` | Optional | Defaults to `hermes`; set `legacy-openclaw` only for deprecated flows |
-| `ARIES_MARKETING_EXECUTION_PROVIDER` | Optional | Defaults to `hermes`; set `legacy-openclaw` only for deprecated flows |
+| `ARIES_EXECUTION_PROVIDER` | Optional | Defaults to `hermes`; Hermes is the only execution provider |
+| `ARIES_MARKETING_EXECUTION_PROVIDER` | Optional | Defaults to `hermes`; Hermes is the only execution provider |
 | `LOG_LEVEL` | Optional | Runtime log level |
 
 ### Weekly media auth boundary

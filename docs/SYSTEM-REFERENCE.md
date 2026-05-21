@@ -19,11 +19,6 @@ Last refreshed May 4, 2026, 16:00 UTC.
 - Local runtime state and typed adapters live across `lib/*`, `hooks/*`, `specs/*`, and `workflows/*` to preserve contract boundaries.
 - Repo context and automation output should stay scoped to `aries-app` only.
 
-### Provider Compatibility (Legacy)
-- The legacy OpenClaw/Lobster adapter is **opt-in only** and not used by default. It is kept for backward-compatibility on flows that have not yet been migrated.
-- Enable explicitly with `ARIES_EXECUTION_PROVIDER=legacy-openclaw` (general execution) or `ARIES_MARKETING_EXECUTION_PROVIDER=legacy-openclaw` (marketing). When unset, Hermes is selected.
-- `ARIES_MARKETING_EXECUTION_PROVIDER=legacy-openclaw` only affects the legacy `brand_campaign` compatibility flow. The `weekly_social_content` job type is Hermes-only regardless of this setting — the provider is chosen by job type, not env var.
-- The legacy adapter is reserved for onboarding or `brand_campaign` compatibility paths. New code should not depend on it.
 
 ## Module inventory
 - app/ 130 files
@@ -86,10 +81,9 @@ Last refreshed May 4, 2026, 16:00 UTC.
 - Cron registration is prepared but not auto-enabled until backup remote and delivery targets are confirmed.
 - Daily brief and system reference quality depends on current repo docs and task hygiene.
 - Cross-project drift should be treated as a regression and removed instead of archived into active repo context.
-- The Hermes general execution adapter does not implement every legacy workflow; onboarding or `brand_campaign` compatibility paths that still require Lobster should opt in explicitly via `ARIES_EXECUTION_PROVIDER=legacy-openclaw`. See the "Provider Compatibility (Legacy)" section above.
 
 ## Working tree snapshot
-- Docs-only refresh branch updated setup/runtime docs for Hermes-native weekly social content and kept legacy OpenClaw/Lobster notes in deprecated sections.
+- Updated setup and runtime docs for Hermes-native weekly social content; the legacy OpenClaw/Lobster execution path has been fully removed.
 
 ## Reference date
 - 2026-05-04

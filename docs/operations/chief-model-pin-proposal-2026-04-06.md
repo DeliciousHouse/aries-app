@@ -1,19 +1,19 @@
-# OpenClaw governance cleanup proposal
+# Agent platform governance cleanup proposal
 
 **Date:** April 6, 2026
-**Status:** applied on April 7, 2026 via Brendan-authorized narrow OpenClaw convergence patch
-**Scope:** approval-ready OpenClaw cleanup plan to align configured first-class agents and chief heartbeat models with current repo governance
+**Status:** applied on April 7, 2026 via Brendan-authorized narrow Agent platform convergence patch
+**Scope:** approval-ready Agent platform cleanup plan to align configured first-class agents and chief heartbeat models with current repo governance
 
 ## Execution status note
 
-This proposal was applied on Tuesday, April 7, 2026 under Brendan's explicit narrow OpenClaw authorization for live convergence only.
+This proposal was applied on Tuesday, April 7, 2026 under Brendan's explicit narrow Agent platform authorization for live convergence only.
 
 Applied live result:
 - removed `aries-main`, `aries-prod`, `aries-local`, and `aries-validator` from live `agents.list`
 - added explicit `heartbeat.model: openai-codex/gpt-5.4` to `delivery-chief`, `runtime-chief`, and `knowledge-chief`
 - left `main` requester/backbone behavior intact
 
-No broader governance rewrite or unrelated OpenClaw config change was part of this live patch.
+No broader governance rewrite or unrelated Agent platform config change was part of this live patch.
 
 ## Why this proposal exists
 
@@ -21,13 +21,13 @@ Current repo governance is now explicit:
 - persistent AI owners are **Jarvis**, **Forge**, **Signal**, and **Ledger** only
 - legacy labels such as `aries-main`, `aries-prod`, `aries-local`, and `aries-validator` may exist as subordinate execution labels, but they are not persistent owners
 
-Live OpenClaw config is still broader than that governance model.
+Live Agent platform config is still broader than that governance model.
 This proposal defines the smallest reviewable cleanup that would bring config into line when Brendan explicitly approves it.
 
 ## Current observed truth
 
 ### Live config observed on Monday, April 6, 2026
-From `/home/node/.openclaw/openclaw.json`:
+From `/home/node/.agent-platform/agent-platform.json`:
 
 Configured agent ids currently include:
 - `aries-main`
@@ -167,11 +167,11 @@ Expected rollback effect:
    - moving chief heartbeats from `gpt-5.3-codex` inheritance to explicit `gpt-5.4` may increase latency and cost
 
 4. **Restart / reload requirement**
-   - any approved config write would require normal OpenClaw config validation and runtime reload/restart behavior
+   - any approved config write would require normal Agent platform config validation and runtime reload/restart behavior
 
 ## Review recommendation
 
-If Brendan wants to close the OpenClaw side of this governance drift later, approve this exact direction:
+If Brendan wants to close the Agent platform side of this governance drift later, approve this exact direction:
 - keep `main`, `delivery-chief`, `runtime-chief`, and `knowledge-chief`
 - remove `aries-main`, `aries-prod`, `aries-local`, and `aries-validator` from `agents.list`
 - add chief-only `heartbeat.model = openai-codex/gpt-5.4` overrides
