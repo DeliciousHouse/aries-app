@@ -107,7 +107,10 @@ type RawUnscheduledRow = {
 // Approved posts with NO scheduled_posts row — the backlog tray (T13). An
 // approved post is one whose published_status OR legacy status is 'approved'.
 // LEFT JOIN ... WHERE sp.id IS NULL is the "has no row" filter.
-const UNSCHEDULED_POSTS_QUERY = `
+// Exported so the publish-posts synthesizer's regression test can assert
+// synthesized posts actually land in this backlog without drifting from the
+// real query.
+export const UNSCHEDULED_POSTS_QUERY = `
   SELECT p.id, p.job_id, p.caption, p.platform
   FROM posts p
   LEFT JOIN scheduled_posts sp ON sp.post_id = p.id

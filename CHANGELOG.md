@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.5.2 — fix(marketing): synthesize approved publish posts so completed pipelines populate the calendar
+
+Closes the last gap in the Hermes-native marketing pipeline: a completed pipeline reported "publish complete" but produced no launch items and nothing the scheduled-posts calendar could show.
+
+**The publish contract was never reimplemented for Hermes.** The legacy OpenClaw publish path emitted a `publish_package` that Aries' launch consumers read; the Hermes-native pipeline never emits it, and no Hermes instruction defines that schema. What Hermes *does* produce reliably is the `content_package` — per-post copy (hook, body, CTA, hashtags, platforms) carried on the production stage — and the rendered images, ingested into `creative_assets` by the v0.1.5.1 fix. Neither became a `posts` row, so a completed pipeline left the operator with an empty launch view and an empty calendar.
+
+**Completed Hermes pipelines now synthesize calendar-ready posts.** When the publish stage completes and Hermes supplied no `publish_package`, the callback synthesizes one `posts` row per content_package entry per target platform, linking each to its rendered image via `creative_asset_ids`. The posts are created approved — consistent with this deployment's autonomous mode, which has no human approval click in the pipeline — so they immediately appear in the calendar's unscheduled backlog and are ready to schedule and publish. The schedule route also gates on an approved `publish`-stage approval record, which the autonomous run never creates, so the synthesizer writes that record too; without it a synthesized post would be rejected at scheduling time. Both halves are idempotent: a replayed callback creates no duplicate posts (via the per-post unique index) and no duplicate approval record (via a deterministic record id). The synthesizer defers entirely when a real `publish_package` is ever present, so the legacy consumer path is never double-served.
+
 ## v0.1.5.1 — fix(marketing): resolve Hermes creative_assets via the image mount
 
 A scoped bug fix for a silent publish-output regression: a completed Hermes pipeline reported "publish complete" but the operator dashboard showed "Generated assets 0 / No launch items", and nothing reached the launch view.

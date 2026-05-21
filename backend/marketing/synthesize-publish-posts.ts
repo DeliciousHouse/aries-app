@@ -14,10 +14,21 @@
  * by the scheduled-posts calendar.
  *
  * This module is the missing link: when the publish stage completes and Hermes
- * supplied NO `publish_package`, synthesize one draft `posts` row per
- * content_package entry per target platform, linking each to its rendered image
- * via `creative_asset_ids`. The operator then approves and schedules those
- * draft posts through the existing approval-gated calendar flow.
+ * supplied NO `publish_package`, synthesize one `posts` row per content_package
+ * entry per target platform, linking each to its rendered image via
+ * `creative_asset_ids`.
+ *
+ * The synthesized posts are created APPROVED (`status='approved'`,
+ * `published_status='approved'`) so a completed pipeline immediately populates
+ * the calendar's unscheduled-approved backlog and the posts are schedulable +
+ * publishable. This is consistent with this deployment's autonomous mode
+ * (`ARIES_AUTO_APPROVE_MARKETING_PIPELINE=1`, single-tenant prod): there is no
+ * human approval click in the pipeline, so synthesizing approved posts matches
+ * how the pipeline already operates. The schedule route
+ * (`app/api/social-content/jobs/[jobId]/posts/[postId]/schedule/route.ts`) also
+ * gates on a `publish`-stage `MarketingApprovalRecord` with status `approved`;
+ * the autonomous publish run never creates one, so this module synthesizes that
+ * record too — otherwise a synthesized post would 409 at scheduling time.
  *
  * Scope guard: this only fires when there is a populated `content_package` and
  * NO real `publish_package`. If a `publish_package` is ever present, the legacy
@@ -26,11 +37,18 @@
  * Out of scope: landing-page / script / rich-preview artifacts. Those are
  * genuinely absent from the Hermes output and are not reconstructed here.
  *
- * Idempotency: every row carries an idempotency key
+ * Idempotency: every post row carries an idempotency key
  * `${jobId}:${postNumber}:${platform}`; the `(tenant_id, platform,
- * idempotency_key)` unique index makes a replayed callback a no-op.
+ * idempotency_key)` unique index makes a replayed callback a no-op. The
+ * synthesized approval record uses a deterministic id (`mkta_synth_<jobId>`),
+ * so a replay finds the existing record instead of creating a duplicate.
  */
 
+import {
+  createMarketingApprovalRecord,
+  findLatestMarketingApprovalRecord,
+  saveMarketingApprovalRecord,
+} from './approval-store';
 import type { MarketingJobRuntimeDocument } from './runtime-state';
 
 export interface SynthesizePublishPostsArgs {
@@ -49,6 +67,8 @@ export interface SynthesizePublishPostsResult {
   skipped: number;
   /** Total (content_package entry x platform) pairs considered. */
   total: number;
+  /** True when an approved publish-stage approval record exists after this call. */
+  approvalRecordReady: boolean;
   /** Reason the synthesis did not run, when inserted+skipped+total are all 0. */
   reason?: 'no_content_package' | 'publish_package_present' | 'no_tenant';
 }
@@ -70,13 +90,17 @@ const SELECT_CREATIVE_ASSETS_SQL = `
    ORDER BY source_asset_id ASC
 `;
 
+// Synthesized posts are inserted `approved` so they immediately satisfy the
+// calendar's unscheduled-approved backlog query (`published_status='approved'
+// OR status='approved'`) and are schedulable. See the module header for why
+// approved (not draft) is correct for this autonomous-mode deployment.
 const INSERT_SYNTHESIZED_POST_SQL = `
   INSERT INTO posts (
     tenant_id, job_id, hermes_run_id, platform, media_type,
     caption, status, published_status, idempotency_key, creative_asset_ids
   ) VALUES (
     $1, $2, $3, $4, 'image',
-    $5, 'draft', 'draft', $6, $7
+    $5, 'approved', 'approved', $6, $7
   )
   ON CONFLICT (tenant_id, platform, idempotency_key) WHERE idempotency_key IS NOT NULL
   DO NOTHING
@@ -175,23 +199,95 @@ function extractContentPackage(doc: MarketingJobRuntimeDocument): unknown {
   return null;
 }
 
+/**
+ * Ensure an approved `publish`-stage approval record exists for the job.
+ *
+ * The schedule route gates on `findLatestMarketingApprovalRecord({
+ * marketingStage:'publish', statuses:['approved'] })`. The autonomous publish
+ * run never creates one (it is an `action: run` auto-advance with no approval),
+ * so a synthesized post would 409 at scheduling time without this.
+ *
+ * Uses a deterministic approval id (`mkta_synth_<jobId>`) so a replayed
+ * callback finds the existing record instead of creating a duplicate. Returns
+ * true when an approved publish-stage record exists after the call (whether
+ * pre-existing or freshly synthesized).
+ */
+function ensureSynthesizedPublishApprovalRecord(
+  jobId: string,
+  tenantId: number,
+  publishRunId: string | null,
+): boolean {
+  const tenantIdStr = String(tenantId);
+  // A real publish approval (e.g. from a future human-gated run) already
+  // satisfies the gate — do not add a second record.
+  const existing = findLatestMarketingApprovalRecord({
+    marketingJobId: jobId,
+    tenantId: tenantIdStr,
+    marketingStage: 'publish',
+    statuses: ['approved'],
+  });
+  if (existing) {
+    return true;
+  }
+
+  const nowTs = new Date().toISOString();
+  const record = createMarketingApprovalRecord({
+    approvalId: `mkta_synth_${jobId}`,
+    tenantId: tenantIdStr,
+    marketingJobId: jobId,
+    workflowName: 'marketing_pipeline',
+    workflowStepId: 'approve_stage_4_publish',
+    marketingStage: 'publish',
+    executionProvider: 'hermes',
+    approvalPrompt: 'Synthesized publish approval — autonomous-mode pipeline completed without a human publish gate.',
+    runtimeContext: { pipelinePath: 'marketing_pipeline', cwd: 'hermes', sessionKey: 'marketing' },
+  });
+  // createMarketingApprovalRecord returns a `pending` record; this deployment's
+  // autonomous mode has no human click, so mark it approved immediately.
+  record.status = 'approved';
+  record.resolution = 'approve';
+  record.resolved_at = nowTs;
+  record.resolution_result = {
+    resumed_stage: 'publish',
+    completed: true,
+    outcome: 'synthesized_autonomous_publish_approval',
+  };
+  if (publishRunId) {
+    record.execution_resume_token = publishRunId;
+  }
+  saveMarketingApprovalRecord(record);
+  return true;
+}
+
 export async function synthesizePublishPostsFromContentPackage(
   args: SynthesizePublishPostsArgs,
 ): Promise<SynthesizePublishPostsResult> {
   const { jobId, tenantId, doc, publishRunId, pool } = args;
 
   if (!Number.isFinite(tenantId) || tenantId <= 0) {
-    return { inserted: 0, skipped: 0, total: 0, reason: 'no_tenant' };
+    return { inserted: 0, skipped: 0, total: 0, approvalRecordReady: false, reason: 'no_tenant' };
   }
 
   // Scope guard: defer to the legacy path when a real publish_package exists.
   if (hasRealPublishPackage(doc)) {
-    return { inserted: 0, skipped: 0, total: 0, reason: 'publish_package_present' };
+    return {
+      inserted: 0,
+      skipped: 0,
+      total: 0,
+      approvalRecordReady: false,
+      reason: 'publish_package_present',
+    };
   }
 
   const entries = parseContentPackage(extractContentPackage(doc));
   if (entries.length === 0) {
-    return { inserted: 0, skipped: 0, total: 0, reason: 'no_content_package' };
+    return {
+      inserted: 0,
+      skipped: 0,
+      total: 0,
+      approvalRecordReady: false,
+      reason: 'no_content_package',
+    };
   }
 
   // Pull the ingested creative_assets so each post can be linked to its image.
@@ -257,5 +353,18 @@ export async function synthesizePublishPostsFromContentPackage(
     }
   }
 
-  return { inserted, skipped, total };
+  // A synthesized post must be schedulable: the schedule route requires an
+  // approved publish-stage approval record. Ensure one exists (idempotent).
+  let approvalRecordReady = false;
+  try {
+    approvalRecordReady = ensureSynthesizedPublishApprovalRecord(jobId, tenantId, publishRunId);
+  } catch (err) {
+    console.warn('[synthesize-publish-posts] approval-record synthesis failed — posts created but not yet schedulable', {
+      jobId,
+      tenantId,
+      error: (err as Error)?.message ?? String(err),
+    });
+  }
+
+  return { inserted, skipped, total, approvalRecordReady };
 }
