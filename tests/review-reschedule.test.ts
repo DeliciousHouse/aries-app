@@ -273,3 +273,48 @@ test('PATCH schedule deduplicates and lowercases platform names', async () => {
   const insertCall = calls.find((call) => call.sql.startsWith('INSERT INTO scheduled_posts'));
   assert.deepEqual(insertCall?.params[3], ['instagram', 'facebook']);
 });
+
+// ---------------------------------------------------------------------------
+// T15 (R) — RescheduleDrawer mounted with a tz-correct datetime-local input.
+// The drawer previously read its datetime-local value in the BROWSER zone via
+// `new Date(localValue)`. It now resolves the wall time in the tenant business
+// zone via wallTimeToUtc / utcToWallTime. These tests pin that conversion —
+// the same helpers the drawer submits and pre-fills with — so the bug
+// (browser-zone interpretation) cannot regress.
+// ---------------------------------------------------------------------------
+
+test('RescheduleDrawer wall time converts via the tenant zone, not the browser zone', async () => {
+  const { wallTimeToUtc } = await import('../lib/format-timestamp');
+  // Operator types 2026-08-01 14:30 into the datetime-local input. With the
+  // tenant business zone America/New_York (EDT, UTC-4) that is 18:30Z —
+  // independent of whatever zone the operator's browser is in.
+  const utc = wallTimeToUtc('2026-08-01T14:30', 'America/New_York');
+  assert.ok(utc);
+  assert.equal(utc.toISOString(), '2026-08-01T18:30:00.000Z');
+
+  // A different tenant zone resolves the SAME wall input to a different
+  // instant — proving the conversion is tenant-zone driven.
+  const utcLondon = wallTimeToUtc('2026-08-01T14:30', 'Europe/London');
+  assert.ok(utcLondon);
+  assert.equal(utcLondon.toISOString(), '2026-08-01T13:30:00.000Z');
+});
+
+test('RescheduleDrawer pre-fills the datetime-local input in the tenant zone', async () => {
+  const { utcToWallTime } = await import('../lib/format-timestamp');
+  // A post stored at 2026-08-01T18:30:00Z must pre-fill as 14:30 (EDT), the
+  // tenant wall time — not the browser-local rendering of that instant.
+  assert.equal(utcToWallTime('2026-08-01T18:30:00.000Z', 'America/New_York'), '2026-08-01T14:30');
+});
+
+test('RescheduleDrawer tz round-trip is stable (wall -> UTC -> wall)', async () => {
+  const { utcToWallTime, wallTimeToUtc } = await import('../lib/format-timestamp');
+  const wall = '2026-11-15T09:00';
+  const utc = wallTimeToUtc(wall, 'America/Chicago');
+  assert.ok(utc);
+  assert.equal(utcToWallTime(utc, 'America/Chicago'), wall);
+});
+
+test('RescheduleDrawer module is mountable (exports a default component)', async () => {
+  const mod = await import('../frontend/aries-v1/reschedule-drawer');
+  assert.equal(typeof mod.default, 'function');
+});

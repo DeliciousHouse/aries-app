@@ -163,6 +163,12 @@ async function initDb() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
+
+      -- A4: per-tenant business timezone (IANA string, e.g. America/New_York).
+      -- The calendar planner grid, schedule input conversion, and every
+      -- timestamp label render and convert in this one zone. Nullable; an
+      -- unset value falls back to the fixed default in lib/format-timestamp.ts.
+      ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS timezone TEXT;
     `);
 
     await client.query(`

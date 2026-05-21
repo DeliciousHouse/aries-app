@@ -24,20 +24,15 @@ import type {
   AriesReviewItem,
   AriesScheduleItem,
 } from '@/lib/api/aries-v1';
+import { formatInTenantZone } from '@/lib/format-timestamp';
 
 function formatUtcTimestampLabel(value: string): string {
-  const timestamp = Date.parse(value);
-  if (!Number.isFinite(timestamp)) {
+  if (!Number.isFinite(Date.parse(value))) {
     return value;
   }
-
-  return `${new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZone: 'UTC',
-  }).format(new Date(timestamp))} UTC`;
+  // Routes through the shared formatter (C1). These shell panels have no
+  // tenant zone in scope, so the label stays explicitly UTC-suffixed.
+  return `${formatInTenantZone(value, 'UTC')} UTC`;
 }
 
 export function ShellPanel(props: {

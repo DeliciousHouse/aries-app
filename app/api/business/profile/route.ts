@@ -3,6 +3,7 @@ import { getTenantContext } from '@/lib/tenant-context';
 import {
   getBusinessProfileWithDiagnostics,
   updateBusinessProfileWithDiagnostics,
+  INVALID_TIMEZONE_ERROR,
 } from '@/backend/tenant/business-profile';
 import { normalizeMarketingWebsiteUrl } from '@/lib/marketing-public-mode';
 import {
@@ -37,7 +38,8 @@ function errorStatus(message: string): number {
     message.startsWith('missing_required_fields:') ||
     message === 'invalid_website_url' ||
     message === COMPETITOR_URL_SOCIAL_ERROR ||
-    message === COMPETITOR_URL_INVALID_ERROR
+    message === COMPETITOR_URL_INVALID_ERROR ||
+    message.startsWith(`${INVALID_TIMEZONE_ERROR}:`)
   ) {
     return 400;
   }
@@ -88,6 +90,7 @@ export async function PATCH(req: Request) {
     notes?: string | null;
     competitorUrl?: string | null;
     channels?: string[] | null;
+    timezone?: string | null;
   } = {};
   try {
     payload = await req.json();
@@ -133,6 +136,7 @@ export async function PATCH(req: Request) {
       notes: stringOrNull(payload.notes),
       competitorUrl: stringOrNull(payload.competitorUrl),
       channels: payload.channels === undefined ? undefined : stringArray(payload.channels),
+      timezone: payload.timezone === undefined ? undefined : stringOrNull(payload.timezone),
     });
     console.info('[business-profile]', {
       event: 'write-complete',

@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.5.0 — feat(scheduling): calendar planner UI and per-post media scoping
+
+The calendar planner, plus the change that activates v0.1.4.0's dormant per-post media resolver. v0.1.4.0 made the scheduled-posts engine sound; this release builds the operator-facing planner on top of it and closes the last wrong-media gap in the publish path.
+
+**Operators can now see and steer the publish queue.** `/dashboard/calendar` is a week/month grid fed by the real `scheduled_posts` table — every tile is a genuine queued post with a real dispatch status, not a runtime campaign-step event. Operators drag a tile to a new day to reschedule it, and drag approved-but-unscheduled posts onto the grid from a backlog tray to schedule them for the first time; both paths go through the same publish-approval gate, so nothing reaches Meta without sign-off. The calendar shows only real queued rows, so it starts empty and fills as posts are scheduled — no invented entries. The campaign status strip stays fed by the runtime campaigns. A new read endpoint, `GET /api/social-content/scheduled-posts`, is the calendar's single tenant-scoped, date-range-filtered data path; it returns each post's real `job_id`, the per-platform dispatch detail from `scheduled_post_dispatches`, and the unscheduled-approved backlog.
+
+**Scheduling is timezone-correct.** Each tenant has a business timezone — an explicit operator selection in business-profile settings, persisted to both the `business_profiles` table and the file-backed profile record, validated as a real IANA zone, and falling back to a fixed default when unset. The calendar grid, every timestamp label, and the schedule input all render and convert in that one zone, so a post scheduled for 11pm tenant-time lands on the correct grid cell for an operator in any browser timezone. A new `lib/format-timestamp.ts` consolidates five copy-pasted timestamp formatters into one DST-safe module: wall-clock-to-UTC conversion uses `date-fns-tz` with an explicit DST policy, and the `RescheduleDrawer` — built earlier but never mounted — is now mounted from the calendar and reads its `datetime-local` input in the tenant zone rather than the browser zone.
+
+**Multi-image weekly jobs now publish the right image per post.** v0.1.4.0's `resolveMediaUrls` scopes scheduled-post media per post via `posts.creative_asset_ids`, but the publish stage never wrote that column — every row was `'{}'`, so the resolver silently fell back to job scope and a multi-post weekly job could still publish a wrong or mixed image. The publish stage now writes each post's own creative asset ids when it creates the `posts` row, activating the per-post resolver for real and closing the wrong-media bug.
+
 ## v0.1.4.0 — fix(scheduling): engine-soundness pass for the scheduled-posts publish queue
 
 Thirteen fixes hardening the scheduled-posts engine so a post placed on the queue actually publishes correctly. The scheduling queue, worker, and dispatch path already existed but carried latent bugs that never fired only because the queue had no rows — this release makes the engine sound before the calendar planner UI (Phase 2) starts writing to it.

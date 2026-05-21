@@ -2,9 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarClock, Check, Facebook, Instagram, LoaderCircle, X } from 'lucide-react';
-import { format } from 'date-fns';
 
-const DEFAULT_TIMEZONE = 'America/New_York';
+import {
+  DEFAULT_TENANT_TIMEZONE,
+  utcToWallTime,
+  wallTimeToUtc,
+} from '@/lib/format-timestamp';
 
 const PLATFORM_OPTIONS = [
   { id: 'instagram' as const, label: 'Instagram', Icon: Instagram },
@@ -26,23 +29,26 @@ export interface RescheduleDrawerProps {
   postId: string;
   defaultScheduledAt?: string | null;
   defaultPlatforms?: PlatformId[];
+  /** Tenant business timezone — the datetime-local wall time is read in it. */
+  timeZone?: string;
   timezoneLabel?: string;
   onClose: () => void;
   onSaved?: (detail: ScheduleSavedDetail) => void;
   endpointBase?: string;
 }
 
-function toLocalInputValue(iso: string | null | undefined): string {
+// Renders a UTC instant as a `datetime-local` wall-clock value in the tenant
+// business zone. T15: previously this used the BROWSER zone (date-fns format
+// on a plain Date), which mis-scheduled posts for traveling/remote operators.
+function toLocalInputValue(iso: string | null | undefined, timeZone: string): string {
   if (!iso) {
+    // Default to the next top-of-hour, expressed in the tenant zone.
     const now = new Date();
-    now.setMinutes(now.getMinutes() + 60 - now.getMinutes());
-    return format(now, "yyyy-MM-dd'T'HH:mm");
+    now.setMinutes(0, 0, 0);
+    now.setHours(now.getHours() + 1);
+    return utcToWallTime(now, timeZone) ?? '';
   }
-  const parsed = new Date(iso);
-  if (Number.isNaN(parsed.getTime())) {
-    return '';
-  }
-  return format(parsed, "yyyy-MM-dd'T'HH:mm");
+  return utcToWallTime(iso, timeZone) ?? '';
 }
 
 export default function RescheduleDrawer(props: RescheduleDrawerProps) {
@@ -52,7 +58,10 @@ export default function RescheduleDrawer(props: RescheduleDrawerProps) {
     [props.defaultPlatforms],
   );
 
-  const [scheduledAtLocal, setScheduledAtLocal] = useState(() => toLocalInputValue(props.defaultScheduledAt));
+  const timeZone = props.timeZone ?? DEFAULT_TENANT_TIMEZONE;
+  const [scheduledAtLocal, setScheduledAtLocal] = useState(() =>
+    toLocalInputValue(props.defaultScheduledAt, timeZone),
+  );
   const [platforms, setPlatforms] = useState<Set<PlatformId>>(initialPlatforms);
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -93,8 +102,10 @@ export default function RescheduleDrawer(props: RescheduleDrawerProps) {
       setErrorMessage('Pick a date and time before saving.');
       return;
     }
-    const localDate = new Date(scheduledAtLocal);
-    if (Number.isNaN(localDate.getTime())) {
+    // T15: the datetime-local value is a wall-clock time with no zone. Resolve
+    // it in the tenant business zone (DST-safe) — NOT the browser zone.
+    const scheduledInstant = wallTimeToUtc(scheduledAtLocal, timeZone);
+    if (!scheduledInstant) {
       setErrorMessage('That date and time could not be read. Try again.');
       return;
     }
@@ -117,7 +128,7 @@ export default function RescheduleDrawer(props: RescheduleDrawerProps) {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          scheduled_at: localDate.toISOString(),
+          scheduled_at: scheduledInstant.toISOString(),
           platforms: orderedPlatforms,
         }),
       });
@@ -136,7 +147,7 @@ export default function RescheduleDrawer(props: RescheduleDrawerProps) {
     }
   }
 
-  const tzLabel = props.timezoneLabel ?? DEFAULT_TIMEZONE;
+  const tzLabel = props.timezoneLabel ?? timeZone;
   const orderedPlatformChips: PlatformId[] = PLATFORM_OPTIONS
     .map((option) => option.id)
     .filter((id) => platforms.has(id));

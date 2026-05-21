@@ -46,6 +46,26 @@ const CHANNEL_OPTIONS: ChannelOption[] = [
 
 const DEFAULT_CHANNEL_IDS = ['meta-ads', 'instagram'];
 
+// A4: operator-selected IANA business timezone. A curated North-America-first
+// list covering the common cases; the value is validated server-side against
+// the full IANA database, so this list only needs to be useful, not complete.
+const TIMEZONE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'America/New_York', label: 'Eastern — America/New_York' },
+  { value: 'America/Chicago', label: 'Central — America/Chicago' },
+  { value: 'America/Denver', label: 'Mountain — America/Denver' },
+  { value: 'America/Phoenix', label: 'Arizona (no DST) — America/Phoenix' },
+  { value: 'America/Los_Angeles', label: 'Pacific — America/Los_Angeles' },
+  { value: 'America/Anchorage', label: 'Alaska — America/Anchorage' },
+  { value: 'Pacific/Honolulu', label: 'Hawaii — Pacific/Honolulu' },
+  { value: 'America/Toronto', label: 'Toronto — America/Toronto' },
+  { value: 'Europe/London', label: 'London — Europe/London' },
+  { value: 'Europe/Paris', label: 'Paris — Europe/Paris' },
+  { value: 'Asia/Kolkata', label: 'India — Asia/Kolkata' },
+  { value: 'Asia/Tokyo', label: 'Tokyo — Asia/Tokyo' },
+  { value: 'Australia/Sydney', label: 'Sydney — Australia/Sydney' },
+  { value: 'UTC', label: 'UTC' },
+];
+
 function brandKitFontStyle(family: string): CSSProperties {
   return {
     fontFamily: `"${family}", ${family}, ui-sans-serif, system-ui, sans-serif`,
@@ -87,6 +107,7 @@ export default function AriesBusinessProfileScreen() {
   const [styleVibe, setStyleVibe] = useState('');
   const [notes, setNotes] = useState('');
   const [launchApproverUserId, setLaunchApproverUserId] = useState('');
+  const [timezone, setTimezone] = useState('America/New_York');
   const [fieldErrors, setFieldErrors] = useState<BusinessProfileFieldErrors>({});
   const [feedback, setFeedback] = useState<
     { kind: 'success' | 'error'; message: string } | null
@@ -123,6 +144,7 @@ export default function AriesBusinessProfileScreen() {
     setStyleVibe(profile.styleVibe || profile.brandIdentity?.styleVibe || '');
     setNotes(profile.notes || profile.brandIdentity?.summary || '');
     setLaunchApproverUserId(profile.launchApproverUserId || '');
+    setTimezone(profile.timezone || 'America/New_York');
   }, [profile]);
 
   async function saveProfile() {
@@ -148,6 +170,7 @@ export default function AriesBusinessProfileScreen() {
       styleVibe,
       notes,
       launchApproverUserId: launchApproverUserId || null,
+      timezone,
     });
     if (response) {
       setFeedback({ kind: 'success', message: 'Business profile saved.' });
@@ -377,6 +400,22 @@ export default function AriesBusinessProfileScreen() {
                   onChange={(event) => setCompetitorUrl(event.target.value)}
                   className="w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white"
                 />
+              </EditableField>
+              <EditableField
+                label="Business timezone"
+                hint="The calendar grid and every scheduled-post time render in this zone."
+              >
+                <select
+                  value={timezone}
+                  onChange={(event) => setTimezone(event.target.value)}
+                  className="w-full rounded-[1rem] border border-white/10 bg-black/20 px-4 py-3 text-white"
+                >
+                  {TIMEZONE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value} className="bg-black text-white">
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </EditableField>
             </div>
 
