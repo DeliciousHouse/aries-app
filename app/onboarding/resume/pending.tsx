@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { type JSX, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 const POLL_INTERVAL_MS = 1500;

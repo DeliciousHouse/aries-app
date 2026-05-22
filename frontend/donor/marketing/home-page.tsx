@@ -9,11 +9,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
-  Facebook,
-  Instagram,
   Layers,
   Lightbulb,
-  Linkedin,
   MoreHorizontal,
   PenTool,
   Play,
@@ -23,10 +20,10 @@ import {
   Share2,
   Sparkles,
   TrendingDown,
-  Youtube,
   Zap,
   AlertCircle,
 } from 'lucide-react';
+import { FacebookIcon, InstagramIcon, LinkedinIcon, YoutubeIcon } from '@/frontend/aries-v1/brand-icons';
 import { motion, useScroll, useSpring, useTransform, type MotionValue } from 'motion/react';
 
 import { cn } from '../lib/utils';
@@ -382,11 +379,11 @@ function WikipediaLogo(props: SVGProps<SVGSVGElement>) {
 
 const PLATFORM_ORBITS: PlatformOrbit[] = [
   { icon: XTwitterLogo, angle: 12, radius: 180 },
-  { icon: Instagram, angle: 145, radius: 300 },
-  { icon: Linkedin, angle: 35, radius: 300 },
+  { icon: InstagramIcon, angle: 145, radius: 300 },
+  { icon: LinkedinIcon, angle: 35, radius: 300 },
   { icon: RedditLogo, angle: 275, radius: 300 },
-  { icon: Facebook, angle: 205, radius: 420 },
-  { icon: Youtube, angle: 115, radius: 420 },
+  { icon: FacebookIcon, angle: 205, radius: 420 },
+  { icon: YoutubeIcon, angle: 115, radius: 420 },
   { icon: PinterestLogo, angle: 335, radius: 420 },
   { icon: WikipediaLogo, angle: 255, radius: 420 },
 ];
@@ -398,10 +395,10 @@ const MOBILE_PLATFORM_LAYOUT: Array<{
 }> = [
   { icon: WikipediaLogo, angle: 282, ringScale: 1 },
   { icon: PinterestLogo, angle: 338, ringScale: 0.84 },
-  { icon: Linkedin, angle: 22, ringScale: 0.84 },
-  { icon: Youtube, angle: 92, ringScale: 1 },
-  { icon: Instagram, angle: 150, ringScale: 0.84 },
-  { icon: Facebook, angle: 212, ringScale: 1 },
+  { icon: LinkedinIcon, angle: 22, ringScale: 0.84 },
+  { icon: YoutubeIcon, angle: 92, ringScale: 1 },
+  { icon: InstagramIcon, angle: 150, ringScale: 0.84 },
+  { icon: FacebookIcon, angle: 212, ringScale: 1 },
   { icon: RedditLogo, angle: 128, ringScale: 0.62 },
   { icon: XTwitterLogo, angle: 236, ringScale: 0.5 },
 ];
@@ -1189,11 +1186,11 @@ const CONTENT_CALENDAR_SCHEDULE = [
 ] as const;
 
 const PLATFORM_CALENDAR_STYLE = {
-  LinkedIn: { Icon: Linkedin, border: 'border-blue-600/30', iconClass: 'text-blue-400' },
-  YouTube: { Icon: Youtube, border: 'border-red-500/30', iconClass: 'text-red-400' },
+  LinkedIn: { Icon: LinkedinIcon, border: 'border-blue-600/30', iconClass: 'text-blue-400' },
+  YouTube: { Icon: YoutubeIcon, border: 'border-red-500/30', iconClass: 'text-red-400' },
   'X / Twitter': { Icon: XTwitterLogo, border: 'border-white/20', iconClass: 'text-white/80' },
-  Instagram: { Icon: Instagram, border: 'border-pink-500/30', iconClass: 'text-pink-400' },
-  Facebook: { Icon: Facebook, border: 'border-blue-700/30', iconClass: 'text-blue-600' },
+  Instagram: { Icon: InstagramIcon, border: 'border-pink-500/30', iconClass: 'text-pink-400' },
+  Facebook: { Icon: FacebookIcon, border: 'border-blue-700/30', iconClass: 'text-blue-600' },
   Reddit: { Icon: RedditLogo, border: 'border-orange-500/30', iconClass: 'text-orange-400' },
   Pinterest: { Icon: PinterestLogo, border: 'border-red-600/30', iconClass: 'text-red-500' },
   Wikipedia: { Icon: WikipediaLogo, border: 'border-white/20', iconClass: 'text-white/75' },

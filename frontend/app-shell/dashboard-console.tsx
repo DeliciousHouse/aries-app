@@ -1,5 +1,6 @@
 'use client';
 
+import type { JSX } from 'react';
 import Link from 'next/link';
 import { Activity, ArrowRight, Cable, CalendarDays, ImageIcon, Sparkles, Workflow } from 'lucide-react';
 

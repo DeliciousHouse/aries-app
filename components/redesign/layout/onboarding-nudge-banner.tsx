@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { type JSX, useEffect, useState } from 'react';
 import Link from 'next/link';
 
 import type { OnboardingAdvisory } from '@/lib/onboarding-gate';

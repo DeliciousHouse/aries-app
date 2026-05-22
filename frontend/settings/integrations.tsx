@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from 'react';
+import { type JSX, useMemo, useState } from 'react';
 import { Search, Sparkles } from 'lucide-react';
 
 import { useIntegrations } from '@/hooks/use-integrations';

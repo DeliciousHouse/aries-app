@@ -1,3 +1,4 @@
+import type { JSX } from 'react';
 import type {
   marketing_job_status,
   onboarding_status,

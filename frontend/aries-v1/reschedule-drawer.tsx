@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarClock, Check, Facebook, Instagram, LoaderCircle, X } from 'lucide-react';
+import { CalendarClock, Check, LoaderCircle, X } from 'lucide-react';
+import { FacebookIcon, InstagramIcon } from './brand-icons';
 
 import {
   DEFAULT_TENANT_TIMEZONE,
@@ -10,8 +11,8 @@ import {
 } from '@/lib/format-timestamp';
 
 const PLATFORM_OPTIONS = [
-  { id: 'instagram' as const, label: 'Instagram', Icon: Instagram },
-  { id: 'facebook' as const, label: 'Facebook', Icon: Facebook },
+  { id: 'instagram' as const, label: 'Instagram', Icon: InstagramIcon },
+  { id: 'facebook' as const, label: 'Facebook', Icon: FacebookIcon },
 ];
 
 type PlatformId = (typeof PLATFORM_OPTIONS)[number]['id'];

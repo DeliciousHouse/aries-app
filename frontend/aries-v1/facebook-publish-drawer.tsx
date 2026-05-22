@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUpRight, Facebook, LoaderCircle, X } from 'lucide-react';
+import { ArrowUpRight, LoaderCircle, X } from 'lucide-react';
+import { FacebookIcon } from './brand-icons';
 
 export interface FacebookPublishDrawerProps {
   jobId: string;
@@ -98,7 +99,7 @@ export default function FacebookPublishDrawer(props: FacebookPublishDrawerProps)
         <header className="flex items-start justify-between gap-4 border-b border-white/8 px-6 py-5">
           <div className="flex items-start gap-3">
             <span className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/80">
-              <Facebook className="h-5 w-5" />
+              <FacebookIcon className="h-5 w-5" />
             </span>
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/40">Publish now</p>
@@ -186,7 +187,7 @@ export default function FacebookPublishDrawer(props: FacebookPublishDrawerProps)
               style={{ color: '#11161c' }}
               className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold disabled:opacity-60"
             >
-              {submitting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Facebook className="h-4 w-4" />}
+              {submitting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <FacebookIcon className="h-4 w-4" />}
               {submitting ? 'Publishing…' : 'Publish now'}
             </button>
           ) : null}

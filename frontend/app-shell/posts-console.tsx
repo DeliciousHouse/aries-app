@@ -1,5 +1,6 @@
 'use client';
 
+import type { JSX } from 'react';
 import Link from 'next/link';
 
 import { CheckCircle, Clock3, Sparkles } from 'lucide-react';

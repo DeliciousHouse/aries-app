@@ -17,17 +17,14 @@ import {
   Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
-  Facebook,
   Globe,
   Inbox,
-  Instagram,
   Layers3,
-  Linkedin,
   LoaderCircle,
   Music2,
-  Youtube,
   X as CloseIcon,
 } from 'lucide-react';
+import { FacebookIcon, InstagramIcon, LinkedinIcon, YoutubeIcon } from '../brand-icons';
 
 import type {
   CalendarEvent,
@@ -865,10 +862,10 @@ function platformLogo(platform: string) {
   const key = platform.toLowerCase();
   const iconClassName = 'h-3.5 w-3.5 text-white';
 
-  if (key.includes('meta') || key.includes('facebook')) return <Facebook className={iconClassName} />;
-  if (key.includes('linkedin')) return <Linkedin className={iconClassName} />;
-  if (key.includes('instagram')) return <Instagram className={iconClassName} />;
-  if (key.includes('youtube')) return <Youtube className={iconClassName} />;
+  if (key.includes('meta') || key.includes('facebook')) return <FacebookIcon className={iconClassName} />;
+  if (key.includes('linkedin')) return <LinkedinIcon className={iconClassName} />;
+  if (key.includes('instagram')) return <InstagramIcon className={iconClassName} />;
+  if (key.includes('youtube')) return <YoutubeIcon className={iconClassName} />;
   if (key.includes('reddit')) return <RedditIcon className={iconClassName} />;
   if (key.includes('x')) return <XIcon className={iconClassName} />;
   if (key.includes('tiktok')) return <Music2 className={iconClassName} />;

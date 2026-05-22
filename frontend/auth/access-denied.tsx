@@ -1,5 +1,7 @@
 "use client";
 
+import type { JSX } from 'react';
+
 const roleCatalog = [
   'platform_owner',
   'platform_operator',

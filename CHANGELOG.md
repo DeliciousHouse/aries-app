@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.6.6 — chore(deps): modernize dependencies and upgrade to React 19
+
+Three dependency cleanups in one pass. The unused `three`, `@react-three/fiber`, and `@react-three/drei` packages — dead weight with zero imports anywhere in the app — are removed, along with `@types/three`. `lucide-react` is upgraded to v1, which dropped all brand icons; the five brand glyphs the app still used (Facebook, Instagram, LinkedIn, YouTube, Chrome) are now inline SVG components in `frontend/aries-v1/brand-icons.tsx`, drop-in compatible with the lucide icon API. React and React DOM are upgraded from 18.3 to 19, along with their type packages and `react-test-renderer`; the React 19 type changes (the removed global `JSX` namespace, stricter element `props` typing) were resolved across the affected files. Typecheck, lint, the regression suite, and a full Turbopack production build all pass.
+
 ## v0.1.6.5 — fix(security): return literal error codes from profile route handlers
 
 Closes the last two CodeQL `js/stack-trace-exposure` alerts (#8 and #13). v0.1.6.4 cleaned the unexpected/500 path, but the domain-error 400/422 branches in `business/profile` and `tenant/profiles` still returned the caught error's `.message` to the client, which CodeQL traces back to error data. Those branches now return literal error codes (`invalid_role`, `missing_required_fields:email`, `invalid_website_url`, and similar) and imported constants instead of the raw message. The `business/profile` `errorStatus` helper is replaced with `classifyClientError`, which maps each known error to a safe code plus HTTP status in one place. Two dynamic suffixes are dropped: the bad timezone value on `invalid_timezone` errors, and the inner failure detail on `brand_kit_fetch_failed` errors — both were error-derived and not needed by the frontend.

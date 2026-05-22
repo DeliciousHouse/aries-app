@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Check, Loader2, RefreshCw } from 'lucide-react';
 import StepContainer from '../components/StepContainer';
 

@@ -1,3 +1,4 @@
+import type { JSX } from 'react';
 import type { BackendError } from '../types/errors';
 
 export interface ErrorPanelProps {
