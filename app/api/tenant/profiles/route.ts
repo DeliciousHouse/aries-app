@@ -57,8 +57,16 @@ export async function POST(req: Request) {
     return json({ profile }, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (message.startsWith('missing_required_fields:') || message === 'invalid_role') {
-      return json({ error: message }, 400);
+    // Return literal error codes only — never the raw `message`, which CodeQL
+    // flags as stack-trace exposure (js/stack-trace-exposure).
+    if (message === 'invalid_role') {
+      return json({ error: 'invalid_role' }, 400);
+    }
+    if (message === 'missing_required_fields:email') {
+      return json({ error: 'missing_required_fields:email' }, 400);
+    }
+    if (message.startsWith('missing_required_fields:')) {
+      return json({ error: 'missing_required_fields' }, 400);
     }
 
     console.error('[tenant-profiles]', {

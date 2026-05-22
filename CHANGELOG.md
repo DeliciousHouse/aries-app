@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.6.5 — fix(security): return literal error codes from profile route handlers
+
+Closes the last two CodeQL `js/stack-trace-exposure` alerts (#8 and #13). v0.1.6.4 cleaned the unexpected/500 path, but the domain-error 400/422 branches in `business/profile` and `tenant/profiles` still returned the caught error's `.message` to the client, which CodeQL traces back to error data. Those branches now return literal error codes (`invalid_role`, `missing_required_fields:email`, `invalid_website_url`, and similar) and imported constants instead of the raw message. The `business/profile` `errorStatus` helper is replaced with `classifyClientError`, which maps each known error to a safe code plus HTTP status in one place. Two dynamic suffixes are dropped: the bad timezone value on `invalid_timezone` errors, and the inner failure detail on `brand_kit_fetch_failed` errors — both were error-derived and not needed by the frontend.
+
 ## v0.1.6.4 — fix(security): stop leaking error detail on profile route 500s
 
 Completes the v0.1.6.3 error-exposure work. CodeQL still flagged three profile route handlers (`business/profile`, `tenant/profiles`, `tenant/profiles/[userId]`) for `js/stack-trace-exposure`: v0.1.6.3 genericized the authentication-error paths, but the database-operation catch blocks still returned raw `error.message` to the client on unexpected failures. Those 500-path responses now return a generic "An unexpected error occurred"; known domain error codes (field validation, `tenant_not_found`, `invalid_role`, `brand_kit_*`) are still returned literally so the frontend contract is unchanged. The full error and stack trace are now logged server-side, so debuggability is preserved. Closes CodeQL alerts #8, #13, and #14.

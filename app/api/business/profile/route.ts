@@ -33,20 +33,43 @@ function stringArray(value: unknown): string[] {
   );
 }
 
-function errorStatus(message: string): number {
-  if (
-    message.startsWith('missing_required_fields:') ||
-    message === 'invalid_website_url' ||
-    message === COMPETITOR_URL_SOCIAL_ERROR ||
-    message === COMPETITOR_URL_INVALID_ERROR ||
-    message.startsWith(`${INVALID_TIMEZONE_ERROR}:`)
-  ) {
-    return 400;
+// Maps a caught error message to a client-safe error code + HTTP status.
+// Returns literal codes / imported constants only — never the raw message,
+// which CodeQL flags as stack-trace exposure (js/stack-trace-exposure).
+function classifyClientError(message: string): { error: string; status: number } {
+  if (message === 'missing_required_fields:businessName') {
+    return { error: 'missing_required_fields:businessName', status: 400 };
+  }
+  if (message === 'missing_required_fields:websiteUrl') {
+    return { error: 'missing_required_fields:websiteUrl', status: 400 };
+  }
+  if (message.startsWith('missing_required_fields:')) {
+    return { error: 'missing_required_fields', status: 400 };
+  }
+  if (message === 'invalid_website_url') {
+    return { error: 'invalid_website_url', status: 400 };
+  }
+  if (message === COMPETITOR_URL_SOCIAL_ERROR) {
+    return { error: COMPETITOR_URL_SOCIAL_ERROR, status: 400 };
+  }
+  if (message === COMPETITOR_URL_INVALID_ERROR) {
+    return { error: COMPETITOR_URL_INVALID_ERROR, status: 400 };
+  }
+  if (message.startsWith(`${INVALID_TIMEZONE_ERROR}:`)) {
+    // Drop the dynamic suffix (the user-submitted bad value).
+    return { error: INVALID_TIMEZONE_ERROR, status: 400 };
+  }
+  if (message.startsWith('brand_kit_insufficient_source_data')) {
+    return { error: 'brand_kit_insufficient_source_data', status: 422 };
+  }
+  if (message.startsWith('brand_kit_fetch_failed')) {
+    // Raw message carries an inner error after the colon — collapse it.
+    return { error: 'brand_kit_fetch_failed', status: 422 };
   }
   if (message.startsWith('brand_kit_')) {
-    return 422;
+    return { error: 'brand_kit_error', status: 422 };
   }
-  return 500;
+  return { error: 'An unexpected error occurred', status: 500 };
 }
 
 export async function GET(req: Request) {
@@ -166,8 +189,8 @@ export async function PATCH(req: Request) {
       error: message,
       stack: error instanceof Error ? error.stack : undefined,
     });
-    const status = errorStatus(message);
-    return json({ error: status === 500 ? 'An unexpected error occurred' : message }, status);
+    const { error: clientError, status } = classifyClientError(message);
+    return json({ error: clientError }, status);
   } finally {
     client.release();
   }
