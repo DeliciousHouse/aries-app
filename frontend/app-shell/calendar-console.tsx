@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 
-import { useState, type FormEvent } from 'react';
+import { type JSX, useState, type FormEvent } from 'react';
 import { CalendarDays, Sparkles } from 'lucide-react';
 
 import type { MarketingCalendarEvent, SocialContentCalendarEvent } from '@/lib/api/marketing';

@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
+import { type JSX, FormEvent, useEffect, useState } from 'react';
 import { Eye, Sparkles } from 'lucide-react';
 
 import type { OnboardingStatusError, OnboardingStatusSuccess } from '@/lib/api/onboarding';

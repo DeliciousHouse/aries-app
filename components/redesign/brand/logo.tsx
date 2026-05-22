@@ -1,3 +1,4 @@
+import type { JSX } from 'react';
 import Image from 'next/image';
 
 import { ARIES_FAVICON_SVG_PATH, ARIES_LOGO_WEBP_PATH } from '@/lib/brand';

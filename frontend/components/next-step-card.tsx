@@ -1,3 +1,4 @@
+import type { JSX } from 'react';
 import type { next_step } from '../types/runtime';
 
 export interface NextStepCardProps {

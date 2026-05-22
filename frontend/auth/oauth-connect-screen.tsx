@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { type JSX, useEffect, useMemo, useState } from 'react';
 
 import Link from 'next/link';
-import { ArrowLeft, ArrowRight, CheckCircle2, Chrome, LoaderCircle, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle2, LoaderCircle, ShieldAlert } from 'lucide-react';
+import { ChromeIcon } from '@/frontend/aries-v1/brand-icons';
 
 import { createIntegrationsApi, isOauthErrorResult } from '@/lib/api/integrations';
 import { AriesMark } from '@/frontend/donor/ui';
@@ -154,7 +155,7 @@ export default function OAuthConnectScreen({
                   {status === 'starting' ? (
                     <LoaderCircle className="w-6 h-6 text-primary animate-spin" />
                   ) : status === 'redirecting' ? (
-                    <Chrome className="w-6 h-6 text-primary" />
+                    <ChromeIcon className="w-6 h-6 text-primary" />
                   ) : result === 'connected' ? (
                     <CheckCircle2 className="w-6 h-6 text-emerald-400" />
                   ) : (

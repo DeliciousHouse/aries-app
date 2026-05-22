@@ -39,7 +39,7 @@ function collectText(node: ReactNode): string {
   }
 
   if (isValidElement(node)) {
-    return collectText(node.props.children);
+    return collectText((node.props as { children?: ReactNode }).children);
   }
 
   return '';
