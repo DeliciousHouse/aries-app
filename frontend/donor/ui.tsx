@@ -27,7 +27,7 @@ export function AriesMark({
   // image doesn't add a redundant announcement.
   return (
     <Image
-      src="/ariesai-logo.webp"
+      src="/Aries_new_logo.webp"
       alt={decorative ? '' : 'Aries AI Logo'}
       width={500}
       height={500}
