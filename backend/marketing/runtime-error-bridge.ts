@@ -177,7 +177,7 @@ export function recordMarketingFailureRuntimeIncident(input: MarketingFailureInp
       existing.source = MARKETING_JOB_FAILURE_SOURCE;
       existing.errorMessage = errorMessage;
       existing.details = details;
-      existing.validationCommand = 'node scripts/automations/runtime-error-intake.mjs scan --json';
+      existing.validationCommand = 'npm run validate:marketing-flow';
       existing.repairHints = [
         `Inspect marketing runtime file ${input.runtimePath} and the workflow/artifact path that failed for job ${input.jobId}.`,
         'Prefer the smallest safe fix in the failing marketing stage or workflow contract, then rerun the intake scan to verify the incident clears.',
@@ -214,7 +214,7 @@ export function recordMarketingFailureRuntimeIncident(input: MarketingFailureInp
         source: MARKETING_JOB_FAILURE_SOURCE,
         errorMessage,
         details,
-        validationCommand: 'node scripts/automations/runtime-error-intake.mjs scan --json',
+        validationCommand: 'npm run validate:marketing-flow',
         repairHints: [
           `Inspect marketing runtime file ${input.runtimePath} and the workflow/artifact path that failed for job ${input.jobId}.`,
           'Prefer the smallest safe fix in the failing marketing stage or workflow contract, then rerun the intake scan to verify the incident clears.',

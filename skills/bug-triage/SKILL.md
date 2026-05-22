@@ -17,7 +17,7 @@ Use this skill for GitHub issues that represent defects in `DeliciousHouse/aries
 
 ## Required procedure
 1. Confirm the issue record is pending in the feedback log:
-   - `node scripts/automations/feedback-connector.mjs pending --type bug --json`
+   - Inspect `data/feedback-processing-log.json` for the issue entry.
 2. Inspect the issue in GitHub:
    - `gh issue view <number> --repo DeliciousHouse/aries-app --json title,body,labels,comments,url`
 3. Classify severity using the rubric.
@@ -33,9 +33,9 @@ Use this skill for GitHub issues that represent defects in `DeliciousHouse/aries
    - nearest related test file(s)
    - broader repo validation only as needed for confidence
 9. Deploy the branch to staging:
-   - `node scripts/automations/staging-deploy.mjs --issue <number> --branch <branch>`
+   - Use the project's staging deploy process; if none is configured, record `staging: missing-config` and continue.
 10. Verify the bug is reproducible before the fix and not reproducible after the fix.
-11. Update the feedback log with `mark --patch-json` so the record includes:
+11. Update `data/feedback-processing-log.json` so the record includes:
    - `severity`
    - `rootCause`
    - `branch`

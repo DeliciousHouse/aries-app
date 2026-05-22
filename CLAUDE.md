@@ -114,7 +114,7 @@ Non-obvious layout notes (the rest is discoverable by browsing):
 - `backend/execution/` — the Hermes execution surface (`provider-factory`, `providers/hermes`, `workflow-catalog`, `route-helpers`) consumed by route handlers; `backend/marketing/execution-port.ts` is the marketing-pipeline Hermes port.
 - `specs/` — resolved via `lib/runtime-paths.ts`, not imported directly by path.
 - `skills/` — marketing agent skill definitions (campaign-planner, creative-director, research, etc.) executed by the gateway, not TypeScript modules.
-- `scripts/automations/` — cron-driven jobs installed via `npm run automation:install`. The job manifest lives in `scripts/automations/manifest.mjs`; verify with `node scripts/automations/verify-automations.mjs` before changing schedules.
+- `scripts/automations/` — holds `scheduled-posts-worker.mjs`, the worker that drains the `scheduled_posts` table and dispatches due posts to the Meta publish handler. It is a plain Node script (`pg` + `dotenv`); wire it to a scheduler (host cron, systemd timer, or a CI schedule) — there is no in-repo cron installer.
 - `DOCKER.md` — container build/runtime profiles and the 50-concurrent smoke check referenced by guardrail #4.
 
 ## Tech Stack Notes
