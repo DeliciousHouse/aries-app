@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { AlertCircle, ArrowUpRight, CheckCircle2, Facebook, Instagram, LoaderCircle, MessageSquareText, RefreshCw, XCircle } from 'lucide-react';
+import { AlertCircle, ArrowUpRight, CheckCircle2, LoaderCircle, MessageSquareText, RefreshCw, XCircle } from 'lucide-react';
+import { FacebookIcon, InstagramIcon } from './brand-icons';
 
 import InstagramPublishDrawer, { type InstagramPublishFailure, type InstagramPublishResult } from './instagram-publish-drawer';
 import FacebookPublishDrawer, { type FacebookPublishResult } from './facebook-publish-drawer';
@@ -1167,7 +1168,7 @@ function PublishStatusSurface(props: {
                       }}
                       className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-white/80 transition hover:border-white/20 hover:bg-white/[0.07] hover:text-white"
                     >
-                      <Instagram className="h-3 w-3" />
+                      <InstagramIcon className="h-3 w-3" />
                       Publish to Instagram
                     </button>
                   ) : isPublishable && isFacebook ? (
@@ -1180,7 +1181,7 @@ function PublishStatusSurface(props: {
                       }}
                       className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-white/80 transition hover:border-white/20 hover:bg-white/[0.07] hover:text-white"
                     >
-                      <Facebook className="h-3 w-3" />
+                      <FacebookIcon className="h-3 w-3" />
                       Publish to Facebook
                     </button>
                   ) : null}

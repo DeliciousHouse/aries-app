@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUpRight, Instagram, LoaderCircle, RefreshCw, X } from 'lucide-react';
+import { ArrowUpRight, LoaderCircle, RefreshCw, X } from 'lucide-react';
+import { InstagramIcon } from './brand-icons';
 
 export type InstagramPublishFailure = {
   userMessage: string;
@@ -183,7 +184,7 @@ export default function InstagramPublishDrawer(props: InstagramPublishDrawerProp
         <header className="flex items-start justify-between gap-4 border-b border-white/8 px-6 py-5">
           <div className="flex items-start gap-3">
             <span className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/80">
-              <Instagram className="h-5 w-5" />
+              <InstagramIcon className="h-5 w-5" />
             </span>
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/40">Publish now</p>
@@ -299,7 +300,7 @@ export default function InstagramPublishDrawer(props: InstagramPublishDrawerProp
               style={{ color: '#11161c' }}
               className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold disabled:opacity-60"
             >
-              {submitting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Instagram className="h-4 w-4" />}
+              {submitting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <InstagramIcon className="h-4 w-4" />}
               {submitting ? 'Publishing…' : 'Publish now'}
             </button>
           ) : null}
