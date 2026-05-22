@@ -89,10 +89,10 @@ function createFetchResponse(body: string, contentType: string): Response {
   });
 }
 
-function installBrandSiteFetchMock(): () => void {
+function installBrandSiteFetchMock(): { restore: () => void; fetchImpl: typeof fetch } {
   const originalFetch = globalThis.fetch;
 
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
+  const fakeFetch = (async (input: RequestInfo | URL) => {
     const url = typeof input === 'string'
       ? input
       : input instanceof URL
@@ -150,17 +150,22 @@ function installBrandSiteFetchMock(): () => void {
     }
 
     return new Response('not found', { status: 404 });
-  }) as typeof globalThis.fetch;
+  }) as typeof fetch;
 
-  return () => {
-    globalThis.fetch = originalFetch;
+  // Also install as globalThis.fetch for callers (e.g. startMarketingJob) that
+  // cannot receive fetchImpl via argument.
+  globalThis.fetch = fakeFetch as typeof globalThis.fetch;
+
+  return {
+    restore: () => { globalThis.fetch = originalFetch; },
+    fetchImpl: fakeFetch,
   };
 }
 
-function installRenderedColorBrandSiteFetchMock(capture?: { calls: number }): () => void {
+function installRenderedColorBrandSiteFetchMock(capture?: { calls: number }): { restore: () => void; fetchImpl: typeof fetch } {
   const originalFetch = globalThis.fetch;
 
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
+  const fakeFetch = (async (input: RequestInfo | URL) => {
     capture && (capture.calls += 1);
     const url = typeof input === 'string'
       ? input
@@ -209,10 +214,14 @@ function installRenderedColorBrandSiteFetchMock(capture?: { calls: number }): ()
     }
 
     return new Response('not found', { status: 404 });
-  }) as typeof globalThis.fetch;
+  }) as typeof fetch;
 
-  return () => {
-    globalThis.fetch = originalFetch;
+  // Also install as globalThis.fetch for callers that cannot receive fetchImpl.
+  globalThis.fetch = fakeFetch as typeof globalThis.fetch;
+
+  return {
+    restore: () => { globalThis.fetch = originalFetch; },
+    fetchImpl: fakeFetch,
   };
 }
 
@@ -221,9 +230,8 @@ test('extractBrandKitFromWebsite strips nested HTML markup from the brand name c
   // inline `style` / `_ngcontent-*` attributes. The previous extractor returned
   // inner HTML as the brand name, so the preview card showed raw `<span ...>`
   // tags as the brand heading and as each font preview's sample text.
-  const originalFetch = globalThis.fetch;
   const brandUrl = 'https://nwaeventco.example';
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
+  const fakeFetch = (async (input: RequestInfo | URL) => {
     const url = typeof input === 'string'
       ? input
       : input instanceof URL
@@ -252,22 +260,19 @@ test('extractBrandKitFromWebsite strips nested HTML markup from the brand name c
       return createFetchResponse(`body { font-family: "Cinzel", serif; }`, 'text/css');
     }
     return new Response('not found', { status: 404 });
-  }) as typeof globalThis.fetch;
+  }) as typeof fetch;
 
-  try {
-    const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
-    const brandKit = await extractBrandKitFromWebsite({
-      tenantId: 'nwaeventco',
-      brandUrl,
-    });
+  const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+  const brandKit = await extractBrandKitFromWebsite({
+    tenantId: 'nwaeventco',
+    brandUrl,
+    fetchImpl: fakeFetch,
+  });
 
-    assert.ok(brandKit.brand_name, 'brand_name should be extracted');
-    assert.doesNotMatch(brandKit.brand_name, /<\/?[a-z]/i, `brand_name leaked HTML: ${brandKit.brand_name}`);
-    assert.doesNotMatch(brandKit.brand_name, /_ngcontent-/i, `brand_name leaked Angular marker: ${brandKit.brand_name}`);
-    assert.doesNotMatch(brandKit.brand_name, /font-family/i, `brand_name leaked style attribute: ${brandKit.brand_name}`);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  assert.ok(brandKit.brand_name, 'brand_name should be extracted');
+  assert.doesNotMatch(brandKit.brand_name, /<\/?[a-z]/i, `brand_name leaked HTML: ${brandKit.brand_name}`);
+  assert.doesNotMatch(brandKit.brand_name, /_ngcontent-/i, `brand_name leaked Angular marker: ${brandKit.brand_name}`);
+  assert.doesNotMatch(brandKit.brand_name, /font-family/i, `brand_name leaked style attribute: ${brandKit.brand_name}`);
 });
 
 test('stripHtmlTags handles <script>/<style>/</svg>/</noscript> close-tag variants with whitespace or attributes', async () => {
@@ -276,9 +281,8 @@ test('stripHtmlTags handles <script>/<style>/</svg>/</noscript> close-tag varian
   // script body would survive into brand_name as literal text. The site
   // below nests a malicious-looking <script> inside the H1 using each
   // close-tag variant.
-  const originalFetch = globalThis.fetch;
   const brandUrl = 'https://malformed-close.example';
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
+  const fakeFetch = (async (input: RequestInfo | URL) => {
     const url = typeof input === 'string'
       ? input
       : input instanceof URL
@@ -297,20 +301,17 @@ test('stripHtmlTags handles <script>/<style>/</svg>/</noscript> close-tag varian
       );
     }
     return new Response('not found', { status: 404 });
-  }) as typeof globalThis.fetch;
+  }) as typeof fetch;
 
-  try {
-    const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
-    const brandKit = await extractBrandKitFromWebsite({
-      tenantId: 'malformed-co',
-      brandUrl,
-    });
-    assert.doesNotMatch(brandKit.brand_name, /alert\(/, `script body leaked: ${brandKit.brand_name}`);
-    assert.doesNotMatch(brandKit.brand_name, /display:none/, `style body leaked: ${brandKit.brand_name}`);
-    assert.doesNotMatch(brandKit.brand_name, /tracker/, `noscript body leaked: ${brandKit.brand_name}`);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+  const brandKit = await extractBrandKitFromWebsite({
+    tenantId: 'malformed-co',
+    brandUrl,
+    fetchImpl: fakeFetch,
+  });
+  assert.doesNotMatch(brandKit.brand_name, /alert\(/, `script body leaked: ${brandKit.brand_name}`);
+  assert.doesNotMatch(brandKit.brand_name, /display:none/, `style body leaked: ${brandKit.brand_name}`);
+  assert.doesNotMatch(brandKit.brand_name, /tracker/, `noscript body leaked: ${brandKit.brand_name}`);
 });
 
 test('extractBrandKitFromWebsite strips entity-encoded HTML markup from the brand name', async () => {
@@ -318,9 +319,8 @@ test('extractBrandKitFromWebsite strips entity-encoded HTML markup from the bran
   // `&lt;span&gt;...` survives the tag pass and becomes literal `<span>` text
   // after decode, re-introducing the exact raw-HTML leak stripHtmlTags exists
   // to prevent. Entities must be decoded first, then tags stripped.
-  const originalFetch = globalThis.fetch;
   const brandUrl = 'https://entity-nwa.example';
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
+  const fakeFetch = (async (input: RequestInfo | URL) => {
     const url = typeof input === 'string'
       ? input
       : input instanceof URL
@@ -339,20 +339,17 @@ test('extractBrandKitFromWebsite strips entity-encoded HTML markup from the bran
       );
     }
     return new Response('not found', { status: 404 });
-  }) as typeof globalThis.fetch;
+  }) as typeof fetch;
 
-  try {
-    const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
-    const brandKit = await extractBrandKitFromWebsite({
-      tenantId: 'entity-nwa',
-      brandUrl,
-    });
-    assert.doesNotMatch(brandKit.brand_name, /<\/?[a-z]/i, `brand_name leaked literal HTML: ${brandKit.brand_name}`);
-    assert.doesNotMatch(brandKit.brand_name, /&lt;|&gt;|&quot;/i, `brand_name leaked raw entities: ${brandKit.brand_name}`);
-    assert.doesNotMatch(brandKit.brand_name, /_ngcontent-/i, `brand_name leaked Angular marker: ${brandKit.brand_name}`);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+  const brandKit = await extractBrandKitFromWebsite({
+    tenantId: 'entity-nwa',
+    brandUrl,
+    fetchImpl: fakeFetch,
+  });
+  assert.doesNotMatch(brandKit.brand_name, /<\/?[a-z]/i, `brand_name leaked literal HTML: ${brandKit.brand_name}`);
+  assert.doesNotMatch(brandKit.brand_name, /&lt;|&gt;|&quot;/i, `brand_name leaked raw entities: ${brandKit.brand_name}`);
+  assert.doesNotMatch(brandKit.brand_name, /_ngcontent-/i, `brand_name leaked Angular marker: ${brandKit.brand_name}`);
 });
 
 test('normalizePersistedBrandKit sanitizes HTML markup in a cached brand_name on load', async () => {
@@ -411,9 +408,8 @@ test('extractInlineCss handles <style> close-tag variants with whitespace or att
   // against close-tag variants. While less critical (it extracts CSS for
   // palette/font inference, not filtering for XSS), consistency with
   // stripHtmlTags prevents incomplete extraction.
-  const originalFetch = globalThis.fetch;
   const brandUrl = 'https://malformed-style.example';
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
+  const fakeFetch = (async (input: RequestInfo | URL) => {
     const url = typeof input === 'string'
       ? input
       : input instanceof URL
@@ -434,29 +430,25 @@ test('extractInlineCss handles <style> close-tag variants with whitespace or att
       );
     }
     return new Response('not found', { status: 404 });
-  }) as typeof globalThis.fetch;
+  }) as typeof fetch;
 
-  try {
-    const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
-    const brandKit = await extractBrandKitFromWebsite({
-      tenantId: 'malformed-style-co',
-      brandUrl,
-    });
-    // The hardened pattern should extract both CSS blocks despite malformed close tags
-    const paletteValues = brandKit.colors.palette.map((color) => color.toLowerCase());
-    assert.ok(paletteValues.includes('#ff0000'), 'should extract color from the well-formed style block');
-    assert.ok(paletteValues.includes('#00ff00'), 'should extract color from the malformed-close style block');
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+  const brandKit = await extractBrandKitFromWebsite({
+    tenantId: 'malformed-style-co',
+    brandUrl,
+    fetchImpl: fakeFetch,
+  });
+  // The hardened pattern should extract both CSS blocks despite malformed close tags
+  const paletteValues = brandKit.colors.palette.map((color) => color.toLowerCase());
+  assert.ok(paletteValues.includes('#ff0000'), 'should extract color from the well-formed style block');
+  assert.ok(paletteValues.includes('#00ff00'), 'should extract color from the malformed-close style block');
 });
 
 test('extractBrandKitFromWebsite (via htmlToText) strips malformed close-tag variants from brand voice', async () => {
   // Regression for follow-up to PR #135: htmlToText (used by brand-voice and
   // offer-summary extraction) was not hardened against close-tag variants.
-  const originalFetch = globalThis.fetch;
   const brandUrl = 'https://malformed-voice.example';
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
+  const fakeFetch = (async (input: RequestInfo | URL) => {
     const url = typeof input === 'string'
       ? input
       : input instanceof URL
@@ -484,33 +476,31 @@ test('extractBrandKitFromWebsite (via htmlToText) strips malformed close-tag var
       );
     }
     return new Response('not found', { status: 404 });
-  }) as typeof globalThis.fetch;
+  }) as typeof fetch;
 
-  try {
-    const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
-    const brandKit = await extractBrandKitFromWebsite({
-      tenantId: 'malformed-voice-co',
-      brandUrl,
-    });
-    // brand_voice_summary uses htmlToText internally — deriveBrandVoiceSummary
-    // requires a meta description or h1/h2 to return non-null.
-    assert.ok(brandKit.brand_voice_summary, 'brand_voice_summary should be non-null when meta description and h1 are present');
-    assert.doesNotMatch(brandKit.brand_voice_summary, /alert\(/, 'script body should not leak into brand voice');
-    assert.doesNotMatch(brandKit.brand_voice_summary, /display:none/, 'style body should not leak into brand voice');
-    assert.doesNotMatch(brandKit.brand_voice_summary, /tracker/, 'noscript body should not leak into brand voice');
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+  const brandKit = await extractBrandKitFromWebsite({
+    tenantId: 'malformed-voice-co',
+    brandUrl,
+    fetchImpl: fakeFetch,
+  });
+  // brand_voice_summary uses htmlToText internally — deriveBrandVoiceSummary
+  // requires a meta description or h1/h2 to return non-null.
+  assert.ok(brandKit.brand_voice_summary, 'brand_voice_summary should be non-null when meta description and h1 are present');
+  assert.doesNotMatch(brandKit.brand_voice_summary, /alert\(/, 'script body should not leak into brand voice');
+  assert.doesNotMatch(brandKit.brand_voice_summary, /display:none/, 'style body should not leak into brand voice');
+  assert.doesNotMatch(brandKit.brand_voice_summary, /tracker/, 'noscript body should not leak into brand voice');
 });
 
 test('extractBrandKitFromWebsite derives logo, palette, fonts, and social links from the canonical brand site', async () => {
-  const restoreFetch = installBrandSiteFetchMock();
+  const { restore: restoreFetch, fetchImpl } = installBrandSiteFetchMock();
 
   try {
     const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
     const brandKit = await extractBrandKitFromWebsite({
       tenantId: 'sugarandleather',
       brandUrl: 'https://sugarandleather.com',
+      fetchImpl,
     });
 
     assert.equal(brandKit.tenant_id, 'sugarandleather');
@@ -540,7 +530,7 @@ test('extractBrandKitFromWebsite derives logo, palette, fonts, and social links 
 
 test('startMarketingJob persists a reusable tenant brand kit and stores a runtime reference snapshot', async () => {
   await withRuntimeEnv(async (dataRoot) => {
-    const restoreFetch = installBrandSiteFetchMock();
+    const { restore: restoreFetch } = installBrandSiteFetchMock();
 
     try {
       installMarketingPipelineInvoker();
@@ -689,13 +679,14 @@ test('extractAndSaveTenantBrandKit normalizes noisy persisted brand-kit signals 
 });
 
 test('extractBrandKitFromWebsite prefers rendered HTML brand colors over raw stylesheet token dumps', async () => {
-  const restoreFetch = installRenderedColorBrandSiteFetchMock();
+  const { restore: restoreFetch, fetchImpl } = installRenderedColorBrandSiteFetchMock();
 
   try {
     const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
     const brandKit = await extractBrandKitFromWebsite({
       tenantId: '2',
       brandUrl: 'https://sugarandleather.com/',
+      fetchImpl,
     });
 
     assert.deepEqual(brandKit.logo_urls, ['https://sugarandleather.com/_next/image?url=%2Fbranding%2FBrandLogo.webp&w=3840&q=75']);
@@ -712,7 +703,7 @@ test('extractBrandKitFromWebsite prefers rendered HTML brand colors over raw sty
 test('extractAndSaveTenantBrandKit refreshes fresh low-quality rainbow palettes instead of reusing them', async () => {
   await withRuntimeEnv(async () => {
     const capture = { calls: 0 };
-    const restoreFetch = installRenderedColorBrandSiteFetchMock(capture);
+    const { restore: restoreFetch, fetchImpl } = installRenderedColorBrandSiteFetchMock(capture);
 
     try {
       const { extractAndSaveTenantBrandKit, tenantBrandKitPath } = await import('../backend/marketing/brand-kit');
@@ -747,6 +738,7 @@ test('extractAndSaveTenantBrandKit refreshes fresh low-quality rainbow palettes 
       const { brandKit } = await extractAndSaveTenantBrandKit({
         tenantId: '2',
         brandUrl: 'https://sugarandleather.com/',
+        fetchImpl,
       });
 
       assert.equal(capture.calls > 0, true);
@@ -760,7 +752,7 @@ test('extractAndSaveTenantBrandKit refreshes fresh low-quality rainbow palettes 
 
 test('extractAndSaveTenantBrandKit refreshes a stale tenant brand kit from the canonical website', async () => {
   await withRuntimeEnv(async () => {
-    const restoreFetch = installBrandSiteFetchMock();
+    const { restore: restoreFetch, fetchImpl } = installBrandSiteFetchMock();
 
     try {
       const { extractAndSaveTenantBrandKit, tenantBrandKitPath } = await import('../backend/marketing/brand-kit');
@@ -789,6 +781,7 @@ test('extractAndSaveTenantBrandKit refreshes a stale tenant brand kit from the c
       const { brandKit } = await extractAndSaveTenantBrandKit({
         tenantId: 'sugarandleather',
         brandUrl: 'https://sugarandleather.com',
+        fetchImpl,
       });
 
       assert.equal(brandKit.brand_name, 'Sugar & Leather');
@@ -801,7 +794,7 @@ test('extractAndSaveTenantBrandKit refreshes a stale tenant brand kit from the c
 
 test('extractAndSaveTenantBrandKit does not reuse a fresh fallback-style brand kit with no extracted signals', async () => {
   await withRuntimeEnv(async () => {
-    const restoreFetch = installBrandSiteFetchMock();
+    const { restore: restoreFetch, fetchImpl } = installBrandSiteFetchMock();
 
     try {
       const { extractAndSaveTenantBrandKit, tenantBrandKitPath } = await import('../backend/marketing/brand-kit');
@@ -830,6 +823,7 @@ test('extractAndSaveTenantBrandKit does not reuse a fresh fallback-style brand k
       const { brandKit } = await extractAndSaveTenantBrandKit({
         tenantId: 'sugarandleather',
         brandUrl: 'https://sugarandleather.com',
+        fetchImpl,
       });
 
       assert.equal(brandKit.brand_name, 'Sugar & Leather');

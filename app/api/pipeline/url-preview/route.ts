@@ -27,6 +27,13 @@ function validateUrl(url: string): string | null {
     return 'IP addresses are not allowed';
   }
 
+  // IPv6 literals — new URL() keeps brackets, e.g. `[::1]`, and plain colons
+  // appear in unbracketed forms.  Both are rejected here as defense-in-depth;
+  // ssrfSafeFetch performs the deep check on every hop.
+  if (hostname.startsWith('[') || hostname.includes(':')) {
+    return 'IP addresses are not allowed';
+  }
+
   return null;
 }
 

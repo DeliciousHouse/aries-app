@@ -2,6 +2,8 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { ssrfSafeFetch } from '@/lib/ssrf-safe-fetch';
+
 import { resolveDataPath } from '@/lib/runtime-paths';
 import { applyBrandKitEnrichment, enrichBrandKitWithGemini, type OperatorBrandKitOverrides } from '@/backend/marketing/brand-kit-enrich';
 
@@ -1176,16 +1178,21 @@ function deriveOfferSummary(html: string): string | null {
 
 async function fetchText(
   url: string,
-  fetchImpl: typeof fetch,
+  fetchImpl: typeof fetch | undefined,
   accept = 'text/html,application/xhtml+xml,text/css;q=0.9,*/*;q=0.8',
 ): Promise<string | null> {
-  const response = await fetchImpl(url, {
-    redirect: 'follow',
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (compatible; AriesBot/1.0)',
-      Accept: accept,
+  // Route through ssrfSafeFetch to guard against redirect-based SSRF and
+  // attacker-controlled stylesheet URLs resolving to internal hosts.
+  const response = await ssrfSafeFetch(
+    url,
+    {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; AriesBot/1.0)',
+        Accept: accept,
+      },
     },
-  });
+    { fetchImpl },
+  );
   if (!response.ok) {
     return null;
   }
@@ -1340,11 +1347,13 @@ export async function extractBrandKitFromWebsite(input: {
   brandUrl: string;
   fetchImpl?: typeof fetch;
 }): Promise<TenantBrandKit> {
-  const fetchImpl = input.fetchImpl ?? fetch;
-
+  // Do NOT default fetchImpl to the global fetch here.  Passing undefined to
+  // fetchText (and in turn ssrfSafeFetch) is the signal for production mode:
+  // full DNS validation + manual redirect following.  Callers that inject a
+  // test double must pass it explicitly.
   let html: string | null = null;
   try {
-    html = await fetchText(input.brandUrl, fetchImpl);
+    html = await fetchText(input.brandUrl, input.fetchImpl);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`brand_kit_fetch_failed:${message}`);
@@ -1359,7 +1368,7 @@ export async function extractBrandKitFromWebsite(input: {
     await Promise.all(
       stylesheetUrls.map(async (url) => {
         try {
-          return await fetchText(url, fetchImpl, 'text/css,*/*;q=0.8');
+          return await fetchText(url, input.fetchImpl, 'text/css,*/*;q=0.8');
         } catch {
           return null;
         }
