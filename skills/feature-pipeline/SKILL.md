@@ -23,7 +23,7 @@ Read these before deciding:
 
 ## Required procedure
 1. Confirm the issue record is pending in the feedback log:
-   - `node scripts/automations/feedback-connector.mjs pending --type feature --json`
+   - Inspect `data/feedback-processing-log.json` for the issue entry.
 2. Inspect the issue in GitHub:
    - `gh issue view <number> --repo DeliciousHouse/aries-app --json title,body,labels,comments,url`
 3. Score the request:
@@ -42,10 +42,10 @@ Read these before deciding:
    - create a branch named `feature/issue-<number>-<slug>`
    - implement the feature
    - run the most relevant tests
-   - deploy to staging with `node scripts/automations/staging-deploy.mjs --issue <number> --branch <branch> --type feature`
+   - deploy to staging using the project's staging deploy process; if none is configured, record `staging: none`
    - comment on the issue with the scope summary and staging URL
    - if useful, open a draft PR for review
-7. Update the feedback log with `mark --patch-json` so the record includes:
+7. Update `data/feedback-processing-log.json` so the record includes:
    - `effortHours`
    - `impactScore`
    - `alignmentScore`
