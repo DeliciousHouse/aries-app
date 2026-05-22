@@ -21,8 +21,7 @@ async function runWithLinks(brandUrl: string, anchors: string[]): Promise<Array<
   const html = `<!doctype html><html><head><title>Demo</title></head><body>${anchors
     .map((href) => `<a href="${href}">link</a>`)
     .join('')}</body></html>`;
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
+  const fakeFetch = (async (input: RequestInfo | URL) => {
     const url = typeof input === 'string'
       ? input
       : input instanceof URL ? input.toString() : input.url;
@@ -30,15 +29,11 @@ async function runWithLinks(brandUrl: string, anchors: string[]): Promise<Array<
       return htmlResponse(html);
     }
     return new Response('not found', { status: 404 });
-  }) as typeof globalThis.fetch;
+  }) as typeof fetch;
 
-  try {
-    const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
-    const kit = await extractBrandKitFromWebsite({ tenantId: 'dedup-co', brandUrl });
-    return kit.external_links;
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+  const kit = await extractBrandKitFromWebsite({ tenantId: 'dedup-co', brandUrl, fetchImpl: fakeFetch });
+  return kit.external_links;
 }
 
 test('ISSUE-008: 5 sibling-host links with 3 unique hostname+paths collapse to 3, first-seen order preserved', async () => {

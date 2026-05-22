@@ -24,9 +24,8 @@ function createFetchResponse(body: string, contentType: string): Response {
 }
 
 test('extractBrandKitFromWebsite removes orphan space-comma after stripping inline tags', async () => {
-  const originalFetch = globalThis.fetch;
   const brandUrl = 'https://nike-style.example';
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
+  const fakeFetch = (async (input: RequestInfo | URL) => {
     const url = typeof input === 'string'
       ? input
       : input instanceof URL ? input.toString() : input.url;
@@ -47,21 +46,18 @@ test('extractBrandKitFromWebsite removes orphan space-comma after stripping inli
       );
     }
     return new Response('not found', { status: 404 });
-  }) as typeof globalThis.fetch;
+  }) as typeof fetch;
 
-  try {
-    const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
-    const brandKit = await extractBrandKitFromWebsite({
-      tenantId: 'inline-tag-co',
-      brandUrl,
-    });
-    const summary = brandKit.brand_voice_summary || '';
-    assert.doesNotMatch(summary, / , /, `should not contain orphan ' , ', got: ${summary}`);
-    assert.doesNotMatch(summary, / \./, `should not contain ' .' (space-before-period), got: ${summary}`);
-    assert.doesNotMatch(summary, /,\s*,/, `should not contain consecutive commas, got: ${summary}`);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+  const brandKit = await extractBrandKitFromWebsite({
+    tenantId: 'inline-tag-co',
+    brandUrl,
+    fetchImpl: fakeFetch,
+  });
+  const summary = brandKit.brand_voice_summary || '';
+  assert.doesNotMatch(summary, / , /, `should not contain orphan ' , ', got: ${summary}`);
+  assert.doesNotMatch(summary, / \./, `should not contain ' .' (space-before-period), got: ${summary}`);
+  assert.doesNotMatch(summary, /,\s*,/, `should not contain consecutive commas, got: ${summary}`);
 });
 
 test('normalizeWhitespace cleans inline-tag-strip grammar artifacts (unit)', async () => {

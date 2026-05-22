@@ -21,9 +21,8 @@ function createFetchResponse(body: string, contentType: string): Response {
 }
 
 test('extractBrandKitFromWebsite decodes hex HTML entities (Nike-style &#x27;)', async () => {
-  const originalFetch = globalThis.fetch;
   const brandUrl = 'https://hex-entity.example';
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
+  const fakeFetch = (async (input: RequestInfo | URL) => {
     const url = typeof input === 'string'
       ? input
       : input instanceof URL ? input.toString() : input.url;
@@ -44,23 +43,20 @@ test('extractBrandKitFromWebsite decodes hex HTML entities (Nike-style &#x27;)',
       );
     }
     return new Response('not found', { status: 404 });
-  }) as typeof globalThis.fetch;
+  }) as typeof fetch;
 
-  try {
-    const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
-    const brandKit = await extractBrandKitFromWebsite({
-      tenantId: 'hex-entity-co',
-      brandUrl,
-    });
-    const summary = brandKit.brand_voice_summary || '';
-    // Primary regression: no raw `&#x27;`, no `& x27;` artifact, no `&#`.
-    assert.doesNotMatch(summary, /&#x?[0-9a-f]+;/i, 'should not contain raw numeric entity');
-    assert.doesNotMatch(summary, /&\s*x27\s*;?/i, 'should not contain the broken "& x27;" artifact');
-    assert.doesNotMatch(summary, /&#/, 'should not contain raw entity prefix');
-    // Positive: hex apostrophe and named mdash should both be decoded.
-    assert.ok(summary.includes("world's"), `expected decoded apostrophe in summary, got: ${summary}`);
-    assert.ok(summary.includes('\u2014'), `expected decoded em-dash in summary, got: ${summary}`);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
+  const brandKit = await extractBrandKitFromWebsite({
+    tenantId: 'hex-entity-co',
+    brandUrl,
+    fetchImpl: fakeFetch,
+  });
+  const summary = brandKit.brand_voice_summary || '';
+  // Primary regression: no raw `&#x27;`, no `& x27;` artifact, no `&#`.
+  assert.doesNotMatch(summary, /&#x?[0-9a-f]+;/i, 'should not contain raw numeric entity');
+  assert.doesNotMatch(summary, /&\s*x27\s*;?/i, 'should not contain the broken "& x27;" artifact');
+  assert.doesNotMatch(summary, /&#/, 'should not contain raw entity prefix');
+  // Positive: hex apostrophe and named mdash should both be decoded.
+  assert.ok(summary.includes("world's"), `expected decoded apostrophe in summary, got: ${summary}`);
+  assert.ok(summary.includes('\u2014'), `expected decoded em-dash in summary, got: ${summary}`);
 });

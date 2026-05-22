@@ -24,21 +24,26 @@ function createFetchResponse(body: string, contentType = 'text/html; charset=utf
   });
 }
 
-function installHtmlFetchMock(brandUrl: string, html: string): () => void {
+function installHtmlFetchMock(brandUrl: string, html: string): { restore: () => void; fetchImpl: typeof fetch } {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
+  const fakeFetch = (async (input: RequestInfo | URL) => {
     const url = typeof input === 'string'
       ? input
       : input instanceof URL ? input.toString() : input.url;
     if (url === brandUrl) return createFetchResponse(html);
     return new Response('not found', { status: 404 });
-  }) as typeof globalThis.fetch;
-  return () => { globalThis.fetch = originalFetch; };
+  }) as typeof fetch;
+  // Also install as globalThis.fetch for any caller that cannot receive fetchImpl.
+  globalThis.fetch = fakeFetch as typeof globalThis.fetch;
+  return {
+    restore: () => { globalThis.fetch = originalFetch; },
+    fetchImpl: fakeFetch,
+  };
 }
 
 test('extractBrandKitFromWebsite surfaces an inline <nav><svg class="logo"> as a data: URL candidate', async () => {
   const brandUrl = 'https://nav-svg-logo.example';
-  const restore = installHtmlFetchMock(brandUrl, `<!doctype html>
+  const { restore, fetchImpl } = installHtmlFetchMock(brandUrl, `<!doctype html>
     <html>
       <head><title>Nav SVG Co</title></head>
       <body>
@@ -53,7 +58,7 @@ test('extractBrandKitFromWebsite surfaces an inline <nav><svg class="logo"> as a
 
   try {
     const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
-    const brandKit = await extractBrandKitFromWebsite({ tenantId: 'nav-svg', brandUrl });
+    const brandKit = await extractBrandKitFromWebsite({ tenantId: 'nav-svg', brandUrl, fetchImpl });
     assert.ok(brandKit.logo_urls.length > 0, 'expected at least one logo candidate');
     const svgCandidate = brandKit.logo_urls.find((url) => url.startsWith('data:image/svg+xml'));
     assert.ok(svgCandidate, `expected a data:image/svg+xml candidate, got: ${brandKit.logo_urls.join(', ')}`);
@@ -70,7 +75,7 @@ test('extractBrandKitFromWebsite surfaces an inline <nav><svg class="logo"> as a
 
 test('extractBrandKitFromWebsite surfaces <link rel=icon> favicons as a fallback candidate', async () => {
   const brandUrl = 'https://favicon-fallback.example';
-  const restore = installHtmlFetchMock(brandUrl, `<!doctype html>
+  const { restore, fetchImpl } = installHtmlFetchMock(brandUrl, `<!doctype html>
     <html>
       <head>
         <title>Favicon Fallback Co</title>
@@ -81,7 +86,7 @@ test('extractBrandKitFromWebsite surfaces <link rel=icon> favicons as a fallback
 
   try {
     const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
-    const brandKit = await extractBrandKitFromWebsite({ tenantId: 'favicon-fallback', brandUrl });
+    const brandKit = await extractBrandKitFromWebsite({ tenantId: 'favicon-fallback', brandUrl, fetchImpl });
     assert.ok(
       brandKit.logo_urls.includes('https://favicon-fallback.example/favicon.ico'),
       `expected resolved favicon URL, got: ${JSON.stringify(brandKit.logo_urls)}`,
@@ -93,7 +98,7 @@ test('extractBrandKitFromWebsite surfaces <link rel=icon> favicons as a fallback
 
 test('extractBrandKitFromWebsite falls back to og:image when no higher-signal logo exists', async () => {
   const brandUrl = 'https://og-fallback.example';
-  const restore = installHtmlFetchMock(brandUrl, `<!doctype html>
+  const { restore, fetchImpl } = installHtmlFetchMock(brandUrl, `<!doctype html>
     <html>
       <head>
         <title>Og Fallback Co</title>
@@ -104,7 +109,7 @@ test('extractBrandKitFromWebsite falls back to og:image when no higher-signal lo
 
   try {
     const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
-    const brandKit = await extractBrandKitFromWebsite({ tenantId: 'og-fallback', brandUrl });
+    const brandKit = await extractBrandKitFromWebsite({ tenantId: 'og-fallback', brandUrl, fetchImpl });
     assert.ok(
       brandKit.logo_urls.includes('https://og-fallback.example/og/share-card.png'),
       `expected resolved og:image URL in fallback, got: ${JSON.stringify(brandKit.logo_urls)}`,
@@ -116,7 +121,7 @@ test('extractBrandKitFromWebsite falls back to og:image when no higher-signal lo
 
 test('extractBrandKitFromWebsite prefers explicit-signal <img> logos over favicon/og fallbacks', async () => {
   const brandUrl = 'https://explicit-signal.example';
-  const restore = installHtmlFetchMock(brandUrl, `<!doctype html>
+  const { restore, fetchImpl } = installHtmlFetchMock(brandUrl, `<!doctype html>
     <html>
       <head>
         <title>Explicit Signal Co</title>
@@ -132,7 +137,7 @@ test('extractBrandKitFromWebsite prefers explicit-signal <img> logos over favico
 
   try {
     const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
-    const brandKit = await extractBrandKitFromWebsite({ tenantId: 'explicit-signal', brandUrl });
+    const brandKit = await extractBrandKitFromWebsite({ tenantId: 'explicit-signal', brandUrl, fetchImpl });
     assert.equal(brandKit.logo_urls[0], 'https://explicit-signal.example/assets/brand-logo.svg');
     // Fallback candidates must not leak in when an explicit-signal logo wins.
     assert.equal(brandKit.logo_urls.includes('https://explicit-signal.example/favicon.ico'), false);
@@ -144,7 +149,7 @@ test('extractBrandKitFromWebsite prefers explicit-signal <img> logos over favico
 
 test('extractBrandKitFromWebsite qualifies a header inline <svg role="img"> without a logo class as a candidate', async () => {
   const brandUrl = 'https://role-img-svg.example';
-  const restore = installHtmlFetchMock(brandUrl, `<!doctype html>
+  const { restore, fetchImpl } = installHtmlFetchMock(brandUrl, `<!doctype html>
     <html>
       <head><title>Role Img Co</title></head>
       <body>
@@ -158,7 +163,7 @@ test('extractBrandKitFromWebsite qualifies a header inline <svg role="img"> with
 
   try {
     const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
-    const brandKit = await extractBrandKitFromWebsite({ tenantId: 'role-img-svg', brandUrl });
+    const brandKit = await extractBrandKitFromWebsite({ tenantId: 'role-img-svg', brandUrl, fetchImpl });
     const svgCandidate = brandKit.logo_urls.find((url) => url.startsWith('data:image/svg+xml'));
     assert.ok(
       svgCandidate,
@@ -173,7 +178,7 @@ test('extractBrandKitFromWebsite qualifies a header inline <svg role="img"> with
 
 test('extractBrandKitFromWebsite ranks og:image before favicon when both are tie-break fallbacks', async () => {
   const brandUrl = 'https://og-vs-favicon.example';
-  const restore = installHtmlFetchMock(brandUrl, `<!doctype html>
+  const { restore, fetchImpl } = installHtmlFetchMock(brandUrl, `<!doctype html>
     <html>
       <head>
         <title>Og Vs Favicon Co</title>
@@ -185,7 +190,7 @@ test('extractBrandKitFromWebsite ranks og:image before favicon when both are tie
 
   try {
     const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
-    const brandKit = await extractBrandKitFromWebsite({ tenantId: 'og-vs-favicon', brandUrl });
+    const brandKit = await extractBrandKitFromWebsite({ tenantId: 'og-vs-favicon', brandUrl, fetchImpl });
     assert.ok(brandKit.logo_urls.length > 0, 'expected at least one logo candidate');
     const ogIndex = brandKit.logo_urls.indexOf('https://og-vs-favicon.example/og.png');
     const faviconIndex = brandKit.logo_urls.indexOf('https://og-vs-favicon.example/favicon.ico');
@@ -202,7 +207,7 @@ test('extractBrandKitFromWebsite ranks og:image before favicon when both are tie
 
 test('extractBrandKitFromWebsite returns empty logo_urls when no logo-like assets exist', async () => {
   const brandUrl = 'https://no-logo.example';
-  const restore = installHtmlFetchMock(brandUrl, `<!doctype html>
+  const { restore, fetchImpl } = installHtmlFetchMock(brandUrl, `<!doctype html>
     <html>
       <head><title>No Logo Co</title></head>
       <body>
@@ -213,7 +218,7 @@ test('extractBrandKitFromWebsite returns empty logo_urls when no logo-like asset
 
   try {
     const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
-    const brandKit = await extractBrandKitFromWebsite({ tenantId: 'no-logo', brandUrl });
+    const brandKit = await extractBrandKitFromWebsite({ tenantId: 'no-logo', brandUrl, fetchImpl });
     assert.deepEqual(brandKit.logo_urls, [], `expected empty logo_urls, got: ${JSON.stringify(brandKit.logo_urls)}`);
   } finally {
     restore();
@@ -227,7 +232,7 @@ test('extractBrandKitFromWebsite returns empty logo_urls when no logo-like asset
 // by source tier (svg > og > link > img) AND requires img score >= 0.
 test('extractBrandKitFromWebsite fallback prefers og:image over a pile of generic <img> tags', async () => {
   const brandUrl = 'https://og-vs-pile.example';
-  const restore = installHtmlFetchMock(brandUrl, `<!doctype html>
+  const { restore, fetchImpl } = installHtmlFetchMock(brandUrl, `<!doctype html>
     <html>
       <head>
         <title>Og Vs Pile Co</title>
@@ -246,7 +251,7 @@ test('extractBrandKitFromWebsite fallback prefers og:image over a pile of generi
 
   try {
     const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
-    const brandKit = await extractBrandKitFromWebsite({ tenantId: 'og-vs-pile', brandUrl });
+    const brandKit = await extractBrandKitFromWebsite({ tenantId: 'og-vs-pile', brandUrl, fetchImpl });
     assert.ok(
       brandKit.logo_urls.includes('https://og-vs-pile.example/og/share-card.png'),
       `expected og:image fallback, got: ${JSON.stringify(brandKit.logo_urls)}`,
@@ -266,7 +271,7 @@ test('extractBrandKitFromWebsite fallback prefers og:image over a pile of generi
 
 test('extractBrandKitFromWebsite fallback prefers favicon over a pile of demoted <img> tags', async () => {
   const brandUrl = 'https://favicon-vs-pile.example';
-  const restore = installHtmlFetchMock(brandUrl, `<!doctype html>
+  const { restore, fetchImpl } = installHtmlFetchMock(brandUrl, `<!doctype html>
     <html>
       <head>
         <title>Favicon Vs Pile Co</title>
@@ -285,7 +290,7 @@ test('extractBrandKitFromWebsite fallback prefers favicon over a pile of demoted
 
   try {
     const { extractBrandKitFromWebsite } = await import('../backend/marketing/brand-kit');
-    const brandKit = await extractBrandKitFromWebsite({ tenantId: 'favicon-vs-pile', brandUrl });
+    const brandKit = await extractBrandKitFromWebsite({ tenantId: 'favicon-vs-pile', brandUrl, fetchImpl });
     assert.ok(
       brandKit.logo_urls.includes('https://favicon-vs-pile.example/favicon.ico'),
       `expected favicon fallback, got: ${JSON.stringify(brandKit.logo_urls)}`,

@@ -145,7 +145,33 @@ function stageStepPath(dataRoot: string, stage: 1 | 2 | 3 | 4, runId: string, st
 }
 
 test('marketing job creation response omits banned runtime and tenant fields', async () => {
-  await withRuntimeEnv(async () => {
+  await withRuntimeEnv(async (dataRoot) => {
+    // Pre-seed a brand kit so extractAndSaveTenantBrandKit takes the fast
+    // path without making any outbound fetch calls (which would fail DNS on
+    // the fake brand.example domain after SSRF hardening).
+    const brandKitDir = path.join(dataRoot, 'generated', 'validated', 'tenant_real');
+    await mkdir(brandKitDir, { recursive: true });
+    await writeFile(
+      path.join(brandKitDir, 'brand-kit.json'),
+      JSON.stringify({
+        tenant_id: 'tenant_real',
+        source_url: 'https://brand.example/',
+        canonical_url: 'https://brand.example/',
+        brand_name: 'Brand Example',
+        logo_urls: ['https://brand.example/assets/logo.svg'],
+        colors: { primary: '#111111', secondary: '#f4f4f4', accent: '#c24d2c', palette: ['#111111', '#f4f4f4', '#c24d2c'] },
+        font_families: ['Manrope'],
+        external_links: [],
+        extracted_at: new Date().toISOString(),
+        brand_voice_summary: 'Brand Example helps teams launch proof-led campaigns.',
+        offer_summary: null,
+        positioning: 'proof-led',
+        audience: 'marketing teams',
+        tone_of_voice: 'professional',
+        style_vibe: 'minimal',
+      }, null, 2),
+    );
+
     const { handlePostMarketingJobs } = await import('../app/api/marketing/jobs/handler');
     const { __setMarketingExecutionPortForTests } = await import('../backend/marketing/orchestrator');
     let capturedArgsJson = '';

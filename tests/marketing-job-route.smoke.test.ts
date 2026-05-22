@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -10,7 +10,42 @@ import { oauthStore } from '../backend/integrations/oauth-memory-store';
 
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
-async function withMarketingRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>): Promise<T> {
+// Pre-seeds a brand-kit.json for the given tenant so extractAndSaveTenantBrandKit
+// takes the fast cache path and never issues a DNS lookup for brand.example.
+async function seedBrandKitForTenant(dataRoot: string, tenantId: string): Promise<void> {
+  const kitDir = path.join(dataRoot, 'generated', 'validated', tenantId);
+  await mkdir(kitDir, { recursive: true });
+  await writeFile(
+    path.join(kitDir, 'brand-kit.json'),
+    JSON.stringify({
+      tenant_id: tenantId,
+      source_url: 'https://brand.example/',
+      canonical_url: 'https://brand.example/',
+      brand_name: 'Brand Example',
+      logo_urls: ['https://brand.example/assets/logo.svg'],
+      colors: {
+        primary: '#111111',
+        secondary: '#f4f4f4',
+        accent: '#c24d2c',
+        palette: ['#111111', '#f4f4f4', '#c24d2c'],
+      },
+      font_families: ['Manrope'],
+      external_links: [],
+      extracted_at: new Date().toISOString(),
+      brand_voice_summary: 'Brand Example helps teams launch proof-led campaigns.',
+      offer_summary: null,
+      positioning: 'proof-led',
+      audience: 'marketing teams',
+      tone_of_voice: 'professional',
+      style_vibe: 'minimal',
+    }, null, 2),
+  );
+}
+
+async function withMarketingRuntimeEnv<T>(
+  tenantId: string,
+  run: (dataRoot: string) => Promise<T>,
+): Promise<T> {
   const previousCodeRoot = process.env.CODE_ROOT;
   const previousDataRoot = process.env.DATA_ROOT;
   const previousPipelineCwd = process.env.ARTIFACT_PIPELINE_CWD;
@@ -26,6 +61,10 @@ async function withMarketingRuntimeEnv<T>(run: (dataRoot: string) => Promise<T>)
   process.env.DATA_ROOT = dataRoot;
   process.env.ARTIFACT_PIPELINE_CWD = path.join(PROJECT_ROOT, 'lobster');
   process.env.ARTIFACT_PIPELINE_GATEWAY_CWD = 'lobster';
+
+  // Pre-seed brand kit so the orchestrator path never makes a live DNS request
+  // for brand.example (which resolves to nothing in the test environment).
+  await seedBrandKitForTenant(dataRoot, tenantId);
 
   try {
     return await run(dataRoot);
@@ -60,7 +99,7 @@ function seedOpenAiConnection(input: { tenantId: string; connectionId: string; u
 }
 
 test('/api/marketing/jobs reaches the first approval checkpoint through the real handler path', async () => {
-  await withMarketingRuntimeEnv(async (dataRoot) => {
+  await withMarketingRuntimeEnv('tenant_route_smoke', async (dataRoot) => {
     const captured: Array<Record<string, unknown>> = [];
     (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__ = (payload: Record<string, unknown>) => {
       captured.push(payload);
@@ -123,7 +162,7 @@ test('/api/marketing/jobs reaches the first approval checkpoint through the real
 });
 
 test('/api/social-content/jobs accepts weekly_social_content and returns 202', async () => {
-  await withMarketingRuntimeEnv(async () => {
+  await withMarketingRuntimeEnv('tenant_social_route', async () => {
     seedOpenAiConnection({
       tenantId: 'tenant_social_route',
       connectionId: 'conn_openai_social_route',
@@ -181,7 +220,7 @@ test('/api/social-content/jobs accepts weekly_social_content and returns 202', a
 });
 
 test('/api/social-content/jobs forces weekly_social_content even when caller sends another jobType', async () => {
-  await withMarketingRuntimeEnv(async () => {
+  await withMarketingRuntimeEnv('tenant_social_route_forced_weekly', async () => {
     seedOpenAiConnection({
       tenantId: 'tenant_social_route_forced_weekly',
       connectionId: 'conn_openai_social_route_forced_weekly',
@@ -237,7 +276,7 @@ test('/api/social-content/jobs forces weekly_social_content even when caller sen
 });
 
 test('/api/social-content/jobs submits Hermes only even when legacy-openclaw is selected', async () => {
-  await withMarketingRuntimeEnv(async () => {
+  await withMarketingRuntimeEnv('tenant_social_route_hermes_only', async () => {
     const previousFetch = globalThis.fetch;
     const previousEnv = {
       ARIES_MARKETING_EXECUTION_PROVIDER: process.env.ARIES_MARKETING_EXECUTION_PROVIDER,
@@ -352,7 +391,7 @@ test('/api/social-content/jobs submits Hermes only even when legacy-openclaw is 
 });
 
 test('/api/marketing/jobs remains backward-compatible alias with weekly_social_content', async () => {
-  await withMarketingRuntimeEnv(async () => {
+  await withMarketingRuntimeEnv('tenant_marketing_alias', async () => {
     seedOpenAiConnection({
       tenantId: 'tenant_marketing_alias',
       connectionId: 'conn_openai_marketing_alias',
@@ -407,7 +446,7 @@ test('/api/marketing/jobs remains backward-compatible alias with weekly_social_c
 });
 
 test('/api/social-content/jobs accepts media generation without Aries-side OpenAI connection state', async () => {
-  await withMarketingRuntimeEnv(async () => {
+  await withMarketingRuntimeEnv('tenant_social_route_missing_openai', async () => {
     let invoked = false;
     (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__ = () => {
       invoked = true;
@@ -454,7 +493,7 @@ test('/api/social-content/jobs accepts media generation without Aries-side OpenA
 });
 
 test('/api/social-content/jobs strips token-shaped payload fields from runtime and status JSON', async () => {
-  await withMarketingRuntimeEnv(async (dataRoot) => {
+  await withMarketingRuntimeEnv('tenant_social_route_token_safety', async (dataRoot) => {
     const secretValues = [
       'sk-openai-runtime-leak',
       'raw-access-token-leak',
@@ -547,7 +586,7 @@ test('/api/social-content/jobs strips token-shaped payload fields from runtime a
 });
 
 test('/api/social-content/jobs ignores expired Aries OpenAI connections for Hermes-owned media generation', async () => {
-  await withMarketingRuntimeEnv(async (dataRoot) => {
+  await withMarketingRuntimeEnv('tenant_social_route_expired_openai', async (dataRoot) => {
     seedOpenAiConnection({
       tenantId: 'tenant_social_route_expired_openai',
       connectionId: 'conn_expired_openai',
@@ -602,7 +641,7 @@ test('/api/social-content/jobs ignores expired Aries OpenAI connections for Herm
 });
 
 test('/api/social-content/jobs allows text planning when image/video generation is disabled', async () => {
-  await withMarketingRuntimeEnv(async () => {
+  await withMarketingRuntimeEnv('tenant_social_route_text_only', async () => {
     (globalThis as Record<string, unknown>).__ARIES_EXECUTION_TEST_INVOKER__ = () => {
       return {
         ok: true,
@@ -657,7 +696,7 @@ test('/api/social-content/jobs allows text planning when image/video generation 
 });
 
 test('/api/social-content/jobs preserves user Campaign text while socializing generated status copy', async () => {
-  await withMarketingRuntimeEnv(async () => {
+  await withMarketingRuntimeEnv('tenant_social_route_campaign_monitor', async () => {
     const { handlePostMarketingJobs } = await import('../app/api/marketing/jobs/handler');
     const { handleGetMarketingJobStatus } = await import('../app/api/marketing/jobs/[jobId]/handler');
     const { loadMarketingJobRuntime, saveMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
