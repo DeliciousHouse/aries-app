@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.6.4 — fix(security): stop leaking error detail on profile route 500s
+
+Completes the v0.1.6.3 error-exposure work. CodeQL still flagged three profile route handlers (`business/profile`, `tenant/profiles`, `tenant/profiles/[userId]`) for `js/stack-trace-exposure`: v0.1.6.3 genericized the authentication-error paths, but the database-operation catch blocks still returned raw `error.message` to the client on unexpected failures. Those 500-path responses now return a generic "An unexpected error occurred"; known domain error codes (field validation, `tenant_not_found`, `invalid_role`, `brand_kit_*`) are still returned literally so the frontend contract is unchanged. The full error and stack trace are now logged server-side, so debuggability is preserved. Closes CodeQL alerts #8, #13, and #14.
+
 ## v0.1.6.3 — fix(security): resolve CodeQL ReDoS and error-exposure findings
 
 Fixes the open CodeQL code-scanning security findings. The email-validation regex in the forgot-password, reset-password, and early-access routes had ambiguous quantifier overlap that allowed polynomial-time backtracking on crafted input (a denial-of-service vector); it is replaced with a non-backtracking pattern that requires a properly dotted domain. Nine API route handlers (calendar sync, integrations, publish dispatch/retry, Facebook/Instagram publish, tenant profiles, business profile) returned raw error messages to clients, leaking internal error detail; they now return generic messages. Two findings in the deleted `lobster/` Python files were already resolved by the v0.1.6.0 OpenClaw removal. The `postcss` Dependabot advisory is resolved by the batched dependency PR.

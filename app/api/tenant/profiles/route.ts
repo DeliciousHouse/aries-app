@@ -61,7 +61,13 @@ export async function POST(req: Request) {
       return json({ error: message }, 400);
     }
 
-    return json({ error: message }, 500);
+    console.error('[tenant-profiles]', {
+      event: 'create-failed',
+      tenantId: tenantContext.tenantId,
+      error: message,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    return json({ error: 'An unexpected error occurred' }, 500);
   } finally {
     client.release();
   }
