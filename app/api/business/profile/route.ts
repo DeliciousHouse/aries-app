@@ -70,7 +70,16 @@ export async function GET(req: Request) {
     return json({ profile: resolved.profile });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return json({ error: message }, message === 'tenant_not_found' ? 404 : 500);
+    if (message === 'tenant_not_found') {
+      return json({ error: 'tenant_not_found' }, 404);
+    }
+    console.error('[business-profile]', {
+      event: 'read-failed',
+      tenantId: tenantContext.tenantId,
+      error: message,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    return json({ error: 'An unexpected error occurred' }, 500);
   } finally {
     client.release();
   }
@@ -157,7 +166,8 @@ export async function PATCH(req: Request) {
       error: message,
       stack: error instanceof Error ? error.stack : undefined,
     });
-    return json({ error: message }, errorStatus(message));
+    const status = errorStatus(message);
+    return json({ error: status === 500 ? 'An unexpected error occurred' : message }, status);
   } finally {
     client.release();
   }
