@@ -328,6 +328,17 @@ jobs:
             exit 1
           fi
 
+          # Roll the scheduled-posts-worker sidecar to the same image after the
+          # app is confirmed healthy. Shares ARIES_APP_IMAGE with aries-app so
+          # the worker process stays in lockstep with the web code. --no-deps
+          # mirrors the aries-app handling above; aries-app's depends_on only
+          # gates initial startup, not per-deploy recreation. Sidecar failure is
+          # NOT fatal: the worker is best-effort relative to scheduled posts,
+          # not the user-facing app.
+          if ! ARIES_APP_IMAGE="${TARGET_IMAGE}" docker compose up -d --no-deps --force-recreate --pull always aries-scheduled-posts-worker; then
+            echo "WARNING: failed to recreate aries-scheduled-posts-worker; app deploy is healthy, continuing." >&2
+          fi
+
           echo "Post-deploy cleanup: pruning Docker buildx cache to keep approximately 2GB."
           if ! docker buildx prune --keep-storage=2GB --force; then
             echo "WARNING: docker buildx prune failed; deploy is healthy, continuing." >&2
