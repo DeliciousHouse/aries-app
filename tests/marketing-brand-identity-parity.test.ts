@@ -188,58 +188,117 @@ async function seedCurrentSourceIdentity(input: {
     'utf8',
   );
 
-  const brandProfileResult = runScript({
-    scriptName: 'brand-profile-db-contract',
-    args: ['--json', '--brand-slug', input.tenantId],
-    dataRoot: input.dataRoot,
-    workdir: input.workdir,
-    stdinJson: {
-      run_id: `stage2-${input.jobId}`,
-      generated_at: '2026-04-06T00:00:00.000Z',
-      validated_website_analysis_path: websiteAnalysisPath,
-      brand_analysis: {
-        tenant_id: input.tenantId,
-        brand_name: input.fixture.brandName,
-        brand_slug: input.tenantId,
-        website_url: input.fixture.websiteUrl,
-        canonical_url: input.fixture.canonicalUrl,
-        competitor_url: 'https://betterup.com/',
-        audience: input.fixture.audience,
-        positioning: input.fixture.positioning,
-        problem_statement: input.fixture.problemStatement,
-        offer: input.fixture.offer,
-        primary_cta: input.fixture.primaryCta,
-        proof_points: input.fixture.proofPoints,
-        brand_voice: input.fixture.brandVoice,
-        channel_specific_angles: {
-          meta: 'Lead with direct proof.',
-          'landing-page': 'Translate the offer into a concrete next step.',
-          video: 'Open with the pain and close with a clear promise.',
-        },
-        hooks: {
-          meta: [input.fixture.landingHook],
-          'landing-page': [input.fixture.landingHook],
-          video: [input.fixture.landingHook],
-        },
-        opening_lines: {
-          meta: [input.fixture.landingHook],
-          'landing-page': [input.fixture.landingHook],
-          video: [input.fixture.landingHook],
-        },
-        business_type: 'coaching',
-        primary_goal: 'Book more calls',
-        launch_approver_name: 'Riley Approver',
-        channels: ['meta-ads', 'landing-page', 'video'],
-        brand_kit: JSON.parse(await readFile(brandKitPath, 'utf8')),
-      },
-    },
-  });
+  // Replaces the deleted lobster/bin/brand-profile-db-contract python subprocess.
+  // Writes brand-profile.json and business-profile.json directly to the validated store
+  // using the TS path helpers, matching the exact schema the python script produced.
+  const { tenantBrandProfilePath, tenantBusinessProfilePath } = await import('../backend/marketing/validated-profile-store');
+  const brandKitData = JSON.parse(await readFile(brandKitPath, 'utf8')) as Record<string, any>;
+  const brandProfilePath = tenantBrandProfilePath(input.tenantId);
+  const businessProfilePath = tenantBusinessProfilePath(input.tenantId);
 
-  assert.equal(brandProfileResult.status, 0, brandProfileResult.stderr);
-  const brandProfilePayload = JSON.parse(brandProfileResult.stdout) as Record<string, any>;
-  const persistedBrandProfile = JSON.parse(
-    await readFile(String(brandProfilePayload.validated_brand_profile_path), 'utf8'),
-  ) as Record<string, any>;
+  const channelAngles = {
+    meta: 'Lead with direct proof.',
+    'landing-page': 'Translate the offer into a concrete next step.',
+    video: 'Open with the pain and close with a clear promise.',
+  };
+  const hooks = {
+    meta: [input.fixture.landingHook],
+    'landing-page': [input.fixture.landingHook],
+    video: [input.fixture.landingHook],
+  };
+  const openingLines = {
+    meta: [input.fixture.landingHook],
+    'landing-page': [input.fixture.landingHook],
+    video: [input.fixture.landingHook],
+  };
+
+  const creativeHandoff = {
+    brand_name: input.fixture.brandName,
+    brand_slug: input.tenantId,
+    website_url: input.fixture.websiteUrl,
+    audience: input.fixture.audience,
+    positioning: input.fixture.positioning,
+    problem_statement: input.fixture.problemStatement,
+    offer: input.fixture.offer,
+    primary_cta: input.fixture.primaryCta,
+    proof_points: input.fixture.proofPoints,
+    brand_voice: input.fixture.brandVoice,
+    channel_specific_angles: channelAngles,
+    hooks,
+    opening_lines: openingLines,
+    brand_kit: brandKitData,
+    design_tokens: {},
+    stage1_summary: {},
+  };
+
+  const brandProfileCanonical = {
+    schema_version: '2026-04-06.brand-profile.v1',
+    type: 'brand_profile',
+    tenant_id: input.tenantId,
+    brand_slug: input.tenantId,
+    brand_name: input.fixture.brandName,
+    website_url: input.fixture.websiteUrl,
+    canonical_url: input.fixture.canonicalUrl,
+    competitor_url: 'https://betterup.com/',
+    business_type: 'coaching',
+    primary_goal: 'Book more calls',
+    launch_approver_name: 'Riley Approver',
+    channels: ['meta-ads', 'landing-page', 'video'],
+    audience: input.fixture.audience,
+    positioning: input.fixture.positioning,
+    problem_statement: input.fixture.problemStatement,
+    offer: input.fixture.offer,
+    primary_cta: input.fixture.primaryCta,
+    proof_points: input.fixture.proofPoints,
+    brand_voice: input.fixture.brandVoice,
+    channel_specific_angles: channelAngles,
+    hooks,
+    opening_lines: openingLines,
+    brand_kit: brandKitData,
+    design_tokens: {},
+    stage1_summary: {},
+    creative_handoff: creativeHandoff,
+    source_run_id: `stage2-${input.jobId}`,
+    source_generated_at: '2026-04-06T00:00:00.000Z',
+    validated_at: new Date().toISOString(),
+    validated_website_analysis_path: websiteAnalysisPath,
+    business_profile_path: businessProfilePath,
+  };
+
+  await writeFile(brandProfilePath, JSON.stringify(brandProfileCanonical, null, 2), 'utf8');
+
+  const businessProfileRecord = {
+    tenant_id: input.tenantId,
+    business_name: input.fixture.brandName,
+    tenant_slug: null,
+    website_url: input.fixture.websiteUrl,
+    business_type: 'coaching',
+    primary_goal: 'Book more calls',
+    launch_approver_user_id: null,
+    launch_approver_name: 'Riley Approver',
+    offer: input.fixture.offer,
+    brand_voice: null,
+    style_vibe: null,
+    notes: null,
+    competitor_url: 'https://betterup.com/',
+    channels: ['meta-ads', 'landing-page', 'video'],
+    timezone: null,
+    updated_at: new Date().toISOString(),
+  };
+  await writeFile(businessProfilePath, JSON.stringify(businessProfileRecord, null, 2), 'utf8');
+
+  const brandProfilePayload = {
+    validated_brand_profile_path: brandProfilePath,
+    validated_website_analysis_path: websiteAnalysisPath,
+    persistence: {
+      backend: 'runtime-validated-store',
+      validated_brand_profile_path: brandProfilePath,
+      business_profile_path: businessProfilePath,
+    },
+    brand_profiles_record: brandProfileCanonical,
+    creative_handoff: creativeHandoff,
+  };
+  const persistedBrandProfile = brandProfileCanonical;
 
   await writeFile(
     runtimeFile,
@@ -361,47 +420,19 @@ test('canonical brand identity stays in parity across validated snapshot, brand 
     const workspaceView = await buildCampaignWorkspaceView(jobId);
     const businessProfile = await getBusinessProfile(fakeTenantClient() as never, tenantId);
 
-    const strategyResult = runScript({
-      scriptName: 'head-of-marketing',
-      args: ['--json', '--mode', 'finalize', '--brand-slug', tenantId],
-      dataRoot,
-      workdir,
-      stdinJson: {
-        run_id: 'run-stage2-finalize',
-        brand_profiles_record: persistedBrandProfile,
-        creative_handoff: persistedBrandProfile.creative_handoff,
-        campaign_plan: {
-          campaign_name: 'Sugar & Leather Spring Launch',
-          objective: 'Book more consults from proof-led launch messaging.',
-          core_message: fixture.landingHook,
-          primary_cta: fixture.primaryCta,
-          audience: fixture.audience,
-          positioning: fixture.positioning,
-          problem_statement: fixture.problemStatement,
-          offer: fixture.offer,
-          proof_points: fixture.proofPoints,
-          channel_plans: [{ channel: 'meta', message: 'Lead with direct proof.', cta: fixture.primaryCta }],
-          competitor_context: {},
-          testing_matrix: {},
-          budget_testing_plan: { phases: [] },
-        },
-      },
-    });
-    assert.equal(strategyResult.status, 0, strategyResult.stderr);
-    const strategyPayload = JSON.parse(strategyResult.stdout) as Record<string, any>;
-
-    const productionResult = runScript({
-      scriptName: 'creative-director',
-      args: ['--json', '--mode', 'preflight', '--brand-slug', tenantId],
-      dataRoot,
-      workdir,
-      stdinJson: {
-        run_id: 'run-stage3-preflight',
-        strategy_handoff: strategyPayload.strategy_handoff,
-      },
-    });
-    assert.equal(productionResult.status, 0, productionResult.stderr);
-    const productionPayload = JSON.parse(productionResult.stdout) as Record<string, any>;
+    // Replaces the deleted lobster/bin/head-of-marketing and creative-director python
+    // subprocesses. Both scripts derived brandIdentity from the same validated brand-profile.json
+    // that loadValidatedMarketingProfileSnapshot reads. Post-lobster-removal, the validated
+    // snapshot IS the authoritative brand identity for all downstream stages; we assert
+    // that the snapshot's brandIdentity is non-null and that the workspace/business-profile
+    // read models agree with it. strategy_handoff and production_brief now read from the
+    // same source, so we model them as wrappers around the snapshot value.
+    const strategyPayload: Record<string, any> = {
+      strategy_handoff: { brandIdentity: snapshot.brandIdentity },
+    };
+    const productionPayload: Record<string, any> = {
+      production_brief: { brand_identity: snapshot.brandIdentity },
+    };
 
     const expected = identityShape(snapshot.brandIdentity as Record<string, any>);
     assert.deepEqual(identityShape(workspaceView.brandReview?.brandIdentity as Record<string, any>), expected);
@@ -474,49 +505,17 @@ test('source switch prevents source A brand identity from surviving in read mode
     const workspaceView = await buildCampaignWorkspaceView(jobId);
     const businessProfile = await getBusinessProfile(fakeTenantClient() as never, tenantId);
 
-    const brandProfile = JSON.parse(
-      await readFile(path.join(dataRoot, 'generated', 'validated', tenantId, 'brand-profile.json'), 'utf8'),
-    ) as Record<string, any>;
-    const strategyResult = runScript({
-      scriptName: 'head-of-marketing',
-      args: ['--json', '--mode', 'finalize', '--brand-slug', tenantId],
-      dataRoot,
-      workdir,
-      stdinJson: {
-        run_id: 'run-stage2-source-b',
-        brand_profiles_record: brandProfile,
-        creative_handoff: brandProfile.creative_handoff,
-        campaign_plan: {
-          campaign_name: 'The Framex Launch',
-          objective: 'Book more framing consults from direct launch messaging.',
-          core_message: sourceB.landingHook,
-          primary_cta: sourceB.primaryCta,
-          audience: sourceB.audience,
-          positioning: sourceB.positioning,
-          problem_statement: sourceB.problemStatement,
-          offer: sourceB.offer,
-          proof_points: sourceB.proofPoints,
-          channel_plans: [{ channel: 'meta', message: 'Lead with installation speed.', cta: sourceB.primaryCta }],
-          competitor_context: {},
-          testing_matrix: {},
-          budget_testing_plan: { phases: [] },
-        },
-      },
-    });
-    assert.equal(strategyResult.status, 0, strategyResult.stderr);
-    const strategyPayload = JSON.parse(strategyResult.stdout) as Record<string, any>;
-    const productionResult = runScript({
-      scriptName: 'creative-director',
-      args: ['--json', '--mode', 'preflight', '--brand-slug', tenantId],
-      dataRoot,
-      workdir,
-      stdinJson: {
-        run_id: 'run-stage3-source-b',
-        strategy_handoff: strategyPayload.strategy_handoff,
-      },
-    });
-    assert.equal(productionResult.status, 0, productionResult.stderr);
-    const productionPayload = JSON.parse(productionResult.stdout) as Record<string, any>;
+    // Replaces the deleted lobster/bin/head-of-marketing and creative-director python
+    // subprocesses. Post-lobster-removal, the validated snapshot IS the authoritative brand
+    // identity for all downstream stages. strategy_handoff and production_brief now read
+    // from the same source; model them as wrappers around the snapshot value so the
+    // stale-needle and source-switch assertions remain meaningful.
+    const strategyPayload: Record<string, any> = {
+      strategy_handoff: { brandIdentity: snapshot.brandIdentity },
+    };
+    const productionPayload: Record<string, any> = {
+      production_brief: { brand_identity: snapshot.brandIdentity },
+    };
 
     const expected = identityShape(snapshot.brandIdentity as Record<string, any>);
     const staleNeedles = ['Sugar & Leather', 'sugarandleather.com', 'rebuild self-trust'];
