@@ -96,6 +96,32 @@ const steps = [
       'tests/partner-attribution-schema.test.ts',
     ],
   },
+  {
+    // Added 2026-05-23 after a 30-day P0 backlog of failing contract tests
+    // accumulated unblocked because verify was narrower than the full suite.
+    // These files are the ones whose drift triggered the backlog (Lobster
+    // python-script removal, OAuth memory->Postgres swap, execution-port seam
+    // swap, tenant-scoped artifact paths, public-surface copy, CodeQL
+    // hostname checks). Keep this step under ~35s wall-clock; if a test
+    // here regresses, prefer fixing the test contract over removing the file.
+    //
+    // Deliberately excluded (still tracked in CI's full suite):
+    //   - tests/frontend-api-layer.test.ts (~70s; needs split)
+    //   - tests/marketing-brand-identity-parity.test.ts (~64s; investigate hot loop)
+    name: 'post-30-day-backlog contract regression tests',
+    args: [
+      '--test',
+      'tests/onboarding-draft-route.test.ts',
+      'tests/auth/oauth-connect.test.ts',
+      'tests/auth/integrations-tenant-context.test.ts',
+      'tests/integrations-status.test.ts',
+      'tests/oauth-callback-runtime.test.ts',
+      'tests/oauth-refresh-meta.test.ts',
+      'tests/marketing-validated-runtime.test.ts',
+      'tests/review-surfaces-public.test.ts',
+      'tests/public-generated-routes.test.ts',
+    ],
+  },
 ];
 
 for (const [index, step] of steps.entries()) {
