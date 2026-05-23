@@ -85,5 +85,8 @@
     "react-test-renderer": "^19.2.6",
     "tailwindcss": "^4.3.0",
     "typescript": "5.7.3"
+  },
+  "overrides": {
+    "postcss": "$postcss"
   }
 }
