@@ -893,7 +893,8 @@ async function firstCheckpointAttachments(
   runtimeDoc: MarketingJobRuntimeDocument,
 ): Promise<MarketingReviewAttachment[]> {
   const attachments: MarketingReviewAttachment[] = [];
-  const assetLinks = new Map((await buildMarketingAssetLinks(runtimeDoc.job_id, runtimeDoc)).map((asset) => [asset.id, asset] as const));
+  const allAssetLinks = await buildMarketingAssetLinks(runtimeDoc.job_id, runtimeDoc);
+  const assetLinks = new Map(allAssetLinks.map((asset) => [asset.id, asset] as const));
   const researchSummary = assetLinks.get('research-summary');
   const brandKit = assetLinks.get('brand-kit-json');
   const brandBible = assetLinks.get('brand-bible-markdown');
