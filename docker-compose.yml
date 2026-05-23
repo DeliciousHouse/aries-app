@@ -150,6 +150,37 @@ services:
       start_period: 30s
     networks:
       - docker_stack
+  # Long-lived sidecar that drains the scheduled_posts table and POSTs due rows
+  # to /api/internal/publishing/scheduled-dispatch every 60 seconds. The worker
+  # script self-schedules via setInterval when started without
+  # ARIES_SCHEDULED_POSTS_RUN_ONCE, so this service just keeps that process up;
+  # single replica avoids racing the SQL claim-lock on the same row.
+  aries-scheduled-posts-worker:
+    image: ${ARIES_APP_IMAGE:-aries-app:local}
+    command: ["node", "scripts/automations/scheduled-posts-worker.mjs"]
+    depends_on:
+      aries-app:
+        condition: service_healthy
+    environment:
+      HOME: /home/node
+      NODE_ENV: production
+      CODE_ROOT: /app
+      DATA_ROOT: /data
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_POOL_MAX: 3
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      # Hit the in-network app, not the public URL — avoids a public DNS + TLS
+      # round-trip on every tick. The /api/internal/publishing/scheduled-dispatch
+      # route authenticates on INTERNAL_API_SECRET, not on host.
+      APP_BASE_URL: http://aries-app:${PORT:-3000}
+      NEXTAUTH_URL: http://aries-app:${PORT:-3000}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
+    restart: unless-stopped
+    networks:
+      - docker_stack
 networks:
   docker_stack:
     external: true
