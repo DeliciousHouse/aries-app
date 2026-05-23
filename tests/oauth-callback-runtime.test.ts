@@ -191,7 +191,8 @@ const providerCases: Array<{
     },
     scopes: ['openid', 'profile'],
     fetchImpl(url) {
-      if (url.includes('auth.openai.com/oauth/token')) {
+      const parsed = new URL(url);
+      if (parsed.hostname === 'auth.openai.com' && url.includes('/oauth/token')) {
         return Response.json({
           access_token: 'openai-access-token',
           refresh_token: 'openai-refresh-token',
@@ -215,7 +216,8 @@ const providerCases: Array<{
     },
     scopes: ['submit'],
     fetchImpl(url) {
-      if (url.includes('reddit.com/api/v1/access_token')) {
+      const parsed = new URL(url);
+      if (parsed.hostname === 'www.reddit.com' && url.includes('/api/v1/access_token')) {
         return Response.json({
           access_token: 'reddit-access-token',
           refresh_token: 'reddit-refresh-token',
@@ -224,7 +226,7 @@ const providerCases: Array<{
           scope: 'submit',
         });
       }
-      if (url.includes('oauth.reddit.com/api/v1/me')) {
+      if (parsed.hostname === 'oauth.reddit.com' && url.includes('/api/v1/me')) {
         return Response.json({ id: 't2_reddit_user', name: 'reddit_user' });
       }
       throw new Error(`Unexpected fetch URL for reddit test: ${url}`);
@@ -243,7 +245,8 @@ const providerCases: Array<{
     },
     scopes: ['video.publish'],
     fetchImpl(url) {
-      if (url.includes('open.tiktokapis.com/v2/oauth/token/')) {
+      const parsed = new URL(url);
+      if (parsed.hostname === 'open.tiktokapis.com' && url.includes('/v2/oauth/token/')) {
         return Response.json({
           access_token: 'tiktok-access-token',
           refresh_token: 'tiktok-refresh-token',
@@ -269,7 +272,8 @@ const providerCases: Array<{
     },
     scopes: ['https://www.googleapis.com/auth/youtube.upload'],
     fetchImpl(url) {
-      if (url.includes('oauth2.googleapis.com/token')) {
+      const parsed = new URL(url);
+      if (parsed.hostname === 'oauth2.googleapis.com' && url.includes('/token')) {
         return Response.json({
           access_token: 'youtube-access-token',
           refresh_token: 'youtube-refresh-token',
@@ -278,7 +282,7 @@ const providerCases: Array<{
           scope: 'https://www.googleapis.com/auth/youtube.upload',
         });
       }
-      if (url.includes('www.googleapis.com/youtube/v3/channels')) {
+      if (parsed.hostname === 'www.googleapis.com' && url.includes('/youtube/v3/channels')) {
         return Response.json({
           items: [{ id: 'yt-channel-123', snippet: { title: 'YouTube Test Channel' } }],
         });

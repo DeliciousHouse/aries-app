@@ -251,9 +251,9 @@ test('Meta refresh: long-lived exchange persists new token row and revokes old',
       let fetchCount = 0;
       t.mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
         const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-        if (url.includes('graph.facebook.com/oauth/access_token')) {
+        const parsed = new URL(url);
+        if (parsed.hostname === 'graph.facebook.com' && url.includes('/oauth/access_token')) {
           fetchCount += 1;
-          const parsed = new URL(url);
           assert.equal(parsed.searchParams.get('grant_type'), 'fb_exchange_token');
           assert.equal(parsed.searchParams.get('client_id'), 'meta-app-id');
           assert.equal(parsed.searchParams.get('client_secret'), 'meta-app-secret');
