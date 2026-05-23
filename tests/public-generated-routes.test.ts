@@ -128,8 +128,8 @@ test('public generated campaign route returns 404 when no artifact exists', asyn
     const body = await response.text();
 
     assert.equal(response.status, 404);
-    assert.equal(response.headers.get('content-type'), 'text/plain; charset=utf-8');
-    assert.match(body, /Public marketing route not found/);
+    assert.equal(response.headers.get('content-type'), 'text/html; charset=utf-8');
+    assert.match(body, /Page not found/);
   });
 });
 
