@@ -243,10 +243,24 @@ test('/api/onboarding/draft rejects reads and writes without an explicit draft t
 });
 
 
-test('/api/onboarding/draft returns a safe unavailable error when persistence fails', async (t) => {
+test('/api/onboarding/draft returns a safe unavailable error when persistence fails with a non-network error', async (t) => {
+  // Network/transient errors (ECONNREFUSED, ENOTFOUND, etc.) are intentionally
+  // caught by `shouldUseFallbackDraftStore` in backend/onboarding/draft-store.ts
+  // and routed to the DATA_ROOT fallback so pre-auth onboarding intake survives
+  // a Postgres outage. This test guards the *other* branch: when Postgres
+  // returns a non-recoverable error (auth failure, syntax error, etc.) the
+  // route must surface a safe 503 instead of leaking the raw error to the
+  // browser. Keep DB env vars set so `hasDatabaseConfig()` is true and the
+  // pool.query mock actually runs.
   await withDraftEnv(async () => {
+    process.env.DB_HOST = 'localhost';
+    process.env.DB_USER = 'aries_user';
+    process.env.DB_PASSWORD = 'aries_pass';
+    process.env.DB_NAME = 'aries_dev';
+
     installDbMock(t, () => {
-      throw new Error('connect ECONNREFUSED 127.0.0.1:5432 password=secret');
+      const err = Object.assign(new Error('password authentication failed for user "aries_user"'), { code: '28P01' });
+      throw err;
     });
     const route = await import('../app/api/onboarding/draft/route');
 
@@ -255,6 +269,6 @@ test('/api/onboarding/draft returns a safe unavailable error when persistence fa
 
     assert.equal(createdResponse.status, 503);
     assert.equal(createdBody.error, 'onboarding_draft_unavailable');
-    assert.doesNotMatch(createdBody.error, /ECONNREFUSED|127\.0\.0\.1|password|secret/i);
+    assert.doesNotMatch(JSON.stringify(createdBody), /password authentication failed|aries_user|28P01/i);
   });
 });
