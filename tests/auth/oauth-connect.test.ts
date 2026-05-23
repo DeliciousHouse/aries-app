@@ -608,16 +608,20 @@ test('oauth callback redirects browser requests to the branded OAuth screen', as
     // 4. /{pageId}?fields=instagram_business_account,...  → page detail (one call per page)
     t.mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      // Parse hostname for CodeQL-safe origin check (substring match on
+      // 'graph.facebook.com' would let 'graph.facebook.com.evil.com' through).
+      const parsed = new URL(url);
+      const isGraphFb = parsed.hostname === 'graph.facebook.com';
       // Short-lived token exchange (has `code=` param, no fb_exchange_token)
-      if (url.includes('graph.facebook.com') && url.includes('oauth/access_token') && url.includes('code=')) {
+      if (isGraphFb && url.includes('oauth/access_token') && url.includes('code=')) {
         return Response.json({ access_token: 'short-lived-token', token_type: 'bearer', expires_in: 3600 });
       }
       // Long-lived token exchange (has fb_exchange_token param)
-      if (url.includes('graph.facebook.com') && url.includes('oauth/access_token') && url.includes('fb_exchange_token')) {
+      if (isGraphFb && url.includes('oauth/access_token') && url.includes('fb_exchange_token')) {
         return Response.json({ access_token: 'long-lived-token', token_type: 'bearer', expires_in: 5183944 });
       }
       // Page list — /me/accounts
-      if (url.includes('graph.facebook.com') && url.includes('/me/accounts')) {
+      if (isGraphFb && url.includes('/me/accounts')) {
         return Response.json({
           data: [{
             id: 'page-123',
@@ -627,7 +631,7 @@ test('oauth callback redirects browser requests to the branded OAuth screen', as
         });
       }
       // Page detail — /{pageId}?fields=instagram_business_account,...
-      if (url.includes('graph.facebook.com') && url.includes('page-123') && url.includes('fields=')) {
+      if (isGraphFb && url.includes('page-123') && url.includes('fields=')) {
         return Response.json({
           id: 'page-123',
           name: 'Test Page',
