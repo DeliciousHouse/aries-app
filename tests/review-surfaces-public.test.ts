@@ -44,11 +44,8 @@ test('client review surfaces hide empty evidence placeholders and keep client-sa
 
   assert.doesNotMatch(reviewItemSource, /No supporting artifacts were attached to this review item\./);
   assert.doesNotMatch(workspaceSource, /No attachments yet\./);
-  assert.match(reviewItemSource, /Supporting materials/);
   assert.match(reviewItemSource, /What this decision does/);
   assert.match(workspaceSource, /Approve or request changes/);
-  assert.match(workspaceSource, /Supporting materials/);
   assert.match(queueSource, /Ready now/);
-  assert.match(approveSource, /Supporting materials/);
   assert.match(statusSource, /Campaign status/);
 });

@@ -8,7 +8,7 @@
 
 **Why:** Shipping from a branch while the base suite is already red makes every future PR noisier and hides real regressions behind unrelated failures.
 
-**Context:** Observed during `/ship` on branch `qa/four-qa-commits` on 2026-04-23. Failures included `tests/auth/auth-tenant-membership.test.ts` (`organization_slug_generation_failed`), `tests/auth/integrations-tenant-context.test.ts` (tenant-context assertions returning `disabled`, `pending_facebook`, or `404` instead of expected values), `tests/auth/oauth-connect.test.ts` (503/404 responses plus `ECONNREFUSED 127.0.0.1:5432` in callback flow), `tests/integrations-status.test.ts` (unexpected `unknown` / `error` health states), and `tests/oauth-callback-runtime.test.ts` (`META_APP_ID` expectation mismatch). These failures were present in the full suite during `/ship`; they were not part of the four QA commits being prepared for PR.
+**Context:** Observed during `/ship` on branch `qa/four-qa-commits` on 2026-04-23. **2026-05-23 retriage:** `tests/auth/auth-tenant-membership.test.ts` and `tests/oauth-callback-runtime.test.ts` now pass in isolation — historical failures were test-ordering pollution from the full suite. Still failing: `tests/auth/integrations-tenant-context.test.ts` (tenant-context returning `disabled`/`pending_facebook`/`404`), `tests/auth/oauth-connect.test.ts` (4 of 10: tests 5/7/8 return 503/404, test 10 hits ECONNREFUSED in callback flow), `tests/integrations-status.test.ts` (`unknown`/`error` health states). Shared root cause: tests seed `oauthStore()` (in-memory) but handlers now read from Postgres via `dbGetConnection`/`dbGetPendingState`; also missing `META_APP_ID`/`META_APP_SECRET` in test env, and `toTenantIdInt` requires numeric tenant IDs. Fix: replace `seedConnectedProvider` calls with `t.mock.method(oauthDb, 'dbGetConnection'/'dbGetPendingState', ...)`, set `META_APP_ID` + `META_APP_SECRET` + `OAUTH_TOKEN_ENCRYPTION_KEY` via `withEnv`, and switch tenant IDs to numeric strings (`'1'`, `'2'`).
 
 **Effort:** L
 **Priority:** P0
@@ -20,7 +20,7 @@
 
 **Why:** These tests cover the customer-facing campaign workspace and brand-profile pipeline. Leaving them red means the repo cannot reliably catch regressions in the exact parts of the app users see.
 
-**Context:** Observed during `/ship` on branch `qa/four-qa-commits` on 2026-04-23. Failures included `tests/frontend-api-layer.test.ts` (brand review hydration, legacy runtime docs without `brand_kit`, stage-log asset resolution, strategy approval state, upload-only brand review reopening, and brand-voice backfill), `tests/tenant/business-profile.test.ts` (`marketingPayloadDefaultsFromBusinessProfile derives defaults from validated brand analysis sources`), `tests/marketing-brand-identity-parity.test.ts`, `tests/marketing-competitor-canonical-flow.test.ts`, `tests/marketing-validated-runtime.test.ts`, and `tests/review-decision-idempotency.test.ts`. The most suspicious overlaps with this branch were re-run in a clean `origin/master` worktree and failed there too, confirming they are pre-existing base-branch failures, not regressions introduced by the four QA commits.
+**Context:** Observed during `/ship` on branch `qa/four-qa-commits` on 2026-04-23. **2026-05-23 retriage:** `tests/marketing-competitor-canonical-flow.test.ts` and `tests/review-decision-idempotency.test.ts` were deleted in `637c2f0` (Lobster removal) — no longer applicable. `tests/tenant/business-profile.test.ts` now passes (27/27). Still failing: (a) `tests/frontend-api-layer.test.ts` 17 tests in 4 groups — execution mock seam mismatch (tests using `__ARIES_EXECUTION_TEST_INVOKER__`/`legacy-openclaw` env need to switch to `__setMarketingExecutionPortForTests` + a `MarketingExecutionPort` mock), tenant-scoped artifact path layout (fixtures must write under `ARTIFACT_STAGEn_CACHE_DIR/<tenantId>/<runId>/`), source-fingerprint gating (fixture brand profile needs `website_url` matching `runtimeDoc.inputs.brand_url`), plus minor copy/window/voice drift (tests 6/9/29); (b) `tests/marketing-brand-identity-parity.test.ts` (tests 1+2) and `tests/marketing-validated-runtime.test.ts` (test 1) — call `runScript('brand-profile-db-contract')` invoking a python script deleted with Lobster; replace with direct calls to `backend/marketing/validated-profile-store.ts` (`tenantBrandProfilePath`, `loadValidatedMarketingProfileDocs`) and `backend/tenant/business-profile.ts` helpers.
 
 **Effort:** XL
 **Priority:** P0
@@ -38,7 +38,9 @@
 **Priority:** P0
 **Depends on:** None
 
-**/qa note 2026-05-07:** Partially addressed for onboarding drafts on `chore/preserve-local-pgadmin-compose` by `ab4fa6a` and regression-covered by `0680b67`; `POST /api/onboarding/draft` now falls back to `DATA_ROOT` when configured Postgres is unreachable. The broader auth/OAuth and missing-package failures in this TODO remain open.
+**/qa note 2026-05-07:** Partially addressed for onboarding drafts on `chore/preserve-local-pgadmin-compose` by `ab4fa6a` and regression-covered by `0680b67`; `POST /api/onboarding/draft` now falls back to `DATA_ROOT` when configured Postgres is unreachable.
+
+**2026-05-23 retriage:** `tests/onboarding-draft-store.test.ts` now passes (3/3). `tests/password-reset.test.ts` now passes (9/9) — `resend` is installed. Still failing: `tests/onboarding-draft-route.test.ts` test 3 — `ab4fa6a` made `ECONNREFUSED` fall back silently, but the test's `withDraftEnv` deletes `DB_HOST` so `hasDatabaseConfig()` returns false and the `pool.query` mock is never invoked; rewrite the test to keep DB env vars set and inject a non-network error (`code: '28P01'`) so it tests the 503 redaction path for non-network errors. The auth/OAuth Postgres failure in `tests/auth/oauth-connect.test.ts` overlaps with the auth/integrations item above (`dbGetPendingState` in callback hits real socket).
 
 ### Repair public-surface contract tests for review copy and fallback responses
 
@@ -46,7 +48,7 @@
 
 **Why:** These tests guard user-visible language and route behavior. When they drift, the app starts leaking internal phrasing or inconsistent fallback responses.
 
-**Context:** Observed during `/ship` on branch `qa/four-qa-commits` on 2026-04-23. Failures included `tests/review-surfaces-public.test.ts` (unexpected `Checkpoint` and missing `Supporting materials` copy), `tests/runtime-api-truth.test.ts` (`/api/contact` unavailable response no longer matches `/not configured/i` expectation), and `tests/public-generated-routes.test.ts` (404 content type returned `text/html; charset=utf-8` instead of `text/plain; charset=utf-8`). These failures are outside the four QA commits prepared for this PR.
+**Context:** Observed during `/ship` on branch `qa/four-qa-commits` on 2026-04-23. **2026-05-23: resolved.** `tests/review-surfaces-public.test.ts` — fixed `campaign-workspace.tsx:933` `eyebrow="Checkpoint"` → `eyebrow="Review"` (the only true offender) and removed three stale `Supporting materials` assertions for copy that never shipped. `tests/runtime-api-truth.test.ts` — the `/api/contact` assertion was already removed when the route was; no remaining failure. `tests/public-generated-routes.test.ts` test 4 — the 404 response was intentionally migrated to a branded HTML page (`app/[...publicPath]/route.ts` `NOT_FOUND_HTML`); test now asserts `text/html` + `/Page not found/`. All 7 tests across the two files now pass.
 
 **Effort:** M
 **Priority:** P0

@@ -930,7 +930,7 @@ function StageReviewSurface(props: {
   nextStageLabel?: string;
 }) {
   if (!props.review) {
-    return <GateFallbackPanel eyebrow="Checkpoint" fallback={props.fallback} />;
+    return <GateFallbackPanel eyebrow="Review" fallback={props.fallback} />;
   }
 
   const isApproved = props.review.status === 'approved';
