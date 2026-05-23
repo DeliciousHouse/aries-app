@@ -821,8 +821,14 @@ function createPosts(input: {
     const platform = (post.platforms.find(Boolean) || 'meta').toLowerCase();
     const previewAssetId = resolvePostAssetId(input.doc, post, input.assets, index);
     const socialCopy = input.socialCopyByPostId.get(normalizedSocialPostId(post, index));
+    // Use the planner-assigned post.id when present so social-copy can match by
+    // it (normalizedSocialPostId returns the same value) and so asset reverse
+    // links via attachPostRelationsToAssets carry the real id forward to
+    // dashboard.assets[].relatedPostIds. Falls back to the synthetic
+    // social-post-N for legacy plans that omit id.
+    const postId = post.id || `social-post-${index + 1}`;
     return {
-      id: `social-post-${index + 1}`,
+      id: postId,
       campaignId: input.campaignId,
       jobId: input.doc.job_id,
       type: 'platform_post',

@@ -6683,15 +6683,14 @@ test('/api/marketing/jobs/:jobId/assets/:assetId returns 404 for missing video f
   });
 });
 
-test.skip('/api/marketing/jobs/:jobId returns finalized social copy on dashboard posts while assets stay reverse-linked via relatedPostIds', async () => {
-  // SKIPPED 2026-05-23: this test exercises a real social-content bug — parsePosts in
-  // backend/social-content/runtime-state.ts strips post.id, so normalizedSocialPostId
-  // can't match social copy back to its post, and dashboard-projection.ts then assigns
-  // synthetic 'social-post-N' IDs which break the relatedPostIds reverse-link from assets.
-  // Fixing it correctly requires verifying in Brendan's live dashboard that captions/
-  // hashtags/CTA actually appear on the right posts (per the user-visible-completion rule),
-  // which can't be confirmed from a passing unit test alone. Leaving the test skipped
-  // with the failing assertions intact so the bug remains documented.
+test('/api/marketing/jobs/:jobId returns finalized social copy on dashboard posts while assets stay reverse-linked via relatedPostIds', async () => {
+  // Un-skipped 2026-05-23: the bug this guarded is now fixed. parsePosts in
+  // backend/social-content/runtime-state.ts now preserves entry.id on
+  // WeeklyPost, normalizedSocialPostId resolves to the planner-assigned id,
+  // and dashboard-projection.ts createPosts uses post.id when present so
+  // attachPostRelationsToAssets carries the real id forward into
+  // dashboard.assets[].relatedPostIds. Falls back to synthetic
+  // social-post-N for legacy plans that omit id.
   await withRuntimeEnv(async () => {
     const { handleGetMarketingJobStatus } = await import('../app/api/marketing/jobs/[jobId]/handler');
     const { writeSocialCopyArtifact } = await import('../backend/social-content/social-copy-store');

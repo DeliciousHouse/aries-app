@@ -16,6 +16,7 @@ type MarketingDocWithSocialRuntime = MarketingJobRuntimeDocument & {
 type SocialContentStageMap = Record<SocialContentStage, SocialContentStageRecord>;
 
 type WeeklyPost = {
+  id: string;
   day: string;
   platforms: string[];
   post_type: string;
@@ -674,6 +675,7 @@ function parsePosts(value: unknown): WeeklyPost[] {
     .map((entry) => asRecord(entry))
     .filter((entry): entry is UnknownRecord => !!entry)
     .map((entry) => ({
+      id: stringValue(entry.id),
       day: stringValue(entry.day),
       platforms: stringArray(entry.platforms),
       post_type: stringValue(entry.post_type),
