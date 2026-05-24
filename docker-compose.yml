@@ -76,10 +76,21 @@ services:
       DB_NAME: ${DB_NAME}
       APP_BASE_URL: ${APP_BASE_URL}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
-      HONCHO_ENABLED: ${HONCHO_ENABLED:-false}
-      HONCHO_WRITE_APPROVALS_ENABLED: ${HONCHO_WRITE_APPROVALS_ENABLED:-false}
-      HONCHO_WRITE_PUBLISH_ENABLED: ${HONCHO_WRITE_PUBLISH_ENABLED:-false}
-      HONCHO_WRITE_PREFERENCES_ENABLED: ${HONCHO_WRITE_PREFERENCES_ENABLED:-false}
+      # 2026-05-24: flipped ON to ship Honcho continuous-profile-writes
+      # Phases 1+2+3 per docs/plans/2026-05-11. Code for all three was
+      # already on master; this flips the env defaults so the single-tenant
+      # prod container starts writing. Each phase has its own gate so any
+      # one can be killed without redeploy if a write surface misbehaves.
+      # PREREQUISITES: production .env must have HONCHO_BASE_URL +
+      # HONCHO_CONTROL_PLANE_JWT + HONCHO_DATA_PLANE_JWT +
+      # ARIES_TENANT_PSEUDONYM_SALT set. If unset, writes silently no-op
+      # per design ("Honcho unavailability must remain silent
+      # degradation"). The honcho_write_idempotency_keys Postgres table
+      # is in scripts/init-db.js:521.
+      HONCHO_ENABLED: ${HONCHO_ENABLED:-true}
+      HONCHO_WRITE_APPROVALS_ENABLED: ${HONCHO_WRITE_APPROVALS_ENABLED:-true}
+      HONCHO_WRITE_PUBLISH_ENABLED: ${HONCHO_WRITE_PUBLISH_ENABLED:-true}
+      HONCHO_WRITE_PREFERENCES_ENABLED: ${HONCHO_WRITE_PREFERENCES_ENABLED:-true}
       HONCHO_BASE_URL: ${HONCHO_BASE_URL:-}
       HONCHO_CONTROL_PLANE_JWT: ${HONCHO_CONTROL_PLANE_JWT:-}
       HONCHO_DATA_PLANE_JWT: ${HONCHO_DATA_PLANE_JWT:-}
