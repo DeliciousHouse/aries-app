@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.9.0 — chore(brand): regenerate favicons from new logo + drop 3 orphan brand assets
+
+Follow-on to v0.1.8.9 (logo swap). The favicon set still pointed at the pre-rebrand assets: `public/favicon.ico` was a 256×256 single-frame bloat (270 KB), `public/favicon.png` was the old 18 KB raster mark, and `public/favicon.svg` was a literal `<text>A</text>` placeholder on a black square — none of which represented the new brand. This commit regenerates all three from `public/aries-logo.webp` (the new 2048×2047 source) using a tiny `sharp`-backed script (the same image pipeline Next.js already uses; no new dep). The new files:
+
+- `public/favicon.png` — single 32×32 PNG, 1 KB (down from 18 KB). Referenced from `app/layout.tsx` via `ARIES_FAVICON_PNG_PATH` for both `<link rel="icon" type="image/png">` and `apple-touch-icon`.
+- `public/favicon.ico` — proper multi-frame ICO with 16×16, 32×32, and 48×48 PNG-embedded sub-frames, 3 KB (down from 270 KB; the old file was a single 256×256 frame which is wasteful for a browser-tab icon). Referenced from `app/layout.tsx` via `ARIES_FAVICON_ICO_PATH` for both the standard icon list and `shortcut`. Built by hand-writing the ICO directory (`<reserved=0><type=1><N><dir-entries…><png-payloads…>`); validated by `file public/favicon.ico` → "MS Windows icon resource - 3 icons".
+- `public/favicon.svg` — SVG wrapper that embeds a base64 96×96 PNG of the new mark, 4.9 KB. Replaces the hardcoded "A" placeholder so browsers that prefer SVG favicons (Firefox, modern Chromium) get the real brand. Referenced from `components/redesign/brand/logo.tsx` as the `BrandLogoFallbackSvg` source.
+
+Also removes three orphan brand-adjacent assets that had **zero** references in the codebase (verified by `grep -rn` across `*.tsx` / `*.ts` / `*.css` / `*.json` / `*.html` / `*.md` / `*.mjs` excluding `node_modules` and `.next/`): `public/aries.webp` (140 KB), `public/icon.webp` (50 KB), `public/cube-icon.webp` (71 KB). Total cleanup: ~534 KB shaved from every container image (favicon shrink + orphan delete).
+
+No code change beyond the asset swap and orphan deletion. `lib/brand.ts` constants (`ARIES_LOGO_WEBP_PATH`, `ARIES_FAVICON_*_PATH`) are unchanged — they already point at the right paths. `npm run verify` 38/38, `npm run lint` pass.
+
 ## v0.1.8.9 — chore(brand): adopt new Aries logo, clean filename + drop old asset
 
 Sowmya / Venkata shipped a new brand mark for Aries (`update-new-logo-webp` → `Update new logo to WebP`, originally landing as `public/Aries_new_logo.webp` 2048×2047 VP8X). This commit takes that change to ship-ready: renames the asset to `public/aries-logo.webp` so it matches the existing kebab-case-lowercase convention used by every other file in `public/` (the original "_new_" qualifier ages poorly once it stops being new); deletes the now-unreferenced `public/ariesai-logo.webp` (49 KB) so we aren't shipping two logos in every container image; updates the four call sites that point at the asset path — `lib/brand.ts` (`ARIES_LOGO_WEBP_PATH`, the single source of truth that `app/layout.tsx` favicon list and `components/redesign/brand/logo.tsx` both consume), two `<Image src>` in `frontend/aries-v1/onboarding-flow.tsx` (header mark + decorative hero), and one in `frontend/donor/ui.tsx` (`AriesMark`). No semantic change beyond the asset swap: every consumer renders at square dimensions (72/320/500/configurable 48) and the new mark is square, so aspect is preserved; `next/image` handles the 4× pixel-density step without any code change. Original Sowmya commit preserved as the parent commit; this is the cleanup commit on top. `npm run verify` 38/38, lint pass.
