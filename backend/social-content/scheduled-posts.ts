@@ -20,6 +20,13 @@ export interface UpsertScheduledPostInput {
   postId: number;
   scheduledFor: Date;
   platforms: string[];
+  /**
+   * UTC instant when publishing must stop for this row's parent campaign. NULL
+   * means "no end date" -- the legacy weekly_social_content behaviour. Set by
+   * the schedule route for one-off event campaigns; the scheduled-posts worker
+   * filters at claim-time on (campaign_end_date IS NULL OR >= NOW()).
+   */
+  campaignEndDate?: Date | null;
 }
 
 export interface ScheduledPostRecord {
@@ -31,12 +38,18 @@ export interface ScheduledPostRecord {
   updatedAt: string;
 }
 
+// $5 is the campaign_end_date UTC instant (null for weekly campaigns -- the
+// worker treats NULL as "no end date"). On a re-schedule the column is
+// overwritten with EXCLUDED.campaign_end_date so an extended deadline takes
+// effect immediately; a row that goes from event_campaign back to weekly (rare,
+// future cancellation flow) correctly clears the end date.
 const UPSERT_SCHEDULED_POST_SQL = `
-  INSERT INTO scheduled_posts (post_id, tenant_id, scheduled_for, target_platforms, updated_at)
-  VALUES ($1, $2, $3, $4, now())
+  INSERT INTO scheduled_posts (post_id, tenant_id, scheduled_for, target_platforms, campaign_end_date, updated_at)
+  VALUES ($1, $2, $3, $4, $5, now())
   ON CONFLICT (post_id) DO UPDATE
     SET scheduled_for = EXCLUDED.scheduled_for,
         target_platforms = EXCLUDED.target_platforms,
+        campaign_end_date = EXCLUDED.campaign_end_date,
         updated_at = now()
     WHERE scheduled_posts.tenant_id = EXCLUDED.tenant_id
   RETURNING id, post_id, tenant_id, scheduled_for, target_platforms, updated_at
@@ -55,6 +68,7 @@ export async function upsertScheduledPost(
     input.tenantId,
     input.scheduledFor.toISOString(),
     input.platforms,
+    input.campaignEndDate ? input.campaignEndDate.toISOString() : null,
   ]);
   if ((result.rowCount ?? result.rows.length) === 0 || result.rows.length === 0) {
     // Tenant guard: WHERE clause prevented update; surface typed error so

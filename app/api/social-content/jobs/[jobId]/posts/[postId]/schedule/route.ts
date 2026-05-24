@@ -14,6 +14,30 @@ import {
 } from '@/lib/tenant-context-http';
 import { scheduleScheduledPostHonchoWrite } from '@/backend/memory/write-events';
 import { findLatestMarketingApprovalRecord } from '@/backend/marketing/approval-store';
+import { loadMarketingJobRuntime, asRecord, asString } from '@/backend/marketing/runtime-state';
+
+/**
+ * Read the parent campaign's end date out of the marketing runtime document.
+ * Returns a Date for one-off event campaigns whose payload carries a valid UTC
+ * ISO timestamp under `inputs.request.event.campaignEndDate`; returns null for
+ * weekly campaigns and for any malformed/missing event payload. The null path
+ * preserves the legacy weekly behaviour -- the worker treats NULL as "no end
+ * date" and never blocks these rows.
+ */
+async function resolveCampaignEndDateForJob(jobId: string): Promise<Date | null> {
+  const doc = await loadMarketingJobRuntime(jobId);
+  if (!doc || doc.job_type !== 'event_campaign') {
+    return null;
+  }
+  const request = asRecord(doc.inputs.request);
+  const event = request ? asRecord(request.event) : null;
+  const raw = event ? asString(event.campaignEndDate) : null;
+  if (!raw) {
+    return null;
+  }
+  const parsed = new Date(raw);
+  return Number.isFinite(parsed.getTime()) ? parsed : null;
+}
 
 const ONBOARDING_REQUIRED = {
   status: 409,
@@ -179,11 +203,17 @@ export async function handlePatchScheduleSocialContentPost(
       return NextResponse.json(PUBLISH_REQUIRES_APPROVAL, { status: 409 });
     }
 
+    // Event campaigns carry a UTC end date the worker filters on at claim
+    // time; weekly campaigns leave it null (the worker treats NULL as "no end
+    // date"). Resolved once per schedule call; cheap and idempotent.
+    const campaignEndDate = await resolveCampaignEndDateForJob(jobId);
+
     const persisted = await upsertScheduledPost(client, {
       tenantId,
       postId: postIdInt,
       scheduledFor,
       platforms: normalizedPlatforms,
+      campaignEndDate,
     });
 
     scheduleScheduledPostHonchoWrite({

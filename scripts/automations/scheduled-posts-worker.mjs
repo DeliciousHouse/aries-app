@@ -48,6 +48,12 @@ function buildPool() {
 // The lock is `FOR UPDATE OF sp` — not a bare `FOR UPDATE` — because Postgres
 // rejects row locks on the nullable side of a LEFT JOIN; `posts` is read-only
 // enrichment here, only the `scheduled_posts` row is being claimed.
+// Event-campaign auto-stop: rows whose parent campaign has ended
+// (campaign_end_date < NOW()) are excluded at claim time. NULL means "no end
+// date" — the legacy weekly_social_content behaviour, never blocked. In-flight
+// rows that crossed the deadline after being claimed run to completion (the
+// claim-time filter is the only enforcement point; once Meta has been called
+// we cannot un-call it).
 export const CLAIM_ROW_SQL = `SELECT sp.id, sp.post_id, sp.tenant_id, sp.target_platforms,
             p.caption, p.platform_post_id
      FROM scheduled_posts sp
@@ -57,17 +63,21 @@ export const CLAIM_ROW_SQL = `SELECT sp.id, sp.post_id, sp.tenant_id, sp.target_
          sp.dispatch_status = 'pending'
          OR (sp.dispatch_status = 'in_flight' AND sp.updated_at < $2)
        )
+       AND (sp.campaign_end_date IS NULL OR sp.campaign_end_date >= NOW())
      FOR UPDATE OF sp SKIP LOCKED`;
 
 // Due-rows scan, exported alongside CLAIM_ROW_SQL so a regression test runs the
 // real query against a real planner. $1 is the batch size, $2 the
-// stale-in_flight cutoff timestamp.
+// stale-in_flight cutoff timestamp. Same campaign_end_date filter as
+// CLAIM_ROW_SQL — defense in depth, and lets the planner skip past-deadline
+// rows before they reach the per-row claim transaction.
 export const DUE_ROWS_SQL = `SELECT id FROM scheduled_posts
      WHERE scheduled_for <= NOW()
        AND (
          dispatch_status = 'pending'
          OR (dispatch_status = 'in_flight' AND updated_at < $2)
        )
+       AND (campaign_end_date IS NULL OR campaign_end_date >= NOW())
      ORDER BY scheduled_for
      LIMIT $1`;
 

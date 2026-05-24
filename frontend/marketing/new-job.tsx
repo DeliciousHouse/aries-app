@@ -70,6 +70,16 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
   const [submitting, setSubmitting] = useState(false);
   const [submitProgress, setSubmitProgress] = useState({ stepIndex: 0, dotCount: 0 });
   const [errorText, setErrorText] = useState<string | null>(null);
+  // One-off event campaigns. Default 'weekly' so the existing flow is untouched
+  // for tenants who do not opt in. Switching to 'event' reveals the four date
+  // and text inputs below the brief; the submit handler then sends jobType=
+  // event_campaign and appends event.* form fields the server converts to UTC.
+  const [jobMode, setJobMode] = useState<'weekly' | 'event'>('weekly');
+  const [eventName, setEventName] = useState('');
+  const [eventDate, setEventDate] = useState('');
+  const [registrationDeadline, setRegistrationDeadline] = useState('');
+  const [campaignEndDate, setCampaignEndDate] = useState('');
+  const [eventCta, setEventCta] = useState('');
 
   useEffect(() => {
     if (!submitting) {
@@ -113,10 +123,46 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
       return;
     }
 
+    // Event mode requires the four event fields. Client-side guard mirrors the
+    // server's 422 -- catching it here gives the operator inline feedback
+    // before the round-trip. The server re-checks date ordering and YYYY-MM-DD
+    // shape so a malicious or scripted POST cannot bypass these rules.
+    if (jobMode === 'event') {
+      const trimmedEventName = eventName.trim();
+      const trimmedEventDate = eventDate.trim();
+      const trimmedRegistrationDeadline = registrationDeadline.trim();
+      const trimmedCampaignEndDate = campaignEndDate.trim();
+      const trimmedEventCta = eventCta.trim();
+      if (!trimmedEventName) { setErrorText('Event name is required.'); return; }
+      if (!trimmedEventDate) { setErrorText('Event date is required.'); return; }
+      if (!trimmedRegistrationDeadline) { setErrorText('Registration deadline is required.'); return; }
+      if (!trimmedCampaignEndDate) { setErrorText('Campaign end date is required.'); return; }
+      if (!trimmedEventCta) { setErrorText('CTA is required.'); return; }
+      if (trimmedRegistrationDeadline > trimmedEventDate) {
+        setErrorText('Registration deadline must be on or before the event date.');
+        return;
+      }
+      if (trimmedCampaignEndDate < trimmedEventDate) {
+        setErrorText('Campaign end date must be on or after the event date.');
+        return;
+      }
+    }
+
     const formData = new FormData();
-    formData.set('jobType', 'weekly_social_content');
+    formData.set('jobType', jobMode === 'event' ? 'event_campaign' : 'weekly_social_content');
     formData.set('brandUrl', trimmedWebsiteUrl);
     formData.set('websiteUrl', trimmedWebsiteUrl);
+    if (jobMode === 'event') {
+      // event.* keys are the contract the server's parseCreateJobRequest
+      // reads via extractEventPayloadFromForm; the server converts the three
+      // YYYY-MM-DD dates to tenant-local end-of-day UTC ISO strings before
+      // they reach the runtime document.
+      formData.set('event.eventName', eventName.trim());
+      formData.set('event.eventDate', eventDate.trim());
+      formData.set('event.registrationDeadline', registrationDeadline.trim());
+      formData.set('event.campaignEndDate', campaignEndDate.trim());
+      formData.set('event.cta', eventCta.trim());
+    }
     const trimmedCompetitorUrl = competitorUrl.trim();
     if (trimmedCompetitorUrl) {
       const validation = validateCanonicalCompetitorUrl(trimmedCompetitorUrl);
@@ -342,6 +388,109 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                   Enter the competitor&apos;s website. Do not paste a Facebook page or Meta Ad Library URL here.
                 </p>
               </Field>
+
+              <Field label="Campaign type">
+                <div role="radiogroup" aria-label="Campaign type" className="flex gap-2">
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={jobMode === 'weekly'}
+                    onClick={() => setJobMode('weekly')}
+                    className={`flex-1 rounded-2xl border px-4 py-3 text-left transition ${
+                      jobMode === 'weekly'
+                        ? 'border-primary bg-primary/15 text-white'
+                        : 'border-white/10 bg-white/5 text-white/70 hover:border-white/30'
+                    }`}
+                  >
+                    <div className="text-sm font-semibold">Weekly social content</div>
+                    <div className="mt-1 text-xs text-white/50">Recurring brand pieces, no end date</div>
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={jobMode === 'event'}
+                    onClick={() => setJobMode('event')}
+                    className={`flex-1 rounded-2xl border px-4 py-3 text-left transition ${
+                      jobMode === 'event'
+                        ? 'border-primary bg-primary/15 text-white'
+                        : 'border-white/10 bg-white/5 text-white/70 hover:border-white/30'
+                    }`}
+                  >
+                    <div className="text-sm font-semibold">One-off event</div>
+                    <div className="mt-1 text-xs text-white/50">Hard deadline; auto-stops on the end date</div>
+                  </button>
+                </div>
+              </Field>
+
+              {jobMode === 'event' ? (
+                <div className="space-y-6 rounded-2xl border border-primary/20 bg-primary/5 p-5">
+                  <p className="text-sm text-white/70">
+                    Aries drives copy toward your registration deadline and stops publishing past the campaign end date. Dates are interpreted in your business timezone (end of day).
+                  </p>
+                  <Field label="Event name" required>
+                    <input
+                      value={eventName}
+                      onChange={(e) => setEventName(e.target.value)}
+                      placeholder="e.g. Aries AI Hackathon"
+                      aria-invalid={marketingCreate.fieldErrors?.['event.eventName'] ? true : undefined}
+                      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+                    />
+                    {marketingCreate.fieldErrors?.['event.eventName'] ? (
+                      <p className="mt-2 text-sm text-red-300">{marketingCreate.fieldErrors['event.eventName']}</p>
+                    ) : null}
+                  </Field>
+                  <Field label="Event date" required>
+                    <input
+                      type="date"
+                      value={eventDate}
+                      onChange={(e) => setEventDate(e.target.value)}
+                      aria-invalid={marketingCreate.fieldErrors?.['event.eventDate'] ? true : undefined}
+                      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50"
+                    />
+                    {marketingCreate.fieldErrors?.['event.eventDate'] ? (
+                      <p className="mt-2 text-sm text-red-300">{marketingCreate.fieldErrors['event.eventDate']}</p>
+                    ) : null}
+                  </Field>
+                  <Field label="Registration deadline" required>
+                    <input
+                      type="date"
+                      value={registrationDeadline}
+                      onChange={(e) => setRegistrationDeadline(e.target.value)}
+                      aria-invalid={marketingCreate.fieldErrors?.['event.registrationDeadline'] ? true : undefined}
+                      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50"
+                    />
+                    <p className="mt-2 text-xs text-white/45">When sign-ups close. Aries uses this for countdown copy.</p>
+                    {marketingCreate.fieldErrors?.['event.registrationDeadline'] ? (
+                      <p className="mt-2 text-sm text-red-300">{marketingCreate.fieldErrors['event.registrationDeadline']}</p>
+                    ) : null}
+                  </Field>
+                  <Field label="Campaign end date" required>
+                    <input
+                      type="date"
+                      value={campaignEndDate}
+                      onChange={(e) => setCampaignEndDate(e.target.value)}
+                      aria-invalid={marketingCreate.fieldErrors?.['event.campaignEndDate'] ? true : undefined}
+                      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50"
+                    />
+                    <p className="mt-2 text-xs text-white/45">Aries stops publishing past end-of-day in your timezone.</p>
+                    {marketingCreate.fieldErrors?.['event.campaignEndDate'] ? (
+                      <p className="mt-2 text-sm text-red-300">{marketingCreate.fieldErrors['event.campaignEndDate']}</p>
+                    ) : null}
+                  </Field>
+                  <Field label="Call to action" required>
+                    <input
+                      value={eventCta}
+                      onChange={(e) => setEventCta(e.target.value)}
+                      placeholder="e.g. Register at aries.example.com/hackathon"
+                      aria-invalid={marketingCreate.fieldErrors?.['event.cta'] ? true : undefined}
+                      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+                    />
+                    {marketingCreate.fieldErrors?.['event.cta'] ? (
+                      <p className="mt-2 text-sm text-red-300">{marketingCreate.fieldErrors['event.cta']}</p>
+                    ) : null}
+                  </Field>
+                </div>
+              ) : null}
 
               <button
                 type="submit"

@@ -503,6 +503,11 @@ async function initDb() {
       ALTER TABLE vision_qa_runs ADD COLUMN IF NOT EXISTS raw_model_output JSONB;
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS post_id BIGINT;
       ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS target_platforms TEXT[] NOT NULL DEFAULT '{}';
+      -- One-off event campaigns set this to the UTC instant when publishing must stop
+      -- (tenant-local end-of-day, converted by the orchestrator at submit time). NULL means
+      -- "no end date" -- the legacy weekly_social_content behaviour. The scheduled-posts
+      -- worker filters claim-time on (campaign_end_date IS NULL OR campaign_end_date >= NOW()).
+      ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS campaign_end_date TIMESTAMPTZ;
 
       CREATE INDEX IF NOT EXISTS idx_posts_tenant_created ON posts (tenant_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_vision_qa_runs_tenant_post ON vision_qa_runs (tenant_id, post_id);

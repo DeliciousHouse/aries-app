@@ -331,6 +331,19 @@ function mergePersistedCompetitorUrlField(
   };
 }
 
+/**
+ * Synchronous, file-only read of the tenant's stored IANA timezone, falling
+ * back to DEFAULT_TENANT_TIMEZONE when unset or invalid. Used by the marketing
+ * job submit handler to convert wall-clock event dates (campaign_end_date,
+ * registration_deadline) into tenant-local end-of-day UTC instants without
+ * requiring a database round-trip per submission. Mirrors the resolution path
+ * the BusinessProfileView already uses via resolveTenantTimeZone.
+ */
+export function loadTenantTimezoneOrFallback(tenantId: string): string {
+  const record = loadBusinessProfileRecord(tenantId);
+  return resolveTenantTimeZone(record?.timezone ?? null);
+}
+
 function loadBusinessProfileRecord(tenantId: string): BusinessProfileRecord | null {
   const filePath = businessProfilePath(tenantId);
   if (!existsSync(filePath)) {
