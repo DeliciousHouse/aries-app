@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.8.9 — chore(brand): adopt new Aries logo, clean filename + drop old asset
+
+Sowmya / Venkata shipped a new brand mark for Aries (`update-new-logo-webp` → `Update new logo to WebP`, originally landing as `public/Aries_new_logo.webp` 2048×2047 VP8X). This commit takes that change to ship-ready: renames the asset to `public/aries-logo.webp` so it matches the existing kebab-case-lowercase convention used by every other file in `public/` (the original "_new_" qualifier ages poorly once it stops being new); deletes the now-unreferenced `public/ariesai-logo.webp` (49 KB) so we aren't shipping two logos in every container image; updates the four call sites that point at the asset path — `lib/brand.ts` (`ARIES_LOGO_WEBP_PATH`, the single source of truth that `app/layout.tsx` favicon list and `components/redesign/brand/logo.tsx` both consume), two `<Image src>` in `frontend/aries-v1/onboarding-flow.tsx` (header mark + decorative hero), and one in `frontend/donor/ui.tsx` (`AriesMark`). No semantic change beyond the asset swap: every consumer renders at square dimensions (72/320/500/configurable 48) and the new mark is square, so aspect is preserved; `next/image` handles the 4× pixel-density step without any code change. Original Sowmya commit preserved as the parent commit; this is the cleanup commit on top. `npm run verify` 38/38, lint pass.
+
 ## v0.1.8.8 — fix(memory): make Honcho writes actually reach Honcho v3 (batch body shape + POST /messages/list)
 
 v0.1.8.7 flipped Honcho Phases 1+2+3 on, but every write was silently 422-failing against the real Honcho v3 API. Two protocol bugs in `backend/memory/honcho-client.ts`:

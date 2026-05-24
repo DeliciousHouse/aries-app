@@ -1331,7 +1331,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
           <div className="pointer-events-none absolute inset-0 rounded-[2rem] bg-[radial-gradient(circle_at_top,rgba(171,108,255,0.18),transparent_55%)]" />
           <div className="relative z-10 flex flex-col items-center gap-5">
             <Image
-              src="/ariesai-logo.webp"
+              src="/aries-logo.webp"
               alt="Aries"
               width={72}
               height={72}
@@ -1409,7 +1409,7 @@ export default function AriesOnboardingFlow(props: { initialAuthenticated?: bool
         <div className="pointer-events-none absolute left-[-5.5rem] top-[-6rem] hidden h-[17rem] w-[17rem] lg:block">
           <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,rgba(146,88,255,0.14),transparent_68%)] blur-3xl" />
           <Image
-            src="/ariesai-logo.webp"
+            src="/aries-logo.webp"
             alt=""
             width={320}
             height={320}
