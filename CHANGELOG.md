@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.10.1 — feat(hackathon): direct-URL landing page for Aries AI Hackathon registration
+
+Adds the actual `/hackathon` landing page that the v0.1.10.0 event_campaign feature's CTAs now point to. Direct-URL-only: not linked from any nav, footer, sitemap, or homepage. Page metadata sets `robots: { index: false, follow: false, nocache: true }` so search engines won't pick it up, and `public/robots.txt` (newly created -- the repo previously had none) explicitly disallows `/hackathon` and `/api/` as defense-in-depth.
+
+**Page (`app/hackathon/page.tsx`).** Server component using the existing `MarketingLayout` for brand consistency. Hero with event name, tagline, four fact cards (registration deadline, event window, format, who), "What you'll do" list, prize block, and the registration form. Copy lives in a single `HACKATHON` constant at the top of the file with an `EDIT ME` comment -- operator can tune dates/prize/format without touching routing or form infrastructure.
+
+**Form (`frontend/hackathon/registration-form.tsx`).** Client component with three fields: name (required), email (required, client + server validation), motivation (optional). Loading state, inline 422 field errors mapped from the API response, top-level error alert for network/persist failures. On success, the form swaps to a "You're in" confirmation panel with the registered email surfaced and a "share this URL" prompt.
+
+**API (`app/api/hackathon/register/route.ts`).** Public unauthenticated POST. Length-caps every string field (name 200, email 320, motivation 1000) before persistence. Stores `ip_address` (first hop from `x-forwarded-for`, length-capped) and `user_agent` for abuse triage -- never relied on for identity. Persists via `INSERT ... ON CONFLICT ((lower(email))) DO UPDATE` so a refresh-and-resubmit upserts the same record idempotently -- the share-friendly direct URL means duplicate submits are expected and should not 409.
+
+**Schema (`scripts/init-db.js`).** New `hackathon_registrations` table with `id`, `name`, `email`, `motivation`, `ip_address`, `user_agent`, `registered_at`, `updated_at`. Unique index on `lower(email)` enforces case-insensitive de-duplication. Standalone -- no FK to `organizations` or `users` because registrants are mostly external builders without Aries accounts. `CREATE TABLE IF NOT EXISTS` + `CREATE UNIQUE INDEX IF NOT EXISTS` make the migration idempotent.
+
+**Tests (`tests/hackathon-register.test.ts`).** 6 source-level + 1 live-DB. Source-level asserts: schema declares the table with required columns and unique lower(email) index, route validates name + email shape, route 422s on missing fields, route uses ON CONFLICT upsert, route caps field lengths, page metadata is noindexed, robots.txt disallows /hackathon. Live-DB smoke (skips without DB env) inserts a record, upserts the same email in uppercase, asserts the row id is identical and updated_at advances; runs in a rolled-back transaction so no test data persists.
+
+To direct the v0.1.10.0 event_campaign CTA at this page, the operator types `https://aries.sugarandleather.com/hackathon` into the campaign form's CTA field -- no code change needed.
+
+`npm run verify` 38/38, all 6 new tests pass, typecheck clean.
+
 ## v0.1.10.0 — feat(marketing): one-off event campaigns with auto-stop on a hard deadline
 
 First-class support for time-bound campaigns alongside the existing weekly drip. Operators can now toggle the new-job form to "One-off event", enter an event name, event date, registration deadline, campaign end date, and CTA, and Aries will drive countdown framing through Hermes and **stop publishing past the campaign end date** without any human intervention. The auto-stop guarantee lives in the scheduled-posts worker's claim-time WHERE clause, not in an LLM prompt, so it holds even if Hermes ignores every other signal. Forcing example: an Aries AI hackathon with registration closing 2026-06-10 publishes a sharpening urgency arc through the deadline and goes dark at 23:59 in the tenant's local timezone.

@@ -528,6 +528,24 @@ async function initDb() {
         written_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
 
+      -- Hackathon landing page registrations. Standalone table -- not tied to
+      -- organizations or users because the /hackathon landing page is public
+      -- and most registrants will not have Aries accounts. Email is unique
+      -- (case-insensitive) so a refresh-and-resubmit just upserts the same
+      -- record; double-registration is silently idempotent rather than a 409.
+      CREATE TABLE IF NOT EXISTS hackathon_registrations (
+        id BIGSERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        email TEXT NOT NULL,
+        motivation TEXT,
+        ip_address TEXT,
+        user_agent TEXT,
+        registered_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_hackathon_registrations_email_lower
+        ON hackathon_registrations (lower(email));
+
       CREATE TABLE IF NOT EXISTS partner_attribution_outbox (
         id BIGSERIAL PRIMARY KEY,
         user_id TEXT NOT NULL,
