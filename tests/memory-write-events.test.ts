@@ -71,6 +71,22 @@ type TransportCall = {
   body?: unknown;
 };
 
+/**
+ * Honcho v3 wraps message writes as MessageBatchCreate
+ * ({ messages: [{ peer_id, content, metadata }] }). Pull the first message
+ * out so per-write assertions can stay readable.
+ */
+function firstMessage(call: TransportCall): Record<string, unknown> {
+  const body = call.body as { messages?: Array<Record<string, unknown>> } | undefined;
+  const messages = body?.messages;
+  if (!Array.isArray(messages) || messages.length === 0) {
+    throw new Error(
+      `Expected wrapped Honcho v3 batch body ({ messages: [...] }) but got: ${JSON.stringify(call.body)}`,
+    );
+  }
+  return messages[0];
+}
+
 /** Stub transport that captures appendApprovedMessage calls. */
 function buildStubTransport(): { transport: HonchoTransport; calls: TransportCall[] } {
   const calls: TransportCall[] = [];
@@ -86,9 +102,11 @@ function buildStubTransport(): { transport: HonchoTransport; calls: TransportCal
       if (args.method === 'POST' && args.path === '/v3/workspaces') {
         return { id: args.workspaceId } as unknown as T;
       }
-      // appendApprovedMessage POST → return a message id
+      // appendApprovedMessage POST → returns an array of Message (v3 batch).
+      // Tests below extract the per-message body via firstMessage() so they
+      // assert on the same shape the wire actually carries.
       if (args.method === 'POST' && args.path.includes('/messages')) {
-        return { id: 'msg-stub-id' } as unknown as T;
+        return [{ id: 'msg-stub-id' }] as unknown as T;
       }
       return {} as T;
     },
@@ -233,10 +251,10 @@ test('V1 — recordApprovalEvent: strategy approval writes to peer-brand session
       // Session kind is encoded in the URL path (session-strategy-<jobId>).
       assert.ok(msgCall.path.includes('session-strategy-job-v1'), `expected session-strategy-job-v1 in path, got: ${msgCall.path}`);
 
-      const body = msgCall.body as Record<string, unknown>;
-      // peer_id is passed as a body field per TenantMemoryClient.appendApprovedMessage.
-      assert.equal(body.peer_id, 'peer-brand', 'peer_id must be peer-brand');
-      const content = JSON.parse(body.content as string) as Record<string, unknown>;
+      // Honcho v3: body is { messages: [{ peer_id, content, metadata }] }.
+      const msg = firstMessage(msgCall);
+      assert.equal(msg.peer_id, 'peer-brand', 'peer_id must be peer-brand');
+      const content = JSON.parse(msg.content as string) as Record<string, unknown>;
       assert.equal(content.kind, 'fact', 'message kind must be fact');
 
       // approved_by is the user pseudonym (non-empty hex string).
@@ -285,22 +303,17 @@ test('V2 — recordDenialEvent: strategy denial writes rejected_angle to peer-br
       assert.equal(msgCalls.length, 2, 'should produce exactly two appendApprovedMessage calls (content + audit)');
 
       // --- Content write (rejected_angle → peer-brand) ---
-      const contentCall = msgCalls.find(c => (c.body as Record<string, unknown>).peer_id === 'peer-brand');
+      const contentCall = msgCalls.find(c => firstMessage(c).peer_id === 'peer-brand');
       assert.ok(contentCall, 'should have a content write to peer-brand');
-      const contentBody = contentCall!.body as Record<string, unknown>;
-      const contentMsg = JSON.parse(contentBody.content as string) as Record<string, unknown>;
+      const contentMsg = JSON.parse(firstMessage(contentCall!).content as string) as Record<string, unknown>;
       assert.equal(contentMsg.kind, 'rejected_angle', 'content message kind must be rejected_angle');
       const contentClaim = JSON.parse(contentMsg.claim as string) as Record<string, unknown>;
       assert.equal(contentClaim.denial_reason_code, 'wrong-tone', 'denial_reason_code must match input');
 
       // --- Audit write (fact → peer-approver-*) ---
-      const auditCall = msgCalls.find(c => {
-        const pid = (c.body as Record<string, unknown>).peer_id as string;
-        return pid.startsWith('peer-approver-');
-      });
+      const auditCall = msgCalls.find(c => String(firstMessage(c).peer_id ?? '').startsWith('peer-approver-'));
       assert.ok(auditCall, 'should have an audit write to peer-approver-*');
-      const auditBody = auditCall!.body as Record<string, unknown>;
-      const auditMsg = JSON.parse(auditBody.content as string) as Record<string, unknown>;
+      const auditMsg = JSON.parse(firstMessage(auditCall!).content as string) as Record<string, unknown>;
       assert.equal(auditMsg.kind, 'fact', 'audit message kind must be fact');
       assert.equal(auditMsg.research_job_id, 'job-v2', 'audit research_job_id must match jobId');
     },
@@ -424,8 +437,7 @@ test('Phase 2 — recordScheduleEvent auto-approves to peer-policy', () =>
       );
       const msgCalls = calls.filter(c => c.method === 'POST' && c.path.includes('/messages'));
       assert.equal(msgCalls.length, 1);
-      const body = msgCalls[0]!.body as Record<string, unknown>;
-      assert.equal(body.peer_id, 'peer-policy');
+      assert.equal(firstMessage(msgCalls[0]!).peer_id, 'peer-policy');
       assert.ok(String(msgCalls[0]!.path).includes('session-curated-job-sch'));
     },
   ));
@@ -633,8 +645,7 @@ test('Phase 3 — recordCreativeVoicePreferenceEvent appends peer-user preferenc
       );
       const msgCalls = calls.filter(c => c.method === 'POST' && c.path.includes('/messages'));
       assert.equal(msgCalls.length, 1);
-      const body = msgCalls[0]!.body as Record<string, unknown>;
-      assert.ok(String(body.peer_id).startsWith('peer-user-'));
+      assert.ok(String(firstMessage(msgCalls[0]!).peer_id).startsWith('peer-user-'));
       assert.ok(String(msgCalls[0]!.path).includes('session-curated-job-vp3'));
     },
   ));

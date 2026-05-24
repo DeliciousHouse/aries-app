@@ -236,8 +236,11 @@ test('only auto-approved finding reaches Honcho transport', async (t) => {
 
     const writes = calls.filter(c => c.method === 'POST');
     assert.equal(writes.length, 1, 'exactly one Honcho write for the auto-approved fact');
-    const writtenBody = writes[0].body as Record<string, unknown>;
-    const content = JSON.parse(writtenBody.content as string) as { claim: string };
+    // Honcho v3 MessageBatchCreate body: { messages: [{ peer_id, content, metadata }] }
+    const writtenBody = writes[0].body as { messages?: Array<{ content?: string }> };
+    const wrappedContent = writtenBody.messages?.[0]?.content;
+    assert.ok(typeof wrappedContent === 'string', 'expected wrapped messages[0].content');
+    const content = JSON.parse(wrappedContent) as { claim: string };
     assert.equal(content.claim, 'Acme was founded in 2018.');
   });
 });
