@@ -95,7 +95,7 @@ import {
 
 export type StartMarketingJobRequest = {
   tenantId: string;
-  jobType: 'weekly_social_content';
+  jobType: 'weekly_social_content' | 'event_campaign';
   /** Optional. User id of the authenticated caller that initiated the
    * campaign. Persisted on the runtime document so the campaign delete
    * permission check can allow the creator to delete their own campaigns
@@ -117,7 +117,7 @@ export type StartMarketingJobResponse = {
   status: 'accepted' | 'needs_connection';
   jobId: string;
   tenantId: string;
-  jobType: 'weekly_social_content';
+  jobType: 'weekly_social_content' | 'event_campaign';
   runtimeArtifactPath: string;
   approvalRequired: boolean;
   currentStage: MarketingStage;

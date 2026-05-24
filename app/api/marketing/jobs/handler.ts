@@ -11,7 +11,9 @@ import {
 import {
   marketingPayloadDefaultsFromBusinessProfile,
   persistBusinessProfileFieldsFromMarketingPayload,
+  loadTenantTimezoneOrFallback,
 } from '@/backend/tenant/business-profile';
+import { wallTimeToUtc } from '@/lib/format-timestamp';
 import { normalizeWeeklySocialContentPayload } from '@/backend/social-content/payload';
 import { normalizeMarketingWebsiteUrl } from '@/lib/marketing-public-mode';
 import {
@@ -29,7 +31,7 @@ const MARKETING_ONBOARDING_REQUIRED = {
   message: 'Complete tenant onboarding before starting a marketing job.',
 } as const;
 
-type PublicJobType = 'weekly_social_content';
+type PublicJobType = 'weekly_social_content' | 'event_campaign';
 type ResponseDialect = 'marketing' | 'social-content';
 
 function coerceFieldValue(value: FormDataEntryValue | null): string {
@@ -249,6 +251,12 @@ async function parseCreateJobRequest(req: Request): Promise<{
         imageCreativesCount: coerceFieldValue(formData.get('imageCreativesCount')),
         videoScriptsCount: coerceFieldValue(formData.get('videoScriptsCount')),
         renderVideoAfterApproval: coerceFieldValue(formData.get('renderVideoAfterApproval')),
+        // One-off event campaigns: collected here as raw form strings (the
+        // submit handler converts the date wall-times to tenant-local
+        // end-of-day UTC instants once tenant context is resolved). Presence
+        // of any field is preserved so the validator can return 422 with
+        // structured field errors when required fields are missing.
+        event: extractEventPayloadFromForm(formData),
       },
       uploads,
     };
@@ -265,6 +273,123 @@ async function parseCreateJobRequest(req: Request): Promise<{
     jobType: payload.jobType,
     payload: payload.payload ?? {},
     uploads: [],
+  };
+}
+
+/**
+ * Read event_campaign brief fields out of FormData. Returns null when the
+ * form had no event_* keys at all (weekly campaign submission); returns a
+ * partial object when some fields are present so validateAndConvertEventBrief
+ * can produce structured 422 errors for the missing ones.
+ */
+function extractEventPayloadFromForm(formData: FormData): Record<string, unknown> | null {
+  const keys = ['eventName', 'eventDate', 'registrationDeadline', 'campaignEndDate', 'cta'];
+  const collected: Record<string, unknown> = {};
+  let anyPresent = false;
+  for (const key of keys) {
+    const raw = coerceFieldValue(formData.get(`event.${key}`));
+    if (raw !== undefined && raw !== null && raw !== '') {
+      collected[key] = raw;
+      anyPresent = true;
+    }
+  }
+  return anyPresent ? collected : null;
+}
+
+interface EventBriefValidationFailure {
+  fieldErrors: Record<string, string>;
+}
+
+interface EventBriefValidationSuccess {
+  event: {
+    eventName: string;
+    eventDate: string;
+    registrationDeadline: string;
+    campaignEndDate: string;
+    cta: string;
+  };
+}
+
+/**
+ * Validate event_campaign brief fields and convert the three date strings to
+ * tenant-local end-of-day UTC ISO timestamps. Form submits dates as YYYY-MM-DD
+ * calendar values; the worker filter and the orchestrator's days_until_deadline
+ * both want UTC instants. Conversion happens here, once, with the tenant
+ * timezone in hand -- downstream code (orchestrator, schedule route, Hermes
+ * payload) only ever sees UTC.
+ *
+ * Returns { fieldErrors } on any required-field-missing or shape-invalid case;
+ * the caller maps that to a 422 with parseable field errors (matching
+ * parseMarketingFieldErrors expectations in the form hook).
+ *
+ * Date ordering rule: registrationDeadline <= eventDate <= campaignEndDate.
+ * The form enforces this client-side; the server re-checks because we cannot
+ * trust the client.
+ */
+function validateAndConvertEventBrief(
+  raw: Record<string, unknown> | null | undefined,
+  tenantId: string,
+): EventBriefValidationFailure | EventBriefValidationSuccess {
+  const fieldErrors: Record<string, string> = {};
+  const get = (key: string): string => {
+    const v = raw && typeof (raw as Record<string, unknown>)[key] === 'string'
+      ? ((raw as Record<string, unknown>)[key] as string).trim()
+      : '';
+    return v;
+  };
+  const eventName = get('eventName');
+  const eventDate = get('eventDate');
+  const registrationDeadline = get('registrationDeadline');
+  const campaignEndDate = get('campaignEndDate');
+  const cta = get('cta');
+
+  if (!eventName) fieldErrors['event.eventName'] = 'Event name is required.';
+  if (!cta) fieldErrors['event.cta'] = 'CTA is required.';
+  if (!eventDate) fieldErrors['event.eventDate'] = 'Event date is required.';
+  if (!registrationDeadline) fieldErrors['event.registrationDeadline'] = 'Registration deadline is required.';
+  if (!campaignEndDate) fieldErrors['event.campaignEndDate'] = 'Campaign end date is required.';
+
+  // Each date is expected as YYYY-MM-DD from <input type="date">. wallTimeToUtc
+  // wants YYYY-MM-DDTHH:mm, so append the end-of-day wall clock here.
+  const tenantTz = loadTenantTimezoneOrFallback(tenantId);
+  const toUtcEndOfDay = (value: string, field: string): string | null => {
+    if (!value) return null;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      fieldErrors[field] = 'Use a YYYY-MM-DD date.';
+      return null;
+    }
+    const wall = `${value}T23:59:59`;
+    const utc = wallTimeToUtc(wall, tenantTz);
+    if (!utc) {
+      fieldErrors[field] = 'Invalid date.';
+      return null;
+    }
+    return utc.toISOString();
+  };
+
+  const eventDateUtc = toUtcEndOfDay(eventDate, 'event.eventDate');
+  const regDeadlineUtc = toUtcEndOfDay(registrationDeadline, 'event.registrationDeadline');
+  const endDateUtc = toUtcEndOfDay(campaignEndDate, 'event.campaignEndDate');
+
+  if (eventDateUtc && regDeadlineUtc && Date.parse(regDeadlineUtc) > Date.parse(eventDateUtc)) {
+    fieldErrors['event.registrationDeadline'] = 'Registration deadline must be on or before the event date.';
+  }
+  if (eventDateUtc && endDateUtc && Date.parse(endDateUtc) < Date.parse(eventDateUtc)) {
+    fieldErrors['event.campaignEndDate'] = 'Campaign end date must be on or after the event date.';
+  }
+
+  if (Object.keys(fieldErrors).length > 0) {
+    return { fieldErrors };
+  }
+
+  return {
+    event: {
+      eventName,
+      eventDate: eventDateUtc as string,
+      registrationDeadline: regDeadlineUtc as string,
+      campaignEndDate: endDateUtc as string,
+      cta,
+    },
   };
 }
 
@@ -321,7 +446,7 @@ export async function handlePostMarketingJobs(
   const requestBody = await parseCreateJobRequest(req);
   const requestedJobType = resolveRequestedJobType(requestBody.jobType, dialect);
 
-  if (requestedJobType !== 'weekly_social_content') {
+  if (requestedJobType !== 'weekly_social_content' && requestedJobType !== 'event_campaign') {
     return NextResponse.json({ error: `unsupported_job_type:${String(requestBody.jobType ?? '')}` }, { status: 400 });
   }
 
@@ -361,6 +486,28 @@ export async function handlePostMarketingJobs(
       payload: normalizedPayload,
     });
     const hydratedPayload = await enrichPayloadFromBusinessProfile(resolvedTenantId, normalizedPayload);
+
+    // One-off event campaigns: validate the event brief and convert the form's
+    // YYYY-MM-DD dates to tenant-local end-of-day UTC ISO strings BEFORE the
+    // runtime document is persisted. Downstream code (orchestrator's
+    // event_brief assembly, schedule route's campaign_end_date write, the
+    // worker's WHERE clause) reads only UTC -- the timezone reasoning happens
+    // here, once. A 422 with structured field errors matches the form hook's
+    // parseMarketingFieldErrors expectations.
+    if (requestedJobType === 'event_campaign') {
+      const result = validateAndConvertEventBrief(
+        hydratedPayload.event as Record<string, unknown> | null | undefined,
+        resolvedTenantId,
+      );
+      if ('fieldErrors' in result) {
+        return NextResponse.json(
+          { error: 'event_brief_invalid', fieldErrors: result.fieldErrors },
+          { status: 422 },
+        );
+      }
+      hydratedPayload.event = result.event;
+    }
+
     const result = await startMarketingJob({
       tenantId: resolvedTenantId,
       jobType: requestedJobType,
