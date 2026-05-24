@@ -65,6 +65,8 @@ import {
   recordStageFailure,
   saveMarketingJobRuntime,
   setJobRunning,
+  asRecord,
+  asString,
   type MarketingApprovalCheckpoint,
   type MarketingJobRuntimeDocument,
   type MarketingPublishConfig,
@@ -306,8 +308,60 @@ type MarketingWorkflowRuntimeContext = {
   gatewayUrl: string | null;
 };
 
+/**
+ * Build the structured `event_brief` block that one-off event campaigns send to
+ * Hermes alongside the brand/competitor args. The submit handler is responsible
+ * for converting raw form dates to tenant-local end-of-day UTC ISO strings (via
+ * `wallTimeToUtc` in `lib/format-timestamp.ts`); this helper reads those
+ * already-converted values out of the runtime document. `days_until_deadline`
+ * is computed at call time so each stage invocation sees a fresh countdown
+ * (research → strategy → production may span hours; the deadline does not).
+ *
+ * Returns null when the doc is not an event campaign OR when the event payload
+ * is missing required fields. A null return is the signal that no event_brief
+ * should be attached -- weekly campaigns and malformed event submissions both
+ * fall through to the unmodified weekly args.
+ */
+function buildEventBriefForArgs(
+  doc: MarketingJobRuntimeDocument,
+): Record<string, unknown> | null {
+  if (doc.job_type !== 'event_campaign') {
+    return null;
+  }
+  const request = asRecord(doc.inputs.request);
+  const event = request ? asRecord(request.event) : null;
+  if (!event) {
+    return null;
+  }
+  const eventName = asString(event.eventName);
+  const eventDate = asString(event.eventDate);
+  const registrationDeadline = asString(event.registrationDeadline);
+  const campaignEndDate = asString(event.campaignEndDate);
+  const cta = asString(event.cta);
+  if (!eventName || !eventDate || !registrationDeadline || !campaignEndDate || !cta) {
+    return null;
+  }
+  const deadlineMs = Date.parse(registrationDeadline);
+  const nowMs = Date.now();
+  // Math.ceil here keeps "deadline tomorrow" surfacing as `1` rather than
+  // collapsing to `0` partway through the day. A passed deadline clamps to 0
+  // so the prompt never says "negative days remaining".
+  const daysUntilDeadline = Number.isFinite(deadlineMs)
+    ? Math.max(0, Math.ceil((deadlineMs - nowMs) / 86_400_000))
+    : null;
+  return {
+    event_name: eventName,
+    event_date: eventDate,
+    registration_deadline: registrationDeadline,
+    campaign_end_date: campaignEndDate,
+    cta,
+    days_until_deadline: daysUntilDeadline,
+  };
+}
+
 function marketingPipelineArgs(doc: MarketingJobRuntimeDocument): Record<string, unknown> {
   const facebookPageUrl = doc.inputs.facebook_page_url ?? doc.inputs.competitor_facebook_url ?? '';
+  const eventBrief = buildEventBriefForArgs(doc);
   return {
     brand_url: doc.inputs.brand_url ?? '',
     competitor_url: doc.inputs.competitor_url ?? '',
@@ -322,6 +376,9 @@ function marketingPipelineArgs(doc: MarketingJobRuntimeDocument): Record<string,
     // Correlation id the executor can use to target a cancel signal at this
     // specific in-flight run. Kept identical to the marketing job id.
     cancel_correlation_id: doc.job_id,
+    // One-off event campaigns attach a structured event_brief Hermes can read
+    // to drive countdown framing. Weekly campaigns leave this absent.
+    ...(eventBrief ? { event_brief: eventBrief } : {}),
   };
 }
 
