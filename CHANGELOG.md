@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.8.6 — chore(todos): record CI infra flakes + Honcho rollout prerequisites for next session
+
+Closes the /goal session's housekeeping. Appends three new TODOS entries: (1) the GitHub Actions auth flakes observed during the v0.1.7.4→v0.1.8.4 ship cascade (`pr-agent-autofix-automerge.yml` HTTP 401 once + CodeQL checkout terminal-prompts-disabled once — both transient, both self-resolved); (2) the Honcho `HONCHO_ENABLED` + `HONCHO_WRITE_APPROVALS_ENABLED` flip prerequisites (HONCHO_BASE_URL/JWTs/salt provisioning in prod, idempotency-keys migration check, smoke test) — Phase 1 code is already shipped on master; (3) the Phase 2 + Phase 3 branches that were "shipped on branch" but never landed. Each entry has enough context that the next session can pick up cleanly without re-discovering the surface.
+
 ## v0.1.8.4 — chore(memory): flip ARIES_MEMORY_LABEL_REDACTION_V2=1 default in docker-compose
 
 Activates the narrow first-name-denylist heuristic in `scrubPreferenceLabelForHoncho` (`backend/memory/write-events.ts`). Replaces the legacy broad `/[A-Z][a-z]+\s+[A-Z][a-z]+/` regex that was over-scrubbing creative descriptors like "Bold Minimalist" or "Quiet Luxury" to `[redacted_name]` before they reached Honcho. Real `<FirstName> <LastName>` pairs (from a curated first-name denylist) still get scrubbed. Email redaction is unchanged in both modes. The implementation and both-mode test coverage (`tests/memory-label-redaction.test.ts`) have been in place since v0.1.6.5; this commit only flips the env default in `docker-compose.yml` so the single-tenant production container picks up the new heuristic on next deploy. Overridable per-container via the `ARIES_MEMORY_LABEL_REDACTION_V2` env var if a rollback is needed without a redeploy.

@@ -176,3 +176,51 @@ auto-retries. The final publish calls remain one-shot.
 
 - [ ] Refactor Hermes media addressing to be ID-based. `/api/internal/hermes/media/[...path]` currently identifies assets by basename (last URL path segment) and proves ownership by string-matching `regexp_replace` over `served_asset_ref` / `storage_key`. v0.1.5.6 patched the ownership symptom but the design is still basename-coupled. Proper fix: make the route URL `/api/internal/hermes/media/<creative_assets.id>`, turn ownership into a primary-key + `tenant_id` lookup, and serve the file from `storage_key`. Update the `served_asset_ref` written at ingest (`backend/marketing/ingest-production-assets.ts`) and every consumer — calendar backlog thumbnails, creative-review previews, `scheduled-dispatch` media resolution. Removes basename coupling, the dual-column regex match, and basename-collision risk. (Logged 2026-05-21 after v0.1.5.6.)
 
+
+### CI infra — Autofix workflow HTTP 401 + checkout 'terminal prompts disabled' flake
+
+**What:** Two related transient infra failures observed during the v0.1.7.4→v0.1.8.4 ship run (2026-05-23):
+- `pr-agent-autofix-automerge.yml` failed once on PR #431 with `HTTP 401: Bad credentials` calling the GitHub labels API. Self-resolved on subsequent PRs.
+- `Analyze (javascript-typescript)` (CodeQL) failed once on PR #438 at the checkout step: `fatal: could not read Username for github.com: terminal prompts disabled`. Self-resolved after a re-trigger push.
+
+**Why:** Both are GitHub Actions token auth flakes, not code bugs, but they block the merge gate when they hit. Each cost a few minutes of triage during the ship cascade.
+
+**Fix candidates:**
+- Add `continue-on-error: true` to the labels-creation step in `pr-agent-autofix-automerge.yml` (labels are idempotent via `--force`; failure to create them is non-critical).
+- Add a single retry-on-401 wrapper around `gh label create` calls.
+- For the CodeQL checkout flake: nothing local to fix — it's `actions/checkout` losing the GITHUB_TOKEN context. Document the re-trigger workflow.
+
+**Priority:** P3 (defer until it recurs more often than transient)
+**Source:** Investigated 2026-05-23, agent recommended defer; logged here for next-time reference.
+
+### Honcho continuous-profile-writes — flip HONCHO_ENABLED and Phase 1 flag in prod
+
+**What:** Phase 1 implementation code is ALREADY shipped on master (`scheduleMarketingApprovalHonchoWrites` wired at `backend/marketing/orchestrator.ts:2064`, `recordApprovalEvent`/`recordDenialEvent` in `backend/memory/write-events.ts`, env gate `HONCHO_WRITE_APPROVALS_ENABLED` in `backend/memory/honcho-env.ts`, tests in `tests/memory-write-events.test.ts`). What is NOT done is enabling it in production: `HONCHO_ENABLED=false` and `HONCHO_WRITE_APPROVALS_ENABLED=false` are the docker-compose.yml defaults.
+
+**Why:** To start capturing strategy approvals + creative rejections into Honcho per the v2 continuous-profile-writes plan.
+
+**Prerequisites before flipping:**
+1. `HONCHO_BASE_URL` set in production `.env` (currently blank default).
+2. `HONCHO_CONTROL_PLANE_JWT` and `HONCHO_DATA_PLANE_JWT` set in prod `.env`.
+3. `ARIES_TENANT_PSEUDONYM_SALT` set in prod `.env`.
+4. Confirm `honcho_write_idempotency_keys` Postgres table exists or add migration to `scripts/init-db.js`.
+5. Smoke test that the Honcho backend at `HONCHO_BASE_URL` accepts a write before flipping prod gate.
+
+**Fix:** After prerequisites are confirmed, edit `docker-compose.yml`:
+```
+HONCHO_ENABLED: ${HONCHO_ENABLED:-true}
+HONCHO_WRITE_APPROVALS_ENABLED: ${HONCHO_WRITE_APPROVALS_ENABLED:-true}
+```
+And ship as its own PR.
+
+**Priority:** P2 (gated on user decision + prod creds)
+**Source:** Discovered 2026-05-23 during /goal P6 investigation. Asked user; user replied "do what's next" — deferred per that direction.
+
+### Honcho Phase 2 + Phase 3 — branches need land
+
+**What:** TODOS lines 81-103 note that Phase 2 (publishing events + performance feedback) and Phase 3 (UI preference signals) have code "shipped on branch" but never landed to master. Find those branches (likely named `feat/honcho-phase-2-...` and `feat/honcho-phase-3-...`) and either land them or close them out.
+
+**Why:** Dangling unmerged work rots. If the design is still valid, ship; if not, close.
+
+**Priority:** P3 (after Phase 1 flag flip lands)
+**Source:** Surfaced 2026-05-23 during /goal P6 investigation.
