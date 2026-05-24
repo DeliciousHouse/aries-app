@@ -58,6 +58,14 @@ services:
       ARIES_KANBAN_GC_RETENTION_DAYS: ${ARIES_KANBAN_GC_RETENTION_DAYS:-7}
       ARIES_AUTO_APPROVE_MARKETING_PIPELINE: ${ARIES_AUTO_APPROVE_MARKETING_PIPELINE:-1}
       ARIES_BRAND_ENRICHMENT_ENABLED: ${ARIES_BRAND_ENRICHMENT_ENABLED:-1}
+      # 2026-05-23: flipped ON per TODOS rollout. Narrow first-name-denylist
+      # heuristic replaces the legacy /[A-Z][a-z]+\s+[A-Z][a-z]+/ regex in
+      # backend/memory/write-events.ts::scrubPreferenceLabelForHoncho. Effect:
+      # creative descriptors like "Bold Minimalist" / "Quiet Luxury" stop
+      # being scrubbed to [redacted_name], while real first+last name pairs
+      # still get redacted. Email redaction unchanged. Tests:
+      # tests/memory-label-redaction.test.ts cover both modes.
+      ARIES_MEMORY_LABEL_REDACTION_V2: ${ARIES_MEMORY_LABEL_REDACTION_V2:-1}
       HERMES_BRAND_ANALYSIS_SESSION_KEY: ${HERMES_BRAND_ANALYSIS_SESSION_KEY:-}
       HERMES_BRAND_ANALYSIS_TIMEOUT_MS: ${HERMES_BRAND_ANALYSIS_TIMEOUT_MS:-}
       DB_HOST: ${DB_HOST}
