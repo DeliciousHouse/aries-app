@@ -95,7 +95,7 @@ import {
 
 export type StartMarketingJobRequest = {
   tenantId: string;
-  jobType: 'weekly_social_content' | 'event_campaign';
+  jobType: 'weekly_social_content' | 'one_off_campaign';
   /** Optional. User id of the authenticated caller that initiated the
    * campaign. Persisted on the runtime document so the campaign delete
    * permission check can allow the creator to delete their own campaigns
@@ -117,7 +117,7 @@ export type StartMarketingJobResponse = {
   status: 'accepted' | 'needs_connection';
   jobId: string;
   tenantId: string;
-  jobType: 'weekly_social_content' | 'event_campaign';
+  jobType: 'weekly_social_content' | 'one_off_campaign';
   runtimeArtifactPath: string;
   approvalRequired: boolean;
   currentStage: MarketingStage;
@@ -309,59 +309,69 @@ type MarketingWorkflowRuntimeContext = {
 };
 
 /**
- * Build the structured `event_brief` block that one-off event campaigns send to
+ * Build the structured `one_off_brief` block that one-off campaigns send to
  * Hermes alongside the brand/competitor args. The submit handler is responsible
  * for converting raw form dates to tenant-local end-of-day UTC ISO strings (via
  * `wallTimeToUtc` in `lib/format-timestamp.ts`); this helper reads those
- * already-converted values out of the runtime document. `days_until_deadline`
- * is computed at call time so each stage invocation sees a fresh countdown
+ * already-converted values out of the runtime document. `days_until_end` is
+ * computed at call time so each stage invocation sees a fresh countdown
  * (research → strategy → production may span hours; the deadline does not).
  *
- * Returns null when the doc is not an event campaign OR when the event payload
- * is missing required fields. A null return is the signal that no event_brief
- * should be attached -- weekly campaigns and malformed event submissions both
- * fall through to the unmodified weekly args.
+ * `milestone_date` + `milestone_label` are optional and operator-named. Hermes
+ * receives them as-is so countdown copy can reference whatever the operator
+ * typed -- "Registration deadline" for a hackathon, "Doors open" for a webinar,
+ * "Sale ends" for a flash sale, "Launch day" for a product launch.
+ *
+ * Returns null when the doc is not a one-off campaign OR when the oneOff
+ * payload is missing required fields. A null return means no one_off_brief is
+ * attached -- weekly campaigns and malformed one-off submissions both fall
+ * through to the unmodified weekly args.
  */
-export function buildEventBriefForArgs(
+export function buildOneOffBriefForArgs(
   doc: MarketingJobRuntimeDocument,
 ): Record<string, unknown> | null {
-  if (doc.job_type !== 'event_campaign') {
+  if (doc.job_type !== 'one_off_campaign') {
     return null;
   }
   const request = asRecord(doc.inputs.request);
-  const event = request ? asRecord(request.event) : null;
-  if (!event) {
+  const oneOff = request ? asRecord(request.oneOff) : null;
+  if (!oneOff) {
     return null;
   }
-  const eventName = asString(event.eventName);
-  const eventDate = asString(event.eventDate);
-  const registrationDeadline = asString(event.registrationDeadline);
-  const campaignEndDate = asString(event.campaignEndDate);
-  const cta = asString(event.cta);
-  if (!eventName || !eventDate || !registrationDeadline || !campaignEndDate || !cta) {
+  const name = asString(oneOff.name);
+  const campaignEndDate = asString(oneOff.campaignEndDate);
+  const cta = asString(oneOff.cta);
+  if (!name || !campaignEndDate || !cta) {
     return null;
   }
-  const deadlineMs = Date.parse(registrationDeadline);
+  const milestoneDate = asString(oneOff.milestoneDate);
+  const milestoneLabel = asString(oneOff.milestoneLabel);
+
+  const endMs = Date.parse(campaignEndDate);
   const nowMs = Date.now();
-  // Math.ceil here keeps "deadline tomorrow" surfacing as `1` rather than
-  // collapsing to `0` partway through the day. A passed deadline clamps to 0
+  // Math.ceil here keeps "ends tomorrow" surfacing as `1` rather than
+  // collapsing to `0` partway through the day. A passed end date clamps to 0
   // so the prompt never says "negative days remaining".
-  const daysUntilDeadline = Number.isFinite(deadlineMs)
-    ? Math.max(0, Math.ceil((deadlineMs - nowMs) / 86_400_000))
+  const daysUntilEnd = Number.isFinite(endMs)
+    ? Math.max(0, Math.ceil((endMs - nowMs) / 86_400_000))
     : null;
-  return {
-    event_name: eventName,
-    event_date: eventDate,
-    registration_deadline: registrationDeadline,
+
+  const out: Record<string, unknown> = {
+    name,
     campaign_end_date: campaignEndDate,
     cta,
-    days_until_deadline: daysUntilDeadline,
+    days_until_end: daysUntilEnd,
   };
+  if (milestoneDate && milestoneLabel) {
+    out.milestone_date = milestoneDate;
+    out.milestone_label = milestoneLabel;
+  }
+  return out;
 }
 
 function marketingPipelineArgs(doc: MarketingJobRuntimeDocument): Record<string, unknown> {
   const facebookPageUrl = doc.inputs.facebook_page_url ?? doc.inputs.competitor_facebook_url ?? '';
-  const eventBrief = buildEventBriefForArgs(doc);
+  const oneOffBrief = buildOneOffBriefForArgs(doc);
   return {
     brand_url: doc.inputs.brand_url ?? '',
     competitor_url: doc.inputs.competitor_url ?? '',
@@ -376,9 +386,9 @@ function marketingPipelineArgs(doc: MarketingJobRuntimeDocument): Record<string,
     // Correlation id the executor can use to target a cancel signal at this
     // specific in-flight run. Kept identical to the marketing job id.
     cancel_correlation_id: doc.job_id,
-    // One-off event campaigns attach a structured event_brief Hermes can read
-    // to drive countdown framing. Weekly campaigns leave this absent.
-    ...(eventBrief ? { event_brief: eventBrief } : {}),
+    // One-off campaigns attach a structured one_off_brief Hermes can read to
+    // drive countdown framing. Weekly campaigns leave this absent.
+    ...(oneOffBrief ? { one_off_brief: oneOffBrief } : {}),
   };
 }
 

@@ -70,16 +70,18 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
   const [submitting, setSubmitting] = useState(false);
   const [submitProgress, setSubmitProgress] = useState({ stepIndex: 0, dotCount: 0 });
   const [errorText, setErrorText] = useState<string | null>(null);
-  // One-off event campaigns. Default 'weekly' so the existing flow is untouched
-  // for tenants who do not opt in. Switching to 'event' reveals the four date
-  // and text inputs below the brief; the submit handler then sends jobType=
-  // event_campaign and appends event.* form fields the server converts to UTC.
-  const [jobMode, setJobMode] = useState<'weekly' | 'event'>('weekly');
-  const [eventName, setEventName] = useState('');
-  const [eventDate, setEventDate] = useState('');
-  const [registrationDeadline, setRegistrationDeadline] = useState('');
+  // One-off campaigns. Default 'weekly' so the existing flow is untouched for
+  // tenants who do not opt in. Switching to 'oneOff' reveals the required
+  // campaign-name + end-date + CTA inputs plus optional milestoneDate +
+  // milestoneLabel for any kind of one-off (sale, launch, webinar, hackathon,
+  // fundraiser). Submit handler sends jobType=one_off_campaign and appends
+  // oneOff.* form fields the server converts to UTC.
+  const [jobMode, setJobMode] = useState<'weekly' | 'oneOff'>('weekly');
+  const [oneOffName, setOneOffName] = useState('');
   const [campaignEndDate, setCampaignEndDate] = useState('');
-  const [eventCta, setEventCta] = useState('');
+  const [oneOffCta, setOneOffCta] = useState('');
+  const [milestoneDate, setMilestoneDate] = useState('');
+  const [milestoneLabel, setMilestoneLabel] = useState('');
 
   useEffect(() => {
     if (!submitting) {
@@ -123,45 +125,52 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
       return;
     }
 
-    // Event mode requires the four event fields. Client-side guard mirrors the
+    // One-off mode: name + campaign end date + CTA are required; milestone
+    // date + label are optional but paired. Client-side guard mirrors the
     // server's 422 -- catching it here gives the operator inline feedback
-    // before the round-trip. The server re-checks date ordering and YYYY-MM-DD
+    // before the round-trip. The server re-checks ordering and YYYY-MM-DD
     // shape so a malicious or scripted POST cannot bypass these rules.
-    if (jobMode === 'event') {
-      const trimmedEventName = eventName.trim();
-      const trimmedEventDate = eventDate.trim();
-      const trimmedRegistrationDeadline = registrationDeadline.trim();
+    if (jobMode === 'oneOff') {
+      const trimmedOneOffName = oneOffName.trim();
       const trimmedCampaignEndDate = campaignEndDate.trim();
-      const trimmedEventCta = eventCta.trim();
-      if (!trimmedEventName) { setErrorText('Event name is required.'); return; }
-      if (!trimmedEventDate) { setErrorText('Event date is required.'); return; }
-      if (!trimmedRegistrationDeadline) { setErrorText('Registration deadline is required.'); return; }
+      const trimmedOneOffCta = oneOffCta.trim();
+      const trimmedMilestoneDate = milestoneDate.trim();
+      const trimmedMilestoneLabel = milestoneLabel.trim();
+      if (!trimmedOneOffName) { setErrorText('Campaign name is required.'); return; }
       if (!trimmedCampaignEndDate) { setErrorText('Campaign end date is required.'); return; }
-      if (!trimmedEventCta) { setErrorText('CTA is required.'); return; }
-      if (trimmedRegistrationDeadline > trimmedEventDate) {
-        setErrorText('Registration deadline must be on or before the event date.');
+      if (!trimmedOneOffCta) { setErrorText('CTA is required.'); return; }
+      if (trimmedMilestoneDate && !trimmedMilestoneLabel) {
+        setErrorText('Add a label for this milestone date (e.g. "Sale ends" or "Doors open").');
         return;
       }
-      if (trimmedCampaignEndDate < trimmedEventDate) {
-        setErrorText('Campaign end date must be on or after the event date.');
+      if (trimmedMilestoneLabel && !trimmedMilestoneDate) {
+        setErrorText('Pick a date for the milestone label.');
+        return;
+      }
+      if (trimmedMilestoneDate && trimmedMilestoneDate > trimmedCampaignEndDate) {
+        setErrorText('Milestone date must be on or before the campaign end date.');
         return;
       }
     }
 
     const formData = new FormData();
-    formData.set('jobType', jobMode === 'event' ? 'event_campaign' : 'weekly_social_content');
+    formData.set('jobType', jobMode === 'oneOff' ? 'one_off_campaign' : 'weekly_social_content');
     formData.set('brandUrl', trimmedWebsiteUrl);
     formData.set('websiteUrl', trimmedWebsiteUrl);
-    if (jobMode === 'event') {
-      // event.* keys are the contract the server's parseCreateJobRequest
-      // reads via extractEventPayloadFromForm; the server converts the three
+    if (jobMode === 'oneOff') {
+      // oneOff.* keys are the contract the server's parseCreateJobRequest
+      // reads via extractOneOffPayloadFromForm; the server converts the
       // YYYY-MM-DD dates to tenant-local end-of-day UTC ISO strings before
       // they reach the runtime document.
-      formData.set('event.eventName', eventName.trim());
-      formData.set('event.eventDate', eventDate.trim());
-      formData.set('event.registrationDeadline', registrationDeadline.trim());
-      formData.set('event.campaignEndDate', campaignEndDate.trim());
-      formData.set('event.cta', eventCta.trim());
+      formData.set('oneOff.name', oneOffName.trim());
+      formData.set('oneOff.campaignEndDate', campaignEndDate.trim());
+      formData.set('oneOff.cta', oneOffCta.trim());
+      if (milestoneDate.trim()) {
+        formData.set('oneOff.milestoneDate', milestoneDate.trim());
+      }
+      if (milestoneLabel.trim()) {
+        formData.set('oneOff.milestoneLabel', milestoneLabel.trim());
+      }
     }
     const trimmedCompetitorUrl = competitorUrl.trim();
     if (trimmedCompetitorUrl) {
@@ -408,60 +417,35 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                   <button
                     type="button"
                     role="radio"
-                    aria-checked={jobMode === 'event'}
-                    onClick={() => setJobMode('event')}
+                    aria-checked={jobMode === 'oneOff'}
+                    onClick={() => setJobMode('oneOff')}
                     className={`flex-1 rounded-2xl border px-4 py-3 text-left transition ${
-                      jobMode === 'event'
+                      jobMode === 'oneOff'
                         ? 'border-primary bg-primary/15 text-white'
                         : 'border-white/10 bg-white/5 text-white/70 hover:border-white/30'
                     }`}
                   >
-                    <div className="text-sm font-semibold">One-off event</div>
-                    <div className="mt-1 text-xs text-white/50">Hard deadline; auto-stops on the end date</div>
+                    <div className="text-sm font-semibold">One-off campaign</div>
+                    <div className="mt-1 text-xs text-white/50">Sale, launch, webinar, hackathon. Auto-stops on the end date.</div>
                   </button>
                 </div>
               </Field>
 
-              {jobMode === 'event' ? (
+              {jobMode === 'oneOff' ? (
                 <div className="space-y-6 rounded-2xl border border-primary/20 bg-primary/5 p-5">
                   <p className="text-sm text-white/70">
-                    Aries drives copy toward your registration deadline and stops publishing past the campaign end date. Dates are interpreted in your business timezone (end of day).
+                    Aries drives copy toward your campaign end date and stops publishing once it passes. Dates are interpreted in your business timezone (end of day).
                   </p>
-                  <Field label="Event name" required>
+                  <Field label="Campaign name" required>
                     <input
-                      value={eventName}
-                      onChange={(e) => setEventName(e.target.value)}
-                      placeholder="e.g. Aries AI Hackathon"
-                      aria-invalid={marketingCreate.fieldErrors?.['event.eventName'] ? true : undefined}
+                      value={oneOffName}
+                      onChange={(e) => setOneOffName(e.target.value)}
+                      placeholder='e.g. "Summer flash sale" or "Aries AI Hackathon"'
+                      aria-invalid={marketingCreate.fieldErrors?.['oneOff.name'] ? true : undefined}
                       className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
                     />
-                    {marketingCreate.fieldErrors?.['event.eventName'] ? (
-                      <p className="mt-2 text-sm text-red-300">{marketingCreate.fieldErrors['event.eventName']}</p>
-                    ) : null}
-                  </Field>
-                  <Field label="Event date" required>
-                    <input
-                      type="date"
-                      value={eventDate}
-                      onChange={(e) => setEventDate(e.target.value)}
-                      aria-invalid={marketingCreate.fieldErrors?.['event.eventDate'] ? true : undefined}
-                      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50"
-                    />
-                    {marketingCreate.fieldErrors?.['event.eventDate'] ? (
-                      <p className="mt-2 text-sm text-red-300">{marketingCreate.fieldErrors['event.eventDate']}</p>
-                    ) : null}
-                  </Field>
-                  <Field label="Registration deadline" required>
-                    <input
-                      type="date"
-                      value={registrationDeadline}
-                      onChange={(e) => setRegistrationDeadline(e.target.value)}
-                      aria-invalid={marketingCreate.fieldErrors?.['event.registrationDeadline'] ? true : undefined}
-                      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50"
-                    />
-                    <p className="mt-2 text-xs text-white/45">When sign-ups close. Aries uses this for countdown copy.</p>
-                    {marketingCreate.fieldErrors?.['event.registrationDeadline'] ? (
-                      <p className="mt-2 text-sm text-red-300">{marketingCreate.fieldErrors['event.registrationDeadline']}</p>
+                    {marketingCreate.fieldErrors?.['oneOff.name'] ? (
+                      <p className="mt-2 text-sm text-red-300">{marketingCreate.fieldErrors['oneOff.name']}</p>
                     ) : null}
                   </Field>
                   <Field label="Campaign end date" required>
@@ -469,26 +453,58 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                       type="date"
                       value={campaignEndDate}
                       onChange={(e) => setCampaignEndDate(e.target.value)}
-                      aria-invalid={marketingCreate.fieldErrors?.['event.campaignEndDate'] ? true : undefined}
+                      aria-invalid={marketingCreate.fieldErrors?.['oneOff.campaignEndDate'] ? true : undefined}
                       className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50"
                     />
                     <p className="mt-2 text-xs text-white/45">Aries stops publishing past end-of-day in your timezone.</p>
-                    {marketingCreate.fieldErrors?.['event.campaignEndDate'] ? (
-                      <p className="mt-2 text-sm text-red-300">{marketingCreate.fieldErrors['event.campaignEndDate']}</p>
+                    {marketingCreate.fieldErrors?.['oneOff.campaignEndDate'] ? (
+                      <p className="mt-2 text-sm text-red-300">{marketingCreate.fieldErrors['oneOff.campaignEndDate']}</p>
                     ) : null}
                   </Field>
                   <Field label="Call to action" required>
                     <input
-                      value={eventCta}
-                      onChange={(e) => setEventCta(e.target.value)}
-                      placeholder="e.g. Register at aries.example.com/hackathon"
-                      aria-invalid={marketingCreate.fieldErrors?.['event.cta'] ? true : undefined}
+                      value={oneOffCta}
+                      onChange={(e) => setOneOffCta(e.target.value)}
+                      placeholder='e.g. "Shop the sale" or "Register at example.com/event"'
+                      aria-invalid={marketingCreate.fieldErrors?.['oneOff.cta'] ? true : undefined}
                       className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
                     />
-                    {marketingCreate.fieldErrors?.['event.cta'] ? (
-                      <p className="mt-2 text-sm text-red-300">{marketingCreate.fieldErrors['event.cta']}</p>
+                    {marketingCreate.fieldErrors?.['oneOff.cta'] ? (
+                      <p className="mt-2 text-sm text-red-300">{marketingCreate.fieldErrors['oneOff.cta']}</p>
                     ) : null}
                   </Field>
+
+                  <div className="border-t border-white/10 pt-5">
+                    <p className="text-sm text-white/60 mb-3">
+                      Optional key date Aries can reference in copy. Label it however fits your campaign &mdash; &ldquo;Sale ends&rdquo;, &ldquo;Doors open&rdquo;, &ldquo;Registration deadline&rdquo;, &ldquo;Launch day&rdquo;.
+                    </p>
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <Field label="Milestone label">
+                        <input
+                          value={milestoneLabel}
+                          onChange={(e) => setMilestoneLabel(e.target.value)}
+                          placeholder='e.g. "Sale ends"'
+                          aria-invalid={marketingCreate.fieldErrors?.['oneOff.milestoneLabel'] ? true : undefined}
+                          className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
+                        />
+                        {marketingCreate.fieldErrors?.['oneOff.milestoneLabel'] ? (
+                          <p className="mt-2 text-sm text-red-300">{marketingCreate.fieldErrors['oneOff.milestoneLabel']}</p>
+                        ) : null}
+                      </Field>
+                      <Field label="Milestone date">
+                        <input
+                          type="date"
+                          value={milestoneDate}
+                          onChange={(e) => setMilestoneDate(e.target.value)}
+                          aria-invalid={marketingCreate.fieldErrors?.['oneOff.milestoneDate'] ? true : undefined}
+                          className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50"
+                        />
+                        {marketingCreate.fieldErrors?.['oneOff.milestoneDate'] ? (
+                          <p className="mt-2 text-sm text-red-300">{marketingCreate.fieldErrors['oneOff.milestoneDate']}</p>
+                        ) : null}
+                      </Field>
+                    </div>
+                  </div>
                 </div>
               ) : null}
 

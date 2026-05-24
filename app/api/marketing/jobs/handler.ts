@@ -31,7 +31,7 @@ const MARKETING_ONBOARDING_REQUIRED = {
   message: 'Complete tenant onboarding before starting a marketing job.',
 } as const;
 
-type PublicJobType = 'weekly_social_content' | 'event_campaign';
+type PublicJobType = 'weekly_social_content' | 'one_off_campaign';
 type ResponseDialect = 'marketing' | 'social-content';
 
 function coerceFieldValue(value: FormDataEntryValue | null): string {
@@ -256,7 +256,7 @@ async function parseCreateJobRequest(req: Request): Promise<{
         // end-of-day UTC instants once tenant context is resolved). Presence
         // of any field is preserved so the validator can return 422 with
         // structured field errors when required fields are missing.
-        event: extractEventPayloadFromForm(formData),
+        oneOff: extractOneOffPayloadFromForm(formData),
       },
       uploads,
     };
@@ -277,17 +277,17 @@ async function parseCreateJobRequest(req: Request): Promise<{
 }
 
 /**
- * Read event_campaign brief fields out of FormData. Returns null when the
- * form had no event_* keys at all (weekly campaign submission); returns a
- * partial object when some fields are present so validateAndConvertEventBrief
- * can produce structured 422 errors for the missing ones.
+ * Read one_off_campaign brief fields out of FormData. Returns null when the
+ * form had no oneOff.* keys at all (weekly campaign submission); returns a
+ * partial object when some fields are present so validateAndConvertOneOffBrief
+ * can produce structured 422 errors for the missing required ones.
  */
-function extractEventPayloadFromForm(formData: FormData): Record<string, unknown> | null {
-  const keys = ['eventName', 'eventDate', 'registrationDeadline', 'campaignEndDate', 'cta'];
+function extractOneOffPayloadFromForm(formData: FormData): Record<string, unknown> | null {
+  const keys = ['name', 'campaignEndDate', 'cta', 'milestoneDate', 'milestoneLabel'];
   const collected: Record<string, unknown> = {};
   let anyPresent = false;
   for (const key of keys) {
-    const raw = coerceFieldValue(formData.get(`event.${key}`));
+    const raw = coerceFieldValue(formData.get(`oneOff.${key}`));
     if (raw !== undefined && raw !== null && raw !== '') {
       collected[key] = raw;
       anyPresent = true;
@@ -296,40 +296,42 @@ function extractEventPayloadFromForm(formData: FormData): Record<string, unknown
   return anyPresent ? collected : null;
 }
 
-interface EventBriefValidationFailure {
+interface OneOffBriefValidationFailure {
   fieldErrors: Record<string, string>;
 }
 
-interface EventBriefValidationSuccess {
-  event: {
-    eventName: string;
-    eventDate: string;
-    registrationDeadline: string;
+interface OneOffBriefValidationSuccess {
+  oneOff: {
+    name: string;
     campaignEndDate: string;
     cta: string;
+    milestoneDate?: string;
+    milestoneLabel?: string;
   };
 }
 
 /**
- * Validate event_campaign brief fields and convert the three date strings to
+ * Validate one_off_campaign brief fields and convert the date strings to
  * tenant-local end-of-day UTC ISO timestamps. Form submits dates as YYYY-MM-DD
- * calendar values; the worker filter and the orchestrator's days_until_deadline
+ * calendar values; the worker filter and the orchestrator's days_until_end
  * both want UTC instants. Conversion happens here, once, with the tenant
  * timezone in hand -- downstream code (orchestrator, schedule route, Hermes
  * payload) only ever sees UTC.
  *
+ * Required fields: name, campaignEndDate, cta. Optional: milestoneDate +
+ * milestoneLabel (operator-named "Registration deadline" / "Doors open" /
+ * "Sale ends" / "Launch day"). Pairing rule: if either milestone field is
+ * present, the other must be present too -- a date without a label is
+ * meaningless, and a label without a date is unactionable.
+ *
  * Returns { fieldErrors } on any required-field-missing or shape-invalid case;
  * the caller maps that to a 422 with parseable field errors (matching
  * parseMarketingFieldErrors expectations in the form hook).
- *
- * Date ordering rule: registrationDeadline <= eventDate <= campaignEndDate.
- * The form enforces this client-side; the server re-checks because we cannot
- * trust the client.
  */
-export function validateAndConvertEventBrief(
+export function validateAndConvertOneOffBrief(
   raw: Record<string, unknown> | null | undefined,
   tenantId: string,
-): EventBriefValidationFailure | EventBriefValidationSuccess {
+): OneOffBriefValidationFailure | OneOffBriefValidationSuccess {
   const fieldErrors: Record<string, string> = {};
   const get = (key: string): string => {
     const v = raw && typeof (raw as Record<string, unknown>)[key] === 'string'
@@ -337,17 +339,25 @@ export function validateAndConvertEventBrief(
       : '';
     return v;
   };
-  const eventName = get('eventName');
-  const eventDate = get('eventDate');
-  const registrationDeadline = get('registrationDeadline');
+  const name = get('name');
   const campaignEndDate = get('campaignEndDate');
   const cta = get('cta');
+  const milestoneDate = get('milestoneDate');
+  const milestoneLabel = get('milestoneLabel');
 
-  if (!eventName) fieldErrors['event.eventName'] = 'Event name is required.';
-  if (!cta) fieldErrors['event.cta'] = 'CTA is required.';
-  if (!eventDate) fieldErrors['event.eventDate'] = 'Event date is required.';
-  if (!registrationDeadline) fieldErrors['event.registrationDeadline'] = 'Registration deadline is required.';
-  if (!campaignEndDate) fieldErrors['event.campaignEndDate'] = 'Campaign end date is required.';
+  if (!name) fieldErrors['oneOff.name'] = 'Campaign name is required.';
+  if (!cta) fieldErrors['oneOff.cta'] = 'CTA is required.';
+  if (!campaignEndDate) fieldErrors['oneOff.campaignEndDate'] = 'Campaign end date is required.';
+
+  // Milestone fields are optional but paired -- one without the other is not
+  // a coherent campaign description.
+  if (milestoneDate && !milestoneLabel) {
+    fieldErrors['oneOff.milestoneLabel'] =
+      'Add a label for this date (e.g. "Sale ends" or "Doors open").';
+  }
+  if (milestoneLabel && !milestoneDate) {
+    fieldErrors['oneOff.milestoneDate'] = 'Pick the date this label refers to.';
+  }
 
   // Each date is expected as YYYY-MM-DD from <input type="date">. wallTimeToUtc
   // wants YYYY-MM-DDTHH:mm, so append the end-of-day wall clock here.
@@ -367,30 +377,31 @@ export function validateAndConvertEventBrief(
     return utc.toISOString();
   };
 
-  const eventDateUtc = toUtcEndOfDay(eventDate, 'event.eventDate');
-  const regDeadlineUtc = toUtcEndOfDay(registrationDeadline, 'event.registrationDeadline');
-  const endDateUtc = toUtcEndOfDay(campaignEndDate, 'event.campaignEndDate');
+  const endDateUtc = toUtcEndOfDay(campaignEndDate, 'oneOff.campaignEndDate');
+  const milestoneUtc = toUtcEndOfDay(milestoneDate, 'oneOff.milestoneDate');
 
-  if (eventDateUtc && regDeadlineUtc && Date.parse(regDeadlineUtc) > Date.parse(eventDateUtc)) {
-    fieldErrors['event.registrationDeadline'] = 'Registration deadline must be on or before the event date.';
-  }
-  if (eventDateUtc && endDateUtc && Date.parse(endDateUtc) < Date.parse(eventDateUtc)) {
-    fieldErrors['event.campaignEndDate'] = 'Campaign end date must be on or after the event date.';
+  // Ordering: a milestone date AFTER the campaign end is incoherent (the
+  // campaign already stopped publishing). Before the end is fine -- that's
+  // the common case (registration closes before the campaign window ends).
+  if (endDateUtc && milestoneUtc && Date.parse(milestoneUtc) > Date.parse(endDateUtc)) {
+    fieldErrors['oneOff.milestoneDate'] =
+      'Milestone date must be on or before the campaign end date.';
   }
 
   if (Object.keys(fieldErrors).length > 0) {
     return { fieldErrors };
   }
 
-  return {
-    event: {
-      eventName,
-      eventDate: eventDateUtc as string,
-      registrationDeadline: regDeadlineUtc as string,
-      campaignEndDate: endDateUtc as string,
-      cta,
-    },
+  const oneOff: OneOffBriefValidationSuccess['oneOff'] = {
+    name,
+    campaignEndDate: endDateUtc as string,
+    cta,
   };
+  if (milestoneUtc && milestoneLabel) {
+    oneOff.milestoneDate = milestoneUtc;
+    oneOff.milestoneLabel = milestoneLabel;
+  }
+  return { oneOff };
 }
 
 function resolveRequestedJobType(rawJobType: unknown, dialect: ResponseDialect): PublicJobType {
@@ -446,7 +457,7 @@ export async function handlePostMarketingJobs(
   const requestBody = await parseCreateJobRequest(req);
   const requestedJobType = resolveRequestedJobType(requestBody.jobType, dialect);
 
-  if (requestedJobType !== 'weekly_social_content' && requestedJobType !== 'event_campaign') {
+  if (requestedJobType !== 'weekly_social_content' && requestedJobType !== 'one_off_campaign') {
     return NextResponse.json({ error: `unsupported_job_type:${String(requestBody.jobType ?? '')}` }, { status: 400 });
   }
 
@@ -487,25 +498,25 @@ export async function handlePostMarketingJobs(
     });
     const hydratedPayload = await enrichPayloadFromBusinessProfile(resolvedTenantId, normalizedPayload);
 
-    // One-off event campaigns: validate the event brief and convert the form's
-    // YYYY-MM-DD dates to tenant-local end-of-day UTC ISO strings BEFORE the
-    // runtime document is persisted. Downstream code (orchestrator's
-    // event_brief assembly, schedule route's campaign_end_date write, the
-    // worker's WHERE clause) reads only UTC -- the timezone reasoning happens
-    // here, once. A 422 with structured field errors matches the form hook's
+    // One-off campaigns: validate the brief and convert the form's YYYY-MM-DD
+    // dates to tenant-local end-of-day UTC ISO strings BEFORE the runtime
+    // document is persisted. Downstream code (orchestrator's one_off_brief
+    // assembly, schedule route's campaign_end_date write, the worker's WHERE
+    // clause) reads only UTC -- the timezone reasoning happens here, once. A
+    // 422 with structured field errors matches the form hook's
     // parseMarketingFieldErrors expectations.
-    if (requestedJobType === 'event_campaign') {
-      const result = validateAndConvertEventBrief(
-        hydratedPayload.event as Record<string, unknown> | null | undefined,
+    if (requestedJobType === 'one_off_campaign') {
+      const result = validateAndConvertOneOffBrief(
+        hydratedPayload.oneOff as Record<string, unknown> | null | undefined,
         resolvedTenantId,
       );
       if ('fieldErrors' in result) {
         return NextResponse.json(
-          { error: 'event_brief_invalid', fieldErrors: result.fieldErrors },
+          { error: 'one_off_brief_invalid', fieldErrors: result.fieldErrors },
           { status: 422 },
         );
       }
-      hydratedPayload.event = result.event;
+      hydratedPayload.oneOff = result.oneOff;
     }
 
     const result = await startMarketingJob({

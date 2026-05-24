@@ -1373,20 +1373,20 @@ async function buildCampaignWindow(
   runtimeDoc: MarketingJobRuntimeDocument,
   facts: MarketingJobFacts,
 ): Promise<MarketingCampaignWindow | null> {
-  // Event campaigns carry an authoritative end date (campaign_end_date, the
+  // One-off campaigns carry an authoritative end date (campaign_end_date, the
   // value the worker filters on). Surface it on MarketingCampaignWindow.end so
   // the dashboard renders "Stops publishing on <date>" via the existing
   // formatDateRange path -- no new dashboard UI needed.
-  if (runtimeDoc.job_type === 'event_campaign') {
+  if (runtimeDoc.job_type === 'one_off_campaign') {
     const request = recordValue(runtimeDoc.inputs.request);
-    const event = recordValue(request?.event);
-    const eventEnd = stringValue(event?.campaignEndDate);
-    if (eventEnd) {
-      // start = the registration deadline (or event date as fallback) so
-      // durationDays is meaningful for one-off campaigns rather than null.
-      const eventStart =
-        stringValue(event?.registrationDeadline) || stringValue(event?.eventDate) || null;
-      return { start: eventStart, end: eventEnd };
+    const oneOff = recordValue(request?.oneOff);
+    const oneOffEnd = stringValue(oneOff?.campaignEndDate);
+    if (oneOffEnd) {
+      // start = the operator's optional milestoneDate when set. If absent,
+      // durationDays will be null but the end date still surfaces -- the
+      // "Stops publishing on" label is the load-bearing one for the operator.
+      const oneOffStart = stringValue(oneOff?.milestoneDate) || null;
+      return { start: oneOffStart, end: oneOffEnd };
     }
   }
 

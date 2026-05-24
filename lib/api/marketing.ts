@@ -1,24 +1,32 @@
 import { requestJson, type ApiClientOptions } from './http';
 import type { ApprovalDenialReasonCode } from '@/lib/marketing/approval-denial-reason-codes';
 
-export type MarketingJobType = 'weekly_social_content' | 'event_campaign';
+export type MarketingJobType = 'weekly_social_content' | 'one_off_campaign';
 
 /**
- * One-off campaign metadata. Present only when jobType === 'event_campaign'.
+ * One-off campaign metadata. Present only when jobType === 'one_off_campaign'.
  * Presence of this object is the discriminator -- weekly campaigns leave it
- * undefined and downstream code branches on `payload.event != null`.
+ * undefined and downstream code branches on `payload.oneOff != null`.
  *
- * Dates are submitted by the form as YYYY-MM-DD calendar dates. The orchestrator
- * is responsible for converting them to tenant-local end-of-day UTC instants
- * (via wallTimeToUtc + business_profiles.timezone) before they hit the wire or
- * the scheduled_posts.campaign_end_date column.
+ * Fits any time-bound campaign shape: hackathons, product launches, sales,
+ * webinars, fundraisers. The only structurally required dates are the campaign
+ * end (drives the worker auto-stop) and the CTA destination; an optional
+ * `milestoneDate` + `milestoneLabel` lets the operator capture one additional
+ * date with whatever name fits the campaign ("Registration deadline" for a
+ * hackathon, "Doors open" for a webinar, "Sale ends" for a flash sale, "Launch
+ * day" for a product launch).
+ *
+ * Dates are submitted by the form as YYYY-MM-DD calendar dates. The submit
+ * handler converts them to tenant-local end-of-day UTC instants (via
+ * wallTimeToUtc + business_profiles.timezone) before they hit the wire or the
+ * scheduled_posts.campaign_end_date column.
  */
-export interface EventCampaignBrief {
-  eventName: string;
-  eventDate: string;
-  registrationDeadline: string;
+export interface OneOffCampaignBrief {
+  name: string;
   campaignEndDate: string;
   cta: string;
+  milestoneDate?: string;
+  milestoneLabel?: string;
 }
 export type MarketingStage = 'research' | 'strategy' | 'production' | 'publish';
 export type MarketingWorkflowState =
@@ -77,11 +85,11 @@ export interface BrandCampaignPayload {
   videoScriptsCount?: number | string;
   renderVideoAfterApproval?: boolean | string;
   /**
-   * One-off event campaign metadata. Present only when the parent
-   * PostMarketingJobsRequest.jobType === 'event_campaign'. Weekly campaigns
+   * One-off campaign metadata. Present only when the parent
+   * PostMarketingJobsRequest.jobType === 'one_off_campaign'. Weekly campaigns
    * leave this undefined.
    */
-  event?: EventCampaignBrief;
+  oneOff?: OneOffCampaignBrief;
 }
 
 export interface PostMarketingJobsRequest {
