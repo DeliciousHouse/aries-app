@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.8.4 — chore(memory): flip ARIES_MEMORY_LABEL_REDACTION_V2=1 default in docker-compose
+
+Activates the narrow first-name-denylist heuristic in `scrubPreferenceLabelForHoncho` (`backend/memory/write-events.ts`). Replaces the legacy broad `/[A-Z][a-z]+\s+[A-Z][a-z]+/` regex that was over-scrubbing creative descriptors like "Bold Minimalist" or "Quiet Luxury" to `[redacted_name]` before they reached Honcho. Real `<FirstName> <LastName>` pairs (from a curated first-name denylist) still get scrubbed. Email redaction is unchanged in both modes. The implementation and both-mode test coverage (`tests/memory-label-redaction.test.ts`) have been in place since v0.1.6.5; this commit only flips the env default in `docker-compose.yml` so the single-tenant production container picks up the new heuristic on next deploy. Overridable per-container via the `ARIES_MEMORY_LABEL_REDACTION_V2` env var if a rollback is needed without a redeploy.
+
 ## v0.1.8.3 — chore(verify): widen verify regression suite to cover the 30-day backlog files
 
 Closes the root cause of the 2026-04-23 P0 test backlog. `npm run verify` was narrower than the full TypeScript contract suite — failing tests in 9 files could accumulate for ~30 days without ever blocking a ship. v0.1.7.4–v0.1.7.8 + v0.1.8.0 + v0.1.8.2 all landed test-only or test-tighten fixes for files in that group. Adds a new "post-30-day-backlog contract regression tests" step to `scripts/verify-regression-suite.mjs` that runs all 9 of them in a single tsx invocation. Wall-clock impact: `verify` went from ~6s to ~51s end-to-end (still under the ~90s budget). Two files are deliberately excluded for now and still tracked in CI's full suite: `tests/frontend-api-layer.test.ts` (~70s; needs splitting) and `tests/marketing-brand-identity-parity.test.ts` (~64s; needs hot-loop investigation). Both excluded files are called out in the script's added comment block so the next person picking it up knows the scope.
