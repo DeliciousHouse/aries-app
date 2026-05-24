@@ -30,7 +30,10 @@ function recordingTransport(): { transport: HonchoTransport; calls: Captured[] }
     transport: {
       async request<T>(args: { method: string; path: string; workspaceId: string; body?: unknown }): Promise<T> {
         calls.push({ method: args.method, path: args.path, workspaceId: args.workspaceId, body: args.body });
-        return { id: `msg-${calls.length}`, items: [] } as unknown as T;
+        // Honcho v3 POST /sessions/{sid}/messages returns an array of Message;
+        // return an array so the client's response-shape parsing is exercised
+        // in the assertion below.
+        return [{ id: `msg-${calls.length}` }] as unknown as T;
       },
     },
   };
@@ -83,7 +86,60 @@ test('TenantMemoryClient routes appendApprovedMessage into the tenant workspace'
 
     assert.equal(calls.length, 1);
     assert.equal(calls[0].workspaceId, expectedWsid);
+    assert.equal(calls[0].method, 'POST');
     assert.match(calls[0].path, /\/v3\/workspaces\/aries-tenant-[a-f0-9]{32}\/sessions\/session-curated-job-abc\/messages$/);
+
+    // Regression: Honcho v3 expects MessageBatchCreate ({ messages: [...] }),
+    // not a flat single-object body. A flat body returns 422 with
+    // "missing body.messages" — silently swallowed by the write-event wrapper,
+    // so every Phase 1/2/3 mirror write was no-op until this shape was fixed.
+    const body = calls[0].body as { messages?: Array<{ peer_id?: string; content?: string; metadata?: Record<string, unknown> }> };
+    assert.ok(Array.isArray(body?.messages), 'body must wrap messages in an array (MessageBatchCreate)');
+    assert.equal(body.messages.length, 1);
+    assert.equal(body.messages[0].peer_id, 'peer-brand');
+    assert.match(body.messages[0].content ?? '', /strategy_stage_approved|"kind":"fact"|"claim":"Brand was founded/);
+    assert.equal(body.messages[0].metadata?.kind, 'fact');
+  });
+});
+
+test('TenantMemoryClient.listApprovedMessages uses Honcho v3 POST /messages/list with peer_id filter', async () => {
+  await withSalt(async () => {
+    const { transport, calls } = recordingTransport();
+    const client = new TenantMemoryClient(transport);
+    const ctx = makeCtx('t-list-1');
+
+    await client.listApprovedMessages({
+      ctx,
+      peer: { kind: 'brand' },
+      session: { kind: 'curated', jobId: 'job-xyz' },
+      includeSuperseded: false,
+    });
+
+    assert.equal(calls.length, 1);
+    // Regression: must be POST to /messages/list, not GET on /messages
+    // (Honcho v3 has no GET /messages endpoint; GET returned 405 silently).
+    assert.equal(calls[0].method, 'POST');
+    assert.match(calls[0].path, /\/v3\/workspaces\/aries-tenant-[a-f0-9]{32}\/sessions\/session-curated-job-xyz\/messages\/list$/);
+    const body = calls[0].body as { filters?: { peer_id?: string } };
+    assert.equal(body?.filters?.peer_id, 'peer-brand');
+  });
+});
+
+test('TenantMemoryClient.listApprovedMessages without a session returns [] (peer-scoped read TODO on v3)', async () => {
+  await withSalt(async () => {
+    const { transport, calls } = recordingTransport();
+    const client = new TenantMemoryClient(transport);
+    const ctx = makeCtx('t-list-2');
+
+    const messages = await client.listApprovedMessages({
+      ctx,
+      peer: { kind: 'brand' },
+      // session intentionally omitted
+      includeSuperseded: false,
+    });
+
+    assert.deepEqual(messages, []);
+    assert.equal(calls.length, 0, 'no transport call when session is missing (no v3 peer-scoped messages list)');
   });
 });
 

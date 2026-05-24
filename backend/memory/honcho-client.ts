@@ -137,38 +137,62 @@ export class TenantMemoryClient {
     const workspaceId = this.workspaceId(input.ctx);
     const peer = peerIdFor(input.peer);
     const session = sessionIdFor(input.session);
-    const res = await this.transport.request<{ id: string }>({
+    // Honcho v3 POST /sessions/{sid}/messages takes a batched body
+    // ({ messages: [...] }, schema MessageBatchCreate) and returns an array of
+    // Message. The flat single-object body that v1/v2 accepted is rejected as
+    // 422 "missing body.messages" against any v3 server, which means writes
+    // silently no-op when the transport's caller catches and logs the error.
+    // See OpenAPI: MessageBatchCreate requires `messages` (1..100 items).
+    const res = await this.transport.request<Array<{ id: string }> | { id: string }>({
       method: 'POST',
       path: `/v3/workspaces/${workspaceId}/sessions/${session}/messages`,
       workspaceId,
       body: {
-        peer_id: peer,
-        content: JSON.stringify(input.message),
-        metadata: {
-          kind: input.message.kind,
-          confidence: input.message.confidence,
-          approved_by: input.message.approved_by,
-          research_job_id: input.message.research_job_id,
-          supersedes: input.message.supersedes,
-        },
+        messages: [
+          {
+            peer_id: peer,
+            content: JSON.stringify(input.message),
+            metadata: {
+              kind: input.message.kind,
+              confidence: input.message.confidence,
+              approved_by: input.message.approved_by,
+              research_job_id: input.message.research_job_id,
+              supersedes: input.message.supersedes,
+            },
+          },
+        ],
       },
     });
-    return { messageId: res.id };
+    const messageId = Array.isArray(res) ? res[0]?.id : res?.id;
+    return { messageId: String(messageId ?? '') };
   }
 
   async listApprovedMessages(input: ListApprovedMessagesInput): Promise<ApprovedMessage[]> {
     const workspaceId = this.workspaceId(input.ctx);
     const peer = peerIdFor(input.peer);
     const session = input.session ? sessionIdFor(input.session) : undefined;
-    const path = session
-      ? `/v3/workspaces/${workspaceId}/sessions/${session}/messages`
-      : `/v3/workspaces/${workspaceId}/peers/${peer}/messages`;
+
+    // Honcho v3 uses POST /sessions/{sid}/messages/list (body = MessageGet
+    // { filters }, query = page/size/reverse) for paginated reads. There is
+    // NO peer-scoped messages list endpoint in v3 — to enumerate a peer's
+    // messages across sessions you must either iterate sessions or call
+    // /peers/{peer}/representation. We log + no-op the peer-only call rather
+    // than throwing so existing callers (orchestrator.loadResearchMemoryContext)
+    // degrade quietly until a proper peer-scoped read is implemented.
+    if (!session) {
+      console.warn(
+        '[honcho-client] listApprovedMessages without session is not supported on Honcho v3 (peer-scoped read TODO); returning [].',
+        { workspaceId, peer },
+      );
+      return [];
+    }
 
     const raw = await this.transport.request<{ items: Array<{ content: string; metadata?: { supersedes?: string | null } }> }>({
-      method: 'GET',
-      path,
+      method: 'POST',
+      path: `/v3/workspaces/${workspaceId}/sessions/${session}/messages/list`,
       workspaceId,
-      query: { peer_id: peer },
+      body: { filters: { peer_id: peer } },
+      query: { size: '100' },
     });
 
     const messages: ApprovedMessage[] = [];
