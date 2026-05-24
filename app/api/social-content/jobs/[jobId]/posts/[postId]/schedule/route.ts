@@ -18,20 +18,20 @@ import { loadMarketingJobRuntime, asRecord, asString } from '@/backend/marketing
 
 /**
  * Read the parent campaign's end date out of the marketing runtime document.
- * Returns a Date for one-off event campaigns whose payload carries a valid UTC
- * ISO timestamp under `inputs.request.event.campaignEndDate`; returns null for
- * weekly campaigns and for any malformed/missing event payload. The null path
+ * Returns a Date for one-off campaigns whose payload carries a valid UTC ISO
+ * timestamp under `inputs.request.oneOff.campaignEndDate`; returns null for
+ * weekly campaigns and for any malformed/missing oneOff payload. The null path
  * preserves the legacy weekly behaviour -- the worker treats NULL as "no end
  * date" and never blocks these rows.
  */
 async function resolveCampaignEndDateForJob(jobId: string): Promise<Date | null> {
   const doc = await loadMarketingJobRuntime(jobId);
-  if (!doc || doc.job_type !== 'event_campaign') {
+  if (!doc || doc.job_type !== 'one_off_campaign') {
     return null;
   }
   const request = asRecord(doc.inputs.request);
-  const event = request ? asRecord(request.event) : null;
-  const raw = event ? asString(event.campaignEndDate) : null;
+  const oneOff = request ? asRecord(request.oneOff) : null;
+  const raw = oneOff ? asString(oneOff.campaignEndDate) : null;
   if (!raw) {
     return null;
   }

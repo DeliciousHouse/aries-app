@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.11.0 — feat(marketing): generalize one-off campaigns beyond hackathon-shaped fields
+
+v0.1.10.0 shipped `event_campaign` with five required fields baked in for the hackathon forcing example (`eventName`, `eventDate`, `registrationDeadline`, `campaignEndDate`, `cta`). This renames and reshapes the whole feature so it cleanly fits every one-off campaign shape -- flash sales, product launches, webinars, hackathons, fundraisers -- without per-type code.
+
+**Why the old shape was wrong.** A flash sale doesn't have a "registration deadline." A product launch doesn't have an "event date" in the hackathon sense. The original fields forced operators to either fill nonsense values or stretch the meaning of the labels. The load-bearing piece (`campaignEndDate` driving the worker auto-stop) was already generic; only the operator-facing field names were hackathon-flavored.
+
+**The new shape.** `MarketingJobType: 'weekly_social_content' | 'one_off_campaign'` (renamed from `event_campaign`). `OneOffCampaignBrief` has three required fields and two optional paired ones:
+
+- `name` (required) -- whatever the operator calls the campaign
+- `campaignEndDate` (required) -- the auto-stop date, drives the worker filter
+- `cta` (required) -- where traffic goes
+- `milestoneDate` + `milestoneLabel` (optional, paired) -- one additional key date with an operator-typed label that fits the campaign: "Sale ends" / "Doors open" / "Registration deadline" / "Launch day"
+
+The label flows through to Hermes verbatim so countdown copy says what the operator means, not what a hackathon would mean. Hermes payload key renamed: `event_brief` -> `one_off_brief` with `days_until_end` (was `days_until_deadline`). The `milestone_date` + `milestone_label` keys are present only when both are set; orphan milestone fields (one without the other) are rejected at validation time.
+
+**Files touched.**
+
+- `lib/api/marketing.ts` -- union rename, `EventCampaignBrief` -> `OneOffCampaignBrief`, payload field `event` -> `oneOff`. Legacy `event_campaign` literal and the old type alias are dropped (no back-compat -- see Breaking changes below).
+- `backend/marketing/runtime-state.ts` -- `job_type` union update; the dead-code branch in `createMarketingJobRuntimeDocument` now correctly resolves `one_off_campaign`.
+- `backend/marketing/orchestrator.ts` -- `buildEventBriefForArgs` -> `buildOneOffBriefForArgs`. Reads from `inputs.request.oneOff`. Validates the three required fields, surfaces optional milestone pair atomically (both or neither). `StartMarketingJobRequest.jobType` and `StartMarketingJobResponse.jobType` unions updated.
+- `backend/marketing/jobs-status.ts` -- `buildCampaignWindow` reads `oneOff.campaignEndDate` for the dashboard "Stops publishing on" label. Optional `milestoneDate` becomes the window start when present.
+- `app/api/marketing/jobs/handler.ts` -- `PublicJobType` updated, guard accepts `one_off_campaign`, `extractEventPayloadFromForm` -> `extractOneOffPayloadFromForm`, `validateAndConvertEventBrief` -> `validateAndConvertOneOffBrief`. Drops the old triple-date-ordering rule (registrationDeadline <= eventDate <= campaignEndDate); adds the new pair-or-neither + milestone-before-end rule.
+- `app/api/social-content/jobs/[jobId]/posts/[postId]/schedule/route.ts` -- reads `oneOff.campaignEndDate` to populate `scheduled_posts.campaign_end_date`.
+- `frontend/marketing/new-job.tsx` -- toggle copy "One-off event" -> "One-off campaign" with a help line "Sale, launch, webinar, hackathon. Auto-stops on the end date." Replaces the four hackathon date inputs with three required (campaign name / end date / CTA) plus a clearly-marked optional section ("Optional key date Aries can reference in copy. Label it however fits your campaign -- 'Sale ends', 'Doors open', 'Registration deadline', 'Launch day'.") that holds the milestone date + label fields side by side.
+
+**Tests.** Old `event-campaign-*.test.ts` trio deleted; replaced with `one-off-campaign-orchestrator.test.ts` (8 tests), `one-off-campaign-form-validation.test.ts` (9 tests), `one-off-campaign-tz-boundary.test.ts` (6 tests). New coverage: milestone pair surfaces atomically, orphan milestone date/label rejected, milestone-after-end rejected, minimal-payload happy path (no milestone), full-payload happy path (with milestone). PT/JST boundary tests retained verbatim -- timezone behaviour didn't change.
+
+**Breaking changes.** No back-compat for v0.1.10.x `event_campaign` runtime documents. The single QA test campaign Brendan created during PR #446 verification needs to be cancelled and re-created with the new shape; its scheduled_posts rows are still protected by the worker auto-stop (the column write happened at schedule time and the WHERE clause is timezone-agnostic). Hermes-side prompt changes are still out of scope -- the wire contract is the new shape from day one.
+
+`npm run verify` 38/38, 23/23 new tests pass, typecheck clean.
+
 ## v0.1.10.1 — feat(hackathon): direct-URL landing page for Aries AI Hackathon registration
 
 Adds the actual `/hackathon` landing page that the v0.1.10.0 event_campaign feature's CTAs now point to. Direct-URL-only: not linked from any nav, footer, sitemap, or homepage. Page metadata sets `robots: { index: false, follow: false, nocache: true }` so search engines won't pick it up, and `public/robots.txt` (newly created -- the repo previously had none) explicitly disallows `/hackathon` and `/api/` as defense-in-depth.
