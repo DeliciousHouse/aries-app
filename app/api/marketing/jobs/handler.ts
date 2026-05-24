@@ -326,7 +326,7 @@ interface EventBriefValidationSuccess {
  * The form enforces this client-side; the server re-checks because we cannot
  * trust the client.
  */
-function validateAndConvertEventBrief(
+export function validateAndConvertEventBrief(
   raw: Record<string, unknown> | null | undefined,
   tenantId: string,
 ): EventBriefValidationFailure | EventBriefValidationSuccess {

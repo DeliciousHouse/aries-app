@@ -1373,6 +1373,23 @@ async function buildCampaignWindow(
   runtimeDoc: MarketingJobRuntimeDocument,
   facts: MarketingJobFacts,
 ): Promise<MarketingCampaignWindow | null> {
+  // Event campaigns carry an authoritative end date (campaign_end_date, the
+  // value the worker filters on). Surface it on MarketingCampaignWindow.end so
+  // the dashboard renders "Stops publishing on <date>" via the existing
+  // formatDateRange path -- no new dashboard UI needed.
+  if (runtimeDoc.job_type === 'event_campaign') {
+    const request = recordValue(runtimeDoc.inputs.request);
+    const event = recordValue(request?.event);
+    const eventEnd = stringValue(event?.campaignEndDate);
+    if (eventEnd) {
+      // start = the registration deadline (or event date as fallback) so
+      // durationDays is meaningful for one-off campaigns rather than null.
+      const eventStart =
+        stringValue(event?.registrationDeadline) || stringValue(event?.eventDate) || null;
+      return { start: eventStart, end: eventEnd };
+    }
+  }
+
   const reviewBundle = await rawPublishReviewBundle(runtimeDoc, facts);
   const summary = recordValue(reviewBundle?.summary);
   const campaignWindow = recordValue(summary?.campaign_window);

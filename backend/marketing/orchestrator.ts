@@ -322,7 +322,7 @@ type MarketingWorkflowRuntimeContext = {
  * should be attached -- weekly campaigns and malformed event submissions both
  * fall through to the unmodified weekly args.
  */
-function buildEventBriefForArgs(
+export function buildEventBriefForArgs(
   doc: MarketingJobRuntimeDocument,
 ): Record<string, unknown> | null {
   if (doc.job_type !== 'event_campaign') {
