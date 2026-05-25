@@ -526,16 +526,16 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
 
               <button
                 type="submit"
-                disabled={submitting || !websiteUrlIsValid}
+                disabled={submitting || (jobMode === 'weekly' && !websiteUrlIsValid)}
                 className="w-full rounded-full bg-gradient-to-r from-primary to-secondary px-6 py-4 text-white font-semibold shadow-xl shadow-primary/20 disabled:opacity-60 disabled:cursor-not-allowed"
-                aria-describedby={!websiteUrlIsValid && !submitting ? 'start-campaign-hint' : undefined}
+                aria-describedby={jobMode === 'weekly' && !websiteUrlIsValid && !submitting ? 'start-campaign-hint' : undefined}
               >
                 <span className="inline-flex items-center justify-center gap-2">
                   {submitting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
                   {submitButtonLabel}
                 </span>
               </button>
-              {!websiteUrlIsValid && !submitting && (
+              {jobMode === 'weekly' && !websiteUrlIsValid && !submitting && (
                 <p id="start-campaign-hint" className="mt-2 text-center text-xs text-white/45">
                   {websiteUrl.trim()
                     ? 'Enter a valid URL like https://example.com to start the campaign.'
