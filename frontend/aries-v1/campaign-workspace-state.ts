@@ -374,9 +374,9 @@ export function deriveWorkspaceHeaderState(
   return {
     title:
       safeReviewCampaignName(status.reviewBundle?.campaignName) ||
+      status.dashboard.campaign?.name ||
       sourceDomain ||
       status.tenantName ||
-      status.dashboard.campaign?.name ||
       `Campaign ${status.jobId}`,
     sourceDomain,
     sourceUrl,
