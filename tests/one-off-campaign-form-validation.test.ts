@@ -130,3 +130,82 @@ test('whitespace-only fields treated as missing', () => {
     assert.ok(result.fieldErrors['oneOff.cta']);
   }
 });
+
+// --- Date hardening tests (v0.1.11.2) ---
+// Year range and past-date guards added after Brendan's QA found that browser
+// automation input corruption ("0004-02-06") slipped past the YYYY-MM-DD regex.
+
+const CURRENT_YEAR = new Date().getFullYear();
+// A date far enough in the future to always be valid (next year).
+const VALID_NEAR_FUTURE = `${CURRENT_YEAR + 1}-06-15`;
+
+test('past date (yesterday) is rejected with campaignEndDate field error', () => {
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const pastDate = yesterday.toISOString().slice(0, 10); // YYYY-MM-DD
+  const result = validateAndConvertOneOffBrief({
+    name: 'Sale',
+    campaignEndDate: pastDate,
+    cta: 'Shop now',
+  }, FAKE_TENANT_ID);
+  assert.ok('fieldErrors' in result);
+  if ('fieldErrors' in result) {
+    assert.ok(result.fieldErrors['oneOff.campaignEndDate'],
+      'past campaignEndDate must produce a field error');
+  }
+});
+
+test('ancient year (0004) is rejected with year-range field error', () => {
+  const result = validateAndConvertOneOffBrief({
+    name: 'Sale',
+    campaignEndDate: '0004-02-06',
+    cta: 'Shop now',
+  }, FAKE_TENANT_ID);
+  assert.ok('fieldErrors' in result);
+  if ('fieldErrors' in result) {
+    assert.ok(result.fieldErrors['oneOff.campaignEndDate'],
+      'year 0004 must be rejected by the year-range guard');
+    assert.match(
+      result.fieldErrors['oneOff.campaignEndDate'],
+      /current or near-future year/,
+    );
+  }
+});
+
+test('far-future year (current + 15) is rejected with year-range field error', () => {
+  const farFuture = `${CURRENT_YEAR + 15}-06-15`;
+  const result = validateAndConvertOneOffBrief({
+    name: 'Sale',
+    campaignEndDate: farFuture,
+    cta: 'Shop now',
+  }, FAKE_TENANT_ID);
+  assert.ok('fieldErrors' in result);
+  if ('fieldErrors' in result) {
+    assert.ok(result.fieldErrors['oneOff.campaignEndDate'],
+      `year ${CURRENT_YEAR + 15} must be rejected by the year-range guard`);
+  }
+});
+
+test('within-range future date is accepted', () => {
+  const result = validateAndConvertOneOffBrief({
+    name: 'Summer Flash Sale',
+    campaignEndDate: VALID_NEAR_FUTURE,
+    cta: 'Shop the sale',
+  }, FAKE_TENANT_ID);
+  assert.ok('oneOff' in result, `expected success for ${VALID_NEAR_FUTURE}, got: ${JSON.stringify(result)}`);
+});
+
+test('ancient year on milestoneDate is also rejected', () => {
+  const result = validateAndConvertOneOffBrief({
+    name: 'Sale',
+    campaignEndDate: VALID_NEAR_FUTURE,
+    cta: 'Shop now',
+    milestoneDate: '0004-01-01',
+    milestoneLabel: 'Doors open',
+  }, FAKE_TENANT_ID);
+  assert.ok('fieldErrors' in result);
+  if ('fieldErrors' in result) {
+    assert.ok(result.fieldErrors['oneOff.milestoneDate'],
+      'ancient year on milestoneDate must be rejected');
+  }
+});

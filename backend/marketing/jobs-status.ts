@@ -305,6 +305,29 @@ export function getMarketingJobStatusCacheSizeForTests(): number {
   return statusCache.size;
 }
 
+// Exposed for regression tests only. Returns true when the runtime doc would
+// trigger the weekly calendar snapshot path (and thus the today+N window).
+// one_off_campaign docs must return false so their authoritative campaignEndDate
+// is not overridden by the synthetic weekly window.
+export function isWeeklySnapshotPathForTests(doc: MarketingJobRuntimeDocument): boolean {
+  return requestedJobTypeFromDoc(doc) === 'weekly_social_content' && doc.job_type !== 'one_off_campaign';
+}
+
+// Exposed for regression tests. Builds the campaign window shape for a
+// one_off_campaign doc the same way buildCampaignWindow does, without requiring
+// a database connection.
+export function buildOneOffCampaignWindowForTests(
+  doc: MarketingJobRuntimeDocument,
+): { start: string | null; end: string } | null {
+  if (doc.job_type !== 'one_off_campaign') return null;
+  const request = recordValue(doc.inputs?.request);
+  const oneOff = recordValue(request?.oneOff);
+  const end = stringValue(oneOff?.campaignEndDate);
+  if (!end) return null;
+  const start = stringValue(oneOff?.milestoneDate) || null;
+  return { start, end };
+}
+
 function shouldLogMarketingJobStatus(): boolean {
   const raw = process.env.MARKETING_DEBUG_LOG_JOBS_STATUS?.trim().toLowerCase();
   return raw === '1' || raw === 'true';
@@ -1540,7 +1563,13 @@ async function buildMarketingJobStatus(jobId: string): Promise<MarketingJobStatu
   const approval = buildApproval(jobId, runtimeDoc);
   const reviewBundle = await buildReviewBundle(runtimeDoc, facts);
   const assetPreviewCards = buildAssetPreviewCards(jobId, reviewBundle);
-  const isWeeklySocialContent = requestedJobTypeFromDoc(runtimeDoc) === 'weekly_social_content';
+  // requestedJobTypeFromDoc is hardcoded to 'weekly_social_content' (one_off
+  // campaigns intentionally ride the weekly Hermes pipeline, so routing stays
+  // the same). Guard the display-only weekly snapshot on job_type so one_off
+  // campaigns don't have their authoritative campaignEndDate overridden by a
+  // synthetically derived today+6d weekly window.
+  const isWeeklySocialContent = requestedJobTypeFromDoc(runtimeDoc) === 'weekly_social_content'
+    && runtimeDoc.job_type !== 'one_off_campaign';
   const weeklySnapshot = isWeeklySocialContent ? buildWeeklyCalendarSnapshot(runtimeDoc) : null;
   const campaignWindow = weeklySnapshot?.campaignWindow ?? (await buildCampaignWindow(runtimeDoc, facts));
   const durationDays = weeklySnapshot?.durationDays ?? buildDurationDays(campaignWindow);
