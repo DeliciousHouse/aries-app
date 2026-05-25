@@ -463,7 +463,7 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                       className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
                     />
                     {oneOffFieldError('oneOff.name') ? (
-                      <p className="mt-2 text-sm text-red-300">{marketingCreate.fieldErrors['oneOff.name']}</p>
+                      <p className="mt-2 text-sm text-red-300">{oneOffFieldError('oneOff.name')}</p>
                     ) : null}
                   </Field>
                   <Field label="Campaign end date" required>
@@ -487,7 +487,7 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                       className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
                     />
                     {oneOffFieldError('oneOff.cta') ? (
-                      <p className="mt-2 text-sm text-red-300">{marketingCreate.fieldErrors['oneOff.cta']}</p>
+                      <p className="mt-2 text-sm text-red-300">{oneOffFieldError('oneOff.cta')}</p>
                     ) : null}
                   </Field>
 
@@ -505,7 +505,7 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                           className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
                         />
                         {oneOffFieldError('oneOff.milestoneLabel') ? (
-                          <p className="mt-2 text-sm text-red-300">{marketingCreate.fieldErrors['oneOff.milestoneLabel']}</p>
+                          <p className="mt-2 text-sm text-red-300">{oneOffFieldError('oneOff.milestoneLabel')}</p>
                         ) : null}
                       </Field>
                       <Field label="Milestone date">
