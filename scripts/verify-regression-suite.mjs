@@ -51,6 +51,30 @@ const steps = [
     args: ['--test', 'tests/runtime-pages.test.ts'],
   },
   {
+    // PRD §20 canonical behavioral invariants — codified as runtime checks so
+    // future PRs get a green/red CI signal on spec conformance.  See
+    // tests/prd-invariants/README.md and docs/product/aries-ai-prd.md §20.
+    name: 'PRD §20 invariant suite',
+    args: [
+      '--test',
+      'tests/prd-invariants/inv-01-aries-owns-tenant-boundaries.test.ts',
+      'tests/prd-invariants/inv-02-hermes-not-state-owner.test.ts',
+      'tests/prd-invariants/inv-03-honcho-approved-memory-only.test.ts',
+      'tests/prd-invariants/inv-04-tenant-derived-server-side.test.ts',
+      'tests/prd-invariants/inv-05-hermes-native-default.test.ts',
+      'tests/prd-invariants/inv-06-openclaw-lobster-compat-only.test.ts',
+      'tests/prd-invariants/inv-07-publishing-requires-approval.test.ts',
+      'tests/prd-invariants/inv-08-video-render-requires-approval.test.ts',
+      'tests/prd-invariants/inv-09-ai-content-draft-until-approved.test.ts',
+      'tests/prd-invariants/inv-10-memory-curated-append-only.test.ts',
+      'tests/prd-invariants/inv-11-no-cross-tenant-memory.test.ts',
+      'tests/prd-invariants/inv-12-no-credentials-in-payloads.test.ts',
+      'tests/prd-invariants/inv-13-workflow-transitions-explicit.test.ts',
+      'tests/prd-invariants/inv-14-callbacks-authn-schema-tenant-idemp.test.ts',
+      'tests/prd-invariants/inv-15-capability-ports-not-vendor.test.ts',
+    ],
+  },
+  {
     name: 'banned-pattern assertions',
     args: ['--test', 'tests/verify-banned-patterns.test.ts'],
   },
