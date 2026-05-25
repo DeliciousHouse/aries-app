@@ -7,6 +7,8 @@ import { Activity, ArrowRight, Cable, CalendarDays, ImageIcon, Sparkles, Workflo
 import { useIntegrations } from '@/hooks/use-integrations';
 import { useLatestMarketingJob } from '@/hooks/use-latest-marketing-job';
 import { useTenantWorkflows } from '@/hooks/use-tenant-workflows';
+import { useTenantTimezone } from '@/hooks/use-tenant-timezone';
+import { formatInTenantZone, tenantZoneAbbreviation } from '@/lib/format-timestamp';
 import StatusBadge from '@/frontend/components/status-badge';
 import type { SocialContentCalendarEvent } from '@/lib/api/marketing';
 
@@ -89,6 +91,7 @@ export default function DashboardConsole(): JSX.Element {
   const integrations = useIntegrations();
   const tenantWorkflows = useTenantWorkflows();
   const latestJob = useLatestMarketingJob({ autoLoad: true });
+  const tz = useTenantTimezone();
 
   const cards = integrations.data?.status === 'ok' ? integrations.data.cards : [];
   const summary =
@@ -186,7 +189,9 @@ export default function DashboardConsole(): JSX.Element {
                       <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-2">
                         {copy.windowLabel}
                       </p>
-                      <p className="text-white/80">{campaign.campaignWindow.start || 'n/a'} to {campaign.campaignWindow.end || 'n/a'}</p>
+                      <p className="text-white/80">
+                        {campaign.campaignWindow.start ? `${formatInTenantZone(campaign.campaignWindow.start, tz)} ${tenantZoneAbbreviation(campaign.campaignWindow.start, tz)}` : 'n/a'} to {campaign.campaignWindow.end ? `${formatInTenantZone(campaign.campaignWindow.end, tz)} ${tenantZoneAbbreviation(campaign.campaignWindow.end, tz)}` : 'n/a'}
+                      </p>
                     </div>
                     <div className="rounded-[1.25rem] border border-white/10 bg-black/20 p-4">
                       <p className="text-xs uppercase tracking-[0.22em] text-white/35 mb-2">Next action</p>

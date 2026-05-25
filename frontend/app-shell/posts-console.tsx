@@ -6,9 +6,12 @@ import Link from 'next/link';
 import { CheckCircle, Clock3, Sparkles } from 'lucide-react';
 
 import { useLatestMarketingJob } from '@/hooks/use-latest-marketing-job';
+import { useTenantTimezone } from '@/hooks/use-tenant-timezone';
+import { formatInTenantZone, tenantZoneAbbreviation } from '@/lib/format-timestamp';
 
 export default function PostsConsole(): JSX.Element {
   const latestJob = useLatestMarketingJob({ autoLoad: true });
+  const tz = useTenantTimezone();
   const campaign = latestJob.data;
   const events = campaign?.calendarEvents ?? [];
   const previewFallback = campaign?.assetPreviewCards ?? [];
@@ -61,7 +64,7 @@ export default function PostsConsole(): JSX.Element {
                 </div>
                 <div className="flex items-center gap-2 text-sm text-white/60">
                   <Clock3 className="w-4 h-4" />
-                  <span>{new Date(event.startsAt).toLocaleString()}</span>
+                  <span>{`${formatInTenantZone(event.startsAt, tz)} ${tenantZoneAbbreviation(event.startsAt, tz)}`}</span>
                 </div>
                 {matchingPreview ? (
                   <Link href={matchingPreview.previewHref} className="inline-flex items-center gap-2 text-primary hover:text-primary/80 transition-colors">

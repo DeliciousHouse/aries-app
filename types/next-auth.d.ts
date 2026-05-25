@@ -8,6 +8,7 @@ declare module 'next-auth' {
       tenantId?: string;
       tenantSlug?: string;
       role?: TenantRole;
+      timezone?: string;
     };
   }
 }
@@ -18,5 +19,6 @@ declare module 'next-auth/jwt' {
     tenantId?: string;
     tenantSlug?: string;
     tenantRole?: TenantRole;
+    timezone?: string;
   }
 }

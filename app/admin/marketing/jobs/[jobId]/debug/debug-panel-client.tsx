@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import { useTenantTimezone } from '@/hooks/use-tenant-timezone';
+import { formatInTenantZone, tenantZoneAbbreviation } from '@/lib/format-timestamp';
 
 type StageRecord = {
   stage: string;
@@ -109,13 +111,14 @@ function formatUtcTime(isoString: string | null | undefined): string {
   return `${isoString.replace('T', ' ').replace(/\.\d+Z$/, '') } UTC`;
 }
 
-function localTimeTooltip(isoString: string | null | undefined): string {
+function formatTenantTime(isoString: string | null | undefined, tz: string): string {
+  if (!isoString) return '—';
+  return `${formatInTenantZone(isoString, tz)} ${tenantZoneAbbreviation(isoString, tz)}`;
+}
+
+function localTimeTooltip(isoString: string | null | undefined, tz: string): string {
   if (!isoString) return '';
-  try {
-    return new Date(isoString).toLocaleString();
-  } catch {
-    return '';
-  }
+  return formatTenantTime(isoString, tz);
 }
 
 function durationMs(start: string | null, end: string | null): string {
@@ -244,12 +247,14 @@ function StageRow({
   approvalRecords,
   executionRuns,
   jobId,
+  tz,
 }: {
   stage: string;
   record: StageRecord;
   approvalRecords: Array<Record<string, unknown>>;
   executionRuns: Array<Record<string, unknown>>;
   jobId: string;
+  tz: string;
 }) {
   const stageApprovals = approvalRecords.filter((a) => a.marketing_stage === stage);
   const stageRuns = executionRuns.filter((r) => r.stage === stage);
@@ -264,10 +269,10 @@ function StageRow({
         <StatusBadge status={record.status} />
       </td>
       <td className="py-3 px-3 font-mono text-xs text-gray-400 whitespace-nowrap">
-        <span title={localTimeTooltip(record.started_at)}>{formatUtcTime(record.started_at)}</span>
+        <span title={localTimeTooltip(record.started_at, tz)}>{formatUtcTime(record.started_at)} / {formatTenantTime(record.started_at, tz)}</span>
       </td>
       <td className="py-3 px-3 font-mono text-xs text-gray-400 whitespace-nowrap">
-        <span title={localTimeTooltip(endTime)}>{formatUtcTime(endTime)}</span>
+        <span title={localTimeTooltip(endTime, tz)}>{formatUtcTime(endTime)} / {formatTenantTime(endTime, tz)}</span>
       </td>
       <td className="py-3 px-3 font-mono text-xs text-gray-400 whitespace-nowrap">
         {durationMs(record.started_at, endTime)}
@@ -286,7 +291,7 @@ function StageRow({
             {record.errors.map((err, i) => (
               <div key={i}>
                 <span className="font-bold">{err.code}</span>: {err.message}
-                <span className="text-gray-500 ml-1 text-xs" title={localTimeTooltip(err.at)}>{formatUtcTime(err.at)}</span>
+                <span className="text-gray-500 ml-1 text-xs" title={localTimeTooltip(err.at, tz)}>{formatUtcTime(err.at)} / {formatTenantTime(err.at, tz)}</span>
               </div>
             ))}
           </div>
@@ -353,6 +358,7 @@ export function DebugPanelClient({
   runtimePath,
   tenantId,
 }: Props) {
+  const tz = useTenantTimezone();
   const job = doc as unknown as JobDoc;
   const stages = job.stage_order ?? ['research', 'strategy', 'production', 'publish'];
 
@@ -400,9 +406,9 @@ export function DebugPanelClient({
             <div className="text-gray-500">Current Stage</div>
             <div className="text-gray-200">{job.current_stage}</div>
             <div className="text-gray-500">Created</div>
-            <div className="text-gray-300" title={localTimeTooltip(job.created_at)}>{formatUtcTime(job.created_at)}</div>
+            <div className="text-gray-300" title={localTimeTooltip(job.created_at, tz)}>{formatUtcTime(job.created_at)} / {formatTenantTime(job.created_at, tz)}</div>
             <div className="text-gray-500">Updated</div>
-            <div className="text-gray-300" title={localTimeTooltip(job.updated_at)}>{formatUtcTime(job.updated_at)}</div>
+            <div className="text-gray-300" title={localTimeTooltip(job.updated_at, tz)}>{formatUtcTime(job.updated_at)} / {formatTenantTime(job.updated_at, tz)}</div>
             {job.failure_reason && (
               <>
                 <div className="text-gray-500">Failure Reason</div>
@@ -502,6 +508,7 @@ export function DebugPanelClient({
                       approvalRecords={approvalRecords}
                       executionRuns={executionRuns}
                       jobId={job.job_id}
+                      tz={tz}
                     />
                   );
                 })}

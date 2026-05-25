@@ -13,6 +13,8 @@ import { getReviewRecoveryState } from './review-recovery';
 import { isDestructiveActionBlocked } from './review-destructive-guard';
 import { EmptyStatePanel, LoadingStateGrid, ShellPanel, StatusChip } from './components';
 import CreativeActionDrawer, { canShowCreativeActionDrawer } from './creative-action-drawer';
+import { useTenantTimezone } from '@/hooks/use-tenant-timezone';
+import { formatInTenantZone, tenantZoneAbbreviation } from '@/lib/format-timestamp';
 
 const AUTOSAVE_DEBOUNCE_MS = 500;
 
@@ -288,6 +290,7 @@ export default function AriesReviewItemScreen(props: { reviewId: string; initial
   const review = useRuntimeReviewItem(props.reviewId, { autoLoad: true, initialData: props.initialData });
   const item = review.data?.review ?? props.initialData?.review ?? null;
   const recoveryState = getReviewRecoveryState(review.error);
+  const tz = useTenantTimezone();
   const [note, setNote] = useState('');
   const [activeAction, setActiveAction] = useState<DecisionActionKind>('approve');
   const [progressIndex, setProgressIndex] = useState(0);
@@ -305,9 +308,9 @@ export default function AriesReviewItemScreen(props: { reviewId: string; initial
     if (!item?.lastDecision) return null;
     const actor = visibleActorLabel(item.lastDecision.actedBy);
     const action = item.lastDecision.action.replace(/_/g, ' ');
-    const timestamp = new Date(item.lastDecision.at).toLocaleString();
+    const timestamp = `${formatInTenantZone(item.lastDecision.at, tz)} ${tenantZoneAbbreviation(item.lastDecision.at, tz)}`;
     return actor ? `${action} by ${actor} at ${timestamp}` : `${action} at ${timestamp}`;
-  }, [item]);
+  }, [item, tz]);
 
   useEffect(() => {
     if (!busy) {
@@ -690,7 +693,7 @@ export default function AriesReviewItemScreen(props: { reviewId: string; initial
                     <div>
                     <p className="text-sm font-medium text-white">{workflowLabel(entry.type)}</p>
                     <p className="mt-1 text-sm text-white/50">
-                        {[visibleActorLabel(entry.actor), new Date(entry.at).toLocaleString()].filter(Boolean).join(' · ')}
+                        {[visibleActorLabel(entry.actor), `${formatInTenantZone(entry.at, tz)} ${tenantZoneAbbreviation(entry.at, tz)}`].filter(Boolean).join(' · ')}
                     </p>
                   </div>
                     <StatusChip status={chipStatus(entry.status || '')}>

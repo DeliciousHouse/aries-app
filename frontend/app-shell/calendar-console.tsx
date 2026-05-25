@@ -8,6 +8,8 @@ import { CalendarDays, Sparkles } from 'lucide-react';
 import type { MarketingCalendarEvent, SocialContentCalendarEvent } from '@/lib/api/marketing';
 import { useCalendarSync } from '@/hooks/use-calendar-sync';
 import { useLatestMarketingJob } from '@/hooks/use-latest-marketing-job';
+import { useTenantTimezone } from '@/hooks/use-tenant-timezone';
+import { formatInTenantZone, tenantZoneAbbreviation } from '@/lib/format-timestamp';
 
 function iterateUtcDaysInclusive(start: Date, end: Date): Date[] {
   const days: Date[] = [];
@@ -67,6 +69,7 @@ export function calendarConsoleCopyForMode(isWeeklyMode: boolean, durationDays?:
 export default function CalendarConsole(): JSX.Element {
   const calendarSync = useCalendarSync();
   const latestJob = useLatestMarketingJob({ autoLoad: true });
+  const tz = useTenantTimezone();
   const [windowStart, setWindowStart] = useState('');
   const [windowEnd, setWindowEnd] = useState('');
   const campaign = latestJob.data;
@@ -78,7 +81,7 @@ export default function CalendarConsole(): JSX.Element {
   const copy = calendarConsoleCopyForMode(isWeeklyMode, campaign?.durationDays ?? null);
   const days = buildCalendarDays(campaign?.campaignWindow?.start, campaign?.campaignWindow?.end);
   const windowLabel = campaign?.campaignWindow?.start && campaign?.campaignWindow?.end
-    ? `${campaign.campaignWindow.start} to ${campaign.campaignWindow.end}`
+    ? `${formatInTenantZone(campaign.campaignWindow.start, tz)} ${tenantZoneAbbreviation(campaign.campaignWindow.start, tz)} to ${formatInTenantZone(campaign.campaignWindow.end, tz)} ${tenantZoneAbbreviation(campaign.campaignWindow.end, tz)}`
     : `${days[0]?.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) ?? 'Current month'}`;
 
   const eventsByDay = new Map<string, Array<MarketingCalendarEvent | SocialContentCalendarEvent>>();

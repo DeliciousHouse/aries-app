@@ -5,13 +5,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createAriesV1Api, type ScheduledPostsResponse } from '@/lib/api/aries-v1';
 import { useRuntimeCampaigns } from '@/hooks/use-runtime-campaigns';
 import { useBusinessProfile } from '@/hooks/use-business-profile';
+import { useTenantTimezone } from '@/hooks/use-tenant-timezone';
 import CalendarPresenter from '@/frontend/aries-v1/presenters/calendar-presenter';
 import {
   createCalendarViewModel,
   type UnscheduledPost,
 } from '@/frontend/aries-v1/view-models/calendar';
 import { useCalendarScheduling } from '@/frontend/aries-v1/hooks/useCalendarScheduling';
-import { DEFAULT_TENANT_TIMEZONE } from '@/lib/format-timestamp';
 
 import { customerSafeUiErrorMessage } from './customer-safe-copy';
 import { LoadingStateGrid } from './components';
@@ -57,7 +57,7 @@ export default function AriesCalendarScreen() {
     void loadSchedule();
   }, [loadSchedule]);
 
-  const timeZone = businessProfile.profile.data?.profile.timezone || DEFAULT_TENANT_TIMEZONE;
+  const timeZone = useTenantTimezone();
 
   const scheduling = useCalendarScheduling({ timeZone });
 
