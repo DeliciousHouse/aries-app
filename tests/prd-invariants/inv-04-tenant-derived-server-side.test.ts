@@ -30,12 +30,6 @@ const ALLOWLIST = new Set<string>([
   // server-side sidecar is the only legitimate caller; the secret-bearer is
   // the tenant authority.
   'app/api/internal/publishing/scheduled-dispatch/route.ts',
-  // FIXME-PRD-INV-04 (next-PR gap): /api/oauth/[provider]/refresh reads
-  // body.tenant_id without an auth gate.  The invariant suite surfaced this;
-  // follow-up PR adds verifyInternalCallbackRequest (or session-based
-  // getTenantContext if the surface is user-facing) and removes this
-  // allowlist entry.  Tracked in PR-body "Deferred from invariant suite".
-  'app/api/oauth/[provider]/refresh/route.ts',
 ]);
 
 test('no app/api route reads tenant id directly from the request body', () => {
