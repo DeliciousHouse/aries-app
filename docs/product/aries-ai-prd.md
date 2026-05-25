@@ -1697,14 +1697,17 @@ Risk: without server-enforced Honcho auth or network isolation, tenant memory is
 
 ### 16.2 Hermes `aries-research` Profile
 
-Open questions:
+**Status (2026-05-25, Aries-side):** The marketing pipeline now targets three named Hermes profiles — `aries-research`, `aries-strategist`, and `aries-content-generator` — via the stage→profile map in `backend/marketing/ports/hermes.ts`. Each profile binds to its own gateway URL and API key (`HERMES_RESEARCH_GATEWAY_URL` / `HERMES_RESEARCH_API_SERVER_KEY`, etc.), so credentials and rate limits are partitioned per profile.
 
-- Has the dedicated Hermes `aries-research` profile been registered?
-- Is its tool allowlist enforced server-side?
-- Does it have no path to Aries tenant memory?
-- Is output schema enforcement provider-side, Aries-side, or both?
+The remaining open questions are **Hermes-side** (server registration, tool allowlists, output schema enforcement) and tracked as a Hermes dependency, not an Aries gap. The §20 invariants the Aries side guards (no callback-supplied tenant id, callback authn/idempotency, capability ports) hold regardless of which profile Hermes routes to.
 
-Risk: an overly broad Hermes profile could access tools or memory surfaces not intended for research jobs.
+Open questions (Hermes-side, tracked as upstream dependencies):
+
+- Is the tool allowlist for `aries-research` enforced server-side by Hermes?
+- Is the output schema enforced provider-side, Aries-side, or both?
+- Has the profile been audited for any path to Aries tenant memory?
+
+Risk: an overly broad Hermes profile could access tools or memory surfaces not intended for research jobs. Mitigation lives at the Aries→Hermes boundary: per-profile credentials, callback-token verification, and the `inv-14-callbacks-authn-schema-tenant-idemp` invariant test.
 
 ### 16.3 Route and Documentation Drift
 
@@ -1718,11 +1721,15 @@ Risk: older route contracts and marketing pipeline documents may preserve histor
 
 ### 16.4 Legacy Execution Leakage
 
-Open question:
+**Status (2026-05-25):** Codified by the §20 invariant suite (`tests/prd-invariants/inv-06-openclaw-lobster-compat-only.test.ts`). OpenClaw is fully dead at runtime — the suite asserts no `process.env.OPENCLAW_*` reads in `backend/` or `lib/`. Lobster is scoped to a small filesystem-naming allowlist:
 
-- Which legacy OpenClaw/Lobster paths are still needed for compatibility?
+- `backend/marketing/artifact-store.ts`, `artifact-collector.ts`, `publish-review.ts`, `jobs-status.ts` — `lobster-stageN-cache` directory names for pre-rename on-disk artifacts
+- `backend/marketing/approval-store.ts` — defensive reads of legacy `lobster_resume_token*` fields from pre-rename approval JSON
+- `backend/marketing/asset-ingest.ts` — `/host-lobster-output` host mount path
 
-Risk: active social-content workflows may accidentally depend on deprecated Lobster/OpenClaw paths if tests are weakened.
+Adding `lobster` or `OPENCLAW_` anywhere outside this allowlist is now a test failure. The risk below has therefore moved from open-ended to bounded.
+
+Risk (bounded): the filesystem-cache allowlist is naming, not behavior — runtime code paths flow through the Hermes execution port regardless of cache directory names. The compat names will age out as pre-rename artifacts roll off disk; until then, the invariant test fails loud if new leakage appears.
 
 ### 16.5 Publishing Activation Boundary
 
