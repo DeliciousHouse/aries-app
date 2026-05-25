@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.11.5 — fix(marketing): dashboard aggregate views show one_off campaigns
+
+Live QA against v0.1.11.3 + v0.1.11.4 surfaced that `/dashboard/social-content`, `/dashboard/posts`, `/dashboard/results`, and `/dashboard/publish-status` all stuck on `Loading…` once any one_off campaign existed for the tenant. Same FP class as v0.1.11.1: widening the `MarketingJobType` union missed two runtime inequality checks against the string literal `'weekly_social_content'`. TypeScript can't catch them because comparing a literal in an inequality is type-safe regardless of union width.
+
+**Fix 1: `backend/social-content/dashboard-projection.ts:1019`.** The gate
+```ts
+if (requestedJobTypeFromDoc(runtimeDoc) !== 'weekly_social_content') return dashboard;
+```
+early-returned the dashboard untouched for one_off campaigns — no posts, no assets, no enrichment. Aggregate routes then waited on a Promise.all chain that produced empty data the client could not render past a spinner. Widened to:
+```ts
+const reqJobType = requestedJobTypeFromDoc(runtimeDoc);
+if (reqJobType !== 'weekly_social_content' && reqJobType !== 'one_off_campaign') return dashboard;
+```
+
+**Fix 2: `backend/marketing/runtime-views.ts:1093`.** `isWeeklySocialContent = requestedJobType === 'weekly_social_content'` flipped to false for one_off, which made `isLaunchReviewCheckpoint = workflowStepId === 'approve_stage_4' && !isWeeklySocialContent` true — routing one_off approvals to a launch-review surface that the social-content pipeline doesn't render. Widened the discriminator to include one_off so the approval surface uses the same firstCheckpoint sections weekly does.
+
+**Tests:** `tests/dashboard-projection-one-off-gate.test.ts` (3 assertions). Source-level checks that both gates include the one_off literal, plus a defensive `doesNotMatch` for the single-literal `!== 'weekly_social_content'` shape so a future revert is loud.
+
+**Operational learning, reiterated:** every string-literal union widening needs a site-wide grep for `=== '<oldvalue>'` and `!== '<oldvalue>'`. This is the third PR in the v0.1.11.x series that fixed this exact FP class (v0.1.11.1 fixed startMarketingJob, v0.1.11.2 fixed the campaign-window override, this fixes dashboard-projection + runtime-views). The grep should be a checklist item on every type-union widening from now on.
+
+`npm run verify` 38/38, 3 new tests pass, typecheck clean.
+
 ## v0.1.11.4 — fix(marketing): one_off campaigns actually publish (publishingRequested=true)
 
 **Bug (P0):** Live QA (job `mkt_8d89b7a4`, tenant 15) showed a fully-completed one_off_campaign pipeline where the publish stage finished with `"Publish skipped: publishing not requested."` and zero `scheduled_posts` rows were written. The feature was decorative — nothing published.
