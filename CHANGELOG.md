@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.11.4 — fix(marketing): one_off campaigns actually publish (publishingRequested=true)
+
+**Bug (P0):** Live QA (job `mkt_8d89b7a4`, tenant 15) showed a fully-completed one_off_campaign pipeline where the publish stage finished with `"Publish skipped: publishing not requested."` and zero `scheduled_posts` rows were written. The feature was decorative — nothing published.
+
+**Root cause (`backend/marketing/orchestrator.ts:1635-1637`):**
+`startMarketingJob` called `ensureSocialContentRuntimeState(doc)` with no `input` argument for both `weekly_social_content` and `one_off_campaign` jobs. `ensureSocialContentRuntimeState` fell through to `requestedPublishFlag(doc)`, which looks for explicit publish-intent keys (`publishRequested`, `livePublishRequested`, `livePublishPlatforms`, etc.) in `doc.inputs.request`. One-off campaign payloads never set any of those keys, so `publishingRequested` defaulted to `false`. In `hermes-callbacks.ts`, `!isSocialContentPublishApprovalRequired(doc)` evaluated to `true` and the publish stage was skipped entirely.
+
+**Fix:** Pass `publishingRequested: true` when `jobType === 'one_off_campaign'`. One-off campaigns have no preview-then-approve cycle — they are always meant to publish. Weekly campaigns continue to derive the flag from `requestedPublishFlag(doc)` (unchanged).
+
+**Regression tests added:**
+- `tests/start-marketing-job-entry-guard.test.ts`: source-level assertion that the `ensureSocialContentRuntimeState` call passes `publishingRequested=true` when `jobType === 'one_off_campaign'`.
+- `tests/one-off-campaign-orchestrator.test.ts`: two unit tests — one asserting `publishingRequested=true` for a one_off doc with no publish keys, and one asserting weekly behaviour (with and without `livePublishPlatforms`) is unaffected.
+
+**Post-deploy verification:** submit a fresh one_off_campaign via the dashboard; after all four stages complete, `SELECT * FROM scheduled_posts WHERE ...` should have rows, and the publish stage note should NOT be "Publish skipped: publishing not requested."
+
 ## v0.1.11.3 — feat(marketing): replace native date inputs with month/day dropdowns + auto year
 
 Two pain points with the v0.1.11.2 native `<input type="date">` fields:

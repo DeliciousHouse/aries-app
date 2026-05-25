@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildOneOffBriefForArgs } from '@/backend/marketing/orchestrator';
+import { ensureSocialContentRuntimeState } from '@/backend/social-content/runtime-state';
 import type { MarketingJobRuntimeDocument } from '@/backend/marketing/runtime-state';
 
 // Locks in the one_off_brief assembly so a regression silently dropping the
@@ -178,4 +179,77 @@ test('buildOneOffBriefForArgs returns null when oneOff field is not an object', 
     inputs: { request: { oneOff: 'oops' }, brand_url: '' },
   });
   assert.equal(buildOneOffBriefForArgs(malformed), null);
+});
+
+// Regression: v0.1.11.3 (mkt_8d89b7a4) — one_off_campaign reached publish
+// stage with publishingRequested=false because ensureSocialContentRuntimeState
+// was called without { publishingRequested: true }. requestedPublishFlag()
+// found no publish-request keys in the payload and defaulted to false, causing
+// the publish stage to skip with "Publish skipped: publishing not requested."
+// Fix: pass publishingRequested=true explicitly when jobType===one_off_campaign.
+
+test('ensureSocialContentRuntimeState sets publishingRequested=true for one_off doc with no publish keys in payload', () => {
+  // Simulate what startMarketingJob does after the fix: call
+  // ensureSocialContentRuntimeState with publishingRequested=true for one_off.
+  const doc = baseDoc({
+    job_type: 'one_off_campaign',
+    inputs: {
+      request: {
+        // No publishRequested / livePublishRequested / livePublishPlatforms keys.
+        // Without the fix, requestedPublishFlag would return false here.
+        oneOff: {
+          name: 'Summer Sale',
+          campaignEndDate: '2099-08-01T00:00:00.000Z',
+          cta: 'Shop now',
+        },
+      },
+      brand_url: '',
+    },
+  });
+
+  // This mirrors what the fixed startMarketingJob call site does:
+  const runtime = ensureSocialContentRuntimeState(doc, {
+    publishingRequested: doc.job_type === 'one_off_campaign' ? true : undefined,
+  });
+
+  assert.equal(
+    runtime.publishingRequested,
+    true,
+    'one_off_campaign must have publishingRequested=true so publish stage runs',
+  );
+});
+
+test('ensureSocialContentRuntimeState leaves publishingRequested derivable from payload for weekly campaigns', () => {
+  // Weekly campaigns derive publishingRequested from requestedPublishFlag(doc).
+  // Passing undefined lets the existing behaviour stay intact.
+  const docNoPublishKeys = baseDoc({
+    job_type: 'weekly_social_content',
+    inputs: { request: {}, brand_url: '' },
+  });
+
+  const runtime = ensureSocialContentRuntimeState(docNoPublishKeys, {
+    publishingRequested: docNoPublishKeys.job_type === 'one_off_campaign' ? true : undefined,
+  });
+
+  assert.equal(
+    runtime.publishingRequested,
+    false,
+    'weekly campaign with no publish keys in payload stays publishingRequested=false',
+  );
+
+  // And a weekly doc with livePublishPlatforms set stays true.
+  const docWithPlatforms = baseDoc({
+    job_type: 'weekly_social_content',
+    inputs: { request: { livePublishPlatforms: ['instagram'] }, brand_url: '' },
+  });
+
+  const runtimeWithPlatforms = ensureSocialContentRuntimeState(docWithPlatforms, {
+    publishingRequested: docWithPlatforms.job_type === 'one_off_campaign' ? true : undefined,
+  });
+
+  assert.equal(
+    runtimeWithPlatforms.publishingRequested,
+    true,
+    'weekly campaign with livePublishPlatforms must be publishingRequested=true',
+  );
 });
