@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.11.1 — fix(marketing): startMarketingJob entry guard accepts one_off_campaign; client-side form errors render inline
+
+Live QA against v0.1.11.0 (and v0.1.10.0 before it) caught two production bugs that the prior coverage missed.
+
+**Bug 1 (P0, production-blocking).** `backend/marketing/orchestrator.ts:1597` hardcoded `input.jobType !== 'weekly_social_content'` as the runtime guard and threw `unsupported_job_type:<value>` for every other value. The v0.1.10.0 type union widening (and v0.1.11.0 rename to `one_off_campaign`) updated TypeScript signatures but missed this runtime inequality check. TypeScript was happy because a literal compared in an inequality is type-safe regardless of union width; the runtime silently rejected every one-off submission. End-to-end result: the form rendered the validation surface correctly, the server accepted the early job-type guard at the handler, but the orchestrator entry rejected the call before any job ID was created. No campaigns, no scheduled posts, no Hermes research stage — the feature was a dead end in prod.
+
+Fix: widen the guard to accept both `'weekly_social_content'` and `'one_off_campaign'`, enumerated explicitly so a future widening must reach this site.
+
+**Bug 2 (P0, same code path).** `backend/marketing/orchestrator.ts:1628` set up the `social_content_runtime` block only when `input.jobType === 'weekly_social_content'`. One-off campaigns ride the same Hermes pipeline per design premise P3, so downstream code reads `social_content_runtime` and crashes when it's absent. Widened to also run for `one_off_campaign`.
+
+**Bug 3 (P1, UX).** `frontend/marketing/new-job.tsx` client-side validation called `setErrorText('<single message>'); return;` for the first missing field and short-circuited before the POST. The form's existing inline 422 error renderers (server-side) never fired because the round trip never happened. Operators submitting an empty one-off form saw a single top-level alert instead of inline red errors under each missing field. Fixed by aggregating client-side errors into a new `clientFieldErrors` state keyed by the same `oneOff.<field>` shape the server returns from 422, and merging client + server errors via a `oneOffFieldError(key)` helper at every inline-error JSX site.
+
+**Coverage gap addressed.** The orchestrator unit tests in v0.1.10.0 and v0.1.11.0 called `buildEventBriefForArgs` / `buildOneOffBriefForArgs` directly and asserted return shape — they never exercised the `startMarketingJob` entry. The plan-eng-review coverage diagram flagged `[→E2E]` paths as user-flow tests, and we treated them as optional. They were not. Adds `tests/start-marketing-job-entry-guard.test.ts` (3 source-level assertions): the accept-list enumerates both supported job types, the runtime-state-setup conditional covers both job types, and no residual `'event_campaign'` literal remains. Cheap, durable, would have caught both P0 bugs.
+
+Operational learning logged: widening a string-literal type union requires grepping for every inequality check (`!== 'oldvalue'`) and every equality check against literal values, because TypeScript will not error on them.
+
+`npm run verify` 38/38, 3 new tests pass, typecheck clean.
+
 ## v0.1.11.0 — feat(marketing): generalize one-off campaigns beyond hackathon-shaped fields
 
 v0.1.10.0 shipped `event_campaign` with five required fields baked in for the hackathon forcing example (`eventName`, `eventDate`, `registrationDeadline`, `campaignEndDate`, `cta`). This renames and reshapes the whole feature so it cleanly fits every one-off campaign shape -- flash sales, product launches, webinars, hackathons, fundraisers -- without per-type code.

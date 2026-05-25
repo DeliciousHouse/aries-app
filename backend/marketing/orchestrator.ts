@@ -1594,7 +1594,11 @@ export async function startMarketingJob(input: StartMarketingJobRequest): Promis
   if (!input?.tenantId || typeof input.tenantId !== 'string' || input.tenantId.trim().length === 0) {
     throw new Error('missing_required_fields:tenantId');
   }
-  if (input.jobType !== 'weekly_social_content') {
+  // The type union was widened to include 'one_off_campaign' in v0.1.11.0 but
+  // this runtime check was missed, throwing for every one-off submission. The
+  // accept-list is enumerated explicitly here (rather than `!== weekly`) so a
+  // future union widening must reach this site too.
+  if (input.jobType !== 'weekly_social_content' && input.jobType !== 'one_off_campaign') {
     throw new Error(`unsupported_job_type:${input.jobType}`);
   }
   const brandCampaignInput = ensureMarketingJobInput(input);
@@ -1625,7 +1629,10 @@ export async function startMarketingJob(input: StartMarketingJobRequest): Promis
     brandKit: runtimeBrandKitReference(brandKit, filePath),
     createdBy: input.createdBy ?? null,
   });
-  if (input.jobType === 'weekly_social_content') {
+  // One-off campaigns ride the same social-content Hermes pipeline per design
+  // premise P3 (same 4 stages, same approval gates, same Hermes calls), so they
+  // need the same runtime state block downstream code reads.
+  if (input.jobType === 'weekly_social_content' || input.jobType === 'one_off_campaign') {
     ensureSocialContentRuntimeState(doc);
   }
   saveMarketingJobRuntime(jobId, doc);

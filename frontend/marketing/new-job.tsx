@@ -70,6 +70,11 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
   const [submitting, setSubmitting] = useState(false);
   const [submitProgress, setSubmitProgress] = useState({ stepIndex: 0, dotCount: 0 });
   const [errorText, setErrorText] = useState<string | null>(null);
+  // Client-side validation errors keyed by the same `oneOff.*` keys the server
+  // returns from a 422. Merged with marketingCreate.fieldErrors at render time
+  // so the inline red error appears under each missing field instead of
+  // collapsing into a single top-level alert.
+  const [clientFieldErrors, setClientFieldErrors] = useState<Record<string, string>>({});
   // One-off campaigns. Default 'weekly' so the existing flow is untouched for
   // tenants who do not opt in. Switching to 'oneOff' reveals the required
   // campaign-name + end-date + CTA inputs plus optional milestoneDate +
@@ -126,29 +131,34 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
     }
 
     // One-off mode: name + campaign end date + CTA are required; milestone
-    // date + label are optional but paired. Client-side guard mirrors the
-    // server's 422 -- catching it here gives the operator inline feedback
-    // before the round-trip. The server re-checks ordering and YYYY-MM-DD
-    // shape so a malicious or scripted POST cannot bypass these rules.
+    // date + label are optional but paired. Aggregate every failing field
+    // into the same `oneOff.*` keyed shape the server returns from a 422 so
+    // every missing field gets an inline red error -- not a single top-level
+    // alert that hides which fields the operator needs to fill in. The
+    // server re-checks shape and ordering so a malicious or scripted POST
+    // cannot bypass these rules.
+    setClientFieldErrors({});
     if (jobMode === 'oneOff') {
       const trimmedOneOffName = oneOffName.trim();
       const trimmedCampaignEndDate = campaignEndDate.trim();
       const trimmedOneOffCta = oneOffCta.trim();
       const trimmedMilestoneDate = milestoneDate.trim();
       const trimmedMilestoneLabel = milestoneLabel.trim();
-      if (!trimmedOneOffName) { setErrorText('Campaign name is required.'); return; }
-      if (!trimmedCampaignEndDate) { setErrorText('Campaign end date is required.'); return; }
-      if (!trimmedOneOffCta) { setErrorText('CTA is required.'); return; }
+      const errors: Record<string, string> = {};
+      if (!trimmedOneOffName) errors['oneOff.name'] = 'Campaign name is required.';
+      if (!trimmedCampaignEndDate) errors['oneOff.campaignEndDate'] = 'Campaign end date is required.';
+      if (!trimmedOneOffCta) errors['oneOff.cta'] = 'CTA is required.';
       if (trimmedMilestoneDate && !trimmedMilestoneLabel) {
-        setErrorText('Add a label for this milestone date (e.g. "Sale ends" or "Doors open").');
-        return;
+        errors['oneOff.milestoneLabel'] = 'Add a label for this date (e.g. "Sale ends" or "Doors open").';
       }
       if (trimmedMilestoneLabel && !trimmedMilestoneDate) {
-        setErrorText('Pick a date for the milestone label.');
-        return;
+        errors['oneOff.milestoneDate'] = 'Pick the date this label refers to.';
       }
       if (trimmedMilestoneDate && trimmedMilestoneDate > trimmedCampaignEndDate) {
-        setErrorText('Milestone date must be on or before the campaign end date.');
+        errors['oneOff.milestoneDate'] = 'Milestone date must be on or before the campaign end date.';
+      }
+      if (Object.keys(errors).length > 0) {
+        setClientFieldErrors(errors);
         return;
       }
     }
@@ -246,6 +256,13 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
     : 'Start campaign';
   const normalizedWebsiteUrl = normalizeWebsiteUrlInput(websiteUrl);
   const websiteUrlIsValid = isValidWebsiteUrl(normalizedWebsiteUrl);
+  // Unified field-error lookup. Client-side errors (set synchronously on
+  // submit) take precedence so the operator sees inline feedback before any
+  // network round trip; server-side errors (from 422) fill in the same shape
+  // after a POST. Both keyspaces are 'oneOff.<fieldName>' to match what the
+  // server returns.
+  const oneOffFieldError = (key: string): string | undefined =>
+    clientFieldErrors[key] ?? marketingCreate.fieldErrors?.[key];
 
   return (
     <div className={wrapperClassName}>
@@ -441,10 +458,10 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                       value={oneOffName}
                       onChange={(e) => setOneOffName(e.target.value)}
                       placeholder='e.g. "Summer flash sale" or "Aries AI Hackathon"'
-                      aria-invalid={marketingCreate.fieldErrors?.['oneOff.name'] ? true : undefined}
+                      aria-invalid={oneOffFieldError('oneOff.name') ? true : undefined}
                       className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
                     />
-                    {marketingCreate.fieldErrors?.['oneOff.name'] ? (
+                    {oneOffFieldError('oneOff.name') ? (
                       <p className="mt-2 text-sm text-red-300">{marketingCreate.fieldErrors['oneOff.name']}</p>
                     ) : null}
                   </Field>
@@ -453,11 +470,11 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                       type="date"
                       value={campaignEndDate}
                       onChange={(e) => setCampaignEndDate(e.target.value)}
-                      aria-invalid={marketingCreate.fieldErrors?.['oneOff.campaignEndDate'] ? true : undefined}
+                      aria-invalid={oneOffFieldError('oneOff.campaignEndDate') ? true : undefined}
                       className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50"
                     />
                     <p className="mt-2 text-xs text-white/45">Aries stops publishing past end-of-day in your timezone.</p>
-                    {marketingCreate.fieldErrors?.['oneOff.campaignEndDate'] ? (
+                    {oneOffFieldError('oneOff.campaignEndDate') ? (
                       <p className="mt-2 text-sm text-red-300">{marketingCreate.fieldErrors['oneOff.campaignEndDate']}</p>
                     ) : null}
                   </Field>
@@ -466,10 +483,10 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                       value={oneOffCta}
                       onChange={(e) => setOneOffCta(e.target.value)}
                       placeholder='e.g. "Shop the sale" or "Register at example.com/event"'
-                      aria-invalid={marketingCreate.fieldErrors?.['oneOff.cta'] ? true : undefined}
+                      aria-invalid={oneOffFieldError('oneOff.cta') ? true : undefined}
                       className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
                     />
-                    {marketingCreate.fieldErrors?.['oneOff.cta'] ? (
+                    {oneOffFieldError('oneOff.cta') ? (
                       <p className="mt-2 text-sm text-red-300">{marketingCreate.fieldErrors['oneOff.cta']}</p>
                     ) : null}
                   </Field>
@@ -484,10 +501,10 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                           value={milestoneLabel}
                           onChange={(e) => setMilestoneLabel(e.target.value)}
                           placeholder='e.g. "Sale ends"'
-                          aria-invalid={marketingCreate.fieldErrors?.['oneOff.milestoneLabel'] ? true : undefined}
+                          aria-invalid={oneOffFieldError('oneOff.milestoneLabel') ? true : undefined}
                           className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/50"
                         />
-                        {marketingCreate.fieldErrors?.['oneOff.milestoneLabel'] ? (
+                        {oneOffFieldError('oneOff.milestoneLabel') ? (
                           <p className="mt-2 text-sm text-red-300">{marketingCreate.fieldErrors['oneOff.milestoneLabel']}</p>
                         ) : null}
                       </Field>
@@ -496,10 +513,10 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                           type="date"
                           value={milestoneDate}
                           onChange={(e) => setMilestoneDate(e.target.value)}
-                          aria-invalid={marketingCreate.fieldErrors?.['oneOff.milestoneDate'] ? true : undefined}
+                          aria-invalid={oneOffFieldError('oneOff.milestoneDate') ? true : undefined}
                           className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50"
                         />
-                        {marketingCreate.fieldErrors?.['oneOff.milestoneDate'] ? (
+                        {oneOffFieldError('oneOff.milestoneDate') ? (
                           <p className="mt-2 text-sm text-red-300">{marketingCreate.fieldErrors['oneOff.milestoneDate']}</p>
                         ) : null}
                       </Field>
