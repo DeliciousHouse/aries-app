@@ -1632,8 +1632,14 @@ export async function startMarketingJob(input: StartMarketingJobRequest): Promis
   // One-off campaigns ride the same social-content Hermes pipeline per design
   // premise P3 (same 4 stages, same approval gates, same Hermes calls), so they
   // need the same runtime state block downstream code reads.
+  // One-off campaigns always publish — there is no preview-then-approve cycle, so
+  // publishingRequested must be true from the start. Weekly campaigns derive this
+  // flag from requestedPublishFlag(doc) (payload keys like publishRequested /
+  // livePublishPlatforms), which the one_off payload never sets.
   if (input.jobType === 'weekly_social_content' || input.jobType === 'one_off_campaign') {
-    ensureSocialContentRuntimeState(doc);
+    ensureSocialContentRuntimeState(doc, {
+      publishingRequested: input.jobType === 'one_off_campaign' ? true : undefined,
+    });
   }
   saveMarketingJobRuntime(jobId, doc);
 

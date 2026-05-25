@@ -56,3 +56,17 @@ test('no stale event_campaign string literals remain in orchestrator', () => {
     "no residual 'event_campaign' literal should appear in orchestrator.ts",
   );
 });
+
+test('startMarketingJob passes publishingRequested=true for one_off_campaign', () => {
+  // Regression: v0.1.11.3 called ensureSocialContentRuntimeState(doc) with no
+  // input for both job types. For one_off, requestedPublishFlag() found no
+  // publish-request keys in the payload and defaulted to false. The publish
+  // stage then skipped with "Publish skipped: publishing not requested."
+  // One-off campaigns have no preview-then-approve cycle; they must always
+  // publish. The fix passes publishingRequested=true when jobType===one_off.
+  assert.match(
+    ORCH_SRC,
+    /input\.jobType === 'one_off_campaign'\s*\?\s*true/,
+    'ensureSocialContentRuntimeState must receive publishingRequested=true for one_off_campaign',
+  );
+});
