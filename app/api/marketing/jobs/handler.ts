@@ -362,10 +362,18 @@ export function validateAndConvertOneOffBrief(
   // Each date is expected as YYYY-MM-DD from <input type="date">. wallTimeToUtc
   // wants YYYY-MM-DDTHH:mm, so append the end-of-day wall clock here.
   const tenantTz = loadTenantTimezoneOrFallback(tenantId);
+  const nowYear = new Date().getFullYear();
+  const minYear = nowYear - 1;
+  const maxYear = nowYear + 10;
   const toUtcEndOfDay = (value: string, field: string): string | null => {
     if (!value) return null;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
       fieldErrors[field] = 'Use a YYYY-MM-DD date.';
+      return null;
+    }
+    const yearParsed = parseInt(value.slice(0, 4), 10);
+    if (yearParsed < minYear || yearParsed > maxYear) {
+      fieldErrors[field] = `Date must be a current or near-future year (between ${minYear} and ${maxYear}).`;
       return null;
     }
     const wall = `${value}T23:59:59`;
@@ -379,6 +387,17 @@ export function validateAndConvertOneOffBrief(
 
   const endDateUtc = toUtcEndOfDay(campaignEndDate, 'oneOff.campaignEndDate');
   const milestoneUtc = toUtcEndOfDay(milestoneDate, 'oneOff.milestoneDate');
+
+  // Reject a campaign end date that is already in the past (yesterday or
+  // earlier). Today is fine -- the operator may be setting up a same-day push.
+  if (endDateUtc && Date.parse(endDateUtc) < Date.now()) {
+    const todayWall = new Date().toLocaleDateString('en-CA', { timeZone: tenantTz });
+    const todayUtc = toUtcEndOfDay(todayWall, 'oneOff.campaignEndDate');
+    // If the end of the supplied date is before the start of today it's past.
+    if (todayUtc && Date.parse(endDateUtc) < Date.parse(todayUtc)) {
+      fieldErrors['oneOff.campaignEndDate'] = 'Campaign end date must be in the future.';
+    }
+  }
 
   // Ordering: a milestone date AFTER the campaign end is incoherent (the
   // campaign already stopped publishing). Before the end is fine -- that's

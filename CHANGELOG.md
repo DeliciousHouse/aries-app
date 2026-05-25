@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.11.2 — fix(marketing): one-off dashboard window + date input hardening
+
+Live QA against v0.1.11.1 caught two further bugs in the one_off_campaign flow. Both are display/validation bugs; no schema changes or pipeline changes are required.
+
+**Bug 1 (P1, dashboard).** A successfully-created one_off campaign rendered a 7-day weekly window on the dashboard (today + 6 days) instead of the operator's chosen `campaignEndDate`. Root cause: `backend/marketing/jobs-status.ts:1543` computed `isWeeklySocialContent` via a local `requestedJobTypeFromDoc` that is hardcoded to always return `'weekly_social_content'`. This hardcode is intentional for pipeline routing — one_off campaigns ride the weekly Hermes pipeline by design premise P3 — but the same flag was also gating the display-only weekly calendar snapshot. `buildWeeklyCalendarSnapshot` always ran, always produced a `campaignWindow` of `{ start: today, end: today+6d }`, and the `weeklySnapshot?.campaignWindow ?? ...` fallback always picked that value before `buildCampaignWindow` (which correctly reads `oneOff.campaignEndDate` for one_off docs) could supply the authoritative date.
+
+Fix (Option B — smallest blast radius): added `&& runtimeDoc.job_type !== 'one_off_campaign'` to the `isWeeklySocialContent` guard at line 1543. The hardcoded `requestedJobTypeFromDoc` is left untouched; all Hermes pipeline routing remains unaffected. One_off docs now fall through to `buildCampaignWindow` which surfaces `{ start: milestoneDate|null, end: campaignEndDate }` as designed in v0.1.11.0.
+
+**Bug 2 (P1, date inputs).** Browser-automation-driven input corruption during QA produced `"0004-02-06"` in the campaign end date field. The existing YYYY-MM-DD regex `/^\d{4}-\d{2}-\d{2}$/` matched year 0004, so the server accepted and converted the garbled value. Three layers of hardening added:
+
+1. **Server-side year-range guard** (`app/api/marketing/jobs/handler.ts:validateAndConvertOneOffBrief`): rejects any date whose year is outside `[currentYear - 1, currentYear + 10]`. Error message: "Date must be a current or near-future year (between YYYY and YYYY)." Applied to both `campaignEndDate` and `milestoneDate`.
+
+2. **Server-side past-date guard** (same function): rejects `campaignEndDate` that is already in the past relative to now in the tenant timezone. Today is fine; yesterday is not. Error message: "Campaign end date must be in the future."
+
+3. **Client-side UX** (`frontend/marketing/new-job.tsx`): both `<input type="date">` elements get `min={todayStr}` and `max={today+5years}` so the native picker greys out obviously invalid dates. Additionally, if the year in the typed value is outside `[currentYear, currentYear+5]` the submit handler sets an inline client-side field error and blocks the POST without a round-trip.
+
+**Tests added.**
+
+- `tests/one-off-campaign-dashboard-window.test.ts` (5 tests): pins that `isWeeklySnapshotPathForTests` returns `false` for one_off docs (and `true` for weekly), that `buildOneOffCampaignWindowForTests` returns the authoritative `campaignEndDate` unchanged, and that `buildSocialContentDashboardProjection` returns the dashboard object untouched for one_off docs (early-exit guard).
+- `tests/one-off-campaign-form-validation.test.ts` (+5 tests, 14 total): past date rejected, ancient year (0004) rejected with "current or near-future year" message, far-future year (current+15) rejected, within-range future date accepted, ancient year on `milestoneDate` rejected.
+
+Year bounds in tests are computed from `new Date().getFullYear()` so they don't go stale.
+
+`npm run verify` 38/38, 10 new tests pass (5 Bug 1 + 5 Bug 2), typecheck clean, banned-patterns clean.
+
 ## v0.1.11.1 — fix(marketing): startMarketingJob entry guard accepts one_off_campaign; client-side form errors render inline
 
 Live QA against v0.1.11.0 (and v0.1.10.0 before it) caught two production bugs that the prior coverage missed.
