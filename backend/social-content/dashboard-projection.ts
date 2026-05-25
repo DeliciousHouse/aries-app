@@ -1016,7 +1016,12 @@ export function buildSocialContentDashboardProjection(
   dashboard: MarketingDashboardCampaignContent,
   options: { realPublishedPostCount?: number } = {},
 ): MarketingDashboardCampaignContent {
-  if (requestedJobTypeFromDoc(runtimeDoc) !== 'weekly_social_content') {
+  // One-off campaigns ride the same social-content Hermes pipeline per design
+  // premise P3, so this projection layer must surface them too. The earlier
+  // gate accepted only weekly, which silently emptied the dashboard for any
+  // one_off campaign and left aggregate routes stuck on "Loading…".
+  const reqJobType = requestedJobTypeFromDoc(runtimeDoc);
+  if (reqJobType !== 'weekly_social_content' && reqJobType !== 'one_off_campaign') {
     return dashboard;
   }
   const realPublishedPostCount =
