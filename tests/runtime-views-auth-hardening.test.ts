@@ -382,7 +382,7 @@ test('runtime campaign and review view services exist and return honest empty st
   await withMarketingRuntimeEnv(async () => {
     const views = await import('../backend/marketing/runtime-views');
 
-    const campaigns = await views.listMarketingCampaignsForTenant('tenant_empty');
+    const { campaigns } = await views.listMarketingCampaignsForTenant('tenant_empty');
     const reviews = await views.listMarketingReviewItemsForTenant('tenant_empty');
 
     assert.deepEqual(campaigns, []);
@@ -451,7 +451,7 @@ test('runtime campaign views stay populated when proposal artifacts exist even w
     );
 
     const views = await import('../backend/marketing/runtime-views');
-    const campaigns = await views.listMarketingCampaignsForTenant('tenant_runtime');
+    const { campaigns } = await views.listMarketingCampaignsForTenant('tenant_runtime');
 
     assert.equal(campaigns.length, 1);
     assert.equal(campaigns[0].dashboard.posts.length > 0, true);
@@ -529,7 +529,7 @@ test('tenant runtime views keep only the latest rerun for the same campaign iden
     );
 
     const views = await import('../backend/marketing/runtime-views');
-    const campaigns = await views.listMarketingCampaignsForTenant('tenant_runtime_dedupe');
+    const { campaigns } = await views.listMarketingCampaignsForTenant('tenant_runtime_dedupe');
     const posts = await views.listMarketingPostsForTenant('tenant_runtime_dedupe');
 
     assert.equal(campaigns.length, 1);
@@ -561,7 +561,7 @@ test('runtime views ignore malformed legacy marketing runtime documents without 
     );
 
     const views = await import('../backend/marketing/runtime-views');
-    const campaigns = await views.listMarketingCampaignsForTenant('tenant_empty');
+    const { campaigns } = await views.listMarketingCampaignsForTenant('tenant_empty');
     const reviews = await views.listMarketingReviewItemsForTenant('tenant_empty');
 
     assert.deepEqual(campaigns, []);
@@ -714,7 +714,7 @@ test('approve_stage_2 workflow reviews include research, brief, brand-kit, and u
 
       const reviews = await views.listMarketingReviewItemsForTenant('tenant_123');
       const approvalItem = reviews.find((item) => item.id === `${started.jobId}::approval`);
-      const campaigns = await views.listMarketingCampaignsForTenant('tenant_123');
+      const { campaigns } = await views.listMarketingCampaignsForTenant('tenant_123');
       const extractedBrandKitSection = approvalItem?.sections.find((section) => section.id === 'extracted-brand-kit');
 
       assert.equal(approvalItem?.reviewType, 'workflow_approval');
@@ -916,7 +916,7 @@ test('publish review previews stop counting as pending once the workflow checkpo
     const reviewsAfter = await views.listMarketingReviewItemsForTenant('tenant_review');
     assert.equal(reviewsAfter.some((item) => item.id === `${jobId}::approval`), false);
 
-    const campaigns = await views.listMarketingCampaignsForTenant('tenant_review');
+    const { campaigns } = await views.listMarketingCampaignsForTenant('tenant_review');
     assert.equal(campaigns.length, 1);
 
     const savedReviewState = JSON.parse(await readFile(reviewStateFile, 'utf8')) as {
@@ -964,7 +964,7 @@ test('publish approvals still surface a workflow review item when the bundle has
 
     const updatedReviews = await views.listMarketingReviewItemsForTenant('tenant_review');
     const workflowReview = updatedReviews.find((item) => item.id === `${jobId}::approval`);
-    const campaigns = await views.listMarketingCampaignsForTenant('tenant_review');
+    const { campaigns } = await views.listMarketingCampaignsForTenant('tenant_review');
     const workspace = loadCampaignWorkspaceRecord(jobId, 'tenant_review');
 
     assert.equal(workflowReview?.workflowState, 'revisions_requested');
@@ -1018,5 +1018,60 @@ test('publish-preview review items attach rendered mp4 previews for video platfo
       assert.equal(videoAttachment?.kind, 'preview');
       assert.equal(videoAttachment?.posterUrl, `/api/marketing/jobs/${jobId}/assets/video-${platformSlug}-${familyId}-poster`);
     }
+  });
+});
+
+test('listMarketingCampaignsForTenant paginates and sets hasMore when campaign count exceeds limit', async () => {
+  await withMarketingRuntimeEnv(async () => {
+    const jobsRoot = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs');
+    await mkdir(jobsRoot, { recursive: true });
+
+    const makeMinimalRuntimeDoc = (jobId: string, updatedAt: string) => ({
+      schema_name: 'marketing_job_state_schema',
+      schema_version: '1.0.0',
+      job_id: jobId,
+      job_type: 'weekly_social_content',
+      tenant_id: 'tenant_pagination',
+      state: 'running',
+      status: 'running',
+      current_stage: 'research',
+      stage_order: ['research', 'strategy', 'production', 'publish'],
+      stages: {
+        research: { stage: 'research', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+        strategy: { stage: 'strategy', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+        production: { stage: 'production', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+        publish: { stage: 'publish', status: 'not_started', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+      },
+      approvals: { current: null, history: [] },
+      publish_config: { platforms: [], live_publish_platforms: [], video_render_platforms: [] },
+      brand_kit: null,
+      inputs: { request: {}, brand_url: 'https://brand.example' },
+      errors: [],
+      last_error: null,
+      history: [],
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at: updatedAt,
+    });
+
+    // Write 5 jobs with distinct names so dedup does not collapse them
+    for (let i = 1; i <= 5; i++) {
+      const jobId = `pagination-job-${i}`;
+      await writeFile(
+        path.join(jobsRoot, `${jobId}.json`),
+        JSON.stringify(makeMinimalRuntimeDoc(jobId, `2026-0${i}-01T00:00:00.000Z`), null, 2),
+      );
+    }
+
+    const views = await import('../backend/marketing/runtime-views');
+
+    // Limit=3 — should return 3 campaigns and signal more exist
+    const page = await views.listMarketingCampaignsForTenant('tenant_pagination', { limit: 3 });
+    assert.equal(page.campaigns.length <= 3, true, 'page size must not exceed the requested limit');
+    assert.equal(page.hasMore, true, 'hasMore should be true when 5 jobs exceed limit of 3');
+
+    // Limit=10 — all 5 should fit, no more
+    const fullPage = await views.listMarketingCampaignsForTenant('tenant_pagination', { limit: 10 });
+    assert.equal(fullPage.campaigns.length, 5);
+    assert.equal(fullPage.hasMore, false, 'hasMore should be false when all campaigns fit in the page');
   });
 });

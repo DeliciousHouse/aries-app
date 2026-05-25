@@ -260,7 +260,7 @@ test('dashboard adapter derives proposal-backed content and calendar without liv
     const content = await getMarketingDashboardContent(jobId, {
       referenceDate: new Date('2026-03-27T00:00:00.000Z'),
     });
-    const campaigns = await listMarketingCampaignsForTenant('tenant_dashboard');
+    const { campaigns } = await listMarketingCampaignsForTenant('tenant_dashboard');
 
     assert.equal(content.campaigns.length, 1);
     assert.equal(content.posts.some((post) => post.provenance.sourceKind === 'proposal'), true);
