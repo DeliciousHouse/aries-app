@@ -810,7 +810,9 @@ async function extractCampaignName(
   const validatedProfile = await loadValidatedMarketingProfileSnapshot(runtimeDoc.tenant_id, {
     currentSourceUrl: runtimeDoc.inputs.brand_url || null,
   })
+  const oneOffName = stringValue(recordValue(recordValue(runtimeDoc.inputs.request)?.oneOff)?.name)
   const candidates = [
+    oneOffName,
     status.reviewCampaignName,
     proposal.campaignName,
     status.tenantName,

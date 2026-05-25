@@ -581,7 +581,7 @@ export async function loadMarketingJobRuntime(jobId: string): Promise<MarketingJ
 
 async function collectMarketingJobRefsForTenant(
   tenantId: string,
-  options: { includeDeleted?: boolean; onlyDeleted?: boolean } = {},
+  options: { includeDeleted?: boolean; onlyDeleted?: boolean; limit?: number } = {},
 ): Promise<Array<{ jobId: string; updatedAt: number }>> {
   const root = marketingRuntimeRoot();
   const refs: Array<{ jobId: string; updatedAt: number }> = [];
@@ -648,11 +648,15 @@ async function collectMarketingJobRefsForTenant(
     }
   }
 
-  return refs.sort((left, right) => right.updatedAt - left.updatedAt);
+  const sorted = refs.sort((left, right) => right.updatedAt - left.updatedAt);
+  return options.limit !== undefined ? sorted.slice(0, options.limit) : sorted;
 }
 
-export async function listMarketingJobIdsForTenant(tenantId: string): Promise<string[]> {
-  return (await collectMarketingJobRefsForTenant(tenantId)).map((entry) => entry.jobId);
+export async function listMarketingJobIdsForTenant(
+  tenantId: string,
+  options: { limit?: number } = {},
+): Promise<string[]> {
+  return (await collectMarketingJobRefsForTenant(tenantId, options)).map((entry) => entry.jobId);
 }
 
 /**
@@ -849,8 +853,13 @@ function socialContentRuntimeContainsBasename(
   return false;
 }
 
-export async function listDeletedMarketingJobIdsForTenant(tenantId: string): Promise<string[]> {
-  return (await collectMarketingJobRefsForTenant(tenantId, { onlyDeleted: true })).map((entry) => entry.jobId);
+export async function listDeletedMarketingJobIdsForTenant(
+  tenantId: string,
+  options: { limit?: number } = {},
+): Promise<string[]> {
+  return (await collectMarketingJobRefsForTenant(tenantId, { onlyDeleted: true, ...options })).map(
+    (entry) => entry.jobId,
+  );
 }
 
 /**

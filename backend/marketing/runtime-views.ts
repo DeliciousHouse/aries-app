@@ -1541,11 +1541,41 @@ function assertDenialResult(result: Awaited<ReturnType<typeof denyMarketingJob>>
   }
 }
 
-export async function listMarketingCampaignsForTenant(tenantId: string): Promise<RuntimeCampaignListItem[]> {
+export type CampaignListPage = {
+  campaigns: RuntimeCampaignListItem[];
+  hasMore: boolean;
+};
+
+const CAMPAIGN_LIST_DEFAULT_LIMIT = 20;
+
+export async function listMarketingCampaignsForTenant(
+  tenantId: string,
+  options: { limit?: number | 'all' } = {},
+): Promise<CampaignListPage> {
+  // 'all' explicitly opts out of pagination (used by listPublicMarketingCampaigns
+  // and other internal callers that want full-tenant coverage). Numeric inputs
+  // from untyped JS call sites can be 0/negative/NaN; clamp to a positive
+  // integer, falling back to the default when invalid.
+  const rawLimit = options.limit ?? CAMPAIGN_LIST_DEFAULT_LIMIT;
+  const unlimited = rawLimit === 'all';
+  const limit = unlimited
+    ? Number.POSITIVE_INFINITY
+    : Number.isFinite(rawLimit) && (rawLimit as number) > 0
+      ? Math.floor(rawLimit as number)
+      : CAMPAIGN_LIST_DEFAULT_LIMIT;
+  // Fetch limit+1 job IDs so we can detect whether more exist beyond the page.
+  // For unlimited mode pass undefined so listMarketingJobIdsForTenant returns all.
+  const jobIds = await listMarketingJobIdsForTenant(
+    tenantId,
+    unlimited ? {} : { limit: limit + 1 },
+  );
+  const hasMore = !unlimited && jobIds.length > limit;
+  const pageJobIds = hasMore ? jobIds.slice(0, limit) : jobIds;
+
   const campaigns: RuntimeCampaignListItem[] = [];
   const seen = new Set<string>();
 
-  for (const jobId of await listMarketingJobIdsForTenant(tenantId)) {
+  for (const jobId of pageJobIds) {
     const status = await getMarketingJobStatus(jobId);
     if (status.tenantName === null && status.brandWebsiteUrl === null && status.status === 'error') {
       continue;
@@ -1562,11 +1592,13 @@ export async function listMarketingCampaignsForTenant(tenantId: string): Promise
     campaigns.push(buildCampaignListItem(status, view, pendingApprovals, jobBrandKitExtractedAt));
   }
 
-  return campaigns.sort((left, right) => {
+  campaigns.sort((left, right) => {
     const leftUpdated = Date.parse(left.updatedAt || '');
     const rightUpdated = Date.parse(right.updatedAt || '');
     return (Number.isFinite(rightUpdated) ? rightUpdated : 0) - (Number.isFinite(leftUpdated) ? leftUpdated : 0);
   });
+
+  return { campaigns, hasMore };
 }
 
 /**
@@ -1614,7 +1646,7 @@ export async function listPublicMarketingCampaigns(): Promise<RuntimeCampaignLis
   const byId = new Map<string, RuntimeCampaignListItem>();
 
   for (const tenantId of await listMarketingTenantIds()) {
-    const campaigns = await listMarketingCampaignsForTenant(tenantId);
+    const { campaigns } = await listMarketingCampaignsForTenant(tenantId, { limit: 'all' });
     for (const campaign of campaigns) {
       if (!byId.has(campaign.id)) {
         byId.set(campaign.id, campaign);

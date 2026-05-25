@@ -239,6 +239,9 @@ export type OnboardingDraft = {
 
 export type CampaignListResponse = {
   campaigns: RuntimeCampaignListItem[];
+  /** True when the tenant has additional campaigns beyond the returned page.
+   * The current page is capped at 20 most-recent campaigns. */
+  hasMore?: boolean;
   /** Soft-deleted campaigns in the same shape as `campaigns`. Feeds the
    * Recycle Bin / "Deleted campaigns" section of the campaign list screen
    * so users can see what they deleted and restore if needed. */

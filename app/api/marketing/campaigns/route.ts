@@ -14,13 +14,21 @@ export async function handleGetMarketingCampaigns(tenantContextLoader?: TenantCo
   }
 
   const tenantId = tenantResult.tenantContext.tenantId;
-  const [campaigns, deletedCampaigns, currentBrandKit] = await Promise.all([
+  const [campaignPage, deletedCampaigns, currentBrandKit] = await Promise.all([
     listMarketingCampaignsForTenant(tenantId),
     listDeletedMarketingCampaignsForTenant(tenantId),
     loadTenantBrandKit(tenantId),
   ]);
   const currentBrandKitExtractedAt = currentBrandKit?.extracted_at ?? null;
-  return NextResponse.json({ campaigns, deletedCampaigns, currentBrandKitExtractedAt }, { status: 200 });
+  return NextResponse.json(
+    {
+      campaigns: campaignPage.campaigns,
+      hasMore: campaignPage.hasMore,
+      deletedCampaigns,
+      currentBrandKitExtractedAt,
+    },
+    { status: 200 },
+  );
 }
 
 export async function GET() {
