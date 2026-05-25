@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.12.0 — feat(ui): tenant-local timezone for every operator-visible timestamp
+
+Operators were seeing raw UTC ISO strings (e.g. `2026-06-11T03:59:59.000Z`) throughout the dashboard — campaign windows, audit trails, post queues, decision history, and review items all displayed UTC with no indication of the local business time. This shipped a two-piece fix.
+
+**Piece 1: tenant timezone in the next-auth session claim.** The jwt callback in `auth.ts` now calls `loadTenantTimezoneOrFallback(tenantId)` (already in `backend/tenant/business-profile.ts`) after resolving tenant claims and writes the result to `token.timezone`. The session callback projects it to `session.user.timezone`. The `types/next-auth.d.ts` augmentation was extended to cover both `Session.user` and `JWT`. A new `hooks/use-tenant-timezone.ts` wraps the session context read and falls back to `DEFAULT_TENANT_TIMEZONE` when the session is absent (first load, unauthenticated paths, test stubs without a SessionProvider).
+
+**Piece 2: 8 raw-UTC display sites replaced.** Every operator-visible timestamp now calls `formatInTenantZone(value, tz)` + `tenantZoneAbbreviation(value, tz)` from `lib/format-timestamp.ts` (already in the codebase from v0.1.11.x). Files touched: `frontend/marketing/job-status.tsx` (audit trail), `frontend/app-shell/posts-console.tsx` (post queue), `frontend/aries-v1/review-item.tsx` (last decision + decision history), `frontend/aries-v1/campaign-workspace.tsx` (`formatDecisionTimestamp` + audit trail + status history), `frontend/app-shell/dashboard-console.tsx` (campaign window), `frontend/app-shell/calendar-console.tsx` (window label).
+
+**Admin debug panel (special case).** The `/admin/marketing/jobs/[id]/debug` panel already showed UTC correctly for debugging. A `formatTenantTime()` helper was added alongside the existing `formatUtcTime()`; every timestamp in the panel now renders BOTH side-by-side (`2026-06-15 03:59:59 UTC / Jun 14, 8:59 PM PDT`). The `localTimeTooltip()` that previously used browser-tz `toLocaleString()` was replaced with the tenant-tz version.
+
+**Calendar screen consolidation.** `frontend/aries-v1/calendar-screen.tsx` previously derived timezone from `useBusinessProfile({ autoLoad: true })`, adding a redundant API call just for the tz field. Migrated to `useTenantTimezone()` so there is one source of truth.
+
+**Operational note — session claim refresh.** When a tenant changes their configured timezone in business profile settings, existing operator sessions will not see the new zone until they log out and back in. This is inherent to the next-auth JWT claim model: the claim is written once at login and not re-read per request. A logout/login cycle is the documented way to pick up claim changes.
+
+**Tests:** `tests/session-timezone-claim.test.ts` (5 assertions — jwt callback writes token.timezone, session callback projects it, type augmentation covers both interfaces, hook reads from session context with fallback). `tests/ui-timestamps-use-tenant-zone.test.ts` (14 assertions — each of the 8 display files imports `formatInTenantZone`, none use bare `new Date(...).toLocaleString()`, admin panel has both formatters). `tests/admin-debug-panel-timezone-format.test.ts` (5 unit tests — `formatTenantTime` and `formatUtcTime` produce expected strings for `America/Los_Angeles` and `Asia/Tokyo` against a known UTC instant, null-safety).
+
+`npm run verify` 38/38, 24 new tests pass, typecheck clean.
+
 ## v0.1.11.5 — fix(marketing): dashboard aggregate views show one_off campaigns
 
 Live QA against v0.1.11.3 + v0.1.11.4 surfaced that `/dashboard/social-content`, `/dashboard/posts`, `/dashboard/results`, and `/dashboard/publish-status` all stuck on `Loading…` once any one_off campaign existed for the tenant. Same FP class as v0.1.11.1: widening the `MarketingJobType` union missed two runtime inequality checks against the string literal `'weekly_social_content'`. TypeScript can't catch them because comparing a literal in an inequality is type-safe regardless of union width.

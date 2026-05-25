@@ -22,6 +22,7 @@ import {
   normalizeEmail,
   tenantClaimsErrorRedirect,
 } from "./lib/auth-tenant-membership";
+import { loadTenantTimezoneOrFallback } from "./backend/tenant/business-profile";
 import { partnerAttributionEnabled } from "./lib/partner-attribution-env";
 import { PARTNER_REF_COOKIE_NAME, parsePartnerRefCookie } from "./lib/partner-ref-cookie";
 
@@ -266,6 +267,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           token.tenantId = String(row.tenant_id);
           token.tenantSlug = row.tenant_slug as string;
           token.tenantRole = row.role as TenantRole;
+          token.timezone = loadTenantTimezoneOrFallback(String(row.tenant_id));
         } finally {
           client.release();
         }
@@ -282,6 +284,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
               token.tenantId = String(row.tenant_id);
               token.tenantSlug = row.tenant_slug as string;
               token.tenantRole = isTenantRole(row.role) ? row.role : undefined;
+              token.timezone = loadTenantTimezoneOrFallback(String(row.tenant_id));
             }
           }
         } finally {
@@ -305,6 +308,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         session.user.tenantId = String(token.tenantId);
         session.user.tenantSlug = String(token.tenantSlug);
         session.user.role = isTenantRole(token.tenantRole) ? token.tenantRole : undefined;
+      }
+      if (session.user && token.timezone) {
+        session.user.timezone = String(token.timezone);
       }
 
       return session;

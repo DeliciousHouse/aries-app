@@ -14,6 +14,8 @@ import type {
   MarketingApiError,
 } from '@/lib/api/marketing';
 import { useMarketingJobStatus } from '@/hooks/use-marketing-job-status';
+import { useTenantTimezone } from '@/hooks/use-tenant-timezone';
+import { formatInTenantZone, tenantZoneAbbreviation } from '@/lib/format-timestamp';
 import StatusBadge from '../components/status-badge';
 
 type JobStatusResult = GetMarketingJobStatusResponse | MarketingApiError;
@@ -300,6 +302,7 @@ function ReviewPreviewGallery({ previews }: { previews: MarketingReviewPreviewCa
 
 export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
   const copy = STATUS_SCREEN_COPY[props.copyVariant ?? 'marketing'];
+  const tz = useTenantTimezone();
   const marketingStatus = useMarketingJobStatus({
     baseUrl: props.baseUrl,
     jobStatusPath:
@@ -571,7 +574,7 @@ export function MarketingJobStatusScreen(props: MarketingJobStatusScreenProps) {
                     <div className={timelineEntryDotClass(entry.tone)} />
                     <div className="flex justify-between items-start mb-1">
                       <h4 className="text-sm font-bold">{entry.label}</h4>
-                      <time className="text-[10px] text-white/30">{entry.at ? new Date(entry.at).toLocaleString() : ''}</time>
+                      <time className="text-[10px] text-white/30">{entry.at ? `${formatInTenantZone(entry.at, tz)} ${tenantZoneAbbreviation(entry.at, tz)}` : ''}</time>
                     </div>
                     <p className="text-xs text-white/50">{entry.description}</p>
                   </div>

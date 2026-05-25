@@ -10,6 +10,7 @@ export type TenantContext = {
   tenantId: string;
   tenantSlug: string;
   role: TenantRole;
+  timezone?: string;
 };
 
 export class TenantContextError extends Error {

@@ -34,6 +34,8 @@ import {
 } from './campaign-workspace-state';
 import { customerSafeActionErrorMessage, customerSafeUiErrorMessage } from './customer-safe-copy';
 import { ActivityFeed, EmptyStatePanel, SectionLink, ShellPanel, StatusChip } from './components';
+import { useTenantTimezone } from '@/hooks/use-tenant-timezone';
+import { formatInTenantZone, tenantZoneAbbreviation } from '@/lib/format-timestamp';
 
 type DecisionActionKind = 'approve' | 'changes_requested' | 'reject';
 
@@ -109,17 +111,12 @@ function chipStatus(value: string): 'draft' | 'in_review' | 'approved' | 'schedu
   return 'in_review';
 }
 
-function formatDecisionTimestamp(value: string): string {
+function formatDecisionTimestamp(value: string, tz: string): string {
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) {
     return value;
   }
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(new Date(timestamp));
+  return `${formatInTenantZone(value, tz)} ${tenantZoneAbbreviation(value, tz)}`;
 }
 
 function currentStageHref(campaignId: string, view: WorkspaceView): string {
@@ -1082,6 +1079,7 @@ function PublishStatusSurface(props: {
   overview: PublishSurfaceState;
   campaignId: string;
 }) {
+  const tz = useTenantTimezone();
   const [igPublishItemId, setIgPublishItemId] = useState<string | null>(null);
   const [fbPublishItemId, setFbPublishItemId] = useState<string | null>(null);
   const [publishedItems, setPublishedItems] = useState<Record<string, InstagramPublishResult | FacebookPublishResult>>({});
@@ -1311,7 +1309,7 @@ function PublishStatusSurface(props: {
       ) : null}
 
       <ShellPanel eyebrow="Status history" title="Recent decisions">
-        <ActivityFeed items={props.history.map((entry) => ({ id: entry.id, label: historyTypeLabel(entry.type), detail: entry.note || workflowStateLabel(entry.workflowState), at: formatDecisionTimestamp(entry.at) }))} />
+        <ActivityFeed items={props.history.map((entry) => ({ id: entry.id, label: historyTypeLabel(entry.type), detail: entry.note || workflowStateLabel(entry.workflowState), at: formatDecisionTimestamp(entry.at, tz) }))} />
       </ShellPanel>
     </div>
   );
@@ -1333,6 +1331,7 @@ function RuntimeStatusSurface(props: {
   campaignId: string;
 }) {
   const { status } = props;
+  const tz = useTenantTimezone();
   return (
     <div className="space-y-4">
       <ShellPanel eyebrow="Runtime status" title="Live job state">
@@ -1441,7 +1440,7 @@ function RuntimeStatusSurface(props: {
               id: entry.id,
               label: entry.label,
               detail: entry.description,
-              at: entry.at ? new Date(entry.at).toLocaleString() : '',
+              at: entry.at ? `${formatInTenantZone(entry.at, tz)} ${tenantZoneAbbreviation(entry.at, tz)}` : '',
             }))}
           />
         </ShellPanel>
@@ -1597,6 +1596,7 @@ function ReviewDecisionCard(props: {
 }
 
 function HistoryCard(props: { history: MarketingCampaignStatusHistoryEntry[] }) {
+  const tz = useTenantTimezone();
   return (
     <ShellPanel eyebrow="History" title="Decision history">
       {props.history.length === 0 ? (
@@ -1612,7 +1612,7 @@ function HistoryCard(props: { history: MarketingCampaignStatusHistoryEntry[] }) 
                   <div>
                     <p className="text-sm font-medium text-white">{historyTypeLabel(entry.type)}</p>
                     <p className="mt-1 text-sm text-white/50">
-                      {[visibleActorLabel(entry.actor), formatDecisionTimestamp(entry.at)].filter(Boolean).join(' · ')}
+                      {[visibleActorLabel(entry.actor), formatDecisionTimestamp(entry.at, tz)].filter(Boolean).join(' · ')}
                     </p>
                   </div>
                   <StatusChip status={chipStatus(entry.status || '')}>
