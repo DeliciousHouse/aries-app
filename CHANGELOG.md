@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.11.3 — feat(marketing): replace native date inputs with month/day dropdowns + auto year
+
+Two pain points with the v0.1.11.2 native `<input type="date">` fields:
+
+1. **Chrome automation input corruption.** Browser automation agents (pair-agent at read+write scope, no JS exec) fill date inputs via simulated keypresses. Chrome reads chars per MM/DD/YYYY segment — "2026-06-14" becomes "0004-02-06". The React-native-setter workaround requires JS exec, which those agents don't have.
+
+2. **Year navigation overhead.** One-off campaigns overwhelmingly happen within the current year. Native date pickers force operators through year selection on every use.
+
+**Solution: `MonthDayPicker` component** (`frontend/marketing/month-day-picker.tsx`). Two `<select>` dropdowns (Month, Day) that browser automation can interact with reliably via click + select. Hidden year state defaults to `currentYear`. A third Year dropdown appears **only when today is within 30 days of Dec 31** (so a December operator can schedule a January campaign), offering `[currentYear, currentYear+1]`.
+
+Day options recompute on month/year change; if the selected day exceeds the new month's max (e.g. day=31 then switch to April), the day clears and `onChange` emits `''`. `onChange` emits `''` until both month and day are set, then emits `YYYY-MM-DD` with zero-padded fields.
+
+Server-side year-range and past-date validation from v0.1.11.2 is preserved unchanged — the component prevents bad-year input by construction but the server remains the source of truth.
+
+12 new tests in `tests/month-day-picker.test.ts` cover: emit contract, leap-year day count, day clamping on month change, year-selector visibility (hidden June, visible Dec), year default, value prop parsing, and zero-padding.
+
 ## v0.1.11.2 — fix(marketing): one-off dashboard window + date input hardening
 
 Live QA against v0.1.11.1 caught two further bugs in the one_off_campaign flow. Both are display/validation bugs; no schema changes or pipeline changes are required.

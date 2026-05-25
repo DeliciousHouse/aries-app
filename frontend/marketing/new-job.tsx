@@ -9,6 +9,7 @@ import { isValidWebsiteUrl } from '@/lib/api/marketing';
 import { validateCanonicalCompetitorUrl } from '@/lib/marketing-competitor';
 import { useMarketingJobCreate, type UseMarketingJobCreateOptions } from '@/hooks/use-marketing-job-create';
 import StatusBadge from '../components/status-badge';
+import { MonthDayPicker } from './month-day-picker';
 
 function isErrorResult(value: unknown): value is MarketingApiError {
   return typeof (value as MarketingApiError)?.error === 'string';
@@ -88,15 +89,6 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
   const [milestoneDate, setMilestoneDate] = useState('');
   const [milestoneLabel, setMilestoneLabel] = useState('');
 
-  // UX hints only — server enforces the real rules. Use browser local time so
-  // the native date picker greys out obviously invalid dates.
-  const todayStr = new Date().toLocaleDateString('en-CA');
-  const maxDateStr = (() => {
-    const d = new Date();
-    d.setFullYear(d.getFullYear() + 5);
-    return d.toLocaleDateString('en-CA');
-  })();
-
   useEffect(() => {
     if (!submitting) {
       setSubmitProgress({ stepIndex: 0, dotCount: 0 });
@@ -154,19 +146,9 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
       const trimmedMilestoneDate = milestoneDate.trim();
       const trimmedMilestoneLabel = milestoneLabel.trim();
       const errors: Record<string, string> = {};
-      const currentYear = new Date().getFullYear();
-      const checkDateYear = (value: string, field: string): void => {
-        if (!value) return;
-        const y = parseInt(value.slice(0, 4), 10);
-        if (isNaN(y) || y < currentYear || y > currentYear + 5) {
-          errors[field] = `Date must be a current or near-future year (between ${currentYear} and ${currentYear + 5}).`;
-        }
-      };
       if (!trimmedOneOffName) errors['oneOff.name'] = 'Campaign name is required.';
       if (!trimmedCampaignEndDate) errors['oneOff.campaignEndDate'] = 'Campaign end date is required.';
-      checkDateYear(trimmedCampaignEndDate, 'oneOff.campaignEndDate');
       if (!trimmedOneOffCta) errors['oneOff.cta'] = 'CTA is required.';
-      if (trimmedMilestoneDate) checkDateYear(trimmedMilestoneDate, 'oneOff.milestoneDate');
       if (trimmedMilestoneDate && !trimmedMilestoneLabel) {
         errors['oneOff.milestoneLabel'] = 'Add a label for this date (e.g. "Sale ends" or "Doors open").';
       }
@@ -485,18 +467,15 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                     ) : null}
                   </Field>
                   <Field label="Campaign end date" required>
-                    <input
-                      type="date"
+                    <MonthDayPicker
                       value={campaignEndDate}
-                      onChange={(e) => setCampaignEndDate(e.target.value)}
-                      min={todayStr}
-                      max={maxDateStr}
-                      aria-invalid={oneOffFieldError('oneOff.campaignEndDate') ? true : undefined}
-                      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50"
+                      onChange={setCampaignEndDate}
+                      ariaLabel="Campaign end date"
+                      invalid={!!oneOffFieldError('oneOff.campaignEndDate')}
                     />
                     <p className="mt-2 text-xs text-white/45">Aries stops publishing past end-of-day in your timezone.</p>
                     {oneOffFieldError('oneOff.campaignEndDate') ? (
-                      <p className="mt-2 text-sm text-red-300">{marketingCreate.fieldErrors['oneOff.campaignEndDate']}</p>
+                      <p className="mt-2 text-sm text-red-300">{oneOffFieldError('oneOff.campaignEndDate')}</p>
                     ) : null}
                   </Field>
                   <Field label="Call to action" required>
@@ -530,17 +509,14 @@ export function MarketingNewJobScreenContent(props: MarketingNewJobScreenContent
                         ) : null}
                       </Field>
                       <Field label="Milestone date">
-                        <input
-                          type="date"
+                        <MonthDayPicker
                           value={milestoneDate}
-                          onChange={(e) => setMilestoneDate(e.target.value)}
-                          min={todayStr}
-                          max={maxDateStr}
-                          aria-invalid={oneOffFieldError('oneOff.milestoneDate') ? true : undefined}
-                          className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white focus:outline-none focus:border-primary/50"
+                          onChange={setMilestoneDate}
+                          ariaLabel="Milestone date"
+                          invalid={!!oneOffFieldError('oneOff.milestoneDate')}
                         />
                         {oneOffFieldError('oneOff.milestoneDate') ? (
-                          <p className="mt-2 text-sm text-red-300">{marketingCreate.fieldErrors['oneOff.milestoneDate']}</p>
+                          <p className="mt-2 text-sm text-red-300">{oneOffFieldError('oneOff.milestoneDate')}</p>
                         ) : null}
                       </Field>
                     </div>
