@@ -1351,3 +1351,28 @@ export function responseStageStatus(record: MarketingStageRecord): string {
       return 'ready';
   }
 }
+
+/**
+ * Returns the effective output record for a given stage, preferring the legacy
+ * `outputs` map (non-empty object) over the new flat `primary_output` emitted
+ * by the 3-profile Hermes decomposition. Returns `null` when neither is
+ * populated.
+ *
+ * Precedence (outputs-wins) preserves backward compatibility for tenants whose
+ * runtime docs pre-date the Hermes decomposition and still have `outputs.*`
+ * filesystem-path keys populated.
+ */
+export function resolveStageOutput(
+  doc: MarketingJobRuntimeDocument,
+  stageName: MarketingStage,
+): Record<string, unknown> | null {
+  const stage = doc.stages[stageName];
+  if (!stage) return null;
+  if (stage.outputs && Object.keys(stage.outputs).length > 0) {
+    return stage.outputs;
+  }
+  if (stage.primary_output && Object.keys(stage.primary_output).length > 0) {
+    return stage.primary_output;
+  }
+  return null;
+}
