@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.12.5 — perf(dashboard): same bounded-parallel fix for the Recycle Bin (deleted campaigns list)
+
+v0.1.12.4 sped up the live campaigns list and the review queue but missed `listDeletedMarketingCampaignsForTenant`, which is called in parallel with `listMarketingCampaignsForTenant` by `GET /api/marketing/campaigns`. Live benchmark after v0.1.12.4 shipped showed `/api/marketing/campaigns` still spending 29.6s — that was the Recycle Bin loader, still serial over the 17 soft-deleted jobs on this tenant. Applied the exact two-phase fan-out pattern from v0.1.12.4 here too. Concurrency=4, same DB-pool reasoning. No new helper added — just reuses `processConcurrent`.
+
 ## v0.1.12.4 — perf(dashboard): bounded-parallel fan-out cuts /api/marketing/reviews from 24-36s to single-digit seconds
 
 Live audit found `/api/marketing/reviews` and `/api/marketing/campaigns` taking 24-36 seconds in production, hanging the campaigns dashboard on "Loading…". Root cause: both endpoints iterated the tenant's job list (30+ jobs for active tenants once history is included) with serial `await` loops, each iteration doing `loadMarketingJobRuntime` + `getMarketingJobStatus` + `buildCampaignWorkspaceView` + `buildReviewItemsForJob` — total wall-clock = sum of every per-job cost.
