@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.12.2 — fix(marketing): Strategy Review channel plan renders per-platform instructions
+
+Surgical follow-up to v0.1.12.1. Live slice-A QA on `aries.sugarandleather.com` (mkt_32acd5cc-*) found the Strategy Review's Channel plan section still rendering `"Incomplete: generated artifacts do not yet contain this section"` even though `strategy.primary_output.channel_adaptation` was fully populated with real per-platform guidance for instagram and facebook. The other v0.1.12.1 wins (positioning, 7 proposed posts with hook+body+CTA+format+platforms, creative direction) rendered correctly — this was the single rendering gap that slipped through.
+
+**Root cause.** `primaryOutputToCampaignPlanner` (added in v0.1.12.1) produces `channel_plans` entries with shape `{platform, instructions}` — derived from `Object.entries(channel_adaptation)`. `strategyChannelBlock` in `backend/marketing/workspace-views.ts` only inspected the legacy field set (`goal`, `message`, `creative_bias`, `cta`). With none of those fields present on the adapter's output, every block produced an empty string; `.filter(Boolean)` then dropped all entries; the resulting empty `channelPlans` array fell through to `ARTIFACT_INCOMPLETE_TEXT`. The v0.1.12.1 tests asserted the adapter's output shape but never fed it through the renderer, so the bug shipped silently.
+
+**Fix.** When the legacy field set yields no detail blocks, fall back to rendering `channel.instructions` verbatim. Same honesty-over-mismapping pattern as the D2 decision from the v0.1.12.1 eng review (don't map `creative_direction` onto `objective`).
+
+**Tests.** `strategyChannelBlock` is now exported and pinned by four new tests in `tests/marketing/workspace-views-primary-output.test.ts`: platform+instructions input renders a non-empty block with the channel name uppercased; an end-to-end run through the adapter against the real `marketing-runtime-primary-output.json` fixture produces non-empty blocks for every channel (the exact regression that mkt_32acd5cc surfaced); legacy `goal`/`message`/`cta` shape still renders unchanged; empty input still returns empty string. The end-to-end test specifically would have caught this in v0.1.12.1.
+
+**Out of scope.** The same QA run hit a separate `hermes_gateway_timeout` (run did not reach terminal status within 600000ms) on the production stage, which prevented publish from running and made slice C dormancy + creative-review hook surfacing untestable. That's a Hermes-side content-generator profile issue, tracked separately. Stale "Production assets are ready." copy displayed alongside a failed production status was also flagged — separate cosmetic follow-up.
+
 ## v0.1.12.1 — fix(marketing): surface real strategy content after Hermes 3-profile decomposition
 
 Operators were running clean end-to-end campaigns and getting the wrong picture: Strategy Review showed the "Strategy review will open here" placeholder even after the strategy stage completed, every Creative Review card said `Ad hook: Unavailable: not present in generated artifacts`, and the publish auto-approve guardrail (slice C, shipped in PR #474) never fired because it was looking for fields Hermes does not emit. The pipeline was actually generating high-quality content the whole time — positioning, channel adaptation, 7 fully-spec'd posts with hooks, body, CTA, and visual prompts — but Aries was reading the wrong fields.

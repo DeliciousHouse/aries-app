@@ -233,7 +233,7 @@ function normalizeStrategyChannelDetail(value: unknown): string | null {
   return normalized;
 }
 
-function strategyChannelBlock(channel: Record<string, unknown>): string {
+export function strategyChannelBlock(channel: Record<string, unknown>): string {
   const channelName = stringValue(channel.channel || channel.platform_slug || channel.platform, 'Channel').toUpperCase();
   const detailBlocks = [
     ['Goal', normalizeStrategyChannelDetail(channel.goal)],
@@ -245,6 +245,10 @@ function strategyChannelBlock(channel: Record<string, unknown>): string {
     .filter(Boolean);
 
   if (detailBlocks.length === 0) {
+    const instructions = normalizeStrategyChannelDetail(channel.instructions);
+    if (instructions) {
+      return [channelName, instructions].join('\n\n');
+    }
     return '';
   }
 
