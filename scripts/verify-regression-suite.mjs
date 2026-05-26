@@ -72,6 +72,7 @@ const steps = [
       'tests/prd-invariants/inv-13-workflow-transitions-explicit.test.ts',
       'tests/prd-invariants/inv-14-callbacks-authn-schema-tenant-idemp.test.ts',
       'tests/prd-invariants/inv-15-capability-ports-not-vendor.test.ts',
+      'tests/prd-invariants/inv-01b-state-mutating-routes-auth-gate.test.ts',
     ],
   },
   {
