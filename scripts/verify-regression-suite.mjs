@@ -102,6 +102,7 @@ const steps = [
       'tests/marketing/asset-library-primary-output.test.ts',
       'tests/marketing/callback-auto-approve.test.ts',
       'tests/marketing/stage-summary-state-aware.test.ts',
+      'tests/marketing/list-deleted-campaigns-bounded-parallel.test.ts',
     ],
   },
   {

@@ -1648,6 +1648,15 @@ export async function listDeletedMarketingCampaignsForTenant(
   // Same two-phase fan-out pattern as listMarketingCampaignsForTenant
   // (v0.1.12.4). Phase 1 (light): doc + status + view to compute dedup key.
   // Phase 2 (heavy): buildReviewItemsForJob only for survivors.
+  //
+  // KNOWN FOLLOW-UP: phase 1 loads the runtime doc twice per job — once
+  // explicitly via loadMarketingJobRuntime, then again implicitly inside
+  // buildCampaignWorkspaceView. Same pattern in listMarketingCampaignsForTenant
+  // (status loads the doc too). Folding those into a single load (e.g. a
+  // buildCampaignWorkspaceViewFromRuntimeDoc overload that accepts a
+  // preloaded doc) would roughly halve the I/O per job. Deferred from
+  // v0.1.12.5: it's a larger refactor and the bounded-parallel fan-out
+  // already provides the headline win.
   const jobIds = await listDeletedMarketingJobIdsForTenant(tenantId);
 
   const phase1 = await processConcurrent(
