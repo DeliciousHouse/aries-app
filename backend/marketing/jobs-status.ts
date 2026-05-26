@@ -9,6 +9,7 @@ import {
   responseStageStatus,
   type MarketingJobRuntimeDocument,
   type MarketingStage,
+  type MarketingStageError,
 } from './runtime-state';
 import { buildMarketingAssetLinks, marketingAssetUrl, type MarketingAssetLink } from './asset-library';
 import { createMarketingJobFacts, type MarketingJobFacts } from './job-facts';
@@ -619,6 +620,52 @@ function buildProductionContractHighlightFallback(
   return `Static contracts: ${staticCount}, Video contracts: ${videoCount}`;
 }
 
+// Stage-card summary text shown under the stage label. Must reflect the
+// actual `status` — saying "Production assets are ready" when production
+// failed is the kind of contradictory copy this helper exists to prevent.
+// Order of preference: (1) runtime-provided summary, (2) status-derived
+// default, (3) last error message for failed stages.
+export function defaultStageSummary(
+  stage: MarketingStage,
+  status: string | undefined,
+  errors: MarketingStageError[]
+): string {
+  const normalized = (status ?? '').toLowerCase();
+  if (normalized === 'failed') {
+    const lastError = errors[errors.length - 1]?.message;
+    if (lastError && lastError.trim().length > 0) {
+      return `${STAGE_LABELS[stage]} failed: ${lastError}`;
+    }
+    return `${STAGE_LABELS[stage]} failed. Review the runtime status and try again.`;
+  }
+  if (normalized === 'running' || normalized === 'in_progress') {
+    return `${STAGE_LABELS[stage]} is running.`;
+  }
+  if (normalized === 'pending' || normalized === 'queued' || normalized === '' || normalized === 'ready') {
+    switch (stage) {
+      case 'research':
+        return 'Research has not started yet.';
+      case 'strategy':
+        return 'Strategy has not started yet.';
+      case 'production':
+        return 'Production has not started yet.';
+      case 'publish':
+        return 'Launch review and publishing happen in the final stage.';
+    }
+  }
+  // completed (the happy-path defaults previously hardcoded inline)
+  switch (stage) {
+    case 'research':
+      return 'Competitive research completed.';
+    case 'strategy':
+      return 'Campaign strategy is ready.';
+    case 'production':
+      return 'Production assets are ready.';
+    case 'publish':
+      return 'Launch review and publishing happen in the final stage.';
+  }
+}
+
 function buildStageCards(
   runtimeDoc: MarketingJobRuntimeDocument,
   stageStatus: Record<string, string>
@@ -627,43 +674,45 @@ function buildStageCards(
   const firstCheckpointCopy = firstBrandAnalysisCheckpointCopy();
   return (['research', 'strategy', 'production', 'publish'] as MarketingStage[]).map((stage) => {
     const stageRecord = runtimeDoc.stages[stage];
+    const status = stageStatus[stage];
+    const fallbackSummary = defaultStageSummary(stage, status, stageRecord.errors ?? []);
     switch (stage) {
       case 'research':
         return {
           stage,
           label: STAGE_LABELS[stage],
-          status: stageStatus[stage],
-          summary: stageRecord.summary?.summary || 'Competitive research completed.',
+          status,
+          summary: stageRecord.summary?.summary || fallbackSummary,
           highlight: stageRecord.summary?.highlight || undefined,
         };
       case 'strategy':
         return {
           stage,
           label: STAGE_LABELS[stage],
-          status: stageStatus[stage],
+          status,
           summary:
             firstBrandAnalysisGate && runtimeDoc.approvals.current?.stage === 'strategy'
               ? firstCheckpointCopy.message
-              : stageRecord.summary?.summary || 'Campaign strategy is ready.',
+              : stageRecord.summary?.summary || fallbackSummary,
           highlight: stageRecord.summary?.highlight || undefined,
         };
       case 'production':
         return {
           stage,
           label: STAGE_LABELS[stage],
-          status: stageStatus[stage],
-          summary: stageRecord.summary?.summary || 'Production assets are ready.',
+          status,
+          summary: stageRecord.summary?.summary || fallbackSummary,
           highlight:
             stageRecord.summary?.highlight ||
-            buildProductionContractHighlightFallback(runtimeDoc, stageStatus[stage]) ||
+            buildProductionContractHighlightFallback(runtimeDoc, status) ||
             undefined,
         };
       case 'publish':
         return {
           stage,
           label: STAGE_LABELS[stage],
-          status: stageStatus[stage],
-          summary: stageRecord.summary?.summary || 'Launch review and publishing happen in the final stage.',
+          status,
+          summary: stageRecord.summary?.summary || fallbackSummary,
           highlight: stageRecord.summary?.highlight || undefined,
         };
     }
