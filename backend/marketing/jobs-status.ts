@@ -9,6 +9,7 @@ import {
   responseStageStatus,
   type MarketingJobRuntimeDocument,
   type MarketingStage,
+  type MarketingStageError,
 } from './runtime-state';
 import { buildMarketingAssetLinks, marketingAssetUrl, type MarketingAssetLink } from './asset-library';
 import { createMarketingJobFacts, type MarketingJobFacts } from './job-facts';
@@ -619,6 +620,93 @@ function buildProductionContractHighlightFallback(
   return `Static contracts: ${staticCount}, Video contracts: ${videoCount}`;
 }
 
+// Stage-card summary text shown under the stage label. The caller
+// (`buildStageCards`) prefers any runtime-provided `stageRecord.summary?.summary`
+// over this helper's output; this function only fires as a fallback.
+//
+// Within this helper, the precedence is:
+//   - failed: surface the last error message verbatim when present, else
+//     a generic "<Stage> failed" line.
+//   - explicit non-completed statuses (in_progress/running, awaiting_approval,
+//     skipped, requires_channel_connection, pending/queued/ready/empty):
+//     status-specific copy that never claims completion.
+//   - completed: the original happy-path strings (preserved bit-for-bit so
+//     healthy campaigns look identical to the pre-fix UI).
+//   - any other unrecognized status: a neutral "status unclear" line, NOT
+//     the completed copy. This guards against future stage-status additions
+//     silently inheriting the success message.
+//
+// The contract this enforces: a stage-card summary must never claim
+// completion ("is ready" / "completed") unless `status === 'completed'`.
+export function defaultStageSummary(
+  stage: MarketingStage,
+  status: string | undefined,
+  errors: MarketingStageError[]
+): string {
+  const normalized = (status ?? '').toLowerCase();
+
+  if (normalized === 'failed') {
+    const lastError = errors[errors.length - 1]?.message;
+    if (lastError && lastError.trim().length > 0) {
+      return `${STAGE_LABELS[stage]} failed: ${lastError}`;
+    }
+    return `${STAGE_LABELS[stage]} failed. Review the runtime status and try again.`;
+  }
+
+  if (normalized === 'running' || normalized === 'in_progress') {
+    return `${STAGE_LABELS[stage]} is running.`;
+  }
+
+  if (normalized === 'awaiting_approval') {
+    return `${STAGE_LABELS[stage]} is waiting on approval.`;
+  }
+
+  if (normalized === 'skipped') {
+    return `${STAGE_LABELS[stage]} was skipped.`;
+  }
+
+  if (normalized === 'requires_channel_connection') {
+    return `${STAGE_LABELS[stage]} cannot proceed until a channel is connected.`;
+  }
+
+  if (
+    normalized === 'pending' ||
+    normalized === 'queued' ||
+    normalized === '' ||
+    normalized === 'ready' ||
+    normalized === 'not_started'
+  ) {
+    switch (stage) {
+      case 'research':
+        return 'Research has not started yet.';
+      case 'strategy':
+        return 'Strategy has not started yet.';
+      case 'production':
+        return 'Production has not started yet.';
+      case 'publish':
+        return 'Launch review and publishing happen in the final stage.';
+    }
+  }
+
+  if (normalized === 'completed') {
+    switch (stage) {
+      case 'research':
+        return 'Competitive research completed.';
+      case 'strategy':
+        return 'Campaign strategy is ready.';
+      case 'production':
+        return 'Production assets are ready.';
+      case 'publish':
+        return 'Launch review and publishing happen in the final stage.';
+    }
+  }
+
+  // Unrecognized status — must NOT claim completion. A future stage-status
+  // value added to runtime-state.ts will hit this branch until it's wired
+  // in above, and seeing this neutral line is the early-warning signal.
+  return `${STAGE_LABELS[stage]} status unclear (${status ?? 'unknown'}). Review the runtime status.`;
+}
+
 function buildStageCards(
   runtimeDoc: MarketingJobRuntimeDocument,
   stageStatus: Record<string, string>
@@ -627,43 +715,45 @@ function buildStageCards(
   const firstCheckpointCopy = firstBrandAnalysisCheckpointCopy();
   return (['research', 'strategy', 'production', 'publish'] as MarketingStage[]).map((stage) => {
     const stageRecord = runtimeDoc.stages[stage];
+    const status = stageStatus[stage];
+    const fallbackSummary = defaultStageSummary(stage, status, stageRecord.errors ?? []);
     switch (stage) {
       case 'research':
         return {
           stage,
           label: STAGE_LABELS[stage],
-          status: stageStatus[stage],
-          summary: stageRecord.summary?.summary || 'Competitive research completed.',
+          status,
+          summary: stageRecord.summary?.summary || fallbackSummary,
           highlight: stageRecord.summary?.highlight || undefined,
         };
       case 'strategy':
         return {
           stage,
           label: STAGE_LABELS[stage],
-          status: stageStatus[stage],
+          status,
           summary:
             firstBrandAnalysisGate && runtimeDoc.approvals.current?.stage === 'strategy'
               ? firstCheckpointCopy.message
-              : stageRecord.summary?.summary || 'Campaign strategy is ready.',
+              : stageRecord.summary?.summary || fallbackSummary,
           highlight: stageRecord.summary?.highlight || undefined,
         };
       case 'production':
         return {
           stage,
           label: STAGE_LABELS[stage],
-          status: stageStatus[stage],
-          summary: stageRecord.summary?.summary || 'Production assets are ready.',
+          status,
+          summary: stageRecord.summary?.summary || fallbackSummary,
           highlight:
             stageRecord.summary?.highlight ||
-            buildProductionContractHighlightFallback(runtimeDoc, stageStatus[stage]) ||
+            buildProductionContractHighlightFallback(runtimeDoc, status) ||
             undefined,
         };
       case 'publish':
         return {
           stage,
           label: STAGE_LABELS[stage],
-          status: stageStatus[stage],
-          summary: stageRecord.summary?.summary || 'Launch review and publishing happen in the final stage.',
+          status,
+          summary: stageRecord.summary?.summary || fallbackSummary,
           highlight: stageRecord.summary?.highlight || undefined,
         };
     }

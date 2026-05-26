@@ -97,6 +97,7 @@ const steps = [
       'tests/marketing/workspace-views-primary-output.test.ts',
       'tests/marketing/asset-library-primary-output.test.ts',
       'tests/marketing/callback-auto-approve.test.ts',
+      'tests/marketing/stage-summary-state-aware.test.ts',
     ],
   },
   {

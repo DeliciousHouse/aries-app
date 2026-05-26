@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.12.3 — fix(workspace): stage-card summaries respect actual status (no more "Production assets are ready" on a failed run)
+
+Live UI audit after the v0.1.12.2 deploy found a contradictory Runtime Status card on the failed campaign mkt_2088bccf: the stage label correctly said `Production failed` (red), but the description directly below said `Production assets are ready.` The same pattern was latent on every stage — fallback summaries were hardcoded happy-path strings, used regardless of the actual stage status, so any failed or in-progress stage that lacked a runtime-provided summary would silently claim it had completed.
+
+**Root cause.** `buildStageCards` in `backend/marketing/jobs-status.ts` did `stageRecord.summary?.summary || 'Production assets are ready.'` (and three peers for research/strategy/publish). When `stageRecord.summary` was null (the common case for stages that never wrote a summary), the fallback was always the success copy. The QA report from v0.1.12.2 had already flagged this as a deferred cosmetic — promoted to a real fix here because it is the single most visible "doesn't look professional" item on the dashboard once a Hermes run fails.
+
+**Fix — `defaultStageSummary(stage, status, errors)` helper.** Exported state-aware fallback that picks copy based on the normalized status:
+- `failed`: surfaces the last error message verbatim (`Production failed: Hermes gateway timeout after 600000ms.`) when present, otherwise generic `<Stage> failed. Review the runtime status and try again.` Blank-message errors fall through to the generic copy so we never render `failed:   `.
+- `running` / `in_progress`: `<Stage> is running.` (no more "is ready" while still working).
+- `pending` / `queued` / `ready` / empty: stage-specific "has not started yet" copy. (Note: `ready` on the publish stage means "waiting for production to finish", not "publish completed" — the helper treats it as pending.)
+- `completed`: original happy-path strings preserved bit-for-bit.
+- Status comparison is case-insensitive (`FAILED`, `Failed`, `failed` all behave identically).
+
+All four `buildStageCards` cases now thread through this helper. The `firstBrandAnalysisGate` strategy override and `buildProductionContractHighlightFallback` highlight pathway are untouched.
+
+**Tests.** New `tests/marketing/stage-summary-state-aware.test.ts` — 15 cases pinning the exact regression: `production + failed` never contains "are ready" and always contains "failed"; the last error message reaches the rendered summary verbatim; happy-path strings remain bit-for-bit identical for `completed` status so the deploy is invisible to healthy campaigns; running, in_progress, pending, empty-status, and blank-error-message cases all return appropriate non-contradictory copy; status comparison is case-insensitive. Wired into the verify regression suite.
+
+**Out of scope.** The dashboard's `/api/marketing/reviews` endpoint takes 24-36 seconds to respond in production (separate perf bug surfaced during the same audit); the older campaigns showing "Preview unavailable" for image creatives (Hermes media mount path mismatch); the underlying `hermes_gateway_timeout` on the production stage that made the bad copy visible in the first place. All tracked as separate initiatives.
+
 ## v0.1.12.2 — fix(marketing): Strategy Review channel plan renders per-platform instructions
 
 Surgical follow-up to v0.1.12.1. Live slice-A QA on `aries.sugarandleather.com` (mkt_32acd5cc-*) found the Strategy Review's Channel plan section still rendering `"Incomplete: generated artifacts do not yet contain this section"` even though `strategy.primary_output.channel_adaptation` was fully populated with real per-platform guidance for instagram and facebook. The other v0.1.12.1 wins (positioning, 7 proposed posts with hook+body+CTA+format+platforms, creative direction) rendered correctly — this was the single rendering gap that slipped through.
