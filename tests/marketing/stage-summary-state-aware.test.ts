@@ -115,3 +115,86 @@ test('defaultStageSummary: status case-insensitive (FAILED, Failed, failed)', ()
   assert.equal(lower, upper);
   assert.equal(lower, mixed);
 });
+
+// Copilot review on PR #479 flagged that responseStageStatus emits
+// awaiting_approval, skipped, and requires_channel_connection — and that
+// any unrecognized status must NOT silently inherit the "completed" copy.
+
+test('defaultStageSummary: awaiting_approval shows waiting state, not completed', () => {
+  const summary = defaultStageSummary('strategy', 'awaiting_approval', []);
+  assert.ok(!summary.toLowerCase().includes('is ready'), `must not claim ready: ${summary}`);
+  assert.ok(!summary.toLowerCase().includes('completed'), `must not claim completed: ${summary}`);
+  assert.ok(summary.toLowerCase().includes('approval'), `must mention approval: ${summary}`);
+});
+
+test('defaultStageSummary: skipped shows skipped state, not completed', () => {
+  const summary = defaultStageSummary('production', 'skipped', []);
+  assert.ok(!summary.toLowerCase().includes('are ready'), `must not claim ready: ${summary}`);
+  assert.ok(!summary.toLowerCase().includes('completed'), `must not claim completed: ${summary}`);
+  assert.ok(summary.toLowerCase().includes('skipped'), `must mention skipped: ${summary}`);
+});
+
+test('defaultStageSummary: requires_channel_connection blocks completion claim', () => {
+  const summary = defaultStageSummary('publish', 'requires_channel_connection', []);
+  assert.ok(!summary.toLowerCase().includes('happen in the final stage'), `must not show happy-path: ${summary}`);
+  assert.ok(
+    summary.toLowerCase().includes('channel') || summary.toLowerCase().includes('connect'),
+    `must mention channel/connect: ${summary}`,
+  );
+});
+
+test('defaultStageSummary: not_started status routes to not-started copy', () => {
+  const summary = defaultStageSummary('research', 'not_started', []);
+  assert.ok(
+    summary.toLowerCase().includes('not started') || summary.toLowerCase().includes('has not'),
+    `must show not-started state: ${summary}`,
+  );
+});
+
+test('defaultStageSummary: unrecognized status never claims completion', () => {
+  // Future-proof: a future status value added to runtime-state.ts must NOT
+  // silently inherit the "Production assets are ready." copy.
+  for (const stage of ['research', 'strategy', 'production', 'publish'] as const) {
+    const summary = defaultStageSummary(stage, 'totally_invented_future_status', []);
+    assert.ok(!summary.toLowerCase().includes('are ready'), `${stage}: must not claim ready: ${summary}`);
+    assert.ok(!summary.toLowerCase().includes('is ready'), `${stage}: must not claim ready: ${summary}`);
+    assert.ok(!summary.toLowerCase().includes('completed'), `${stage}: must not claim completed: ${summary}`);
+    assert.ok(
+      !summary.toLowerCase().includes('happen in the final stage'),
+      `${stage}: must not show pending happy-path: ${summary}`,
+    );
+    // Should mention the unrecognized status so devs can spot it
+    assert.ok(summary.includes('totally_invented_future_status'), `${stage}: must surface unknown status: ${summary}`);
+  }
+});
+
+test('defaultStageSummary: every responseStageStatus value is handled non-contradictorily', () => {
+  // Pulled from responseStageStatus in backend/marketing/runtime-state.ts —
+  // if a new status is added there, also add coverage here.
+  const knownStatuses = [
+    'ready',
+    'in_progress',
+    'awaiting_approval',
+    'completed',
+    'failed',
+    'skipped',
+    'requires_channel_connection',
+  ];
+  for (const status of knownStatuses) {
+    for (const stage of ['research', 'strategy', 'production', 'publish'] as const) {
+      const summary = defaultStageSummary(stage, status, []);
+      if (status !== 'completed') {
+        // The single contract: never claim completion if status != completed.
+        // (Note: "is ready" appears in the publish-stage completed copy, so we
+        // only assert the absence on non-completed statuses.)
+        assert.ok(!summary.toLowerCase().includes('are ready'), `${stage}/${status}: ${summary}`);
+        // "Campaign strategy is ready" must not appear for non-completed strategy
+        if (stage === 'strategy') {
+          assert.ok(!summary.toLowerCase().includes('strategy is ready'), `${stage}/${status}: ${summary}`);
+        }
+      }
+      // Always non-trivial
+      assert.ok(summary.length > 10, `${stage}/${status}: summary too short: ${summary}`);
+    }
+  }
+});
