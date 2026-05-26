@@ -14,7 +14,11 @@ export type MarketingCampaignWorkflowState =
   | 'revisions_requested'
   | 'approved'
   | 'ready_to_publish'
-  | 'published';
+  | 'published'
+  // Pipeline reached runtime state=completed but no publish-ready or live
+  // content was produced. UI must show "Completed (no content)" instead of
+  // falling through to "Draft" — see mkt_bb1c146c-* QA incident.
+  | 'completed_no_content';
 
 export type MarketingReviewStageKey = 'brand' | 'strategy' | 'creative';
 
@@ -105,6 +109,12 @@ export type CampaignWorkflowSnapshot = {
   creativeAssetIds: string[];
   publishReadySignal: boolean;
   publishedSignal: boolean;
+  /**
+   * True when the marketing job's runtime state is `completed`. Used to
+   * surface "Completed (no content)" instead of "Draft" when a run finished
+   * but never produced publishable content (publishReadySignal=false).
+   */
+  completedSignal: boolean;
 };
 
 export type CampaignWorkflowResolution = {
@@ -578,6 +588,12 @@ export function resolveCampaignWorkflowState(
     (!snapshot.creativeReviewReady || creativeResolved)
   ) {
     workflowState = 'approved';
+  } else if (snapshot.completedSignal) {
+    // Runtime finished but produced no publishable or published content.
+    // Distinguish from `draft` so the operator can see the run is dead, not
+    // still in progress.
+    workflowState = 'completed_no_content';
+    publishBlockedReason = 'Pipeline completed but produced no publishable content. Start a new campaign or investigate the run.';
   }
 
   if (workflowState === 'approved' && !snapshot.publishReadySignal) {

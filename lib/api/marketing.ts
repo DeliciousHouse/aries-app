@@ -37,7 +37,8 @@ export type MarketingWorkflowState =
   | 'revisions_requested'
   | 'approved'
   | 'ready_to_publish'
-  | 'published';
+  | 'published'
+  | 'completed_no_content';
 export type MarketingReviewType = 'brand' | 'strategy' | 'creative' | 'workflow_approval';
 export type MarketingReviewDecisionStatus =
   | 'not_ready'
