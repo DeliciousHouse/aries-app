@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.12.9 — fix(ux): drop semantic mismap for Strategy Review summary; "Published and paused" replaces "No preview yet" for paused ads
+
+Two happy-path UX issues found by a parallel-agent audit of the Strategy/Creative review flows and the Posts page.
+
+**Fix 1 — Strategy Review summary no longer falls back to `objective`.** `buildStrategyReview` in `backend/marketing/workspace-views.ts` previously fell back to `reviewPacket?.objective` when `campaignPlan?.core_message` was missing. That's a semantic mismap: an objective ("drive 50 demo bookings this month") is not a summary ("we own the calm weekly social content lane"). On a campaign where core_message is blank but objective exists, the Strategy Review header would display the objective text where reviewers expect the core positioning. Removed the `objective` fallback so the generic "Review the campaign proposal before creative production is treated as approved." default fires instead.
+
+**Fix 2 — Paused-ad posts read accurately.** `frontend/aries-v1/posts-screen.tsx` rendered a pause icon for `published_to_meta_paused` posts but the adjacent text still said "No preview or destination yet" — confusing because paused ads HAVE been published, they just aren't actively running. Now reads "Published and paused" with the pause icon; non-paused no-preview cases keep the original wording.
+
 ## v0.1.12.8 — fix(workspace): Launch Status surfaces upstream failure instead of "preparation is still running"
 
 Live audit on the Launch Status tab of a failed campaign found it titled "Launch preparation is still running" with the description "Launch review and publishing happen in the final stage." — both contradicted the red "pipeline reported a failure or blocked state" banner directly above. The fallthrough branch in `derivePublishSurfaceState` (frontend/aries-v1/campaign-workspace-state.ts) was unconditional regardless of upstream failures.

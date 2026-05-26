@@ -1033,8 +1033,14 @@ async function buildStrategyReview(
     reviewType: 'strategy',
     status: record.stage_reviews.strategy.status,
     title: 'Strategy Review',
+    // Summary is the campaign's core_message (what the work is selling). The
+    // previous fallback to reviewPacket?.objective was a semantic mismap — an
+    // objective ("drive 50 demo bookings") is not a summary ("we own the calm
+    // weekly social content lane"). When core_message is missing, fall through
+    // to the generic prompt copy instead of surfacing a structurally wrong
+    // field. v0.1.12.9 audit caught this in a happy-path scan.
     summary:
-      stringValue(campaignPlan?.core_message, stringValue(reviewPacket?.objective)) ||
+      stringValue(campaignPlan?.core_message) ||
       'Review the campaign proposal before creative production is treated as approved.',
     notePlaceholder: 'Call out strategic changes, channel shifts, or proposal edits.',
     sections: sections.filter((section) => section.body.trim().length > 0),
