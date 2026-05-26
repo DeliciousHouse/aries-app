@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.12.8 — fix(workspace): Launch Status surfaces upstream failure instead of "preparation is still running"
+
+Live audit on the Launch Status tab of a failed campaign found it titled "Launch preparation is still running" with the description "Launch review and publishing happen in the final stage." — both contradicted the red "pipeline reported a failure or blocked state" banner directly above. The fallthrough branch in `derivePublishSurfaceState` (frontend/aries-v1/campaign-workspace-state.ts) was unconditional regardless of upstream failures.
+
+**Fix.** New branch in `derivePublishSurfaceState`: when any `stageCard.status === 'failed'`, return `Launch halted by <stage> failure` with the failed stage's summary (already status-aware after v0.1.12.3) as the description. The original "still running" copy remains as the fallthrough for non-failed runs that genuinely are preparing.
+
+**Tests.** Two new cases in `tests/campaign-workspace-state.test.ts`: (1) production-failed stage card surfaces "halted ... failure" title with failure detail in description; (2) all-non-failed (in_progress) stages still get the original "still running" copy. The narrow check ensures the new branch can't false-positive on healthy preparing campaigns.
+
 ## v0.1.12.7 — fix(review-queue): failed jobs no longer appear under "Strategy review ready" / "Brand review ready"
 
 Live audit on the `/review` page found the review queue listing campaigns that had FAILED the strategy stage under the headers "Strategy review ready" / "Brand review ready". Clicking through showed an approval form with no actual approvable content (`Channel plan: Incomplete: generated artifacts do not yet contain this section.`) — the pipeline never produced anything to approve because the stage failed before generating output. Reviewers got an empty review screen they couldn't action.
