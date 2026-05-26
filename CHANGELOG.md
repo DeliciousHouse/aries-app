@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.12.6 — fix(ui): "Preview archived" replaces "Preview unavailable" for failed image previews
+
+Live audit found 20+ campaign cards on the dashboard rendering the alarming "PREVIEW UNAVAILABLE" placeholder. Investigation showed they were all older campaigns whose image creatives 404 on `/api/internal/hermes/media/<basename>` — the Hermes cache aged out, OR the basename is no longer in the tenant's runtime docs (the route returns 404 in both cases by design, to avoid leaking existence — see `app/api/internal/hermes/media/[...path]/route.ts` line 119). Either way, the asset is gone for good; calling that "unavailable" reads like a bug.
+
+**Fix.** `frontend/components/media-preview.tsx` and `frontend/components/video-preview.tsx` now render "Preview archived" with an Archive icon when `failed` is true on a real `src`. The "Preview pending" copy for missing `src` and the "Open asset preview" copy for non-image content types are unchanged.
+
+The rendered failure UI is otherwise identical (same layout, same muted styling), so this is purely a copy + icon change. No backend change. No tests had been asserting on the old phrase.
+
 ## v0.1.12.5 — perf(dashboard): same bounded-parallel fix for the Recycle Bin (deleted campaigns list)
 
 v0.1.12.4 sped up the live campaigns list and the review queue but missed `listDeletedMarketingCampaignsForTenant`, which is called in parallel with `listMarketingCampaignsForTenant` by `GET /api/marketing/campaigns`. Live benchmark after v0.1.12.4 shipped showed `/api/marketing/campaigns` still spending 29.6s — that was the Recycle Bin loader, still serial over the 17 soft-deleted jobs on this tenant. Applied the exact two-phase fan-out pattern from v0.1.12.4 here too. Concurrency=4, same DB-pool reasoning. No new helper added — just reuses `processConcurrent`.

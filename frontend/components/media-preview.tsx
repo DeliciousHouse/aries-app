@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { FileImage, FileText, Globe } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Archive, FileImage, FileText, Globe } from 'lucide-react';
 
 import { safeHref } from '@/lib/safe-href';
 import VideoPreview from '@/frontend/components/video-preview';
@@ -91,6 +91,15 @@ export default function MediaPreview(props: MediaPreviewProps) {
   const [failed, setFailed] = useState(false);
   const [useNativeFallback, setUseNativeFallback] = useState(false);
 
+  // Reset transient failure/fallback state when src changes, so a prior
+  // 404 doesn't leave the component stuck on "Preview archived" after
+  // receiving a new valid src (e.g. parent re-renders the same instance
+  // for a different campaign card).
+  useEffect(() => {
+    setFailed(false);
+    setUseNativeFallback(false);
+  }, [props.src]);
+
   const mode = useMemo<'image' | 'video' | 'fallback'>(() => {
     if (!props.src || failed) return 'fallback';
     if (videoLike(props.src, props.contentType)) return 'video';
@@ -120,9 +129,21 @@ export default function MediaPreview(props: MediaPreviewProps) {
         label: props.emptyLabel || 'Preview pending',
       };
     }
+    if (failed) {
+      // An <img> with a real src triggered `onError`. The Hermes media route
+      // returns 404 for both "file evicted from cache" and "tenant does not
+      // own this basename" — we can't tell which from the browser. Either way,
+      // "Preview unavailable" reads like a bug; "Preview archived" reads like
+      // a known retention behavior, which matches reality far more often
+      // (older campaigns whose creative assets aged out of the Hermes cache).
+      return {
+        icon: <Archive className="h-6 w-6" />,
+        label: 'Preview archived',
+      };
+    }
     return {
       icon: props.contentType?.includes('html') ? <Globe className="h-6 w-6" /> : <FileText className="h-6 w-6" />,
-      label: failed ? 'Preview unavailable' : props.nonImageLabel || 'Open asset preview',
+      label: props.nonImageLabel || 'Open asset preview',
     };
   }, [failed, props.contentType, props.emptyLabel, props.nonImageLabel, props.src]);
 
