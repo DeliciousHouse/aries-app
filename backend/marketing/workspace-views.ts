@@ -1367,6 +1367,7 @@ export async function buildCampaignWorkspaceView(jobId: string): Promise<Campaig
       rawDashboard.statuses.countsByStatus.published_to_meta_paused > 0 ||
       rawDashboard.statuses.countsByStatus.scheduled > 0 ||
       rawDashboard.statuses.countsByStatus.live > 0,
+    completedSignal: runtimeDoc.state === 'completed',
   });
 
   const dashboard = withGatedDashboardStatus(rawDashboard, workflowResolution.workflowState);

@@ -53,7 +53,7 @@ function isActiveJobStatus(status: string): boolean {
   );
 }
 
-function workflowStateLabel(value: string): string {
+export function workflowStateLabel(value: string): string {
   if (value === 'brand_review_required') return 'Brand review ready';
   if (value === 'strategy_review_required') return 'Strategy review ready';
   if (value === 'creative_review_required') return 'Creative review ready';
@@ -61,6 +61,7 @@ function workflowStateLabel(value: string): string {
   if (value === 'published') return 'Published';
   if (value === 'approved') return 'Approved';
   if (value === 'revisions_requested') return 'Needs revisions';
+  if (value === 'completed_no_content') return 'Completed (no content)';
   return value
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -96,11 +97,12 @@ function visibleActorLabel(value: string | null | undefined): string | null {
   return normalized;
 }
 
-function workflowStateTone(value: string): string {
+export function workflowStateTone(value: string): string {
   if (value === 'published') return 'border-emerald-400/25 bg-emerald-400/10 text-emerald-100';
   if (value === 'ready_to_publish') return 'border-violet-400/25 bg-violet-400/10 text-violet-100';
   if (value === 'approved') return 'border-sky-400/25 bg-sky-400/10 text-sky-100';
   if (value === 'revisions_requested') return 'border-rose-400/25 bg-rose-400/10 text-rose-100';
+  if (value === 'completed_no_content') return 'border-rose-400/25 bg-rose-400/10 text-rose-100';
   return 'border-amber-400/25 bg-amber-400/10 text-amber-100';
 }
 
