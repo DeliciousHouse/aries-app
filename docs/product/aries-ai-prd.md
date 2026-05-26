@@ -1733,10 +1733,16 @@ Risk (bounded): the filesystem-cache allowlist is naming, not behavior — runti
 
 ### 16.5 Publishing Activation Boundary
 
-Open questions:
+**Status (2026-05-26):** Scheduled publishing is live for Meta (Facebook + Instagram). The `scheduled_posts` table (schema in `scripts/init-db.js:455`) tracks `dispatch_status` (pending/in_flight/dispatched/failed) with per-platform child rows in `scheduled_post_dispatches`. The worker (`scripts/automations/scheduled-posts-worker.mjs`) drains due rows every 60 seconds and fires `publishToMetaGraph`. The tenant scheduling surface is `app/api/social-content/jobs/[jobId]/posts/[postId]/schedule/route.ts`; the internal dispatch surface is `app/api/internal/publishing/scheduled-dispatch/route.ts`.
 
-- Which platforms support draft or scheduled states?
-- Which platforms require immediate posting?
+Boundaries of what has shipped:
+- **Meta (Facebook/Instagram):** scheduled and dispatched via `publishToMetaGraph`. Both draft (scheduled_for > NOW) and immediate (scheduled_for = NOW) states work.
+- **LinkedIn and others:** not wired through scheduled-dispatch; platform-specific dispatch not yet built.
+- **Retry (`app/api/publish/retry`):** requires session auth but does not require a separate re-approval gate. The approval-model-for-retry question below is unresolved.
+- **Paid campaign activation:** no evidence of any paid campaign activation path in the codebase; this sub-question has not been scoped.
+
+Open questions (still unresolved):
+
 - What approval model is required for retry after partial provider failure?
 - Can paid campaign activation ever be tenant-policy automated after prior approval?
 
@@ -1744,7 +1750,11 @@ Risk: platform-specific behavior may accidentally create externally visible cont
 
 ### 16.6 Memory UI and Redaction
 
-Open questions:
+**Status (2026-05-26, redaction only):** The `ARIES_MEMORY_LABEL_REDACTION_V2` flag is live. `scrubPreferenceLabelForHoncho` in `backend/memory/write-events.ts:871` implements two modes — v1 (broad `[A-Z][a-z]+\s+[A-Z][a-z]+` regex, default) and v2 (narrow first-name denylist, preserves creative descriptors like "Bold Minimalist"). The flag is documented in CLAUDE.md and is off by default pending rollout evaluation.
+
+`app/creative-memory/page.tsx` exists but is an internal developer tool for prompt-recipe inspection — it is not linked from the operator dashboard and is not a tenant-facing memory inspection surface.
+
+Open questions (all sub-questions below remain unresolved; deferred to §17 "Memory inspection UI"):
 
 - Should tenant admins have self-serve memory inspection?
 - How are incorrect memories corrected by users?
@@ -1755,17 +1765,21 @@ Risk: without inspection UI, memory quality and user trust depend on operational
 
 ### 16.7 Provider Cost and Quotas
 
-Open questions:
+**Deferred — reason:** No per-tenant quota tracking tables, cost-confirmation UI, or Aries-side quota modeling has been implemented. Rate-limit resilience is handled operationally by the CLAUDE.md resumability guardrail (preserve partial artifacts on non-fatal Hermes failure; do not discard work on rate-limit) rather than by Aries quota code. Provider quota failures propagate as Hermes stage errors and surface to the operator dashboard as stage failures. The design for per-tenant limits and cost-confirmation flows has not been scoped.
+
+Open questions (still unresolved):
 
 - What are per-tenant generation limits?
 - Which media generation actions require cost confirmation?
-- How are provider quota failures surfaced?
+- How are provider quota failures surfaced to tenants in a structured way?
 
 Risk: media generation may incur unexpected costs or fail unpredictably if quotas are not modeled.
 
 ### 16.8 Content Policy and Platform Compliance
 
-Open questions:
+**Deferred — reason:** No Aries-side pre-publish policy enforcement has been implemented. The `pre_publish_review` and `pre_publish_ad` UI states in `backend/marketing/dashboard-content.ts` are human approval gates, not automated policy checks — an operator must click to approve before publish fires. Platform-side rejection (Meta Graph API errors on publish) is the only enforcement currently in place. Region-specific disclosure logic has not been designed. The split between provider-side and Aries-side policy checks has not been scoped.
+
+Open questions (still unresolved):
 
 - Which platform policies are enforced in Aries before publish?
 - Which policy checks are provider-side only?
