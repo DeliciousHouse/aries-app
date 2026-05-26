@@ -408,7 +408,7 @@ function buildCampaignBrief(record: CampaignWorkspaceRecord): MarketingCampaignB
   };
 }
 
-function primaryOutputToCampaignPlanner(
+export function primaryOutputToCampaignPlanner(
   stageOutput: Record<string, unknown>,
 ): Record<string, unknown> {
   const channelAdaptation = recordValue(stageOutput.channel_adaptation);
@@ -425,7 +425,7 @@ function primaryOutputToCampaignPlanner(
   };
 }
 
-function primaryOutputToProductionPreview(
+export function primaryOutputToProductionPreview(
   stageOutput: Record<string, unknown>,
 ): Record<string, unknown> {
   return {
