@@ -6,6 +6,7 @@ import test from 'node:test';
 import {
   primaryOutputToCampaignPlanner,
   primaryOutputToProductionPreview,
+  strategyChannelBlock,
 } from '../../backend/marketing/workspace-views';
 import { resolveStageOutput } from '../../backend/marketing/runtime-state';
 import type { MarketingJobRuntimeDocument } from '../../backend/marketing/runtime-state';
@@ -111,6 +112,62 @@ test('primaryOutputToCampaignPlanner: does not map creative_direction to objecti
   const planner = primaryOutputToCampaignPlanner(strategyOutput);
   const campaignPlan = planner.campaign_plan as Record<string, unknown>;
   assert.equal(campaignPlan.objective, undefined, 'objective must be absent (D2: no filler mapping)');
+});
+
+// ---------------------------------------------------------------------------
+// Render: strategyChannelBlock handles adapter's {platform, instructions} shape
+// REGRESSION: mkt_32acd5cc-* slice-A QA found channel-plan section rendering
+// "Incomplete: generated artifacts do not yet contain this section" despite
+// channel_adaptation being populated. Root cause: strategyChannelBlock only
+// looked for goal/message/creative_bias/cta fields; the adapter produces
+// {platform, instructions}. Fix: fall back to instructions when legacy
+// fields are absent.
+// ---------------------------------------------------------------------------
+
+test('strategyChannelBlock: renders instructions when only platform+instructions present (mkt_32acd5cc regression)', () => {
+  const block = strategyChannelBlock({
+    platform: 'instagram',
+    instructions: 'Lead with punchy hooks, clean 4:5 feed compositions.',
+  });
+  assert.ok(block.length > 0, 'block must not be empty');
+  assert.ok(block.includes('INSTAGRAM'), 'block must include channel name uppercased');
+  assert.ok(block.includes('Lead with punchy hooks'), 'block must include instructions text verbatim');
+});
+
+test('strategyChannelBlock: end-to-end through adapter produces non-empty blocks for every channel (regression)', async () => {
+  const doc = await loadFixture();
+  const strategyOutput = resolveStageOutput(doc, 'strategy');
+  assert.ok(strategyOutput);
+
+  const planner = primaryOutputToCampaignPlanner(strategyOutput);
+  const campaignPlan = planner.campaign_plan as Record<string, unknown>;
+  const channelPlans = campaignPlan.channel_plans as Array<Record<string, unknown>>;
+
+  const blocks = channelPlans.map(strategyChannelBlock).filter(Boolean);
+  assert.equal(blocks.length, channelPlans.length, 'every channel must produce a non-empty block (mkt_32acd5cc regression: was 0)');
+  for (const block of blocks) {
+    assert.ok(block.length > 0, 'block content non-empty');
+  }
+});
+
+test('strategyChannelBlock: legacy goal/message shape still works', () => {
+  const block = strategyChannelBlock({
+    channel: 'instagram',
+    goal: 'drive bookings',
+    message: 'core message here',
+    cta: 'book now',
+  });
+  assert.ok(block.includes('INSTAGRAM'));
+  assert.ok(block.includes('Goal'));
+  assert.ok(block.includes('drive bookings'));
+  assert.ok(block.includes('Message'));
+  assert.ok(block.includes('core message here'));
+  assert.ok(block.includes('CTA'));
+});
+
+test('strategyChannelBlock: returns empty when no fields and no instructions', () => {
+  const block = strategyChannelBlock({ platform: 'instagram' });
+  assert.equal(block, '', 'no detail fields and no instructions → empty block');
 });
 
 // ---------------------------------------------------------------------------
