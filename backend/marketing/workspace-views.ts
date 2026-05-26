@@ -27,7 +27,7 @@ import { sanitizeBrandKitSummaryText } from './brand-kit';
 import { buildSocialContentDashboardProjection } from '@/backend/social-content/dashboard-projection';
 import { getMarketingDashboardCampaignContent } from './dashboard-content';
 import { countPublishedPostsForJob } from './published-posts-count';
-import { loadMarketingJobRuntime, listMarketingJobIdsForTenant, type MarketingJobRuntimeDocument } from './runtime-state';
+import { loadMarketingJobRuntime, listMarketingJobIdsForTenant, resolveStageOutput, type MarketingJobRuntimeDocument } from './runtime-state';
 import {
   ARTIFACT_INCOMPLETE_TEXT,
   ARTIFACT_UNAVAILABLE_TEXT,
@@ -408,6 +408,37 @@ function buildCampaignBrief(record: CampaignWorkspaceRecord): MarketingCampaignB
   };
 }
 
+function primaryOutputToCampaignPlanner(
+  stageOutput: Record<string, unknown>,
+): Record<string, unknown> {
+  const channelAdaptation = recordValue(stageOutput.channel_adaptation);
+  const channelPlans = channelAdaptation
+    ? Object.entries(channelAdaptation).map(([platform, instructions]) => ({ platform, instructions }))
+    : [];
+  return {
+    campaign_plan: {
+      core_message: stageOutput.positioning ?? '',
+      channel_plans: channelPlans,
+      content_package: Array.isArray(stageOutput.content_package) ? stageOutput.content_package : [],
+    },
+    creative_direction: stageOutput.creative_direction ?? '',
+  };
+}
+
+function primaryOutputToProductionPreview(
+  stageOutput: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    production_handoff: {
+      production_brief: {
+        weekly_plan: stageOutput.weekly_content_plan ?? null,
+        content_package: Array.isArray(stageOutput.content_package) ? stageOutput.content_package : [],
+        artifacts: stageOutput.artifacts ?? null,
+      },
+    },
+  };
+}
+
 async function loadStagePayloadBundle(
   runtimeDoc: MarketingJobRuntimeDocument,
   facts: MarketingJobFacts,
@@ -503,13 +534,23 @@ async function loadStagePayloadBundle(
     (recordMatchesCurrentSource(recordValue(strategyFallback.outputs.brand_profile), sourceUrl)
       ? recordValue(strategyFallback.outputs.brand_profile)
       : null);
+  const strategyPrimaryOutput = resolveStageOutput(runtimeDoc, 'strategy');
+  const productionPrimaryOutput = resolveStageOutput(runtimeDoc, 'production');
+  const primaryOutputCampaignPlanner = strategyPrimaryOutput && Object.keys(strategyOutputs).length === 0
+    ? primaryOutputToCampaignPlanner(strategyPrimaryOutput)
+    : null;
+  const primaryOutputProductionPreview = productionPrimaryOutput && Object.keys(productionOutputs).length === 0
+    ? primaryOutputToProductionPreview(productionPrimaryOutput)
+    : null;
+
   const campaignPlanner = runtimeCampaignPlanner ||
     sourceMatchedStrategyPayload(
       fallbackCampaignPlannerFile || recordValue(strategyFallback.outputs.planner),
       sourceUrl,
       fallbackRunWebsiteAnalysis,
       !!rawFallbackRunWebsiteAnalysis,
-    );
+    ) ||
+    primaryOutputCampaignPlanner;
   const strategyPreview = runtimeStrategyPreview ||
     sourceMatchedStrategyPayload(
       fallbackStrategyPreviewFile || recordValue(strategyFallback.outputs.review),
@@ -519,7 +560,8 @@ async function loadStagePayloadBundle(
     );
   const productionPreview = runtimeProductionPreview ||
     fallbackProductionPreviewFile ||
-    recordValue(productionFallback.outputs.review);
+    recordValue(productionFallback.outputs.review) ||
+    primaryOutputProductionPreview;
 
   const hasCurrentSourceBrandArtifacts = !!(websiteAnalysis || brandProfile);
   const hasCurrentSourceStrategyArtifacts = !!(campaignPlanner || strategyPreview || hasCurrentSourceBrandArtifacts);
