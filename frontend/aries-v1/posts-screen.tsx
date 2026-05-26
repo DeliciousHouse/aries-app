@@ -311,8 +311,17 @@ export default function AriesPostsScreen() {
                         </a>
                       ) : !safePreviewHref ? (
                         <span className="inline-flex items-center gap-2">
-                          {item.status === 'published_to_meta_paused' ? <PauseCircle className="h-4 w-4 text-white/50" /> : <Send className="h-4 w-4 text-white/50" />}
-                          No preview or destination yet
+                          {item.status === 'published_to_meta_paused' ? (
+                            <>
+                              <PauseCircle className="h-4 w-4 text-white/50" />
+                              Published and paused
+                            </>
+                          ) : (
+                            <>
+                              <Send className="h-4 w-4 text-white/50" />
+                              No preview or destination yet
+                            </>
+                          )}
                         </span>
                       ) : null}
                     </div>
