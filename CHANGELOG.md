@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.12.4 — perf(dashboard): bounded-parallel fan-out cuts /api/marketing/reviews from 24-36s to single-digit seconds
+
+Live audit found `/api/marketing/reviews` and `/api/marketing/campaigns` taking 24-36 seconds in production, hanging the campaigns dashboard on "Loading…". Root cause: both endpoints iterated the tenant's job list (30+ jobs for active tenants once history is included) with serial `await` loops, each iteration doing `loadMarketingJobRuntime` + `getMarketingJobStatus` + `buildCampaignWorkspaceView` + `buildReviewItemsForJob` — total wall-clock = sum of every per-job cost.
+
+**Fix.** New `lib/process-concurrent.ts` exports `processConcurrent(items, fn, concurrency)` — an order-preserving bounded-parallel map. Two hot paths in `backend/marketing/runtime-views.ts` now use it with `concurrency=4`:
+1. `listMarketingReviewQueueForTenant` (powers `/api/marketing/reviews`, the dashboard's primary load).
+2. `listMarketingCampaignsForTenant` (powers `/api/marketing/campaigns`, the recycle-bin/list view).
+
+Concurrency was deliberately chosen against `DB_POOL_MAX=20` (docker-compose default) and `ARIES_WEB_CONCURRENCY=2` worker count. With 4 in-flight per request × 2 workers = 8 connections peak per container, well under the pool ceiling. This satisfies CLAUDE.md guardrail #1 (don't blindly Promise.all DB chains).
+
+**Order preservation.** `processConcurrent` returns results in input-order so the dedup `Set` and the final `sort()` in `listMarketingCampaignsForTenant` behave identically to the serial version. A wall-clock 6×50ms benchmark in the helper test confirms results in <200ms (vs. ~300ms serial).
+
+**Tests.** New `tests/process-concurrent.test.ts` — 9 cases pinning: input-order preservation, empty input, concurrency=1 = serial, concurrency cap is respected, wall-clock speedup vs serial, error rejection after in-flight settles, concurrency > items length clamps safely, invalid concurrency (0, negative) clamps to 1, index argument matches position. Wired into the verify regression suite.
+
+**Out of scope.** Deeper optimization (caching `loadMarketingJobRuntime` within a single request, SQL-level filtering of obviously-no-pending-review jobs, dedup-then-fetch ordering) is left for a future pass — bounded parallelism is the lowest-risk win and should bring response times into single-digit seconds without restructuring the per-job code path.
+
 ## v0.1.12.3 — fix(workspace): stage-card summaries respect actual status (no more "Production assets are ready" on a failed run)
 
 Live UI audit after the v0.1.12.2 deploy found a contradictory Runtime Status card on the failed campaign mkt_2088bccf: the stage label correctly said `Production failed` (red), but the description directly below said `Production assets are ready.` The same pattern was latent on every stage — fallback summaries were hardcoded happy-path strings, used regardless of the actual stage status, so any failed or in-progress stage that lacked a runtime-provided summary would silently claim it had completed.

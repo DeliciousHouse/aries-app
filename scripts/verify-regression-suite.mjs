@@ -51,6 +51,10 @@ const steps = [
     args: ['--test', 'tests/runtime-pages.test.ts'],
   },
   {
+    name: 'process-concurrent helper',
+    args: ['--test', 'tests/process-concurrent.test.ts'],
+  },
+  {
     // PRD §20 canonical behavioral invariants — codified as runtime checks so
     // future PRs get a green/red CI signal on spec conformance.  See
     // tests/prd-invariants/README.md and docs/product/aries-ai-prd.md §20.

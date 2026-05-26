@@ -9,6 +9,7 @@ import type {
   MarketingStage,
   MarketingWorkflowState,
 } from '@/lib/api/marketing';
+import { processConcurrent } from '@/lib/process-concurrent';
 import { resolveDataPath } from '@/lib/runtime-paths';
 
 import { buildMarketingAssetLinks } from './asset-library';
@@ -1572,23 +1573,58 @@ export async function listMarketingCampaignsForTenant(
   const hasMore = !unlimited && jobIds.length > limit;
   const pageJobIds = hasMore ? jobIds.slice(0, limit) : jobIds;
 
-  const campaigns: RuntimeCampaignListItem[] = [];
-  const seen = new Set<string>();
+  // Two-phase bounded-parallel fan-out so dedup happens before the heaviest
+  // per-job work, matching the prior serial loop's first-wins ordering.
+  //
+  // Phase 1 (light): status + workspaceView per job, just enough to compute
+  // the dedup key. The view is reused in phase 2 to avoid a redundant load.
+  // Phase 2 (heavy): buildReviewItemsForJob + loadMarketingJobRuntime only
+  // for the survivors.
+  //
+  // See lib/process-concurrent.ts and CLAUDE.md guardrail #1.
+  const phase1 = await processConcurrent(
+    pageJobIds,
+    async (jobId) => {
+      const status = await getMarketingJobStatus(jobId);
+      if (status.tenantName === null && status.brandWebsiteUrl === null && status.status === 'error') {
+        return null;
+      }
+      const view = await buildCampaignWorkspaceView(jobId);
+      return { jobId, status, view };
+    },
+    4,
+  );
 
-  for (const jobId of pageJobIds) {
-    const status = await getMarketingJobStatus(jobId);
-    if (status.tenantName === null && status.brandWebsiteUrl === null && status.status === 'error') {
-      continue;
-    }
-    const view = await buildCampaignWorkspaceView(jobId);
-    const key = view.dashboard.campaign?.externalCampaignId || view.dashboard.campaign?.name || `job::${jobId}`;
+  // Dedup serially in input-order so duplicates of a campaign (e.g. reruns
+  // sharing externalCampaignId) collapse to the first-seen entry exactly as
+  // the original serial loop did.
+  const survivors: Array<{ jobId: string; status: Awaited<ReturnType<typeof getMarketingJobStatus>>; view: Awaited<ReturnType<typeof buildCampaignWorkspaceView>> }> = [];
+  const seen = new Set<string>();
+  for (const entry of phase1) {
+    if (!entry) continue;
+    const key = entry.view.dashboard.campaign?.externalCampaignId || entry.view.dashboard.campaign?.name || `job::${entry.jobId}`;
     if (seen.has(key)) {
       continue;
     }
     seen.add(key);
-    const pendingApprovals = (await buildReviewItemsForJob(jobId)).filter((item) => item.status !== 'approved').length;
-    const runtimeDoc = await loadMarketingJobRuntime(jobId);
-    const jobBrandKitExtractedAt = runtimeDoc?.brand_kit?.extracted_at ?? null;
+    survivors.push(entry);
+  }
+
+  const phase2 = await processConcurrent(
+    survivors,
+    async ({ jobId }) => {
+      const pendingApprovals = (await buildReviewItemsForJob(jobId)).filter((item) => item.status !== 'approved').length;
+      const runtimeDoc = await loadMarketingJobRuntime(jobId);
+      const jobBrandKitExtractedAt = runtimeDoc?.brand_kit?.extracted_at ?? null;
+      return { pendingApprovals, jobBrandKitExtractedAt };
+    },
+    4,
+  );
+
+  const campaigns: RuntimeCampaignListItem[] = [];
+  for (let i = 0; i < survivors.length; i++) {
+    const { status, view } = survivors[i];
+    const { pendingApprovals, jobBrandKitExtractedAt } = phase2[i];
     campaigns.push(buildCampaignListItem(status, view, pendingApprovals, jobBrandKitExtractedAt));
   }
 
@@ -1736,12 +1772,16 @@ export async function listMarketingReviewItemsForTenant(tenantId: string): Promi
 }
 
 export async function listMarketingReviewQueueForTenant(tenantId: string): Promise<RuntimeReviewQueue> {
+  // Bounded-parallel fan-out across the tenant's job list. Concurrency 4 is
+  // chosen to use ≤20% of the default DB_POOL_MAX=20 per request. Live audit
+  // on this tenant (30+ jobs) saw 24-36s here under the prior serial loop.
+  // See lib/process-concurrent.ts and CLAUDE.md guardrail #1.
+  const jobIds = await listMarketingJobIdsForTenant(tenantId);
+  const perJob = await processConcurrent(jobIds, (jobId) => buildReviewItemsForJob(jobId), 4);
   const items: RuntimeReviewItem[] = [];
-  for (const jobId of await listMarketingJobIdsForTenant(tenantId)) {
-    const reviewItems = await buildReviewItemsForJob(jobId);
+  for (const reviewItems of perJob) {
     items.push(...reviewItems.filter((item) => item.status !== 'approved'));
   }
-
   return buildRuntimeReviewQueue(items);
 }
 
