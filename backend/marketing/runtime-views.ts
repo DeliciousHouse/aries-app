@@ -9,6 +9,7 @@ import type {
   MarketingStage,
   MarketingWorkflowState,
 } from '@/lib/api/marketing';
+import { processConcurrent } from '@/lib/process-concurrent';
 import { resolveDataPath } from '@/lib/runtime-paths';
 
 import { buildMarketingAssetLinks } from './asset-library';
@@ -1572,23 +1573,35 @@ export async function listMarketingCampaignsForTenant(
   const hasMore = !unlimited && jobIds.length > limit;
   const pageJobIds = hasMore ? jobIds.slice(0, limit) : jobIds;
 
+  // Bounded-parallel fan-out per job. Dedup (`seen` Set) stays serial after
+  // the fan-out so order-dependent first-wins behavior is preserved.
+  // See lib/process-concurrent.ts and CLAUDE.md guardrail #1.
+  const perJob = await processConcurrent(
+    pageJobIds,
+    async (jobId) => {
+      const status = await getMarketingJobStatus(jobId);
+      if (status.tenantName === null && status.brandWebsiteUrl === null && status.status === 'error') {
+        return null;
+      }
+      const view = await buildCampaignWorkspaceView(jobId);
+      const pendingApprovals = (await buildReviewItemsForJob(jobId)).filter((item) => item.status !== 'approved').length;
+      const runtimeDoc = await loadMarketingJobRuntime(jobId);
+      const jobBrandKitExtractedAt = runtimeDoc?.brand_kit?.extracted_at ?? null;
+      return { status, view, pendingApprovals, jobBrandKitExtractedAt };
+    },
+    4,
+  );
+
   const campaigns: RuntimeCampaignListItem[] = [];
   const seen = new Set<string>();
-
-  for (const jobId of pageJobIds) {
-    const status = await getMarketingJobStatus(jobId);
-    if (status.tenantName === null && status.brandWebsiteUrl === null && status.status === 'error') {
-      continue;
-    }
-    const view = await buildCampaignWorkspaceView(jobId);
-    const key = view.dashboard.campaign?.externalCampaignId || view.dashboard.campaign?.name || `job::${jobId}`;
+  for (const entry of perJob) {
+    if (!entry) continue;
+    const { status, view, pendingApprovals, jobBrandKitExtractedAt } = entry;
+    const key = view.dashboard.campaign?.externalCampaignId || view.dashboard.campaign?.name || `job::${status.jobId}`;
     if (seen.has(key)) {
       continue;
     }
     seen.add(key);
-    const pendingApprovals = (await buildReviewItemsForJob(jobId)).filter((item) => item.status !== 'approved').length;
-    const runtimeDoc = await loadMarketingJobRuntime(jobId);
-    const jobBrandKitExtractedAt = runtimeDoc?.brand_kit?.extracted_at ?? null;
     campaigns.push(buildCampaignListItem(status, view, pendingApprovals, jobBrandKitExtractedAt));
   }
 
@@ -1736,12 +1749,16 @@ export async function listMarketingReviewItemsForTenant(tenantId: string): Promi
 }
 
 export async function listMarketingReviewQueueForTenant(tenantId: string): Promise<RuntimeReviewQueue> {
+  // Bounded-parallel fan-out across the tenant's job list. Concurrency 4 is
+  // chosen to use ≤20% of the default DB_POOL_MAX=20 per request. Live audit
+  // on this tenant (30+ jobs) saw 24-36s here under the prior serial loop.
+  // See lib/process-concurrent.ts and CLAUDE.md guardrail #1.
+  const jobIds = await listMarketingJobIdsForTenant(tenantId);
+  const perJob = await processConcurrent(jobIds, (jobId) => buildReviewItemsForJob(jobId), 4);
   const items: RuntimeReviewItem[] = [];
-  for (const jobId of await listMarketingJobIdsForTenant(tenantId)) {
-    const reviewItems = await buildReviewItemsForJob(jobId);
+  for (const reviewItems of perJob) {
     items.push(...reviewItems.filter((item) => item.status !== 'approved'));
   }
-
   return buildRuntimeReviewQueue(items);
 }
 
