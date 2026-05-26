@@ -121,12 +121,20 @@ function resumeStageFromInput(
   return undefined;
 }
 
-function isWeeklySocialContentRequest(doc?: MarketingJobRuntimeDocument): boolean {
+/**
+ * Returns true for job types that use the per-stage profile pipeline
+ * (strategy/production/publish each run on their own Hermes profile,
+ * and each stage's output is forwarded as input to the next stage).
+ * Both weekly_social_content and one_off_campaign use this pipeline.
+ * BRAND_CAMPAIGN_WORKFLOW_KEY (marketing_pipeline) is the only exception.
+ */
+function usesPerStageProfilePipeline(doc?: MarketingJobRuntimeDocument): boolean {
   const request = doc?.inputs?.request;
   if (!request || typeof request !== 'object' || Array.isArray(request)) {
     return false;
   }
-  return (request as Record<string, unknown>).jobType === 'weekly_social_content';
+  const jobType = (request as Record<string, unknown>).jobType;
+  return jobType === 'weekly_social_content' || jobType === 'one_off_campaign';
 }
 
 function readEnvValue(env: HermesMarketingEnv, key: string): string {
@@ -622,7 +630,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
       };
     }
 
-    if (action === 'run' && input.doc && isWeeklySocialContentRequest(input.doc)) {
+    if (action === 'run' && input.doc && usesPerStageProfilePipeline(input.doc)) {
       const brandKitFailure = await this.refreshBrandKitOrFail(input.doc);
       if (brandKitFailure) {
         return brandKitFailure;
@@ -1055,7 +1063,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     // submissionPayload — invoke() short-circuits it before any POST. See the
     // early-return in invoke().
 
-    if (action === 'run' && input.doc && isWeeklySocialContentRequest(input.doc)) {
+    if (action === 'run' && input.doc && usesPerStageProfilePipeline(input.doc)) {
       const request = buildSocialContentWeeklyRequest({
         doc: input.doc,
         ariesRunId,
@@ -1176,7 +1184,7 @@ export class HermesMarketingPort implements MarketingExecutionPort {
     if (action === 'resume' && input.workflowKey && input.workflowKey.trim().length > 0) {
       return input.workflowKey.trim();
     }
-    return action === 'run' && input.doc && isWeeklySocialContentRequest(input.doc)
+    return action === 'run' && input.doc && usesPerStageProfilePipeline(input.doc)
       ? SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY
       : BRAND_CAMPAIGN_WORKFLOW_KEY;
   }
