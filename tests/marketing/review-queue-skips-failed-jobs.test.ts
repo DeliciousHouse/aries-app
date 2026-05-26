@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -9,10 +9,15 @@ import { resolveProjectRoot } from '../helpers/project-root';
 const PROJECT_ROOT = resolveProjectRoot(import.meta.url);
 
 // REGRESSION: live audit found the review queue listing failed campaigns
-// with "Strategy review ready" / "Brand review ready" copy — but those
+// under "Strategy review ready" / "Brand review ready" copy — but those
 // campaigns have no approvable content because the pipeline failed before
 // producing any. Reviewers got an empty review screen they couldn't action.
 // Fix: filter failed jobs out at buildReviewItemsForJob.
+//
+// Test approach: use the real production fixture (mkt_b83fc598 — a complete
+// job with full strategy+production output) as the baseline. Re-import the
+// runtime-views module per test (with delete-cache + new module-version)
+// so each variant gets a fresh load against its own DATA_ROOT.
 
 async function withRuntimeEnv<T>(run: () => Promise<T>): Promise<T> {
   const prev = { CODE_ROOT: process.env.CODE_ROOT, DATA_ROOT: process.env.DATA_ROOT };
@@ -30,135 +35,67 @@ async function withRuntimeEnv<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
-function makeDoc(input: {
-  jobId: string;
-  tenantId: string;
-  state: 'queued' | 'running' | 'approval_required' | 'completed' | 'failed' | 'needs_connection';
-  status: string;
-  stageOverrides?: Partial<Record<'research' | 'strategy' | 'production' | 'publish', string>>;
-}) {
-  const stageStatus = {
-    research: 'completed',
-    strategy: 'awaiting_approval',
-    production: 'not_started',
-    publish: 'not_started',
-    ...input.stageOverrides,
-  };
-  return {
-    schema_name: 'marketing_job_state_schema',
-    schema_version: '1.0.0',
-    job_id: input.jobId,
-    job_type: 'weekly_social_content',
-    tenant_id: input.tenantId,
-    state: input.state,
-    status: input.status,
-    current_stage: 'strategy',
-    stage_order: ['research', 'strategy', 'production', 'publish'],
-    stages: {
-      research: { stage: 'research', status: stageStatus.research, started_at: null, completed_at: null, failed_at: null, run_id: 'run-r', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
-      strategy: { stage: 'strategy', status: stageStatus.strategy, started_at: null, completed_at: null, failed_at: null, run_id: 'run-s', summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
-      production: { stage: 'production', status: stageStatus.production, started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
-      publish: { stage: 'publish', status: stageStatus.publish, started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+async function seedFixture(stateOverride?: { state?: string; status?: string }): Promise<string> {
+  const jobsRoot = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs');
+  await mkdir(jobsRoot, { recursive: true });
+  const fixturePath = path.resolve('tests/fixtures/marketing-runtime-primary-output.json');
+  const raw = JSON.parse(await readFile(fixturePath, 'utf8')) as Record<string, unknown>;
+  // Force an active approval so buildReviewItemsForJob's workflow-approval
+  // path produces at least one item for the baseline. The production fixture
+  // is a fully completed job (approvals.current=null), which would yield zero
+  // pending items under any filter — masking the regression we're testing.
+  raw.state = stateOverride?.state ?? 'approval_required';
+  raw.status = stateOverride?.status ?? 'awaiting_approval';
+  raw.approvals = {
+    current: {
+      approval_id: 'apr_test',
+      workflow_step_id: 'approve_stage_3',
+      stage: 'strategy',
+      status: 'pending',
+      title: 'Approve strategy',
+      message: 'Strategy is ready for review.',
+      action_label: 'Open approval',
     },
-    approvals: { current: null, history: [] },
-    publish_config: { platforms: ['meta-ads'], live_publish_platforms: [], video_render_platforms: [] },
-    brand_kit: {
-      path: path.join(process.env.DATA_ROOT!, 'generated', 'validated', input.tenantId, 'brand-kit.json'),
-      source_url: 'https://brand.example',
-      canonical_url: 'https://brand.example',
-      brand_name: input.jobId,
-      logo_urls: [],
-      colors: { primary: '#000', secondary: '#fff', accent: '#888', palette: ['#000', '#fff', '#888'] },
-      font_families: ['Manrope'],
-      external_links: [],
-      extracted_at: '2026-03-20T00:00:00.000Z',
-    },
-    inputs: { request: {}, brand_url: 'https://brand.example' },
-    errors: [],
-    last_error: null,
-    history: [],
-    created_at: '2026-03-20T00:00:00.000Z',
-    updated_at: '2026-03-21T00:00:00.000Z',
+    history: (raw.approvals as Record<string, unknown>)?.history ?? [],
   };
+  const jobId = String(raw.job_id);
+  const tenantId = String(raw.tenant_id);
+  await writeFile(path.join(jobsRoot, `${jobId}.json`), JSON.stringify(raw, null, 2));
+  return tenantId;
 }
 
-test('listMarketingReviewQueueForTenant: failed jobs are excluded from the queue', async () => {
+async function freshImport() {
+  // Cache-bust with a query param so each invocation pulls a fresh evaluation
+  // against the just-set DATA_ROOT.
+  const url = `../../backend/marketing/runtime-views?cb=${Date.now()}${Math.random()}`;
+  return (await import(url)) as typeof import('../../backend/marketing/runtime-views');
+}
+
+test('review queue: baseline (approval_required + active approval) DOES produce review items', async () => {
+  // Control. Proves the fixture actually generates items so the failed-variant
+  // assertions below can't pass trivially.
   await withRuntimeEnv(async () => {
-    const jobsRoot = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs');
-    await mkdir(jobsRoot, { recursive: true });
-
-    // A failed campaign that would otherwise have a strategy_review_required gate
-    await writeFile(
-      path.join(jobsRoot, 'failed-job.json'),
-      JSON.stringify(makeDoc({
-        jobId: 'failed-job',
-        tenantId: 'tenant_rev',
-        state: 'failed',
-        status: 'failed',
-        stageOverrides: { strategy: 'failed' },
-      }), null, 2),
-    );
-
-    const { listMarketingReviewQueueForTenant } = await import('../../backend/marketing/runtime-views');
-    const queue = await listMarketingReviewQueueForTenant('tenant_rev');
-    const failedJobItems = queue.reviews.filter((r) => r.jobId === 'failed-job');
-    assert.equal(failedJobItems.length, 0, 'failed job items must be filtered out of the review queue');
+    const tenantId = await seedFixture();
+    const views = await freshImport();
+    const queue = await views.listMarketingReviewQueueForTenant(tenantId);
+    assert.ok(queue.reviews.length > 0, `baseline must produce items; got ${queue.reviews.length}`);
   });
 });
 
-test('listMarketingReviewQueueForTenant: only doc.status=failed (state=running) still filters', async () => {
+test('review queue: same fixture flipped to state=failed produces ZERO review items', async () => {
   await withRuntimeEnv(async () => {
-    const jobsRoot = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs');
-    await mkdir(jobsRoot, { recursive: true });
-
-    await writeFile(
-      path.join(jobsRoot, 'status-failed-only.json'),
-      JSON.stringify(makeDoc({
-        jobId: 'status-failed-only',
-        tenantId: 'tenant_rev_2',
-        state: 'running',
-        status: 'failed',
-      }), null, 2),
-    );
-
-    const { listMarketingReviewQueueForTenant } = await import('../../backend/marketing/runtime-views');
-    const queue = await listMarketingReviewQueueForTenant('tenant_rev_2');
-    const items = queue.reviews.filter((r) => r.jobId === 'status-failed-only');
-    assert.equal(items.length, 0, 'status=failed alone must also filter');
+    const tenantId = await seedFixture({ state: 'failed', status: 'awaiting_approval' });
+    const views = await freshImport();
+    const queue = await views.listMarketingReviewQueueForTenant(tenantId);
+    assert.equal(queue.reviews.length, 0, `state=failed must filter all items; got ${queue.reviews.length}`);
   });
 });
 
-test('listMarketingReviewQueueForTenant: healthy non-failed jobs pass through the failure filter (no false-positive exclusion)', async () => {
-  // Counterpart to the failed-job filter: a job with state='running'/status='running'
-  // (no 'failed' anywhere) must NOT be excluded by the failure filter. This pins
-  // the filter's narrow scope so future changes can't accidentally widen it.
+test('review queue: same fixture with status=failed alone (state unchanged) ALSO produces ZERO items', async () => {
   await withRuntimeEnv(async () => {
-    const jobsRoot = path.join(process.env.DATA_ROOT!, 'generated', 'draft', 'marketing-jobs');
-    await mkdir(jobsRoot, { recursive: true });
-
-    await writeFile(
-      path.join(jobsRoot, 'healthy-running.json'),
-      JSON.stringify(makeDoc({
-        jobId: 'healthy-running',
-        tenantId: 'tenant_rev_3',
-        state: 'running',
-        status: 'running',
-      }), null, 2),
-    );
-
-    // Reset the imported module so any cached state from prior tests doesn't bleed.
-    const { listMarketingReviewQueueForTenant } = await import('../../backend/marketing/runtime-views');
-    const queue = await listMarketingReviewQueueForTenant('tenant_rev_3');
-    // We don't assert presence — review items only appear when the workspace
-    // view produces them, which requires more setup than this test fixtures.
-    // We assert ABSENCE of the failure-exclusion specifically: any item that
-    // does appear for this job is fine; we just need to confirm the failure
-    // filter didn't kick in. The non-empty assertion is covered transitively
-    // by the broader runtime-views auth-hardening tests.
-    const items = queue.reviews.filter((r) => r.jobId === 'healthy-running');
-    // No items expected from this minimal fixture, but ALSO no failure should
-    // have been thrown — that's what we actually pin.
-    assert.equal(Array.isArray(queue.reviews), true);
-    assert.ok(items.length === 0 || items.length > 0, 'sanity: array semantics intact');
+    const tenantId = await seedFixture({ state: 'approval_required', status: 'failed' });
+    const views = await freshImport();
+    const queue = await views.listMarketingReviewQueueForTenant(tenantId);
+    assert.equal(queue.reviews.length, 0, `status=failed must filter all items; got ${queue.reviews.length}`);
   });
 });
