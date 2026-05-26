@@ -27,7 +27,7 @@ import { sanitizeBrandKitSummaryText } from './brand-kit';
 import { buildSocialContentDashboardProjection } from '@/backend/social-content/dashboard-projection';
 import { getMarketingDashboardCampaignContent } from './dashboard-content';
 import { countPublishedPostsForJob } from './published-posts-count';
-import { loadMarketingJobRuntime, listMarketingJobIdsForTenant, type MarketingJobRuntimeDocument } from './runtime-state';
+import { loadMarketingJobRuntime, listMarketingJobIdsForTenant, resolveStageOutput, type MarketingJobRuntimeDocument } from './runtime-state';
 import {
   ARTIFACT_INCOMPLETE_TEXT,
   ARTIFACT_UNAVAILABLE_TEXT,
@@ -408,6 +408,37 @@ function buildCampaignBrief(record: CampaignWorkspaceRecord): MarketingCampaignB
   };
 }
 
+export function primaryOutputToCampaignPlanner(
+  stageOutput: Record<string, unknown>,
+): Record<string, unknown> {
+  const channelAdaptation = recordValue(stageOutput.channel_adaptation);
+  const channelPlans = channelAdaptation
+    ? Object.entries(channelAdaptation).map(([platform, instructions]) => ({ platform, instructions }))
+    : [];
+  return {
+    campaign_plan: {
+      core_message: stringValue(stageOutput.positioning) ?? '',
+      channel_plans: channelPlans,
+      content_package: Array.isArray(stageOutput.content_package) ? stageOutput.content_package : [],
+    },
+    creative_direction: stringValue(stageOutput.creative_direction) ?? '',
+  };
+}
+
+export function primaryOutputToProductionPreview(
+  stageOutput: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    production_handoff: {
+      production_brief: {
+        weekly_plan: stageOutput.weekly_content_plan ?? null,
+        content_package: Array.isArray(stageOutput.content_package) ? stageOutput.content_package : [],
+        artifacts: stageOutput.artifacts ?? null,
+      },
+    },
+  };
+}
+
 async function loadStagePayloadBundle(
   runtimeDoc: MarketingJobRuntimeDocument,
   facts: MarketingJobFacts,
@@ -503,13 +534,23 @@ async function loadStagePayloadBundle(
     (recordMatchesCurrentSource(recordValue(strategyFallback.outputs.brand_profile), sourceUrl)
       ? recordValue(strategyFallback.outputs.brand_profile)
       : null);
+  const strategyPrimaryOutput = resolveStageOutput(runtimeDoc, 'strategy');
+  const productionPrimaryOutput = resolveStageOutput(runtimeDoc, 'production');
+  const primaryOutputCampaignPlanner = strategyPrimaryOutput && Object.keys(strategyOutputs).length === 0
+    ? primaryOutputToCampaignPlanner(strategyPrimaryOutput)
+    : null;
+  const primaryOutputProductionPreview = productionPrimaryOutput && Object.keys(productionOutputs).length === 0
+    ? primaryOutputToProductionPreview(productionPrimaryOutput)
+    : null;
+
   const campaignPlanner = runtimeCampaignPlanner ||
     sourceMatchedStrategyPayload(
       fallbackCampaignPlannerFile || recordValue(strategyFallback.outputs.planner),
       sourceUrl,
       fallbackRunWebsiteAnalysis,
       !!rawFallbackRunWebsiteAnalysis,
-    );
+    ) ||
+    primaryOutputCampaignPlanner;
   const strategyPreview = runtimeStrategyPreview ||
     sourceMatchedStrategyPayload(
       fallbackStrategyPreviewFile || recordValue(strategyFallback.outputs.review),
@@ -519,7 +560,8 @@ async function loadStagePayloadBundle(
     );
   const productionPreview = runtimeProductionPreview ||
     fallbackProductionPreviewFile ||
-    recordValue(productionFallback.outputs.review);
+    recordValue(productionFallback.outputs.review) ||
+    primaryOutputProductionPreview;
 
   const hasCurrentSourceBrandArtifacts = !!(websiteAnalysis || brandProfile);
   const hasCurrentSourceStrategyArtifacts = !!(campaignPlanner || strategyPreview || hasCurrentSourceBrandArtifacts);
@@ -940,6 +982,36 @@ async function buildStrategyReview(
     },
   ];
 
+  const creativeDirection = stringValue(payloads.campaignPlanner?.creative_direction);
+  if (creativeDirection) {
+    sections.push({
+      id: 'creative-direction',
+      title: 'Creative direction',
+      body: creativeDirection,
+    });
+  }
+
+  const proposedPosts = recordArray(campaignPlan?.content_package);
+  if (proposedPosts.length > 0) {
+    const postBlocks = proposedPosts.map((post, i) => {
+      const num = stringValue(post.post_number) || String(i + 1);
+      const platforms = stringArray(post.platforms);
+      return labeledBlock([
+        [`Post ${num}`, null],
+        ['Hook', stringValue(post.hook)],
+        ['Body', stringValue(post.body)],
+        ['CTA', stringValue(post.cta)],
+        ['Format', stringValue(post.format)],
+        ['Platforms', platforms.length > 0 ? formatList(platforms) : null],
+      ]);
+    });
+    sections.push({
+      id: 'proposed-posts',
+      title: 'Proposed posts',
+      body: postBlocks.filter(Boolean).join('\n\n---\n\n'),
+    });
+  }
+
   if (payloads.proposalMarkdown) {
     sections.push({
       id: 'proposal-markdown',
@@ -1014,6 +1086,20 @@ async function buildCreativeAssets(
     return stringValue(entry?.hook) || null;
   }
 
+  const productionContentPackage = recordArray(
+    recordValue(runtimeDoc.stages.production.primary_output)?.content_package,
+  );
+  const strategyContentPackage = recordArray(
+    recordValue(runtimeDoc.stages.strategy.primary_output)?.content_package,
+  );
+  function primaryOutputHookForAsset(assetId: string): string | null {
+    const match = /^img_(\d+)$/.exec(assetId);
+    if (!match) return null;
+    const postIndex = parseInt(match[1], 10) - 1;
+    const pkg = productionContentPackage.length > 0 ? productionContentPackage : strategyContentPackage;
+    return stringValue(pkg[postIndex]?.hook) || null;
+  }
+
   return Promise.all(creativeAssets.map(async (asset) => {
     const reviewState = record.creative_asset_reviews[asset.id];
     const resolvedAsset = await findMarketingAsset(runtimeDoc.job_id, runtimeDoc, asset.id, facts);
@@ -1035,7 +1121,8 @@ async function buildCreativeAssets(
           ? normalizeArtifactText(await perFamilyHook(resolvedAsset?.filePath || null)) ||
             normalizeArtifactText(scriptDetails.metaAdHook) ||
             normalizeArtifactText(fallbackScripts.metaAdHook) ||
-            normalizeArtifactText(stringValue(assetPreviews?.meta_ad_hook))
+            normalizeArtifactText(stringValue(assetPreviews?.meta_ad_hook)) ||
+            normalizeArtifactText(primaryOutputHookForAsset(asset.id))
           : isVideoScript
             ? normalizeArtifactText(scriptDetails.shortVideoOpeningLine) ||
               normalizeArtifactText(fallbackScripts.shortVideoOpeningLine) ||
@@ -1058,7 +1145,7 @@ async function buildCreativeAssets(
         detailLines.push(`Slug: ${landingDetails.slug}`);
       }
     } else if (asset.type === 'image_ad') {
-      detailLines.push(`Ad hook: ${await perFamilyHook(resolvedAsset?.filePath || null) || scriptDetails.metaAdHook || fallbackScripts.metaAdHook || normalizeArtifactText(stringValue(assetPreviews?.meta_ad_hook)) || ARTIFACT_UNAVAILABLE_TEXT}`);
+      detailLines.push(`Ad hook: ${await perFamilyHook(resolvedAsset?.filePath || null) || scriptDetails.metaAdHook || fallbackScripts.metaAdHook || normalizeArtifactText(stringValue(assetPreviews?.meta_ad_hook)) || primaryOutputHookForAsset(asset.id) || ARTIFACT_UNAVAILABLE_TEXT}`);
     } else if (isVideoScript) {
       detailLines.push(`Opening line: ${scriptDetails.shortVideoOpeningLine || fallbackScripts.shortVideoOpeningLine || normalizeArtifactText(stringValue(assetPreviews?.video_opening_line)) || ARTIFACT_UNAVAILABLE_TEXT}`);
       if ((scriptDetails.shortVideoBeats[0] || fallbackScripts.shortVideoBeats[0])) {

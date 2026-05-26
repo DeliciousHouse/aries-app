@@ -93,6 +93,10 @@ const steps = [
       'tests/execution-run-store.test.ts',
       'tests/marketing-execution-port.test.ts',
       'tests/marketing-hermes-callback-flow.test.ts',
+      'tests/marketing/resolve-stage-output.test.ts',
+      'tests/marketing/workspace-views-primary-output.test.ts',
+      'tests/marketing/asset-library-primary-output.test.ts',
+      'tests/marketing/callback-auto-approve.test.ts',
     ],
   },
   {

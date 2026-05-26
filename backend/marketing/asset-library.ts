@@ -13,7 +13,7 @@ import {
   publishReviewMediaAssetId,
 } from './publish-review-asset-ids';
 import { extractPublishReviewBundle } from './publish-review';
-import type { MarketingJobRuntimeDocument } from './runtime-state';
+import { resolveStageOutput, type MarketingJobRuntimeDocument } from './runtime-state';
 import { loadValidatedMarketingProfileDocs, loadValidatedMarketingProfileSnapshot } from './validated-profile-store';
 
 export type MarketingAssetDescriptor = {
@@ -268,7 +268,7 @@ export async function buildMarketingAssetLibrary(
     });
   };
 
-  const strategyOutputs = recordValue(runtimeDoc.stages.strategy.outputs);
+  const strategyOutputs = resolveStageOutput(runtimeDoc, 'strategy');
   const researchFallback = await collectResearchStageArtifacts(
     resolvedFacts,
     runtimeDoc.stages.research.primary_output || { run_id: runtimeDoc.stages.research.run_id },

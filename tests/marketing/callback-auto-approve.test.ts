@@ -534,3 +534,154 @@ test('publish guardrail: no payload passed → preserves legacy behavior (procee
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Slice C (new shape): boolean preflight checks from 3-profile Hermes
+// ---------------------------------------------------------------------------
+
+const HEALTHY_PREFLIGHT = {
+  content_count: 7,
+  all_posts_have_assets: true,
+  all_assets_completed: true,
+  all_posts_have_platforms: true,
+  all_posts_have_cta: true,
+  all_posts_have_hashtags: true,
+  approval_safe_language: true,
+  human_review_positioning_preserved: true,
+};
+
+test('publish guardrail (new shape): all boolean checks pass → auto-approves (no refusal)', async () => {
+  await withDataRoot(async () => {
+    await withEnvOverride('ARIES_AUTO_APPROVE_MARKETING_PIPELINE', '1', async () => {
+      const doc = makePublishDoc();
+      const stub = makeApproveStub();
+      const payload = makeCallbackPayload({
+        publishing_status: 'completed',
+        published_review_status: 'approved',
+        publish_ready: null,
+        preflight_check: { ...HEALTHY_PREFLIGHT },
+      });
+
+      await maybeAutoApproveMarketingCheckpoint(doc, stub.approve, undefined, payload);
+
+      assert.equal(stub.calls.length, 1, 'approve must fire when all preflight checks pass');
+      assert.notEqual(doc.stages.publish.status, 'failed');
+    });
+  });
+});
+
+const BOOLEAN_CHECKS = [
+  'all_posts_have_assets',
+  'all_assets_completed',
+  'all_posts_have_platforms',
+  'all_posts_have_cta',
+  'all_posts_have_hashtags',
+  'approval_safe_language',
+  'human_review_positioning_preserved',
+] as const;
+
+for (const failingCheck of BOOLEAN_CHECKS) {
+  test(`publish guardrail: preflight_check.${failingCheck}=false → refuses auto-approve`, async () => {
+    await withDataRoot(async () => {
+      await withEnvOverride('ARIES_AUTO_APPROVE_MARKETING_PIPELINE', '1', async () => {
+        const doc = makePublishDoc();
+        const stub = makeApproveStub();
+        const payload = makeCallbackPayload({
+          publishing_status: 'completed',
+          publish_ready: null,
+          preflight_check: { ...HEALTHY_PREFLIGHT, [failingCheck]: false },
+        });
+
+        await maybeAutoApproveMarketingCheckpoint(doc, stub.approve, undefined, payload);
+
+        assert.equal(stub.calls.length, 0, `approve must NOT fire when ${failingCheck}=false`);
+        assert.equal(doc.stages.publish.status, 'failed', 'publish must be marked failed');
+        assert.ok(
+          doc.history.some((h) => new RegExp(`preflight_check\\.${failingCheck}=false`).test(h.note ?? '')),
+          `history must name the failing check: ${failingCheck}`,
+        );
+      });
+    });
+  });
+}
+
+test('publish guardrail: publishing_status=failed → refuses auto-approve', async () => {
+  await withDataRoot(async () => {
+    await withEnvOverride('ARIES_AUTO_APPROVE_MARKETING_PIPELINE', '1', async () => {
+      const doc = makePublishDoc();
+      const stub = makeApproveStub();
+      const payload = makeCallbackPayload({
+        publishing_status: 'failed',
+        publish_ready: null,
+        preflight_check: { ...HEALTHY_PREFLIGHT },
+      });
+
+      await maybeAutoApproveMarketingCheckpoint(doc, stub.approve, undefined, payload);
+
+      assert.equal(stub.calls.length, 0, 'approve must NOT fire when publishing_status=failed');
+      assert.equal(doc.stages.publish.status, 'failed');
+      assert.ok(
+        doc.history.some((h) => /publishing_status=failed/.test(h.note ?? '')),
+        'history must include publishing_status reason',
+      );
+    });
+  });
+});
+
+test('publish guardrail: published_review_status=rejected → refuses auto-approve', async () => {
+  await withDataRoot(async () => {
+    await withEnvOverride('ARIES_AUTO_APPROVE_MARKETING_PIPELINE', '1', async () => {
+      const doc = makePublishDoc();
+      const stub = makeApproveStub();
+      const payload = makeCallbackPayload({
+        publishing_status: 'completed',
+        published_review_status: 'rejected',
+        publish_ready: null,
+        preflight_check: { ...HEALTHY_PREFLIGHT },
+      });
+
+      await maybeAutoApproveMarketingCheckpoint(doc, stub.approve, undefined, payload);
+
+      assert.equal(stub.calls.length, 0, 'approve must NOT fire when published_review_status=rejected');
+      assert.equal(doc.stages.publish.status, 'failed');
+      assert.ok(
+        doc.history.some((h) => /published_review_status=rejected/.test(h.note ?? '')),
+        'history must include review_rejected reason',
+      );
+    });
+  });
+});
+
+test('publish guardrail: healthy mkt_b83fc598 fixture preflight → NO refusal (IRON RULE)', async () => {
+  await withDataRoot(async () => {
+    await withEnvOverride('ARIES_AUTO_APPROVE_MARKETING_PIPELINE', '1', async () => {
+      const doc = makePublishDoc();
+      const stub = makeApproveStub();
+      // This is the real preflight_check from the mkt_b83fc598 fixture
+      const payload = makeCallbackPayload({
+        publishing_status: 'completed',
+        published_review_status: 'approved',
+        publish_ready: null,
+        preflight_check: {
+          content_count: 7,
+          all_posts_have_assets: true,
+          all_assets_completed: true,
+          all_posts_have_platforms: true,
+          all_posts_have_cta: true,
+          all_posts_have_hashtags: true,
+          approval_safe_language: true,
+          human_review_positioning_preserved: true,
+          must_avoid_checks: [
+            'No discount language introduced',
+            'No fabricated metrics introduced',
+          ],
+        },
+      });
+
+      await maybeAutoApproveMarketingCheckpoint(doc, stub.approve, undefined, payload);
+
+      assert.equal(stub.calls.length, 1, 'approve must fire for healthy mkt_b83fc598 fixture (IRON RULE)');
+      assert.notEqual(doc.stages.publish.status, 'failed', 'publish must not be marked failed for healthy run');
+    });
+  });
+});

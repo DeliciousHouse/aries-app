@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import type { MarketingJobFacts } from './job-facts';
-import type { MarketingJobRuntimeDocument, MarketingVideoStageArtifact } from './runtime-state';
+import { resolveStageOutput, type MarketingJobRuntimeDocument, type MarketingVideoStageArtifact } from './runtime-state';
 import { readMarketingStageStepPayload } from './stage-artifact-resolution';
 import { legacyStageCacheReadFallbackEnabled } from './artifact-store';
 import {
@@ -809,7 +809,7 @@ async function buildFallbackPublishReviewBundle(
     ? await facts.stagePayload('production', 'production_review_preview')
     : (await readMarketingStageStepPayload(runtimeDoc, 3, 'production_review_preview')).payload;
   const productionReviewPath =
-    stringValue(recordValue(runtimeDoc.stages.production.outputs)?.production_review_path) ||
+    stringValue(resolveStageOutput(runtimeDoc, 'production')?.production_review_path) ||
     null;
   const platformPreviews: Record<string, unknown>[] = [];
   for (const reviewPackagePath of reviewPackagePaths) {
