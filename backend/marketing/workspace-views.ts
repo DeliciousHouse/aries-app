@@ -934,6 +934,24 @@ async function buildBrandReview(
   };
 }
 
+// Strategy Review header summary. Pure of side effects so it can be tested
+// directly: pass a campaign_plan record (or undefined), get back the rendered
+// summary string.
+//
+// Do NOT fall back to reviewPacket?.objective when core_message is missing —
+// an objective ("drive 50 demo bookings") and a summary ("we own the calm
+// weekly social content lane") are structurally different fields. Mapping one
+// onto the other produced headers that misled reviewers about what they were
+// approving. When core_message is missing, return the generic prompt copy.
+export function deriveStrategyReviewSummary(
+  campaignPlan: Record<string, unknown> | undefined | null,
+): string {
+  return (
+    stringValue(campaignPlan?.core_message) ||
+    'Review the campaign proposal before creative production is treated as approved.'
+  );
+}
+
 async function buildStrategyReview(
   runtimeDoc: MarketingJobRuntimeDocument,
   record: CampaignWorkspaceRecord,
@@ -1033,15 +1051,7 @@ async function buildStrategyReview(
     reviewType: 'strategy',
     status: record.stage_reviews.strategy.status,
     title: 'Strategy Review',
-    // Summary is the campaign's core_message (what the work is selling). The
-    // previous fallback to reviewPacket?.objective was a semantic mismap — an
-    // objective ("drive 50 demo bookings") is not a summary ("we own the calm
-    // weekly social content lane"). When core_message is missing, fall through
-    // to the generic prompt copy instead of surfacing a structurally wrong
-    // field. v0.1.12.9 audit caught this in a happy-path scan.
-    summary:
-      stringValue(campaignPlan?.core_message) ||
-      'Review the campaign proposal before creative production is treated as approved.',
+    summary: deriveStrategyReviewSummary(campaignPlan),
     notePlaceholder: 'Call out strategic changes, channel shifts, or proposal edits.',
     sections: sections.filter((section) => section.body.trim().length > 0),
     attachments,

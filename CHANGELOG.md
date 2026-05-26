@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## v0.1.12.9 — fix(ux): drop semantic mismap for Strategy Review summary; "Published and paused" replaces "No preview yet" for paused ads
+## v0.1.12.9 — fix(ux): drop semantic mismap for Strategy Review summary; "Published and paused" replaces "No preview or destination yet" for paused ads
 
 Two happy-path UX issues found by a parallel-agent audit of the Strategy/Creative review flows and the Posts page.
 
