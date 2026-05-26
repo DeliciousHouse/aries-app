@@ -417,11 +417,11 @@ export function primaryOutputToCampaignPlanner(
     : [];
   return {
     campaign_plan: {
-      core_message: stageOutput.positioning ?? '',
+      core_message: stringValue(stageOutput.positioning) ?? '',
       channel_plans: channelPlans,
       content_package: Array.isArray(stageOutput.content_package) ? stageOutput.content_package : [],
     },
-    creative_direction: stageOutput.creative_direction ?? '',
+    creative_direction: stringValue(stageOutput.creative_direction) ?? '',
   };
 }
 
@@ -995,11 +995,14 @@ async function buildStrategyReview(
   if (proposedPosts.length > 0) {
     const postBlocks = proposedPosts.map((post, i) => {
       const num = stringValue(post.post_number) || String(i + 1);
+      const platforms = stringArray(post.platforms);
       return labeledBlock([
         [`Post ${num}`, null],
         ['Hook', stringValue(post.hook)],
         ['Body', stringValue(post.body)],
         ['CTA', stringValue(post.cta)],
+        ['Format', stringValue(post.format)],
+        ['Platforms', platforms.length > 0 ? formatList(platforms) : null],
       ]);
     });
     sections.push({
