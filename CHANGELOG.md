@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.12.7 — fix(review-queue): failed jobs no longer appear under "Strategy review ready" / "Brand review ready"
+
+Live audit on the `/review` page found the review queue listing campaigns that had FAILED the strategy stage under the headers "Strategy review ready" / "Brand review ready". Clicking through showed an approval form with no actual approvable content (`Channel plan: Incomplete: generated artifacts do not yet contain this section.`) — the pipeline never produced anything to approve because the stage failed before generating output. Reviewers got an empty review screen they couldn't action.
+
+**Fix.** `buildReviewItemsForJob` in `backend/marketing/runtime-views.ts` now returns an empty array early when the underlying runtime doc has `state === 'failed'` OR `status === 'failed'`. Failed campaigns remain visible through the campaigns list and their workspace surface (where v0.1.12.3 surfaces the actual failure reason). The review queue only shows items where there's content to approve.
+
+**Tests.** New `tests/marketing/review-queue-skips-failed-jobs.test.ts` — 3 cases pin (1) state=failed jobs are filtered, (2) status=failed (even without state=failed) is also filtered, (3) healthy non-failed jobs pass through without the filter excluding them. Wired into verify suite.
+
 ## v0.1.12.6 — fix(ui): "Preview archived" replaces "Preview unavailable" for failed image previews
 
 Live audit found 20+ campaign cards on the dashboard rendering the alarming "PREVIEW UNAVAILABLE" placeholder. Investigation showed they were all older campaigns whose image creatives 404 on `/api/internal/hermes/media/<basename>` — the Hermes cache aged out, OR the basename is no longer in the tenant's runtime docs (the route returns 404 in both cases by design, to avoid leaking existence — see `app/api/internal/hermes/media/[...path]/route.ts` line 119). Either way, the asset is gone for good; calling that "unavailable" reads like a bug.

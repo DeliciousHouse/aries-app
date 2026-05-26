@@ -1272,6 +1272,17 @@ async function buildReviewItemsForJob(jobId: string): Promise<RuntimeReviewItem[
     return [];
   }
 
+  // Failed jobs cannot have actionable review items — the pipeline never
+  // produced content to approve. Surfacing them under "Strategy review
+  // ready" / "Brand review ready" mislabels them: the reviewer cannot
+  // approve anything; the campaign needs repair, not approval. Excluding
+  // failed-jobs at this seam keeps the queue actionable. The failed job
+  // remains accessible via the campaigns list and its workspace, which
+  // shows the actual failure copy (v0.1.12.3).
+  if (runtimeDoc.state === 'failed' || runtimeDoc.status === 'failed') {
+    return [];
+  }
+
   const status = await getMarketingJobStatus(jobId);
   const view = await buildCampaignWorkspaceView(jobId);
   const campaignNameValue = campaignName(status, view);
