@@ -209,6 +209,98 @@ test('derivePublishSurfaceState only shows publish-ready copy when launch items 
   assert.equal(waiting.title, 'Launch preparation is still running');
 });
 
+test('derivePublishSurfaceState surfaces upstream failure instead of "preparation is still running"', () => {
+  // REGRESSION (v0.1.12.8 audit): on a failed campaign the publish tab said
+  // "Launch preparation is still running" with the description "Launch review
+  // and publishing happen in the final stage." — both contradicted the red
+  // "pipeline reported a failure" banner above. When any stageCard status is
+  // 'failed', surface the failure plainly.
+  const failed = derivePublishSurfaceState(
+    makeStatus({
+      workflowState: 'draft',
+      dashboard: emptyDashboard(),
+      stageCards: [
+        { stage: 'research', label: 'Research', status: 'completed', summary: 'Competitive research completed.' },
+        { stage: 'strategy', label: 'Strategy', status: 'completed', summary: 'Campaign strategy is ready.' },
+        { stage: 'production', label: 'Production', status: 'failed', summary: 'Production failed: Hermes gateway timeout.' },
+        { stage: 'publish', label: 'Publish', status: 'ready', summary: 'Launch review and publishing happen in the final stage.' },
+      ],
+    }) as any,
+    'mkt_123',
+  );
+  assert.ok(
+    failed.title.toLowerCase().includes('halted') || failed.title.toLowerCase().includes('failure'),
+    `must surface failure: ${failed.title}`,
+  );
+  assert.ok(
+    !failed.title.toLowerCase().includes('still running'),
+    `must not claim still running: ${failed.title}`,
+  );
+  assert.ok(
+    failed.description.includes('Hermes gateway timeout') || failed.description.toLowerCase().includes('failed'),
+    `must include failure detail: ${failed.description}`,
+  );
+});
+
+test('derivePublishSurfaceState: whitespace-only failure summary falls through to stageSummary, not empty string', () => {
+  // Copilot review on PR #484: untrimmed summary could leave the description blank.
+  const failed = derivePublishSurfaceState(
+    makeStatus({
+      workflowState: 'draft',
+      dashboard: emptyDashboard(),
+      stageCards: [
+        { stage: 'research', label: 'Research', status: 'completed', summary: 'Competitive research completed.' },
+        { stage: 'strategy', label: 'Strategy', status: 'completed', summary: 'Campaign strategy is ready.' },
+        { stage: 'production', label: 'Production', status: 'failed', summary: '   ' }, // whitespace-only
+        { stage: 'publish', label: 'Publish', status: 'ready', summary: 'Launch review and publishing happen in the final stage.' },
+      ],
+    }) as any,
+    'mkt_123',
+  );
+  assert.ok(failed.description.trim().length > 0, `description must not be blank: "${failed.description}"`);
+});
+
+test('derivePublishSurfaceState: failure copy is stage-agnostic (publish-stage failure works)', () => {
+  // Copilot review on PR #484: the "upstream failure" wording was inaccurate
+  // when publish itself was the failed stage. Replaced with stage-agnostic copy.
+  const publishFailed = derivePublishSurfaceState(
+    makeStatus({
+      workflowState: 'draft',
+      dashboard: emptyDashboard(),
+      stageCards: [
+        { stage: 'research', label: 'Research', status: 'completed', summary: 'Competitive research completed.' },
+        { stage: 'strategy', label: 'Strategy', status: 'completed', summary: 'Campaign strategy is ready.' },
+        { stage: 'production', label: 'Production', status: 'completed', summary: 'Production assets are ready.' },
+        { stage: 'publish', label: 'Publish', status: 'failed', summary: 'Publish failed: meta_ads_publisher returned 5xx.' },
+      ],
+    }) as any,
+    'mkt_123',
+  );
+  assert.ok(publishFailed.title.toLowerCase().includes('publish'), `title must mention publish: ${publishFailed.title}`);
+  assert.ok(
+    !publishFailed.emptyDescription.toLowerCase().includes('upstream'),
+    `emptyDescription must not say "upstream" when publish itself failed: ${publishFailed.emptyDescription}`,
+  );
+});
+
+test('derivePublishSurfaceState falls back to "still running" when no stage has failed', () => {
+  // Counterpart of the failure test — confirms the failure branch is narrow.
+  const running = derivePublishSurfaceState(
+    makeStatus({
+      workflowState: 'draft',
+      dashboard: emptyDashboard(),
+      stageCards: [
+        { stage: 'research', label: 'Research', status: 'completed', summary: 'Competitive research completed.' },
+        { stage: 'strategy', label: 'Strategy', status: 'completed', summary: 'Campaign strategy is ready.' },
+        { stage: 'production', label: 'Production', status: 'in_progress', summary: 'Production is running.' },
+        { stage: 'publish', label: 'Publish', status: 'ready', summary: 'Launch review and publishing happen in the final stage.' },
+      ],
+    }) as any,
+    'mkt_123',
+  );
+  assert.equal(running.title, 'Launch preparation is still running');
+});
+
 test('deriveGenerationProgressState maps creative asset progress from production contract counts', () => {
   const progress = deriveGenerationProgressState(
     makeStatus({

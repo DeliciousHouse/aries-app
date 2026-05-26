@@ -578,6 +578,25 @@ export function derivePublishSurfaceState(
     };
   }
 
+  // If any stage failed (upstream stage OR the publish stage itself), don't
+  // claim "preparation is still running" — that's contradictory with a failed
+  // run and was the most visible "looks broken" item in the post-v0.1.12.6
+  // audit. Surface the failure state plainly. The stage-card summary (already
+  // status-aware after v0.1.12.3) is reused as the description.
+  const failedStage = (status.stageCards ?? []).find((card) => card.status === 'failed');
+  if (failedStage) {
+    const trimmedSummary = failedStage.summary?.trim();
+    return {
+      title: `Launch halted by ${failedStage.label.toLowerCase()} failure`,
+      description: trimmedSummary || stageSummary,
+      action: null,
+      emptyTitle: 'No launch items',
+      // Stage-agnostic wording: "upstream" was inaccurate when the publish
+      // stage itself is the failed one.
+      emptyDescription: 'Resolve the failure before launch can resume.',
+    };
+  }
+
   return {
     title: 'Launch preparation is still running',
     description: stageSummary,
