@@ -23,6 +23,12 @@ const AUTH_GATE_PATTERNS = [
   /\bgetTenantContext\s*\(/,
   /\bloadTenantContextOrResponse\s*\(/,
   /\bverifyInternalCallbackRequest\s*\(/,
+  // Loader-alias pattern: `const loader = options.tenantContextLoader ?? getTenantContext;`
+  // followed by `loader()` at the call site. The handler still gates on a
+  // tenant context — the alias just lets tests inject a stub. Match the
+  // `?? getTenantContext` fallback so the 1-hop scanner recognizes this
+  // form without needing to follow the loader through a second indirection.
+  /\?\?\s*getTenantContext\b/,
 ];
 
 function hasAuthGate(source: string): boolean {
@@ -114,11 +120,6 @@ const ALLOWLIST: AllowlistEntry[] = [
   {
     path: 'app/api/oauth/[provider]/start/route.ts',
     rationale: 'pre-session operator OAuth dance start — delegates to handleIntegrationsConnect which gates on session',
-  },
-  {
-    path: 'app/api/oauth/meta/select-page/route.ts',
-    rationale:
-      '2-hop: delegates to handleMetaSelectPageHttp in backend/integrations/meta/select-page.ts which calls getTenantContext via a loader-pattern (options.tenantContextLoader ?? getTenantContext) — the call site is loader() not getTenantContext() so the 1-hop scanner cannot match it; candidate for tightening the scanner to also match loader-pattern aliases',
   },
   {
     path: 'app/api/early-access/route.ts',
