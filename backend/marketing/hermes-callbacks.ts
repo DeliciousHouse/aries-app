@@ -1040,6 +1040,9 @@ type AutoApproveFn = (
 
 type PublishGuardrailReason =
   | { kind: 'preflight_failed'; status: string }
+  | { kind: 'preflight_check_failed'; check: string }
+  | { kind: 'publishing_status_invalid'; status: string }
+  | { kind: 'review_rejected' }
   | { kind: 'publish_not_ready' };
 
 /**
@@ -1048,12 +1051,15 @@ type PublishGuardrailReason =
  * payload looks safe.
  *
  * Recognized refusal signals (anywhere in the output records):
- *   - `preflight_check.status === 'failed'` — preflight gate explicitly flagged
- *     the run.
- *   - `publish_ready === false` — pipeline explicitly says it isn't ready.
+ *   - Any of the preflight boolean checks is `false` — content-quality gate
+ *     explicitly failed (new 3-profile Hermes shape, per mkt_b83fc598 fixture).
+ *   - `publishing_status` exists and is not 'completed' or 'in_progress'.
+ *   - `published_review_status === 'rejected'` — human reviewer rejected.
+ *   - `publish_ready === false` — legacy fallback (no-op when null).
+ *   - `preflight_check.status === 'failed'` — legacy fallback (old monolith shape).
  *
  * Why: auto-approve bypasses human review by design; without this gate a
- * "completed" pipeline with `publish_ready=false` would be promoted to the
+ * "completed" pipeline with failed preflight checks would be promoted to the
  * launch state with no content (see mkt_bb1c146c-* incident).
  */
 function findPublishAutoApproveRefusalSignal(
@@ -1065,16 +1071,52 @@ function findPublishAutoApproveRefusalSignal(
     : payload.output && typeof payload.output === 'object' && !Array.isArray(payload.output)
       ? [payload.output as Record<string, unknown>]
       : [];
+
+  const PREFLIGHT_BOOLEAN_CHECKS = [
+    'all_posts_have_assets',
+    'all_assets_completed',
+    'all_posts_have_platforms',
+    'all_posts_have_cta',
+    'all_posts_have_hashtags',
+    'approval_safe_language',
+    'human_review_positioning_preserved',
+  ] as const;
+
   for (const record of records) {
+    // Legacy fallback: explicit publish_ready=false signal
     if (record.publish_ready === false) {
       return { kind: 'publish_not_ready' };
     }
+
     const preflight = record.preflight_check;
     if (preflight && typeof preflight === 'object' && !Array.isArray(preflight)) {
-      const status = (preflight as Record<string, unknown>).status;
+      const preflightRecord = preflight as Record<string, unknown>;
+
+      // New shape: boolean content-quality checks
+      for (const check of PREFLIGHT_BOOLEAN_CHECKS) {
+        if (preflightRecord[check] === false) {
+          return { kind: 'preflight_check_failed', check };
+        }
+      }
+
+      // Legacy fallback: old monolith preflight_check.status field
+      const status = preflightRecord.status;
       if (typeof status === 'string' && status.trim().toLowerCase() === 'failed') {
         return { kind: 'preflight_failed', status: status.trim() };
       }
+    }
+
+    // publishing_status exists and is not a safe terminal/in-flight value
+    if (typeof record.publishing_status === 'string') {
+      const ps = record.publishing_status.trim();
+      if (ps !== 'completed' && ps !== 'in_progress') {
+        return { kind: 'publishing_status_invalid', status: ps };
+      }
+    }
+
+    // published_review_status === 'rejected' means a human vetoed
+    if (record.published_review_status === 'rejected') {
+      return { kind: 'review_rejected' };
     }
   }
   return null;
@@ -1121,9 +1163,15 @@ export async function maybeAutoApproveMarketingCheckpoint(
     const refusal = findPublishAutoApproveRefusalSignal(payload);
     if (refusal) {
       const reason =
-        refusal.kind === 'preflight_failed'
-          ? `preflight_check.status=${refusal.status}`
-          : 'publish_ready=false';
+        refusal.kind === 'preflight_check_failed'
+          ? `preflight_check.${refusal.check}=false`
+          : refusal.kind === 'preflight_failed'
+            ? `preflight_check.status=${refusal.status}`
+            : refusal.kind === 'publishing_status_invalid'
+              ? `publishing_status=${refusal.status}`
+              : refusal.kind === 'review_rejected'
+                ? 'published_review_status=rejected'
+                : 'publish_ready=false';
       appendHistory(
         doc,
         `auto-approve refused for publish: ${reason}; leaving checkpoint for human review`,
