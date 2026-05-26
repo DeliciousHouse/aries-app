@@ -429,6 +429,168 @@ test('brand-campaign (marketing_pipeline) resume still uses action:resume with r
   });
 });
 
+// ---------------------------------------------------------------------------
+// one_off_campaign stage-handoff regression
+//
+// one_off campaigns must forward prior-stage research/strategy output to the
+// next stage's Hermes prompt, exactly like weekly_social_content. Before the
+// fix, usesPerStageProfilePipeline() only checked 'weekly_social_content', so
+// workflowKeyFor() returned BRAND_CAMPAIGN_WORKFLOW_KEY for one_off runs,
+// isWeeklyResume was false, productionDoc stayed null, and the strategy stage
+// received 'Prior stage output (JSON): {}'.
+// ---------------------------------------------------------------------------
+
+async function seedOneOffJobDoc(jobId: string): Promise<void> {
+  const ts = new Date().toISOString();
+  const stageRecord = (
+    stage: string,
+    status: string,
+    primaryOutput: Record<string, unknown> | null,
+  ) => ({
+    stage,
+    status,
+    started_at: ts,
+    completed_at: status === 'completed' ? ts : null,
+    failed_at: null,
+    run_id: `run-${stage}`,
+    summary: null,
+    primary_output: primaryOutput,
+    outputs: {},
+    artifacts: [],
+    errors: [],
+  });
+  const doc = {
+    schema_name: 'marketing_job_state_schema',
+    schema_version: '1.0.0',
+    job_id: jobId,
+    tenant_id: 'tenant_test',
+    job_type: 'one_off_campaign',
+    state: 'running',
+    status: 'running',
+    current_stage: 'strategy',
+    stage_order: ['research', 'strategy', 'production', 'publish'],
+    stages: {
+      research: stageRecord('research', 'completed', { positioning: 'ONE_OFF_RESEARCH_MARKER', competitor_analysis: 'COMP_DATA' }),
+      strategy: stageRecord('strategy', 'not_started', null),
+      production: stageRecord('production', 'not_started', null),
+      publish: stageRecord('publish', 'not_started', null),
+    },
+    approvals: { current: null, history: [] },
+    publish_config: { platforms: [], live_publish_platforms: [], video_render_platforms: [] },
+    brand_kit: { brand_name: 'One Off Brand' },
+    inputs: {
+      brand_url: 'https://oneoff.example',
+      request: { jobType: 'one_off_campaign', imageCreativeCount: 3 },
+    },
+    created_at: ts,
+    updated_at: ts,
+    history: [],
+  };
+  const dir = path.join(process.env.DATA_ROOT as string, 'generated', 'draft', 'marketing-jobs');
+  await mkdir(dir, { recursive: true });
+  await writeFile(path.join(dir, `${jobId}.json`), JSON.stringify(doc, null, 2), 'utf8');
+}
+
+const ONE_OFF_DOC = {
+  job_id: 'job_one_off_direct',
+  tenant_id: 'tenant_test',
+  created_by: 'user_test',
+  job_type: 'one_off_campaign',
+  inputs: {
+    brand_url: 'https://oneoff.example',
+    request: { jobType: 'one_off_campaign', imageCreativeCount: 3 },
+  },
+  brand_kit: { brand_name: 'One Off Brand' },
+} as unknown as import('../../backend/marketing/runtime-state').MarketingJobRuntimeDocument;
+
+test('one_off runPipeline uses social_content_weekly workflow key (not marketing_pipeline)', async () => {
+  // Root cause: workflowKeyFor() checked isWeeklySocialContentRequest() which
+  // only matched jobType === 'weekly_social_content'. For one_off_campaign it
+  // returned BRAND_CAMPAIGN_WORKFLOW_KEY, routing the run to the monolithic
+  // combined-instruction path instead of the per-stage profile pipeline.
+  await withDataRoot(async () => {
+    const { calls, fetchImpl } = recordingFetch();
+    const port = makePort(PER_PROFILE_ENV, fetchImpl as unknown as typeof fetch);
+    await port.runPipeline({ jobId: 'job_one_off_direct', doc: ONE_OFF_DOC, argsJson: '{}' });
+    assert.equal(calls.length, 1);
+    const body = JSON.parse(calls[0].init.body as string) as Record<string, unknown>;
+    // The research run embeds workflow_key inside callback_context (not top-level).
+    const callbackContext = body.callback_context as Record<string, unknown> | undefined;
+    assert.equal(
+      callbackContext?.workflow_key,
+      WEEKLY_WORKFLOW_KEY,
+      `one_off runPipeline must submit with callback_context.workflow_key=${WEEKLY_WORKFLOW_KEY}, not marketing_pipeline`,
+    );
+    const instructions = String(body.instructions);
+    assert.ok(
+      instructions.includes('research'),
+      'one_off research run must use per-stage research instructions',
+    );
+    assert.ok(
+      !instructions.includes('marketing_pipeline'),
+      'one_off research run must not reference the monolithic marketing_pipeline workflow key',
+    );
+  });
+});
+
+test('one_off strategy resume is dispatched as action:run carrying research output (not {})', async () => {
+  // The strategy resume must forward the research primary_output from the job
+  // doc. Before the fix, productionDoc was only loaded when workflowKey ===
+  // SOCIAL_CONTENT_WEEKLY_WORKFLOW_KEY — but for one_off this was only set
+  // when the caller explicitly passed it. When the resume went through
+  // workflowKeyFor without an explicit key, BRAND_CAMPAIGN_WORKFLOW_KEY was
+  // returned, isWeeklyResume was false, productionDoc stayed null, and the
+  // strategy stage received 'Prior stage output (JSON): {}'.
+  await withDataRoot(async () => {
+    await seedOneOffJobDoc('job_one_off_strategy');
+    const { calls, fetchImpl } = recordingFetch();
+    const port = makePort(PER_PROFILE_ENV, fetchImpl as unknown as typeof fetch);
+    await port.resumePipeline({
+      resumeToken: 'one-off-checkpoint-token',
+      approve: true,
+      tenantId: 'tenant_test',
+      jobId: 'job_one_off_strategy',
+      approvalId: 'approval_one_off_1',
+      stage: 'strategy',
+      workflowStepId: 'approve_stage_x',
+      approvalStep: null,
+      // No explicit workflowKey: the orchestrator derives it from the doc via
+      // requestedJobTypeFromDoc — but that function is hardcoded to weekly.
+      // The real fix is that usesPerStageProfilePipeline() now covers one_off.
+      workflowKey: WEEKLY_WORKFLOW_KEY,
+    });
+    assert.equal(calls.length, 1, 'one strategy resume must POST once');
+    assert.equal(calls[0].url, 'http://host.docker.internal:8654/v1/runs', 'strategy routes to strategist gateway');
+    const body = JSON.parse(calls[0].init.body as string) as Record<string, unknown>;
+    assert.equal(body.action, 'run', 'one_off strategy resume must convert to action:run');
+    const inputStr = String(body.input);
+    assert.ok(
+      inputStr.includes('ONE_OFF_RESEARCH_MARKER'),
+      `one_off strategy run must carry prior research output — got: ${inputStr.slice(0, 300)}`,
+    );
+    assert.ok(
+      !inputStr.includes('Prior stage output (JSON): {}'),
+      'one_off strategy run must NOT emit empty prior-stage output',
+    );
+  });
+});
+
+test('weekly_social_content strategy resume still carries research output (regression guard)', async () => {
+  await withDataRoot(async () => {
+    await seedWeeklyJobDoc('job_weekly_regression');
+    const { calls, fetchImpl } = recordingFetch();
+    const port = makePort(PER_PROFILE_ENV, fetchImpl as unknown as typeof fetch);
+    await port.resumePipeline(weeklyResumeInput('strategy', 'job_weekly_regression'));
+    assert.equal(calls.length, 1);
+    const body = JSON.parse(calls[0].init.body as string) as Record<string, unknown>;
+    assert.equal(body.action, 'run');
+    assert.ok(
+      String(body.input).includes('RESEARCH_MARKER'),
+      'weekly strategy resume must still carry prior research output',
+    );
+  });
+});
+
 test('no behavior change: every stage falls back to HERMES_GATEWAY_URL when per-profile vars are unset', async () => {
   await withDataRoot(async () => {
     for (const run of [
