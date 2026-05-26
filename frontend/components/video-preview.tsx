@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, Archive, Loader2 } from 'lucide-react';
 
 type VideoPreviewProps = {
@@ -12,6 +12,16 @@ type VideoPreviewProps = {
 export default function VideoPreview({ src, poster, className }: VideoPreviewProps) {
   const [loading, setLoading] = useState(Boolean(src));
   const [failed, setFailed] = useState(false);
+
+  // Reset transient state when the src changes, so a prior failure or a
+  // null→src transition doesn't leave the component stuck on "Preview
+  // archived" or skip the loading overlay. Without this, navigating
+  // between two campaigns whose media-preview shares a mounted instance
+  // would show stale state from the first one.
+  useEffect(() => {
+    setFailed(false);
+    setLoading(Boolean(src));
+  }, [src]);
 
   const fallback = useMemo(() => {
     if (!src) {

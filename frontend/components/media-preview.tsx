@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Archive, FileImage, FileText, Globe } from 'lucide-react';
 
 import { safeHref } from '@/lib/safe-href';
@@ -90,6 +90,15 @@ function isHostInRemotePatterns(src: string): boolean {
 export default function MediaPreview(props: MediaPreviewProps) {
   const [failed, setFailed] = useState(false);
   const [useNativeFallback, setUseNativeFallback] = useState(false);
+
+  // Reset transient failure/fallback state when src changes, so a prior
+  // 404 doesn't leave the component stuck on "Preview archived" after
+  // receiving a new valid src (e.g. parent re-renders the same instance
+  // for a different campaign card).
+  useEffect(() => {
+    setFailed(false);
+    setUseNativeFallback(false);
+  }, [props.src]);
 
   const mode = useMemo<'image' | 'video' | 'fallback'>(() => {
     if (!props.src || failed) return 'fallback';
