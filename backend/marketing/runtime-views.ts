@@ -1573,10 +1573,16 @@ export async function listMarketingCampaignsForTenant(
   const hasMore = !unlimited && jobIds.length > limit;
   const pageJobIds = hasMore ? jobIds.slice(0, limit) : jobIds;
 
-  // Bounded-parallel fan-out per job. Dedup (`seen` Set) stays serial after
-  // the fan-out so order-dependent first-wins behavior is preserved.
+  // Two-phase bounded-parallel fan-out so dedup happens before the heaviest
+  // per-job work, matching the prior serial loop's first-wins ordering.
+  //
+  // Phase 1 (light): status + workspaceView per job, just enough to compute
+  // the dedup key. The view is reused in phase 2 to avoid a redundant load.
+  // Phase 2 (heavy): buildReviewItemsForJob + loadMarketingJobRuntime only
+  // for the survivors.
+  //
   // See lib/process-concurrent.ts and CLAUDE.md guardrail #1.
-  const perJob = await processConcurrent(
+  const phase1 = await processConcurrent(
     pageJobIds,
     async (jobId) => {
       const status = await getMarketingJobStatus(jobId);
@@ -1584,24 +1590,41 @@ export async function listMarketingCampaignsForTenant(
         return null;
       }
       const view = await buildCampaignWorkspaceView(jobId);
+      return { jobId, status, view };
+    },
+    4,
+  );
+
+  // Dedup serially in input-order so duplicates of a campaign (e.g. reruns
+  // sharing externalCampaignId) collapse to the first-seen entry exactly as
+  // the original serial loop did.
+  const survivors: Array<{ jobId: string; status: Awaited<ReturnType<typeof getMarketingJobStatus>>; view: Awaited<ReturnType<typeof buildCampaignWorkspaceView>> }> = [];
+  const seen = new Set<string>();
+  for (const entry of phase1) {
+    if (!entry) continue;
+    const key = entry.view.dashboard.campaign?.externalCampaignId || entry.view.dashboard.campaign?.name || `job::${entry.jobId}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    survivors.push(entry);
+  }
+
+  const phase2 = await processConcurrent(
+    survivors,
+    async ({ jobId }) => {
       const pendingApprovals = (await buildReviewItemsForJob(jobId)).filter((item) => item.status !== 'approved').length;
       const runtimeDoc = await loadMarketingJobRuntime(jobId);
       const jobBrandKitExtractedAt = runtimeDoc?.brand_kit?.extracted_at ?? null;
-      return { status, view, pendingApprovals, jobBrandKitExtractedAt };
+      return { pendingApprovals, jobBrandKitExtractedAt };
     },
     4,
   );
 
   const campaigns: RuntimeCampaignListItem[] = [];
-  const seen = new Set<string>();
-  for (const entry of perJob) {
-    if (!entry) continue;
-    const { status, view, pendingApprovals, jobBrandKitExtractedAt } = entry;
-    const key = view.dashboard.campaign?.externalCampaignId || view.dashboard.campaign?.name || `job::${status.jobId}`;
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
+  for (let i = 0; i < survivors.length; i++) {
+    const { status, view } = survivors[i];
+    const { pendingApprovals, jobBrandKitExtractedAt } = phase2[i];
     campaigns.push(buildCampaignListItem(status, view, pendingApprovals, jobBrandKitExtractedAt));
   }
 

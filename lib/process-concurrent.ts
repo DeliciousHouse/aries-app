@@ -21,10 +21,15 @@
  *   - Higher than 8 risks pool contention with no payoff for these
  *     filesystem-heavy + per-job-DB workloads.
  *
- * Errors propagate via Promise.allSettled-style rejection: the first
- * rejection cancels nothing else but is re-thrown after all in-flight
- * work resolves. Callers that need partial results on error should
- * catch in `fn` instead.
+ * Error semantics: once any worker's `fn(item)` rejects, the FIRST error is
+ * captured. Remaining workers stop claiming new items, but any items already
+ * in-flight when the error landed are allowed to settle (so the function does
+ * not return until every started call has resolved or rejected). After every
+ * in-flight call settles, the first error is re-thrown. Items that hadn't
+ * started yet when the error landed will have `undefined` in their result
+ * slot — but the function throws before the caller ever sees the array, so
+ * this is invisible to callers using the happy path. Callers that need
+ * partial results on error should catch in `fn` instead.
  */
 export async function processConcurrent<T, U>(
   items: readonly T[],
@@ -34,7 +39,15 @@ export async function processConcurrent<T, U>(
   if (items.length === 0) {
     return [];
   }
-  const safeConcurrency = Math.max(1, Math.min(Math.floor(concurrency), items.length));
+  // Floor + clamp against items.length and against the lower bound 1, so
+  // non-finite (NaN, Infinity, -Infinity) and out-of-range values (0, negative,
+  // huge) all degrade to serial-or-bounded behavior instead of producing a
+  // never-starting worker pool (Math.max(1, NaN) is NaN, which silently broke
+  // the loop). Number.isFinite is the explicit NaN/Infinity guard.
+  const floored = Math.floor(concurrency);
+  const safeConcurrency = Number.isFinite(floored)
+    ? Math.max(1, Math.min(floored, items.length))
+    : 1;
   if (safeConcurrency === 1) {
     const results: U[] = [];
     for (let i = 0; i < items.length; i++) {
@@ -49,6 +62,12 @@ export async function processConcurrent<T, U>(
 
   async function worker(): Promise<void> {
     while (true) {
+      // Stop claiming new work once any sibling has errored — already-in-flight
+      // calls will still settle (the in-flight `await fn(...)` below isn't
+      // cancelable from here, by design — fetch/db work shouldn't be abandoned).
+      if (firstError !== null) {
+        return;
+      }
       const i = nextIndex++;
       if (i >= items.length) {
         return;
