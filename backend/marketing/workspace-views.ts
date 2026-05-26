@@ -1083,6 +1083,20 @@ async function buildCreativeAssets(
     return stringValue(entry?.hook) || null;
   }
 
+  const productionContentPackage = recordArray(
+    recordValue(runtimeDoc.stages.production.primary_output)?.content_package,
+  );
+  const strategyContentPackage = recordArray(
+    recordValue(runtimeDoc.stages.strategy.primary_output)?.content_package,
+  );
+  function primaryOutputHookForAsset(assetId: string): string | null {
+    const match = /^img_(\d+)$/.exec(assetId);
+    if (!match) return null;
+    const postIndex = parseInt(match[1], 10) - 1;
+    const pkg = productionContentPackage.length > 0 ? productionContentPackage : strategyContentPackage;
+    return stringValue(pkg[postIndex]?.hook) || null;
+  }
+
   return Promise.all(creativeAssets.map(async (asset) => {
     const reviewState = record.creative_asset_reviews[asset.id];
     const resolvedAsset = await findMarketingAsset(runtimeDoc.job_id, runtimeDoc, asset.id, facts);
@@ -1104,7 +1118,8 @@ async function buildCreativeAssets(
           ? normalizeArtifactText(await perFamilyHook(resolvedAsset?.filePath || null)) ||
             normalizeArtifactText(scriptDetails.metaAdHook) ||
             normalizeArtifactText(fallbackScripts.metaAdHook) ||
-            normalizeArtifactText(stringValue(assetPreviews?.meta_ad_hook))
+            normalizeArtifactText(stringValue(assetPreviews?.meta_ad_hook)) ||
+            normalizeArtifactText(primaryOutputHookForAsset(asset.id))
           : isVideoScript
             ? normalizeArtifactText(scriptDetails.shortVideoOpeningLine) ||
               normalizeArtifactText(fallbackScripts.shortVideoOpeningLine) ||
@@ -1127,7 +1142,7 @@ async function buildCreativeAssets(
         detailLines.push(`Slug: ${landingDetails.slug}`);
       }
     } else if (asset.type === 'image_ad') {
-      detailLines.push(`Ad hook: ${await perFamilyHook(resolvedAsset?.filePath || null) || scriptDetails.metaAdHook || fallbackScripts.metaAdHook || normalizeArtifactText(stringValue(assetPreviews?.meta_ad_hook)) || ARTIFACT_UNAVAILABLE_TEXT}`);
+      detailLines.push(`Ad hook: ${await perFamilyHook(resolvedAsset?.filePath || null) || scriptDetails.metaAdHook || fallbackScripts.metaAdHook || normalizeArtifactText(stringValue(assetPreviews?.meta_ad_hook)) || primaryOutputHookForAsset(asset.id) || ARTIFACT_UNAVAILABLE_TEXT}`);
     } else if (isVideoScript) {
       detailLines.push(`Opening line: ${scriptDetails.shortVideoOpeningLine || fallbackScripts.shortVideoOpeningLine || normalizeArtifactText(stringValue(assetPreviews?.video_opening_line)) || ARTIFACT_UNAVAILABLE_TEXT}`);
       if ((scriptDetails.shortVideoBeats[0] || fallbackScripts.shortVideoBeats[0])) {
