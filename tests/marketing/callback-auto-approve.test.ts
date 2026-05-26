@@ -14,6 +14,50 @@ import type {
   MarketingStage,
 } from '../../backend/marketing/runtime-state';
 import { maybeAutoApproveMarketingCheckpoint } from '../../backend/marketing/hermes-callbacks';
+import type { HermesRunCallbackPayload } from '../../backend/execution/hermes-callbacks';
+
+function makePublishCheckpoint(): MarketingApprovalCheckpoint {
+  return makeCheckpoint({
+    stage: 'publish',
+    approval_id: 'mkta_pub_001',
+    workflow_step_id: 'approve_stage_4_publish',
+  });
+}
+
+function makePublishDoc(): MarketingJobRuntimeDocument {
+  const ts = new Date().toISOString();
+  return makeDoc({
+    current_stage: 'publish',
+    state: 'approval_required',
+    status: 'awaiting_approval',
+    stages: {
+      research: { stage: 'research', status: 'completed', started_at: null, completed_at: ts, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+      strategy: { stage: 'strategy', status: 'completed', started_at: null, completed_at: ts, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+      production: { stage: 'production', status: 'completed', started_at: null, completed_at: ts, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+      publish: { stage: 'publish', status: 'awaiting_approval', started_at: null, completed_at: null, failed_at: null, run_id: null, summary: null, primary_output: null, outputs: {}, artifacts: [], errors: [] },
+    },
+    approvals: {
+      current: makePublishCheckpoint(),
+      history: [],
+    },
+  });
+}
+
+function makeCallbackPayload(output: Record<string, unknown> | Array<Record<string, unknown>>): HermesRunCallbackPayload {
+  return {
+    event_id: 'evt_test_001',
+    aries_run_id: 'arun_test_001',
+    status: 'requires_approval',
+    output,
+    approval: {
+      stage: 'publish',
+      approval_step: 'approve_publish',
+      workflow_step_id: 'approve_stage_4_publish',
+      prompt: 'Review before publishing',
+      resume_token: 'resume_token_test_001',
+    },
+  } as HermesRunCallbackPayload;
+}
 
 // ---------------------------------------------------------------------------
 // Test environment
@@ -371,6 +415,122 @@ test('flag ON + approve returns approval_resolution_in_progress → benign no-op
         doc.history.some((h) => /resolution in flight/.test(h.note ?? '')),
         'history must record in-flight resolution',
       );
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Slice C: Publish auto-approve guardrail
+// ---------------------------------------------------------------------------
+
+test('publish guardrail: preflight_check.status="failed" → refuses auto-approve, marks publish failed', async () => {
+  await withDataRoot(async () => {
+    await withEnvOverride('ARIES_AUTO_APPROVE_MARKETING_PIPELINE', '1', async () => {
+      const doc = makePublishDoc();
+      const stub = makeApproveStub();
+      const payload = makeCallbackPayload({
+        type: 'launch_review_preview',
+        preflight_check: { status: 'failed', reason: 'no_creative_assets' },
+      });
+
+      await maybeAutoApproveMarketingCheckpoint(doc, stub.approve, undefined, payload);
+
+      assert.equal(stub.calls.length, 0, 'approve must NOT fire when preflight_check.status=failed');
+      assert.equal(doc.stages.publish.status, 'failed', 'publish stage must be marked failed');
+      assert.ok(
+        doc.history.some((h) => /auto-approve refused for publish/.test(h.note ?? '')),
+        'history must record the refusal',
+      );
+      assert.ok(
+        doc.history.some((h) => /preflight_check\.status=failed/.test(h.note ?? '')),
+        'history must include the preflight_check refusal reason',
+      );
+    });
+  });
+});
+
+test('publish guardrail: publish_ready=false → refuses auto-approve, marks publish failed', async () => {
+  await withDataRoot(async () => {
+    await withEnvOverride('ARIES_AUTO_APPROVE_MARKETING_PIPELINE', '1', async () => {
+      const doc = makePublishDoc();
+      const stub = makeApproveStub();
+      const payload = makeCallbackPayload({
+        type: 'launch_review_preview',
+        publish_ready: false,
+      });
+
+      await maybeAutoApproveMarketingCheckpoint(doc, stub.approve, undefined, payload);
+
+      assert.equal(stub.calls.length, 0, 'approve must NOT fire when publish_ready=false');
+      assert.equal(doc.stages.publish.status, 'failed', 'publish stage must be marked failed');
+      assert.ok(
+        doc.history.some((h) => /publish_ready=false/.test(h.note ?? '')),
+        'history must include the publish_ready refusal reason',
+      );
+    });
+  });
+});
+
+test('publish guardrail: signal in second output record (array) → refuses', async () => {
+  await withDataRoot(async () => {
+    await withEnvOverride('ARIES_AUTO_APPROVE_MARKETING_PIPELINE', '1', async () => {
+      const doc = makePublishDoc();
+      const stub = makeApproveStub();
+      const payload = makeCallbackPayload([
+        { type: 'unrelated' },
+        { type: 'launch_review_preview', preflight_check: { status: 'failed' } },
+      ]);
+
+      await maybeAutoApproveMarketingCheckpoint(doc, stub.approve, undefined, payload);
+
+      assert.equal(stub.calls.length, 0, 'approve must NOT fire when signal appears in any record');
+      assert.equal(doc.stages.publish.status, 'failed');
+    });
+  });
+});
+
+test('publish guardrail: payload safe (publish_ready=true, preflight passed) → proceeds with auto-approve', async () => {
+  await withDataRoot(async () => {
+    await withEnvOverride('ARIES_AUTO_APPROVE_MARKETING_PIPELINE', '1', async () => {
+      const doc = makePublishDoc();
+      const stub = makeApproveStub();
+      const payload = makeCallbackPayload({
+        type: 'launch_review_preview',
+        publish_ready: true,
+        preflight_check: { status: 'passed' },
+      });
+
+      await maybeAutoApproveMarketingCheckpoint(doc, stub.approve, undefined, payload);
+
+      assert.equal(stub.calls.length, 1, 'approve must fire when payload is safe');
+      assert.notEqual(doc.stages.publish.status, 'failed', 'publish must not be marked failed');
+    });
+  });
+});
+
+test('publish guardrail: signal only triggers for publish stage (strategy with publish_ready=false still approves)', async () => {
+  await withDataRoot(async () => {
+    await withEnvOverride('ARIES_AUTO_APPROVE_MARKETING_PIPELINE', '1', async () => {
+      const doc = makeDoc(); // strategy checkpoint
+      const stub = makeApproveStub();
+      const payload = makeCallbackPayload({ publish_ready: false });
+
+      await maybeAutoApproveMarketingCheckpoint(doc, stub.approve, undefined, payload);
+
+      assert.equal(stub.calls.length, 1, 'strategy auto-approve must proceed; guardrail is publish-only');
+    });
+  });
+});
+
+test('publish guardrail: no payload passed → preserves legacy behavior (proceeds)', async () => {
+  await withDataRoot(async () => {
+    await withEnvOverride('ARIES_AUTO_APPROVE_MARKETING_PIPELINE', '1', async () => {
+      const doc = makePublishDoc();
+      const stub = makeApproveStub();
+
+      await maybeAutoApproveMarketingCheckpoint(doc, stub.approve);
+
+      assert.equal(stub.calls.length, 1, 'approve must fire when no payload is provided (no signal to refuse on)');
     });
   });
 });
