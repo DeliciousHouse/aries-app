@@ -982,6 +982,33 @@ async function buildStrategyReview(
     },
   ];
 
+  const creativeDirection = stringValue(payloads.campaignPlanner?.creative_direction);
+  if (creativeDirection) {
+    sections.push({
+      id: 'creative-direction',
+      title: 'Creative direction',
+      body: creativeDirection,
+    });
+  }
+
+  const proposedPosts = recordArray(campaignPlan?.content_package);
+  if (proposedPosts.length > 0) {
+    const postBlocks = proposedPosts.map((post, i) => {
+      const num = stringValue(post.post_number) || String(i + 1);
+      return labeledBlock([
+        [`Post ${num}`, null],
+        ['Hook', stringValue(post.hook)],
+        ['Body', stringValue(post.body)],
+        ['CTA', stringValue(post.cta)],
+      ]);
+    });
+    sections.push({
+      id: 'proposed-posts',
+      title: 'Proposed posts',
+      body: postBlocks.filter(Boolean).join('\n\n---\n\n'),
+    });
+  }
+
   if (payloads.proposalMarkdown) {
     sections.push({
       id: 'proposal-markdown',
