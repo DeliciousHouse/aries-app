@@ -1645,25 +1645,54 @@ export async function listMarketingCampaignsForTenant(
 export async function listDeletedMarketingCampaignsForTenant(
   tenantId: string,
 ): Promise<RuntimeCampaignListItem[]> {
-  const campaigns: RuntimeCampaignListItem[] = [];
-  const seen = new Set<string>();
+  // Same two-phase fan-out pattern as listMarketingCampaignsForTenant
+  // (v0.1.12.4). Phase 1 (light): doc + status + view to compute dedup key.
+  // Phase 2 (heavy): buildReviewItemsForJob only for survivors.
+  const jobIds = await listDeletedMarketingJobIdsForTenant(tenantId);
 
-  for (const jobId of await listDeletedMarketingJobIdsForTenant(tenantId)) {
-    const doc = await loadMarketingJobRuntime(jobId);
-    if (!doc || doc.tenant_id !== tenantId) {
-      continue;
-    }
-    const status = await getMarketingJobStatus(jobId);
-    if (status.tenantName === null && status.brandWebsiteUrl === null && status.status === 'error') {
-      continue;
-    }
-    const view = await buildCampaignWorkspaceView(jobId);
-    const key = view.dashboard.campaign?.externalCampaignId || view.dashboard.campaign?.name || `job::${jobId}`;
+  const phase1 = await processConcurrent(
+    jobIds,
+    async (jobId) => {
+      const doc = await loadMarketingJobRuntime(jobId);
+      if (!doc || doc.tenant_id !== tenantId) {
+        return null;
+      }
+      const status = await getMarketingJobStatus(jobId);
+      if (status.tenantName === null && status.brandWebsiteUrl === null && status.status === 'error') {
+        return null;
+      }
+      const view = await buildCampaignWorkspaceView(jobId);
+      return { jobId, doc, status, view };
+    },
+    4,
+  );
+
+  type Phase1Entry = NonNullable<(typeof phase1)[number]>;
+  const survivors: Phase1Entry[] = [];
+  const seen = new Set<string>();
+  for (const entry of phase1) {
+    if (!entry) continue;
+    const key = entry.view.dashboard.campaign?.externalCampaignId || entry.view.dashboard.campaign?.name || `job::${entry.jobId}`;
     if (seen.has(key)) {
       continue;
     }
     seen.add(key);
-    const pendingApprovals = (await buildReviewItemsForJob(jobId)).filter((item) => item.status !== 'approved').length;
+    survivors.push(entry);
+  }
+
+  const phase2 = await processConcurrent(
+    survivors,
+    async ({ jobId }) => {
+      const pendingApprovals = (await buildReviewItemsForJob(jobId)).filter((item) => item.status !== 'approved').length;
+      return { pendingApprovals };
+    },
+    4,
+  );
+
+  const campaigns: RuntimeCampaignListItem[] = [];
+  for (let i = 0; i < survivors.length; i++) {
+    const { doc, status, view } = survivors[i];
+    const { pendingApprovals } = phase2[i];
     const item = buildCampaignListItem(status, view, pendingApprovals, doc.brand_kit?.extracted_at ?? null);
     item.deletedAt = doc.deleted_at ?? null;
     item.deletedBy = doc.deleted_by ?? null;
