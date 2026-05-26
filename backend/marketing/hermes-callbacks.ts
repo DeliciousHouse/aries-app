@@ -1038,6 +1038,48 @@ type AutoApproveFn = (
   doc: MarketingJobRuntimeDocument,
 ) => Promise<ApproveMarketingJobResponse>;
 
+type PublishGuardrailReason =
+  | { kind: 'preflight_failed'; status: string }
+  | { kind: 'publish_not_ready' };
+
+/**
+ * Inspect a publish-stage callback payload for signals that the run is NOT
+ * safe to auto-approve. Returns the first matching signal, or null if the
+ * payload looks safe.
+ *
+ * Recognized refusal signals (anywhere in the output records):
+ *   - `preflight_check.status === 'failed'` — preflight gate explicitly flagged
+ *     the run.
+ *   - `publish_ready === false` — pipeline explicitly says it isn't ready.
+ *
+ * Why: auto-approve bypasses human review by design; without this gate a
+ * "completed" pipeline with `publish_ready=false` would be promoted to the
+ * launch state with no content (see mkt_bb1c146c-* incident).
+ */
+function findPublishAutoApproveRefusalSignal(
+  payload: HermesRunCallbackPayload | undefined,
+): PublishGuardrailReason | null {
+  if (!payload) return null;
+  const records: Record<string, unknown>[] = Array.isArray(payload.output)
+    ? payload.output.filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === 'object' && !Array.isArray(entry))
+    : payload.output && typeof payload.output === 'object' && !Array.isArray(payload.output)
+      ? [payload.output as Record<string, unknown>]
+      : [];
+  for (const record of records) {
+    if (record.publish_ready === false) {
+      return { kind: 'publish_not_ready' };
+    }
+    const preflight = record.preflight_check;
+    if (preflight && typeof preflight === 'object' && !Array.isArray(preflight)) {
+      const status = (preflight as Record<string, unknown>).status;
+      if (typeof status === 'string' && status.trim().toLowerCase() === 'failed') {
+        return { kind: 'preflight_failed', status: status.trim() };
+      }
+    }
+  }
+  return null;
+}
+
 /**
  * After a `requires_approval` callback writes an approval checkpoint to the doc,
  * call `approveMarketingJob` with `approvedBy: 'ai-orchestrator'` so the pipeline
@@ -1054,6 +1096,7 @@ export async function maybeAutoApproveMarketingCheckpoint(
   doc: MarketingJobRuntimeDocument,
   approve: AutoApproveFn = approveMarketingJob,
   env: NodeJS.ProcessEnv = process.env,
+  payload?: HermesRunCallbackPayload,
 ): Promise<void> {
   if (!autoApproveMarketingPipelineEnabled(env)) return;
 
@@ -1069,6 +1112,36 @@ export async function maybeAutoApproveMarketingCheckpoint(
   // a checkpoint here would be a misroute and should not be auto-approved.
   const stage = checkpoint.stage;
   if (stage !== 'strategy' && stage !== 'production' && stage !== 'publish') return;
+
+  // Publish-stage guardrail: refuse to auto-approve when the callback payload
+  // explicitly signals the run is not ready. Without this, a "completed"
+  // pipeline with preflight_check.status='failed' or publish_ready=false can be
+  // silently promoted with no content (see mkt_bb1c146c-* QA incident).
+  if (stage === 'publish') {
+    const refusal = findPublishAutoApproveRefusalSignal(payload);
+    if (refusal) {
+      const reason =
+        refusal.kind === 'preflight_failed'
+          ? `preflight_check.status=${refusal.status}`
+          : 'publish_ready=false';
+      appendHistory(
+        doc,
+        `auto-approve refused for publish: ${reason}; leaving checkpoint for human review`,
+        { stage },
+      );
+      recordStageFailure(doc, 'publish', {
+        code: 'publish_auto_approve_refused',
+        message: `Auto-approve refused: ${reason}. Run is not safe to promote without human review.`,
+        retryable: false,
+      });
+      saveMarketingJobRuntime(doc.job_id, doc);
+      console.error('[hermes-callbacks] publish_auto_approve_refused', {
+        job_id: doc.job_id,
+        reason: refusal,
+      });
+      return;
+    }
+  }
 
   appendHistory(doc, `auto-approving ${stage} checkpoint (ARIES_AUTO_APPROVE_MARKETING_PIPELINE=1)`, {
     stage,
@@ -1506,7 +1579,7 @@ export async function applyHermesMarketingCallback(
     }
     createApprovalCheckpoint(doc, run, payload, socialApprovalStep, completedSocialStage);
     saveMarketingJobRuntime(doc.job_id, doc);
-    await maybeAutoApproveMarketingCheckpoint(doc);
+    await maybeAutoApproveMarketingCheckpoint(doc, undefined, undefined, payload);
     return;
   }
 
