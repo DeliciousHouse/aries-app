@@ -263,6 +263,76 @@ describe('POST /api/marketing/jobs/:jobId/retry-research', () => {
   });
 });
 
+// --- Persist-failure-on-throw test -----------------------------------------
+//
+// Critical regression. The retry flow resets doc.state to queued BEFORE
+// re-entering runResearchStage. If the re-entry throws (Hermes 5xx, network
+// drop), we must re-record the stage as failed and persist — otherwise the
+// on-disk doc looks "queued" and the dashboard misreports a dead campaign as
+// in-flight forever.
+
+describe('retryFailedResearchStage persists failure when re-entry throws', () => {
+  before(() => { process.env.DATA_ROOT = TEST_ROOT; });
+  after(async () => {
+    if (ORIGINAL_DATA_ROOT === undefined) delete process.env.DATA_ROOT;
+    else process.env.DATA_ROOT = ORIGINAL_DATA_ROOT;
+    if (existsSync(TEST_ROOT)) await rm(TEST_ROOT, { recursive: true, force: true });
+  });
+  beforeEach(async () => {
+    if (existsSync(TEST_ROOT)) await rm(TEST_ROOT, { recursive: true, force: true });
+  });
+
+  it('re-records the stage as failed on disk when the orchestrator submission throws', async () => {
+    const orch = await import('../backend/marketing/orchestrator');
+    const { loadMarketingJobRuntime } = await import('../backend/marketing/runtime-state');
+
+    // Inject an execution-port resolver whose runPipeline always throws —
+    // simulates Hermes 5xx during research stage submission. The resolver
+    // matches the MarketingExecutionPort interface; methods other than
+    // runPipeline are stubs that never get called on this code path.
+    const throwingPort = {
+      name: 'hermes' as const,
+      runPipeline: async () => {
+        throw new Error('upstream 503 from Hermes');
+      },
+      resumePipeline: async () => {
+        throw new Error('not used');
+      },
+      submitNextStage: async () => {
+        throw new Error('not used');
+      },
+      getCallbackUrl: () => 'https://example.com/cb',
+      getSessionKey: () => 'test-session',
+      submitRawRun: async () => {
+        throw new Error('not used');
+      },
+    };
+    orch.__setMarketingExecutionPortForTests(() => throwingPort as never);
+
+    await writeFailedResearchDoc('job_persist_failure');
+    const result = await orch.retryFailedResearchStage('job_persist_failure');
+    assert.equal(result.ok, false);
+    if (result.ok === false) {
+      assert.equal(result.reason, 'execution_failed');
+      assert.match(result.message, /upstream 503/);
+    }
+
+    // The on-disk doc must reflect the re-failure, NOT the transient
+    // queued/pending reset that briefly existed mid-retry.
+    const doc = await loadMarketingJobRuntime('job_persist_failure');
+    assert.ok(doc);
+    assert.equal(doc.state, 'failed', 'doc.state must reflect the new failure, not the transient queued reset');
+    assert.equal(doc.status, 'failed');
+    assert.equal(doc.current_stage, 'research');
+    assert.ok(doc.last_error, 'last_error must point at the new failure');
+    assert.equal(doc.last_error?.stage, 'research');
+    assert.equal(doc.last_error?.code, 'marketing_retry_research_failed');
+    assert.equal(doc.stages.research.status, 'failed');
+
+    orch.__setMarketingExecutionPortForTests(null);
+  });
+});
+
 // --- Permission helper isolation test --------------------------------------
 
 describe('evaluateRetryPermission', () => {

@@ -52,9 +52,12 @@ export async function handleRetryResearchStage(
   }
 
   // Load the doc once to authorize the request before calling the orchestrator.
-  // The orchestrator's retryFailedResearchStage re-loads under its own lock so
-  // there's no shared mutable state here — this load is purely for the tenant
-  // and permission check.
+  // This load is purely for the tenant + role permission check. The
+  // orchestrator's retryFailedResearchStage re-loads the doc to operate on
+  // a fresh copy; there is NO runtime-doc lock in this codebase (only
+  // approval-checkpoint locks elsewhere). A concurrent retry from two tabs
+  // is rare and the worst case is one of them ends up as a no-op against an
+  // already-reset stage record — both clients hard-reload either way.
   const doc = await loadMarketingJobRuntime(jobId);
   if (!doc) {
     return NextResponse.json(

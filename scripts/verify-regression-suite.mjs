@@ -105,6 +105,7 @@ const steps = [
       'tests/marketing/list-deleted-campaigns-bounded-parallel.test.ts',
       'tests/marketing/review-queue-skips-failed-jobs.test.ts',
       'tests/marketing/strategy-review-summary-no-objective-fallback.test.ts',
+      'tests/marketing-job-retry-research.test.ts',
     ],
   },
   {

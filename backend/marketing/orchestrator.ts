@@ -1646,7 +1646,28 @@ export async function retryFailedResearchStage(jobId: string): Promise<RetryRese
     await runResearchStage(doc);
     return { ok: true, jobId: doc.job_id, status: 'submitted' };
   } catch (error) {
+    if (error instanceof MarketingJobCancelledError) {
+      // An intentional soft-cancel between reset and stage entry. The cancel
+      // path already wrote the cancelled state — surface as execution_failed
+      // with a clear message but DON'T overwrite with a synthetic failure.
+      return {
+        ok: false,
+        reason: 'execution_failed',
+        message: 'Retry submission was cancelled before research could start.',
+      };
+    }
+    // CRITICAL: reset already flipped doc.state to 'queued' and persisted. If
+    // runResearchStage throws (Hermes 5xx, network drop, etc.) without
+    // recording a failure of its own, the on-disk doc would look "queued" and
+    // mislead the dashboard into showing the campaign as in-flight. Re-record
+    // the failure on the same stage so state/status/last_error stay truthful.
     const message = error instanceof Error ? error.message : String(error);
+    recordStageFailure(doc, 'research', {
+      code: 'marketing_retry_research_failed',
+      message,
+      retryable: true,
+    });
+    saveMarketingJobRuntime(doc.job_id, doc);
     return {
       ok: false,
       reason: 'execution_failed',
