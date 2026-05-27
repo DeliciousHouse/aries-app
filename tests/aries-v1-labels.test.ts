@@ -147,16 +147,46 @@ test('connectionStateBadgeStatus connection_pending does NOT render as "accepted
   assert.notEqual(connectionStateBadgeStatus('connection_pending'), 'accepted');
 });
 
-test('connectionStateBadgeStatus covers every value in the runtime enum', () => {
-  // If a new connection_state value lands in the type without a switch case,
-  // this loop will fail because the value won't be one of the expected badge
-  // statuses (the default branch returns 'unknown', which counts as covered,
-  // but adding a value still requires picking a real badge intentionally).
+// Per-value expected mapping. New connection_state values added to the
+// runtime enum MUST be added here too, or the exhaustiveness test below fails.
+// This is stricter than checking "is the result in the allowed set" — the
+// default branch returns 'unknown', so a missing case would silently pass an
+// allowed-set check. Pinning each value to its exact expected badge means a
+// future enum widening forces the contributor to make an intentional choice.
+const EXPECTED_CONNECTION_BADGE: Record<integration_connection_state, string> = {
+  connected: 'completed',
+  reauth_required: 'required',
+  connection_error: 'error',
+  disabled: 'error',
+  connection_pending: 'in_progress',
+  not_connected: 'unknown',
+};
+
+test('connectionStateBadgeStatus has an explicit mapping for every runtime enum value', () => {
   for (const state of integration_connection_state_values as readonly integration_connection_state[]) {
-    const badge = connectionStateBadgeStatus(state as never);
+    const expected = EXPECTED_CONNECTION_BADGE[state];
     assert.ok(
-      ['completed', 'required', 'error', 'in_progress', 'unknown'].includes(badge as string),
-      `connection_state="${state}" mapped to unexpected badge "${badge}"`,
+      expected !== undefined,
+      `connection_state="${state}" has no entry in EXPECTED_CONNECTION_BADGE — add one above to declare the intended badge.`,
+    );
+    const actual = connectionStateBadgeStatus(state as never);
+    assert.equal(
+      actual,
+      expected,
+      `connection_state="${state}" mapped to "${actual}" but EXPECTED_CONNECTION_BADGE declares "${expected}"`,
+    );
+  }
+});
+
+test('EXPECTED_CONNECTION_BADGE has no orphan entries (every key is a real enum value)', () => {
+  // Reverse direction: every entry in EXPECTED_CONNECTION_BADGE must be a
+  // real runtime enum value. Catches the case where someone deletes an enum
+  // value from the union but forgets to remove the test pin.
+  const runtimeValues = new Set(integration_connection_state_values as readonly string[]);
+  for (const key of Object.keys(EXPECTED_CONNECTION_BADGE)) {
+    assert.ok(
+      runtimeValues.has(key),
+      `EXPECTED_CONNECTION_BADGE has key "${key}" but it's not in integration_connection_state_values — stale test pin?`,
     );
   }
 });

@@ -8,7 +8,7 @@
  * branch that title-cases the raw string. The fallback exists to avoid rendering
  * `undefined` or `[object Object]` if the backend ever emits a value before the
  * frontend type catches up — pin every new value with a test in
- * `tests/frontend/aries-v1-labels.test.ts`.
+ * `tests/aries-v1-labels.test.ts`.
  */
 import type { AriesCampaignStatus, AriesItemStatus } from '@/lib/api/aries-v1';
 
@@ -85,10 +85,15 @@ const ITEM_STATUS_LABELS: Record<string, string> = {
  * "published to meta (paused)" instead of "Published to Meta (Paused)".
  */
 export function formatCampaignStatusLabel(status: string): string {
-  if (status in CAMPAIGN_STATUS_LABELS) {
+  // Use Object.hasOwn (not `in`) so inherited Object.prototype keys like
+  // 'toString', '__proto__', or 'constructor' can't accidentally route through
+  // the label-map and return a non-string. A raw `in` check would resolve those
+  // names against the prototype chain and index into the map, returning
+  // undefined or a method reference.
+  if (Object.hasOwn(CAMPAIGN_STATUS_LABELS, status)) {
     return CAMPAIGN_STATUS_LABELS[status as AriesCampaignStatus];
   }
-  if (status in ITEM_STATUS_LABELS) {
+  if (Object.hasOwn(ITEM_STATUS_LABELS, status)) {
     return ITEM_STATUS_LABELS[status];
   }
   return titleCaseRawStatus(status);
