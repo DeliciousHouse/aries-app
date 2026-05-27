@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.12.13 — feat(marketing): auto-schedule approved posts in autonomous mode with per-brand + per-platform + per-timezone timing
+
+A fresh one-off campaign on aries.sugarandleather.com after v0.1.12.12 completed all four pipeline stages cleanly (research → strategy → production → publish, 14 min 30 s total, 7 posts × 2 platforms = 14 approved post rows). But `scheduled_at` was NULL on every post and `scheduled_posts` had zero rows: scheduling was by-design manual via drag-to-Calendar, even though every other approval gate self-fires in autonomous mode (`ARIES_AUTO_APPROVE_MARKETING_PIPELINE=1`). The pipeline stopped one click short of the goal.
+
+This release closes the gap with a real, marketing-backed, per-brand + per-platform + per-timezone auto-scheduler that fires on publish-stage completion only when autonomous mode is enabled.
+
+**Per-brand timing.** Hermes's strategist agent already emits `weekly_schedule[].recommended_day` per post, derived from the brand voice + target audience analysis it runs upstream. The scheduler uses that day verbatim instead of overwriting the strategist's editorial intent with generic noise. This is the only brand-aware signal the pipeline produces today; trusting it preserves whatever audience-segment reasoning Hermes did.
+
+**Per-platform timing.** Within the recommended day, the scheduler picks an hour-of-day from `PLATFORM_POSTING_DEFAULTS`: Instagram 11:00, Facebook 13:00+5min stagger (effective 13:05). Both values are tenant-local. The defaults are aggregated from the most-cited public 2024-25 social posting research (Sprout Social annual report, Later's "best time to post" study, Hootsuite Q4 2024 benchmarks) — single-hour peaks of median engagement across tracked B2C verticals. The 5-minute Facebook offset is deliberate: it keeps a single brief targeting both platforms from landing at a duplicate minute, which Meta's spam heuristics flag as burst posting.
+
+**Per-timezone correctness.** Every wall-clock value flows through `wallTimeToUtc` (DST-safe, IANA-zone aware) anchored to the tenant's business timezone from `business_profile.timezone`. Tenants without a configured timezone fall back to `DEFAULT_TENANT_TIMEZONE` ('America/New_York'). The test suite pins this: a Monday 11:00 Instagram post in `Asia/Tokyo` lands at 02:00 UTC, not the 15:00 UTC you'd get in America/New_York DST.
+
+**Campaign window enforcement.** Derived timestamps are clamped inside `[max(now, campaign_start), campaign_end]`. Posts whose recommended day already passed in the current week fall forward to the next occurrence inside the window. Posts whose recommended day never falls inside a very short window (e.g. a 2-day Monday-Tuesday campaign that wanted Sunday) fall back to the first available day rather than being silently dropped. A closed-or-empty window returns every row as skipped with a typed reason.
+
+**New backend.** `backend/marketing/auto-schedule.ts` exports:
+- `PLATFORM_POSTING_DEFAULTS` — the citation block above lives here so future override layers stay one read away from the rationale.
+- `computeAutoScheduleSlots(input)` — pure function with no DB, no clock, no env reads. Deterministic given inputs.
+- `autoSchedulePosts(input)` — wraps the pure function with `upsertScheduledPost` writes. Per-row upsert failures are collected and returned; one post failing must not block siblings from being scheduled.
+
+**Wiring.** `synthesizePublishPostsOnCompletion` in `backend/marketing/hermes-callbacks.ts` now calls `autoScheduleApprovedPostsForJob` after synthesis succeeds, behind `isAutoApproveMarketingPipelineEnabled()`. Reads `weekly_schedule[]` for the strategist's per-post `recommended_day`, joins against the synthesized post rows by ordinal, resolves tenant timezone via `getBusinessProfile`, and bulk-upserts. The whole step is wrapped in a try/catch — a schedule failure must never roll back synthesis. One audit log line records `{scheduled, skipped, errors}` for dispatcher correlation.
+
+**Tests.** 16 new tests in `tests/marketing-auto-schedule.test.ts` pin the platform defaults, the per-platform staggering (2h gap minimum for same-day IG+FB), the per-day routing (different recommended_days land on different calendar dates), the past-day fall-forward, the missing-day fallback, the per-timezone correctness (Tokyo vs New York), the campaign-window clamping (no past timestamps, no over-end timestamps, no schedules on a closed window), unsupported-platform skipping with typed reasons, and the DB writer's per-row error isolation. Added to `scripts/verify-regression-suite.mjs` so CI exercises them on every PR.
+
+**Scope guard.** Gated behind the autonomous flag so human-approval tenants keep the legacy "approve, then place on Calendar" flow. The synthesized posts in human-approval tenants still get `status='approved'`, just without `scheduled_at` — operator still drags them to the Calendar manually.
+
+**Out of scope (this PR).** Per-tenant override of platform windows (would be a `posting_strategy` field on `business_profile`; defaults are the v1 floor). Reschedule on brief edit / regenerate. Performance-data-driven re-ranking (no historical engagement signal exists yet on this deployment).
+
 ## v0.1.12.12 — fix(ops): bump HERMES_RUN_TIMEOUT_MS 600s → 1200s to match real production-stage cost
 
 `/api/marketing/jobs/<id>/retry-research` succeeded in v0.1.12.11 on `mkt_3e04f5d1` and the pipeline progressed: research finished in ~2 min, strategy in ~1 min, and production submitted to the Hermes content-generator (port 8655). Then **Aries timed out at exactly 600s and recorded `hermes_gateway_timeout`** — but checking the Hermes gateway directly proved this was a false alarm. The completed run `run_2d0516acfd10425fb5a64f489aef71d3` was sitting in Hermes at `status=completed` with all 7 content posts, all 7 generated image files (cached on disk at `~/.hermes/profiles/aries-content-generator/cache/images/openai_codex_gpt-image-2-low_20260527_19*.png`), and a pending `approve_publish` checkpoint pointing at Aries marketing approval id `mkta_2257fdb2-4c08-4e5f-8c7b-1bfa0446252a` (the `mkta_*` prefix is the Aries approval_id format from `backend/marketing/approval-store.ts`, separate from the Hermes provider `resume_token` that gets carried alongside it). The end-to-end production duration was **10 min 39 s**. Aries fired the timeout 38 seconds before Hermes returned.

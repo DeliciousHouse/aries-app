@@ -35,6 +35,8 @@ import { approveMarketingJob } from './orchestrator';
 import type { ApproveMarketingJobRequest, ApproveMarketingJobResponse } from './orchestrator';
 import { ingestProductionCreativeAssetsToDb } from './ingest-production-assets';
 import { synthesizePublishPostsFromContentPackage } from './synthesize-publish-posts';
+import { autoSchedulePosts } from './auto-schedule';
+import { getBusinessProfile } from '@/backend/tenant/business-profile';
 import { pool } from '@/lib/db';
 
 const STAGE_ORDER: MarketingStage[] = ['research', 'strategy', 'production', 'publish'];
@@ -1295,6 +1297,167 @@ async function synthesizePublishPostsOnCompletion(
       jobId: doc.job_id,
       error: (err as Error)?.message ?? String(err),
     });
+  }
+
+  // Autonomous mode (ARIES_AUTO_APPROVE_MARKETING_PIPELINE) auto-fires every
+  // approval gate in the pipeline. Without an auto-schedule step here, the
+  // operator is left with N approved-but-unscheduled posts and a manual
+  // drag-to-Calendar step — inconsistent with the rest of autonomous mode and
+  // exactly where slice-A QA paused. Gated behind the same flag so
+  // human-approval tenants keep the legacy "approve, then place on Calendar"
+  // flow. Best-effort — a schedule failure must NOT undo synthesis.
+  if (isAutoApproveMarketingPipelineEnabled()) {
+    try {
+      await autoScheduleApprovedPostsForJob(doc);
+    } catch (err) {
+      console.warn('[hermes-callbacks] autoSchedulePosts failed — continuing', {
+        jobId: doc.job_id,
+        error: (err as Error)?.message ?? String(err),
+      });
+    }
+  }
+}
+
+/**
+ * Read the autonomous-mode flag the same way the rest of the callback handler
+ * already does (any of 1/true/yes/on enables it). Lives here because pulling
+ * a shared helper from runtime-state would create a circular import path.
+ */
+function isAutoApproveMarketingPipelineEnabled(): boolean {
+  const raw = (process.env.ARIES_AUTO_APPROVE_MARKETING_PIPELINE ?? '').trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+}
+
+/**
+ * Join the synthesized `posts` rows for this job against the publish-stage
+ * `weekly_schedule[]` to pull the strategist's per-post `recommended_day`,
+ * then hand off to `autoSchedulePosts` for slot computation + DB upsert.
+ * Returns nothing on success; logs a one-line audit summary so the dispatcher
+ * can correlate ingest with the scheduled-posts-worker pickup.
+ */
+async function autoScheduleApprovedPostsForJob(doc: MarketingJobRuntimeDocument): Promise<void> {
+  const tenantNum = Number(doc.tenant_id);
+  if (!Number.isFinite(tenantNum) || tenantNum <= 0) return;
+
+  const weeklySchedule = readWeeklySchedule(doc);
+  if (weeklySchedule.length === 0) {
+    console.info('[hermes-callbacks] autoSchedulePosts skipped — no weekly_schedule', { jobId: doc.job_id });
+    return;
+  }
+
+  const campaignWindow = readCampaignWindow(doc);
+  if (!campaignWindow) {
+    console.info('[hermes-callbacks] autoSchedulePosts skipped — no campaign window', { jobId: doc.job_id });
+    return;
+  }
+
+  const postRows = await pool.query<{ id: number; platform: string }>(
+    `SELECT id, platform FROM posts WHERE job_id = $1 AND tenant_id = $2`,
+    [doc.job_id, tenantNum],
+  );
+  if (postRows.rowCount === 0) {
+    console.info('[hermes-callbacks] autoSchedulePosts skipped — no posts yet', { jobId: doc.job_id });
+    return;
+  }
+
+  // Build (postId, platform, recommendedDay) tuples by walking the
+  // weeklySchedule and matching by post_number ordinal. The synthesized posts
+  // are inserted in weekly_schedule order so the join by ordinal is stable.
+  const dayByPlatformByOrdinal = new Map<number, Map<string, string | null>>();
+  weeklySchedule.forEach((entry, idx) => {
+    const ordinal = typeof entry.post_number === 'number' ? entry.post_number : idx + 1;
+    const platformMap = new Map<string, string | null>();
+    for (const target of entry.platform_targets ?? []) {
+      const platformKey = String(target.platform || '').trim().toLowerCase();
+      if (platformKey) {
+        platformMap.set(platformKey, entry.recommended_day ?? null);
+      }
+    }
+    dayByPlatformByOrdinal.set(ordinal, platformMap);
+  });
+
+  // Use the post ID order as a proxy for post_number (synthesis writes in
+  // weekly_schedule order, so this is stable). Group platforms per post.
+  const postsByPlatform: Array<{ id: number; platform: string; ordinal: number }> = postRows.rows.map(
+    (row, idx) => ({
+      id: row.id,
+      platform: row.platform,
+      ordinal: 1 + Math.floor(idx / 2), // two platforms per content_package entry
+    }),
+  );
+
+  const tenantTimezone = await readTenantTimezone(tenantNum);
+
+  const rows = postsByPlatform.map((post) => ({
+    postId: post.id,
+    platform: post.platform,
+    recommendedDay: dayByPlatformByOrdinal.get(post.ordinal)?.get(post.platform.toLowerCase()) ?? null,
+  }));
+
+  const result = await autoSchedulePosts({
+    jobId: doc.job_id,
+    tenantId: tenantNum,
+    tenantTimezone,
+    campaignStart: campaignWindow.start,
+    campaignEnd: campaignWindow.end,
+    rows,
+    queryable: pool,
+  });
+
+  console.info('[hermes-callbacks] autoSchedulePosts completed', {
+    jobId: doc.job_id,
+    scheduled: result.scheduled,
+    skipped: result.skipped,
+    errors: result.errors.length,
+  });
+}
+
+interface WeeklyScheduleEntry {
+  post_number?: number;
+  recommended_day?: string | null;
+  platform_targets?: Array<{ platform?: string }>;
+}
+
+function readWeeklySchedule(doc: MarketingJobRuntimeDocument): WeeklyScheduleEntry[] {
+  const primary = doc.stages?.publish?.primary_output;
+  const ws = primary && typeof primary === 'object' && 'weekly_schedule' in primary
+    ? (primary as { weekly_schedule?: unknown }).weekly_schedule
+    : null;
+  return Array.isArray(ws) ? (ws as WeeklyScheduleEntry[]) : [];
+}
+
+function readCampaignWindow(doc: MarketingJobRuntimeDocument): { start: Date; end: Date } | null {
+  // Start: the marketing job's created_at. End: the one_off campaignEndDate
+  // when present, else fall back to start + 14 days (matches the
+  // legacy weekly window). Returns null if neither can be parsed.
+  const start = doc.created_at ? new Date(doc.created_at) : null;
+  if (!start || !Number.isFinite(start.getTime())) return null;
+  const request = doc.inputs?.request as { oneOff?: { campaignEndDate?: string } } | undefined;
+  const endRaw = request?.oneOff?.campaignEndDate;
+  if (endRaw) {
+    const end = new Date(endRaw);
+    if (Number.isFinite(end.getTime()) && end > start) {
+      return { start, end };
+    }
+  }
+  return { start, end: new Date(start.getTime() + 14 * 24 * 3600 * 1000) };
+}
+
+async function readTenantTimezone(tenantId: number): Promise<string | null> {
+  try {
+    const client = await pool.connect();
+    try {
+      const profile = await getBusinessProfile(client, String(tenantId));
+      return profile.timezone || null;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.warn('[hermes-callbacks] readTenantTimezone failed — using default', {
+      tenantId,
+      error: (err as Error)?.message ?? String(err),
+    });
+    return null;
   }
 }
 
