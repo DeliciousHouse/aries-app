@@ -35,6 +35,8 @@ import { approveMarketingJob } from './orchestrator';
 import type { ApproveMarketingJobRequest, ApproveMarketingJobResponse } from './orchestrator';
 import { ingestProductionCreativeAssetsToDb } from './ingest-production-assets';
 import { synthesizePublishPostsFromContentPackage } from './synthesize-publish-posts';
+import { autoSchedulePosts } from './auto-schedule';
+import { getBusinessProfile } from '@/backend/tenant/business-profile';
 import { pool } from '@/lib/db';
 
 const STAGE_ORDER: MarketingStage[] = ['research', 'strategy', 'production', 'publish'];
@@ -1295,6 +1297,193 @@ async function synthesizePublishPostsOnCompletion(
       jobId: doc.job_id,
       error: (err as Error)?.message ?? String(err),
     });
+  }
+
+  // Autonomous mode (ARIES_AUTO_APPROVE_MARKETING_PIPELINE) auto-fires every
+  // approval gate in the pipeline. Without an auto-schedule step here, the
+  // operator is left with N approved-but-unscheduled posts and a manual
+  // drag-to-Calendar step — inconsistent with the rest of autonomous mode and
+  // exactly where slice-A QA paused. Gated behind the same flag so
+  // human-approval tenants keep the legacy "approve, then place on Calendar"
+  // flow. Best-effort — a schedule failure must NOT undo synthesis.
+  if (autoApproveMarketingPipelineEnabled()) {
+    try {
+      await autoScheduleApprovedPostsForJob(doc);
+    } catch (err) {
+      console.warn('[hermes-callbacks] autoSchedulePosts failed — continuing', {
+        jobId: doc.job_id,
+        error: (err as Error)?.message ?? String(err),
+      });
+    }
+  }
+}
+
+/**
+ * Join the synthesized `posts` rows for this job against the publish-stage
+ * `weekly_schedule[]` to pull the strategist's per-post `recommended_day`,
+ * then hand off to `autoSchedulePosts` for slot computation + DB upsert.
+ * Returns nothing on success; logs a one-line audit summary so the dispatcher
+ * can correlate ingest with the scheduled-posts-worker pickup.
+ *
+ * Join key: `posts.idempotency_key` of the form `${jobId}:${postNumber}:${platform}`
+ * (built by `synthesize-publish-posts.ts:353`). Parsing the post_number out of
+ * the key is the only way to deterministically match a post row back to its
+ * `weekly_schedule[]` entry — using SELECT row order would silently break for
+ * any package with uneven platform fan-out (e.g. post 1 = [IG, FB], post 2 =
+ * [IG only] would mis-ordinal the third row).
+ */
+async function autoScheduleApprovedPostsForJob(doc: MarketingJobRuntimeDocument): Promise<void> {
+  const tenantNum = Number(doc.tenant_id);
+  if (!Number.isFinite(tenantNum) || tenantNum <= 0) return;
+
+  const weeklySchedule = readWeeklySchedule(doc);
+  if (weeklySchedule.length === 0) {
+    console.info('[hermes-callbacks] autoSchedulePosts skipped — no weekly_schedule', { jobId: doc.job_id });
+    return;
+  }
+
+  const campaignWindow = readCampaignWindow(doc);
+  if (!campaignWindow) {
+    console.info('[hermes-callbacks] autoSchedulePosts skipped — no campaign window', { jobId: doc.job_id });
+    return;
+  }
+
+  // Include idempotency_key so we can recover the strategist-assigned
+  // post_number regardless of insert order. ORDER BY id is added for stable
+  // logging output even though the ordinal mapping does not depend on it.
+  const postRows = await pool.query<{ id: number; platform: string; idempotency_key: string | null }>(
+    `SELECT id, platform, idempotency_key
+       FROM posts
+      WHERE job_id = $1 AND tenant_id = $2
+      ORDER BY id`,
+    [doc.job_id, tenantNum],
+  );
+  if (postRows.rowCount === 0) {
+    console.info('[hermes-callbacks] autoSchedulePosts skipped — no posts yet', { jobId: doc.job_id });
+    return;
+  }
+
+  // Map post_number → (platform → recommendedDay) using the strategist's
+  // weekly_schedule output. Falls back to (idx + 1) when the strategist
+  // omitted an explicit post_number, matching how synthesize-publish-posts
+  // assigns ordinals when the field is missing.
+  const dayByPlatformByOrdinal = new Map<number, Map<string, string | null>>();
+  weeklySchedule.forEach((entry, idx) => {
+    const ordinal = typeof entry.post_number === 'number' ? entry.post_number : idx + 1;
+    const platformMap = new Map<string, string | null>();
+    for (const target of entry.platform_targets ?? []) {
+      const platformKey = String(target.platform || '').trim().toLowerCase();
+      if (platformKey) {
+        platformMap.set(platformKey, entry.recommended_day ?? null);
+      }
+    }
+    dayByPlatformByOrdinal.set(ordinal, platformMap);
+  });
+
+  const tenantTimezone = await readTenantTimezone(tenantNum);
+
+  const rows = postRows.rows
+    .map((row) => {
+      const ordinal = parsePostNumberFromIdempotencyKey(row.idempotency_key, doc.job_id);
+      if (ordinal === null) {
+        console.warn(
+          '[hermes-callbacks] autoSchedulePosts skipping row with unparseable idempotency_key',
+          { jobId: doc.job_id, postId: row.id, idempotencyKey: row.idempotency_key },
+        );
+        return null;
+      }
+      return {
+        postId: row.id,
+        platform: row.platform,
+        recommendedDay:
+          dayByPlatformByOrdinal.get(ordinal)?.get(row.platform.toLowerCase()) ?? null,
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => row !== null);
+
+  const result = await autoSchedulePosts({
+    jobId: doc.job_id,
+    tenantId: tenantNum,
+    tenantTimezone,
+    campaignStart: campaignWindow.start,
+    campaignEnd: campaignWindow.end,
+    rows,
+    queryable: pool,
+  });
+
+  console.info('[hermes-callbacks] autoSchedulePosts completed', {
+    jobId: doc.job_id,
+    scheduled: result.scheduled,
+    skipped: result.skipped,
+    errors: result.errors.length,
+  });
+}
+
+interface WeeklyScheduleEntry {
+  post_number?: number;
+  recommended_day?: string | null;
+  platform_targets?: Array<{ platform?: string }>;
+}
+
+function readWeeklySchedule(doc: MarketingJobRuntimeDocument): WeeklyScheduleEntry[] {
+  const primary = doc.stages?.publish?.primary_output;
+  const ws = primary && typeof primary === 'object' && 'weekly_schedule' in primary
+    ? (primary as { weekly_schedule?: unknown }).weekly_schedule
+    : null;
+  return Array.isArray(ws) ? (ws as WeeklyScheduleEntry[]) : [];
+}
+
+function readCampaignWindow(doc: MarketingJobRuntimeDocument): { start: Date; end: Date } | null {
+  // Start: the marketing job's created_at. End: the one_off campaignEndDate
+  // when present, else fall back to start + 14 days (matches the
+  // legacy weekly window). Returns null if neither can be parsed.
+  const start = doc.created_at ? new Date(doc.created_at) : null;
+  if (!start || !Number.isFinite(start.getTime())) return null;
+  const request = doc.inputs?.request as { oneOff?: { campaignEndDate?: string } } | undefined;
+  const endRaw = request?.oneOff?.campaignEndDate;
+  if (endRaw) {
+    const end = new Date(endRaw);
+    if (Number.isFinite(end.getTime()) && end > start) {
+      return { start, end };
+    }
+  }
+  return { start, end: new Date(start.getTime() + 14 * 24 * 3600 * 1000) };
+}
+
+/**
+ * Recover the strategist's `post_number` from a synthesized `posts.idempotency_key`
+ * built as `${jobId}:${postNumber}:${platform}` by `synthesize-publish-posts.ts:353`.
+ * Returns null on null/malformed input — the caller logs a warning and skips
+ * that row rather than mis-mapping its `recommended_day`.
+ */
+function parsePostNumberFromIdempotencyKey(key: string | null, jobId: string): number | null {
+  if (!key) return null;
+  const prefix = `${jobId}:`;
+  if (!key.startsWith(prefix)) return null;
+  const tail = key.slice(prefix.length);
+  const colonIdx = tail.indexOf(':');
+  if (colonIdx < 1) return null;
+  const numberPart = tail.slice(0, colonIdx);
+  const parsed = Number(numberPart);
+  if (!Number.isFinite(parsed) || parsed <= 0 || Math.floor(parsed) !== parsed) return null;
+  return parsed;
+}
+
+async function readTenantTimezone(tenantId: number): Promise<string | null> {
+  try {
+    const client = await pool.connect();
+    try {
+      const profile = await getBusinessProfile(client, String(tenantId));
+      return profile.timezone || null;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.warn('[hermes-callbacks] readTenantTimezone failed — using default', {
+      tenantId,
+      error: (err as Error)?.message ?? String(err),
+    });
+    return null;
   }
 }
 
