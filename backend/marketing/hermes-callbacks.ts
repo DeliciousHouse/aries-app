@@ -1306,7 +1306,7 @@ async function synthesizePublishPostsOnCompletion(
   // exactly where slice-A QA paused. Gated behind the same flag so
   // human-approval tenants keep the legacy "approve, then place on Calendar"
   // flow. Best-effort — a schedule failure must NOT undo synthesis.
-  if (isAutoApproveMarketingPipelineEnabled()) {
+  if (autoApproveMarketingPipelineEnabled()) {
     try {
       await autoScheduleApprovedPostsForJob(doc);
     } catch (err) {
@@ -1319,21 +1319,18 @@ async function synthesizePublishPostsOnCompletion(
 }
 
 /**
- * Read the autonomous-mode flag the same way the rest of the callback handler
- * already does (any of 1/true/yes/on enables it). Lives here because pulling
- * a shared helper from runtime-state would create a circular import path.
- */
-function isAutoApproveMarketingPipelineEnabled(): boolean {
-  const raw = (process.env.ARIES_AUTO_APPROVE_MARKETING_PIPELINE ?? '').trim().toLowerCase();
-  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
-}
-
-/**
  * Join the synthesized `posts` rows for this job against the publish-stage
  * `weekly_schedule[]` to pull the strategist's per-post `recommended_day`,
  * then hand off to `autoSchedulePosts` for slot computation + DB upsert.
  * Returns nothing on success; logs a one-line audit summary so the dispatcher
  * can correlate ingest with the scheduled-posts-worker pickup.
+ *
+ * Join key: `posts.idempotency_key` of the form `${jobId}:${postNumber}:${platform}`
+ * (built by `synthesize-publish-posts.ts:353`). Parsing the post_number out of
+ * the key is the only way to deterministically match a post row back to its
+ * `weekly_schedule[]` entry — using SELECT row order would silently break for
+ * any package with uneven platform fan-out (e.g. post 1 = [IG, FB], post 2 =
+ * [IG only] would mis-ordinal the third row).
  */
 async function autoScheduleApprovedPostsForJob(doc: MarketingJobRuntimeDocument): Promise<void> {
   const tenantNum = Number(doc.tenant_id);
@@ -1351,8 +1348,14 @@ async function autoScheduleApprovedPostsForJob(doc: MarketingJobRuntimeDocument)
     return;
   }
 
-  const postRows = await pool.query<{ id: number; platform: string }>(
-    `SELECT id, platform FROM posts WHERE job_id = $1 AND tenant_id = $2`,
+  // Include idempotency_key so we can recover the strategist-assigned
+  // post_number regardless of insert order. ORDER BY id is added for stable
+  // logging output even though the ordinal mapping does not depend on it.
+  const postRows = await pool.query<{ id: number; platform: string; idempotency_key: string | null }>(
+    `SELECT id, platform, idempotency_key
+       FROM posts
+      WHERE job_id = $1 AND tenant_id = $2
+      ORDER BY id`,
     [doc.job_id, tenantNum],
   );
   if (postRows.rowCount === 0) {
@@ -1360,9 +1363,10 @@ async function autoScheduleApprovedPostsForJob(doc: MarketingJobRuntimeDocument)
     return;
   }
 
-  // Build (postId, platform, recommendedDay) tuples by walking the
-  // weeklySchedule and matching by post_number ordinal. The synthesized posts
-  // are inserted in weekly_schedule order so the join by ordinal is stable.
+  // Map post_number → (platform → recommendedDay) using the strategist's
+  // weekly_schedule output. Falls back to (idx + 1) when the strategist
+  // omitted an explicit post_number, matching how synthesize-publish-posts
+  // assigns ordinals when the field is missing.
   const dayByPlatformByOrdinal = new Map<number, Map<string, string | null>>();
   weeklySchedule.forEach((entry, idx) => {
     const ordinal = typeof entry.post_number === 'number' ? entry.post_number : idx + 1;
@@ -1376,23 +1380,26 @@ async function autoScheduleApprovedPostsForJob(doc: MarketingJobRuntimeDocument)
     dayByPlatformByOrdinal.set(ordinal, platformMap);
   });
 
-  // Use the post ID order as a proxy for post_number (synthesis writes in
-  // weekly_schedule order, so this is stable). Group platforms per post.
-  const postsByPlatform: Array<{ id: number; platform: string; ordinal: number }> = postRows.rows.map(
-    (row, idx) => ({
-      id: row.id,
-      platform: row.platform,
-      ordinal: 1 + Math.floor(idx / 2), // two platforms per content_package entry
-    }),
-  );
-
   const tenantTimezone = await readTenantTimezone(tenantNum);
 
-  const rows = postsByPlatform.map((post) => ({
-    postId: post.id,
-    platform: post.platform,
-    recommendedDay: dayByPlatformByOrdinal.get(post.ordinal)?.get(post.platform.toLowerCase()) ?? null,
-  }));
+  const rows = postRows.rows
+    .map((row) => {
+      const ordinal = parsePostNumberFromIdempotencyKey(row.idempotency_key, doc.job_id);
+      if (ordinal === null) {
+        console.warn(
+          '[hermes-callbacks] autoSchedulePosts skipping row with unparseable idempotency_key',
+          { jobId: doc.job_id, postId: row.id, idempotencyKey: row.idempotency_key },
+        );
+        return null;
+      }
+      return {
+        postId: row.id,
+        platform: row.platform,
+        recommendedDay:
+          dayByPlatformByOrdinal.get(ordinal)?.get(row.platform.toLowerCase()) ?? null,
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => row !== null);
 
   const result = await autoSchedulePosts({
     jobId: doc.job_id,
@@ -1441,6 +1448,25 @@ function readCampaignWindow(doc: MarketingJobRuntimeDocument): { start: Date; en
     }
   }
   return { start, end: new Date(start.getTime() + 14 * 24 * 3600 * 1000) };
+}
+
+/**
+ * Recover the strategist's `post_number` from a synthesized `posts.idempotency_key`
+ * built as `${jobId}:${postNumber}:${platform}` by `synthesize-publish-posts.ts:353`.
+ * Returns null on null/malformed input — the caller logs a warning and skips
+ * that row rather than mis-mapping its `recommended_day`.
+ */
+function parsePostNumberFromIdempotencyKey(key: string | null, jobId: string): number | null {
+  if (!key) return null;
+  const prefix = `${jobId}:`;
+  if (!key.startsWith(prefix)) return null;
+  const tail = key.slice(prefix.length);
+  const colonIdx = tail.indexOf(':');
+  if (colonIdx < 1) return null;
+  const numberPart = tail.slice(0, colonIdx);
+  const parsed = Number(numberPart);
+  if (!Number.isFinite(parsed) || parsed <= 0 || Math.floor(parsed) !== parsed) return null;
+  return parsed;
 }
 
 async function readTenantTimezone(tenantId: number): Promise<string | null> {

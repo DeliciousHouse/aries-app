@@ -294,6 +294,39 @@ test('autoSchedulePosts upserts every computed slot via the queryable', async ()
   assert.deepEqual(upsertedRows[1]![3], ['facebook']);
 });
 
+// --- Regression: uneven platform fan-out -------------------------------------
+//
+// Copilot caught a critical bug in the earlier iteration: if a content_package
+// has uneven platform fan-out (post 1 → [IG, FB], post 2 → [IG only]), the
+// row-index-based ordinal `1 + Math.floor(idx/2)` mis-assigns the second IG
+// row to weekly_schedule entry 1, stealing its `recommended_day`. The fix
+// uses `posts.idempotency_key` (which encodes post_number) for the mapping.
+// This test exercises the helper directly via the public input shape so any
+// future refactor that drops the key-based mapping fails loudly.
+
+test('uneven platform fan-out keeps each post mapped to its own recommended_day', () => {
+  // post 1 wants Tuesday on both platforms.
+  // post 2 wants Thursday on Instagram only.
+  // If we accidentally fell back to row-index ordinal math, the second
+  // Instagram row (post 2) would be mapped to ordinal 1 (post 1's Tuesday).
+  const result = computeAutoScheduleSlots({
+    rows: [
+      { postId: 100, platform: 'instagram', recommendedDay: 'Tuesday' }, // post 1 IG
+      { postId: 101, platform: 'facebook', recommendedDay: 'Tuesday' },  // post 1 FB
+      { postId: 102, platform: 'instagram', recommendedDay: 'Thursday' }, // post 2 IG (NOT Tuesday)
+    ],
+    tenantTimezone: TZ_NY,
+    campaignStart: CAMPAIGN_START,
+    campaignEnd: CAMPAIGN_END,
+    now: NOW,
+  });
+  assert.equal(result.slots.length, 3);
+  const dayOf = (d: Date) => d.toISOString().slice(0, 10);
+  assert.equal(dayOf(result.slots[0]!.scheduledFor), '2026-06-02', 'post 1 IG → Tuesday');
+  assert.equal(dayOf(result.slots[1]!.scheduledFor), '2026-06-02', 'post 1 FB → Tuesday');
+  assert.equal(dayOf(result.slots[2]!.scheduledFor), '2026-06-04', 'post 2 IG → Thursday, NOT Tuesday');
+});
+
 test('autoSchedulePosts: per-row upsert failures are collected, do not stop siblings', async () => {
   let callCount = 0;
   const fakeQueryable = {
