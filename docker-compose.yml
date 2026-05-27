@@ -55,9 +55,11 @@ services:
       # `hermes_gateway_timeout` failure even though the content package
       # (including all 7 cached image files) was sitting ready in Hermes.
       # The 120_000 code-default in backend/marketing/ports/hermes.ts is for
-      # synthetic happy-path tests and is unsuitable for real tenants;
-      # docker-compose overrides it for every container. Override via env if
-      # a tenant routinely runs >20 min (e.g. video render workloads).
+      # synthetic happy-path tests and is unsuitable for real tenants. This
+      # compose value overrides the code default for the aries-app service
+      # (the scheduled-posts-worker doesn't talk to Hermes directly so it
+      # doesn't need this knob). Override via env if a tenant routinely runs
+      # >20 min (e.g. video render workloads).
       HERMES_RUN_TIMEOUT_MS: ${HERMES_RUN_TIMEOUT_MS:-1200000}
       HERMES_POLL_INTERVAL_MS: ${HERMES_POLL_INTERVAL_MS:-}
       ARIES_REAPER_ENABLED: ${ARIES_REAPER_ENABLED:-1}
