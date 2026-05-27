@@ -1331,6 +1331,60 @@ export function recordStageFailure(
   return normalized;
 }
 
+/**
+ * Reset a failed stage back to a fresh `not_started` state so the orchestrator
+ * can re-enter it cleanly. Used by the operator-facing "Retry research" path
+ * after a transient upstream failure (e.g. Hermes-side `'NoneType' object is
+ * not iterable`).
+ *
+ * Returns false (no-op) when the stage is NOT in a `failed` state — callers
+ * should check this and surface a 409 rather than silently re-running a stage
+ * that's already in_progress or completed. Per the resumability rule, partial
+ * artifacts on completed sibling stages are preserved; only the failed stage's
+ * record + the top-level error pointers are cleared.
+ */
+export function resetStageForRetry(
+  doc: MarketingJobRuntimeDocument,
+  stage: MarketingStage,
+): boolean {
+  const record = getStageRecord(doc, stage);
+  if (record.status !== 'failed') {
+    return false;
+  }
+
+  // Reset the stage record so the orchestrator sees it as never-started.
+  record.status = 'not_started';
+  record.started_at = null;
+  record.completed_at = null;
+  record.failed_at = null;
+  record.errors = [];
+  record.summary = null;
+  record.primary_output = null;
+  record.outputs = {};
+  record.artifacts = [];
+  record.run_id = null;
+
+  // Clear top-level error pointers if they referenced this stage. Sibling stage
+  // failures (rare, but possible if multiple stages failed in sequence) keep
+  // their own records intact.
+  if (doc.last_error && doc.last_error.stage === stage) {
+    doc.last_error = null;
+  }
+  doc.errors = (doc.errors ?? []).filter((entry) => entry.stage !== stage);
+
+  // Drop the terminal flags so isPipelineActive() returns true again and the
+  // orchestrator can proceed. Matches the fresh-doc initial values: state is
+  // loose-typed and set to 'queued'; status is `MarketingJobStatus` and uses
+  // 'pending' (the pre-running init value). runResearchStage will flip both
+  // to 'running' via setJobRunning() once it picks the stage up.
+  doc.state = 'queued';
+  doc.status = 'pending';
+  doc.current_stage = stage;
+
+  appendHistory(doc, `retry requested for ${stage} stage`, { stage, state: 'queued', status: 'pending' });
+  return true;
+}
+
 export function responseStageStatus(record: MarketingStageRecord): string {
   switch (record.status) {
     case 'not_started':

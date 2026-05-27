@@ -63,6 +63,7 @@ import {
   recordApproval,
   recordApprovalDenied,
   recordStageFailure,
+  resetStageForRetry,
   saveMarketingJobRuntime,
   setJobRunning,
   asRecord,
@@ -1586,6 +1587,93 @@ function handleFailure(
 ): never {
   recordFailure(doc, stage, error);
   throw error;
+}
+
+export type RetryResearchStageResult =
+  | { ok: true; jobId: string; status: 'submitted' | 'running' }
+  | { ok: false; reason: 'not_found' | 'not_failed' | 'wrong_stage' | 'execution_failed'; message: string };
+
+/**
+ * Operator-triggered retry for a research-stage failure. Re-enters
+ * `runResearchStage` after resetting the failed stage record so the
+ * orchestrator sees it as never-started. Used by the "Retry research" UX on the
+ * failed-state campaign workspace — without this affordance the user had no
+ * recovery path except creating a fresh campaign from scratch.
+ *
+ * Per the resumability rule, sibling completed stages keep their artifacts;
+ * only the failed research record + top-level error pointers are cleared. If
+ * Hermes is still down (the upstream NoneType bug, etc.), this will fail again
+ * and the user can keep retrying until upstream is healthy.
+ *
+ * The reset+save+re-run is intentionally sequential so a half-applied reset
+ * never races with the orchestrator. Returns a typed result so the API handler
+ * can map directly to HTTP status codes.
+ */
+export async function retryFailedResearchStage(jobId: string): Promise<RetryResearchStageResult> {
+  const doc = await loadMarketingJobRuntime(jobId);
+  if (!doc) {
+    return { ok: false, reason: 'not_found', message: 'Campaign not found.' };
+  }
+  if (doc.state !== 'failed') {
+    return {
+      ok: false,
+      reason: 'not_failed',
+      message: `Campaign is not in a failed state (state=${doc.state}). Retry is only available for failed campaigns.`,
+    };
+  }
+  if (doc.current_stage !== 'research') {
+    return {
+      ok: false,
+      reason: 'wrong_stage',
+      message: `Retry-research only applies when the research stage failed (current_stage=${doc.current_stage ?? 'none'}).`,
+    };
+  }
+
+  const reset = resetStageForRetry(doc, 'research');
+  if (!reset) {
+    // resetStageForRetry returns false when the stage isn't actually failed —
+    // this can happen if the stage record disagrees with doc.state (concurrent
+    // write between load and reset). Treat as a transient and surface a 409.
+    return {
+      ok: false,
+      reason: 'not_failed',
+      message: 'Research stage is not in a failed state. Refresh and try again.',
+    };
+  }
+  saveMarketingJobRuntime(doc.job_id, doc);
+
+  try {
+    await runResearchStage(doc);
+    return { ok: true, jobId: doc.job_id, status: 'submitted' };
+  } catch (error) {
+    if (error instanceof MarketingJobCancelledError) {
+      // An intentional soft-cancel between reset and stage entry. The cancel
+      // path already wrote the cancelled state — surface as execution_failed
+      // with a clear message but DON'T overwrite with a synthetic failure.
+      return {
+        ok: false,
+        reason: 'execution_failed',
+        message: 'Retry submission was cancelled before research could start.',
+      };
+    }
+    // CRITICAL: reset already flipped doc.state to 'queued' and persisted. If
+    // runResearchStage throws (Hermes 5xx, network drop, etc.) without
+    // recording a failure of its own, the on-disk doc would look "queued" and
+    // mislead the dashboard into showing the campaign as in-flight. Re-record
+    // the failure on the same stage so state/status/last_error stay truthful.
+    const message = error instanceof Error ? error.message : String(error);
+    recordStageFailure(doc, 'research', {
+      code: 'marketing_retry_research_failed',
+      message,
+      retryable: true,
+    });
+    saveMarketingJobRuntime(doc.job_id, doc);
+    return {
+      ok: false,
+      reason: 'execution_failed',
+      message: `Retry submission failed: ${message}`,
+    };
+  }
 }
 
 export async function startMarketingJob(input: StartMarketingJobRequest): Promise<StartMarketingJobResponse> {

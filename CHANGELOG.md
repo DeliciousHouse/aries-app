@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.12.11 — feat(marketing): add Retry-research button for failed campaigns
+
+A failed-state campaign with `current_stage === 'research'` previously gave the operator no recovery affordance — only "Edit brief" was available, forcing the user to abandon the campaign and create a new one from scratch. Hit firsthand on `mkt_3e04f5d1-*` during slice-A QA: Hermes research died with `'NoneType' object is not iterable` and the workspace UI had nothing to click.
+
+**New backend.** `resetStageForRetry(doc, stage)` in `backend/marketing/runtime-state.ts` clears a failed stage record (status → `not_started`, errors → `[]`, run_id/summary/outputs/artifacts wiped) and resets the top-level error pointers (`doc.last_error` only if it referenced this stage; sibling-stage errors stay). The doc returns to `state='queued' status='pending'` so `isPipelineActive()` flips back true. Per the resumability rule, sibling completed stages keep all their artifacts — only the failed stage is reset. Returns `false` (no-op) if the stage isn't actually failed, so callers can surface a 409 instead of silently re-running an in-progress or completed stage.
+
+**New orchestrator entry point.** `retryFailedResearchStage(jobId)` in `backend/marketing/orchestrator.ts` is the public retry API. Loads the doc, validates `state === 'failed' && current_stage === 'research'`, calls `resetStageForRetry`, persists, and re-enters `runResearchStage`. Returns a typed `RetryResearchStageResult` discriminated union (`{ok: true, status: 'submitted'}` or `{ok: false, reason: 'not_found' | 'not_failed' | 'wrong_stage' | 'execution_failed', message}`) so the HTTP handler maps directly to status codes.
+
+**New route.** `POST /api/marketing/jobs/[jobId]/retry-research` enforces the same per-tenant + per-role permission rule as delete/restore (tenant_admin or the original creator). 404 on missing OR cross-tenant (no existence leak), 403 on insufficient role, 409 on wrong-state, 502 on orchestrator submission failure, 200 with `{jobId, retryStatus: 'submitted'}` on success. Invalidates the cached job-status response so the next dashboard fetch sees fresh state.
+
+**New UI.** `RuntimeStatusSurface` in `frontend/aries-v1/campaign-workspace.tsx` conditionally renders a "Recovery → Retry the research stage" `ShellPanel` when `marketing_job_state === 'failed' && marketing_stage === 'research'`. POSTs to the new route, shows an inline error block on failure, hard-reloads the page on success so the next render reflects the resubmitted state.
+
+**Tests.** 9 new tests in `tests/marketing-job-retry-research.test.ts`:
+- `resetStageForRetry` happy path (status reset, errors cleared, history entry recorded)
+- `resetStageForRetry` returns false for non-failed stages (no-op)
+- `resetStageForRetry` preserves sibling-stage completed artifacts (resumability rule)
+- Handler returns 404 on missing job
+- Handler returns 404 (not 403) on cross-tenant — existence leak guard
+- Handler returns 403 for non-admin, non-creator
+- Handler returns 409 with `marketing_job_retry_not_failed` reason when state isn't failed
+- Handler returns 409 with `marketing_job_retry_wrong_stage` reason when failure was on a non-research stage
+- Permission helper unit test for the full matrix (admin / creator / non-creator / cross-tenant / legacy null-creator)
+
+`npm run typecheck` clean, `npm run verify` 38 tests pass.
+
 ## v0.1.12.10 — fix(ui): plug 3 missing enum cases and 2 raw-status display gaps
 
 Five Aries-side polish bugs found by three parallel Explore subagents auditing Posts/Calendar, Results/Campaigns, and Settings/Brand Kit while a slice-A QA campaign was in flight. All five are the same bug class fixed across v0.1.12.3-9: widening-union grep-inequality and state-derived copy that lowercased itself via `.replace('_', ' ')`. Each fix has regression tests pinning the enum-to-label mapping so the next status value to land in the union doesn't silently render as "Accepted" or "Sent" or render with `width: undefined%`.
