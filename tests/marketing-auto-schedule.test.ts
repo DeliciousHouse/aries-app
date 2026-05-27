@@ -7,6 +7,9 @@ import {
   autoSchedulePosts,
   type AutoScheduleInputRow,
 } from '../backend/marketing/auto-schedule';
+import {
+  readWeeklySchedule,
+} from '../backend/marketing/hermes-callbacks';
 
 // All tests inject a frozen `now` so the time math is deterministic regardless
 // of when the suite runs. Campaign window is set generously around `now` so
@@ -369,4 +372,84 @@ test('autoSchedulePosts: per-row upsert failures are collected, do not stop sibl
   assert.equal(result.errors.length, 1);
   assert.equal(result.errors[0]!.postId, 200);
   assert.match(result.errors[0]!.message, /simulated DB error/);
+});
+
+// --- readWeeklySchedule: Hermes wire-shape field-name regression ---------------------------
+//
+// v0.1.12.13 read `primary_output.weekly_schedule` and `entry.platform_targets[].platform`
+// but the actual Hermes wire payload uses `primary_output.schedule` and `entry.platforms`
+// (flat strings). Both shapes must parse to the same recommended_day map.
+
+function makeMinimalDoc(primaryOutput: Record<string, unknown>) {
+  return {
+    schema_name: 'marketing_job_state_schema' as const,
+    schema_version: '1.0.0' as const,
+    job_id: 'mkt_test',
+    tenant_id: '15',
+    job_type: 'one_off_campaign' as const,
+    state: 'active' as const,
+    status: 'running' as const,
+    current_stage: 'publish' as const,
+    stage_order: ['publish' as const],
+    stages: {
+      publish: { primary_output: primaryOutput },
+    } as never,
+    approvals: { current: null, history: [] },
+    publish_config: {} as never,
+    brand_kit: null,
+    inputs: { request: {}, brand_url: '' },
+    created_at: '2026-05-27T00:00:00.000Z',
+    updated_at: '2026-05-27T00:00:00.000Z',
+    error: null,
+  };
+}
+
+test('readWeeklySchedule reads current Hermes wire shape: schedule[] + platforms[] flat strings', () => {
+  const doc = makeMinimalDoc({
+    schedule: [
+      { post_number: 1, recommended_day: 'Monday', platforms: ['instagram', 'facebook'] },
+      { post_number: 2, recommended_day: 'Wednesday', platforms: ['instagram'] },
+    ],
+  });
+  const entries = readWeeklySchedule(doc as never);
+  assert.equal(entries.length, 2);
+  assert.equal(entries[0]!.recommended_day, 'Monday');
+  assert.deepEqual(entries[0]!.platforms, ['instagram', 'facebook']);
+  assert.equal(entries[1]!.recommended_day, 'Wednesday');
+  assert.deepEqual(entries[1]!.platforms, ['instagram']);
+});
+
+test('readWeeklySchedule falls back to legacy weekly_schedule[] + platform_targets[] shape', () => {
+  const doc = makeMinimalDoc({
+    weekly_schedule: [
+      {
+        post_number: 1,
+        recommended_day: 'Tuesday',
+        platform_targets: [{ platform: 'instagram' }, { platform: 'facebook' }],
+      },
+    ],
+  });
+  const entries = readWeeklySchedule(doc as never);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0]!.recommended_day, 'Tuesday');
+  assert.deepEqual(entries[0]!.platform_targets, [
+    { platform: 'instagram' },
+    { platform: 'facebook' },
+  ]);
+});
+
+test('readWeeklySchedule: schedule[] takes precedence over weekly_schedule[] when both present', () => {
+  const doc = makeMinimalDoc({
+    schedule: [{ post_number: 1, recommended_day: 'Friday', platforms: ['instagram'] }],
+    weekly_schedule: [{ post_number: 1, recommended_day: 'Monday', platform_targets: [] }],
+  });
+  const entries = readWeeklySchedule(doc as never);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0]!.recommended_day, 'Friday', 'schedule[] must win over weekly_schedule[]');
+});
+
+test('readWeeklySchedule returns [] when publish stage has no schedule output', () => {
+  const doc = makeMinimalDoc({});
+  const entries = readWeeklySchedule(doc as never);
+  assert.equal(entries.length, 0);
 });

@@ -1371,10 +1371,16 @@ async function autoScheduleApprovedPostsForJob(doc: MarketingJobRuntimeDocument)
   weeklySchedule.forEach((entry, idx) => {
     const ordinal = typeof entry.post_number === 'number' ? entry.post_number : idx + 1;
     const platformMap = new Map<string, string | null>();
-    for (const target of entry.platform_targets ?? []) {
-      const platformKey = String(target.platform || '').trim().toLowerCase();
-      if (platformKey) {
-        platformMap.set(platformKey, entry.recommended_day ?? null);
+    // Accept `platforms` (flat string[], current Hermes wire shape) or `platform_targets` (legacy).
+    if (Array.isArray(entry.platforms) && entry.platforms.length > 0) {
+      for (const p of entry.platforms) {
+        const platformKey = String(p || '').trim().toLowerCase();
+        if (platformKey) platformMap.set(platformKey, entry.recommended_day ?? null);
+      }
+    } else {
+      for (const target of entry.platform_targets ?? []) {
+        const platformKey = String(target.platform || '').trim().toLowerCase();
+        if (platformKey) platformMap.set(platformKey, entry.recommended_day ?? null);
       }
     }
     dayByPlatformByOrdinal.set(ordinal, platformMap);
@@ -1419,17 +1425,22 @@ async function autoScheduleApprovedPostsForJob(doc: MarketingJobRuntimeDocument)
   });
 }
 
-interface WeeklyScheduleEntry {
+export interface WeeklyScheduleEntry {
   post_number?: number;
   recommended_day?: string | null;
+  platforms?: string[];
   platform_targets?: Array<{ platform?: string }>;
 }
 
-function readWeeklySchedule(doc: MarketingJobRuntimeDocument): WeeklyScheduleEntry[] {
+export function readWeeklySchedule(doc: MarketingJobRuntimeDocument): WeeklyScheduleEntry[] {
   const primary = doc.stages?.publish?.primary_output;
-  const ws = primary && typeof primary === 'object' && 'weekly_schedule' in primary
-    ? (primary as { weekly_schedule?: unknown }).weekly_schedule
-    : null;
+  if (!primary || typeof primary !== 'object') return [];
+  // Hermes emits `schedule` (current wire shape); fall back to `weekly_schedule` for compat.
+  const ws = 'schedule' in primary
+    ? (primary as { schedule?: unknown }).schedule
+    : 'weekly_schedule' in primary
+      ? (primary as { weekly_schedule?: unknown }).weekly_schedule
+      : null;
   return Array.isArray(ws) ? (ws as WeeklyScheduleEntry[]) : [];
 }
 
