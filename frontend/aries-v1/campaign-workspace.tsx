@@ -1334,8 +1334,63 @@ function RuntimeStatusSurface(props: {
 }) {
   const { status } = props;
   const tz = useTenantTimezone();
+  // Retry-research recovery — visible only when the research stage failed.
+  // Without this, an operator hitting a transient upstream error (e.g. the
+  // Hermes-side 'NoneType' object is not iterable that surfaced during slice-A
+  // QA) has NO recovery affordance and must create a brand-new campaign.
+  const canRetryResearch =
+    status.marketing_job_state === 'failed' && status.marketing_stage === 'research';
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
+  const handleRetryResearch = useCallback(async () => {
+    setRetrying(true);
+    setRetryError(null);
+    try {
+      const resp = await fetch(
+        `/api/marketing/jobs/${encodeURIComponent(props.campaignId)}/retry-research`,
+        { method: 'POST' },
+      );
+      if (!resp.ok) {
+        const body = (await resp.json().catch(() => null)) as { error?: string } | null;
+        setRetryError(body?.error ?? `Retry failed (HTTP ${resp.status}).`);
+        return;
+      }
+      // Hard refresh so the runtime status re-renders with the new state. The
+      // alternative (mutating local SWR cache) would lie to the user about
+      // staleness; the workspace shell refetches everything on reload.
+      window.location.reload();
+    } catch (err) {
+      setRetryError(
+        err instanceof Error ? err.message : 'Retry failed — check your connection and try again.',
+      );
+    } finally {
+      setRetrying(false);
+    }
+  }, [props.campaignId]);
   return (
     <div className="space-y-4">
+      {canRetryResearch ? (
+        <ShellPanel eyebrow="Recovery" title="Retry the research stage">
+          <p className="text-sm text-white/70 mb-4">
+            Research failed before the strategy stage could start. Retrying resubmits the same
+            brief to the pipeline — useful when the failure was transient (upstream rate limit,
+            network hiccup). The brief and any earlier-stage artifacts are preserved.
+          </p>
+          {retryError ? (
+            <div className="mb-3 rounded-2xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+              {retryError}
+            </div>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => void handleRetryResearch()}
+            disabled={retrying}
+            className="rounded-full bg-white px-5 py-2 text-sm font-semibold text-[#11161c] disabled:opacity-60"
+          >
+            {retrying ? 'Retrying…' : 'Retry research'}
+          </button>
+        </ShellPanel>
+      ) : null}
       <ShellPanel eyebrow="Runtime status" title="Live job state">
         <div className="space-y-3">
           <div className="rounded-[1.25rem] border border-white/8 bg-black/12 px-4 py-4 flex items-center justify-between gap-4">
