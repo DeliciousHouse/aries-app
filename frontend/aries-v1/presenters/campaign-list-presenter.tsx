@@ -299,7 +299,10 @@ function statusGradient(status: CampaignListViewModel['items'][number]['status']
   return 'from-white/30 to-white/60';
 }
 
-function stageProgress(status: CampaignListViewModel['items'][number]['status']) {
+// Exported alias for regression tests; production code keeps using `stageProgress`.
+export { stageProgress as stageProgressForTest };
+
+function stageProgress(status: CampaignListViewModel['items'][number]['status']): number {
   switch (status) {
     case 'draft':
       return 18;
@@ -313,6 +316,13 @@ function stageProgress(status: CampaignListViewModel['items'][number]['status'])
       return 84;
     case 'live':
       return 100;
+    case 'rejected':
+      // Terminal failure — leave the bar empty so it never looks "almost done".
+      return 0;
+    default:
+      // Future enum value the type was widened to without updating this switch:
+      // return 0 instead of undefined so the rendered `width:` CSS stays valid.
+      return 0;
   }
 }
 

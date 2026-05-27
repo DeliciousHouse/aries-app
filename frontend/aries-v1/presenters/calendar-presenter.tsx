@@ -38,6 +38,11 @@ import {
   tenantZoneDateKey,
   tenantZoneParts,
 } from '@/lib/format-timestamp';
+import {
+  formatCampaignStatusLabel,
+  formatDispatchStatusChip,
+  formatDispatchStatusLabel,
+} from '@/frontend/aries-v1/labels';
 
 type CalendarMode = 'week' | 'month';
 
@@ -341,7 +346,7 @@ export default function CalendarPresenter({
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-sm font-medium text-white">{campaign.name}</p>
                         <span className={`rounded-full border px-3 py-1 text-xs font-medium ${statusPill(campaign.status)}`}>
-                          {campaign.status.replace('_', ' ')}
+                          {formatCampaignStatusLabel(campaign.status)}
                         </span>
                       </div>
                       <p className="mt-2 text-sm text-white/55">{campaign.nextScheduled}</p>
@@ -391,7 +396,7 @@ export default function CalendarPresenter({
                 <div className="space-y-5 p-5 md:p-6">
                   <div className="grid gap-4 sm:grid-cols-2">
                     <InfoPanel label="Platform" value={selectedEvent.platform} />
-                    <InfoPanel label="Dispatch status" value={selectedEvent.dispatchStatus.replace('_', ' ')} />
+                    <InfoPanel label="Dispatch status" value={formatDispatchStatusLabel(selectedEvent.dispatchStatus)} />
                     <InfoPanel label="Scheduled for" value={selectedEvent.scheduledFor} />
                     <InfoPanel
                       label="Targets"
@@ -829,13 +834,7 @@ function CalendarTile({
             event.status,
           )}`}
         >
-          {event.dispatchStatus === 'dispatched'
-            ? 'Sent'
-            : event.dispatchStatus === 'failed'
-              ? 'Fail'
-              : event.dispatchStatus === 'in_flight'
-                ? 'Live'
-                : 'Sch'}
+          {formatDispatchStatusChip(event.dispatchStatus)}
         </span>
       </div>
       <h3 className="mb-1 text-[11px] font-bold leading-tight text-white">{event.title}</h3>

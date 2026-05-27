@@ -1,9 +1,10 @@
 "use client";
 
-import type { JSX } from 'react';
+import type { ComponentProps, JSX } from 'react';
 import type {
   IntegrationCard as PlatformIntegrationCardData,
   IntegrationCardAction,
+  IntegrationConnectionState,
   IntegrationHealth,
   IntegrationPlatform as PlatformKey,
 } from '@/lib/api/integrations';
@@ -41,6 +42,42 @@ function renderHealth(health: IntegrationHealth): string {
   }
 }
 
+// StatusBadge accepts the shared runtime status union; map every
+// IntegrationConnectionState to a sensible badge so a new connection state
+// (e.g. `connection_pending` during an in-flight OAuth) never falls through to
+// the misleading `'accepted'` default. Returns the wider union expected by
+// StatusBadge so callers do not have to cast.
+export function connectionStateBadgeStatus(
+  state: IntegrationConnectionState,
+): ComponentProps<typeof StatusBadge>['status'] {
+  switch (state) {
+    case 'connected':
+      return 'completed';
+    case 'reauth_required':
+      return 'required';
+    case 'connection_error':
+    case 'disabled':
+      return 'error';
+    case 'connection_pending':
+      // In-flight OAuth handshake — show an "In progress" badge so the user
+      // sees the call hasn't silently dropped on the floor.
+      return 'in_progress';
+    case 'not_connected':
+      // Default empty state — the connect CTA already tells the user what to
+      // do; a neutral 'unknown' badge avoids the "Accepted" lie.
+      return 'unknown';
+    default: {
+      // Exhaustive: every value in IntegrationConnectionState is handled
+      // above. If TypeScript ever widens the type without updating this
+      // switch, `_exhaustive` becomes `IntegrationConnectionState` instead of
+      // `never` and the compiler flags the gap.
+      const _exhaustive: never = state;
+      void _exhaustive;
+      return 'unknown';
+    }
+  }
+}
+
 export function PlatformCard({ card, onAction, busyAction = null }: PlatformCardProps): JSX.Element {
   const usesAriesOauth = card.connection_state !== 'disabled';
 
@@ -60,17 +97,7 @@ export function PlatformCard({ card, onAction, busyAction = null }: PlatformCard
         <div className="space-y-3">
           <div className="rounded-[1.25rem] border border-white/10 bg-white/5 px-4 py-3 flex items-center justify-between gap-4">
             <strong className="text-sm">Status</strong>
-            <StatusBadge
-              status={
-                card.connection_state === 'connected'
-                  ? 'completed'
-                  : card.connection_state === 'reauth_required'
-                    ? 'required'
-                    : card.connection_state === 'connection_error' || card.connection_state === 'disabled'
-                      ? 'error'
-                      : 'accepted'
-              }
-            />
+            <StatusBadge status={connectionStateBadgeStatus(card.connection_state)} />
           </div>
 
           {card.connected_account ? (

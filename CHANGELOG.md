@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.12.10 — fix(ui): plug 3 missing enum cases and 2 raw-status display gaps
+
+Five Aries-side polish bugs found by three parallel Explore subagents auditing Posts/Calendar, Results/Campaigns, and Settings/Brand Kit while a slice-A QA campaign was in flight. All five are the same bug class fixed across v0.1.12.3-9: widening-union grep-inequality and state-derived copy that lowercased itself via `.replace('_', ' ')`. Each fix has regression tests pinning the enum-to-label mapping so the next status value to land in the union doesn't silently render as "Accepted" or "Sent" or render with `width: undefined%`.
+
+**Fix 1 — Calendar event chip handles every dispatch status, not just three.** `frontend/aries-v1/presenters/calendar-presenter.tsx:832-838` had a 3-arm ternary that fell through to the literal `'Sch'` for any value other than `dispatched`/`failed`/`in_flight`. `'pending'` and `'skipped'` from the scheduled-posts worker silently inherited the neutral fallback. New centralized `formatDispatchStatusChip()` in `frontend/aries-v1/labels.ts` handles every known value explicitly and guarantees the default branch never returns the success label `'Sent'` by accident — pinned by a test that asserts unknown statuses don't get the success copy.
+
+**Fix 2 — Calendar event modal stops lowercasing status copy.** `calendar-presenter.tsx:394` rendered Dispatch status via `dispatchStatus.replace('_', ' ')` which produced "in flight" instead of "In flight" and "pending" instead of "Pending". Routed through `formatDispatchStatusLabel()` with title-case mapping per known value + a title-casing fallback for unknowns.
+
+**Fix 3 — Calendar campaign status chip stops lowercasing.** `calendar-presenter.tsx:344` rendered `campaign.status.replace('_', ' ')` which produced "published to meta (paused)" instead of "Published to Meta (Paused)" and "ready to publish" instead of "Ready to publish". Now uses `formatCampaignStatusLabel()` which delegates to the same StatusChip casing used elsewhere in the dashboard.
+
+**Fix 4 — Integration card maps every connection state explicitly during OAuth.** `frontend/settings/platform-card.tsx:65-71` had a 4-arm ternary on `connection_state` that fell through to `'accepted'` (an info-blue "Accepted" badge) for both `'not_connected'` AND `'connection_pending'`. The latter is the in-flight OAuth handshake — the user saw a misleading "Accepted" badge while the OAuth callback was still in progress. New `connectionStateBadgeStatus()` helper with an exhaustive switch over `IntegrationConnectionState` + an `assertNever` default branch so TypeScript fails the build if a new value lands in the type without a case. `connection_pending` now renders as `'in_progress'` (info-blue "In progress"), `'not_connected'` renders as neutral `'unknown'`.
+
+**Fix 5 — Campaign list stage-progress bar never renders `width: undefined%`.** `frontend/aries-v1/presenters/campaign-list-presenter.tsx:302-317` had a switch over `AriesCampaignStatus` covering 6 of 7 enum values — `'rejected'` had no case and there was no default branch, so `stageProgress()` returned `undefined` and rendered as literal `width: undefined%` in the CSS. Added `case 'rejected': return 0` (terminal failure, not "almost done") and `default: return 0` so future widenings stay valid.
+
+**New module.** `frontend/aries-v1/labels.ts` is the single source of truth for runtime-status-to-label mappings. Future enum values land here first and every screen stays in sync without inventing its own `.replace('_', ' ')` fallback.
+
+**Tests.** 13 new tests in `tests/aries-v1-labels.test.ts` pin every known enum-to-label mapping, prove the fallback never returns the success label for unknown values, prove `stageProgress` returns 0 (not undefined) for rejected + unknown values, and walk the full `integration_connection_state_values` enum proving every value maps to a real badge. `npm run typecheck` and `npm run verify` (38 tests, 0 failures) both green.
+
 ## v0.1.12.9 — fix(ux): drop semantic mismap for Strategy Review summary; "Published and paused" replaces "No preview or destination yet" for paused ads
 
 Two happy-path UX issues found by a parallel-agent audit of the Strategy/Creative review flows and the Posts page.
