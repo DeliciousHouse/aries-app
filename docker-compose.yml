@@ -44,12 +44,21 @@ services:
       HERMES_STRATEGIST_API_SERVER_KEY: ${HERMES_STRATEGIST_API_SERVER_KEY:-}
       HERMES_CONTENT_GATEWAY_URL: ${HERMES_CONTENT_GATEWAY_URL:-http://host.docker.internal:8655}
       HERMES_CONTENT_API_SERVER_KEY: ${HERMES_CONTENT_API_SERVER_KEY:-}
-      # 600s default: real Hermes research/strategy stages routinely take
-      # 3-8 min on populated tenants. The 120_000 code-default in
-      # backend/marketing/ports/hermes.ts was tuned for synthetic happy-path
-      # runs and times out before research finishes in prod. Override via
-      # env if a tenant needs longer.
-      HERMES_RUN_TIMEOUT_MS: ${HERMES_RUN_TIMEOUT_MS:-600000}
+      # 1200s (20 min): tuned to the actual production-stage cost on real
+      # tenants. Observed end-to-end durations on aries.sugarandleather.com
+      # one-off campaigns (mkt_3e04f5d1 production run on 2026-05-27):
+      #   - research: ~2 min
+      #   - strategy: ~1 min
+      #   - production: 10 min 39 s (7 posts, 7 generated images)
+      # The previous 600s budget fired 38 s BEFORE Hermes returned the
+      # completed run for that campaign, recording a spurious
+      # `hermes_gateway_timeout` failure even though the content package
+      # (including all 7 cached image files) was sitting ready in Hermes.
+      # The 120_000 code-default in backend/marketing/ports/hermes.ts is for
+      # synthetic happy-path tests and is unsuitable for real tenants;
+      # docker-compose overrides it for every container. Override via env if
+      # a tenant routinely runs >20 min (e.g. video render workloads).
+      HERMES_RUN_TIMEOUT_MS: ${HERMES_RUN_TIMEOUT_MS:-1200000}
       HERMES_POLL_INTERVAL_MS: ${HERMES_POLL_INTERVAL_MS:-}
       ARIES_REAPER_ENABLED: ${ARIES_REAPER_ENABLED:-1}
       ARIES_REAPER_INTERVAL_MS: ${ARIES_REAPER_INTERVAL_MS:-300000}

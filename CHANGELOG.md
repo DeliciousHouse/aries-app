@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.12.12 — fix(ops): bump HERMES_RUN_TIMEOUT_MS 600s → 1200s to match real production-stage cost
+
+`/api/marketing/jobs/<id>/retry-research` succeeded in v0.1.12.11 on `mkt_3e04f5d1` and the pipeline progressed: research finished in ~2 min, strategy in ~1 min, and production submitted to the Hermes content-generator (port 8655). Then **Aries timed out at exactly 600s and recorded `hermes_gateway_timeout`** — but checking the Hermes gateway directly proved this was a false alarm. The completed run `run_2d0516acfd10425fb5a64f489aef71d3` was sitting in Hermes at `status=completed` with all 7 content posts, all 7 generated image files (cached on disk at `~/.hermes/profiles/aries-content-generator/cache/images/openai_codex_gpt-image-2-low_20260527_19*.png`), and a `mkta_2257fdb2-*` resume token ready for the publish stage. The end-to-end production duration was **10 min 39 s**. Aries fired the timeout 38 seconds before Hermes returned.
+
+**Fix.** `HERMES_RUN_TIMEOUT_MS` in `docker-compose.yml` raised from 600_000 ms to 1_200_000 ms (20 min). One line, env-override-friendly. Real one-off campaigns with 7 image renders now have plenty of headroom. The previous 600s budget was tuned to research/strategy (3-8 min observed) and never accounted for production's variable image-generation cost.
+
+**Documented in-place.** The compose comment now records the observed split (`research ~2 min / strategy ~1 min / production 10 min 39 s on mkt_3e04f5d1`) so the next operator who hits a slow tenant has the actual numbers to calibrate against. The 120_000 code default in `backend/marketing/ports/hermes.ts` stays as the synthetic-test fallback — production deployments always override via compose.
+
+**No code changes.** This is a pure ops fix; no app code or tests changed. The existing per-stage retry UX from v0.1.12.11 still applies if production fails for real — the user clicks Retry research → research re-runs → strategy/production re-submit with the new generous timeout. Production-stage retry button is queued as a follow-up if the failure mode repeats.
+
 ## v0.1.12.11 — feat(marketing): add Retry-research button for failed campaigns
 
 A failed-state campaign with `current_stage === 'research'` previously gave the operator no recovery affordance — only "Edit brief" was available, forcing the user to abandon the campaign and create a new one from scratch. Hit firsthand on `mkt_3e04f5d1-*` during slice-A QA: Hermes research died with `'NoneType' object is not iterable` and the workspace UI had nothing to click.
