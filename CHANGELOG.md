@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.12.14 — fix(marketing): read publish-stage schedule[]/platforms[] (Hermes wire shape) in autoSchedulePosts
+
+v0.1.12.13's auto-scheduler wrote ZERO `scheduled_posts` rows on live campaign `mkt_ad75ad56` despite all 14 posts being approved. Root cause: two field-name mismatches between the code and the actual Hermes wire payload. Hermes emits `primary_output.schedule[]` (not `weekly_schedule[]`) and `entry.platforms[]` flat strings (not `entry.platform_targets[].platform` objects). `readWeeklySchedule` returned an empty array every time, logging `autoSchedulePosts skipped — no weekly_schedule`. Fix: prefer `schedule` key, fall back to `weekly_schedule`; prefer `platforms` flat strings, fall back to `platform_targets` objects. Four new tests in `marketing-auto-schedule.test.ts` pin both shapes.
+
 ## v0.1.12.13 — feat(marketing): auto-schedule approved posts in autonomous mode with per-brand + per-platform + per-timezone timing
 
 A fresh one-off campaign on aries.sugarandleather.com after v0.1.12.12 completed all four pipeline stages cleanly (research → strategy → production → publish, 14 min 30 s total, 7 posts × 2 platforms = 14 approved post rows). But `scheduled_at` was NULL on every post and `scheduled_posts` had zero rows: scheduling was by-design manual via drag-to-Calendar, even though every other approval gate self-fires in autonomous mode (`ARIES_AUTO_APPROVE_MARKETING_PIPELINE=1`). The pipeline stopped one click short of the goal.
