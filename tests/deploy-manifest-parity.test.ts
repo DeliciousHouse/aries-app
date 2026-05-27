@@ -56,6 +56,17 @@ test('runtime env examples advertise Hermes execution defaults', () => {
   assert.match(composeSource, /ARIES_KANBAN_GC_ENABLED:\s*\$\{ARIES_KANBAN_GC_ENABLED:-1\}/);
   assert.match(composeSource, /ARIES_KANBAN_GC_INTERVAL_MS:\s*\$\{ARIES_KANBAN_GC_INTERVAL_MS:-86400000\}/);
   assert.match(composeSource, /ARIES_KANBAN_GC_RETENTION_DAYS:\s*\$\{ARIES_KANBAN_GC_RETENTION_DAYS:-7\}/);
+
+  // Hermes run-timeout knobs must be documented in .env.example so operators
+  // can discover and tune them (the 1200s default fits real production-stage
+  // image-render runs; video workloads may need more, light tenants less).
+  assert.match(envExampleSource, /^HERMES_RUN_TIMEOUT_MS=/m);
+  assert.match(envExampleSource, /^HERMES_POLL_INTERVAL_MS=/m);
+
+  // docker-compose.yml must wire the timeout default at 1200000ms (the
+  // post-v0.1.12.12 calibration) and pass HERMES_POLL_INTERVAL_MS through.
+  assert.match(composeSource, /HERMES_RUN_TIMEOUT_MS:\s*\$\{HERMES_RUN_TIMEOUT_MS:-1200000\}/);
+  assert.match(composeSource, /HERMES_POLL_INTERVAL_MS:\s*\$\{HERMES_POLL_INTERVAL_MS:-\}/);
 });
 
 test('legacy dist deploy shim cannot reintroduce the stale public onboarding path', () => {
