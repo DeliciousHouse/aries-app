@@ -4,6 +4,9 @@
  * Domain types that mirror the insights_* DB tables.
  * Route handlers, read-path queries, and the sync dispatcher
  * all use these shapes — never raw pg row objects.
+ *
+ * Field names are camelCase equivalents of the DB snake_case columns.
+ * Keep this file in sync with scripts/init-db.js (the insights_ block).
  */
 
 // ── Accounts ──────────────────────────────────────────────────────────────────
@@ -14,15 +17,16 @@ export interface InsightsAccount {
   platform: string;
   externalAccountId: string;
   displayName: string | null;
-  connectedAt: Date | null;
+  connectedAt: Date;
   lastSyncAt: Date | null;
   backfillCompletedAt: Date | null;
-  metadata: Record<string, unknown>;
+  /** Arbitrary platform-specific data (oauth scopes, channel handle, etc.). */
+  platformData: Record<string, unknown>;
 }
 
 // ── Posts ─────────────────────────────────────────────────────────────────────
 
-export type PostMediaType = 'video' | 'short' | 'reel' | 'image' | 'carousel';
+export type PostMediaType = 'video' | 'short' | 'reel' | 'image' | 'carousel' | 'story' | 'text' | 'live';
 
 export interface InsightsPost {
   id: number;
@@ -30,51 +34,62 @@ export interface InsightsPost {
   accountId: number;
   platform: string;
   externalPostId: string;
-  publishedAt: Date | null;
-  mediaType: PostMediaType | null;
+  publishedAt: Date;              // NOT NULL in DB
+  mediaType: PostMediaType;       // NOT NULL in DB
   title: string | null;
+  /** YouTube description / Instagram+Facebook caption. */
   caption: string | null;
   permalink: string | null;
-  thumbnailUrl: string | null;
   durationSeconds: number | null;
+  /** Stores thumbnailUrl and any other platform fields not in dedicated columns. */
+  platformData: Record<string, unknown>;
+  fetchedAt: Date;
   lastMetricsFetchedAt: Date | null;
-  rawFirstSeenAt: Date;
 }
 
 // ── Account-level daily metrics ───────────────────────────────────────────────
 
 export interface InsightsAccountMetricsDay {
-  id: number;
   tenantId: number;
   accountId: number;
   platform: string;
   /** YYYY-MM-DD */
   date: string;
-  views: number;
-  watchTimeMinutes: number;
-  followers: number;
-  followersDelta: number;
-  likes: number;
-  commentsCount: number;
-  shares: number;
+  views: number | null;
+  /** Unique viewers. NULL for platforms without this concept (e.g. YouTube). */
+  reach: number | null;
+  watchTimeMinutes: number | null;
+  followers: number | null;
+  followersDelta: number | null;
+  profileVisits: number | null;
+  likes: number | null;
+  commentsCount: number | null;
+  shares: number | null;
+  /** NULL for platforms that don't expose saves. */
+  saves: number | null;
+  platformData: Record<string, unknown>;
+  rawSource: Record<string, unknown>;
 }
 
 // ── Post-level daily metrics ──────────────────────────────────────────────────
 
 export interface InsightsPostMetricsDay {
-  id: number;
   tenantId: number;
   postId: number;
   platform: string;
   /** YYYY-MM-DD */
   date: string;
-  views: number;
-  watchTimeMinutes: number;
-  avgViewDurationSec: number;
-  avgViewPercentage: number;
-  likes: number;
-  commentsCount: number;
-  shares: number;
+  views: number | null;
+  reach: number | null;
+  watchTimeMinutes: number | null;
+  avgViewDurationSec: number | null;
+  avgViewPercentage: number | null;
+  likes: number | null;
+  commentsCount: number | null;
+  shares: number | null;
+  saves: number | null;
+  platformData: Record<string, unknown>;
+  rawSource: Record<string, unknown>;
 }
 
 // ── Comments ──────────────────────────────────────────────────────────────────
@@ -85,58 +100,68 @@ export interface InsightsComment {
   postId: number;
   platform: string;
   externalCommentId: string;
-  receivedAt: Date | null;
+  receivedAt: Date;
   authorHandle: string | null;
-  bodyText: string | null;
-  /** Filled by the LLM classification worker (Phase 6). */
-  sentimentLabel: string | null;
+  bodyText: string;              // NOT NULL in DB
+  platformData: Record<string, unknown>;
 }
 
 export interface InsightsCommentClassification {
   commentId: number;
   tenantId: number;
-  sentimentLabel: string;
-  sentimentScore: number | null;
-  intentLabel: string | null;
+  /** 'positive' | 'neutral' | 'negative' */
+  sentiment: string | null;
+  isLead: boolean | null;
+  /** 'question' | 'compliment' | 'complaint' | 'spam' | 'other' */
+  category: string | null;
+  classifierVersion: string;
+  costCents: number;
   classifiedAt: Date;
-  modelId: string | null;
-  promptVersion: string | null;
 }
 
 // ── Audience snapshots ────────────────────────────────────────────────────────
 
 export interface InsightsAudienceSnapshot {
-  id: number;
   tenantId: number;
   accountId: number;
   platform: string;
   /** YYYY-MM-DD */
   snapshotDate: string;
-  data: Record<string, unknown>;
+  /** Demographics payload — shape varies by platform. NULL when unavailable. */
+  demographics: Record<string, unknown> | null;
+  unavailableReason: string | null;
+  rawSource: Record<string, unknown>;
 }
 
 // ── Narratives ────────────────────────────────────────────────────────────────
 
-export type NarrativePeriod = 'weekly' | 'monthly';
+/** Values match the DB CHECK / convention: 'week' | '30day' | '90day' */
+export type NarrativePeriod = 'week' | '30day' | '90day';
 
 export interface InsightsNarrative {
   id: number;
   tenantId: number;
   period: NarrativePeriod;
-  periodStartDate: string; // YYYY-MM-DD
-  periodEndDate: string;   // YYYY-MM-DD
+  /** Platform identifier or 'all' for cross-platform. */
   platform: string;
+  /** E.g. 'hero' | 'goal' | 'attention' | 'recommendations' */
   sectionKey: string;
-  bodyMarkdown: string | null;
+  /** JSONB — shape defined per section_key by the narrative generator. */
+  body: Record<string, unknown>;
+  promptVersion: string;
+  model: string;
+  /** SHA-256 of the input data — used to skip regeneration when numbers haven't changed. */
+  inputHash: string;
+  costCents: number;
   generatedAt: Date;
-  modelId: string | null;
-  promptVersion: string | null;
 }
 
 // ── Sync audit ────────────────────────────────────────────────────────────────
 
-export type SyncTrigger = 'interval' | 'manual' | 'backfill' | 'webhook';
-export type SyncStatus = 'running' | 'ok' | 'error';
+/** Values match insights_sync_runs.trigger column. */
+export type SyncTrigger = 'interval' | 'handler' | 'backfill';
+/** Values match insights_sync_runs.status column. */
+export type SyncStatus = 'running' | 'ok' | 'partial' | 'failed';
 
 export interface InsightsSyncRun {
   id: number;
@@ -158,13 +183,14 @@ export interface InsightsSyncRun {
 export interface InsightsLlmCall {
   id: number;
   tenantId: number;
+  /** 'classify_comment' | 'generate_narrative' */
   purpose: string;
-  modelId: string;
-  promptTokens: number | null;
-  completionTokens: number | null;
-  costCents: number | null;
-  calledAt: Date;
+  model: string;
+  costCents: number;
+  inputTokens: number | null;
+  outputTokens: number | null;
   durationMs: number | null;
-  success: boolean;
-  errorMessage: string | null;
+  succeeded: boolean;
+  errorCode: string | null;
+  calledAt: Date;
 }
