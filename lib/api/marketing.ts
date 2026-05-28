@@ -1,7 +1,7 @@
 import { requestJson, type ApiClientOptions } from './http';
 import type { ApprovalDenialReasonCode } from '@/lib/marketing/approval-denial-reason-codes';
 
-export type MarketingJobType = 'weekly_social_content' | 'one_off_campaign';
+export type MarketingJobType = 'weekly_social_content' | 'one_off_post' | 'one_off_campaign';
 
 /**
  * One-off campaign metadata. Present only when jobType === 'one_off_campaign'.

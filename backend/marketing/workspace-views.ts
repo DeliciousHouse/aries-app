@@ -466,13 +466,15 @@ async function loadStagePayloadBundle(
   const runtimeBrandProfilePath =
     stringValue(strategyOutputs.validated_brand_profile_path) ||
     stringValue(strategyOutputs.brand_profile_path);
-  const runtimeCampaignPlannerPath = stringValue(strategyOutputs.campaign_planner_path);
+  const runtimeCampaignPlannerPath = stringValue(strategyOutputs.social_content_planner_path)
+    ?? stringValue(strategyOutputs.campaign_planner_path); // legacy compat
   const runtimeStrategyPreviewPath = stringValue(strategyOutputs.strategy_review_path);
   const runtimeProductionPreviewPath = stringValue(productionOutputs.production_review_path);
 
   const fallbackWebsiteAnalysisPath = stringValue(strategyFallback.outputs.website_brand_analysis_path);
   const fallbackBrandProfilePath = stringValue(strategyFallback.outputs.validated_brand_profile_path);
-  const fallbackCampaignPlannerPath = stringValue(strategyFallback.outputs.campaign_planner_path);
+  const fallbackCampaignPlannerPath = stringValue(strategyFallback.outputs.social_content_planner_path)
+    ?? stringValue(strategyFallback.outputs.campaign_planner_path); // legacy compat
   const fallbackStrategyPreviewPath = stringValue(strategyFallback.outputs.strategy_review_path);
   const fallbackProductionPreviewPath = stringValue(productionFallback.outputs.production_review_path);
   const runtimeWebsiteAnalysisFile = await readJsonIfExists(runtimeWebsiteAnalysisPath);

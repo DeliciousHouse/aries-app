@@ -134,7 +134,7 @@ function usesPerStageProfilePipeline(doc?: SocialContentJobRuntimeDocument): boo
     return false;
   }
   const jobType = (request as Record<string, unknown>).jobType;
-  return jobType === 'weekly_social_content' || jobType === 'one_off_campaign';
+  return jobType === 'weekly_social_content' || jobType === 'one_off_post' || jobType === 'one_off_campaign';
 }
 
 function readEnvValue(env: HermesMarketingEnv, key: string): string {

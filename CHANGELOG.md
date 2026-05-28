@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.13.1 — refactor(social-content): migrate internal wire keys with read-both/write-new compat
+
+Renames Aries-internal wire keys from "campaign" to "social content / post" terminology. All renames use a **read-both/write-new** pattern so in-flight jobs persisted with old field/step names are not orphaned at deploy time.
+
+### Changed
+- Step name `campaign_planner` → `social_content_planner` in `artifact-collector.ts`. Readers attempt both step names and both file-system paths; writers emit only the new name. In-flight runs without a `social_content_planner.json` will fall back to `campaign_planner.json` transparently.
+- Payload field `campaign_planner_path` → `social_content_planner_path` in `artifact-collector.ts` outputs. Writers emit both the new key and a legacy alias; all readers (`workspace-views.ts`, `asset-library.ts`) prefer the new key and fall back to the old one.
+- `job_type` enum literal `'one_off_campaign'` → `'one_off_post'` (phase 1 of 2): `MarketingJobType` union, `StartSocialContentJobRequest`, `StartSocialContentJobResponse`, and `SocialContentJobRuntimeDocument.job_type` now include both literals. New jobs write `'one_off_post'`; all comparisons accept both. Existing DB rows with `job_type = 'one_off_campaign'` continue to work.
+
+### Follow-up (separate PR)
+- Phase 2 DB migration: `UPDATE marketing_jobs SET job_type = 'one_off_post' WHERE job_type = 'one_off_campaign'`. Drop `'one_off_campaign'` from the union after confirming no in-flight rows carry the old value.
+
+### Wire-byte verification (pre-deploy check)
+- On-disk job files: `mkt_fa9f7000` (live tenant-15 one-off job) has `job_type: "one_off_campaign"` — handled by read-both compat.
+- Step payload cache dirs (`/data/lobster-stage2-cache/`) are empty — no `campaign_planner.json` files exist on disk for any tenant; only the step-facts path is exercised, not the file-system fallback.
+
 ## v0.1.13.0 — refactor(social-content): rename campaign → social content / post across Aries codebase
 
 Aligns the entire Aries TypeScript codebase with the PRD terminology: the weekly recurring multi-post job is now "social content job" and each item in it is a "post". The old "campaign" term is preserved only where it refers to the broader multi-week marketing strategy concept, DB column names (`campaign_id`, `campaign_name`), or Hermes wire literals.

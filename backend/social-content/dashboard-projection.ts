@@ -1021,7 +1021,7 @@ export function buildSocialContentDashboardProjection(
   // gate accepted only weekly, which silently emptied the dashboard for any
   // one_off campaign and left aggregate routes stuck on "Loading…".
   const reqJobType = requestedJobTypeFromDoc(runtimeDoc);
-  if (reqJobType !== 'weekly_social_content' && reqJobType !== 'one_off_campaign') {
+  if (reqJobType !== 'weekly_social_content' && reqJobType !== 'one_off_post' && reqJobType !== 'one_off_campaign') {
     return dashboard;
   }
   const realPublishedPostCount =
